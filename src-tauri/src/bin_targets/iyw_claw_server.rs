@@ -363,7 +363,6 @@ async fn async_main() -> ExitCode {
     let (
         delegation_broker,
         delegation_tokens,
-        delegation_socket_path,
         feedback_config,
         question_config,
         session_info_config,
@@ -394,7 +393,6 @@ async fn async_main() -> ExitCode {
         ),
         delegation_broker: delegation_broker.clone(),
         delegation_tokens: delegation_tokens.clone(),
-        delegation_socket_path: delegation_socket_path.clone(),
         feedback_config: feedback_config.clone(),
         question_config: question_config.clone(),
         session_info_config: session_info_config.clone(),
@@ -422,14 +420,14 @@ async fn async_main() -> ExitCode {
         hub.set_emitter(state.emitter.clone());
     }
 
-    // Apply persisted delegation settings (depth, enabled) before
-    // the listener starts accepting so even the first companion request
+    // Apply persisted delegation settings (depth, enabled) before the built-in
+    // MCP starts accepting so even the first HTTP request
     // sees the operator's configured behavior. Cancellation is handled
     // out-of-band via MCP `notifications/cancelled` — no broker-side
     // timeout to apply here.
     iyw_claw_lib::commands::delegation::apply_persisted_config(&state.db.conn, &delegation_broker)
         .await;
-    // Same for the live-feedback enable flag, so the first companion launch
+    // Same for the live-feedback enable flag, so the first HTTP request
     // sees the operator's configured behavior.
     iyw_claw_lib::commands::feedback::apply_persisted_feedback_config(
         &state.db.conn,
@@ -449,9 +447,8 @@ async fn async_main() -> ExitCode {
     )
     .await;
 
-    // Build both process MCP transports from the same business listener. HTTP
-    // becomes ready before any Agent-spawning background task; the legacy
-    // listener stays available for Agents without ACP HTTP support.
+    // Build process HTTP MCP from the delegation business listener before any
+    // Agent-spawning background task starts.
     let listener = iyw_claw_lib::acp::delegation::listener::DelegationListener::new(
         delegation_broker,
         delegation_tokens,
@@ -521,39 +518,18 @@ async fn async_main() -> ExitCode {
             },
         ),
     );
-    let builtin_mcp_service = match iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService::start(
-        listener.clone(),
-    )
-    .await
-    {
-        Ok(service) => {
-            state
-                .connection_manager
-                .install_builtin_mcp(service.client());
-            Some(service)
-        }
-        Err(error) => {
-            tracing::error!(
-                error = %error,
-                "[builtin_mcp] failed to start process HTTP MCP service; HTTP route unavailable and connection policy will decide fallback"
-            );
-            None
-        }
-    };
-    let legacy_listener_service =
-        match iyw_claw_lib::acp::delegation::listener_service::DelegationListenerService::start(
-            listener,
-            delegation_socket_path.clone(),
-        )
-        .await
-        {
-            Ok(service) => Some(service),
+    let builtin_mcp_service =
+        match iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService::start(listener).await {
+            Ok(service) => {
+                state
+                    .connection_manager
+                    .install_builtin_mcp(service.client());
+                Some(service)
+            }
             Err(error) => {
                 tracing::error!(
                     error = %error,
-                    transport = "legacy",
-                    companion_features = "unavailable",
-                    "[delegation] failed to start legacy listener; legacy MCP companion is unavailable"
+                    "[builtin_mcp] failed to start process HTTP MCP service; HTTP route unavailable"
                 );
                 None
             }
@@ -741,12 +717,7 @@ async fn async_main() -> ExitCode {
         Ok(listener) => listener,
         Err(e) => {
             tracing::error!("[SERVER] Failed to bind {}: {}", addr, e);
-            let _ = shutdown_server_services(
-                &state,
-                builtin_mcp_service.as_ref(),
-                legacy_listener_service.as_ref(),
-            )
-            .await;
+            let _ = shutdown_server_services(&state, builtin_mcp_service.as_ref()).await;
             return ExitCode::from(1);
         }
     };
@@ -783,13 +754,9 @@ async fn async_main() -> ExitCode {
     }
 
     let shutdown_mcp = builtin_mcp_service.clone();
-    let shutdown_legacy = legacy_listener_service.clone();
     let shutdown = async move {
         let result = server_shutdown_signal().await;
         if let Some(service) = shutdown_mcp.as_ref() {
-            service.quiesce();
-        }
-        if let Some(service) = shutdown_legacy.as_ref() {
             service.quiesce();
         }
         shutdown_signal.trigger();
@@ -799,12 +766,7 @@ async fn async_main() -> ExitCode {
     if let Err(e) = &serve_result {
         tracing::error!("[SERVER] Server error: {}", e);
     }
-    let services_completed = shutdown_server_services(
-        &state,
-        builtin_mcp_service.as_ref(),
-        legacy_listener_service.as_ref(),
-    )
-    .await;
+    let services_completed = shutdown_server_services(&state, builtin_mcp_service.as_ref()).await;
     if serve_result.is_ok() && services_completed {
         ExitCode::SUCCESS
     } else {
@@ -893,47 +855,17 @@ fn flatten_server_result(
 async fn shutdown_server_services(
     state: &Arc<AppState>,
     builtin_mcp: Option<&Arc<iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService>>,
-    legacy_listener: Option<
-        &Arc<iyw_claw_lib::acp::delegation::listener_service::DelegationListenerService>,
-    >,
 ) -> bool {
     state.web_server_state.shutdown_signal().trigger();
-    if shutdown_server_services_inner(state, builtin_mcp, legacy_listener).await {
+    if shutdown_server_services_inner(state, builtin_mcp).await {
         tracing::error!("[SERVER] MCP or Agent cleanup exceeded its stage budget; forcing a retry");
-        return force_shutdown_server_services(state, builtin_mcp, legacy_listener).await;
+        return force_shutdown_server_services(state, builtin_mcp).await;
     }
     true
 }
 
-async fn shutdown_server_entrypoint_services(
-    builtin_mcp: Option<&Arc<iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService>>,
-    legacy_listener: Option<
-        &Arc<iyw_claw_lib::acp::delegation::listener_service::DelegationListenerService>,
-    >,
-    timeout: std::time::Duration,
-) -> (bool, bool) {
-    tokio::join!(
-        shutdown_server_builtin_mcp(builtin_mcp, timeout),
-        shutdown_server_legacy_listener(legacy_listener, timeout),
-    )
-}
-
 async fn shutdown_server_builtin_mcp(
     service: Option<&Arc<iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService>>,
-    timeout: std::time::Duration,
-) -> bool {
-    match service {
-        Some(service) => tokio::time::timeout(timeout, service.shutdown())
-            .await
-            .unwrap_or(false),
-        None => true,
-    }
-}
-
-async fn shutdown_server_legacy_listener(
-    service: Option<
-        &Arc<iyw_claw_lib::acp::delegation::listener_service::DelegationListenerService>,
-    >,
     timeout: std::time::Duration,
 ) -> bool {
     match service {
@@ -970,80 +902,53 @@ async fn disconnect_server_connections_with_retry(state: &Arc<AppState>) -> (usi
 async fn force_shutdown_server_services(
     state: &Arc<AppState>,
     builtin_mcp: Option<&Arc<iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService>>,
-    legacy_listener: Option<
-        &Arc<iyw_claw_lib::acp::delegation::listener_service::DelegationListenerService>,
-    >,
 ) -> bool {
     if let Some(service) = builtin_mcp {
         service.quiesce();
     }
-    if let Some(service) = legacy_listener {
-        service.quiesce();
-    }
     let (disconnected, connection_completed) =
         disconnect_server_connections(state, FORCED_SERVER_CONNECTION_TIMEOUT).await;
-    let (builtin_result, legacy_result) = shutdown_server_entrypoint_services(
-        builtin_mcp,
-        legacy_listener,
-        FORCED_SERVER_SERVICE_TIMEOUT,
-    )
-    .await;
+    let builtin_result =
+        shutdown_server_builtin_mcp(builtin_mcp, FORCED_SERVER_SERVICE_TIMEOUT).await;
     tracing::error!(
         forced_service_timeout_ms = FORCED_SERVER_SERVICE_TIMEOUT.as_millis(),
         forced_connection_timeout_ms = FORCED_SERVER_CONNECTION_TIMEOUT.as_millis(),
         builtin_mcp_completed = builtin_result,
-        legacy_listener_completed = legacy_result,
         disconnected,
         connection_completed,
         "[SERVER] forced MCP entrypoint cleanup completed"
     );
-    builtin_result && legacy_result && connection_completed
+    builtin_result && connection_completed
 }
 
 async fn shutdown_server_services_inner(
     state: &Arc<AppState>,
     builtin_mcp: Option<&Arc<iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService>>,
-    legacy_listener: Option<
-        &Arc<iyw_claw_lib::acp::delegation::listener_service::DelegationListenerService>,
-    >,
 ) -> bool {
     if let Some(service) = builtin_mcp {
-        service.quiesce();
-    }
-    if let Some(service) = legacy_listener {
         service.quiesce();
     }
     iyw_claw_lib::office_watch::stop_all_office_watches();
     let (disconnected, connection_completed) =
         disconnect_server_connections_with_retry(state).await;
-    let (mut builtin_mcp_completed, mut legacy_listener_completed) =
-        shutdown_server_entrypoint_services(builtin_mcp, legacy_listener, SERVER_SERVICE_TIMEOUT)
-            .await;
-    if !(builtin_mcp_completed && legacy_listener_completed) {
+    let mut builtin_mcp_completed =
+        shutdown_server_builtin_mcp(builtin_mcp, SERVER_SERVICE_TIMEOUT).await;
+    if !builtin_mcp_completed {
         tracing::warn!(
             builtin_mcp_completed,
-            legacy_listener_completed,
             "[SERVER] MCP entrypoint cleanup timed out; retrying service reap"
         );
-        let (builtin_retry, legacy_retry) = shutdown_server_entrypoint_services(
-            builtin_mcp,
-            legacy_listener,
-            FORCED_SERVER_SERVICE_TIMEOUT,
-        )
-        .await;
-        builtin_mcp_completed |= builtin_retry;
-        legacy_listener_completed |= legacy_retry;
+        builtin_mcp_completed |=
+            shutdown_server_builtin_mcp(builtin_mcp, FORCED_SERVER_SERVICE_TIMEOUT).await;
     }
     tracing::info!(
         disconnected,
         builtin_mcp_completed,
-        legacy_listener_completed,
         connection_completed,
         builtin_mcp = builtin_mcp.is_some(),
-        legacy_listener = legacy_listener.is_some(),
         "[SERVER] process services stopped"
     );
-    !(builtin_mcp_completed && legacy_listener_completed && connection_completed)
+    !(builtin_mcp_completed && connection_completed)
 }
 
 #[cfg(unix)]

@@ -28,11 +28,12 @@ iyw-claw（Code Generation）是一个多智能体编码工作台，它将多个
 
 ### 双模式运行
 
-项目通过 Cargo feature flags 支持三种二进制：
+项目通过 Cargo feature flags 支持两种产品二进制：
 
 - **`iyw-claw`**（`tauri-runtime`，默认）：完整桌面应用，包含 Tauri 窗口管理、系统通知、自动更新等
 - **`iyw-claw-server`**（`server-runtime`）：独立服务器模式，仅编译 Axum HTTP API + WebSocket
-- **`iyw-claw-mcp`**（`mcp-runtime`）：per-launch stdio MCP 伴生进程，被注入到代理 CLI 的 MCP 配置中，向 LLM 暴露**异步**子智能体委托工具。
+
+内置 MCP 由桌面/服务器主进程通过 Streamable HTTP 提供，不构建或分发独立 MCP 伴生可执行文件。
 
 ### 共享核心
 

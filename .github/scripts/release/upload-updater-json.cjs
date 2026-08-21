@@ -1,4 +1,5 @@
 const UPDATER_FILENAME = "latest.json"
+const LEGACY_MCP_ASSET_PATTERN = /^iyw-claw-mcp(?:-|\.|$)/i
 
 // Match installers by suffix: the product name is non-ASCII ("原助理") and
 // gets sanitized away in uploaded asset names, so never match on the prefix.
@@ -9,6 +10,17 @@ const PLATFORM_PATTERNS = [
   { platform: "darwin-aarch64", pattern: /aarch64\.app\.tar\.gz$/ },
   { platform: "linux-x86_64", pattern: /amd64\.AppImage$/ },
 ]
+
+function assertNoLegacyMcpAssets(assets) {
+  const forbidden = assets
+    .map((asset) => asset.name)
+    .filter((name) => LEGACY_MCP_ASSET_PATTERN.test(name))
+  if (forbidden.length > 0) {
+    throw new Error(
+      `Legacy MCP release assets are forbidden: ${forbidden.join(", ")}`
+    )
+  }
+}
 
 async function fetchAssetText(github, owner, repo, assetId) {
   const response = await github.request(
@@ -43,6 +55,8 @@ async function uploadUpdaterJson({
     release_id: releaseId,
     per_page: 100,
   })
+
+  assertNoLegacyMcpAssets(assets)
 
   const platforms = {}
   for (const { platform, pattern } of PLATFORM_PATTERNS) {

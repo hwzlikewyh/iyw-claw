@@ -1,10 +1,6 @@
 {
   "bundle": {
-    "externalBin": [
-      "binaries/iyw-claw-mcp",
-      "binaries/iyw-claw-mcp-0.1.93",
-      "binaries/agent-browser"
-    ],
+    "externalBin": ["binaries/agent-browser"],
     "resources": {
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
       "../LICENSE": "LICENSE"

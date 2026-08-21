@@ -50,12 +50,6 @@ const NO_HOST_MCP: &str = r#"## Agent capability boundary
 
 This Agent's ACP adapter is not connected to iyw-claw's main-process built-in MCP server. The built-in capability gateway and any host capabilities reachable only through it are therefore unavailable on this route. This does not prohibit a similarly named tool that is independently advertised in the actual tool list: use only that visible tool and its current schema. Do not claim, reconstruct, or namespace-guess a missing built-in gateway or its delegation, feedback, ask-user, session-info, image, artifact, memory, channel, or automation capabilities."#;
 
-const SCHEDULED_TASKS: &str = r#"## Scheduled task management
-
-CLI executable: {tool}
-When available, its path, host socket, and current Agent type are in `IYW_CLAW_TOOL_BIN`, `IYW_CLAW_TOOL_SOCKET`, and `IYW_CLAW_AGENT_TYPE`.
-Invoke it as `tool scheduled-task <list-projects|list|create|update|delete> --input <json>`; use `--stdin` when shell JSON quoting is unsafe. Output is JSON and a non-zero exit code means failure. Use `list-projects` to discover safe project ids without local paths. Omit both `project` and `project_id` on create to use a dedicated persistent folder. Queries are global across projects. When the user's intent is clear, mutations execute without an extra confirmation."#;
-
 #[derive(Debug, Clone)]
 pub struct RenderedBuiltinPrompt {
     pub text: Arc<str>,
@@ -75,10 +69,6 @@ pub fn render(
         .collect::<Vec<_>>()
         .join("\n");
     let mut sections = vec![COMMON_PROMPT.replace("{tools}", &tools)];
-    let scheduled_tool = crate::acp::automation_tools::scheduled_task_cli_path()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "unavailable".to_string());
-    sections.push(SCHEDULED_TASKS.replace("{tool}", &scheduled_tool));
     if matches!(agent_type, AgentType::OpenClaw | AgentType::Pi) {
         sections.push(NO_HOST_MCP.to_string());
     }

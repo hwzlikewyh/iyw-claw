@@ -220,19 +220,6 @@ async fn stop_entrypoints(app: &tauri::AppHandle, reason: ShutdownReason) -> boo
     true
 }
 
-async fn shutdown_entrypoint_services(
-    builtin_mcp: Option<&std::sync::Arc<crate::acp::builtin_mcp::BuiltinMcpService>>,
-    legacy_listener: Option<
-        &std::sync::Arc<crate::acp::delegation::listener_service::DelegationListenerService>,
-    >,
-    timeout: Duration,
-) -> (bool, bool) {
-    tokio::join!(
-        shutdown_builtin_mcp(builtin_mcp, timeout),
-        shutdown_legacy_listener(legacy_listener, timeout),
-    )
-}
-
 async fn shutdown_builtin_mcp(
     service: Option<&std::sync::Arc<crate::acp::builtin_mcp::BuiltinMcpService>>,
     timeout: Duration,
@@ -245,44 +232,20 @@ async fn shutdown_builtin_mcp(
     }
 }
 
-async fn shutdown_legacy_listener(
-    service: Option<
-        &std::sync::Arc<crate::acp::delegation::listener_service::DelegationListenerService>,
-    >,
-    timeout: Duration,
-) -> bool {
-    match service {
-        Some(service) => tokio::time::timeout(timeout, service.shutdown())
-            .await
-            .unwrap_or(false),
-        None => true,
-    }
-}
-
-async fn shutdown_entrypoint_services_with_retry(
+async fn shutdown_builtin_mcp_with_retry(
     builtin_mcp: Option<&std::sync::Arc<crate::acp::builtin_mcp::BuiltinMcpService>>,
-    legacy_listener: Option<
-        &std::sync::Arc<crate::acp::delegation::listener_service::DelegationListenerService>,
-    >,
     reason: ShutdownReason,
-) -> (bool, bool) {
-    let (mut builtin_completed, mut legacy_completed) =
-        shutdown_entrypoint_services(builtin_mcp, legacy_listener, ENTRYPOINT_SERVICE_TIMEOUT)
-            .await;
-    if !(builtin_completed && legacy_completed) {
+) -> bool {
+    let mut completed = shutdown_builtin_mcp(builtin_mcp, ENTRYPOINT_SERVICE_TIMEOUT).await;
+    if !completed {
         tracing::warn!(
             shutdown_reason = reason.as_str(),
-            builtin_mcp_completed = builtin_completed,
-            legacy_listener_completed = legacy_completed,
+            builtin_mcp_completed = completed,
             "[shutdown] MCP entrypoint cleanup timed out; retrying before Agent teardown"
         );
-        let (builtin_retry, legacy_retry) =
-            shutdown_entrypoint_services(builtin_mcp, legacy_listener, FORCED_SERVICE_TIMEOUT)
-                .await;
-        builtin_completed |= builtin_retry;
-        legacy_completed |= legacy_retry;
+        completed |= shutdown_builtin_mcp(builtin_mcp, FORCED_SERVICE_TIMEOUT).await;
     }
-    (builtin_completed, legacy_completed)
+    completed
 }
 
 async fn disconnect_connections(app: &tauri::AppHandle, timeout: Duration) -> (usize, bool) {
@@ -316,20 +279,13 @@ async fn disconnect_connections_with_retry(
 
 async fn force_stop_entrypoints(app: &tauri::AppHandle, reason: ShutdownReason) -> bool {
     let builtin_mcp = app.try_state::<std::sync::Arc<crate::acp::builtin_mcp::BuiltinMcpService>>();
-    let legacy_listener = app.try_state::<std::sync::Arc<
-        crate::acp::delegation::listener_service::DelegationListenerService,
-    >>();
     if let Some(service) = builtin_mcp.as_ref() {
-        service.quiesce();
-    }
-    if let Some(service) = legacy_listener.as_ref() {
         service.quiesce();
     }
     let (disconnected, connection_completed) =
         disconnect_connections(app, FORCED_CONNECTION_TIMEOUT).await;
-    let (builtin_result, legacy_result) = shutdown_entrypoint_services(
+    let builtin_result = shutdown_builtin_mcp(
         builtin_mcp.as_ref().map(|state| state.inner()),
-        legacy_listener.as_ref().map(|state| state.inner()),
         FORCED_SERVICE_TIMEOUT,
     )
     .await;
@@ -338,12 +294,11 @@ async fn force_stop_entrypoints(app: &tauri::AppHandle, reason: ShutdownReason) 
         forced_service_timeout_ms = FORCED_SERVICE_TIMEOUT.as_millis(),
         forced_connection_timeout_ms = FORCED_CONNECTION_TIMEOUT.as_millis(),
         builtin_mcp_completed = builtin_result,
-        legacy_listener_completed = legacy_result,
         disconnected,
         connection_completed,
         "[shutdown] forced MCP entrypoint cleanup completed"
     );
-    builtin_result && legacy_result && connection_completed
+    builtin_result && connection_completed
 }
 
 async fn stop_entrypoints_inner(app: &tauri::AppHandle, reason: ShutdownReason) -> bool {
@@ -353,13 +308,6 @@ async fn stop_entrypoints_inner(app: &tauri::AppHandle, reason: ShutdownReason) 
     if let Some(service) = builtin_mcp.as_ref() {
         service.quiesce();
     }
-    let legacy_listener = app.try_state::<std::sync::Arc<
-        crate::acp::delegation::listener_service::DelegationListenerService,
-    >>();
-    let legacy_listener_found = legacy_listener.is_some();
-    if let Some(service) = legacy_listener.as_ref() {
-        service.quiesce();
-    }
     let web_server_found = if let Some(state) = app.try_state::<crate::web::WebServerState>() {
         crate::web::do_stop_web_server(&state).await;
         true
@@ -367,13 +315,9 @@ async fn stop_entrypoints_inner(app: &tauri::AppHandle, reason: ShutdownReason) 
         false
     };
     let (disconnected, connection_completed) = disconnect_connections_with_retry(app, reason).await;
-    let (builtin_mcp_completed, legacy_listener_completed) =
-        shutdown_entrypoint_services_with_retry(
-            builtin_mcp.as_ref().map(|state| state.inner()),
-            legacy_listener.as_ref().map(|state| state.inner()),
-            reason,
-        )
-        .await;
+    let builtin_mcp_completed =
+        shutdown_builtin_mcp_with_retry(builtin_mcp.as_ref().map(|state| state.inner()), reason)
+            .await;
     tracing::info!(
         shutdown_reason = reason.as_str(),
         shutdown_stage = "entrypoints",
@@ -383,10 +327,9 @@ async fn stop_entrypoints_inner(app: &tauri::AppHandle, reason: ShutdownReason) 
         builtin_mcp_completed,
         disconnected,
         connection_completed,
-        legacy_listener_found,
         "[shutdown] entrypoints stopped"
     );
-    !(builtin_mcp_completed && legacy_listener_completed && connection_completed)
+    !(builtin_mcp_completed && connection_completed)
 }
 
 fn stop_terminals(app: &tauri::AppHandle, reason: ShutdownReason) {

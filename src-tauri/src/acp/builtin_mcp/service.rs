@@ -29,6 +29,7 @@ pub struct BuiltinMcpClient {
     ready: Arc<AtomicBool>,
     leases: Arc<LeaseManager>,
     advertised_tools: Arc<[String]>,
+    capability_tools: Arc<[String]>,
 }
 
 impl BuiltinMcpClient {
@@ -42,6 +43,10 @@ impl BuiltinMcpClient {
 
     pub fn advertised_tools(&self) -> &[String] {
         &self.advertised_tools
+    }
+
+    pub fn capability_tools(&self) -> &[String] {
+        &self.capability_tools
     }
 
     pub async fn issue(
@@ -81,14 +86,21 @@ impl BuiltinMcpService {
     pub async fn start(listener: Arc<DelegationListener>) -> io::Result<Arc<Self>> {
         super::capability::CapabilityCatalog::load()
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        let advertised_tools = embedded_tool_names()?;
+        let advertised_tools = gateway_tool_names()?;
+        let capability_tools = embedded_tool_names()?;
         let tcp = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         crate::web::socket_inherit::mark_listener_non_inheritable(&tcp)?;
         let authority = tcp.local_addr()?.to_string();
         let endpoint: Arc<str> = format!("http://{authority}/mcp").into();
         let shutdown = CancellationToken::new();
-        let (router, client) =
-            build_runtime(listener, authority, endpoint, advertised_tools, &shutdown);
+        let (router, client) = build_runtime(
+            listener,
+            authority,
+            endpoint,
+            advertised_tools,
+            capability_tools,
+            &shutdown,
+        );
         let joins = spawn_tasks(tcp, router, client.clone(), shutdown.clone());
         tracing::info!(
             target: "builtin_mcp",
@@ -116,6 +128,7 @@ fn build_runtime(
     authority: String,
     endpoint: Arc<str>,
     advertised_tools: Arc<[String]>,
+    capability_tools: Arc<[String]>,
     shutdown: &CancellationToken,
 ) -> (Router, BuiltinMcpClient) {
     let leases = LeaseManager::new(Arc::clone(&listener));
@@ -151,8 +164,25 @@ fn build_runtime(
         ready,
         leases,
         advertised_tools,
+        capability_tools,
     };
     (router, client)
+}
+
+fn gateway_tool_names() -> io::Result<Arc<[String]>> {
+    let tools = super::gateway::tools()
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let names = tools
+        .into_iter()
+        .map(|tool| tool.name.to_string())
+        .collect::<Vec<_>>();
+    if names.len() != 3 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "HTTP MCP gateway must advertise exactly three tools",
+        ));
+    }
+    Ok(names.into())
 }
 
 fn embedded_tool_names() -> io::Result<Arc<[String]>> {

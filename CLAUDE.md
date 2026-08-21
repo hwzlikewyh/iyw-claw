@@ -41,10 +41,6 @@ cargo check --no-default-features --features server-runtime --bin iyw-claw-serve
 cargo test --no-default-features --features server-runtime --bin iyw-claw-server --lib
 cargo clippy --no-default-features --features server-runtime --bin iyw-claw-server --lib -- -D warnings
 
-# iyw-claw-mcp 协作伴生进程（多智能体委托）
-cargo check --no-default-features --features mcp-runtime --bin iyw-claw-mcp
-cargo clippy --no-default-features --features mcp-runtime --bin iyw-claw-mcp -- -D warnings
-
 # 解析器快照评审（输出变化时）
 cargo insta review
 INSTA_UPDATE=auto cargo test --features test-utils     # 自动写新 .snap
@@ -54,11 +50,12 @@ INSTA_UPDATE=auto cargo test --features test-utils     # 自动写新 .snap
 
 ### 双模式运行
 
-项目通过 Cargo feature flags 支持三种二进制：
+项目通过 Cargo feature flags 支持两种产品二进制：
 
 - **`iyw-claw`**（`tauri-runtime`，默认）：完整桌面应用，包含 Tauri 窗口管理、系统通知、自动更新等
 - **`iyw-claw-server`**（`server-runtime`）：独立服务器模式，仅编译 Axum HTTP API + WebSocket
-- **`iyw-claw-mcp`**（`mcp-runtime`）：per-launch stdio MCP 伴生进程，被注入到代理 CLI 的 MCP 配置中，向 LLM 暴露**异步**子智能体委托工具。
+
+内置 MCP 由桌面/服务器主进程通过 Streamable HTTP 提供，不构建或分发独立 MCP 伴生可执行文件。
 
 ### 共享核心
 
@@ -121,9 +118,7 @@ INSTA_UPDATE=auto cargo test --features test-utils     # 自动写新 .snap
 |------|---------|
 | `package.json` | `"version"` 字段 |
 | `src-tauri/Cargo.toml` | `version = "..."` 字段 |
-| `src-tauri/tauri.conf.json` | `"version"` 字段 **以及** `"externalBin"` 数组中的 `"binaries/iyw-claw-mcp-<旧版本>"` → `"binaries/iyw-claw-mcp-<新版本>"` |
-
-> **关键**：`tauri.conf.json` 的 `externalBin` 里有一条带版本号的条目（如 `"binaries/iyw-claw-mcp-0.1.40"`），版本不同步时 Tauri 构建脚本会报 `resource path ... doesn't exist` 并以 exit code 1 退出，导致所有平台的 Release 构建全部失败。
+| `src-tauri/tauri.conf.json` | `"version"` 字段 |
 
 ## 代码风格
 

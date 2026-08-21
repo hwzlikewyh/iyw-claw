@@ -91,7 +91,7 @@ jobs:
           name: ${{ inputs.frontend_artifact }}
           path: out
 
-      - name: Build server and MCP companion
+      - name: Build server
         working-directory: src-tauri
         shell: bash
         run: |
@@ -101,12 +101,6 @@ jobs:
             --no-default-features \
             --features server-runtime \
             --target ${{ matrix.target }}
-          cargo build \
-            --release \
-            --bin iyw-claw-mcp \
-            --no-default-features \
-            --features mcp-runtime \
-            --target ${{ matrix.target }}
 
       - name: Package Unix archive
         if: runner.os != 'Windows'
@@ -114,14 +108,9 @@ jobs:
         run: |
           set -euo pipefail
           package="dist/${{ matrix.artifact }}"
-          version="$(node -p "require('./package.json').version")"
           mkdir -p "$package"
           cp "src-tauri/target/${{ matrix.target }}/release/iyw-claw-server" "$package/"
-          cp "src-tauri/target/${{ matrix.target }}/release/iyw-claw-mcp" "$package/"
-          cp "src-tauri/target/${{ matrix.target }}/release/iyw-claw-mcp" \
-            "$package/iyw-claw-mcp-${version}"
-          chmod +x "$package/iyw-claw-server" "$package/iyw-claw-mcp" \
-            "$package/iyw-claw-mcp-${version}"
+          chmod +x "$package/iyw-claw-server"
           cp -r out "$package/web"
           tar -C dist -czf "dist/${{ matrix.artifact }}.tar.gz" "${{ matrix.artifact }}"
 
@@ -130,11 +119,8 @@ jobs:
         shell: pwsh
         run: |
           $package = "dist/${{ matrix.artifact }}"
-          $version = (Get-Content package.json | ConvertFrom-Json).version
           New-Item -ItemType Directory -Force -Path $package
           Copy-Item "src-tauri/target/${{ matrix.target }}/release/iyw-claw-server.exe" "$package/"
-          Copy-Item "src-tauri/target/${{ matrix.target }}/release/iyw-claw-mcp.exe" "$package/"
-          Copy-Item "src-tauri/target/${{ matrix.target }}/release/iyw-claw-mcp.exe" "$package/iyw-claw-mcp-$version.exe"
           Copy-Item -Recurse out "$package/web"
           Compress-Archive -Path $package -DestinationPath "$package.zip"
 
@@ -142,28 +128,33 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $version = (Get-Content package.json | ConvertFrom-Json).version
+          $package = "dist/${{ matrix.artifact }}"
           $server = "dist/${{ matrix.artifact }}/iyw-claw-server.exe"
-          $companion = "dist/${{ matrix.artifact }}/iyw-claw-mcp.exe"
-          $versionedCompanion = "dist/${{ matrix.artifact }}/iyw-claw-mcp-$version.exe"
-          if (-not (Test-Path $server)) {
+          $webIndex = "$package/web/index.html"
+          if (-not (Test-Path $server -PathType Leaf)) {
             throw "iyw-claw-server.exe missing from packaged artifact"
           }
-          if (-not (Test-Path $companion)) {
-            throw "iyw-claw-mcp.exe missing from packaged artifact"
+          if ((Get-Item -LiteralPath $server).Length -le 0) {
+            throw "iyw-claw-server.exe is empty in packaged artifact"
           }
-          if (-not (Test-Path $versionedCompanion)) {
-            throw "iyw-claw-mcp-$version.exe missing from packaged artifact"
+          if (-not (Test-Path $webIndex -PathType Leaf)) {
+            throw "web/index.html missing from packaged artifact"
           }
-          $help = (& $companion --help 2>&1 | Out-String)
-          if ($LASTEXITCODE -ne 0 -or $help -notlike "*iyw-claw-mcp --parent-connection-id*") {
-            throw "iyw-claw-mcp --help output unexpected: $help"
+          if ((Get-Item -LiteralPath $webIndex).Length -le 0) {
+            throw "web/index.html is empty in packaged artifact"
           }
-          foreach ($path in @($companion, $versionedCompanion)) {
-            $actual = (& $path --version 2>&1 | Out-String).Trim()
-            if ($LASTEXITCODE -ne 0 -or $actual -ne $version) {
-              throw "$path version mismatch: expected $version, got $actual"
-            }
+          $allowed = @("iyw-claw-server.exe", "web")
+          $unexpected = @(Get-ChildItem -LiteralPath $package -Force | Where-Object {
+            $_.Name -notin $allowed
+          })
+          if ($unexpected.Count -gt 0) {
+            throw "Unexpected top-level package entries: $($unexpected.Name -join ', ')"
+          }
+          $legacy = @(Get-ChildItem -LiteralPath $package -Recurse -Force | Where-Object {
+            $_.Name -like "iyw-claw-mcp*"
+          })
+          if ($legacy.Count -gt 0) {
+            throw "Legacy MCP content found in packaged artifact: $($legacy.FullName -join ', ')"
           }
 
       - name: Smoke test Unix package
@@ -171,20 +162,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="$(node -p "require('./package.json').version")"
+          package="dist/${{ matrix.artifact }}"
           server="dist/${{ matrix.artifact }}/iyw-claw-server"
-          companion="dist/${{ matrix.artifact }}/iyw-claw-mcp"
-          versioned_companion="dist/${{ matrix.artifact }}/iyw-claw-mcp-${version}"
-          test -x "$server"
-          test -x "$companion"
-          test -x "$versioned_companion"
-
-          if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
-            "$companion" --help | grep -F 'iyw-claw-mcp --parent-connection-id'
-            test "$("$companion" --version)" = "$version"
-            test "$("$versioned_companion" --version)" = "$version"
-          else
-            echo "Skipping executable smoke test for cross target ${{ matrix.target }}"
+          if [ ! -x "$server" ]; then
+            echo "::error::iyw-claw-server missing or not executable in packaged artifact"
+            exit 1
+          fi
+          if [ ! -s "$server" ]; then
+            echo "::error::iyw-claw-server missing or empty in packaged artifact"
+            exit 1
+          fi
+          if [ ! -s "$package/web/index.html" ]; then
+            echo "::error::web/index.html missing or empty in packaged artifact"
+            exit 1
+          fi
+          unexpected="$(find "$package" -mindepth 1 -maxdepth 1 \
+            ! -name iyw-claw-server ! -name web -print)"
+          if [ -n "$unexpected" ]; then
+            echo "::error::Unexpected top-level package entries: $unexpected"
+            exit 1
+          fi
+          legacy="$(find "$package" -iname 'iyw-claw-mcp*' -print)"
+          if [ -n "$legacy" ]; then
+            echo "::error::Legacy MCP content found in packaged artifact: $legacy"
+            exit 1
           fi
 
       - name: Sign and checksum Unix archive

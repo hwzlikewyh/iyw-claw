@@ -72,7 +72,7 @@ pnpm tauri build
 pnpm server:build
 ```
 
-准备桌面应用捆绑的 sidecars（`iyw-claw-mcp`、`uv`、`uvx`）：
+准备桌面应用捆绑的 sidecars（当前为受支持 Windows 平台的 `agent-browser`）：
 
 ```bash
 pnpm tauri:prepare-sidecars
@@ -98,6 +98,51 @@ docker compose up -d
 docker build -t iyw-claw .
 docker run -d -p 3080:3080 -v iyw-claw-data:/data iyw-claw
 ```
+
+### HTTP-only 内置 MCP 迁移
+
+内置 MCP 由 `iyw-claw-server` 或桌面主进程在 loopback 上提供
+Streamable HTTP `/mcp`。当前版本不会构建、启动或发布独立的
+`iyw-claw-mcp` 可执行文件。
+
+从 `v0.1.92` 或更早版本运行服务端的用户，第一次迁移必须重新执行安装器（Linux）
+或 `install.ps1`（Windows）；当前 server release workflow 未发布 macOS server 归档，
+macOS 安装器会 fail-closed。Docker 部署必须更新源码并重新构建部署。旧版服务端的内置
+updater 只认识包含 MCP companion 的归档，不能原地升级到首个 HTTP-only 归档，因此不要
+在旧版本上等待内置更新完成。
+
+以下命令中的 tag 必须已经发布且包含对应签名资产。若 `v0.1.93` 尚未发布，命令应失败；
+不要改用 `main` 或 `latest` 绕过固定版本门禁。
+
+```bash
+# Linux：固定脚本与归档使用同一个 HTTP-only tag；目录必须替换为原 server/web 安装目录
+http_only_tag=v0.1.93
+curl -fsSL "https://raw.githubusercontent.com/hwzlikewyh/iyw-claw/${http_only_tag}/install.sh" \
+  | bash -s -- --version "${http_only_tag}" --dir "${IYW_CLAW_INSTALL_DIR:-/usr/local/bin}"
+```
+
+```powershell
+# Windows PowerShell：固定脚本与归档使用同一个 tag，并明确复用原 server 安装目录
+$httpOnlyTag = "v0.1.93"
+$script = irm "https://raw.githubusercontent.com/hwzlikewyh/iyw-claw/$httpOnlyTag/install.ps1"
+& ([scriptblock]::Create($script)) -Version $httpOnlyTag -InstallDir "$env:LOCALAPPDATA\iyw-claw"
+```
+
+```bash
+# Docker 源码部署：只在干净的部署 checkout 中切到已发布 HTTP-only tag 后重建容器
+test -z "$(git status --porcelain)" || { echo "deployment checkout is not clean" >&2; exit 1; }
+git fetch --tags origin
+git checkout --detach v0.1.93
+docker compose up -d --build --force-recreate
+```
+
+Linux 自定义 web 目录同时设置 `IYW_CLAW_WEB_DIR`；Windows `-InstallDir` 必须指向
+原有 `iyw-claw-server.exe` 所在目录。安装器要求系统预装 `minisign`，会在停服或清理
+旧 MCP 前验证固定 tag 的 archive 签名、内容清单、目标目录和 staged server 版本。
+当前 latest 仍可能是旧版本时，必须显式传入 `v0.1.93` 或更新的已发布 HTTP-only tag。
+
+迁移完成后，后续版本的服务端 self-update 才会使用固定版本 tag 下载
+`server + web` 归档；安装器仅清理旧 MCP 文件和进程，不会重新安装或恢复 companion。
 
 如果需要指定访问 Token：
 
@@ -147,13 +192,7 @@ cargo test --no-default-features --features server-runtime --bin iyw-claw-server
 cargo clippy --no-default-features --features server-runtime --bin iyw-claw-server --lib -- -D warnings
 ```
 
-MCP sidecar 检查：
-
-```bash
-cd src-tauri
-cargo check --no-default-features --features mcp-runtime --bin iyw-claw-mcp
-cargo clippy --no-default-features --features mcp-runtime --bin iyw-claw-mcp -- -D warnings
-```
+内置 MCP 由主进程通过 Streamable HTTP 提供，不需要额外构建或安装 MCP 可执行文件。
 
 ## 服务端配置
 
@@ -166,7 +205,6 @@ cargo clippy --no-default-features --features mcp-runtime --bin iyw-claw-mcp -- 
 | `IYW_CLAW_TOKEN` | 随机生成 | Web 访问 Token |
 | `IYW_CLAW_DATA_DIR` | 系统默认数据目录 | 数据库和上传文件目录 |
 | `IYW_CLAW_STATIC_DIR` | `./web` 或 `./out` | 前端静态资源目录 |
-| `IYW_CLAW_MCP_BIN` | 未设置 | `iyw-claw-mcp` 可执行文件路径 |
 | `IYW_CLAW_SKIP_SIDECAR` | 未设置 | 跳过 sidecar 构建 |
 
 ## 目录结构

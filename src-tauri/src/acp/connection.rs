@@ -21,7 +21,7 @@ use sacp::schema::{
     SetSessionConfigOptionResponse, SetSessionModeRequest, StopReason, TerminalExitStatus,
     TextContent, TextResourceContents, ToolCallContent,
 };
-use sacp::schema::{ErrorCode, HttpHeader, McpServer, McpServerHttp, McpServerSse, McpServerStdio};
+use sacp::schema::{HttpHeader, McpServer, McpServerHttp, McpServerSse, McpServerStdio};
 use sacp::util::MatchDispatch;
 use sacp::{Agent, ConnectionTo, Dispatch, Responder, SessionMessage, UntypedMessage};
 use sacp_tokio::AcpAgent;
@@ -570,30 +570,6 @@ async fn cleanup_connection_resources(
             "[ACP] built-in prompt bridge cleanup failed"
         );
     }
-}
-
-async fn cleanup_http_fallback_resources(
-    injection: Option<&DelegationInjection>,
-    builtin_mcp: Option<&crate::acp::builtin_mcp::BuiltinMcpClient>,
-    http_lease_issued: &AtomicBool,
-    connection_id: &str,
-    state: &Arc<RwLock<SessionState>>,
-) {
-    if let Some(client) = builtin_mcp {
-        client.revoke_parent(connection_id).await;
-        http_lease_issued.store(false, Ordering::Release);
-    } else if http_lease_issued.load(Ordering::Acquire) {
-        tracing::error!(
-            connection_id,
-            transport = "http",
-            "[ACP] fallback could not revoke the missing HTTP MCP client"
-        );
-    }
-    cleanup_delegation_resources(injection, connection_id).await;
-    let mut session = state.write().await;
-    session.delegation_token = None;
-    session.feedback_tool_available = false;
-    session.agent_pid = None;
 }
 
 /// Represents a single active ACP agent connection.
@@ -2160,19 +2136,69 @@ async fn send_new_session_with_routing(
 
 /// Whether MCP servers forwarded over the ACP wire (`session/new.mcpServers`)
 /// actually reach the agent's model. Almost all adapters deliver them; pi-acp
-/// (0.0.31) accepts the `mcpServers` field but DROPS it — it never forwards MCP
-/// to the inner `pi --mode rpc` process, and pi has no native MCP. So forwarding
-/// either user servers or the built-in iyw-claw-mcp companion to pi is futile, and
-/// injecting iyw-claw-mcp would falsely mark delegation/feedback/ask as available
-/// (`feedback_tool_available`, a registered delegation token pi can never use).
-/// `supports_mcp` stays `true` for pi (session/new tolerates the field), so this
-/// is a separate, narrower gate. Gate iyw-claw-mcp injection on it.
+/// accepts the field but drops it before launching the inner `pi --mode rpc`
+/// process, and Pi has no native MCP. Forwarding either user servers or the
+/// built-in HTTP MCP endpoint would therefore expose phantom host tools.
+/// `supports_mcp` stays `true` for Pi because its ACP schema accepts the field,
+/// so this remains a separate delivery gate.
 fn agent_delivers_wire_mcp(agent_type: AgentType) -> bool {
     !matches!(agent_type, AgentType::Pi)
 }
 
-fn agent_supports_iyw_claw_mcp(agent_type: AgentType) -> bool {
+pub(crate) fn agent_supports_builtin_mcp(agent_type: AgentType) -> bool {
     registry::get_agent_meta(agent_type).supports_mcp && agent_delivers_wire_mcp(agent_type)
+}
+
+const HERMES_HTTP_COMPAT_PACKAGE: &str = "hermes-agent[acp,mcp]==0.19.0";
+const HERMES_HTTP_COMPAT_VERSION: &str = "0.19.0";
+const HERMES_HTTP_COMPAT_AGENT_NAME: &str = "hermes-agent";
+
+/// Hermes 0.19.0 accepts ACP HTTP MCP servers but omits `http` from its
+/// initialize capability response. This exception is deliberately limited to
+/// the reviewed built-in identity and applies only to our gateway route; user
+/// MCP entries still use the runtime capability declaration below. The
+/// managed version and initialize identity are checked as well: the registry
+/// definition alone does not prove which version the active runtime launched.
+fn builtin_http_capability_available(
+    agent_type: AgentType,
+    managed_version: Option<&str>,
+    initialize: &sacp::schema::InitializeResponse,
+) -> bool {
+    if initialize.agent_capabilities.mcp_capabilities.http {
+        return true;
+    }
+    let compatible = agent_type == AgentType::Hermes
+        && managed_version == Some(HERMES_HTTP_COMPAT_VERSION)
+        && initialize.agent_info.as_ref().is_some_and(|info| {
+            info.name == HERMES_HTTP_COMPAT_AGENT_NAME && info.version == HERMES_HTTP_COMPAT_VERSION
+        })
+        && crate::acp::trusted_agents::definition_for_agent(agent_type).is_some_and(|definition| {
+            definition.package_or_binary == HERMES_HTTP_COMPAT_PACKAGE
+                && definition.version_floor.minimum_tool_version == HERMES_HTTP_COMPAT_VERSION
+        });
+    if compatible {
+        tracing::warn!(
+            agent = %agent_type,
+            reviewed_version = HERMES_HTTP_COMPAT_VERSION,
+            "applying built-in-only Hermes HTTP MCP capability compatibility"
+        );
+    } else if agent_type == AgentType::Hermes {
+        tracing::warn!(
+            managed_version = managed_version.unwrap_or("<missing>"),
+            agent_name = initialize
+                .agent_info
+                .as_ref()
+                .map(|info| info.name.as_str())
+                .unwrap_or("<missing>"),
+            agent_version = initialize
+                .agent_info
+                .as_ref()
+                .map(|info| info.version.as_str())
+                .unwrap_or("<missing>"),
+            "Hermes HTTP compatibility exception rejected because runtime identity was not the reviewed version"
+        );
+    }
+    compatible
 }
 
 fn intersect_trusted_session_capabilities(
@@ -2215,7 +2241,7 @@ fn load_mcp_servers_for_agent(agent_type: AgentType) -> Vec<McpServer> {
     // `mcp-<name>` toolsets), Kimi Code uses `~/.kimi-code/mcp.json`
     // (`mcpServers`), and Grok uses `config.toml` (`[mcp_servers.<name>]`).
     // Forwarding the same entries over ACP would register every tool twice.
-    // The built-in `iyw-claw-mcp` companion is injected separately below.
+    // The per-connection built-in HTTP MCP endpoint is injected separately.
     if agent_reads_native_mcp_config(agent_type) {
         return Vec::new();
     }
@@ -2245,9 +2271,9 @@ fn load_mcp_servers_for_agent(agent_type: AgentType) -> Vec<McpServer> {
     out
 }
 
-/// Context the connection layer needs to inject the built-in `iyw-claw-mcp`
-/// MCP entry. Built once per `run_connection` from the live AppState pieces
-/// (broker config, token registry, UDS path) and passed through.
+/// Context the connection layer needs to issue an in-process HTTP MCP
+/// authority. Built once per `run_connection` from the live AppState pieces
+/// (broker config, token registry, and service endpoint) and passed through.
 ///
 /// Optional because some test paths spin up `run_connection` without a
 /// full delegation stack — those just skip injection.
@@ -2255,21 +2281,17 @@ fn load_mcp_servers_for_agent(agent_type: AgentType) -> Vec<McpServer> {
 pub struct DelegationInjection {
     pub broker: Arc<crate::acp::delegation::broker::DelegationBroker>,
     pub tokens: Arc<crate::acp::delegation::listener::TokenRegistry>,
-    pub socket_path: PathBuf,
-    /// Hot-swappable "is live-feedback enabled?" flag. Read at injection time
-    /// alongside the broker's delegation flag so `iyw-claw-mcp` is injected when
-    /// EITHER feature is on, and the companion is told which tool groups to
-    /// expose. Shares the same `tokens` registry and UDS socket as delegation.
+    /// Hot-swappable "is live-feedback enabled?" flag. Read when issuing the
+    /// HTTP authority alongside the broker's delegation flag so the service
+    /// exposes the correct tool groups. Shares the same token registry.
     pub feedback: crate::acp::feedback::FeedbackRuntimeConfig,
     /// Hot-swappable "is ask-user-question enabled?" flag. Read at injection
-    /// time alongside delegation + feedback so `iyw-claw-mcp` is injected when ANY
-    /// of the three is on, and the companion's `--features` lists `ask` to expose
-    /// the `ask_user_question` tool.
+    /// time alongside delegation + feedback so the HTTP service exposes
+    /// `ask_user_question` when enabled.
     pub ask: crate::acp::question::QuestionRuntimeConfig,
     /// Hot-swappable "is get-session-info enabled?" flag. Read at injection time
-    /// alongside the other three so `iyw-claw-mcp` is injected when ANY of the four
-    /// is on, and the companion's `--features` lists `sessions` to expose the
-    /// `get_session_info` tool. No teardown handle (the lookup is stateless).
+    /// alongside the other two so the HTTP service exposes `get_session_info`
+    /// when enabled. No teardown handle (the lookup is stateless).
     pub sessions: crate::acp::session_info::SessionInfoRuntimeConfig,
     /// Question registry handle for the teardown cascade. The `run_connection`
     /// cleanup guard calls `cancel_questions_by_parent` through this so a pending
@@ -2281,9 +2303,9 @@ pub struct DelegationInjection {
         Arc<dyn crate::acp::channel_tools::confirmation::SessionChannelConfirmationAccess>,
 }
 
-/// The `--features` value for a companion launch. Image display/analysis and
-/// task artifact registration are always on;
-/// the remaining tool groups follow their settings flags.
+/// The feature snapshot for an in-process HTTP companion authority. Image
+/// display/analysis and task artifact registration are always on; the
+/// remaining tool groups follow their settings flags.
 ///
 /// Pulled out as a pure function so the feature set is unit-testable without a
 /// real binary on disk or a live broker.
@@ -2313,13 +2335,9 @@ fn companion_features_arg(
     features.join(",")
 }
 
-/// Outcome of injecting the `iyw-claw-mcp` companion: the per-launch token to
-/// stash for revocation, plus whether the `check_user_feedback` tool was exposed
-/// to this agent (so the session can gate submit + UI on its real capability).
+/// Outcome of injecting the in-process HTTP companion, plus whether the
+/// `check_user_feedback` tool was exposed to this agent.
 struct CompanionInjection {
-    /// Present only for the legacy sidecar readiness handshake. HTTP authority
-    /// is kept inside the process registry and is never copied into SessionState.
-    readiness_token: Option<String>,
     feedback_available: bool,
     memory_tools_expected: bool,
 }
@@ -2329,26 +2347,9 @@ struct PreparedCompanion {
     injection: CompanionInjection,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum BuiltinMcpRoute {
-    Http { server_name: String },
-    Legacy,
-    Unavailable,
-}
-
-impl BuiltinMcpRoute {
-    fn http_server_name(&self) -> Option<&str> {
-        match self {
-            Self::Http { server_name } => Some(server_name),
-            Self::Legacy | Self::Unavailable => None,
-        }
-    }
-}
-
 struct CompanionLaunchPreparation {
     health: crate::user_memory::CompanionHealthSnapshot,
     companion: Option<PreparedCompanion>,
-    route: BuiltinMcpRoute,
     policy_monitor: Option<CapabilityRevocationMonitor>,
 }
 
@@ -2359,8 +2360,6 @@ struct MemoryLaunchAccess {
     turn_tracker: Arc<crate::acp::memory_turn::MemoryTurnTracker>,
 }
 
-const COMPANION_READY_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
-
 async fn user_memory_runtime_after_companion_ready(
     injection: Option<&DelegationInjection>,
     companion: Option<&CompanionInjection>,
@@ -2370,7 +2369,7 @@ async fn user_memory_runtime_after_companion_ready(
         companion_health: health.clone(),
         host_bridge_available: false,
     };
-    let (Some(injection), Some(companion)) = (injection, companion) else {
+    let (Some(_injection), Some(companion)) = (injection, companion) else {
         return unavailable();
     };
     if !companion.memory_tools_expected {
@@ -2379,37 +2378,8 @@ async fn user_memory_runtime_after_companion_ready(
             host_bridge_available: true,
         };
     }
-    let Some(readiness_token) = companion.readiness_token.as_deref() else {
-        return crate::user_memory::UserMemoryRuntimeEnvironment {
-            companion_health: health.clone(),
-            host_bridge_available: true,
-        };
-    };
-    let Some(report) = injection
-        .tokens
-        .wait_for_companion_ready(readiness_token, COMPANION_READY_WAIT_TIMEOUT)
-        .await
-    else {
-        tracing::warn!(
-            expected_version = env!("CARGO_PKG_VERSION"),
-            timeout_seconds = COMPANION_READY_WAIT_TIMEOUT.as_secs(),
-            selected_path = ?health.selected_path,
-            "[ACP] iyw-claw-mcp tools/list readiness unavailable; disabling memory tools"
-        );
-        return unavailable();
-    };
-    tracing::info!(
-        detected_version = %report.version,
-        protocol_version = report.protocol_version,
-        advertised_tools = ?report.tools,
-        selected_path = ?health.selected_path,
-        "[ACP] verified iyw-claw-mcp tools/list readiness"
-    );
-    let mut verified_health = health.clone();
-    verified_health.detected_version = Some(report.version);
-    verified_health.advertised_tools = report.tools;
     crate::user_memory::UserMemoryRuntimeEnvironment {
-        companion_health: verified_health,
+        companion_health: health.clone(),
         host_bridge_available: true,
     }
 }
@@ -2475,24 +2445,12 @@ async fn finalize_user_memory_launch(
     }
 }
 
-/// Append the built-in `iyw-claw-mcp` MCP entry when its binary is present.
-/// Image display is always exposed; other tool groups follow their settings.
-/// Returns the per-launch token, or `None` when the binary is missing.
+/// Resolve the feature snapshot used for an in-process HTTP MCP authority.
 ///
-/// When the binary is missing we log a single-line warning and skip
-/// injection rather than register the token + emit a phantom McpServerStdio
-/// pointing at a non-existent path. Phantom injection would have made every
-/// new ACP session ship a guaranteed-to-fail MCP server entry: stricter
-/// agents (Claude Code) refuse the whole session; lax agents lose the
-/// companion tools silently. Skipping leaves the agent functional without the
-/// built-in companion features when iyw-claw-mcp didn't make it into the install.
-///
-/// Each launch uses an opaque, bounded `iyw-claw-builtin-<uuid-prefix>` server
-/// name so MCP authority cannot be inferred or reused across parent
-/// connections. The 32-character ceiling is required by DeepSeek Harness and
-/// remains conservative for other clients. Agents that namespace MCP tools
-/// must discover the current name from the injected server configuration rather
-/// than relying on a fixed prefix.
+/// The built-in companion is exposed only through the main process HTTP
+/// service. There is deliberately no stdio/sidecar construction here. An
+/// Agent route that should support the gateway fails closed when HTTP cannot
+/// be injected; policy-excluded routes remain available without the gateway.
 struct ResolvedCompanionFeatures {
     features: crate::acp::delegation::companion::CompanionFeatures,
     features_arg: String,
@@ -2502,10 +2460,10 @@ struct ResolvedCompanionFeatures {
 
 async fn resolve_companion_features(
     injection: &DelegationInjection,
-    health: &crate::user_memory::CompanionHealthSnapshot,
+    capability_tools: &[String],
     memory_access: &MemoryLaunchAccess,
 ) -> ResolvedCompanionFeatures {
-    let has_tool = |name: &str| health.advertised_tools.iter().any(|tool| tool == name);
+    let has_tool = |name: &str| capability_tools.iter().any(|tool| tool == name);
     let delegation_enabled = injection.broker.config_snapshot().await.enabled
         && [
             "delegate_to_agent",
@@ -2560,144 +2518,10 @@ fn append_optional_companion_features(
     }
 }
 
-async fn prepare_iyw_claw_mcp(
-    injection: &DelegationInjection,
-    parent_connection_id: &str,
-    working_dir: &Path,
-    agent_type: AgentType,
-    memory_access: MemoryLaunchAccess,
-    health: &crate::user_memory::CompanionHealthSnapshot,
-) -> Option<PreparedCompanion> {
-    let resolved = resolve_companion_features(injection, health, &memory_access).await;
-    let Some(binary_path) = health.selected_path.clone() else {
-        tracing::warn!(
-            connection_id = parent_connection_id,
-            expected_version = env!("CARGO_PKG_VERSION"),
-            status = ?health.status,
-            reason = ?health.reason,
-            detail = ?health.detail,
-            "[ACP] compatible iyw-claw-mcp companion unavailable; checked override, versioned/unversioned executable siblings, and PATH"
-        );
-        return None;
-    };
-    let companion_data_dir =
-        std::env::var_os("IYW_CLAW_DATA_DIR").filter(|value| !value.is_empty());
-    tracing::info!(
-        connection_id = parent_connection_id,
-        agent = ?agent_type,
-        features = %resolved.features_arg,
-        binary = %binary_path.display(),
-        data_dir = ?companion_data_dir,
-        "[ACP] injecting iyw-claw-mcp companion"
-    );
-    let token = uuid::Uuid::new_v4().to_string();
-    let opaque_source_id =
-        crate::acp::memory_turn::derive_opaque_source_id(&token, parent_connection_id);
-    let memory_workspace_key = crate::commands::skill_inventory::workspace_key(Some(
-        working_dir.to_string_lossy().as_ref(),
-    ));
-    injection
-        .tokens
-        .register_companion(
-            token.clone(),
-            crate::acp::delegation::listener::TokenEntry {
-                parent_connection_id: parent_connection_id.to_string(),
-                working_dir: working_dir.to_path_buf(),
-                memory_workspace_key,
-                agent_type,
-                memory_write_enabled: memory_access.confirmed_append,
-                memory_proposal_enabled: memory_access.candidate_proposal,
-                memory_recall_enabled: memory_access.recall,
-                opaque_source_id,
-                memory_turn_tracker: memory_access.turn_tracker,
-                cancellation: tokio_util::sync::CancellationToken::new(),
-                mutation_gate: crate::acp::delegation::mutation_gate::MutationGate::new(),
-            },
-        )
-        .await;
-    let mut server = McpServerStdio::new(builtin_mcp_server_name(), binary_path);
-    if let Some(data_dir) = companion_data_dir {
-        server = server.env(vec![sacp::schema::EnvVariable::new(
-            "IYW_CLAW_DATA_DIR",
-            data_dir.to_string_lossy().into_owned(),
-        )]);
-    }
-    server = server.args(vec![
-        "--parent-connection-id".to_string(),
-        parent_connection_id.to_string(),
-        "--socket-path".to_string(),
-        injection.socket_path.to_string_lossy().to_string(),
-        "--token".to_string(),
-        token.clone(),
-        "--agent-type".to_string(),
-        serde_json::to_value(agent_type)
-            .ok()
-            .and_then(|value| value.as_str().map(str::to_string))
-            .unwrap_or_default(),
-        // Self-cleanup watchdog: iyw-claw-mcp exits when this PID is gone so
-        // orphaned companions can't keep the binary file locked across an
-        // installer upgrade (Windows) or hold a stale broker connection
-        // (any platform).
-        "--parent-pid".to_string(),
-        std::process::id().to_string(),
-        // Tool groups to expose this launch (image tools are always enabled).
-        "--features".to_string(),
-        resolved.features_arg,
-        "--working-dir".to_string(),
-        working_dir.to_string_lossy().to_string(),
-    ]);
-    Some(PreparedCompanion {
-        server: McpServer::Stdio(server),
-        injection: CompanionInjection {
-            readiness_token: Some(token),
-            feedback_available: resolved.feedback_available,
-            memory_tools_expected: resolved.memory_tools_expected,
-        },
-    })
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BuiltinMcpTransportMode {
-    Auto,
-    Http,
-    Legacy,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum SessionRequestStage {
-    New,
-    Load,
-    Resume,
-}
-
-impl SessionRequestStage {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::New => "new",
-            Self::Load => "load",
-            Self::Resume => "resume",
-        }
-    }
-}
-
-#[derive(Debug)]
-struct BuiltinHttpRejection {
-    stage: SessionRequestStage,
-    server_name: String,
-    source: sacp::Error,
-}
-
-#[derive(Clone, Copy)]
-struct HttpRejectionContext<'a> {
-    mode: BuiltinMcpTransportMode,
-    route: &'a BuiltinMcpRoute,
-    stage: SessionRequestStage,
-}
-
 #[derive(Debug)]
 enum ConnectionAttemptError {
     Protocol(sacp::Error),
-    BuiltinHttpRejected(BuiltinHttpRejection),
+    BuiltinMcp(AcpError),
 }
 
 impl From<sacp::Error> for ConnectionAttemptError {
@@ -2706,344 +2530,11 @@ impl From<sacp::Error> for ConnectionAttemptError {
     }
 }
 
-fn classify_builtin_http_rejection(
-    context: HttpRejectionContext<'_>,
-    error: &sacp::Error,
-) -> Option<BuiltinHttpRejection> {
-    let server_name = context.route.http_server_name()?;
-    (context.mode == BuiltinMcpTransportMode::Auto
-        && is_explicit_http_mcp_rejection(error, server_name))
-    .then(|| BuiltinHttpRejection {
-        stage: context.stage,
-        server_name: server_name.to_string(),
-        source: error.clone(),
-    })
-}
-
-fn is_explicit_http_mcp_rejection(error: &sacp::Error, server_name: &str) -> bool {
-    if !matches!(error.code, ErrorCode::InvalidParams) {
-        return false;
-    }
-    let server_name = server_name.to_ascii_lowercase();
-    if rejection_text_matches(&error.message, &server_name) {
-        return true;
-    }
-    let Some(data) = error.data.as_ref() else {
-        return false;
-    };
-    RejectionEvidence::new(&server_name).matches(data, 0)
-}
-
-fn rejection_text_matches(value: &str, server_name: &str) -> bool {
-    let value = value.to_ascii_lowercase();
-    value.contains(server_name) && has_explicit_http_rejection(&value)
-}
-
-struct RejectionEvidence<'a> {
-    server_name: &'a str,
-    remaining_nodes: usize,
-}
-
-impl<'a> RejectionEvidence<'a> {
-    fn new(server_name: &'a str) -> Self {
-        Self {
-            server_name,
-            remaining_nodes: 64,
-        }
-    }
-
-    fn matches(&mut self, value: &serde_json::Value, depth: usize) -> bool {
-        self.matches_with_scope(value, depth, false)
-    }
-
-    fn matches_with_scope(
-        &mut self,
-        value: &serde_json::Value,
-        depth: usize,
-        server_scoped: bool,
-    ) -> bool {
-        if depth > 4 || self.remaining_nodes == 0 {
-            return false;
-        }
-        self.remaining_nodes -= 1;
-        match value {
-            serde_json::Value::String(text) => {
-                rejection_text_matches(text, self.server_name)
-                    || (server_scoped && has_explicit_http_rejection(text))
-            }
-            serde_json::Value::Array(items) => items
-                .iter()
-                .any(|item| self.matches_with_scope(item, depth + 1, server_scoped)),
-            serde_json::Value::Object(fields) => self.matches_object(fields, depth, server_scoped),
-            _ => false,
-        }
-    }
-
-    fn matches_object(
-        &mut self,
-        fields: &serde_json::Map<String, serde_json::Value>,
-        depth: usize,
-        server_scoped: bool,
-    ) -> bool {
-        let mut server_identified = server_scoped;
-        let mut http_marker = false;
-        let mut rejection_marker = false;
-        let mut rejection_target = false;
-        let mut explicit_target_present = false;
-        let mut explicit_rejection = false;
-        let mut explicit_http_rejection = false;
-        for (key, item) in fields {
-            if let Some(text) = scalar_evidence(item) {
-                if rejection_text_matches(&text, self.server_name) {
-                    return true;
-                }
-                if is_server_identity_key(key) && text.contains(self.server_name) {
-                    server_identified = true;
-                }
-                http_marker |= has_http_field_marker_for(key, &text);
-                rejection_marker |= has_rejection_marker(&text);
-                if is_rejection_target_key(key) {
-                    explicit_target_present = true;
-                    rejection_target |= has_http_rejection_target(&text);
-                }
-                explicit_rejection |=
-                    is_rejection_reason_key(key) && is_explicit_rejection_value(&text);
-                explicit_http_rejection |= has_explicit_http_rejection(&text);
-            }
-        }
-        // Only combine scalar fields that belong to this one object. Nested
-        // objects/arrays are evaluated independently below; otherwise a
-        // server id from one node could be paired with an HTTP error from an
-        // unrelated sibling node and trigger a false fallback.
-        let target_matches = !explicit_target_present || rejection_target;
-        let reason_matches = if explicit_target_present {
-            rejection_target
-        } else {
-            explicit_rejection || explicit_http_rejection
-        };
-        if server_identified && http_marker && rejection_marker && target_matches && reason_matches
-        {
-            return true;
-        }
-        for (key, item) in fields {
-            let keyed_server = key.eq_ignore_ascii_case(self.server_name);
-            if (keyed_server || is_rejection_evidence_key(key))
-                && self.matches_with_scope(item, depth + 1, server_scoped || keyed_server)
-            {
-                return true;
-            }
-        }
-        false
+impl From<AcpError> for ConnectionAttemptError {
+    fn from(error: AcpError) -> Self {
+        Self::BuiltinMcp(error)
     }
 }
-
-fn scalar_evidence(value: &serde_json::Value) -> Option<String> {
-    match value {
-        serde_json::Value::String(text) => Some(text.to_ascii_lowercase()),
-        serde_json::Value::Number(number) => Some(number.to_string()),
-        serde_json::Value::Bool(value) => Some(value.to_string()),
-        _ => None,
-    }
-}
-
-fn is_server_identity_key(key: &str) -> bool {
-    matches!(
-        key.to_ascii_lowercase().as_str(),
-        "name" | "server" | "servername" | "mcpserver" | "url"
-    )
-}
-
-fn has_http_field_marker_for(key: &str, value: &str) -> bool {
-    let key = key.to_ascii_lowercase();
-    match key.as_str() {
-        "transport" => value.contains("http"),
-        "url" => value.starts_with("http://") || value.starts_with("https://"),
-        _ => has_http_field_marker(value),
-    }
-}
-
-fn is_rejection_evidence_key(key: &str) -> bool {
-    matches!(
-        key.to_ascii_lowercase().as_str(),
-        "message"
-            | "reason"
-            | "error"
-            | "detail"
-            | "code"
-            | "field"
-            | "path"
-            | "parameter"
-            | "name"
-            | "server"
-            | "servername"
-            | "mcpserver"
-            | "type"
-            | "transport"
-            | "url"
-            | "header"
-            | "headers"
-            | "authorization"
-            | "mcpservers"
-            | "mcp_servers"
-            | "mcp-servers"
-            | "errors"
-            | "issues"
-            | "violations"
-            | "causes"
-    )
-}
-
-fn is_rejection_target_key(key: &str) -> bool {
-    matches!(
-        key.to_ascii_lowercase().as_str(),
-        "field" | "path" | "parameter"
-    )
-}
-
-fn is_rejection_reason_key(key: &str) -> bool {
-    matches!(
-        key.to_ascii_lowercase().as_str(),
-        "reason" | "error" | "message" | "detail" | "code" | "status"
-    )
-}
-
-fn has_http_rejection_target(value: &str) -> bool {
-    [
-        "mcpserver",
-        "mcp_server",
-        "mcp-server",
-        "mcp server",
-        "transport",
-        "header",
-        "authorization",
-        "url",
-        "http",
-    ]
-    .iter()
-    .any(|marker| value.contains(marker))
-}
-
-fn is_explicit_rejection_value(value: &str) -> bool {
-    let normalized = value.trim().replace('_', " ").replace('-', " ");
-    matches!(
-        normalized.as_str(),
-        "unsupported"
-            | "not supported"
-            | "does not support"
-            | "not allowed"
-            | "rejected"
-            | "unknown field"
-            | "unrecognized field"
-            | "unexpected field"
-            | "additional field"
-            | "unsupported transport"
-            | "transport unsupported"
-    )
-}
-
-fn has_http_field_marker(value: &str) -> bool {
-    ["http", "header", "authorization", "url", "transport"]
-        .iter()
-        .any(|marker| value.contains(marker))
-}
-
-fn has_rejection_marker(value: &str) -> bool {
-    [
-        "reject",
-        "unsupported",
-        "not support",
-        "does not support",
-        "invalid",
-        "not allowed",
-        "unknown",
-        "unrecognized",
-        "unexpected",
-        "additional field",
-    ]
-    .iter()
-    .any(|marker| value.contains(marker))
-}
-
-fn has_explicit_http_rejection(value: &str) -> bool {
-    let normalized = value
-        .to_ascii_lowercase()
-        .chars()
-        .map(|character| {
-            character
-                .is_ascii_alphanumeric()
-                .then_some(character)
-                .unwrap_or(' ')
-        })
-        .collect::<String>()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    [
-        "unsupported http",
-        "http unsupported",
-        "http is unsupported",
-        "does not support http",
-        "doesn t support http",
-        "doesnt support http",
-        "not support http",
-        "http not supported",
-        "http is not supported",
-        "invalid http transport",
-        "invalid transport http",
-        "http transport invalid",
-        "http transport is invalid",
-        "unsupported transport http",
-        "transport http not supported",
-        "transport http is unsupported",
-        "rejected http",
-        "rejects http",
-        "http rejected",
-        "http not allowed",
-        "http is not allowed",
-        "does not allow http",
-        "unsupported header",
-        "header unsupported",
-        "headers unsupported",
-        "header is not supported",
-        "headers are not supported",
-        "does not support header",
-        "authorization not allowed",
-        "invalid authorization header",
-    ]
-    .iter()
-    .any(|marker| normalized.contains(marker))
-}
-
-fn classify_recovery_http_rejection(
-    context: HttpRejectionContext<'_>,
-    failure: &RecoveryFailure,
-) -> Option<BuiltinHttpRejection> {
-    let RecoveryFailure::Remote(error) = failure else {
-        return None;
-    };
-    classify_builtin_http_rejection(context, error)
-}
-
-impl BuiltinMcpTransportMode {
-    fn from_env() -> Self {
-        let Ok(raw) = std::env::var("IYW_CLAW_BUILTIN_MCP_TRANSPORT") else {
-            return Self::Auto;
-        };
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "auto" | "" => Self::Auto,
-            "http" => Self::Http,
-            "legacy" => Self::Legacy,
-            value => {
-                tracing::warn!(
-                    value,
-                    "[ACP] invalid IYW_CLAW_BUILTIN_MCP_TRANSPORT; using auto"
-                );
-                Self::Auto
-            }
-        }
-    }
-}
-
 fn in_process_companion_health(
     client: &crate::acp::builtin_mcp::BuiltinMcpClient,
 ) -> crate::user_memory::CompanionHealthSnapshot {
@@ -3067,7 +2558,6 @@ struct CompanionLaunchContext<'a> {
     agent_type: AgentType,
     state: &'a Arc<RwLock<SessionState>>,
     agent_http_capable: bool,
-    mode: BuiltinMcpTransportMode,
     parent_cancellation: &'a tokio_util::sync::CancellationToken,
 }
 
@@ -3101,7 +2591,8 @@ async fn prepare_http_companion(
 ) -> Result<CompanionLaunchPreparation, crate::acp::builtin_mcp::BuiltinMcpIssueError> {
     let health = in_process_companion_health(client);
     let memory_access = project_memory_launch_access(context.state, &health, true).await;
-    let resolved = resolve_companion_features(injection, &health, &memory_access).await;
+    let resolved =
+        resolve_companion_features(injection, client.capability_tools(), &memory_access).await;
     let server_name = builtin_mcp_server_name();
     let authority = http_session_authority(context, &resolved, &memory_access, &server_name);
     let bearer = client
@@ -3120,101 +2611,41 @@ async fn prepare_http_companion(
         server_name,
         endpoint = %client.endpoint(),
         features = %resolved.features_arg,
-        "[ACP] selected built-in MCP transport"
+        "[ACP] selected built-in MCP transport: main-process HTTP"
     );
     Ok(CompanionLaunchPreparation {
         health,
         companion: Some(PreparedCompanion {
             server: McpServer::Http(server),
             injection: CompanionInjection {
-                readiness_token: None,
                 feedback_available: resolved.feedback_available,
                 memory_tools_expected: resolved.memory_tools_expected,
             },
         }),
-        route: BuiltinMcpRoute::Http { server_name },
         policy_monitor: None,
     })
-}
-
-async fn prepare_legacy_companion_launch(
-    context: &CompanionLaunchContext<'_>,
-) -> CompanionLaunchPreparation {
-    let companion_supported = agent_supports_iyw_claw_mcp(context.agent_type);
-    let host_bridge_available = context
-        .injection
-        .is_some_and(|value| value.tokens.listener_ready());
-    if companion_supported && !host_bridge_available {
-        tracing::error!(
-            connection_id = context.connection_id,
-            agent = %context.agent_type,
-            transport = "legacy",
-            injection_installed = context.injection.is_some(),
-            listener_ready = false,
-            "[ACP] legacy built-in MCP unavailable: delegation listener is not ready"
-        );
-        return unavailable_companion_launch();
-    }
-    let health = if companion_supported && host_bridge_available {
-        crate::acp::companion_health::locate_healthy_companion().await
-    } else {
-        crate::user_memory::CompanionHealthSnapshot::default()
-    };
-    let memory_access =
-        project_memory_launch_access(context.state, &health, host_bridge_available).await;
-    let companion = if health.status == crate::user_memory::CompanionHealthStatus::Ready {
-        match context.injection {
-            Some(value) if companion_supported => {
-                prepare_iyw_claw_mcp(
-                    value,
-                    context.connection_id,
-                    context.working_dir,
-                    context.agent_type,
-                    memory_access,
-                    &health,
-                )
-                .await
-            }
-            _ => None,
-        }
-    } else {
-        if companion_supported && host_bridge_available {
-            tracing::warn!(
-                connection_id = context.connection_id,
-                reason = ?health.reason,
-                "[ACP] iyw-claw-mcp companion unavailable"
-            );
-        }
-        None
-    };
-    CompanionLaunchPreparation {
-        health,
-        companion,
-        route: BuiltinMcpRoute::Legacy,
-        policy_monitor: None,
-    }
 }
 
 fn unavailable_companion_launch() -> CompanionLaunchPreparation {
     CompanionLaunchPreparation {
         health: Default::default(),
         companion: None,
-        route: BuiltinMcpRoute::Unavailable,
         policy_monitor: None,
     }
 }
 
 async fn companion_policy_monitor(
     context: &CompanionLaunchContext<'_>,
-) -> Option<CapabilityRevocationMonitor> {
-    if !agent_supports_iyw_claw_mcp(context.agent_type) {
+) -> Result<Option<CapabilityRevocationMonitor>, AcpError> {
+    if !agent_supports_builtin_mcp(context.agent_type) {
         tracing::info!(
             connection_id = context.connection_id,
             agent = %context.agent_type,
             transport = "unavailable",
-            "[ACP] built-in MCP is disabled for this Agent"
+            reason = "agent_policy_or_adapter_does_not_forward_mcp",
+            "[ACP] built-in MCP is disabled for this Agent; no stdio or HTTP entry will be injected"
         );
-        return None;
+        return Ok(None);
     }
     let enforcer = match runtime_enforcer() {
         Ok(enforcer) => enforcer,
@@ -3226,7 +2657,10 @@ async fn companion_policy_monitor(
                 error = %error,
                 "[capability-policy] MCP enforcer unavailable before issuing authority"
             );
-            return None;
+            return Err(builtin_mcp_unavailable(
+                context,
+                "capability policy enforcer is unavailable",
+            ));
         }
     };
     match enforcer
@@ -3238,7 +2672,7 @@ async fn companion_policy_monitor(
         )
         .await
     {
-        Ok(monitor) => Some(monitor),
+        Ok(monitor) => Ok(Some(monitor)),
         Err(error) => {
             tracing::warn!(
                 connection_id = context.connection_id,
@@ -3247,25 +2681,44 @@ async fn companion_policy_monitor(
                 error = %error,
                 "[capability-policy] Built-in MCP denied before issuing authority"
             );
-            None
+            Err(builtin_mcp_unavailable(
+                context,
+                "capability policy denied the built-in MCP route",
+            ))
         }
     }
 }
 
 async fn try_prepare_http_companion(
     context: &CompanionLaunchContext<'_>,
-) -> Option<CompanionLaunchPreparation> {
-    if context.mode == BuiltinMcpTransportMode::Legacy || !context.agent_http_capable {
-        return None;
+) -> Result<CompanionLaunchPreparation, AcpError> {
+    if !context.agent_http_capable {
+        tracing::info!(
+            connection_id = context.connection_id,
+            agent = %context.agent_type,
+            transport = "unavailable",
+            reason = "agent_mcp_capabilities_http_false",
+            "[ACP] built-in MCP unavailable: Agent did not advertise HTTP MCP"
+        );
+        return Err(builtin_mcp_unavailable(
+            context,
+            "Agent did not advertise mcpCapabilities.http",
+        ));
     }
-    let (Some(injection), Some(client)) = (context.injection, context.builtin_mcp) else {
-        return None;
-    };
+    let injection = context
+        .injection
+        .ok_or_else(|| builtin_mcp_unavailable(context, "delegation injection is unavailable"))?;
+    let client = context.builtin_mcp.ok_or_else(|| {
+        builtin_mcp_unavailable(context, "main-process HTTP service is unavailable")
+    })?;
     if !client.is_ready() {
-        return None;
+        return Err(builtin_mcp_unavailable(
+            context,
+            "main-process HTTP service is not ready",
+        ));
     }
     match prepare_http_companion(context, client, injection).await {
-        Ok(prepared) => Some(prepared),
+        Ok(prepared) => Ok(prepared),
         Err(error) => {
             tracing::warn!(
                 connection_id = context.connection_id,
@@ -3274,47 +2727,39 @@ async fn try_prepare_http_companion(
                 error = %error,
                 "[ACP] failed to issue built-in HTTP MCP authority"
             );
-            None
+            Err(builtin_mcp_unavailable(
+                context,
+                "failed to issue HTTP authority",
+            ))
         }
     }
 }
 
-fn strict_http_unavailable(context: &CompanionLaunchContext<'_>) -> CompanionLaunchPreparation {
+fn builtin_mcp_unavailable(context: &CompanionLaunchContext<'_>, reason: &str) -> AcpError {
     tracing::warn!(
         connection_id = context.connection_id,
         agent = %context.agent_type,
         agent_http_capable = context.agent_http_capable,
+        injection_installed = context.injection.is_some(),
         service_ready = context.builtin_mcp.is_some_and(|client| client.is_ready()),
         transport = "unavailable",
-        "[ACP] strict HTTP MCP mode could not be satisfied"
+        reason,
+        "[ACP] built-in MCP unavailable; HTTP-only policy is fail-closed"
     );
-    unavailable_companion_launch()
+    AcpError::BuiltinMcpUnavailable(reason.to_string())
 }
 
 async fn prepare_companion_launch(
     context: CompanionLaunchContext<'_>,
-) -> CompanionLaunchPreparation {
-    let Some(policy_monitor) = companion_policy_monitor(&context).await else {
-        return unavailable_companion_launch();
+) -> Result<CompanionLaunchPreparation, AcpError> {
+    let Some(policy_monitor) = companion_policy_monitor(&context).await? else {
+        return Ok(unavailable_companion_launch());
     };
-    let mut prepared = if let Some(prepared) = try_prepare_http_companion(&context).await {
-        prepared
-    } else if context.mode == BuiltinMcpTransportMode::Http {
-        strict_http_unavailable(&context)
-    } else {
-        tracing::info!(
-            connection_id = context.connection_id,
-            agent = %context.agent_type,
-            agent_http_capable = context.agent_http_capable,
-            transport = "legacy",
-            "[ACP] selecting legacy built-in MCP transport"
-        );
-        prepare_legacy_companion_launch(&context).await
-    };
+    let mut prepared = try_prepare_http_companion(&context).await?;
     if prepared.companion.is_some() {
         prepared.policy_monitor = Some(policy_monitor);
     }
-    prepared
+    Ok(prepared)
 }
 
 async fn project_memory_launch_access(
@@ -3481,10 +2926,7 @@ async fn run_connection(
     http_lease_issued: Arc<AtomicBool>,
 ) -> Result<(), AcpError> {
     let mut attempt_agent = Some(agent);
-    let mut attempt_mode = BuiltinMcpTransportMode::from_env();
-    let mut attempt_stderr_tail = stderr_tail;
-    let mut force_owned_host = false;
-    let mut fallback_attempted = false;
+    let attempt_stderr_tail = stderr_tail;
     loop {
         let agent = attempt_agent
             .take()
@@ -3524,7 +2966,7 @@ async fn run_connection(
             Arc::clone(&prompt_ledger),
         );
 
-        let shared_host = !force_owned_host && shared_runtime_host_enabled(agent_type);
+        let shared_host = shared_runtime_host_enabled(agent_type);
         let host_key = runtime_host_key(agent_type, process_fingerprint.clone()).await?;
         let host_started = std::time::Instant::now();
         let startup_trace = state.read().await.startup_trace.clone();
@@ -3616,10 +3058,6 @@ async fn run_connection(
         let session_id = session_id.clone();
         let preferred_mode_id = preferred_mode_id.clone();
         let preferred_config_values = preferred_config_values.clone();
-        let fallback_delegation_injection = delegation_injection.clone();
-        let fallback_builtin_mcp = builtin_mcp.clone();
-        let fallback_http_lease_issued = Arc::clone(&http_lease_issued);
-        let fallback_recovery_in_progress = Arc::clone(&recovery_in_progress);
         let delegation_injection = delegation_injection.clone();
         let builtin_mcp = builtin_mcp.clone();
         let recovery_in_progress = Arc::clone(&recovery_in_progress);
@@ -3629,11 +3067,11 @@ async fn run_connection(
         let openclaw_session_key = openclaw_session_key.clone();
         let version_center_db = version_center_db.clone();
         let mut cmd_rx = &mut cmd_rx;
-        let transport_mode = attempt_mode;
         let attempt_cancellation = cancellation.clone();
         let authority_parent_cancellation = attempt_cancellation.clone();
         let connection = async move {
             let state = state_outer;
+            let managed_agent_version = state.read().await.managed_agent_version.clone();
             let native_steering_available = agent_type == AgentType::Codex
                 && init_resp
                     .meta
@@ -3726,18 +3164,17 @@ async fn run_connection(
                     .collect()
             } else {
                 tracing::info!(
-                    "[ACP][{}] supports_mcp=false: skipping all MCP wire forwarding (user servers + iyw-claw-mcp companion)",
+                    "[ACP][{}] supports_mcp=false: skipping all MCP wire forwarding (user servers + built-in HTTP MCP)",
                     agent_type
                 );
                 Vec::new()
             };
 
-            // Build the companion per logical session. Shared Codex Hosts must not
-            // inherit another session's token or cwd through process-level config.
+            // Issue the built-in HTTP MCP lease per logical session. Shared Agent
+            // hosts must not inherit another session's token or cwd.
             let CompanionLaunchPreparation {
                 health: companion_health,
                 companion,
-                route: companion_route,
                 policy_monitor: _companion_policy_monitor,
             } = prepare_companion_launch(CompanionLaunchContext {
                 injection: delegation_injection.as_ref(),
@@ -3747,21 +3184,26 @@ async fn run_connection(
                 working_dir: &cwd,
                 agent_type,
                 state: &state,
-                agent_http_capable: mcp_caps.http,
-                mode: transport_mode,
+                agent_http_capable: builtin_http_capability_available(
+                    agent_type,
+                    managed_agent_version.as_deref(),
+                    &init_resp,
+                ),
                 parent_cancellation: &authority_parent_cancellation,
             })
-            .await;
+            .await
+            .map_err(ConnectionAttemptError::from)?;
             let delegate_injection = companion.map(|prepared| {
                 mcp_servers.push(prepared.server);
                 prepared.injection
             });
-            if let Some(ref injected) = delegate_injection {
+            {
                 let mut s = state.write().await;
-                s.delegation_token = injected.readiness_token.clone();
                 // The agent's actual feedback capability for this session — the
                 // authoritative gate for submit + UI, fixed at launch.
-                s.feedback_tool_available = injected.feedback_available;
+                s.feedback_tool_available = delegate_injection
+                    .as_ref()
+                    .is_some_and(|injected| injected.feedback_available);
             }
             // Emit fork support capability
             emit_with_state(
@@ -3928,16 +3370,6 @@ async fn run_connection(
                             .map_err(ConnectionAttemptError::from);
                         }
                         Err(e) => {
-                            if let Some(rejection) = classify_recovery_http_rejection(
-                                HttpRejectionContext {
-                                    mode: transport_mode,
-                                    route: &companion_route,
-                                    stage: SessionRequestStage::Resume,
-                                },
-                                &e,
-                            ) {
-                                return Err(ConnectionAttemptError::BuiltinHttpRejected(rejection));
-                            }
                             if e.allows_load_fallback() && supports_load {
                                 tracing::warn!(
                                     connection_id = conn_id,
@@ -4213,16 +3645,6 @@ async fn run_connection(
                         .map_err(ConnectionAttemptError::from)
                     }
                     Err(e) => {
-                        if let Some(rejection) = classify_recovery_http_rejection(
-                            HttpRejectionContext {
-                                mode: transport_mode,
-                                route: &companion_route,
-                                stage: SessionRequestStage::Load,
-                            },
-                            &e,
-                        ) {
-                            return Err(ConnectionAttemptError::BuiltinHttpRejected(rejection));
-                        }
                         emit_session_recovery_failure(
                             SessionRecoveryFailureContext {
                                 connection_id: &conn_id,
@@ -4258,16 +3680,6 @@ async fn run_connection(
                         Err(error) => {
                             if let Some(stage) = new_stage {
                                 stage.finish("error");
-                            }
-                            if let Some(rejection) = classify_builtin_http_rejection(
-                                HttpRejectionContext {
-                                    mode: transport_mode,
-                                    route: &companion_route,
-                                    stage: SessionRequestStage::New,
-                                },
-                                &error,
-                            ) {
-                                return Err(ConnectionAttemptError::BuiltinHttpRejected(rejection));
                             }
                             return Err(error.into());
                         }
@@ -4400,36 +3812,7 @@ async fn run_connection(
             Err(ConnectionAttemptError::Protocol(error)) => {
                 return Err(AcpError::protocol(safe_error_detail(&error.to_string())));
             }
-            Err(ConnectionAttemptError::BuiltinHttpRejected(rejection)) if fallback_attempted => {
-                return Err(AcpError::protocol(safe_error_detail(
-                    &rejection.source.to_string(),
-                )));
-            }
-            Err(ConnectionAttemptError::BuiltinHttpRejected(rejection)) => {
-                tracing::warn!(
-                    connection_id,
-                    agent = %agent_type,
-                    stage = rejection.stage.as_str(),
-                    server_name = rejection.server_name,
-                    classification = "explicit_builtin_http_mcp_rejection",
-                    error_code = i32::from(rejection.source.code),
-                    "[ACP] rebuilding connection with dedicated legacy MCP host"
-                );
-                fallback_recovery_in_progress.finish();
-                cleanup_http_fallback_resources(
-                    fallback_delegation_injection.as_ref(),
-                    fallback_builtin_mcp.as_ref(),
-                    fallback_http_lease_issued.as_ref(),
-                    &connection_id,
-                    &state,
-                )
-                .await;
-                fallback_attempted = true;
-                force_owned_host = true;
-                attempt_mode = BuiltinMcpTransportMode::Legacy;
-                attempt_stderr_tail = Arc::new(StderrTail::new());
-                attempt_agent = Some(rebuild_agent(&agent_rebuild, &attempt_stderr_tail).await?);
-            }
+            Err(ConnectionAttemptError::BuiltinMcp(error)) => return Err(error),
         }
     }
 }

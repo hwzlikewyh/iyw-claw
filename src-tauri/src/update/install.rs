@@ -1,5 +1,5 @@
 //! Download → verify → extract → atomic swap of the server bundle
-//! (`iyw-claw-server` + `iyw-claw-mcp` + `web/`).
+//! (`iyw-claw-server` + `web/`).
 //!
 //! The running worker performs the swap, keeping a `.bak` of each artifact,
 //! then exits so the supervisor (or a re-exec) brings up the new version.
@@ -73,36 +73,13 @@ fn server_bin_filename() -> &'static str {
     }
 }
 
-fn mcp_bin_filename() -> &'static str {
-    if cfg!(windows) {
-        "iyw-claw-mcp.exe"
-    } else {
-        "iyw-claw-mcp"
-    }
-}
-
-fn versioned_mcp_bin_filename(version: &str) -> String {
-    if cfg!(windows) {
-        format!("iyw-claw-mcp-{version}.exe")
-    } else {
-        format!("iyw-claw-mcp-{version}")
-    }
-}
-
 struct Targets {
     server_bin: PathBuf,
-    mcp_bin: PathBuf,
     web_dir: PathBuf,
 }
 
 fn resolve_targets() -> Result<Targets, AppCommandError> {
     let server_bin = crate::update::runtime::self_exe();
-    let bindir = server_bin
-        .parent()
-        .ok_or_else(|| AppCommandError::io_error("Cannot resolve server binary directory"))?
-        .to_path_buf();
-    let mcp_bin = bindir.join(mcp_bin_filename());
-
     // Resolve the `web/` *update target* deterministically — this is distinct
     // from "where to serve static files from right now". When IYW_CLAW_STATIC_DIR
     // is set (the Docker image sets it to /app/web), the bundle lives there by
@@ -125,9 +102,67 @@ fn resolve_targets() -> Result<Targets, AppCommandError> {
 
     Ok(Targets {
         server_bin,
-        mcp_bin,
         web_dir,
     })
+}
+
+fn is_legacy_mcp_filename(name: &str) -> bool {
+    let normalized = name.to_ascii_lowercase();
+    let stem = normalized.strip_suffix(".exe").unwrap_or(&normalized);
+    stem == "iyw-claw-mcp"
+        || stem
+            .strip_prefix("iyw-claw-mcp-")
+            .is_some_and(|version| semver::Version::parse(version).is_ok())
+}
+
+fn legacy_mcp_files(server_bin: &Path) -> Result<Vec<PathBuf>, AppCommandError> {
+    let directory = server_bin
+        .parent()
+        .ok_or_else(|| AppCommandError::io_error("Cannot resolve server binary directory"))?;
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(directory).map_err(AppCommandError::io)? {
+        let entry = entry.map_err(AppCommandError::io)?;
+        if !is_legacy_mcp_filename(&entry.file_name().to_string_lossy()) {
+            continue;
+        }
+        let metadata = entry.metadata().map_err(AppCommandError::io)?;
+        if !metadata.is_file() || entry.file_type().map_err(AppCommandError::io)?.is_symlink() {
+            return Err(AppCommandError::invalid_input(format!(
+                "Legacy MCP path is not a regular file: {}",
+                entry.path().display()
+            )));
+        }
+        files.push(entry.path());
+    }
+    Ok(files)
+}
+
+fn reject_legacy_mcp_content(root: &Path) -> Result<(), AppCommandError> {
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).map_err(AppCommandError::io)? {
+            let entry = entry.map_err(AppCommandError::io)?;
+            if is_legacy_mcp_filename(&entry.file_name().to_string_lossy()) {
+                return Err(AppCommandError::invalid_input(format!(
+                    "HTTP-only update contains legacy MCP content: {}",
+                    entry.path().display()
+                )));
+            }
+            if entry.file_type().map_err(AppCommandError::io)?.is_dir() {
+                pending.push(entry.path());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn remove_legacy_mcp_files(files: &[PathBuf]) -> Result<(), AppCommandError> {
+    for path in files {
+        std::fs::remove_file(path).map_err(|error| {
+            AppCommandError::io(error).with_detail(format!("legacy MCP path: {}", path.display()))
+        })?;
+    }
+    Ok(())
 }
 
 // ─── staged-upgrade marker ────────────────────────────────────────────────
@@ -293,7 +328,8 @@ pub async fn perform_update(
     }
 
     let ext = archive_ext();
-    let archive_url = format!("{}/{}{}", version::RELEASE_DOWNLOAD_BASE, asset, ext);
+    let release_base = version::release_download_base(&manifest.version)?;
+    let archive_url = format!("{release_base}/{asset}{ext}");
     let sig_url = format!("{archive_url}.sig");
 
     // 1. Download archive (with progress) and its detached signature.
@@ -320,56 +356,32 @@ pub async fn perform_update(
     extract_archive(&archive, &staging, ext)?;
     let bundle_root = find_bundle_root(&staging, asset)?;
     let new_server = bundle_root.join(server_bin_filename());
-    let new_mcp = bundle_root.join(mcp_bin_filename());
-    let versioned_mcp_filename = versioned_mcp_bin_filename(&new_version);
-    let new_versioned_mcp = bundle_root.join(&versioned_mcp_filename);
-    let target_versioned_mcp = targets
-        .mcp_bin
-        .parent()
-        .ok_or_else(|| AppCommandError::io_error("Cannot resolve MCP binary directory"))?
-        .join(&versioned_mcp_filename);
     let new_web = bundle_root.join("web");
     // Require the full bundle before touching any live file. A signed but
     // mis-packaged release that dropped, say, `web/` must not be allowed to
     // install a half-new mixture (new server, stale frontend).
-    if !new_server.is_file()
-        || !new_mcp.is_file()
-        || !new_versioned_mcp.is_file()
-        || !new_web.is_dir()
-    {
+    if !new_server.is_file() || !new_web.is_dir() || !new_web.join("index.html").is_file() {
         return Err(AppCommandError::new(
             crate::app_error::AppErrorCode::TaskExecutionFailed,
-            format!(
-                "Downloaded update is incomplete (expected iyw-claw-server, iyw-claw-mcp, \
-                 {versioned_mcp_filename} and a web/ directory)"
-            ),
+            "Downloaded update is incomplete (expected iyw-claw-server and web/index.html)",
         ));
     }
+    reject_legacy_mcp_content(&bundle_root)?;
+    let legacy_mcp = legacy_mcp_files(&targets.server_bin)?;
 
-    // 4. Swap, web → versioned mcp → compatibility mcp → server (server last:
-    //    it is the one the restart relaunches). Roll back already-swapped
-    //    artifacts on any failure.
+    // 4. Swap web then server. Server stays last because restart relaunches it.
     on_progress(UpdatePhase::Swapping, 0, None);
     if new_web.is_dir() {
         replace_dir(&targets.web_dir, &new_web)?;
     }
-    let versioned_mcp_existed = target_versioned_mcp.exists();
-    if let Err(e) = replace_file(&target_versioned_mcp, &new_versioned_mcp) {
-        let _ = restore_dir_from_bak(&targets.web_dir);
-        return Err(e);
-    }
-    if new_mcp.exists() {
-        if let Err(e) = replace_file(&targets.mcp_bin, &new_mcp) {
-            undo_replaced_file(&target_versioned_mcp, versioned_mcp_existed);
-            let _ = restore_dir_from_bak(&targets.web_dir);
-            return Err(e);
-        }
-    }
     if let Err(e) = replace_file(&targets.server_bin, &new_server) {
-        let _ = restore_from_bak(&targets.mcp_bin);
-        undo_replaced_file(&target_versioned_mcp, versioned_mcp_existed);
         let _ = restore_dir_from_bak(&targets.web_dir);
         return Err(e);
+    }
+    if let Err(error) = remove_legacy_mcp_files(&legacy_mcp) {
+        let _ = restore_from_bak(&targets.server_bin);
+        let _ = restore_dir_from_bak(&targets.web_dir);
+        return Err(error);
     }
 
     // The swap is complete. Mark it staged so (a) the supervisor puts the
@@ -383,8 +395,6 @@ pub async fn perform_update(
         // staged" until the next restart consumed it.
         let _ = take_upgrade_staged();
         let _ = restore_from_bak(&targets.server_bin);
-        let _ = restore_from_bak(&targets.mcp_bin);
-        undo_replaced_file(&target_versioned_mcp, versioned_mcp_existed);
         let _ = restore_dir_from_bak(&targets.web_dir);
         return Err(e);
     }
@@ -400,7 +410,6 @@ pub fn rollback() -> Result<(), AppCommandError> {
     let targets = resolve_targets()?;
     let mut restored = false;
     restored |= restore_from_bak(&targets.server_bin)?;
-    restored |= restore_from_bak(&targets.mcp_bin)?;
     restored |= restore_dir_from_bak(&targets.web_dir)?;
     if !restored {
         return Err(AppCommandError::not_found(
@@ -761,14 +770,6 @@ fn replace_file(target: &Path, new_src: &Path) -> Result<(), AppCommandError> {
         }
     }
     Ok(())
-}
-
-fn undo_replaced_file(target: &Path, existed_before: bool) {
-    if existed_before {
-        let _ = restore_from_bak(target);
-    } else {
-        let _ = std::fs::remove_file(target);
-    }
 }
 
 fn replace_dir(target: &Path, new_src: &Path) -> Result<(), AppCommandError> {

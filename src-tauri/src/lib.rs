@@ -773,7 +773,7 @@ mod tauri_app {
                     });
                 }
 
-                // Delegation broker + UDS listener. Built from the managed
+                // Delegation broker + MCP business listener. Built from the managed
                 // ConnectionManager + DB so spawn / depth-lookup work against
                 // live state. Managed alongside the existing per-resource
                 // states so commands (Tauri + web) can resolve them by type.
@@ -789,7 +789,6 @@ mod tauri_app {
                     let (
                         broker,
                         tokens,
-                        socket_path,
                         feedback_config,
                         question_config,
                         session_info_config,
@@ -803,12 +802,9 @@ mod tauri_app {
                     app.manage(feedback_config.clone());
                     app.manage(question_config.clone());
                     app.manage(session_info_config.clone());
-                    app.manage(crate::commands::delegation::DelegationSocketPath(
-                        socket_path.clone(),
-                    ));
 
                     // Push persisted settings into the broker + feedback + question
-                    // + session-info config before listener accept.
+                    // + session-info config before HTTP MCP starts accepting requests.
                     let broker_for_init = broker.clone();
                     let db_for_init = db_conn.clone();
                     let feedback_for_init = feedback_config.clone();
@@ -918,7 +914,7 @@ mod tauri_app {
                         ),
                     );
                     match tauri::async_runtime::block_on(
-                        crate::acp::builtin_mcp::BuiltinMcpService::start(listener.clone()),
+                        crate::acp::builtin_mcp::BuiltinMcpService::start(listener),
                     ) {
                         Ok(service) => {
                             cm_state.install_builtin_mcp(service.client());
@@ -926,31 +922,14 @@ mod tauri_app {
                         }
                         Err(error) => tracing::error!(
                             error = %error,
-                            "[builtin_mcp] failed to start process HTTP MCP service; HTTP route unavailable and connection policy will decide fallback"
-                        ),
-                    }
-                    match tauri::async_runtime::block_on(
-                        crate::acp::delegation::listener_service::DelegationListenerService::start(
-                            listener,
-                            socket_path,
-                        ),
-                    ) {
-                        Ok(service) => {
-                            app.manage(service);
-                        }
-                        Err(error) => tracing::error!(
-                            error = %error,
-                            transport = "legacy",
-                            companion_features = "unavailable",
-                            "[delegation] failed to start legacy listener; legacy MCP companion is unavailable"
+                            "[builtin_mcp] failed to start process HTTP MCP service; HTTP route unavailable"
                         ),
                     }
                     broker
                 };
 
                 // Prewarm can spawn a Codex runtime Host, so schedule it only
-                // after built-in HTTP MCP is ready or startup explicitly fell
-                // back to the legacy listener path.
+                // after the built-in HTTP MCP startup attempt completes.
                 let runtime_prewarm_manager = app.state::<ConnectionManager>().clone_ref();
                 tauri::async_runtime::spawn(async move {
                     let prewarm_started = std::time::Instant::now();
@@ -970,8 +949,8 @@ mod tauri_app {
                     }
                 });
 
-                // Start chat channel tasks only after the built-in MCP service
-                // has either become ready or explicitly fallen back to legacy.
+                // Start chat channel tasks only after the built-in HTTP MCP
+                // startup attempt completes.
                 {
                     let ccm = app.state::<ChatChannelManager>();
                     let broadcaster =

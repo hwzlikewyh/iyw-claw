@@ -25,7 +25,6 @@ import {
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const SRC_TAURI = resolve(SCRIPT_DIR, "..")
 const REPO_ROOT = resolve(SRC_TAURI, "..")
-const BIN_NAME = "iyw-claw-mcp"
 const NSIS_INSTALL_PREFIX = "iyw-claw-sidecar-"
 function log(message) {
   console.log(`[verify-sidecar-bundle] ${message}`)
@@ -79,14 +78,6 @@ function resolveTarget(args) {
   return args.target || process.env.TAURI_TARGET_TRIPLE || resolveHostTarget()
 }
 
-function fileExtension(target) {
-  return target.includes("windows") ? ".exe" : ""
-}
-
-function expectedNames(version) {
-  return [BIN_NAME, `${BIN_NAME}-${version}`]
-}
-
 function requireNonEmptyFile(path, label) {
   if (!existsSync(path)) die(`${label} is missing: ${path}`)
   const stats = lstatSync(path)
@@ -108,48 +99,23 @@ function logFile(label, path, version) {
   return stats
 }
 
-function expectedStagePaths(target, version) {
-  const extension = fileExtension(target)
-  return expectedNames(version).map((name) =>
-    join(SRC_TAURI, "binaries", `${name}-${target}${extension}`)
-  )
-}
-
-function verifyConfiguredExternalBins(target, version) {
-  const config = JSON.parse(
-    readFileSync(join(SRC_TAURI, "tauri.conf.json"), "utf8")
-  )
-  const configured = config.bundle?.externalBin ?? []
-  for (const name of expectedNames(version)) {
-    const expected = `binaries/${name}`
-    if (!configured.includes(expected)) {
-      die(`tauri.conf.json externalBin is missing ${expected}`)
-    }
-  }
+function verifyConfiguredExternalBins(target) {
   verifyAgentBrowserConfig(SRC_TAURI, target, die)
 }
 
-function cargoOutputPath(target) {
-  return join(
-    SRC_TAURI,
-    "target",
-    target,
-    "release",
-    `${BIN_NAME}${fileExtension(target)}`
+function rejectLegacyMcpSidecars(directory) {
+  if (!existsSync(directory)) return
+  const legacy = readdirSync(directory).filter((name) =>
+    /^iyw-claw-mcp(?:-|\.|$)/i.test(name)
   )
+  if (legacy.length > 0) {
+    die(`legacy MCP sidecars must be removed before bundling: ${legacy.join(", ")}`)
+  }
 }
 
 function verifyStagedSidecars(target, version) {
-  const cargoPath = cargoOutputPath(target)
-  logFile("Cargo MCP sidecar", cargoPath, version)
-  const cargoHash = sha256(cargoPath)
-  verifyConfiguredExternalBins(target, version)
-  for (const stagePath of expectedStagePaths(target, version)) {
-    logFile("Tauri externalBin sidecar", stagePath, version)
-    if (sha256(stagePath) !== cargoHash) {
-      die(`staged sidecar differs from Cargo output: ${stagePath}`)
-    }
-  }
+  verifyConfiguredExternalBins(target)
+  rejectLegacyMcpSidecars(join(SRC_TAURI, "binaries"))
   verifyStagedAgentBrowser(SRC_TAURI, target, { die, logFile, sha256 })
 }
 
@@ -181,20 +147,7 @@ function resolveInstalledApp(directory) {
   die(`installed application directory is missing: ${directory}`)
 }
 
-function verifyInstalledSidecars(
-  appDirectory,
-  target,
-  version,
-  expectedHashes
-) {
-  const extension = fileExtension(target)
-  for (const name of expectedNames(version)) {
-    const path = join(appDirectory, `${name}${extension}`)
-    logFile("installed MCP sidecar", path, version)
-    if (expectedHashes && sha256(path) !== expectedHashes.get(name)) {
-      die(`installed sidecar differs from staged externalBin source: ${path}`)
-    }
-  }
+function verifyInstalledSidecars(appDirectory, target, expectedHashes = null) {
   verifyInstalledAgentBrowser(appDirectory, target, expectedHashes, {
     die,
     logFile,
@@ -238,13 +191,8 @@ function verifyInstalledRuntimeSeed(appDirectory, target) {
   )
 }
 
-function stagedHashes(target, version) {
-  const hashes = new Map(
-    expectedNames(version).map((name, index) => [
-      name,
-      sha256(expectedStagePaths(target, version)[index]),
-    ])
-  )
+function stagedHashes(target) {
+  const hashes = new Map()
   addAgentBrowserHash(hashes, SRC_TAURI, target, sha256)
   return hashes
 }
@@ -294,8 +242,7 @@ function verifyNsisInstaller(installer, target, version) {
     verifyInstalledSidecars(
       resolveInstalledApp(installRoot),
       target,
-      version,
-      stagedHashes(target, version)
+      stagedHashes(target)
     )
   } finally {
     rmSync(installRoot, { force: true, recursive: true })
@@ -313,8 +260,7 @@ function main() {
     }
     verifyInstalledSidecars(
       resolveInstalledApp(resolve(args.installedApp)),
-      target,
-      version
+      target
     )
     return
   }

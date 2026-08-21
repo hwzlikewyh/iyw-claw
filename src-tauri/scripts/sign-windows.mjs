@@ -5,7 +5,7 @@
  *
  * Tauri calls this through `bundle.windows.signCommand`, once per artifact,
  * with the artifact path substituted for `%1`. It can also be run directly
- * with `--sidecars` to sign the staged `src-tauri/binaries/*.exe` sidecars
+ * with `--sidecars` to sign staged `agent-browser-*.exe` sidecars
  * before bundling — those are dropped onto disk at install time and are the
  * files antivirus heuristics react to most, so they need a signature even
  * though the bundler does not cover them.
@@ -242,14 +242,14 @@ function signFile(signtool, mode, file, env) {
 }
 
 /**
- * Staged sidecars worth signing. The zero-length placeholders in
- * `src-tauri/binaries/` are leftovers from earlier releases, not payloads —
- * signtool would fail on them and they should not ship at all.
+ * Staged sidecars worth signing. Only the currently packaged agent-browser
+ * executable is eligible; ignored legacy MCP binaries in this directory must
+ * never be revived by a manual `--sidecars` invocation.
  */
 export function collectSidecars(dir = SIDECAR_DIR) {
   if (!existsSync(dir)) return []
   return readdirSync(dir)
-    .filter((name) => name.toLowerCase().endsWith(".exe"))
+    .filter((name) => /^agent-browser-[a-z0-9_-]+\.exe$/i.test(name))
     .map((name) => join(dir, name))
     .filter((file) => statSync(file).size > 0)
     .sort()

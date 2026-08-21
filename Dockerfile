@@ -9,21 +9,14 @@ COPY public/ ./public/
 COPY next.config.ts tsconfig.json postcss.config.mjs components.json ./
 RUN pnpm build
 
-# Stage 2: Build Rust server binary + iyw-claw-mcp companion
+# Stage 2: Build the Rust server. Built-in MCP uses Streamable HTTP in the
+# main process; no companion executable is packaged.
 FROM rust:slim-bookworm AS backend
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /app/src-tauri
 COPY src-tauri/ ./
-# iyw-claw-mcp is the stdio MCP companion the runtime injects per session
-# (see acp/delegation/companion.rs). It must ship next to iyw-claw-server so
-# `locate_iyw_claw_mcp_binary()` finds it via the exe-sibling lookup.
-RUN cargo build --release --bins --no-default-features \
-    --features server-runtime,mcp-runtime && \
-    version="$(awk '/^\[package\]$/{package=1; next} package && /^version = /{gsub(/\"/, "", $3); print $3; exit}' Cargo.toml)" && \
-    test -n "$version" && \
-    mkdir -p /app/mcp && \
-    cp target/release/iyw-claw-mcp /app/mcp/iyw-claw-mcp && \
-    cp target/release/iyw-claw-mcp "/app/mcp/iyw-claw-mcp-${version}"
+RUN cargo build --release --bin iyw-claw-server --no-default-features \
+    --features server-runtime
 
 # Stage 3: Runtime
 FROM node:24-bookworm-slim
@@ -46,7 +39,6 @@ RUN apt-get update && apt-get install -y \
 # if the base image moves to a newer Debian release (e.g. trixie ships libicu76).
 
 COPY --from=backend /app/src-tauri/target/release/iyw-claw-server /usr/local/bin/iyw-claw-server
-COPY --from=backend /app/mcp/ /usr/local/bin/
 COPY --from=frontend /app/out /app/web
 
 ENV IYW_CLAW_STATIC_DIR=/app/web

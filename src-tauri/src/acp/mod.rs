@@ -37,7 +37,6 @@ mod codex_multi_agent;
 pub(crate) mod codex_rollout_migration;
 mod codex_rollout_migration_io;
 pub mod companion_health;
-mod companion_manifest;
 pub mod connection;
 pub(crate) mod connection_tasks;
 pub(crate) mod deepseek_config;
@@ -126,3 +125,9 @@ pub use session_state::{
 pub use types::{
     user_blocks_from_prompt, AcpEvent, ConversationConnectionInfo, EventEnvelope, UserMessageBlock,
 };
+
+pub fn cleanup_stale_builtin_prompt_bridges(
+    paths: &agent_storage::AgentStoragePaths,
+) -> Result<(), error::AcpError> {
+    builtin_prompt_bridge::cleanup_stale(paths)
+}

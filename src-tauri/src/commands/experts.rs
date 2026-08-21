@@ -76,6 +76,7 @@ const MANIFEST_FILE: &str = ".manifest.json";
 const EXPERTS_TOML: &str = "experts.toml";
 const MANAGED_COPY_MARKER_FILE: &str = ".iyw-claw-managed-copy.json";
 const MANAGED_COPY_MARKER_VERSION: u8 = 1;
+pub(crate) const CAPABILITY_GATEWAY_EXPERT_ID: &str = "iyw-capability-gateway";
 /// Directories that hold installed runtime dependencies. They are expensive to
 /// rebuild (network installs, native compilation), so a superseded system skill
 /// directory is only discarded once none of these survive inside it.
@@ -470,6 +471,29 @@ fn find_metadata(expert_id: &str) -> Result<ExpertMetadata, ExpertsError> {
         .into_iter()
         .find(|metadata| metadata.id == expert_id)
         .ok_or_else(|| ExpertsError::NotFound(expert_id.to_string()))
+}
+
+fn bundled_metadata_for_id(expert_id: &str) -> Result<ExpertMetadata, ExpertsError> {
+    let root: ExpertsTomlRoot = toml::from_str(EXPERTS_TOML_CONTENT)
+        .map_err(|e| ExpertsError::Metadata(format!("failed to parse {EXPERTS_TOML}: {e}")))?;
+    validate_expert_entries(&root.expert)?;
+    let entry = root
+        .expert
+        .into_iter()
+        .find(|entry| entry.id == expert_id)
+        .ok_or_else(|| ExpertsError::NotFound(expert_id.to_string()))?;
+    let bundled_hash = hash_bundled_expert(&entry.id)?;
+    Ok(ExpertMetadata {
+        id: entry.id,
+        category: entry.category,
+        package_type: package_type(&entry.dependencies).to_string(),
+        dependencies: entry.dependencies,
+        icon: entry.icon,
+        sort_order: entry.sort_order,
+        display_name: entry.display_name,
+        description: entry.description,
+        bundled_hash,
+    })
 }
 
 fn dependency_order(expert_id: &str) -> Result<Vec<String>, ExpertsError> {
@@ -1582,6 +1606,13 @@ fn link_one_exact_locked(
     let expert_id =
         validate_skill_id(expert_id).map_err(|e| ExpertsError::Metadata(e.to_string()))?;
     let _ = find_metadata(&expert_id)?;
+    link_central_skill_locked(&expert_id, agent_type)
+}
+
+fn link_central_skill_locked(
+    expert_id: &str,
+    agent_type: AgentType,
+) -> Result<ExpertInstallStatus, ExpertsError> {
     let central = expert_central_path(&expert_id);
     if !central.exists() {
         return Err(ExpertsError::CentralUnavailable(format!(
@@ -1598,7 +1629,7 @@ fn link_one_exact_locked(
     let state = classify_link(&link_path, &central);
     let target_path = read_link_target(&link_path).map(|p| p.to_string_lossy().to_string());
     Ok(ExpertInstallStatus {
-        expert_id: expert_id.clone(),
+        expert_id: expert_id.to_string(),
         agent_type,
         state,
         link_path: link_path.to_string_lossy().to_string(),
@@ -1606,6 +1637,52 @@ fn link_one_exact_locked(
         expected_target_path: central.to_string_lossy().to_string(),
         copy_mode,
     })
+}
+
+/// Make the gateway Skill available before an Agent process is spawned. This
+/// path validates and reconciles only the gateway bundle, so first-session
+/// startup does not wait for every bundled Skill to be hashed.
+pub(crate) async fn ensure_builtin_gateway_skill_ready(
+    agent_type: AgentType,
+) -> Result<ExpertInstallStatus, ExpertsError> {
+    let started_at = Instant::now();
+    let _guard = mutation_lock().lock().await;
+    let status = tokio::task::spawn_blocking(move || {
+        ensure_builtin_gateway_skill_ready_blocking(agent_type)
+    })
+    .await
+    .map_err(|error| ExpertsError::Io(format!("gateway Skill join error: {error}")))??;
+    tracing::info!(
+        target: "system_skills",
+        agent = %agent_type,
+        elapsed_ms = started_at.elapsed().as_millis(),
+        link_state = ?status.state,
+        "gateway Skill ready before Agent spawn"
+    );
+    Ok(status)
+}
+
+fn ensure_builtin_gateway_skill_ready_blocking(
+    agent_type: AgentType,
+) -> Result<ExpertInstallStatus, ExpertsError> {
+    let _shared_guard = crate::commands::acp::shared_skill_mutation_guard();
+    let central = central_experts_dir();
+    fs::create_dir_all(&central)?;
+    let metadata = bundled_metadata_for_id(CAPABILITY_GATEWAY_EXPERT_ID)?;
+    let mut manifest = load_manifest();
+    let original_manifest = manifest.clone();
+    let central_changed = !matches!(
+        install_or_refresh_expert(&metadata, &mut manifest)?,
+        InstallAction::Skipped
+    );
+    if manifest != original_manifest {
+        manifest.installed_at = Utc::now().to_rfc3339();
+        save_manifest(&manifest)?;
+    }
+    if central_changed || manifest != original_manifest {
+        invalidate_central_experts_cache("gateway_skill_ready");
+    }
+    link_central_skill_locked(CAPABILITY_GATEWAY_EXPERT_ID, agent_type)
 }
 
 fn link_with_dependencies_locked(

@@ -58,6 +58,8 @@ pub enum AcpError {
     BuiltinPromptBridgeBusy(String),
     #[error("failed to clean up built-in Agent prompt bridge: {0}")]
     BuiltinPromptBridgeCleanup(String),
+    #[error("built-in MCP is unavailable: {0}")]
+    BuiltinMcpUnavailable(String),
 }
 
 impl AcpError {
@@ -112,6 +114,7 @@ impl AcpError {
             Self::BuiltinPromptInjection(_) => Some("builtin_prompt_injection_failed"),
             Self::BuiltinPromptBridgeBusy(_) => Some("builtin_prompt_bridge_busy"),
             Self::BuiltinPromptBridgeCleanup(_) => Some("builtin_prompt_bridge_cleanup_failed"),
+            Self::BuiltinMcpUnavailable(_) => Some("builtin_mcp_unavailable"),
             Self::Protocol(_) => None,
         }
     }

@@ -16,8 +16,8 @@ use super::helpers::{apply_policy_patch, conflict};
 use super::recall_config::{configured_recall_index_enabled, configured_recall_tool_enabled};
 use super::transaction::document_resource;
 use super::{
-    project_settings_capabilities, UserMemoryDocumentId, UserMemoryGeneration,
-    UserMemoryMigrationReport, UserMemorySettingsSnapshot, UserMemoryUpdateRequest,
+    UserMemoryDocumentId, UserMemoryGeneration, UserMemoryMigrationReport,
+    UserMemorySettingsSnapshot, UserMemoryUpdateRequest,
 };
 
 #[derive(Debug, Default)]
@@ -168,7 +168,7 @@ impl UserMemoryService {
                 self.unavailable_settings_snapshot(&policy, error)
             }
         }?;
-        self.enrich_settings_snapshot(snapshot).await
+        Ok(snapshot)
     }
 
     pub async fn update(
@@ -220,15 +220,6 @@ impl UserMemoryService {
         let snapshot = self.snapshot_locked(&policy)?;
         drop(_file_guard);
         drop(_guard);
-        self.enrich_settings_snapshot(snapshot).await
-    }
-
-    async fn enrich_settings_snapshot(
-        &self,
-        mut snapshot: UserMemorySettingsSnapshot,
-    ) -> Result<UserMemorySettingsSnapshot, AppCommandError> {
-        let health = crate::acp::companion_health::locate_healthy_companion().await;
-        project_settings_capabilities(&mut snapshot, health, false);
         Ok(snapshot)
     }
 

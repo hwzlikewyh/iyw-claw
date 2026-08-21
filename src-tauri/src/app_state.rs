@@ -31,18 +31,13 @@ pub struct AppState {
     pub web_server_state: WebServerState,
     pub chat_channel_manager: ChatChannelManager,
     pub workspace_transfer: Arc<WorkspaceTransferManager>,
-    /// Multi-agent delegation broker. Spawned in both desktop and server
-    /// mode at startup; the UDS listener task forwards incoming companion
-    /// requests here. v1 uses the default `DelegationConfig`; settings UI
-    /// hot-swaps via `delegation_broker.set_config`.
+    /// Multi-agent delegation broker used by the main-process HTTP MCP
+    /// dispatcher in both desktop and server mode. The settings UI hot-swaps
+    /// its live configuration through `delegation_broker.set_config`.
     pub delegation_broker: Arc<DelegationBroker>,
-    /// Per-launch ephemeral tokens identifying parent ACP connections.
-    /// Registered when `load_mcp_servers_for_agent` injects the
-    /// `iyw-claw-mcp` MCP entry, revoked on parent teardown.
+    /// Per-connection broker credentials owned by the HTTP MCP lease manager
+    /// and revoked with the parent ACP connection.
     pub delegation_tokens: Arc<TokenRegistry>,
-    /// Absolute path of the UDS / named pipe the companion connects to.
-    /// PID-scoped so multiple iyw-claw processes on the same host don't fight.
-    pub delegation_socket_path: PathBuf,
     /// Hot-swappable live-feedback (`check_user_feedback`) enable flag. Shared
     /// with the `DelegationInjection` so MCP injection reads it, and updated by
     /// the feedback settings command on save. Populated at startup by
@@ -124,13 +119,8 @@ pub async fn build_capability_policy_stack(
     (store, runtime)
 }
 
-/// Build the delegation broker + token registry + per-process UDS socket
-/// path. Shared between iyw-claw-server bootstrap and the Tauri `setup` block
-/// so both modes apply identical depth limit + timeout defaults.
-///
-/// The listener task is _not_ spawned here — callers spawn it after they
-/// own an `Arc<AppState>` (or the relevant pieces) so the listener can
-/// borrow the long-lived state without circular Arc shenanigans.
+/// Build the delegation broker and token registry shared by the desktop and
+/// server main-process HTTP MCP services.
 pub fn build_delegation_stack(
     connection_manager: &ConnectionManager,
     db_conn: sea_orm::DatabaseConnection,
@@ -138,7 +128,6 @@ pub fn build_delegation_stack(
 ) -> (
     Arc<DelegationBroker>,
     Arc<TokenRegistry>,
-    PathBuf,
     crate::acp::feedback::FeedbackRuntimeConfig,
     crate::acp::question::QuestionRuntimeConfig,
     crate::acp::session_info::SessionInfoRuntimeConfig,
@@ -150,7 +139,6 @@ pub fn build_delegation_stack(
     use crate::acp::delegation::event_emitter::{
         ConnectionManagerEventEmitter, DelegationEventEmitter,
     };
-    use crate::acp::delegation::listener::default_socket_path;
     use crate::acp::delegation::live_reply::{
         ChildLiveReplyLookup, ConnectionManagerLiveReplyLookup,
     };
@@ -184,11 +172,6 @@ pub fn build_delegation_stack(
             .with_live_reply_lookup(live_reply_lookup),
     );
     let tokens = Arc::new(TokenRegistry::default());
-    let socket_path = default_socket_path(&std::env::temp_dir());
-    crate::acp::automation_tools::install_scheduled_task_runtime(
-        socket_path.clone(),
-        crate::acp::companion_health::locate_companion_candidate(),
-    );
     let feedback = crate::acp::feedback::FeedbackRuntimeConfig::new();
     let ask = crate::acp::question::QuestionRuntimeConfig::new();
     let sessions = crate::acp::session_info::SessionInfoRuntimeConfig::new();
@@ -201,7 +184,6 @@ pub fn build_delegation_stack(
     connection_manager.install_delegation(DelegationInjection {
         broker: broker.clone(),
         tokens: tokens.clone(),
-        socket_path: socket_path.clone(),
         feedback: feedback.clone(),
         ask: ask.clone(),
         sessions: sessions.clone(),
@@ -213,5 +195,5 @@ pub fn build_delegation_stack(
         confirmations,
     });
 
-    (broker, tokens, socket_path, feedback, ask, sessions)
+    (broker, tokens, feedback, ask, sessions)
 }
