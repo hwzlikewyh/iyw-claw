@@ -262,6 +262,10 @@ jobs:
         if: contains(matrix.target, 'windows')
         uses: tauri-apps/tauri-action@v0.6.1
         env:
+          # Full LTO with one codegen unit dominates Windows release time. Thin
+          # LTO keeps cross-crate optimization while allowing parallel codegen.
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
+          CARGO_PROFILE_RELEASE_LTO: "thin"
           IYW_CLAW_SKIP_SIDECAR: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

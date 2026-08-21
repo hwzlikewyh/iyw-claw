@@ -5,13 +5,15 @@ import { parseTarget, targetInfo } from "./runtime-seed-config.mjs"
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 const MIB = 1024 * 1024
+// Seed-enabled bundles contain four already-compressed runtime archives, so
+// their final installers need a higher ceiling than the online-only package.
 const BUDGETS = {
-  "x86_64-pc-windows-msvc": 340,
-  "i686-pc-windows-msvc": 56,
-  "x86_64-apple-darwin": 386,
-  "aarch64-apple-darwin": 363,
-  "x86_64-unknown-linux-gnu": 460,
-  "aarch64-unknown-linux-gnu": 374,
+  "x86_64-pc-windows-msvc": 620,
+  "i686-pc-windows-msvc": 80,
+  "x86_64-apple-darwin": 620,
+  "aarch64-apple-darwin": 600,
+  "x86_64-unknown-linux-gnu": 700,
+  "aarch64-unknown-linux-gnu": 650,
 }
 
 async function files(root, predicate, result = []) {
