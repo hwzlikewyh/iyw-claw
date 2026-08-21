@@ -1628,6 +1628,9 @@ pub struct DelegationBroker {
     /// change so an in-flight session is never interrupted by a resize.
     concurrency_limit: Arc<Mutex<u32>>,
     concurrency_pools: Arc<Mutex<HashMap<i32, Arc<Semaphore>>>>,
+    /// Root connection ownership used to retire a fixed-capacity pool only
+    /// when that root Agent connection actually tears down.
+    concurrency_root_owners: Arc<Mutex<HashMap<String, i32>>>,
     /// Woken after every terminal `record_completed` so a `get_delegation_status`
     /// long-poll wakes the instant its task finishes instead of busy-polling.
     result_notify: Arc<Notify>,
@@ -1692,6 +1695,7 @@ impl DelegationBroker {
                 crate::commands::agent_concurrency::DEFAULT_MAX_CONCURRENT_SUBAGENTS,
             )),
             concurrency_pools: Arc::new(Mutex::new(HashMap::new())),
+            concurrency_root_owners: Arc::new(Mutex::new(HashMap::new())),
             result_notify: Arc::new(Notify::new()),
             teardown_notify: Arc::new(Notify::new()),
         }
@@ -2478,6 +2482,35 @@ impl DelegationBroker {
         ))
     }
 
+    async fn register_concurrency_root(
+        &self,
+        parent_connection_id: &str,
+        parent_conversation_id: i32,
+        root_conversation_id: i32,
+    ) {
+        if parent_conversation_id == root_conversation_id {
+            self.concurrency_root_owners
+                .lock()
+                .await
+                .insert(parent_connection_id.to_string(), root_conversation_id);
+        }
+    }
+
+    async fn retire_concurrency_root(&self, parent_connection_id: &str) {
+        let root = self
+            .concurrency_root_owners
+            .lock()
+            .await
+            .remove(parent_connection_id);
+        if let Some(root_conversation_id) = root {
+            self.concurrency_pools
+                .lock()
+                .await
+                .remove(&root_conversation_id);
+            tracing::debug!(root_conversation_id, "retired Agent concurrency pool");
+        }
+    }
+
     async fn acquire_concurrency_permit(
         &self,
         wait: ConcurrencyWait<'_>,
@@ -2769,6 +2802,12 @@ impl DelegationBroker {
                 return report_err(req.agent_type, error, None);
             }
         };
+        self.register_concurrency_root(
+            &req.parent_connection_id,
+            req.parent_conversation_id,
+            root_conversation_id,
+        )
+        .await;
         let concurrency_permit = match self
             .acquire_concurrency_permit(ConcurrencyWait {
                 root_conversation_id,
@@ -3611,6 +3650,7 @@ impl DelegationBroker {
         self.drain_for_parent_cancel(parent_connection_id, false)
             .await;
         let _ = self.spawn_parent_cancel_worker(parent_connection_id).await;
+        self.retire_concurrency_root(parent_connection_id).await;
     }
 
     /// Cascade-cancel every pending delegation owned by `parent_connection_id`

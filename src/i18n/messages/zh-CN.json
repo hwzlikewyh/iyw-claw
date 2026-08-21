@@ -1000,11 +1000,11 @@
       "title": "子 Agent 并发",
       "description": "统一限制单个会话可同时运行的子 Agent 数量，独立于多智能体协同设置。",
       "limitLabel": "单会话最大并行子 Agent 数",
-      "limitHint": "可设置 {min}–{max}；保存后对新会话生效。",
+      "limitHint": "可设置 {min}–{max}；保存后对新启动、恢复或重启的 Agent 连接生效。",
       "save": "保存",
       "saving": "保存中",
       "saved": "子 Agent 并发设置已保存",
-      "newSessions": "新会话生效，现有会话保持当前限制。",
+      "newSessions": "现有运行进程不热更新；新启动、恢复或重启的 Agent 连接使用新限制。",
       "loadFailed": "加载并发设置失败：{detail}",
       "saveFailed": "保存并发设置失败",
       "enforcement": {

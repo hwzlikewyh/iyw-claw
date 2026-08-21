@@ -9,6 +9,7 @@ use crate::db::service::app_metadata_service;
 use crate::models::AgentType;
 
 pub const KEY_MAX_CONCURRENT_SUBAGENTS: &str = "agent_runtime.max_concurrent_subagents";
+pub const CLAUDE_CONCURRENCY_ENV: &str = "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS";
 pub const DEFAULT_MAX_CONCURRENT_SUBAGENTS: u32 = 40;
 pub const MIN_MAX_CONCURRENT_SUBAGENTS: u32 = 1;
 pub const MAX_MAX_CONCURRENT_SUBAGENTS: u32 = 40;
@@ -79,7 +80,6 @@ pub async fn load_limit(db: &sea_orm::DatabaseConnection) -> u32 {
 async fn apply_limit(broker: &DelegationBroker, limit: u32) {
     broker.set_concurrency_limit(limit).await;
     crate::acp::codex_multi_agent::set_max_concurrent_threads(limit);
-    crate::acp::connection::set_claude_max_concurrent_subagents(limit);
 }
 
 pub async fn apply_persisted_config(

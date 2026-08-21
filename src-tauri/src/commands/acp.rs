@@ -8809,17 +8809,23 @@ pub(crate) async fn build_session_runtime_env(
 
     crate::acp::trusted_agents::restrict_configured_runtime_env(agent_type, &mut runtime_env);
     restore_verified_host_profile_env(agent_type, &mut runtime_env);
+    if agent_type == AgentType::ClaudeCode {
+        let limit = crate::commands::agent_concurrency::load_limit(&db.conn).await;
+        runtime_env.insert(
+            crate::commands::agent_concurrency::CLAUDE_CONCURRENCY_ENV.into(),
+            limit.to_string(),
+        );
+    }
 
     Ok(runtime_env)
 }
 
-/// Per-launch env keys that vary by session/run but don't represent user
-/// config, so they're excluded from the config fingerprint. Without this, a
-/// session-id-derived value would flip the fingerprint the moment a real
-/// session id is assigned and make every session look "stale". Currently only
-/// OpenClaw's reset flag (set iff `session_id` is None at spawn).
+/// Process-lifetime env keys excluded from stale-config detection. OpenClaw's
+/// reset flag varies by launch; Claude's concurrency value is intentionally a
+/// connection snapshot and must not hot-restart an already running process.
 fn is_volatile_fingerprint_key(key: &str) -> bool {
     key == "OPENCLAW_RESET_SESSION"
+        || key == crate::commands::agent_concurrency::CLAUDE_CONCURRENCY_ENV
 }
 
 /// Fingerprint the effective config a spawned agent process is locked to: the

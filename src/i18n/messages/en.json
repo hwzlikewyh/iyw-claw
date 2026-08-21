@@ -1000,11 +1000,11 @@
       "title": "Sub-agent concurrency",
       "description": "Set one per-session limit for concurrently running sub-agents, independent of multi-agent delegation settings.",
       "limitLabel": "Maximum parallel sub-agents per session",
-      "limitHint": "Choose {min}–{max}. Changes apply to new sessions.",
+      "limitHint": "Choose {min}–{max}. Changes apply when an Agent connection starts, resumes, or restarts.",
       "save": "Save",
       "saving": "Saving",
       "saved": "Sub-agent concurrency saved",
-      "newSessions": "New sessions use this limit; existing sessions keep their current limit.",
+      "newSessions": "Running processes are not hot-updated; new, resumed, or restarted Agent connections use this limit.",
       "loadFailed": "Could not load concurrency settings: {detail}",
       "saveFailed": "Could not save concurrency settings",
       "enforcement": {
