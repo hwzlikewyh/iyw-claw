@@ -28,9 +28,8 @@ use crate::acp::types::{
 use crate::acp::types::{ConnectionInfo, ForkResultInfo, PromptInputBlock};
 use crate::acp::version_center::{
     confirm_npm_agent_install, confirm_uvx_agent_install, ensure_npm_node_requirement,
-    fallback_npm_agent_install, fallback_uvx_agent_install, install_runtime_bundle,
-    push_pending_activation, resolve_npm_agent_install, resolve_uvx_agent_install,
-    InstalledRuntimeBundle, PendingActivation, RuntimeBundleRequest,
+    install_runtime_bundle, push_pending_activation, resolve_npm_agent_install,
+    resolve_uvx_agent_install, InstalledRuntimeBundle, PendingActivation, RuntimeBundleRequest,
 };
 use crate::commands::experts::{
     central_experts_dir, classify_link, create_link_raw, is_bundled_expert_id, ExpertLinkState,
@@ -10996,7 +10995,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
             } else {
                 "automatic"
             };
-            let (mut managed, mut fallback) = match resolve_npm_agent_install(
+            let mut managed = resolve_npm_agent_install(
                 &db.conn,
                 agent_type,
                 current_version.as_deref(),
@@ -11004,21 +11003,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 resolve_reason,
             )
             .await
-            {
-                Ok(value) => (value, false),
-                Err(error)
-                    if resolve_reason == "manual"
-                        && error.is_unavailable()
-                        && (!error.is_policy_missing() || explicit_version) =>
-                {
-                    (
-                        fallback_npm_agent_install(agent_type, &requested)
-                            .map_err(|fallback| fallback.into_error())?,
-                        true,
-                    )
-                }
-                Err(error) => return Err(error.into_error()),
-            };
+            .map_err(|error| error.into_error())?;
             ensure_npm_node_requirement(&db.conn, agent_type).await?;
             let sources = managed
                 .packages
@@ -11032,11 +11017,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 emitter,
                 &task_id,
                 AgentInstallEventKind::Log,
-                if fallback {
-                    "Fusion unavailable; using the official npm registry".to_string()
-                } else {
-                    format!("Agent source resolved by version center ({sources})")
-                },
+                format!("Agent source resolved by version center ({sources})"),
             );
             let planned_version = managed.version.clone();
             emit_agent_install_event(
@@ -11049,37 +11030,33 @@ pub(crate) async fn acp_prepare_npx_agent_core(
             if agent_type == AgentType::Pi {
                 required_commands.push("pi");
             }
-            let bundle = if fallback {
-                None
-            } else {
-                match try_runtime_bundle(RuntimeBundleAttempt {
-                    conn: &db.conn,
-                    paths: &paths,
-                    agent_type,
-                    offer: managed.bundle_offer.as_ref(),
-                    current_version: current_version.as_deref(),
-                    required_commands: &required_commands,
-                    reason: resolve_reason,
-                    task_id: &task_id,
-                    emitter,
-                })
-                .await
-                {
-                    Ok(value) => value,
-                    Err(error) if resolve_reason == "manual" && error.is_unavailable() => {
-                        emit_agent_install_event(
-                            emitter,
-                            &task_id,
-                            AgentInstallEventKind::Log,
-                            "bundle_fallback: TOS unavailable; using the managed npm registry",
-                        );
-                        None
-                    }
-                    Err(error) => return Err(error.into_error()),
+            let bundle = match try_runtime_bundle(RuntimeBundleAttempt {
+                conn: &db.conn,
+                paths: &paths,
+                agent_type,
+                offer: managed.bundle_offer.as_ref(),
+                current_version: current_version.as_deref(),
+                required_commands: &required_commands,
+                reason: resolve_reason,
+                task_id: &task_id,
+                emitter,
+            })
+            .await
+            {
+                Ok(value) => value,
+                Err(error) if resolve_reason == "manual" && error.is_unavailable() => {
+                    emit_agent_install_event(
+                        emitter,
+                        &task_id,
+                        AgentInstallEventKind::Log,
+                        "bundle_fallback: TOS unavailable; using the managed npm registry",
+                    );
+                    None
                 }
+                Err(error) => return Err(error.into_error()),
             };
             if bundle.is_none() {
-                let install_result = install_managed_npm_packages(
+                install_managed_npm_packages(
                     &paths,
                     agent_type,
                     &managed.version,
@@ -11088,44 +11065,10 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                     &task_id,
                     emitter,
                 )
-                .await;
-                match install_result {
-                    Ok(_) => {}
-                    Err(ManagedNpmSourceError::Unavailable(_))
-                        if resolve_reason == "manual" && !fallback =>
-                    {
-                        fallback = true;
-                        emit_agent_install_event(
-                            emitter,
-                            &task_id,
-                            AgentInstallEventKind::Log,
-                            "Fusion npm source unavailable; using the official npm registry",
-                        );
-                        let authorized_version = managed.version.clone();
-                        managed = fallback_npm_agent_install(agent_type, &authorized_version)
-                            .map_err(|error| error.into_error())?;
-                        emit_agent_install_event(
-                            emitter,
-                            &task_id,
-                            AgentInstallEventKind::Log,
-                            format!("Installing official fallback v{}", managed.version),
-                        );
-                        install_managed_npm_packages(
-                            &paths,
-                            agent_type,
-                            &managed.version,
-                            &managed,
-                            &required_commands,
-                            &task_id,
-                            emitter,
-                        )
-                        .await
-                        .map_err(managed_source_error)?;
-                    }
-                    Err(error) => return Err(managed_source_error(error)),
-                }
+                .await
+                .map_err(managed_source_error)?;
             }
-            if !fallback && bundle.is_none() {
+            if bundle.is_none() {
                 managed = confirm_npm_agent_install(
                     &db.conn,
                     agent_type,
@@ -11206,7 +11149,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
             } else {
                 "automatic"
             };
-            let (mut managed, mut fallback) = match resolve_uvx_agent_install(
+            let mut managed = resolve_uvx_agent_install(
                 &db.conn,
                 agent_type,
                 current_version.as_deref(),
@@ -11214,61 +11157,35 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                 resolve_reason,
             )
             .await
+            .map_err(|error| error.into_error())?;
+            let required_commands = [cmd];
+            let bundle = match try_runtime_bundle(RuntimeBundleAttempt {
+                conn: &db.conn,
+                paths: &paths,
+                agent_type,
+                offer: managed.bundle_offer.as_ref(),
+                current_version: current_version.as_deref(),
+                required_commands: &required_commands,
+                reason: resolve_reason,
+                task_id: &task_id,
+                emitter,
+            })
+            .await
             {
-                Ok(value) => (value, false),
-                Err(error)
-                    if resolve_reason == "manual"
-                        && error.is_unavailable()
-                        && (!error.is_policy_missing() || explicit_version) =>
-                {
-                    (
-                        fallback_uvx_agent_install(agent_type, &requested)
-                            .map_err(|fallback| fallback.into_error())?,
-                        true,
-                    )
+                Ok(value) => value,
+                Err(error) if resolve_reason == "manual" && error.is_unavailable() => {
+                    emit_agent_install_event(
+                        emitter,
+                        &task_id,
+                        AgentInstallEventKind::Log,
+                        "bundle_fallback: TOS unavailable; using the managed Python index",
+                    );
+                    None
                 }
                 Err(error) => return Err(error.into_error()),
             };
-            if fallback {
-                emit_agent_install_event(
-                    emitter,
-                    &task_id,
-                    AgentInstallEventKind::Log,
-                    "Fusion unavailable; using the official Python index",
-                );
-            }
-            let required_commands = [cmd];
-            let bundle = if fallback {
-                None
-            } else {
-                match try_runtime_bundle(RuntimeBundleAttempt {
-                    conn: &db.conn,
-                    paths: &paths,
-                    agent_type,
-                    offer: managed.bundle_offer.as_ref(),
-                    current_version: current_version.as_deref(),
-                    required_commands: &required_commands,
-                    reason: resolve_reason,
-                    task_id: &task_id,
-                    emitter,
-                })
-                .await
-                {
-                    Ok(value) => value,
-                    Err(error) if resolve_reason == "manual" && error.is_unavailable() => {
-                        emit_agent_install_event(
-                            emitter,
-                            &task_id,
-                            AgentInstallEventKind::Log,
-                            "bundle_fallback: TOS unavailable; using the managed Python index",
-                        );
-                        None
-                    }
-                    Err(error) => return Err(error.into_error()),
-                }
-            };
             if bundle.is_none() {
-                let prewarm = prewarm_uvx_agent(
+                prewarm_uvx_agent(
                     meta.name,
                     &managed.package_spec,
                     cmd,
@@ -11277,39 +11194,11 @@ pub(crate) async fn acp_prepare_npx_agent_core(
                     &task_id,
                     emitter,
                 )
-                .await;
-                match prewarm {
-                    Ok(()) => {}
-                    Err(UvxPrewarmError::Unavailable(_))
-                        if resolve_reason == "manual" && !fallback =>
-                    {
-                        fallback = true;
-                        emit_agent_install_event(
-                            emitter,
-                            &task_id,
-                            AgentInstallEventKind::Log,
-                            "Fusion Python source unavailable; using the official Python index",
-                        );
-                        let authorized_version = managed.version.clone();
-                        managed = fallback_uvx_agent_install(agent_type, &authorized_version)
-                            .map_err(|error| error.into_error())?;
-                        prewarm_uvx_agent(
-                            meta.name,
-                            &managed.package_spec,
-                            cmd,
-                            python,
-                            Some(&managed.index_url),
-                            &task_id,
-                            emitter,
-                        )
-                        .await
-                        .map_err(UvxPrewarmError::into_error)?;
-                    }
-                    Err(error) => return Err(error.into_error()),
-                }
+                .await
+                .map_err(UvxPrewarmError::into_error)?;
             }
 
-            if !fallback && bundle.is_none() {
+            if bundle.is_none() {
                 managed = confirm_uvx_agent_install(
                     &db.conn,
                     agent_type,
