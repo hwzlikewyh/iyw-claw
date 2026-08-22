@@ -132,4 +132,3 @@ terminal = false
 - 误杀风险：只在既有排除条件全部通过且静默达到阈值后执行；共享 host 隔离不得直接杀其他活动 route。
 - 状态竞争风险：所有 terminal 写入使用 `turn_generation` 和 conversation CAS。
 - 回滚时可先关闭强制隔离，仅保留结构化阶段日志和现有 watchdog；不要关闭当前的 600 秒 UI 兜底。
-

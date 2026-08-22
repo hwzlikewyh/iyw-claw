@@ -157,4 +157,3 @@ protected_count, candidate_count, admission_blocks
 - 阈值降低可能推迟回收，因此保留 hard emergency 512 MiB 立即保护。
 - 回滚可恢复旧阈值，但应保留 tracker、迟滞、活动回合保护和后台 admission 日志。
 - 调整共享性能状态或前端展示 contract 前需要用户确认；首版可只在后端使用新状态，避免扩大改动面。
-
