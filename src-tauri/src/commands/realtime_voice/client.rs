@@ -4,7 +4,11 @@ use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use tokio_tungstenite::{
     connect_async,
-    tungstenite::{http::Request, Message},
+    tungstenite::{
+        client::IntoClientRequest,
+        http::{HeaderValue, Request},
+        Message,
+    },
     MaybeTlsStream, WebSocketStream,
 };
 
@@ -72,14 +76,17 @@ pub(super) async fn connect(token: &str) -> Result<VoiceSocket, AppCommandError>
 }
 
 fn websocket_request(url: &reqwest::Url, token: &str) -> Result<Request<()>, AppCommandError> {
-    Request::builder()
-        .uri(url.as_str())
-        .header("token", token)
-        .body(())
-        .map_err(|error| {
-            AppCommandError::configuration_invalid("Invalid realtime voice gateway request")
-                .with_detail(error.to_string())
-        })
+    let mut request = url.as_str().into_client_request().map_err(|error| {
+        AppCommandError::configuration_invalid("Invalid realtime voice gateway request")
+            .with_detail(error.to_string())
+    })?;
+    let mut token_header = HeaderValue::from_str(token).map_err(|error| {
+        AppCommandError::configuration_invalid("Invalid realtime voice gateway request")
+            .with_detail(error.to_string())
+    })?;
+    token_header.set_sensitive(true);
+    request.headers_mut().insert("token", token_header);
+    Ok(request)
 }
 
 fn connection_error(error: tokio_tungstenite::tungstenite::Error) -> AppCommandError {
