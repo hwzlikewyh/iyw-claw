@@ -2,6 +2,8 @@
 use rand::Rng;
 #[cfg(feature = "tauri-runtime")]
 use sea_orm::DatabaseConnection;
+#[cfg(feature = "tauri-runtime")]
+use tauri::Manager;
 
 #[cfg(feature = "tauri-runtime")]
 use crate::update::preferences;
@@ -9,13 +11,30 @@ use crate::update::preferences;
 use crate::update::release::CheckReason;
 
 #[cfg(feature = "tauri-runtime")]
-const CHECK_INTERVAL_SECS: i64 = 6 * 60 * 60;
+const CHECK_INTERVAL_SECS: i64 = 15 * 60;
 #[cfg(feature = "tauri-runtime")]
 static SCHEDULER_WAKE: tokio::sync::Notify = tokio::sync::Notify::const_new();
 
 #[cfg(feature = "tauri-runtime")]
 pub fn wake() {
     SCHEDULER_WAKE.notify_one();
+}
+
+#[cfg(feature = "tauri-runtime")]
+pub fn wake_for_focus(app: &tauri::AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let db = app.state::<crate::db::AppDatabase>();
+        match preferences::load(&db.conn).await {
+            Ok(value) if value.auto_check && !value.attempted_recently(CHECK_INTERVAL_SECS) => {
+                wake();
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!("[app-update] failed to evaluate focus check: {error}");
+            }
+        }
+    });
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -26,7 +45,10 @@ pub fn spawn(
 ) {
     tauri::async_runtime::spawn(async move {
         let startup_delay = rand::thread_rng().gen_range(30..=90);
-        tokio::time::sleep(std::time::Duration::from_secs(startup_delay)).await;
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_secs(startup_delay)) => {}
+            _ = SCHEDULER_WAKE.notified() => {}
+        }
         loop {
             let delay = run_once(&app, &conn, &state).await;
             tokio::select! {

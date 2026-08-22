@@ -1153,6 +1153,10 @@ mod tauri_app {
             .on_window_event(|window, event| {
                 let label = window.label().to_string();
 
+                if label == "main" && matches!(event, tauri::WindowEvent::Focused(true)) {
+                    crate::update::scheduler::wake_for_focus(window.app_handle());
+                }
+
                 if (label == "settings" || label.starts_with("remote-settings-"))
                     && matches!(
                         event,

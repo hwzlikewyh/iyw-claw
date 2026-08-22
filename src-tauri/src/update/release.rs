@@ -89,7 +89,7 @@ pub struct AppUpdateInfo {
 pub struct DesktopUpdateRequest<'a> {
     pub app: &'a tauri::AppHandle,
     pub preferences: &'a UpdatePreferences,
-    pub access_token: &'a str,
+    pub access_token: Option<&'a str>,
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -129,7 +129,7 @@ pub fn desktop_updater(
                 .with_detail(error.to_string())
         })?;
     let app = request.app.clone();
-    request
+    let mut builder = request
         .app
         .updater_builder()
         .on_before_exit(move || {
@@ -145,9 +145,13 @@ pub fn desktop_updater(
             "X-IYW-Installation-ID",
             &request.preferences.installation_id,
         )
-        .map_err(updater_error)?
-        .header("token", request.access_token)
-        .map_err(updater_error)?
+        .map_err(updater_error)?;
+    if let Some(access_token) = request.access_token {
+        builder = builder
+            .header("token", access_token)
+            .map_err(updater_error)?;
+    }
+    builder
         .timeout(Duration::from_secs(20))
         .build()
         .map_err(updater_error)

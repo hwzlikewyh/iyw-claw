@@ -112,6 +112,13 @@ impl UpdatePreferences {
             .is_some_and(|value| Utc::now().signed_duration_since(value).num_seconds() < seconds)
     }
 
+    pub fn attempted_recently(&self, seconds: i64) -> bool {
+        self.last_checked_at
+            .as_deref()
+            .and_then(parse_time)
+            .is_some_and(|value| Utc::now().signed_duration_since(value).num_seconds() < seconds)
+    }
+
     pub fn reminder_delay(&self) -> Option<std::time::Duration> {
         let deadline = self.remind_after.as_deref().and_then(parse_time)?;
         let millis = deadline

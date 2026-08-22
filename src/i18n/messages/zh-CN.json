@@ -245,7 +245,7 @@
     "versionTitle": "软件更新",
     "updateDescription": "点击检查后会从配置的发布源拉取最新版本信息，有新版本时可直接下载并安装。",
     "autoCheckUpdates": "自动检查更新",
-    "autoCheckUpdatesHint": "启动后及约每 6 小时检查一次，不会静默下载或安装。",
+    "autoCheckUpdatesHint": "启动后、回到应用时及约每 15 分钟检查一次，不会静默下载或安装。",
     "updateChannel": "更新通道",
     "stableChannel": "稳定版",
     "betaChannel": "测试版",

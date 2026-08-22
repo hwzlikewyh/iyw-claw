@@ -245,7 +245,7 @@
     "versionTitle": "Software Update",
     "updateDescription": "Check the configured release source for newer versions and install directly when available.",
     "autoCheckUpdates": "Check for updates automatically",
-    "autoCheckUpdatesHint": "Checks after startup and about every 6 hours. Updates are never installed silently.",
+    "autoCheckUpdatesHint": "Checks after startup, when returning to the app, and about every 15 minutes. Updates are never installed silently.",
     "updateChannel": "Update channel",
     "stableChannel": "Stable",
     "betaChannel": "Beta",
