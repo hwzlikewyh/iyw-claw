@@ -212,6 +212,16 @@ export function isOfficePreviewable(path: string | null | undefined): boolean {
   return ext === "docx" || ext === "xlsx" || ext === "pptx"
 }
 
+export function isHiddenPath(path: string | null | undefined): boolean {
+  if (!path) return false
+  return path
+    .split(/[\\/]/)
+    .some(
+      (segment) =>
+        segment.startsWith(".") && segment !== "." && segment !== ".."
+    )
+}
+
 export function languageFromPath(path: string): string {
   const lower = path.toLowerCase()
   const basename = lower.split(/[\\/]/).pop() ?? lower

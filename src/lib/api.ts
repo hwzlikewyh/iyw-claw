@@ -3475,6 +3475,13 @@ export async function readWorkspaceFileBase64(
   })
 }
 
+export async function workspaceFileExists(
+  rootPath: string,
+  path: string
+): Promise<boolean> {
+  return getTransport().call("workspace_file_exists", { rootPath, path })
+}
+
 export async function readFilePreview(
   rootPath: string,
   path: string,

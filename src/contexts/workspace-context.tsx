@@ -25,6 +25,7 @@ import {
   readFilePreview,
   saveFileContent,
   saveFileCopy,
+  workspaceFileExists,
 } from "@/lib/api"
 import type { FileEditContent } from "@/lib/types"
 import {
@@ -37,6 +38,7 @@ import {
 } from "@/lib/file-open-target"
 import { isAbsoluteFilePath } from "@/lib/file-path-display"
 import {
+  isHiddenPath,
   isHtmlPreviewable,
   isImageFile,
   isOfficePreviewable,
@@ -1281,6 +1283,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
     const autoOpened = new Set<string>()
     const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>()
     const streamRoot = folderPath
+    let cancelled = false
     const unsubscribe = subscribeOfficeEnvelopes(({ changed_paths }) => {
       if (!changed_paths || changed_paths.length === 0) return
       // Tab identity is the absolute path, so joining the stream root onto
@@ -1294,6 +1297,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       )
       for (const changed of changed_paths) {
         if (!isOfficePreviewable(changed)) continue
+        if (isHiddenPath(changed)) continue
         const abs = joinRootRel(streamRoot, changed)
         if (autoOpened.has(abs) || openPaths.has(abs)) continue
         const pending = pendingTimers.get(abs)
@@ -1302,13 +1306,35 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
           abs,
           setTimeout(() => {
             pendingTimers.delete(abs)
-            autoOpened.add(abs)
-            void openFilePreview(abs)
+            void workspaceFileExists(streamRoot, changed)
+              .then((exists) => {
+                const alreadyOpen = fileTabsRef.current.some(
+                  (tab) => tab.kind === "file" && tab.path === abs
+                )
+                if (
+                  cancelled ||
+                  !exists ||
+                  autoOpened.has(abs) ||
+                  alreadyOpen
+                ) {
+                  return
+                }
+                autoOpened.add(abs)
+                void openFilePreview(abs)
+              })
+              .catch((error) => {
+                if (cancelled) return
+                console.warn(
+                  "[workspace] Office auto-preview path check failed",
+                  error
+                )
+              })
           }, 700)
         )
       }
     })
     return () => {
+      cancelled = true
       unsubscribe()
       for (const timer of pendingTimers.values()) clearTimeout(timer)
     }

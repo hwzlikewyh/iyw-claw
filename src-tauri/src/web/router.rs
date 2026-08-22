@@ -488,6 +488,10 @@ pub fn build_router(
             post(handlers::files::read_workspace_file_base64),
         )
         .route(
+            "/workspace_file_exists",
+            post(handlers::files::workspace_file_exists),
+        )
+        .route(
             "/read_file_for_edit",
             post(handlers::files::read_file_for_edit),
         )
