@@ -45,6 +45,11 @@ jobs:
             target: "i686-pc-windows-msvc"
             artifact: "iyw-claw-server-windows-x86"
     runs-on: ${{ matrix.runner }}
+    env:
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
+      CARGO_PROFILE_RELEASE_LTO: "thin"
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -62,6 +67,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -270,3 +278,8 @@ jobs:
             Write-Warning "Release asset upload attempt $attempt failed; retrying"
             Start-Sleep -Seconds ($attempt * 10)
           }
+
+      - name: Show sccache statistics
+        if: always()
+        shell: bash
+        run: sccache --show-stats

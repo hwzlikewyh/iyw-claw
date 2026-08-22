@@ -57,6 +57,14 @@ jobs:
             runner: "windows-2022"
             target: "i686-pc-windows-msvc"
     runs-on: ${{ matrix.runner }}
+    env:
+      # Thin LTO keeps cross-crate optimization while allowing parallel
+      # codegen. Full LTO with one codegen unit made Linux releases approach
+      # the two-hour job limit.
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
+      CARGO_PROFILE_RELEASE_LTO: "thin"
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -85,6 +93,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -262,10 +273,6 @@ jobs:
         if: contains(matrix.target, 'windows')
         uses: tauri-apps/tauri-action@v0.6.1
         env:
-          # Full LTO with one codegen unit dominates Windows release time. Thin
-          # LTO keeps cross-crate optimization while allowing parallel codegen.
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
-          CARGO_PROFILE_RELEASE_LTO: "thin"
           IYW_CLAW_SKIP_SIDECAR: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -345,7 +352,7 @@ jobs:
           releaseDraft: true
           prerelease: ${{ inputs.prerelease }}
           tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
-          args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm,appimage --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles appimage --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
           includeUpdaterJson: false
           retryAttempts: 2
 
@@ -377,3 +384,8 @@ jobs:
         if: contains(matrix.target, 'apple-darwin')
         shell: bash
         run: pnpm tauri:verify-bundle-size --target "${{ matrix.target }}"
+
+      - name: Show sccache statistics
+        if: always()
+        shell: bash
+        run: sccache --show-stats
