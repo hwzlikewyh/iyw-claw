@@ -1,5 +1,6 @@
 mod source;
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use chrono::Utc;
@@ -14,6 +15,8 @@ use serde_json::Value;
 use crate::db::entities::{conversation, task_artifact};
 use crate::db::error::DbError;
 use source::{current_artifact_state, resolve_sources, ResolvedArtifact};
+
+const CONVERSATION_TREE_BATCH_SIZE: usize = 500;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -119,7 +122,8 @@ pub async fn list_artifacts(
         .inner_join(conversation::Entity)
         .order_by_desc(task_artifact::Column::CreatedAt);
     if let Some(id) = conversation_id {
-        query = query.filter(task_artifact::Column::ConversationId.eq(id));
+        let conversation_ids = conversation_tree_ids(conn, id).await?;
+        query = query.filter(task_artifact::Column::ConversationId.is_in(conversation_ids));
     }
     if let Some(id) = folder_id {
         query = query.filter(conversation::Column::FolderId.eq(id));
@@ -147,6 +151,32 @@ pub async fn list_artifacts(
         });
     }
     Ok(results)
+}
+
+async fn conversation_tree_ids(
+    conn: &DatabaseConnection,
+    root_id: i32,
+) -> Result<Vec<i32>, DbError> {
+    let mut visited = HashSet::from([root_id]);
+    let mut result = vec![root_id];
+    let mut frontier = vec![root_id];
+    while !frontier.is_empty() {
+        let mut next = Vec::new();
+        for parent_ids in frontier.chunks(CONVERSATION_TREE_BATCH_SIZE) {
+            let children = conversation::Entity::find()
+                .filter(conversation::Column::ParentId.is_in(parent_ids.iter().copied()))
+                .all(conn)
+                .await?;
+            next.extend(
+                children
+                    .into_iter()
+                    .filter_map(|child| visited.insert(child.id).then_some(child.id)),
+            );
+        }
+        result.extend(next.iter().copied());
+        frontier = next;
+    }
+    Ok(result)
 }
 
 async fn persist_current_state(
