@@ -40,7 +40,10 @@ interface TabProviderProps {
 export function TabProvider({ children }: TabProviderProps) {
   const t = useTranslations("Folder.tabContext")
   const { activateConversationPane } = useWorkspaceActions()
-  const { disconnect: acpDisconnect } = useAcpActions()
+  const {
+    disconnect: acpDisconnect,
+    disconnectForReplacement: acpDisconnectForReplacement,
+  } = useAcpActions()
   const { sortedTypes: sortedAvailableAgents, fresh: agentsFresh } =
     useSortedAvailableAgents()
 
@@ -73,10 +76,12 @@ export function TabProvider({ children }: TabProviderProps) {
   }, [t])
 
   useEffect(() => {
-    useTabStore
-      .getState()
-      .setSideEffects({ activateConversationPane, acpDisconnect })
-  }, [activateConversationPane, acpDisconnect])
+    useTabStore.getState().setSideEffects({
+      activateConversationPane,
+      acpDisconnect,
+      acpDisconnectForReplacement,
+    })
+  }, [activateConversationPane, acpDisconnect, acpDisconnectForReplacement])
 
   useEffect(() => {
     useTabStore

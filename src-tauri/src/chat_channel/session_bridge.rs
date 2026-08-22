@@ -15,6 +15,18 @@ pub struct PendingPermission {
     pub sent_message_id: Option<SentMessageId>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionOwnership {
+    ChannelOwned,
+    Borrowed,
+}
+
+impl SessionOwnership {
+    pub const fn owns_connection(self) -> bool {
+        matches!(self, Self::ChannelOwned)
+    }
+}
+
 pub struct ActiveSession {
     pub channel_id: i32,
     pub sender_id: String,
@@ -24,6 +36,7 @@ pub struct ActiveSession {
     pub bind_on_start: bool,
     pub conversation_id: i32,
     pub connection_id: String,
+    pub ownership: SessionOwnership,
     pub registration_generation: u64,
     /// External Agent session id this connection is attempting to restore.
     /// Retained for compare-and-swap cleanup when the failure event was
@@ -344,5 +357,16 @@ impl SessionBridge {
 
     pub fn all_sessions_mut(&mut self) -> impl Iterator<Item = &mut ActiveSession> {
         self.sessions.values_mut()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SessionOwnership;
+
+    #[test]
+    fn only_channel_owned_sessions_disconnect_the_connection() {
+        assert!(SessionOwnership::ChannelOwned.owns_connection());
+        assert!(!SessionOwnership::Borrowed.owns_connection());
     }
 }

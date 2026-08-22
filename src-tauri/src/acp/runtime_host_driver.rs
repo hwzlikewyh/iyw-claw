@@ -1,5 +1,5 @@
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     Arc,
 };
 use std::time::{Duration, Instant};
@@ -43,15 +43,16 @@ pub(super) fn spawn(
     router: SessionRequestRouter,
     shutdown: CancellationToken,
     healthy: Arc<AtomicBool>,
+    pid: Arc<AtomicU32>,
     ready: tokio::sync::oneshot::Sender<Result<HostReady, AcpError>>,
     startup_trace: Option<crate::acp::startup_trace::StartupTrace>,
 ) -> tokio::task::JoinHandle<RuntimeHostDriverOutcome> {
     tokio::spawn(async move {
         let client = build_client(
-            router,
+            router.clone(),
             agent_type,
             capabilities,
-            shutdown,
+            shutdown.clone(),
             Arc::clone(&healthy),
             ready,
             startup_trace,
@@ -59,7 +60,14 @@ pub(super) fn spawn(
         let result = client.connect_to(agent).await;
         healthy.store(false, Ordering::Release);
         let outcome = RuntimeHostDriverOutcome::from_clean(result.is_ok());
-        log_exit(agent_type, &fingerprint, result);
+        log_exit(
+            agent_type,
+            &fingerprint,
+            pid.load(Ordering::Acquire),
+            router.route_count(),
+            shutdown.is_cancelled(),
+            result,
+        );
         outcome
     })
 }
@@ -299,19 +307,45 @@ async fn initialize_agent(
     }
 }
 
-fn log_exit(agent_type: AgentType, fingerprint: &str, result: Result<(), sacp::Error>) {
+fn log_exit(
+    agent_type: AgentType,
+    fingerprint: &str,
+    pid: u32,
+    affected_connections: usize,
+    shutdown_requested: bool,
+    result: Result<(), sacp::Error>,
+) {
     let fingerprint = fingerprint.get(..12).unwrap_or(fingerprint);
-    match result {
-        Ok(()) => tracing::info!(
+    match (shutdown_requested, result) {
+        (true, Ok(())) => tracing::info!(
             agent = %agent_type,
             fingerprint,
+            pid,
+            affected_connections,
             "[ACP][host] runtime Host stopped"
         ),
-        Err(error) => tracing::error!(
+        (true, Err(error)) => tracing::warn!(
             agent = %agent_type,
             fingerprint,
+            pid,
+            affected_connections,
             error = %error,
-            "[ACP][host] runtime Host exited"
+            "[ACP][host] runtime Host stopped with an error during shutdown"
+        ),
+        (false, Ok(())) => tracing::warn!(
+            agent = %agent_type,
+            fingerprint,
+            pid,
+            affected_connections,
+            "[ACP][host] runtime Host exited unexpectedly"
+        ),
+        (false, Err(error)) => tracing::error!(
+            agent = %agent_type,
+            fingerprint,
+            pid,
+            affected_connections,
+            error = %error,
+            "[ACP][host] runtime Host failed unexpectedly"
         ),
     }
 }

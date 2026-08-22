@@ -139,6 +139,7 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
   const [actionLoading, setActionLoading] = useState(false)
   const requestProfile = useProfileRequest()
   const profileGenerationRef = useRef(0)
+  const lastSuccessfulProfileRef = useRef<IywAccountProfile | null>(null)
   const mountedRef = useRef(true)
 
   const getGeneration = useCallback(() => profileGenerationRef.current, [])
@@ -154,6 +155,7 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
 
   const markAuthenticationRequired = useCallback(() => {
     if (!mountedRef.current) return
+    lastSuccessfulProfileRef.current = null
     setProfile(null)
     setError(null)
     setStatus("login_required")
@@ -167,6 +169,7 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const applyProfile = useCallback((next: IywAccountProfile) => {
+    if (next.logged_in) lastSuccessfulProfileRef.current = next
     setProfile(next)
     setError(null)
     setStatus(next.logged_in ? "authenticated" : "login_required")
@@ -183,6 +186,16 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
       if (!isGenerationCurrent(generation)) return
       if (extractAppCommandError(reason)?.code === "authentication_failed") {
         markAuthenticationRequired()
+        return
+      }
+
+      if (lastSuccessfulProfileRef.current?.logged_in) {
+        console.warn(
+          "[iyw-account] Profile refresh failed; retaining last successful profile",
+          toErrorMessage(reason)
+        )
+        setError(null)
+        setStatus("authenticated")
         return
       }
       setProfile(null)
@@ -213,6 +226,7 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
   const completeLogin = useCallback(
     (next: IywAccountProfile) => {
       advanceGeneration()
+      lastSuccessfulProfileRef.current = null
       if (mountedRef.current) applyProfile(next)
     },
     [advanceGeneration, applyProfile]
@@ -239,6 +253,7 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
       await iywAccountLogout()
       if (!isGenerationCurrent(generation)) return
       advanceGeneration()
+      lastSuccessfulProfileRef.current = null
       setProfile(null)
       setError(null)
       setStatus("login_required")

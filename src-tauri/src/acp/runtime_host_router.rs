@@ -147,6 +147,14 @@ impl RuntimeHostRouteBinding {
 }
 
 impl SessionRequestRouter {
+    pub(super) fn route_count(&self) -> usize {
+        self.routes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .connections
+            .len()
+    }
+
     pub(super) fn register(
         &self,
         connection_id: String,

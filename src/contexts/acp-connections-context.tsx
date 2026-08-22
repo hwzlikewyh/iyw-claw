@@ -28,6 +28,7 @@ import {
   acpAnswerQuestion,
   acpRespondChannelConfirmation,
   acpDisconnect,
+  acpDisconnectForReplacement,
   acpTouchConnection,
   acpGetSessionSnapshot,
   acpFindConnectionForConversation,
@@ -2418,6 +2419,7 @@ export interface AcpActionsValue {
     options?: { attachOnly?: boolean }
   ): Promise<void>
   disconnect(contextKey: string): Promise<void>
+  disconnectForReplacement(contextKey: string): Promise<boolean>
   disconnectAll(): Promise<void>
   sendPrompt(
     contextKey: string,
@@ -4493,7 +4495,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             // acpDisconnect (that would kill the owner's agent). Owners are
             // disconnected normally before re-spawning under new params.
             if (!existing.isViewer) {
-              await acpDisconnect(existing.connectionId).catch(() => {})
+              const replaced = await acpDisconnectForReplacement(
+                existing.connectionId
+              ).catch(() => false)
+              if (!replaced) return
             }
             releaseConnectionRoute(existing.connectionId, contextKey)
             teardownAttachSubscription(contextKey)
@@ -4869,6 +4874,23 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     [dispatch, releaseConnectionRoute, teardownAttachSubscription]
   )
 
+  const disconnectForReplacement = useCallback(
+    async (contextKey: string): Promise<boolean> => {
+      const conn = storeRef.current.connections.get(contextKey)
+      if (!conn) return !connectingKeysRef.current.has(contextKey)
+      if (conn.isViewer || conn.isDelegationChild) return false
+      const replaced = await acpDisconnectForReplacement(conn.connectionId)
+      if (!replaced) return false
+      releaseConnectionRoute(conn.connectionId, contextKey)
+      teardownAttachSubscription(contextKey)
+      lastActivityRef.current.delete(contextKey)
+      pendingUnmappedEventsRef.current.delete(conn.connectionId)
+      dispatch({ type: "CONNECTION_REMOVED", contextKey })
+      return true
+    },
+    [dispatch, releaseConnectionRoute, teardownAttachSubscription]
+  )
+
   const reapplyConfig = useCallback(
     async (contextKey: string): Promise<boolean> => {
       const conn = storeRef.current.connections.get(contextKey)
@@ -5146,6 +5168,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     () => ({
       connect,
       disconnect,
+      disconnectForReplacement,
       disconnectAll,
       sendPrompt,
       setMode,
@@ -5169,6 +5192,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     [
       connect,
       disconnect,
+      disconnectForReplacement,
       disconnectAll,
       sendPrompt,
       setMode,

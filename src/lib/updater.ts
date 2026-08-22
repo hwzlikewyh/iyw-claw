@@ -252,9 +252,8 @@ export async function getServerUpdateStatus(): Promise<ServerUpdateStatus | null
 }
 
 export async function relaunchApp(): Promise<void> {
+  await getTransport().call("relaunch_app")
   saveRouteForRestore()
-  const { relaunch } = await import("@tauri-apps/plugin-process")
-  await relaunch()
 }
 
 // ─── Server / Docker in-place self-update ──────────────────────────────────

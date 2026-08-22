@@ -264,6 +264,7 @@ export interface TabStoreState {
   setSideEffects: (deps: {
     activateConversationPane: () => void
     acpDisconnect: (contextKey: string) => Promise<void>
+    acpDisconnectForReplacement: (contextKey: string) => Promise<boolean>
   }) => void
   setAgentAvailability: (sortedTypes: AgentType[], fresh: boolean) => void
 }
@@ -281,6 +282,7 @@ interface TabRuntime {
   labels: TabLabels
   activateConversationPane: () => void
   acpDisconnect: (contextKey: string) => Promise<void>
+  acpDisconnectForReplacement: (contextKey: string) => Promise<boolean>
   sortedAvailableAgents: AgentType[]
   agentsFresh: boolean
 }
@@ -294,12 +296,14 @@ function defaultRuntime(): TabRuntime {
     },
     activateConversationPane: () => {},
     acpDisconnect: async () => {},
+    acpDisconnectForReplacement: async () => true,
     sortedAvailableAgents: [],
     agentsFresh: false,
   }
 }
 
 let runtime: TabRuntime = defaultRuntime()
+const authorizedDraftReplacements = new Set<string>()
 
 // ── Cross-client / coordination state (non-reactive; see original TabProvider) ──
 // `version` — last workspace tab version this client observed/applied; every
@@ -1137,8 +1141,26 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     )
     const needsDisconnect =
       existingDraft != null &&
+      !authorizedDraftReplacements.delete(existingDraft.id) &&
       (!(existingDraft.isChat && existingDraft.folderId === 0) ||
         existingDraft.agentType !== targetAgent)
+
+    if (needsDisconnect && existingDraft) {
+      void runtime
+        .acpDisconnectForReplacement(existingDraft.id)
+        .then((replaced) => {
+          const current = get().rawTabs.find(
+            (tab) => tab.id === existingDraft.id
+          )
+          if (!replaced || current !== existingDraft) return
+          authorizedDraftReplacements.add(existingDraft.id)
+          get().openChatModeTab(options)
+        })
+        .catch((error) => {
+          console.error("[TabStore] guarded chat-mode replacement:", error)
+        })
+      return
+    }
 
     const tabId = makeNewConversationTabId()
     const prevState = get()
@@ -1223,11 +1245,6 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
 
     focusTab(existingTab?.id ?? tabId)
 
-    if (needsDisconnect && existingDraft) {
-      void runtime.acpDisconnect(existingDraft.id).catch((err) => {
-        console.error("[TabStore] disconnect chat-mode draft:", err)
-      })
-    }
     runtime.activateConversationPane()
   },
 
@@ -1732,7 +1749,8 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
 
         const expectedAgent = current.agentType
         try {
-          await runtime.acpDisconnect(tab.id)
+          const replaced = await runtime.acpDisconnectForReplacement(tab.id)
+          if (!replaced) return
         } catch (err) {
           console.error("[TabStore] correct provisional disconnect:", err)
         }
@@ -1814,7 +1832,10 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
     for (const request of consumedRequests) {
       void (async () => {
         try {
-          await runtime.acpDisconnect(request.tabId)
+          const replaced = await runtime.acpDisconnectForReplacement(
+            request.tabId
+          )
+          if (!replaced) return
         } catch (err) {
           console.error("[TabStore] disconnect draft tab:", err)
         }
@@ -1879,6 +1900,7 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
   setSideEffects: (deps) => {
     runtime.activateConversationPane = deps.activateConversationPane
     runtime.acpDisconnect = deps.acpDisconnect
+    runtime.acpDisconnectForReplacement = deps.acpDisconnectForReplacement
   },
 
   setAgentAvailability: (sortedTypes, fresh) => {

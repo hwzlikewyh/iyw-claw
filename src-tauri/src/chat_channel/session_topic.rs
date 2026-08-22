@@ -5,7 +5,7 @@ use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 
 use super::i18n;
-use super::session_bridge::{ActiveSession, SessionBridge};
+use super::session_bridge::{ActiveSession, SessionBridge, SessionOwnership};
 use super::session_commands::FollowupRequest;
 use super::session_event_subscriber;
 use super::session_runtime;
@@ -282,6 +282,7 @@ async fn register_session(
             bind_on_start: false,
             conversation_id: conversation.id,
             connection_id: connection_id.to_string(),
+            ownership: SessionOwnership::ChannelOwned,
             registration_generation: 0,
             restoring_external_id: conversation.external_id.clone(),
             expected_external_id: conversation.external_id.clone(),

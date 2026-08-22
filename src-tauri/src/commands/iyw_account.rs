@@ -468,10 +468,12 @@ async fn fetch_profile_with_token(token: &str) -> Result<IywAccountProfile, AppC
                 .with_detail(err.to_string())
         })?;
     if auth.code != 1 {
-        return Err(account_error(
-            auth.message,
-            "Failed to load iyw account balance",
-        ));
+        return Err(
+            AppCommandError::network("Failed to load iyw account balance").with_detail(
+                auth.message
+                    .unwrap_or_else(|| "balance service rejected the request".to_string()),
+            ),
+        );
     }
     let auth_data = serde_json::from_value::<Vec<AuthItem>>(auth.data).map_err(|err| {
         AppCommandError::network("Failed to parse iyw account balance").with_detail(err.to_string())

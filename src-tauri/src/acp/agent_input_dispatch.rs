@@ -139,6 +139,7 @@ impl ConnectionManager {
         id: String,
         payload: AgentInputPayload,
     ) -> Result<AgentInputItem, AcpError> {
+        let _operation_guard = self.acquire_operation_read().await?;
         self.agent_input_runtime.install_db(Arc::new(AppDatabase {
             conn: db.conn.clone(),
         }));
@@ -155,6 +156,7 @@ impl ConnectionManager {
         id: String,
         payload: AgentInputPayload,
     ) -> Result<AgentInputItem, AcpError> {
+        let _operation_guard = self.acquire_operation_read().await?;
         self.agent_input_runtime.install_db(Arc::new(AppDatabase {
             conn: db.conn.clone(),
         }));
@@ -211,6 +213,7 @@ impl ConnectionManager {
         ),
         AcpError,
     > {
+        let _operation_guard = self.acquire_operation_read().await?;
         let (cmd_tx, state, agent_type) = {
             let connections = self.connections.lock().await;
             let connection = connections

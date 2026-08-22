@@ -25,6 +25,9 @@ use crate::acp::feedback::{
     bounded_feedback_batch, FeedbackItem, FeedbackStatus, PendingFeedback, SessionFeedbackAccess,
     MAX_FEEDBACK_CHARS, MAX_FEEDBACK_RESPONSE_BYTES,
 };
+use crate::acp::operation_gate::AgentOperationGate;
+pub(crate) use crate::acp::operation_gate::RelaunchClaim;
+use crate::acp::operation_guard::active_operation_reason;
 use crate::acp::prompt_stall::{assess_prompt_stall, PromptStallAssessment, PromptStallInput};
 use crate::acp::question::{
     build_outcome, QuestionAnswer, QuestionOutcome, QuestionSpec, RegisteredQuestion,
@@ -352,6 +355,7 @@ pub struct ConnectionManager {
         Arc<std::sync::OnceLock<crate::acp::capability_policy::CapabilityPolicyStore>>,
     memory_pressure_tracker: Arc<Mutex<crate::acp::resource_governor::MemoryPressureTracker>>,
     stalled_prompt_observations: Arc<Mutex<HashSet<(String, i64)>>>,
+    operation_gate: Arc<AgentOperationGate>,
     agent_activation_locks: Arc<Mutex<HashMap<AgentType, Arc<Mutex<()>>>>>,
     /// Per-agent-type serialization for `probe_agent_options`. Without
     /// this, rapid agent-tab clicks in the settings UI would fan out one
@@ -400,6 +404,22 @@ impl Default for ConnectionManager {
 impl ConnectionManager {
     const VISIBLE_LEASE_SECS: i64 = 45;
     const PENDING_INPUT_LEASE_SECS: i64 = 120;
+
+    pub(crate) async fn acquire_operation_read(
+        &self,
+    ) -> Result<tokio::sync::OwnedRwLockReadGuard<()>, AcpError> {
+        self.operation_gate.acquire_read().await
+    }
+
+    pub(crate) async fn claim_relaunch(&self) -> Result<RelaunchClaim, AcpError> {
+        let claim = self.operation_gate.try_claim_relaunch()?;
+        if self.has_active_agent_operations().await {
+            return Err(AcpError::protocol(
+                "Active Agent operations must finish before restarting",
+            ));
+        }
+        Ok(claim)
+    }
     pub fn new() -> Self {
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
@@ -416,6 +436,7 @@ impl ConnectionManager {
             capability_policy: Arc::new(std::sync::OnceLock::new()),
             memory_pressure_tracker: Arc::new(Mutex::new(Default::default())),
             stalled_prompt_observations: Arc::new(Mutex::new(HashSet::new())),
+            operation_gate: Arc::new(AgentOperationGate::default()),
             agent_activation_locks: Arc::new(Mutex::new(HashMap::new())),
             probe_locks: Arc::new(Mutex::new(HashMap::new())),
             pending_questions: Arc::new(Mutex::new(HashMap::new())),
@@ -441,6 +462,7 @@ impl ConnectionManager {
             capability_policy: self.capability_policy.clone(),
             memory_pressure_tracker: self.memory_pressure_tracker.clone(),
             stalled_prompt_observations: self.stalled_prompt_observations.clone(),
+            operation_gate: self.operation_gate.clone(),
             agent_activation_locks: self.agent_activation_locks.clone(),
             probe_locks: self.probe_locks.clone(),
             pending_questions: self.pending_questions.clone(),
@@ -615,6 +637,7 @@ impl ConnectionManager {
     }
 
     pub async fn prewarm_codex_runtime(&self) -> Result<bool, AcpError> {
+        let _operation_guard = self.acquire_operation_read().await?;
         let resources = crate::acp::resource_governor::ResourceSnapshot::capture();
         if matches!(
             resources.memory.pressure,
@@ -765,6 +788,7 @@ impl ConnectionManager {
         user_memory_origin: crate::user_memory::UserMemoryOrigin,
         startup_trace: crate::acp::startup_trace::StartupTrace,
     ) -> Result<String, AcpError> {
+        let _operation_guard = self.acquire_operation_read().await?;
         let mut runtime_env = runtime_env;
         crate::acp::trusted_agents::restrict_configured_runtime_env(agent_type, &mut runtime_env);
         if let Some(required) = crate::acp::trusted_agents::minimum_node_version(agent_type) {
@@ -1499,6 +1523,7 @@ impl ConnectionManager {
         conn_id: &str,
         blocks: Vec<PromptInputBlock>,
     ) -> Result<(), AcpError> {
+        let _operation_guard = self.acquire_operation_read().await?;
         let upload_monitor = crate::acp::capability_policy::monitor_prompt_file_upload(&blocks)
             .await
             .map_err(AcpError::from_capability_error)?;
@@ -1611,6 +1636,7 @@ impl ConnectionManager {
         user_messages_override: Option<Vec<(String, Vec<crate::acp::UserMessageBlock>)>>,
         accepted: Option<tokio::sync::oneshot::Sender<()>>,
     ) -> Result<Option<i32>, AcpError> {
+        let _operation_guard = self.acquire_operation_read().await?;
         let upload_monitor = crate::acp::capability_policy::monitor_prompt_file_upload(&blocks)
             .await
             .map_err(AcpError::from_capability_error)?;
@@ -2483,7 +2509,11 @@ impl ConnectionManager {
             connections.remove(conn_id)
         };
         if let Some(connection) = connection {
-            tracing::info!(connection_id = conn_id, "[ACP] disconnect requested");
+            tracing::info!(
+                connection_id = conn_id,
+                source = "explicit_request",
+                "[ACP] disconnect requested"
+            );
             connection.request_disconnect();
             Ok(())
         } else {
@@ -2493,6 +2523,52 @@ impl ConnectionManager {
             );
             Err(AcpError::ConnectionNotFound(conn_id.into()))
         }
+    }
+
+    pub async fn disconnect_for_replacement(&self, conn_id: &str) -> Result<bool, AcpError> {
+        let prompt_lock = {
+            let connections = self.connections.lock().await;
+            let Some(connection) = connections.get(conn_id) else {
+                return Ok(true);
+            };
+            Arc::clone(&connection.prompt_lock)
+        };
+        let Ok(_prompt_guard) = prompt_lock.try_lock_owned() else {
+            tracing::info!(
+                connection_id = conn_id,
+                "[ACP] target replacement blocked by busy prompt path"
+            );
+            return Ok(false);
+        };
+        let connection = {
+            let mut connections = self.connections.lock().await;
+            let Some(state) = connections
+                .get(conn_id)
+                .map(|connection| Arc::clone(&connection.state))
+            else {
+                return Ok(true);
+            };
+            let Ok(state) = state.try_read() else {
+                return Ok(false);
+            };
+            if active_operation_reason(&state, chrono::Utc::now()).is_some() {
+                tracing::info!(
+                    connection_id = conn_id,
+                    "[ACP] target replacement blocked by active operation"
+                );
+                return Ok(false);
+            }
+            connections.remove(conn_id)
+        };
+        if let Some(connection) = connection {
+            tracing::info!(
+                connection_id = conn_id,
+                source = "target_replacement",
+                "[ACP] disconnect requested"
+            );
+            connection.request_disconnect();
+        }
+        Ok(true)
     }
 
     pub(crate) async fn disconnect_if_reclaimable(
@@ -2947,6 +3023,26 @@ impl ConnectionManager {
                 ConnectionStatus::Disconnected | ConnectionStatus::Error
             )
         })
+    }
+
+    pub async fn has_active_agent_operations(&self) -> bool {
+        let states = {
+            let connections = self.connections.lock().await;
+            connections
+                .values()
+                .map(|connection| Arc::clone(&connection.state))
+                .collect::<Vec<_>>()
+        };
+        let now = chrono::Utc::now();
+        for state in states {
+            let Ok(state) = state.try_read() else {
+                return true;
+            };
+            if active_operation_reason(&state, now).is_some() {
+                return true;
+            }
+        }
+        false
     }
 
     pub async fn has_live_agent_session(&self, agent_type: AgentType) -> bool {
