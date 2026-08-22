@@ -1356,6 +1356,7 @@ mod tauri_app {
                 folders::get_file_tree,
                 folders::read_file_base64,
                 folders::read_workspace_file_base64,
+                folders::workspace_file_exists,
                 folders::read_file_preview,
                 folders::read_file_for_edit,
                 folders::save_file_content,

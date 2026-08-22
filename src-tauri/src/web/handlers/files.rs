@@ -48,6 +48,13 @@ pub struct ReadWorkspaceFileBase64Params {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WorkspaceFileExistsParams {
+    pub root_path: String,
+    pub path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ReadFileForEditParams {
     pub root_path: String,
     pub path: String,
@@ -122,6 +129,13 @@ pub async fn read_workspace_file_base64(
         params.max_bytes,
     )
     .await?;
+    Ok(Json(result))
+}
+
+pub async fn workspace_file_exists(
+    Json(params): Json<WorkspaceFileExistsParams>,
+) -> Result<Json<bool>, AppCommandError> {
+    let result = folder_commands::workspace_file_exists(params.root_path, params.path).await?;
     Ok(Json(result))
 }
 

@@ -2744,6 +2744,30 @@ fn ensure_path_in_workspace(root: &Path, target: &Path) -> Result<(), AppCommand
     Ok(())
 }
 
+fn ensure_existing_ancestor_in_workspace(
+    root: &Path,
+    target: &Path,
+) -> Result<(), AppCommandError> {
+    let canonical_root = std::fs::canonicalize(root).map_err(AppCommandError::io)?;
+    let mut candidate = target;
+    loop {
+        match std::fs::canonicalize(candidate) {
+            Ok(canonical) if canonical.starts_with(&canonical_root) => return Ok(()),
+            Ok(_) => {
+                return Err(AppCommandError::invalid_input(
+                    "Path is outside workspace root",
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                candidate = candidate.parent().ok_or_else(|| {
+                    AppCommandError::invalid_input("Unable to resolve path within workspace")
+                })?;
+            }
+            Err(error) => return Err(AppCommandError::io(error)),
+        }
+    }
+}
+
 fn read_text_full(target: &Path, hard_limit: usize) -> Result<String, AppCommandError> {
     let metadata = std::fs::metadata(target).map_err(AppCommandError::io)?;
     if metadata.len() > hard_limit as u64 {
@@ -3365,6 +3389,30 @@ pub async fn read_workspace_file_base64(
         Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
     })
     .await
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn workspace_file_exists(
+    root_path: String,
+    path: String,
+) -> Result<bool, AppCommandError> {
+    let root = PathBuf::from(&root_path);
+    if !root.is_dir() {
+        return Ok(false);
+    }
+
+    let target = resolve_tree_path(&root, &path)?;
+    ensure_existing_ancestor_in_workspace(&root, &target)?;
+    let metadata = match std::fs::metadata(&target) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(AppCommandError::io(error)),
+    };
+    if !metadata.is_file() {
+        return Ok(false);
+    }
+
+    Ok(true)
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
