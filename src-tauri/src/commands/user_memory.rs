@@ -154,7 +154,7 @@ pub async fn get_user_memory_settings_core(
     manager: &ConnectionManager,
 ) -> Result<UserMemorySettingsSnapshot, AppCommandError> {
     let mut settings = service.settings_snapshot().await?;
-    let health = settings.companion_health.clone();
+    let health = manager.builtin_mcp_health_snapshot();
     project_settings_capabilities(
         &mut settings,
         health,
@@ -172,7 +172,7 @@ pub async fn update_user_memory_settings_core(
     request: UserMemoryUpdateRequest,
 ) -> Result<UserMemoryUpdateResult, AppCommandError> {
     let mut settings = service.update(request).await?;
-    let health = settings.companion_health.clone();
+    let health = manager.builtin_mcp_health_snapshot();
     project_settings_capabilities(
         &mut settings,
         health,
