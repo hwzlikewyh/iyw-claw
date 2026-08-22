@@ -4,8 +4,9 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 
 use crate::chat_channel::manager::ChatChannelManager;
+use crate::db::entities::conversation::ConversationTitleSource;
 use crate::db::error::DbError;
-use crate::db::service::conversation_service;
+use crate::db::service::conversation_title_service;
 use crate::web::event_bridge::EventEmitter;
 
 use super::conversations::{
@@ -54,7 +55,7 @@ pub(crate) async fn update_manual(
     title: String,
 ) -> Result<(), DbError> {
     let guard = lock_conversation(conversation_id).await;
-    conversation_service::update_title(context.conn, conversation_id, title).await?;
+    conversation_title_service::update_manual(context.conn, conversation_id, title).await?;
     drop(guard);
     notify_title_changed(context, conversation_id).await;
     Ok(())
@@ -65,13 +66,69 @@ pub(crate) async fn refresh_auto(
     conversation_id: i32,
     title: &str,
 ) -> Result<bool, DbError> {
-    let guard = lock_conversation(conversation_id).await;
-    let changed =
-        conversation_service::refresh_auto_title(context.conn, conversation_id, title.to_string())
-            .await?;
+    refresh_with_source(
+        context,
+        TitleRefresh {
+            conversation_id,
+            title,
+            source: ConversationTitleSource::Agent,
+        },
+    )
+    .await
+}
+
+pub(crate) async fn refresh_fallback(
+    context: &ConversationTitleContext<'_>,
+    conversation_id: i32,
+    title: &str,
+) -> Result<bool, DbError> {
+    refresh_with_source(
+        context,
+        TitleRefresh {
+            conversation_id,
+            title,
+            source: ConversationTitleSource::UserFallback,
+        },
+    )
+    .await
+}
+
+pub(crate) async fn refresh_summary(
+    context: &ConversationTitleContext<'_>,
+    conversation_id: i32,
+    title: &str,
+) -> Result<bool, DbError> {
+    refresh_with_source(
+        context,
+        TitleRefresh {
+            conversation_id,
+            title,
+            source: ConversationTitleSource::CodexSummary,
+        },
+    )
+    .await
+}
+
+struct TitleRefresh<'a> {
+    conversation_id: i32,
+    title: &'a str,
+    source: ConversationTitleSource,
+}
+
+async fn refresh_with_source(
+    context: &ConversationTitleContext<'_>,
+    refresh: TitleRefresh<'_>,
+) -> Result<bool, DbError> {
+    let guard = lock_conversation(refresh.conversation_id).await;
+    let update = conversation_title_service::AutoTitleUpdate {
+        conversation_id: refresh.conversation_id,
+        title: refresh.title,
+        source: refresh.source,
+    };
+    let changed = conversation_title_service::refresh(context.conn, update).await?;
     drop(guard);
     if changed {
-        notify_title_changed(context, conversation_id).await;
+        notify_title_changed(context, refresh.conversation_id).await;
     }
     Ok(changed)
 }

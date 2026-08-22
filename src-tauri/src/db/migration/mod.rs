@@ -40,6 +40,7 @@ mod m20260816_000002_memory_recall_index;
 mod m20260817_000001_memory_recall_temporal_index;
 mod m20260817_000002_capability_preference;
 mod m20260820_000001_chat_channel_conversation_binding;
+mod m20260822_000001_conversation_title_source;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -86,6 +87,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260817_000001_memory_recall_temporal_index::Migration),
             Box::new(m20260817_000002_capability_preference::Migration),
             Box::new(m20260820_000001_chat_channel_conversation_binding::Migration),
+            Box::new(m20260822_000001_conversation_title_source::Migration),
         ]
     }
 }

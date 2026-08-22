@@ -1,4 +1,3 @@
-use reqwest::StatusCode;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -11,6 +10,7 @@ use crate::db::service::folder_service;
 use crate::models::agent::AgentType;
 
 const MAX_FOLDER_CANDIDATES: usize = 12;
+const ROUTER_MAX_OUTPUT_TOKENS: u32 = 320;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -137,52 +137,21 @@ async fn call_chat_completions(
     config: &ChatNaturalRouterRuntimeConfig,
     context: &RouterContext,
 ) -> Result<LlmRouteOutput, AppCommandError> {
-    let client = reqwest::Client::builder()
-        .timeout(config.timeout)
-        .build()
-        .map_err(|e| {
-            AppCommandError::network("Failed to build router HTTP client")
-                .with_detail(e.to_string())
-        })?;
-
-    let response = client
-        .post(&config.api_url)
-        .bearer_auth(&config.api_key)
-        .json(&json!({
-            "model": config.model,
-            "temperature": 0,
-            "max_tokens": 320,
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": route_json_schema(),
-            },
-            "messages": [
-                {
-                    "role": "system",
-                    "content": router_system_prompt()
-                },
-                {
-                    "role": "user",
-                    "content": serde_json::to_string(context).unwrap_or_default()
-                }
-            ]
-        }))
-        .send()
-        .await
-        .map_err(|e| {
-            AppCommandError::network("Router request failed").with_detail(e.to_string())
-        })?;
-
-    let status = response.status();
-    let body = response.text().await.map_err(|e| {
-        AppCommandError::network("Failed to read router response").with_detail(e.to_string())
-    })?;
-
-    if !status.is_success() {
-        return Err(router_status_error(status, &body));
-    }
-
-    parse_chat_completion_response(&body)
+    let gateway = crate::acp::model_gateway_chat::ModelGatewayChatConfig {
+        api_url: config.api_url.clone(),
+        api_key: config.api_key.clone(),
+        model: config.model.clone(),
+        timeout: config.timeout,
+    };
+    let request = crate::acp::model_gateway_chat::StructuredChatRequest {
+        system_prompt: router_system_prompt(),
+        user_content: serde_json::to_string(context).unwrap_or_default(),
+        json_schema: route_json_schema(),
+        max_tokens: ROUTER_MAX_OUTPUT_TOKENS,
+        operation: "Natural router",
+    };
+    let content = crate::acp::model_gateway_chat::call_structured(&gateway, request).await?;
+    parse_llm_route_output(&content)
 }
 
 fn router_system_prompt() -> &'static str {
@@ -269,26 +238,6 @@ fn route_json_schema() -> Value {
     })
 }
 
-fn parse_chat_completion_response(body: &str) -> Result<LlmRouteOutput, AppCommandError> {
-    let root: Value = serde_json::from_str(body).map_err(|e| {
-        AppCommandError::configuration_invalid("Router response is not JSON")
-            .with_detail(e.to_string())
-    })?;
-    let content = root
-        .pointer("/choices/0/message/content")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            let refusal = root
-                .pointer("/choices/0/message/refusal")
-                .and_then(Value::as_str)
-                .unwrap_or("missing message content");
-            AppCommandError::configuration_invalid("Router response has no content")
-                .with_detail(refusal.to_string())
-        })?;
-
-    parse_llm_route_output(content)
-}
-
 pub fn parse_llm_route_output(raw: &str) -> Result<LlmRouteOutput, AppCommandError> {
     serde_json::from_str(raw).map_err(|e| {
         AppCommandError::configuration_invalid("Router decision is invalid")
@@ -337,21 +286,6 @@ pub fn validate_llm_output(
                 .map(str::to_string)
                 .unwrap_or_else(|| clarification_message(lang)),
         }),
-    }
-}
-
-fn router_status_error(status: StatusCode, body: &str) -> AppCommandError {
-    let detail = body.chars().take(500).collect::<String>();
-    match status {
-        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
-            AppCommandError::authentication_failed("Router API authentication failed")
-                .with_detail(detail)
-        }
-        StatusCode::TOO_MANY_REQUESTS => {
-            AppCommandError::network("Router API rate limited").with_detail(detail)
-        }
-        _ => AppCommandError::network(format!("Router API returned HTTP {status}"))
-            .with_detail(detail),
     }
 }
 

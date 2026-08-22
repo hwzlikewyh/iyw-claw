@@ -407,10 +407,27 @@ pub async fn import_local_conversations_core(
             .map_err(AppCommandError::from)?;
 
     for candidate in title_candidates {
-        if conversation_title::refresh_auto(context, candidate.conversation_id, &candidate.title)
+        let first_user_title =
+            get_folder_conversation_core(context.conn, candidate.conversation_id)
+                .await
+                .ok()
+                .and_then(|(detail, _)| first_visible_user_title(&detail.turns));
+        let is_fallback = first_user_title
+            .as_deref()
+            .is_none_or(|title| title == candidate.title.trim());
+        let refreshed = if is_fallback {
+            conversation_title::refresh_fallback(
+                context,
+                candidate.conversation_id,
+                &candidate.title,
+            )
             .await
-            .map_err(AppCommandError::from)?
-        {
+        } else {
+            conversation_title::refresh_auto(context, candidate.conversation_id, &candidate.title)
+                .await
+        }
+        .map_err(AppCommandError::from)?;
+        if refreshed {
             result.updated += 1;
         } else {
             result.skipped += 1;
@@ -615,7 +632,9 @@ pub async fn get_folder_conversation_core(
         };
 
     strip_private_user_context(&mut turns);
-    parsed_title = parsed_title.map(|title| crate::user_memory::strip_user_context(&title));
+    parsed_title = parsed_title
+        .map(|title| crate::user_memory::strip_user_context(&title))
+        .filter(|title| !crate::acp::conversation_title_summary::is_private_title_candidate(title));
     if parsed_title
         .as_deref()
         .is_none_or(|title| title.trim().is_empty())
@@ -668,6 +687,7 @@ fn strip_private_user_context(turns: &mut Vec<MessageTurn>) {
             ContentBlock::Text { text } => {
                 *text = crate::user_memory::strip_user_context(text);
                 !text.is_empty()
+                    && !crate::acp::conversation_title_summary::is_private_title_candidate(text)
             }
             _ => true,
         });
@@ -857,20 +877,28 @@ pub async fn get_folder_conversation_with_live_core(
     // Per-turn auto-title backfill. The parse `get_folder_conversation_core`
     // just did already produced the session-file title; adopt it (and broadcast
     // a sidebar upsert) whenever the user hasn't renamed this conversation by
-    // hand. `refresh_auto_title` re-checks the lock and equality, so once the
-    // title converges this becomes a cheap no-op on every later turn. The
-    // pre-check here just avoids the extra DB round-trip in the common case.
+    // hand. The source-aware title write re-checks lock, priority, and equality,
+    // so once the title converges this becomes a cheap no-op.
     if !detail.summary.title_locked {
         if let Some(parsed) = parsed_title.as_deref().map(str::trim) {
-            if !parsed.is_empty() && detail.summary.title.as_deref() != Some(parsed) {
+            if !parsed.is_empty()
+                && (detail.summary.title.as_deref() != Some(parsed)
+                    || detail.summary.title_source
+                        == crate::db::entities::conversation::ConversationTitleSource::UserFallback)
+            {
                 let title_context = ConversationTitleContext {
                     conn,
                     emitter,
                     chat_channel_manager,
                 };
-                match conversation_title::refresh_auto(&title_context, conversation_id, parsed)
-                    .await
-                {
+                let fallback = first_visible_user_title(&detail.turns);
+                let refresh = if fallback.as_deref() == Some(parsed) {
+                    conversation_title::refresh_fallback(&title_context, conversation_id, parsed)
+                        .await
+                } else {
+                    conversation_title::refresh_auto(&title_context, conversation_id, parsed).await
+                };
+                match refresh {
                     Ok(true) => {
                         detail.summary.title = Some(parsed.to_string());
                     }

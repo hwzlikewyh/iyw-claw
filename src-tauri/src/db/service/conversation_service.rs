@@ -4,7 +4,7 @@ use sea_orm::{
     EntityTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, QueryTrait, Set,
 };
 
-use crate::db::entities::conversation::ConversationKind;
+use crate::db::entities::conversation::{ConversationKind, ConversationTitleSource};
 use crate::db::entities::{automation_run, conversation, folder};
 use crate::db::error::DbError;
 use crate::models::{AgentType, DbConversationSummary};
@@ -103,6 +103,8 @@ async fn create_inner<C: ConnectionTrait>(
         folder_id: Set(folder_id),
         title: Set(title),
         title_locked: Set(false),
+        title_source: Set(ConversationTitleSource::UserFallback),
+        title_summary_attempted: Set(false),
         agent_type: Set(at_str),
         status: Set(conversation::ConversationStatus::InProgress),
         kind: Set(kind),
@@ -159,72 +161,12 @@ pub async fn update_status_if(
     Ok(result.rows_affected > 0)
 }
 
-/// Manual rename: set the title AND lock it. Once locked, the per-turn
-/// auto-title backfill ([`refresh_auto_title`]) leaves this row alone, so the
-/// user's hand-picked name survives every subsequent session-file parse.
-pub async fn update_title(
-    conn: &DatabaseConnection,
-    conversation_id: i32,
-    title: String,
-) -> Result<(), DbError> {
-    let conv = conversation::Entity::find_by_id(conversation_id)
-        .one(conn)
-        .await?
-        .ok_or_else(|| DbError::Migration(format!("Conversation not found: {conversation_id}")))?;
-    let mut active: conversation::ActiveModel = conv.into();
-    active.title = Set(Some(title));
-    active.title_locked = Set(true);
-    active.updated_at = Set(Utc::now());
-    active.update(conn).await?;
-    Ok(())
-}
-
-/// Auto-derive counterpart to [`update_title`]: write `title` ONLY when the row
-/// is not user-locked and the value actually changed. Never sets `title_locked`
-/// (the title stays eligible for future auto-refreshes, e.g. when an agent like
-/// OpenCode regenerates its own session title) and deliberately does NOT bump
-/// `updated_at` — a title backfill is metadata, not user activity, so it must
-/// not float the row to the top of a recency-sorted sidebar. Returns `true`
-/// when a row was written so the caller can broadcast a sidebar upsert.
-///
-/// Implemented as a single conditional UPDATE (`... WHERE id = ? AND
-/// title_locked = false AND (title IS NULL OR title <> ?)`) so the lock/equality
-/// checks and the write are atomic: a manual rename ([`update_title`], which
-/// sets `title_locked = true`) that lands between a would-be read and the write
-/// can never be clobbered, because the lock predicate is re-evaluated at write
-/// time by the database. A non-existent or soft-deleted row simply matches
-/// nothing (`false`).
-pub async fn refresh_auto_title(
-    conn: &DatabaseConnection,
-    conversation_id: i32,
-    title: String,
-) -> Result<bool, DbError> {
-    use sea_orm::sea_query::Expr;
-    let title = title.trim();
-    if title.is_empty() {
-        return Ok(false);
-    }
-    let res = conversation::Entity::update_many()
-        .col_expr(conversation::Column::Title, Expr::value(title))
-        .filter(conversation::Column::Id.eq(conversation_id))
-        .filter(conversation::Column::DeletedAt.is_null())
-        .filter(conversation::Column::TitleLocked.eq(false))
-        .filter(
-            sea_orm::Condition::any()
-                .add(conversation::Column::Title.is_null())
-                .add(conversation::Column::Title.ne(title)),
-        )
-        .exec(conn)
-        .await?;
-    Ok(res.rows_affected > 0)
-}
-
 /// Pin or unpin a conversation. Sets `pinned_at = now()` when pinning, `NULL`
 /// when unpinning. Only the `pinned_at` column is written — `updated_at` is
 /// deliberately left untouched (SeaORM updates only the `Set` field), because
 /// pinning is a view preference, not conversation activity, and must not float
-/// the row to the top of a recency-sorted sidebar (same reasoning as
-/// [`refresh_auto_title`]). The sidebar's "Pinned" section orders by `pinned_at`
+/// the row to the top of a recency-sorted sidebar (same reasoning as automatic
+/// title refreshes). The sidebar's "Pinned" section orders by `pinned_at`
 /// descending, so a freshly pinned conversation jumps to the top.
 pub async fn update_pin(
     conn: &DatabaseConnection,
@@ -395,6 +337,7 @@ fn conv_to_summary(r: conversation::Model) -> DbConversationSummary {
         folder_id: r.folder_id,
         title: r.title,
         title_locked: r.title_locked,
+        title_source: r.title_source,
         agent_type: parse_agent_type(&r.agent_type),
         status,
         kind: r.kind.clone(),
