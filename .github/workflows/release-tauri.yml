@@ -23,6 +23,14 @@ on:
         required: false
         type: string
         default: release-frontend-out
+      build_matrix:
+        required: false
+        type: string
+        default: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"8","lto":"thin","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"8","lto":"thin","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows x64","runner":"windows-2022","target":"x86_64-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows 32-bit","runner":"windows-2022","target":"i686-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false}]}'
+      release_draft:
+        required: false
+        type: boolean
+        default: true
 
 env:
   RUST_BACKTRACE: short
@@ -32,37 +40,19 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     timeout-minutes: 120
+    continue-on-error: ${{ matrix.optional }}
     permissions:
       contents: write
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: "macOS x64"
-            runner: "macos-latest"
-            target: "x86_64-apple-darwin"
-          - name: "macOS arm64"
-            runner: "macos-latest"
-            target: "aarch64-apple-darwin"
-          - name: "Linux x64"
-            runner: "ubuntu-22.04"
-            target: "x86_64-unknown-linux-gnu"
-          - name: "Linux arm64"
-            runner: "ubuntu-22.04"
-            target: "aarch64-unknown-linux-gnu"
-          - name: "Windows x64"
-            runner: "windows-2022"
-            target: "x86_64-pc-windows-msvc"
-          - name: "Windows 32-bit"
-            runner: "windows-2022"
-            target: "i686-pc-windows-msvc"
+      matrix: ${{ fromJSON(inputs.build_matrix) }}
     runs-on: ${{ matrix.runner }}
     env:
       # Thin LTO keeps cross-crate optimization while allowing parallel
       # codegen. Full LTO with one codegen unit made Linux releases approach
       # the two-hour job limit.
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
-      CARGO_PROFILE_RELEASE_LTO: "thin"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.codegen_units }}
+      CARGO_PROFILE_RELEASE_LTO: ${{ matrix.lto }}
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
     steps:
@@ -257,7 +247,7 @@ jobs:
           releaseId: ${{ inputs.release_id }}
           tagName: ${{ inputs.release_tag }}
           releaseBody: ${{ inputs.release_body }}
-          releaseDraft: true
+          releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
@@ -285,7 +275,7 @@ jobs:
           releaseId: ${{ inputs.release_id }}
           tagName: ${{ inputs.release_tag }}
           releaseBody: ${{ inputs.release_body }}
-          releaseDraft: true
+          releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
           # steps.signing.outputs.config_arg is either empty (unsigned) or
@@ -349,7 +339,7 @@ jobs:
           releaseId: ${{ inputs.release_id }}
           tagName: ${{ inputs.release_tag }}
           releaseBody: ${{ inputs.release_body }}
-          releaseDraft: true
+          releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles appimage --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
@@ -373,7 +363,7 @@ jobs:
           releaseId: ${{ inputs.release_id }}
           tagName: ${{ inputs.release_tag }}
           releaseBody: ${{ inputs.release_body }}
-          releaseDraft: true
+          releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles app,dmg --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}

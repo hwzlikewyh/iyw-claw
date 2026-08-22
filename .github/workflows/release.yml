@@ -327,3 +327,21 @@ jobs:
             });
 
             core.info(`Published release #${releaseId}`);
+
+  build-tauri-linux-arm64:
+    needs:
+      - create-draft-release
+      - prepare-frontend
+      - publish-release
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release-tauri.yml
+    with:
+      release_id: ${{ needs.create-draft-release.outputs.release_id }}
+      release_tag: ${{ needs.create-draft-release.outputs.release_tag }}
+      release_body: ${{ needs.create-draft-release.outputs.release_body }}
+      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
+      prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
+      release_draft: false
+      build_matrix: '{"include":[{"name":"Linux arm64 (optional)","runner":"ubuntu-22.04","target":"aarch64-unknown-linux-gnu","codegen_units":"16","lto":"false","optional":true}]}'
+    secrets: inherit
