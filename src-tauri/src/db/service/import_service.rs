@@ -3,7 +3,7 @@ use sea_orm::{
     QueryFilter, Set,
 };
 
-use crate::db::entities::conversation;
+use crate::db::entities::conversation::{self, ConversationTitleSource};
 use crate::db::error::DbError;
 use crate::models::{AgentType, ConversationSummary, ImportResult};
 use crate::parsers::{history_parsers, path_eq_for_matching};
@@ -92,8 +92,8 @@ enum ImportOutcome {
 
 /// Insert a brand-new conversation, or — when it already exists — refresh its
 /// title from the freshly parsed session file so an AI-generated title that did
-/// not exist at first import is adopted. `refresh_auto_title` is a single
-/// conditional UPDATE that skips locked or unchanged rows and never bumps
+/// not exist at first import is adopted. The shared title coordinator performs
+/// a source-aware conditional UPDATE that skips locked or unchanged rows and never bumps
 /// `updated_at`, so a re-import neither clobbers a manual rename nor reorders a
 /// recency-sorted sidebar. A missing/empty parsed title leaves the existing
 /// title intact rather than nulling it.
@@ -146,6 +146,8 @@ async fn import_one(
         folder_id: Set(folder_id),
         title: Set(summary.title.clone()),
         title_locked: Set(false),
+        title_source: Set(ConversationTitleSource::UserFallback),
+        title_summary_attempted: Set(false),
         agent_type: Set(at_str),
         status: Set(conversation::ConversationStatus::Completed),
         // Imports scan regular folders' session files; chat scratch dirs and

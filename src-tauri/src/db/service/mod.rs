@@ -15,6 +15,7 @@ pub mod chat_channel_tool_request_service;
 pub mod codex_title_service;
 pub mod conversation_binding_service;
 pub mod conversation_service;
+pub mod conversation_title_service;
 pub mod folder_command_service;
 pub mod folder_service;
 pub mod import_service;

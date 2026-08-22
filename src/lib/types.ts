@@ -420,6 +420,7 @@ export interface DbConversationSummary {
   /** True once the user renamed this conversation by hand; the backend then
    *  stops auto-deriving its title from the session file. */
   title_locked: boolean
+  title_source: "user_fallback" | "codex_summary" | "agent" | "manual"
   agent_type: AgentType
   status: string
   /** Mirrors `conversation.kind` — drives sidebar visibility and grouping. */

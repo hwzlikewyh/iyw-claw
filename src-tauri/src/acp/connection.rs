@@ -7708,6 +7708,9 @@ async fn emit_conversation_update(
                 .map(String::as_str)
                 .map(str::trim)
                 .filter(|title| !title.is_empty())
+                .filter(|title| {
+                    !crate::acp::conversation_title_summary::is_private_title_candidate(title)
+                })
             {
                 emit_with_state(
                     state,

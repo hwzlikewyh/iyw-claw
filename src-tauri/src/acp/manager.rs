@@ -223,7 +223,7 @@ async fn user_memory_staleness_snapshot(
 /// Seed title for a freshly-created delegation child row, derived from the
 /// delegating prompt's text blocks (the sub-agent's task). Uses the parser's own
 /// `title_from_user_text` (folds reference links, caps at 100 chars) so the value
-/// matches what `refresh_auto_title` would later compute from that same first
+/// matches what the fallback-title refresh later computes from that same first
 /// turn — the conditional UPDATE then sees no change and doesn't churn. Returns
 /// `None` for a textless prompt, leaving the title unset to be backfilled on
 /// first detail load as before. Kept unlocked by the caller so an AI-generated
@@ -2418,6 +2418,12 @@ impl ConnectionManager {
                     let folder_id = current.folder_id;
                     let agent_type_str = current.agent_type.clone();
                     let git_branch = current.git_branch.clone();
+                    let sibling_title_source = match &current.title_source {
+                        conversation::ConversationTitleSource::Manual => {
+                            conversation::ConversationTitleSource::UserFallback
+                        }
+                        source => source.clone(),
+                    };
                     // The sibling keeps the original's sidebar routing (a forked
                     // chat conversation must stay in the Chat group). `Delegate`
                     // is unreachable here — children are never forked from the
@@ -2446,6 +2452,8 @@ impl ConnectionManager {
                         folder_id: Set(folder_id),
                         title: Set(clean_title),
                         title_locked: Set(false),
+                        title_source: Set(sibling_title_source),
+                        title_summary_attempted: Set(true),
                         agent_type: Set(agent_type_str),
                         status: Set(ConversationStatus::PendingReview),
                         kind: Set(sibling_kind),

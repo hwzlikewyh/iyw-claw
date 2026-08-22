@@ -224,18 +224,30 @@ async fn refresh_agent_title(
     let Some(conversation_id) = state.read().await.conversation_id else {
         return Ok(());
     };
+    let summary = conversation_service::get_by_id(db_conn, conversation_id).await?;
     let title_context = ConversationTitleContext {
         conn: db_conn,
         emitter: &emitter,
         chat_channel_manager,
     };
-    if !conversation_title::refresh_auto(&title_context, conversation_id, title).await? {
+    let fallback_title = crate::parsers::title_from_user_text(title);
+    let is_fallback = summary.title_source
+        == crate::db::entities::conversation::ConversationTitleSource::UserFallback
+        && summary.title.as_deref() == Some(fallback_title.as_str());
+    let changed = if is_fallback {
+        conversation_title::refresh_fallback(&title_context, conversation_id, &fallback_title)
+            .await?
+    } else {
+        conversation_title::refresh_auto(&title_context, conversation_id, title).await?
+    };
+    if !changed {
         return Ok(());
     }
     tracing::info!(
         connection_id = %connection_id,
         conversation_id,
         title_chars = title.chars().count(),
+        fallback = is_fallback,
         "[lifecycle] Agent session title applied"
     );
     Ok(())
@@ -394,13 +406,14 @@ pub(crate) async fn handle_event(
             else {
                 return Ok(());
             };
-            let (conversation_id, last_text, current_model, turn_generation) = {
-                let snap = state_arc.read().await;
+            let (conversation_id, last_text, current_model, turn_generation, title_input) = {
+                let mut snap = state_arc.write().await;
                 (
                     snap.conversation_id,
                     snap.last_assistant_text.clone(),
                     snap.current_model.clone(),
                     snap.turn_generation,
+                    snap.last_completed_turn_title_input.take(),
                 )
             };
             // No conversation row bound (defensive — should never happen in
@@ -459,6 +472,27 @@ pub(crate) async fn handle_event(
                     },
                 )
                 .await;
+                if let Some(input) = title_input {
+                    let title_context = ConversationTitleContext {
+                        conn: db_conn,
+                        emitter: &emitter,
+                        chat_channel_manager,
+                    };
+                    if let Err(error) =
+                        crate::acp::conversation_title_summary::schedule_first_turn_summary(
+                            &title_context,
+                            cid,
+                            input,
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            conversation_id = cid,
+                            error = %error,
+                            "[conversation-title] summary scheduling failed"
+                        );
+                    }
+                }
             }
 
             // If this conversation was spawned by a delegation, resolve the

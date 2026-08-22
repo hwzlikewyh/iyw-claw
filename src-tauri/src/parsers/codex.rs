@@ -1225,7 +1225,7 @@ impl CodexParser {
                                 // auto-title (parity with Claude `aiTitle`, Gemini
                                 // `update_topic`, OpenCode `session.title`). Newest
                                 // non-empty wins, overriding the first-prompt
-                                // fallback; `refresh_auto_title`'s `title_locked`
+                                // fallback; the title coordinator's lock guard
                                 // guard still respects a manual rename.
                                 // Rollout persists `thread_name` (snake_case); the
                                 // live ACP notification uses `threadName`. Accept
@@ -2222,19 +2222,15 @@ fn extract_codex_title_candidate(input: &str, fallback_attached: bool) -> Option
 }
 
 fn extract_codex_text_content(payload: &serde_json::Value) -> Option<String> {
-    let content = payload.get("content")?;
-    if let Some(arr) = content.as_array() {
-        for item in arr {
-            let t = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
-            if t == "input_text" {
-                return item
-                    .get("text")
-                    .and_then(|t| t.as_str())
-                    .map(|t| t.to_string());
-            }
-        }
-    }
-    None
+    let text = payload
+        .get("content")?
+        .as_array()?
+        .iter()
+        .filter(|item| item.get("type").and_then(|value| value.as_str()) == Some("input_text"))
+        .filter_map(|item| item.get("text").and_then(|value| value.as_str()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    (!text.is_empty()).then_some(text)
 }
 
 fn parse_data_uri_image(raw: &str) -> Option<(String, String)> {

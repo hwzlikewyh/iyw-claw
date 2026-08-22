@@ -4,7 +4,7 @@ use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
 };
 
-use crate::db::entities::conversation::ConversationKind;
+use crate::db::entities::conversation::{ConversationKind, ConversationTitleSource};
 use crate::db::entities::{automation_run, conversation, folder};
 use crate::db::error::DbError;
 use crate::models::AgentType;
@@ -123,13 +123,20 @@ async fn refresh_candidate(
     let Some(external_id) = candidate.external_id.as_deref() else {
         return Ok(false);
     };
-    if title.is_empty() || candidate.title.as_deref() == Some(title) {
+    if title.is_empty()
+        || (candidate.title.as_deref() == Some(title)
+            && candidate.title_source == ConversationTitleSource::Agent)
+    {
         return Ok(false);
     }
 
     let old_title = observed_title_condition(candidate.title.as_deref());
     let result = conversation::Entity::update_many()
         .col_expr(conversation::Column::Title, Expr::value(title))
+        .col_expr(
+            conversation::Column::TitleSource,
+            Expr::value(ConversationTitleSource::Agent),
+        )
         .filter(conversation::Column::Id.eq(candidate.id))
         .filter(conversation::Column::AgentType.eq(AgentType::Codex.as_wire().into_owned()))
         .filter(conversation::Column::ExternalId.eq(external_id))

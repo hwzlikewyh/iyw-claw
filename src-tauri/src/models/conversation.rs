@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use super::agent::AgentType;
 use super::message::{MessageTurn, TurnUsage};
-use crate::db::entities::conversation::ConversationKind;
+use crate::db::entities::conversation::{ConversationKind, ConversationTitleSource};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationSummary {
@@ -33,6 +33,7 @@ pub struct DbConversationSummary {
     /// Mirror of `conversation.title_locked`: the user renamed this row by hand,
     /// so the auto-title backfill must leave it alone.
     pub title_locked: bool,
+    pub title_source: ConversationTitleSource,
     pub agent_type: AgentType,
     pub status: String,
     /// Mirrors `conversation.kind` — drives sidebar visibility/grouping

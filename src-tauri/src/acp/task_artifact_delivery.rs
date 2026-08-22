@@ -16,7 +16,7 @@ mod path;
 use path::{create_managed_directory, turn_directory, verify_managed_directory, TurnIdentity};
 
 const MAX_DIRECT_CHILDREN: usize = 100;
-const UNAVAILABLE_CONTEXT: &str = "## Current-turn final artifact delivery\n\nThe managed artifact directory is unavailable for this turn. If the task produces a final user-facing file, directory, or HTTP/HTTPS URL, use `present_task_files` before the final response to add it to the current conversation Artifacts. Do not register source, config, tests, build output, caches, logs, temporary files, or internal work unless the user explicitly requested that item as the final deliverable.";
+const UNAVAILABLE_CONTEXT_BODY: &str = "## Current-turn final artifact delivery\n\nThe managed artifact directory is unavailable for this turn. If the task produces a final user-facing file, directory, or HTTP/HTTPS URL, use `present_task_files` before the final response to add it to the current conversation Artifacts. Do not register source, config, tests, build output, caches, logs, temporary files, or internal work unless the user explicitly requested that item as the final deliverable.";
 
 pub(crate) struct CompletedTurnDelivery<'a> {
     pub db: &'a DatabaseConnection,
@@ -43,14 +43,14 @@ pub(crate) async fn prepare_turn_context(
         Ok(directory) => directory,
         Err(error) => {
             log_failure(("prepare_path", &identity, None), &error);
-            return Some(Arc::from(UNAVAILABLE_CONTEXT));
+            return Some(private_context(UNAVAILABLE_CONTEXT_BODY));
         }
     };
     match create_managed_directory(&identity).await {
         Ok(()) => Some(managed_context(&directory)),
         Err(error) => {
             log_failure(("create_directory", &identity, Some(&directory)), &error);
-            Some(Arc::from(UNAVAILABLE_CONTEXT))
+            Some(private_context(UNAVAILABLE_CONTEXT_BODY))
         }
     }
 }
@@ -236,9 +236,18 @@ async fn emit_delivery_error(
 }
 
 fn managed_context(directory: &Path) -> Arc<str> {
-    Arc::from(format!(
+    private_context(&format!(
         "## Current-turn final artifact delivery\n\nManaged directory for final user-facing file or directory deliverables in this turn:\n{}\n\nIf the task produces final deliverables and the user did not choose another output location, write them under this directory before the final response. Put only final deliverables there as direct children; a deliverable directory may contain its own files. Do not place source, config, tests, build output, caches, logs, temporary files, or internal work there unless the user explicitly requested that item as the final deliverable. Leave the directory empty when the task has no file or directory deliverable. The host registers its direct children only after a successful turn.",
         directory.display()
+    ))
+}
+
+fn private_context(body: &str) -> Arc<str> {
+    Arc::from(format!(
+        "{}\n{}\n{}",
+        crate::user_memory::USER_CONTEXT_START,
+        body,
+        crate::user_memory::USER_CONTEXT_END,
     ))
 }
 

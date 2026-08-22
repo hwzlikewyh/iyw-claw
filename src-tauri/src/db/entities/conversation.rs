@@ -36,6 +36,20 @@ pub enum ConversationKind {
     Delegate,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
+#[serde(rename_all = "snake_case")]
+pub enum ConversationTitleSource {
+    #[sea_orm(string_value = "user_fallback")]
+    UserFallback,
+    #[sea_orm(string_value = "codex_summary")]
+    CodexSummary,
+    #[sea_orm(string_value = "agent")]
+    Agent,
+    #[sea_orm(string_value = "manual")]
+    Manual,
+}
+
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "conversation")]
 pub struct Model {
@@ -47,6 +61,8 @@ pub struct Model {
     /// per-turn auto-title backfill (see `get_folder_conversation_core`) so a
     /// hand-set title is never overwritten by a parsed session-file title.
     pub title_locked: bool,
+    pub title_source: ConversationTitleSource,
+    pub title_summary_attempted: bool,
     pub agent_type: String,
     pub status: ConversationStatus,
     pub kind: ConversationKind,
