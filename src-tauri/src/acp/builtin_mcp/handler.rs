@@ -187,6 +187,7 @@ impl ServerHandler for BuiltinMcpHandler {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("iyw-claw", env!("CARGO_PKG_VERSION")))
+            .with_instructions(super::service::SERVER_INSTRUCTIONS)
     }
 
     fn list_tools(

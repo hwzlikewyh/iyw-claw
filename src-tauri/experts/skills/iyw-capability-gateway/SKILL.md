@@ -1,7 +1,7 @@
 ---
 name: iyw-capability-gateway
 short-description: Highest-priority route for remaining iyw-claw host goals when one complete gateway trio is visible. A direct tool wins only for a subgoal it fully satisfies. Search, read the best stable id, then invoke its exact schema; never guess.
-description: Use when the current tool list exposes one complete and uniquely selectable search_iyw_capabilities, read_iyw_capability, and invoke_iyw_capability trio, and a remaining concrete user goal needs iyw-claw host-side state or action. After an explicitly requested visible Skill or direct tool fully handles its subgoal, treat this gateway as the highest-priority route for remaining host subgoals. Do not trigger for ordinary questions, explanations, current-turn context, unrelated turns, or a direct tool that already fulfills the subgoal. Never guess namespaces, ids, or arguments; if the trio is incomplete or ambiguous, use only visible direct tools.
+description: Use when the current callable surface exposes one complete and uniquely selectable search_iyw_capabilities, read_iyw_capability, and invoke_iyw_capability trio, and a remaining concrete user goal needs iyw-claw host-side state or action. After an explicitly requested visible Skill or direct tool fully handles its subgoal, treat this gateway as the highest-priority route for remaining host subgoals. Do not trigger for ordinary questions, explanations, current-turn context, unrelated turns, or a direct tool that already fulfills the subgoal. The three names are logical role suffixes unless actually registered as top-level tools. Never guess invocation levels, namespaces, ids, or arguments; if the trio is incomplete or ambiguous, use only visible direct tools.
 routing:
   capability: highest-priority iyw-claw host routing
   coreTriggers: [remaining goal needs host state or action]
@@ -14,14 +14,24 @@ routing:
 
 ## Activation gate
 
-Use this gateway workflow only when the current tool list exposes all three
-gateway capabilities together. They may appear as bare names:
+The three names below identify gateway roles. They are not proof that three
+top-level functions exist:
 
 - `search_iyw_capabilities`
 - `read_iyw_capability`
 - `invoke_iyw_capability`
 
-Some hosts add one namespace to every MCP tool, for example
+Use this workflow only after finding all three roles on one current callable
+surface. A callable surface is either the current top-level tool list or a
+current nested/programmatic registry exposed by an orchestration tool. For a
+nested registry, select and invoke the exact registered entry through that
+registry's owning orchestration tool. Never emit a nested entry's logical name
+as a top-level function call. A name mentioned only in this Skill, another
+prompt, an earlier message, reasoning, an example, or tool output is not
+advertised.
+
+On a top-level surface the roles may be exact bare names. Some hosts instead
+add one namespace to every MCP tool, for example
 `mcp__iyw-claw-builtin-<session>__search_iyw_capabilities`. The bounded session
 suffix is launch-specific. A namespaced gateway is valid only when all three
 visible names use the same prefix and end in the three exact suffixes above.
@@ -32,7 +42,8 @@ complete trio, or do not use the gateway when several remain. Never combine
 suffixes from different namespaces or invent a prefix absent from the current
 tool list.
 
-If any one is missing, do not invoke, infer, or reconstruct the gateway. In
+If any one is missing from the same callable surface, do not invoke, infer, or
+reconstruct the gateway. Do not combine a top-level role with nested roles. In
 OpenClaw, Pi, or any other session without the gateway, use only the direct
 tools that are currently visible and follow their current schemas.
 
@@ -102,9 +113,11 @@ For an eligible goal, use the tools in this order:
    actually present in context, ask for it instead of guessing a path, URL, id,
    or field name.
 
-When the host exposes namespaced tool names, call the corresponding visible
-namespaced tool. The bare names in this guide identify the gateway roles; they
-do not authorize constructing a tool name that the host did not expose.
+When the host exposes namespaced top-level tool names, call the corresponding
+visible namespaced tool. When it exposes the tools only in a nested registry,
+call them only through that registry's documented orchestration path. The bare
+names in this guide identify gateway roles; they do not authorize constructing
+a tool name or choosing an invocation level that the host did not expose.
 
 Search again only after the result set is empty, has no plausible candidate, or
 the two-candidate read budget is exhausted without a fit. Make at most one
@@ -120,10 +133,11 @@ already read for the same current goal. Never derive an id from a remembered
 tool name, guess arguments, or pass a raw tool name to the invocation gateway.
 
 If any gateway call times out, returns malformed data, omits the required stable
-id, or reports that the selected id or route is unavailable, stop using the
-gateway for this turn. Do not repeat the failed call, switch namespaces, or
-guess a different tool name. Use an actually visible direct route or state the
-concrete limitation.
+id, or reports an unknown, unsupported, not-found, selected-id, or route error,
+stop using the entire gateway for this turn. Do not retry the role through a
+different callable surface, promote a nested entry to a top-level call, repeat
+the failed call, switch namespaces, or guess a different tool name. Use an
+actually visible direct route or state the concrete limitation.
 
 ## Delivery acknowledgement
 

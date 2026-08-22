@@ -36,7 +36,10 @@ After automatic login is rejected, inspect the non-secret flags. Only a structur
 ask the current internal operator only for the password and run `auth login --password <password>`.
 If no account remains, agents must call `ask_user_question` twice in sequence with the current internal
 operator: ask only for the account and wait, then ask only for the password and wait. Never combine both
-credential questions in one call. Never contact the customer or recommend asking the customer again.
+credential questions in one call. Password collection requires a currently callable tool whose schema
+explicitly supports secret input; the multiple-choice `ask_user_question` schema is not sufficient. If no
+secret route exists or routing fails, stop authentication and never use normal chat, Markdown, another
+free-text tool, or a non-secret form. Never contact the customer or recommend asking the customer again.
 Network, captcha, TTOCR, SSO, token, rate-limit, and other upstream errors retain the saved password and
 must not trigger a credential prompt.
 Serialize authentication and credential writes for a shared config directory; parallel read-only

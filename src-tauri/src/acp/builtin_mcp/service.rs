@@ -23,6 +23,8 @@ mod tasks;
 
 use tasks::spawn_tasks;
 
+pub(super) const SERVER_INSTRUCTIONS: &str = "Use only tool identities and schemas currently advertised by this MCP server on the host's actual callable surface. Gateway names in documentation are roles, not proof of top-level functions. If tools are exposed through a namespace or programmatic registry, call the exact registered identity through that surface. After an unknown, unsupported, or not-found routing error, stop using this server for the turn; do not retry under bare, prefixed, or alternate names.";
+
 #[derive(Clone)]
 pub struct BuiltinMcpClient {
     endpoint: Arc<str>,

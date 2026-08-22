@@ -44,8 +44,12 @@ Use `python $cli` when a working Python 3.10+ executable is already available. E
   saved account, call `ask_user_question` once to ask only for the Lixiao account and wait for the
   current internal operator's answer. Then call `ask_user_question` a second time to ask only for the
   Lixiao password and wait for the answer. Each call must contain exactly one credential question;
-  never request both values in one call or one question. Never contact the customer, recommend asking
-  the customer, or request that the customer provide credentials again.
+  never request both values in one call or one question. `ask_user_question` must be actually callable
+  and its current schema must explicitly support secret input. If it is missing, ambiguous, or returns
+  an unknown, unsupported, or not-found routing error, stop authentication and state that secure
+  credential input is unavailable. Never fall back to ordinary chat, Markdown, another free-text tool,
+  or a non-secret interaction form. Never contact the customer, recommend asking the customer, or
+  request that the customer provide credentials again.
 - Automatically obtain the Lixiao application token from `getApp` when it is absent. The fixed UC login entry supplies only the temporary bootstrap value required to call `getApp`; persist and use only `data.appToken` from the structured response. Do not ask users to provide or configure it during an Agent workflow.
 - Passing `--unlock-if-needed` is the authorization to consume one unlock for that specific enterprise when product details are hidden. Do not ask a separate unlock question or add the flag to bulk queries.
 - When an unlock is actually performed, `company-products --unlock-if-needed` immediately retries products, reads the company card, contact count, and contact details, then confirms product visibility once more. Do not run this workflow against a bulk search result.

@@ -45,7 +45,9 @@ uv run --no-project python $cli --help
 只询问新密码，账号也不存在时才询问账号和密码。网络、超时、限流、验证码或其他 retryable
 错误保留旧密码，不询问新凭证，也不发起第二次自动登录。励销和 IYW CRM 是两套独立系统；
 两个系统都确实缺少凭证时，按各依赖 Skill 的规则一次只询问一个账号或密码字段并等待回答，
-不提供“同一套账号”的选项，也不用 Markdown 模板。
+不提供“同一套账号”的选项，也不用 Markdown 模板。安全凭据提问工具必须当前实际可调用且
+schema 明确支持 secret 输入；缺失或路由失败时停止认证并报告阻塞，不得退回普通聊天、
+其他自由文本工具或非 secret 提问表单。
 
 收到凭证后，立即通过平台过滤的直接登录命令登录并恢复原批次：励销使用
 `auth login --phone ... --password ...`，IYW CRM 使用 `auth login --username ... --password ...`。

@@ -13,7 +13,11 @@ interface:
     present, or ask for account and then password in separate questions when both are absent.
     Never request both fields in one question. Do not ask for credentials
     on retryable network, timeout, rate-limit, or verification errors. Never use a Markdown
-    credential template, offer a shared account option, or open a local login window. After
+    credential template, offer a shared account option, or open a local login window. The
+    credential question tool must be currently callable and explicitly support secret input.
+    If it is unavailable or returns an unknown, unsupported, or not-found routing error, stop
+    authentication and never fall back to normal chat, another free-text tool, or a non-secret
+    form. After
     receiving credentials, immediately use the filtered direct auth login command for the
     affected system.
     Only after both sessions are valid, collect the batch scope and resume the original

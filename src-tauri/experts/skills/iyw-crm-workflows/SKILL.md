@@ -50,8 +50,10 @@ uv run --no-project python $cli api list
   false 时，必须只向当前内部操作人调用一次 `ask_user_question` 询问 IYW CRM 密码；
   两者都为 false 时，必须使用 `ask_user_question` 分两次提问：第一次只问 IYW CRM 账号并等待用户回答，
   第二次只问 IYW CRM 密码并等待用户回答。一次调用只能问一个问题，
-  禁止同时索取账号和密码，也不得用普通回复或 Markdown 凭证模板替代。禁止联系客户、
-  建议找客户或要求客户重新提供凭据。
+  禁止同时索取账号和密码。`ask_user_question` 必须是当前实际可调用且 schema 明确支持
+  secret 输入的安全工具；缺失、歧义或返回 unknown、unsupported、not-found 路由错误时，
+  必须停止认证并说明当前无法安全输入凭据，不得改用普通回复、Markdown 凭证模板、其他
+  自由文本工具或非 secret 提问表单。禁止联系客户、建议找客户或要求客户重新提供凭据。
 - 默认在 `~/.iyw-claw/iyw-crm-workflows/session.json` 明文保存用户名、密码和 Cookie，
   以保持 Windows、Linux 和 macOS 行为一致。可用 `--config-dir` 或
   `IYW_CRM_CONFIG_DIR` 创建隔离测试会话。
