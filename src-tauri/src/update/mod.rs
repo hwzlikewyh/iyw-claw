@@ -39,9 +39,23 @@ pub use state::{new_handle as new_update_state_handle, AppUpdateState, AppUpdate
 /// the lock and wedges future operations.
 pub fn schedule_restart(hold: tokio::sync::OwnedMutexGuard<()>) {
     tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let _hold = hold;
+        restart_now();
+    });
+}
+
+pub fn schedule_restart_with_operation_guard<T>(
+    hold: tokio::sync::OwnedMutexGuard<()>,
+    operation_hold: T,
+) where
+    T: Send + 'static,
+{
+    tokio::spawn(async move {
         // Give axum a moment to write the response body to the client.
         tokio::time::sleep(Duration::from_millis(400)).await;
         let _hold = hold;
+        let _operation_hold = operation_hold;
         restart_now();
     });
 }

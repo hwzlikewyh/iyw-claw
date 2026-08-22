@@ -3030,6 +3030,7 @@ async fn run_connection(
             }
         };
         let stderr_tail = host.stderr_tail();
+        let host_health = host.health_flag();
         if let Some(pid) = host.pid() {
             state.write().await.set_agent_pid(pid);
         }
@@ -3357,6 +3358,7 @@ async fn run_connection(
                                 &prompt_ledger,
                                 delegation_injection.as_ref(),
                                 &stderr_tail,
+                                host_health.as_ref(),
                             )
                             .await;
                             terminal_runtime.release_all_for_session(&sid).await;
@@ -3380,6 +3382,7 @@ async fn run_connection(
                                 &route_binding,
                                 delegation_injection.as_ref(),
                                 &stderr_tail,
+                                host_health.as_ref(),
                             )
                             .await
                             .map_err(ConnectionAttemptError::from);
@@ -3636,6 +3639,7 @@ async fn run_connection(
                             &prompt_ledger,
                             delegation_injection.as_ref(),
                             &stderr_tail,
+                            host_health.as_ref(),
                         )
                         .await;
                         terminal_runtime.release_all_for_session(&sid).await;
@@ -3655,6 +3659,7 @@ async fn run_connection(
                             &route_binding,
                             delegation_injection.as_ref(),
                             &stderr_tail,
+                            host_health.as_ref(),
                         )
                         .await
                         .map_err(ConnectionAttemptError::from)
@@ -3770,6 +3775,7 @@ async fn run_connection(
                     &prompt_ledger,
                     delegation_injection.as_ref(),
                     &stderr_tail,
+                    host_health.as_ref(),
                 )
                 .await;
                 terminal_runtime.release_all_for_session(&sid).await;
@@ -3789,6 +3795,7 @@ async fn run_connection(
                     &route_binding,
                     delegation_injection.as_ref(),
                     &stderr_tail,
+                    host_health.as_ref(),
                 )
                 .await
                 .map_err(ConnectionAttemptError::from)
@@ -4999,6 +5006,7 @@ async fn handle_fork_or_exit(
     // capability as the original.
     delegation_injection: Option<&DelegationInjection>,
     stderr_tail: &Arc<StderrTail>,
+    host_health: &AtomicBool,
 ) -> Result<(), sacp::Error> {
     let fork_info = match loop_result {
         Ok(Some(info)) => info,
@@ -5071,6 +5079,7 @@ async fn handle_fork_or_exit(
         prompt_ledger,
         delegation_injection,
         stderr_tail,
+        host_health,
     )
     .await;
     terminal_runtime.release_all_for_session(&new_sid).await;
@@ -5092,6 +5101,7 @@ async fn handle_fork_or_exit(
         route_binding,
         delegation_injection,
         stderr_tail,
+        host_health,
     ))
     .await
 }
@@ -5291,6 +5301,10 @@ fn is_prompt_transport_error(error: &sacp::Error) -> bool {
             (detail.starts_with("response to `session/prompt` never received:")
                 || detail.starts_with("failed to send outgoing request `session/prompt"))
         })
+}
+
+fn should_terminate_prompt_error(error: &sacp::Error, host_healthy: bool) -> bool {
+    !host_healthy || is_prompt_transport_error(error)
 }
 
 fn prompt_error_kind(detail: &str) -> &'static str {
@@ -5511,6 +5525,7 @@ async fn run_conversation_loop<'a>(
     // `None` for test paths that don't wire delegation.
     delegation_injection: Option<&DelegationInjection>,
     stderr_tail: &Arc<StderrTail>,
+    host_health: &AtomicBool,
 ) -> Result<Option<ForkExitInfo>, sacp::Error> {
     // Session-scoped cache for diffing cumulative `raw_output` snapshots
     // into incremental deltas. Shared across the idle loop and the active
@@ -5569,6 +5584,16 @@ async fn run_conversation_loop<'a>(
                         }
                         Ok(_) => {}
                         Err(e) => {
+                            if !host_health.load(Ordering::Acquire) {
+                                tracing::error!(
+                                    connection_id = conn_id,
+                                    agent_type = %agent_type,
+                                    phase = "idle_update",
+                                    error = %safe_error_detail(&e.to_string()),
+                                    "[ACP] runtime Host became unhealthy"
+                                );
+                                return Err(e);
+                            }
                             drop_log_throttle.record("idle", &e);
                         }
                     }
@@ -5743,6 +5768,17 @@ async fn run_conversation_loop<'a>(
                             let update = match update {
                                 Ok(u) => u,
                                 Err(e) => {
+                                    if !host_health.load(Ordering::Acquire) {
+                                        tracing::error!(
+                                            connection_id = conn_id,
+                                            session_id = %sid.0,
+                                            agent_type = %agent_type,
+                                            phase = "active_update",
+                                            error = %safe_error_detail(&e.to_string()),
+                                            "[ACP] runtime Host became unhealthy"
+                                        );
+                                        return Err(e);
+                                    }
                                     output_probe.note_dropped(DropSite::Decode, &e);
                                     drop_log_throttle.record(DropSite::Decode.label(), &e);
                                     continue;
@@ -5929,7 +5965,17 @@ async fn run_conversation_loop<'a>(
                                         tool_call_failure_stats(&snapshot)
                                     };
                                     prompt_log.failed(&error, tool_call_count, &tool_stats);
-                                    if is_prompt_transport_error(&error) {
+                                    let host_healthy = host_health.load(Ordering::Acquire);
+                                    if should_terminate_prompt_error(&error, host_healthy) {
+                                        tracing::error!(
+                                            connection_id = conn_id,
+                                            session_id = %sid.0,
+                                            agent_type = %agent_type,
+                                            host_healthy,
+                                            error_kind = prompt_error_kind(&error.to_string()),
+                                            error = %safe_error_detail(&error.to_string()),
+                                            "[ACP] prompt RPC failed on an unusable transport"
+                                        );
                                         return Err(error);
                                     }
                                     let detail = safe_error_detail(&error.to_string());
@@ -7798,6 +7844,18 @@ fn session_update_kind(update: &SessionUpdate) -> &'static str {
 mod tests {
     use super::*;
     use crate::acp::delegation::companion::CompanionFeatures;
+
+    #[test]
+    fn prompt_errors_terminate_when_transport_or_host_is_unhealthy() {
+        let ordinary = sacp::util::internal_error("provider rejected prompt");
+        assert!(!should_terminate_prompt_error(&ordinary, true));
+        assert!(should_terminate_prompt_error(&ordinary, false));
+
+        let transport = sacp::util::internal_error(
+            "response to `session/prompt` never received: connection closed",
+        );
+        assert!(should_terminate_prompt_error(&transport, true));
+    }
 
     /// `show_image` is the one companion tool with no settings toggle, so
     /// `companion_features_arg` hard-codes `images`. Assert it survives with

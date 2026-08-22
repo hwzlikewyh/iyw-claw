@@ -61,6 +61,7 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
   const runtimeTaskIdRef = useRef(randomUUID())
   const officeTaskIdRef = useRef(randomUUID())
   const officeBootstrapRef = useRef<Promise<void> | null>(null)
+  const workspaceReadyOnceRef = useRef(false)
   const authenticated = status === "authenticated"
   // The dialog only appears once real installation work starts (or fails).
   // Fast probes ("checking", and a runtime bootstrap that finds everything
@@ -69,7 +70,10 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
   const blocked =
     authenticated &&
     (state === "runtime" || state === "installing" || state === "error")
-  const workspaceReady = authenticated && state === "ready"
+  if (authenticated && state === "ready") {
+    workspaceReadyOnceRef.current = true
+  }
+  const workspaceReady = workspaceReadyOnceRef.current
 
   // Flip into the visible "runtime" state only after an event proves that
   // actual transfer/extraction work started. The backend's ready fast path

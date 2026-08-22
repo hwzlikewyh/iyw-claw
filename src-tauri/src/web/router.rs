@@ -791,6 +791,10 @@ pub fn build_router(
         .route("/acp_connect", post(handlers::acp::acp_connect))
         .route("/acp_disconnect", post(handlers::acp::acp_disconnect))
         .route(
+            "/acp_disconnect_for_replacement",
+            post(handlers::acp::acp_disconnect_for_replacement),
+        )
+        .route(
             "/acp_touch_connection",
             post(handlers::acp::acp_touch_connection),
         )
@@ -1241,6 +1245,7 @@ pub fn build_router(
             post(handlers::app_update::perform_app_update),
         )
         .route("/restart_app", post(handlers::app_update::restart_app))
+        .route("/relaunch_app", post(handlers::app_update::relaunch_app))
         .route("/rollback_app", post(handlers::app_update::rollback_app))
         // ─── Chat Channels ───
         .route(

@@ -65,6 +65,8 @@ pub(crate) mod model_gateway_chat;
 pub mod npm_runtime;
 pub mod opencode_catalog;
 pub mod opencode_plugins;
+pub(crate) mod operation_gate;
+pub(crate) mod operation_guard;
 mod permission_queue;
 mod permission_runtime;
 pub mod preflight;

@@ -56,13 +56,38 @@ pub async fn perform_app_update(
 pub async fn restart_app(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Result<Json<UpdateActionResult>, AppCommandError> {
-    restart_impl(state).map(Json)
+    let operation_guard = state
+        .connection_manager
+        .claim_relaunch()
+        .await
+        .map_err(relaunch_claim_error)?;
+    restart_impl(state, operation_guard).map(Json)
+}
+
+pub async fn relaunch_app(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<()>, AppCommandError> {
+    let operation_guard = state
+        .connection_manager
+        .claim_relaunch()
+        .await
+        .map_err(relaunch_claim_error)?;
+    relaunch_impl(state, operation_guard).map(Json)
 }
 
 pub async fn rollback_app(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Result<Json<UpdateActionResult>, AppCommandError> {
-    rollback_impl(state).await.map(Json)
+    let operation_guard = state
+        .connection_manager
+        .claim_relaunch()
+        .await
+        .map_err(relaunch_claim_error)?;
+    rollback_impl(state, operation_guard).await.map(Json)
+}
+
+fn relaunch_claim_error(error: crate::acp::error::AcpError) -> AppCommandError {
+    AppCommandError::already_exists(error.to_string()).with_detail("active_agent_operations")
 }
 
 // ─── desktop build: not supported ────────────────────────────────────────
@@ -76,12 +101,26 @@ async fn perform_impl(_state: Arc<AppState>) -> Result<AppUpdateState, AppComman
 }
 
 #[cfg(feature = "tauri-runtime")]
-fn restart_impl(_state: Arc<AppState>) -> Result<UpdateActionResult, AppCommandError> {
+fn restart_impl(
+    _state: Arc<AppState>,
+    _operation_guard: crate::acp::manager::RelaunchClaim,
+) -> Result<UpdateActionResult, AppCommandError> {
     Err(not_supported())
 }
 
 #[cfg(feature = "tauri-runtime")]
-async fn rollback_impl(_state: Arc<AppState>) -> Result<UpdateActionResult, AppCommandError> {
+fn relaunch_impl(
+    _state: Arc<AppState>,
+    _operation_guard: crate::acp::manager::RelaunchClaim,
+) -> Result<(), AppCommandError> {
+    Err(not_supported())
+}
+
+#[cfg(feature = "tauri-runtime")]
+async fn rollback_impl(
+    _state: Arc<AppState>,
+    _operation_guard: crate::acp::manager::RelaunchClaim,
+) -> Result<UpdateActionResult, AppCommandError> {
     Err(not_supported())
 }
 
@@ -95,6 +134,20 @@ fn not_supported() -> AppCommandError {
 #[cfg(not(feature = "tauri-runtime"))]
 fn busy() -> AppCommandError {
     AppCommandError::already_exists("An update operation is already in progress")
+}
+
+#[cfg(not(feature = "tauri-runtime"))]
+fn relaunch_impl(
+    state: Arc<AppState>,
+    operation_guard: crate::acp::manager::RelaunchClaim,
+) -> Result<(), AppCommandError> {
+    let guard = state
+        .system_op_lock
+        .clone()
+        .try_lock_owned()
+        .map_err(|_| busy())?;
+    crate::update::schedule_restart_with_operation_guard(guard, operation_guard);
+    Ok(())
 }
 
 /// Refuse on platforms where in-place self-update is not validated. Windows
@@ -218,7 +271,10 @@ fn publish_after_releasing<F: FnOnce()>(guard: tokio::sync::OwnedMutexGuard<()>,
 }
 
 #[cfg(not(feature = "tauri-runtime"))]
-fn restart_impl(state: Arc<AppState>) -> Result<UpdateActionResult, AppCommandError> {
+fn restart_impl(
+    state: Arc<AppState>,
+    operation_guard: crate::acp::manager::RelaunchClaim,
+) -> Result<UpdateActionResult, AppCommandError> {
     ensure_supported()?;
     // Atomically claim the relaunch (flips the shared snapshot to `Restarting`)
     // — rejects a stale status-bar / second-window click unless an update is
@@ -243,7 +299,7 @@ fn restart_impl(state: Arc<AppState>) -> Result<UpdateActionResult, AppCommandEr
         busy()
     })?;
     let restart_delay_ms = crate::update::runtime::restart_delay_ms();
-    crate::update::schedule_restart(guard);
+    crate::update::schedule_restart_with_operation_guard(guard, operation_guard);
     Ok(UpdateActionResult {
         version: None,
         need_restart: false,
@@ -254,7 +310,10 @@ fn restart_impl(state: Arc<AppState>) -> Result<UpdateActionResult, AppCommandEr
 }
 
 #[cfg(not(feature = "tauri-runtime"))]
-async fn rollback_impl(state: Arc<AppState>) -> Result<UpdateActionResult, AppCommandError> {
+async fn rollback_impl(
+    state: Arc<AppState>,
+    operation_guard: crate::acp::manager::RelaunchClaim,
+) -> Result<UpdateActionResult, AppCommandError> {
     ensure_supported()?;
     // Atomically claim the rollback (flips to `Restarting`) only from a settled
     // state — rejects a stale rollback during a staged/in-flight upgrade, and
@@ -289,7 +348,7 @@ async fn rollback_impl(state: Arc<AppState>) -> Result<UpdateActionResult, AppCo
     }
     // Responds first, then exits/re-execs after a short flush delay — the lock
     // is held until the process dies, so nothing can race the relaunch.
-    crate::update::schedule_restart(guard);
+    crate::update::schedule_restart_with_operation_guard(guard, operation_guard);
     Ok(UpdateActionResult {
         version: None,
         // Restart is already scheduled server-side; the client must not issue a

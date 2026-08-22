@@ -10,7 +10,7 @@ use super::channel_context;
 use super::i18n::{self, Lang};
 use super::manager::ChatChannelManager;
 use super::natural_router;
-use super::session_bridge::{ActiveSession, SessionBridge};
+use super::session_bridge::{ActiveSession, SessionBridge, SessionOwnership};
 pub use super::session_dispatch::{
     handle_post_action, CommandMessageResult, CommandPostAction, SessionCommandMessage,
 };
@@ -527,6 +527,7 @@ pub async fn handle_task(
             bind_on_start: true,
             conversation_id: conv.id,
             connection_id: connection_id.clone(),
+            ownership: SessionOwnership::ChannelOwned,
             registration_generation: 0,
             restoring_external_id: None,
             expected_external_id: None,
@@ -757,6 +758,7 @@ pub async fn handle_resume(
             bind_on_start: true,
             conversation_id: conv.id,
             connection_id: connection_id.clone(),
+            ownership: SessionOwnership::ChannelOwned,
             registration_generation: 0,
             restoring_external_id: conv.external_id.clone(),
             expected_external_id: conv.external_id.clone(),
@@ -1227,6 +1229,11 @@ pub(super) async fn resume_conversation_for_followup(
         live_connection.is_some()
     );
 
+    let ownership = if live_connection.is_some() {
+        SessionOwnership::Borrowed
+    } else {
+        SessionOwnership::ChannelOwned
+    };
     let (connection_id, send_now, recovered_with_recap, connection_expected_external_id) =
         match live_connection {
             Some(id) => (id, true, false, expected_external_id.clone()),
@@ -1395,6 +1402,7 @@ pub(super) async fn resume_conversation_for_followup(
         route,
         conv.id,
         connection_id.clone(),
+        ownership,
         connection_expected_external_id,
         conv.agent_type,
         pending_prompt,
@@ -1463,6 +1471,7 @@ async fn register_active_session(
     route: &ConversationRoute,
     conversation_id: i32,
     connection_id: String,
+    ownership: SessionOwnership,
     restoring_external_id: Option<String>,
     agent_type: AgentType,
     pending_prompt: Option<String>,
@@ -1478,6 +1487,7 @@ async fn register_active_session(
         bind_on_start: false,
         conversation_id,
         connection_id: connection_id.clone(),
+        ownership,
         registration_generation: 0,
         restoring_external_id: restoring_external_id.clone(),
         expected_external_id: restoring_external_id.clone(),

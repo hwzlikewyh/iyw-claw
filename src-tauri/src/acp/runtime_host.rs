@@ -95,6 +95,7 @@ impl AgentRuntimeHost {
             router.clone(),
             shutdown.clone(),
             Arc::clone(&healthy),
+            Arc::clone(&pid),
             ready_tx,
             startup_trace,
         );
@@ -199,6 +200,10 @@ impl AgentRuntimeHost {
 
     pub(crate) fn is_healthy(&self) -> bool {
         self.healthy.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn health_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.healthy)
     }
 
     pub(super) fn active_route_count(&self) -> usize {

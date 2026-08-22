@@ -1240,7 +1240,7 @@ async fn disconnect_replaced_sessions(
                 &session.connection_id,
             )
             .await;
-        let _ = request.conn_mgr.disconnect(&session.connection_id).await;
+        disconnect_if_channel_owned(request.conn_mgr, &session).await;
     }
 }
 
@@ -1255,7 +1255,7 @@ async fn disconnect_rejected_session(request: SessionStartRequest<'_>, session: 
             &session.connection_id,
         )
         .await;
-    let _ = request.conn_mgr.disconnect(&session.connection_id).await;
+    disconnect_if_channel_owned(request.conn_mgr, &session).await;
     session_topic::clear_route_if_connection(
         request.db,
         session.channel_id,
@@ -1272,6 +1272,18 @@ async fn disconnect_rejected_session(request: SessionStartRequest<'_>, session: 
         &session,
     )
     .await;
+}
+
+async fn disconnect_if_channel_owned(manager: &ConnectionManager, session: &ActiveSession) {
+    if session.ownership.owns_connection() {
+        let _ = manager.disconnect(&session.connection_id).await;
+        return;
+    }
+    tracing::info!(
+        connection_id = session.connection_id,
+        source = "chat_channel_borrowed_detach",
+        "[ChatChannel] detached borrowed ACP connection without disconnecting owner"
+    );
 }
 
 async fn fail_session_bind(request: SessionStartRequest<'_>, session: ActiveSession, error: &str) {

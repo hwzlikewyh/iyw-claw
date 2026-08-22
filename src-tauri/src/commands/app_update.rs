@@ -16,6 +16,7 @@
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
 
+use crate::acp::manager::ConnectionManager;
 use crate::app_error::AppCommandError;
 use crate::db::AppDatabase;
 use crate::update::preferences::{self, UpdatePreferences, UpdatePreferencesPatch};
@@ -287,7 +288,11 @@ pub async fn perform_app_update(
 pub async fn restart_app(
     app: tauri::AppHandle,
     state: tauri::State<'_, AppUpdateStateHandle>,
+    manager: tauri::State<'_, ConnectionManager>,
 ) -> Result<(), AppCommandError> {
+    let operation_guard = manager.claim_relaunch().await.map_err(|error| {
+        AppCommandError::already_exists(error.to_string()).with_detail("active_agent_operations")
+    })?;
     let handle = state.inner().clone();
     let emitter = EventEmitter::Tauri(app.clone());
     // Atomically claim the relaunch (flips to `Restarting`) only if an update is
@@ -301,6 +306,26 @@ pub async fn restart_app(
     }
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let _operation_guard = operation_guard;
+        app.restart();
+    });
+    Ok(())
+}
+
+/// Guard settings/storage-triggered relaunches with the same Agent activity
+/// check as update restarts. The delay lets the accepted IPC call return so the
+/// renderer can persist its restore route before the process exits.
+#[tauri::command]
+pub async fn relaunch_app(
+    app: tauri::AppHandle,
+    manager: tauri::State<'_, ConnectionManager>,
+) -> Result<(), AppCommandError> {
+    let operation_guard = manager.claim_relaunch().await.map_err(|error| {
+        AppCommandError::already_exists(error.to_string()).with_detail("active_agent_operations")
+    })?;
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let _operation_guard = operation_guard;
         app.restart();
     });
     Ok(())
