@@ -43,6 +43,16 @@ pub struct PromptCapabilitiesInfo {
     pub embedded_context: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub struct AutoContinuationInfo {
+    pub source_generation: i64,
+    pub attempt: u8,
+    pub reason_code: String,
+    pub evidence_kind: String,
+    pub phase: String,
+}
+
 /// Image attached to a tool call on the ACP wire (e.g. codex-acp v0.14+
 /// image generation). Re-export of `models::message::ImageData` — the same
 /// payload is used by `ContentBlock::Image` / `ContentBlock::ImageGeneration`
@@ -144,6 +154,15 @@ pub enum AcpEvent {
         session_id: String,
         stop_reason: String,
         agent_type: String,
+    },
+    /// Host-side one-shot continuation state. This is transient UI state and
+    /// never represents a user-authored message.
+    AutoContinuation {
+        source_generation: i64,
+        attempt: u8,
+        reason_code: String,
+        evidence_kind: String,
+        phase: String,
     },
     /// Session established with agent-assigned session ID
     SessionStarted {

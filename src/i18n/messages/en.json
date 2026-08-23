@@ -2733,6 +2733,13 @@
         "eventErrorTitle": "Agent Error",
         "notificationTurnComplete": "{agent} has finished responding",
         "notificationError": "{agent} error: {message}",
+        "autoContinuation": {
+          "running": "The task appears incomplete. Continuing now.",
+          "needsUserAction": "The task may still be incomplete",
+          "continue": "Continue",
+          "stop": "Stop",
+          "continuePrompt": "Continue completing the current task."
+        },
         "claudeApiRetry": {
           "fallbackError": "authentication_failed",
           "retryingWithMax": "retrying {attempt}/{max}",

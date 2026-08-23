@@ -14,6 +14,7 @@ import {
 import type {
   AgentType,
   AgentInputItem,
+  AutoContinuationInfo,
   AvailableCommandInfo,
   ConfigStaleKind,
   ConnectionStatus,
@@ -63,6 +64,7 @@ export interface UseConnectionReturn {
   availableCommands: AvailableCommandInfo[] | null
   pendingPermission: PendingPermission | null
   agentInputs: AgentInputItem[]
+  autoContinuation: AutoContinuationInfo | null
   pendingUserMessage: PendingUserMessage | null
   pendingQuestion: PendingQuestion | null
   pendingAskQuestion: PendingQuestionState | null
@@ -211,6 +213,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
   const availableCommands = connection?.availableCommands ?? null
   const pendingPermission = connection?.pendingPermission ?? null
   const agentInputs = connection?.agentInputs ?? EMPTY_AGENT_INPUTS
+  const autoContinuation = connection?.autoContinuation ?? null
   const pendingUserMessage = connection?.pendingUserMessage ?? null
   const pendingQuestion = connection?.pendingQuestion ?? null
   const pendingAskQuestion = connection?.pendingAskQuestion ?? null
@@ -319,6 +322,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       availableCommands,
       pendingPermission,
       agentInputs,
+      autoContinuation,
       pendingUserMessage,
       pendingQuestion,
       pendingAskQuestion,
@@ -360,6 +364,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       availableCommands,
       pendingPermission,
       agentInputs,
+      autoContinuation,
       pendingUserMessage,
       pendingQuestion,
       pendingAskQuestion,

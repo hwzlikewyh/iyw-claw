@@ -14,9 +14,9 @@ use crate::acp::feedback::{FeedbackItem, FeedbackStatus};
 use crate::acp::question::PendingQuestionState;
 use crate::acp::session_failure::{SessionFailureRecord, SessionFailureTable};
 use crate::acp::types::{
-    AcpEvent, AvailableCommandInfo, ConfigStaleKind, ConnectionStatus, EventEnvelope,
-    PromptCapabilitiesInfo, PromptInputBlock, SessionConfigKindInfo, SessionConfigOptionInfo,
-    SessionModeStateInfo, ToolCallImageInfo, UserMessageBlock,
+    AcpEvent, AutoContinuationInfo, AvailableCommandInfo, ConfigStaleKind, ConnectionStatus,
+    EventEnvelope, PromptCapabilitiesInfo, PromptInputBlock, SessionConfigKindInfo,
+    SessionConfigOptionInfo, SessionModeStateInfo, ToolCallImageInfo, UserMessageBlock,
 };
 use crate::models::agent::AgentType;
 use crate::models::message::MessageRole;
@@ -293,6 +293,9 @@ pub struct SessionState {
     pub agent_type: AgentType,
     pub working_dir: Option<PathBuf>,
     pub owner_window_label: String,
+    /// Internal delegation children share their parent's owner label but are
+    /// never eligible for host-side user-turn continuation.
+    pub is_delegation_child: bool,
     pub folder_id: Option<i32>,
 
     // 状态
@@ -340,6 +343,7 @@ pub struct SessionState {
     /// authoritative; this live projection is updated by `AgentInputChanged`
     /// so snapshots and attached windows do not need to poll between events.
     pub agent_inputs: Vec<crate::acp::AgentInputItem>,
+    pub auto_continuation: Option<AutoContinuationInfo>,
 
     /// Launched but unresolved Claude background tasks mirrored from the
     /// transcript watcher. A recent watcher heartbeat keeps the CLI alive.
@@ -629,6 +633,7 @@ impl SessionState {
             agent_type,
             working_dir,
             owner_window_label,
+            is_delegation_child: false,
             folder_id,
             status: ConnectionStatus::Connecting,
             live_message: None,
@@ -640,6 +645,7 @@ impl SessionState {
             active_delegations: BTreeMap::new(),
             feedback: Vec::new(),
             agent_inputs: Vec::new(),
+            auto_continuation: None,
             background_outstanding: 0,
             background_activity_at: None,
             modes: None,
@@ -1097,7 +1103,30 @@ impl SessionState {
                 self.status = ConnectionStatus::Connected;
                 self.agent_input_notify.notify_one();
             }
+            AcpEvent::AutoContinuation {
+                source_generation,
+                attempt,
+                reason_code,
+                evidence_kind,
+                phase,
+            } => {
+                if phase == "completed" {
+                    self.auto_continuation = None;
+                } else {
+                    self.auto_continuation = Some(AutoContinuationInfo {
+                        source_generation: *source_generation,
+                        attempt: *attempt,
+                        reason_code: reason_code.clone(),
+                        evidence_kind: evidence_kind.clone(),
+                        phase: phase.clone(),
+                    });
+                    if phase == "started" || phase == "in_flight" {
+                        self.status = ConnectionStatus::Prompting;
+                    }
+                }
+            }
             AcpEvent::UserMessage { message_id, blocks } => {
+                self.auto_continuation = None;
                 // Starting a new prompt acknowledges prior failures. Keep the
                 // records as revision watermarks; a continuing incident must
                 // re-arm itself with a higher revision.
@@ -1299,6 +1328,7 @@ impl SessionState {
             }
             AcpEvent::ClaudeSdkMessage { .. }
             | AcpEvent::SessionLoadFailed { .. }
+            | AcpEvent::AutoContinuation { .. }
             | AcpEvent::UserPromptSent { .. } => {
                 // 这些事件不直接修改 SessionState 的可见字段。
                 // UserPromptSent 是纯通知事件，仅供 chat-channel 推送消费。
@@ -1621,6 +1651,7 @@ impl SessionState {
                 .iter()
                 .map(crate::acp::AgentInputItem::client_projection)
                 .collect(),
+            auto_continuation: self.auto_continuation.clone(),
             background_outstanding: self.background_outstanding,
             feedback_tool_available: self.feedback_tool_available,
             user_memory_capabilities: self.user_memory_capabilities.clone(),
@@ -1726,6 +1757,8 @@ pub struct LiveSessionSnapshot {
     /// Durable waiting/consumed inputs projected from `agent_input_outbox`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agent_inputs: Vec<crate::acp::AgentInputItem>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_continuation: Option<AutoContinuationInfo>,
     #[serde(default, skip_serializing_if = "u32_is_zero")]
     pub background_outstanding: u32,
     /// Whether this agent has the `check_user_feedback` tool (see

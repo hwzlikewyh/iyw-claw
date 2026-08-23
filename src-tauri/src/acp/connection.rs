@@ -31,6 +31,7 @@ use tokio::sync::{mpsc, RwLock};
 
 use crate::acp::agent_input_capabilities::NativeSteerOutcome;
 use crate::acp::agent_storage::AgentStoragePaths;
+use crate::acp::auto_continuation::{self, AutoContinuationEvidence};
 use crate::acp::automatic_mode::automatic_mode_id;
 use crate::acp::background_watch;
 use crate::acp::capability_policy::{runtime_enforcer, Capability, CapabilityRevocationMonitor};
@@ -59,7 +60,7 @@ use crate::acp::types::{
 };
 use crate::models::agent::AgentType;
 use crate::network::proxy;
-use crate::web::event_bridge::{emit_with_state, EventEmitter};
+use crate::web::event_bridge::{emit_with_state, emit_with_state_gated, EventEmitter};
 
 const DEFAULT_COMMAND_COLOR_ENV: [(&str, &str); 1] = [("CLICOLOR_FORCE", "1")];
 const IYW_CLAW_MCP_SERVER_PREFIX: &str = "iyw-claw-builtin-";
@@ -1196,6 +1197,7 @@ pub(crate) async fn spawn_agent_connection(
     preferred_mode_id: Option<String>,
     preferred_config_values: BTreeMap<String, String>,
     user_memory_context: crate::user_memory::UserMemoryContextSnapshot,
+    is_delegation_child: bool,
     delegation_injection: Option<DelegationInjection>,
     builtin_mcp: Option<crate::acp::builtin_mcp::BuiltinMcpClient>,
     version_center_db: Option<sea_orm::DatabaseConnection>,
@@ -1255,6 +1257,7 @@ pub(crate) async fn spawn_agent_connection(
     initial_state.startup_trace = Some(startup_trace.clone());
     initial_state.hermes_memory = hermes_memory.native_memory;
     initial_state.user_memory_context = user_memory_context;
+    initial_state.is_delegation_child = is_delegation_child;
     if session_id.is_some() {
         // The external session already retains the user-memory envelope in its
         // own history. Re-injecting here would mix policy generations. Memory setting
@@ -5315,6 +5318,34 @@ fn prompt_error_kind(detail: &str) -> &'static str {
     }
 }
 
+fn auto_continuation_is_active(state: &SessionState) -> bool {
+    state
+        .auto_continuation
+        .as_ref()
+        .is_some_and(|info| matches!(info.phase.as_str(), "started" | "in_flight"))
+}
+
+async fn emit_auto_continuation_phase(
+    state: &Arc<RwLock<SessionState>>,
+    emitter: &EventEmitter,
+    source_generation: i64,
+    evidence: &AutoContinuationEvidence,
+    phase: &str,
+) {
+    emit_with_state(
+        state,
+        emitter,
+        AcpEvent::AutoContinuation {
+            source_generation,
+            attempt: 1,
+            reason_code: evidence.reason_code.to_string(),
+            evidence_kind: evidence.evidence_kind.to_string(),
+            phase: phase.to_string(),
+        },
+    )
+    .await;
+}
+
 fn agent_runtime_error_kind(agent_type: AgentType, text: &str) -> Option<&'static str> {
     let text = text.trim();
     (agent_type == AgentType::Codex
@@ -5898,6 +5929,72 @@ async fn run_conversation_loop<'a>(
                                         sid.0.as_ref(),
                                     )
                                     .await;
+                                    let auto_evidence = if reason_str == "end_turn" {
+                                        let snapshot = state.read().await;
+                                        auto_continuation::evaluate(
+                                            &snapshot,
+                                            reason_str,
+                                            output_probe.saw_agent_output(),
+                                        )
+                                    } else {
+                                        None
+                                    };
+                                    let source_generation = state.read().await.turn_generation;
+                                    let auto_attempted = state.read().await.auto_continuation.as_ref().is_some_and(
+                                        |info| info.source_generation == source_generation,
+                                    );
+                                    if let Some(evidence) = auto_evidence.as_ref() {
+                                        if !auto_attempted {
+                                            let started = emit_with_state_gated(
+                                                state,
+                                                emitter,
+                                                AcpEvent::AutoContinuation {
+                                                    source_generation,
+                                                    attempt: 1,
+                                                    reason_code: evidence.reason_code.to_string(),
+                                                    evidence_kind: evidence.evidence_kind.to_string(),
+                                                    phase: "started".into(),
+                                                },
+                                                |snapshot| {
+                                                    snapshot.turn_generation == source_generation
+                                                        && snapshot.auto_continuation.is_none()
+                                                },
+                                            )
+                                            .await;
+                                            if started {
+                                                tracing::info!(
+                                                    connection_id = conn_id,
+                                                    source_generation,
+                                                    attempt = 1,
+                                                    reason_code = evidence.reason_code,
+                                                    evidence_kind = evidence.evidence_kind,
+                                                    "[ACP] starting safe auto continuation"
+                                                );
+                                                prompt_response = Box::pin(
+                                                    cx.clone()
+                                                        .send_request_to(
+                                                            Agent,
+                                                            PromptRequest::new(
+                                                                sid.clone(),
+                                                                vec![ContentBlock::Text(
+                                                                    TextContent::new(
+                                                                        auto_continuation::AUTO_CONTINUATION_PROMPT,
+                                                                    ),
+                                                                )],
+                                                            ),
+                                                        )
+                                                        .block_task(),
+                                                );
+                                                tracked_terminal_tool_calls.clear();
+                                                native_background_updates.clear();
+                                                output_probe = TurnOutputProbe::new(stderr_tail.mark());
+                                                tool_call_count = 0;
+                                                cb_state.open_subagents.clear();
+                                                cb_state.closed_subagents.clear();
+                                                continue;
+                                            }
+                                        }
+                                    }
                                     prompt_log.completed(
                                         reason_str,
                                         output_probe.saw_agent_output(),
@@ -5920,6 +6017,31 @@ async fn run_conversation_loop<'a>(
                                             },
                                         )
                                         .await;
+                                    if auto_evidence.is_some() && auto_attempted {
+                                        if let Some(evidence) = auto_evidence.as_ref() {
+                                            emit_auto_continuation_phase(
+                                                state,
+                                                emitter,
+                                                source_generation,
+                                                evidence,
+                                                "needs_user_action",
+                                            )
+                                            .await;
+                                        }
+                                    } else if auto_attempted {
+                                        let evidence = AutoContinuationEvidence {
+                                            reason_code: "auto_continuation_completed",
+                                            evidence_kind: "continuation",
+                                        };
+                                        emit_auto_continuation_phase(
+                                            state,
+                                            emitter,
+                                            source_generation,
+                                            &evidence,
+                                            "completed",
+                                        )
+                                        .await;
+                                    }
                                     // Cascade-cancel any pending delegations
                                     // whenever the parent's turn ended for a
                                     // reason other than clean `end_turn`. The
@@ -6014,6 +6136,21 @@ async fn run_conversation_loop<'a>(
                                             },
                                         )
                                         .await;
+                                    if auto_continuation_is_active(&state.read().await) {
+                                        let source_generation = state.read().await.turn_generation;
+                                        let evidence = AutoContinuationEvidence {
+                                            reason_code: "continuation_failed",
+                                            evidence_kind: "continuation",
+                                        };
+                                        emit_auto_continuation_phase(
+                                            state,
+                                            emitter,
+                                            source_generation,
+                                            &evidence,
+                                            "needs_user_action",
+                                        )
+                                        .await;
+                                    }
                                     if let Some(inj) = delegation_injection {
                                         inj.broker.cancel_by_parent_turn(conn_id).await;
                                     }
@@ -6071,6 +6208,70 @@ async fn run_conversation_loop<'a>(
                                 sid.0.as_ref(),
                             )
                             .await;
+                            let auto_evidence = if reason_str == "end_turn" {
+                                let snapshot = state.read().await;
+                                auto_continuation::evaluate(
+                                    &snapshot,
+                                    reason_str,
+                                    output_probe.saw_agent_output(),
+                                )
+                            } else {
+                                None
+                            };
+                            let source_generation = state.read().await.turn_generation;
+                            let auto_attempted = state.read().await.auto_continuation.as_ref().is_some_and(
+                                |info| info.source_generation == source_generation,
+                            );
+                            if let Some(evidence) = auto_evidence.as_ref() {
+                                if !auto_attempted {
+                                    let started = emit_with_state_gated(
+                                        state,
+                                        emitter,
+                                        AcpEvent::AutoContinuation {
+                                            source_generation,
+                                            attempt: 1,
+                                            reason_code: evidence.reason_code.to_string(),
+                                            evidence_kind: evidence.evidence_kind.to_string(),
+                                            phase: "started".into(),
+                                        },
+                                        |snapshot| {
+                                            snapshot.turn_generation == source_generation
+                                                && snapshot.auto_continuation.is_none()
+                                        },
+                                    )
+                                    .await;
+                                    if started {
+                                        tracing::info!(
+                                            connection_id = conn_id,
+                                            source_generation,
+                                            attempt = 1,
+                                            reason_code = evidence.reason_code,
+                                            evidence_kind = evidence.evidence_kind,
+                                            "[ACP] starting safe auto continuation"
+                                        );
+                                        prompt_response = Box::pin(
+                                            cx.clone()
+                                                .send_request_to(
+                                                    Agent,
+                                                    PromptRequest::new(
+                                                        sid.clone(),
+                                                        vec![ContentBlock::Text(TextContent::new(
+                                                            auto_continuation::AUTO_CONTINUATION_PROMPT,
+                                                        ))],
+                                                    ),
+                                                )
+                                                .block_task(),
+                                        );
+                                        tracked_terminal_tool_calls.clear();
+                                        native_background_updates.clear();
+                                        output_probe = TurnOutputProbe::new(stderr_tail.mark());
+                                        tool_call_count = 0;
+                                        cb_state.open_subagents.clear();
+                                        cb_state.closed_subagents.clear();
+                                        continue;
+                                    }
+                                }
+                            }
                             prompt_log.completed(
                                 reason_str,
                                 output_probe.saw_agent_output(),
@@ -6093,6 +6294,31 @@ async fn run_conversation_loop<'a>(
                                     },
                                 )
                                 .await;
+                            if auto_evidence.is_some() && auto_attempted {
+                                if let Some(evidence) = auto_evidence.as_ref() {
+                                    emit_auto_continuation_phase(
+                                        state,
+                                        emitter,
+                                        source_generation,
+                                        evidence,
+                                        "needs_user_action",
+                                    )
+                                    .await;
+                                }
+                            } else if auto_attempted {
+                                let evidence = AutoContinuationEvidence {
+                                    reason_code: "auto_continuation_completed",
+                                    evidence_kind: "continuation",
+                                };
+                                emit_auto_continuation_phase(
+                                    state,
+                                    emitter,
+                                    source_generation,
+                                    &evidence,
+                                    "completed",
+                                )
+                                .await;
+                            }
                             // Mirror the StopReason-message branch above:
                             // cascade-cancel on any non-`end_turn` reason
                             // so in-flight delegations don't dangle when

@@ -2733,6 +2733,13 @@
         "eventErrorTitle": "Agent 错误",
         "notificationTurnComplete": "{agent} 已完成响应",
         "notificationError": "{agent} 错误：{message}",
+        "autoContinuation": {
+          "running": "检测到任务未完成，正在继续",
+          "needsUserAction": "任务可能未完成",
+          "continue": "继续",
+          "stop": "停止",
+          "continuePrompt": "继续完成当前任务。"
+        },
         "claudeApiRetry": {
           "fallbackError": "authentication_failed",
           "retryingWithMax": "正在重试 {attempt}/{max}",

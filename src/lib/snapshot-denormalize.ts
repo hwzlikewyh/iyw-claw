@@ -1,5 +1,6 @@
 import type {
   ActiveDelegationState,
+  AutoContinuationInfo,
   AgentInputItem,
   AvailableCommandInfo,
   ConfigStaleKind,
@@ -76,6 +77,7 @@ export interface SnapshotPatch {
    *  ConnectionState. `[]` when the server omitted the field. */
   activeDelegations: ActiveDelegationState[]
   agentInputs: AgentInputItem[]
+  autoContinuation: AutoContinuationInfo | null
 }
 
 const DEFAULT_PROMPT_CAPS: PromptCapabilitiesInfo = {
@@ -137,6 +139,7 @@ export function denormalizeSnapshot(wire: LiveSessionSnapshot): SnapshotPatch {
     eventSeq: wire.event_seq,
     activeDelegations: wire.active_delegations ?? [],
     agentInputs: wire.agent_inputs ?? [],
+    autoContinuation: wire.auto_continuation ?? null,
   }
 }
 

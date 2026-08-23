@@ -1237,6 +1237,14 @@ export interface PlanEntryInfo {
   status: string
 }
 
+export interface AutoContinuationInfo {
+  source_generation: number
+  attempt: number
+  reason_code: string
+  evidence_kind: string
+  phase: "started" | "in_flight" | "needs_user_action" | "completed"
+}
+
 export interface AvailableCommandInfo {
   name: string
   description: string
@@ -1329,6 +1337,14 @@ export type AcpEvent =
       type: "turn_complete"
       session_id: string
       stop_reason: string
+    }
+  | {
+      type: "auto_continuation"
+      source_generation: number
+      attempt: number
+      reason_code: string
+      evidence_kind: string
+      phase: AutoContinuationInfo["phase"]
     }
   | {
       // Synthetic notification-only event (chat-channel "user message" push).
@@ -1766,6 +1782,8 @@ export interface LiveSessionSnapshot {
   feedback?: FeedbackItem[]
   /** Durable running-turn inputs. Absent on older backends / when empty. */
   agent_inputs?: AgentInputItem[]
+  /** Transient host-side continuation state; absent on older backends. */
+  auto_continuation?: AutoContinuationInfo | null
   /** Launched but unresolved Claude background tasks. Absent means zero. */
   background_outstanding?: number
   /** Whether this agent has the `check_user_feedback` tool (fixed at launch).

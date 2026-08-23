@@ -16,6 +16,7 @@ pub mod agent_storage;
 pub mod agent_storage_work;
 mod audio_source;
 pub mod audio_transcription;
+pub(crate) mod auto_continuation;
 pub mod auto_update;
 mod automatic_mode;
 pub mod automation_tools;

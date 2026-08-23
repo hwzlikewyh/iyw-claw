@@ -915,6 +915,10 @@ impl ConnectionManager {
             preferred_mode_id,
             preferred_config_values,
             user_memory_context,
+            matches!(
+                user_memory_origin,
+                crate::user_memory::UserMemoryOrigin::Delegation
+            ),
             self.delegation_snapshot(),
             self.builtin_mcp_snapshot(),
             Some(version_center_db.clone()),

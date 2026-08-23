@@ -39,6 +39,7 @@ import { buildDelegationSeedEnvelopes } from "@/lib/delegation-seed"
 import type {
   AgentType,
   AgentInputItem,
+  AutoContinuationInfo,
   AcpAgentStatus,
   AcpEvent,
   ActiveDelegationState,
@@ -193,6 +194,7 @@ export interface ConnectionState {
   pendingPermission: PendingPermission | null
   /** Backend-authoritative durable inputs for the active conversation. */
   agentInputs: AgentInputItem[]
+  autoContinuation: AutoContinuationInfo | null
   /** In-flight user prompt for the current turn — set from a `user_message`
    *  event or a snapshot's `pending_user_message`. A VIEWER mirrors this into
    *  the runtime as a synthesized user turn; `null` outside an active turn. */
@@ -351,6 +353,12 @@ type Action =
       contextKey: string
       record: SessionFailureRecord
     }
+  | {
+      type: "AUTO_CONTINUATION"
+      contextKey: string
+      state: AutoContinuationInfo
+    }
+  | { type: "CLEAR_AUTO_CONTINUATION"; contextKey: string }
   | {
       type: "SETTLE_SESSION_FAILURES"
       contextKey: string
@@ -1156,6 +1164,7 @@ function connectionsReducer(
         liveMessage: null,
         pendingPermission: null,
         agentInputs: [],
+        autoContinuation: null,
         pendingUserMessage: null,
         pendingQuestion: null,
         pendingAskQuestion: null,
@@ -1215,6 +1224,7 @@ function connectionsReducer(
         liveMessage: null,
         pendingPermission: null,
         agentInputs: [],
+        autoContinuation: null,
         pendingUserMessage: null,
         pendingQuestion: null,
         pendingAskQuestion: null,
@@ -1342,6 +1352,7 @@ function connectionsReducer(
         pendingAskQuestion: action.patch.pendingAskQuestion,
         pendingChannelConfirmation: action.patch.pendingChannelConfirmation,
         pendingUserMessage: action.patch.pendingUserMessage,
+        autoContinuation: action.patch.autoContinuation,
         promptCapabilities: mergedPromptCapabilities,
         selectorsReady: mergedSelectorsReady,
         supportsFork: mergedSupportsFork,
@@ -1354,6 +1365,52 @@ function connectionsReducer(
         error: action.patch.lastError,
         lastAppliedSeq: action.patch.eventSeq,
       })
+      return next
+    }
+
+    case "AUTO_CONTINUATION": {
+      const conn = state.get(action.contextKey)
+      if (!conn) return state
+      if (
+        conn.autoContinuation &&
+        conn.autoContinuation.source_generation > action.state.source_generation
+      ) {
+        return state
+      }
+      if (
+        action.state.phase === "completed" &&
+        conn.autoContinuation?.source_generation !==
+          action.state.source_generation
+      ) {
+        return state
+      }
+      const autoContinuation =
+        action.state.phase === "completed" ? null : action.state
+      if (
+        autoContinuation === conn.autoContinuation &&
+        !(
+          action.state.phase === "started" || action.state.phase === "in_flight"
+        )
+      ) {
+        return state
+      }
+      const next = new Map(state)
+      next.set(action.contextKey, {
+        ...conn,
+        autoContinuation,
+        status:
+          action.state.phase === "started" || action.state.phase === "in_flight"
+            ? "prompting"
+            : conn.status,
+      })
+      return next
+    }
+
+    case "CLEAR_AUTO_CONTINUATION": {
+      const conn = state.get(action.contextKey)
+      if (!conn || conn.autoContinuation === null) return state
+      const next = new Map(state)
+      next.set(action.contextKey, { ...conn, autoContinuation: null })
       return next
     }
 
@@ -3527,6 +3584,23 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             contextKey,
             entries: e.entries,
           })
+          break
+        case "auto_continuation":
+          flushStreamingQueue()
+          dispatch({
+            type: "AUTO_CONTINUATION",
+            contextKey,
+            state: {
+              source_generation: e.source_generation,
+              attempt: e.attempt,
+              reason_code: e.reason_code,
+              evidence_kind: e.evidence_kind,
+              phase: e.phase,
+            },
+          })
+          break
+        case "user_message":
+          dispatch({ type: "CLEAR_AUTO_CONTINUATION", contextKey })
           break
         case "session_failure":
           flushStreamingQueue()

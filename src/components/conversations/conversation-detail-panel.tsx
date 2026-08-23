@@ -289,6 +289,9 @@ const ConversationTabView = memo(function ConversationTabView({
   const t = useTranslations("Folder.conversation")
   const tWelcome = useTranslations("Folder.chat.welcomeInputPanel")
   const tAgentInput = useTranslations("Folder.chat.agentInput")
+  const tAutoContinuation = useTranslations(
+    "Folder.chat.acpConnections.autoContinuation"
+  )
   const sharedT = useTranslations("Folder.chat.shared")
   const tConfig = useTranslations("Folder.chat.messageInput")
   const tSessionFailure = useTranslations("Folder.chat.sessionFailure")
@@ -653,6 +656,13 @@ const ConversationTabView = memo(function ConversationTabView({
     ),
   })
   const { status: connStatus, sessionId: connSessionId } = conn
+  const [dismissedContinuationGeneration, setDismissedContinuationGeneration] =
+    useState<number | null>(null)
+  const visibleAutoContinuation =
+    conn.isViewer ||
+    conn.autoContinuation?.source_generation === dismissedContinuationGeneration
+      ? null
+      : conn.autoContinuation
   const messageQueue = useMessageQueue()
   const {
     queue: msgQueue,
@@ -1382,6 +1392,29 @@ const ConversationTabView = memo(function ConversationTabView({
     ]
   )
 
+  const handleAutoContinuationContinue = useCallback(async () => {
+    const continuation = visibleAutoContinuation
+    if (!continuation || continuation.phase !== "needs_user_action") return
+    const text = tAutoContinuation("continuePrompt")
+    const accepted = await handleSend(
+      {
+        blocks: [{ type: "text", text }],
+        displayText: text,
+      },
+      selectedModeId
+    )
+    if (accepted !== false) {
+      setDismissedContinuationGeneration(continuation.source_generation)
+    }
+  }, [handleSend, selectedModeId, tAutoContinuation, visibleAutoContinuation])
+
+  const handleAutoContinuationStop = useCallback(() => {
+    if (!visibleAutoContinuation) return
+    setDismissedContinuationGeneration(
+      visibleAutoContinuation.source_generation
+    )
+  }, [visibleAutoContinuation])
+
   const handlePromptingSubmit = useCallback(
     (draft: PromptDraft, selectedModeIdArg: string | null) => {
       if (!ensureConversationPointsAvailable()) return false
@@ -1971,6 +2004,9 @@ const ConversationTabView = memo(function ConversationTabView({
       pendingQuestion={conn.pendingQuestion}
       pendingAskQuestion={conn.pendingAskQuestion}
       pendingChannelConfirmation={conn.pendingChannelConfirmation}
+      autoContinuation={visibleAutoContinuation}
+      onAutoContinuationContinue={handleAutoContinuationContinue}
+      onAutoContinuationStop={handleAutoContinuationStop}
       onFocus={handleFocus}
       onSend={handleSend}
       onCancel={handleCancel}
