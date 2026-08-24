@@ -1515,6 +1515,7 @@ mod tauri_app {
                 acp_commands::acp_respond_channel_confirmation,
                 acp_commands::acp_disconnect,
                 acp_commands::acp_disconnect_for_replacement,
+                acp_commands::acp_disconnect_for_replacement_detailed,
                 acp_commands::acp_touch_connection,
                 acp_commands::acp_list_connections,
                 acp_commands::acp_get_session_snapshot,

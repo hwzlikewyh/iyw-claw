@@ -9322,6 +9322,18 @@ pub async fn acp_disconnect_for_replacement(
     connection_id: String,
     manager: State<'_, ConnectionManager>,
 ) -> Result<bool, AcpError> {
+    manager
+        .disconnect_for_replacement(&connection_id)
+        .await
+        .map(|result| result.replaced)
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn acp_disconnect_for_replacement_detailed(
+    connection_id: String,
+    manager: State<'_, ConnectionManager>,
+) -> Result<crate::acp::types::ReplacementResult, AcpError> {
     manager.disconnect_for_replacement(&connection_id).await
 }
 

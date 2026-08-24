@@ -29,6 +29,7 @@ import {
   acpRespondChannelConfirmation,
   acpDisconnect,
   acpDisconnectForReplacement,
+  acpDisconnectForReplacementDetailed,
   acpTouchConnection,
   acpGetSessionSnapshot,
   acpFindConnectionForConversation,
@@ -59,6 +60,7 @@ import type {
   SessionUsageUpdateInfo,
   PromptCapabilitiesInfo,
   PromptInputBlock,
+  ReplacementReason,
   ToolCallImageWire,
   UserMessageBlock,
 } from "@/lib/types"
@@ -302,6 +304,26 @@ type ConnectRequest = {
   // request still runs discovery.
   conversationId?: number
   attachOnly?: boolean
+}
+
+type PendingReplacement = {
+  request: ConnectRequest
+  generation: number
+  attempt: number
+  timer: ReturnType<typeof setTimeout> | null
+}
+
+const REPLACEMENT_RETRY_BASE_DELAY_MS = 250
+const REPLACEMENT_RETRY_MAX_DELAY_MS = 15_000
+const REPLACEMENT_RETRY_MAX_ATTEMPTS = 240
+const REPLACEMENT_RETRY_MAX_EXPONENT = 6
+
+function replacementRetryDelay(attempt: number): number {
+  const exponent = Math.min(attempt - 1, REPLACEMENT_RETRY_MAX_EXPONENT)
+  return Math.min(
+    REPLACEMENT_RETRY_BASE_DELAY_MS * 2 ** exponent,
+    REPLACEMENT_RETRY_MAX_DELAY_MS
+  )
 }
 
 function sameConnectRequest(a: ConnectRequest, b: ConnectRequest) {
@@ -2750,9 +2772,17 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   const connectingKeysRef = useRef(new Set<string>())
   const activeConnectRequestsRef = useRef(new Map<string, ConnectRequest>())
   const pendingConnectRequestsRef = useRef(new Map<string, ConnectRequest>())
+  const pendingReplacementsRef = useRef(new Map<string, PendingReplacement>())
+  const replacementGenerationRef = useRef(0)
   // Keys whose disconnect was requested while connect was still in flight
   const abandonedKeysRef = useRef(new Set<string>())
   const connectRef = useRef<AcpActionsValue["connect"] | null>(null)
+
+  const clearPendingReplacement = useCallback((contextKey: string) => {
+    const pending = pendingReplacementsRef.current.get(contextKey)
+    if (pending?.timer) clearTimeout(pending.timer)
+    pendingReplacementsRef.current.delete(contextKey)
+  }, [])
 
   type ConnectBlockState =
     | { kind: "none"; reason: "" }
@@ -2925,6 +2955,102 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       }
     },
     [notifyKeyListeners, notifyAllKeyListeners]
+  )
+
+  const reportReplacementRetryExhausted = useCallback(
+    (contextKey: string, request: ConnectRequest) => {
+      pendingReplacementsRef.current.delete(contextKey)
+      const agentLabel = getAgentDisplayName(request.agentType)
+      const message = t("backendErrors.requestFailed")
+      pushAlertRef.current(
+        "error",
+        t("connectFailedTitle", { agent: agentLabel }),
+        message
+      )
+      dispatch({ type: "ERROR", contextKey, message })
+    },
+    [dispatch, t]
+  )
+
+  const runPendingReplacement = useCallback(
+    (contextKey: string, expectedGeneration?: number) => {
+      const pending = pendingReplacementsRef.current.get(contextKey)
+      if (
+        !pending ||
+        (expectedGeneration !== undefined &&
+          pending.generation !== expectedGeneration)
+      ) {
+        return
+      }
+      if (pending.timer) clearTimeout(pending.timer)
+      pending.timer = null
+      queueMicrotask(() => {
+        const latest = pendingReplacementsRef.current.get(contextKey)
+        if (!latest || latest.generation !== pending.generation) return
+        connectRef
+          .current?.(
+            contextKey,
+            latest.request.agentType,
+            latest.request.workingDir,
+            latest.request.sessionId,
+            latest.request.conversationId,
+            { attachOnly: latest.request.attachOnly }
+          )
+          .catch(() => {})
+      })
+    },
+    []
+  )
+
+  const scheduleReplacementRetry = useCallback(
+    (
+      contextKey: string,
+      request: ConnectRequest,
+      reason: ReplacementReason
+    ) => {
+      const previous = pendingReplacementsRef.current.get(contextKey)
+      const sameTarget =
+        previous != null && sameConnectRequest(previous.request, request)
+      const generation = sameTarget
+        ? previous.generation
+        : ++replacementGenerationRef.current
+      const attempt = sameTarget ? previous.attempt + 1 : 1
+      if (previous?.timer) clearTimeout(previous.timer)
+
+      if (attempt > REPLACEMENT_RETRY_MAX_ATTEMPTS) {
+        reportReplacementRetryExhausted(contextKey, request)
+        return
+      }
+
+      const delay = replacementRetryDelay(attempt)
+      const timer = setTimeout(
+        () => runPendingReplacement(contextKey, generation),
+        delay
+      )
+      pendingReplacementsRef.current.set(contextKey, {
+        request,
+        generation,
+        attempt,
+        timer,
+      })
+      console.info("[acp-context] Agent replacement deferred", {
+        targetAgent: request.agentType,
+        reason,
+        attempt,
+        delay,
+      })
+    },
+    [reportReplacementRetryExhausted, runPendingReplacement]
+  )
+
+  useEffect(
+    () => () => {
+      for (const pending of pendingReplacementsRef.current.values()) {
+        if (pending.timer) clearTimeout(pending.timer)
+      }
+      pendingReplacementsRef.current.clear()
+    },
+    []
   )
 
   // ── setActiveKey ──
@@ -3668,6 +3794,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
               ).catch(() => {})
             }
           }
+          runPendingReplacement(contextKey)
           break
         }
         case "error": {
@@ -3852,6 +3979,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       scheduleToolCallUpdateFlush,
       settleRetryIncidentsOnProgress,
       runtimeErrorMessages,
+      runPendingReplacement,
       t,
       tChat,
     ]
@@ -4403,6 +4531,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       agentType: AgentType,
       workingDir: string | null
     ) => {
+      clearPendingReplacement(contextKey)
       dispatch({
         type: "CONNECTION_CREATED",
         contextKey,
@@ -4467,6 +4596,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     [
       applyMappedEnvelope,
       bindConnectionRoute,
+      clearPendingReplacement,
       consumeBufferedEvents,
       dispatch,
       seedDelegationsFromSnapshot,
@@ -4490,6 +4620,15 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         sessionId,
         conversationId,
         attachOnly: options?.attachOnly,
+      }
+      const pendingReplacement = pendingReplacementsRef.current.get(contextKey)
+      if (
+        pendingReplacement &&
+        !sameConnectRequest(pendingReplacement.request, request)
+      ) {
+        clearPendingReplacement(contextKey)
+      } else if (pendingReplacement?.timer) {
+        return
       }
       if (connectingKeysRef.current.has(contextKey)) {
         const activeRequest = activeConnectRequestsRef.current.get(contextKey)
@@ -4566,6 +4705,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             existing.status !== "disconnected" &&
             existing.status !== "error"
           ) {
+            clearPendingReplacement(contextKey)
             await touchConnectionLeases(contextKey, existing.connectionId)
             return
           }
@@ -4577,15 +4717,41 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             // acpDisconnect (that would kill the owner's agent). Owners are
             // disconnected normally before re-spawning under new params.
             if (!existing.isViewer) {
-              const replaced = await acpDisconnectForReplacement(
+              const replacement = await acpDisconnectForReplacementDetailed(
                 existing.connectionId
-              ).catch(() => false)
-              if (!replaced) return
+              ).catch(async () => {
+                const replaced = await acpDisconnectForReplacement(
+                  existing.connectionId
+                ).catch(() => false)
+                return {
+                  replaced,
+                  reason: replaced
+                    ? ("replaced" as const)
+                    : ("state_unavailable" as const),
+                }
+              })
+              if (!replacement.replaced) {
+                scheduleReplacementRetry(
+                  contextKey,
+                  request,
+                  replacement.reason
+                )
+                return
+              }
             }
+            clearPendingReplacement(contextKey)
             releaseConnectionRoute(existing.connectionId, contextKey)
             teardownAttachSubscription(contextKey)
             lastActivityRef.current.delete(contextKey)
             pendingUnmappedEventsRef.current.delete(existing.connectionId)
+            dispatch({ type: "CONNECTION_REMOVED", contextKey })
+          } else {
+            clearPendingReplacement(contextKey)
+            releaseConnectionRoute(existing.connectionId, contextKey)
+            teardownAttachSubscription(contextKey)
+            lastActivityRef.current.delete(contextKey)
+            pendingUnmappedEventsRef.current.delete(existing.connectionId)
+            dispatch({ type: "CONNECTION_REMOVED", contextKey })
           }
         }
 
@@ -4616,6 +4782,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             }
           }
           if (orphanKey && orphanConn) {
+            clearPendingReplacement(contextKey)
             bindConnectionRoute(orphanConn.connectionId, contextKey)
             releaseConnectionRoute(orphanConn.connectionId, orphanKey)
             const lastActivity = lastActivityRef.current.get(orphanKey)
@@ -4761,6 +4928,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         }
 
         lastActivityRef.current.set(contextKey, Date.now())
+        clearPendingReplacement(contextKey)
         dispatch({
           type: "CONNECTION_CREATED",
           contextKey,
@@ -4903,6 +5071,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       applyMappedEnvelope,
       bindConnectionRoute,
       buildOpenAgentsSettingsAction,
+      clearPendingReplacement,
       connectAsViewer,
       consumeBufferedEvents,
       dispatch,
@@ -4910,6 +5079,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       resolveConnectBlockState,
       releaseConnectionRoute,
       runtimeErrorMessages,
+      scheduleReplacementRetry,
       seedDelegationsFromSnapshot,
       setActiveKey,
       setupAttachSubscription,
@@ -4923,6 +5093,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
 
   const disconnect = useCallback(
     async (contextKey: string) => {
+      clearPendingReplacement(contextKey)
       pendingConnectRequestsRef.current.delete(contextKey)
       const conn = storeRef.current.connections.get(contextKey)
       if (!conn) {
@@ -4953,7 +5124,12 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       pendingUnmappedEventsRef.current.delete(conn.connectionId)
       dispatch({ type: "CONNECTION_REMOVED", contextKey })
     },
-    [dispatch, releaseConnectionRoute, teardownAttachSubscription]
+    [
+      clearPendingReplacement,
+      dispatch,
+      releaseConnectionRoute,
+      teardownAttachSubscription,
+    ]
   )
 
   const disconnectForReplacement = useCallback(
@@ -4963,6 +5139,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       if (conn.isViewer || conn.isDelegationChild) return false
       const replaced = await acpDisconnectForReplacement(conn.connectionId)
       if (!replaced) return false
+      clearPendingReplacement(contextKey)
       releaseConnectionRoute(conn.connectionId, contextKey)
       teardownAttachSubscription(contextKey)
       lastActivityRef.current.delete(contextKey)
@@ -4970,7 +5147,12 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       dispatch({ type: "CONNECTION_REMOVED", contextKey })
       return true
     },
-    [dispatch, releaseConnectionRoute, teardownAttachSubscription]
+    [
+      clearPendingReplacement,
+      dispatch,
+      releaseConnectionRoute,
+      teardownAttachSubscription,
+    ]
   )
 
   const reapplyConfig = useCallback(
@@ -5013,6 +5195,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   const disconnectAll = useCallback(async () => {
     const promises: Promise<void>[] = []
     pendingConnectRequestsRef.current.clear()
+    for (const contextKey of pendingReplacementsRef.current.keys()) {
+      clearPendingReplacement(contextKey)
+    }
     for (const [contextKey, conn] of storeRef.current.connections) {
       // Viewers attach to a connection another client owns — detach our
       // read-only subscription but never acpDisconnect (that would kill the
@@ -5029,7 +5214,12 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     alertedErrorDetailsRef.current.clear()
     await Promise.all(promises)
     dispatch({ type: "REMOVE_ALL" })
-  }, [dispatch, releaseConnectionRoute, teardownAttachSubscription])
+  }, [
+    clearPendingReplacement,
+    dispatch,
+    releaseConnectionRoute,
+    teardownAttachSubscription,
+  ])
 
   const sendPrompt = useCallback(
     async (

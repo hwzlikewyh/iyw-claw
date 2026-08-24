@@ -10,7 +10,7 @@ use crate::acp::preflight::PreflightResult;
 use crate::acp::types::{
     AcpAgentInfo, AcpAgentStatus, AgentSkillContent, AgentSkillFile, AgentSkillItem,
     AgentSkillLayout, AgentSkillScope, AgentSkillSyncMode, AgentSkillsListResult, ConnectionInfo,
-    ForkResultInfo,
+    ForkResultInfo, ReplacementResult,
 };
 use crate::app_error::{AppCommandError, AppErrorCode};
 use crate::app_state::AppState;
@@ -163,6 +163,18 @@ pub async fn acp_disconnect_for_replacement(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<AcpDisconnectParams>,
 ) -> Result<Json<bool>, AppCommandError> {
+    state
+        .connection_manager
+        .disconnect_for_replacement(&params.connection_id)
+        .await
+        .map(|result| Json(result.replaced))
+        .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))
+}
+
+pub async fn acp_disconnect_for_replacement_detailed(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<AcpDisconnectParams>,
+) -> Result<Json<ReplacementResult>, AppCommandError> {
     state
         .connection_manager
         .disconnect_for_replacement(&params.connection_id)

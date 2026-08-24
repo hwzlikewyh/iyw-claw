@@ -36,7 +36,7 @@ use crate::acp::question::{
 use crate::acp::session_state::SessionState;
 use crate::acp::types::{
     AcpEvent, AgentOptionsSnapshot, ConfigStaleKind, ConnectionInfo, ConnectionStatus,
-    ForkResultInfo, PromptInputBlock,
+    ForkResultInfo, PromptInputBlock, ReplacementReason, ReplacementResult,
 };
 use crate::chat_channel::manager::ChatChannelManager;
 use crate::commands::conversation_title::{self, ConversationTitleContext};
@@ -2544,50 +2544,64 @@ impl ConnectionManager {
         }
     }
 
-    pub async fn disconnect_for_replacement(&self, conn_id: &str) -> Result<bool, AcpError> {
+    async fn take_replaceable_connection(
+        &self,
+        conn_id: &str,
+    ) -> Result<Option<AgentConnection>, ReplacementReason> {
         let prompt_lock = {
             let connections = self.connections.lock().await;
             let Some(connection) = connections.get(conn_id) else {
-                return Ok(true);
+                return Ok(None);
             };
             Arc::clone(&connection.prompt_lock)
         };
-        let Ok(_prompt_guard) = prompt_lock.try_lock_owned() else {
-            tracing::info!(
-                connection_id = conn_id,
-                "[ACP] target replacement blocked by busy prompt path"
-            );
-            return Ok(false);
+        let _prompt_guard = prompt_lock
+            .try_lock_owned()
+            .map_err(|_| ReplacementReason::PromptBusy)?;
+        let mut connections = self.connections.lock().await;
+        let Some(state) = connections
+            .get(conn_id)
+            .map(|connection| Arc::clone(&connection.state))
+        else {
+            return Ok(None);
         };
-        let connection = {
-            let mut connections = self.connections.lock().await;
-            let Some(state) = connections
-                .get(conn_id)
-                .map(|connection| Arc::clone(&connection.state))
-            else {
-                return Ok(true);
-            };
-            let Ok(state) = state.try_read() else {
-                return Ok(false);
-            };
-            if active_operation_reason(&state, chrono::Utc::now()).is_some() {
+        let state = state
+            .try_read()
+            .map_err(|_| ReplacementReason::StateUnavailable)?;
+        if active_operation_reason(&state, chrono::Utc::now()).is_some() {
+            return Err(ReplacementReason::ActiveOperation);
+        }
+        drop(state);
+        Ok(connections.remove(conn_id))
+    }
+
+    pub async fn disconnect_for_replacement(
+        &self,
+        conn_id: &str,
+    ) -> Result<ReplacementResult, AcpError> {
+        match self.take_replaceable_connection(conn_id).await {
+            Ok(Some(connection)) => {
                 tracing::info!(
                     connection_id = conn_id,
-                    "[ACP] target replacement blocked by active operation"
+                    source = "target_replacement",
+                    "[ACP] disconnect requested"
                 );
-                return Ok(false);
+                connection.request_disconnect();
+                Ok(ReplacementResult::new(true, ReplacementReason::Replaced))
             }
-            connections.remove(conn_id)
-        };
-        if let Some(connection) = connection {
-            tracing::info!(
-                connection_id = conn_id,
-                source = "target_replacement",
-                "[ACP] disconnect requested"
-            );
-            connection.request_disconnect();
+            Ok(None) => Ok(ReplacementResult::new(
+                true,
+                ReplacementReason::AlreadyAbsent,
+            )),
+            Err(reason) => {
+                tracing::info!(
+                    connection_id = conn_id,
+                    replacement_reason = reason.as_str(),
+                    "[ACP] target replacement deferred"
+                );
+                Ok(ReplacementResult::new(false, reason))
+            }
         }
-        Ok(true)
     }
 
     pub(crate) async fn disconnect_if_reclaimable(

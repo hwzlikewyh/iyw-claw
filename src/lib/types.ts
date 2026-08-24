@@ -17,6 +17,18 @@ export type BuiltinAgentType =
 export type CustomAgentType = `custom:${string}`
 export type AgentType = BuiltinAgentType | CustomAgentType
 
+export type ReplacementReason =
+  | "replaced"
+  | "already_absent"
+  | "prompt_busy"
+  | "active_operation"
+  | "state_unavailable"
+
+export interface ReplacementResult {
+  replaced: boolean
+  reason: ReplacementReason
+}
+
 export const CUSTOM_AGENT_PREFIX = "custom:"
 
 const BUILTIN_AGENT_TYPE_SET: ReadonlySet<string> = new Set([

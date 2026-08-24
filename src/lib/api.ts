@@ -47,6 +47,7 @@ import type {
 } from "./user-memory-actions"
 import type {
   AgentType,
+  ReplacementResult,
   AgentInputItem,
   AgentInputPayload,
   AgentStorageStatus,
@@ -483,6 +484,14 @@ export async function acpDisconnectForReplacement(
   connectionId: string
 ): Promise<boolean> {
   return getTransport().call("acp_disconnect_for_replacement", { connectionId })
+}
+
+export async function acpDisconnectForReplacementDetailed(
+  connectionId: string
+): Promise<ReplacementResult> {
+  return getTransport().call("acp_disconnect_for_replacement_detailed", {
+    connectionId,
+  })
 }
 
 export async function acpTouchConnection(

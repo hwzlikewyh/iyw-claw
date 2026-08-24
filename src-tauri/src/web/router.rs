@@ -795,6 +795,10 @@ pub fn build_router(
             post(handlers::acp::acp_disconnect_for_replacement),
         )
         .route(
+            "/acp_disconnect_for_replacement_detailed",
+            post(handlers::acp::acp_disconnect_for_replacement_detailed),
+        )
+        .route(
             "/acp_touch_connection",
             post(handlers::acp::acp_touch_connection),
         )

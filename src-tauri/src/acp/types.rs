@@ -595,6 +595,40 @@ pub enum ConnectionStatus {
     Error,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplacementReason {
+    Replaced,
+    AlreadyAbsent,
+    PromptBusy,
+    ActiveOperation,
+    StateUnavailable,
+}
+
+impl ReplacementReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Replaced => "replaced",
+            Self::AlreadyAbsent => "already_absent",
+            Self::PromptBusy => "prompt_busy",
+            Self::ActiveOperation => "active_operation",
+            Self::StateUnavailable => "state_unavailable",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReplacementResult {
+    pub replaced: bool,
+    pub reason: ReplacementReason,
+}
+
+impl ReplacementResult {
+    pub const fn new(replaced: bool, reason: ReplacementReason) -> Self {
+        Self { replaced, reason }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ConnectionInfo {
     pub id: String,
