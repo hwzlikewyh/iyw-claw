@@ -24,11 +24,14 @@ import {
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { SkillMarketFolderPicker } from "@/components/skills/skill-market-folder-picker"
+import { parseSkillDependencies } from "@/components/skills/skill-market-semver"
 import {
-  isValidSemVer,
-  isValidSkillDependencies,
-  parseSkillDependencies,
-} from "@/components/skills/skill-market-semver"
+  hasSkillMarketUploadErrors,
+  type SkillMarketUploadErrors,
+  type SkillMarketUploadFieldError,
+  validateSkillMarketPublishForm,
+  validateSkillMarketVersionForm,
+} from "@/components/skills/skill-market-upload-validation"
 import type {
   SelectedSkillMarketFolder,
   SkillMarketAudience,
@@ -77,17 +80,6 @@ function normalizeSlug(value: string): string {
     .replace(/^-+|-+$/g, "")
 }
 
-function isPublishValid(form: PublishForm): boolean {
-  return (
-    /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(form.slug) &&
-    Boolean(form.displayName.trim()) &&
-    Boolean(form.summary.trim()) &&
-    Boolean(form.category) &&
-    isValidSemVer(form.version) &&
-    isValidSkillDependencies(form.dependencies)
-  )
-}
-
 export interface SkillMarketUploadDialogProps {
   open: boolean
   mode: SkillMarketUploadMode
@@ -99,18 +91,40 @@ export interface SkillMarketUploadDialogProps {
   onAddVersion: (request: SkillMarketAddVersionRequestV2) => Promise<void>
 }
 
+function fieldErrorText(
+  t: SkillMarketTranslator,
+  error: SkillMarketUploadFieldError
+): string {
+  if (error.code === "dependencies" && error.line) {
+    return t("upload.errors.dependenciesLine", { line: error.line })
+  }
+  return t(`upload.errors.${error.code}`)
+}
+
+function FieldError({
+  t,
+  error,
+}: {
+  t: SkillMarketTranslator
+  error?: SkillMarketUploadFieldError
+}) {
+  return error ? (
+    <p className="text-xs text-destructive">{fieldErrorText(t, error)}</p>
+  ) : null
+}
+
 export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
   const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
   const [step, setStep] = useState(1)
   const [folder, setFolder] = useState<SelectedSkillMarketFolder | null>(null)
   const [form, setForm] = useState<PublishForm>(EMPTY_PUBLISH)
-  const [invalid, setInvalid] = useState(false)
+  const [errors, setErrors] = useState<SkillMarketUploadErrors>({})
 
   const reset = () => {
     setStep(1)
     setFolder(null)
     setForm(EMPTY_PUBLISH)
-    setInvalid(false)
+    setErrors({})
   }
 
   const close = (nextOpen: boolean) => {
@@ -123,18 +137,20 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
       ...current,
       [field]: field === "slug" ? normalizeSlug(value) : value,
     }))
-    setInvalid(false)
+    setErrors({})
   }
+
+  const validate = () =>
+    props.mode === "publish"
+      ? validateSkillMarketPublishForm(form)
+      : validateSkillMarketVersionForm(form)
 
   const next = () => {
     if (step === 1 && !folder) return
     if (step === 2) {
-      const valid =
-        props.mode === "publish"
-          ? isPublishValid(form)
-          : isValidPublishCommon(form)
-      if (!valid) {
-        setInvalid(true)
+      const validationErrors = validate()
+      if (hasSkillMarketUploadErrors(validationErrors)) {
+        setErrors(validationErrors)
         return
       }
     }
@@ -143,8 +159,12 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
 
   const submit = async () => {
     if (!folder) return
+    const validationErrors = validate()
+    if (hasSkillMarketUploadErrors(validationErrors)) {
+      setErrors(validationErrors)
+      return
+    }
     if (props.mode === "publish") {
-      if (!isPublishValid(form)) return
       await props.onPublish({
         slug: form.slug.trim(),
         displayName: form.displayName.trim(),
@@ -160,7 +180,6 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
         files: folder.files,
       })
     } else {
-      if (!isValidPublishCommon(form)) return
       await props.onAddVersion({
         id: props.targetSkillId ?? "",
         version: form.version.trim(),
@@ -220,10 +239,13 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
                   <Label htmlFor="market-upload-slug">{t("upload.slug")}</Label>
                   <Input
                     id="market-upload-slug"
+                    aria-invalid={Boolean(errors.slug)}
+                    className={cn(errors.slug && "border-destructive")}
                     value={form.slug}
                     onChange={(event) => update("slug", event.target.value)}
                     placeholder="my-skill"
                   />
+                  <FieldError t={t} error={errors.slug} />
                 </div>
                 <div className="grid gap-1.5">
                   <Label htmlFor="market-upload-name">
@@ -231,11 +253,14 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
                   </Label>
                   <Input
                     id="market-upload-name"
+                    aria-invalid={Boolean(errors.displayName)}
+                    className={cn(errors.displayName && "border-destructive")}
                     value={form.displayName}
                     onChange={(event) =>
                       update("displayName", event.target.value)
                     }
                   />
+                  <FieldError t={t} error={errors.displayName} />
                 </div>
                 <div className="grid gap-1.5">
                   <Label htmlFor="market-upload-summary">
@@ -256,7 +281,13 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
                       update("category", value === "none" ? "" : value)
                     }
                   >
-                    <SelectTrigger className="w-full rounded-md">
+                    <SelectTrigger
+                      className={cn(
+                        "w-full rounded-md",
+                        errors.category && "border-destructive"
+                      )}
+                      aria-invalid={Boolean(errors.category)}
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -270,6 +301,7 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
                       ))}
                     </SelectContent>
                   </Select>
+                  <FieldError t={t} error={errors.category} />
                 </div>
                 <div className="grid gap-1.5">
                   <Label>{t("upload.audienceLabel")}</Label>
@@ -305,10 +337,16 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
               </Label>
               <Input
                 id="market-upload-version"
+                aria-invalid={Boolean(errors.version)}
+                className={cn(
+                  "font-mono",
+                  errors.version && "border-destructive"
+                )}
                 value={form.version}
                 onChange={(event) => update("version", event.target.value)}
                 placeholder="1.0.0"
               />
+              <FieldError t={t} error={errors.version} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="market-upload-changelog">
@@ -327,14 +365,19 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
               </Label>
               <Textarea
                 id="market-upload-deps"
+                aria-invalid={Boolean(errors.dependencies)}
                 value={form.dependencies}
                 onChange={(event) => update("dependencies", event.target.value)}
                 placeholder="slug@1.0.0"
-                className="min-h-16 font-mono text-xs"
+                className={cn(
+                  "min-h-16 font-mono text-xs",
+                  errors.dependencies && "border-destructive"
+                )}
               />
               <p className="text-[10px] text-muted-foreground">
                 {t("upload.dependenciesHint")}
               </p>
+              <FieldError t={t} error={errors.dependencies} />
             </div>
             {isPublish ? (
               <div className="grid gap-1.5">
@@ -346,11 +389,6 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
                   placeholder="tag1, tag2"
                 />
               </div>
-            ) : null}
-            {invalid ? (
-              <p className="text-xs text-destructive">
-                {t("upload.invalidForm")}
-              </p>
             ) : null}
           </section>
         ) : null}
@@ -406,12 +444,6 @@ export function SkillMarketUploadDialog(props: SkillMarketUploadDialogProps) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
-}
-
-function isValidPublishCommon(form: PublishForm): boolean {
-  return (
-    isValidSemVer(form.version) && isValidSkillDependencies(form.dependencies)
   )
 }
 

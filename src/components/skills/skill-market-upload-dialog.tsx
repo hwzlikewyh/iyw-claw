@@ -13,11 +13,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { SkillMarketFolderPicker } from "@/components/skills/skill-market-folder-picker"
+import { parseSkillDependencies } from "@/components/skills/skill-market-semver"
 import {
-  isValidSemVer,
-  isValidSkillDependencies,
-  parseSkillDependencies,
-} from "@/components/skills/skill-market-semver"
+  hasSkillMarketUploadErrors,
+  type SkillMarketUploadErrors,
+  validateSkillMarketPublishForm,
+} from "@/components/skills/skill-market-upload-validation"
 import {
   SkillMarketMetadataStep,
   SkillMarketReviewStep,
@@ -51,17 +52,6 @@ function normalizeSlug(value: string): string {
     .replace(/^-+|-+$/g, "")
 }
 
-function isDraftValid(draft: SkillMarketUploadDraft): boolean {
-  return (
-    /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(draft.slug) &&
-    Boolean(draft.displayName.trim()) &&
-    Boolean(draft.summary.trim()) &&
-    Boolean(draft.category) &&
-    isValidSemVer(draft.version) &&
-    isValidSkillDependencies(draft.dependencies)
-  )
-}
-
 function buildPublishRequest(
   draft: SkillMarketUploadDraft,
   folder: SelectedSkillMarketFolder
@@ -88,13 +78,13 @@ function useUploadForm(busy: boolean, onOpenChange: (open: boolean) => void) {
   const [step, setStep] = useState(1)
   const [folder, setFolder] = useState<SelectedSkillMarketFolder | null>(null)
   const [draft, setDraft] = useState<SkillMarketUploadDraft>(EMPTY_DRAFT)
-  const [formError, setFormError] = useState(false)
+  const [errors, setErrors] = useState<SkillMarketUploadErrors>({})
   const close = (nextOpen: boolean) => {
     if (!nextOpen && !busy) {
       setStep(1)
       setFolder(null)
       setDraft(EMPTY_DRAFT)
-      setFormError(false)
+      setErrors({})
     }
     onOpenChange(nextOpen)
   }
@@ -103,11 +93,18 @@ function useUploadForm(busy: boolean, onOpenChange: (open: boolean) => void) {
       ...current,
       [field]: field === "slug" ? normalizeSlug(value) : value,
     }))
-    setFormError(false)
+    setErrors({})
   }
+  const validate = () => validateSkillMarketPublishForm(draft)
   const next = () => {
     if (step === 1 && !folder) return
-    if (step === 2 && !isDraftValid(draft)) return setFormError(true)
+    if (step === 2) {
+      const validationErrors = validate()
+      if (hasSkillMarketUploadErrors(validationErrors)) {
+        setErrors(validationErrors)
+        return
+      }
+    }
     setStep((current) => Math.min(3, current + 1))
   }
   const selectFolder = (value: SelectedSkillMarketFolder | null) => {
@@ -123,7 +120,9 @@ function useUploadForm(busy: boolean, onOpenChange: (open: boolean) => void) {
     step,
     folder,
     draft,
-    formError,
+    errors,
+    setErrors,
+    validate,
     setStep,
     close,
     update,
@@ -160,7 +159,7 @@ function UploadContent({ form, categories, busy }: UploadContentProps) {
       <SkillMarketMetadataStep
         draft={form.draft}
         categories={categories}
-        invalid={form.formError}
+        errors={form.errors}
         onChange={form.update}
       />
     )
@@ -229,7 +228,13 @@ export function SkillMarketUploadDialog({
   const t = useTranslations("SkillsSettings.market")
   const form = useUploadForm(busy, onOpenChange)
   const publish = async () => {
-    if (!form.folder || !isDraftValid(form.draft)) return
+    if (!form.folder) return
+    const validationErrors = form.validate()
+    if (hasSkillMarketUploadErrors(validationErrors)) {
+      form.setErrors(validationErrors)
+      form.setStep(2)
+      return
+    }
     await onPublish(buildPublishRequest(form.draft, form.folder))
     form.close(false)
   }
