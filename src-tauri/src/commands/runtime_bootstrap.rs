@@ -197,6 +197,7 @@ pub async fn runtime_bootstrap(
     connection_manager: tauri::State<'_, ConnectionManager>,
 ) -> Result<RuntimeBootstrapReport, String> {
     let started = Instant::now();
+    let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     tracing::info!(
         task_id = %task_id,
         phase = "command_enter",

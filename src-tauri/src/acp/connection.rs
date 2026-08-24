@@ -886,26 +886,39 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
             for (k, v) in &merged_env {
                 parts.push(format!("{k}={v}"));
             }
-            let direct_node_entrypoint = (cfg!(windows)
+            let windows_shim = cfg!(windows)
                 && command.extension().is_some_and(|extension| {
                     extension.eq_ignore_ascii_case("cmd")
                         || extension.eq_ignore_ascii_case("bat")
-                }))
-                .then(|| {
-                    let node = crate::acp::version_center::managed_tool_executable("node")
-                        .or_else(|| which::which("node").ok())?;
-                    let entrypoint = npm_runtime::resolve_npm_node_entrypoint(
-                        &prefix, package, cmd,
+                });
+            if windows_shim {
+                let package_name = npm_runtime::npm_package_name_from_spec(package).ok_or_else(|| {
+                    AcpError::SpawnFailed(format!("{} npm package identity is invalid", meta.name))
+                })?;
+                let node = crate::acp::version_center::managed_tool_executable("node")
+                    .or_else(|| which::which("node").ok())
+                    .ok_or_else(|| {
+                        AcpError::SdkNotInstalled(format!(
+                            "{} requires Node.js. Repair the managed runtime in Agent Settings.",
+                            meta.name
+                        ))
+                    })?;
+                let entrypoint =
+                    npm_runtime::resolve_npm_node_entrypoint(&prefix, package, cmd).ok_or_else(
+                        || {
+                            AcpError::SpawnFailed(format!(
+                                "{} npm runtime entrypoint is invalid. Reinstall it from Agent Settings.",
+                                meta.name
+                            ))
+                        },
                     )?;
-                    Some((node, entrypoint))
-                })
-                .flatten();
-            if let Some((node, entrypoint)) = direct_node_entrypoint {
                 parts.push(node.to_string_lossy().into_owned());
                 parts.push(entrypoint.to_string_lossy().into_owned());
-                tracing::debug!(
+                tracing::info!(
                     agent = meta.name,
-                    "[ACP] bypassing Windows npm command shim"
+                    package = package_name,
+                    launch_kind = "direct_node",
+                    "[ACP] Windows npm Agent entrypoint resolved"
                 );
             } else {
                 parts.push(command.to_string_lossy().into_owned());
@@ -1233,6 +1246,7 @@ pub(crate) async fn spawn_agent_connection(
     delegation_injection: Option<DelegationInjection>,
     builtin_mcp: Option<crate::acp::builtin_mcp::BuiltinMcpClient>,
     version_center_db: Option<sea_orm::DatabaseConnection>,
+    storage_read_guard: crate::acp::agent_storage_work::AgentStorageReadGuard,
 ) -> Result<tokio::sync::oneshot::Receiver<()>, AcpError> {
     let spawn_gate = connection_tasks.begin_spawn().await?;
     // 恢复会话（session_id 为 Some）走 reconcile_resumed_session：保持策略
@@ -1532,6 +1546,7 @@ pub(crate) async fn spawn_agent_connection(
                 runtime_hosts,
                 version_center_db,
                 stderr_tail,
+                Some(storage_read_guard),
                 cancellation,
                 disconnect_command_ready,
                 http_lease_issued,
@@ -2971,6 +2986,7 @@ async fn run_connection(
     runtime_hosts: Arc<crate::acp::runtime_host::RuntimeHostRegistry>,
     version_center_db: Option<sea_orm::DatabaseConnection>,
     stderr_tail: Arc<StderrTail>,
+    mut storage_read_guard: Option<crate::acp::agent_storage_work::AgentStorageReadGuard>,
     cancellation: tokio_util::sync::CancellationToken,
     disconnect_command_ready: Arc<AtomicBool>,
     http_lease_issued: Arc<AtomicBool>,
@@ -3076,6 +3092,7 @@ async fn run_connection(
             elapsed_ms = host_started.elapsed().as_millis(),
             "[ACP][startup] runtime Host ready"
         );
+        drop(storage_read_guard.take());
         let host_capabilities = host.capabilities();
         let runtime_verified = host.runtime_verified();
         let _route_lease = host.register_route(

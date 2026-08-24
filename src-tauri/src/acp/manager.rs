@@ -638,6 +638,11 @@ impl ConnectionManager {
 
     pub async fn prewarm_codex_runtime(&self) -> Result<bool, AcpError> {
         let _operation_guard = self.acquire_operation_read().await?;
+        if crate::acp::agent_storage_work::has_active_agent_storage_work() {
+            tracing::info!("[ACP] skipping Codex runtime prewarm during Agent storage work");
+            return Ok(false);
+        }
+        let _storage_read_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
         let resources = crate::acp::resource_governor::ResourceSnapshot::capture();
         if matches!(
             resources.memory.pressure,
@@ -660,7 +665,7 @@ impl ConnectionManager {
             AcpError::protocol("Agent platform data directory is not initialized")
         })?;
         let agent_type = AgentType::Codex;
-        let runtime_env = crate::commands::acp::build_session_runtime_env(
+        let runtime_env = match crate::commands::acp::build_session_runtime_env(
             &AppDatabase {
                 conn: version_center_db.clone(),
             },
@@ -668,7 +673,15 @@ impl ConnectionManager {
             None,
             data_dir,
         )
-        .await?;
+        .await
+        {
+            Ok(environment) => environment,
+            Err(AcpError::SdkNotInstalled(_)) => {
+                tracing::info!("[ACP] skipping Codex runtime prewarm because it is not installed");
+                return Ok(false);
+            }
+            Err(error) => return Err(error),
+        };
         crate::commands::acp::verify_agent_installed(agent_type, &runtime_env)?;
         self.require_agent_launch_policy(agent_type, true).await?;
         crate::acp::connection::prewarm_agent_runtime(
@@ -789,6 +802,7 @@ impl ConnectionManager {
         startup_trace: crate::acp::startup_trace::StartupTrace,
     ) -> Result<String, AcpError> {
         let _operation_guard = self.acquire_operation_read().await?;
+        let storage_read_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
         let mut runtime_env = runtime_env;
         crate::acp::trusted_agents::restrict_configured_runtime_env(agent_type, &mut runtime_env);
         if let Some(required) = crate::acp::trusted_agents::minimum_node_version(agent_type) {
@@ -922,6 +936,7 @@ impl ConnectionManager {
             self.delegation_snapshot(),
             self.builtin_mcp_snapshot(),
             Some(version_center_db.clone()),
+            storage_read_guard,
         )
         .await?;
 
