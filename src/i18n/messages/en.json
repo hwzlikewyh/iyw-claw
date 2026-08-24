@@ -2725,6 +2725,7 @@
           "networkError": "Network connection failed. Check your connection and try again.",
           "serviceUnavailable": "The service is temporarily unavailable. Try again later.",
           "requestFailed": "The request failed. Try again later.",
+          "currentModel": "The current model",
           "initializeTimeout": "{agent} local initialization timed out. Open Settings to check the Agent configuration and startup logs.",
           "processExited": "{agent} process exited unexpectedly.",
           "spawnFailed": "Unable to start {agent}. Check its configuration and try again.",
@@ -2742,6 +2743,7 @@
           "turnFailedEmpty": "{agent} ended the turn without producing any response. Please check the agent's configuration.",
           "turnFailedEmptyProtocol": "{agent} produced output that iyw-claw could not parse. The agent version may not match the protocol.",
           "turnFailedEmptyMetadata": "{agent} sent only status updates this turn and no reply.",
+          "toolProtocolViolation": "{model} did not start a structured tool call, so iyw-claw stopped retrying. Retry the task or choose a tool-compatible model.",
           "detailsInAlerts": "Open Alerts in the status bar and expand Details to inspect the agent output.",
           "compactionNotApplied": "{agent} ended the compact request without writing a new compacted summary. Compaction was not applied; check the agent logs and try again."
         },

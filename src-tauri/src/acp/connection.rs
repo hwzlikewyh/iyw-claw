@@ -5993,7 +5993,7 @@ async fn run_conversation_loop<'a>(
                                         |info| info.source_generation == source_generation,
                                     );
                                     if let Some(evidence) = auto_evidence.as_ref() {
-                                        if !auto_attempted {
+                                        if evidence.auto_run && !auto_attempted {
                                             let started = emit_with_state_gated(
                                                 state,
                                                 emitter,
@@ -6017,6 +6017,7 @@ async fn run_conversation_loop<'a>(
                                                     attempt = 1,
                                                     reason_code = evidence.reason_code,
                                                     evidence_kind = evidence.evidence_kind,
+                                                    is_auto_continuation = true,
                                                     "[ACP] starting safe auto continuation"
                                                 );
                                                 prompt_response = Box::pin(
@@ -6066,7 +6067,21 @@ async fn run_conversation_loop<'a>(
                                             },
                                         )
                                         .await;
-                                    if auto_evidence.is_some() && auto_attempted {
+                                    if auto_evidence
+                                        .as_ref()
+                                        .is_some_and(|evidence| !evidence.auto_run)
+                                    {
+                                        if let Some(evidence) = auto_evidence.as_ref() {
+                                            emit_auto_continuation_phase(
+                                                state,
+                                                emitter,
+                                                source_generation,
+                                                evidence,
+                                                "needs_user_action",
+                                            )
+                                            .await;
+                                        }
+                                    } else if auto_evidence.is_some() && auto_attempted {
                                         if let Some(evidence) = auto_evidence.as_ref() {
                                             emit_auto_continuation_phase(
                                                 state,
@@ -6081,6 +6096,7 @@ async fn run_conversation_loop<'a>(
                                         let evidence = AutoContinuationEvidence {
                                             reason_code: "auto_continuation_completed",
                                             evidence_kind: "continuation",
+                                            auto_run: false,
                                         };
                                         emit_auto_continuation_phase(
                                             state,
@@ -6272,7 +6288,7 @@ async fn run_conversation_loop<'a>(
                                 |info| info.source_generation == source_generation,
                             );
                             if let Some(evidence) = auto_evidence.as_ref() {
-                                if !auto_attempted {
+                                if evidence.auto_run && !auto_attempted {
                                     let started = emit_with_state_gated(
                                         state,
                                         emitter,
@@ -6296,6 +6312,7 @@ async fn run_conversation_loop<'a>(
                                             attempt = 1,
                                             reason_code = evidence.reason_code,
                                             evidence_kind = evidence.evidence_kind,
+                                            is_auto_continuation = true,
                                             "[ACP] starting safe auto continuation"
                                         );
                                         prompt_response = Box::pin(
@@ -6343,7 +6360,21 @@ async fn run_conversation_loop<'a>(
                                     },
                                 )
                                 .await;
-                            if auto_evidence.is_some() && auto_attempted {
+                            if auto_evidence
+                                .as_ref()
+                                .is_some_and(|evidence| !evidence.auto_run)
+                            {
+                                if let Some(evidence) = auto_evidence.as_ref() {
+                                    emit_auto_continuation_phase(
+                                        state,
+                                        emitter,
+                                        source_generation,
+                                        evidence,
+                                        "needs_user_action",
+                                    )
+                                    .await;
+                                }
+                            } else if auto_evidence.is_some() && auto_attempted {
                                 if let Some(evidence) = auto_evidence.as_ref() {
                                     emit_auto_continuation_phase(
                                         state,
@@ -6358,6 +6389,7 @@ async fn run_conversation_loop<'a>(
                                 let evidence = AutoContinuationEvidence {
                                     reason_code: "auto_continuation_completed",
                                     evidence_kind: "continuation",
+                                    auto_run: false,
                                 };
                                 emit_auto_continuation_phase(
                                     state,

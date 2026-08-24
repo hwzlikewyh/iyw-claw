@@ -10,6 +10,9 @@ pub(crate) const AUTO_CONTINUATION_PROMPT: &str =
 pub(crate) struct AutoContinuationEvidence {
     pub reason_code: &'static str,
     pub evidence_kind: &'static str,
+    /// Only structured plan evidence may trigger an automatic prompt. Text
+    /// promises are surfaced as recoverable user action instead.
+    pub auto_run: bool,
 }
 
 pub(crate) fn evaluate(
@@ -37,11 +40,13 @@ pub(crate) fn evaluate(
         return Some(AutoContinuationEvidence {
             reason_code: "plan_pending",
             evidence_kind: "plan",
+            auto_run: true,
         });
     }
     is_action_promise(&text).then_some(AutoContinuationEvidence {
         reason_code: "action_promise_without_tool",
         evidence_kind: "commitment_text",
+        auto_run: false,
     })
 }
 
@@ -193,6 +198,9 @@ fn is_action_promise(text: &str) -> bool {
     if text.is_empty() {
         return false;
     }
+    if !has_unfinished_promise_ending(text) {
+        return false;
+    }
     let lower = text.to_ascii_lowercase();
     let action = [
         "运行",
@@ -232,4 +240,9 @@ fn is_action_promise(text: &str) -> bool {
         ]
         .iter()
         .any(|marker| text.contains(marker) || lower.contains(marker))
+}
+
+fn has_unfinished_promise_ending(text: &str) -> bool {
+    let text = text.trim_end();
+    text.ends_with(':') || text.ends_with('：') || text.ends_with("...") || text.ends_with('…')
 }

@@ -71,6 +71,7 @@ import {
   type SessionFailureSettleScope,
 } from "@/lib/session-failures"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
+import { currentModelName } from "@/lib/model-config-groups"
 import { CONNECTION_KEEPALIVE_INTERVAL_MS } from "@/lib/constants"
 import { sendSystemNotification } from "@/lib/notification"
 import {
@@ -3675,6 +3676,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           const agentLabel = nc
             ? getAgentDisplayName(nc.agentType)
             : (e.agent_type as string)
+          const modelLabel =
+            currentModelName(nc?.configOptions ?? undefined) ??
+            t("backendErrors.currentModel")
 
           // Prefer stable backend codes, then classify common provider errors.
           // Unknown protocol details stay hidden behind a generic prompt.
@@ -3725,6 +3729,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
               case "turn_failed_empty_metadata":
                 return t("backendErrors.turnFailedEmptyMetadata", {
                   agent: agentLabel,
+                })
+              case "tool_protocol_violation":
+                return t("backendErrors.toolProtocolViolation", {
+                  model: modelLabel,
                 })
               case "compaction_not_applied":
                 return t("backendErrors.compactionNotApplied", {

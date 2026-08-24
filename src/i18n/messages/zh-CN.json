@@ -2725,6 +2725,7 @@
           "networkError": "网络连接失败，请检查网络后重试。",
           "serviceUnavailable": "服务暂时不可用，请稍后重试。",
           "requestFailed": "请求失败，请稍后重试。",
+          "currentModel": "当前模型",
           "initializeTimeout": "{agent} 本地初始化超时。请前往设置检查智能体配置和启动日志。",
           "processExited": "{agent} 进程意外退出。",
           "spawnFailed": "无法启动 {agent}，请检查配置后重试。",
@@ -2742,6 +2743,7 @@
           "turnFailedEmpty": "{agent} 本轮没有产生任何回复就结束了，请检查代理配置。",
           "turnFailedEmptyProtocol": "{agent} 本轮产生了输出，但原助理无法解析，可能是 Agent 版本与协议不匹配。",
           "turnFailedEmptyMetadata": "{agent} 本轮只收到状态更新，没有收到任何回复。",
+          "toolProtocolViolation": "{model} 未成功发起结构化工具调用，已停止继续尝试。可重试当前任务或更换兼容工具模型。",
           "detailsInAlerts": "请在状态栏的“告警”中展开详情，查看 Agent 输出。",
           "compactionNotApplied": "{agent} 已结束压缩请求，但没有写入新的压缩摘要，压缩未生效。请检查代理日志后重试。"
         },
