@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, IntoActiveModel, QueryFilter,
-    Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    IntoActiveModel, QueryFilter, Set, TransactionTrait,
 };
 
 use crate::acp::error::AcpError;
@@ -26,6 +26,13 @@ pub async fn list_agent_installations(
 
 pub async fn record_agent_ready(
     conn: &DatabaseConnection,
+    input: ReadyAgentInstallation<'_>,
+) -> Result<(), AcpError> {
+    record_agent_ready_on(conn, input).await
+}
+
+async fn record_agent_ready_on<C: ConnectionTrait>(
+    conn: &C,
     input: ReadyAgentInstallation<'_>,
 ) -> Result<(), AcpError> {
     let encoded = serialize_agent_type(input.agent_type)?;
@@ -72,6 +79,22 @@ pub async fn record_agent_ready(
     active.updated_at = Set(now);
     active.save(conn).await.map_err(database_error)?;
     Ok(())
+}
+
+pub(crate) async fn record_and_activate_agent(
+    conn: &DatabaseConnection,
+    input: ReadyAgentInstallation<'_>,
+    policy: &str,
+    revision: u64,
+) -> Result<(), AcpError> {
+    let encoded = serialize_agent_type(input.agent_type)?;
+    let version = input.version.to_string();
+    let transaction = conn.begin().await.map_err(database_error)?;
+    record_agent_ready_on(&transaction, input).await?;
+    mark_inactive(&transaction, &encoded).await?;
+    mark_active(&transaction, &encoded, &version).await?;
+    update_pointer(&transaction, &encoded, &version, policy, revision).await?;
+    transaction.commit().await.map_err(database_error)
 }
 
 pub async fn activate_agent(

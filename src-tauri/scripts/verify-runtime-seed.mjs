@@ -1,9 +1,19 @@
 import { createHash } from "node:crypto"
+import { execFile } from "node:child_process"
 import { createReadStream } from "node:fs"
-import { lstat, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises"
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 import {
   parseTarget,
   PINNED_NODE_VERSION,
@@ -14,6 +24,7 @@ import { archiveTar, safeRelativePath } from "./runtime-seed-files.mjs"
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 const SEED_ROOT = join(ROOT, "src-tauri", "resources", "runtime-seed")
 const OVERLAY_PATH = join(ROOT, "src-tauri", "tauri.runtime-seed.conf.json")
+const execFileAsync = promisify(execFile)
 const COMPONENT_KINDS = {
   node: "runtime_tool",
   git: "runtime_tool",
@@ -142,6 +153,51 @@ async function extractedFileManifest(archive) {
       maxBuffer: 20 * 1024 * 1024,
     })
     return await listFiles(destination)
+  } finally {
+    await rm(destination, { recursive: true, force: true })
+  }
+}
+
+async function extractArchive(archive, destination) {
+  await mkdir(destination, { recursive: true })
+  await archiveTar(archive, ["-xf", basename(archive), "-C", destination], {
+    maxBuffer: 20 * 1024 * 1024,
+  })
+}
+
+async function verifyCodexLaunch(seedRoot, components, target) {
+  if (target !== "x86_64-pc-windows-msvc") return
+  const node = components.find((component) => component.id === "node")
+  const codex = components.find((component) => component.id === "codex-acp")
+  if (!node || !codex)
+    throw new Error("Codex launch probe components are missing")
+  const destination = await mkdtemp(join(tmpdir(), "iyw-seed-launch-"))
+  const nodeRoot = join(destination, "node")
+  const codexRoot = join(destination, "codex")
+  try {
+    await Promise.all([
+      extractArchive(join(seedRoot, node.archive), nodeRoot),
+      extractArchive(join(seedRoot, codex.archive), codexRoot),
+    ])
+    const packageRoot = join(
+      codexRoot,
+      "node_modules",
+      "@agentclientprotocol",
+      "codex-acp"
+    )
+    const manifest = JSON.parse(
+      await readFile(join(packageRoot, "package.json"), "utf8")
+    )
+    const entry = manifest.bin?.["codex-acp"]
+    if (!safeRelativePath(entry ?? ""))
+      throw new Error("Codex launch probe entrypoint is invalid")
+    const result = await execFileAsync(
+      join(nodeRoot, node.entrypoints.node),
+      [join(packageRoot, entry), "--version"],
+      { windowsHide: true, timeout: 15_000, maxBuffer: 1024 * 1024 }
+    )
+    if (!`${result.stdout}\n${result.stderr}`.includes(codex.version))
+      throw new Error("Codex launch probe returned an unexpected version")
   } finally {
     await rm(destination, { recursive: true, force: true })
   }
@@ -277,6 +333,7 @@ async function verifyRuntimeSeed(target = parseTarget()) {
   const components = await readAndValidateManifest(target, info)
   for (const component of components)
     await verifyComponent(SEED_ROOT, component, info.platform)
+  await verifyCodexLaunch(SEED_ROOT, components, target)
   console.log(
     `[runtime-seed] verified ${target}: ${components.map((component) => component.id).join(", ")}`
   )
@@ -291,4 +348,4 @@ if (entry)
     process.exitCode = 1
   })
 
-export { verifyRuntimeSeed }
+export { verifyCodexLaunch, verifyRuntimeSeed }
