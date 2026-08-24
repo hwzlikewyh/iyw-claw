@@ -14,9 +14,14 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import type {
+  SkillMarketUploadErrors,
+  SkillMarketUploadFieldError,
+} from "@/components/skills/skill-market-upload-validation"
+import type {
   SelectedSkillMarketFolder,
   SkillMarketCategory,
 } from "@/lib/skill-market"
+import { cn } from "@/lib/utils"
 
 type Translator = (
   key: string,
@@ -39,8 +44,24 @@ export interface SkillMarketUploadDraft {
 type MetadataStepProps = {
   draft: SkillMarketUploadDraft
   categories: SkillMarketCategory[]
-  invalid: boolean
+  errors: SkillMarketUploadErrors
   onChange: (field: keyof SkillMarketUploadDraft, value: string) => void
+}
+
+function FieldError({
+  t,
+  error,
+}: {
+  t: Translator
+  error?: SkillMarketUploadFieldError
+}) {
+  if (!error) return null
+  const key =
+    error.code === "dependencies" && error.line
+      ? "upload.errors.dependenciesLine"
+      : `upload.errors.${error.code}`
+  const values = error.line ? { line: error.line } : undefined
+  return <p className="text-xs text-destructive">{t(key, values)}</p>
 }
 
 function DraftInput({
@@ -49,12 +70,14 @@ function DraftInput({
   onChange,
   type,
   placeholder,
+  error,
 }: {
   field: keyof SkillMarketUploadDraft
   draft: SkillMarketUploadDraft
   onChange: MetadataStepProps["onChange"]
   type?: string
   placeholder?: string
+  error?: SkillMarketUploadFieldError
 }) {
   const t = useTranslations("SkillsSettings.market") as unknown as Translator
   return (
@@ -62,11 +85,16 @@ function DraftInput({
       <Label>{t(`fields.${field}`)}</Label>
       <Input
         type={type}
-        className={field === "version" ? "font-mono" : undefined}
+        aria-invalid={Boolean(error)}
+        className={cn(
+          field === "version" && "font-mono",
+          error && "border-destructive"
+        )}
         value={draft[field]}
         placeholder={placeholder}
         onChange={(event) => onChange(field, event.target.value)}
       />
+      <FieldError t={t} error={error} />
     </label>
   )
 }
@@ -75,25 +103,34 @@ function DraftTextarea({
   field,
   draft,
   onChange,
+  error,
 }: {
   field: "summary" | "changelog" | "dependencies"
   draft: SkillMarketUploadDraft
   onChange: MetadataStepProps["onChange"]
+  error?: SkillMarketUploadFieldError
 }) {
   const t = useTranslations("SkillsSettings.market") as unknown as Translator
   return (
     <label className="col-span-full space-y-2">
       <Label>{t(`fields.${field}`)}</Label>
       <Textarea
-        className="min-h-20"
+        className={cn("min-h-20", error && "border-destructive")}
+        aria-invalid={Boolean(error)}
         value={draft[field]}
         onChange={(event) => onChange(field, event.target.value)}
       />
+      <FieldError t={t} error={error} />
     </label>
   )
 }
 
-function CategoryField({ draft, categories, onChange }: MetadataStepProps) {
+function CategoryField({
+  draft,
+  categories,
+  errors,
+  onChange,
+}: MetadataStepProps) {
   const t = useTranslations("SkillsSettings.market") as unknown as Translator
   return (
     <label className="space-y-2">
@@ -102,7 +139,13 @@ function CategoryField({ draft, categories, onChange }: MetadataStepProps) {
         value={draft.category}
         onValueChange={(value) => onChange("category", value)}
       >
-        <SelectTrigger className="w-full rounded-md">
+        <SelectTrigger
+          className={cn(
+            "w-full rounded-md",
+            errors.category && "border-destructive"
+          )}
+          aria-invalid={Boolean(errors.category)}
+        >
           <SelectValue placeholder={t("fields.selectCategory")} />
         </SelectTrigger>
         <SelectContent>
@@ -113,11 +156,15 @@ function CategoryField({ draft, categories, onChange }: MetadataStepProps) {
           ))}
         </SelectContent>
       </Select>
+      <FieldError t={t} error={errors.category} />
     </label>
   )
 }
 
-function VisibilityField({ draft, onChange }: MetadataStepProps) {
+function VisibilityField({
+  draft,
+  onChange,
+}: Pick<MetadataStepProps, "draft" | "onChange">) {
   const t = useTranslations("SkillsSettings.market") as unknown as Translator
   return (
     <div className="col-span-full flex items-center justify-between gap-4 rounded-md border px-3 py-2.5">
@@ -140,7 +187,7 @@ function VisibilityField({ draft, onChange }: MetadataStepProps) {
 export function SkillMarketMetadataStep({
   draft,
   categories,
-  invalid,
+  errors,
   onChange,
 }: MetadataStepProps) {
   const t = useTranslations("SkillsSettings.market") as unknown as Translator
@@ -149,41 +196,46 @@ export function SkillMarketMetadataStep({
       <h3 className="col-span-full text-sm font-semibold">
         {t("upload.steps.metadata")}
       </h3>
-      <DraftInput field="slug" draft={draft} onChange={onChange} />
-      <DraftInput field="displayName" draft={draft} onChange={onChange} />
+      <DraftInput
+        field="slug"
+        draft={draft}
+        error={errors.slug}
+        onChange={onChange}
+      />
+      <DraftInput
+        field="displayName"
+        draft={draft}
+        error={errors.displayName}
+        onChange={onChange}
+      />
       <DraftTextarea field="summary" draft={draft} onChange={onChange} />
       <CategoryField
         draft={draft}
         categories={categories}
-        invalid={invalid}
+        errors={errors}
         onChange={onChange}
       />
-      <DraftInput field="version" draft={draft} onChange={onChange} />
+      <DraftInput
+        field="version"
+        draft={draft}
+        error={errors.version}
+        onChange={onChange}
+      />
       <DraftInput
         field="tags"
         draft={draft}
         onChange={onChange}
         placeholder={t("fields.tagsPlaceholder")}
       />
-      <DraftInput
-        field="iconUrl"
-        draft={draft}
-        onChange={onChange}
-        type="url"
-      />
+      <DraftInput field="iconUrl" draft={draft} onChange={onChange} />
       <DraftTextarea field="changelog" draft={draft} onChange={onChange} />
-      <DraftTextarea field="dependencies" draft={draft} onChange={onChange} />
-      <VisibilityField
+      <DraftTextarea
+        field="dependencies"
         draft={draft}
-        categories={categories}
-        invalid={invalid}
+        error={errors.dependencies}
         onChange={onChange}
       />
-      {invalid ? (
-        <p className="col-span-full text-xs text-destructive">
-          {t("upload.formInvalid")}
-        </p>
-      ) : null}
+      <VisibilityField draft={draft} onChange={onChange} />
     </section>
   )
 }
