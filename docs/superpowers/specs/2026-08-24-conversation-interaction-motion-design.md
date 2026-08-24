@@ -116,7 +116,7 @@
 - `src/app/globals.css`：主题感知环边光效、三点状态和 reduced-motion。
 - `src/components/message/current-reply-artifacts.tsx`：单行四项和当前回复查看全部。
 - 视文件大小拆出小型展示组件，避免继续扩大已有大文件。
-- `src/i18n/messages/*.json`：新增状态、入队和成果溢出文案，覆盖现有 10 个 locale。
+- `src/i18n/messages/{zh-CN,en}.json`：新增状态、入队和成果溢出文案，覆盖当前 checkout 的两个 locale。
 
 不修改 Rust、数据库、共享 TypeScript contract、API、CI、依赖和根配置。
 

@@ -18,6 +18,7 @@ import {
   type ComposerInjectContent,
 } from "@/components/chat/message-input"
 import { MessageQueueDisplay } from "@/components/chat/message-queue-display"
+import { currentModelName } from "@/lib/model-config-groups"
 import { cn } from "@/lib/utils"
 
 interface ChatInputProps {
@@ -125,13 +126,14 @@ export const ChatInput = memo(function ChatInput({
   const isConnected = status === "connected"
   const isPrompting = status === "prompting"
   const resolvedAgentName = agentName ?? "Agent"
+  const resolvedModelName = currentModelName(configOptions) ?? t("model")
   const activityPlaceholder =
     status === "connecting"
       ? t("startingKernel", { agent: resolvedAgentName })
       : isPrompting
         ? responseStarted
-          ? t("agentGenerating", { agent: resolvedAgentName })
-          : t("waitingForAgent", { agent: resolvedAgentName })
+          ? t("modelGenerating", { model: resolvedModelName })
+          : t("waitingForModel", { model: resolvedModelName })
         : null
 
   return (

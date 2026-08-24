@@ -1,35 +1,12 @@
-"use client"
-
-import { useEffect, useMemo, useState, type ReactNode } from "react"
-import { useTranslations } from "next-intl"
 import type {
   LiveContentBlock,
   LiveMessage,
 } from "@/contexts/acp-connections-context"
 import { inferLiveToolName } from "@/lib/tool-call-normalization"
-import { formatElapsedLabel } from "@/lib/format-elapsed"
 import {
   countUnifiedDiffLineChanges,
   estimateChangedLineStats,
 } from "@/lib/line-change-stats"
-import { ListTodoIcon, Timer, Wrench } from "lucide-react"
-import type { AgentType, PlanEntryInfo } from "@/lib/types"
-import { Badge } from "@/components/ui/badge"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
-import { PlanEntriesList } from "@/components/message/plan-card"
-
-interface LiveTurnStatsProps {
-  message: LiveMessage
-  agentType: AgentType
-  isStreaming?: boolean
-  planEntries?: PlanEntryInfo[] | null
-  subAgentControl?: ReactNode
-  trailingStatus?: ReactNode
-}
 
 interface LineChangeStats {
   additions: number
@@ -38,17 +15,6 @@ interface LineChangeStats {
 
 interface LiveEditStats extends LineChangeStats {
   files: number
-}
-
-const EMPTY_PLAN_ENTRIES: PlanEntryInfo[] = []
-
-function getLatestPlanEntries(message: LiveMessage): PlanEntryInfo[] {
-  for (let i = message.content.length - 1; i >= 0; i -= 1) {
-    const block = message.content[i]
-    if (block.type === "plan") return block.entries
-  }
-
-  return EMPTY_PLAN_ENTRIES
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -243,15 +209,6 @@ interface BlockEditContribution {
   deletions: number
 }
 
-// Parsing a tool call's `raw_input` (JSON.parse + diff line counting) is the
-// expensive part of the live edit stats, and it re-runs on every streaming
-// token because the `message` reference changes each token. A completed
-// tool_call block keeps a stable reference across tokens (the reducer rebuilds
-// only the block that changed — see acp-connections-context), so cache each
-// block's contribution keyed on the block object. Only the block currently
-// being updated re-parses; the rest are O(1) lookups. Keying on the block ref
-// is sound because a block's ref changes iff its content changes, and the
-// WeakMap lets dropped blocks be collected.
 const blockEditContributionCache = new WeakMap<
   LiveContentBlock,
   BlockEditContribution | null
@@ -321,130 +278,4 @@ export function extractLiveEditStats(message: LiveMessage): LiveEditStats {
   return { files: files.size, additions, deletions }
 }
 
-export function LiveTurnStats({
-  message,
-  isStreaming = true,
-  planEntries,
-  subAgentControl,
-  trailingStatus,
-}: LiveTurnStatsProps) {
-  const t = useTranslations("Folder.chat.liveTurnStats")
-  const tPlan = useTranslations("Folder.chat.agentPlanOverlay")
-  const [elapsed, setElapsed] = useState(() => Date.now() - message.startedAt)
-  const resolvedPlanEntries = useMemo(
-    () => planEntries ?? getLatestPlanEntries(message),
-    [message, planEntries]
-  )
-  const completedPlanCount = useMemo(
-    () =>
-      resolvedPlanEntries.filter((entry) => entry.status === "completed")
-        .length,
-    [resolvedPlanEntries]
-  )
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setElapsed(Date.now() - message.startedAt)
-    }, 1_000)
-    return () => clearInterval(timer)
-  }, [message.startedAt])
-
-  // Count tool calls from live content
-  let toolCallCount = 0
-  let hasThinkingBlock = false
-
-  for (const block of message.content) {
-    if (block.type === "tool_call") {
-      toolCallCount++
-    } else if (block.type === "thinking") {
-      hasThinkingBlock = true
-    }
-  }
-
-  // Only active streams should show thinking/streaming state.
-  const lastBlock = message.content[message.content.length - 1]
-  const isThinking =
-    isStreaming &&
-    hasThinkingBlock &&
-    message.content.length <= 1 &&
-    lastBlock?.type === "thinking"
-
-  const elapsedLabel = formatElapsedLabel(elapsed, t)
-
-  return (
-    <div className="@container/turnstats shrink-0">
-      <div className="flex min-h-8 flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-1 text-xs leading-none text-muted-foreground">
-        {resolvedPlanEntries.length > 0 && (
-          <>
-            <Popover>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  className="inline-flex h-5 items-center gap-1 rounded-full px-1.5 leading-none text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <ListTodoIcon className="h-3 w-3 shrink-0" />
-                  <span>{tPlan("title")}</span>
-                  <Badge
-                    variant="secondary"
-                    className="h-4 px-1 text-[10px] leading-none"
-                  >
-                    {completedPlanCount}/{resolvedPlanEntries.length}
-                  </Badge>
-                </button>
-              </PopoverTrigger>
-              <PopoverContent
-                side="top"
-                align="center"
-                className="w-80 max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0"
-              >
-                <div className="flex items-center gap-2 border-b px-3 py-2">
-                  <ListTodoIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                    {tPlan("title")}
-                  </span>
-                  <Badge variant="secondary" className="h-5 shrink-0">
-                    {completedPlanCount}/{resolvedPlanEntries.length}
-                  </Badge>
-                </div>
-                <div className="max-h-72 overflow-y-auto p-2">
-                  <PlanEntriesList
-                    entries={resolvedPlanEntries}
-                    isStreaming={isStreaming}
-                  />
-                </div>
-              </PopoverContent>
-            </Popover>
-            <span className="text-border leading-none">|</span>
-          </>
-        )}
-        {subAgentControl && (
-          <>
-            {subAgentControl}
-            <span className="text-border leading-none">|</span>
-          </>
-        )}
-        {isThinking ? (
-          <span>{t("thinking")}</span>
-        ) : (
-          <span>{t("streaming")}</span>
-        )}
-        <span className="text-border leading-none">|</span>
-        <span className="inline-flex items-center gap-1 leading-none">
-          <Timer className="h-3 w-3 shrink-0" />
-          {elapsedLabel}
-        </span>
-        {toolCallCount > 0 && (
-          <>
-            <span className="hidden text-border leading-none @[30rem]/turnstats:inline">
-              |
-            </span>
-            <span className="hidden items-center gap-1 leading-none @[30rem]/turnstats:inline-flex">
-              <Wrench className="h-3 w-3 shrink-0" />
-              {t("toolUseCount", { count: toolCallCount })}
-            </span>
-          </>
-        )}
-        {trailingStatus}
-      </div>
-    </div>
-  )
-}
+export { LiveTurnStats } from "@/components/message/live-turn-stats-view"

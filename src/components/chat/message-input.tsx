@@ -31,7 +31,6 @@ import {
   Scissors,
   Send,
   Sparkles,
-  Square,
   TextSelect,
   RotateCcw,
   TriangleAlert,
@@ -805,7 +804,6 @@ export function MessageInput({
   onFocus,
   className,
   isPrompting = false,
-  onCancel,
   modes,
   configOptions,
   modeLoading = false,
@@ -3366,7 +3364,8 @@ export function MessageInput({
     }
 
     // Prompting mode: enqueue instead of sending
-    if (isPrompting && onEnqueue) {
+    if (isPrompting) {
+      if (!onEnqueue) return
       const accepted = onEnqueue(
         draft,
         showModeSelector ? effectiveModeId : null
@@ -3825,15 +3824,26 @@ export function MessageInput({
         <Check className="size-4" />
       </Button>
     </div>
-  ) : isPrompting && onCancel ? (
+  ) : isPrompting ? (
     <Button
-      onClick={onCancel}
-      variant="destructive"
+      onClick={handleSend}
+      disabled={
+        disabled ||
+        voice.status !== "idle" ||
+        !hasSendableContent ||
+        hasUnstagedImage ||
+        !onEnqueue
+      }
       size="icon"
-      className="h-8 w-8"
-      title={t("cancel")}
+      className="iyw-claw-prompting-button iyw-claw-send-button h-8 w-8"
+      title={t("enqueueWhilePrompting")}
+      aria-label={t("enqueueWhilePrompting")}
     >
-      <Square className="size-4" />
+      <span className="iyw-claw-prompting-dots" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </span>
     </Button>
   ) : onForkSend ? (
     <div className="flex items-center">
@@ -3999,7 +4009,9 @@ export function MessageInput({
                 // flow (globals.css) so the default focus ring above takes over.
                 // A lone/non-tiled session (showActiveFlow=false) and inactive
                 // tiles show the plain default border.
-                showActiveFlow && "iyw-claw-composer-flow",
+                isPrompting
+                  ? "iyw-claw-composer-prompting"
+                  : showActiveFlow && "iyw-claw-composer-flow",
                 !folderBranchPickerAttached &&
                   showDragActive &&
                   "ring-1 ring-primary/40",

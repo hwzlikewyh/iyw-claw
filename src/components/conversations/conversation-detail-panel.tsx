@@ -114,6 +114,7 @@ import {
   refreshFixedAgentOptions,
 } from "@/lib/fixed-agent-options"
 import { reconcileModelConfigValues } from "@/lib/gateway-model-catalog"
+import { currentModelName } from "@/lib/model-config-groups"
 import { planSessionConfigSync } from "@/lib/session-config-compat"
 import {
   lastUserPromptText,
@@ -1926,6 +1927,7 @@ const ConversationTabView = memo(function ConversationTabView({
     <MessageListView
       conversationId={effectiveConversationId}
       agentType={selectedAgent}
+      modelName={currentModelName(connectionConfigOptions)}
       connStatus={connStatus}
       isActive={isActive}
       sendSignal={sendSignal}
@@ -1942,6 +1944,13 @@ const ConversationTabView = memo(function ConversationTabView({
         canShowDetailErrorActions ? handleContinueWithContext : undefined
       }
       continueWithContextLoading={contextPrimerLoading}
+      onCancel={handleCancel}
+      isAwaitingUserInput={Boolean(
+        conn.pendingPermission ||
+        conn.pendingQuestion ||
+        conn.pendingAskQuestion ||
+        conn.pendingChannelConfirmation
+      )}
       liveTrailingStatus={<BackgroundTasksChip contextKey={tabId} inline />}
       standaloneStatus={<BackgroundTasksChip contextKey={tabId} />}
       scrollPositionRef={messageScrollPositionRef}
