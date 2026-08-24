@@ -29,7 +29,7 @@ pub(super) fn search_score(
     let phrase = !query.is_empty() && haystack.contains(&query);
     let negative_hits = negative_terms
         .iter()
-        .filter(|term| haystack.contains(&normalize(term)))
+        .filter(|term| query.contains(&normalize(term)))
         .count();
     if token_score == 0 && !phrase && !alias_exact {
         return None;
