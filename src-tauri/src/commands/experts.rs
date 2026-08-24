@@ -63,8 +63,6 @@ static IYW_CRM_WORKFLOWS_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/iyw-crm-workflows");
 static IYW_SALES_ASSISTANT_WORKFLOWS_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/iyw-sales-assistant-workflows");
-static SELF_IMPROVING_BUNDLE: Dir<'_> =
-    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/self-improving");
 static OPEN_COMPUTER_USE_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/open-computer-use");
 static EXPERTS_TOML_CONTENT: &str =
@@ -77,6 +75,7 @@ const EXPERTS_TOML: &str = "experts.toml";
 const MANAGED_COPY_MARKER_FILE: &str = ".iyw-claw-managed-copy.json";
 const MANAGED_COPY_MARKER_VERSION: u8 = 1;
 pub(crate) const CAPABILITY_GATEWAY_EXPERT_ID: &str = "iyw-capability-gateway";
+pub(crate) const RETIRED_BUNDLED_EXPERT_IDS: [&str; 1] = ["self-improving"];
 /// Directories that hold installed runtime dependencies. They are expensive to
 /// rebuild (network installs, native compilation), so a superseded system skill
 /// directory is only discarded once none of these survive inside it.
@@ -606,7 +605,6 @@ fn bundled_skill_dir(expert_id: &str) -> Option<&'static Dir<'static>> {
         "iyw-copyright-registration" => Some(&IYW_COPYRIGHT_REGISTRATION_BUNDLE),
         "iyw-crm-workflows" => Some(&IYW_CRM_WORKFLOWS_BUNDLE),
         "iyw-sales-assistant-workflows" => Some(&IYW_SALES_ASSISTANT_WORKFLOWS_BUNDLE),
-        "self-improving" => Some(&SELF_IMPROVING_BUNDLE),
         "open-computer-use" => Some(&OPEN_COMPUTER_USE_BUNDLE),
         _ => None,
     }
@@ -1111,6 +1109,9 @@ fn is_runtime_env_dir(path: &Path) -> bool {
 }
 
 fn central_experts_cache_is_current() -> Result<bool, ExpertsError> {
+    if retired_experts_need_reconcile() {
+        return Ok(false);
+    }
     let fingerprint = current_central_experts_fingerprint()?;
     let cache = central_experts_cache()
         .lock()
@@ -1198,6 +1199,7 @@ fn ensure_central_experts_installed_blocking() -> InstallReport {
 
     let mut manifest = load_manifest();
     let original_manifest = manifest.clone();
+    retire_bundled_experts(&mut manifest, &mut report);
     let meta_list = bundled_metadata();
 
     for meta in meta_list {
@@ -1232,6 +1234,80 @@ fn ensure_central_experts_installed_blocking() -> InstallReport {
         "central Skill disk reconcile completed"
     );
     report
+}
+
+fn retired_experts_need_reconcile() -> bool {
+    let manifest = load_manifest();
+    RETIRED_BUNDLED_EXPERT_IDS.iter().any(|id| {
+        let central = expert_central_path(id);
+        if retired_expert_is_preserved(id, &central, &manifest) {
+            return false;
+        }
+        if manifest.experts.contains_key(id) {
+            return true;
+        }
+        if fs::symlink_metadata(&central).is_ok() {
+            return true;
+        }
+        supported_agents().into_iter().any(|agent| {
+            managed_expert_link_paths(id, agent)
+                .map(|(_, paths)| {
+                    paths
+                        .iter()
+                        .any(|path| managed_link_is_owned(&central, path))
+                })
+                .unwrap_or(false)
+        })
+    })
+}
+
+fn retire_bundled_experts(manifest: &mut Manifest, report: &mut InstallReport) {
+    for id in RETIRED_BUNDLED_EXPERT_IDS {
+        let central = expert_central_path(id);
+        if retired_expert_is_preserved(id, &central, manifest) {
+            report.pending_user_review.push(id.to_string());
+            continue;
+        }
+        if let Err(error) = remove_retired_expert_links(id, &central) {
+            report.errors.push(format!("{id}: {error}"));
+            continue;
+        }
+        match fs::symlink_metadata(&central) {
+            Ok(_) => match remove_skill_entry(&central) {
+                Ok(()) => tracing::info!(
+                    target: "system_skills",
+                    skill_id = id,
+                    "removed retired bundled Skill central copy"
+                ),
+                Err(error) => report.errors.push(format!(
+                    "{id}: failed to remove retired central copy: {error}"
+                )),
+            },
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => report.errors.push(format!(
+                "{id}: failed to inspect retired central copy: {error}"
+            )),
+        }
+        manifest.experts.remove(id);
+    }
+}
+
+fn retired_expert_is_preserved(id: &str, central: &Path, manifest: &Manifest) -> bool {
+    manifest
+        .experts
+        .get(id)
+        .is_some_and(|entry| entry.pending_user_review)
+        || crate::commands::acp::read_market_skill_marker(central).is_some()
+        || retained_runtime_env_dir(central).is_some()
+}
+
+fn remove_retired_expert_links(id: &str, central: &Path) -> Result<(), ExpertsError> {
+    for agent in supported_agents() {
+        let (preferred, paths) = managed_expert_link_paths(id, agent)?;
+        reconcile_managed_link_paths(central, &preferred, &paths, false)
+            .map_err(|(path, error)| experts_error_from_managed(error, &path))?;
+    }
+    Ok(())
 }
 
 enum InstallAction {

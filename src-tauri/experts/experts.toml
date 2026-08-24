@@ -214,20 +214,6 @@ en = "Researches, scores, and packages qualified sales leads."
 "zh-CN" = "调研、评分并整理符合条件的销售线索。"
 
 [[expert]]
-id = "self-improving"
-category = "memory"
-icon = "BrainCircuit"
-sort_order = 420
-
-[expert.display_name]
-en = "Self Improving"
-"zh-CN" = "自我改进"
-
-[expert.description]
-en = "Learns conservatively from explicit feedback through iyw-claw memory."
-"zh-CN" = "通过爱原物现有记忆机制，从明确反馈中谨慎学习。"
-
-[[expert]]
 id = "open-computer-use"
 category = "computer_use"
 icon = "MonitorCog"
