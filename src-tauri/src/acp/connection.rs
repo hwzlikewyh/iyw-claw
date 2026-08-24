@@ -880,7 +880,30 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
             for (k, v) in &merged_env {
                 parts.push(format!("{k}={v}"));
             }
-            parts.push(command.to_string_lossy().into_owned());
+            let direct_node_entrypoint = (cfg!(windows)
+                && command.extension().is_some_and(|extension| {
+                    extension.eq_ignore_ascii_case("cmd")
+                        || extension.eq_ignore_ascii_case("bat")
+                }))
+                .then(|| {
+                    let node = crate::acp::version_center::managed_tool_executable("node")
+                        .or_else(|| which::which("node").ok())?;
+                    let entrypoint = npm_runtime::resolve_npm_node_entrypoint(
+                        &prefix, package, cmd,
+                    )?;
+                    Some((node, entrypoint))
+                })
+                .flatten();
+            if let Some((node, entrypoint)) = direct_node_entrypoint {
+                parts.push(node.to_string_lossy().into_owned());
+                parts.push(entrypoint.to_string_lossy().into_owned());
+                tracing::debug!(
+                    agent = meta.name,
+                    "[ACP] bypassing Windows npm command shim"
+                );
+            } else {
+                parts.push(command.to_string_lossy().into_owned());
+            }
             if agent_type == AgentType::Grok {
                 parts.extend(crate::acp::grok::launch_args(args, Some(builtin_prompt)));
             } else {
