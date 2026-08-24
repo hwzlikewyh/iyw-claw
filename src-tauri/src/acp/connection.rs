@@ -6206,6 +6206,7 @@ async fn run_conversation_loop<'a>(
                                         let evidence = AutoContinuationEvidence {
                                             reason_code: "continuation_failed",
                                             evidence_kind: "continuation",
+                                            auto_run: false,
                                         };
                                         emit_auto_continuation_phase(
                                             state,
