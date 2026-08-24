@@ -1243,7 +1243,7 @@ fn retired_experts_need_reconcile() -> bool {
         if retired_expert_is_preserved(id, &central, &manifest) {
             return false;
         }
-        if manifest.experts.contains_key(id) {
+        if manifest.experts.contains_key(*id) {
             return true;
         }
         if fs::symlink_metadata(&central).is_ok() {
