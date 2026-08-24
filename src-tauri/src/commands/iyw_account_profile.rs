@@ -3,7 +3,7 @@ use sea_orm::DatabaseConnection;
 use serde_json::{json, Map, Value};
 
 use crate::acp::delegation::listener::UserProfileAccess;
-use crate::app_error::{AppCommandError, AppErrorCode};
+use crate::app_error::AppErrorCode;
 use crate::commands::iyw_account::iyw_account_get_profile_core;
 
 /// Account profile adapter used by the Agent host capability. It projects the
