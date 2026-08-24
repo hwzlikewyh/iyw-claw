@@ -67,12 +67,16 @@ async fn collect_trigram_lane<C: ConnectionTrait>(
     recall: &mut RecallAccumulator,
 ) -> Result<usize, &'static str> {
     let query_chars = context.attempt.query.chars().count();
-    if !(3..=MAX_TRIGRAM_QUERY_CHARS).contains(&query_chars) {
-        let reason = if query_chars < 3 {
-            "fts_trigram_not_applicable_short_query"
-        } else {
-            "fts_trigram_query_too_long"
-        };
+    if query_chars < 3 {
+        record_skipped(
+            &mut recall.shadow,
+            "trigram",
+            "fts_trigram_not_applicable_short_query",
+        );
+        return Ok(0);
+    }
+    if query_chars > MAX_TRIGRAM_QUERY_CHARS {
+        let reason = "fts_trigram_query_too_long";
         recall.reason_codes.push(reason.to_string());
         record_skipped(&mut recall.shadow, "trigram", reason);
         return Ok(0);
