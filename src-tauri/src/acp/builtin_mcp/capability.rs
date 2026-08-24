@@ -1,9 +1,11 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::capability_intents::intent_metadata;
 use super::capability_metadata::{
-    capability_aliases, capability_category, digest, first_sentence, public_text, public_value,
-    required_inputs, search_score,
+    capability_aliases, capability_category, digest, first_sentence, intent_terms, negative_terms,
+    public_text, public_value, required_inputs, search_score, validate_intent_metadata,
+    when_to_use,
 };
 use super::capability_registry::{stable_capability_id, validate_bindings, RegistryError};
 use super::capability_schema;
@@ -19,6 +21,8 @@ pub(super) struct CapabilitySummary {
     pub summary: String,
     pub category: String,
     pub aliases: Vec<String>,
+    pub intent_terms: Vec<String>,
+    pub when_to_use: String,
     pub required_inputs: Vec<String>,
     pub schema_digest: String,
     pub status: &'static str,
@@ -31,6 +35,8 @@ pub(super) struct CapabilityDetail {
     pub input_schema: Value,
     pub category: String,
     pub aliases: Vec<String>,
+    pub intent_terms: Vec<String>,
+    pub when_to_use: String,
     pub required_inputs: Vec<String>,
     pub schema_digest: String,
     pub status: &'static str,
@@ -59,6 +65,9 @@ struct CatalogEntry {
     tool: EmbeddedTool,
     category: String,
     aliases: Vec<String>,
+    intent_terms: Vec<String>,
+    negative_terms: Vec<String>,
+    when_to_use: String,
     required_inputs: Vec<String>,
     schema_digest: String,
 }
@@ -74,17 +83,24 @@ impl CapabilityCatalog {
             crate::acp::delegation::companion::TOOL_SCHEMA_JSON,
         )?;
         validate_bindings(tools.iter().map(|tool| tool.name.as_str()))?;
+        validate_intent_metadata(tools.iter().map(|tool| tool.name.as_str()))
+            .map_err(CatalogError::IntentMetadata)?;
         let entries = tools
             .into_iter()
             .map(|mut tool| {
                 let id = stable_capability_id(&tool.name)
                     .ok_or_else(|| CatalogError::MissingStableId(tool.name.clone()))?;
+                let metadata = intent_metadata(&tool.name)
+                    .ok_or_else(|| CatalogError::MissingIntentMetadata(tool.name.clone()))?;
                 tool.input_schema = public_value(tool.input_schema);
                 let schema_digest = digest(&tool.input_schema)?;
                 Ok(CatalogEntry {
                     id,
                     category: capability_category(id),
-                    aliases: capability_aliases(id),
+                    aliases: capability_aliases(id, &tool.name),
+                    intent_terms: intent_terms(metadata),
+                    negative_terms: negative_terms(metadata),
+                    when_to_use: when_to_use(metadata),
                     required_inputs: required_inputs(&tool.input_schema),
                     schema_digest,
                     tool,
@@ -94,7 +110,15 @@ impl CapabilityCatalog {
         let catalog_digest = digest(
             &entries
                 .iter()
-                .map(|entry| (&entry.id, &entry.schema_digest))
+                .map(|entry| {
+                    (
+                        &entry.id,
+                        &entry.schema_digest,
+                        &entry.aliases,
+                        &entry.intent_terms,
+                        &entry.when_to_use,
+                    )
+                })
                 .collect::<Vec<_>>(),
         )?;
         Ok(Self {
@@ -113,7 +137,7 @@ impl CapabilityCatalog {
         query: &str,
         limit: Option<usize>,
     ) -> Result<Vec<CapabilitySummary>, SearchError> {
-        let query = query.trim().to_ascii_lowercase();
+        let query = query.trim();
         if query.is_empty() {
             return Err(SearchError::EmptyQuery);
         }
@@ -154,6 +178,8 @@ impl CapabilityCatalog {
             input_schema: public_value(entry.tool.input_schema.clone()),
             category: entry.category.clone(),
             aliases: entry.aliases.clone(),
+            intent_terms: entry.intent_terms.clone(),
+            when_to_use: entry.when_to_use.clone(),
             required_inputs: entry.required_inputs.clone(),
             schema_digest: entry.schema_digest.clone(),
             status: if available {
@@ -203,6 +229,8 @@ fn search_match(entry: &CatalogEntry, query: &str) -> Option<(usize, CapabilityS
         entry.id,
         &entry.category,
         &entry.aliases,
+        &entry.intent_terms,
+        &entry.negative_terms,
         &entry.tool.description,
         query,
     )?;
@@ -213,6 +241,8 @@ fn search_match(entry: &CatalogEntry, query: &str) -> Option<(usize, CapabilityS
             summary: public_text(&first_sentence(&entry.tool.description)),
             category: entry.category.clone(),
             aliases: entry.aliases.clone(),
+            intent_terms: entry.intent_terms.clone(),
+            when_to_use: entry.when_to_use.clone(),
             required_inputs: entry.required_inputs.clone(),
             schema_digest: entry.schema_digest.clone(),
             status: "available",
@@ -226,6 +256,10 @@ pub(super) enum CatalogError {
     Decode(#[from] serde_json::Error),
     #[error("companion tool `{0}` has no stable capability id")]
     MissingStableId(String),
+    #[error("missing intent metadata for companion tool `{0}`")]
+    MissingIntentMetadata(String),
+    #[error("{0}")]
+    IntentMetadata(String),
     #[error(transparent)]
     Registry(#[from] RegistryError),
 }

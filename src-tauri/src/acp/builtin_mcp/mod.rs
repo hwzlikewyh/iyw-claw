@@ -2,6 +2,7 @@ mod authority;
 mod binding;
 mod cancellation;
 mod capability;
+mod capability_intents;
 mod capability_metadata;
 mod capability_registry;
 mod capability_response;
