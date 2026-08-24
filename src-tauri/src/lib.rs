@@ -1758,7 +1758,7 @@ mod tauri_app {
         drop(startup_gate);
         crate::logging::emergency::write_event("event_loop", "begin", "runtime", None);
         app.run(|app, event| match event {
-            tauri::RunEvent::ExitRequested { api, code } => {
+            tauri::RunEvent::ExitRequested { api, code, .. } => {
                 if code == Some(tauri::RESTART_EXIT_CODE) {
                     crate::desktop_shutdown::shutdown_blocking(
                         app,
