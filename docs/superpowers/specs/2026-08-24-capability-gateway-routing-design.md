@@ -171,6 +171,22 @@ M2 confirmed、M3 profile、M4 interaction principles。写入只允许宿主能
 用户自有或市场覆盖内容时不做静默破坏性删除。已存在的
 `~/.iyw-claw/self-improving/` 运行状态保留。
 
+### 4.6 任务成果的当前会话归属
+
+任务成果登记和查询必须使用同一套会话 lineage 语义。当前实现的登记侧会在 MCP 调用
+时通过父连接动态读取 `conversation_id`，这是必要的：连接第一次 prompt 前可能尚未
+绑定会话，不能在 HTTP MCP lease 建立时过早快照为空值。查询侧则只向下遍历子会话，导致
+当前界面打开分支会话时，挂在父会话的成果出现在“全部成果”却不在“当前会话”。
+
+保留登记时的动态解析和安全 token 约束，将 `conversation_tree_ids` 改为完整的
+`conversation_scope_ids`：从当前会话向上收集祖先，再从当前会话向下收集后代，
+去重并设置批量上限。这样当前会话表示当前分支所属的会话 lineage，不会退化为整个文件夹
+查询，也不会把兄弟会话的成果混入。空会话 ID 仍返回 `session_not_ready`，前端 current
+scope 不得静默切换为 all scope。
+
+现有 `task-artifact://changed` 刷新事件和路径/文件状态校验保持不变；新增日志需同时记录
+请求会话、实际登记会话和查询 scope，禁止记录完整文件内容或凭证。
+
 ## 5. 兼容性与风险控制
 
 - 现有三件套名称、稳定能力 ID、读取 schema 和 `delivery_ack` 规则不变。
@@ -197,8 +213,10 @@ M2 confirmed、M3 profile、M4 interaction principles。写入只允许宿主能
    验证；不再出现“无证据被解释为不存在”。
 6. 新版本的两个 `experts.toml` 和嵌入映射不再包含 `self-improving`；旧受管链接/副本
    被清理，运行反思目录保留，市场覆盖和用户自有文件不被删除。
-7. 领域 Skill 的清单、认证前置检查和现有 CLI 路由未被改变。
-8. `git diff --check`、Rust/JSON/TOML 静态检查和相关单元测试通过。遵循 iyw-claw
+7. 当前会话成果查询覆盖祖先和后代 lineage，不显示兄弟会话成果；无会话 ID 时返回
+   空状态而不切换为文件夹全部成果，成果登记/刷新事件仍闭环。
+8. 领域 Skill 的清单、认证前置检查和现有 CLI 路由未被改变。
+9. `git diff --check`、Rust/JSON/TOML 静态检查和相关单元测试通过。遵循 iyw-claw
    规则，本机不运行桌面构建；最终报告区分静态、测试和未执行的构建验证。
 
 ## 7. 实施顺序
@@ -206,4 +224,5 @@ M2 confirmed、M3 profile、M4 interaction principles。写入只允许宿主能
 1. 先落地预置提示词读取门禁、catalog 元数据/搜索兼容改造和 profile 只读能力，保留旧 Skill。
 2. 加入 memory 结果状态和短查询回退，并更新网关内置说明。
 3. 增加 retired-id 迁移，再从两个 Skill 发布/内嵌源移除 `self-improving`。
-4. 运行前后对比矩阵，确认旧直接工具、领域 Skill 和升级迁移没有回归。
+4. 修正任务成果 lineage 查询，验证当前/全部范围和首轮未绑定会话行为。
+5. 运行前后对比矩阵，确认旧直接工具、领域 Skill、成果筛选和升级迁移没有回归。
