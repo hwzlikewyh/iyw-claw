@@ -64,7 +64,7 @@
 - [ ] **Step 1: 先扩展 schema 和绑定**：在 `tool_schema.json` 增加无参数、`additionalProperties: false` 的 `get_current_user_profile`；在 `capability_registry.rs` 添加稳定绑定；把 protocol version 从 6 递增为 7，确保旧 companion 被 readiness 门禁拒绝。
 - [ ] **Step 2: 接通 companion dispatch**：在 `CompanionFeatures::allows_tool` 让 profile 走宿主 identity 读取路径；新增 `ToolFamily::Identity`、`dispatch_identity_tool`、`spawn_user_profile`，只发 token，不允许 Agent 传 user id、token 或查询词。
 - [ ] **Step 3: 接通 broker wire**：新增 `BrokerUserProfileRequest` 和 `BrokerMessage::UserProfile`，为 socket/in-process 两种 backend 使用现有 `round_trip`；在 listener `serve_one`/`process_immediate` 分发，复用 token 失效和取消边界。
-- [ ] **Step 4: 接入账户资料源**：在 `commands/iyw_account.rs` 增加 `DbUserProfileAccess`，调用已有 `iyw_account_get_profile_core`；只映射 `logged_in`、`name`/`nick_name` 到显示名、组织名，绝不序列化 user id、phone、points、avatar 或 token。远端认证/网络失败返回 `profile_unavailable`，不伪造资料。
+- [ ] **Step 4: 接入账户资料源**：在 `commands/iyw_account_profile.rs` 增加 `DbUserProfileAccess`，调用账户模块新增的身份专用 core（复用登录/续期但跳过积分请求）；只映射 `logged_in`、`name`/`nick_name` 到显示名、组织名，绝不序列化 user id、phone、points、avatar 或 token。远端认证/网络失败返回 `profile_unavailable`，不伪造资料。
 - [ ] **Step 5: 两种运行模式装配**：在 `lib.rs` 和 `iyw_claw_server.rs` 构造 listener 时注入同一数据库连接的 `DbUserProfileAccess`，确认桌面和 server 使用相同字段白名单。
 - [ ] **Step 6: 网关读取调用**：确认 catalog `read` 返回 profile 的公开 schema，`invoke` 仍先按 feature/权限校验，再经 companion dispatch；成功结果不得经过 `public_text` 暴露内部账户字段。
 - [ ] **Step 7: 静态验证**：检查 protocol version、schema 名称、stable ID 和两处 listener 构造点全量一致；执行 `git diff --check` 和 JSON 解析，不运行 Cargo build/test。

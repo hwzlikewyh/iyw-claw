@@ -130,9 +130,10 @@ Skill 加载路径，不是猜测一个 MCP 工具名，也不是调用 `list_mc
 
 ### 4.3 用户资料能力
 
-在现有 `iyw_account_get_profile_core` 之上增加一个网关可调用的只读稳定能力，建议
-ID 为 `iyw.session.user_profile.read.v1`。能力不接收 token、用户 ID 或查询词，直接
-读取当前会话登录资料。
+在现有账户登录/续期链之上增加一个身份专用的网关可调用只读稳定能力，建议 ID 为
+`iyw.session.user_profile.read.v1`。它复用 `iyw_account_get_profile_core` 的登录资料
+请求和续期逻辑，但跳过积分请求，避免无关余额服务失败阻断姓名读取。能力不接收 token、
+用户 ID 或查询词，直接读取当前会话登录资料。
 
 返回字段采用白名单：`logged_in`、`display_name`、`preferred_name`、`organization_name`。
 禁止返回 user id、电话、积分、头像地址、refresh token 或任何账户凭证。未登录返回
