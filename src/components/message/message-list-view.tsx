@@ -87,6 +87,7 @@ import {
 interface MessageListViewProps {
   conversationId: number
   agentType: AgentType
+  modelName?: string | null
   connStatus?: ConnectionStatus | null
   isActive?: boolean
   sendSignal?: number
@@ -106,6 +107,8 @@ interface MessageListViewProps {
   onNewSession?: () => void
   onContinueWithContext?: () => void
   continueWithContextLoading?: boolean
+  onCancel?: () => void
+  isAwaitingUserInput?: boolean
   /**
    * Renders the per-conversation message navigator rail. Enabled in the main
    * conversation view; disabled in compact embeds (e.g. the sub-agent dialog).
@@ -585,9 +588,9 @@ const PendingTypingIndicator = memo(function PendingTypingIndicator() {
     <Message from="assistant">
       <MessageContent>
         <div className="flex items-center gap-1.5 py-1">
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-[pulse_1.4s_ease-in-out_infinite]" />
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-[pulse_1.4s_ease-in-out_0.2s_infinite]" />
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-[pulse_1.4s_ease-in-out_0.4s_infinite]" />
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-[pulse_1.4s_ease-in-out_infinite] motion-reduce:animate-none" />
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-[pulse_1.4s_ease-in-out_0.2s_infinite] motion-reduce:animate-none" />
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-[pulse_1.4s_ease-in-out_0.4s_infinite] motion-reduce:animate-none" />
         </div>
       </MessageContent>
     </Message>
@@ -621,6 +624,7 @@ const AutoScrollOnSend = memo(function AutoScrollOnSend({
 export function MessageListView({
   conversationId,
   agentType,
+  modelName,
   connStatus,
   isActive = true,
   sendSignal = 0,
@@ -633,6 +637,8 @@ export function MessageListView({
   onNewSession,
   onContinueWithContext,
   continueWithContextLoading = false,
+  onCancel,
+  isAwaitingUserInput = false,
   showMessageNav = true,
   enableUserMemoryActions = true,
   liveTrailingStatus,
@@ -1106,11 +1112,10 @@ export function MessageListView({
         />
         <MessageThreadScrollButton />
       </MessageThread>
-      {liveMessage && connStatus === "prompting" && (
+      {connStatus === "prompting" && (
         <LiveTurnStats
           message={liveMessage}
-          agentType={agentType}
-          isStreaming={connStatus === "prompting"}
+          modelName={modelName}
           subAgentControl={
             lastAssistantDelegations.length > 0 ? (
               <SubAgentDelegationsPopover
@@ -1119,9 +1124,11 @@ export function MessageListView({
             ) : null
           }
           trailingStatus={liveTrailingStatus}
+          onCancel={onCancel}
+          isAwaitingUserInput={isAwaitingUserInput}
         />
       )}
-      {(!liveMessage || connStatus !== "prompting") && standaloneStatus}
+      {connStatus !== "prompting" && standaloneStatus}
       {/* Message navigator pinned to the inline-start edge. Live plan and
           sub-agent controls live in the
           composer status row. */}

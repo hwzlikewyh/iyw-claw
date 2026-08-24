@@ -1617,6 +1617,34 @@ body {
   }
 }
 
+/* 对话执行期间使用稳定蓝色环光；伪元素不参与布局，也不拦截输入。 */
+.iyw-claw-composer-prompting::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 2px;
+  background: conic-gradient(
+    from var(--iyw-claw-flow-angle, 0deg),
+    color-mix(in oklab, #79a5ff 16%, transparent),
+    #79a5ff,
+    color-mix(in oklab, #79a5ff 16%, transparent),
+    #79a5ff,
+    color-mix(in oklab, #79a5ff 16%, transparent)
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  animation: iyw-claw-composer-flow 1.8s linear infinite;
+}
+
 .iyw-claw-composer .ProseMirror {
   outline: none;
   white-space: pre-wrap;
@@ -1779,7 +1807,59 @@ body {
   transform: scale(0.97);
 }
 
+.iyw-claw-prompting-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  width: 14px;
+  height: 8px;
+}
+.iyw-claw-prompting-button {
+  color: white;
+  background: #7da6fb;
+}
+.iyw-claw-prompting-button:hover:not(:disabled) {
+  background: #6f9af4;
+}
+.iyw-claw-prompting-dots > span {
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: iyw-claw-prompting-dot 900ms ease-in-out infinite;
+}
+.iyw-claw-prompting-dots > span:nth-child(2) {
+  animation-delay: 150ms;
+}
+.iyw-claw-prompting-dots > span:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+@keyframes iyw-claw-prompting-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.45;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .iyw-claw-composer-prompting::before,
+  .iyw-claw-prompting-dots > span {
+    animation: none;
+  }
+  .iyw-claw-composer-prompting::before {
+    background: #79a5ff;
+  }
+  .iyw-claw-prompting-dots > span {
+    opacity: 1;
+    transform: none;
+  }
   .iyw-claw-send-button {
     transition: none;
   }

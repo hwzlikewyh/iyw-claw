@@ -1,12 +1,9 @@
 "use client"
 
-import { memo, useMemo, useState } from "react"
-import { PackageOpen } from "lucide-react"
-import { useTranslations } from "next-intl"
+import { memo, useMemo } from "react"
 
-import { TaskArtifactDialog } from "@/components/layout/task-artifact-dialog"
-import { TaskArtifactFileRow } from "@/components/layout/task-artifact-file-row"
 import { useTaskArtifacts } from "@/components/layout/use-task-artifacts"
+import { CurrentReplyArtifactsPanel } from "@/components/message/current-reply-artifacts-panel"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import type { TaskArtifactInfo } from "@/lib/api"
@@ -52,7 +49,6 @@ function ResolvedReplyArtifacts({
   references: string[]
 }) {
   const { activeFolder } = useActiveFolder()
-  const [selected, setSelected] = useState<TaskArtifactInfo | null>(null)
   const query = useTaskArtifacts({
     conversationId,
     folderId: null,
@@ -65,57 +61,7 @@ function ResolvedReplyArtifacts({
 
   if (items.length === 0) return null
 
-  return (
-    <ReplyArtifactPanel
-      items={items}
-      selected={selected}
-      onSelect={setSelected}
-    />
-  )
-}
-
-function ReplyArtifactPanel({
-  items,
-  selected,
-  onSelect,
-}: {
-  items: TaskArtifactInfo[]
-  selected: TaskArtifactInfo | null
-  onSelect: (artifact: TaskArtifactInfo | null) => void
-}) {
-  const t = useTranslations("Folder.taskArtifacts")
-
-  return (
-    <section
-      aria-label={t("currentReplyTitle")}
-      className="mt-3 border-t border-border/60 pt-3"
-    >
-      <div className="mb-1.5 flex min-w-0 items-center gap-2 px-1">
-        <PackageOpen className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium">
-          {t("currentReplyTitle")}
-        </span>
-        <span className="shrink-0 text-[11px] text-muted-foreground">
-          {t("currentReplyCount", { count: items.length })}
-        </span>
-      </div>
-      <div className="max-h-72 overflow-y-auto rounded-md border bg-card/40 p-1">
-        {items.map((item) => (
-          <TaskArtifactFileRow
-            key={item.id}
-            item={item}
-            selected={selected?.id === item.id}
-            onSelect={onSelect}
-          />
-        ))}
-      </div>
-      <TaskArtifactDialog
-        artifact={selected}
-        open={selected !== null}
-        onOpenChange={(open) => !open && onSelect(null)}
-      />
-    </section>
-  )
+  return <CurrentReplyArtifactsPanel items={items} />
 }
 
 function extractArtifactReferences(parts: AdaptedContentPart[]): string[] {

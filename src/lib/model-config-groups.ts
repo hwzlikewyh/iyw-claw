@@ -21,6 +21,20 @@ export function isModelConfigOption(option: SessionConfigOptionInfo): boolean {
   return option.id === "model" || option.category === "model"
 }
 
+export function currentModelName(
+  options: SessionConfigOptionInfo[] | undefined
+): string | null {
+  const model = options?.find(isModelConfigOption)
+  if (!model) return null
+  const currentValue = model.kind.current_value.trim()
+  const candidates = [
+    ...model.kind.options,
+    ...model.kind.groups.flatMap((group) => group.options),
+  ]
+  const selected = candidates.find((option) => option.value === currentValue)
+  return selected?.name.trim() || currentValue || null
+}
+
 // The namespace before the FIRST "/", or `null` when there is no usable prefix
 // (no slash, a leading slash, or a trailing slash with an empty suffix). Values
 // like `openrouter/anthropic/claude` group under their first segment.

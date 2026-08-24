@@ -48,6 +48,7 @@ import { PermissionDialog } from "@/components/chat/permission-dialog"
 import { AskQuestionCard } from "@/components/chat/ask-question-card"
 import { ChannelConfirmationCard } from "@/components/chat/channel-confirmation-card"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
+import { currentModelName } from "@/lib/model-config-groups"
 import type { AgentType, QuestionAnswer } from "@/lib/types"
 
 interface Props {
@@ -405,7 +406,13 @@ function SubAgentSessionBody({
         <MessageListView
           conversationId={childConversationId}
           agentType={agentType ?? "claude_code"}
+          modelName={currentModelName(childConn?.configOptions ?? undefined)}
           connStatus={connStatus}
+          isAwaitingUserInput={Boolean(
+            childPendingPermission ||
+            childPendingAskQuestion ||
+            childChannelConfirmation
+          )}
           isActive={false}
           detailLoading={detailLoading}
           detailError={error}
