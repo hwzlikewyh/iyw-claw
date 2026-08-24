@@ -7,7 +7,7 @@ use super::index_types::IndexSnapshot;
 use super::recall::RecallAttempt;
 use super::recall_fallback_scan::{scan_snapshot, FallbackScan, FallbackScanContext};
 use super::recall_shadow::{LaneMeasurement, RecallShadow};
-use super::recall_types::UserMemoryRecallResult;
+use super::recall_types::{UserMemoryRecallResult, UserMemoryRecallState};
 use super::UserMemoryService;
 
 #[derive(Clone)]
@@ -142,6 +142,11 @@ fn build_fallback_result(
         index_generation: None,
         source_digest: Some(context.snapshot.source_digest.clone()),
         status: "fallback".to_string(),
+        result_state: if abstained {
+            UserMemoryRecallState::NoEvidence
+        } else {
+            UserMemoryRecallState::Matched
+        },
         abstained,
         reason_codes,
     }
@@ -169,6 +174,7 @@ fn fallback_failed_result(mut request: SourceFallbackRequest) -> UserMemoryRecal
         index_generation: None,
         source_digest: None,
         status: "stale".to_string(),
+        result_state: UserMemoryRecallState::Unavailable,
         abstained: true,
         reason_codes: vec![
             request.reason.to_string(),

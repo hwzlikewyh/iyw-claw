@@ -12,6 +12,14 @@ routing:
 
 # IYW Capability Gateway
 
+## Preflight
+
+The Agent's host-injected prompt requires reading this Skill before selecting or
+calling a host capability. Read it through the normal Skill loader first; then
+inspect the actual callable surface. Do not use `list_mcp_resources` as a
+substitute for this gateway, and never invent a tool name, namespace, or stable
+capability id when this Skill cannot be read.
+
 ## Activation gate
 
 The three names below identify gateway roles. They are not proof that three
@@ -61,7 +69,8 @@ already read for the same goal. Reuse current catalog evidence while continuing
 that goal, unless a result no longer fits or the goal materially changes.
 
 Typical reasons to search include delegation, user feedback or questions,
-session context, image or media work, task artifacts, memory, channels, and
+session context, current user profile, image or media work, task artifacts,
+memory, channels, and
 automation. These are examples, not a fixed inventory; only search results for
 the current session prove that a capability exists and is enabled. An exact
 visible direct tool that the user requests or that clearly fulfills the goal
@@ -86,7 +95,8 @@ until the selected capability schema says they are required.
 ## Gateway workflow
 
 Search results are session-scoped evidence. Each result may include `category`,
-`aliases`, `required_inputs`, `schema_digest`, and `status`; `read` is the
+`aliases`, `intent_terms`, `when_to_use`, `required_inputs`, `schema_digest`,
+and `status`; aliases and intent terms may be Chinese or English. `read` is the
 authoritative source for the complete schema. Treat `unavailable_reason` as a
 terminal routing result for this session, not as permission to try an internal
 tool name. When a later read returns a different `schema_digest`, discard old
@@ -95,10 +105,9 @@ arguments and construct them again from the new schema.
 For an eligible goal, use the tools in this order:
 
 1. Follow the actual visible search tool schema. Search with two to five
-   discriminating English goal keywords that include the action and object,
-   such as the equivalent of "send channel message" rather than conversational
-   filler. Translate a non-English goal for search; do not assume multilingual
-   aliases. Treat returned summaries as the current catalog index, not a
+   discriminating action/object keywords in the user's language or English,
+   such as `发送 消息 渠道` or `send channel message`, rather than conversational
+   filler. Treat returned summaries as the current catalog index, not a
    remembered capability list.
 2. Rank candidates by direct action/object fit. Compare missing inputs only when
    the search summaries explicitly describe them. Read the best plausible
@@ -138,6 +147,21 @@ stop using the entire gateway for this turn. Do not retry the role through a
 different callable surface, promote a nested entry to a top-level call, repeat
 the failed call, switch namespaces, or guess a different tool name. Use an
 actually visible direct route or state the concrete limitation.
+
+## Identity and memory routing
+
+- Current account name, nickname, preferred salutation, or organization uses
+  `iyw.session.user_profile.read.v1`; do not search memory for account identity.
+- An explicit request to retain a durable fact or preference uses
+  `iyw.memory.confirmed.append.v1`.
+- A reusable but not-yet-confirmed correction, preference, or fact uses
+  `iyw.memory.candidate.propose.v1`.
+- Historical user memory uses `iyw.memory.recall.search.v1`. Its `resultState`
+  is `matched`, `no_evidence`, or `unavailable`; `no_evidence` never proves that
+  the user lacks the fact. Short queries may use exact/alias fallback and must
+  not be treated as a trigram failure.
+- Never write `user-memory.md`, `user-profile.md`, or `user-soul.md` directly;
+  durable memory belongs to iyw-claw host capabilities.
 
 ## Delivery acknowledgement
 

@@ -68,7 +68,7 @@ pub use harvest::{
 pub use recall_scope::UserMemoryRecallScope;
 pub use recall_types::{
     UserMemoryIndexStatus, UserMemoryRecallItem, UserMemoryRecallRequest, UserMemoryRecallResult,
-    USER_MEMORY_MAX_RECALL_LIMIT, USER_MEMORY_MAX_RECALL_QUERY_CHARS,
+    UserMemoryRecallState, USER_MEMORY_MAX_RECALL_LIMIT, USER_MEMORY_MAX_RECALL_QUERY_CHARS,
 };
 pub use service::UserMemoryService;
 pub use transaction::{

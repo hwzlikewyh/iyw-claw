@@ -38,7 +38,7 @@ export function TaskArtifactsTab({
   const { activeFolderId } = useActiveFolder()
   const conversationId = useConversationId(conversationIdOverride)
   const [scope, setScope] = useState<Scope>("current")
-  const effectiveScope = scope === "current" && !conversationId ? "all" : scope
+  const effectiveScope = scope
   const filters = useMemo(
     () => ({ conversationId, folderId: activeFolderId, scope: effectiveScope }),
     [activeFolderId, conversationId, effectiveScope]

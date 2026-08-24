@@ -2625,14 +2625,26 @@ pub fn render_memory_recall_result(outcome: &Value) -> Value {
         .and_then(Value::as_array)
         .map(|items| serde_json::to_string(items).unwrap_or_else(|_| "[]".to_string()))
         .unwrap_or_else(|| "[]".to_string());
-    let abstained = outcome
-        .get("abstained")
-        .and_then(Value::as_bool)
-        .unwrap_or(true);
-    let text = if abstained {
-        "No matching user memory was found; do not infer an answer from this tool."
-    } else {
-        &items
+    let result_state = outcome
+        .get("resultState")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| {
+            if outcome
+                .get("abstained")
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+            {
+                "no_evidence"
+            } else {
+                "matched"
+            }
+        });
+    let text = match result_state {
+        "matched" => items.as_str(),
+        "unavailable" => {
+            "User memory is currently unavailable; do not infer an answer from this tool."
+        }
+        _ => "No evidence in stored user memory matched this query; do not infer an answer.",
     };
     json!({
         "content": [{ "type": "text", "text": text }],

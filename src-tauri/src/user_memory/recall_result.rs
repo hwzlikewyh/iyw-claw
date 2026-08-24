@@ -2,7 +2,7 @@ use super::recall::{ReadyRecall, RecallAttempt};
 use super::recall_execute::IndexRecallOutcome;
 use super::recall_shadow::RecallShadow;
 use super::recall_status::empty_result;
-use super::recall_types::UserMemoryRecallResult;
+use super::recall_types::{UserMemoryRecallResult, UserMemoryRecallState};
 
 pub(super) fn complete_index_result(
     context: ReadyRecall,
@@ -22,6 +22,11 @@ pub(super) fn complete_index_result(
     } else {
         "none"
     };
+    let result_state = if abstained {
+        UserMemoryRecallState::NoEvidence
+    } else {
+        UserMemoryRecallState::Matched
+    };
     shadow.log("index", &items, reason);
     UserMemoryRecallResult {
         query: context.attempt.query,
@@ -29,6 +34,7 @@ pub(super) fn complete_index_result(
         index_generation: context.checkpoint.index_generation,
         source_digest: context.checkpoint.source_digest,
         status: context.checkpoint.status,
+        result_state,
         abstained,
         reason_codes,
     }

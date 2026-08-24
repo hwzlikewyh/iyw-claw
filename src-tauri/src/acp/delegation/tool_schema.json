@@ -841,7 +841,7 @@
   },
   {
     "name": "memory_recall",
-    "description": "Read matching user memory for the current launch when it materially helps the task. This is read-only, bounded, and may abstain when the index is stale or no evidence matches. The Agent decides whether to use it; do not treat an empty result as proof that a fact is false.",
+    "description": "Read matching stored user memory for the current launch when it materially helps the task. This is read-only and bounded. The resultState distinguishes matched, no_evidence, and unavailable; no_evidence means the index was usable but no stored memory matched, never that the fact is false. Use the current-user-profile capability for account name, nickname, or salutation instead of memory recall.",
     "inputSchema": {
       "type": "object",
       "required": ["query"],

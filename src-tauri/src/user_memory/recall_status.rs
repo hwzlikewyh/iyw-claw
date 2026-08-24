@@ -2,7 +2,7 @@ use sea_orm::{ConnectionTrait, DbBackend, QueryResult, Statement};
 
 use crate::app_error::AppCommandError;
 
-use super::recall_types::{UserMemoryIndexStatus, UserMemoryRecallResult};
+use super::recall_types::{UserMemoryIndexStatus, UserMemoryRecallResult, UserMemoryRecallState};
 
 const SOURCE_KEY: &str = "user_memory";
 
@@ -70,9 +70,21 @@ pub(super) fn empty_result(query: String, status: &str, reason: &str) -> UserMem
         index_generation: None,
         source_digest: None,
         status: status.to_string(),
+        result_state: if unavailable_status(status, reason) {
+            UserMemoryRecallState::Unavailable
+        } else {
+            UserMemoryRecallState::NoEvidence
+        },
         abstained: true,
         reason_codes: vec![reason.to_string()],
     }
+}
+
+fn unavailable_status(status: &str, reason: &str) -> bool {
+    matches!(status, "disabled" | "unavailable" | "timeout" | "stale")
+        || reason.contains("unavailable")
+        || reason.contains("failed")
+        || reason.contains("timeout")
 }
 
 pub(super) fn database_error(error: sea_orm::DbErr) -> AppCommandError {

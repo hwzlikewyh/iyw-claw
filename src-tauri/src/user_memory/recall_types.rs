@@ -6,6 +6,14 @@ pub(super) const MAX_RECALL_TOTAL_CHARS: usize = 4_000;
 pub const USER_MEMORY_MAX_RECALL_LIMIT: usize = 8;
 pub const USER_MEMORY_MAX_RECALL_QUERY_CHARS: usize = 512;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UserMemoryRecallState {
+    Matched,
+    NoEvidence,
+    Unavailable,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UserMemoryRecallRequest {
@@ -56,6 +64,7 @@ pub struct UserMemoryRecallResult {
     pub index_generation: Option<i64>,
     pub source_digest: Option<String>,
     pub status: String,
+    pub result_state: UserMemoryRecallState,
     pub abstained: bool,
     pub reason_codes: Vec<String>,
 }

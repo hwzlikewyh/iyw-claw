@@ -69,7 +69,7 @@ async fn collect_trigram_lane<C: ConnectionTrait>(
     let query_chars = context.attempt.query.chars().count();
     if !(3..=MAX_TRIGRAM_QUERY_CHARS).contains(&query_chars) {
         let reason = if query_chars < 3 {
-            "fts_trigram_query_too_short"
+            "fts_trigram_not_applicable_short_query"
         } else {
             "fts_trigram_query_too_long"
         };

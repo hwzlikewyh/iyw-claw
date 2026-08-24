@@ -17,6 +17,8 @@ use crate::db::error::DbError;
 use source::{current_artifact_state, resolve_sources, ResolvedArtifact};
 
 const CONVERSATION_TREE_BATCH_SIZE: usize = 500;
+const MAX_CONVERSATION_ANCESTOR_DEPTH: usize = 256;
+const MAX_CONVERSATION_SCOPE_IDS: usize = 5_000;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -122,7 +124,12 @@ pub async fn list_artifacts(
         .inner_join(conversation::Entity)
         .order_by_desc(task_artifact::Column::CreatedAt);
     if let Some(id) = conversation_id {
-        let conversation_ids = conversation_tree_ids(conn, id).await?;
+        let conversation_ids = conversation_scope_ids(conn, id).await?;
+        tracing::debug!(
+            conversation_id = id,
+            scope_ids = conversation_ids.len(),
+            "[task-artifacts] current conversation scope resolved"
+        );
         query = query.filter(task_artifact::Column::ConversationId.is_in(conversation_ids));
     }
     if let Some(id) = folder_id {
@@ -153,7 +160,50 @@ pub async fn list_artifacts(
     Ok(results)
 }
 
-async fn conversation_tree_ids(
+async fn conversation_scope_ids(
+    conn: &DatabaseConnection,
+    current_id: i32,
+) -> Result<Vec<i32>, DbError> {
+    let mut ids = conversation_ancestor_ids(conn, current_id).await?;
+    ids.extend(conversation_descendant_ids(conn, current_id).await?);
+    ids.sort_unstable();
+    ids.dedup();
+    if ids.len() > MAX_CONVERSATION_SCOPE_IDS {
+        return Err(DbError::Validation(format!(
+            "conversation scope exceeds {MAX_CONVERSATION_SCOPE_IDS} ids"
+        )));
+    }
+    Ok(ids)
+}
+
+async fn conversation_ancestor_ids(
+    conn: &DatabaseConnection,
+    start_id: i32,
+) -> Result<Vec<i32>, DbError> {
+    let mut ids = Vec::new();
+    let mut visited = HashSet::new();
+    let mut current = Some(start_id);
+    for _ in 0..MAX_CONVERSATION_ANCESTOR_DEPTH {
+        let Some(id) = current else {
+            return Ok(ids);
+        };
+        if !visited.insert(id) {
+            return Err(DbError::Validation(
+                "conversation parent cycle detected".to_string(),
+            ));
+        }
+        ids.push(id);
+        current = conversation::Entity::find_by_id(id)
+            .one(conn)
+            .await?
+            .and_then(|conversation| conversation.parent_id);
+    }
+    Err(DbError::Validation(
+        "conversation ancestor depth exceeds limit".to_string(),
+    ))
+}
+
+async fn conversation_descendant_ids(
     conn: &DatabaseConnection,
     root_id: i32,
 ) -> Result<Vec<i32>, DbError> {
@@ -167,11 +217,16 @@ async fn conversation_tree_ids(
                 .filter(conversation::Column::ParentId.is_in(parent_ids.iter().copied()))
                 .all(conn)
                 .await?;
-            next.extend(
-                children
-                    .into_iter()
-                    .filter_map(|child| visited.insert(child.id).then_some(child.id)),
-            );
+            for child in children {
+                if visited.insert(child.id) {
+                    next.push(child.id);
+                    if result.len() + next.len() > MAX_CONVERSATION_SCOPE_IDS {
+                        return Err(DbError::Validation(format!(
+                            "conversation scope exceeds {MAX_CONVERSATION_SCOPE_IDS} ids"
+                        )));
+                    }
+                }
+            }
         }
         result.extend(next.iter().copied());
         frontier = next;
