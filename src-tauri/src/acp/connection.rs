@@ -753,7 +753,10 @@ fn shared_runtime_host_enabled(agent_type: AgentType) -> bool {
 
 fn stderr_tail_for_runtime_host(agent_type: AgentType) -> Arc<StderrTail> {
     if shared_runtime_host_enabled(agent_type) {
-        Arc::new(StderrTail::disabled())
+        // Capture only the startup window. `AgentRuntimeHost::start` disables
+        // this tail after a successful initialize, so shared hosts do not mix
+        // stderr from concurrent sessions into turn diagnostics.
+        Arc::new(StderrTail::new_startup_only())
     } else {
         Arc::new(StderrTail::new())
     }
@@ -1556,7 +1559,7 @@ pub(crate) async fn spawn_agent_connection(
                         message: e.to_string(),
                         agent_type: agent_type.to_string(),
                         code,
-                        details: None,
+                        details: Some(detail.clone()),
                         // The only genuinely terminal emit site: `run_connection`
                         // is unwinding and the next event is `Disconnected`.
                         // The lifecycle worker uses this flag to decide whether
