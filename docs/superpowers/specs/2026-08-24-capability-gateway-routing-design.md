@@ -96,6 +96,18 @@
 
 ### 4.2 搜索与路由
 
+#### 4.2.1 Agent 预置提示词门禁
+
+`src-tauri/src/acp/builtin_agent_prompt.rs` 的预置提示词在能力路由规则之前增加一条
+明确前置要求：Agent 启动后，凡是当前目标可能需要 iyw-claw 宿主状态或动作，必须先
+读取当前安装的 `iyw-capability-gateway` Skill，再检查实际 callable surface，确认三件
+套是否完整，最后才执行 search -> read -> invoke。这里的“读取”走 Agent 当前支持的
+Skill 加载路径，不是猜测一个 MCP 工具名，也不是调用 `list_mcp_resources`。
+
+如果该 Skill 不可读，提示词必须要求 Agent 只依据实际可见工具继续，并把网关不可用作为
+具体限制；不得伪造 Skill 内容、网关命名空间或内部能力 ID。该门禁只改变发现顺序，不
+绕过当前会话的 feature、权限和用户确认策略。
+
 搜索流程保持“搜索 -> 读取 -> 按当前 schema 调用”，但评分改为：
 
 1. Unicode 小写/规范化，不再只依赖 ASCII；
@@ -104,7 +116,7 @@
 4. 查询为空、过长、无命中仍返回明确的参数错误或空结果，不猜内部工具名；
 5. 同一目标只允许一次近义词重试，继续沿用当前网关的调用失败即停止规则。
 
-网关内置提示只保留一份短路由表，至少覆盖：
+读取门禁之后，网关内置提示只保留一份短路由表，至少覆盖：
 
 | 用户意图 | 首选路由 |
 | --- | --- |
@@ -176,20 +188,22 @@ M2 confirmed、M3 profile、M4 interaction principles。写入只允许宿主能
 
 1. 39 个既有能力及新增 profile 能力都有稳定 ID、元数据和 schema 覆盖；中文/英文
    动作+对象查询能命中正确候选，近邻能力排序不倒置。
-2. gateway search/read/invoke 的现有权限、不可用状态、未知 ID、schema digest 和
+2. 每个 Agent 启动预置提示词都明确要求先读取 `iyw-capability-gateway` Skill；Skill
+   不可读时能按实际可见工具继续，不会猜测网关工具或内部能力 ID。
+3. gateway search/read/invoke 的现有权限、不可用状态、未知 ID、schema digest 和
    delivery acknowledgement 行为保持不变。
-3. profile 只返回白名单字段，登录、退出、远端失败和空资料状态均可区分。
-4. memory 的长查询、短查询、无证据、索引不可用、权限关闭和写入边界均有聚焦回归
+4. profile 只返回白名单字段，登录、退出、远端失败和空资料状态均可区分。
+5. memory 的长查询、短查询、无证据、索引不可用、权限关闭和写入边界均有聚焦回归
    验证；不再出现“无证据被解释为不存在”。
-5. 新版本的两个 `experts.toml` 和嵌入映射不再包含 `self-improving`；旧受管链接/副本
+6. 新版本的两个 `experts.toml` 和嵌入映射不再包含 `self-improving`；旧受管链接/副本
    被清理，运行反思目录保留，市场覆盖和用户自有文件不被删除。
-6. 领域 Skill 的清单、认证前置检查和现有 CLI 路由未被改变。
-7. `git diff --check`、Rust/JSON/TOML 静态检查和相关单元测试通过。遵循 iyw-claw
+7. 领域 Skill 的清单、认证前置检查和现有 CLI 路由未被改变。
+8. `git diff --check`、Rust/JSON/TOML 静态检查和相关单元测试通过。遵循 iyw-claw
    规则，本机不运行桌面构建；最终报告区分静态、测试和未执行的构建验证。
 
 ## 7. 实施顺序
 
-1. 先落地 catalog 元数据/搜索兼容改造和 profile 只读能力，保留旧 Skill。
+1. 先落地预置提示词读取门禁、catalog 元数据/搜索兼容改造和 profile 只读能力，保留旧 Skill。
 2. 加入 memory 结果状态和短查询回退，并更新网关内置说明。
 3. 增加 retired-id 迁移，再从两个 Skill 发布/内嵌源移除 `self-improving`。
 4. 运行前后对比矩阵，确认旧直接工具、领域 Skill 和升级迁移没有回归。
