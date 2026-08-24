@@ -786,7 +786,13 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
     debug_assert_eq!(meta.agent_type, agent_type);
 
     let agent = match meta.distribution {
-        AgentDistribution::Npx { cmd, args, env, .. } => {
+        AgentDistribution::Npx {
+            package,
+            cmd,
+            args,
+            env,
+            ..
+        } => {
             let storage = AgentStoragePaths::active().ok_or_else(|| {
                 AcpError::SdkNotInstalled(
                     "Agent storage is not initialized. Choose a private storage directory in Agent Settings."
