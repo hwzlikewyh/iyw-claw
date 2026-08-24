@@ -1304,8 +1304,21 @@ fn retired_expert_is_preserved(id: &str, central: &Path, manifest: &Manifest) ->
 fn remove_retired_expert_links(id: &str, central: &Path) -> Result<(), ExpertsError> {
     for agent in supported_agents() {
         let (preferred, paths) = managed_expert_link_paths(id, agent)?;
-        reconcile_managed_link_paths(central, &preferred, &paths, false)
-            .map_err(|(path, error)| experts_error_from_managed(error, &path))?;
+        let mut candidates = BTreeSet::new();
+        candidates.insert(preferred);
+        candidates.extend(paths);
+        for path in candidates {
+            let owned =
+                managed_link_is_owned(central, &path) || managed_copy_is_owned(central, &path);
+            if owned {
+                remove_skill_entry(&path).map_err(|error| {
+                    ExpertsError::Io(format!(
+                        "remove retired managed path {}: {error}",
+                        path.display()
+                    ))
+                })?;
+            }
+        }
     }
     Ok(())
 }
