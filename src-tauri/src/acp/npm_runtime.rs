@@ -428,6 +428,7 @@ pub fn activate_private_npm_runtime(
 pub struct PrivateNpmActivation {
     final_prefix: PathBuf,
     previous: Option<PathBuf>,
+    settled: bool,
 }
 
 impl PrivateNpmActivation {
@@ -435,10 +436,19 @@ impl PrivateNpmActivation {
         if let Some(previous) = self.previous.take() {
             let _ = std::fs::remove_dir_all(previous);
         }
+        self.settled = true;
         self.final_prefix.clone()
     }
 
     pub fn rollback(mut self) -> Result<(), AcpError> {
+        let result = self.rollback_inner();
+        if result.is_ok() {
+            self.settled = true;
+        }
+        result
+    }
+
+    fn rollback_inner(&mut self) -> Result<(), AcpError> {
         if self.final_prefix.exists() {
             std::fs::remove_dir_all(&self.final_prefix).map_err(|error| {
                 AcpError::DownloadFailed(format!(
@@ -454,6 +464,20 @@ impl PrivateNpmActivation {
             })?;
         }
         Ok(())
+    }
+}
+
+impl Drop for PrivateNpmActivation {
+    fn drop(&mut self) {
+        if self.settled {
+            return;
+        }
+        if let Err(error) = self.rollback_inner() {
+            tracing::error!(
+                error = %error,
+                "[managed-npm] cancelled activation rollback failed"
+            );
+        }
     }
 }
 
@@ -490,6 +514,7 @@ pub fn begin_private_npm_runtime_activation(
     Ok(PrivateNpmActivation {
         final_prefix,
         previous,
+        settled: false,
     })
 }
 

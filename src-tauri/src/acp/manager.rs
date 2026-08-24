@@ -642,6 +642,7 @@ impl ConnectionManager {
             tracing::info!("[ACP] skipping Codex runtime prewarm during Agent storage work");
             return Ok(false);
         }
+        let _storage_read_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
         let resources = crate::acp::resource_governor::ResourceSnapshot::capture();
         if matches!(
             resources.memory.pressure,

@@ -1671,7 +1671,6 @@ pub(crate) async fn prewarm_agent_runtime(
     if !shared_runtime_host_enabled(agent_type) {
         return Ok(false);
     }
-    let _storage_read_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
     crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
         .map_err(AcpError::protocol)?;
     let storage = AgentStoragePaths::active().ok_or_else(|| {
