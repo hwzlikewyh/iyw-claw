@@ -3,6 +3,7 @@ mod tools;
 
 use crate::models::agent::AgentType;
 
+pub(crate) use agents::record_and_activate_agent;
 pub use agents::{
     activate_agent, list_agent_installations, promote_agent_lkg, record_agent_ready, recover_agent,
     set_agent_pin,

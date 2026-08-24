@@ -428,6 +428,7 @@ pub fn activate_private_npm_runtime(
 pub struct PrivateNpmActivation {
     final_prefix: PathBuf,
     previous: Option<PathBuf>,
+    rollback_trash: PathBuf,
     settled: bool,
 }
 
@@ -450,18 +451,20 @@ impl PrivateNpmActivation {
 
     fn rollback_inner(&mut self) -> Result<(), AcpError> {
         if self.final_prefix.exists() {
-            std::fs::remove_dir_all(&self.final_prefix).map_err(|error| {
+            std::fs::rename(&self.final_prefix, &self.rollback_trash).map_err(|error| {
                 AcpError::DownloadFailed(format!(
-                    "remove failed npm runtime during rollback failed: {error}"
+                    "move failed npm runtime aside during rollback failed: {error}"
                 ))
             })?;
         }
-        if let Some(previous) = self.previous.take() {
-            std::fs::rename(&previous, &self.final_prefix).map_err(|error| {
-                AcpError::DownloadFailed(format!(
-                    "restore previous npm runtime during rollback failed: {error}"
-                ))
-            })?;
+        if let Some(previous) = self.previous.as_ref() {
+            if let Err(error) = std::fs::rename(&previous, &self.final_prefix) {
+                let restore_new = std::fs::rename(&self.rollback_trash, &self.final_prefix);
+                return Err(AcpError::DownloadFailed(format!(
+                    "restore previous npm runtime during rollback failed: {error}; restore replacement runtime result: {restore_new:?}"
+                )));
+            }
+            self.previous.take();
         }
         Ok(())
     }
@@ -504,6 +507,17 @@ pub fn begin_private_npm_runtime_activation(
             return Err(error);
         }
     };
+    let rollback_trash = paths.trash_dir().join("npm").join(format!(
+        "rollback-{}-{}",
+        registry::registry_id_for(agent_type),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(rollback_trash.parent().ok_or_else(|| {
+        AcpError::DownloadFailed("npm rollback trash path has no parent".to_string())
+    })?)
+    .map_err(|error| {
+        AcpError::DownloadFailed(format!("create npm rollback trash dir failed: {error}"))
+    })?;
     let previous = match activate_staged_prefix(paths, staging_prefix, &final_prefix, agent_type) {
         Ok(previous) => previous,
         Err(error) => {
@@ -514,6 +528,7 @@ pub fn begin_private_npm_runtime_activation(
     Ok(PrivateNpmActivation {
         final_prefix,
         previous,
+        rollback_trash,
         settled: false,
     })
 }

@@ -237,7 +237,7 @@ async fn record(
     )
     .await
     .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?;
-    inventory::record_agent_ready(
+    inventory::record_and_activate_agent(
         conn,
         ReadyAgentInstallation {
             agent_type: AgentType::Codex,
@@ -248,10 +248,9 @@ async fn record(
             source_key: Some(SEED_ARTIFACT_PREFIX),
             expected_sha256: Some(&component.sha256),
         },
+        SEED_POLICY,
+        0,
     )
     .await
-    .map_err(acp_error)?;
-    inventory::activate_agent(conn, AgentType::Codex, &component.version, SEED_POLICY, 0)
-        .await
-        .map_err(acp_error)
+    .map_err(acp_error)
 }
