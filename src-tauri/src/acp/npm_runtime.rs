@@ -175,6 +175,41 @@ fn npm_package_dir(prefix: &Path, package: &str) -> PathBuf {
     dir
 }
 
+pub fn npm_package_name_from_spec(spec: &str) -> Option<&str> {
+    let spec = spec.trim();
+    let end = match spec.rfind('@').filter(|index| *index > 0) {
+        Some(index) if valid_npm_version_suffix(&spec[index + 1..]) => index,
+        Some(_) => return None,
+        None => spec.len(),
+    };
+    let name = &spec[..end];
+    valid_npm_package_name(name).then_some(name)
+}
+
+fn valid_npm_version_suffix(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || ".-_+".contains(character))
+}
+
+fn valid_npm_package_name(name: &str) -> bool {
+    let valid_segment = |value: &str| {
+        !value.is_empty()
+            && !matches!(value, "." | "..")
+            && value
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || "-._~".contains(character))
+    };
+    if let Some(scoped) = name.strip_prefix('@') {
+        let mut segments = scoped.split('/');
+        return segments.next().is_some_and(valid_segment)
+            && segments.next().is_some_and(valid_segment)
+            && segments.next().is_none();
+    }
+    !name.contains('/') && valid_segment(name)
+}
+
 /// Whether `package` is resolvable from `start` under Node's algorithm: every
 /// `node_modules` on the walk up from the declaring package to `prefix`.
 ///
@@ -296,13 +331,20 @@ pub fn resolve_private_npm_command(
 /// shims are not reliable with that stdio path (they can exit before the ACP
 /// handshake). The manifest is trusted runtime content; reject traversal and
 /// absolute paths before returning the entrypoint.
-pub fn resolve_npm_node_entrypoint(prefix: &Path, package: &str, command: &str) -> Option<PathBuf> {
-    let package_dir = npm_package_dir(prefix, package);
+pub fn resolve_npm_node_entrypoint(
+    prefix: &Path,
+    package_spec: &str,
+    command: &str,
+) -> Option<PathBuf> {
+    let package_name = npm_package_name_from_spec(package_spec)?;
+    let package_dir = npm_package_dir(prefix, package_name);
     let manifest = std::fs::read_to_string(package_dir.join("package.json")).ok()?;
     let manifest = serde_json::from_str::<serde_json::Value>(&manifest).ok()?;
     let bin = manifest.get("bin")?;
     let relative = match bin {
-        serde_json::Value::String(path) => path.as_str(),
+        serde_json::Value::String(path) if package_name.rsplit('/').next() == Some(command) => {
+            path.as_str()
+        }
         serde_json::Value::Object(entries) => entries.get(command)?.as_str()?,
         _ => return None,
     };
@@ -315,7 +357,10 @@ pub fn resolve_npm_node_entrypoint(prefix: &Path, package: &str, command: &str) 
         return None;
     }
     let entrypoint = package_dir.join(relative);
-    entrypoint.is_file().then_some(entrypoint)
+    let canonical_package = std::fs::canonicalize(package_dir).ok()?;
+    let canonical_entrypoint = std::fs::canonicalize(entrypoint).ok()?;
+    (canonical_entrypoint.starts_with(canonical_package) && canonical_entrypoint.is_file())
+        .then_some(canonical_entrypoint)
 }
 
 pub fn preferred_private_npm_command_path(
@@ -369,6 +414,56 @@ pub fn activate_private_npm_runtime(
     staging_prefix: &Path,
     required_commands: &[&str],
 ) -> Result<PathBuf, AcpError> {
+    begin_private_npm_runtime_activation(
+        paths,
+        agent_type,
+        version,
+        staging_prefix,
+        required_commands,
+    )
+    .map(PrivateNpmActivation::commit)
+}
+
+#[must_use]
+pub struct PrivateNpmActivation {
+    final_prefix: PathBuf,
+    previous: Option<PathBuf>,
+}
+
+impl PrivateNpmActivation {
+    pub fn commit(mut self) -> PathBuf {
+        if let Some(previous) = self.previous.take() {
+            let _ = std::fs::remove_dir_all(previous);
+        }
+        self.final_prefix.clone()
+    }
+
+    pub fn rollback(mut self) -> Result<(), AcpError> {
+        if self.final_prefix.exists() {
+            std::fs::remove_dir_all(&self.final_prefix).map_err(|error| {
+                AcpError::DownloadFailed(format!(
+                    "remove failed npm runtime during rollback failed: {error}"
+                ))
+            })?;
+        }
+        if let Some(previous) = self.previous.take() {
+            std::fs::rename(&previous, &self.final_prefix).map_err(|error| {
+                AcpError::DownloadFailed(format!(
+                    "restore previous npm runtime during rollback failed: {error}"
+                ))
+            })?;
+        }
+        Ok(())
+    }
+}
+
+pub fn begin_private_npm_runtime_activation(
+    paths: &AgentStoragePaths,
+    agent_type: AgentType,
+    version: &str,
+    staging_prefix: &Path,
+    required_commands: &[&str],
+) -> Result<PrivateNpmActivation, AcpError> {
     for command in required_commands {
         if resolve_npm_command_from_prefix(staging_prefix, command).is_none() {
             let _ = std::fs::remove_dir_all(staging_prefix);
@@ -385,11 +480,17 @@ pub fn activate_private_npm_runtime(
             return Err(error);
         }
     };
-    if let Err(error) = activate_staged_prefix(paths, staging_prefix, &final_prefix, agent_type) {
-        let _ = std::fs::remove_dir_all(staging_prefix);
-        return Err(error);
-    }
-    Ok(final_prefix)
+    let previous = match activate_staged_prefix(paths, staging_prefix, &final_prefix, agent_type) {
+        Ok(previous) => previous,
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(staging_prefix);
+            return Err(error);
+        }
+    };
+    Ok(PrivateNpmActivation {
+        final_prefix,
+        previous,
+    })
 }
 
 fn activate_staged_prefix(
@@ -397,7 +498,7 @@ fn activate_staged_prefix(
     staging_prefix: &Path,
     final_prefix: &Path,
     agent_type: AgentType,
-) -> Result<(), AcpError> {
+) -> Result<Option<PathBuf>, AcpError> {
     let parent = final_prefix
         .parent()
         .ok_or_else(|| AcpError::DownloadFailed("private npm destination has no parent".into()))?;
@@ -407,16 +508,17 @@ fn activate_staged_prefix(
     let previous = move_existing_to_trash(paths, final_prefix, agent_type)?;
     if let Err(error) = std::fs::rename(staging_prefix, final_prefix) {
         if let Some(previous) = previous.as_ref() {
-            let _ = std::fs::rename(previous, final_prefix);
+            if let Err(restore_error) = std::fs::rename(previous, final_prefix) {
+                return Err(AcpError::DownloadFailed(format!(
+                    "activate private npm runtime failed: {error}; restore previous runtime failed: {restore_error}"
+                )));
+            }
         }
         return Err(AcpError::DownloadFailed(format!(
             "activate private npm runtime failed: {error}"
         )));
     }
-    if let Some(previous) = previous {
-        let _ = std::fs::remove_dir_all(previous);
-    }
-    Ok(())
+    Ok(previous)
 }
 
 fn move_existing_to_trash(

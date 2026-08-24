@@ -59,7 +59,11 @@ async fn import_inner(
         let _ = tokio::fs::remove_dir_all(&staging).await;
         return Err(error);
     }
-    let final_prefix = npm_runtime::activate_private_npm_runtime(
+    if let Err(error) = probe_prefix(&staging, &component.version).await {
+        let _ = tokio::fs::remove_dir_all(&staging).await;
+        return Err(error);
+    }
+    let activation = npm_runtime::begin_private_npm_runtime_activation(
         &paths,
         AgentType::Codex,
         &component.version,
@@ -67,11 +71,17 @@ async fn import_inner(
         &[COMMAND],
     )
     .map_err(acp_error)?;
-    if let Err(error) = probe(&paths, &component.version).await {
-        let _ = std::fs::remove_dir_all(final_prefix);
+    if let Err(error) = record(request.conn, component).await {
+        if let Err(rollback_error) = activation.rollback() {
+            tracing::error!(
+                component = COMPONENT,
+                error = %rollback_error,
+                "[runtime-seed] failed to restore previous Codex ACP runtime"
+            );
+        }
         return Err(error);
     }
-    record(request.conn, component).await?;
+    let _ = activation.commit();
     tracing::info!(version = %component.version, "[runtime-seed] Codex ACP imported and activated");
     Ok(())
 }
@@ -144,13 +154,22 @@ fn verify_prefix(prefix: &Path, version: &str) -> Result<(), AppCommandError> {
     npm_runtime::verify_host_platform_optional_deps(prefix).map_err(acp_error)
 }
 
-async fn probe(paths: &AgentStoragePaths, version: &str) -> Result<(), AppCommandError> {
-    let command =
-        npm_runtime::resolve_private_npm_command(paths, AgentType::Codex, version, COMMAND)
-            .ok_or_else(|| {
-                AppCommandError::invalid_input("Runtime seed Codex command is missing")
-            })?;
-    let output = tokio::time::timeout(PROBE_TIMEOUT, version_output(&command))
+async fn probe_prefix(prefix: &Path, version: &str) -> Result<(), AppCommandError> {
+    let meta = registry::get_agent_meta(AgentType::Codex);
+    let crate::acp::registry::AgentDistribution::Npx { package, cmd, .. } = meta.distribution
+    else {
+        return Err(AppCommandError::configuration_invalid(
+            "Codex runtime seed is not npm-based",
+        ));
+    };
+    let entrypoint =
+        npm_runtime::resolve_npm_node_entrypoint(prefix, package, cmd).ok_or_else(|| {
+            AppCommandError::invalid_input("Runtime seed Codex entrypoint is invalid")
+        })?;
+    let node = crate::acp::version_center::managed_tool_executable("node").ok_or_else(|| {
+        AppCommandError::invalid_input("Managed Node is unavailable for the Codex runtime seed")
+    })?;
+    let output = tokio::time::timeout(PROBE_TIMEOUT, version_output(&node, &entrypoint))
         .await
         .map_err(|_| {
             AppCommandError::task_execution_failed("Runtime seed Codex probe timed out")
@@ -162,21 +181,13 @@ async fn probe(paths: &AgentStoragePaths, version: &str) -> Result<(), AppComman
         .ok_or_else(|| AppCommandError::invalid_input("Runtime seed Codex probe failed"))
 }
 
-#[cfg(not(windows))]
-async fn version_output(command: &Path) -> Result<std::process::Output, AppCommandError> {
-    crate::process::tokio_command(command)
+async fn version_output(
+    node: &Path,
+    entrypoint: &Path,
+) -> Result<std::process::Output, AppCommandError> {
+    crate::process::tokio_command(node)
+        .arg(entrypoint)
         .arg("--version")
-        .output()
-        .await
-        .map_err(AppCommandError::io)
-}
-
-#[cfg(windows)]
-async fn version_output(command: &Path) -> Result<std::process::Output, AppCommandError> {
-    let shell = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
-    crate::process::tokio_command(shell)
-        .args(["/D", "/S", "/C", "\"%IYW_CLAW_SEED_COMMAND%\" --version"])
-        .env("IYW_CLAW_SEED_COMMAND", command)
         .output()
         .await
         .map_err(AppCommandError::io)
@@ -187,11 +198,29 @@ async fn valid_active(conn: &DatabaseConnection, paths: &AgentStoragePaths, seed
         return false;
     };
     let active = setting.and_then(|item| item.installed_version);
-    version_at_least(active.as_deref(), seed)
-        && active.as_deref().is_some_and(|version| {
-            npm_runtime::resolve_private_npm_command(paths, AgentType::Codex, version, COMMAND)
-                .is_some()
-        })
+    let Some(active) = active.filter(|version| version_at_least(Some(version), seed)) else {
+        return false;
+    };
+    let Ok(prefix) = npm_runtime::private_npm_prefix(paths, AgentType::Codex, &active) else {
+        return false;
+    };
+    if verify_prefix(&prefix, &active).is_err() {
+        tracing::info!(
+            version = active,
+            reason = "prefix_invalid",
+            "[runtime-seed] active Codex ACP requires repair"
+        );
+        return false;
+    }
+    if probe_prefix(&prefix, &active).await.is_err() {
+        tracing::info!(
+            version = active,
+            reason = "probe_failed",
+            "[runtime-seed] active Codex ACP requires repair"
+        );
+        return false;
+    }
+    true
 }
 
 async fn record(
