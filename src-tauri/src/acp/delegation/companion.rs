@@ -55,7 +55,7 @@ use crate::acp::delegation::transport::{
     BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerImageAnalysisRequest,
     BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerMemoryRecallRequest,
     BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
-    COMPANION_PROTOCOL_VERSION,
+    BrokerUserProfileRequest, COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::question::parse_questions;
 use crate::acp::session_info::MAX_SESSION_MESSAGES;
@@ -251,6 +251,7 @@ impl CompanionFeatures {
             "check_user_feedback" => self.feedback,
             "ask_user_question" => self.ask,
             "get_session_info" => self.sessions,
+            "get_current_user_profile" => true,
             "show_image" | "analyze_image" => self.images,
             "transcribe_audio" | "transcribe_audio_flash" | "query_audio_transcription" => true,
             "append_user_memory" => self.memory,
@@ -692,6 +693,7 @@ async fn build_tools_call_spawn(bridge: CompanionBridge, id: Value, params: Valu
         ToolFamily::Browser => dispatch_browser_tool(bridge, invocation).await,
         ToolFamily::Artifacts => dispatch_artifacts_tool(bridge, invocation).await,
         ToolFamily::Memory => dispatch_memory_tool(bridge, invocation).await,
+        ToolFamily::Identity => dispatch_identity_tool(bridge, invocation).await,
         ToolFamily::Delegation => dispatch_delegation_tool(bridge, invocation).await,
         ToolFamily::Unknown => LineAction::Respond(err(
             invocation.id,
@@ -716,6 +718,7 @@ enum ToolFamily {
     Browser,
     Artifacts,
     Memory,
+    Identity,
     Delegation,
     Unknown,
 }
@@ -740,6 +743,7 @@ fn tool_family(name: &str) -> ToolFamily {
         }
         "present_task_files" => ToolFamily::Artifacts,
         "append_user_memory" | "propose_user_memory" | "memory_recall" => ToolFamily::Memory,
+        "get_current_user_profile" => ToolFamily::Identity,
         "delegate_to_agent"
         | "get_delegation_status"
         | "cancel_delegation"
@@ -748,6 +752,35 @@ fn tool_family(name: &str) -> ToolFamily {
         | "get_session_info" => ToolFamily::Delegation,
         _ => ToolFamily::Unknown,
     }
+}
+
+async fn dispatch_identity_tool(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    if call.name != "get_current_user_profile" {
+        return LineAction::Respond(err(call.id, -32602, "unknown identity tool"));
+    }
+    if !call
+        .arguments
+        .as_object()
+        .is_some_and(|arguments| arguments.is_empty())
+    {
+        return LineAction::Respond(err(
+            call.id,
+            -32602,
+            "get_current_user_profile accepts no arguments",
+        ));
+    }
+    let request = BrokerUserProfileRequest {
+        token: bridge.context.token,
+    };
+    let round_trip = broker_round_trip(bridge.backend, BrokerMessage::UserProfile(request));
+    register_and_spawn(
+        bridge.inflight,
+        call.id,
+        None,
+        round_trip,
+        render_user_profile_result,
+    )
+    .await
 }
 
 async fn dispatch_media_tool(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
@@ -2317,6 +2350,23 @@ pub fn render_session_result(outcome: &Value) -> Value {
     json!({
         "content": [{ "type": "text", "text": text }],
         "isError": false,
+        "structuredContent": outcome.clone(),
+    })
+}
+
+pub fn render_user_profile_result(outcome: &Value) -> Value {
+    let status = outcome
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("profile_unavailable");
+    let text = match status {
+        "ok" => "Current user profile loaded from the host account.",
+        "logged_out" => "No user is currently logged in to iyw-claw.",
+        _ => "The current user profile is unavailable for this session.",
+    };
+    json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": status == "profile_unavailable",
         "structuredContent": outcome.clone(),
     })
 }

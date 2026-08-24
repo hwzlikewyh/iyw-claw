@@ -477,6 +477,11 @@ async fn async_main() -> ExitCode {
                 },
             )),
         ),
+        Arc::new(
+            iyw_claw_lib::commands::iyw_account_profile::DbUserProfileAccess::new(
+                state.db.conn.clone(),
+            ),
+        ),
         state.user_memory.clone(),
         Arc::new(
             iyw_claw_lib::commands::task_artifacts::DbTaskArtifactAccess::new(

@@ -27,6 +27,7 @@ macro_rules! metadata {
 const SPECIAL_METADATA: &[(&str, CapabilityIntentMetadata)] = &[
     ("present_task_files", metadata!(&["task artifacts", "任务成果", "提交成果", "交付文件"], &["present", "提交", "artifact", "成果"], "Use to register final files or URLs as task artifacts.")),
     ("get_session_info", metadata!(&["session info", "会话信息", "查看会话"], &["read", "读取", "session", "会话"], "Use to inspect a referenced iyw-claw session.")),
+    ("get_current_user_profile", metadata!(&["user profile", "用户资料", "用户姓名", "用户昵称", "称呼", "查我是谁"], &["profile", "资料", "name", "姓名", "identity", "身份"], "Use to read the current account display profile, not stored memory.")),
     ("analyze_image", metadata!(&["analyze image", "分析图片", "理解图片"], &["analyze", "分析", "image", "图片"], "Use to inspect image content.")),
     ("append_user_memory", metadata!(&["remember user fact", "记住用户事实", "保存用户偏好", "长期记忆"], &["remember", "记住", "append", "保存", "memory", "记忆"], "Use only for an explicit durable user fact or preference.")),
     ("propose_user_memory", metadata!(&["propose memory", "候选记忆", "记录用户纠正"], &["propose", "候选", "memory", "记忆", "correction", "纠正"], "Use for a conservative reusable correction, preference, or fact.")),

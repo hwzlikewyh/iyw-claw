@@ -865,6 +865,11 @@ mod tauri_app {
                                 }),
                             ),
                         ),
+                        std::sync::Arc::new(
+                            crate::commands::iyw_account_profile::DbUserProfileAccess::new(
+                                db_conn.clone(),
+                            ),
+                        ),
                         user_memory,
                         std::sync::Arc::new(
                             crate::commands::task_artifacts::DbTaskArtifactAccess::new(

@@ -792,6 +792,15 @@
     }
   },
   {
+    "name": "get_current_user_profile",
+    "description": "Read the current logged-in user's safe display profile from iyw-claw. This is the authoritative route for the user's name, nickname, preferred salutation, and organization; it is not a memory search. It never accepts or returns account ids, phone numbers, points, tokens, or credentials.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "append_user_memory",
     "description": "Append one durable, cross-task fact or preference that the user clearly stated to iyw-claw's user memory. Use this only when the information will remain useful in future conversations. Never store secrets, credentials, inferred sensitive traits, repository facts, temporary progress, or one-off task details. This tool is append-only: it cannot overwrite user memory and cannot modify the user's profile or soul documents.",
     "inputSchema": {

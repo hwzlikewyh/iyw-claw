@@ -65,7 +65,7 @@ use crate::acp::question::QuestionSpec;
 #[path = "backend.rs"]
 pub mod backend;
 
-pub const COMPANION_PROTOCOL_VERSION: u32 = 6;
+pub const COMPANION_PROTOCOL_VERSION: u32 = 7;
 
 const fn default_companion_protocol_version() -> u32 {
     COMPANION_PROTOCOL_VERSION
@@ -195,6 +195,14 @@ pub struct BrokerSessionRequest {
     /// [`crate::acp::session_info::MAX_SESSION_MESSAGES`] by the resolver.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_messages: Option<u32>,
+}
+
+/// Read the current logged-in user's safe display profile. The listener owns
+/// the account session and returns only an Agent-facing field allowlist.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerUserProfileRequest {
+    pub token: String,
 }
 
 /// Append one Agent-proposed entry to the user's append-only memory document.
@@ -377,6 +385,7 @@ pub enum BrokerMessage {
     CommitFeedback(BrokerCommitFeedbackRequest),
     Ask(BrokerAskRequest),
     SessionInfo(BrokerSessionRequest),
+    UserProfile(BrokerUserProfileRequest),
     MemoryAppend(BrokerMemoryAppendRequest),
     MemoryProposal(BrokerMemoryProposalRequest),
     MemoryRecall(BrokerMemoryRecallRequest),

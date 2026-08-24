@@ -32,7 +32,7 @@ use crate::acp::delegation::transport::{
     BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerImageAnalysisRequest,
     BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerMemoryProposalResult,
     BrokerMemoryRecallRequest, BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest,
-    BrokerStatusRequest, COMPANION_PROTOCOL_VERSION,
+    BrokerStatusRequest, BrokerUserProfileRequest, COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::delegation::types::{DelegationRequest, DelegationTaskReport, TaskStatus};
 use crate::acp::feedback::{PendingFeedback, SessionFeedbackAccess};
@@ -80,6 +80,11 @@ pub trait TaskArtifactAccess: Send + Sync {
         working_dir: &Path,
         files: Vec<String>,
     ) -> Value;
+}
+
+#[async_trait]
+pub trait UserProfileAccess: Send + Sync {
+    async fn current_profile(&self) -> Value;
 }
 
 /// Per-launch token entry. Bound at MCP injection time and revoked on parent
@@ -641,6 +646,8 @@ pub struct DelegationListener {
     /// other arms this is NOT parent-scoped — it looks any non-deleted session up
     /// by its iyw-claw conversation id (still token-gated against an invalid caller).
     pub session_info: Arc<dyn SessionInfoAccess>,
+    /// Reads the current account identity through a safe display-field allowlist.
+    pub user_profile: Arc<dyn UserProfileAccess>,
     /// Backend-owned memory store shared with Settings and prompt snapshots.
     pub user_memory: Arc<UserMemoryService>,
     pub artifacts: Arc<dyn TaskArtifactAccess>,
@@ -687,6 +694,7 @@ impl DelegationListener {
         feedback: Arc<dyn SessionFeedbackAccess>,
         questions: Arc<dyn SessionQuestionAccess>,
         session_info: Arc<dyn SessionInfoAccess>,
+        user_profile: Arc<dyn UserProfileAccess>,
         user_memory: Arc<UserMemoryService>,
         artifacts: Arc<dyn TaskArtifactAccess>,
         image_analysis: Arc<dyn ImageAnalysisAccess>,
@@ -705,6 +713,7 @@ impl DelegationListener {
             feedback,
             questions,
             session_info,
+            user_profile,
             user_memory,
             artifacts,
             image_analysis,
@@ -852,6 +861,9 @@ impl DelegationListener {
             BrokerMessage::SessionInfo(req) => {
                 session_response(self.process_session_info(req).await)?
             }
+            BrokerMessage::UserProfile(req) => BrokerResponse {
+                outcome: self.process_user_profile(req).await,
+            },
             BrokerMessage::MemoryAppend(req) => {
                 memory_append_response(self.process_memory_append(req).await)?
             }
@@ -1441,6 +1453,16 @@ impl DelegationListener {
             )
             .await
             .map_err(|error| error.message)
+    }
+
+    async fn process_user_profile(&self, req: BrokerUserProfileRequest) -> Value {
+        if self.tokens.lookup(&req.token).await.is_none() {
+            return serde_json::json!({
+                "status": "profile_unavailable",
+                "errorCode": "invalid_session"
+            });
+        }
+        self.user_profile.current_profile().await
     }
 
     async fn process_artifacts(&self, req: BrokerArtifactsRequest) -> Value {
