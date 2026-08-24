@@ -54,12 +54,6 @@ impl SkillRoutingCard {
                 "routing.invocation must be non-empty".to_string(),
             ));
         }
-        let chars = self.character_count();
-        if chars > ROUTING_DESCRIPTION_MAX_CHARS {
-            return Err(SkillRoutingError::Invalid(format!(
-                "routing card has {chars} characters; maximum is {ROUTING_DESCRIPTION_MAX_CHARS}"
-            )));
-        }
         Ok(())
     }
 }

@@ -1,8 +1,6 @@
 use base64::Engine;
 
-use crate::acp::skill_routing::{
-    parse_skill_routing, read_frontmatter, ROUTING_DESCRIPTION_MAX_CHARS,
-};
+use crate::acp::skill_routing::{parse_skill_routing, read_frontmatter};
 use crate::app_error::AppCommandError;
 
 use super::types::{SkillMarketUploadFile, SkillPackageType};
@@ -44,23 +42,13 @@ fn validate_skill_entry(file: &SkillMarketUploadFile) -> Result<(), AppCommandEr
             "Include capability, core triggers, exclusions, aliases, and invocation when relevant",
         )
     })?;
-    let description = frontmatter_description(&frontmatter).ok_or_else(|| {
+    frontmatter_description(&frontmatter).ok_or_else(|| {
         routing_error(
             &file.path,
             "must define a non-empty routing description",
             "Use short-description or top-level description in the Skill frontmatter",
         )
     })?;
-    let chars = description.chars().count();
-    if chars > ROUTING_DESCRIPTION_MAX_CHARS {
-        return Err(routing_error(
-            &file.path,
-            &format!(
-                "description has {chars} characters; maximum is {ROUTING_DESCRIPTION_MAX_CHARS}"
-            ),
-            "Shorten the routing sentence without dropping required routing facts",
-        ));
-    }
     parse_skill_routing(content).map_err(|error| {
         routing_error(
             &file.path,
