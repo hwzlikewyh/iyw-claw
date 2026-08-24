@@ -1,6 +1,6 @@
 use base64::Engine;
 
-use crate::acp::skill_routing::{parse_skill_routing, read_frontmatter};
+use crate::acp::skill_routing::{parse_skill_routing, read_frontmatter, SkillRoutingError};
 use crate::app_error::AppCommandError;
 
 use super::types::{SkillMarketUploadFile, SkillPackageType};
@@ -49,14 +49,14 @@ fn validate_skill_entry(file: &SkillMarketUploadFile) -> Result<(), AppCommandEr
             "Use short-description or top-level description in the Skill frontmatter",
         )
     })?;
-    parse_skill_routing(content).map_err(|error| {
-        routing_error(
+    match parse_skill_routing(content) {
+        Ok(_) | Err(SkillRoutingError::Missing) => Ok(()),
+        Err(error) => Err(routing_error(
             &file.path,
             error.to_string(),
             "Include concise capability, coreTriggers, exclusions, aliases, and invocation fields",
-        )
-    })?;
-    Ok(())
+        )),
+    }
 }
 
 fn frontmatter_description(value: &serde_yaml::Value) -> Option<String> {
