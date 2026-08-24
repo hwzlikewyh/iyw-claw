@@ -758,11 +758,12 @@ async fn dispatch_identity_tool(bridge: CompanionBridge, call: ToolInvocation) -
     if call.name != "get_current_user_profile" {
         return LineAction::Respond(err(call.id, -32602, "unknown identity tool"));
     }
-    if !call
-        .arguments
-        .as_object()
-        .is_some_and(|arguments| arguments.is_empty())
-    {
+    let valid_arguments = call.arguments.is_null()
+        || call
+            .arguments
+            .as_object()
+            .is_some_and(|arguments| arguments.is_empty());
+    if !valid_arguments {
         return LineAction::Respond(err(
             call.id,
             -32602,
