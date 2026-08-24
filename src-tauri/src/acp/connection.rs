@@ -6139,7 +6139,7 @@ async fn run_conversation_loop<'a>(
                                             },
                                         )
                                         .await;
-                                    if auto_continuation_is_active(&state.read().await) {
+                                    if auto_continuation_is_active(&*state.read().await) {
                                         let source_generation = state.read().await.turn_generation;
                                         let evidence = AutoContinuationEvidence {
                                             reason_code: "continuation_failed",
