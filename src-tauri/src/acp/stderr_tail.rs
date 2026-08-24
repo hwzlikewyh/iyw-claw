@@ -1,11 +1,14 @@
 //! Redacted, bounded private-host Agent stderr evidence.
 //!
-//! A shared ACP runtime can serve concurrent sessions, so it must use the
-//! disabled constructor. Its process stderr cannot safely be attributed to a
+//! A shared ACP runtime captures stderr only during startup. Once initialized,
+//! capture is disabled because process stderr cannot safely be attributed to a
 //! particular session.
 
 use std::collections::VecDeque;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex, OnceLock,
+};
 
 use regex::Regex;
 
@@ -28,7 +31,8 @@ impl TailSlice {
 
 #[derive(Debug)]
 pub struct StderrTail {
-    capture_enabled: bool,
+    capture_enabled: AtomicBool,
+    startup_only: bool,
     inner: Mutex<TailInner>,
 }
 
@@ -42,7 +46,8 @@ struct TailInner {
 impl StderrTail {
     pub fn new() -> Self {
         Self {
-            capture_enabled: true,
+            capture_enabled: AtomicBool::new(true),
+            startup_only: false,
             inner: Mutex::new(TailInner::default()),
         }
     }
@@ -51,13 +56,22 @@ impl StderrTail {
     /// stderr there because it cannot be attributed to one session safely.
     pub fn disabled() -> Self {
         Self {
-            capture_enabled: false,
+            capture_enabled: AtomicBool::new(false),
+            startup_only: false,
+            inner: Mutex::new(TailInner::default()),
+        }
+    }
+
+    pub fn new_startup_only() -> Self {
+        Self {
+            capture_enabled: AtomicBool::new(true),
+            startup_only: true,
             inner: Mutex::new(TailInner::default()),
         }
     }
 
     pub fn push(&self, raw: &str) {
-        if !self.capture_enabled {
+        if !self.capture_enabled.load(Ordering::Acquire) {
             return;
         }
         let stripped = strip_ansi(raw);
@@ -86,7 +100,7 @@ impl StderrTail {
     }
 
     pub fn tail_since(&self, mark: u64, max_lines: usize, max_bytes: usize) -> TailSlice {
-        if !self.capture_enabled {
+        if !self.capture_enabled.load(Ordering::Acquire) {
             return TailSlice { lines: Vec::new() };
         }
         let inner = self.inner.lock().unwrap_or_else(|error| error.into_inner());
@@ -98,6 +112,16 @@ impl StderrTail {
             .collect();
         TailSlice {
             lines: bounded_tail(current, max_lines, max_bytes),
+        }
+    }
+
+    pub fn disable(&self) {
+        self.capture_enabled.store(false, Ordering::Release);
+    }
+
+    pub fn disable_after_start(&self) {
+        if self.startup_only {
+            self.disable();
         }
     }
 }

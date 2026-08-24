@@ -56,9 +56,9 @@ pub(super) async fn await_host_ready(
     tokio::select! {
         result = tokio::time::timeout(timeout, ready) => match result {
             Ok(Ok(ready)) => ready,
-            Ok(Err(_)) => Err(crate::acp::error::AcpError::protocol(
-                "ACP runtime Host exited before initialization",
-            )),
+            Ok(Err(error)) => Err(crate::acp::error::AcpError::protocol(format!(
+                "ACP runtime Host exited before initialization: {error}"
+            ))),
             Err(_) => Err(crate::acp::error::AcpError::InitializeTimeout),
         },
         _ = startup_cancel.cancelled() => Err(crate::acp::error::AcpError::protocol(

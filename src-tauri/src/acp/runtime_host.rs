@@ -87,6 +87,7 @@ impl AgentRuntimeHost {
             move |value| pid.store(value, Ordering::Release)
         });
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        let stderr_mark = stderr_tail.mark();
         let driver = runtime_host_driver::spawn(
             key.agent_type,
             key.process_fingerprint.clone(),
@@ -109,9 +110,10 @@ impl AgentRuntimeHost {
             Ok(ready) => ready,
             Err(error) => {
                 startup.cancel_and_reap().await;
-                return Err(error);
+                return Err(startup_error_with_stderr(error, &stderr_tail, stderr_mark));
             }
         };
+        stderr_tail.disable_after_start();
         let driver = startup.into_host();
         Ok(Arc::new(Self {
             key,
@@ -243,6 +245,21 @@ impl AgentRuntimeHost {
 
     pub(super) fn mark_published(&self) {
         self.driver.mark_published();
+    }
+}
+
+fn startup_error_with_stderr(error: AcpError, stderr_tail: &StderrTail, mark: u64) -> AcpError {
+    let tail = stderr_tail.tail_since(mark, 12, 900);
+    if tail.is_empty() {
+        return error;
+    }
+    let detail = format!("runtime stderr: {}", tail.lines.join(" | "));
+    match error {
+        AcpError::Protocol(message) => AcpError::protocol(format!("{message}; {detail}")),
+        error => {
+            tracing::error!(error = %error, detail = %detail, "[ACP][host] startup diagnostics");
+            error
+        }
     }
 }
 
