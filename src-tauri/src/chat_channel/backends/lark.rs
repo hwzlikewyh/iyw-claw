@@ -1,3 +1,5 @@
+mod attachments;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -949,6 +951,11 @@ impl ChatChannelBackend for LarkBackend {
         let chat_id = target.chat_id.as_deref().ok_or_else(|| {
             ChatChannelError::ConfigurationInvalid("Lark target chat is missing".to_string())
         })?;
+        if attachments::should_send_as_image(attachment) {
+            let image_key = attachments::upload_image(self, attachment).await?;
+            let content = serde_json::json!({ "image_key": image_key }).to_string();
+            return self.send_lark_message_to(chat_id, "image", &content).await;
+        }
         let file_key = self.upload_file(attachment).await?;
         let content = serde_json::json!({ "file_key": file_key }).to_string();
         self.send_lark_message_to(chat_id, "file", &content).await

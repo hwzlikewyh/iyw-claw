@@ -3833,7 +3833,9 @@
         "error": "QR connection failed. Generate another code.",
         "verify_code_required": "A verification code is required to continue.",
         "verify_code_blocked": "Too many verification attempts. Scan a fresh code.",
-        "already_bound": "This account is already bound to another session."
+        "already_bound": "This account is already bound to another session.",
+        "provider_poll_failed": "The provider status repeatedly failed. Generate another QR code later.",
+        "credential_commit_failed": "The QR credential was saved, but the channel did not connect. Close this dialog and retry the connection; another scan is not required."
       }
     },
     "market": {

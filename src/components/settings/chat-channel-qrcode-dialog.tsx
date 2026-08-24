@@ -49,6 +49,8 @@ const STATUS_KEYS = {
   verify_code_required: "qr.status.verify_code_required",
   verify_code_blocked: "qr.status.verify_code_blocked",
   already_bound: "qr.status.already_bound",
+  provider_poll_failed: "qr.status.provider_poll_failed",
+  credential_commit_failed: "qr.status.credential_commit_failed",
 } as const
 
 export function ChatChannelQrcodeDialog({

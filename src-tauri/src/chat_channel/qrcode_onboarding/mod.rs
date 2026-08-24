@@ -15,7 +15,10 @@ use self::session::Session;
 use self::types::{LarkRegion, ProviderCredentials, ProviderPoll};
 
 const MAX_VERIFY_CODE_CHARS: usize = 64;
-const MAX_CONSECUTIVE_POLL_FAILURES: u8 = 3;
+// Provider polling can briefly fail while the user completes a scan. Keep a
+// bounded error budget, but do not turn a short network/provider hiccup into
+// an immediate QR failure.
+const MAX_CONSECUTIVE_POLL_FAILURES: u8 = 12;
 
 pub async fn start(
     db: &AppDatabase,
@@ -70,6 +73,7 @@ pub async fn poll(
                 channel_id = active.channel_id,
                 channel_type = %active.channel_type,
                 error_category = error.category(),
+                error = %error,
                 consecutive_failures = failures,
                 stage = "qr_poll",
                 "[ChatChannel] QR provider polling failed"

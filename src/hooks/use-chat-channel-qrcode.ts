@@ -43,6 +43,8 @@ const TERMINAL = new Set<ChatChannelQrStatus>([
   "cancelled",
   "error",
 ])
+const MAX_CONSECUTIVE_POLL_FAILURES = 5
+const DEFAULT_RETRY_MS = 3000
 
 interface QrRunOptions {
   channelId: number
@@ -56,6 +58,8 @@ class QrPollingRun {
   private disposed = false
   private connected = false
   private polling = false
+  private pollFailures = 0
+  private retryAfterMs = DEFAULT_RETRY_MS
   private sessionId: string | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
 
@@ -75,6 +79,7 @@ class QrPollingRun {
         error: null,
         errorCode: null,
       })
+      this.retryAfterMs = session.retryAfterMs
       this.schedule(session.retryAfterMs)
     } catch (error) {
       if (!this.disposed) this.fail(error, "start_failed")
@@ -87,6 +92,8 @@ class QrPollingRun {
     this.clearTimer()
     try {
       const result = await pollChatChannelQr(this.sessionId, verifyCode)
+      this.pollFailures = 0
+      this.retryAfterMs = result.retryAfterMs
       if (!this.apply(result)) return
       if (
         !TERMINAL.has(result.status) &&
@@ -95,7 +102,14 @@ class QrPollingRun {
         this.schedule(result.retryAfterMs)
       }
     } catch (error) {
-      if (!this.disposed) this.fail(error, "poll_failed")
+      if (!this.disposed) {
+        this.pollFailures += 1
+        if (this.pollFailures < MAX_CONSECUTIVE_POLL_FAILURES) {
+          this.schedule(this.retryAfterMs)
+        } else {
+          this.fail(error, "poll_failed")
+        }
+      }
     } finally {
       this.polling = false
     }

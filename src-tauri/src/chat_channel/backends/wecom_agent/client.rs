@@ -27,7 +27,7 @@ pub enum SendError {
 
 #[derive(Clone)]
 pub struct WecomAgentClient {
-    client: reqwest::Client,
+    pub(super) client: reqwest::Client,
 }
 
 impl Default for WecomAgentClient {
@@ -98,51 +98,44 @@ impl WecomAgentClient {
                 "WeCom text message exceeds 2048 bytes".to_string(),
             )));
         }
-        let response = self
-            .client
-            .post(SEND_MESSAGE_URL)
-            .query(&[("access_token", access_token)])
-            .json(&serde_json::json!({
+        self.send_payload(
+            access_token,
+            serde_json::json!({
                 "touser": user_id,
                 "msgtype": "text",
                 "agentid": agent_id,
                 "text": { "content": text },
                 "enable_duplicate_check": 1,
                 "duplicate_check_interval": 1800,
-            }))
+            }),
+        )
+        .await
+    }
+
+    pub(super) async fn send_payload(
+        &self,
+        access_token: &str,
+        payload: serde_json::Value,
+    ) -> Result<SendReceipt, SendError> {
+        let response = self
+            .client
+            .post(SEND_MESSAGE_URL)
+            .query(&[("access_token", access_token)])
+            .json(&payload)
             .send()
             .await
             .map_err(|error| SendError::Failed(transport_error("message request failed", error)))?;
         if !response.status().is_success() {
-            return Err(SendError::Failed(ChatChannelError::SendFailed(format!(
+            return Err(send_failed(&format!(
                 "WeCom message request failed (HTTP {})",
                 response.status()
-            ))));
+            )));
         }
         let body: SendResponse = response.json().await.map_err(|error| {
             SendError::Failed(transport_error("message response was invalid", error))
         })?;
-        if is_token_error(body.errcode) {
-            return Err(SendError::TokenInvalid {
-                code: body.errcode,
-                message: provider_message(&body.errmsg).to_string(),
-            });
-        }
-        if body.errcode != 0 {
-            return Err(SendError::Failed(ChatChannelError::SendFailed(format!(
-                "WeCom rejected the message (errcode {}, {})",
-                body.errcode,
-                provider_message(&body.errmsg)
-            ))));
-        }
-        let invalid_count = recipient_count(body.invalid_user.as_deref());
-        let unlicensed_count = recipient_count(body.unlicensed_user.as_deref());
-        if invalid_count > 0 || unlicensed_count > 0 {
-            return Err(SendError::Failed(ChatChannelError::SendFailed(format!(
-                "WeCom did not deliver to all recipients (invalid {}, unlicensed {})",
-                invalid_count, unlicensed_count
-            ))));
-        }
+        provider_result(body.errcode, &body.errmsg, "message")?;
+        validate_recipients(&body)?;
         Ok(SendReceipt {
             message_id: body.msg_id.filter(|value| !value.trim().is_empty()),
         })
@@ -173,6 +166,37 @@ struct SendResponse {
     msg_id: Option<String>,
 }
 
+pub(super) fn provider_result(code: i64, message: &str, operation: &str) -> Result<(), SendError> {
+    if is_token_error(code) {
+        return Err(SendError::TokenInvalid {
+            code,
+            message: provider_message(message).to_string(),
+        });
+    }
+    if code != 0 {
+        return Err(send_failed(&format!(
+            "WeCom rejected {operation} (errcode {code}, {})",
+            provider_message(message)
+        )));
+    }
+    Ok(())
+}
+
+fn validate_recipients(body: &SendResponse) -> Result<(), SendError> {
+    let invalid = recipient_count(body.invalid_user.as_deref());
+    let unlicensed = recipient_count(body.unlicensed_user.as_deref());
+    if invalid == 0 && unlicensed == 0 {
+        return Ok(());
+    }
+    Err(send_failed(&format!(
+        "WeCom did not deliver to all recipients (invalid {invalid}, unlicensed {unlicensed})"
+    )))
+}
+
+pub(super) fn send_failed(message: &str) -> SendError {
+    SendError::Failed(ChatChannelError::SendFailed(message.to_string()))
+}
+
 fn is_token_error(code: i64) -> bool {
     matches!(code, 40014 | 42001 | 42007 | 42009)
 }
@@ -196,6 +220,17 @@ fn provider_message(value: &str) -> &str {
     }
 }
 
-fn transport_error(context: &str, error: reqwest::Error) -> ChatChannelError {
+pub(super) fn transport_error(context: &str, error: reqwest::Error) -> ChatChannelError {
     ChatChannelError::ConnectionFailed(format!("{context}: {}", error.without_url()))
+}
+
+impl From<SendError> for ChatChannelError {
+    fn from(error: SendError) -> Self {
+        match error {
+            SendError::TokenInvalid { code, message } => Self::AuthenticationFailed(format!(
+                "WeCom access_token remained invalid after refresh (errcode {code}, {message})"
+            )),
+            SendError::Failed(error) => error,
+        }
+    }
 }

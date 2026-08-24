@@ -172,11 +172,16 @@ fn safe_config(model: &chat_channel::Model) -> Value {
 }
 
 fn capabilities(channel_type: &str) -> Value {
+    let attachment_bytes = match channel_type {
+        "lark" => Some(30 * 1024 * 1024),
+        "wecom_agent" => Some(10 * 1024 * 1024),
+        _ => None,
+    };
     json!({
         "text": true,
         "rich_text": true,
-        "attachments": channel_type == "lark",
-        "max_file_bytes": (channel_type == "lark").then_some(30 * 1024 * 1024),
+        "attachments": attachment_bytes.is_some(),
+        "max_file_bytes": attachment_bytes,
     })
 }
 

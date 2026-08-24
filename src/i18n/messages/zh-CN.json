@@ -3833,7 +3833,9 @@
         "error": "扫码接入失败，请重新生成二维码。",
         "verify_code_required": "需要验证码才能继续。",
         "verify_code_blocked": "验证码尝试次数过多，请重新扫码。",
-        "already_bound": "该账号已绑定到其他会话。"
+        "already_bound": "该账号已绑定到其他会话。",
+        "provider_poll_failed": "平台状态连续获取失败，请稍后重新生成二维码。",
+        "credential_commit_failed": "扫码凭据已保存，但渠道连接未建立。请关闭窗口后重试连接，无需再次扫码。"
       }
     },
     "market": {

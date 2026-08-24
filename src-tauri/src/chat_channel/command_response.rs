@@ -2,6 +2,7 @@ use sea_orm::DatabaseConnection;
 
 use super::error::ChatChannelError;
 use super::manager::ChatChannelManager;
+use super::message_formatter::split_utf8_chunks;
 use super::session_dispatch::{CommandMessageResult, CommandPostAction, SessionCommandMessage};
 use super::types::{ChannelMessageTarget, InteractiveMessage, RichMessage, SentMessageId};
 
@@ -164,7 +165,7 @@ pub(super) async fn send_dispatch_message(
 
 /// Split long text replies into provider-safe chunks (order preserved, same
 /// trace id), returning the last provider message id.
-async fn send_long_message(
+pub(crate) async fn send_long_message(
     manager: &ChatChannelManager,
     target: &ChannelMessageTarget,
     message: &RichMessage,
@@ -185,24 +186,6 @@ async fn send_long_message(
         last_id = Some(id);
     }
     last_id.ok_or_else(|| ChatChannelError::SendFailed("empty message".to_string()))
-}
-
-/// Split by UTF-8 byte size without tearing a code point.
-fn split_utf8_chunks(text: &str, max_bytes: usize) -> Vec<&str> {
-    assert!(max_bytes >= 4, "chunk size must fit any UTF-8 code point");
-    let mut chunks = Vec::new();
-    let mut rest = text;
-    while rest.len() > max_bytes {
-        let mut cut = max_bytes;
-        while !rest.is_char_boundary(cut) {
-            cut -= 1;
-        }
-        let (head, tail) = rest.split_at(cut);
-        chunks.push(head);
-        rest = tail;
-    }
-    chunks.push(rest);
-    chunks
 }
 
 #[cfg(test)]

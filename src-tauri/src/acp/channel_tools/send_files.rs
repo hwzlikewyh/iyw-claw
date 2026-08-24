@@ -141,7 +141,17 @@ impl ChannelToolService {
                         Err(_) => file.result.log_error = Some("MESSAGE_LOG_FAILED"),
                     }
                 }
-                Err(_) => {
+                Err(error) => {
+                    tracing::warn!(
+                        channel_id,
+                        target_id,
+                        file_name = %file.result.name,
+                        mime_type = %file.result.mime_type,
+                        file_bytes = ?file.result.bytes,
+                        error_category = error.category(),
+                        error = %error,
+                        "[ChatChannel] attachment delivery failed"
+                    );
                     file.result.status = "failed";
                     file.result.error = Some("ATTACHMENT_SEND_FAILED");
                 }
@@ -242,6 +252,10 @@ fn mime_type(path: &Path) -> String {
         "png" => "image/png",
         "gif" => "image/gif",
         "webp" => "image/webp",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        "tif" | "tiff" => "image/tiff",
+        "heic" => "image/heic",
         "pdf" => "application/pdf",
         "txt" | "md" | "log" => "text/plain",
         "csv" => "text/csv",

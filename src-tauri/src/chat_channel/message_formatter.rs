@@ -2,6 +2,24 @@ use super::i18n::{self, Lang};
 use super::types::{MessageLevel, RichMessage};
 use crate::acp::question::QuestionSpec;
 
+/// Split text by UTF-8 byte size without tearing a code point.
+pub(crate) fn split_utf8_chunks(text: &str, max_bytes: usize) -> Vec<&str> {
+    assert!(max_bytes >= 4, "chunk size must fit any UTF-8 code point");
+    let mut chunks = Vec::new();
+    let mut rest = text;
+    while rest.len() > max_bytes {
+        let mut cut = max_bytes;
+        while !rest.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let (head, tail) = rest.split_at(cut);
+        chunks.push(head);
+        rest = tail;
+    }
+    chunks.push(rest);
+    chunks
+}
+
 pub fn format_turn_complete(_agent_type: &str, _stop_reason: &str, lang: Lang) -> RichMessage {
     let _ = lang;
     RichMessage::info("")

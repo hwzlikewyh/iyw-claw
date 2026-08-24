@@ -1,6 +1,8 @@
 //! WeCom self-built application backend.
 
+mod attachments;
 mod client;
+mod client_media;
 pub mod crypto;
 
 use std::sync::Arc;
@@ -10,6 +12,7 @@ use async_trait::async_trait;
 use tokio::sync::{mpsc, Mutex};
 
 use self::client::{SendError, WecomAgentClient};
+use crate::chat_channel::attachments::{AttachmentCapability, ChannelAttachment};
 use crate::chat_channel::error::ChatChannelError;
 use crate::chat_channel::traits::ChatChannelBackend;
 use crate::chat_channel::types::*;
@@ -119,9 +122,9 @@ impl WecomAgentBackend {
                 self.client
                     .send_text(&refreshed, user_id, self.agent_id, text)
                     .await
-                    .map_err(map_send_error)?
+                    .map_err(ChatChannelError::from)?
             }
-            Err(error) => return Err(map_send_error(error)),
+            Err(error) => return Err(ChatChannelError::from(error)),
         };
         Ok(SentMessageId(receipt.message_id.unwrap_or_else(|| {
             format!("wecom-agent-{}", uuid::Uuid::new_v4())
@@ -193,6 +196,21 @@ impl ChatChannelBackend for WecomAgentBackend {
             ChatChannelError::ConfigurationInvalid("WeCom target UserID is missing".to_string())
         })?;
         self.send_text_to(user_id, &message.to_plain_text()).await
+    }
+
+    fn attachment_capability(&self) -> AttachmentCapability {
+        attachments::capability()
+    }
+
+    async fn send_attachment_to(
+        &self,
+        attachment: &ChannelAttachment,
+        target: &ChannelMessageTarget,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        let user_id = target.chat_id.as_deref().ok_or_else(|| {
+            ChatChannelError::ConfigurationInvalid("WeCom target UserID is missing".to_string())
+        })?;
+        self.send_attachment_to_user(user_id, attachment).await
     }
 
     async fn test_connection(&self) -> Result<(), ChatChannelError> {
@@ -278,14 +296,3 @@ pub(crate) fn prepare_new_config(config_json: &str) -> Result<String, ChatChanne
 #[cfg(test)]
 #[path = "wecom_agent_tests.rs"]
 mod tests;
-
-fn map_send_error(error: SendError) -> ChatChannelError {
-    match error {
-        SendError::TokenInvalid { code, message } => {
-            ChatChannelError::AuthenticationFailed(format!(
-                "WeCom access_token remained invalid after refresh (errcode {code}, {message})"
-            ))
-        }
-        SendError::Failed(error) => error,
-    }
-}

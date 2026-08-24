@@ -7,6 +7,7 @@ use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
+use super::command_response::send_long_message;
 use super::i18n::Lang;
 use super::session_bridge::{ActiveSession, PendingPermission, RouteActivation, SessionBridge};
 use super::session_commands;
@@ -26,7 +27,6 @@ use super::manager::ChatChannelManager;
 
 const FLUSH_INTERVAL_SECS: u64 = 10;
 const BUFFER_FLUSH_THRESHOLD: usize = 500;
-const MAX_MESSAGE_LEN: usize = 2000;
 const MESSAGE_LANGUAGE_KEY: &str = "chat_message_language";
 /// Deferred kickoff prompts (blocked by an in-flight turn) are retried at
 /// most this many times, then surfaced as an explicit failure instead of
@@ -377,7 +377,7 @@ async fn handle_acp_envelope(
                     .await;
 
                 let lang = get_lang(db).await;
-                let body = format_completion(&content, lang);
+                let body = sanitize_channel_content(&content);
                 let target_id = chat_channel_target_service::find_by_target(db, &target)
                     .await
                     .ok()
@@ -388,7 +388,7 @@ async fn handle_acp_envelope(
                     let msg = RichMessage::info(body.clone());
                     // The outbound reply is stamped with the session trace so
                     // the message log reconstructs the whole round trip.
-                    match manager.send_to_target(&target, &msg).await {
+                    match send_long_message(manager, &target, &msg).await {
                         Ok(sent_id) => {
                             let _ = chat_channel_message_log_service::create_log_for_target(
                                 db,
@@ -1353,47 +1353,6 @@ async fn flush_progress(
             && session.last_flushed.elapsed() >= Duration::from_secs(FLUSH_INTERVAL_SECS)
         {
             session.last_flushed = Instant::now();
-        }
-    }
-}
-
-fn format_completion(content: &str, lang: Lang) -> String {
-    let content = sanitize_channel_content(content);
-    if content.is_empty() {
-        return String::new();
-    }
-
-    if content.len() <= MAX_MESSAGE_LEN {
-        return content;
-    }
-
-    // Truncate long content (use char boundaries to avoid panic on multi-byte)
-    let head_end = content
-        .char_indices()
-        .nth(500)
-        .map(|(i, _)| i)
-        .unwrap_or(content.len());
-    let head = &content[..head_end];
-    let tail_start = content
-        .char_indices()
-        .rev()
-        .nth(499)
-        .map(|(i, _)| i)
-        .unwrap_or(0);
-    let tail = &content[tail_start..];
-
-    match lang {
-        Lang::ZhCn | Lang::ZhTw => {
-            format!(
-                "{head}\n\n...\n\n{tail}\n\n[完整回复: {} 字符]",
-                content.len()
-            )
-        }
-        _ => {
-            format!(
-                "{head}\n\n...\n\n{tail}\n\n[Full response: {} chars]",
-                content.len()
-            )
         }
     }
 }

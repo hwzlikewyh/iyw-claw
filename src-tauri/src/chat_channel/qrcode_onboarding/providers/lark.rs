@@ -1,3 +1,4 @@
+use reqwest::StatusCode;
 use serde_json::Value;
 
 use crate::chat_channel::error::ChatChannelError;
@@ -13,9 +14,9 @@ pub async fn start(
     client: &reqwest::Client,
     region: LarkRegion,
 ) -> Result<ProviderStart, ChatChannelError> {
-    let initialized = post_form(client, region, &[("action", "init")]).await?;
+    let (_, initialized) = post_form(client, region, &[("action", "init")]).await?;
     ensure_no_error(&initialized)?;
-    let body = post_form(
+    let (_, body) = post_form(
         client,
         region,
         &[
@@ -48,7 +49,7 @@ pub async fn poll(
     region: LarkRegion,
     device_code: &str,
 ) -> Result<ProviderPoll, ChatChannelError> {
-    let body = post_form(
+    let (_, body) = post_form(
         client,
         region,
         &[("action", "poll"), ("device_code", device_code)],
@@ -80,19 +81,22 @@ async fn post_form(
     client: &reqwest::Client,
     region: LarkRegion,
     form: &[(&str, &str)],
-) -> Result<Value, ChatChannelError> {
+) -> Result<(StatusCode, Value), ChatChannelError> {
     let response = client
         .post(registration_url(region))
         .form(form)
         .send()
         .await
-        .map_err(network_error)?
-        .error_for_status()
         .map_err(network_error)?;
-    response
+    let status = response.status();
+    let body = response
         .json::<Value>()
         .await
-        .map_err(|error| super::request_error("飞书/Lark", &error))
+        .map_err(|error| super::request_error("飞书/Lark", &error))?;
+    if !status.is_success() && first_string(&body, &["error", "error_code"]).is_none() {
+        return Err(protocol_error("http_error"));
+    }
+    Ok((status, body))
 }
 
 fn registration_url(region: LarkRegion) -> &'static str {
