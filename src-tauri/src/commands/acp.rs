@@ -602,7 +602,7 @@ async fn verify_private_npm_package_version(
     package_name: &str,
     expected_version: &str,
 ) -> Result<(), AcpError> {
-    let output = crate::process::tokio_command("npm")
+    let output = npm_runtime::npm_command()?
         .arg("list")
         .arg("--global")
         .arg("--prefix")
@@ -639,7 +639,7 @@ async fn run_npm_streaming(
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<NpmCommandOutput, AcpError> {
-    let mut cmd = crate::process::tokio_command("npm");
+    let mut cmd = npm_runtime::npm_command()?;
     for (key, _) in std::env::vars_os() {
         if key
             .to_string_lossy()

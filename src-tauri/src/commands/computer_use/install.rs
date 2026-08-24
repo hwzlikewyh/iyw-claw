@@ -98,7 +98,10 @@ async fn run_private_install(
         prefix = %prefix.display(),
         "[computer-use] private install started"
     );
-    let mut command = crate::process::tokio_command("npm");
+    let mut command = npm_runtime::npm_command().map_err(|error| {
+        AppCommandError::dependency_missing("npm is unavailable for Open Computer Use")
+            .with_detail(error.to_string())
+    })?;
     command
         .args(args)
         .stdout(std::process::Stdio::piped())

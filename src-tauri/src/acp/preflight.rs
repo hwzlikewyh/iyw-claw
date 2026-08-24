@@ -108,8 +108,10 @@ async fn check_npm_environment(node_required: Option<&str>) -> Vec<CheckItem> {
 
     // Resolve absolute paths via `which` crate to avoid GUI PATH issues,
     // then run version checks in parallel.
-    let node_path = which::which("node").ok();
-    let npm_path = which::which("npm").ok();
+    let node_path = crate::acp::version_center::managed_tool_executable("node")
+        .or_else(|| which::which("node").ok());
+    let npm_path = crate::acp::version_center::managed_tool_executable("npm")
+        .or_else(|| which::which("npm").ok());
 
     let (node_result, npm_result) = tokio::join!(
         async {
@@ -128,12 +130,7 @@ async fn check_npm_environment(node_required: Option<&str>) -> Vec<CheckItem> {
         },
         async {
             match &npm_path {
-                Some(p) => {
-                    crate::process::tokio_command(p)
-                        .arg("--version")
-                        .output()
-                        .await
-                }
+                Some(p) => npm_version_output(p, node_path.as_deref()).await,
                 None => Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
                     "npm not found in PATH",
@@ -304,6 +301,9 @@ pub(crate) async fn enforce_minimum_node_version(
     environment: &BTreeMap<String, String>,
     required: &str,
 ) -> Result<(), String> {
+    if let Some(node_path) = crate::acp::version_center::managed_tool_executable("node") {
+        return enforce_node_binary_version(&node_path, environment, required).await;
+    }
     let path = environment
         .iter()
         .find(|(key, _)| key.eq_ignore_ascii_case("PATH"))
@@ -311,6 +311,45 @@ pub(crate) async fn enforce_minimum_node_version(
         .or_else(|| std::env::var_os("PATH"));
     let node_path = which::which_in("node", path.as_deref(), Path::new("."))
         .map_err(|_| "Node.js is not installed or not available in the launch PATH".to_string())?;
+    enforce_node_binary_version(&node_path, environment, required).await
+}
+
+async fn npm_version_output(
+    npm_path: &Path,
+    node_path: Option<&Path>,
+) -> std::io::Result<std::process::Output> {
+    #[cfg(windows)]
+    if npm_path
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("cmd"))
+    {
+        let node = node_path.ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::NotFound, "node not found for npm")
+        })?;
+        let cli = npm_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("node_modules")
+            .join("npm")
+            .join("bin")
+            .join("npm-cli.js");
+        return crate::process::tokio_command(node)
+            .arg(cli)
+            .arg("--version")
+            .output()
+            .await;
+    }
+    crate::process::tokio_command(npm_path)
+        .arg("--version")
+        .output()
+        .await
+}
+
+pub(crate) async fn enforce_node_binary_version(
+    node_path: &Path,
+    environment: &BTreeMap<String, String>,
+    required: &str,
+) -> Result<(), String> {
     let output = crate::process::tokio_command(&node_path)
         .envs(environment)
         .arg("--version")

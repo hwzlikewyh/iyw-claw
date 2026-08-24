@@ -129,6 +129,18 @@ pub(crate) async fn ensure_npm_node_requirement(
         .and_then(|setting| setting.active_version);
     if let Some(active_version) = active_version {
         validate_managed_node_inventory(conn, agent_type, &required, &active_version).await?;
+        let node =
+            crate::acp::version_center::managed_tool_executable("node").ok_or_else(|| {
+                managed_node_requirement_error(agent_type, &required, &active_version)
+            })?;
+        let environment = std::collections::BTreeMap::new();
+        return crate::acp::preflight::enforce_node_binary_version(
+            &node,
+            &environment,
+            &required.to_string(),
+        )
+        .await
+        .map_err(|detail| node_path_requirement_error(agent_type, &required, &detail));
     }
     let environment = std::collections::BTreeMap::new();
     let required_text = required.to_string();

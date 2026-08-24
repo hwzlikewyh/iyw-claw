@@ -74,7 +74,7 @@ fn managed_tool_executable_at(
     let canonical_root = std::fs::canonicalize(root).ok()?;
     let canonical_candidate = std::fs::canonicalize(&candidate).ok()?;
     (canonical_candidate.starts_with(&canonical_root) && canonical_candidate.is_file())
-        .then_some(canonical_candidate)
+        .then_some(candidate)
 }
 
 pub fn runtime_dir(

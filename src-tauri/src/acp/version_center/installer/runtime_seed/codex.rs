@@ -176,9 +176,21 @@ async fn probe_prefix(prefix: &Path, version: &str) -> Result<(), AppCommandErro
         })??;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    (output.status.success() && (stdout.contains(version) || stderr.contains(version)))
-        .then_some(())
-        .ok_or_else(|| AppCommandError::invalid_input("Runtime seed Codex probe failed"))
+    if output.status.success() && (stdout.contains(version) || stderr.contains(version)) {
+        return Ok(());
+    }
+    let diagnostic = crate::acp::stderr_tail::sanitize_diagnostic(&format!(
+        "exit={:?}; stdout={stdout}; stderr={stderr}",
+        output.status.code()
+    ));
+    let diagnostic = diagnostic
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(512)
+        .collect::<String>();
+    Err(AppCommandError::invalid_input("Runtime seed Codex probe failed").with_detail(diagnostic))
 }
 
 async fn version_output(

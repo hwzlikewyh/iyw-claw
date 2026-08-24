@@ -358,9 +358,57 @@ pub fn resolve_npm_node_entrypoint(
     }
     let entrypoint = package_dir.join(relative);
     let canonical_package = std::fs::canonicalize(package_dir).ok()?;
-    let canonical_entrypoint = std::fs::canonicalize(entrypoint).ok()?;
-    (canonical_entrypoint.starts_with(canonical_package) && canonical_entrypoint.is_file())
-        .then_some(canonical_entrypoint)
+    let canonical_entrypoint = std::fs::canonicalize(&entrypoint).ok()?;
+    (canonical_entrypoint.starts_with(canonical_package)
+        && canonical_entrypoint.is_file()
+        && node_entrypoint_path_supported(&entrypoint))
+    .then_some(entrypoint)
+}
+
+pub fn npm_command() -> Result<tokio::process::Command, AcpError> {
+    let npm = crate::acp::version_center::managed_tool_executable("npm")
+        .or_else(|| which::which("npm").ok())
+        .ok_or_else(|| AcpError::SdkNotInstalled("npm is not installed".to_string()))?;
+    #[cfg(windows)]
+    if npm
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("cmd"))
+    {
+        let node = crate::acp::version_center::managed_tool_executable("node")
+            .or_else(|| which::which("node").ok())
+            .ok_or_else(|| AcpError::SdkNotInstalled("Node.js is not installed".to_string()))?;
+        let cli = npm
+            .parent()
+            .ok_or_else(|| AcpError::protocol("npm command has no parent directory"))?
+            .join("node_modules")
+            .join("npm")
+            .join("bin")
+            .join("npm-cli.js");
+        if !cli.is_file() {
+            return Err(AcpError::SdkNotInstalled(
+                "npm CLI is missing from the Node.js runtime".to_string(),
+            ));
+        }
+        let mut command = crate::process::tokio_command(node);
+        command.arg(cli);
+        return Ok(command);
+    }
+    Ok(crate::process::tokio_command(npm))
+}
+
+fn node_entrypoint_path_supported(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::path::Prefix;
+
+        return !matches!(
+            path.components().next(),
+            Some(std::path::Component::Prefix(prefix))
+                if matches!(prefix.kind(), Prefix::Verbatim(_) | Prefix::VerbatimDisk(_) | Prefix::VerbatimUNC(_, _))
+        );
+    }
+    #[cfg(not(windows))]
+    true
 }
 
 pub fn preferred_private_npm_command_path(
