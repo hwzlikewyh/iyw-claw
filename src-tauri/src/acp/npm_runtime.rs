@@ -291,6 +291,33 @@ pub fn resolve_private_npm_command(
     resolve_npm_command_from_prefix(&prefix, command)
 }
 
+/// Resolve an npm package's real Node entrypoint instead of its Windows `.cmd`
+/// shim. ACP launches child processes without a shell, and Windows command
+/// shims are not reliable with that stdio path (they can exit before the ACP
+/// handshake). The manifest is trusted runtime content; reject traversal and
+/// absolute paths before returning the entrypoint.
+pub fn resolve_npm_node_entrypoint(prefix: &Path, package: &str, command: &str) -> Option<PathBuf> {
+    let package_dir = npm_package_dir(prefix, package);
+    let manifest = std::fs::read_to_string(package_dir.join("package.json")).ok()?;
+    let manifest = serde_json::from_str::<serde_json::Value>(&manifest).ok()?;
+    let bin = manifest.get("bin")?;
+    let relative = match bin {
+        serde_json::Value::String(path) => path.as_str(),
+        serde_json::Value::Object(entries) => entries.get(command)?.as_str()?,
+        _ => return None,
+    };
+    let relative = Path::new(relative);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+    let entrypoint = package_dir.join(relative);
+    entrypoint.is_file().then_some(entrypoint)
+}
+
 pub fn preferred_private_npm_command_path(
     paths: &AgentStoragePaths,
     agent_type: AgentType,

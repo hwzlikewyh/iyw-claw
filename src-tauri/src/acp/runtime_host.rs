@@ -109,8 +109,9 @@ impl AgentRuntimeHost {
         {
             Ok(ready) => ready,
             Err(error) => {
+                let error = startup_error_with_stderr(error, &stderr_tail, stderr_mark);
                 startup.cancel_and_reap().await;
-                return Err(startup_error_with_stderr(error, &stderr_tail, stderr_mark));
+                return Err(error);
             }
         };
         stderr_tail.disable_after_start();
