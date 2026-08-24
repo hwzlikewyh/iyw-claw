@@ -56,7 +56,10 @@ pub(super) async fn dispatch_native(
     snapshot: &WorkerSnapshot,
     kind: NativeSteerKind,
 ) {
-    if kind != NativeSteerKind::CodexTurnSteer {
+    if !matches!(
+        kind,
+        NativeSteerKind::AcpSessionSteer | NativeSteerKind::CodexTurnSteer
+    ) {
         return;
     }
     let dispatch_lock = context
@@ -116,6 +119,15 @@ async fn settle_native_outcome(
                 source_generation = snapshot.turn_generation,
                 "[agent-input] native steer started a wrapper-owned turn"
             );
+        }
+        NativeSteerOutcome::PromptRequired => {
+            context
+                .transition_item(
+                    &item.id,
+                    AgentInputStatus::FallbackQueued,
+                    "native steering requires a follow-up prompt".into(),
+                )
+                .await;
         }
         NativeSteerOutcome::Unsupported => {
             context

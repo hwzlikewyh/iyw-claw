@@ -171,6 +171,18 @@ impl WorkerTracking {
             return;
         }
         if snapshot.turn_in_flight {
+            // A native ACP wrapper may explicitly report `promptRequired`:
+            // the steering request did not consume the message, and the
+            // wrapper asks the host to send it as a later prompt. Keep this
+            // fallback passive while the current turn is still observable;
+            // treating the retained NativeSteer claim as a deferred interrupt
+            // would cancel the turn a second time before normal delivery.
+            if item.status == AgentInputStatus::FallbackQueued
+                && item.strategy == Some(crate::acp::AgentInputStrategy::NativeSteer)
+            {
+                snapshot.wake.await;
+                return;
+            }
             self.process_in_flight(context, &item, snapshot).await;
             return;
         }

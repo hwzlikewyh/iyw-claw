@@ -33,6 +33,7 @@ import {
   Sparkles,
   TextSelect,
   RotateCcw,
+  Square,
   TriangleAlert,
   Upload,
   X,
@@ -802,6 +803,7 @@ export function MessageInput({
   disabled = false,
   autoFocus = false,
   onFocus,
+  onCancel,
   className,
   isPrompting = false,
   modes,
@@ -3826,24 +3828,14 @@ export function MessageInput({
     </div>
   ) : isPrompting ? (
     <Button
-      onClick={handleSend}
-      disabled={
-        disabled ||
-        voice.status !== "idle" ||
-        !hasSendableContent ||
-        hasUnstagedImage ||
-        !onEnqueue
-      }
+      onClick={onCancel}
+      disabled={!onCancel}
       size="icon"
       className="iyw-claw-prompting-button iyw-claw-send-button h-8 w-8"
-      title={t("enqueueWhilePrompting")}
-      aria-label={t("enqueueWhilePrompting")}
+      title={t("stopGeneration")}
+      aria-label={t("stopGeneration")}
     >
-      <span className="iyw-claw-prompting-dots" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </span>
+      <Square className="size-3.5 fill-current" />
     </Button>
   ) : onForkSend ? (
     <div className="flex items-center">

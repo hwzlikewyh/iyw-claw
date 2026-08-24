@@ -15,6 +15,7 @@ pub(crate) enum AgentInputBlockKind {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NativeSteerKind {
+    AcpSessionSteer,
     CodexTurnSteer,
     OpenCodePromptAsync,
     OpenClawQueueSteer,
@@ -28,6 +29,7 @@ pub(crate) enum NativeSteerKind {
 pub(crate) enum NativeSteerOutcome {
     Injected,
     StartedNewTurn,
+    PromptRequired,
     Unsupported,
     Failed(String),
 }
@@ -52,14 +54,15 @@ impl AgentInputCapabilities {
             agent_type,
             AgentType::ClaudeCode | AgentType::Gemini | AgentType::Pi | AgentType::Grok
         );
-        let codex_native = agent_type == AgentType::Codex && native_steering_available;
+        let standard_native = native_steering_available
+            && matches!(agent_type, AgentType::Codex | AgentType::ClaudeCode);
         Self {
-            // codex-acp 1.1.14 advertises this extension at initialize time and
-            // returns an outcome that is a real consumption boundary. Other
-            // locked Agents stay disabled until their ACP wrapper exposes an
-            // equally attributable acknowledgement.
-            native_steer_kind: codex_native.then_some(NativeSteerKind::CodexTurnSteer),
-            accepted_block_kinds: if codex_native {
+            // Codex and Claude ACP wrappers both advertise the standard
+            // `_session/steering` extension and return a consumption outcome.
+            // Other Agents remain on their existing fallback until an adapter
+            // exposes an equally attributable acknowledgement.
+            native_steer_kind: standard_native.then_some(NativeSteerKind::AcpSessionSteer),
+            accepted_block_kinds: if standard_native {
                 &[
                     AgentInputBlockKind::Text,
                     AgentInputBlockKind::Image,
@@ -69,7 +72,7 @@ impl AgentInputCapabilities {
             } else {
                 &[]
             },
-            has_consumption_ack: codex_native,
+            has_consumption_ack: standard_native,
             supports_cooperative_feedback: feedback_tool_available && !deferred_interrupt,
             deferred_interrupt,
             // Claude sessions can remain poisoned after a post-tool cancel and

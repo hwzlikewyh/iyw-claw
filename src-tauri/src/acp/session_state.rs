@@ -230,9 +230,9 @@ pub struct PendingUserMessage {
     pub blocks: Vec<crate::acp::types::UserMessageBlock>,
 }
 
-/// Codex ACP accepted a native steer by ending the current prompt and starting
-/// a wrapper-owned background turn. The host adopts that turn only after the
-/// old generation's ordered lifecycle settlement has completed.
+/// A standard ACP wrapper accepted a native steer by ending the current prompt
+/// and starting a wrapper-owned background turn. The host adopts that turn only
+/// after the old generation's ordered lifecycle settlement has completed.
 #[derive(Debug, Clone)]
 pub(crate) struct NativeBackgroundTurn {
     pub message_id: String,
