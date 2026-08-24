@@ -397,7 +397,10 @@ pub async fn iyw_account_list_models_core(
     Ok(payload)
 }
 
-async fn fetch_profile_with_token(token: &str) -> Result<IywAccountProfile, AppCommandError> {
+async fn fetch_profile_with_token(
+    token: &str,
+    include_balance: bool,
+) -> Result<IywAccountProfile, AppCommandError> {
     let client = http_client()?;
     let info_response = client
         .post(format!("{GATEWAY_BASE_URL}/user-service/user/getMyInfo"))
@@ -441,6 +444,10 @@ async fn fetch_profile_with_token(token: &str) -> Result<IywAccountProfile, AppC
         balance_points: None,
         balance_expiry_time: None,
     };
+
+    if !include_balance {
+        return Ok(profile);
+    }
 
     let auth_response = client
         .post(format!(
@@ -495,13 +502,14 @@ async fn fetch_profile_with_token(token: &str) -> Result<IywAccountProfile, AppC
 async fn fetch_profile_with_session(
     conn: &DatabaseConnection,
     session: &StoredSession,
+    include_balance: bool,
 ) -> Result<IywAccountProfile, AppCommandError> {
     let token = session
         .token
         .as_ref()
         .ok_or_else(|| AppCommandError::authentication_failed("Sign in to iyw-claw first"))?;
 
-    match fetch_profile_with_token(&token.access_token).await {
+    match fetch_profile_with_token(&token.access_token, include_balance).await {
         Ok(profile) => Ok(profile),
         Err(error) if error.code == AppErrorCode::AuthenticationFailed => {
             tracing::warn!("[iyw-account] profile authentication failed; attempting token renewal");
@@ -523,7 +531,7 @@ async fn fetch_profile_with_session(
                         "IYW account access token is missing after renewal",
                     )
                 })?;
-            fetch_profile_with_token(access_token).await
+            fetch_profile_with_token(access_token, include_balance).await
         }
         Err(error) => Err(error),
     }
@@ -621,7 +629,7 @@ pub async fn iyw_account_poll_wechat_login_core(
     };
     save_session(conn, &session).await?;
     crate::acp::account_credentials::sync_existing_agent_credentials(conn).await?;
-    let profile = fetch_profile_with_session(conn, &session).await?;
+    let profile = fetch_profile_with_session(conn, &session, true).await?;
 
     Ok(IywWechatPollingResult {
         status: IywWechatPollingStatus::Success,
@@ -692,7 +700,20 @@ pub async fn iyw_account_login_with_password_core(
     };
     save_session(conn, &session).await?;
     crate::acp::account_credentials::sync_existing_agent_credentials(conn).await?;
-    fetch_profile_with_session(conn, &session).await
+    fetch_profile_with_session(conn, &session, true).await
+}
+
+pub async fn iyw_account_get_identity_profile_core(
+    conn: &DatabaseConnection,
+) -> Result<IywAccountProfile, AppCommandError> {
+    let session = load_synced_session(conn).await?;
+    let Some(token) = session.token.as_ref() else {
+        return Ok(IywAccountProfile::default());
+    };
+    if token.access_token.trim().is_empty() {
+        return Ok(IywAccountProfile::default());
+    }
+    fetch_profile_with_session(conn, &session, false).await
 }
 
 pub async fn iyw_account_get_profile_core(
@@ -706,7 +727,7 @@ pub async fn iyw_account_get_profile_core(
         return Ok(IywAccountProfile::default());
     }
 
-    fetch_profile_with_session(conn, &session).await
+    fetch_profile_with_session(conn, &session, true).await
 }
 
 pub async fn iyw_account_logout_core(conn: &DatabaseConnection) -> Result<(), AppCommandError> {

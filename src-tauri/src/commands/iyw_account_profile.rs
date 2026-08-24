@@ -4,7 +4,7 @@ use serde_json::{json, Map, Value};
 
 use crate::acp::delegation::listener::UserProfileAccess;
 use crate::app_error::AppErrorCode;
-use crate::commands::iyw_account::iyw_account_get_profile_core;
+use crate::commands::iyw_account::iyw_account_get_identity_profile_core;
 
 /// Account profile adapter used by the Agent host capability. It projects the
 /// full account response to display-safe fields at this boundary.
@@ -21,7 +21,7 @@ impl DbUserProfileAccess {
 #[async_trait]
 impl UserProfileAccess for DbUserProfileAccess {
     async fn current_profile(&self) -> Value {
-        let profile = match iyw_account_get_profile_core(&self.conn).await {
+        let profile = match iyw_account_get_identity_profile_core(&self.conn).await {
             Ok(profile) => profile,
             Err(error) => {
                 tracing::warn!(
