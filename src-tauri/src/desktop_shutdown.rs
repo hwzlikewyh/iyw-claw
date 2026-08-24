@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use futures_util::FutureExt;
 use tauri::Manager;
 
 use crate::acp::manager::ConnectionManager;
@@ -10,6 +11,7 @@ use crate::browser::BrowserSessionManager;
 use crate::terminal::manager::TerminalManager;
 
 static QUITTING: AtomicBool = AtomicBool::new(false);
+static SHUTDOWN_STARTED: AtomicBool = AtomicBool::new(false);
 static SHUTDOWN_COMPLETE: AtomicBool = AtomicBool::new(false);
 static SHUTDOWN_LOCK: Mutex<()> = Mutex::new(());
 const ENTRYPOINT_SERVICE_TIMEOUT: Duration = Duration::from_secs(6);
@@ -34,6 +36,59 @@ impl ShutdownReason {
 
 pub fn is_quitting() -> bool {
     QUITTING.load(Ordering::Acquire)
+}
+
+pub fn is_shutdown_complete() -> bool {
+    SHUTDOWN_COMPLETE.load(Ordering::Acquire)
+}
+
+/// 在请求 Tauri 分发 ExitRequested 前标记用户退出，避免第二个原生关闭事件重复调度。
+pub fn request_exit(app: &tauri::AppHandle) {
+    if !QUITTING.swap(true, Ordering::AcqRel) {
+        app.exit(0);
+    }
+}
+
+/// 在后台执行退出清理，避免阻塞 Tauri 事件循环线程。
+pub fn start_async_shutdown(app: &tauri::AppHandle, reason: ShutdownReason) {
+    QUITTING.store(true, Ordering::Release);
+    if SHUTDOWN_COMPLETE.load(Ordering::Acquire) || SHUTDOWN_STARTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+
+    tracing::info!(
+        shutdown_reason = reason.as_str(),
+        background = true,
+        "[shutdown] started"
+    );
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let started = Instant::now();
+        let complete = match std::panic::AssertUnwindSafe(shutdown_resources(&app, reason))
+            .catch_unwind()
+            .await
+        {
+            Ok(complete) => complete,
+            Err(_) => {
+                tracing::error!(
+                    shutdown_reason = reason.as_str(),
+                    "[shutdown] background cleanup panicked"
+                );
+                false
+            }
+        };
+        // 即使某个资源未完成清理，清理任务本身也已结束。允许最终 ExitRequested
+        // 通过，避免进程永久停留在被阻止的退出状态。
+        SHUTDOWN_COMPLETE.store(true, Ordering::Release);
+        tracing::info!(
+            shutdown_reason = reason.as_str(),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            complete,
+            background = true,
+            "[shutdown] finished"
+        );
+        app.exit(0);
+    });
 }
 
 pub fn shutdown_blocking(app: &tauri::AppHandle, reason: ShutdownReason) {

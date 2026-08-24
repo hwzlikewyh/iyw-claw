@@ -55,7 +55,7 @@ pub fn handle_main_close_request(app: &AppHandle) -> CloseRequestOutcome {
             );
             if let Err(error) = hide_main_window(app) {
                 tracing::error!(error = %error.message, "[window] remembered tray close failed");
-                app.exit(0);
+                crate::desktop_shutdown::request_exit(app);
                 return CloseRequestOutcome::Completed;
             }
             CloseRequestOutcome::Completed
@@ -66,7 +66,7 @@ pub fn handle_main_close_request(app: &AppHandle) -> CloseRequestOutcome {
                 remembered = true,
                 "[window] main close requested"
             );
-            app.exit(0);
+            crate::desktop_shutdown::request_exit(app);
             CloseRequestOutcome::Completed
         }
         None if !can_hide_to_tray => {
@@ -76,7 +76,7 @@ pub fn handle_main_close_request(app: &AppHandle) -> CloseRequestOutcome {
                 tray_available = false,
                 "[window] main close requested"
             );
-            app.exit(0);
+            crate::desktop_shutdown::request_exit(app);
             CloseRequestOutcome::Completed
         }
         None => {
@@ -130,7 +130,7 @@ pub fn complete_main_close(
     match action {
         CloseAction::Tray => hide_main_window(&app),
         CloseAction::Exit => {
-            app.exit(0);
+            crate::desktop_shutdown::request_exit(&app);
             Ok(())
         }
     }

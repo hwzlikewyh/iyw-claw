@@ -1142,7 +1142,7 @@ mod tauri_app {
                 if id.starts_with(windows::TRAY_MENU_ID_PREFIX) {
                     match id.as_str() {
                         windows::TRAY_MENU_ID_SHOW => windows::show_main_window(app),
-                        windows::TRAY_MENU_ID_QUIT => app.exit(0),
+                        windows::TRAY_MENU_ID_QUIT => crate::desktop_shutdown::request_exit(app),
                         _ => {}
                     }
                     return;
@@ -1242,7 +1242,7 @@ mod tauri_app {
                                             "[window] failed to show close behavior prompt"
                                         );
                                         desktop_commands::cancel_main_close();
-                                        window.app_handle().exit(0);
+                                        crate::desktop_shutdown::request_exit(window.app_handle());
                                     }
                                 }
                                 desktop_commands::CloseRequestOutcome::Ignored => {}
@@ -1758,12 +1758,28 @@ mod tauri_app {
         drop(startup_gate);
         crate::logging::emergency::write_event("event_loop", "begin", "runtime", None);
         app.run(|app, event| match event {
-            tauri::RunEvent::ExitRequested { .. } => {
-                crate::logging::emergency::write_event("exit_requested", "begin", "shutdown", None);
-                crate::desktop_shutdown::shutdown_blocking(
-                    app,
-                    crate::desktop_shutdown::ShutdownReason::NormalExit,
-                );
+            tauri::RunEvent::ExitRequested { api, code } => {
+                if code == Some(tauri::RESTART_EXIT_CODE) {
+                    crate::desktop_shutdown::shutdown_blocking(
+                        app,
+                        crate::desktop_shutdown::ShutdownReason::WindowsUpdate,
+                    );
+                } else if !crate::desktop_shutdown::is_shutdown_complete() {
+                    crate::logging::emergency::write_event(
+                        "exit_requested",
+                        "begin",
+                        "shutdown",
+                        None,
+                    );
+                    api.prevent_exit();
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                    crate::desktop_shutdown::start_async_shutdown(
+                        app,
+                        crate::desktop_shutdown::ShutdownReason::NormalExit,
+                    );
+                }
             }
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => {
