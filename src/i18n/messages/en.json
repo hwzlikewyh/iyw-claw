@@ -2995,7 +2995,8 @@
         "saveEdit": "Save",
         "cancelEdit": "Cancel edit",
         "editItem": "Edit",
-        "deleteItem": "Remove"
+        "deleteItem": "Remove",
+        "retryItem": "Retry"
       },
       "agentInput": {
         "waiting": "Waiting",
@@ -4985,6 +4986,7 @@
     "signedIn": "Signed in",
     "accountReady": "Account ready",
     "balancePoints": "Credits",
+    "refreshBalance": "Refresh points",
     "balanceSummary": "{points}",
     "balanceValue": "{points}",
     "balanceUnknown": "Unknown",

@@ -76,6 +76,7 @@ import { WorkspaceFilesDialog } from "@/components/message/workspace-files-dialo
 import { TaskArtifactsDialog } from "@/components/message/task-artifacts-dialog"
 import type { MessageScrollContextValue } from "@/components/message/message-scroll-context"
 import { unescapeComposerText } from "@/lib/composer-copy-text"
+import { resolveArtifactConversationId } from "@/lib/artifact-conversation-id"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { UserMemoryMessageActions } from "@/components/message/user-memory-message-actions"
 import { CurrentReplyArtifacts } from "@/components/message/current-reply-artifacts"
@@ -86,6 +87,8 @@ import {
 
 interface MessageListViewProps {
   conversationId: number
+  /** Persisted DB ID used only for task-artifact queries. */
+  artifactConversationId?: number | null
   agentType: AgentType
   modelName?: string | null
   connStatus?: ConnectionStatus | null
@@ -477,6 +480,7 @@ const UserMessageCopyButton = memo(function UserMessageCopyButton({
 const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   group,
   conversationId,
+  artifactConversationId,
   agentType,
   enableUserMemoryActions,
   dimmed = false,
@@ -488,6 +492,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
 }: {
   group: ResolvedMessageGroup
   conversationId: number
+  artifactConversationId: number | null
   agentType: AgentType
   enableUserMemoryActions: boolean
   dimmed?: boolean
@@ -573,7 +578,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
             )}
             {showCurrentReplyArtifacts && (
               <CurrentReplyArtifacts
-                conversationId={conversationId}
+                conversationId={artifactConversationId}
                 parts={group.parts}
               />
             )}
@@ -623,6 +628,7 @@ const AutoScrollOnSend = memo(function AutoScrollOnSend({
 
 export function MessageListView({
   conversationId,
+  artifactConversationId,
   agentType,
   modelName,
   connStatus,
@@ -645,6 +651,10 @@ export function MessageListView({
   standaloneStatus,
   scrollPositionRef,
 }: MessageListViewProps) {
+  const resolvedArtifactConversationId = resolveArtifactConversationId(
+    conversationId,
+    artifactConversationId
+  )
   const t = useTranslations("Folder.chat.messageList")
   const sharedT = useTranslations("Folder.chat.shared")
   const backendErrorT = useTranslations(
@@ -867,6 +877,7 @@ export function MessageListView({
                 <HistoricalMessageGroup
                   group={item.group}
                   conversationId={conversationId}
+                  artifactConversationId={resolvedArtifactConversationId}
                   agentType={agentType}
                   enableUserMemoryActions={enableUserMemoryActions}
                   dimmed={item.phase === "optimistic"}
@@ -926,6 +937,7 @@ export function MessageListView({
       agentType,
       animationEnabled,
       conversationId,
+      resolvedArtifactConversationId,
       detailLoading,
       enableUserMemoryActions,
       lastAssistantItem,
@@ -1144,7 +1156,9 @@ export function MessageListView({
         )}
         {showMessageNav && <WorkspaceFilesDialog />}
         {showMessageNav && (
-          <TaskArtifactsDialog conversationId={conversationId} />
+          <TaskArtifactsDialog
+            conversationId={resolvedArtifactConversationId}
+          />
         )}
       </div>
     </div>

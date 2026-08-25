@@ -15,7 +15,7 @@ import {
 import { useActiveFolder } from "@/contexts/active-folder-context"
 
 interface TaskArtifactsDialogProps {
-  conversationId: number
+  conversationId: number | null
 }
 
 export function TaskArtifactsDialog({

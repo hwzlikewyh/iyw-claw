@@ -53,6 +53,7 @@ interface ChatInputProps {
   onQueueReorder?: (items: QueuedMessage[]) => void
   onQueueEdit?: (id: string) => void
   onQueueDelete?: (id: string) => void
+  onQueueRetry?: (id: string) => void
   editingItemId?: string | null
   editingDraftText?: string | null
   editingDraftBlocks?: PromptInputBlock[] | null
@@ -105,6 +106,7 @@ export const ChatInput = memo(function ChatInput({
   onQueueReorder,
   onQueueEdit,
   onQueueDelete,
+  onQueueRetry,
   editingItemId,
   editingDraftText,
   editingDraftBlocks,
@@ -146,6 +148,7 @@ export const ChatInput = memo(function ChatInput({
             onReorder={onQueueReorder}
             onEdit={onQueueEdit}
             onDelete={onQueueDelete}
+            onRetry={onQueueRetry ?? (() => {})}
             editingItemId={editingItemId ?? null}
           />
         )}
