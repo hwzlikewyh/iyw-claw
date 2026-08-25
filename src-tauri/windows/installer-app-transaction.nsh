@@ -6,6 +6,8 @@ Var IywClawTransactionError
 Var IywClawRestartOnFailure
 Var IywClawRestartArgs
 
+!include "${__FILEDIR__}\installer-app-backup.nsh"
+
 Function IywClawConfigureAppTransaction
   StrCpy $IywClawAppDir "$IywClawRoot\app"
   StrCpy $IywClawBackupDir "$IywClawRoot\staging\installer-app-backup"
@@ -84,7 +86,7 @@ Function IywClawValidateTransactionPaths
 FunctionEnd
 
 Function IywClawReconcileHistoricalBackup
-  IfFileExists "$IywClawBackupDir\*.*" 0 no_historical_backup
+  IfFileExists "$IywClawBackupDir" 0 no_historical_backup
   Push "$IywClawAppDir"
   Call IywClawIsAppComplete
   Pop $R0
@@ -97,13 +99,13 @@ Function IywClawReconcileHistoricalBackup
   discard_historical_backup:
     DetailPrint "当前 app 完整，正在清理上次遗留的 installer backup..."
     RMDir /r "$IywClawBackupDir"
-    IfFileExists "$IywClawBackupDir\*.*" historical_cleanup_failed 0
+    IfFileExists "$IywClawBackupDir" historical_cleanup_failed 0
     Goto no_historical_backup
 
   restore_historical_backup:
     DetailPrint "当前 app 不完整，正在恢复上次 installer backup..."
     RMDir /r "$IywClawAppDir"
-    IfFileExists "$IywClawAppDir\*.*" historical_restore_failed 0
+    IfFileExists "$IywClawAppDir" historical_restore_failed 0
     ClearErrors
     Rename "$IywClawBackupDir" "$IywClawAppDir"
     IfErrors historical_restore_failed 0
@@ -140,9 +142,10 @@ Function IywClawBeginAppTransaction
   IfFileExists "$IywClawAppDir\*.*" backup_current_app remove_empty_app
 
   backup_current_app:
-    ClearErrors
-    Rename "$IywClawAppDir" "$IywClawBackupDir"
-    IfErrors backup_current_app_failed 0
+    Call IywClawBackupCurrentAppWithRetry
+    Pop $R2
+    StrCmp $R2 "1" backup_current_app_ready begin_transaction_failed
+  backup_current_app_ready:
     StrCpy $IywClawTransactionActive "1"
     DetailPrint "旧 app 已备份到 staging\installer-app-backup。"
     Goto create_new_app
@@ -162,9 +165,6 @@ Function IywClawBeginAppTransaction
     Push "1"
     Return
 
-  backup_current_app_failed:
-    StrCpy $IywClawTransactionError "无法原子备份旧 app"
-    Goto begin_transaction_failed
   remove_empty_app_failed:
     StrCpy $IywClawTransactionError "无法移除旧的空 app 目录"
     Goto begin_transaction_failed
@@ -251,7 +251,7 @@ Function IywClawRollbackAppTransaction
   SetOutPath "$IywClawRoot"
   DetailPrint "安装失败，正在恢复旧 app..."
   RMDir /r "$IywClawAppDir"
-  IfFileExists "$IywClawAppDir\*.*" rollback_failed 0
+  IfFileExists "$IywClawAppDir" rollback_failed 0
   IfFileExists "$IywClawBackupDir\*.*" restore_transaction_backup rollback_without_backup
 
   restore_transaction_backup:
