@@ -12,6 +12,16 @@ on:
         required: true
         default: main
         type: string
+      windows_proxy_url:
+        description: "Optional HTTP proxy for the Windows runner (for example http://127.0.0.1:7890)"
+        required: false
+        default: ""
+        type: string
+      macos_proxy_url:
+        description: "Optional HTTP proxy for the macOS runner"
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: self-hosted-release-test-${{ inputs.version }}
@@ -72,6 +82,10 @@ jobs:
       GIT_CONFIG_COUNT: "1"
       GIT_CONFIG_KEY_0: http.version
       GIT_CONFIG_VALUE_0: HTTP/1.1
+      HTTP_PROXY: ${{ inputs.windows_proxy_url }}
+      HTTPS_PROXY: ${{ inputs.windows_proxy_url }}
+      http_proxy: ${{ inputs.windows_proxy_url }}
+      https_proxy: ${{ inputs.windows_proxy_url }}
     strategy:
       fail-fast: false
       matrix:
@@ -196,6 +210,10 @@ jobs:
       GIT_CONFIG_COUNT: "1"
       GIT_CONFIG_KEY_0: http.version
       GIT_CONFIG_VALUE_0: HTTP/1.1
+      HTTP_PROXY: ${{ inputs.macos_proxy_url }}
+      HTTPS_PROXY: ${{ inputs.macos_proxy_url }}
+      http_proxy: ${{ inputs.macos_proxy_url }}
+      https_proxy: ${{ inputs.macos_proxy_url }}
     strategy:
       fail-fast: false
       matrix:

@@ -20,6 +20,8 @@ runner 的桌面打包环境；既有 `release.yml`、`release-tauri.yml` 和
   不重复安装完整前端依赖。
 - self-hosted checkout 固定使用 Git HTTP/1.1，规避部分 Mac 网络上的 HTTP/2
   framing 错误。
+- workflow 可分别为 Windows/macOS runner 注入可选 HTTP(S) 代理，避免把代理地址
+  硬编码进仓库。
 - 构建使用 `--no-sign`，结果上传为 Actions artifact；不创建 GitHub Release，
   不调用 Fusion 发布接口，不改变正式更新通道。
 
