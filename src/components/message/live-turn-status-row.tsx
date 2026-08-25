@@ -74,7 +74,7 @@ function currentPlanStep(entries: PlanEntryInfo[]): string | null {
 function phaseLabel(
   message: LiveMessage | null,
   planEntries: PlanEntryInfo[],
-  labels: { waiting: string; thinking: string; streaming: string }
+  workingLabel: string
 ): string {
   const toolTitle = latestActiveTool(message)?.title.trim()
   if (toolTitle) return toolTitle
@@ -82,11 +82,7 @@ function phaseLabel(
   const planStep = currentPlanStep(planEntries)
   if (planStep) return planStep
 
-  const lastBlock = message?.content[message.content.length - 1]
-  if (!lastBlock) return labels.waiting
-  if (lastBlock.type === "thinking") return labels.thinking
-  if (lastBlock.type === "text") return labels.streaming
-  return labels.streaming
+  return workingLabel
 }
 
 function PlanProgress({
@@ -226,14 +222,9 @@ function TurnFacts(props: LiveTurnStatusRowProps) {
 
 export function LiveTurnStatusRow(props: LiveTurnStatusRowProps) {
   const t = useTranslations("Folder.chat.liveTurnStats")
-  const model = props.modelName?.trim() || t("model")
   const phase = props.isAwaitingUserInput
     ? t("awaitingUser")
-    : phaseLabel(props.message, props.planEntries, {
-        waiting: t("waiting", { model }),
-        thinking: t("thinking", { model }),
-        streaming: t("streaming", { model }),
-      })
+    : phaseLabel(props.message, props.planEntries, t("working"))
 
   return (
     <div className="@container/turnstats shrink-0">

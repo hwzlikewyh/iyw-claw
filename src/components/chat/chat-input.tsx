@@ -18,7 +18,6 @@ import {
   type ComposerInjectContent,
 } from "@/components/chat/message-input"
 import { MessageQueueDisplay } from "@/components/chat/message-queue-display"
-import { currentModelName } from "@/lib/model-config-groups"
 import { cn } from "@/lib/utils"
 
 interface ChatInputProps {
@@ -65,7 +64,7 @@ interface ChatInputProps {
   feedbackAddDisabled?: boolean
   /** Keep the composer usable while the selected Agent connects silently. */
   allowOfflineCompose?: boolean
-  /** Whether the current prompting turn has produced its first live block. */
+  /** Retained for caller compatibility; the prompting label is phase-neutral. */
   responseStarted?: boolean
   injectContent?: ComposerInjectContent | null
   onInjectConsumed?: () => void
@@ -116,7 +115,6 @@ export const ChatInput = memo(function ChatInput({
   onAddFeedback,
   feedbackAddDisabled,
   allowOfflineCompose = true,
-  responseStarted = false,
   injectContent,
   onInjectConsumed,
   flush = false,
@@ -126,14 +124,11 @@ export const ChatInput = memo(function ChatInput({
   const isConnected = status === "connected"
   const isPrompting = status === "prompting"
   const resolvedAgentName = agentName ?? "Agent"
-  const resolvedModelName = currentModelName(configOptions) ?? t("model")
   const activityPlaceholder =
     status === "connecting"
       ? t("startingKernel", { agent: resolvedAgentName })
       : isPrompting
-        ? responseStarted
-          ? t("modelGenerating", { model: resolvedModelName })
-          : t("waitingForModel", { model: resolvedModelName })
+        ? t("working")
         : null
 
   return (

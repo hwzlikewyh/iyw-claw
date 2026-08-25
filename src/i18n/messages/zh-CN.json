@@ -2797,6 +2797,7 @@
         "agentResponding": "{agent} 正在响应...",
         "startingKernel": "正在启动 {agent} 内核...",
         "model": "模型",
+        "working": "原助理正在工作...",
         "waitingForModel": "正在等待 {model} 响应...",
         "modelGenerating": "{model} 正在生成...",
         "sendMessage": "发送消息..."
@@ -3270,6 +3271,7 @@
       },
       "liveTurnStats": {
         "model": "模型",
+        "working": "原助理正在工作...",
         "waiting": "正在等待 {model} 响应...",
         "awaitingUser": "等待你的操作",
         "thinking": "{model} 正在思考...",

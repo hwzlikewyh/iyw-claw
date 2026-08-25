@@ -2797,6 +2797,7 @@
         "agentResponding": "{agent} is responding...",
         "startingKernel": "Starting the {agent} runtime...",
         "model": "Model",
+        "working": "原助理 is working...",
         "waitingForModel": "Waiting for {model} to respond...",
         "modelGenerating": "{model} is generating...",
         "sendMessage": "Send a message..."
@@ -3270,6 +3271,7 @@
       },
       "liveTurnStats": {
         "model": "Model",
+        "working": "原助理 is working...",
         "waiting": "Waiting for {model} to respond...",
         "awaitingUser": "Waiting for your action",
         "thinking": "{model} is thinking...",
