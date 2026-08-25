@@ -24,6 +24,7 @@ import {
 } from "@/lib/session-failures"
 import type { SessionFailureRecord } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { sanitizeAgentRuntimeErrorDetails } from "@/lib/agent-runtime-error"
 
 const CATEGORY_ICONS: Record<string, typeof AlertCircle> = {
   connection: WifiOff,
@@ -87,7 +88,9 @@ export function ActiveFailureStrip({
   const category = knownCategory(failure.category)
   const Icon = CATEGORY_ICONS[category]
   const title = failure.title.trim() || t(CATEGORY_LABEL_KEYS[category])
-  const details = failure.details?.trim() || null
+  const details = failure.details?.trim()
+    ? sanitizeAgentRuntimeErrorDetails(failure.details.trim())
+    : null
 
   return (
     <div role="alert" className={failureStripClass(warning)}>

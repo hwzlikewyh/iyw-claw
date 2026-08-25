@@ -78,6 +78,7 @@ import { CONNECTION_KEEPALIVE_INTERVAL_MS } from "@/lib/constants"
 import { sendSystemNotification } from "@/lib/notification"
 import {
   formatAgentRuntimeError,
+  sanitizeAgentRuntimeErrorDetails,
   type AgentRuntimeErrorMessages,
 } from "@/lib/agent-runtime-error"
 import {
@@ -3877,7 +3878,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             }
           })()
 
-          const evidence = e.details?.trim() || undefined
+          const evidence = e.details?.trim()
+            ? sanitizeAgentRuntimeErrorDetails(e.details.trim())
+            : undefined
           const tooltipMessage = evidence
             ? `${localizedMessage} ${t("backendErrors.detailsInAlerts")}`
             : localizedMessage
@@ -4138,14 +4141,17 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       contextKey: string,
       patch: import("@/lib/snapshot-denormalize").SnapshotPatch
     ) => {
-      const evidence = patch.lastErrorDetails?.trim()
-      if (!evidence) return
+      const rawEvidence = patch.lastErrorDetails?.trim()
+      if (!rawEvidence) return
+      const evidence = sanitizeAgentRuntimeErrorDetails(rawEvidence)
       if (alertedErrorDetailsRef.current.get(contextKey) === evidence) return
       alertedErrorDetailsRef.current.set(contextKey, evidence)
       pushAlertRef.current(
         "error",
         t("eventErrorTitle"),
-        patch.lastError ?? undefined,
+        patch.lastError
+          ? sanitizeAgentRuntimeErrorDetails(patch.lastError)
+          : undefined,
         undefined,
         evidence
       )
@@ -4660,7 +4666,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             const reason = t("unableReadAgentConfig", {
               message:
                 formatAgentRuntimeError(rawMessage, runtimeErrorMessages) ??
-                rawMessage,
+                sanitizeAgentRuntimeErrorDetails(rawMessage),
             })
             const failedTitle = t("connectFailedTitle", {
               agent: getAgentDisplayName(agentType),
@@ -5032,7 +5038,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             )
           } else {
             const displayMessage =
-              formatAgentRuntimeError(message, runtimeErrorMessages) ?? message
+              formatAgentRuntimeError(message, runtimeErrorMessages) ??
+              sanitizeAgentRuntimeErrorDetails(message)
             pushAlertRef.current(
               "error",
               t("connectFailedTitle", { agent: agentLabel }),

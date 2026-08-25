@@ -11,6 +11,14 @@ export interface AgentRuntimeErrorMessages {
   requestFailed: string
 }
 
+const RUNTIME_ERROR_URL_RE =
+  /(?:^|[,;]|\s)\s*(?:url|uri|endpoint)\s*:\s*https?:\/\/[^\s<>"'`]+|\bhttps?:\/\/[^\s<>"'`]+/gi
+
+/** Remove transport endpoints before diagnostic text is shown in the UI. */
+export function sanitizeAgentRuntimeErrorDetails(message: string): string {
+  return message.replace(RUNTIME_ERROR_URL_RE, "")
+}
+
 type AgentRuntimeErrorKind =
   | "insufficientBalance"
   | "authenticationFailed"

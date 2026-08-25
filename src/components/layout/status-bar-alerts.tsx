@@ -18,6 +18,7 @@ import { openUrl } from "@/lib/platform"
 import { openSettingsWindow } from "@/lib/api"
 import { isAgentType, type AgentType } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { sanitizeAgentRuntimeErrorDetails } from "@/lib/agent-runtime-error"
 
 function parseAgentType(value: unknown): AgentType | null {
   return isAgentType(value) ? value : null
@@ -110,6 +111,7 @@ function AlertActionButton({ action }: { action: AlertAction }) {
 function AlertEvidence({ text }: { text: string }) {
   const t = useTranslations("Folder.statusBar.alerts")
   const [open, setOpen] = useState(false)
+  const sanitizedText = sanitizeAgentRuntimeErrorDetails(text)
 
   return (
     <div className="mt-1">
@@ -126,7 +128,7 @@ function AlertEvidence({ text }: { text: string }) {
       </button>
       {open && (
         <pre className="mt-1 max-h-40 select-text overflow-y-auto whitespace-pre-wrap break-words rounded bg-muted/60 p-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
-          {text}
+          {sanitizedText}
         </pre>
       )}
     </div>
