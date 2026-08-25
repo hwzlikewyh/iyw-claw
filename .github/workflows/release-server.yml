@@ -37,11 +37,11 @@ jobs:
             target: "aarch64-unknown-linux-gnu"
             artifact: "iyw-claw-server-linux-arm64"
           - name: "Windows x64"
-            runner: ["self-hosted", "Windows", "X64"]
+            runner: "windows-2022"
             target: "x86_64-pc-windows-msvc"
             artifact: "iyw-claw-server-windows-x64"
           - name: "Windows 32-bit"
-            runner: ["self-hosted", "Windows", "X64"]
+            runner: "windows-2022"
             target: "i686-pc-windows-msvc"
             artifact: "iyw-claw-server-windows-x86"
     runs-on: ${{ matrix.runner }}
