@@ -75,6 +75,7 @@ function createArtifactPreviewRequest(
   }
   return loadWorkspacePreview(target.rootPath, target.ioPath, {
     renderMarkdown: true,
+    renderHtml: true,
   })
 }
 

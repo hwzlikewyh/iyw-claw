@@ -8,8 +8,10 @@ import type { TaskArtifactInfo } from "@/lib/api"
 
 export function TaskArtifactDirectoryPreview({
   artifact,
+  onOpenWorkspace,
 }: {
   artifact: TaskArtifactInfo
+  onOpenWorkspace?: () => void
 }) {
   const t = useTranslations("Folder.taskArtifacts")
   if (artifact.status !== "available") {
@@ -29,6 +31,8 @@ export function TaskArtifactDirectoryPreview({
       key={`${artifact.id}:${artifact.path}`}
       rootPath={artifact.path}
       className="h-full"
+      renderHtml
+      onOpenWorkspace={onOpenWorkspace}
     />
   )
 }

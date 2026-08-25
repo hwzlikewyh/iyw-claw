@@ -20,6 +20,8 @@ import { cn } from "@/lib/utils"
 interface WorkspaceDirectoryBrowserProps {
   rootPath: string
   className?: string
+  renderHtml?: boolean
+  onOpenWorkspace?: () => void
 }
 
 function collectFilePaths(nodes: FileTreeNode[], paths = new Set<string>()) {
@@ -30,7 +32,11 @@ function collectFilePaths(nodes: FileTreeNode[], paths = new Set<string>()) {
   return paths
 }
 
-function useDirectoryPreview(rootPath: string, nodes: FileTreeNode[]) {
+function useDirectoryPreview(
+  rootPath: string,
+  nodes: FileTreeNode[],
+  renderHtml: boolean
+) {
   const [preview, setPreview] = useState<PreviewState>({ status: "idle" })
   const requestId = useRef(0)
   const filePaths = useMemo(() => collectFilePaths(nodes), [nodes])
@@ -39,7 +45,7 @@ function useDirectoryPreview(rootPath: string, nodes: FileTreeNode[]) {
     async (path: string) => {
       if (!filePaths.has(path)) return
       const request = (requestId.current += 1)
-      const cached = getCachedWorkspacePreview(rootPath, path)
+      const cached = getCachedWorkspacePreview(rootPath, path, { renderHtml })
       if (cached) {
         setPreview(cached)
         return
@@ -50,7 +56,7 @@ function useDirectoryPreview(rootPath: string, nodes: FileTreeNode[]) {
       }
       setPreview({ status: "loading", path })
       try {
-        const next = await loadWorkspacePreview(rootPath, path)
+        const next = await loadWorkspacePreview(rootPath, path, { renderHtml })
         if (request !== requestId.current) return
         setPreview(next)
       } catch (reason) {
@@ -63,7 +69,7 @@ function useDirectoryPreview(rootPath: string, nodes: FileTreeNode[]) {
         setPreview({ status: "error", path, message })
       }
     },
-    [filePaths, rootPath]
+    [filePaths, renderHtml, rootPath]
   )
 
   useEffect(() => () => void (requestId.current += 1), [])
@@ -74,9 +80,11 @@ function useDirectoryPreview(rootPath: string, nodes: FileTreeNode[]) {
 function WorkspacePreviewPane({
   preview,
   rootPath,
+  onOpenWorkspace,
 }: {
   preview: PreviewState
   rootPath: string
+  onOpenWorkspace?: () => void
 }) {
   const t = useTranslations("Folder.chat.workspaceFiles")
   const path = preview.status === "idle" ? null : preview.path
@@ -96,7 +104,11 @@ function WorkspacePreviewPane({
         </span>
       </div>
       <div className="min-h-0">
-        <WorkspaceFilePreview state={preview} rootPath={rootPath} />
+        <WorkspaceFilePreview
+          state={preview}
+          rootPath={rootPath}
+          onOpenWorkspace={onOpenWorkspace}
+        />
       </div>
     </section>
   )
@@ -120,12 +132,16 @@ function EmptyWorkspaceState() {
 export function WorkspaceDirectoryBrowser({
   rootPath,
   className,
+  renderHtml = false,
+  onOpenWorkspace,
 }: WorkspaceDirectoryBrowserProps) {
   return (
     <WorkspaceDirectoryBrowserContent
       key={rootPath}
       rootPath={rootPath}
       className={className}
+      renderHtml={renderHtml}
+      onOpenWorkspace={onOpenWorkspace}
     />
   )
 }
@@ -133,10 +149,16 @@ export function WorkspaceDirectoryBrowser({
 function WorkspaceDirectoryBrowserContent({
   rootPath,
   className,
+  renderHtml = false,
+  onOpenWorkspace,
 }: WorkspaceDirectoryBrowserProps) {
   const t = useTranslations("Folder.chat.workspaceFiles")
   const tree = useLazyWorkspaceTree(rootPath)
-  const { preview, selectFile } = useDirectoryPreview(rootPath, tree.nodes)
+  const { preview, selectFile } = useDirectoryPreview(
+    rootPath,
+    tree.nodes,
+    renderHtml
+  )
   const selectedPath = preview.status === "idle" ? undefined : preview.path
   const empty = !tree.loading && !tree.error && tree.nodes.length === 0
   const pathErrors = useMemo(
@@ -170,7 +192,11 @@ function WorkspaceDirectoryBrowserContent({
         selectedPath={selectedPath}
         onSelect={(path) => void selectFile(path)}
       />
-      <WorkspacePreviewPane preview={preview} rootPath={rootPath} />
+      <WorkspacePreviewPane
+        preview={preview}
+        rootPath={rootPath}
+        onOpenWorkspace={onOpenWorkspace}
+      />
     </div>
   )
 }

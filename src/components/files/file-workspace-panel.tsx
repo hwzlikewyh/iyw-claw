@@ -2011,7 +2011,8 @@ export function FileWorkspacePanel() {
     return (
       <HtmlPreview
         key={activeFileTab.id}
-        tab={activeFileTab}
+        content={activeFileTab.content}
+        path={activeFileTab.path ?? ""}
         rootPath={previewRoot}
       />
     )

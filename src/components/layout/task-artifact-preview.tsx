@@ -29,7 +29,9 @@ import {
 } from "@/components/message/workspace-file-preview"
 import { useArtifactSystemFullscreen } from "@/components/layout/use-artifact-system-fullscreen"
 import type { TaskArtifactInfo } from "@/lib/api"
+import { findOwningFolder } from "@/lib/file-open-target"
 import { cn } from "@/lib/utils"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { toast } from "sonner"
 
 interface TaskArtifactPreviewProps {
@@ -199,7 +201,11 @@ function ArtifactPreview({
         onToggleSystemFullscreen={onToggleSystemFullscreen}
       />
       <div className="min-h-0">
-        <ArtifactPreviewBody artifact={artifact} target={actions.target} />
+        <ArtifactPreviewBody
+          artifact={artifact}
+          target={actions.target}
+          onOpenWorkspace={onOpenWorkspace}
+        />
       </div>
     </section>
   )
@@ -208,26 +214,48 @@ function ArtifactPreview({
 function ArtifactPreviewBody({
   artifact,
   target,
+  onOpenWorkspace,
 }: {
   artifact: TaskArtifactInfo
   target: TaskArtifactTarget | null
+  onOpenWorkspace?: () => void
 }) {
   if (artifact.kind === "directory") {
-    return <TaskArtifactDirectoryPreview artifact={artifact} />
+    return (
+      <TaskArtifactDirectoryPreview
+        artifact={artifact}
+        onOpenWorkspace={onOpenWorkspace}
+      />
+    )
   }
-  return <TaskArtifactFilePreview artifact={artifact} target={target} />
+  return (
+    <TaskArtifactFilePreview
+      artifact={artifact}
+      target={target}
+      onOpenWorkspace={onOpenWorkspace}
+    />
+  )
 }
 
 function TaskArtifactFilePreview({
   artifact,
   target,
+  onOpenWorkspace,
 }: {
   artifact: TaskArtifactInfo
   target: TaskArtifactTarget | null
+  onOpenWorkspace?: () => void
 }) {
   const preview = useArtifactPreviewState(artifact, target)
+  const folders = useAppWorkspaceStore((store) => store.folders)
+  const htmlRootPath = findOwningFolder(artifact.path, folders)?.rootPath
   return (
-    <WorkspaceFilePreview state={preview} rootPath={target?.rootPath ?? ""} />
+    <WorkspaceFilePreview
+      state={preview}
+      rootPath={target?.rootPath ?? ""}
+      htmlRootPath={htmlRootPath}
+      onOpenWorkspace={onOpenWorkspace}
+    />
   )
 }
 

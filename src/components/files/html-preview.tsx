@@ -9,7 +9,6 @@ import {
   inlineHtmlResources,
   withSandboxCsp,
 } from "@/lib/html-preview-inline"
-import type { FileWorkspaceTab } from "@/contexts/workspace-context"
 import { cn } from "@/lib/utils"
 
 // Trusted sandbox: scripts run, popups/forms/modals work, but the frame still
@@ -20,10 +19,12 @@ import { cn } from "@/lib/utils"
 const SANDBOX_TRUSTED = "allow-scripts allow-popups allow-forms allow-modals"
 
 export function HtmlPreview({
-  tab,
+  content,
+  path,
   rootPath,
 }: {
-  tab: FileWorkspaceTab
+  content: string
+  path: string
   // Sub-resource resolution root: the owning workspace folder when the
   // file sits inside one (so ../-style and root-relative references keep
   // working), else the file's own directory — a natural sandbox for
@@ -34,9 +35,6 @@ export function HtmlPreview({
   const [inlined, setInlined] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [trusted, setTrusted] = useState(false)
-
-  const content = tab.content ?? ""
-  const path = tab.path ?? ""
 
   // The document's own <title>, shown at the left of the header bar; falls back
   // to the file name when the document has none. Parsed from the raw source

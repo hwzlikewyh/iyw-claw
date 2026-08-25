@@ -3510,6 +3510,7 @@
         "folderLoadError": "Couldn't load; collapse to retry",
         "selectFile": "Select a file to preview",
         "previewTruncated": "Large file; showing the first 2 MB",
+        "htmlPreviewTooLarge": "HTML files of {size} MB or larger cannot be rendered.",
         "treeError": "Unable to load workspace files",
         "previewError": "Unable to preview this file",
         "openInFinder": "Show in Finder",

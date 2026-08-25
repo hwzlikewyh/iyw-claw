@@ -5,8 +5,12 @@ import { useTranslations } from "next-intl"
 import { Streamdown } from "streamdown"
 
 import { useStreamdownPlugins } from "@/components/ai-elements/streamdown-plugins"
+import { HtmlPreview } from "@/components/files/html-preview"
 import { OfficePreview } from "@/components/files/office-preview"
 import { EditableImagePreview } from "@/components/ui/editable-image-preview"
+import { useWorkspaceMarkdownOptions } from "@/components/message/markdown-workspace-links"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { joinRootRel } from "@/lib/file-open-target"
 
 export type PreviewState =
   | { status: "idle" }
@@ -15,6 +19,8 @@ export type PreviewState =
   | { status: "image"; path: string; content: string }
   | { status: "office"; path: string }
   | { status: "markdown"; path: string; content: string; truncated: boolean }
+  | { status: "html"; path: string; content: string; truncated: boolean }
+  | { status: "html-too-large"; path: string; maxMegabytes: number }
   | { status: "pdf"; path: string; src: string }
   | { status: "url"; path: string; src: string }
   | { status: "error"; path: string; message: string }
@@ -58,6 +64,17 @@ function PreviewStatus({ state }: { state: PreviewState }) {
       </div>
     )
   }
+  if (state.status === "html-too-large") {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+        <AlertCircle className="size-8 text-muted-foreground/80" />
+        <p className="text-sm font-medium">{t("previewError")}</p>
+        <p className="max-w-lg text-xs text-muted-foreground">
+          {t("htmlPreviewTooLarge", { size: state.maxMegabytes })}
+        </p>
+      </div>
+    )
+  }
   if (state.status !== "error") return null
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
@@ -73,13 +90,18 @@ function PreviewStatus({ state }: { state: PreviewState }) {
 export function WorkspaceFilePreview({
   state,
   rootPath,
+  htmlRootPath,
+  onOpenWorkspace,
 }: {
   state: PreviewState
   rootPath: string
+  htmlRootPath?: string
+  onOpenWorkspace?: () => void
 }) {
   if (
     state.status === "idle" ||
     state.status === "loading" ||
+    state.status === "html-too-large" ||
     state.status === "error"
   ) {
     return <PreviewStatus state={state} />
@@ -134,19 +156,51 @@ export function WorkspaceFilePreview({
       />
     )
   }
-  if (state.status === "markdown") return <MarkdownPreview state={state} />
+  if (state.status === "html") {
+    const absolutePath = joinRootRel(rootPath, state.path)
+    return (
+      <HtmlPreview
+        key={absolutePath}
+        content={state.content}
+        path={absolutePath}
+        rootPath={htmlRootPath ?? rootPath}
+      />
+    )
+  }
+  if (state.status === "markdown") {
+    return (
+      <MarkdownPreview
+        state={state}
+        rootPath={rootPath}
+        onOpenWorkspace={onOpenWorkspace}
+      />
+    )
+  }
   return <TextPreview state={state} />
 }
 
 function MarkdownPreview({
   state,
+  rootPath,
+  onOpenWorkspace,
 }: {
   state: Extract<PreviewState, { status: "markdown" }>
+  rootPath: string
+  onOpenWorkspace?: () => void
 }) {
   const plugins = useStreamdownPlugins(state.content)
+  const roots = useAppWorkspaceStore((store) => store.folders)
+  const options = useWorkspaceMarkdownOptions({
+    content: state.content,
+    documentPath: rootPath ? joinRootRel(rootPath, state.path) : "",
+    roots,
+    onOpenWorkspace,
+  })
   return (
     <div className="h-full overflow-auto p-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6">
-      <Streamdown plugins={plugins}>{state.content}</Streamdown>
+      <Streamdown plugins={plugins} {...options}>
+        {state.content}
+      </Streamdown>
     </div>
   )
 }

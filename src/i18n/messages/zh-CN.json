@@ -3510,6 +3510,7 @@
         "folderLoadError": "加载失败，收起后可重试",
         "selectFile": "选择文件以预览",
         "previewTruncated": "文件较大，仅显示前 2 MB",
+        "htmlPreviewTooLarge": "HTML 文件达到或超过 {size} MB，无法渲染。",
         "treeError": "无法加载工作区文件",
         "previewError": "无法预览此文件",
         "openInFinder": "在访达中显示",
