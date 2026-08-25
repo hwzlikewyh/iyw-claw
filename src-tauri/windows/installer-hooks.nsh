@@ -64,6 +64,9 @@ Function IywClawRestoreLogicalInstallRoot
     ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
     StrCmp $R8 "" iyw_guiinit_return 0
 
+    ; 旧版卸载可能已经删除 app，但注册表项尚未完成清理。此时没有
+    ; 可替换的旧主程序，按已卸载残留继续；存在主程序时仍严格检查身份。
+    IfFileExists "$R8\app\iyw-claw.exe" 0 iyw_relaunch_stopped_app
     Push "$R8\app"
     Call IywClawIsMainProcessRunning
     Pop $R5
@@ -271,35 +274,38 @@ FunctionEnd
   StrCmp $IywClawRoot "" iyw_uninstall_done 0
   GetFullPathName $IywClawRoot "$IywClawRoot"
 
-  ; “彻底删除”是独立确认动作（应用卸载对话框传入 /PURGE）：移除全部受管内容
-  ; 与用户数据。默认卸载保留用户数据（config/data/skills/user），仅清理可重建
-  ; 的受管运行时与日志。
+  ; 更新由 Tauri 以 /UPDATE 启动，已在上方直接结束，不进入用户数据确认。
+  ; 普通交互式卸载询问是否保留用户数据：保留时删除所有程序目录，只留下
+  ; config/data/skills；/PURGE 用于静默或自动化场景，明确删除整个安装根目录。
   ${If} $CmdLine == *"/PURGE"*
+    Goto iyw_purge_all_user_data
+  ${EndIf}
+
+  IfSilent iyw_keep_user_data 0
+  MessageBox MB_YESNO|MB_ICONQUESTION \
+    "是否保留用户数据？$\r$\n选择“是”保留配置、数据和 Skill；选择“否”删除全部本地数据。" IDYES iyw_keep_user_data
+  Goto iyw_purge_all_user_data
+
+  iyw_keep_user_data:
+    DetailPrint "正在删除 iyw-claw 程序数据并保留用户数据..."
+    RMDir /r "$IywClawRoot\app"
+    RMDir /r "$IywClawRoot\runtime"
+    RMDir /r "$IywClawRoot\agents"
+    RMDir /r "$IywClawRoot\inventory"
+    RMDir /r "$IywClawRoot\staging"
+    RMDir /r "$IywClawRoot\plugins"
+    RMDir /r "$IywClawRoot\logs"
+    DeleteRegKey SHCTX "$IywClawInstallRegistryKey"
+    DetailPrint "程序数据已删除，用户配置、本地数据与 Skill 已保留。"
+    Goto iyw_uninstall_done
+
+  iyw_purge_all_user_data:
     GetFullPathName $R8 "$IywClawRoot"
     StrCmp $R8 "" iyw_uninstall_done 0
     DetailPrint "彻底删除模式：正在移除全部安装内容..."
     RMDir /r "$R8"
     DeleteRegKey SHCTX "$IywClawInstallRegistryKey"
     Goto iyw_uninstall_done
-  ${EndIf}
-
-  GetFullPathName $R8 "$IywClawRoot\app"
-  GetFullPathName $R9 "$INSTDIR"
-  StrCmp $R8 $R9 iyw_remove_managed_dirs 0
-  GetFullPathName $R7 "$IywClawRoot"
-  StrCmp $R9 $R7 iyw_uninstall_from_root iyw_uninstall_done
-
-  iyw_uninstall_from_root:
-    StrCpy $INSTDIR "$IywClawRoot\app"
-    SetOutPath "$INSTDIR"
-
-  iyw_remove_managed_dirs:
-    DetailPrint "正在删除可重建的受管运行环境..."
-    RMDir /r "$IywClawRoot\runtime"
-    RMDir /r "$IywClawRoot\staging"
-    RMDir /r "$IywClawRoot\logs"
-    DeleteRegKey SHCTX "$IywClawInstallRegistryKey"
-    DetailPrint "用户配置、本地数据、Skill 与受管库存已保留。"
 
   iyw_uninstall_done:
   Goto iyw_preuninstall_done

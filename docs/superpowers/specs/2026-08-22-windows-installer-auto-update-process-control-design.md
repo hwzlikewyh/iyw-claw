@@ -19,6 +19,8 @@ Windows 可能对仍存活的后台进程返回空的 `Get-Process.Path`。当�
 - 无法确认辅助进程身份时跳过该进程并记录原因，不阻断整个安装。
 - 无法确认或停止主进程时继续 fail-closed，不替换正在使用的应用目录。
 - 保留测试模式、应用内 updater、安装事务回滚和用户数据保留语义。
+- 更新不询问数据保留；普通卸载询问是否保留 `config/data/skills`，并始终清理
+  `app/runtime/agents/inventory/staging/plugins/logs` 等程序目录。
 - 本地 `runtime` 与 Codex 私有目录的版本、入口、平台和 marker 完整时，启动只做
   隐形快速校验，不显示准备进度条、不下载、不重复安装。
 
@@ -70,6 +72,15 @@ Windows 可能对仍存活的后台进程返回空的 `Get-Process.Path`。当�
 重新启动的进程复用现有安装目录，自动进入覆盖更新并在需要时恢复应用页面。测试
 模式不查询生产进程或注册表隔离键；已经携带 `/UPDATE` 的应用内 updater 不重复
 启动；新安装仍显示正常安装界面和目录选择。
+
+### 卸载与用户数据选择
+
+`NSIS_HOOK_PREUNINSTALL` 在 `$UpdateMode = 1` 时直接结束，不显示用户数据确认，
+因此覆盖更新只替换 `app` 并保留持久区。普通交互式卸载显示“是否保留用户数据”：
+选择保留时删除 `app`、`runtime`、`agents`、`inventory`、`staging`、`plugins` 和
+`logs`，保留 `config`、`data` 与 `skills`；选择删除时等价于显式 `/PURGE`，移除
+整个安装根目录。静默卸载默认保留用户数据，自动化调用可传入 `/PURGE` 明确执行
+全量删除。安装根目录之外的自定义数据路径和默认用户记忆目录不由 NSIS 擅自删除。
 
 ### 错误处理
 

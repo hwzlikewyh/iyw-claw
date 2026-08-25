@@ -13,8 +13,9 @@
   （版本中心初始化/激活）；`config/data/logs` 为持久区。更新永不清理这些目录。
 - 更新替换（`NSIS_HOOK_PREINSTALL`）：先 `GetFullPathName` 规范化，证明目标就是 `$IywClawRoot\app` 才
   `RMDir /r` + 重建；跳过路径直接 `iyw_skip_app_replace`。删除路径有 canonicalize 保护。
-- 卸载：默认保留用户数据（config/data/skills/user），仅删除可重建的 `runtime/staging/logs`；
-  `/PURGE` 为独立确认动作，删除整个根目录并删注册表键。
+- 卸载：更新模式不询问数据保留；普通交互式卸载询问是否保留 `config/data/skills`，
+  选择保留时删除 `app/runtime/agents/inventory/staging/plugins/logs`，选择删除时
+  删除整个根目录；静默卸载默认保留用户数据，`/PURGE` 明确触发全量删除并删注册表键。
 - 观察点（未定级）：
   - `taskkill /F /T` 强制结束 `iyw-claw.exe` 与 `iyw-claw-mcp*.exe`，无优雅退出/drain 窗口，
     可能丢失未落盘状态（App 内部有原子写与 fsync 缓解，动态验证需远端 CI）。

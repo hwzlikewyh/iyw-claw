@@ -23,7 +23,7 @@
 | 系统 Skill | 读 git.rs / manager.rs | 基线确认 IYW-SEC-001、IYW-SKILL-002；git.rs 已去硬编码；manager.rs dirty 分支按 2026-08-05 决策保持 force_reset（BlockedDirty 已移除） | defects.yaml；evidence/06 §8 |
 | skill 发布源 | 读 experts.toml + `git tag` | bundle.version=0.0.11 vs 标签最高 v0.0.8（IYW-SKILL-013） | defects.yaml |
 
-| NSIS 安装/更新覆盖 | 读 windows/installer-hooks.nsh + update/install.rs | 工作区版本：app 区替换 + canonicalize 校验、默认卸载保留用户数据、/PURGE 独立确认；update 走原子 rename+fsync+备份 | evidence/06 §1-2（正向） |
+| NSIS 安装/更新覆盖 | 读 windows/installer-hooks.nsh + update/install.rs | 工作区版本：app 区替换 + canonicalize 校验、更新跳过卸载确认；普通卸载选择保留用户数据时清理程序目录，/PURGE 全量删除；update 走原子 rename+fsync+备份 | evidence/06 §1-2（正向） |
 | async 阻塞 IO | rg spawn_blocking + 读热路径 | 26 处 spawn_blocking 覆盖文件/压缩/备份/文件锁；未见 async 热路径大文件 IO | evidence/06 §3（正向） |
 | 跨 await 锁 | 启发式扫描 + 抽查 | std Mutex 53 文件 / tokio Mutex 50 文件；候选 164 处（误报高）；抽查 web/mod.rs、terminal/manager.rs 未见持锁跨 await | evidence/06 §4（待 Audit B 工具确认） |
 | 忽略 Result | rg 'let _ = ' | 热点范围 163 处；weixin.rs:742 出站 do_send 被忽略（IYW-CHANNEL-006 佐证）；日志写失败静默 | evidence/06 §5 |
