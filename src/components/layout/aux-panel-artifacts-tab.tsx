@@ -25,7 +25,8 @@ type Scope = "current" | "all"
 type DisplayMode = "panel" | "browser"
 
 interface TaskArtifactsTabProps {
-  conversationId?: number
+  /** `null` explicitly means the current draft is not persisted yet. */
+  conversationId?: number | null
   displayMode?: DisplayMode
   onRequestClose?: () => void
 }
@@ -77,16 +78,13 @@ export function TaskArtifactsTab({
   )
 }
 
-function useConversationId(override?: number): number | null {
+function useConversationId(override?: number | null): number | null {
   const tabs = useTabStore((state) => state.tabs)
   const activeTabId = useTabStore((state) => state.activeTabId)
-  return useMemo(
-    () =>
-      override ??
-      tabs.find((tab) => tab.id === activeTabId)?.conversationId ??
-      null,
-    [activeTabId, override, tabs]
-  )
+  return useMemo(() => {
+    if (override !== undefined) return override
+    return tabs.find((tab) => tab.id === activeTabId)?.conversationId ?? null
+  }, [activeTabId, override, tabs])
 }
 
 interface ArtifactSelection extends TaskArtifactsBrowserSelection {

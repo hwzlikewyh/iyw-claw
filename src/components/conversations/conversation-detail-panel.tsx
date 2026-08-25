@@ -1926,6 +1926,7 @@ const ConversationTabView = memo(function ConversationTabView({
   const messageListNode = (
     <MessageListView
       conversationId={effectiveConversationId}
+      artifactConversationId={dbConversationId}
       agentType={selectedAgent}
       modelName={currentModelName(connectionConfigOptions)}
       connStatus={connStatus}

@@ -14,22 +14,25 @@ import {
 } from "@/lib/file-path-display"
 
 interface CurrentReplyArtifactsProps {
-  conversationId: number
+  conversationId: number | null
   parts: AdaptedContentPart[]
 }
 
-interface ArtifactToolCall {
-  input: string | null
-  output?: string | null
-}
-
-interface ArtifactRegistration {
+export interface ArtifactRegistration {
   hasCall: boolean
   rejected: boolean
   references: string[]
 }
 
+interface ArtifactToolCall {
+  toolName: string
+  input: string | null
+  output?: string | null
+}
+
 const PRESENT_TASK_FILES_SUFFIX = /present[_-]task[_-]files$/i
+const INVOKE_IYW_CAPABILITY_SUFFIX = /invoke[_-]iyw[_-]capability$/i
+const PRESENT_TASK_FILES_CAPABILITY_ID = "iyw.artifacts.present.v1"
 
 export const CurrentReplyArtifacts = memo(function CurrentReplyArtifacts({
   conversationId,
@@ -52,7 +55,7 @@ function ResolvedReplyArtifacts({
   conversationId,
   registration,
 }: {
-  conversationId: number
+  conversationId: number | null
   registration: ArtifactRegistration
 }) {
   const { activeFolder } = useActiveFolder()
@@ -78,7 +81,7 @@ function ResolvedReplyArtifacts({
   return <CurrentReplyArtifactsPanel items={items} />
 }
 
-function extractArtifactRegistration(
+export function extractArtifactRegistration(
   parts: AdaptedContentPart[]
 ): ArtifactRegistration {
   const calls: ArtifactToolCall[] = []
@@ -91,6 +94,10 @@ function extractArtifactRegistration(
       continue
     }
     const accepted = extractAcceptedPaths(call.output)
+    if (accepted?.length === 0) {
+      rejected = true
+      continue
+    }
     references.push(...(accepted ?? extractInputPaths(call.input)))
   }
   return {
@@ -106,7 +113,11 @@ function collectArtifactToolCalls(
 ): void {
   for (const part of parts) {
     if (part.type === "tool-call" && isArtifactToolCall(part)) {
-      calls.push({ input: part.input, output: part.output })
+      calls.push({
+        toolName: part.toolName,
+        input: part.input,
+        output: part.output,
+      })
     } else if (part.type === "tool-group") {
       collectArtifactToolCalls(part.items, calls)
     } else if (part.type === "goal-run") {
@@ -116,9 +127,12 @@ function collectArtifactToolCalls(
   }
 }
 
-function isArtifactToolCall(call: ArtifactToolCall & { toolName: string }) {
-  if (PRESENT_TASK_FILES_SUFFIX.test(call.toolName.trim())) return true
+function isArtifactToolCall(call: ArtifactToolCall) {
+  const toolName = call.toolName.trim()
+  if (PRESENT_TASK_FILES_SUFFIX.test(toolName)) return true
+  if (!INVOKE_IYW_CAPABILITY_SUFFIX.test(toolName)) return false
   const input = parseRecord(call.input)
+  if (input?.capability_id === PRESENT_TASK_FILES_CAPABILITY_ID) return true
   const nestedName = input?.tool_name ?? input?.toolName
   return (
     typeof nestedName === "string" &&
@@ -170,6 +184,17 @@ function acceptedPaths(value: unknown): string[] {
 
 function parseRecord(value: string | null | undefined) {
   if (!value) return null
+  const direct = parseJsonRecord(value)
+  if (direct) return direct
+  const lines = value.split(/\r?\n/)
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const parsed = parseJsonRecord(lines[index].trim())
+    if (parsed) return parsed
+  }
+  return null
+}
+
+function parseJsonRecord(value: string) {
   try {
     return parseNestedRecord(JSON.parse(value))
   } catch {
