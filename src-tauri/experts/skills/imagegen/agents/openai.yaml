@@ -3,4 +3,4 @@ interface:
   short_description: "Generate or edit images for websites, games, and more"
   icon_small: "./assets/imagegen-small.svg"
   icon_large: "./assets/imagegen.png"
-  default_prompt: "Use $imagegen to make or edit an image, consulting the standalone IYW knowledge search only when internal standards or company material would improve the prompt."
+  default_prompt: "Use $imagegen for free image creation or editing and GPT Image requests, route IYW business workflows to $iyw-image-workflows, and register every final image in the current conversation Artifacts."

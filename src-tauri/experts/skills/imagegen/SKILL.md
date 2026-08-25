@@ -1,12 +1,12 @@
 ---
 name: imagegen
-description: Use when the user explicitly selects imagegen or GPT Image, GPT Image-specific parameters are required, or iyw-image-workflows is unavailable or does not cover the requested raster generation or edit. Route covered IYW image, material, upload, review, and knowledge workflows through iyw-image-workflows first.
+description: Use for free raster creation or editing, when the user requests GPT Image, when GPT Image-specific parameters are required, or when iyw-image-workflows does not cover the request. Route IYW product, material, trend, knowledge, upload, review, and commerce workflows through iyw-image-workflows first. Do not ask the user to specify GPT again when GPT Image is already requested.
 routing:
-  capability: GPT Image fallback
-  coreTriggers: [explicit imagegen or GPT parameters]
-  exclusions: [covered IYW image workflow, image understanding]
-  aliases: [GPT Image, image generation]
-  invocation: Defer covered work to iyw-image-workflows; otherwise read SKILL.md.
+  capability: free image creation and editing
+  coreTriggers: [free create or edit, GPT Image]
+  exclusions: [IYW business workflow, image understanding]
+  aliases: [imagegen, GPT Image]
+  invocation: Use for free create/edit; use IYW Skill for business workflows.
 ---
 
 # Image Generation
@@ -16,7 +16,7 @@ the IYW Fusion API. Do not use or wait for a built-in `image_gen` tool.
 
 ## Routing
 
-Treat `iyw-image-workflows` as the primary router for image requests:
+Choose between the two bundled image Skills by task intent:
 
 - Honor a user-requested visible Skill or direct tool when it fully satisfies
   the current subgoal.
@@ -24,9 +24,9 @@ Treat `iyw-image-workflows` as the primary router for image requests:
   series extension, multi-image fusion, commerce upscale, and task queries.
 - Use its verified `fission-generate` command first for ordinary text-to-image
   requests.
-- Use this skill's CLI only when the user explicitly selects imagegen or GPT
-  Image, needs GPT Image-specific parameters, or the primary Skill is
-  unavailable or does not cover the requested raster generation or edit.
+- Use this Skill first for free creation or free editing that does not require
+  an IYW business workflow, and for GPT Image requests or parameters. Do not ask
+  the user to specify GPT again when GPT Image is already requested.
 - Never guess an IYW endpoint or commerce payload.
 
 ## Optional Knowledge Context
@@ -119,7 +119,12 @@ Read [references/cli.md](references/cli.md) for flags and
    Dry-run does not require a token or access the network.
 4. Run the live CLI. Do not automatically retry a request that may incur cost.
 5. Treat only a zero exit code plus an existing output file as success.
-6. Display every final image. First resolve a directly visible tool whose name
+6. Register every final user-facing image in the current conversation Artifacts
+   before claiming completion. Prefer a directly visible `present_task_files`;
+   otherwise follow the installed `iyw-capability-gateway` Skill to discover and
+   invoke the exact current artifact capability. If registration is unavailable
+   or rejects an item, report that the Artifact delivery was not completed.
+7. Display every final image. First resolve a directly visible tool whose name
    ends in `show_image`. If one exists, call it once per final image, in
    requested/server order:
 

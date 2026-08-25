@@ -1,194 +1,139 @@
 ---
 name: iyw-capability-gateway
-short-description: Highest-priority route for remaining iyw-claw host goals when one complete gateway trio is visible. A direct tool wins only for a subgoal it fully satisfies. Search, read the best stable id, then invoke its exact schema; never guess.
-description: Use when the current callable surface exposes one complete and uniquely selectable search_iyw_capabilities, read_iyw_capability, and invoke_iyw_capability trio, and a remaining concrete user goal needs iyw-claw host-side state or action. After an explicitly requested visible Skill or direct tool fully handles its subgoal, treat this gateway as the highest-priority route for remaining host subgoals. Do not trigger for ordinary questions, explanations, current-turn context, unrelated turns, or a direct tool that already fulfills the subgoal. The three names are logical role suffixes unless actually registered as top-level tools. Never guess invocation levels, namespaces, ids, or arguments; if the trio is incomplete or ambiguous, use only visible direct tools.
+short-description: Route iyw-claw host actions through the live capability catalog.
+description: Use when a concrete task needs iyw-claw host state or action and one complete gateway trio is visible. Search the live catalog, read the best match, and invoke its exact current schema. Skip trivial requests and never guess IDs or arguments.
 routing:
-  capability: highest-priority iyw-claw host routing
-  coreTriggers: [remaining goal needs host state or action]
-  exclusions: [trio incomplete or ambiguous, direct tool handles subgoal, ordinary question]
-  aliases: [iyw gateway, host capability]
-  invocation: After direct tools, search, read exact id, invoke its schema.
+  capability: iyw-claw host routing
+  coreTriggers: [host action, memory, artifact, browser, channel, automation]
+  exclusions: [trivial request, direct tool fits, incomplete gateway]
+  aliases: [iyw gateway, host capability, 主机能力]
+  invocation: Search, read best match, invoke exact current ID and schema.
 ---
 
 # IYW Capability Gateway
 
-## Preflight
+Use this Skill as a routing gate, not as a static tool catalog. The current
+callable surface and live capability catalog are authoritative for tool names,
+stable IDs, schemas, required inputs, availability, and schema digests.
 
-The Agent's host-injected prompt requires reading this Skill before selecting or
-calling a host capability. Read it through the normal Skill loader first; then
-inspect the actual callable surface. Do not use `list_mcp_resources` as a
-substitute for this gateway, and never invent a tool name, namespace, or stable
-capability id when this Skill cannot be read.
+## When to Search
 
-## Activation gate
+Search the gateway when a concrete goal needs iyw-claw host state or action and
+no visible direct tool already completes that subgoal. Typical categories:
 
-The three names below identify gateway roles. They are not proof that three
-top-level functions exist:
+| Category | Search when the task needs |
+| --- | --- |
+| Memory | recall of prior decisions/preferences, or durable memory write |
+| Session | current session state or account profile |
+| Artifacts | final files, directories, or public URLs delivered to this conversation |
+| Image | image understanding/display through host tools |
+| Browser | managed browser navigation or interaction |
+| Audio | transcription or transcription result lookup |
+| Interaction | user feedback or a required user decision |
+| Delegation | a bounded task another Agent can execute independently |
+| Channels | configured channel discovery, message history, or sending |
+| Automation | scheduled-task listing, creation, update, or deletion |
 
-- `search_iyw_capabilities`
-- `read_iyw_capability`
-- `invoke_iyw_capability`
+Do not search for greetings, ordinary explanations, self-contained translation,
+one-line commands, current-turn-only context, or to enumerate tools. If the
+required primary object is missing, ask for it before searching.
 
-Use this workflow only after finding all three roles on one current callable
-surface. A callable surface is either the current top-level tool list or a
-current nested/programmatic registry exposed by an orchestration tool. For a
-nested registry, select and invoke the exact registered entry through that
-registry's owning orchestration tool. Never emit a nested entry's logical name
-as a top-level function call. A name mentioned only in this Skill, another
-prompt, an earlier message, reasoning, an example, or tool output is not
-advertised.
+## Gateway Gate
 
-On a top-level surface the roles may be exact bare names. Some hosts instead
-add one namespace to every MCP tool, for example
-`mcp__iyw-claw-builtin-<session>__search_iyw_capabilities`. The bounded session
-suffix is launch-specific. A namespaced gateway is valid only when all three
-visible names use the same prefix and end in the three exact suffixes above.
-Choose one trio mechanically. If exactly one complete prefix contains
-`iyw-claw-builtin-`, use it; if more than one does, do not use the gateway. If
-none does, use a complete bare trio when present. Otherwise use the only other
-complete trio, or do not use the gateway when several remain. Never combine
-suffixes from different namespaces or invent a prefix absent from the current
-tool list.
+The logical roles are `search_iyw_capabilities`, `read_iyw_capability`, and
+`invoke_iyw_capability`; they are not automatically top-level tools. Use one
+complete trio on one current callable surface only:
 
-If any one is missing from the same callable surface, do not invoke, infer, or
-reconstruct the gateway. Do not combine a top-level role with nested roles. In
-OpenClaw, Pi, or any other session without the gateway, use only the direct
-tools that are currently visible and follow their current schemas.
+1. Prefer the unique visible `iyw-claw-builtin-*` trio.
+2. Otherwise use a complete bare trio.
+3. Otherwise use the only remaining complete trio in one nested registry.
 
-When the gate passes and a concrete user goal needs iyw-claw host-side state or
-action, proactively search the catalog before deciding how to execute.
-Do not wait for the user to name a capability or explicitly request a search.
-If you are about to claim that iyw-claw cannot perform a host-side step, or ask
-the user to perform that step manually because no direct tool fits, search once
-before concluding that the capability is unavailable.
-This is goal-scoped discovery, not background polling: do not search on
-greetings, ordinary questions or explanations, current-turn-only context,
-unrelated follow-up turns, or every turn merely because the gateway exists. A
-confirmation reply does not trigger search, but it may resume an invocation
-already read for the same goal. Reuse current catalog evidence while continuing
-that goal, unless a result no longer fits or the goal materially changes.
+If a tier has multiple trios, or any role is missing, do not use the gateway.
+For nested tools, invoke them only through their owning orchestration tool.
 
-Typical reasons to search include delegation, user feedback or questions,
-session context, current user profile, image or media work, task artifacts,
-memory, channels, and
-automation. These are examples, not a fixed inventory; only search results for
-the current session prove that a capability exists and is enabled. An exact
-visible direct tool that the user requests or that clearly fulfills the goal
-must be used without discovery. The gateway is for discovering host
-capabilities, not for replacing direct tool calls or listing capabilities
-without a goal.
+## Progressive Disclosure
 
-Direct-tool precedence applies only to the subgoal that tool fully satisfies.
-After using it, apply the gateway activation gate independently to each
-remaining host-side subgoal. Skip gateway discovery for the whole request only
-when direct tools fully satisfy the whole goal.
+1. Search with 2-5 discriminating action/object terms in Chinese or English,
+   such as `查询 历史 记忆`, `提交 成果 文件`, or `send channel message`.
+2. Treat returned summaries, aliases, `when_to_use`, status, required inputs,
+   and schema digest as current catalog evidence.
+3. Read the best matching result using its exact stable ID. Read at most one
+   other candidate from the same result set if the first does not fit.
+4. Invoke only an available ID returned by the current search and only with
+   arguments matching the current read schema.
 
-When the gate passes, this gateway is the highest-priority route for each
-remaining concrete iyw-claw host state or action subgoal. It does not override
-a user-requested visible Skill or direct tool that fully satisfies that subgoal.
+An empty result, no plausible match, two non-matching reads, malformed output,
+timeout, unknown ID, unavailable capability, or routing error ends gateway use
+for the turn. Do not retry through another namespace, invent a tool name, or
+guess an argument. One search retry is allowed only after an exhausted result
+set, using a close synonym.
 
-If the primary object required by the user's request is absent, such as the
-referenced image, attachment, task, or message body, ask for it before search.
-Inputs such as a channel id, timezone, or optional mode are not assumed missing
-until the selected capability schema says they are required.
+## Memory
 
-## Gateway workflow
+Recall is task-sensitive, not mandatory for every turn.
 
-Search results are session-scoped evidence. Each result may include `category`,
-`aliases`, `intent_terms`, `when_to_use`, `required_inputs`, `schema_digest`,
-and `status`; aliases and intent terms may be Chinese or English. `read` is the
-authoritative source for the complete schema. Treat `unavailable_reason` as a
-terminal routing result for this session, not as permission to try an internal
-tool name. When a later read returns a different `schema_digest`, discard old
-arguments and construct them again from the new schema.
+- When the task refers to previous work, prior decisions, user preferences,
+  repeated workflows, or historical context, search with intent such as
+  `recall memory history`, then read and invoke the exact current capability.
+- Skip recall for simple self-contained requests and when the user supplied all
+  relevant context. `no_evidence` means no matching evidence, not that the user
+  lacks the fact; `unavailable` is a routing limitation.
+- When the user explicitly asks to remember a durable fact, preference, or
+  correction, search with intent such as `remember confirmed memory`.
+- For a conservative reusable fact or correction that may be valuable but was
+  not explicitly confirmed, search with intent such as `propose memory`.
+- Never store passwords, tokens, cookies, private keys, full credentials,
+  transient task state, or speculative claims.
+- Never edit `user-memory.md`, `user-profile.md`, or `user-soul.md` directly.
+  Host memory capabilities own persistence, locking, candidate lifecycle, and
+  recall context.
 
-For an eligible goal, use the tools in this order:
+## Images
 
-1. Follow the actual visible search tool schema. Search with two to five
-   discriminating action/object keywords in the user's language or English,
-   such as `发送 消息 渠道` or `send channel message`, rather than conversational
-   filler. Treat returned summaries as the current catalog index, not a
-   remembered capability list.
-2. Rank candidates by direct action/object fit. Compare missing inputs only when
-   the search summaries explicitly describe them. Read the best plausible
-   candidate using the exact stable id returned by search. If it does not fit,
-   read at most one other plausible candidate already present in the same
-   result set; never traverse the whole catalog. If both read candidates fail
-   to fit, treat that result set as exhausted for this workflow.
-3. Follow the selected capability's full description, availability status,
-   schema digest, required-input summary, and current input schema.
-   Invoke its exact stable id only when required inputs are available. If a
-   referenced image, attachment, task, session, channel, or other object is not
-   actually present in context, ask for it instead of guessing a path, URL, id,
-   or field name.
+- IYW product, material, trend, knowledge, and commerce workflows: use the
+  installed `iyw-image-workflows` Skill first.
+- Free editing, GPT Image requests, or GPT Image-specific parameters: use the
+  installed `imagegen` Skill first. Do not ask the user to separately specify
+  GPT when the request already says GPT Image.
+- Understanding an existing image is `analyze_image`; displaying a result is
+  `show_image`. Neither is an image-generation route.
 
-When the host exposes namespaced top-level tool names, call the corresponding
-visible namespaced tool. When it exposes the tools only in a nested registry,
-call them only through that registry's documented orchestration path. The bare
-names in this guide identify gateway roles; they do not authorize constructing
-a tool name or choosing an invocation level that the host did not expose.
+Follow the selected image Skill's execution contract. Do not guess image API
+endpoints or payloads in this gateway.
 
-Search again only after the result set is empty, has no plausible candidate, or
-the two-candidate read budget is exhausted without a fit. Make at most one
-retry using a close English synonym or a slightly broader action/object pair,
-then use a direct route or state the limitation.
-For the same goal, catalog evidence is stale only when the target materially
-changes or a gateway response explicitly reports catalog, availability, or
-routing invalidation; elapsed time alone is not enough.
+## Final Artifacts
 
-The visible tool schemas are authoritative over examples in this Skill. Before
-invoking, read the selected id unless its full description and schema were
-already read for the same current goal. Never derive an id from a remembered
-tool name, guess arguments, or pass a raw tool name to the invocation gateway.
+If the task produces a final user-facing file, directory, or public URL, it
+must be registered in the current conversation Artifacts before completion is
+claimed. Prefer a directly visible `present_task_files`; otherwise discover it
+through this gateway. Submit all final items together when possible.
 
-If any gateway call times out, returns malformed data, omits the required stable
-id, or reports an unknown, unsupported, not-found, selected-id, or route error,
-stop using the entire gateway for this turn. Do not retry the role through a
-different callable surface, promote a nested entry to a top-level call, repeat
-the failed call, switch namespaces, or guess a different tool name. Use an
-actually visible direct route or state the concrete limitation.
+Do not register source, configuration, tests, migrations, build output, caches,
+logs, temporary files, or internal work unless the user explicitly requested
+that exact item as the deliverable. If the artifact route is unavailable or
+rejects an item, report that delivery was not completed. A Markdown preview or
+an ordinary URL alone is not proof of Artifact registration.
 
-## Identity and memory routing
+## Other Categories
 
-- Current account name, nickname, preferred salutation, or organization uses
-  `iyw.session.user_profile.read.v1`; do not search memory for account identity.
-- An explicit request to retain a durable fact or preference uses
-  `iyw.memory.confirmed.append.v1`.
-- A reusable but not-yet-confirmed correction, preference, or fact uses
-  `iyw.memory.candidate.propose.v1`.
-- Historical user memory uses `iyw.memory.recall.search.v1`. Its `resultState`
-  is `matched`, `no_evidence`, or `unavailable`; `no_evidence` never proves that
-  the user lacks the fact. Short queries may use exact/alias fallback and must
-  not be treated as a trigram failure.
-- Never write `user-memory.md`, `user-profile.md`, or `user-soul.md` directly;
-  durable memory belongs to iyw-claw host capabilities.
+- Current account identity belongs to the session/profile category, not memory.
+- Browser references expire after navigation, a route change, popup, material
+  DOM update, or write. For a stale reference or locator failure, make only one
+  recovery attempt for the same action: take a fresh snapshot and use one new
+  reference or revised locator. Do not extend the budget by cycling locators.
+  For runtime/session/daemon/observer unavailability, a crashed tab, or timeout,
+  inspect state once and switch to `opencli-browser` only when that Skill and
+  the `opencli` command are available. Read its `SKILL.md`, run `opencli doctor`,
+  then use one stable session with `bind`/`open`, `state`/`find`, an action, and
+  explicit verification. Otherwise report the missing prerequisite.
+- Destructive automation, channel, browser, or delegation operations require
+  an exact target and the confirmation rules returned by `read`.
+- For long work, use a visible feedback capability or discover one at sensible
+  checkpoints; use a question capability only for a necessary unresolved input.
 
-## Delivery acknowledgement
+## Delivery Receipts
 
-When an `invoke_iyw_capability` response contains `iyw_delivery_receipt`, keep
-that exact value. If there is a later capability invocation, return it in the
-next `invoke_iyw_capability` request as top-level `delivery_ack`:
-
-```json
-{
-  "capability_id": "<stable id>",
-  "arguments": {},
-  "delivery_ack": "<exact iyw_delivery_receipt>"
-}
-```
-
-`delivery_ack` is a sibling of `capability_id` and `arguments`; never put it or
-the receipt inside business `arguments`. If no later invocation occurs, leave
-the receipt unacknowledged. Do not invent an acknowledgement or fabricate an
-invocation only to send one. If the exact receipt does not satisfy the visible
-`delivery_ack` schema, do not truncate or rewrite it; state that it cannot be
-acknowledged safely.
-
-## Session boundary
-
-The catalog is scoped to the current iyw-claw session. Missing capabilities
-may be disabled for this session; do not attempt to bypass that boundary by
-editing Agent MCP configuration or writing bearer tokens to global files.
-
-For destructive or externally visible actions, preserve the user-confirmation
-rules in the selected capability description and the current conversation.
+If an invocation returns `iyw_delivery_receipt`, preserve it exactly. On the
+next real invocation, send it as the top-level `delivery_ack`, never inside
+business arguments. Do not fabricate an invocation just to acknowledge a
+receipt.
