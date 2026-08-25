@@ -129,9 +129,21 @@ jobs:
           Write-Host "MSVC installation: $vsPath"
 
       - name: Install Rust target
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+        shell: pwsh
+        run: |
+          $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
+          if (!(Get-Command rustup -ErrorAction SilentlyContinue)) {
+            $installer = Join-Path $env:RUNNER_TEMP 'rustup-init.exe'
+            Invoke-WebRequest -UseBasicParsing https://win.rustup.rs/x86_64 -OutFile $installer
+            & $installer -y --default-toolchain stable --profile minimal
+            if ($LASTEXITCODE -ne 0) { throw "rustup-init failed with exit code $LASTEXITCODE" }
+            Add-Content -Path $env:GITHUB_PATH -Value $cargoBin
+            $env:Path = "$cargoBin;$env:Path"
+          }
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add '${{ matrix.target }}' --toolchain stable
+          rustc +stable --version
 
       - name: Set test version
         shell: pwsh
