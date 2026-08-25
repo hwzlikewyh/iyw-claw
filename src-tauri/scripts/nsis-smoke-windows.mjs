@@ -188,7 +188,7 @@ function removeOwnedTestRegistryKey(options, warnings) {
     "  if (-not (Test-Path -LiteralPath $path)) { exit 0 }",
     "  $actualRoot = (Get-ItemProperty -LiteralPath $path -Name InstallRoot -ErrorAction SilentlyContinue).InstallRoot",
     "  if ($null -eq $actualRoot -or -not [string]::Equals([string]$actualRoot, $expectedRoot, [System.StringComparison]::OrdinalIgnoreCase)) { exit 10 }",
-    "  Remove-Item -LiteralPath $path -Recurse -Force",
+    "  try { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop } catch { if (-not (Test-Path -LiteralPath $path)) { exit 0 }; throw }",
     "  if (Test-Path -LiteralPath $path) { exit 20 }",
   ].join("; ")
   const result = runCommand("powershell.exe", [
