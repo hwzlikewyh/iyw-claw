@@ -390,9 +390,24 @@ pub async fn iyw_account_list_models_core(
             AppCommandError::network("Gateway model response was invalid")
                 .with_detail(error.to_string())
         })?;
-    if agent_type.is_none() {
-        // Only the complete catalog can update agent spawn env and native config.
-        crate::acp::model_catalog::update_from_payload(&payload);
+    let catalog_changed = if agent_type.is_none() {
+        // The complete catalog is authoritative and may remove models.
+        crate::acp::model_catalog::update_from_payload(&payload)
+    } else {
+        // An SDK-filtered response is authoritative only for that Agent. Merge
+        // its entries so a newly published model reaches the next safe Agent
+        // spawn without deleting models belonging to other Agents.
+        crate::acp::model_catalog::merge_from_payload(&payload)
+    };
+    if catalog_changed {
+        // Keep already-created Agent profiles in sync with the catalog. Running
+        // ACP processes are not mutated here; their idle reconnect path will
+        // read these projections without interrupting an active turn.
+        if let Err(error) =
+            crate::acp::provider_overlay::enforce_existing_active_provider_overlays()
+        {
+            tracing::warn!("[ModelCatalog] failed to update Agent model projections: {error}");
+        }
     }
     Ok(payload)
 }

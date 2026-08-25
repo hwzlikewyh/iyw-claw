@@ -61,7 +61,7 @@ export interface UseConnectionLifecycleReturn {
       onError?: (error: unknown) => void
     }
   ) => Promise<boolean>
-  handleSetConfigOption: (configId: string, valueId: string) => void
+  handleSetConfigOption: (configId: string, valueId: string) => Promise<void>
   handleCancel: () => void
   handleRespondPermission: (requestId: string, optionId: string) => void
 }
@@ -437,13 +437,11 @@ export function useConnectionLifecycle({
   }, [connCancel])
 
   const handleSetConfigOption = useCallback(
-    (configId: string, valueId: string) => {
+    (configId: string, valueId: string): Promise<void> => {
       touchActivity(contextKey)
-      ensureConnected()
-        .then(() => connSetConfigOption(configId, valueId))
-        .catch((e: unknown) =>
-          console.error("[ConnLifecycle] setConfigOption:", e)
-        )
+      return ensureConnected().then(() =>
+        connSetConfigOption(configId, valueId)
+      )
     },
     [connSetConfigOption, contextKey, ensureConnected, touchActivity]
   )

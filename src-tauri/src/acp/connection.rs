@@ -416,6 +416,7 @@ pub enum ConnectionCommand {
     SetConfigOption {
         config_id: String,
         value_id: String,
+        reply: tokio::sync::oneshot::Sender<Result<(), String>>,
     },
     Cancel,
     /// Cancel only at a scheduler-proven safe boundary. Unlike manual Cancel,
@@ -6498,23 +6499,34 @@ async fn run_conversation_loop<'a>(
                                 Some(ConnectionCommand::SetConfigOption {
                                     config_id,
                                     value_id,
+                                    reply,
                                 }) => {
-                                    if let Err(e) = set_session_config_option(
-                                        &cx,
-                                        &sid,
-                                        state,
-                                        emitter,
-                                        agent_type,
-                                        config_id,
-                                        value_id,
-                                    )
-                                    .await
-                                    {
+                                    let result = if matches!(
+                                        config_id.as_str(),
+                                        "model" | "reasoning_effort"
+                                    ) {
+                                        Err("model configuration changes are deferred until the current turn completes".to_string())
+                                    } else {
+                                        set_session_config_option(
+                                            &cx,
+                                            &sid,
+                                            state,
+                                            emitter,
+                                            agent_type,
+                                            config_id,
+                                            value_id,
+                                        )
+                                        .await
+                                        .map_err(|error| error.to_string())
+                                    };
+                                    let error = result.as_ref().err().cloned();
+                                    let _ = reply.send(result);
+                                    if let Some(error) = error {
                                         emit_with_state(
                                             state,
                                             emitter,
                                             AcpEvent::Error {
-                                                message: format!("Failed to set config option: {e}"),
+                                                message: format!("Failed to set config option: {error}"),
                                                 agent_type: agent_type.to_string(),
                                                 code: None,
                                                 details: None,
@@ -6812,19 +6824,23 @@ async fn run_conversation_loop<'a>(
             Some(ConnectionCommand::SetConfigOption {
                 config_id,
                 value_id,
+                reply,
             }) => {
                 let cx = session.connection();
                 let sid = session.session_id().clone();
-                if let Err(e) = set_session_config_option(
+                let result = set_session_config_option(
                     &cx, &sid, state, emitter, agent_type, config_id, value_id,
                 )
                 .await
-                {
+                .map_err(|error| error.to_string());
+                let error = result.as_ref().err().cloned();
+                let _ = reply.send(result);
+                if let Some(error) = error {
                     emit_with_state(
                         state,
                         emitter,
                         AcpEvent::Error {
-                            message: format!("Failed to set config option: {e}"),
+                            message: format!("Failed to set config option: {error}"),
                             agent_type: agent_type.to_string(),
                             code: None,
                             details: None,

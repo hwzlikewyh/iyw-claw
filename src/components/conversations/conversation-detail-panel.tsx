@@ -114,7 +114,10 @@ import {
   refreshFixedAgentOptions,
 } from "@/lib/fixed-agent-options"
 import { reconcileModelConfigValues } from "@/lib/gateway-model-catalog"
-import { currentModelName } from "@/lib/model-config-groups"
+import {
+  currentModelName,
+  isModelConfigOption,
+} from "@/lib/model-config-groups"
 import { planSessionConfigSync } from "@/lib/session-config-compat"
 import {
   lastUserPromptText,
@@ -304,6 +307,7 @@ const ConversationTabView = memo(function ConversationTabView({
   const sharedT = useTranslations("Folder.chat.shared")
   const tConfig = useTranslations("Folder.chat.messageInput")
   const tSessionFailure = useTranslations("Folder.chat.sessionFailure")
+  const tConfigStale = useTranslations("Folder.chat.configStale")
   const refreshConversations = useAppWorkspaceStore(
     (s) => s.refreshConversations
   )
@@ -409,6 +413,15 @@ const ConversationTabView = memo(function ConversationTabView({
   const [draftConfigValues, setDraftConfigValues] = useState<
     Record<string, string>
   >(() => getSavedPrefsForConnect(agentType).configValues ?? {})
+  const [modelReapplyAttempt, setModelReapplyAttempt] = useState<{
+    target: string
+    sourceConnectionId: string
+  } | null>(null)
+  const [requestedModel, setRequestedModel] = useState<string | null>(null)
+  useEffect(() => {
+    setRequestedModel(null)
+    setModelReapplyAttempt(null)
+  }, [selectedAgent])
   const [sendSignal, setSendSignal] = useState(0)
   const usableAgentCount = usableAgentTypes.length
   const [agentConnectError, setAgentConnectError] = useState<string | null>(
@@ -782,7 +795,15 @@ const ConversationTabView = memo(function ConversationTabView({
     () => fixedOptions.modes?.available_modes ?? [],
     [fixedOptions.modes]
   )
-  const connectionConfigOptions = fixedOptions.config_options
+  const connectionConfigOptions = useMemo(() => {
+    if (!conn.selectorsReady) return fixedOptions.config_options
+    const liveHasModel = conn.configOptions?.some(isModelConfigOption) === true
+    return liveHasModel
+      ? fixedOptions.config_options
+      : fixedOptions.config_options.filter(
+          (option) => !isModelConfigOption(option)
+        )
+  }, [conn.configOptions, conn.selectorsReady, fixedOptions.config_options])
   const canReconcileModelConfig =
     hasAuthoritativeFixedAgentOptions(selectedAgent)
   useEffect(() => {
@@ -798,7 +819,7 @@ const ConversationTabView = memo(function ConversationTabView({
   )
 
   useEffect(() => {
-    if (!connectionReady) return
+    if (!connectionReady || connStatus === "prompting") return
     if (
       reconcileModelConfigValues(fixedOptions, draftConfigValues) !==
       draftConfigValues
@@ -811,15 +832,162 @@ const ConversationTabView = memo(function ConversationTabView({
       draftConfigValues
     )
     for (const { configId, valueId } of commands) {
-      handleSetConfigOption(configId, valueId)
+      void handleSetConfigOption(configId, valueId).catch((error: unknown) => {
+        if (configId === "model") setRequestedModel(null)
+        const live = conn.configOptions?.find(
+          (option) => option.id === configId
+        )
+        if (!live || live.kind.type !== "select") return
+        setDraftConfigValues((current) => {
+          if (current[configId] !== valueId) return current
+          const next = { ...current, [configId]: live.kind.current_value }
+          saveConfigPreference(selectedAgent, configId, live.kind.current_value)
+          return next
+        })
+        console.error("[ConversationTabView] config option rejected", {
+          configId,
+          valueId,
+          error,
+        })
+      })
     }
   }, [
     conn.configOptions,
+    connStatus,
     connectionConfigOptions,
     connectionReady,
     draftConfigValues,
     fixedOptions,
     handleSetConfigOption,
+    selectedAgent,
+  ])
+
+  // A freshly published model may be present in Fusion and the fixed selector
+  // before the running ACP process has re-read its native model projection.
+  // When the session is idle, reconnect once with the same session id so the
+  // Agent advertises the updated model list. Never interrupt a live turn or a
+  // connection owned by another client.
+  useEffect(() => {
+    const target = requestedModel
+    const live = conn.configOptions?.find(isModelConfigOption)
+    const fixed = fixedOptions.config_options.find(isModelConfigOption)
+    const targetIsKnown = Boolean(
+      target &&
+      fixed?.kind.type === "select" &&
+      fixed.kind.options.some((option) => option.value === target)
+    )
+    if (
+      targetIsKnown &&
+      live?.kind.type === "select" &&
+      !live.kind.options.some((option) => option.value === target) &&
+      (conn.isViewer || conn.isDelegationChild)
+    ) {
+      setRequestedModel(null)
+      setDraftConfigValues((current) => {
+        if (current.model !== target) return current
+        const next = { ...current, model: live.kind.current_value }
+        saveConfigPreference(selectedAgent, "model", live.kind.current_value)
+        return next
+      })
+      toast.error(tConfigStale("modelSwitchFailed"))
+      return
+    }
+    if (
+      !target ||
+      !live ||
+      live.kind.type !== "select" ||
+      !fixed ||
+      fixed.kind.type !== "select" ||
+      !fixed.kind.options.some((option) => option.value === target) ||
+      !connectionReady ||
+      !conn.selectorsReady ||
+      connStatus !== "connected" ||
+      conn.isViewer ||
+      conn.isDelegationChild ||
+      !conn.connectionId
+    ) {
+      return
+    }
+    if (live.kind.options.some((option) => option.value === target)) {
+      if (live.kind.current_value === target) setRequestedModel(null)
+      if (modelReapplyAttempt?.target === target) {
+        setModelReapplyAttempt(null)
+      }
+      return
+    }
+    if (modelReapplyAttempt) return
+
+    const sourceConnectionId = conn.connectionId
+    setModelReapplyAttempt({ target, sourceConnectionId })
+    void acpActions.reapplyConfig(tabId).catch((error: unknown) => {
+      setModelReapplyAttempt(null)
+      setRequestedModel(null)
+      setDraftConfigValues((current) => {
+        if (current.model !== target) return current
+        const next = { ...current, model: live.kind.current_value }
+        saveConfigPreference(selectedAgent, "model", live.kind.current_value)
+        return next
+      })
+      toast.error(tConfigStale("modelSwitchFailed"), {
+        description: error instanceof Error ? error.message : String(error),
+      })
+    })
+  }, [
+    acpActions,
+    conn.configOptions,
+    conn.connectionId,
+    conn.isDelegationChild,
+    conn.isViewer,
+    conn.selectorsReady,
+    connStatus,
+    connectionConfigOptions,
+    connectionReady,
+    fixedOptions.config_options,
+    modelReapplyAttempt,
+    requestedModel,
+    selectedAgent,
+    tConfigStale,
+    tabId,
+  ])
+
+  // Validate the first post-reconnect selector snapshot. If the Agent still
+  // does not advertise the requested model, roll back instead of leaving a
+  // permanently misleading fixed-catalog selection in the composer.
+  useEffect(() => {
+    if (
+      !modelReapplyAttempt ||
+      conn.connectionId === modelReapplyAttempt.sourceConnectionId ||
+      !conn.selectorsReady
+    ) {
+      return
+    }
+    const live = conn.configOptions?.find(isModelConfigOption)
+    if (!live || live.kind.type !== "select") return
+    if (
+      live.kind.options.some(
+        (option) => option.value === modelReapplyAttempt.target
+      )
+    ) {
+      setModelReapplyAttempt(null)
+      return
+    }
+    const target = modelReapplyAttempt.target
+    setDraftConfigValues((current) => {
+      if (current.model !== target) return current
+      const next = { ...current, model: live.kind.current_value }
+      saveConfigPreference(selectedAgent, "model", live.kind.current_value)
+      return next
+    })
+    setModelReapplyAttempt(null)
+    setRequestedModel(null)
+    toast.error(tConfigStale("modelSwitchFailed"))
+  }, [
+    conn.configOptions,
+    conn.connectionId,
+    conn.selectorsReady,
+    modelReapplyAttempt,
+    selectedAgent,
+    tConfigStale,
   ])
   const selectedModeId = useMemo(() => {
     if (connectionModes.length === 0) return null
@@ -1763,6 +1931,7 @@ const ConversationTabView = memo(function ConversationTabView({
 
   const handleConfigOptionChange = useCallback(
     (configId: string, valueId: string) => {
+      if (configId === "model") setRequestedModel(valueId)
       setDraftConfigValues((current) => ({
         ...current,
         [configId]: valueId,

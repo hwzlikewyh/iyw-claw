@@ -99,12 +99,10 @@ export function getSavedPrefsForConnect(agentType: AgentType): {
   const prefs = all[agentType]
   if (!prefs) return { modeId: null, configValues: null }
 
+  // The selected model is a session preference. The native provider config
+  // remains the launch fallback, while ACP applies this value to a resumed
+  // session before publishing its selectors.
   const configValues = { ...prefs.configValues }
-  // Codex config.toml owns the initial model. Composer selections remain
-  // session-scoped instead of overriding the configured model on reconnect.
-  if (agentType === "codex") {
-    delete configValues.model
-  }
 
   return {
     modeId: prefs.modeId ?? null,

@@ -3577,7 +3577,8 @@
         "reconnectDisabledDuringTurn": "Available once the current turn finishes",
         "dismiss": "Dismiss",
         "reconnectFailed": "Failed to reconnect session",
-        "applied": "New configuration applied"
+        "applied": "New configuration applied",
+        "modelSwitchFailed": "The Agent did not confirm that model; the previous model was restored."
       },
       "collabAgent": {
         "title": "Sub-agent",
