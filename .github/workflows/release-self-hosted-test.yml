@@ -1,0 +1,321 @@
+name: Self-hosted Release Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Test version without v (for example 0.1.119-beta.1)"
+        required: true
+        type: string
+      source_ref:
+        description: "Commit, branch, or tag to build"
+        required: true
+        default: main
+        type: string
+      windows_proxy_url:
+        description: "Optional HTTP proxy for the Windows runner (for example http://127.0.0.1:7890)"
+        required: false
+        default: ""
+        type: string
+      macos_proxy_url:
+        description: "Optional HTTP proxy for the macOS runner"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: self-hosted-release-test-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  HUSKY: "0"
+  RUST_BACKTRACE: short
+  TEST_VERSION: ${{ inputs.version }}
+  SOURCE_REF: ${{ inputs.source_ref }}
+
+jobs:
+  prepare-frontend:
+    name: Prepare frontend input
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Set test version
+        shell: bash
+        run: pnpm install --frozen-lockfile && node scripts/set-version.mjs "$TEST_VERSION"
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Upload frontend input
+        uses: actions/upload-artifact@v4
+        with:
+          name: self-hosted-test-frontend-${{ inputs.version }}
+          path: out
+          if-no-files-found: error
+          retention-days: 2
+
+  build-windows:
+    name: Windows ${{ matrix.target }} on self-hosted
+    needs: prepare-frontend
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 120
+    env:
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: http.version
+      GIT_CONFIG_VALUE_0: HTTP/1.1
+      HTTP_PROXY: ${{ inputs.windows_proxy_url }}
+      HTTPS_PROXY: ${{ inputs.windows_proxy_url }}
+      http_proxy: ${{ inputs.windows_proxy_url }}
+      https_proxy: ${{ inputs.windows_proxy_url }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            bundle: nsis
+          - target: i686-pc-windows-msvc
+            bundle: nsis
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+
+      - name: Show runner
+        shell: pwsh
+        run: |
+          Write-Host "runner.name=${env:RUNNER_NAME}"
+          Write-Host "runner.os=${env:RUNNER_OS}"
+          Write-Host "runner.arch=${env:RUNNER_ARCH}"
+
+      - name: Ensure Node.js
+        shell: pwsh
+        run: |
+          $version = $null
+          try { $version = (& node --version 2>$null).Trim() } catch {}
+          if ($version -match '^v(2[0-9]|[3-9][0-9])\.') {
+            Write-Host "Using preinstalled Node.js $version"
+          } else {
+            $base = 'https://nodejs.org/dist/latest-v24.x'
+            $checksums = (Invoke-WebRequest -UseBasicParsing "$base/SHASUMS256.txt").Content
+            $match = [regex]::Match($checksums, 'node-v24[^\s]*-win-x64\.zip')
+            if (!$match.Success) { throw 'Unable to resolve the latest Node.js 24 Windows archive' }
+            $archive = Join-Path $env:RUNNER_TEMP $match.Value
+            $nodeRoot = Join-Path $env:RUNNER_TEMP 'node24'
+            Invoke-WebRequest -UseBasicParsing "$base/$($match.Value)" -OutFile $archive
+            Expand-Archive -LiteralPath $archive -DestinationPath $nodeRoot -Force
+            $nodeBin = (Get-ChildItem $nodeRoot -Directory | Select-Object -First 1).FullName
+            if (!$nodeBin) { throw 'Node.js 24 archive did not contain an installation directory' }
+            Add-Content -Path $env:GITHUB_PATH -Value $nodeBin
+            $env:Path = "$nodeBin;$env:Path"
+          }
+          node --version
+          npm --version
+
+      - name: Verify Windows build prerequisites
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (!(Test-Path $vswhere)) {
+            throw 'Visual Studio Installer (vswhere.exe) is missing. Install Visual Studio Build Tools with the C++ workload and Windows SDK on this runner.'
+          }
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vsPath) {
+            throw 'MSVC C++ build tools are missing. Install Microsoft.VisualStudio.Component.VC.Tools.x86.x64 and the Windows 10/11 SDK.'
+          }
+          Write-Host "MSVC installation: $vsPath"
+
+      - name: Install Rust target
+        shell: pwsh
+        run: |
+          $cargoBin = Join-Path $env:USERPROFILE '.cargo\bin'
+          if (!(Get-Command rustup -ErrorAction SilentlyContinue)) {
+            $installer = Join-Path $env:RUNNER_TEMP 'rustup-init.exe'
+            Invoke-WebRequest -UseBasicParsing https://win.rustup.rs/x86_64 -OutFile $installer
+            & $installer -y --default-toolchain stable --profile minimal
+            if ($LASTEXITCODE -ne 0) { throw "rustup-init failed with exit code $LASTEXITCODE" }
+            Add-Content -Path $env:GITHUB_PATH -Value $cargoBin
+            $env:Path = "$cargoBin;$env:Path"
+          }
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add '${{ matrix.target }}' --toolchain stable
+          rustc +stable --version
+
+      - name: Set test version
+        shell: pwsh
+        run: node scripts/set-version.mjs "$env:TEST_VERSION"
+
+      - name: Download frontend input
+        uses: actions/download-artifact@v4
+        with:
+          name: self-hosted-test-frontend-${{ inputs.version }}
+          path: out
+
+      - name: Prepare sidecars
+        shell: pwsh
+        run: node src-tauri/scripts/prepare-sidecars.mjs --target ${{ matrix.target }}
+
+      - name: Prepare runtime seed
+        shell: pwsh
+        env:
+          IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}\iyw-runtime-seed-cache
+        run: node src-tauri/scripts/prepare-runtime-seed.mjs --target ${{ matrix.target }}
+
+      - name: Build unsigned bundle
+        shell: pwsh
+        run: >-
+          npx --yes @tauri-apps/cli@2.11.4 build
+          --target ${{ matrix.target }}
+          --features tauri-runtime
+          --bundles ${{ matrix.bundle }}
+          --config src-tauri/tauri.ci.conf.json
+          ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
+          --no-sign
+
+      - name: Upload Windows test bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: self-hosted-test-windows-${{ matrix.target }}-${{ inputs.version }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*
+          if-no-files-found: error
+          retention-days: 2
+
+  build-macos:
+    name: macOS ${{ matrix.target }} on self-hosted
+    needs: prepare-frontend
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 120
+    env:
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: http.version
+      GIT_CONFIG_VALUE_0: HTTP/1.1
+      HTTP_PROXY: ${{ inputs.macos_proxy_url }}
+      HTTPS_PROXY: ${{ inputs.macos_proxy_url }}
+      http_proxy: ${{ inputs.macos_proxy_url }}
+      https_proxy: ${{ inputs.macos_proxy_url }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            bundle: app,dmg
+          - target: x86_64-apple-darwin
+            bundle: app,dmg
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+
+      - name: Show runner
+        shell: bash
+        run: |
+          echo "runner.name=${RUNNER_NAME}"
+          echo "runner.os=${RUNNER_OS}"
+          echo "runner.arch=${RUNNER_ARCH}"
+
+      - name: Ensure Node.js
+        shell: bash
+        run: |
+          if command -v node >/dev/null 2>&1 && node --version | grep -Eq '^v(2[0-9]|[3-9][0-9])\.'; then
+            echo "Using preinstalled $(node --version)"
+          else
+            base="https://nodejs.org/dist/latest-v24.x"
+            archive="$(curl -fsSL "$base/SHASUMS256.txt" | awk '$2 ~ /darwin-arm64\.tar\.gz$/ { print $2; exit }')"
+            test -n "$archive" || { echo "Unable to resolve the latest Node.js 24 macOS archive" >&2; exit 1; }
+            node_root="$RUNNER_TEMP/node24"
+            mkdir -p "$node_root"
+            curl -fsSL "$base/$archive" | tar -xz -C "$node_root"
+            node_bin="$(find "$node_root" -maxdepth 2 -type d -name bin | head -n 1)"
+            test -n "$node_bin" || { echo "Node.js 24 archive did not contain a bin directory" >&2; exit 1; }
+            echo "$node_bin" >> "$GITHUB_PATH"
+            export PATH="$node_bin:$PATH"
+          fi
+          node --version
+          npm --version
+
+      - name: Verify macOS build prerequisites
+        shell: bash
+        run: |
+          xcode-select -p
+          xcrun --sdk macosx --show-sdk-path
+          xcrun --sdk macosx --show-sdk-version
+          if [[ "${{ matrix.target }}" == "x86_64-apple-darwin" && "$(uname -m)" == "arm64" ]]; then
+            if ! /usr/bin/pgrep -q oahd; then
+              echo "::warning::Rosetta 2 is not running; x86_64 macOS bundling may fail. Install it with: softwareupdate --install-rosetta --agree-to-license"
+            fi
+          fi
+
+      - name: Install Rust target
+        shell: bash
+        run: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add '${{ matrix.target }}' --toolchain stable
+          rustc +stable --version
+
+      - name: Set test version
+        shell: bash
+        run: node scripts/set-version.mjs "$TEST_VERSION"
+
+      - name: Download frontend input
+        uses: actions/download-artifact@v4
+        with:
+          name: self-hosted-test-frontend-${{ inputs.version }}
+          path: out
+
+      - name: Prepare sidecars
+        shell: bash
+        run: node src-tauri/scripts/prepare-sidecars.mjs --target ${{ matrix.target }}
+
+      - name: Prepare runtime seed
+        shell: bash
+        env:
+          IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}/iyw-runtime-seed-cache
+        run: node src-tauri/scripts/prepare-runtime-seed.mjs --target ${{ matrix.target }}
+
+      - name: Build unsigned bundle
+        shell: bash
+        run: >-
+          npx --yes @tauri-apps/cli@2.11.4 build
+          --target ${{ matrix.target }}
+          --features tauri-runtime
+          --bundles ${{ matrix.bundle }}
+          --config src-tauri/tauri.ci.conf.json
+          --config src-tauri/tauri.runtime-seed.conf.json
+          --no-sign
+
+      - name: Upload macOS test bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: self-hosted-test-macos-${{ matrix.target }}-${{ inputs.version }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/**
+          if-no-files-found: error
+          retention-days: 2

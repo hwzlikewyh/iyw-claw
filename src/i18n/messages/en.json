@@ -2850,6 +2850,7 @@
         "noModels": "No models found",
         "cancel": "Cancel",
         "send": "Send",
+        "stopGeneration": "Stop generation",
         "enqueueWhilePrompting": "Conversation in progress, add to queue",
         "forkAndSend": "Fork & Send",
         "voice": {

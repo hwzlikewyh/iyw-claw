@@ -342,7 +342,16 @@ export function useConnectionLifecycle({
     // avoid connecting with sessionId=undefined and orphaning context.
     if (!isActive) return
     touchActivity(contextKey)
-    if (!status || status === "disconnected" || status === "error") {
+    const matchesTarget =
+      conn.connectionId != null &&
+      conn.agentType === agentType &&
+      (conn.connectedWorkingDir ?? null) === (workingDir ?? null)
+    if (
+      !matchesTarget ||
+      !status ||
+      status === "disconnected" ||
+      status === "error"
+    ) {
       setLastAutoConnectError(null)
       await connConnect(agentType, workingDir, sessionId, conversationId)
     }
@@ -353,6 +362,9 @@ export function useConnectionLifecycle({
     sessionId,
     conversationId,
     status,
+    conn.connectionId,
+    conn.agentType,
+    conn.connectedWorkingDir,
     connConnect,
     contextKey,
     touchActivity,
