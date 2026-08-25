@@ -40,10 +40,10 @@
 ### 查询接口
 
 保留现有 `list_task_artifacts` 的 current/all 行为，增加可选 `latestTurnOnly` 参数。
-该参数只用于当前回复面板：读取会话的 `last_completed_turn_generation`，按精确
-`conversation_id` 和该 generation 查询成果。最新回合没有文件时直接返回空数组，不会
-回退到上一回合；没有 generation 的旧记录也不进入该面板。全量成果区不传该参数，
-因此不受影响。
+该参数只用于当前回复面板：解析当前会话 lineage 内每个会话的
+`last_completed_turn_generation`，只返回各自最后完成 generation 的成果。最新回合没有
+文件时直接返回空数组，不会回退到上一回合；没有 generation 的旧记录也不进入该面板。
+这样不会丢失委派子会话成果，也不会混入兄弟会话。全量成果区不传该参数，因此不受影响。
 
 ### 前端行为
 
