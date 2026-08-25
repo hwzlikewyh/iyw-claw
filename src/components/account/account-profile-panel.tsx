@@ -1,6 +1,6 @@
 "use client"
 
-import { Loader2, LogOut } from "lucide-react"
+import { Loader2, LogOut, RefreshCw } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -72,10 +72,14 @@ export function AccountAvatar({
 export function AccountProfilePanel({
   profile,
   loading,
+  refreshing,
+  onRefresh,
   onLogout,
 }: {
   profile: IywAccountProfile
   loading: boolean
+  refreshing: boolean
+  onRefresh: () => void
   onLogout: () => void
 }) {
   const t = useTranslations("SidebarAccount")
@@ -114,7 +118,20 @@ export function AccountProfilePanel({
         <InfoRow label={t("phone")} value={profile.phone} />
         <InfoRow label={t("organization")} value={profile.org_name} />
       </div>
-      <div className="mt-auto flex justify-end">
+      <div className="mt-auto flex justify-end gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onRefresh}
+          disabled={loading || refreshing}
+        >
+          {refreshing ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" />
+          )}
+          {t("refreshBalance")}
+        </Button>
         <Button
           variant="outline"
           size="sm"

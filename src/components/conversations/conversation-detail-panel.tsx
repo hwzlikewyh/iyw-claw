@@ -120,6 +120,7 @@ import {
   lastUserPromptText,
   type SessionFailureAction,
 } from "@/lib/session-failures"
+import { isInsufficientBalanceError } from "@/lib/agent-runtime-error"
 import type { SessionConfigTranslator } from "@/lib/session-config-localization"
 import {
   getSavedModeId,
@@ -173,6 +174,13 @@ interface ConversationTabViewProps {
   showActiveFlow: boolean
   reloadSignal: number
   groupId: string
+}
+
+interface PendingBalanceRecovery {
+  connectionId: string
+  draft: PromptDraft
+  modeId: string | null
+  requeued: boolean
 }
 
 function buildOptimisticUserTurnFromDraft(
@@ -657,6 +665,7 @@ const ConversationTabView = memo(function ConversationTabView({
     ),
   })
   const { status: connStatus, sessionId: connSessionId } = conn
+  const pendingBalanceRecoveryRef = useRef<PendingBalanceRecovery | null>(null)
   const [dismissedContinuationGeneration, setDismissedContinuationGeneration] =
     useState<number | null>(null)
   const visibleAutoContinuation =
@@ -679,6 +688,54 @@ const ConversationTabView = memo(function ConversationTabView({
     startEditing: mqStartEditing,
     cancelEditing: mqCancelEditing,
   } = messageQueue
+
+  const rememberSubmittedDraft = useCallback(
+    (draft: PromptDraft, modeId?: string | null) => {
+      if (!conn.connectionId || conn.isViewer) return
+      pendingBalanceRecoveryRef.current = {
+        connectionId: conn.connectionId,
+        draft,
+        modeId: modeId ?? null,
+        requeued: false,
+      }
+    },
+    [conn.connectionId, conn.isViewer]
+  )
+
+  const handleBalanceRecoveryEvent = useCallback(
+    (envelope: EventEnvelope) => {
+      if (envelope.connection_id !== conn.connectionId) return
+      const pending = pendingBalanceRecoveryRef.current
+
+      if (envelope.type === "turn_complete") {
+        if (pending?.connectionId === envelope.connection_id) {
+          pendingBalanceRecoveryRef.current = null
+        }
+        return
+      }
+      if (
+        envelope.type === "status_changed" &&
+        envelope.status === "disconnected"
+      ) {
+        pendingBalanceRecoveryRef.current = null
+        return
+      }
+      if (
+        envelope.type !== "error" ||
+        !isInsufficientBalanceError(envelope.message, envelope.code) ||
+        !pending ||
+        pending.requeued
+      ) {
+        return
+      }
+
+      pending.requeued = true
+      mqEnqueue(pending.draft, pending.modeId, { blocked: true })
+    },
+    [conn.connectionId, mqEnqueue]
+  )
+
+  useAcpEvent(handleBalanceRecoveryEvent)
   const msgQueueLength = msgQueue.length
   const msgQueueHeadBlocked = msgQueue[0]?.blocked
   const [outboxFlushPending, setOutboxFlushPending] = useState<string | null>(
@@ -1102,6 +1159,7 @@ const ConversationTabView = memo(function ConversationTabView({
           return
         }
         setOutboxFlushPending(queuedMessage.id)
+        rememberSubmittedDraft(queuedMessage.draft, queuedMessage.modeId)
         void submitAgentInput(connectionId, conversationId, queuedMessage.id, {
           blocks: queuedMessage.draft.blocks,
           display_text: queuedMessage.draft.displayText,
@@ -1208,6 +1266,7 @@ const ConversationTabView = memo(function ConversationTabView({
         // Existing-tab path: row already exists, send immediately with the
         // conversation_id pinned so the backend reuses our row instead of
         // creating a duplicate.
+        rememberSubmittedDraft(draft, selectedModeIdArg)
         const sending = lifecycleSend(draft, selectedModeIdArg, {
           folderId,
           conversationId: persistedId,
@@ -1316,6 +1375,7 @@ const ConversationTabView = memo(function ConversationTabView({
           // Now that the row exists, kick off the actual prompt with the
           // conversation_id pinned so the backend adopts our row instead of
           // creating a duplicate one.
+          rememberSubmittedDraft(draft, selectedModeIdArg)
           const accepted = await lifecycleSend(draft, selectedModeIdArg, {
             folderId: sendFolderId,
             conversationId: newConversationId,
@@ -1372,6 +1432,7 @@ const ConversationTabView = memo(function ConversationTabView({
       folderId,
       hasPersistedConversation,
       lifecycleSend,
+      rememberSubmittedDraft,
       pinTab,
       refreshConversations,
       selectedAgent,
@@ -1488,6 +1549,16 @@ const ConversationTabView = memo(function ConversationTabView({
       )
     },
     [conn.connectionId, ensureConversationPointsAvailable, tAgentInput]
+  )
+
+  const handleQueueRetry = useCallback(
+    (messageId: string) => {
+      if (!ensureConversationPointsAvailable()) return
+      const item = msgQueue.find((candidate) => candidate.id === messageId)
+      if (!item?.blocked) return
+      mqUpdateItem(messageId, item.draft)
+    },
+    [ensureConversationPointsAvailable, mqUpdateItem, msgQueue]
   )
 
   const handleReorderAgentInputs = useCallback(
@@ -1722,6 +1793,7 @@ const ConversationTabView = memo(function ConversationTabView({
       )
       setSendSignal((prev) => prev + 1)
       setSyncState(effectiveConversationId, "awaiting_persist")
+      rememberSubmittedDraft(draft)
       lifecycleSend(draft, null, {
         clientMessageId: optimisticTurn.id,
         // Rejected because a turn was already in flight — roll back the
@@ -1745,6 +1817,7 @@ const ConversationTabView = memo(function ConversationTabView({
       effectiveConversationId,
       ensureConversationPointsAvailable,
       lifecycleSend,
+      rememberSubmittedDraft,
       setSyncState,
     ]
   )
@@ -2055,6 +2128,7 @@ const ConversationTabView = memo(function ConversationTabView({
       onQueueReorder={mqReorder}
       onQueueEdit={handleQueueEdit}
       onQueueDelete={mqRemove}
+      onQueueRetry={handleQueueRetry}
       editingItemId={mqEditingItemId}
       editingDraftText={editingQueueDraftText}
       editingDraftBlocks={editingQueueDraftBlocks}
@@ -2130,6 +2204,7 @@ const ConversationTabView = memo(function ConversationTabView({
               onQueueReorder={mqReorder}
               onQueueEdit={handleQueueEdit}
               onQueueDelete={mqRemove}
+              onQueueRetry={handleQueueRetry}
               editingItemId={mqEditingItemId}
               editingDraftText={editingQueueDraftText}
               editingDraftBlocks={editingQueueDraftBlocks}

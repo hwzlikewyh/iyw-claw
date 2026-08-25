@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   formatAgentRuntimeError,
+  isInsufficientBalanceError,
   type AgentRuntimeErrorMessages,
 } from "./agent-runtime-error"
 
@@ -101,5 +102,21 @@ describe("formatAgentRuntimeError", () => {
       "The API documentation is at https://example.com and explains HTTP 429."
 
     expect(formatAgentRuntimeError(normal, messages)).toBeNull()
+  })
+})
+
+describe("isInsufficientBalanceError", () => {
+  it("recognizes the stable point error code", () => {
+    expect(
+      isInsufficientBalanceError("request failed", "insufficient_points")
+    ).toBe(true)
+  })
+
+  it("recognizes a 402 response message", () => {
+    expect(isInsufficientBalanceError("API Error: 402 点数余额不足")).toBe(true)
+  })
+
+  it("does not classify quota errors as account balance errors", () => {
+    expect(isInsufficientBalanceError("insufficient_quota", null)).toBe(false)
   })
 })

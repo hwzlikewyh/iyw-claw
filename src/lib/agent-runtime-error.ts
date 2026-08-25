@@ -123,7 +123,7 @@ const CATEGORY_PATTERNS: ReadonlyArray<
 
 function looksLikeRuntimeError(message: string): boolean {
   const startsLikeError =
-    /^(?:unexpected status|https?(?: status| error)?\s*[:=]?\s*\d{3}\b|api(?:status)?error\s*:|error(?: code)?\s*:|\d{3}\s+[a-z]|request .{0,40}(?:failed|timed out)|network error|insufficient[ _-]+(?:balance|quota)|payment required|your account .{0,120}has not activated the model)/i
+    /^(?:unexpected status|https?(?: status| error)?\s*[:=]?\s*\d{3}\b|api(?:status)?\s*error\s*:|error(?: code)?\s*:|\d{3}\s+[a-z]|request .{0,40}(?:failed|timed out)|network error|insufficient[ _-]+(?:balance|quota)|payment required|your account .{0,120}has not activated the model)/i
   const hasOpaqueRequestId =
     /request[ _-]?id\s*:\s*[a-z0-9][a-z0-9-]{7,}/i.test(message)
   const hasLabeledUrl = /\burl\s*:\s*https?:\/\/\S+/i.test(message)
@@ -184,6 +184,16 @@ export function classifyAgentRuntimeError(
   if (status === 429) return "rateLimited"
   if (status !== null && status >= 500) return "serviceUnavailable"
   return "requestFailed"
+}
+
+export function isInsufficientBalanceError(
+  message: string,
+  code?: string | null
+): boolean {
+  return (
+    code === "insufficient_points" ||
+    classifyAgentRuntimeError(message) === "insufficientBalance"
+  )
 }
 
 export function formatAgentRuntimeError(

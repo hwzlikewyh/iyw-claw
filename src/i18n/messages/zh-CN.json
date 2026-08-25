@@ -2995,7 +2995,8 @@
         "saveEdit": "保存",
         "cancelEdit": "取消编辑",
         "editItem": "编辑",
-        "deleteItem": "删除"
+        "deleteItem": "删除",
+        "retryItem": "重试"
       },
       "agentInput": {
         "waiting": "等待中",
@@ -4984,6 +4985,7 @@
     "signedIn": "已登录",
     "accountReady": "账号已就绪",
     "balancePoints": "点数",
+    "refreshBalance": "刷新点数",
     "balanceSummary": "{points}",
     "balanceValue": "{points}",
     "balanceUnknown": "未知",

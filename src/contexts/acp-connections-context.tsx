@@ -78,6 +78,7 @@ import { CONNECTION_KEEPALIVE_INTERVAL_MS } from "@/lib/constants"
 import { sendSystemNotification } from "@/lib/notification"
 import {
   formatAgentRuntimeError,
+  isInsufficientBalanceError,
   sanitizeAgentRuntimeErrorDetails,
   type AgentRuntimeErrorMessages,
 } from "@/lib/agent-runtime-error"
@@ -88,6 +89,7 @@ import {
 } from "@/lib/selector-prefs-storage"
 import { useAlertContext, type AlertAction } from "@/contexts/alert-context"
 import { useActiveFolder } from "@/contexts/active-folder-context"
+import { useIywAccount } from "@/contexts/iyw-account-context"
 import {
   getConversationIdByExternalIdFromStore,
   useConversationRuntimeStore,
@@ -2698,6 +2700,7 @@ function isAlertedError(error: unknown): error is AlertedError {
 export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   const t = useTranslations("Folder.chat.acpConnections")
   const tChat = useTranslations("Folder.chat")
+  const { refreshProfile } = useIywAccount()
   const runtimeErrorMessages = useMemo<AgentRuntimeErrorMessages>(
     () => ({
       insufficientBalance: t("backendErrors.insufficientBalance"),
@@ -2724,6 +2727,19 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     pushAlertRef.current = pushAlert
   }, [pushAlert])
   const alertedErrorDetailsRef = useRef(new Map<string, string>())
+  const balanceRefreshConnectionsRef = useRef(new Set<string>())
+  const balanceRefreshRequestRef = useRef<Promise<void> | null>(null)
+
+  const refreshAccountBalance = useCallback(() => {
+    if (balanceRefreshRequestRef.current) return
+    const request = refreshProfile()
+    const tracked = request.finally(() => {
+      if (balanceRefreshRequestRef.current === tracked) {
+        balanceRefreshRequestRef.current = null
+      }
+    })
+    balanceRefreshRequestRef.current = tracked
+  }, [refreshProfile])
 
   // Ref-based store — mutations don't trigger React state updates
   const storeRef = useRef<InternalStore>({
@@ -3361,6 +3377,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       switch (e.type) {
         case "status_changed":
           flushStreamingQueue()
+          if (e.status === "disconnected") {
+            balanceRefreshConnectionsRef.current.delete(e.connection_id)
+          }
           dispatch({ type: "STATUS_CHANGED", contextKey, status: e.status })
           break
         case "content_delta":
@@ -3741,6 +3760,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         case "turn_complete": {
           flushStreamingQueue()
           flushPendingToolCallUpdates()
+          balanceRefreshConnectionsRef.current.delete(e.connection_id)
           if (e.stop_reason === "end_turn") {
             dispatch({
               type: "SETTLE_SESSION_FAILURES",
@@ -3800,6 +3820,13 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         }
         case "error": {
           flushStreamingQueue()
+          if (
+            isInsufficientBalanceError(e.message, e.code) &&
+            !balanceRefreshConnectionsRef.current.has(e.connection_id)
+          ) {
+            balanceRefreshConnectionsRef.current.add(e.connection_id)
+            refreshAccountBalance()
+          }
           const nc = storeRef.current.connections.get(contextKey)
           const agentLabel = nc
             ? getAgentDisplayName(nc.agentType)
@@ -3979,6 +4006,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       enqueueStreamingAction,
       flushPendingToolCallUpdates,
       flushStreamingQueue,
+      refreshAccountBalance,
       scheduleToolCallUpdateFlush,
       settleRetryIncidentsOnProgress,
       runtimeErrorMessages,

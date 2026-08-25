@@ -2,7 +2,7 @@
 
 import { useCallback, type PointerEvent } from "react"
 import { Reorder, useDragControls } from "motion/react"
-import { GripVertical, Pencil, X } from "lucide-react"
+import { GripVertical, Pencil, RotateCcw, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { cn } from "@/lib/utils"
 import type { QueuedMessage } from "@/hooks/use-message-queue"
@@ -12,6 +12,7 @@ interface MessageQueueDisplayProps {
   onReorder: (items: QueuedMessage[]) => void
   onEdit: (id: string) => void
   onDelete: (id: string) => void
+  onRetry: (id: string) => void
   editingItemId: string | null
 }
 
@@ -21,6 +22,7 @@ interface QueueItemProps {
   isEditing: boolean
   onEdit: (id: string) => void
   onDelete: (id: string) => void
+  onRetry: (id: string) => void
 }
 
 function QueueItem({
@@ -29,6 +31,7 @@ function QueueItem({
   isEditing,
   onEdit,
   onDelete,
+  onRetry,
 }: QueueItemProps) {
   const t = useTranslations("Folder.chat.messageQueue")
   const dragControls = useDragControls()
@@ -75,6 +78,17 @@ function QueueItem({
       >
         <Pencil className="h-2.5 w-2.5" />
       </button>
+      {item.blocked ? (
+        <button
+          type="button"
+          onClick={() => onRetry(item.id)}
+          className="shrink-0 rounded-sm p-0.5 text-primary hover:bg-primary/10"
+          aria-label={t("retryItem")}
+          title={t("retryItem")}
+        >
+          <RotateCcw className="h-2.5 w-2.5" />
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={() => onDelete(item.id)}
@@ -92,6 +106,7 @@ export function MessageQueueDisplay({
   onReorder,
   onEdit,
   onDelete,
+  onRetry,
   editingItemId,
 }: MessageQueueDisplayProps) {
   if (queue.length === 0) return null
@@ -113,6 +128,7 @@ export function MessageQueueDisplay({
             isEditing={editingItemId === item.id}
             onEdit={onEdit}
             onDelete={onDelete}
+            onRetry={onRetry}
           />
         ))}
       </Reorder.Group>

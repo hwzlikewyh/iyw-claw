@@ -112,6 +112,8 @@ export function SidebarAccountSettings() {
               <AccountProfilePanel
                 profile={profile}
                 loading={actionLoading}
+                refreshing={status === "checking"}
+                onRefresh={() => void refreshProfile()}
                 onLogout={() => void logout()}
               />
             ) : (

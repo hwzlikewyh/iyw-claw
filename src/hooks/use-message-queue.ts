@@ -14,9 +14,17 @@ export interface QueuedMessage {
   blocked?: boolean
 }
 
+export interface EnqueueOptions {
+  blocked?: boolean
+}
+
 export interface UseMessageQueueReturn {
   queue: QueuedMessage[]
-  enqueue: (draft: PromptDraft, modeId: string | null) => void
+  enqueue: (
+    draft: PromptDraft,
+    modeId: string | null,
+    options?: EnqueueOptions
+  ) => void
   enqueueAgentInput: (
     id: string,
     draft: PromptDraft,
@@ -67,10 +75,16 @@ export function useMessageQueue(): UseMessageQueueReturn {
   }, [])
 
   const enqueue = useCallback(
-    (draft: PromptDraft, modeId: string | null) => {
+    (draft: PromptDraft, modeId: string | null, options?: EnqueueOptions) => {
       commit([
         ...queueRef.current,
-        { id: randomUUID(), draft, modeId, delivery: "prompt" },
+        {
+          id: randomUUID(),
+          draft,
+          modeId,
+          delivery: "prompt",
+          blocked: options?.blocked,
+        },
       ])
     },
     [commit]
