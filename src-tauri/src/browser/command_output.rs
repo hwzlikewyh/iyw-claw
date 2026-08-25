@@ -90,6 +90,8 @@ pub(super) fn parse_output(
     success: bool,
     stdout: &[u8],
     stderr: &[u8],
+    session: &str,
+    operation: &str,
 ) -> Result<Value, BrowserError> {
     if stdout.len() > MAX_COMMAND_OUTPUT || stderr.len() > MAX_COMMAND_OUTPUT {
         return Err(BrowserError::new(
@@ -105,16 +107,107 @@ pub(super) fn parse_output(
         .get("code")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    Err(map_cli_error(code))
+    let message = value
+        .get("error")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let error = map_cli_error(code, message);
+    tracing::warn!(
+        target: "iyw_claw_browser",
+        session,
+        operation,
+        controller_error_code = known_controller_error_code(code).unwrap_or("unknown"),
+        error_code = ?error.code,
+        retryable = error.retryable,
+        "browser controller rejected operation"
+    );
+    Err(error)
 }
 
-fn map_cli_error(code: &str) -> BrowserError {
-    let mapped = match code {
-        "tab_gone" => BrowserErrorCode::BrowserTabGone,
-        "dialog_pending" => BrowserErrorCode::BrowserDialogPending,
-        _ => BrowserErrorCode::BrowserRuntimeUnavailable,
+fn map_cli_error(code: &str, message: &str) -> BrowserError {
+    let lower = message.to_ascii_lowercase();
+    let (mapped, summary, retryable) = match code {
+        "tab_gone" => (
+            BrowserErrorCode::BrowserTabGone,
+            "The pinned browser tab is gone",
+            true,
+        ),
+        "dialog_pending" => (
+            BrowserErrorCode::BrowserDialogPending,
+            "A browser dialog is blocking the operation",
+            true,
+        ),
+        "stale_ref" => stale_reference_error(),
+        "invalid_selector" | "selector_not_found" | "selector_ambiguous" => selector_error(),
+        "operation_timeout" | "timeout" | "timed_out" => timeout_error(),
+        _ if code.is_empty() && lower.starts_with("unknown ref:") => stale_reference_error(),
+        _ if code.is_empty() && is_locator_error(&lower) => selector_error(),
+        _ if code.is_empty()
+            && (lower.contains("is covered by")
+                || lower.contains("another element is covering")) =>
+        {
+            (
+                BrowserErrorCode::BrowserControlChanged,
+                "Another element is covering the browser target",
+                true,
+            )
+        }
+        _ if code.is_empty() && (lower.contains("timed out") || lower.contains("timeout")) => {
+            timeout_error()
+        }
+        _ => (
+            BrowserErrorCode::BrowserRuntimeUnavailable,
+            "The browser controller rejected the operation",
+            true,
+        ),
     };
-    BrowserError::new(mapped, "The browser controller rejected the operation").retryable(true)
+    let message = if let Some(detail) = known_controller_error_code(code) {
+        format!("{summary} (controller code: {detail})")
+    } else {
+        summary.to_string()
+    };
+    BrowserError::new(mapped, message).retryable(retryable)
+}
+
+fn stale_reference_error() -> (BrowserErrorCode, &'static str, bool) {
+    (
+        BrowserErrorCode::BrowserSnapshotStale,
+        "The browser snapshot reference is stale",
+        true,
+    )
+}
+
+fn selector_error() -> (BrowserErrorCode, &'static str, bool) {
+    (
+        BrowserErrorCode::BrowserInvalidArgument,
+        "The browser target could not be resolved uniquely",
+        false,
+    )
+}
+
+fn timeout_error() -> (BrowserErrorCode, &'static str, bool) {
+    (
+        BrowserErrorCode::BrowserOperationTimeout,
+        "The browser controller operation timed out",
+        true,
+    )
+}
+
+fn is_locator_error(message: &str) -> bool {
+    message.starts_with("element not found")
+        || message.starts_with("no element found")
+        || message.contains("invalid selector")
+        || message.contains("queryselector")
+        || message.contains("strict mode violation")
+        || message.starts_with("element matched multiple")
+}
+
+fn known_controller_error_code(code: &str) -> Option<&str> {
+    match code {
+        "tab_gone" | "dialog_pending" | "stale_ref" | "invalid_selector" | "selector_not_found"
+        | "selector_ambiguous" | "operation_timeout" | "timeout" | "timed_out" => Some(code),
+        _ => None,
+    }
 }
 
 pub(super) fn unavailable_error() -> BrowserError {

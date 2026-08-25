@@ -83,7 +83,13 @@ impl AgentBrowserCli {
             }
         }?;
         log_command_completed(session, operation, started, &result);
-        parse_output(result.success, &result.stdout, &result.stderr)
+        parse_output(
+            result.success,
+            &result.stdout,
+            &result.stderr,
+            session,
+            operation,
+        )
     }
 
     pub async fn bootstrap(
