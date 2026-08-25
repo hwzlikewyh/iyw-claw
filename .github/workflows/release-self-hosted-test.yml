@@ -147,9 +147,7 @@ jobs:
 
       - name: Set test version
         shell: pwsh
-        run: |
-          pnpm install --frozen-lockfile
-          node scripts/set-version.mjs "$env:TEST_VERSION"
+        run: node scripts/set-version.mjs "$env:TEST_VERSION"
 
       - name: Download frontend input
         uses: actions/download-artifact@v4
@@ -255,9 +253,7 @@ jobs:
 
       - name: Set test version
         shell: bash
-        run: |
-          pnpm install --frozen-lockfile
-          node scripts/set-version.mjs "$TEST_VERSION"
+        run: node scripts/set-version.mjs "$TEST_VERSION"
 
       - name: Download frontend input
         uses: actions/download-artifact@v4

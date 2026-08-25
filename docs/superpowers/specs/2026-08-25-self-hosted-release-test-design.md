@@ -15,6 +15,8 @@ runner 的桌面打包环境；既有 `release.yml`、`release-tauri.yml` 和
 - self-hosted job 优先复用 Node.js 20+；缺失时由 `actions/setup-node` 自动安装 Node.js 24。
 - Rust target 由 `dtolnay/rust-toolchain` 自动安装；Windows/macOS 系统级编译依赖由
   预检步骤检查并给出可执行的安装提示。
+- 前端依赖只在 Ubuntu 前置任务安装一次；self-hosted runner 复用已构建的 `out/`，
+  不重复安装完整前端依赖。
 - 构建使用 `--no-sign`，结果上传为 Actions artifact；不创建 GitHub Release，
   不调用 Fusion 发布接口，不改变正式更新通道。
 
