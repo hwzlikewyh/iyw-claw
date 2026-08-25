@@ -68,6 +68,10 @@ jobs:
     needs: prepare-frontend
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 120
+    env:
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: http.version
+      GIT_CONFIG_VALUE_0: HTTP/1.1
     strategy:
       fail-fast: false
       matrix:
@@ -90,30 +94,29 @@ jobs:
           Write-Host "runner.os=${env:RUNNER_OS}"
           Write-Host "runner.arch=${env:RUNNER_ARCH}"
 
-      - name: Detect usable Node.js
-        id: node_check
+      - name: Ensure Node.js
         shell: pwsh
         run: |
           $version = $null
           try { $version = (& node --version 2>$null).Trim() } catch {}
           if ($version -match '^v(2[0-9]|[3-9][0-9])\.') {
             Write-Host "Using preinstalled Node.js $version"
-            "ready=true" >> $env:GITHUB_OUTPUT
           } else {
-            Write-Host "Node.js 20+ is unavailable; setup-node will install Node.js 24"
-            "ready=false" >> $env:GITHUB_OUTPUT
+            $base = 'https://nodejs.org/dist/latest-v24.x'
+            $checksums = (Invoke-WebRequest -UseBasicParsing "$base/SHASUMS256.txt").Content
+            $match = [regex]::Match($checksums, 'node-v24[^\s]*-win-x64\.zip')
+            if (!$match.Success) { throw 'Unable to resolve the latest Node.js 24 Windows archive' }
+            $archive = Join-Path $env:RUNNER_TEMP $match.Value
+            $nodeRoot = Join-Path $env:RUNNER_TEMP 'node24'
+            Invoke-WebRequest -UseBasicParsing "$base/$($match.Value)" -OutFile $archive
+            Expand-Archive -LiteralPath $archive -DestinationPath $nodeRoot -Force
+            $nodeBin = (Get-ChildItem $nodeRoot -Directory | Select-Object -First 1).FullName
+            if (!$nodeBin) { throw 'Node.js 24 archive did not contain an installation directory' }
+            Add-Content -Path $env:GITHUB_PATH -Value $nodeBin
+            $env:Path = "$nodeBin;$env:Path"
           }
-
-      - name: Setup Node
-        if: steps.node_check.outputs.ready != 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          run_install: false
+          node --version
+          npm --version
 
       - name: Verify Windows build prerequisites
         shell: pwsh
@@ -157,18 +160,18 @@ jobs:
 
       - name: Prepare sidecars
         shell: pwsh
-        run: pnpm tauri:prepare-sidecars --target ${{ matrix.target }}
+        run: node src-tauri/scripts/prepare-sidecars.mjs --target ${{ matrix.target }}
 
       - name: Prepare runtime seed
         shell: pwsh
         env:
           IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}\iyw-runtime-seed-cache
-        run: pnpm tauri:prepare-runtime-seed --target ${{ matrix.target }}
+        run: node src-tauri/scripts/prepare-runtime-seed.mjs --target ${{ matrix.target }}
 
       - name: Build unsigned bundle
         shell: pwsh
         run: >-
-          pnpm dlx @tauri-apps/cli@2.11.4 build
+          npx --yes @tauri-apps/cli@2.11.4 build
           --target ${{ matrix.target }}
           --features tauri-runtime
           --bundles ${{ matrix.bundle }}
@@ -189,6 +192,10 @@ jobs:
     needs: prepare-frontend
     runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 120
+    env:
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: http.version
+      GIT_CONFIG_VALUE_0: HTTP/1.1
     strategy:
       fail-fast: false
       matrix:
@@ -211,28 +218,25 @@ jobs:
           echo "runner.os=${RUNNER_OS}"
           echo "runner.arch=${RUNNER_ARCH}"
 
-      - name: Detect usable Node.js
-        id: node_check
+      - name: Ensure Node.js
         shell: bash
         run: |
           if command -v node >/dev/null 2>&1 && node --version | grep -Eq '^v(2[0-9]|[3-9][0-9])\.'; then
             echo "Using preinstalled $(node --version)"
-            echo "ready=true" >> "$GITHUB_OUTPUT"
           else
-            echo "Node.js 20+ is unavailable; setup-node will install Node.js 24"
-            echo "ready=false" >> "$GITHUB_OUTPUT"
+            base="https://nodejs.org/dist/latest-v24.x"
+            archive="$(curl -fsSL "$base/SHASUMS256.txt" | awk '$2 ~ /darwin-arm64\.tar\.gz$/ { print $2; exit }')"
+            test -n "$archive" || { echo "Unable to resolve the latest Node.js 24 macOS archive" >&2; exit 1; }
+            node_root="$RUNNER_TEMP/node24"
+            mkdir -p "$node_root"
+            curl -fsSL "$base/$archive" | tar -xz -C "$node_root"
+            node_bin="$(find "$node_root" -maxdepth 2 -type d -name bin | head -n 1)"
+            test -n "$node_bin" || { echo "Node.js 24 archive did not contain a bin directory" >&2; exit 1; }
+            echo "$node_bin" >> "$GITHUB_PATH"
+            export PATH="$node_bin:$PATH"
           fi
-
-      - name: Setup Node
-        if: steps.node_check.outputs.ready != 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          run_install: false
+          node --version
+          npm --version
 
       - name: Verify macOS build prerequisites
         shell: bash
@@ -247,9 +251,17 @@ jobs:
           fi
 
       - name: Install Rust target
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+        shell: bash
+        run: |
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add '${{ matrix.target }}' --toolchain stable
+          rustc +stable --version
 
       - name: Set test version
         shell: bash
@@ -263,18 +275,18 @@ jobs:
 
       - name: Prepare sidecars
         shell: bash
-        run: pnpm tauri:prepare-sidecars --target ${{ matrix.target }}
+        run: node src-tauri/scripts/prepare-sidecars.mjs --target ${{ matrix.target }}
 
       - name: Prepare runtime seed
         shell: bash
         env:
           IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}/iyw-runtime-seed-cache
-        run: pnpm tauri:prepare-runtime-seed --target ${{ matrix.target }}
+        run: node src-tauri/scripts/prepare-runtime-seed.mjs --target ${{ matrix.target }}
 
       - name: Build unsigned bundle
         shell: bash
         run: >-
-          pnpm dlx @tauri-apps/cli@2.11.4 build
+          npx --yes @tauri-apps/cli@2.11.4 build
           --target ${{ matrix.target }}
           --features tauri-runtime
           --bundles ${{ matrix.bundle }}
