@@ -12,6 +12,12 @@ pub async fn list_task_artifacts(
     Json(params): Json<ListTaskArtifactsParams>,
 ) -> Result<Json<Vec<TaskArtifactInfo>>, AppCommandError> {
     Ok(Json(
-        list_task_artifacts_core(&state.db.conn, params.conversation_id, params.folder_id).await?,
+        list_task_artifacts_core(
+            &state.db.conn,
+            params.conversation_id,
+            params.folder_id,
+            params.latest_turn_only.unwrap_or(false),
+        )
+        .await?,
     ))
 }

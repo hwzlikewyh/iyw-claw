@@ -2509,6 +2509,7 @@ impl ConnectionManager {
                         parent_tool_use_id: Set(None),
                         delegation_call_id: Set(None),
                         message_count: Set(0),
+                        last_completed_turn_generation: Set(0),
                         created_at: Set(now),
                         updated_at: Set(now),
                         deleted_at: Set(None),

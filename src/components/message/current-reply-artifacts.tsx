@@ -23,56 +23,81 @@ interface ArtifactToolCall {
   output?: string | null
 }
 
+interface ArtifactRegistration {
+  hasCall: boolean
+  rejected: boolean
+  references: string[]
+}
+
 const PRESENT_TASK_FILES_SUFFIX = /present[_-]task[_-]files$/i
 
 export const CurrentReplyArtifacts = memo(function CurrentReplyArtifacts({
   conversationId,
   parts,
 }: CurrentReplyArtifactsProps) {
-  const references = useMemo(() => extractArtifactReferences(parts), [parts])
-
-  if (references.length === 0) return null
+  const registration = useMemo(
+    () => extractArtifactRegistration(parts),
+    [parts]
+  )
 
   return (
     <ResolvedReplyArtifacts
       conversationId={conversationId}
-      references={references}
+      registration={registration}
     />
   )
 })
 
 function ResolvedReplyArtifacts({
   conversationId,
-  references,
+  registration,
 }: {
   conversationId: number
-  references: string[]
+  registration: ArtifactRegistration
 }) {
   const { activeFolder } = useActiveFolder()
   const query = useTaskArtifacts({
     conversationId,
     folderId: null,
     scope: "current",
+    latestTurnOnly: !registration.hasCall,
   })
-  const items = useMemo(
-    () => matchReplyArtifacts(references, query.items, activeFolder?.path),
-    [activeFolder?.path, query.items, references]
-  )
+  const items = useMemo(() => {
+    if (registration.rejected) return []
+    if (!registration.hasCall) return query.items
+    if (registration.references.length === 0) return []
+    return matchReplyArtifacts(
+      registration.references,
+      query.items,
+      activeFolder?.path
+    )
+  }, [activeFolder?.path, query.items, registration])
 
   if (items.length === 0) return null
 
   return <CurrentReplyArtifactsPanel items={items} />
 }
 
-function extractArtifactReferences(parts: AdaptedContentPart[]): string[] {
+function extractArtifactRegistration(
+  parts: AdaptedContentPart[]
+): ArtifactRegistration {
   const calls: ArtifactToolCall[] = []
   collectArtifactToolCalls(parts, calls)
   const references: string[] = []
+  let rejected = false
   for (const call of calls) {
+    if (call.output && indicatesRejectedArtifactCall(call.output)) {
+      rejected = true
+      continue
+    }
     const accepted = extractAcceptedPaths(call.output)
     references.push(...(accepted ?? extractInputPaths(call.input)))
   }
-  return dedupeStrings(references)
+  return {
+    hasCall: calls.length > 0,
+    rejected,
+    references: dedupeStrings(references),
+  }
 }
 
 function collectArtifactToolCalls(

@@ -50,12 +50,14 @@ pub struct ArtifactItemResult {
 async fn upsert_artifact<C: ConnectionTrait>(
     conn: &C,
     conversation_id: i32,
+    turn_generation: Option<i64>,
     artifact: ResolvedArtifact,
 ) -> Result<ArtifactItemResult, DbError> {
     let path = artifact.path;
     let now = Utc::now();
     task_artifact::Entity::insert(task_artifact::ActiveModel {
         conversation_id: Set(conversation_id),
+        turn_generation: Set(turn_generation),
         path: Set(path.clone()),
         display_name: Set(artifact.display_name.clone()),
         kind: Set(artifact.kind.clone()),
@@ -73,6 +75,7 @@ async fn upsert_artifact<C: ConnectionTrait>(
         .update_columns([
             task_artifact::Column::DisplayName,
             task_artifact::Column::Kind,
+            task_artifact::Column::TurnGeneration,
             task_artifact::Column::LastCheckedAt,
             task_artifact::Column::Status,
         ])
@@ -92,6 +95,7 @@ async fn upsert_artifact<C: ConnectionTrait>(
 pub async fn register_artifacts(
     conn: &DatabaseConnection,
     conversation_id: i32,
+    turn_generation: Option<i64>,
     working_dir: &Path,
     files: Vec<String>,
 ) -> Result<Value, DbError> {
@@ -109,7 +113,7 @@ pub async fn register_artifacts(
     let mut accepted = Vec::new();
     let txn = conn.begin().await?;
     for artifact in resolved {
-        accepted.push(upsert_artifact(&txn, conversation_id, artifact).await?);
+        accepted.push(upsert_artifact(&txn, conversation_id, turn_generation, artifact).await?);
     }
     txn.commit().await?;
     Ok(serde_json::json!({ "accepted": accepted, "rejected": rejected }))
@@ -119,11 +123,29 @@ pub async fn list_artifacts(
     conn: &DatabaseConnection,
     conversation_id: Option<i32>,
     folder_id: Option<i32>,
+    latest_turn_only: bool,
 ) -> Result<Vec<TaskArtifactInfo>, DbError> {
     let mut query = task_artifact::Entity::find()
         .inner_join(conversation::Entity)
         .order_by_desc(task_artifact::Column::CreatedAt);
-    if let Some(id) = conversation_id {
+    let latest_generation = if latest_turn_only {
+        let Some(id) = conversation_id else {
+            return Ok(Vec::new());
+        };
+        let Some(conversation) = conversation::Entity::find_by_id(id).one(conn).await? else {
+            return Ok(Vec::new());
+        };
+        if conversation.last_completed_turn_generation <= 0 {
+            return Ok(Vec::new());
+        }
+        query = query
+            .filter(task_artifact::Column::ConversationId.eq(id))
+            .filter(
+                task_artifact::Column::TurnGeneration
+                    .eq(conversation.last_completed_turn_generation),
+            );
+        Some(conversation.last_completed_turn_generation)
+    } else if let Some(id) = conversation_id {
         let conversation_ids = conversation_scope_ids(conn, id).await?;
         tracing::debug!(
             conversation_id = id,
@@ -131,7 +153,10 @@ pub async fn list_artifacts(
             "[task-artifacts] current conversation scope resolved"
         );
         query = query.filter(task_artifact::Column::ConversationId.is_in(conversation_ids));
-    }
+        None
+    } else {
+        None
+    };
     if let Some(id) = folder_id {
         query = query.filter(conversation::Column::FolderId.eq(id));
     }
@@ -141,6 +166,11 @@ pub async fn list_artifacts(
         let Some(conversation) = conversation else {
             continue;
         };
+        if let Some(generation) = latest_generation {
+            if artifact.turn_generation != Some(generation) {
+                continue;
+            }
+        }
         let current = current_artifact_state(&artifact.path, &artifact.kind);
         let last_checked_at = persist_current_state(conn, &artifact, &current).await;
         results.push(TaskArtifactInfo {

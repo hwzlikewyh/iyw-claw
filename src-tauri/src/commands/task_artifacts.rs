@@ -47,6 +47,7 @@ impl TaskArtifactAccess for DbTaskArtifactAccess {
     async fn register_task_artifacts(
         &self,
         conversation_id: i32,
+        turn_generation: Option<i64>,
         working_dir: &Path,
         files: Vec<String>,
     ) -> Value {
@@ -54,6 +55,7 @@ impl TaskArtifactAccess for DbTaskArtifactAccess {
         match task_artifact_service::register_artifacts(
             &self.db.conn,
             conversation_id,
+            turn_generation,
             working_dir,
             files,
         )
@@ -69,6 +71,7 @@ impl TaskArtifactAccess for DbTaskArtifactAccess {
                 }
                 tracing::info!(
                     conversation_id,
+                    turn_generation,
                     requested,
                     accepted,
                     rejected = requested.saturating_sub(accepted),
@@ -79,6 +82,7 @@ impl TaskArtifactAccess for DbTaskArtifactAccess {
             Err(error) => {
                 tracing::error!(
                     conversation_id,
+                    turn_generation,
                     requested,
                     error = %error,
                     "[task-artifacts] MCP registration failed"
@@ -97,23 +101,31 @@ pub async fn list_task_artifacts_core(
     conn: &DatabaseConnection,
     conversation_id: Option<i32>,
     folder_id: Option<i32>,
+    latest_turn_only: bool,
 ) -> Result<Vec<TaskArtifactInfo>, AppCommandError> {
     let started = Instant::now();
-    if conversation_id.is_some_and(|id| id <= 0) || folder_id.is_some_and(|id| id <= 0) {
+    if conversation_id.is_some_and(|id| id <= 0)
+        || folder_id.is_some_and(|id| id <= 0)
+        || (latest_turn_only && (conversation_id.is_none() || folder_id.is_some()))
+    {
         tracing::warn!(
             conversation_id,
             folder_id,
+            latest_turn_only,
             "[task-artifacts] invalid list filters"
         );
         return Err(AppCommandError::invalid_input(
-            "Artifact filter IDs must be positive",
+            "Invalid artifact filter combination",
         ));
     }
-    match task_artifact_service::list_artifacts(conn, conversation_id, folder_id).await {
+    match task_artifact_service::list_artifacts(conn, conversation_id, folder_id, latest_turn_only)
+        .await
+    {
         Ok(items) => {
             tracing::info!(
                 conversation_id,
                 folder_id,
+                latest_turn_only,
                 count = items.len(),
                 elapsed_ms = started.elapsed().as_millis(),
                 "[task-artifacts] list completed"
@@ -124,6 +136,7 @@ pub async fn list_task_artifacts_core(
             tracing::error!(
                 conversation_id,
                 folder_id,
+                latest_turn_only,
                 elapsed_ms = started.elapsed().as_millis(),
                 error = %error,
                 "[task-artifacts] list failed"
@@ -138,6 +151,7 @@ pub async fn list_task_artifacts_core(
 pub struct ListTaskArtifactsParams {
     pub conversation_id: Option<i32>,
     pub folder_id: Option<i32>,
+    pub latest_turn_only: Option<bool>,
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
@@ -145,14 +159,21 @@ pub async fn list_task_artifacts(
     #[cfg(feature = "tauri-runtime")] db: tauri::State<'_, AppDatabase>,
     conversation_id: Option<i32>,
     folder_id: Option<i32>,
+    latest_turn_only: Option<bool>,
 ) -> Result<Vec<TaskArtifactInfo>, AppCommandError> {
     #[cfg(feature = "tauri-runtime")]
     {
-        list_task_artifacts_core(&db.conn, conversation_id, folder_id).await
+        list_task_artifacts_core(
+            &db.conn,
+            conversation_id,
+            folder_id,
+            latest_turn_only.unwrap_or(false),
+        )
+        .await
     }
     #[cfg(not(feature = "tauri-runtime"))]
     {
-        let _ = (conversation_id, folder_id);
+        let _ = (conversation_id, folder_id, latest_turn_only);
         Err(AppCommandError::configuration_invalid("tauri-only command"))
     }
 }

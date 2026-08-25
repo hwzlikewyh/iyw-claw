@@ -115,12 +115,35 @@ async fn create_inner<C: ConnectionTrait>(
         parent_tool_use_id: Set(parent_tool_use_id),
         delegation_call_id: Set(delegation_call_id),
         message_count: Set(0),
+        last_completed_turn_generation: Set(0),
         created_at: Set(now),
         updated_at: Set(now),
         deleted_at: Set(None),
         pinned_at: Set(None),
     };
     Ok(model.insert(conn).await?)
+}
+
+/// Advance the persisted host-turn marker without allowing an older
+/// completion to overwrite a newer one.
+pub async fn mark_completed_turn_generation(
+    conn: &DatabaseConnection,
+    conversation_id: i32,
+    turn_generation: i64,
+) -> Result<bool, DbError> {
+    use sea_orm::sea_query::Expr;
+
+    let result = conversation::Entity::update_many()
+        .col_expr(
+            conversation::Column::LastCompletedTurnGeneration,
+            Expr::value(turn_generation),
+        )
+        .col_expr(conversation::Column::UpdatedAt, Expr::value(Utc::now()))
+        .filter(conversation::Column::Id.eq(conversation_id))
+        .filter(conversation::Column::LastCompletedTurnGeneration.lt(turn_generation))
+        .exec(conn)
+        .await?;
+    Ok(result.rows_affected > 0)
 }
 
 pub async fn update_status(

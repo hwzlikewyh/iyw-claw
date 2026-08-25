@@ -77,6 +77,7 @@ pub trait TaskArtifactAccess: Send + Sync {
     async fn register_task_artifacts(
         &self,
         conversation_id: i32,
+        turn_generation: Option<i64>,
         working_dir: &Path,
         files: Vec<String>,
     ) -> Value;
@@ -1502,7 +1503,14 @@ impl DelegationListener {
             });
         };
         self.artifacts
-            .register_task_artifacts(conversation_id, &entry.working_dir, req.files)
+            .register_task_artifacts(
+                conversation_id,
+                self.parent_lookup
+                    .current_turn_generation(&entry.parent_connection_id)
+                    .await,
+                &entry.working_dir,
+                req.files,
+            )
             .await
     }
     async fn process(&self, req: BrokerRequest) -> DelegationTaskReport {

@@ -20,6 +20,7 @@ interface TaskArtifactFilters {
   conversationId: number | null
   folderId: number | null
   scope: "current" | "all"
+  latestTurnOnly?: boolean
 }
 
 interface TaskArtifactState {
@@ -81,7 +82,7 @@ export function useTaskArtifacts(filters: TaskArtifactFilters) {
 function useArtifactLoader(filters: TaskArtifactFilters) {
   const t = useTranslations("Folder.taskArtifacts")
   const loadFailed = t("loadFailed")
-  const { conversationId, folderId, scope } = filters
+  const { conversationId, folderId, scope, latestTurnOnly = false } = filters
   const [state, setState] = useState(INITIAL_TASK_ARTIFACT_STATE)
   const requestIdRef = useRef(0)
   const trackerRef = useRef<ArtifactLoadTracker>({
@@ -92,7 +93,7 @@ function useArtifactLoader(filters: TaskArtifactFilters) {
   const load = useCallback(
     (requestBackground = false, queueIfBusy = false) =>
       startArtifactLoad({
-        filters: { conversationId, folderId, scope },
+        filters: { conversationId, folderId, scope, latestTurnOnly },
         requestBackground,
         queueIfBusy,
         requestIdRef,
@@ -100,7 +101,7 @@ function useArtifactLoader(filters: TaskArtifactFilters) {
         loadFailed,
         trackerRef,
       }),
-    [conversationId, folderId, loadFailed, scope]
+    [conversationId, folderId, latestTurnOnly, loadFailed, scope]
   )
   const cancel = useArtifactCancel(requestIdRef)
   return { state, load, cancel }
@@ -215,7 +216,7 @@ async function performTaskArtifactLoad({
 function taskArtifactFilterKey(filters: TaskArtifactFilters): string {
   const id =
     filters.scope === "current" ? filters.conversationId : filters.folderId
-  return `${filters.scope}:${id ?? "none"}`
+  return `${filters.scope}:${id ?? "none"}:latest=${filters.latestTurnOnly ? "1" : "0"}`
 }
 
 function useInitialArtifactLoad(
@@ -243,7 +244,10 @@ async function fetchTaskArtifacts(
   }
   return listTaskArtifacts(
     filters.scope === "current"
-      ? { conversationId: filters.conversationId }
+      ? {
+          conversationId: filters.conversationId,
+          latestTurnOnly: filters.latestTurnOnly,
+        }
       : { folderId: filters.folderId }
   )
 }

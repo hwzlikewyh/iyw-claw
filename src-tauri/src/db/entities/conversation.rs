@@ -73,6 +73,9 @@ pub struct Model {
     pub parent_tool_use_id: Option<String>,
     pub delegation_call_id: Option<String>,
     pub message_count: i32,
+    /// Latest completed host turn generation. Zero means no completed turn has
+    /// been recorded yet; this is separate from the Agent transcript.
+    pub last_completed_turn_generation: i64,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

@@ -160,6 +160,7 @@ async fn import_one(
         parent_tool_use_id: Set(None),
         delegation_call_id: Set(None),
         message_count: Set(summary.message_count as i32),
+        last_completed_turn_generation: Set(0),
         created_at: Set(created_at),
         updated_at: Set(updated_at),
         deleted_at: Set(None),

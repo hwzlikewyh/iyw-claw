@@ -4268,10 +4268,12 @@ export interface TaskArtifactInfo {
 export async function listTaskArtifacts(filters: {
   conversationId?: number | null
   folderId?: number | null
+  latestTurnOnly?: boolean
 }): Promise<TaskArtifactInfo[]> {
   return getTransport().call("list_task_artifacts", {
     conversationId: filters.conversationId ?? null,
     folderId: filters.folderId ?? null,
+    latestTurnOnly: filters.latestTurnOnly ?? false,
   })
 }
 

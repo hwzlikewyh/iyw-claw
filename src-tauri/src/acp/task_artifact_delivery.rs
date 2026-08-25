@@ -57,6 +57,32 @@ pub(crate) async fn prepare_turn_context(
 
 pub(crate) async fn deliver_completed_turn(context: CompletedTurnDelivery<'_>) {
     let started = Instant::now();
+    let generation_advanced =
+        match crate::db::service::conversation_service::mark_completed_turn_generation(
+            context.db,
+            context.conversation_id,
+            context.turn_generation,
+        )
+        .await
+        {
+            Ok(advanced) => advanced,
+            Err(error) => {
+                tracing::error!(
+                    connection_id = context.connection_id,
+                    conversation_id = context.conversation_id,
+                    turn_generation = context.turn_generation,
+                    error = %error,
+                    "[task-artifacts] completed turn generation update failed"
+                );
+                false
+            }
+        };
+    if generation_advanced {
+        crate::commands::task_artifacts::emit_task_artifacts_changed(
+            context.emitter,
+            context.conversation_id,
+        );
+    }
     let identity = TurnIdentity::new(
         context.connection_id,
         context.conversation_id,
@@ -139,6 +165,7 @@ async fn register_selection(
     let result = task_artifact_service::register_artifacts(
         context.db,
         context.conversation_id,
+        Some(context.turn_generation),
         directory,
         selection.paths,
     )
