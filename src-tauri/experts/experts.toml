@@ -157,63 +157,6 @@ en = "Primary IYW workflow for image and material generation, editing, upload, r
 "zh-CN" = "爱原物图片、素材、生成、编辑、上传、审查与知识任务的首选工作流；图像生成为 GPT 专用回退。"
 
 [[expert]]
-id = "lixiao-workflows"
-category = "workflow"
-icon = "Building2"
-sort_order = 410
-
-[expert.display_name]
-en = "Lixiao Workflows"
-"zh-CN" = "励销工作流"
-
-[expert.description]
-en = "Runs captured Lixiao enterprise search and account workflows."
-"zh-CN" = "执行励销企业搜索和账号工作流。"
-
-[[expert]]
-id = "iyw-copyright-registration"
-category = "workflow"
-icon = "Copyright"
-sort_order = 415
-
-[expert.display_name]
-en = "IYW Copyright Registration"
-"zh-CN" = "爱原物版权登记"
-
-[expert.description]
-en = "Prepares, validates, and submits IYW copyright registrations."
-"zh-CN" = "准备、检查并提交爱原物版权登记申请。"
-
-[[expert]]
-id = "iyw-crm-workflows"
-category = "workflow"
-icon = "Contact"
-sort_order = 415
-
-[expert.display_name]
-en = "IYW CRM Workflows"
-"zh-CN" = "爱原物 CRM 工作流"
-
-[expert.description]
-en = "Runs authenticated IYW CRM login and customer search workflows."
-"zh-CN" = "执行已认证的爱原物 CRM 登录和客户查询工作流。"
-
-[[expert]]
-id = "iyw-sales-assistant-workflows"
-category = "workflow"
-icon = "BriefcaseBusiness"
-sort_order = 417
-dependencies = ["lixiao-workflows", "iyw-crm-workflows"]
-
-[expert.display_name]
-en = "IYW AI Sales Assistant"
-"zh-CN" = "爱原物 AI 销售助理"
-
-[expert.description]
-en = "Researches, scores, and packages qualified sales leads."
-"zh-CN" = "调研、评分并整理符合条件的销售线索。"
-
-[[expert]]
 id = "open-computer-use"
 category = "computer_use"
 icon = "MonitorCog"
