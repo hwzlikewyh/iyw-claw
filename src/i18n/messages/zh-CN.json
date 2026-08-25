@@ -3576,7 +3576,8 @@
         "reconnectDisabledDuringTurn": "当前回合结束后可重连",
         "dismiss": "忽略",
         "reconnectFailed": "重连会话失败",
-        "applied": "新配置已应用"
+        "applied": "新配置已应用",
+        "modelSwitchFailed": "当前 Agent 未确认该模型，已恢复原模型。"
       },
       "collabAgent": {
         "title": "子智能体",

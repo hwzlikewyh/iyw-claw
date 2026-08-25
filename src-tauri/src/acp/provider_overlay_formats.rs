@@ -17,6 +17,32 @@ pub const MANAGED_MODEL_IDS: [&str; 9] = [
 ];
 pub const MANAGED_DEFAULT_MODEL: &str = MANAGED_MODEL_IDS[0];
 
+fn selected_model_or_default(
+    value: Option<&str>,
+    model_ids: &[&str],
+    default_model: &str,
+) -> String {
+    value
+        .map(str::trim)
+        .filter(|model| model_ids.contains(model))
+        .unwrap_or(default_model)
+        .to_string()
+}
+
+fn selected_provider_model_or_default(
+    value: Option<&str>,
+    model_ids: &[&str],
+    default_model: &str,
+) -> String {
+    let raw = value.map(str::trim).unwrap_or_default();
+    let model = raw.strip_prefix(&format!("{MANAGED_PROVIDER_ID}/"));
+    selected_model_or_default(
+        model.or((!raw.is_empty()).then_some(raw)),
+        model_ids,
+        default_model,
+    )
+}
+
 pub fn managed_model_ids_for(agent: AgentType) -> Vec<&'static str> {
     crate::acp::model_catalog::model_ids_for(agent)
 }
@@ -95,10 +121,12 @@ pub(crate) fn patch_kimi_toml(raw: &str, base_url: &str) -> Result<String, Strin
     let root = value
         .as_table_mut()
         .ok_or("kimi config root must be a TOML table")?;
-    root.insert(
-        "default_model".into(),
-        toml::Value::String(default_model.into()),
+    let selected_model = selected_model_or_default(
+        root.get("default_model").and_then(toml::Value::as_str),
+        &model_ids,
+        default_model,
     );
+    root.insert("default_model".into(), toml::Value::String(selected_model));
     let providers = table_entry(root, "providers")?;
     providers.retain(|name, _| name == MANAGED_PROVIDER_ID);
     let provider = table_entry(providers, MANAGED_PROVIDER_ID)?;
@@ -133,9 +161,8 @@ pub(crate) fn patch_grok_toml(raw: &str, base_url: &str) -> Result<String, Strin
         .and_then(toml::Value::as_table)
         .and_then(|models| models.get("default"))
         .and_then(toml::Value::as_str)
-        .filter(|model| model_ids.contains(model))
-        .unwrap_or(default_model)
-        .to_string();
+        .map(|model| selected_model_or_default(Some(model), &model_ids, default_model))
+        .unwrap_or_else(|| default_model.to_string());
     {
         let models_table = table_entry(root, "models")?;
         models_table.insert("default".into(), toml::Value::String(selected_model));
@@ -171,45 +198,87 @@ pub(crate) fn patch_json_config(
     let default_model = managed_default_model_for(agent);
     match agent {
         AgentType::ClaudeCode => {
+            let existing = root
+                .get("env")
+                .and_then(serde_json::Value::as_object)
+                .cloned()
+                .unwrap_or_default();
             set_json(root, &["env"], "ANTHROPIC_BASE_URL", base_url);
-            set_json(root, &["env"], "ANTHROPIC_MODEL", default_model);
+            let model = selected_model_or_default(
+                existing
+                    .get("ANTHROPIC_MODEL")
+                    .and_then(serde_json::Value::as_str),
+                &model_ids,
+                default_model,
+            );
+            set_json(root, &["env"], "ANTHROPIC_MODEL", &model);
             set_json(root, &["env"], "ANTHROPIC_MAX_RETRIES", "10");
-            set_json(root, &["env"], "ANTHROPIC_DEFAULT_OPUS_MODEL", model_ids[0]);
-            set_json(
-                root,
-                &["env"],
-                "ANTHROPIC_DEFAULT_SONNET_MODEL",
-                model_ids.get(1).copied().unwrap_or(model_ids[0]),
+            let opus = selected_model_or_default(
+                existing
+                    .get("ANTHROPIC_DEFAULT_OPUS_MODEL")
+                    .and_then(serde_json::Value::as_str),
+                &model_ids,
+                default_model,
             );
-            set_json(
-                root,
-                &["env"],
-                "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-                model_ids.get(1).copied().unwrap_or(model_ids[0]),
+            set_json(root, &["env"], "ANTHROPIC_DEFAULT_OPUS_MODEL", &opus);
+            let sonnet = selected_model_or_default(
+                existing
+                    .get("ANTHROPIC_DEFAULT_SONNET_MODEL")
+                    .and_then(serde_json::Value::as_str),
+                &model_ids,
+                default_model,
             );
+            set_json(root, &["env"], "ANTHROPIC_DEFAULT_SONNET_MODEL", &sonnet);
+            let haiku = selected_model_or_default(
+                existing
+                    .get("ANTHROPIC_DEFAULT_HAIKU_MODEL")
+                    .and_then(serde_json::Value::as_str),
+                &model_ids,
+                default_model,
+            );
+            set_json(root, &["env"], "ANTHROPIC_DEFAULT_HAIKU_MODEL", &haiku);
         }
         AgentType::CodeBuddy => {
+            let existing = root
+                .get("env")
+                .and_then(serde_json::Value::as_object)
+                .cloned()
+                .unwrap_or_default();
             let env = ensure_json_object(root, &["env"]);
             env.retain(|key, _| !is_codebuddy_conflicting_env_key(key));
             env.insert(
                 "CODEBUDDY_BASE_URL".into(),
                 serde_json::Value::String(base_url.into()),
             );
+            let primary = selected_model_or_default(
+                existing
+                    .get("CODEBUDDY_MODEL")
+                    .and_then(serde_json::Value::as_str),
+                &model_ids,
+                default_model,
+            );
+            let secondary = selected_model_or_default(
+                existing
+                    .get("CODEBUDDY_SMALL_FAST_MODEL")
+                    .and_then(serde_json::Value::as_str),
+                &model_ids,
+                model_ids.get(1).copied().unwrap_or(default_model),
+            );
             env.insert(
                 "CODEBUDDY_MODEL".into(),
-                serde_json::Value::String(model_ids[0].into()),
+                serde_json::Value::String(primary.clone()),
             );
             env.insert(
                 "CODEBUDDY_BIG_SLOW_MODEL".into(),
-                serde_json::Value::String(model_ids[0].into()),
+                serde_json::Value::String(primary),
             );
             env.insert(
                 "CODEBUDDY_SMALL_FAST_MODEL".into(),
-                serde_json::Value::String(model_ids[1].into()),
+                serde_json::Value::String(secondary.clone()),
             );
             env.insert(
                 "CODEBUDDY_CODE_SUBAGENT_MODEL".into(),
-                serde_json::Value::String(model_ids[1].into()),
+                serde_json::Value::String(secondary),
             );
         }
         AgentType::OpenCode => {
@@ -219,9 +288,14 @@ pub(crate) fn patch_json_config(
             let options = ensure_json_object(provider, &["options"]);
             options.insert("baseURL".into(), serde_json::Value::String(base_url.into()));
             provider.insert("models".into(), managed_model_object(&model_ids));
+            let selected = selected_provider_model_or_default(
+                root.get("model").and_then(serde_json::Value::as_str),
+                &model_ids,
+                default_model,
+            );
             root.insert(
                 "model".into(),
-                serde_json::Value::String(format!("{MANAGED_PROVIDER_ID}/{default_model}")),
+                serde_json::Value::String(format!("{MANAGED_PROVIDER_ID}/{selected}")),
             );
         }
         AgentType::OpenClaw => {
@@ -236,6 +310,12 @@ pub(crate) fn patch_json_config(
             provider.insert("models".into(), managed_model_array(&model_ids));
         }
         AgentType::Cline => {
+            let selected = selected_model_or_default(
+                root.get("openAiModelId")
+                    .and_then(serde_json::Value::as_str),
+                &model_ids,
+                default_model,
+            );
             root.insert(
                 "actModeApiProvider".into(),
                 serde_json::Value::String("openai".into()),
@@ -248,21 +328,20 @@ pub(crate) fn patch_json_config(
                 "openAiBaseUrl".into(),
                 serde_json::Value::String(base_url.into()),
             );
-            root.insert(
-                "openAiModelId".into(),
-                serde_json::Value::String(default_model.into()),
-            );
+            root.insert("openAiModelId".into(), serde_json::Value::String(selected));
             root.insert("welcomeViewCompleted".into(), serde_json::Value::Bool(true));
         }
         AgentType::Pi => {
+            let selected = selected_model_or_default(
+                root.get("defaultModel").and_then(serde_json::Value::as_str),
+                &model_ids,
+                default_model,
+            );
             root.insert(
                 "defaultProvider".into(),
                 serde_json::Value::String(MANAGED_PROVIDER_ID.into()),
             );
-            root.insert(
-                "defaultModel".into(),
-                serde_json::Value::String(default_model.into()),
-            );
+            root.insert("defaultModel".into(), serde_json::Value::String(selected));
         }
         _ => return Err(format!("no JSON provider overlay for {agent:?}")),
     }
@@ -302,6 +381,14 @@ pub(crate) fn patch_hermes_yaml(raw: &str, base_url: &str) -> Result<String, Str
     let map = root
         .as_mapping_mut()
         .ok_or("hermes config root must be a YAML mapping")?;
+    let existing_default = map
+        .get(Value::String("model".into()))
+        .and_then(Value::as_mapping)
+        .and_then(|model| model.get(Value::String("default".into())))
+        .and_then(Value::as_str);
+    let model_ids = managed_model_ids_for(AgentType::Hermes);
+    let default_model = managed_default_model_for(AgentType::Hermes);
+    let selected_model = selected_model_or_default(existing_default, &model_ids, default_model);
     let model = map
         .entry(Value::String("model".into()))
         .or_insert_with(|| Value::Mapping(Mapping::new()));
@@ -321,7 +408,7 @@ pub(crate) fn patch_hermes_yaml(raw: &str, base_url: &str) -> Result<String, Str
     );
     model.insert(
         Value::String("default".into()),
-        Value::String(managed_default_model_for(AgentType::Hermes).into()),
+        Value::String(selected_model),
     );
     // Inject retry limit into the `agent` section
     let agent_entry = map

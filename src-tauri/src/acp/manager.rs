@@ -70,6 +70,7 @@ const USER_PROMPT_PREVIEW_MAX_CHARS: usize = 500;
 const HERMES_HOME_LIVE_COUNT_CAP: usize = 1024;
 const CONNECTION_CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 const CONNECTION_CLEANUP_POLL: Duration = Duration::from_millis(10);
+const CONFIG_OPTION_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub struct ConnectionShutdownReport {
     pub disconnected: usize,
@@ -2142,20 +2143,30 @@ impl ConnectionManager {
         config_id: String,
         value_id: String,
     ) -> Result<(), AcpError> {
-        let cmd_tx = {
+        let (cmd_tx, reply) = {
             let connections = self.connections.lock().await;
             let conn = connections
                 .get(conn_id)
                 .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
-            conn.cmd_tx.clone()
+            let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+            (conn.cmd_tx.clone(), (reply_tx, reply_rx))
         };
+        let (reply_tx, reply_rx) = reply;
         cmd_tx
             .send(ConnectionCommand::SetConfigOption {
                 config_id,
                 value_id,
+                reply: reply_tx,
             })
             .await
-            .map_err(|_| AcpError::ProcessExited)
+            .map_err(|_| AcpError::ProcessExited)?;
+        tokio::time::timeout(CONFIG_OPTION_TIMEOUT, reply_rx)
+            .await
+            .map_err(|_| {
+                AcpError::protocol("Agent did not confirm the configuration change in time")
+            })?
+            .map_err(|_| AcpError::ProcessExited)?
+            .map_err(AcpError::protocol)
     }
 
     pub async fn cancel(&self, db: &DatabaseConnection, conn_id: &str) -> Result<(), AcpError> {

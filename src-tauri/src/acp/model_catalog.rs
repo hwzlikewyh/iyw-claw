@@ -147,11 +147,7 @@ fn persist(value: &RuntimeCatalog) {
 }
 
 pub fn update_from_payload(payload: &serde_json::Value) -> bool {
-    let Some(entries) = payload.get("data").and_then(serde_json::Value::as_array) else {
-        return false;
-    };
-    let models = entries.iter().filter_map(parse_payload_model).collect();
-    let Some(next) = runtime_catalog(models) else {
+    let Some(next) = catalog_from_payload(payload) else {
         return false;
     };
     let changed = {
@@ -165,6 +161,47 @@ pub fn update_from_payload(payload: &serde_json::Value) -> bool {
         persist(&next);
     }
     changed
+}
+
+/// Merge an Agent-scoped catalog response into the complete catalog.
+///
+/// A filtered response is authoritative only for the Agent that requested it;
+/// replacing the global catalog here would silently remove models used by
+/// other Agents. New IDs are added and existing metadata is refreshed.
+pub fn merge_from_payload(payload: &serde_json::Value) -> bool {
+    let Some(incoming) = catalog_from_payload(payload) else {
+        return false;
+    };
+    let changed = {
+        let mut current = catalog().write().expect("catalog poisoned");
+        let mut next = current.clone();
+        for id in incoming.ids {
+            if !next.ids.contains(&id) {
+                next.ids.push(id);
+            }
+            if let Some(snapshot) = incoming.capabilities.get(&id) {
+                next.capabilities.insert(id, *snapshot);
+            }
+        }
+        let changed = *current != next;
+        *current = next.clone();
+        changed
+    };
+    if changed {
+        let snapshot = catalog().read().expect("catalog poisoned").clone();
+        tracing::info!(
+            "[ModelCatalog] merged Agent-scoped catalog ({} models)",
+            snapshot.ids.len()
+        );
+        persist(&snapshot);
+    }
+    changed
+}
+
+fn catalog_from_payload(payload: &serde_json::Value) -> Option<RuntimeCatalog> {
+    let entries = payload.get("data").and_then(serde_json::Value::as_array)?;
+    let models = entries.iter().filter_map(parse_payload_model).collect();
+    runtime_catalog(models)
 }
 
 fn parse_payload_model(value: &serde_json::Value) -> Option<PersistedModel> {

@@ -2724,6 +2724,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     pushAlertRef.current = pushAlert
   }, [pushAlert])
   const alertedErrorDetailsRef = useRef(new Map<string, string>())
+  const configOptionChainsRef = useRef(new Map<string, Promise<void>>())
 
   // Ref-based store — mutations don't trigger React state updates
   const storeRef = useRef<InternalStore>({
@@ -5272,6 +5273,24 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     async (contextKey: string, configId: string, valueId: string) => {
       const conn = storeRef.current.connections.get(contextKey)
       if (!conn) return
+      lastActivityRef.current.set(contextKey, Date.now())
+      const previous =
+        configOptionChainsRef.current.get(conn.connectionId) ??
+        Promise.resolve()
+      const current = previous
+        .catch(() => {})
+        .then(() => acpSetConfigOption(conn.connectionId, configId, valueId))
+      configOptionChainsRef.current.set(conn.connectionId, current)
+      try {
+        await current
+      } finally {
+        if (configOptionChainsRef.current.get(conn.connectionId) === current) {
+          configOptionChainsRef.current.delete(conn.connectionId)
+        }
+      }
+      // The backend command now resolves only after the Agent returns its
+      // updated config-options payload. Do not paint a selection as applied
+      // before that acknowledgement arrives.
       dispatch({
         type: "CONFIG_OPTION_CHANGED",
         contextKey,
@@ -5281,8 +5300,6 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       // Persist user selection to localStorage so the next `acp_connect`
       // can ship it back to the backend as a preferred config value.
       saveConfigPreference(conn.agentType, configId, valueId)
-      lastActivityRef.current.set(contextKey, Date.now())
-      await acpSetConfigOption(conn.connectionId, configId, valueId)
     },
     [dispatch]
   )
