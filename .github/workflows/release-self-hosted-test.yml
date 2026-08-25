@@ -90,15 +90,43 @@ jobs:
           Write-Host "runner.os=${env:RUNNER_OS}"
           Write-Host "runner.arch=${env:RUNNER_ARCH}"
 
+      - name: Detect usable Node.js
+        id: node_check
+        shell: pwsh
+        run: |
+          $version = $null
+          try { $version = (& node --version 2>$null).Trim() } catch {}
+          if ($version -match '^v(2[0-9]|[3-9][0-9])\.') {
+            Write-Host "Using preinstalled Node.js $version"
+            "ready=true" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "Node.js 20+ is unavailable; setup-node will install Node.js 24"
+            "ready=false" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Setup Node
+        if: steps.node_check.outputs.ready != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           run_install: false
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
+      - name: Verify Windows build prerequisites
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (!(Test-Path $vswhere)) {
+            throw 'Visual Studio Installer (vswhere.exe) is missing. Install Visual Studio Build Tools with the C++ workload and Windows SDK on this runner.'
+          }
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (!$vsPath) {
+            throw 'MSVC C++ build tools are missing. Install Microsoft.VisualStudio.Component.VC.Tools.x86.x64 and the Windows 10/11 SDK.'
+          }
+          Write-Host "MSVC installation: $vsPath"
 
       - name: Install Rust target
         uses: dtolnay/rust-toolchain@stable
@@ -173,15 +201,40 @@ jobs:
           echo "runner.os=${RUNNER_OS}"
           echo "runner.arch=${RUNNER_ARCH}"
 
+      - name: Detect usable Node.js
+        id: node_check
+        shell: bash
+        run: |
+          if command -v node >/dev/null 2>&1 && node --version | grep -Eq '^v(2[0-9]|[3-9][0-9])\.'; then
+            echo "Using preinstalled $(node --version)"
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Node.js 20+ is unavailable; setup-node will install Node.js 24"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node
+        if: steps.node_check.outputs.ready != 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           run_install: false
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
+      - name: Verify macOS build prerequisites
+        shell: bash
+        run: |
+          xcode-select -p
+          xcrun --sdk macosx --show-sdk-path
+          xcrun --sdk macosx --show-sdk-version
+          if [[ "${{ matrix.target }}" == "x86_64-apple-darwin" && "$(uname -m)" == "arm64" ]]; then
+            if ! /usr/bin/pgrep -q oahd; then
+              echo "::warning::Rosetta 2 is not running; x86_64 macOS bundling may fail. Install it with: softwareupdate --install-rosetta --agree-to-license"
+            fi
+          fi
 
       - name: Install Rust target
         uses: dtolnay/rust-toolchain@stable
