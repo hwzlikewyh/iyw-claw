@@ -186,6 +186,18 @@ impl BrowserSessionManager {
         Self {
             state: Arc::new(tokio::sync::RwLock::new(BrowserState::new(capability))),
             controls: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            user_action_requests: Arc::new(tokio::sync::Mutex::new(
+                std::collections::BTreeMap::new(),
+            )),
+            window_open_requests: Arc::new(tokio::sync::Mutex::new(
+                std::collections::BTreeMap::new(),
+            )),
+            window_close_requests: Arc::new(tokio::sync::Mutex::new(
+                std::collections::BTreeMap::new(),
+            )),
+            preserved_host_closures: Arc::new(tokio::sync::Mutex::new(
+                std::collections::HashSet::new(),
+            )),
             snapshot_revision: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             shutdown_lock: Arc::new(tokio::sync::Mutex::new(())),
             shutdown_cancellation: Arc::new(tokio::sync::Mutex::new(

@@ -454,6 +454,91 @@
     }
   },
   {
+    "name": "browser_request_user_action",
+    "description": "Open the requested managed-browser tab in a new visible window and wait for the user to complete a browser step. The Agent pauses while the user operates the page, then receives a fresh state after activity settles. Use for login, MFA, CAPTCHA, drag-and-drop, or other steps the Agent must not perform. Do not include passwords or one-time codes in completion conditions.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["reason"],
+      "properties": {
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Optional browser tab id. Omit to use the current active tab."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "description": "Short explanation of the browser action the user must perform."
+        },
+        "completion": {
+          "type": "object",
+          "properties": {
+            "urlContains": { "type": "string", "maxLength": 2048 },
+            "titleContains": { "type": "string", "maxLength": 512 },
+            "textContains": { "type": "string", "maxLength": 32768 },
+            "selector": { "type": "string", "maxLength": 2048 },
+            "downloadCompleted": { "type": "boolean", "default": false }
+          },
+          "additionalProperties": false,
+          "description": "Optional page state used to detect completion automatically."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 300000,
+          "default": 180000,
+          "description": "Maximum wait in milliseconds."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_present",
+    "description": "Proactively show a managed-browser page to the user in a new detached iyw-claw browser window. Use for completed web interfaces, running local services, HTML previews, visual verification results, or any browser result the user benefits from seeing. This call does not wait for user input. Pass url to navigate first, or tab_id to present an existing tab. Use browser_close_window when the display is no longer needed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "Optional HTTP/HTTPS URL or about:blank to navigate before presenting."
+        },
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Optional existing tab id. Omit to use the active tab."
+        },
+        "new_tab": {
+          "type": "boolean",
+          "default": false,
+          "description": "When url is supplied, create another tab instead of navigating the active tab. Do not combine with tab_id."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_close_window",
+    "description": "Close the detached iyw-claw browser window displaying a managed tab while preserving the tab, page state, cookies, and sign-in session. Use after a visible user-action hand-off is complete and the browser no longer needs to remain on screen. This never closes the main iyw-claw window and does not close the managed tab.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Optional browser tab id. Omit to use the current active tab."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "present_task_files",
     "description": "Before the final response, add every final user-facing file, directory, or HTTP/HTTPS URL produced by this task to the current conversation Artifacts. This does not write directly to the workspace-wide All Artifacts aggregate. Do not register source, configuration, tests, migrations, build output, caches, logs, temporary files, or internal work unless the user explicitly requested that exact item as the final deliverable. Accepts working-directory-relative paths, absolute paths, and web URLs.",
     "inputSchema": {

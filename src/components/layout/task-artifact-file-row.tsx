@@ -1,18 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import {
-  AlertCircle,
-  File,
-  FileArchive,
-  FileCode2,
-  FileImage,
-  FileSpreadsheet,
-  FileText,
-  Folder,
-  Link,
-  MoreHorizontal,
-} from "lucide-react"
+import { AlertCircle, MoreHorizontal } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
 
 import {
@@ -35,26 +24,14 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { TaskArtifactTypeIcon } from "@/components/layout/task-artifact-type-icon"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import type { TaskArtifactInfo } from "@/lib/api"
 import {
   isAbsoluteFilePath,
   toFolderRelativePath,
 } from "@/lib/file-path-display"
-import { isImageFile, languageFromPath } from "@/lib/language-detect"
 import { cn } from "@/lib/utils"
-
-const ARCHIVE_EXTENSIONS = new Set(["zip", "rar", "7z", "tar", "gz", "bz2"])
-const SPREADSHEET_EXTENSIONS = new Set(["xls", "xlsx", "csv", "tsv"])
-const TEXT_EXTENSIONS = new Set([
-  "txt",
-  "md",
-  "pdf",
-  "doc",
-  "docx",
-  "ppt",
-  "pptx",
-])
 
 interface TaskArtifactFileRowProps {
   item: TaskArtifactInfo
@@ -162,7 +139,7 @@ function ArtifactRowLabel({
 }) {
   return (
     <>
-      <ArtifactTypeIcon item={item} />
+      <TaskArtifactTypeIcon item={item} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm">{item.displayName}</span>
         <span className="block truncate text-xs text-muted-foreground">
@@ -268,26 +245,6 @@ function formatArtifactTime(locale: string, createdAt: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date)
-}
-
-function ArtifactTypeIcon({ item }: { item: TaskArtifactInfo }) {
-  const className = "size-4 shrink-0 text-muted-foreground"
-  if (item.kind === "directory") return <Folder className={className} />
-  if (item.kind === "url") return <Link className={className} />
-  const { path } = item
-  if (isImageFile(path)) return <FileImage className={className} />
-  const extension = path.split(".").pop()?.toLowerCase() ?? ""
-  if (SPREADSHEET_EXTENSIONS.has(extension)) {
-    return <FileSpreadsheet className={className} />
-  }
-  if (ARCHIVE_EXTENSIONS.has(extension)) {
-    return <FileArchive className={className} />
-  }
-  if (TEXT_EXTENSIONS.has(extension)) return <FileText className={className} />
-  if (languageFromPath(path) !== "plaintext") {
-    return <FileCode2 className={className} />
-  }
-  return <File className={className} />
 }
 
 function artifactStatusLabel(

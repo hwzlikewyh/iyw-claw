@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef } from "react"
+import { Hand } from "lucide-react"
 import { useBrowser } from "@/contexts/browser-context"
 import { useBrowserHost } from "@/hooks/use-browser-host"
 import { browserApi } from "@/lib/browser-api"
@@ -55,7 +56,10 @@ export function BrowserShell({
     kind === "docked"
       ? () => void closeBrowser()
       : windowLabel
-        ? () => void browserApi.closeWindow(windowLabel).catch(() => {})
+        ? () =>
+            void browserApi
+              .closeWindowPreservingTabs(windowLabel)
+              .catch(() => {})
         : undefined
 
   useEffect(() => {
@@ -100,6 +104,9 @@ export function BrowserShell({
   const chooser = state.fileChoosers.find(
     (item) => item.browserTabId === activeTab?.browserTabId
   )
+  const userActionRequest = state.userActionRequests.find(
+    (item) => item.browserTabId === activeTab?.browserTabId
+  )
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
@@ -115,6 +122,17 @@ export function BrowserShell({
         tab={activeTab}
         onClose={closeShell}
       />
+      {userActionRequest ? (
+        <div
+          className="flex shrink-0 items-start gap-2 border-b bg-muted/50 px-3 py-2 text-xs text-foreground"
+          aria-live="polite"
+        >
+          <Hand className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 break-words">
+            {userActionRequest.reason}
+          </span>
+        </div>
+      ) : null}
       <div className="min-h-0 flex-1">
         <BrowserCanvas tab={activeTab} claim={claim} />
       </div>

@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   acknowledgeBrowserFrame,
-  browserApi,
   commitBrowserClaim,
   getBrowserFrameSubscription,
   subscribeBrowserFrames,
@@ -16,14 +15,10 @@ import type {
   BrowserViewClaimSnapshot,
 } from "@/lib/browser-types"
 import { useBrowser } from "@/contexts/browser-context"
+import { useBrowserViewport } from "@/hooks/use-browser-viewport"
 
-const RESIZE_DEBOUNCE_MS = 150
 const STATUS_POLL_MS = 1_500
 const RETRY_DELAY_MS = 750
-const STREAM_MAX_WIDTH = 4096
-const STREAM_MAX_HEIGHT = 2560
-const MIN_STREAM_SCALE = 0.5
-const MAX_STREAM_SCALE = 3
 export function useBrowserFrames(
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
   tab: BrowserTabSnapshot | null,
@@ -84,6 +79,10 @@ export function useBrowserFrames(
       alpha: false,
       desynchronized: true,
     })
+    if (context) {
+      context.imageSmoothingEnabled = true
+      context.imageSmoothingQuality = "high"
+    }
     committedRef.current = false
 
     const retry = () => {
@@ -237,49 +236,7 @@ export function useBrowserFrames(
     }
   }, [subscription])
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas || !tabId || claimId || !subscription || !generations) return
-    let timer: number | null = null
-    let lastRequest: { width: number; height: number; scale: number } | null =
-      null
-    const resize = () => {
-      if (timer !== null) window.clearTimeout(timer)
-      timer = window.setTimeout(() => {
-        const rect = canvas.getBoundingClientRect()
-        if (rect.width < 320 || rect.height < 240) return
-        const width = Math.round(rect.width)
-        const height = Math.round(rect.height)
-        const scale = Math.max(
-          MIN_STREAM_SCALE,
-          Math.min(
-            MAX_STREAM_SCALE,
-            window.devicePixelRatio || 1,
-            STREAM_MAX_WIDTH / width,
-            STREAM_MAX_HEIGHT / height
-          )
-        )
-        if (
-          lastRequest?.width === width &&
-          lastRequest.height === height &&
-          lastRequest.scale === scale
-        ) {
-          return
-        }
-        lastRequest = { width, height, scale }
-        void browserApi
-          .resize(tabId, generations, width, height, scale)
-          .catch(() => {})
-      }, RESIZE_DEBOUNCE_MS)
-    }
-    const observer = new ResizeObserver(resize)
-    observer.observe(canvas)
-    resize()
-    return () => {
-      observer.disconnect()
-      if (timer !== null) window.clearTimeout(timer)
-    }
-  }, [canvasRef, claimId, generations, subscription, tabId])
+  useBrowserViewport(canvasRef, tabId, claimId, subscription, generations)
 
   return { subscription, error }
 }
