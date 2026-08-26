@@ -56,7 +56,10 @@ export function BrowserShell({
     kind === "docked"
       ? () => void closeBrowser()
       : windowLabel
-        ? () => void browserApi.closeWindow(windowLabel).catch(() => {})
+        ? () =>
+            void browserApi
+              .closeWindowPreservingTabs(windowLabel)
+              .catch(() => {})
         : undefined
 
   useEffect(() => {

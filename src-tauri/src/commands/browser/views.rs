@@ -87,6 +87,24 @@ pub fn browser_close_window(
 }
 
 #[tauri::command(async)]
+pub fn browser_close_window_preserving_tabs(
+    app: tauri::AppHandle,
+    manager: tauri::State<'_, BrowserSessionManager>,
+    window_label: String,
+) -> BrowserCommandFuture<()> {
+    let manager = manager.inner().clone();
+    browser_command(async move {
+        validate_browser_window_label(&window_label)?;
+        let host_id = manager.preserve_browser_window_tabs(&window_label).await?;
+        if let Err(error) = close_browser_window(&app, &window_label, "agent_display_close") {
+            manager.cancel_preserved_browser_window(&host_id).await;
+            return Err(error);
+        }
+        Ok(())
+    })
+}
+
+#[tauri::command(async)]
 pub fn browser_focus_window(
     app: tauri::AppHandle,
     window_label: String,
@@ -110,7 +128,38 @@ pub fn browser_complete_window_open(
     browser_command(async move { Ok(manager.complete_window_open_request(&request_id).await) })
 }
 
+#[tauri::command(async)]
+pub fn browser_complete_window_close(
+    manager: tauri::State<'_, BrowserSessionManager>,
+    request_id: String,
+) -> BrowserCommandFuture<BrowserStateSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move { Ok(manager.complete_window_close_request(&request_id).await) })
+}
+
 pub fn handle_browser_window_close_requested(app: tauri::AppHandle, window_label: String) {
+    if let Some(manager) = app.try_state::<BrowserSessionManager>() {
+        let manager = manager.inner().clone();
+        let app_clone = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let host_id = manager
+                .preserve_browser_window_tabs(&window_label)
+                .await
+                .ok();
+            if let Err(error) = close_browser_window(&app_clone, &window_label, "system_close") {
+                if let Some(host_id) = host_id {
+                    manager.cancel_preserved_browser_window(&host_id).await;
+                }
+                tracing::error!(
+                    target: "iyw_claw_browser",
+                    window_label = %window_label,
+                    error_code = ?error.code,
+                    "detached browser window close failed"
+                );
+            }
+        });
+        return;
+    }
     if let Err(error) = close_browser_window(&app, &window_label, "system_close") {
         tracing::error!(
             target: "iyw_claw_browser",

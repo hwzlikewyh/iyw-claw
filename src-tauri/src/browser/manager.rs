@@ -1,6 +1,6 @@
-#[cfg(feature = "tauri-runtime")]
-use std::collections::BTreeMap;
 use std::collections::HashMap;
+#[cfg(feature = "tauri-runtime")]
+use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -43,6 +43,8 @@ pub struct BrowserSessionManager {
     pub(super) window_open_requests: Arc<Mutex<BTreeMap<String, PendingWindowOpen>>>,
     #[cfg(feature = "tauri-runtime")]
     pub(super) window_close_requests: Arc<Mutex<BTreeMap<String, PendingWindowClose>>>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) preserved_host_closures: Arc<Mutex<HashSet<String>>>,
     pub(super) snapshot_revision: Arc<AtomicU64>,
     #[cfg(feature = "tauri-runtime")]
     pub(super) shutdown_lock: Arc<Mutex<()>>,
@@ -79,6 +81,8 @@ impl BrowserSessionManager {
             window_open_requests: Arc::new(Mutex::new(BTreeMap::new())),
             #[cfg(feature = "tauri-runtime")]
             window_close_requests: Arc::new(Mutex::new(BTreeMap::new())),
+            #[cfg(feature = "tauri-runtime")]
+            preserved_host_closures: Arc::new(Mutex::new(HashSet::new())),
             snapshot_revision: Arc::new(AtomicU64::new(0)),
             #[cfg(feature = "tauri-runtime")]
             shutdown_lock: Arc::new(Mutex::new(())),

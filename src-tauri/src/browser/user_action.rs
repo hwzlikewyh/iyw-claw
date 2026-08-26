@@ -73,13 +73,29 @@ impl BrowserSessionManager {
         request_cancellation: CancellationToken,
     ) -> Result<Value, BrowserError> {
         let deadline = Instant::now() + timeout;
-        activity = self
+        activity = match self
             .wait_for_activity(context, &gate, activity, &request_cancellation, deadline)
-            .await?;
+            .await
+        {
+            Ok(activity) => activity,
+            Err(error) if error.code == BrowserErrorCode::BrowserOperationTimeout => {
+                self.set_user_held(tab_id, false).await?;
+                return self.user_action_state(context, tab_id, "timed_out").await;
+            }
+            Err(error) => return Err(error),
+        };
         loop {
-            activity = self
+            activity = match self
                 .wait_for_quiet(context, &gate, activity, &request_cancellation, deadline)
-                .await?;
+                .await
+            {
+                Ok(activity) => activity,
+                Err(error) if error.code == BrowserErrorCode::BrowserOperationTimeout => {
+                    self.set_user_held(tab_id, false).await?;
+                    return self.user_action_state(context, tab_id, "timed_out").await;
+                }
+                Err(error) => return Err(error),
+            };
             let Some(completion) = completion.as_ref() else {
                 self.set_user_held(tab_id, false).await?;
                 return self

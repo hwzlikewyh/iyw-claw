@@ -8,6 +8,7 @@ import type {
 } from "@/lib/browser-types"
 
 const RESIZE_DEBOUNCE_MS = 120
+const RESIZE_RETRY_MS = 750
 const MIN_VIEWPORT_WIDTH = 320
 const MIN_VIEWPORT_HEIGHT = 240
 const MAX_VIEWPORT_EDGE = 4096
@@ -34,6 +35,7 @@ export function useBrowserViewport(
     if (!canvas || !tabId || claimId || !subscription || !generations) return
     let disposed = false
     let timer: number | null = null
+    let retryTimer: number | null = null
     let sending = false
     let pending: ViewportRequest | null = null
     let lastRequest: ViewportRequest | null = null
@@ -45,15 +47,28 @@ export function useBrowserViewport(
         while (!disposed && pending) {
           const request = pending
           pending = null
-          await browserApi
-            .resize(
+          try {
+            await browserApi.resize(
               tabId,
               generations,
               request.width,
               request.height,
               request.scale
             )
-            .catch(() => {})
+            if (disposed) return
+            canvas.dataset.browserViewportWidth = String(request.width)
+            canvas.dataset.browserViewportHeight = String(request.height)
+            lastRequest = request
+          } catch {
+            pending = request
+            if (retryTimer === null) {
+              retryTimer = window.setTimeout(() => {
+                retryTimer = null
+                if (!disposed) void flush()
+              }, RESIZE_RETRY_MS)
+            }
+            return
+          }
         }
       } finally {
         sending = false
@@ -64,10 +79,7 @@ export function useBrowserViewport(
       if (timer !== null) window.clearTimeout(timer)
       timer = window.setTimeout(() => {
         const request = viewportRequest(canvas.getBoundingClientRect())
-        canvas.dataset.browserViewportWidth = String(request.width)
-        canvas.dataset.browserViewportHeight = String(request.height)
         if (sameViewport(lastRequest, request)) return
-        lastRequest = request
         pending = request
         void flush()
       }, RESIZE_DEBOUNCE_MS)
@@ -81,6 +93,7 @@ export function useBrowserViewport(
       observer.disconnect()
       window.removeEventListener("resize", resize)
       if (timer !== null) window.clearTimeout(timer)
+      if (retryTimer !== null) window.clearTimeout(retryTimer)
       delete canvas.dataset.browserViewportWidth
       delete canvas.dataset.browserViewportHeight
     }

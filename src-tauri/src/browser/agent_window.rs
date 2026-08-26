@@ -90,13 +90,14 @@ impl BrowserSessionManager {
                 .values()
                 .any(|request| request.snapshot.browser_tab_id == tab_id);
             if pending_open {
-                self.cancel_window_open_requests(vec![tab_id.clone()]).await;
+                let request_id = self.request_window_close(&tab_id).await;
                 return Ok(project_agent_state(
                     state,
                     Some(&tab_id),
                     Some(json!({
                         "status": "close_requested",
-                        "cancelledPendingOpen": true,
+                        "requestId": request_id,
+                        "waitsForPendingOpen": true,
                         "preservesTab": true,
                     })),
                 ));
@@ -186,6 +187,14 @@ impl BrowserSessionManager {
         request_id: &str,
     ) -> super::types::BrowserStateSnapshot {
         self.window_open_requests.lock().await.remove(request_id);
+        self.snapshot().await
+    }
+
+    pub async fn complete_window_close_request(
+        &self,
+        request_id: &str,
+    ) -> super::types::BrowserStateSnapshot {
+        self.window_close_requests.lock().await.remove(request_id);
         self.snapshot().await
     }
 }

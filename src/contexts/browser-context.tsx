@@ -167,18 +167,28 @@ export function BrowserProvider({
     let polling = false
     let timer: number | null = null
     const schedule = (delay: number) => {
-      if (cancelled || document.visibilityState !== "visible") return
+      if (
+        cancelled ||
+        (!autoOpenUserActionWindow && document.visibilityState !== "visible")
+      )
+        return
       timer = window.setTimeout(poll, delay)
     }
     const poll = async () => {
       timer = null
-      if (cancelled || polling || document.visibilityState !== "visible") return
+      if (
+        cancelled ||
+        polling ||
+        (!autoOpenUserActionWindow && document.visibilityState !== "visible")
+      )
+        return
       polling = true
       await refresh()
       polling = false
       schedule(POLL_INTERVAL_MS)
     }
     const handleVisibilityChange = () => {
+      if (autoOpenUserActionWindow) return
       if (timer !== null) window.clearTimeout(timer)
       timer = null
       if (document.visibilityState === "visible") void poll()
@@ -210,7 +220,18 @@ export function BrowserProvider({
     )
     if (!tab) return
     handledUserActionRequestsRef.current.add(request.requestId)
-    void detachTab(request.browserTabId, tab.hostId).catch(() => {
+    void queueBrowserWindowRequest(async () => {
+      const latest = await browserApi.state()
+      const latestTab = latest.tabs.find(
+        (item) => item.browserTabId === request.browserTabId
+      )
+      if (!latestTab) return
+      const detached = latest.hosts.find(
+        (item) => item.hostId === latestTab.hostId && item.kind === "detached"
+      )
+      if (detached) await browserApi.focusWindow(detached.windowLabel)
+      else await detachTab(request.browserTabId, latestTab.hostId)
+    }).catch(() => {
       handledUserActionRequestsRef.current.delete(request.requestId)
     })
   }, [autoOpenUserActionWindow, detachTab, state])
@@ -228,30 +249,22 @@ export function BrowserProvider({
       (item) => !handledWindowOpenRequestsRef.current.has(item.requestId)
     )
     if (!request) return
-    const tab = state.tabs.find(
-      (item) => item.browserTabId === request.browserTabId
-    )
-    if (!tab) return
     handledWindowOpenRequestsRef.current.add(request.requestId)
-    const detachedHost = state.hosts.find(
-      (item) => item.hostId === tab.hostId && item.kind === "detached"
-    )
-    if (detachedHost) {
-      void browserApi
-        .focusWindow(detachedHost.windowLabel)
-        .then(() => browserApi.completeWindowOpen(request.requestId))
-        .then(acceptState)
-        .catch(() => {
-          handledWindowOpenRequestsRef.current.delete(request.requestId)
-        })
-      return
-    }
-    void detachTab(request.browserTabId, tab.hostId)
-      .then(() => browserApi.completeWindowOpen(request.requestId))
-      .then(acceptState)
-      .catch(() => {
-        handledWindowOpenRequestsRef.current.delete(request.requestId)
-      })
+    void queueBrowserWindowRequest(async () => {
+      const latest = await browserApi.state()
+      const tab = latest.tabs.find(
+        (item) => item.browserTabId === request.browserTabId
+      )
+      if (!tab) return
+      const detachedHost = latest.hosts.find(
+        (item) => item.hostId === tab.hostId && item.kind === "detached"
+      )
+      if (detachedHost) await browserApi.focusWindow(detachedHost.windowLabel)
+      else await detachTab(request.browserTabId, tab.hostId)
+      acceptState(await browserApi.completeWindowOpen(request.requestId))
+    }).catch(() => {
+      handledWindowOpenRequestsRef.current.delete(request.requestId)
+    })
   }, [acceptState, autoOpenUserActionWindow, detachTab, state])
 
   useEffect(() => {
@@ -267,18 +280,21 @@ export function BrowserProvider({
       (item) => !handledWindowCloseRequestsRef.current.has(item.requestId)
     )
     if (!request) return
-    const tab = state.tabs.find(
-      (item) => item.browserTabId === request.browserTabId
-    )
-    const host = state.hosts.find(
-      (item) => item.hostId === tab?.hostId && item.kind === "detached"
-    )
-    if (!host) return
     handledWindowCloseRequestsRef.current.add(request.requestId)
-    void browserApi.closeWindow(host.windowLabel).catch(() => {
+    void queueBrowserWindowRequest(async () => {
+      const latest = await browserApi.state()
+      const tab = latest.tabs.find(
+        (item) => item.browserTabId === request.browserTabId
+      )
+      const host = latest.hosts.find(
+        (item) => item.hostId === tab?.hostId && item.kind === "detached"
+      )
+      if (host) await browserApi.closeWindowPreservingTabs(host.windowLabel)
+      acceptState(await browserApi.completeWindowClose(request.requestId))
+    }).catch(() => {
       handledWindowCloseRequestsRef.current.delete(request.requestId)
     })
-  }, [autoOpenUserActionWindow, state])
+  }, [acceptState, autoOpenUserActionWindow, state])
 
   const value = useMemo<BrowserContextValue>(
     () => ({
@@ -357,4 +373,14 @@ function normalizeError(cause: unknown): BrowserErrorEnvelope {
     retryable: value?.retryable ?? false,
     effectMayHaveOccurred: value?.effectMayHaveOccurred ?? false,
   }
+}
+
+let browserWindowRequestTransition = Promise.resolve()
+
+function queueBrowserWindowRequest(operation: () => Promise<void>) {
+  browserWindowRequestTransition = browserWindowRequestTransition.then(
+    operation,
+    operation
+  )
+  return browserWindowRequestTransition
 }
