@@ -5,18 +5,16 @@ import {
   ArrowLeft,
   ExternalLink,
   Fullscreen,
-  Folder,
   FolderSearch,
-  Link,
   Maximize2,
   Minimize2,
   MoreHorizontal,
-  PanelsTopLeft,
   Waypoints,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import type { TaskArtifactActions } from "@/components/layout/task-artifact-actions"
+import { TaskArtifactTypeIcon } from "@/components/layout/task-artifact-type-icon"
 import {
   TASK_ARTIFACT_MENU_CONTENT_CLASS,
   TaskArtifactDropdownMenuItems,
@@ -77,7 +75,7 @@ export function TaskArtifactPreviewHeader({
           <ArrowLeft className="size-4" />
         </Button>
       )}
-      <ArtifactTypeIcon kind={artifact.kind} />
+      <TaskArtifactTypeIcon item={artifact} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{artifact.displayName}</p>
         <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
@@ -91,13 +89,6 @@ export function TaskArtifactPreviewHeader({
       />
     </header>
   )
-}
-
-function ArtifactTypeIcon({ kind }: { kind: TaskArtifactInfo["kind"] }) {
-  const className = "size-4 shrink-0 text-muted-foreground"
-  if (kind === "directory") return <Folder className={className} />
-  if (kind === "url") return <Link className={className} />
-  return <PanelsTopLeft className={className} />
 }
 
 function ArtifactHeaderActions({

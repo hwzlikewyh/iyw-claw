@@ -1,39 +1,18 @@
 "use client"
 
 import { type ReactNode, useState } from "react"
-import {
-  AlertCircle,
-  File,
-  FileArchive,
-  FileCode2,
-  FileImage,
-  FileSpreadsheet,
-  FileText,
-  Folder,
-  Link,
-  PackageOpen,
-} from "lucide-react"
+import { AlertCircle, PackageOpen } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { TaskArtifactDialog } from "@/components/layout/task-artifact-dialog"
+import { TaskArtifactTypeIcon } from "@/components/layout/task-artifact-type-icon"
+import { artifactVisualKind } from "@/components/layout/task-artifact-type"
 import { Button } from "@/components/ui/button"
-import { isImageFile, languageFromPath } from "@/lib/language-detect"
 import type { TaskArtifactInfo } from "@/lib/api"
 
 import { CurrentReplyArtifactsDialog } from "./current-reply-artifacts-dialog"
 
 const VISIBLE_ARTIFACT_COUNT = 4
-const ARCHIVE_EXTENSIONS = new Set(["zip", "rar", "7z", "tar", "gz", "bz2"])
-const SPREADSHEET_EXTENSIONS = new Set(["xls", "xlsx", "csv", "tsv"])
-const DOCUMENT_EXTENSIONS = new Set([
-  "txt",
-  "md",
-  "pdf",
-  "doc",
-  "docx",
-  "ppt",
-  "pptx",
-])
 
 export function CurrentReplyArtifactsPanel({
   items,
@@ -157,7 +136,7 @@ function ArtifactTile({
       className="flex min-h-16 min-w-0 items-center gap-2 rounded-md border bg-card/40 px-3 py-2 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       onClick={() => onSelect(item)}
     >
-      <ArtifactTypeIcon item={item} />
+      <TaskArtifactTypeIcon item={item} size="md" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">
           {item.displayName}
@@ -179,43 +158,38 @@ function ArtifactTile({
   )
 }
 
-function ArtifactTypeIcon({ item }: { item: TaskArtifactInfo }) {
-  const className = "size-5 shrink-0 text-muted-foreground"
-  if (item.kind === "directory") return <Folder className={className} />
-  if (item.kind === "url") return <Link className={className} />
-  if (isImageFile(item.path)) return <FileImage className={className} />
-  const extension = artifactExtension(item.path)
-  if (SPREADSHEET_EXTENSIONS.has(extension)) {
-    return <FileSpreadsheet className={className} />
-  }
-  if (ARCHIVE_EXTENSIONS.has(extension)) {
-    return <FileArchive className={className} />
-  }
-  if (DOCUMENT_EXTENSIONS.has(extension))
-    return <FileText className={className} />
-  if (languageFromPath(item.path) !== "plaintext") {
-    return <FileCode2 className={className} />
-  }
-  return <File className={className} />
-}
-
 function artifactType(
   item: TaskArtifactInfo,
   t: ReturnType<typeof useTranslations>
 ) {
-  if (item.kind === "directory") return t("currentReplyTypeFolder")
-  if (item.kind === "url") return t("currentReplyTypeLink")
-  if (isImageFile(item.path)) return t("currentReplyTypeImage")
-  const extension = artifactExtension(item.path)
-  if (SPREADSHEET_EXTENSIONS.has(extension)) {
-    return t("currentReplyTypeSpreadsheet")
+  switch (artifactVisualKind(item)) {
+    case "folder":
+      return t("currentReplyTypeFolder")
+    case "link":
+      return t("currentReplyTypeLink")
+    case "image":
+      return t("currentReplyTypeImage")
+    case "video":
+      return t("currentReplyTypeVideo")
+    case "audio":
+      return t("currentReplyTypeAudio")
+    case "data":
+      return t("currentReplyTypeData")
+    case "font":
+      return t("currentReplyTypeFont")
+    case "database":
+      return t("currentReplyTypeDatabase")
+    case "spreadsheet":
+      return t("currentReplyTypeSpreadsheet")
+    case "archive":
+      return t("currentReplyTypeArchive")
+    case "document":
+      return t("currentReplyTypeDocument")
+    case "code":
+      return t("currentReplyTypeCode")
+    default:
+      return t("currentReplyTypeFile")
   }
-  if (ARCHIVE_EXTENSIONS.has(extension)) return t("currentReplyTypeArchive")
-  if (DOCUMENT_EXTENSIONS.has(extension)) return t("currentReplyTypeDocument")
-  if (languageFromPath(item.path) !== "plaintext") {
-    return t("currentReplyTypeCode")
-  }
-  return t("currentReplyTypeFile")
 }
 
 function artifactStatus(
@@ -225,8 +199,4 @@ function artifactStatus(
   if (item.status === "missing") return t("fileMissing")
   if (item.status === "inaccessible") return t("fileInaccessible")
   return t("currentReplyStatusAvailable")
-}
-
-function artifactExtension(path: string): string {
-  return path.split(".").pop()?.toLowerCase() ?? ""
 }
