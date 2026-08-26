@@ -154,28 +154,15 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
       <Collapsible
         key={collapseKey}
         defaultOpen={defaultOpen}
-        className={cn(
-          "overflow-hidden rounded-lg border bg-muted/20",
-          processHasError && "border-destructive/40 bg-destructive/5"
-        )}
+        className={cn("overflow-hidden rounded-lg border bg-muted/20")}
       >
-        <CollapsibleTrigger
-          className={cn(
-            "group flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/40",
-            processHasError && "hover:bg-destructive/10"
-          )}
-        >
+        <CollapsibleTrigger className="group flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/40">
           <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=closed]:-rotate-90" />
           <ListChecks className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate font-medium">
-            {processHasError
-              ? t("processWithErrors", { count: processCount })
-              : t("processSummary", { count: processCount })}
+            {t("processSummary", { count: processCount })}
           </span>
-          <Badge
-            variant={processHasError ? "destructive" : "outline"}
-            className="shrink-0 text-[10px]"
-          >
+          <Badge variant="outline" className="shrink-0 text-[10px]">
             {t("processDetails")}
           </Badge>
         </CollapsibleTrigger>
