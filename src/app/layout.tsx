@@ -10,6 +10,7 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { toIntlLocale } from "@/lib/i18n"
 import { APPEARANCE_INIT_SCRIPT } from "@/lib/appearance-script"
 import { AppearanceProvider } from "@/components/appearance-provider"
+import { ConversationDisplayProvider } from "@/contexts/conversation-display-context"
 import { OverlayScrollbarsInit } from "@/components/overlay-scrollbars-init"
 import { ClipboardFallbackInit } from "@/components/clipboard-fallback-init"
 import { WebConnectionGuard } from "@/components/connection/web-connection-guard"
@@ -75,20 +76,22 @@ export default async function RootLayout({
               disableTransitionOnChange
             >
               <AppearanceProvider>
-                <OverlayScrollbarsInit />
-                <ClipboardFallbackInit />
-                <WebConnectionGuard />
-                <WindowResizeGrips />
-                <DevtoolsShortcut />
-                <TauriContextMenuPolicy />
-                <MainCloseDialog />
-                <Suspense fallback={null}>
-                  <DesktopRouteRestoreTracker />
-                </Suspense>
-                {/* Global tooltip context: ui/tooltip's Tooltip is a bare Radix Root,
-                    so every usage needs a Provider ancestor. Nested providers in
-                    subtrees still override delayDuration locally. */}
-                <TooltipProvider>{children}</TooltipProvider>
+                <ConversationDisplayProvider>
+                  <OverlayScrollbarsInit />
+                  <ClipboardFallbackInit />
+                  <WebConnectionGuard />
+                  <WindowResizeGrips />
+                  <DevtoolsShortcut />
+                  <TauriContextMenuPolicy />
+                  <MainCloseDialog />
+                  <Suspense fallback={null}>
+                    <DesktopRouteRestoreTracker />
+                  </Suspense>
+                  {/* Global tooltip context: ui/tooltip's Tooltip is a bare Radix Root,
+                      so every usage needs a Provider ancestor. Nested providers in
+                      subtrees still override delayDuration locally. */}
+                  <TooltipProvider>{children}</TooltipProvider>
+                </ConversationDisplayProvider>
               </AppearanceProvider>
             </ThemeProvider>
           </AppI18nProvider>

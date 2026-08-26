@@ -96,6 +96,7 @@ export const Reasoning = memo(
 
     const hasEverStreamedRef = useRef(isStreaming)
     const manuallyClosedRef = useRef(false)
+    const previousStreamingRef = useRef(isStreaming)
     const [hasAutoClosed, setHasAutoClosed] = useState(false)
     const startTimeRef = useRef<number | null>(null)
 
@@ -118,6 +119,23 @@ export const Reasoning = memo(
         manuallyClosedRef.current = false
       }
     }, [isStreaming])
+
+    // A reasoning part can stay mounted while its streaming flag changes. If
+    // it was opened during a live turn, an explicit `defaultOpen={false}` must
+    // still win when the turn settles; otherwise the old open state leaks into
+    // the completed transcript. This only runs on the streaming → settled
+    // transition, so a user can still open the completed reasoning manually.
+    useEffect(() => {
+      if (
+        previousStreamingRef.current &&
+        !isStreaming &&
+        defaultOpen === false &&
+        isOpen
+      ) {
+        setIsOpen(false)
+      }
+      previousStreamingRef.current = isStreaming
+    }, [defaultOpen, isOpen, isStreaming, setIsOpen])
 
     useEffect(() => {
       if (isStreaming && !isOpen && !isExplicitlyClosed) {
@@ -263,7 +281,7 @@ export const ReasoningContent = memo(
     return (
       <CollapsibleContent
         className={cn(
-          "mt-4 text-sm",
+          "mt-4 max-h-[min(15rem,35vh)] overflow-y-auto overscroll-contain pe-1 text-sm",
           "iyw-claw-reasoning-content text-muted-foreground outline-none",
           className
         )}

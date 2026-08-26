@@ -1,7 +1,15 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { Check, Monitor, Moon, Palette, PanelLeft, Sun } from "lucide-react"
+import {
+  Check,
+  MessageSquareMore,
+  Monitor,
+  Moon,
+  Palette,
+  PanelLeft,
+  Sun,
+} from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useTheme } from "next-themes"
 import {
@@ -13,6 +21,8 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useSidebarViewOptions } from "@/contexts/sidebar-view-options-context"
+import { useConversationDisplayPreferences } from "@/contexts/conversation-display-context"
+import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
 import { useThemeColor, useZoomLevel } from "@/hooks/use-appearance"
 import { cn } from "@/lib/utils"
 import type {
@@ -88,6 +98,14 @@ export function AppearanceSettings() {
     sectionOrder,
     setSectionOrder,
   } = useSidebarViewOptions()
+  const {
+    mode: conversationDisplayMode,
+    collapseCompletedTurn,
+    autoOpenErrors,
+    setMode: setConversationDisplayMode,
+    setCollapseCompletedTurn,
+    setAutoOpenErrors,
+  } = useConversationDisplayPreferences()
 
   const resolvedThemeLabel =
     resolvedTheme === "dark"
@@ -293,6 +311,59 @@ export function AppearanceSettings() {
                   label: t("sidebar.sectionOrderChatsFirst"),
                 },
               ]}
+            />
+          </SettingRow>
+        </SettingSectionBody>
+      </SettingSection>
+
+      {/* Conversation rendering section */}
+      <SettingSection
+        icon={MessageSquareMore}
+        title={t("conversation.sectionTitle")}
+        description={t("conversation.sectionDescription")}
+      >
+        <SettingSectionBody>
+          <SettingRow
+            title={t("conversation.displayModeTitle")}
+            description={t("conversation.displayModeDescription")}
+          >
+            <SegmentedControl<ConversationDisplayMode>
+              value={conversationDisplayMode}
+              onChange={setConversationDisplayMode}
+              options={[
+                {
+                  value: "summary",
+                  label: t("conversation.modeSummary"),
+                },
+                {
+                  value: "full",
+                  label: t("conversation.modeFull"),
+                },
+                {
+                  value: "minimal",
+                  label: t("conversation.modeMinimal"),
+                },
+              ]}
+            />
+          </SettingRow>
+          <SettingRow
+            title={t("conversation.collapseCompletedTitle")}
+            description={t("conversation.collapseCompletedDescription")}
+          >
+            <Switch
+              checked={collapseCompletedTurn}
+              onCheckedChange={setCollapseCompletedTurn}
+              aria-label={t("conversation.collapseCompletedTitle")}
+            />
+          </SettingRow>
+          <SettingRow
+            title={t("conversation.autoOpenErrorsTitle")}
+            description={t("conversation.autoOpenErrorsDescription")}
+          >
+            <Switch
+              checked={autoOpenErrors}
+              onCheckedChange={setAutoOpenErrors}
+              aria-label={t("conversation.autoOpenErrorsTitle")}
             />
           </SettingRow>
         </SettingSectionBody>

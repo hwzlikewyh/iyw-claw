@@ -3203,6 +3203,7 @@
         "processSummary": "Process · {count} items",
         "processWithErrors": "Process · {count} items · errors included",
         "processDetails": "View process",
+        "processRunning": "Working; process details are hidden in minimal mode.",
         "systemMessage": "System message",
         "copyMessage": "Copy",
         "copied": "Copied",
