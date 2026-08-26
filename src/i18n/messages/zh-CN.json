@@ -198,6 +198,19 @@
       "sectionOrderFoldersFirst": "文件夹在上",
       "sectionOrderChatsFirst": "聊天在上"
     },
+    "conversation": {
+      "sectionTitle": "对话过程",
+      "sectionDescription": "控制 Agent 思考、工具调用和完成后过程的显示方式。",
+      "displayModeTitle": "默认显示模式",
+      "displayModeDescription": "选择完成后的 Agent 过程默认展开程度。",
+      "modeSummary": "重点摘要",
+      "modeFull": "完整过程",
+      "modeMinimal": "极简结果",
+      "collapseCompletedTitle": "完成后收起整轮过程",
+      "collapseCompletedDescription": "只保留最终总结和成果，点击执行过程可查看详情。",
+      "autoOpenErrorsTitle": "失败时自动展开",
+      "autoOpenErrorsDescription": "错误、超时和拒绝默认展开，避免隐藏问题。"
+    },
     "fonts": {
       "sectionTitle": "字体",
       "sectionDescription": "为界面、代码编辑器和终端分别选择字体。内置字体按需加载；选择“自定义…”可使用系统已安装的任意字体。",
@@ -3179,6 +3192,10 @@
         "errorActionContinueContext": "带最近上下文继续",
         "errorActionContinueContextLoading": "正在准备最近上下文...",
         "emptyConversation": "当前会话暂无消息。",
+        "processSummary": "执行过程 · {count} 项",
+        "processWithErrors": "执行过程 · {count} 项 · 包含错误",
+        "processDetails": "查看过程",
+        "processRunning": "正在处理，过程已按极简模式隐藏。",
         "systemMessage": "系统消息",
         "copyMessage": "复制",
         "copied": "已复制",

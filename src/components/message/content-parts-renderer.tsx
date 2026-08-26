@@ -2413,7 +2413,11 @@ const ReasoningPart = memo(function ReasoningPart({
   const hasContent = part.content.trim().length > 0
   const expandable = hasContent || part.isStreaming
   const content = (
-    <Reasoning isStreaming={part.isStreaming} expandable={expandable}>
+    <Reasoning
+      isStreaming={part.isStreaming}
+      expandable={expandable}
+      defaultOpen={false}
+    >
       <ReasoningTrigger />
       {expandable && <ReasoningContent>{part.content}</ReasoningContent>}
     </Reasoning>
