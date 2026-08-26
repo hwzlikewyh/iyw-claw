@@ -21,6 +21,7 @@ pub struct AppState {
     pub plugin_registry: crate::plugin_runtime::registry::PluginRegistry,
     pub plugin_supervisor: Arc<crate::plugin_runtime::supervisor::PluginRuntimeSupervisor>,
     pub plugin_router: crate::plugin_runtime::router::PluginRouter,
+    pub plugin_apps: crate::plugin_runtime::app_host::PluginAppRegistry,
     pub connection_manager: ConnectionManager,
     pub terminal_manager: TerminalManager,
     pub event_broadcaster: Arc<WebEventBroadcaster>,

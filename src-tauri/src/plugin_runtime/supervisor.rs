@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::mcp_client::PluginMcpClient;
 use super::types::{PluginInvokeError, PluginInvokeResult, RuntimeKey, RuntimeLaunchSpec};
+use rmcp::model::ReadResourceResult;
 
 const MAX_GLOBAL_CALLS: usize = 32;
 const MAX_INSTANCE_CALLS: usize = 4;
@@ -96,6 +97,33 @@ impl PluginRuntimeSupervisor {
         state.quarantined = false;
         state.consecutive_failures = 0;
         true
+    }
+
+    pub async fn read_resource(
+        &self,
+        spec: RuntimeLaunchSpec,
+        uri: String,
+        cancellation: CancellationToken,
+        authority_cancellation: CancellationToken,
+    ) -> Result<ReadResourceResult, PluginInvokeError> {
+        self.ensure_accepting(&cancellation, &authority_cancellation)?;
+        let instance = self.ensure_instance(&spec).await?;
+        let permits = super::lease::acquire(&self.inner.global_calls, &instance).await?;
+        self.ensure_accepting(&cancellation, &authority_cancellation)?;
+        let result = tokio::select! {
+            _ = cancellation.cancelled() => Err(PluginInvokeError::after_dispatch(
+                "plugin_resource_cancelled", "Plugin resource read was cancelled",
+            )),
+            _ = authority_cancellation.cancelled() => Err(PluginInvokeError::after_dispatch(
+                "plugin_authority_revoked", "Plugin authority was revoked",
+            )),
+            result = tokio::time::timeout(CALL_TIMEOUT, instance.client.read_resource(uri)) =>
+                result.map_err(|_| PluginInvokeError::after_dispatch(
+                    "plugin_resource_timeout", "Plugin resource read timed out",
+                ))?,
+        };
+        drop(permits);
+        result
     }
 
     pub async fn shutdown(&self) {

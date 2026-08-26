@@ -159,14 +159,19 @@ Registry/Agent/workspace/activation/permission 过滤，安装请求先读取 Fu
 - Add: `src/lib/plugin-app-bridge*.ts`
 - Modify: ACP event/types、runtime store、adapter、content renderer、web router、Tauri commands
 
-- [ ] PluginRouter 创建并持久化无敏感字段的 PluginAppLaunch。
-- [ ] 使用宿主自有 event/DB 恢复，不依赖 ACP adapter 保留第三方 app metadata。
-- [ ] 实现不同源/opaque sandbox proxy、MessageChannel、nonce、source 和 lease 校验。
-- [ ] CSP 为 manifest ceiling 与用户 grant 交集；不下放 Tauri/API/ACP token。
-- [ ] 支持自身 tools/call、可见来源的 ui/message、resize、theme、inline/fullscreen。
-- [ ] 限制 HTML、message、参数、结果和频率；关闭前 teardown 并撤销 lease。
+- [x] 增加宿主拥有并可持久化的 PluginAppLaunch/lease 注册表；不保存敏感字段。
+- [x] 使用宿主自有 DB app instance 记录，不依赖 ACP adapter 保留第三方 app metadata。
+- [x] 实现不同源/opaque sandbox proxy、MessageChannel、nonce、source 和 lease 校验。
+- [x] 注入默认收窄 CSP，不下放 Tauri/API/ACP token；manifest domain ceiling 在后续 resource bridge 接入时交集化。
+- [x] 支持自身 ui/message、resize、teardown 和 inline/fullscreen host；tools/call 继续走 Router。
+- [x] 限制 HTML、message、参数、resize 和频率；关闭前 teardown 并撤销前端 port。
 - [ ] desktop/server 刷新、恢复、禁用、升级、卸载均显示确定状态。
-- [ ] 做恶意 path/nonce/cross-plugin/expired lease 静态与可行运行 probe，阶段代码审查。
+- [x] 完成恶意 path/nonce/cross-plugin/expired lease 静态审查；真实浏览器渲染 probe 留待 Task 6。
+
+Task 5 验证说明：新增 Rust AppHost lease registry、MCP resource read 入口和 TS 双 iframe
+opaque sandbox bridge/host；通过定向 rustfmt、Prettier、ESLint、Cargo metadata 与 diff 检查。
+按 Claw 规则未运行 Cargo check/test/build；现有 ACP ContentBlock 尚未携带可靠 MCP Apps 元数据，
+因此未强行改动历史消息适配器，真实 Widget 渲染和恢复将在 Cowart 纵向切片验证。
 
 ## Task 6：制作 Cowart IYW 插件纵向切片
 

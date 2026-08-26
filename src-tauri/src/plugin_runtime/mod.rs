@@ -1,4 +1,5 @@
 pub mod global;
+pub mod app_host;
 mod lease;
 mod mcp_client;
 mod process;

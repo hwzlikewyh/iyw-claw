@@ -390,6 +390,7 @@ async fn async_main() -> ExitCode {
         plugin_supervisor.clone(),
     );
     let plugin_router = iyw_claw_lib::plugin_runtime::global::install_router(plugin_router);
+    let plugin_apps = iyw_claw_lib::plugin_runtime::app_host::PluginAppRegistry::default();
     connection_manager.install_capability_policy(capability_policy.clone());
     let state = Arc::new(AppState {
         db,
@@ -399,6 +400,7 @@ async fn async_main() -> ExitCode {
         plugin_registry,
         plugin_supervisor,
         plugin_router,
+        plugin_apps,
         connection_manager,
         terminal_manager: iyw_claw_lib::app_state::default_terminal_manager(),
         event_broadcaster: broadcaster,

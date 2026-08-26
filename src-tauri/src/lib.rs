@@ -557,9 +557,11 @@ mod tauri_app {
                     plugin_supervisor.clone(),
                 );
                 let plugin_router = crate::plugin_runtime::global::install_router(plugin_router);
+                let plugin_apps = crate::plugin_runtime::app_host::PluginAppRegistry::default();
                 app.manage(plugin_registry);
                 app.manage(plugin_supervisor);
                 app.manage(plugin_router);
+                app.manage(plugin_apps);
                 let catalog = tauri::async_runtime::block_on(
                     crate::acp::version_center::CatalogStore::load(
                         &app.state::<db::AppDatabase>().conn,

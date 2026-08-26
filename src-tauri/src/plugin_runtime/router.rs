@@ -9,6 +9,8 @@ use super::types::{
     ExpectedTool, PluginInvokeError, PluginInvokeResult, PluginToolCall, RuntimeKey,
     RuntimeLaunchSpec,
 };
+use rmcp::model::ReadResourceResult;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
 pub struct PluginRouter {
@@ -50,6 +52,62 @@ impl PluginRouter {
                 call.arguments,
                 call.context.cancellation,
                 call.context.authority_cancellation,
+            )
+            .await
+    }
+
+    pub async fn read_app_resource(
+        &self,
+        plugin_slug: &str,
+        app_key: &str,
+        workspace_key: String,
+        workspace_dir: PathBuf,
+        agent_type: crate::models::AgentType,
+        permission_revision: String,
+        cancellation: CancellationToken,
+        authority_cancellation: CancellationToken,
+    ) -> Result<ReadResourceResult, PluginInvokeError> {
+        let snapshot = self.registry.snapshot();
+        let plugin = snapshot
+            .plugins
+            .get(plugin_slug)
+            .filter(|plugin| plugin.available)
+            .ok_or_else(|| unavailable("Plugin is not available"))?;
+        if permission_revision != plugin.permissions_digest {
+            return Err(unavailable("Plugin permission revision changed"));
+        }
+        let app = component_config(plugin, "app", app_key)?;
+        let connector = app["connectorKey"]
+            .as_str()
+            .ok_or_else(|| unavailable("Plugin app connector is missing"))?;
+        validate_activation(plugin, connector, &workspace_key, agent_type)?;
+        let call = PluginToolCall {
+            context: super::types::PluginCallContext {
+                plugin_slug: plugin_slug.to_string(),
+                capability_id: app["capabilityKey"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+                workspace_key: workspace_key.clone(),
+                workspace_dir,
+                agent_type,
+                host_gateway_supported: true,
+                cancellation: cancellation.clone(),
+                authority_cancellation: authority_cancellation.clone(),
+                permission_revision: permission_revision.clone(),
+            },
+            arguments: serde_json::Map::new(),
+        };
+        let spec = launch_spec(plugin, connector, &call)?;
+        self.supervisor
+            .read_resource(
+                spec,
+                app["resourceUri"]
+                    .as_str()
+                    .ok_or_else(|| unavailable("Plugin app resource URI is missing"))?
+                    .to_string(),
+                cancellation,
+                authority_cancellation,
             )
             .await
     }

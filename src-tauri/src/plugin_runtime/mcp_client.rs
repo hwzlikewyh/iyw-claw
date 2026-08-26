@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rmcp::model::{CallToolRequestParams, CallToolResult};
+use rmcp::model::{
+    CallToolRequestParams, CallToolResult, ReadResourceRequestParams, ReadResourceResult,
+};
 use rmcp::service::{Peer, RoleClient, RunningService};
 use tokio::io::AsyncReadExt;
 use tokio::process::Child;
@@ -97,6 +99,18 @@ impl PluginMcpClient {
             .await
             .map_err(|error| {
                 PluginInvokeError::after_dispatch("plugin_call_failed", error.to_string())
+            })
+    }
+
+    pub async fn read_resource(
+        &self,
+        uri: String,
+    ) -> Result<ReadResourceResult, PluginInvokeError> {
+        self.peer
+            .read_resource(ReadResourceRequestParams::new(uri))
+            .await
+            .map_err(|error| {
+                PluginInvokeError::after_dispatch("plugin_resource_read_failed", error.to_string())
             })
     }
 
