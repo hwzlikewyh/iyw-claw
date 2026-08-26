@@ -37,11 +37,11 @@ SessionAuthority 路由，Supervisor 管理 stdio MCP，AppHost 管理隔离 Wid
 - Add: 本计划文件
 - Read only: Claw/Fusion 当前指导文件、插件/MCP/Skill Watcher/签名实现
 
-- [ ] 合并当前 Claw `main`，确认设计 worktree 除设计文档外干净。
-- [ ] 创建 Fusion 独立分支 `feat/plugin-runtime-architecture` 和独立 worktree。
-- [ ] 记录两仓 HEAD、status、已有 v1 parser、DB 表、install-plan、签名器和回滚入口。
-- [ ] 确认 central Skill Watcher 使用 shared mutation guard，后续不新增第二套文件 watcher。
-- [ ] 提交本实施计划，验证每份计划/设计文件不超过 300 行。
+- [x] 合并当前 Claw `main`，确认设计 worktree 除设计文档外干净。
+- [x] 创建 Fusion 独立分支 `feat/plugin-runtime-architecture` 和独立 worktree。
+- [x] 记录两仓 HEAD、status、已有 v1 parser、DB 表、install-plan、签名器和回滚入口。
+- [x] 确认 central Skill Watcher 使用 shared mutation guard，后续不新增第二套文件 watcher。
+- [x] 提交本实施计划，验证每份计划/设计文件不超过 300 行。
 
 ## Task 1：建立 v2 manifest 与专用签名 contract
 
@@ -62,16 +62,20 @@ SessionAuthority 路由，Supervisor 管理 stdio MCP，AppHost 管理隔离 Wid
 - Modify: `plugin_manifest.rs`, `plugin_components.rs`, `types.rs`
 - Add: `src-tauri/src/commands/skill_market/plugin_signature.rs`
 
-- [ ] 定义显式 v1/v2 domain 类型；v2 `.iyw-plugin.json` 为权威清单，native manifest 可选。
-- [ ] 增加严格 typed runtime/connector/capability/app/permission/activation/routing 结构。
-- [ ] capability stable ID、schema 文件、entrypoint、resource URI 和组件引用全量校验。
-- [ ] Fusion 组件表增加 `component_config_json`，保留旧列和旧读取路径。
-- [ ] install-plan/download metadata 增加 plugin signature、key id、manifest digest。
-- [ ] 使用独立 `PLUGIN_RELEASE_PUBLIC_KEY`/签名配置，不复用 App/Agent/Tool 密钥。
-- [ ] Claw 先校验 size/hash，再校验签名和 canonical manifest；无效时 fail closed。
-- [ ] v1 fixture 行为不变；v2 被旧客户端明确判为 incompatible。
-- [ ] 运行 Fusion plugin/domain/mysql tests、`go test ./...`、`go build ./...`、OpenAPI parse。
-- [ ] 运行 Claw rustfmt/JSON 静态检查和 `git diff --check`，请求一次阶段代码审查。
+- [x] 定义显式 v1/v2 domain 类型；v2 `.iyw-plugin.json` 为权威清单，首版仅允许 HostGateway 并拒绝 native manifest。
+- [x] 增加严格 typed runtime/connector/capability/app/permission/activation/routing 结构。
+- [x] capability stable ID、schema 文件、entrypoint、resource URI 和组件引用全量校验。
+- [x] Fusion 组件表增加 `component_config_json`，保留旧列和旧读取路径。
+- [x] install-plan/download metadata 增加 artifact size、plugin signature、key id、manifest digest。
+- [x] 使用独立插件公私钥与签名配置，不复用 App/Agent/Tool 密钥。
+- [x] Claw 先校验 size/hash，再校验签名和 canonical manifest；无效时 fail closed。
+- [x] v1 fixture 行为不变；v2 被旧客户端明确判为 incompatible。
+- [x] 运行 Fusion plugin/domain/mysql tests、`go test ./...`、`go build ./...`、OpenAPI parse。
+- [x] 运行 Claw rustfmt/JSON/YAML/ESLint 静态检查和 `git diff --check`，完成阶段代码审查。
+
+Task 1 验证说明：Fusion 聚焦测试、OpenAPI parse 和 build 通过；全量 `go test ./...` 已执行，
+仅命中未由本分支修改的 migration 045 既有字符串断言失败。Claw 按仓库规则未运行 Cargo
+test/check/build，已完成 rustfmt、Cargo metadata、Prettier、ESLint、JSON/YAML 和调用链静态审查。
 
 ## Task 2：增加 PluginRegistry、激活和权限状态
 

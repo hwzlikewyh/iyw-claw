@@ -212,10 +212,16 @@ pub struct SkillMarketAddVersionRequest {
 #[serde(rename_all = "camelCase")]
 pub struct SkillDownloadInfo {
     pub version: String,
+    #[serde(default)]
+    pub artifact_size: u64,
     pub package_size: u64,
     pub content_sha256: String,
     #[serde(default, deserialize_with = "null_as_default")]
     pub object_sha256: String,
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub signature: String,
+    #[serde(default, deserialize_with = "null_as_default")]
+    pub signature_key_id: String,
 }
 
 #[derive(Debug, Deserialize)]

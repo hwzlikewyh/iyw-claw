@@ -10,21 +10,34 @@ export interface SkillPluginManifest {
   schemaVersion: number
   name: string
   version: string
-  targets: Array<"codex" | "claude_code">
+  targets: Array<"codex" | "claude_code" | "iyw-claw">
   components: SkillPluginComponent[]
   bindings: SkillPluginBinding[]
+  permissions?: SkillPluginPermissions | null
+  manifestDigest?: string | null
 }
 
 export interface SkillPluginComponent {
-  type: "skill" | "connector"
+  type: "skill" | "connector" | "runtime" | "capability" | "app"
   key: string
   path?: string
   serverKey?: string
+  config?: Record<string, unknown> | null
 }
 
 export interface SkillPluginBinding {
   skillKey: string
   connectorKey: string
+}
+
+export interface SkillPluginPermissions {
+  workspace: { read: string[]; write: string[] }
+  network: {
+    connectDomains: string[]
+    resourceDomains: string[]
+    frameDomains: string[]
+  }
+  host: Array<"send-message" | "clipboard-write" | "open-link">
 }
 
 export interface SkillDependency {

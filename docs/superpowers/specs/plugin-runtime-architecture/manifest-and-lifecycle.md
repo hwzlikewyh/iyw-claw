@@ -4,8 +4,9 @@
 
 ## 7. 插件清单 v2
 
-`.iyw-plugin.json` 成为 v2 的权威清单。Codex/Claude native manifest 改为可选导出：只有
-组件声明 `routing.mode = native_agent` 时才要求相应 native manifest 并校验身份。
+`.iyw-plugin.json` 成为 v2 的权威清单。首版只开放 `host_gateway`，并拒绝 Codex/Claude
+native manifest 与 `.mcp.json`，避免提前落入 legacy MCP 投影。Task 7 开放 `native_agent`
+后，native manifest 才作为可选导出；只有组件声明该模式时才要求并校验身份。
 
 示例：
 

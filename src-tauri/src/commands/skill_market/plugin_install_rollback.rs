@@ -23,19 +23,25 @@ pub(super) async fn rollback_plugin_state(
         }
     }
     rollback_storage(storage);
-    let _ = crate::commands::mcp_sync::reconcile_all_managed_mcp_unlocked(conn).await;
+    if !mutations.is_empty() {
+        let _ = crate::commands::mcp_sync::reconcile_all_managed_mcp_unlocked(conn).await;
+    }
 }
 
 pub(super) async fn rollback_uninstall(
     conn: &DatabaseConnection,
     record: &PluginInstallationRecord,
-    mutation: &PluginCatalogMutation,
+    mutation: Option<&PluginCatalogMutation>,
     removal: &mut PluginStorageRemoval,
 ) {
     restore_record(conn, record.installation.market_skill_id, Some(record)).await;
-    let _ = crate::commands::mcp_catalog_sources::restore_catalog_unlocked(conn, mutation).await;
+    if let Some(value) = mutation {
+        let _ = crate::commands::mcp_catalog_sources::restore_catalog_unlocked(conn, value).await;
+    }
     removal.rollback();
-    let _ = crate::commands::mcp_sync::reconcile_all_managed_mcp_unlocked(conn).await;
+    if mutation.is_some() {
+        let _ = crate::commands::mcp_sync::reconcile_all_managed_mcp_unlocked(conn).await;
+    }
 }
 
 async fn restore_record(

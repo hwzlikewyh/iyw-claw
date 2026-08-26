@@ -1,8 +1,10 @@
+use sea_orm::DatabaseConnection;
 use serde_json::Value;
 
 use crate::app_error::AppCommandError;
 use crate::commands::mcp_catalog_sources::{
-    missing_template_config, ManagedMcpCatalogSource, PluginConnectorRegistration,
+    missing_template_config, ManagedMcpCatalogSource, PluginCatalogMutation,
+    PluginConnectorRegistration,
 };
 use crate::db::service::plugin_installation_service::{
     PluginComponentInput, PluginInstallationInput, PluginInstallationRecord,
@@ -11,11 +13,15 @@ use crate::models::AgentType;
 
 use super::plugin_install_context::PreparedPluginInstall;
 use super::plugin_storage::PluginStorageTransaction;
+use super::plugin_types::SkillPluginManifest;
 
 pub(super) fn connector_registrations(
     plugin: &PreparedPluginInstall,
     owner_id: &str,
 ) -> Result<Vec<PluginConnectorRegistration>, AppCommandError> {
+    if plugin.plugin.manifest.schema_version >= 2 {
+        return Ok(Vec::new());
+    }
     let mut result = Vec::new();
     for component in &plugin.plugin.manifest.components {
         if component.kind != "connector" {
@@ -44,6 +50,54 @@ pub(super) fn connector_registrations(
         });
     }
     Ok(result)
+}
+
+pub(super) fn needs_legacy_catalog(
+    plugin: &PreparedPluginInstall,
+    previous: Option<&PluginInstallationRecord>,
+) -> bool {
+    plugin.plugin.manifest.schema_version < 2
+        || previous.is_some_and(installation_uses_legacy_catalog)
+}
+
+pub(super) fn installation_uses_legacy_catalog(record: &PluginInstallationRecord) -> bool {
+    serde_json::from_str::<SkillPluginManifest>(&record.installation.manifest_json)
+        .map_or(true, |manifest| manifest.schema_version < 2)
+}
+
+pub(super) async fn lock_legacy_catalog(
+    required: bool,
+) -> Option<tokio::sync::MutexGuard<'static, ()>> {
+    if required {
+        Some(crate::commands::mcp_catalog::lock_operation().await)
+    } else {
+        None
+    }
+}
+
+pub(super) async fn lock_legacy_catalog_for_plan(
+    plugins: &[PreparedPluginInstall],
+    previous: &[Option<PluginInstallationRecord>],
+) -> Option<tokio::sync::MutexGuard<'static, ()>> {
+    let required = plugins
+        .iter()
+        .zip(previous)
+        .any(|(plugin, old)| needs_legacy_catalog(plugin, old.as_ref()));
+    lock_legacy_catalog(required).await
+}
+
+pub(super) async fn replace_connectors(
+    conn: &DatabaseConnection,
+    owner_id: &str,
+    registrations: Vec<PluginConnectorRegistration>,
+) -> Result<PluginCatalogMutation, AppCommandError> {
+    crate::commands::mcp_catalog_sources::replace_plugin_connectors_unlocked(
+        conn,
+        owner_id,
+        registrations,
+        crate::commands::mcp::scan_legacy_server_specs,
+    )
+    .await
 }
 
 fn required_skill_keys(plugin: &PreparedPluginInstall, connector_key: &str) -> Vec<String> {

@@ -1,6 +1,13 @@
 "use client"
 
-import { Link2, PlugZap, Sparkles } from "lucide-react"
+import {
+  AppWindow,
+  Boxes,
+  Link2,
+  PlugZap,
+  Sparkles,
+  Wrench,
+} from "lucide-react"
 import { useTranslations } from "next-intl"
 import type {
   SkillPluginBinding,
@@ -53,18 +60,13 @@ function PluginComponentRow({
   component: SkillPluginComponent
 }) {
   const t = useTranslations("SkillMarketV2")
-  const Icon = component.type === "skill" ? Sparkles : PlugZap
-  const detail =
-    component.type === "skill"
-      ? component.path || "-"
-      : component.serverKey || "-"
-  const detailLabel =
-    component.type === "skill"
-      ? t("detail.componentPath")
-      : t("detail.componentServer")
+  const detail = component.path || component.serverKey || "-"
+  const detailLabel = component.path
+    ? t("detail.componentPath")
+    : t("detail.componentServer")
   return (
     <div className="flex min-w-0 items-start gap-3 border bg-background px-3 py-2">
-      <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+      <PluginComponentIcon type={component.type} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate text-xs font-medium">{component.key}</span>
@@ -78,6 +80,22 @@ function PluginComponentRow({
       </div>
     </div>
   )
+}
+
+function PluginComponentIcon({ type }: { type: SkillPluginComponent["type"] }) {
+  const className = "mt-0.5 size-4 shrink-0 text-muted-foreground"
+  switch (type) {
+    case "skill":
+      return <Sparkles className={className} />
+    case "connector":
+      return <PlugZap className={className} />
+    case "runtime":
+      return <Boxes className={className} />
+    case "capability":
+      return <Wrench className={className} />
+    case "app":
+      return <AppWindow className={className} />
+  }
 }
 
 function PluginBindings({ bindings }: { bindings: SkillPluginBinding[] }) {

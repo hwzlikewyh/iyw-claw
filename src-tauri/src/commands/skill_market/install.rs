@@ -10,7 +10,9 @@ use crate::commands::acp::MarketSkillInstall;
 use crate::models::AgentType;
 
 use super::client;
-use super::install_plan::{market_marker, validate_install_plan, MAX_PACKAGE_BYTES};
+use super::install_plan::{
+    market_marker, validate_downloaded_artifact_size, validate_install_plan, MAX_PACKAGE_BYTES,
+};
 use super::plugin_install_context::{MarketInstallPlanExecution, PreparedPluginInstall};
 use super::plugin_manifest::{validate_plugin_package, ValidatedPluginPackage};
 use super::types::{
@@ -47,11 +49,6 @@ pub async fn install_core(
     version: String,
     agent_types: Vec<AgentType>,
 ) -> Result<(), AppCommandError> {
-    validate_install_targets(conn, &agent_types).await?;
-    for agent_type in &agent_types {
-        crate::commands::agent_storage::ensure_active_agent_profile_layout(conn, *agent_type)
-            .await?;
-    }
     let requested_id = parse_id(&id)?;
     let requested_version = semver::Version::parse(version.trim())
         .map_err(|error| {
@@ -60,6 +57,7 @@ pub async fn install_core(
         .to_string();
     let plan = request_install_plan(conn, requested_id, &requested_version).await?;
     validate_install_plan(&plan, requested_id, &requested_version)?;
+    let agent_types = validated_agent_targets_for_plan(conn, &plan, agent_types).await?;
     let root_slug = plan.root_slug.clone();
     let package_count = plan.items.len();
     let mut installs = Vec::with_capacity(package_count);
@@ -71,6 +69,7 @@ pub async fn install_core(
             tracing::error!(skill_id = %skill_id, slug = %item.slug, version = %item_version, error = %error, "[skill-market] package download failed");
             error
         })?;
+        validate_downloaded_artifact_size(&item, package_bytes.len())?;
         let object_hash = crate::acp::skill_package::hash_bytes(&package_bytes);
         if !item.download.object_sha256.trim().is_empty()
             && !object_hash.eq_ignore_ascii_case(&item.download.object_sha256)
@@ -84,6 +83,7 @@ pub async fn install_core(
             skill_id = %skill_id,
             version = %item_version,
             bytes = package_bytes.len(),
+            declared_artifact_size = item.download.artifact_size,
             declared_package_size = item.download.package_size,
             object_sha256_present = !item.download.object_sha256.trim().is_empty(),
             "[skill-market] package transfer completed"
@@ -125,6 +125,31 @@ pub async fn install_core(
         "[skill-market] expert package dependency closure installed"
     );
     Ok(())
+}
+
+async fn validated_agent_targets_for_plan(
+    conn: &DatabaseConnection,
+    plan: &SkillInstallPlan,
+    requested: Vec<AgentType>,
+) -> Result<Vec<AgentType>, AppCommandError> {
+    let requires_skills = plan.items.iter().any(|item| {
+        item.package_type != SkillPackageType::Plugin
+            || item.plugin.as_ref().is_some_and(|plugin| {
+                plugin
+                    .components
+                    .iter()
+                    .any(|component| component.kind == "skill")
+            })
+    });
+    if !requires_skills {
+        return Ok(Vec::new());
+    }
+    validate_install_targets(conn, &requested).await?;
+    for agent_type in &requested {
+        crate::commands::agent_storage::ensure_active_agent_profile_layout(conn, *agent_type)
+            .await?;
+    }
+    Ok(requested)
 }
 
 async fn validate_install_targets(
@@ -191,6 +216,7 @@ pub async fn revalidate_artifact_core(
     let root = plan.items.last().expect("validated non-empty install plan");
     let package_bytes =
         download_package(conn, &root.skill_id, &root.version, &root.download).await?;
+    validate_downloaded_artifact_size(root, package_bytes.len())?;
     let object_hash = crate::acp::skill_package::hash_bytes(&package_bytes);
     if !root.download.object_sha256.trim().is_empty()
         && !object_hash.eq_ignore_ascii_case(&root.download.object_sha256)
@@ -226,15 +252,18 @@ fn validate_downloaded_package(
             Ok((package, None))
         }
         SkillPackageType::Plugin => {
-            let package = crate::acp::skill_package::validate_plugin_zip(
-                bytes,
-                &item.download.content_sha256,
-            )?;
             let expected = item.plugin.as_ref().ok_or_else(|| {
                 AppCommandError::configuration_invalid(
                     "Plugin install plan is missing component metadata",
                 )
             })?;
+            if expected.schema_version == 2 {
+                super::plugin_signature::verify_v2_plugin_signature(bytes, &item.download)?;
+            }
+            let package = crate::acp::skill_package::validate_plugin_zip(
+                bytes,
+                &item.download.content_sha256,
+            )?;
             let plugin = validate_plugin_package(&package, expected, &item.slug, &item.version)?;
             Ok((package, Some(plugin)))
         }
@@ -277,7 +306,12 @@ async fn download_package(
     version: &str,
     metadata: &SkillDownloadInfo,
 ) -> Result<Vec<u8>, AppCommandError> {
-    if metadata.package_size == 0 || metadata.package_size > MAX_PACKAGE_BYTES {
+    let transfer_size = if metadata.artifact_size > 0 {
+        metadata.artifact_size
+    } else {
+        metadata.package_size
+    };
+    if transfer_size == 0 || transfer_size > MAX_PACKAGE_BYTES {
         return Err(AppCommandError::invalid_input(
             "Skill package size is outside the allowed range",
         ));

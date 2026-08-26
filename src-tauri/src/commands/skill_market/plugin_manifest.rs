@@ -14,7 +14,7 @@ use super::plugin_types::SkillPluginManifest;
 
 pub(super) const CODEX_MANIFEST: &str = ".codex-plugin/plugin.json";
 const CLAUDE_MANIFEST: &str = ".claude-plugin/plugin.json";
-const IYW_MANIFEST: &str = ".iyw-plugin.json";
+pub(super) const IYW_MANIFEST: &str = ".iyw-plugin.json";
 const MCP_MANIFEST: &str = ".mcp.json";
 pub(super) const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 
@@ -31,17 +31,17 @@ pub(super) struct NativeManifest {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct PortableManifest {
+pub(super) struct PortableManifestV1 {
     pub(super) schema_version: u32,
     pub(super) name: String,
     pub(super) version: String,
     pub(super) targets: Vec<String>,
-    pub(super) components: PortableComponents,
+    pub(super) components: PortableComponentsV1,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct PortableComponents {
+pub(super) struct PortableComponentsV1 {
     #[serde(default)]
     pub(super) skills: Vec<PortableSkill>,
     #[serde(default)]
@@ -69,6 +69,12 @@ pub(super) struct PortableConnector {
 struct McpManifest {
     #[serde(default)]
     mcp_servers: BTreeMap<String, serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginManifestHeader {
+    schema_version: u32,
 }
 
 pub(super) struct ValidatedPluginPackage {
@@ -101,6 +107,9 @@ pub(super) fn validate_plugin_summary(
     slug: &str,
     version: &str,
 ) -> Result<(), AppCommandError> {
+    if manifest.schema_version == 2 {
+        return super::plugin_manifest_v2::validate_summary_v2(manifest, slug, version);
+    }
     if manifest.schema_version != 1
         || manifest.name != slug
         || manifest.version != version
@@ -118,9 +127,19 @@ fn parse_plugin_package(
     slug: &str,
     version: &str,
 ) -> Result<SkillPluginManifest, AppCommandError> {
+    let header: PluginManifestHeader = parse_document(files, IYW_MANIFEST)?;
+    if header.schema_version == 2 {
+        return super::plugin_manifest_v2::parse_plugin_package_v2(files, slug, version);
+    }
+    if header.schema_version != 1 {
+        return Err(invalid_plugin(format!(
+            "Unsupported plugin schemaVersion {}",
+            header.schema_version
+        )));
+    }
     let codex: NativeManifest = parse_document(files, CODEX_MANIFEST)?;
     let claude: NativeManifest = parse_document(files, CLAUDE_MANIFEST)?;
-    let portable: PortableManifest = parse_document(files, IYW_MANIFEST)?;
+    let portable: PortableManifestV1 = parse_document(files, IYW_MANIFEST)?;
     validate_identity(&codex, &claude, &portable, slug, version)?;
     let servers = parse_mcp_servers(files, &codex)?;
     build_manifest(files, portable, servers.keys().cloned().collect())
@@ -129,7 +148,7 @@ fn parse_plugin_package(
 fn validate_identity(
     codex: &NativeManifest,
     claude: &NativeManifest,
-    portable: &PortableManifest,
+    portable: &PortableManifestV1,
     slug: &str,
     version: &str,
 ) -> Result<(), AppCommandError> {
@@ -195,7 +214,7 @@ pub(super) fn parse_document<T: DeserializeOwned>(
         .map_err(|error| invalid_plugin(format!("Invalid {path}")).with_detail(error.to_string()))
 }
 
-fn find_file<'a>(files: &'a [PackageFile], path: &str) -> Option<&'a [u8]> {
+pub(super) fn find_file<'a>(files: &'a [PackageFile], path: &str) -> Option<&'a [u8]> {
     files
         .iter()
         .find(|file| file.path == Path::new(path))

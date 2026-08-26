@@ -2,12 +2,16 @@ use sea_orm::DatabaseConnection;
 
 use crate::app_error::AppCommandError;
 use crate::commands::acp::MarketSkillInstall;
-use crate::commands::mcp_catalog_sources::{PluginCatalogMutation, PluginConnectorRegistration};
+use crate::commands::mcp_catalog_sources::PluginCatalogMutation;
 use crate::db::service::plugin_installation_service::{self, PluginInstallationRecord};
 use crate::models::AgentType;
 
 use super::plugin_install_context::{MarketInstallPlanExecution, PreparedPluginInstall};
-use super::plugin_install_data::{connector_registrations, installation_input, plugin_owner_id};
+use super::plugin_install_data::{
+    connector_registrations, installation_input, installation_uses_legacy_catalog,
+    lock_legacy_catalog, lock_legacy_catalog_for_plan, needs_legacy_catalog, plugin_owner_id,
+    replace_connectors,
+};
 use super::plugin_install_rollback::{rollback_plugin_state, rollback_storage, rollback_uninstall};
 use super::plugin_storage::{PluginStorageRemoval, PluginStorageTransaction};
 
@@ -43,7 +47,7 @@ pub(super) async fn install_market_plan(
         return install_skills(agent_types, root_skill_id, skill_installs);
     }
     let (mut storage, previous) = stage_storage_with_previous(conn, &plugins).await?;
-    let _catalog_guard = crate::commands::mcp_catalog::lock_operation().await;
+    let _catalog_guard = lock_legacy_catalog_for_plan(&plugins, &previous).await;
     if let Err(error) = commit_storage(&mut storage, &plugins) {
         rollback_storage(&mut storage);
         return Err(error);
@@ -130,20 +134,25 @@ pub(super) async fn uninstall_plugin(
     );
     let mut removal = PluginStorageRemoval::stage(&previous.installation.slug)?;
     let owner_id = plugin_owner_id(market_skill_id);
-    let _catalog_guard = crate::commands::mcp_catalog::lock_operation().await;
-    let mutation = match replace_connectors(conn, &owner_id, Vec::new()).await {
-        Ok(mutation) => mutation,
-        Err(error) => {
-            removal.rollback();
-            return Err(error);
+    let uses_catalog = installation_uses_legacy_catalog(&previous);
+    let _catalog_guard = lock_legacy_catalog(uses_catalog).await;
+    let mutation = if uses_catalog {
+        match replace_connectors(conn, &owner_id, Vec::new()).await {
+            Ok(value) => Some(value),
+            Err(error) => {
+                removal.rollback();
+                return Err(error);
+            }
         }
+    } else {
+        None
     };
-    if let Err(error) = delete_plugin_state(conn, market_skill_id, &mutation).await {
-        rollback_uninstall(conn, &previous, &mutation, &mut removal).await;
+    if let Err(error) = delete_plugin_state(conn, market_skill_id, mutation.as_ref()).await {
+        rollback_uninstall(conn, &previous, mutation.as_ref(), &mut removal).await;
         return Err(error);
     }
     if let Err(error) = crate::commands::acp::uninstall_market_skill_by_id(market_skill_id) {
-        rollback_uninstall(conn, &previous, &mutation, &mut removal).await;
+        rollback_uninstall(conn, &previous, mutation.as_ref(), &mut removal).await;
         return Err(map_skill_error(error));
     }
     removal.finish();
@@ -228,13 +237,15 @@ async fn commit_plugin_state(
         .zip(context.storage)
         .zip(context.previous)
     {
-        let owner_id = plugin_owner_id(plugin.market_skill_id);
-        let registrations = connector_registrations(plugin, &owner_id)?;
-        let mutation = replace_connectors(context.conn, &owner_id, registrations).await?;
-        let requires_reconcile = mutation.requires_reconcile;
-        progress.catalog_mutations.push(mutation);
-        if requires_reconcile {
-            crate::commands::mcp_sync::reconcile_all_managed_mcp_unlocked(context.conn).await?;
+        if needs_legacy_catalog(plugin, old.as_ref()) {
+            let owner_id = plugin_owner_id(plugin.market_skill_id);
+            let registrations = connector_registrations(plugin, &owner_id)?;
+            let mutation = replace_connectors(context.conn, &owner_id, registrations).await?;
+            let requires_reconcile = mutation.requires_reconcile;
+            progress.catalog_mutations.push(mutation);
+            if requires_reconcile {
+                crate::commands::mcp_sync::reconcile_all_managed_mcp_unlocked(context.conn).await?;
+            }
         }
         progress
             .saved_records
@@ -253,20 +264,6 @@ async fn commit_plugin_state(
     Ok(())
 }
 
-async fn replace_connectors(
-    conn: &DatabaseConnection,
-    owner_id: &str,
-    registrations: Vec<PluginConnectorRegistration>,
-) -> Result<PluginCatalogMutation, AppCommandError> {
-    crate::commands::mcp_catalog_sources::replace_plugin_connectors_unlocked(
-        conn,
-        owner_id,
-        registrations,
-        crate::commands::mcp::scan_legacy_server_specs,
-    )
-    .await
-}
-
 fn install_skills(
     agent_types: &[AgentType],
     root_skill_id: i64,
@@ -283,12 +280,12 @@ fn install_skills(
 async fn delete_plugin_state(
     conn: &DatabaseConnection,
     market_skill_id: i64,
-    mutation: &PluginCatalogMutation,
+    mutation: Option<&PluginCatalogMutation>,
 ) -> Result<(), AppCommandError> {
     plugin_installation_service::delete_by_market_skill_id(conn, market_skill_id)
         .await
         .map_err(AppCommandError::db)?;
-    if mutation.requires_reconcile {
+    if mutation.is_some_and(|value| value.requires_reconcile) {
         crate::commands::mcp_sync::reconcile_all_managed_mcp_unlocked(conn).await?;
     }
     Ok(())

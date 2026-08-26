@@ -5439,7 +5439,10 @@
       "noPluginComponents": "此包不包含可移植插件组件。",
       "componentType": {
         "skill": "技能",
-        "connector": "连接器"
+        "connector": "连接器",
+        "runtime": "本地运行时",
+        "capability": "能力",
+        "app": "交互应用"
       },
       "componentPath": "路径",
       "componentServer": "Server ID",

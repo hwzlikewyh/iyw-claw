@@ -5457,7 +5457,10 @@
       "noPluginComponents": "This package has no portable plugin components.",
       "componentType": {
         "skill": "Skill",
-        "connector": "Connector"
+        "connector": "Connector",
+        "runtime": "Local runtime",
+        "capability": "Capability",
+        "app": "Interactive app"
       },
       "componentPath": "Path",
       "componentServer": "Server ID",

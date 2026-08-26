@@ -35,6 +35,8 @@ on:
 env:
   RUST_BACKTRACE: short
   HUSKY: 0
+  IYW_PLUGIN_RELEASE_PUBLIC_KEY: ${{ vars.IYW_PLUGIN_RELEASE_PUBLIC_KEY }}
+  IYW_PLUGIN_RELEASE_PUBLIC_KEY_ID: ${{ vars.IYW_PLUGIN_RELEASE_PUBLIC_KEY_ID }}
 
 jobs:
   build:
@@ -60,6 +62,18 @@ jobs:
         with:
           ref: ${{ inputs.source_ref || inputs.release_tag }}
           fetch-depth: 0
+
+      - name: Verify plugin release trust root
+        shell: bash
+        run: |
+          test -n "${IYW_PLUGIN_RELEASE_PUBLIC_KEY:-}" || {
+            echo "::error::Repository variable IYW_PLUGIN_RELEASE_PUBLIC_KEY is required"
+            exit 1
+          }
+          test -n "${IYW_PLUGIN_RELEASE_PUBLIC_KEY_ID:-}" || {
+            echo "::error::Repository variable IYW_PLUGIN_RELEASE_PUBLIC_KEY_ID is required"
+            exit 1
+          }
 
       - name: Checkout release tooling
         uses: actions/checkout@v4

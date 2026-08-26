@@ -35,6 +35,8 @@ env:
   RUST_BACKTRACE: short
   TEST_VERSION: ${{ inputs.version }}
   SOURCE_REF: ${{ inputs.source_ref }}
+  IYW_PLUGIN_RELEASE_PUBLIC_KEY: ${{ vars.IYW_PLUGIN_RELEASE_PUBLIC_KEY }}
+  IYW_PLUGIN_RELEASE_PUBLIC_KEY_ID: ${{ vars.IYW_PLUGIN_RELEASE_PUBLIC_KEY_ID }}
 
 jobs:
   prepare-frontend:
@@ -46,6 +48,18 @@ jobs:
         with:
           ref: ${{ inputs.source_ref }}
           fetch-depth: 1
+
+      - name: Verify plugin release trust root
+        shell: bash
+        run: |
+          test -n "${IYW_PLUGIN_RELEASE_PUBLIC_KEY:-}" || {
+            echo "::error::Repository variable IYW_PLUGIN_RELEASE_PUBLIC_KEY is required"
+            exit 1
+          }
+          test -n "${IYW_PLUGIN_RELEASE_PUBLIC_KEY_ID:-}" || {
+            echo "::error::Repository variable IYW_PLUGIN_RELEASE_PUBLIC_KEY_ID is required"
+            exit 1
+          }
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
