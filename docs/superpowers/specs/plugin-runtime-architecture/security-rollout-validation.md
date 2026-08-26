@@ -80,6 +80,7 @@ OS sandbox 或独立容器方案完成后再开放。
 - 固定一个 v1 Skill-only、v1 Skill+Connector 和 Cowart v2 fixture；
 - 记录现有 install/upgrade/uninstall、catalog 和 Agent config 前后状态；
 - 记录桌面/server 的 BuiltinMcpService 与 ToolCall event 基线。
+- 记录 central Skill Watcher 与安装写入并发时的 shared mutation guard 和 reconcile 次序。
 
 后果：无产品行为变化。若无法建立基线，不进入 schema 修改。
 
@@ -111,6 +112,7 @@ OS sandbox 或独立容器方案完成后再开放。
 - 启动恢复能识别完整、缺指针、残留 staging、残留 trash 和 DB/目录不一致；
 - 插件程序、plugin-data、workspace 成果删除范围分别验证；
 - registry snapshot 更新不持有 DB transaction 跨 await。
+- central Skill Watcher 不得观察或发布插件安装的中间状态，重复 reconcile 保持幂等。
 
 ### 阶段 3：Supervisor 与 Router，仅接 Cowart probe
 

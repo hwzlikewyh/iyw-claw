@@ -8,6 +8,8 @@
 
 审计基线：`iyw-claw@418640809f2b66d1ac304cc012fd3f093b9192ef`
 
+补充复核：`main@6d1dc04cba7e4eb703db200cf73afd7d4043c950`
+
 ## 文档结构
 
 本设计按单文件 300 行上限拆分：
@@ -126,6 +128,12 @@ Skill Market UI
 - `plugin_storage.rs`：`staging -> versions/<version> -> current.json`；
 - `plugin_install_rollback.rs`：失败后的目录、记录、catalog 和 Agent 配置回滚；
 - `src-tauri/src/acp/skill_package.rs`：Zip Slip、符号链接、重复路径、文件数量和膨胀限制。
+
+`main@6d1dc04` 新增 `commands/skill_watch.rs`，桌面和 server 都递归监听 central Skill
+目录，500ms debounce 后调用现有 `reconcile_shared_market_skills`。v2 插件安装发布 Skill
+时必须继续使用 shared-skill mutation guard，使 Watcher 只能在写入临界区结束后 reconcile；
+不能再增加一套插件目录 Watcher，也不能把文件事件当作插件安装、权限或激活的权威状态。
+PluginRegistry 只能在目录、数据库、catalog 和 Skill 安装事务成功后发布新 generation。
 
 当前保护只包括 HTTPS 业务连接、包大小、内容哈希和对象哈希，没有插件发布签名字段，
 也没有客户端插件签名验签。哈希能发现传输或存储篡改，但不能证明可执行代码来自获授权
