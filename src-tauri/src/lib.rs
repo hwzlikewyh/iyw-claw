@@ -707,6 +707,9 @@ mod tauri_app {
                             "[skills] startup central skill reconcile failed: {error}"
                         );
                     }
+                    crate::commands::skill_watch::spawn_central_skill_watcher(
+                        managed_distribution_db.clone(),
+                    );
                     if let Err(error) = crate::commands::managed_skills::reconcile_all_core(
                         &managed_distribution_db,
                     )

@@ -75,6 +75,7 @@ pub mod session_config;
 pub mod session_info;
 pub mod skill_inventory;
 pub mod skill_market;
+pub mod skill_watch;
 mod skill_metadata;
 pub mod system_settings;
 pub mod system_skills;

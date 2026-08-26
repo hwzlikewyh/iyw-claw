@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install a skill from a GitHub repo path into $CODEX_HOME/skills."""
+"""Install a skill from a GitHub repo path into the iyw-claw Skill store."""
 
 from __future__ import annotations
 
@@ -42,8 +42,9 @@ class InstallError(Exception):
     pass
 
 
-def _codex_home() -> str:
-    return os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex"))
+def _iyw_claw_skills_dir() -> str:
+    """Return the per-user iyw-claw central Skill store."""
+    return os.path.join(os.path.expanduser("~"), ".iyw-claw", "skills")
 
 
 def _tmp_root() -> str:
@@ -241,7 +242,7 @@ def _resolve_source(args: Args) -> Source:
 
 
 def _default_dest() -> str:
-    return os.path.join(_codex_home(), "skills")
+    return _iyw_claw_skills_dir()
 
 
 def _parse_args(argv: list[str]) -> Args:
