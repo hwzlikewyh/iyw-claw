@@ -54,7 +54,7 @@ export function TaskArtifactsTab({
   const filters = useMemo(
     () => ({
       conversationId,
-      folderId: activeFolderId,
+      folderId: effectiveScope === "all" ? null : activeFolderId,
       scope: effectiveScope,
       search,
       page,
@@ -210,23 +210,35 @@ function ArtifactToolbar({
 }) {
   const t = useTranslations("Folder.taskArtifacts")
   return (
-    <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-1 border-b px-2 py-2">
-      {(["current", "all"] as const).map((value) => (
-        <button
-          key={value}
-          type="button"
-          disabled={value === "current" && conversationId == null}
-          onClick={() => onScopeChange(value)}
-          className={cn(
-            "h-7 flex-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted/70",
-            scope === value && "bg-background text-foreground shadow-xs",
-            "disabled:pointer-events-none disabled:opacity-40"
-          )}
+    <div className="flex shrink-0 flex-col gap-2 border-b px-2 py-2">
+      <div className="flex h-7 items-center gap-1">
+        {(["current", "all"] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            disabled={value === "current" && conversationId == null}
+            onClick={() => onScopeChange(value)}
+            className={cn(
+              "h-7 flex-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-muted/70",
+              scope === value && "bg-background text-foreground shadow-xs",
+              "disabled:pointer-events-none disabled:opacity-40"
+            )}
+          >
+            {t(value)}
+          </button>
+        ))}
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          disabled={loading || refreshing}
+          onClick={onRefresh}
+          aria-label={t("refresh")}
+          title={t("refresh")}
         >
-          {t(value)}
-        </button>
-      ))}
-      <div className="relative order-3 basis-full sm:order-none sm:flex-1">
+          <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} />
+        </Button>
+      </div>
+      <div className="relative">
         <Search className="pointer-events-none absolute start-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={search}
@@ -236,16 +248,6 @@ function ArtifactToolbar({
           className="h-7 rounded-md py-0 ps-7 pe-2 text-xs"
         />
       </div>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        disabled={loading || refreshing}
-        onClick={onRefresh}
-        aria-label={t("refresh")}
-        title={t("refresh")}
-      >
-        <RefreshCw className={cn("size-3.5", refreshing && "animate-spin")} />
-      </Button>
     </div>
   )
 }

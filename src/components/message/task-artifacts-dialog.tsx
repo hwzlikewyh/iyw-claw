@@ -12,7 +12,6 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { useActiveFolder } from "@/contexts/active-folder-context"
 
 interface TaskArtifactsDialogProps {
   conversationId: number | null
@@ -22,10 +21,7 @@ export function TaskArtifactsDialog({
   conversationId,
 }: TaskArtifactsDialogProps) {
   const t = useTranslations("Folder.taskArtifacts")
-  const { activeFolder } = useActiveFolder()
   const [open, setOpen] = useState(false)
-
-  if (!activeFolder) return null
 
   return (
     <>

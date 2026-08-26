@@ -286,9 +286,6 @@ function useInitialArtifactLoad(
 async function fetchTaskArtifacts(
   filters: TaskArtifactFilters
 ): Promise<TaskArtifactPage> {
-  if (filters.scope === "all" && filters.folderId == null) {
-    return { items: [], total: 0, page: filters.page ?? 1, pageSize: 50 }
-  }
   if (
     filters.scope === "current" &&
     (filters.conversationId == null || filters.conversationId <= 0)
