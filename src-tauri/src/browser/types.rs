@@ -176,6 +176,31 @@ pub struct BrowserStateSnapshot {
     pub file_choosers: Vec<BrowserFileChooserSnapshot>,
     pub downloads: Vec<BrowserDownloadSnapshot>,
     pub view_claims: Vec<BrowserViewClaimSnapshot>,
+    pub user_action_requests: Vec<BrowserUserActionRequestSnapshot>,
+    pub window_open_requests: Vec<BrowserWindowOpenRequestSnapshot>,
+    pub window_close_requests: Vec<BrowserWindowCloseRequestSnapshot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserUserActionRequestSnapshot {
+    pub request_id: String,
+    pub browser_tab_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserWindowCloseRequestSnapshot {
+    pub request_id: String,
+    pub browser_tab_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserWindowOpenRequestSnapshot {
+    pub request_id: String,
+    pub browser_tab_id: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

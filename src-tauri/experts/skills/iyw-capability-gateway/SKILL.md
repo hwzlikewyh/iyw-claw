@@ -126,6 +126,76 @@ an ordinary URL alone is not proof of Artifact registration.
   the `opencli` command are available. Read its `SKILL.md`, run `opencli doctor`,
   then use one stable session with `bind`/`open`, `state`/`find`, an action, and
   explicit verification. Otherwise report the missing prerequisite.
+
+### Browser User Actions
+
+Use the stable capability `iyw.browser.user_action.request.v1` when the Agent
+cannot safely or reliably complete a visible browser step itself, such as
+login, MFA, CAPTCHA, drag-and-drop, device approval, or a final human review.
+Do not use it for ordinary navigation, snapshots, clicks, fills, waits, or
+other actions already covered by the managed browser tools.
+
+Invoke it through the normal gateway sequence, using the exact schema returned
+by `read_iyw_capability`:
+
+1. Search for `browser user action` (or `浏览器 用户 操作`).
+2. Read the available `iyw.browser.user_action.request.v1` result.
+3. Invoke that exact capability with `reason`, and optionally `tab_id`,
+   `completion`, and `timeout_ms`.
+
+The host opens a new visible browser window for the requested tab and pauses
+the Agent while the user operates it. Do not ask the user to click a separate
+"take over" or "return control" button. The user's first meaningful browser
+input is the hand-off signal; the host keeps Agent actions blocked until the
+user becomes idle.
+
+Completion conditions are optional. When supplied, all supplied conditions are
+required (AND semantics):
+
+```json
+{
+  "reason": "Complete the sign-in and any verification shown by the website",
+  "completion": {
+    "urlContains": "/dashboard",
+    "textContains": "Sign out"
+  },
+  "timeout_ms": 180000
+}
+```
+
+Supported conditions are `urlContains`, `titleContains`, `textContains`,
+`selector`, and `downloadCompleted`. Prefer stable post-action evidence such as
+an authenticated URL, a success message, a known result element, or a
+completed download. Do not put passwords, one-time codes, cookies, tokens, or
+other secrets in `reason` or completion conditions. If no condition can be
+stated safely, omit `completion`; after the user pauses, inspect the returned
+fresh browser state and decide whether the task can continue. A timeout or a
+closed detached window is a failed hand-off, not proof that the action
+completed.
+
+### Proactive Browser Presentation
+
+When the task produces a web interface, local service page, HTML preview,
+visual report, or another browser-readable result that the user should inspect,
+proactively use `iyw.browser.window.present.v1` after the page is ready. This
+is a non-blocking display action: it opens or focuses a detached browser window
+and lets the Agent continue. Do not present every research page or background
+automation step; present user-facing results, previews, and meaningful visual
+checkpoints.
+
+Use the normal search/read/invoke trio with `browser present` (or `展示网页
+成果`) and pass either a fresh `url` (optionally with `new_tab`) or an existing
+`tab_id`. Verify that the URL is the intended page before presenting it. A
+local service must be reachable through the user's own managed browser; do not
+expose credentials or private tokens in the URL.
+
+After the visual result is no longer needed, invoke
+`iyw.browser.window.close.v1` with the same `tab_id` (or the active tab). It
+closes only the detached display window and preserves the managed tab, page
+state, cookies, and sign-in session. Never use this capability when the user
+still needs to inspect the page, and never confuse it with
+`iyw.browser.tabs.close.v1`, which closes the tab itself.
+
 - Destructive automation, channel, browser, or delegation operations require
   an exact target and the confirmation rules returned by `read`.
 - For long work, use a visible feedback capability or discover one at sensible

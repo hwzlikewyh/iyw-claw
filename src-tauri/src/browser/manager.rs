@@ -1,3 +1,5 @@
+#[cfg(feature = "tauri-runtime")]
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -8,6 +10,8 @@ use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "tauri-runtime")]
 use super::agent_turn_leases::AgentTurnLeaseRegistry;
+#[cfg(feature = "tauri-runtime")]
+use super::agent_window::{PendingWindowClose, PendingWindowOpen};
 #[cfg(feature = "tauri-runtime")]
 use super::cdp_observer::CdpObserverHandle;
 use super::control::ControlGate;
@@ -25,12 +29,20 @@ use super::tab_cleanup_registry::PendingTabCleanupRegistry;
 use super::tabs::BrowserTabRegistry;
 use super::types::{BrowserCapability, BrowserStateSnapshot};
 #[cfg(feature = "tauri-runtime")]
+use super::user_action::PendingUserAction;
+#[cfg(feature = "tauri-runtime")]
 use super::user_control_lease::UserControlLease;
 
 #[derive(Debug, Clone)]
 pub struct BrowserSessionManager {
     pub(super) state: Arc<RwLock<BrowserState>>,
     pub(super) controls: Arc<Mutex<HashMap<String, ControlGate>>>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) user_action_requests: Arc<Mutex<BTreeMap<String, PendingUserAction>>>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) window_open_requests: Arc<Mutex<BTreeMap<String, PendingWindowOpen>>>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) window_close_requests: Arc<Mutex<BTreeMap<String, PendingWindowClose>>>,
     pub(super) snapshot_revision: Arc<AtomicU64>,
     #[cfg(feature = "tauri-runtime")]
     pub(super) shutdown_lock: Arc<Mutex<()>>,
@@ -61,6 +73,12 @@ impl BrowserSessionManager {
         Self {
             state: Arc::new(RwLock::new(BrowserState::new(capability))),
             controls: Arc::new(Mutex::new(HashMap::new())),
+            #[cfg(feature = "tauri-runtime")]
+            user_action_requests: Arc::new(Mutex::new(BTreeMap::new())),
+            #[cfg(feature = "tauri-runtime")]
+            window_open_requests: Arc::new(Mutex::new(BTreeMap::new())),
+            #[cfg(feature = "tauri-runtime")]
+            window_close_requests: Arc::new(Mutex::new(BTreeMap::new())),
             snapshot_revision: Arc::new(AtomicU64::new(0)),
             #[cfg(feature = "tauri-runtime")]
             shutdown_lock: Arc::new(Mutex::new(())),
@@ -152,6 +170,30 @@ impl BrowserSessionManager {
                 tab.generations.control_epoch = control.epoch;
             }
         }
+        #[cfg(feature = "tauri-runtime")]
+        {
+            snapshot.user_action_requests = self
+                .user_action_requests
+                .lock()
+                .await
+                .values()
+                .map(|request| request.snapshot.clone())
+                .collect();
+            snapshot.window_open_requests = self
+                .window_open_requests
+                .lock()
+                .await
+                .values()
+                .map(|request| request.snapshot.clone())
+                .collect();
+            snapshot.window_close_requests = self
+                .window_close_requests
+                .lock()
+                .await
+                .values()
+                .map(|request| request.snapshot.clone())
+                .collect();
+        }
         snapshot
     }
 
@@ -192,6 +234,12 @@ impl BrowserSessionManager {
         for gate in controls {
             gate.close().await;
         }
+        #[cfg(feature = "tauri-runtime")]
+        self.cancel_user_action_requests(Vec::new()).await;
+        #[cfg(feature = "tauri-runtime")]
+        self.cancel_window_close_requests(Vec::new()).await;
+        #[cfg(feature = "tauri-runtime")]
+        self.cancel_window_open_requests(Vec::new()).await;
     }
 
     pub(super) async fn reset_control(&self, tab_id: &str) {
@@ -252,6 +300,15 @@ impl BrowserSessionManager {
         let result = self.state.write().await.finish_tab_close(ticket);
         self.controls.lock().await.remove(&ticket.tab_id);
         #[cfg(feature = "tauri-runtime")]
+        self.cancel_user_action_requests(vec![ticket.tab_id.clone()])
+            .await;
+        #[cfg(feature = "tauri-runtime")]
+        self.cancel_window_close_requests(vec![ticket.tab_id.clone()])
+            .await;
+        #[cfg(feature = "tauri-runtime")]
+        self.cancel_window_open_requests(vec![ticket.tab_id.clone()])
+            .await;
+        #[cfg(feature = "tauri-runtime")]
         self.agent_turn_leases.forget_tab(&ticket.tab_id).await;
         result
     }
@@ -301,7 +358,7 @@ impl BrowserSessionManager {
         gate.acquire_agent().await
     }
 
-    async fn control_gate(&self, tab_id: &str) -> Option<ControlGate> {
+    pub(super) async fn control_gate(&self, tab_id: &str) -> Option<ControlGate> {
         self.controls.lock().await.get(tab_id).cloned()
     }
 }

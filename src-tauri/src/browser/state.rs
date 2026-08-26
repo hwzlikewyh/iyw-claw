@@ -106,6 +106,9 @@ impl BrowserState {
                 })
                 .collect(),
             view_claims: self.claim_snapshots(),
+            user_action_requests: Vec::new(),
+            window_open_requests: Vec::new(),
+            window_close_requests: Vec::new(),
         }
     }
 

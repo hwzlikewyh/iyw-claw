@@ -32,14 +32,14 @@ fn create_browser_window(app: tauri::AppHandle) -> Result<String, BrowserError> 
         return Err(window_error());
     }
     let label = format!("browser-{}", uuid::Uuid::new_v4());
-    tauri::WebviewWindowBuilder::new(
+    let window = tauri::WebviewWindowBuilder::new(
         &app,
         &label,
         tauri::WebviewUrl::App("browser?detached=1".into()),
     )
     .title("原助理浏览器")
     .inner_size(1180.0, 760.0)
-    .min_inner_size(720.0, 520.0)
+    .min_inner_size(480.0, 360.0)
     .closable(true)
     .build()
     .map_err(|error| {
@@ -51,6 +51,22 @@ fn create_browser_window(app: tauri::AppHandle) -> Result<String, BrowserError> 
         );
         window_error()
     })?;
+    if let Err(error) = window.show() {
+        tracing::warn!(
+            target: "iyw_claw_browser",
+            window_label = %label,
+            error = %error,
+            "detached browser window could not be shown"
+        );
+    }
+    if let Err(error) = window.set_focus() {
+        tracing::warn!(
+            target: "iyw_claw_browser",
+            window_label = %label,
+            error = %error,
+            "detached browser window could not be focused"
+        );
+    }
     tracing::info!(
         target: "iyw_claw_browser",
         window_label = %label,
@@ -68,6 +84,30 @@ pub fn browser_close_window(
         validate_browser_window_label(&window_label)?;
         close_browser_window(&app, &window_label, "command")
     })
+}
+
+#[tauri::command(async)]
+pub fn browser_focus_window(
+    app: tauri::AppHandle,
+    window_label: String,
+) -> BrowserCommandFuture<()> {
+    browser_command(async move {
+        validate_browser_window_label(&window_label)?;
+        let window = app
+            .get_webview_window(&window_label)
+            .ok_or_else(window_error)?;
+        window.show().map_err(|_| window_error())?;
+        window.set_focus().map_err(|_| window_error())
+    })
+}
+
+#[tauri::command(async)]
+pub fn browser_complete_window_open(
+    manager: tauri::State<'_, BrowserSessionManager>,
+    request_id: String,
+) -> BrowserCommandFuture<BrowserStateSnapshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move { Ok(manager.complete_window_open_request(&request_id).await) })
 }
 
 pub fn handle_browser_window_close_requested(app: tauri::AppHandle, window_label: String) {

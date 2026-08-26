@@ -572,6 +572,9 @@ fn browser_operation_mutates(tool: &str) -> bool {
             | "browser_scroll"
             | "browser_screenshot"
             | "browser_close_tab"
+            | "browser_request_user_action"
+            | "browser_present"
+            | "browser_close_window"
     )
 }
 

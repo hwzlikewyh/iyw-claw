@@ -187,6 +187,8 @@ impl BrowserSessionManager {
         self.streams
             .close_tab_except(&claim.browser_tab_id, subscription_id)
             .await;
+        self.cancel_window_open_requests(vec![claim.browser_tab_id.clone()])
+            .await;
         Ok(self.snapshot().await)
     }
 

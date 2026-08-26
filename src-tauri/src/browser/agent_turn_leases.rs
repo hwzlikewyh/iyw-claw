@@ -72,6 +72,10 @@ impl AgentTurnLeaseRegistry {
         close_now
     }
 
+    pub async fn keep_tab_open(&self, tab_id: &str) {
+        self.inner.lock().await.close_pending.remove(tab_id);
+    }
+
     pub async fn inherit_tab(&self, source_tab_id: &str, target_tab_id: &str) -> bool {
         let mut inner = self.inner.lock().await;
         let Some(owners) = inner.owners.get(source_tab_id).cloned() else {

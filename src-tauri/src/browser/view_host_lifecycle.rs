@@ -12,7 +12,24 @@ impl BrowserSessionManager {
         &self,
         host_id: &str,
     ) -> Result<BrowserStateSnapshot, BrowserError> {
+        let claimed_tab_ids = self
+            .snapshot()
+            .await
+            .view_claims
+            .into_iter()
+            .filter(|claim| {
+                claim.target_host_id == host_id || claim.source_host_id.as_deref() == Some(host_id)
+            })
+            .map(|claim| claim.browser_tab_id)
+            .collect::<Vec<_>>();
         let (removed, close_now) = self.remove_browser_host(host_id).await;
+        let mut cancel_ids = removed.tab_ids.clone();
+        cancel_ids.extend(claimed_tab_ids);
+        cancel_ids.sort();
+        cancel_ids.dedup();
+        self.cancel_user_action_requests(cancel_ids.clone()).await;
+        self.cancel_window_close_requests(cancel_ids.clone()).await;
+        self.cancel_window_open_requests(cancel_ids).await;
         self.release_host_resources(removed, close_now, "host_unregistered")
             .await;
         Ok(self.snapshot().await)
@@ -79,6 +96,12 @@ impl BrowserSessionManager {
         close_now: Vec<String>,
         reason: &'static str,
     ) {
+        self.cancel_user_action_requests(removed.tab_ids.clone())
+            .await;
+        self.cancel_window_close_requests(removed.tab_ids.clone())
+            .await;
+        self.cancel_window_open_requests(removed.tab_ids.clone())
+            .await;
         for tab_id in &removed.tab_ids {
             let _ = self.set_user_held(tab_id, false).await;
             self.streams.close_tab(tab_id).await;

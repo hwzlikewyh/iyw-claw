@@ -45,6 +45,7 @@ pub struct ControlSnapshot {
     pub status: BrowserControlStatus,
     pub epoch: u64,
     pub waiting_agents: usize,
+    pub activity_sequence: u64,
 }
 
 impl ControlGate {
@@ -71,6 +72,27 @@ impl ControlGate {
             status: control_status(&inner),
             epoch: inner.epoch,
             waiting_agents: inner.queue.len(),
+            activity_sequence: inner.activity_sequence,
+        }
+    }
+
+    pub async fn wait_for_activity(&self, after: u64) -> Result<u64, BrowserError> {
+        loop {
+            let notified = self.notify.notified();
+            let changed = {
+                let inner = self.inner.lock().await;
+                if inner.closed {
+                    return Err(BrowserError::new(
+                        BrowserErrorCode::BrowserTabGone,
+                        "The browser tab is closed",
+                    ));
+                }
+                inner.activity_sequence > after
+            };
+            if changed {
+                return Ok(self.snapshot().await.activity_sequence);
+            }
+            notified.await;
         }
     }
 

@@ -38,9 +38,11 @@ const BrowserContext = createContext<BrowserContextValue | null>(null)
 export function BrowserProvider({
   children,
   defaultOpen = false,
+  autoOpenUserActionWindow = true,
 }: {
   children: React.ReactNode
   defaultOpen?: boolean
+  autoOpenUserActionWindow?: boolean
 }) {
   const [isOpen, setOpen] = useState(defaultOpen)
   const [state, setState] = useState<BrowserStateSnapshot | null>(null)
@@ -51,6 +53,9 @@ export function BrowserProvider({
   const refreshPromiseRef = useRef<Promise<BrowserStateSnapshot | null> | null>(
     null
   )
+  const handledUserActionRequestsRef = useRef(new Set<string>())
+  const handledWindowOpenRequestsRef = useRef(new Set<string>())
+  const handledWindowCloseRequestsRef = useRef(new Set<string>())
 
   const acceptState = useCallback((next: BrowserStateSnapshot) => {
     if (!mountedRef.current || next.stateRevision < acceptedRevisionRef.current)
@@ -157,7 +162,7 @@ export function BrowserProvider({
   }, [acceptState])
 
   useEffect(() => {
-    if (!isOpen || !isDesktop()) return
+    if ((!isOpen && !autoOpenUserActionWindow) || !isDesktop()) return
     let cancelled = false
     let polling = false
     let timer: number | null = null
@@ -185,7 +190,95 @@ export function BrowserProvider({
       if (timer !== null) window.clearTimeout(timer)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
-  }, [isOpen, refresh])
+  }, [autoOpenUserActionWindow, isOpen, refresh])
+
+  useEffect(() => {
+    if (!autoOpenUserActionWindow || !isDesktop() || !state) return
+    const requests = state.userActionRequests
+    const activeIds = new Set(requests.map((request) => request.requestId))
+    for (const requestId of handledUserActionRequestsRef.current) {
+      if (!activeIds.has(requestId)) {
+        handledUserActionRequestsRef.current.delete(requestId)
+      }
+    }
+    const request = requests.find(
+      (item) => !handledUserActionRequestsRef.current.has(item.requestId)
+    )
+    if (!request) return
+    const tab = state.tabs.find(
+      (item) => item.browserTabId === request.browserTabId
+    )
+    if (!tab) return
+    handledUserActionRequestsRef.current.add(request.requestId)
+    void detachTab(request.browserTabId, tab.hostId).catch(() => {
+      handledUserActionRequestsRef.current.delete(request.requestId)
+    })
+  }, [autoOpenUserActionWindow, detachTab, state])
+
+  useEffect(() => {
+    if (!autoOpenUserActionWindow || !isDesktop() || !state) return
+    const requests = state.windowOpenRequests
+    const activeIds = new Set(requests.map((request) => request.requestId))
+    for (const requestId of handledWindowOpenRequestsRef.current) {
+      if (!activeIds.has(requestId)) {
+        handledWindowOpenRequestsRef.current.delete(requestId)
+      }
+    }
+    const request = requests.find(
+      (item) => !handledWindowOpenRequestsRef.current.has(item.requestId)
+    )
+    if (!request) return
+    const tab = state.tabs.find(
+      (item) => item.browserTabId === request.browserTabId
+    )
+    if (!tab) return
+    handledWindowOpenRequestsRef.current.add(request.requestId)
+    const detachedHost = state.hosts.find(
+      (item) => item.hostId === tab.hostId && item.kind === "detached"
+    )
+    if (detachedHost) {
+      void browserApi
+        .focusWindow(detachedHost.windowLabel)
+        .then(() => browserApi.completeWindowOpen(request.requestId))
+        .then(acceptState)
+        .catch(() => {
+          handledWindowOpenRequestsRef.current.delete(request.requestId)
+        })
+      return
+    }
+    void detachTab(request.browserTabId, tab.hostId)
+      .then(() => browserApi.completeWindowOpen(request.requestId))
+      .then(acceptState)
+      .catch(() => {
+        handledWindowOpenRequestsRef.current.delete(request.requestId)
+      })
+  }, [acceptState, autoOpenUserActionWindow, detachTab, state])
+
+  useEffect(() => {
+    if (!autoOpenUserActionWindow || !isDesktop() || !state) return
+    const requests = state.windowCloseRequests
+    const activeIds = new Set(requests.map((request) => request.requestId))
+    for (const requestId of handledWindowCloseRequestsRef.current) {
+      if (!activeIds.has(requestId)) {
+        handledWindowCloseRequestsRef.current.delete(requestId)
+      }
+    }
+    const request = requests.find(
+      (item) => !handledWindowCloseRequestsRef.current.has(item.requestId)
+    )
+    if (!request) return
+    const tab = state.tabs.find(
+      (item) => item.browserTabId === request.browserTabId
+    )
+    const host = state.hosts.find(
+      (item) => item.hostId === tab?.hostId && item.kind === "detached"
+    )
+    if (!host) return
+    handledWindowCloseRequestsRef.current.add(request.requestId)
+    void browserApi.closeWindow(host.windowLabel).catch(() => {
+      handledWindowCloseRequestsRef.current.delete(request.requestId)
+    })
+  }, [autoOpenUserActionWindow, state])
 
   const value = useMemo<BrowserContextValue>(
     () => ({

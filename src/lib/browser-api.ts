@@ -73,6 +73,12 @@ export const browserApi = {
   createWindow: () => shell().call<string>("browser_create_window"),
   closeWindow: (windowLabel: string) =>
     shell().call<void>("browser_close_window", { windowLabel }),
+  focusWindow: (windowLabel: string) =>
+    shell().call<void>("browser_focus_window", { windowLabel }),
+  completeWindowOpen: (requestId: string) =>
+    shell().call<BrowserStateSnapshot>("browser_complete_window_open", {
+      requestId,
+    }),
   beginClaim: (
     tabId: string,
     sourceHostId: string | undefined,
