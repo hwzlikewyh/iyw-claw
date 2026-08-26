@@ -5,7 +5,7 @@ import { AlertCircle, File, Folder, Loader2, PackageOpen } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { listTaskArtifacts, type TaskArtifactInfo } from "@/lib/api"
+import { listAllTaskArtifacts, type TaskArtifactInfo } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
 export interface ProjectReferenceSelection {
@@ -38,7 +38,7 @@ export function useReferenceArtifacts(
   useEffect(() => {
     if (!open || folderId == null) return
     let cancelled = false
-    listTaskArtifacts({ folderId })
+    listAllTaskArtifacts({ folderId })
       .then((items) => {
         if (cancelled) return
         setState({

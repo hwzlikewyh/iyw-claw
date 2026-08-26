@@ -4,10 +4,10 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use chrono::Utc;
-use sea_orm::sea_query::OnConflict;
+use sea_orm::sea_query::{Condition, Expr, ExprTrait, Func, LikeExpr, OnConflict};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
-    QueryOrder, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -19,6 +19,8 @@ use source::{current_artifact_state, resolve_sources, ResolvedArtifact};
 const CONVERSATION_TREE_BATCH_SIZE: usize = 500;
 const MAX_CONVERSATION_ANCESTOR_DEPTH: usize = 256;
 const MAX_CONVERSATION_SCOPE_IDS: usize = 5_000;
+pub const DEFAULT_PAGE_SIZE: u64 = 50;
+pub const MAX_PAGE_SIZE: u64 = 100;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,6 +36,15 @@ pub struct TaskArtifactInfo {
     pub created_at: String,
     pub last_checked_at: String,
     pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskArtifactPage {
+    pub items: Vec<TaskArtifactInfo>,
+    pub total: u64,
+    pub page: u64,
+    pub page_size: u64,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct ArtifactItemResult {
@@ -124,19 +135,25 @@ pub async fn list_artifacts(
     conversation_id: Option<i32>,
     folder_id: Option<i32>,
     latest_turn_only: bool,
-) -> Result<Vec<TaskArtifactInfo>, DbError> {
+    search: Option<&str>,
+    page: u64,
+    page_size: u64,
+) -> Result<TaskArtifactPage, DbError> {
+    let page = page.max(1);
+    let page_size = page_size.clamp(1, MAX_PAGE_SIZE);
     let mut query = task_artifact::Entity::find()
         .inner_join(conversation::Entity)
-        .order_by_desc(task_artifact::Column::CreatedAt);
+        .order_by_desc(task_artifact::Column::CreatedAt)
+        .order_by_desc(task_artifact::Column::Id);
     let latest_generation = if latest_turn_only {
         let Some(id) = conversation_id else {
-            return Ok(Vec::new());
+            return Ok(empty_artifact_page(page, page_size));
         };
         let Some(conversation) = conversation::Entity::find_by_id(id).one(conn).await? else {
-            return Ok(Vec::new());
+            return Ok(empty_artifact_page(page, page_size));
         };
         if conversation.last_completed_turn_generation <= 0 {
-            return Ok(Vec::new());
+            return Ok(empty_artifact_page(page, page_size));
         }
         query = query
             .filter(task_artifact::Column::ConversationId.eq(id))
@@ -160,7 +177,32 @@ pub async fn list_artifacts(
     if let Some(id) = folder_id {
         query = query.filter(conversation::Column::FolderId.eq(id));
     }
-    let rows = query.select_also(conversation::Entity).all(conn).await?;
+    if let Some(search) = search.map(str::trim).filter(|value| !value.is_empty()) {
+        let pattern = format!("%{}%", escape_like_pattern(&search.to_lowercase()));
+        query = query.filter(
+            Condition::any()
+                .add(
+                    Func::lower(Expr::col(task_artifact::Column::DisplayName))
+                        .like(LikeExpr::new(pattern.clone()).escape('\\')),
+                )
+                .add(
+                    Func::lower(Expr::col(task_artifact::Column::Path))
+                        .like(LikeExpr::new(pattern.clone()).escape('\\')),
+                )
+                .add(
+                    Func::lower(Expr::col(conversation::Column::Title))
+                        .like(LikeExpr::new(pattern).escape('\\')),
+                ),
+        );
+    }
+    let total = query.clone().count(conn).await?;
+    let total_pages = total.saturating_add(page_size - 1) / page_size;
+    let page = page.min(total_pages.max(1));
+    let rows = query
+        .select_also(conversation::Entity)
+        .paginate(conn, page_size)
+        .fetch_page(page.saturating_sub(1))
+        .await?;
     let mut results = Vec::with_capacity(rows.len());
     for (artifact, conversation) in rows {
         let Some(conversation) = conversation else {
@@ -187,7 +229,28 @@ pub async fn list_artifacts(
             status: current.status,
         });
     }
-    Ok(results)
+    Ok(TaskArtifactPage {
+        items: results,
+        total,
+        page,
+        page_size,
+    })
+}
+
+fn escape_like_pattern(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+fn empty_artifact_page(page: u64, page_size: u64) -> TaskArtifactPage {
+    TaskArtifactPage {
+        items: Vec::new(),
+        total: 0,
+        page,
+        page_size,
+    }
 }
 
 async fn conversation_scope_ids(
