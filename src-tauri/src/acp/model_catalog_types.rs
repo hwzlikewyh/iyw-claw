@@ -43,6 +43,8 @@ pub struct ModelLimits {
     pub max_input_tokens: Option<u64>,
     #[serde(default)]
     pub max_output_tokens: Option<u64>,
+    #[serde(default)]
+    pub compaction_at_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

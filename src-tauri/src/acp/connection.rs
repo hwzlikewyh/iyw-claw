@@ -8086,12 +8086,23 @@ async fn emit_conversation_update(
             emit_with_state(state, emitter, AcpEvent::AvailableCommands { commands }).await;
         }
         SessionUpdate::UsageUpdate(update) => {
+            let compaction_at_tokens = {
+                let snapshot = state.read().await;
+                crate::acp::model_catalog::compaction_threshold(
+                    snapshot.current_model.as_deref(),
+                    update.size,
+                )
+            };
+            let compaction_pending =
+                compaction_at_tokens.is_some_and(|threshold| update.used >= threshold);
             emit_with_state(
                 state,
                 emitter,
                 AcpEvent::UsageUpdate {
                     used: update.used,
                     size: update.size,
+                    compaction_at_tokens,
+                    compaction_pending,
                 },
             )
             .await;

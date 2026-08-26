@@ -281,6 +281,10 @@ pub enum AcpEvent {
     UsageUpdate {
         used: u64,
         size: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        compaction_at_tokens: Option<u64>,
+        #[serde(default, skip_serializing_if = "is_false")]
+        compaction_pending: bool,
     },
     /// Claude transcript activity that occurred outside an iyw-claw prompt
     /// turn. The transcript is authoritative for these turns; live ACP deltas
@@ -407,6 +411,10 @@ pub enum AcpEvent {
         stale: bool,
         kind: ConfigStaleKind,
     },
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// One background task settlement surfaced from the Claude transcript.

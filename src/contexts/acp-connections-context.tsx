@@ -196,6 +196,8 @@ export interface ConnectionState {
   configOptions: SessionConfigOptionInfo[] | null
   availableCommands: AvailableCommandInfo[] | null
   usage: SessionUsageUpdateInfo | null
+  compactionAtTokens: number | null
+  compactionPending: boolean
   liveMessage: LiveMessage | null
   pendingPermission: PendingPermission | null
   /** Backend-authoritative durable inputs for the active conversation. */
@@ -1187,6 +1189,8 @@ function connectionsReducer(
         configOptions: null,
         availableCommands: null,
         usage: null,
+        compactionAtTokens: null,
+        compactionPending: false,
         liveMessage: null,
         pendingPermission: null,
         agentInputs: [],
@@ -1247,6 +1251,8 @@ function connectionsReducer(
         configOptions: null,
         availableCommands: null,
         usage: null,
+        compactionAtTokens: null,
+        compactionPending: false,
         liveMessage: null,
         pendingPermission: null,
         agentInputs: [],
@@ -1371,6 +1377,8 @@ function connectionsReducer(
         configOptions: action.patch.configOptions,
         availableCommands: action.patch.availableCommands,
         usage: action.patch.usage,
+        compactionAtTokens: action.patch.compactionAtTokens,
+        compactionPending: action.patch.compactionPending,
         liveMessage: hydratedLiveMessage,
         pendingPermission: hydratedPendingPermission,
         agentInputs: action.patch.agentInputs,
@@ -2432,6 +2440,8 @@ function connectionsReducer(
       next.set(action.contextKey, {
         ...conn,
         usage: action.usage,
+        compactionAtTokens: action.usage.compaction_at_tokens ?? null,
+        compactionPending: action.usage.compaction_pending === true,
       })
       return next
     }
@@ -3997,6 +4007,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             usage: {
               used: e.used,
               size: e.size,
+              compaction_at_tokens: e.compaction_at_tokens,
+              compaction_pending: e.compaction_pending,
             },
           })
           break

@@ -46,6 +46,8 @@ export interface SnapshotPatch {
   configOptions: SessionConfigOptionInfo[] | null
   availableCommands: AvailableCommandInfo[] | null
   usage: SessionUsageUpdateInfo | null
+  compactionAtTokens: number | null
+  compactionPending: boolean
   liveMessage: LocalLiveMessage | null
   pendingPermission: PendingPermission | null
   /** Awaiting-answer multiple-choice `ask_user_question` carried by the
@@ -100,6 +102,9 @@ export function denormalizeSnapshot(wire: LiveSessionSnapshot): SnapshotPatch {
     configOptions: wire.config_options,
     availableCommands: wire.available_commands ?? null,
     usage: wire.usage,
+    compactionAtTokens: wire.compaction_at_tokens ?? wire.usage?.compaction_at_tokens ?? null,
+    compactionPending:
+      wire.compaction_pending === true || wire.usage?.compaction_pending === true,
     liveMessage: wire.live_message
       ? denormalizeLiveMessage(wire.live_message, toolMap)
       : null,

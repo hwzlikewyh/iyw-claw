@@ -374,6 +374,10 @@ pub struct SessionState {
     pub fork_supported: bool,
     pub available_commands: Vec<AvailableCommandInfo>,
     pub usage: Option<UsageInfo>,
+    /// Advisory absolute threshold supplied by the model catalog.
+    pub compaction_at_tokens: Option<u64>,
+    /// True when the latest runtime usage crossed the advisory threshold.
+    pub compaction_pending: bool,
     /// True once the agent's initial selectors handshake (modes +
     /// config_options) has finished and `SelectorsReady` has fired. Persisted
     /// on the snapshot so a frontend that reconnects after refresh can see
@@ -660,6 +664,8 @@ impl SessionState {
             fork_supported: false,
             available_commands: Vec::new(),
             usage: None,
+            compaction_at_tokens: None,
+            compaction_pending: false,
             selectors_ready: false,
             selectors_ready_notify: Arc::new(tokio::sync::Notify::new()),
             last_error: None,
@@ -846,11 +852,18 @@ impl SessionState {
             AcpEvent::AvailableCommands { commands } => {
                 self.available_commands = commands.clone();
             }
-            AcpEvent::UsageUpdate { used, size } => {
+            AcpEvent::UsageUpdate {
+                used,
+                size,
+                compaction_at_tokens,
+                compaction_pending,
+            } => {
                 self.usage = Some(UsageInfo {
                     used: *used,
                     size: *size,
                 });
+                self.compaction_at_tokens = *compaction_at_tokens;
+                self.compaction_pending = *compaction_pending;
             }
             AcpEvent::ContentDelta { text } => {
                 self.session_failures.settle_retry_incidents();
@@ -1660,6 +1673,8 @@ impl SessionState {
             config_options: self.config_options.clone(),
             prompt_capabilities: self.prompt_capabilities.clone(),
             usage: self.usage.clone(),
+            compaction_at_tokens: self.compaction_at_tokens,
+            compaction_pending: self.compaction_pending,
             fork_supported: self.fork_supported,
             available_commands: self.available_commands.clone(),
             selectors_ready: self.selectors_ready,
@@ -1777,6 +1792,10 @@ pub struct LiveSessionSnapshot {
     pub config_options: Option<Vec<SessionConfigOptionInfo>>,
     pub prompt_capabilities: Option<PromptCapabilitiesInfo>,
     pub usage: Option<UsageInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_at_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub compaction_pending: bool,
     pub fork_supported: bool,
     pub available_commands: Vec<AvailableCommandInfo>,
     pub selectors_ready: bool,
@@ -1797,6 +1816,10 @@ pub struct LiveSessionSnapshot {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub session_failures: Vec<SessionFailureRecord>,
     pub event_seq: u64,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 fn u32_is_zero(value: &u32) -> bool {

@@ -1266,6 +1266,8 @@ export interface AvailableCommandInfo {
 export interface SessionUsageUpdateInfo {
   used: number
   size: number
+  compaction_at_tokens?: number | null
+  compaction_pending?: boolean
 }
 
 export interface BackgroundSettledInfo {
@@ -1442,6 +1444,8 @@ export type AcpEvent =
       type: "usage_update"
       used: number
       size: number
+      compaction_at_tokens?: number | null
+      compaction_pending?: boolean
     }
   | {
       type: "background_activity"
@@ -1811,6 +1815,8 @@ export interface LiveSessionSnapshot {
   config_options: SessionConfigOptionInfo[] | null
   prompt_capabilities: PromptCapabilitiesInfo | null
   usage: SessionUsageUpdateInfo | null
+  compaction_at_tokens?: number | null
+  compaction_pending?: boolean
   fork_supported: boolean
   available_commands: AvailableCommandInfo[]
   selectors_ready: boolean
