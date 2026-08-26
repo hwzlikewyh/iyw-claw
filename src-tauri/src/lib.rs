@@ -545,7 +545,17 @@ mod tauri_app {
                 });
                 let plugin_registry =
                     crate::plugin_runtime::registry::install_global(plugin_registry);
+                let plugin_supervisor =
+                    crate::plugin_runtime::global::install_supervisor(std::sync::Arc::new(
+                        crate::plugin_runtime::supervisor::PluginRuntimeSupervisor::new(),
+                    ));
+                let plugin_router = crate::plugin_runtime::router::PluginRouter::new(
+                    plugin_registry.clone(),
+                    plugin_supervisor.clone(),
+                );
                 app.manage(plugin_registry);
+                app.manage(plugin_supervisor);
+                app.manage(plugin_router);
                 let catalog = tauri::async_runtime::block_on(
                     crate::acp::version_center::CatalogStore::load(
                         &app.state::<db::AppDatabase>().conn,

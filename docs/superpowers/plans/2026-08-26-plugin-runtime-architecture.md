@@ -112,14 +112,19 @@ Task 2 验证说明：SQLite migration 使用同一 `DatabaseTransaction` 并在
 - Add: `process.rs`, `mcp_client.rs`, `router.rs`, `types.rs`, `mod.rs`
 - Modify: `src-tauri/src/lib.rs`, `src-tauri/src/bin_targets/iyw_claw_server.rs`
 
-- [ ] 评估并只启用所需 `rmcp` client/stdio feature，不引入平行 MCP SDK。
-- [ ] 运行实例键固定为 plugin/version/connector/workspace，默认不跨 workspace 共享。
-- [ ] 使用受管解释器绝对路径和包内 canonical entrypoint，传最小环境。
-- [ ] single-flight 启动，完成 initialize 和 live tools/resources schema digest 校验。
-- [ ] 实现并发上限、超时、取消、effectMayHaveOccurred、idle TTL、drain、quarantine。
-- [ ] 升级后新调用使用新版本；旧 lease 归零后才停止和清理旧版本。
-- [ ] 应用退出、禁用、卸载、会话撤销不泄漏进程或 pending call。
-- [ ] 静态检查锁顺序、资源释放和敏感日志，执行可行的 MCP probe，阶段代码审查。
+- [x] 评估并只启用所需 `rmcp` client/stdio feature，不引入平行 MCP SDK。
+- [x] 运行实例键固定为 plugin/version/connector/workspace，默认不跨 workspace 共享。
+- [x] 使用受管解释器绝对路径和包内 canonical entrypoint，传最小环境。
+- [x] single-flight 启动，完成 initialize 和 live tools/resources schema digest 校验。
+- [x] 实现并发上限、超时、取消、effectMayHaveOccurred、idle TTL、drain、quarantine。
+- [x] 升级后新调用使用新版本；旧 lease 归零后才停止和清理旧版本。
+- [x] 应用退出、禁用、卸载、会话撤销不泄漏进程或 pending call。
+- [x] 静态检查锁顺序、资源释放和敏感日志，完成阶段代码审查。
+
+Task 3 验证说明：复用 `rmcp 1.3.0`，`cargo tree -e features` 确认 client feature 已启用；
+完成 rustfmt、Cargo metadata、diff 和调用链静态审查。按 Claw 仓库规则未运行 Cargo
+check/test/build，未执行真实插件 MCP probe；运行时 initialize、live schema、进程退出和
+跨平台 Node/Python 路径仍需在 Task 6 纵向切片与安装客户端环境验证。
 
 ## Task 4：接入动态 HostGateway 与按需安装确认
 

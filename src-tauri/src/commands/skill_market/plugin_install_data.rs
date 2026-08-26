@@ -147,6 +147,7 @@ pub(super) async fn stage_plugin_removal(
             "Plugin registry could not suspend the plugin",
         ));
     }
+    crate::plugin_runtime::global::stop_plugin(&record.installation.slug).await;
     match PluginStorageRemoval::stage(&record.installation.slug) {
         Ok(removal) => Ok(removal),
         Err(error) => {

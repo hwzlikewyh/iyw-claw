@@ -381,6 +381,13 @@ async fn async_main() -> ExitCode {
             iyw_claw_lib::plugin_runtime::registry::PluginRegistry::default()
         });
     let plugin_registry = iyw_claw_lib::plugin_runtime::registry::install_global(plugin_registry);
+    let plugin_supervisor = iyw_claw_lib::plugin_runtime::global::install_supervisor(Arc::new(
+        iyw_claw_lib::plugin_runtime::supervisor::PluginRuntimeSupervisor::new(),
+    ));
+    let plugin_router = iyw_claw_lib::plugin_runtime::router::PluginRouter::new(
+        plugin_registry.clone(),
+        plugin_supervisor.clone(),
+    );
     connection_manager.install_capability_policy(capability_policy.clone());
     let state = Arc::new(AppState {
         db,
@@ -388,6 +395,8 @@ async fn async_main() -> ExitCode {
         capability_policy,
         capability_policy_refresh,
         plugin_registry,
+        plugin_supervisor,
+        plugin_router,
         connection_manager,
         terminal_manager: iyw_claw_lib::app_state::default_terminal_manager(),
         event_broadcaster: broadcaster,
@@ -897,6 +906,15 @@ async fn shutdown_server_builtin_mcp(
     }
 }
 
+async fn shutdown_server_plugin_runtime(
+    state: &Arc<AppState>,
+    timeout: std::time::Duration,
+) -> bool {
+    tokio::time::timeout(timeout, state.plugin_supervisor.shutdown())
+        .await
+        .is_ok()
+}
+
 async fn disconnect_server_connections(
     state: &Arc<AppState>,
     timeout: std::time::Duration,
@@ -931,15 +949,18 @@ async fn force_shutdown_server_services(
         disconnect_server_connections(state, FORCED_SERVER_CONNECTION_TIMEOUT).await;
     let builtin_result =
         shutdown_server_builtin_mcp(builtin_mcp, FORCED_SERVER_SERVICE_TIMEOUT).await;
+    let plugin_runtime_completed =
+        shutdown_server_plugin_runtime(state, FORCED_SERVER_SERVICE_TIMEOUT).await;
     tracing::error!(
         forced_service_timeout_ms = FORCED_SERVER_SERVICE_TIMEOUT.as_millis(),
         forced_connection_timeout_ms = FORCED_SERVER_CONNECTION_TIMEOUT.as_millis(),
         builtin_mcp_completed = builtin_result,
+        plugin_runtime_completed,
         disconnected,
         connection_completed,
         "[SERVER] forced MCP entrypoint cleanup completed"
     );
-    builtin_result && connection_completed
+    builtin_result && plugin_runtime_completed && connection_completed
 }
 
 async fn shutdown_server_services_inner(
@@ -954,6 +975,8 @@ async fn shutdown_server_services_inner(
         disconnect_server_connections_with_retry(state).await;
     let mut builtin_mcp_completed =
         shutdown_server_builtin_mcp(builtin_mcp, SERVER_SERVICE_TIMEOUT).await;
+    let mut plugin_runtime_completed =
+        shutdown_server_plugin_runtime(state, SERVER_SERVICE_TIMEOUT).await;
     if !builtin_mcp_completed {
         tracing::warn!(
             builtin_mcp_completed,
@@ -962,14 +985,19 @@ async fn shutdown_server_services_inner(
         builtin_mcp_completed |=
             shutdown_server_builtin_mcp(builtin_mcp, FORCED_SERVER_SERVICE_TIMEOUT).await;
     }
+    if !plugin_runtime_completed {
+        plugin_runtime_completed |=
+            shutdown_server_plugin_runtime(state, FORCED_SERVER_SERVICE_TIMEOUT).await;
+    }
     tracing::info!(
         disconnected,
         builtin_mcp_completed,
+        plugin_runtime_completed,
         connection_completed,
         builtin_mcp = builtin_mcp.is_some(),
         "[SERVER] process services stopped"
     );
-    !(builtin_mcp_completed && connection_completed)
+    !(builtin_mcp_completed && plugin_runtime_completed && connection_completed)
 }
 
 #[cfg(unix)]

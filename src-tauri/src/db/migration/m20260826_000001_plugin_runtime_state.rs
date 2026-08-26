@@ -1,5 +1,5 @@
 use sea_orm_migration::prelude::*;
-use sea_orm_migration::sea_orm::{DatabaseTransaction, TransactionTrait};
+use sea_orm_migration::sea_orm::{ConnectionTrait, DatabaseTransaction, TransactionTrait};
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
