@@ -59,23 +59,23 @@ impl BrowserSessionManager {
         &self,
         window_label: &str,
     ) -> Result<String, BrowserError> {
+        let mut preserved = self.preserved_host_closures.lock().await;
+        let _tab_guard = self.tab_open_lock.lock().await;
         let host_id = self
-            .snapshot()
+            .state
+            .read()
             .await
             .hosts
-            .into_iter()
+            .values()
             .find(|host| {
                 host.window_label == window_label
                     && host.kind == super::types::BrowserHostKind::Detached
             })
-            .map(|host| host.host_id)
+            .map(|host| host.id.clone())
             .ok_or_else(|| {
                 super::state_hosts::view_conflict("The detached browser host is unavailable")
             })?;
-        self.preserved_host_closures
-            .lock()
-            .await
-            .insert(host_id.clone());
+        preserved.insert(host_id.clone());
         Ok(host_id)
     }
 
