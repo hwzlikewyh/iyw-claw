@@ -18,6 +18,7 @@ pub struct AppState {
     pub capability_policy: crate::acp::capability_policy::CapabilityPolicyStore,
     pub capability_policy_refresh:
         Arc<crate::acp::capability_policy::CapabilityPolicyRefreshRuntime>,
+    pub plugin_registry: crate::plugin_runtime::registry::PluginRegistry,
     pub connection_manager: ConnectionManager,
     pub terminal_manager: TerminalManager,
     pub event_broadcaster: Arc<WebEventBroadcaster>,

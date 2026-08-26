@@ -42,6 +42,7 @@ pub(super) async fn rollback_uninstall(
     if mutation.is_some() {
         let _ = crate::commands::mcp_sync::reconcile_all_managed_mcp_unlocked(conn).await;
     }
+    let _ = crate::plugin_runtime::registry::reconcile_global(conn).await;
 }
 
 async fn restore_record(

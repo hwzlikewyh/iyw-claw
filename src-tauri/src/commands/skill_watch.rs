@@ -57,7 +57,14 @@ fn run_watcher(root: PathBuf, conn: DatabaseConnection, runtime: Handle) {
         }
         drain_debounced_events(&root, &events_rx);
         match runtime.block_on(crate::commands::acp::reconcile_shared_market_skills(&conn)) {
-            Ok(()) => tracing::info!("[skills] central Skill change published to enabled Agents"),
+            Ok(()) => {
+                tracing::info!("[skills] central Skill change published to enabled Agents");
+                if let Err(error) =
+                    runtime.block_on(crate::plugin_runtime::registry::reconcile_global(&conn))
+                {
+                    tracing::warn!(error = %error, "[plugin-registry] watcher reconcile failed");
+                }
+            }
             Err(error) => {
                 tracing::warn!(error = %error, "[skills] central Skill publication failed")
             }

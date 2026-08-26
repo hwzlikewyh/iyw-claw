@@ -89,14 +89,19 @@ test/check/build，已完成 rustfmt、Cargo metadata、Prettier、ESLint、JSON
 - Modify: `src-tauri/src/app_state.rs`, `src-tauri/src/lib.rs`
 - Modify: `src-tauri/src/commands/skill_market/plugin_install*.rs`
 
-- [ ] 扩展 installation trust/schema/signature/permission/reconcile 字段并迁移 v1 默认值。
-- [ ] 建立 component activation、permission grant、app instance 三类独立状态。
-- [ ] Registry 从 DB/current pointer 建不可变 snapshot、generation 和 digest。
-- [ ] 安装成功最后发布 generation；失败回滚时不暴露中间组件。
-- [ ] 启动恢复识别残留 staging/trash、缺 current、DB/目录漂移并 fail closed。
-- [ ] Skill Watcher 只在 shared mutation guard 结束后 reconcile，重复调用保持幂等。
-- [ ] 卸载不触碰 plugin-data、workspace canvas 和历史 app instance。
-- [ ] 执行 migration/调用链静态审查、`git diff --check`，请求阶段代码审查。
+- [x] 扩展 installation trust/schema/signature/permission/reconcile 字段并迁移 v1 默认值。
+- [x] 建立 component activation、permission grant、app instance 三类独立状态。
+- [x] Registry 从 DB/current pointer 建不可变 snapshot、generation 和 digest。
+- [x] 安装成功最后发布 generation；发布失败写 repair state，snapshot 保持 fail closed。
+- [x] 启动恢复识别残留 staging/trash、缺 current、DB/目录漂移并 fail closed。
+- [x] Skill Watcher 只在 shared mutation guard 结束后 reconcile，重复调用保持幂等。
+- [x] 卸载不触碰 plugin-data、workspace canvas 和历史 app instance。
+- [x] 执行 migration/调用链静态审查、`git diff --check`，请求阶段代码审查。
+
+Task 2 验证说明：SQLite migration 使用同一 `DatabaseTransaction` 并在重入时跳过已存在列，
+两轮阶段审查发现的迁移原子性、权限缩减复用、Registry 完成门禁和卸载 suspend 问题均已
+修复。按 Claw 仓库规则未运行 Cargo test/check/build；完成定向 rustfmt、Cargo metadata、
+文件上限、状态发布/回滚/路径信任静态审查和 `git diff --check`。
 
 ## Task 3：实现可信本地 MCP Supervisor 与 Router
 

@@ -31,6 +31,7 @@ pub mod paths;
 pub mod pet_sessions;
 pub mod pet_state_mapper;
 pub mod pets;
+pub mod plugin_runtime;
 #[cfg(feature = "tauri-runtime")]
 pub mod preferences;
 pub mod process;
@@ -533,6 +534,18 @@ mod tauri_app {
                     }
                 }
                 app.manage(database);
+                let plugin_registry = tauri::async_runtime::block_on(
+                    crate::plugin_runtime::registry::PluginRegistry::load(
+                        &app.state::<db::AppDatabase>().conn,
+                    ),
+                )
+                .unwrap_or_else(|error| {
+                    tracing::error!(error = %error, "[plugin-registry] startup restore failed closed");
+                    crate::plugin_runtime::registry::PluginRegistry::default()
+                });
+                let plugin_registry =
+                    crate::plugin_runtime::registry::install_global(plugin_registry);
+                app.manage(plugin_registry);
                 let catalog = tauri::async_runtime::block_on(
                     crate::acp::version_center::CatalogStore::load(
                         &app.state::<db::AppDatabase>().conn,

@@ -6,6 +6,7 @@ mod plugin_install;
 mod plugin_install_context;
 mod plugin_install_data;
 mod plugin_install_rollback;
+mod plugin_install_runtime_state;
 mod plugin_manifest;
 mod plugin_manifest_v2;
 mod plugin_signature;

@@ -96,6 +96,8 @@ pub async fn install_core(
                 slug: item.slug,
                 version: item.version,
                 object_sha256: marker.object_sha256.clone(),
+                publisher_id: format!("fusion:{}", item.publisher_type),
+                signature_key_id: item.download.signature_key_id.clone(),
                 package,
                 plugin,
                 marker,

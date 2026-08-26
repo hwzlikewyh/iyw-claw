@@ -374,12 +374,20 @@ async fn async_main() -> ExitCode {
     let agent_catalog = iyw_claw_lib::acp::version_center::CatalogStore::load(&db.conn).await;
     let (capability_policy, capability_policy_refresh) =
         iyw_claw_lib::app_state::build_capability_policy_stack(db.conn.clone()).await;
+    let plugin_registry = iyw_claw_lib::plugin_runtime::registry::PluginRegistry::load(&db.conn)
+        .await
+        .unwrap_or_else(|error| {
+            tracing::error!(error = %error, "[plugin-registry] startup restore failed closed");
+            iyw_claw_lib::plugin_runtime::registry::PluginRegistry::default()
+        });
+    let plugin_registry = iyw_claw_lib::plugin_runtime::registry::install_global(plugin_registry);
     connection_manager.install_capability_policy(capability_policy.clone());
     let state = Arc::new(AppState {
         db,
         agent_catalog,
         capability_policy,
         capability_policy_refresh,
+        plugin_registry,
         connection_manager,
         terminal_manager: iyw_claw_lib::app_state::default_terminal_manager(),
         event_broadcaster: broadcaster,

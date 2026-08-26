@@ -10,10 +10,10 @@ use super::plugin_install_context::{MarketInstallPlanExecution, PreparedPluginIn
 use super::plugin_install_data::{
     connector_registrations, installation_input, installation_uses_legacy_catalog,
     lock_legacy_catalog, lock_legacy_catalog_for_plan, needs_legacy_catalog, plugin_owner_id,
-    replace_connectors,
+    replace_connectors, require_registry_state, stage_plugin_removal,
 };
 use super::plugin_install_rollback::{rollback_plugin_state, rollback_storage, rollback_uninstall};
-use super::plugin_storage::{PluginStorageRemoval, PluginStorageTransaction};
+use super::plugin_storage::PluginStorageTransaction;
 
 struct PluginCommitContext<'a> {
     conn: &'a DatabaseConnection,
@@ -76,6 +76,7 @@ pub(super) async fn install_market_plan(
         return Err(error);
     }
     finish_storage(storage, root_skill_id);
+    require_registry_state(conn, root_skill_id, true).await?;
     Ok(())
 }
 
@@ -132,7 +133,7 @@ pub(super) async fn uninstall_plugin(
         version = %previous.installation.version,
         "[plugin-install] starting plugin uninstall"
     );
-    let mut removal = PluginStorageRemoval::stage(&previous.installation.slug)?;
+    let mut removal = stage_plugin_removal(conn, &previous, market_skill_id).await?;
     let owner_id = plugin_owner_id(market_skill_id);
     let uses_catalog = installation_uses_legacy_catalog(&previous);
     let _catalog_guard = lock_legacy_catalog(uses_catalog).await;
@@ -141,6 +142,7 @@ pub(super) async fn uninstall_plugin(
             Ok(value) => Some(value),
             Err(error) => {
                 removal.rollback();
+                let _ = require_registry_state(conn, market_skill_id, true).await;
                 return Err(error);
             }
         }
@@ -156,6 +158,7 @@ pub(super) async fn uninstall_plugin(
         return Err(map_skill_error(error));
     }
     removal.finish();
+    require_registry_state(conn, market_skill_id, false).await?;
     tracing::info!(
         market_skill_id,
         "[plugin-install] plugin uninstall completed"
