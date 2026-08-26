@@ -146,6 +146,10 @@ pub fn install_global(registry: PluginRegistry) -> PluginRegistry {
     GLOBAL_REGISTRY.get_or_init(|| registry).clone()
 }
 
+pub fn global_snapshot() -> Option<Arc<PluginRegistrySnapshot>> {
+    GLOBAL_REGISTRY.get().map(PluginRegistry::snapshot)
+}
+
 pub async fn reconcile_global(conn: &DatabaseConnection) -> Result<bool, AppCommandError> {
     let Some(registry) = GLOBAL_REGISTRY.get() else {
         return Ok(false);

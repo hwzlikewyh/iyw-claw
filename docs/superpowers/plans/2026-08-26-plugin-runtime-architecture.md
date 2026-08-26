@@ -135,14 +135,20 @@ check/test/build，未执行真实插件 MCP probe；运行时 initialize、live
 - Modify: `src-tauri/src/acp/builtin_mcp/authority.rs`
 - Modify: Skill Market API/UI 与用户确认卡相关文件
 
-- [ ] 保留静态 BuiltinCapabilityCatalog，新增独立 PluginCapabilityRegistry。
-- [ ] search/read 按 session authority、workspace、Agent、activation 和 grant 合并过滤。
-- [ ] 市场仅在明确具体插件意图时返回 `install_required`，不注入完整市场目录。
-- [ ] 增加固定宿主能力 `iyw.plugins.install.request.v1`，安装前停放并等待用户确认。
-- [ ] 用户拒绝不创建 staging/DB/runtime；批准后安装并返回新 catalog digest。
-- [ ] invoke 每次复核 permission revision 和 actual Agent HostGateway capability。
-- [ ] 当前会话重新 search 即可调用；不支持 Agent 返回稳定 unavailable reason。
-- [ ] 验证顶层仍只有固定 gateway 工具、无重复 native MCP，阶段代码审查。
+- [x] 保留静态 BuiltinCapabilityCatalog，新增独立 PluginCapabilityRegistry。
+- [x] search/read 按 session authority、workspace、Agent、activation 和 grant 合并过滤。
+- [x] 市场仅在明确插件安装意图时返回 `install_required`，不注入完整市场目录。
+- [x] 增加固定宿主能力 `iyw.plugins.install.request.v1`，安装前停放并等待用户确认。
+- [x] 用户拒绝不创建 staging/DB/runtime；批准后安装、授权当前 workspace 并返回新 catalog digest。
+- [x] invoke 每次复核 permission revision 和 actual Agent HostGateway capability。
+- [x] 当前会话重新 search 即可调用；不支持 Agent 不展示插件工具并返回稳定 unavailable reason。
+- [x] 验证顶层仍只有固定 gateway 工具、无重复 native MCP，完成阶段静态审查。
+
+Task 4 验证说明：仅扩展 Gateway 内部目录，顶层 `tools/list` 仍固定三项；已安装 v2 插件按
+Registry/Agent/workspace/activation/permission 过滤，安装请求先读取 Fusion official v2 权威
+版本，再复用 `ask_user_question` 停放确认。按 Claw 规则未运行 Cargo check/test/build；已完成
+定向 rustfmt、Cargo metadata、diff 和静态调用链审查。真实用户点击确认、Fusion 网络安装、
+当前 ACP session 的端到端重 search/invoke 仍需 Task 6/7 runtime 验证。
 
 ## Task 5：实现通用 MCP Apps Host
 

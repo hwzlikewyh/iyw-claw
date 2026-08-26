@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseTransaction, EntityTrait,
-    QueryFilter, Set,
+    QueryFilter, Set, TransactionTrait,
 };
 
 use crate::db::entities::{plugin_activation_policy, plugin_permission_grant};
@@ -187,4 +187,79 @@ pub async fn list_permission_grants(
         .all(conn)
         .await
         .map_err(Into::into)
+}
+
+pub async fn approve_plugin(
+    conn: &sea_orm::DatabaseConnection,
+    plugin_slug: &str,
+    workspace_key: &str,
+    agent_type: &str,
+) -> Result<(), DbError> {
+    let transaction = conn.begin().await?;
+    let installation = crate::db::entities::plugin_installation::Entity::find()
+        .filter(crate::db::entities::plugin_installation::Column::Slug.eq(plugin_slug))
+        .one(&transaction)
+        .await?
+        .ok_or_else(|| DbError::NotFound("plugin installation".to_string()))?;
+    let manifest = serde_json::from_str::<serde_json::Value>(&installation.manifest_json)
+        .map_err(|error| DbError::Validation(error.to_string()))?;
+    let permissions = manifest
+        .get("permissions")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+    let permissions_json = serde_json::to_string(&permissions)
+        .map_err(|error| DbError::Validation(error.to_string()))?;
+    let now = Utc::now();
+    let activations = plugin_activation_policy::Entity::update_many()
+        .col_expr(
+            plugin_activation_policy::Column::RequestedEnabled,
+            sea_orm::sea_query::Expr::value(true),
+        )
+        .col_expr(
+            plugin_activation_policy::Column::AgentType,
+            sea_orm::sea_query::Expr::value(agent_type),
+        )
+        .col_expr(
+            plugin_activation_policy::Column::UpdatedAt,
+            sea_orm::sea_query::Expr::value(now),
+        )
+        .filter(plugin_activation_policy::Column::PluginSlug.eq(plugin_slug))
+        .exec(&transaction)
+        .await?;
+    let _workspace_activations = plugin_activation_policy::Entity::update_many()
+        .col_expr(
+            plugin_activation_policy::Column::WorkspaceKey,
+            sea_orm::sea_query::Expr::value(workspace_key),
+        )
+        .filter(plugin_activation_policy::Column::PluginSlug.eq(plugin_slug))
+        .filter(plugin_activation_policy::Column::Scope.eq("workspace"))
+        .exec(&transaction)
+        .await?;
+    let grants = plugin_permission_grant::Entity::update_many()
+        .col_expr(
+            plugin_permission_grant::Column::GrantedPermissionsJson,
+            sea_orm::sea_query::Expr::value(permissions_json),
+        )
+        .col_expr(
+            plugin_permission_grant::Column::GrantState,
+            sea_orm::sea_query::Expr::value("granted"),
+        )
+        .col_expr(
+            plugin_permission_grant::Column::GrantedAt,
+            sea_orm::sea_query::Expr::value(now),
+        )
+        .col_expr(
+            plugin_permission_grant::Column::UpdatedAt,
+            sea_orm::sea_query::Expr::value(now),
+        )
+        .filter(plugin_permission_grant::Column::PluginSlug.eq(plugin_slug))
+        .exec(&transaction)
+        .await?;
+    if activations.rows_affected == 0 || grants.rows_affected == 0 {
+        return Err(DbError::Validation(
+            "plugin runtime state is incomplete".to_string(),
+        ));
+    }
+    transaction.commit().await?;
+    Ok(())
 }

@@ -23,7 +23,9 @@ use reqwest::Method;
 use sea_orm::DatabaseConnection;
 
 use crate::app_error::AppCommandError;
-pub use plugin_types::{SkillPluginBinding, SkillPluginComponent, SkillPluginManifest};
+pub use plugin_types::{
+    SkillPluginBinding, SkillPluginComponent, SkillPluginManifest, SkillPluginPermissions,
+};
 use types::{parse_id, parse_value, FileNode, FileTree, SkillMarketFile, SkillMarketItem};
 pub use types::{
     SkillDependencyInput, SkillMarketAddVersionRequest, SkillMarketCategory, SkillMarketDetail,

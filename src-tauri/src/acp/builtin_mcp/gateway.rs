@@ -3,14 +3,20 @@ use rmcp::ErrorData;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use std::path::Path;
+
+use crate::models::AgentType;
+use crate::plugin_runtime::types::{PluginCallContext, PluginToolCall};
 
 use super::capability::{CapabilityCatalog, ResolveError, ResolvedCapability};
 use super::capability_registry::tool_name_for_capability_id;
 use super::features::FeatureSnapshot;
+use super::plugin_catalog::PluginCapabilityRegistry;
 
 pub(super) const SEARCH_TOOL: &str = "search_iyw_capabilities";
 pub(super) const READ_TOOL: &str = "read_iyw_capability";
 pub(super) const INVOKE_TOOL: &str = "invoke_iyw_capability";
+pub(super) const PLUGIN_INSTALL_CAPABILITY: &str = "iyw.plugins.install.request.v1";
 
 const MAX_GATEWAY_WRAPPER_DEPTH: u8 = 4;
 
@@ -24,6 +30,14 @@ pub(crate) enum GatewayToolIdentity {
 pub(super) enum GatewayAction {
     Return(CallToolResult),
     Invoke(ResolvedCapability),
+    PluginInvoke(PluginToolCall),
+    PluginInstallRequest(PluginInstallRequest),
+}
+
+pub(super) struct PluginInstallRequest {
+    pub skill_id: String,
+    pub version: String,
+    pub plugin_name: String,
 }
 
 pub(crate) fn invoked_tool_name(raw_input: &Option<String>) -> GatewayToolIdentity {
@@ -105,12 +119,24 @@ pub(super) fn dispatch(
     arguments: Option<JsonObject>,
     features: &FeatureSnapshot,
     server_name: &str,
+    cwd: &Path,
+    agent_type: AgentType,
+    request_cancel: tokio_util::sync::CancellationToken,
+    authority_cancel: tokio_util::sync::CancellationToken,
 ) -> Result<GatewayAction, ErrorData> {
     let catalog = load_catalog()?;
     match authorized_name(raw_name, server_name) {
-        Some(SEARCH_TOOL) => search(arguments, features, &catalog),
-        Some(READ_TOOL) => read(arguments, features, &catalog),
-        Some(INVOKE_TOOL) => invoke(arguments, features, &catalog),
+        Some(SEARCH_TOOL) => search(arguments, features, &catalog, cwd, agent_type),
+        Some(READ_TOOL) => read(arguments, features, &catalog, cwd, agent_type),
+        Some(INVOKE_TOOL) => invoke(
+            arguments,
+            features,
+            &catalog,
+            cwd,
+            agent_type,
+            request_cancel,
+            authority_cancel,
+        ),
         _ => Err(ErrorData::invalid_params("unknown MCP gateway tool", None)),
     }
 }
@@ -119,14 +145,43 @@ fn search(
     arguments: Option<JsonObject>,
     features: &FeatureSnapshot,
     catalog: &CapabilityCatalog,
+    cwd: &Path,
+    agent_type: AgentType,
 ) -> Result<GatewayAction, ErrorData> {
     let params = parse::<SearchParams>(arguments)?;
-    let capabilities = catalog
+    let mut capabilities = catalog
         .search(features, &params.query, params.limit)
         .map_err(|error| ErrorData::invalid_params(error.to_string(), None))?;
+    let plugin_values = PluginCapabilityRegistry::search(
+        crate::plugin_runtime::registry::global_snapshot().as_deref(),
+        features,
+        &params.query,
+        cwd,
+        agent_type,
+        params.limit.unwrap_or(8),
+    );
+    let limit = params.limit.unwrap_or(8);
+    let install_required = is_plugin_install_query(&params.query);
+    let install_slots = usize::from(install_required);
+    let available_slots = limit.saturating_sub(install_slots);
+    let plugin_slots = if plugin_values.is_empty() {
+        0
+    } else {
+        plugin_values.len().min((available_slots + 1) / 2)
+    };
+    let builtin_slots = limit.saturating_sub(install_slots + plugin_slots);
+    let mut values = capabilities
+        .drain(..)
+        .take(builtin_slots)
+        .map(|value| serde_json::to_value(value).map_err(serialize_error))
+        .collect::<Result<Vec<_>, ErrorData>>()?;
+    values.extend(plugin_values.into_iter().take(plugin_slots));
+    if install_required {
+        values.push(plugin_install_capability_summary());
+    }
     Ok(GatewayAction::Return(CallToolResult::structured(json!({
-        "capabilities": capabilities,
-        "catalog_digest": catalog.digest(),
+        "capabilities": values,
+        "catalog_digest": catalog_digest(catalog),
     }))))
 }
 
@@ -134,15 +189,33 @@ fn read(
     arguments: Option<JsonObject>,
     features: &FeatureSnapshot,
     catalog: &CapabilityCatalog,
+    cwd: &Path,
+    agent_type: AgentType,
 ) -> Result<GatewayAction, ErrorData> {
     let params = parse::<CapabilityParams>(arguments)?;
     let capability_id = parse_capability_id(&params.capability_id)?;
+    if capability_id == PLUGIN_INSTALL_CAPABILITY {
+        return Ok(GatewayAction::Return(CallToolResult::structured(
+            plugin_install_capability_detail(),
+        )));
+    }
     let detail = catalog
         .read(features, capability_id)
+        .map(|value| serde_json::to_value(value).map_err(serialize_error))
+        .transpose()?
+        .or_else(|| {
+            PluginCapabilityRegistry::read(
+                crate::plugin_runtime::registry::global_snapshot().as_deref(),
+                capability_id,
+                features,
+                cwd,
+                agent_type,
+            )
+        })
         .ok_or_else(unknown_capability)?;
     Ok(GatewayAction::Return(CallToolResult::structured(json!({
         "capability": detail,
-        "catalog_digest": catalog.digest(),
+        "catalog_digest": catalog_digest(catalog),
     }))))
 }
 
@@ -150,15 +223,151 @@ fn invoke(
     arguments: Option<JsonObject>,
     features: &FeatureSnapshot,
     catalog: &CapabilityCatalog,
+    cwd: &Path,
+    agent_type: AgentType,
+    request_cancel: tokio_util::sync::CancellationToken,
+    authority_cancel: tokio_util::sync::CancellationToken,
 ) -> Result<GatewayAction, ErrorData> {
     let params = parse::<InvokeParams>(arguments)?;
     let capability_id = parse_capability_id(&params.capability_id)?;
+    if capability_id == PLUGIN_INSTALL_CAPABILITY {
+        if params.delivery_ack.is_some() {
+            return Err(ErrorData::invalid_params(
+                "delivery_ack is not supported for plugin installation requests",
+                None,
+            ));
+        }
+        return plugin_install_request(params.arguments);
+    }
     let arguments = Value::Object(params.arguments);
-    let mut resolved = catalog
-        .resolve(features, capability_id, arguments)
-        .map_err(resolve_error)?;
-    resolved.delivery_ack = parse_delivery_ack(params.delivery_ack)?;
-    Ok(GatewayAction::Invoke(resolved))
+    match catalog.resolve(features, capability_id, arguments.clone()) {
+        Ok(resolved) => {
+            let mut resolved = resolved;
+            resolved.delivery_ack = parse_delivery_ack(params.delivery_ack)?;
+            return Ok(GatewayAction::Invoke(resolved));
+        }
+        Err(ResolveError::Unknown) => {}
+        Err(error) => return Err(resolve_error(error)),
+    };
+    let plugin = PluginCapabilityRegistry::read(
+        crate::plugin_runtime::registry::global_snapshot().as_deref(),
+        capability_id,
+        features,
+        cwd,
+        agent_type,
+    )
+    .ok_or_else(unknown_capability)?;
+    if plugin.get("status").and_then(Value::as_str) != Some("available") {
+        return Err(ErrorData::invalid_params(
+            "plugin capability is unavailable for this session",
+            None,
+        ));
+    }
+    let plugin_slug = plugin
+        .get("plugin_slug")
+        .and_then(Value::as_str)
+        .ok_or_else(unknown_capability)?
+        .to_string();
+    let context = PluginCallContext {
+        plugin_slug,
+        capability_id: capability_id.to_string(),
+        workspace_key: cwd.to_string_lossy().to_string(),
+        workspace_dir: cwd.to_path_buf(),
+        agent_type,
+        host_gateway_supported: crate::acp::connection::agent_supports_builtin_mcp(agent_type),
+        cancellation: request_cancel,
+        authority_cancellation: authority_cancel,
+        permission_revision: crate::plugin_runtime::registry::global_snapshot()
+            .and_then(|snapshot| snapshot.plugins.get(plugin.get("plugin_slug")?.as_str()?))
+            .map(|plugin| plugin.permissions_digest.clone())
+            .unwrap_or_default(),
+    };
+    return Ok(GatewayAction::PluginInvoke(PluginToolCall {
+        context,
+        arguments: params.arguments,
+    }));
+}
+
+fn serialize_error(error: serde_json::Error) -> ErrorData {
+    ErrorData::internal_error(error.to_string(), None)
+}
+
+fn catalog_digest(catalog: &CapabilityCatalog) -> String {
+    let plugin_digest = crate::plugin_runtime::registry::global_snapshot()
+        .map(|snapshot| snapshot.digest.clone())
+        .unwrap_or_default();
+    format!("{}:{}", catalog.digest(), plugin_digest)
+}
+
+fn is_plugin_install_query(query: &str) -> bool {
+    let lowered = query.to_ascii_lowercase();
+    lowered.contains("plugin") && (lowered.contains("install") || query.contains("安装"))
+}
+
+fn plugin_install_capability_summary() -> Value {
+    json!({
+        "capability_id": PLUGIN_INSTALL_CAPABILITY,
+        "summary": "Request explicit user approval before downloading a verified plugin.",
+        "category": "plugin",
+        "aliases": ["install plugin", "安装插件"],
+        "intent_terms": ["plugin", "install", "安装", "插件"],
+        "when_to_use": "Use only when a concrete plugin and version are known and it is not installed.",
+        "required_inputs": ["skill_id", "version", "plugin_name"],
+        "schema_digest": "builtin:plugin-install-request:v1",
+        "status": "install_required"
+    })
+}
+
+fn plugin_install_capability_detail() -> Value {
+    json!({
+        "capability": {
+            "capability_id": PLUGIN_INSTALL_CAPABILITY,
+            "description": "Request explicit user approval before downloading a verified plugin. Refuses implicit downloads.",
+            "input_schema": {
+                "type": "object",
+                "required": ["skill_id", "version", "plugin_name"],
+                "properties": {
+                    "skill_id": {"type": "string"},
+                    "version": {"type": "string"},
+                    "plugin_name": {"type": "string"},
+                },
+                "additionalProperties": false
+            },
+            "category": "plugin",
+            "aliases": ["install plugin", "安装插件"],
+            "intent_terms": ["plugin", "install", "安装", "插件"],
+            "when_to_use": "Use only when a concrete plugin and version are known and it is not installed.",
+            "required_inputs": ["skill_id", "version", "plugin_name"],
+            "schema_digest": "builtin:plugin-install-request:v1",
+            "status": "available"
+        },
+        "catalog_digest": "builtin:plugin-install-request:v1"
+    })
+}
+
+fn plugin_install_request(arguments: Map<String, Value>) -> Result<GatewayAction, ErrorData> {
+    let skill_id = bounded_string(&arguments, "skill_id", 64)?;
+    let version = bounded_string(&arguments, "version", 64)?;
+    let plugin_name = bounded_string(&arguments, "plugin_name", 128)?;
+    Ok(GatewayAction::PluginInstallRequest(PluginInstallRequest {
+        skill_id,
+        version,
+        plugin_name,
+    }))
+}
+
+fn bounded_string(
+    arguments: &Map<String, Value>,
+    name: &str,
+    max_chars: usize,
+) -> Result<String, ErrorData> {
+    let value = arguments
+        .get(name)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && value.chars().count() <= max_chars)
+        .ok_or_else(|| ErrorData::invalid_params(format!("{name} is required"), None))?;
+    Ok(value.to_string())
 }
 
 fn parse_delivery_ack(value: Option<String>) -> Result<Option<String>, ErrorData> {

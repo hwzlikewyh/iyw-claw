@@ -36,7 +36,12 @@ impl PluginRouter {
             .ok_or_else(|| unavailable("Plugin is not available"))?;
         validate_permission(plugin, &call)?;
         let route = resolve_route(plugin, &call.context.capability_id)?;
-        validate_activation(plugin, &route.connector_key, &call.context.workspace_key)?;
+        validate_activation(
+            plugin,
+            &route.connector_key,
+            &call.context.workspace_key,
+            call.context.agent_type,
+        )?;
         let spec = launch_spec(plugin, &route.connector_key, &call)?;
         self.supervisor
             .invoke(
@@ -44,6 +49,7 @@ impl PluginRouter {
                 route.tool_name,
                 call.arguments,
                 call.context.cancellation,
+                call.context.authority_cancellation,
             )
             .await
     }
@@ -76,14 +82,16 @@ fn validate_activation(
     plugin: &PluginDescriptor,
     connector_key: &str,
     workspace_key: &str,
+    agent_type: crate::models::AgentType,
 ) -> Result<(), PluginInvokeError> {
+    let agent_type = agent_type.as_wire();
     let enabled = plugin.activations.iter().any(|activation| {
         activation.component_key == connector_key
             && activation.routing_mode == "host_gateway"
             && activation.requested_enabled
+            && (activation.agent_type.is_empty() || activation.agent_type == agent_type.as_ref())
             && (activation.scope == "global"
-                || activation.workspace_key.is_empty()
-                || activation.workspace_key == workspace_key)
+                || (activation.scope == "workspace" && activation.workspace_key == workspace_key))
     });
     if !enabled {
         return Err(unavailable("Plugin connector is disabled"));

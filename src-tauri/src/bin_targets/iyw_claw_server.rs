@@ -374,6 +374,7 @@ async fn async_main() -> ExitCode {
     let agent_catalog = iyw_claw_lib::acp::version_center::CatalogStore::load(&db.conn).await;
     let (capability_policy, capability_policy_refresh) =
         iyw_claw_lib::app_state::build_capability_policy_stack(db.conn.clone()).await;
+    iyw_claw_lib::plugin_runtime::global::install_database(db.conn.clone());
     let plugin_registry = iyw_claw_lib::plugin_runtime::registry::PluginRegistry::load(&db.conn)
         .await
         .unwrap_or_else(|error| {
@@ -388,6 +389,7 @@ async fn async_main() -> ExitCode {
         plugin_registry.clone(),
         plugin_supervisor.clone(),
     );
+    let plugin_router = iyw_claw_lib::plugin_runtime::global::install_router(plugin_router);
     connection_manager.install_capability_policy(capability_policy.clone());
     let state = Arc::new(AppState {
         db,

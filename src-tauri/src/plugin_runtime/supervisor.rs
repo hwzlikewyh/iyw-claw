@@ -61,15 +61,19 @@ impl PluginRuntimeSupervisor {
         tool_name: String,
         arguments: serde_json::Map<String, serde_json::Value>,
         cancellation: CancellationToken,
+        authority_cancellation: CancellationToken,
     ) -> PluginInvokeResult {
-        self.ensure_accepting(&cancellation)?;
+        self.ensure_accepting(&cancellation, &authority_cancellation)?;
         let instance = self.ensure_instance(&spec).await?;
         let permits = super::lease::acquire(&self.inner.global_calls, &instance).await?;
-        self.ensure_accepting(&cancellation)?;
+        self.ensure_accepting(&cancellation, &authority_cancellation)?;
         let call = instance.client.call_tool(tool_name, arguments);
         let result = tokio::select! {
             _ = cancellation.cancelled() => Err(PluginInvokeError::after_dispatch(
                 "plugin_call_cancelled", "Plugin call was cancelled after dispatch",
+            )),
+            _ = authority_cancellation.cancelled() => Err(PluginInvokeError::after_dispatch(
+                "plugin_authority_revoked", "Plugin authority was revoked after dispatch",
             )),
             result = tokio::time::timeout(CALL_TIMEOUT, call) => match result {
                 Ok(result) => result,
@@ -191,8 +195,15 @@ impl PluginRuntimeSupervisor {
         }
     }
 
-    fn ensure_accepting(&self, cancellation: &CancellationToken) -> Result<(), PluginInvokeError> {
-        if self.inner.quiescing.load(Ordering::Acquire) || cancellation.is_cancelled() {
+    fn ensure_accepting(
+        &self,
+        cancellation: &CancellationToken,
+        authority_cancellation: &CancellationToken,
+    ) -> Result<(), PluginInvokeError> {
+        if self.inner.quiescing.load(Ordering::Acquire)
+            || cancellation.is_cancelled()
+            || authority_cancellation.is_cancelled()
+        {
             return Err(PluginInvokeError::before_effect(
                 "plugin_runtime_unavailable",
                 "Plugin runtime is not accepting calls",

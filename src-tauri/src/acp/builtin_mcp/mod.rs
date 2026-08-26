@@ -14,6 +14,7 @@ mod gateway;
 mod handler;
 mod http;
 mod lease;
+mod plugin_catalog;
 mod policy;
 mod receipt;
 mod runtime;

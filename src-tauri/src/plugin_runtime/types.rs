@@ -37,8 +37,11 @@ pub struct PluginCallContext {
     pub capability_id: String,
     pub workspace_key: String,
     pub workspace_dir: PathBuf,
+    pub agent_type: crate::models::AgentType,
     pub host_gateway_supported: bool,
     pub cancellation: CancellationToken,
+    pub authority_cancellation: CancellationToken,
+    pub permission_revision: String,
 }
 
 pub struct PluginToolCall {
