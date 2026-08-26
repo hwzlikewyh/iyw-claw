@@ -23,6 +23,11 @@ from generate_openai_yaml import write_openai_yaml
 MAX_SKILL_NAME_LENGTH = 64
 ALLOWED_RESOURCES = {"scripts", "references", "assets"}
 
+
+def iyw_claw_skills_dir() -> Path:
+    """Return the per-user iyw-claw central Skill store."""
+    return Path.home() / ".iyw-claw" / "skills"
+
 SKILL_TEMPLATE = """---
 name: {skill_name}
 description: [TODO: Complete and informative explanation of what the skill does and when to use it. Include WHEN to use this skill - specific scenarios, file types, or tasks that trigger it.]
@@ -338,7 +343,10 @@ def main():
         description="Create a new skill directory with a SKILL.md template.",
     )
     parser.add_argument("skill_name", help="Skill name (normalized to hyphen-case)")
-    parser.add_argument("--path", required=True, help="Output directory for the skill")
+    parser.add_argument(
+        "--path",
+        help="Output directory for the skill (default: ~/.iyw-claw/skills)",
+    )
     parser.add_argument(
         "--resources",
         default="",
@@ -376,7 +384,7 @@ def main():
         print("[ERROR] --examples requires --resources to be set.")
         sys.exit(1)
 
-    path = args.path
+    path = args.path or str(iyw_claw_skills_dir())
 
     print(f"Initializing skill: {skill_name}")
     print(f"   Location: {path}")
