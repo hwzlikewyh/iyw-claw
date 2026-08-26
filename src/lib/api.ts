@@ -4265,16 +4265,52 @@ export interface TaskArtifactInfo {
   status: TaskArtifactStatus
 }
 
+export interface TaskArtifactPage {
+  items: TaskArtifactInfo[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 export async function listTaskArtifacts(filters: {
   conversationId?: number | null
   folderId?: number | null
   latestTurnOnly?: boolean
-}): Promise<TaskArtifactInfo[]> {
-  return getTransport().call("list_task_artifacts", {
+  search?: string | null
+  page?: number | null
+  pageSize?: number | null
+}): Promise<TaskArtifactPage> {
+  const page = filters.page ?? 1
+  const pageSize = filters.pageSize ?? (filters.latestTurnOnly ? 100 : 50)
+  const result = await getTransport().call<
+    TaskArtifactPage | TaskArtifactInfo[]
+  >("list_task_artifacts", {
     conversationId: filters.conversationId ?? null,
     folderId: filters.folderId ?? null,
     latestTurnOnly: filters.latestTurnOnly ?? false,
+    search: filters.search ?? null,
+    page,
+    pageSize,
   })
+  if (!Array.isArray(result)) return result
+  return { items: result, total: result.length, page, pageSize }
+}
+
+export async function listAllTaskArtifacts(filters: {
+  conversationId?: number | null
+  folderId?: number | null
+  latestTurnOnly?: boolean
+  search?: string | null
+}): Promise<TaskArtifactInfo[]> {
+  const pageSize = 100
+  const first = await listTaskArtifacts({ ...filters, page: 1, pageSize })
+  const items = [...first.items]
+  const totalPages = Math.ceil(first.total / pageSize)
+  for (let page = 2; page <= totalPages; page += 1) {
+    const result = await listTaskArtifacts({ ...filters, page, pageSize })
+    items.push(...result.items)
+  }
+  return items
 }
 
 /** Live probe — opens a transient ACP connection to `agent_type`, reads what

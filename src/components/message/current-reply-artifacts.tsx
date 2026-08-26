@@ -64,6 +64,7 @@ function ResolvedReplyArtifacts({
     folderId: null,
     scope: "current",
     latestTurnOnly: !registration.hasCall,
+    loadAll: true,
   })
   const items = useMemo(() => {
     if (registration.rejected) return []
