@@ -325,6 +325,8 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
   )
 
   const { isConversations } = useWorkbenchRoute()
+  const fileWorkspaceVisible =
+    isConversations && !browserOpen && (mode !== "conversation" || filesOverlay)
 
   return (
     <div className="relative h-full min-h-0 overflow-hidden">
@@ -401,7 +403,7 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
                 <>
                   <FileWorkspaceTabBar />
                   <div className="flex-1 min-h-0 overflow-hidden">
-                    <FileWorkspacePanel />
+                    <FileWorkspacePanel isVisible={fileWorkspaceVisible} />
                   </div>
                 </>
               )}
@@ -442,7 +444,7 @@ function MobileWorkspaceContent({ children }: { children: React.ReactNode }) {
           <section className="flex h-full min-h-0 flex-col overflow-hidden">
             <FileWorkspaceTabBar />
             <div className="flex-1 min-h-0 overflow-hidden">
-              <FileWorkspacePanel />
+              <FileWorkspacePanel isVisible={isConversations} />
             </div>
           </section>
         )}

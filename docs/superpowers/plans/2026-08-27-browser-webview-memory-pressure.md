@@ -101,15 +101,15 @@
 - 修改 `src/components/files/file-workspace-panel.tsx`
 - 修改 `src/components/conversations/conversation-detail-panel.tsx`
 
-- [ ] 实现 generation-safe `useDelayedPresence(visible, 30_000)`：可见立即 true，不可见延迟
+- [x] 实现 generation-safe `useDelayedPresence(visible, 30_000)`：可见立即 true，不可见延迟
   false，effect cleanup 取消旧 timer；不使用 viewport 字体或布局变化。
-- [ ] desktop `WorkspaceContent` 把 route/mode 可见性传给 `FileWorkspacePanel`。mobile 当前通过
+- [x] desktop `WorkspaceContent` 把 route/mode 可见性传给 `FileWorkspacePanel`。mobile 当前通过
   条件分支自然卸载，不额外保活隐藏 Monaco。
-- [ ] `FileWorkspacePanel` 只根据 delayed presence 卸载 `MonacoEditor` 子树；provider、tabs、
+- [x] `FileWorkspacePanel` 只根据 delayed presence 卸载 `MonacoEditor` 子树；provider、tabs、
   dirty/save/loading state 留在现有 store。保持 `saveViewState` 默认值和现有 dispose 清理。
-- [ ] `ConversationDetailPanel` 合并 `isConversations` 到 group visibility，使 route overlay 下的
+- [x] `ConversationDetailPanel` 合并 `isConversations` 到 group visibility，使 route overlay 下的
   消息 DOM 走已有 placeholder；保留组件、ACP 事件、草稿/队列保护及隐藏输入例外。
-- [ ] 静态审查 IME composition、保存中、loading、dirty tab、route 往返、分屏/平铺和浏览器
+- [x] 静态审查 IME composition、保存中、loading、dirty tab、route 往返、分屏/平铺和浏览器
   面板切换；终端文件无 diff。
 
 ## Task 5：统一验证和提交审计

@@ -34,6 +34,7 @@ import { groupOfTab, isReparentUnmount } from "@/stores/tab-store"
 import { useSessionStats } from "@/contexts/session-stats-context"
 import { useTaskContext } from "@/contexts/task-context"
 import { useIywAccount } from "@/contexts/iyw-account-context"
+import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { cn, copyTextFromMenu, randomUUID } from "@/lib/utils"
 import { useConnectionLifecycle } from "@/hooks/use-connection-lifecycle"
 import { useDocumentVisibility } from "@/hooks/use-document-visibility"
@@ -2626,6 +2627,7 @@ export function ConversationDetailPanel() {
     endTabDrag,
   } = useTabActions()
   const isMobile = useIsMobile()
+  const { isConversations } = useWorkbenchRoute()
   const newConversation = useMemo(() => {
     const activeTab = tabs.find((tab) => tab.id === activeTabId)
     if (!activeTab || activeTab.conversationId != null) return null
@@ -3022,7 +3024,9 @@ export function ConversationDetailPanel() {
                 tabs={tabsByGroup.get(groupId) ?? []}
                 selectedTabId={groupSelection[groupId]}
                 activeTabId={activeTabId}
-                groupVisible={!isMobile || groupId === activeGroupId}
+                groupVisible={
+                  isConversations && (!isMobile || groupId === activeGroupId)
+                }
                 showStrip={desktopSplit}
                 tileMode={!!tileByGroup[groupId]}
                 dragOver={dragOverGroupId === groupId}
