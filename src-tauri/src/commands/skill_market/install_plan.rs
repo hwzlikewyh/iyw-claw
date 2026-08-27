@@ -135,10 +135,7 @@ fn validate_package_metadata(item: &SkillInstallPlanItem) -> Result<(), AppComma
                 )
             })?;
             if plugin.schema_version >= 2
-                && (item.download.artifact_size == 0
-                    || !valid_sha256(&item.download.object_sha256)
-                    || item.download.signature.trim().is_empty()
-                    || item.download.signature_key_id.trim().is_empty())
+                && (item.download.artifact_size == 0 || !valid_sha256(&item.download.object_sha256))
             {
                 return Err(AppCommandError::artifact_not_ready(
                     "The plugin artifact has incomplete trust metadata",

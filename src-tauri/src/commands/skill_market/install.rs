@@ -259,9 +259,6 @@ fn validate_downloaded_package(
                     "Plugin install plan is missing component metadata",
                 )
             })?;
-            if expected.schema_version == 2 {
-                super::plugin_signature::verify_v2_plugin_signature(bytes, &item.download)?;
-            }
             let package = crate::acp::skill_package::validate_plugin_zip(
                 bytes,
                 &item.download.content_sha256,
