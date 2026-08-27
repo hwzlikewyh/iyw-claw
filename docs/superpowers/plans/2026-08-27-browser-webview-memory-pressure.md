@@ -114,16 +114,26 @@
 
 ## Task 5：统一验证和提交审计
 
-- [ ] 执行 `cargo fmt --check`。
-- [ ] 执行 desktop 定向 `cargo check --lib --features tauri-runtime`；若环境阻塞，记录完整原因，
+- [x] 执行 `cargo fmt --check`。
+- [x] 执行 desktop 定向 `cargo check --lib --features tauri-runtime`；若环境阻塞，记录完整原因，
   不把静态检查表述为编译通过。
-- [ ] 对前端改动执行 Prettier check、定向 ESLint 和 `pnpm exec tsc --noEmit`；命令卡住时改用
+- [x] 对前端改动执行 Prettier check、定向 ESLint 和 `pnpm exec tsc --noEmit`；命令卡住时改用
   仓库本地 binary 并如实报告。
-- [ ] 执行 `git diff --check`，检查每个新增函数 <= 50 行、新文件 <= 300 行、嵌套/日志敏感
+- [x] 执行 `git diff --check`，检查每个新增函数 <= 50 行、新文件 <= 300 行、嵌套/日志敏感
   字段和 cfg 边界。
-- [ ] 沿 browser start/new-tab、WebView hide/show、Monaco/route visibility、performance 两棵
+- [x] 沿 browser start/new-tab、WebView hide/show、Monaco/route visibility、performance 两棵
   进程树四条调用链进行第二轮静态审查。
-- [ ] 确认 `git status` 中不包含终端改动、原主 worktree 改动或 `.codegraph` 临时索引；精确
+- [x] 确认 `git status` 中不包含终端改动、原主 worktree 改动或 `.codegraph` 临时索引；精确
   stage 本任务文件并分层提交，不 push。
-- [ ] 明确剩余运行时验证：真实 OOM 压力、WebView2 suspend/resume、安装版托盘恢复和 Task
+- [x] 明确剩余运行时验证：真实 OOM 压力、WebView2 suspend/resume、安装版托盘恢复和 Task
   Manager 数值对照必须在测试制品中验证。
+
+## 验证记录
+
+- `cargo check --lib --features tauri-runtime` 通过，保留 55 条既有 warning。
+- `cargo check --no-default-features --features server-runtime --lib` 通过，保留 162 条既有 warning。
+- 改动前端文件的 Prettier、ESLint 以及全量 `tsc --noEmit` 通过。
+- 改动 Rust 文件定向 rustfmt 通过；全仓 `cargo fmt --all -- --check` 仍只报告改动前已有的
+  `browser::agent_window` 与 `commands::skill_watch` 模块排序差异，未为此制造无关 diff。
+- `git diff e1afb91a..HEAD --check` 通过；终端、CI、pnpm lock 和 Tauri 配置无改动。
+- `.codegraph`、验证用空 `out` 和构建脚本生成的 0 字节 sidecar 已清理；安装版/E2E 未运行。
