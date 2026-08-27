@@ -54,6 +54,8 @@ mod process;
 mod profile;
 mod records;
 #[cfg(feature = "tauri-runtime")]
+mod resource_gate;
+#[cfg(feature = "tauri-runtime")]
 mod runtime;
 #[cfg(feature = "tauri-runtime")]
 mod runtime_launch;
@@ -115,6 +117,8 @@ mod windows_process_values;
 pub use control_lease::AgentControlLease;
 pub use error::{BrowserError, BrowserErrorCode, BrowserErrorContext};
 pub use manager::BrowserSessionManager;
+#[cfg(feature = "tauri-runtime")]
+pub(crate) use runtime::ManagedBrowserProcessSnapshot;
 #[cfg(feature = "tauri-runtime")]
 pub use stream_input::*;
 pub use types::*;

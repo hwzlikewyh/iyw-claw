@@ -5,16 +5,20 @@ use crate::acp::manager::ConnectionManager;
 use crate::acp::resource_governor::RuntimeSessionSnapshot;
 #[cfg(feature = "tauri-runtime")]
 use crate::app_error::AppCommandError;
-use crate::db::service::conversation_service;
 #[cfg(feature = "tauri-runtime")]
 use crate::db::AppDatabase;
 #[cfg(feature = "tauri-runtime")]
 use tauri::State;
 
+#[cfg(feature = "tauri-runtime")]
+#[path = "performance_browser.rs"]
+mod performance_browser;
 #[path = "performance_models.rs"]
 mod performance_models;
 #[path = "performance_processes.rs"]
 mod performance_processes;
+#[path = "performance_service.rs"]
+mod performance_service;
 #[path = "performance_sessions.rs"]
 mod performance_sessions;
 #[cfg(target_os = "windows")]
@@ -25,6 +29,7 @@ pub use performance_models::{
     AppAgentSessionInfo, AppPerformanceStats, AppProcessInfo, AppSystemMemoryInfo, OsInfo,
 };
 use performance_processes::{classify_processes, ProcessClassification, ProcessRecord};
+pub use performance_service::get_performance_stats_core;
 use performance_sessions::{apply_runtime_classifications, collect_agent_sessions};
 
 const PERFORMANCE_SAMPLE_INTERVAL_MS: u64 = 200;
@@ -154,12 +159,27 @@ fn system_memory_info(sys: &System) -> AppSystemMemoryInfo {
     }
 }
 
-fn collect_processes(sys: &System, sessions: &[RuntimeSessionSnapshot]) -> Vec<AppProcessInfo> {
+fn collect_processes(
+    sys: &System,
+    sessions: &[RuntimeSessionSnapshot],
+    managed_browser_root: Option<Pid>,
+) -> Vec<AppProcessInfo> {
     let root_pid = Pid::from_u32(std::process::id());
-    let scoped_pids = collect_descendant_pids(sys, root_pid);
+    let mut scoped_pids = collect_descendant_pids(sys, root_pid);
+    if let Some(browser_root) = managed_browser_root {
+        scoped_pids.extend(collect_descendant_pids(sys, browser_root));
+    }
     let records = collect_records(sys, &scoped_pids);
     let mut classifications = classify_processes(&records, root_pid.as_u32());
     apply_runtime_classifications(&records, sessions, &mut classifications);
+    #[cfg(feature = "tauri-runtime")]
+    if let Some(browser_root) = managed_browser_root {
+        performance_browser::apply_classifications(
+            &records,
+            browser_root.as_u32(),
+            &mut classifications,
+        );
+    }
     let scope = PerformanceScope {
         root_pid,
         cpu_count: sys.cpus().len().max(1) as f32,
@@ -175,7 +195,12 @@ fn collect_processes(sys: &System, sessions: &[RuntimeSessionSnapshot]) -> Vec<A
     processes
 }
 
-fn collect_stats(sessions: Vec<RuntimeSessionSnapshot>) -> AppPerformanceStats {
+pub(super) fn collect_stats(
+    sessions: Vec<RuntimeSessionSnapshot>,
+    #[cfg(feature = "tauri-runtime")] managed_browser: Option<
+        crate::browser::ManagedBrowserProcessSnapshot,
+    >,
+) -> AppPerformanceStats {
     let mut sys = System::new_all();
     sys.refresh_all();
     std::thread::sleep(std::time::Duration::from_millis(
@@ -184,7 +209,17 @@ fn collect_stats(sessions: Vec<RuntimeSessionSnapshot>) -> AppPerformanceStats {
     sys.refresh_all();
 
     let system_memory = Some(system_memory_info(&sys));
-    let processes = collect_processes(&sys, &sessions);
+    #[cfg(feature = "tauri-runtime")]
+    let managed_browser_root = managed_browser
+        .as_ref()
+        .and_then(|snapshot| performance_browser::validated_root_pid(&sys, snapshot));
+    #[cfg(not(feature = "tauri-runtime"))]
+    let managed_browser_root = None;
+    let processes = collect_processes(&sys, &sessions, managed_browser_root);
+    #[cfg(feature = "tauri-runtime")]
+    if let Some(root) = managed_browser_root {
+        performance_browser::log_included_sample(root, &processes);
+    }
     let private_memory_used_bytes = complete_private_memory(processes.iter());
     let agent_sessions = collect_agent_sessions(&processes, sessions);
     AppPerformanceStats {
@@ -199,25 +234,6 @@ fn collect_stats(sessions: Vec<RuntimeSessionSnapshot>) -> AppPerformanceStats {
         agent_sessions,
         system_memory,
     }
-}
-
-pub async fn get_performance_stats_core(
-    manager: &ConnectionManager,
-    db: &sea_orm::DatabaseConnection,
-) -> AppPerformanceStats {
-    let sessions = manager.runtime_session_snapshots().await;
-    let mut stats = tokio::task::spawn_blocking(move || collect_stats(sessions))
-        .await
-        .unwrap_or_default();
-    for session in &mut stats.agent_sessions {
-        let Some(conversation_id) = session.conversation_id else {
-            continue;
-        };
-        if let Ok(conversation) = conversation_service::get_by_id(db, conversation_id).await {
-            session.conversation_title = conversation.title;
-        }
-    }
-    stats
 }
 
 pub async fn end_agent_runtime_session_core(
@@ -239,8 +255,17 @@ pub async fn end_agent_runtime_session_core(
 pub async fn get_performance_stats(
     manager: State<'_, ConnectionManager>,
     db: State<'_, AppDatabase>,
+    browser: State<'_, crate::browser::BrowserSessionManager>,
 ) -> Result<AppPerformanceStats, AppCommandError> {
-    Ok(get_performance_stats_core(&manager, &db.conn).await)
+    let managed_browser = browser.runtime_process_snapshot().await;
+    Ok(
+        performance_service::get_performance_stats_with_browser_core(
+            &manager,
+            &db.conn,
+            managed_browser,
+        )
+        .await,
+    )
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]

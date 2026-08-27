@@ -1668,6 +1668,7 @@ pub fn consume_pending_main_window_show(app: &AppHandle) {
 
 #[cfg(feature = "tauri-runtime")]
 fn restore_main_window(main: &tauri::WebviewWindow) {
+    crate::webview_memory::resume_before_show(main);
     for (operation, result) in [
         ("unminimize", main.unminimize()),
         ("show", main.show()),

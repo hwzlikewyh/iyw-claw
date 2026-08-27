@@ -164,6 +164,7 @@ impl BrowserState {
             tab_generation: Some(ticket.tab_generation),
             view_generation: Some(ticket.view_generation),
             control_epoch: None,
+            ..BrowserErrorContext::default()
         }))
     }
 

@@ -10,6 +10,7 @@ pub enum BrowserErrorCode {
     BrowserProfileLocked,
     BrowserRuntimeStartTimeout,
     BrowserRuntimeUnavailable,
+    BrowserInsufficientMemory,
     BrowserShuttingDown,
     BrowserTabLimit,
     BrowserInvalidArgument,
@@ -49,6 +50,18 @@ pub struct BrowserErrorContext {
     pub view_generation: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub control_epoch: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_operation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_pressure: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available_memory_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_memory_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shrinking_reserve_bytes: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub emergency_reserve_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, thiserror::Error)]
