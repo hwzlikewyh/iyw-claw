@@ -22,6 +22,7 @@ function formatBytes(bytes: number | undefined): string {
 function roleLabel(role: string | undefined): string {
   const labels: Record<string, string> = {
     main: "主进程",
+    controller: "控制器",
     browser: "浏览器",
     renderer: "渲染器",
     "gpu-process": "GPU",

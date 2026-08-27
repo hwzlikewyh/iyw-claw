@@ -72,6 +72,13 @@ pub(super) struct RuntimeExitWatch {
     cancellation: CancellationToken,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct ManagedBrowserProcessSnapshot {
+    pub pid: u32,
+    pub started_at: u64,
+    pub executable: PathBuf,
+}
+
 impl BrowserRuntime {
     pub fn new(data_root: PathBuf) -> Self {
         Self {
@@ -181,6 +188,16 @@ impl BrowserRuntime {
             generation,
             daemon: handle.daemon.clone(),
             cancellation: handle.watcher_cancel.clone(),
+        })
+    }
+
+    pub async fn process_snapshot(&self) -> Option<ManagedBrowserProcessSnapshot> {
+        let current = self.current.lock().await;
+        let daemon = &current.as_ref()?.daemon;
+        Some(ManagedBrowserProcessSnapshot {
+            pid: daemon.pid,
+            started_at: daemon.started_at,
+            executable: daemon.executable.clone()?,
         })
     }
 

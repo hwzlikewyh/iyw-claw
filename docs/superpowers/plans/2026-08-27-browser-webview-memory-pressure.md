@@ -51,17 +51,17 @@
 - 修改 `src/components/settings/performance-process-groups.tsx`
 - 修改 `src/components/settings/performance-process-group-section.tsx`
 
-- [ ] 从 running `RuntimeHandle` 只读导出 daemon PID、启动时间和 executable 快照；不暴露
+- [x] 从 running `RuntimeHandle` 只读导出 daemon PID、启动时间和 executable 快照；不暴露
   controller session、CDP URL 或 profile。
-- [ ] 性能采样刷新 sysinfo 后再次校验 PID 启动时间/executable；通过才把 daemon 及
+- [x] 性能采样刷新 sysinfo 后再次校验 PID 启动时间/executable；通过才把 daemon 及
   descendants 与主进程树做集合并集，身份失配或 runtime 中途退出时退回原结果。
-- [ ] 分类器优先把额外树归入 `managed-browser-<pid>` / “内置浏览器”，标注 controller、
+- [x] 分类器优先把额外树归入 `managed-browser-<pid>` / “内置浏览器”，标注 controller、
   browser、renderer、GPU、utility、crashpad role；集合去重确保 PID 只累计一次。
-- [ ] Tauri 命令传入 managed browser 快照；HTTP/server 路径保持无额外 root，避免改变
+- [x] Tauri 命令传入 managed browser 快照；HTTP/server 路径保持无额外 root，避免改变
   `AppState` 的共享接口。
-- [ ] 前端分组排序把内置浏览器放在 WebView2 后、Agent 前，并补 `controller` 中文角色；不加
+- [x] 前端分组排序把内置浏览器放在 WebView2 后、Agent 前，并补 `controller` 中文角色；不加
   新卡片或说明文案。
-- [ ] 静态核对总 CPU、working set、private commit 均从最终 processes 求和，Agent session
+- [x] 静态核对总 CPU、working set、private commit 均从最终 processes 求和，Agent session
   聚合不会吞入 browser 组。
 
 ## Task 3：隐藏主 WebView 的 generation-safe suspend/resume

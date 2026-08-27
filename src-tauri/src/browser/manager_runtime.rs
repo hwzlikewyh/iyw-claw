@@ -36,6 +36,12 @@ impl BrowserSessionManager {
         self.snapshot().await
     }
 
+    pub(crate) async fn runtime_process_snapshot(
+        &self,
+    ) -> Option<super::runtime::ManagedBrowserProcessSnapshot> {
+        self.runtime.as_ref()?.process_snapshot().await
+    }
+
     pub async fn start_browser_runtime(&self) -> Result<BrowserStateSnapshot, BrowserError> {
         let epoch = self.current_shutdown_epoch();
         let _tab_guard = self.tab_open_lock.lock().await;
