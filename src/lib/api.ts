@@ -175,6 +175,7 @@ import type {
   PluginCheckSummary,
   OpenCodeCatalogProvider,
   QuickMessage,
+  ScenarioCatalog,
   OfficecliInfo,
   OfficecliSkill,
   SkillSyncReport,
@@ -2456,6 +2457,10 @@ export async function bootstrapFolderCommandsFromPackageJson(
 
 export async function quickMessagesList(): Promise<QuickMessage[]> {
   return getTransport().call("quick_messages_list")
+}
+
+export async function scenariosCatalog(): Promise<ScenarioCatalog> {
+  return getTransport().call("scenarios_catalog")
 }
 
 export async function quickMessagesCreate(params: {
