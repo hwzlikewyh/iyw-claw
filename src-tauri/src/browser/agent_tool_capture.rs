@@ -2,9 +2,14 @@ use serde_json::Value;
 
 use super::agent_tool_actions::AgentCliRequest;
 use super::agent_tool_cancellation::AgentToolContext;
-use super::agent_tool_support::{required_string, COMMAND_TIMEOUT, SNAPSHOT_TIMEOUT};
+use super::agent_tool_support::{
+    invalid_argument, optional_string, required_string, COMMAND_TIMEOUT, MAX_SELECTOR_CHARS,
+    SNAPSHOT_TIMEOUT,
+};
 use super::error::BrowserError;
 use super::manager::BrowserSessionManager;
+
+const MAX_SNAPSHOT_DEPTH: u64 = 64;
 
 impl BrowserSessionManager {
     pub(super) async fn agent_snapshot(
@@ -19,6 +24,15 @@ impl BrowserSessionManager {
         }
         if input.get("compact").and_then(Value::as_bool) != Some(false) {
             args.push("--compact".to_string());
+        }
+        if let Some(depth) = input.get("depth").and_then(Value::as_u64) {
+            if depth > MAX_SNAPSHOT_DEPTH {
+                return Err(invalid_argument("Invalid browser snapshot depth"));
+            }
+            args.extend(["--depth".to_string(), depth.to_string()]);
+        }
+        if let Some(selector) = optional_string(input, "selector", MAX_SELECTOR_CHARS)? {
+            args.extend(["--selector".to_string(), selector.to_string()]);
         }
         let output = self
             .run_agent_cli(AgentCliRequest {

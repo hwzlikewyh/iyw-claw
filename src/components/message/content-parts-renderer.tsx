@@ -7,6 +7,7 @@ import {
 } from "@/lib/adapters/tool-kind-classifier"
 import type { MessageRole, PlanEntryInfo } from "@/lib/types"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
+import { getBuiltinToolDisplay } from "@/lib/builtin-tool-display"
 import { parseBackgroundLaunch } from "@/lib/background-task"
 import { normalizePriority, normalizeStatus } from "@/lib/plan-parse"
 import { isDelegateToAgentToolName } from "@/lib/delegation-card"
@@ -791,7 +792,12 @@ function getToolIcon(
   if (name === "glob" || name === "grep")
     return <SearchIcon className={ICON_CLASS} />
   if (name === "memory_recall") return <BrainIcon className={ICON_CLASS} />
-  if (name === "webfetch" || name === "websearch")
+  if (
+    name === "webfetch" ||
+    name === "websearch" ||
+    name === "browser_read" ||
+    name === "browser_command"
+  )
     return <GlobeIcon className={ICON_CLASS} />
   if (name === "todowrite") return <ListTodoIcon className={ICON_CLASS} />
   if (name === "task") return getTaskToolIcon(input ?? null)
@@ -2046,6 +2052,10 @@ const ToolCallPart = memo(function ToolCallPart({
     () => normalizeToolName(part.toolName),
     [part.toolName]
   )
+  const builtinTool = useMemo(
+    () => getBuiltinToolDisplay(normalizedToolName, part.input),
+    [normalizedToolName, part.input]
+  )
   const toolNameLower = normalizedToolName.toLowerCase()
   const isCommandTool =
     toolNameLower === "bash" || toolNameLower === "exec_command"
@@ -2061,6 +2071,9 @@ const ToolCallPart = memo(function ToolCallPart({
     [isCommandTool, part.output, part.errorText]
   )
   const title = useMemo(() => {
+    if (builtinTool) {
+      return t(`builtinTool.${builtinTool.toolName}` as never)
+    }
     const rawTitle =
       deriveToolTitle(
         normalizedToolName,
@@ -2080,6 +2093,7 @@ const ToolCallPart = memo(function ToolCallPart({
     part.output,
     part.errorText,
     part.displayTitle,
+    builtinTool,
     t,
   ])
   const lineChangeStats = useMemo(() => {
@@ -2158,8 +2172,8 @@ const ToolCallPart = memo(function ToolCallPart({
   }, [lineChangeStats, wallTime, backgroundLaunch, t])
 
   const icon = useMemo(
-    () => getToolIcon(normalizedToolName, part.input),
-    [normalizedToolName, part.input]
+    () => getToolIcon(builtinTool?.toolName ?? normalizedToolName, part.input),
+    [builtinTool?.toolName, normalizedToolName, part.input]
   )
   const isFileTool =
     toolNameLower === "read" ||
@@ -2355,7 +2369,7 @@ const ToolCallPart = memo(function ToolCallPart({
         icon={icon}
       />
       <ToolContent>
-        {part.input && (
+        {part.input && !builtinTool?.hideInput && (
           <StructuredToolInput
             toolName={normalizedToolName}
             input={part.input}
