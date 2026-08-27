@@ -49,7 +49,10 @@ interface ChatInputProps {
    *  tab when tiled across multiple sessions; passed through to MessageInput. */
   showActiveFlow?: boolean
   queue?: QueuedMessage[]
-  onEnqueue?: (draft: PromptDraft, modeId: string | null) => boolean | void
+  onEnqueue?: (
+    draft: PromptDraft,
+    modeId: string | null
+  ) => boolean | void | Promise<boolean>
   onQueueReorder?: (items: QueuedMessage[]) => void
   onQueueEdit?: (id: string) => void
   onQueueDelete?: (id: string) => void

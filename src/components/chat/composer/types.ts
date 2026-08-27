@@ -56,6 +56,10 @@ export interface ReferenceMeta {
    * `/` when absent.
    */
   invocationPrefix?: "/" | "$"
+  /** Official scenario package reference retained outside wire Markdown. */
+  marketSkillId?: string
+  marketSkillSlug?: string
+  marketSkillVersion?: string
 }
 
 /**
