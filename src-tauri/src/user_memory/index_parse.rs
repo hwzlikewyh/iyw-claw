@@ -13,6 +13,7 @@ use super::{
 };
 
 const SOURCE_KEY: &str = "user_memory";
+const INDEX_PROJECTION_VERSION: &[u8] = b"user-memory-index-v2";
 
 struct DocumentSource<'a> {
     id: UserMemoryDocumentId,
@@ -77,7 +78,11 @@ pub(super) fn source_digest(
     let candidate_bytes = candidates
         .and_then(|state| serde_json::to_vec(state).ok())
         .unwrap_or_default();
-    hash_parts(&[settings.revision.as_bytes(), &candidate_bytes])
+    hash_parts(&[
+        INDEX_PROJECTION_VERSION,
+        settings.revision.as_bytes(),
+        &candidate_bytes,
+    ])
 }
 
 fn add_memory_entries(
@@ -132,8 +137,32 @@ fn add_markdown_paragraphs(
         item.importance = 1.0;
         item.sensitive = super::helpers::contains_potential_secret(&item.content);
         item.add_alias("document", source.file_name);
+        add_markdown_structure_aliases(&mut item, value);
         item.add_evidence(document_evidence(source.file_name, &item.id, ""));
         push_index_item(items, item_positions, item);
+    }
+}
+
+fn add_markdown_structure_aliases(item: &mut IndexItem, value: &str) {
+    for line in value.lines().map(str::trim) {
+        let heading = line.trim_start_matches('#').trim();
+        if heading != line && !heading.is_empty() {
+            item.add_alias("heading", heading.to_string());
+        }
+        let field = line
+            .trim_start_matches(|character| character == '-' || character == '*')
+            .trim();
+        if let Some((label, _)) = field.split_once(':').or_else(|| field.split_once('：')) {
+            let label = label.trim();
+            if !label.is_empty()
+                && label.chars().count() <= 80
+                && label
+                    .chars()
+                    .all(|character| character.is_alphanumeric() || character.is_whitespace())
+            {
+                item.add_alias("field", label.to_string());
+            }
+        }
     }
 }
 

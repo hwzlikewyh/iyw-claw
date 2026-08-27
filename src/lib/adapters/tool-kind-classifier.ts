@@ -131,7 +131,7 @@ export function classifyToolKind(toolName: string): ToolKindLabel {
     return "read"
   }
 
-  if (name === "memory_recall") {
+  if (name === "memory_recall" || name === "read_user_memory_documents") {
     return "memory"
   }
 

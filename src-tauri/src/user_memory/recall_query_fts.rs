@@ -8,6 +8,7 @@ use super::recall_scope::UserMemoryRecallScope;
 use super::recall_validity::{push_query_at, valid_at_sql};
 
 const FTS_SCAN_LIMIT: usize = MAX_LANE_CANDIDATES * 4;
+const MAX_CJK_TRIGRAMS: usize = 24;
 
 pub(super) struct FtsQuery<'a> {
     pub query: &'a str,
@@ -149,8 +150,54 @@ fn fts_queries(query: &str, minimum_token_chars: usize) -> Option<FtsMatchQuerie
         .filter(|token| token.chars().count() >= minimum_token_chars)
         .map(|token| format!("\"{}\"", token.replace('"', " ")))
         .collect::<Vec<_>>();
+    let cjk_ngrams = if minimum_token_chars == 3 {
+        cjk_trigrams(query)
+    } else {
+        Vec::new()
+    };
+    let fallback = if cjk_ngrams.is_empty() {
+        (tokens.len() > 1).then(|| tokens.join(" OR "))
+    } else {
+        let mut variants = tokens.clone();
+        variants.extend(cjk_ngrams.into_iter().map(|token| format!("\"{token}\"")));
+        Some(variants.join(" OR "))
+    };
     (!tokens.is_empty()).then(|| FtsMatchQueries {
         primary: tokens.join(" "),
-        fallback: (tokens.len() > 1).then(|| tokens.join(" OR ")),
+        fallback,
     })
+}
+
+fn cjk_trigrams(query: &str) -> Vec<String> {
+    let mut trigrams = Vec::new();
+    let mut run = Vec::new();
+    for character in query.chars() {
+        if is_cjk(character) {
+            run.push(character);
+        } else {
+            append_trigrams(&mut trigrams, &run);
+            run.clear();
+        }
+        if trigrams.len() >= MAX_CJK_TRIGRAMS {
+            break;
+        }
+    }
+    if trigrams.len() < MAX_CJK_TRIGRAMS {
+        append_trigrams(&mut trigrams, &run);
+    }
+    trigrams.truncate(MAX_CJK_TRIGRAMS);
+    trigrams
+}
+
+fn append_trigrams(output: &mut Vec<String>, run: &[char]) {
+    for window in run.windows(3) {
+        output.push(window.iter().collect());
+        if output.len() >= MAX_CJK_TRIGRAMS {
+            break;
+        }
+    }
+}
+
+fn is_cjk(character: char) -> bool {
+    matches!(character, '\u{3400}'..='\u{4DBF}' | '\u{4E00}'..='\u{9FFF}')
 }

@@ -3293,7 +3293,7 @@
           "saving": "Saving...",
           "corrected": "User memory corrected",
           "conflict": "This document changed while it was open. Reload and try again.",
-          "newConversationRequired": "Start a new conversation for the updated memory to be injected."
+          "availableNow": "The updated memory is available to on-demand reads and recall."
         }
       },
       "liveTurnStats": {
@@ -3493,6 +3493,7 @@
           "append_user_memory": "Save user memory",
           "propose_user_memory": "Suggest a memory",
           "memory_recall": "Recall memory",
+          "read_user_memory_documents": "Read user memory documents",
           "list_message_channels": "View message channels",
           "save_message_channel": "Save message channel",
           "delete_message_channel": "Delete message channel",
@@ -5139,7 +5140,7 @@
       "unavailable": "Memory backend unavailable",
       "companionUnavailable": "Memory bridge unavailable",
       "candidateUnavailable": "Memory activity unavailable",
-      "newConversationRequired": "{count, plural, one {# running session retains its launch memory; start a new conversation to apply changes} other {# running sessions retain their launch memory; start new conversations to apply changes}}"
+      "newConversationRequired": "{count, plural, one {# running session retains its previous launch memory capability settings; start a new conversation to apply changes} other {# running sessions retain their previous launch memory capability settings; start new conversations to apply changes}}"
     },
     "markerProtected": "Entry markers protected",
     "markerProtectedHint": "This document contains system-managed entry markers (iyw-memory-…) and is read-only here to preserve entry identity and history.",
@@ -5196,6 +5197,7 @@
       "companionNoVersion": "Expected {expected} / no version detected",
       "companionTools": "{count} advertised tools",
       "capabilities": "Capabilities",
+      "capabilityReadDocuments": "Read documents",
       "capabilityRead": "Read context",
       "capabilityAppend": "Automatic record",
       "capabilityPropose": "Retained observation",

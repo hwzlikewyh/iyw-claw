@@ -23,7 +23,7 @@ no visible direct tool already completes that subgoal. Typical categories:
 
 | Category | Search when the task needs |
 | --- | --- |
-| Memory | recall of prior decisions/preferences, or durable memory write |
+| Memory | current user-memory documents, recall of prior decisions/preferences, or durable memory write |
 | Session | current session state or account profile |
 | Artifacts | final files, directories, or public URLs delivered to this conversation |
 | Image | image understanding/display through host tools |
@@ -75,6 +75,10 @@ Recall is task-sensitive, not mandatory for every turn.
 - When the task refers to previous work, prior decisions, user preferences,
   repeated workflows, or historical context, search with intent such as
   `recall memory history`, then read and invoke the exact current capability.
+- When the task needs current authoritative user context, search with intent such
+  as `read current user memory document`, then read and invoke
+  `read_user_memory_documents` for the smallest relevant set of `memory`,
+  `profile`, and `soul` documents. Their contents are never injected at launch.
 - Skip recall for simple self-contained requests and when the user supplied all
   relevant context. `no_evidence` means no matching evidence, not that the user
   lacks the fact; `unavailable` is a routing limitation.

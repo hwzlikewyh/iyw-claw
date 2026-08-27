@@ -15,6 +15,7 @@ use super::{
 pub const APPEND_USER_MEMORY_TOOL: &str = "append_user_memory";
 pub const PROPOSE_USER_MEMORY_TOOL: &str = "propose_user_memory";
 pub const MEMORY_RECALL_TOOL: &str = "memory_recall";
+pub const READ_USER_MEMORY_DOCUMENTS_TOOL: &str = "read_user_memory_documents";
 const CAPABILITY_GATEWAY_TOOLS: [&str; 3] = [
     "search_iyw_capabilities",
     "read_iyw_capability",
@@ -89,6 +90,7 @@ pub fn compose_user_memory_capabilities(
 ) -> UserMemoryCapabilities {
     UserMemoryCapabilities {
         read_context: read_capability(inputs),
+        read_documents: document_read_capability(inputs),
         confirmed_append: tool_capability(inputs, APPEND_USER_MEMORY_TOOL),
         candidate_proposal: tool_capability(inputs, PROPOSE_USER_MEMORY_TOOL),
     }
@@ -100,26 +102,21 @@ impl UserMemoryContextSnapshot {
         self.capability_inputs.host_bridge_available = runtime.host_bridge_available;
         self.capabilities = compose_user_memory_capabilities(&self.capability_inputs);
         self.memory_write_enabled = self.capabilities.confirmed_append.available;
-        self.rendered =
-            render_user_context(&self.policy, &self.documents, &self.capabilities).map(Arc::from);
+        self.rendered = render_user_context(
+            &self.policy,
+            &self.documents,
+            &self.capabilities,
+            self.recall_tool_enabled,
+        )
+        .map(Arc::from);
         self.effective_fingerprint =
             context_fingerprint(self.rendered.as_deref(), &self.capabilities);
-        self.historical_context_generation = Some(self.revision.clone());
+        self.historical_context_generation = None;
     }
 
     pub fn finalize_resumed_runtime(&mut self, runtime: UserMemoryRuntimeEnvironment) {
         self.finalize_runtime(runtime);
         self.historical_context_generation = None;
-        self.capabilities.read_context = UserMemoryCapabilityResult::default();
-        self.memory_write_enabled = self.capabilities.confirmed_append.available;
-        // Re-render with read_context cleared: produces maintenance-guidance-only
-        // context (no memory document sections). This ensures the model receives
-        // current tool instructions even when resuming across a host restart or
-        // upgrade where the companion process has been replaced.
-        self.rendered =
-            render_user_context(&self.policy, &self.documents, &self.capabilities).map(Arc::from);
-        let encoded = serde_json::to_vec(&self.capabilities).unwrap_or_default();
-        self.effective_fingerprint = hash_parts(&[b"resumed-user-context-unknown", &encoded]);
     }
 }
 
@@ -149,6 +146,40 @@ fn read_capability(inputs: &UserMemoryCapabilityInputs) -> UserMemoryCapabilityR
         .is_some();
     if !readable {
         return unavailable(UserMemoryCapabilityReason::NoReadableDocuments);
+    }
+    available(unreadable_reasons(inputs))
+}
+
+fn document_read_capability(inputs: &UserMemoryCapabilityInputs) -> UserMemoryCapabilityResult {
+    if let Some(reason) = common_reason(inputs) {
+        return unavailable(reason);
+    }
+    if !inputs.resources.storage_available {
+        return unavailable(UserMemoryCapabilityReason::RootUnavailable);
+    }
+    if inputs.policy.enabled_documents.is_empty() {
+        return unavailable(UserMemoryCapabilityReason::NoEnabledDocuments);
+    }
+    let readable = inputs
+        .policy
+        .enabled_documents
+        .intersection(&inputs.resources.readable_documents)
+        .next()
+        .is_some();
+    if !readable {
+        return unavailable(UserMemoryCapabilityReason::NoReadableDocuments);
+    }
+    if let Some(reason) = transport_reason(inputs) {
+        return unavailable(reason);
+    }
+    if !inputs.host_bridge_available {
+        return unavailable(UserMemoryCapabilityReason::HostBridgeUnavailable);
+    }
+    if let Some(reason) = health_reason(inputs.companion_health.status) {
+        return unavailable(reason);
+    }
+    if !companion_exposes_capability(&inputs.companion_health, READ_USER_MEMORY_DOCUMENTS_TOOL) {
+        return unavailable(UserMemoryCapabilityReason::CompanionToolMissing);
     }
     available(unreadable_reasons(inputs))
 }

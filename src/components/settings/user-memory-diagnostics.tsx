@@ -249,6 +249,8 @@ function CompanionDiagnostics({
           {[
             capabilities.readContext.available &&
               t("diagnostics.capabilityRead"),
+            capabilities.readDocuments.available &&
+              t("diagnostics.capabilityReadDocuments"),
             capabilities.confirmedAppend.available &&
               t("diagnostics.capabilityAppend"),
             capabilities.candidateProposal.available &&

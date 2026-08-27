@@ -2447,6 +2447,7 @@ struct MemoryLaunchAccess {
     confirmed_append: bool,
     candidate_proposal: bool,
     recall: bool,
+    documents_read: bool,
     turn_tracker: Arc<crate::acp::memory_turn::MemoryTurnTracker>,
 }
 
@@ -2503,7 +2504,7 @@ async fn finalize_user_memory_launch(
             // replaced (host restart / upgrade) and the model's in-context tool
             // guidance is stale. Resetting this flag causes the updated Memory
             // maintenance block to be re-sent in the next user turn.
-            if session.user_memory_context.memory_write_enabled {
+            if session.user_memory_context.rendered.is_some() {
                 session.user_context_injected = false;
             }
         } else {
@@ -2588,7 +2589,8 @@ async fn resolve_companion_features(
         feedback_available,
         memory_tools_expected: memory_access.confirmed_append
             || memory_access.candidate_proposal
-            || memory_access.recall,
+            || memory_access.recall
+            || memory_access.documents_read,
     }
 }
 
@@ -2605,6 +2607,9 @@ fn append_optional_companion_features(
     }
     if memory_access.recall {
         features_arg.push_str(",memory-recall");
+    }
+    if memory_access.documents_read {
+        features_arg.push_str(",memory-documents");
     }
 }
 
@@ -2669,6 +2674,7 @@ fn http_session_authority(
             memory_access.confirmed_append,
             memory_access.candidate_proposal,
             memory_access.recall,
+            memory_access.documents_read,
         ),
     )
     .with_parent_cancellation(context.parent_cancellation)
@@ -2867,6 +2873,7 @@ async fn project_memory_launch_access(
         confirmed_append: projected.capabilities.confirmed_append.available,
         candidate_proposal: projected.capabilities.candidate_proposal.available,
         recall: projected.recall_tool_enabled && projected.capabilities.read_context.available,
+        documents_read: projected.capabilities.read_documents.available && host_bridge_available,
         turn_tracker: session.memory_turn_tracker.clone(),
     }
 }

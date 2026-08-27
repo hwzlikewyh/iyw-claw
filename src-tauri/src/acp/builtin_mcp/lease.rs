@@ -229,6 +229,7 @@ fn token_entry(
         memory_write_enabled: memory.append_enabled(),
         memory_proposal_enabled: memory.proposal_enabled(),
         memory_recall_enabled: memory.recall_enabled(),
+        memory_documents_read_enabled: memory.documents_read_enabled(),
         opaque_source_id: crate::acp::memory_turn::derive_opaque_source_id(
             broker_token,
             connection_id,

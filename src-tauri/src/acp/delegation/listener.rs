@@ -30,9 +30,10 @@ use crate::acp::delegation::transport::{
     BrokerAudioTranscriptionQueryRequest, BrokerAudioTranscriptionRequest, BrokerBrowserRequest,
     BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
     BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerImageAnalysisRequest,
-    BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerMemoryProposalResult,
-    BrokerMemoryRecallRequest, BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest,
-    BrokerStatusRequest, BrokerUserProfileRequest, COMPANION_PROTOCOL_VERSION,
+    BrokerMemoryAppendRequest, BrokerMemoryDocumentsReadRequest, BrokerMemoryProposalRequest,
+    BrokerMemoryProposalResult, BrokerMemoryRecallRequest, BrokerMessage, BrokerRequest,
+    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest, BrokerUserProfileRequest,
+    COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::delegation::types::{DelegationRequest, DelegationTaskReport, TaskStatus};
 use crate::acp::feedback::{PendingFeedback, SessionFeedbackAccess};
@@ -107,6 +108,8 @@ pub struct TokenEntry {
     pub memory_proposal_enabled: bool,
     /// Independent launch-snapshot authorization for read-only recall.
     pub memory_recall_enabled: bool,
+    /// Independent launch-snapshot authorization for current document reads.
+    pub memory_documents_read_enabled: bool,
     /// Stable hash-derived provenance id; raw launch tokens are never persisted.
     pub opaque_source_id: String,
     /// Read-only authority for the current accepted turn nonce.
@@ -138,6 +141,7 @@ struct CompanionReadyCandidate {
     append_required: bool,
     proposal_required: bool,
     recall_required: bool,
+    documents_read_required: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -254,6 +258,7 @@ impl TokenRegistry {
                     entry.entry.memory_write_enabled,
                     entry.entry.memory_proposal_enabled,
                     entry.entry.memory_recall_enabled,
+                    entry.entry.memory_documents_read_enabled,
                 )
             });
         let Some((
@@ -262,6 +267,7 @@ impl TokenRegistry {
             append_required,
             proposal_required,
             recall_required,
+            documents_read_required,
         )) = registered
         else {
             tracing::warn!("rejected companion readiness report with unknown token");
@@ -276,6 +282,7 @@ impl TokenRegistry {
             append_required,
             proposal_required,
             recall_required,
+            documents_read_required,
         }
         .publish()
     }
@@ -411,11 +418,17 @@ impl CompanionReadyCandidate {
                 .any(|tool| tool == PROPOSE_USER_MEMORY_TOOL);
         let missing_recall =
             self.recall_required && !self.tools.iter().any(|tool| tool == MEMORY_RECALL_TOOL);
+        let missing_documents_read = self.documents_read_required
+            && !self
+                .tools
+                .iter()
+                .any(|tool| tool == crate::user_memory::READ_USER_MEMORY_DOCUMENTS_TOOL);
         if missing_image_analysis
             || missing_project_listing
             || missing_append
             || missing_proposal
             || missing_recall
+            || missing_documents_read
             || !missing_channel_tools.is_empty()
         {
             tracing::warn!(
@@ -426,6 +439,8 @@ impl CompanionReadyCandidate {
                 proposal_required = self.proposal_required,
                 recall_required = self.recall_required,
                 missing_recall,
+                documents_read_required = self.documents_read_required,
+                missing_documents_read,
                 missing_image_analysis,
                 missing_project_listing,
                 missing_channel_tools = ?missing_channel_tools,
@@ -491,11 +506,16 @@ fn effective_token_entry(registered: &RegisteredToken) -> TokenEntry {
                 .any(|tool| tool == PROPOSE_USER_MEMORY_TOOL);
             entry.memory_recall_enabled &=
                 report.tools.iter().any(|tool| tool == MEMORY_RECALL_TOOL);
+            entry.memory_documents_read_enabled &= report
+                .tools
+                .iter()
+                .any(|tool| tool == crate::user_memory::READ_USER_MEMORY_DOCUMENTS_TOOL);
         }
         CompanionReadyState::Pending | CompanionReadyState::Disabled => {
             entry.memory_write_enabled = false;
             entry.memory_proposal_enabled = false;
             entry.memory_recall_enabled = false;
+            entry.memory_documents_read_enabled = false;
         }
     }
     entry
@@ -518,6 +538,18 @@ fn log_memory_unavailable(operation: &str, reason: &str, content_chars: usize) {
         reason,
         content_chars,
         "agent memory route unavailable"
+    );
+}
+
+fn log_memory_document_read_unavailable(reason: &str, document_count: usize) {
+    tracing::warn!(
+        target: "user_memory",
+        route = "mcp_companion",
+        operation = "document_read",
+        error_code = "memory_session_unavailable",
+        reason,
+        document_count,
+        "agent memory document read unavailable"
     );
 }
 
@@ -877,6 +909,9 @@ impl DelegationListener {
             }
             BrokerMessage::MemoryRecall(req) => {
                 memory_recall_response(self.process_memory_recall(req).await)?
+            }
+            BrokerMessage::MemoryDocumentsRead(req) => {
+                memory_documents_read_response(self.process_memory_documents_read(req).await)?
             }
             BrokerMessage::Artifacts(req) => BrokerResponse {
                 outcome: self.process_artifacts(req).await,
@@ -1460,6 +1495,42 @@ impl DelegationListener {
             .map_err(|error| error.message)
     }
 
+    async fn process_memory_documents_read(
+        &self,
+        req: BrokerMemoryDocumentsReadRequest,
+    ) -> Result<crate::user_memory::UserMemoryDocumentsReadResult, String> {
+        let entry = self.tokens.lookup(&req.token).await.ok_or_else(|| {
+            log_memory_document_read_unavailable("unknown_token", req.documents.len());
+            "User memory document read is unavailable for this session.".to_string()
+        })?;
+        entry
+            .memory_turn_tracker
+            .record_call(crate::acp::memory_turn::MemoryCapabilityCall::ReadDocuments);
+        if !entry.memory_documents_read_enabled {
+            log_memory_document_read_unavailable("capability_disabled", req.documents.len());
+            return Err("User memory document read is unavailable for this session.".to_string());
+        }
+        let result = self
+            .user_memory
+            .read_documents_for_agent(&req.documents)
+            .await;
+        match &result {
+            Ok(_) => tracing::info!(
+                target: "user_memory",
+                document_count = req.documents.len(),
+                "agent read current user memory documents"
+            ),
+            Err(error) => tracing::warn!(
+                target: "user_memory",
+                document_count = req.documents.len(),
+                error_code = ?error.code,
+                message = %error.message,
+                "agent user memory document read failed"
+            ),
+        }
+        result.map_err(|error| error.message)
+    }
+
     async fn process_user_profile(&self, req: BrokerUserProfileRequest) -> Value {
         if self.tokens.lookup(&req.token).await.is_none() {
             return serde_json::json!({
@@ -1697,6 +1768,18 @@ fn memory_recall_response(
             std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {error}"))
         })?,
         Err(message) => memory_failure_outcome("memory_recall_failed", message),
+    };
+    Ok(BrokerResponse { outcome })
+}
+
+fn memory_documents_read_response(
+    result: Result<crate::user_memory::UserMemoryDocumentsReadResult, String>,
+) -> std::io::Result<BrokerResponse> {
+    let outcome = match result {
+        Ok(result) => serde_json::to_value(result).map_err(|error| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {error}"))
+        })?,
+        Err(message) => memory_failure_outcome("memory_documents_read_failed", message),
     };
     Ok(BrokerResponse { outcome })
 }

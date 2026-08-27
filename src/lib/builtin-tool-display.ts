@@ -41,6 +41,7 @@ const CAPABILITY_ID_TO_TOOL: Readonly<Record<string, string>> = {
   "iyw.memory.confirmed.append.v1": "append_user_memory",
   "iyw.memory.candidate.propose.v1": "propose_user_memory",
   "iyw.memory.recall.search.v1": "memory_recall",
+  "iyw.memory.documents.read.v1": "read_user_memory_documents",
   "iyw.channels.list.v1": "list_message_channels",
   "iyw.channels.save.v1": "save_message_channel",
   "iyw.channels.delete.v1": "delete_message_channel",
