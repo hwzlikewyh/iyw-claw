@@ -270,6 +270,22 @@ pub struct UserMemoryAppendResult {
     pub revision: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserMemoryDocumentReadResult {
+    pub document: UserMemoryDocumentId,
+    pub file_name: String,
+    pub content: String,
+    pub revision: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserMemoryDocumentsReadResult {
+    pub documents: Vec<UserMemoryDocumentReadResult>,
+    pub revision: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UserMemoryLegacySourceKind {

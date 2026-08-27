@@ -53,9 +53,9 @@ use crate::acp::delegation::transport::{
     BrokerAudioTranscriptionRequest, BrokerBrowserRequest, BrokerCancelRequest,
     BrokerCancelTaskRequest, BrokerChannelRequest, BrokerCommitFeedbackRequest,
     BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerImageAnalysisRequest,
-    BrokerMemoryAppendRequest, BrokerMemoryProposalRequest, BrokerMemoryRecallRequest,
-    BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
-    BrokerUserProfileRequest, COMPANION_PROTOCOL_VERSION,
+    BrokerMemoryAppendRequest, BrokerMemoryDocumentsReadRequest, BrokerMemoryProposalRequest,
+    BrokerMemoryRecallRequest, BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest,
+    BrokerStatusRequest, BrokerUserProfileRequest, COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::question::parse_questions;
 use crate::acp::session_info::MAX_SESSION_MESSAGES;
@@ -170,6 +170,7 @@ pub struct CompanionFeatures {
     pub memory: bool,
     pub memory_proposal: bool,
     pub memory_recall: bool,
+    pub memory_documents_read: bool,
     pub artifacts: bool,
     pub channels: bool,
     pub browser: bool,
@@ -186,6 +187,7 @@ impl CompanionFeatures {
             memory: true,
             memory_proposal: true,
             memory_recall: true,
+            memory_documents_read: true,
             artifacts: true,
             channels: true,
             browser: true,
@@ -208,6 +210,7 @@ impl CompanionFeatures {
                 memory: false,
                 memory_proposal: false,
                 memory_recall: false,
+                memory_documents_read: false,
                 artifacts: false,
                 channels: false,
                 browser: false,
@@ -222,6 +225,7 @@ impl CompanionFeatures {
             memory: false,
             memory_proposal: false,
             memory_recall: false,
+            memory_documents_read: false,
             artifacts: false,
             channels: false,
             browser: false,
@@ -236,6 +240,7 @@ impl CompanionFeatures {
                 "memory" => f.memory = true,
                 "memory-proposal" => f.memory_proposal = true,
                 "memory-recall" => f.memory_recall = true,
+                "memory-documents" => f.memory_documents_read = true,
                 "artifacts" => f.artifacts = true,
                 "channels" => f.channels = true,
                 "browser" => f.browser = true,
@@ -257,6 +262,7 @@ impl CompanionFeatures {
             "append_user_memory" => self.memory,
             "propose_user_memory" => self.memory_proposal,
             "memory_recall" => self.memory_recall,
+            "read_user_memory_documents" => self.memory_documents_read,
             "present_task_files" => self.artifacts,
             name if crate::acp::channel_tools::CHANNEL_TOOL_NAMES.contains(&name) => self.channels,
             name if crate::browser::BROWSER_AGENT_TOOL_NAMES.contains(&name) => self.browser,
@@ -742,7 +748,10 @@ fn tool_family(name: &str) -> ToolFamily {
             ToolFamily::Browser
         }
         "present_task_files" => ToolFamily::Artifacts,
-        "append_user_memory" | "propose_user_memory" | "memory_recall" => ToolFamily::Memory,
+        "append_user_memory"
+        | "propose_user_memory"
+        | "memory_recall"
+        | "read_user_memory_documents" => ToolFamily::Memory,
         "get_current_user_profile" => ToolFamily::Identity,
         "delegate_to_agent"
         | "get_delegation_status"
@@ -928,6 +937,7 @@ async fn dispatch_memory_tool(bridge: CompanionBridge, call: ToolInvocation) -> 
         "append_user_memory" => spawn_memory_append(bridge, call).await,
         "propose_user_memory" => spawn_memory_proposal(bridge, call).await,
         "memory_recall" => spawn_memory_recall(bridge, call).await,
+        "read_user_memory_documents" => spawn_memory_documents_read(bridge, call).await,
         _ => unreachable!("memory family contains only memory tools"),
     }
 }
@@ -1057,6 +1067,59 @@ async fn spawn_memory_recall(bridge: CompanionBridge, call: ToolInvocation) -> L
         None,
         round_trip,
         render_memory_recall_result,
+    )
+    .await
+}
+
+async fn spawn_memory_documents_read(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let ToolInvocation { id, arguments, .. } = call;
+    let documents = match arguments.get("documents") {
+        Some(value) => {
+            match serde_json::from_value::<Vec<crate::user_memory::UserMemoryDocumentId>>(
+                value.clone(),
+            ) {
+                Ok(documents) if !documents.is_empty() => documents,
+                _ => {
+                    return LineAction::Respond(err(
+                        id,
+                        -32602,
+                        "read_user_memory_documents requires a non-empty `documents` array",
+                    ));
+                }
+            }
+        }
+        None => {
+            return LineAction::Respond(err(
+                id,
+                -32602,
+                "read_user_memory_documents requires a `documents` array",
+            ));
+        }
+    };
+    if documents.len() > crate::user_memory::UserMemoryDocumentId::ALL.len() {
+        return LineAction::Respond(err(
+            id,
+            -32602,
+            "read_user_memory_documents accepts at most three documents",
+        ));
+    }
+    let request = BrokerMemoryDocumentsReadRequest {
+        token: bridge.context.token,
+        documents,
+    };
+    let round_trip = memory_backend_round_trip(
+        bridge.backend,
+        BrokerMessage::MemoryDocumentsRead(request),
+        "document_read",
+    );
+    let round_trip =
+        Box::pin(async move { memory_round_trip_result(round_trip.await, "document_read") });
+    register_and_spawn(
+        bridge.inflight,
+        id,
+        None,
+        round_trip,
+        render_memory_documents_read_result,
     )
     .await
 }
@@ -2647,6 +2710,32 @@ pub fn render_memory_recall_result(outcome: &Value) -> Value {
         }
         _ => "No evidence in stored user memory matched this query; do not infer an answer.",
     };
+    json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": false,
+        "structuredContent": outcome.clone(),
+    })
+}
+
+/// Render current user-memory documents as bounded structured JSON. The host
+/// response contains only selected document names, content, and revision.
+pub fn render_memory_documents_read_result(outcome: &Value) -> Value {
+    if let Some(message) = outcome.get("error").and_then(Value::as_str) {
+        return json!({
+            "content": [{
+                "type": "text",
+                "text": format!("{message} The document read did not complete."),
+            }],
+            "isError": true,
+            "structuredContent": normalized_memory_error(outcome, "memory_documents_read_failed"),
+        });
+    }
+    let text = serde_json::to_string(
+        outcome
+            .get("documents")
+            .unwrap_or(&Value::Array(Vec::new())),
+    )
+    .unwrap_or_else(|_| "[]".to_string());
     json!({
         "content": [{ "type": "text", "text": text }],
         "isError": false,

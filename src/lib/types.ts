@@ -1767,6 +1767,7 @@ export interface UserMemoryCapabilityResult {
 
 export interface UserMemoryCapabilities {
   readContext: UserMemoryCapabilityResult
+  readDocuments: UserMemoryCapabilityResult
   confirmedAppend: UserMemoryCapabilityResult
   candidateProposal: UserMemoryCapabilityResult
 }

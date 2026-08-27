@@ -235,6 +235,16 @@ pub struct BrokerMemoryRecallRequest {
     pub limit: Option<usize>,
 }
 
+/// Read the current contents of selected host-owned user memory documents.
+/// The companion supplies document identifiers only; the listener owns the
+/// root, policy, locking, and revision.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerMemoryDocumentsReadRequest {
+    pub token: String,
+    pub documents: Vec<crate::user_memory::UserMemoryDocumentId>,
+}
+
 /// Register files produced by the current task. The listener resolves the
 /// conversation from the authenticated companion token and owns validation
 /// and persistence.
@@ -389,6 +399,7 @@ pub enum BrokerMessage {
     MemoryAppend(BrokerMemoryAppendRequest),
     MemoryProposal(BrokerMemoryProposalRequest),
     MemoryRecall(BrokerMemoryRecallRequest),
+    MemoryDocumentsRead(BrokerMemoryDocumentsReadRequest),
     Artifacts(BrokerArtifactsRequest),
     ImageAnalysis(BrokerImageAnalysisRequest),
     Channel(BrokerChannelRequest),
@@ -609,6 +620,19 @@ pub async fn client_memory_recall_round_trip(
     req: &BrokerMemoryRecallRequest,
 ) -> io::Result<BrokerResponse> {
     message_round_trip(socket_path, &BrokerMessage::MemoryRecall(req.clone())).await
+}
+
+/// Read selected current user-memory documents through the authenticated
+/// listener. This route is read-only and independent from recall ranking.
+pub async fn client_memory_documents_read_round_trip(
+    socket_path: &str,
+    req: &BrokerMemoryDocumentsReadRequest,
+) -> io::Result<BrokerResponse> {
+    message_round_trip(
+        socket_path,
+        &BrokerMessage::MemoryDocumentsRead(req.clone()),
+    )
+    .await
 }
 
 /// Register task output files and read back per-file accepted/rejected results.

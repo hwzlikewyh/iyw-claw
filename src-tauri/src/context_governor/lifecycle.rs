@@ -49,20 +49,23 @@ pub(super) struct CapabilityLifecycleReceipt {
 
 pub(super) fn memory_lifecycle(
     memory: &UserMemoryContextSnapshot,
-    context_loaded: bool,
+    _context_loaded: bool,
 ) -> Vec<CapabilityLifecycleReceipt> {
     let installed = memory.capability_inputs.service_available;
-    let has_content = memory
-        .documents
-        .values()
-        .any(|content| !content.trim().is_empty());
     vec![
         lifecycle(
             "memory.read_context",
             installed,
             memory_read_enabled(memory),
-            memory.capabilities.read_context.available && has_content,
-            memory.capabilities.read_context.available && has_content && context_loaded,
+            false,
+            false,
+        ),
+        lifecycle(
+            "memory.read_documents",
+            installed,
+            memory.capabilities.read_documents.available,
+            memory.capabilities.read_documents.available,
+            memory.capabilities.read_documents.available,
         ),
         lifecycle(
             "memory.append",
@@ -97,6 +100,7 @@ pub(super) fn apply_called_observations(
             "memory.append" => CapabilityObservation::known(calls.append),
             "memory.propose" => CapabilityObservation::known(calls.propose),
             "memory.recall" => CapabilityObservation::known(calls.recall),
+            "memory.read_documents" => CapabilityObservation::known(calls.read_documents),
             _ => CapabilityObservation::Unknown,
         };
         item.set_observation(CapabilityLifecycleState::Called, called);

@@ -205,6 +205,7 @@ fn compatibility_runtime_environment() -> super::UserMemoryRuntimeEnvironment {
                 APPEND_USER_MEMORY_TOOL.to_string(),
                 PROPOSE_USER_MEMORY_TOOL.to_string(),
                 MEMORY_RECALL_TOOL.to_string(),
+                super::READ_USER_MEMORY_DOCUMENTS_TOOL.to_string(),
             ],
             detail: None,
         },

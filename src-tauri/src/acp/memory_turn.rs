@@ -7,8 +7,10 @@ const ACTIVE_MASK: u64 = 1;
 const APPEND_CALL_MASK: u64 = 1 << 1;
 const PROPOSAL_CALL_MASK: u64 = 1 << 2;
 const RECALL_CALL_MASK: u64 = 1 << 3;
-const CALL_MASK: u64 = APPEND_CALL_MASK | PROPOSAL_CALL_MASK | RECALL_CALL_MASK;
-const NONCE_SHIFT: u32 = 4;
+const DOCUMENT_READ_CALL_MASK: u64 = 1 << 4;
+const CALL_MASK: u64 =
+    APPEND_CALL_MASK | PROPOSAL_CALL_MASK | RECALL_CALL_MASK | DOCUMENT_READ_CALL_MASK;
+const NONCE_SHIFT: u32 = 5;
 const SOURCE_ID_DOMAIN: &[u8] = b"iyw-claw:user-memory-source:v1\0";
 
 #[derive(Debug, Clone, Copy)]
@@ -16,6 +18,7 @@ pub(crate) enum MemoryCapabilityCall {
     Append,
     Propose,
     Recall,
+    ReadDocuments,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -23,6 +26,7 @@ pub(crate) struct MemoryCapabilityCalls {
     pub append: bool,
     pub propose: bool,
     pub recall: bool,
+    pub read_documents: bool,
 }
 
 /// Per-connection authority for candidate-memory provenance.
@@ -93,6 +97,7 @@ impl MemoryTurnTracker {
             MemoryCapabilityCall::Append => APPEND_CALL_MASK,
             MemoryCapabilityCall::Propose => PROPOSAL_CALL_MASK,
             MemoryCapabilityCall::Recall => RECALL_CALL_MASK,
+            MemoryCapabilityCall::ReadDocuments => DOCUMENT_READ_CALL_MASK,
         };
         let _ = self
             .state
@@ -146,6 +151,7 @@ impl MemoryCapabilityCalls {
             append: state & APPEND_CALL_MASK != 0,
             propose: state & PROPOSAL_CALL_MASK != 0,
             recall: state & RECALL_CALL_MASK != 0,
+            read_documents: state & DOCUMENT_READ_CALL_MASK != 0,
         }
     }
 }

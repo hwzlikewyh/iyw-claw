@@ -72,7 +72,7 @@ function RememberButton({ content, agentType }: UserMemoryMessageActionsProps) {
     try {
       const result = await appendUserMemoryDirect({ content, agentType })
       toast.success(t(result.appended ? "remembered" : "alreadyRemembered"), {
-        description: t("newConversationRequired"),
+        description: t("availableNow"),
       })
     } catch (error) {
       toast.error(t("rememberFailed"), { description: toErrorMessage(error) })
@@ -165,7 +165,7 @@ function CorrectionDialog({
         expectedEtag: selectedSnapshot.etag,
       })
       toast.success(t("corrected"), {
-        description: t("newConversationRequired"),
+        description: t("availableNow"),
       })
       onOpenChange(false)
     } catch (submitError) {

@@ -1080,6 +1080,28 @@
     }
   },
   {
+    "name": "read_user_memory_documents",
+    "description": "Read the current authoritative contents of selected host-owned user memory documents. Use only when the task needs the current user-memory, profile, or soul document itself; request the smallest relevant set. This is read-only, path-free, bounded by host policy, and does not replace memory_recall for historical search.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["documents"],
+      "properties": {
+        "documents": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["memory", "profile", "soul"]
+          },
+          "minItems": 1,
+          "maxItems": 3,
+          "uniqueItems": true,
+          "description": "The smallest set of current documents needed: memory, profile, or soul."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "list_message_channels",
     "description": "List iyw-claw message channels using safe, non-secret views. Omit filters to list all channels. This never returns credentials, raw provider target ids, or config JSON.",
     "inputSchema": {

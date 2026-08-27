@@ -5,6 +5,7 @@ use crate::user_memory::{UserMemoryCapabilityReason, UserMemoryContextSnapshot};
 pub(super) fn memory_reason_codes(memory: &UserMemoryContextSnapshot) -> Vec<String> {
     let reasons = [
         memory.capabilities.read_context.reason,
+        memory.capabilities.read_documents.reason,
         memory.capabilities.confirmed_append.reason,
         memory.capabilities.candidate_proposal.reason,
     ];

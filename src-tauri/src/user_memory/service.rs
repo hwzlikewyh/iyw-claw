@@ -12,7 +12,7 @@ use crate::paths::{ResolvedUserMemoryRoot, UserMemoryPathError, UserMemoryRootSo
 
 use super::fs;
 use super::harvest::HarvestQueue;
-use super::helpers::{apply_policy_patch, conflict};
+use super::helpers::{apply_policy_patch, conflict, hash_parts};
 use super::recall_config::{configured_recall_index_enabled, configured_recall_tool_enabled};
 use super::transaction::document_resource;
 use super::{
@@ -169,6 +169,50 @@ impl UserMemoryService {
             }
         }?;
         Ok(snapshot)
+    }
+
+    pub async fn read_documents_for_agent(
+        &self,
+        ids: &[UserMemoryDocumentId],
+    ) -> Result<super::UserMemoryDocumentsReadResult, AppCommandError> {
+        if ids.is_empty() || ids.len() > UserMemoryDocumentId::ALL.len() {
+            return Err(AppCommandError::invalid_input(
+                "At least one and at most three user memory documents are required",
+            ));
+        }
+        let unique = ids.iter().copied().collect::<BTreeSet<_>>();
+        if unique.len() != ids.len() {
+            return Err(AppCommandError::invalid_input(
+                "User memory documents must be unique",
+            ));
+        }
+        let (_guard, _file_guard) = self.acquire_locks().await?;
+        let policy = self.load_policy().await?;
+        if !policy.enabled {
+            return Err(AppCommandError::permission_denied(
+                "User memory is disabled",
+            ));
+        }
+        let mut documents = Vec::with_capacity(ids.len());
+        for id in ids {
+            if !policy.documents.get(id).copied().unwrap_or(true) {
+                return Err(AppCommandError::permission_denied(
+                    "This user memory document is disabled",
+                ));
+            }
+            let content = self.read_document(*id)?;
+            documents.push(super::UserMemoryDocumentReadResult {
+                document: *id,
+                file_name: id.file_name().to_string(),
+                revision: hash_parts(&[content.as_bytes()]),
+                content,
+            });
+        }
+        let revision = self.snapshot_locked(&policy)?.revision;
+        Ok(super::UserMemoryDocumentsReadResult {
+            documents,
+            revision,
+        })
     }
 
     pub async fn update(

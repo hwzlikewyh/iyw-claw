@@ -3301,7 +3301,7 @@
           "saving": "保存中...",
           "corrected": "用户记忆已更正",
           "conflict": "文档在打开期间发生变化，请重新加载后再试。",
-          "newConversationRequired": "请新建会话，让更新后的记忆生效。"
+          "availableNow": "更新后的记忆已可供 Agent 按需读取和检索。"
         }
       },
       "liveTurnStats": {
@@ -3501,6 +3501,7 @@
           "append_user_memory": "保存用户记忆",
           "propose_user_memory": "提出记忆建议",
           "memory_recall": "检索历史记忆",
+          "read_user_memory_documents": "读取用户记忆文档",
           "list_message_channels": "查看消息渠道",
           "save_message_channel": "保存消息渠道",
           "delete_message_channel": "删除消息渠道",
@@ -5147,7 +5148,7 @@
       "unavailable": "记忆后端不可用",
       "companionUnavailable": "记忆桥接不可用",
       "candidateUnavailable": "记忆活动不可用",
-      "newConversationRequired": "{count} 个运行中的会话保留启动时记忆；请新建会话以应用变更"
+      "newConversationRequired": "{count} 个运行中的会话仍使用旧的启动时记忆能力设置；请新建会话以应用变更"
     },
     "markerProtected": "条目标记保护",
     "markerProtectedHint": "该文档包含由系统管理的条目标记（iyw-memory-…），此处保持只读以保护条目身份和历史。",
@@ -5204,6 +5205,7 @@
       "companionNoVersion": "期望 {expected} / 未检测到版本",
       "companionTools": "通告工具 {count} 个",
       "capabilities": "能力",
+      "capabilityReadDocuments": "读取文档",
       "capabilityRead": "读取上下文",
       "capabilityAppend": "自主记录",
       "capabilityPropose": "保留观察",

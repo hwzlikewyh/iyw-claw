@@ -62,6 +62,7 @@ impl Default for UserMemoryCapabilityResult {
 #[serde(rename_all = "camelCase")]
 pub struct UserMemoryCapabilities {
     pub read_context: UserMemoryCapabilityResult,
+    pub read_documents: UserMemoryCapabilityResult,
     pub confirmed_append: UserMemoryCapabilityResult,
     pub candidate_proposal: UserMemoryCapabilityResult,
 }
