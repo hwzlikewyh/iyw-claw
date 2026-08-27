@@ -23,6 +23,10 @@ pub(super) enum SessionCommand {
 }
 
 impl RealtimeVoiceState {
+    pub async fn has_session(&self, window: &str) -> bool {
+        self.sessions.lock().await.contains_key(window)
+    }
+
     pub(super) async fn reserve(&self, window: &str, session_id: &str) -> Result<(), ()> {
         let mut sessions = self.sessions.lock().await;
         if sessions.contains_key(window) {

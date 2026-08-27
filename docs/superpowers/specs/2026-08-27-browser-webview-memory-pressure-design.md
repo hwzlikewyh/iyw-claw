@@ -120,8 +120,9 @@ Resume。重复 resume、重复 hide 和延迟任务迟到均必须幂等。
 同一控制器。窗口真正销毁和应用退出沿用现有生命周期，不为退出流程新增等待。
 
 Windows-only 依赖精确固定为当前已解析兼容组合：Tauri `=2.10.2`、
-`webview2-com = "=0.38.2"`。依赖仅进入 `tauri-runtime` / Windows 构建，server runtime 不引用
-WebView2 类型。API 不可用、COM cast 失败或回调失败只产生日志，不使应用退出。
+`webview2-com = "=0.38.2"`，以及执行 COM QueryInterface 所需的
+`windows-core = "=0.61.2"`。依赖仅进入 `tauri-runtime` / Windows 构建，server runtime 不
+引用 WebView2 类型。API 不可用、COM cast 失败或回调失败只产生日志，不使应用退出。
 
 ### 4. 不可见前台界面的延迟卸载
 

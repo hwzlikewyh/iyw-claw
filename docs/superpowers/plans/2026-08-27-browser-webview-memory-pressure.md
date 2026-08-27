@@ -76,20 +76,21 @@
 - 修改 `src-tauri/Cargo.toml`
 - 修改 `src-tauri/Cargo.lock`
 
-- [ ] Windows/tauri-runtime 下精确固定 `tauri = "=2.10.2"`，增加
-  `webview2-com = "=0.38.2"`；server runtime 不引用 COM 类型。
-- [ ] `MainWebviewMemoryController` 保存 generation 和 suspended 状态。hide 递增 generation，
+- [x] Windows/tauri-runtime 下精确固定 `tauri = "=2.10.2"`，增加
+  `webview2-com = "=0.38.2"` 和 QueryInterface 支撑 `windows-core = "=0.61.2"`；server
+  runtime 不引用 COM 类型。
+- [x] `MainWebviewMemoryController` 保存 generation 和 suspended 状态。hide 递增 generation，
   30 秒后重新检查窗口可见性、Agent blocker 和主窗口语音 session。
-- [ ] `ConnectionManager::has_active_agent_operations` 作为保守 blocker；锁竞争或无法读取视为
+- [x] `ConnectionManager::has_active_agent_operations` 作为保守 blocker；锁竞争或无法读取视为
   busy。`RealtimeVoiceState` 只增加按 window label 的只读 `has_session`。
-- [ ] 使用 `WebviewWindow::with_webview` 获取 WebView2 controller，再 cast 到
+- [x] 使用 `WebviewWindow::with_webview` 获取 WebView2 controller，再 cast 到
   `ICoreWebView2_3`。`TrySuspend` callback 只在 generation 未变化且窗口仍隐藏时提交状态；
   false/API 不支持/COM 错误均降级记录。
-- [ ] `show_main_window`/deferred show 在 unminimize/show/focus 前先取消旧 generation 并调用
+- [x] `show_main_window`/deferred show 在 unminimize/show/focus 前先取消旧 generation 并调用
   Resume；Resume 失败仍执行 show，后续 show 可再次尝试。
-- [ ] 关闭到托盘、记忆的 tray close、autostart hidden 均走统一 hide helper。真实退出的直接
+- [x] 关闭到托盘、记忆的 tray close、autostart hidden 均走统一 hide helper。真实退出的直接
   hide 不安排 suspend，避免与 shutdown 争用。
-- [ ] 检查重复 hide/show、30 秒内恢复、TrySuspend callback 迟到、app exit 和非 Windows 编译。
+- [x] 检查重复 hide/show、30 秒内恢复、TrySuspend callback 迟到、app exit 和非 Windows 编译。
 
 ## Task 4：不可见前台重界面延迟卸载
 

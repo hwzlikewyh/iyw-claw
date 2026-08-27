@@ -45,6 +45,8 @@ mod terminal;
 pub mod update;
 pub mod user_memory;
 pub mod web;
+#[cfg(feature = "tauri-runtime")]
+mod webview_memory;
 pub mod wecom_ai;
 #[cfg(target_os = "windows")]
 mod windows_file_clipboard;
@@ -311,6 +313,7 @@ mod tauri_app {
             .manage(TerminalManager::new())
             .manage(ChatChannelManager::new())
             .manage(realtime_voice_commands::RealtimeVoiceState::default())
+            .manage(crate::webview_memory::MainWebviewMemoryController::default())
             .manage(windows::SettingsWindowState::new())
             .manage(windows::CommitWindowState::new())
             .manage(windows::MergeWindowState::new())
@@ -1120,6 +1123,9 @@ mod tauri_app {
                             .visible(!hide_for_autostart);
                         let window = windows::apply_platform_window_style(builder).build()?;
                         windows::post_window_setup(&window);
+                        if hide_for_autostart {
+                            crate::webview_memory::note_hidden(app.handle());
+                        }
                     }
                     Ok::<(), tauri::Error>(())
                 })?;
