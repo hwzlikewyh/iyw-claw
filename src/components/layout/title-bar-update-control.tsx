@@ -16,6 +16,7 @@ import {
   type UpdateDetails,
 } from "@/components/layout/title-bar-update-model"
 import { TitleBarUpdateDialog } from "@/components/layout/title-bar-update-dialog"
+import { useUpdateOfferToast } from "@/components/layout/title-bar-update-toast"
 import { extractAppCommandError } from "@/lib/app-error"
 import {
   type AppUpdateCheckResult,
@@ -231,6 +232,12 @@ function TitleBarUpdateControlInner({ update, mobile }: ControlProps) {
     hasFreshCheck(update.state, details) &&
     !manualCheck.checkErrorKind &&
     Boolean(details.availableUpdate)
+  useUpdateOfferToast({
+    state: update.state,
+    details,
+    checkedUpdateAvailable,
+    setOpen,
+  })
   const showBadge =
     BADGE_STATUSES.has(update.state.status) || checkedUpdateAvailable
   const dialog = { details, ...manualCheck }

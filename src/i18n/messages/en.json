@@ -284,6 +284,7 @@
     "upgradeTo": "Upgrade to v{version}",
     "viewRelease": "View v{version} release",
     "foundUpdate": "New version v{version} found",
+    "viewUpdate": "View update",
     "alreadyLatest": "You're on the latest version",
     "checkUpdateFailed": "Failed to check for updates: {message}",
     "installSuccess": "Update installed. Relaunching app.",
