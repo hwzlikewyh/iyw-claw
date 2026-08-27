@@ -65,20 +65,10 @@ function MarketNavigation({
           >
             <Icon className="size-4" aria-hidden="true" />
             <span>{t(`sections.${id}`)}</span>
-            {id === "plugins" ? <PreviewBadge /> : null}
           </button>
         )
       })}
     </nav>
-  )
-}
-
-function PreviewBadge() {
-  const t = useTranslations("CapabilityMarket")
-  return (
-    <span className="rounded bg-background px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground shadow-sm">
-      {t("preview")}
-    </span>
   )
 }
 

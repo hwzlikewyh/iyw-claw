@@ -5229,7 +5229,7 @@
       }
     },
     "plugins": {
-      "eyebrow": "Plugin market preview",
+      "eyebrow": "Plugin market",
       "title": "Deliver a complete way of working as one bundle",
       "description": "A plugin is a versioned distribution unit that can be upgraded or uninstalled. It packages skills, connectors, and their bindings without copying skill implementations.",
       "parts": {
@@ -5237,8 +5237,37 @@
         "connectors": "Connectors",
         "bindings": "Bindings"
       },
-      "catalogTitle": "Example capability bundles",
-      "catalogSubtitle": "These cards preview the future plugin market structure",
+      "catalogTitle": "Available plugins",
+      "catalogSubtitle": "Live plugin releases and components from Fusion",
+      "catalogCount": "{count} plugins",
+      "loading": "Loading plugins",
+      "retry": "Retry",
+      "empty": "No plugins are currently available",
+      "publisher": "Publisher",
+      "publisherValues": {
+        "official": "Official",
+        "user": "User"
+      },
+      "installState": "Install state",
+      "installValues": {
+        "not_installed": "Not installed",
+        "installed": "Installed",
+        "update_available": "Update available",
+        "blocked": "Blocked",
+        "preparing": "Preparing"
+      },
+      "status": {
+        "ready": "Artifact ready",
+        "artifact_pending": "Building artifact",
+        "failed": "Artifact build failed"
+      },
+      "componentType": {
+        "skill": "Skill",
+        "connector": "Connector",
+        "runtime": "Runtime",
+        "capability": "Capability",
+        "app": "App"
+      },
       "comingSoon": "Coming soon",
       "bundles": {
         "release": {

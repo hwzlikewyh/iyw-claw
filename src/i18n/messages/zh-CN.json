@@ -5211,7 +5211,7 @@
       }
     },
     "plugins": {
-      "eyebrow": "插件市场预览",
+      "eyebrow": "插件市场",
       "title": "以能力包交付一整套工作方式",
       "description": "插件是可版本化、可升级和可卸载的分发单元。它把多个技能、连接器及其绑定关系打包在一起，但不会复制技能实现。",
       "parts": {
@@ -5219,8 +5219,37 @@
         "connectors": "连接器",
         "bindings": "绑定关系"
       },
-      "catalogTitle": "能力包示例",
-      "catalogSubtitle": "以下内容展示未来插件市场的信息结构",
+      "catalogTitle": "可用插件",
+      "catalogSubtitle": "来自 Fusion 市场的真实插件版本与组件",
+      "catalogCount": "{count} 个插件",
+      "loading": "正在加载插件",
+      "retry": "重试",
+      "empty": "当前市场中没有可用插件",
+      "publisher": "发布者",
+      "publisherValues": {
+        "official": "官方",
+        "user": "用户"
+      },
+      "installState": "安装状态",
+      "installValues": {
+        "not_installed": "未安装",
+        "installed": "已安装",
+        "update_available": "可更新",
+        "blocked": "已阻断",
+        "preparing": "准备中"
+      },
+      "status": {
+        "ready": "制品就绪",
+        "artifact_pending": "正在构建制品",
+        "failed": "制品构建失败"
+      },
+      "componentType": {
+        "skill": "技能",
+        "connector": "连接器",
+        "runtime": "运行时",
+        "capability": "能力",
+        "app": "应用"
+      },
       "comingSoon": "即将上线",
       "bundles": {
         "release": {

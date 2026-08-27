@@ -136,6 +136,7 @@ function mapAudience(
 
 function mapVersionV1ToV2(v: SkillMarketVersion): SkillMarketV2Version {
   const raw = v as unknown as Record<string, unknown>
+  const artifact = raw["artifact"] as Record<string, unknown> | undefined
   const status = (() => {
     const s = raw["status"] as string | undefined
     if (s === "artifact_pending") return "artifact_pending" as const
@@ -148,14 +149,27 @@ function mapVersionV1ToV2(v: SkillMarketVersion): SkillMarketV2Version {
     changelog: v.changelog ?? null,
     status,
     fileCount: v.fileCount,
-    artifactSize: (raw["artifact_size"] as number | undefined) ?? v.packageSize,
+    artifactSize:
+      v.artifactSize ??
+      (raw["artifact_size"] as number | undefined) ??
+      (artifact?.["artifactSize"] as number | undefined) ??
+      v.packageSize,
     rawSize: v.packageSize,
-    artifactSha256: (raw["artifact_sha256"] as string | undefined) ?? null,
+    artifactSha256:
+      v.artifactSha256 ??
+      (raw["artifact_sha256"] as string | undefined) ??
+      (artifact?.["artifactSha256"] as string | undefined) ??
+      null,
+    artifact: v.artifact ?? null,
     dependencies: v.dependencies,
     packageType: v.packageType,
     plugin: v.plugin ?? null,
     releasedAt: v.createdAt,
-    failureCode: (raw["failure_code"] as string | undefined) ?? null,
+    failureCode:
+      v.failureCode ??
+      (raw["failure_code"] as string | undefined) ??
+      (artifact?.["failureCode"] as string | undefined) ??
+      null,
   }
 }
 
@@ -353,7 +367,11 @@ class TransportSkillMarketSource implements SkillMarketSource {
     const planItem: SkillMarketInstallPlanItemV2 = {
       skillId: d.id,
       versionId: v.id,
-      artifactId: (raw["active_artifact_id"] as string | undefined) ?? v.id,
+      artifactId:
+        v.activeArtifactId ??
+        v.artifact?.id ??
+        (raw["active_artifact_id"] as string | undefined) ??
+        v.id,
       slug: d.slug,
       displayName: d.displayName,
       version: v.version,
@@ -364,8 +382,19 @@ class TransportSkillMarketSource implements SkillMarketSource {
         ? "mandatory"
         : "optional") as SkillMarketDistributionPolicy,
       artifactSize:
-        (raw["artifact_size"] as number | undefined) ?? v.packageSize,
-      artifactSha256: (raw["artifact_sha256"] as string | undefined) ?? "",
+        v.artifactSize ??
+        (raw["artifact_size"] as number | undefined) ??
+        ((raw["artifact"] as Record<string, unknown> | undefined)?.[
+          "artifactSize"
+        ] as number | undefined) ??
+        v.packageSize,
+      artifactSha256:
+        v.artifactSha256 ??
+        (raw["artifact_sha256"] as string | undefined) ??
+        ((raw["artifact"] as Record<string, unknown> | undefined)?.[
+          "artifactSha256"
+        ] as string | undefined) ??
+        "",
       signature: null,
       ticketEndpoint: "skill_market_install",
       dependencies: v.dependencies,
