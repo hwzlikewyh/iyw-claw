@@ -58,6 +58,8 @@ export function SkillMarketView({
     detail: market.detail.value,
   })
   const inventory = detailActivation.inventory
+  const inventoryView =
+    market.query.view === "installed" || market.query.view === "enabled"
 
   useEffect(() => {
     if (!navigationTarget) return
@@ -166,28 +168,25 @@ export function SkillMarketView({
         query={market.query}
         categories={market.categories}
         revision={
-          market.query.view === "installed"
+          inventoryView
             ? (inventory.snapshot?.revision ?? "")
             : market.list.revision
         }
         offline={market.list.offline}
-        loading={
-          market.query.view === "installed"
-            ? inventory.loading
-            : market.list.loading
-        }
+        loading={inventoryView ? inventory.loading : market.list.loading}
         onQueryChange={market.updateQuery}
         onRefresh={() => {
-          if (market.query.view === "installed") void inventory.refresh()
+          if (inventoryView) void inventory.refresh()
           else market.refresh()
         }}
         onUpload={() => openUpload("publish")}
       />
       <section className="min-h-0 min-w-0 flex-1">
-        {market.query.view === "installed" ? (
+        {inventoryView ? (
           <InstalledInventoryView
             snapshot={inventory.snapshot}
             query={market.query.q}
+            enabledOnly={market.query.view === "enabled"}
             loading={inventory.loading}
             error={inventory.error}
             busyKey={inventory.busyKey}

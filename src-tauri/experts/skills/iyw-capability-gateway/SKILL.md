@@ -117,15 +117,110 @@ an ordinary URL alone is not proof of Artifact registration.
 ## Other Categories
 
 - Current account identity belongs to the session/profile category, not memory.
-- Browser references expire after navigation, a route change, popup, material
-  DOM update, or write. For a stale reference or locator failure, make only one
-  recovery attempt for the same action: take a fresh snapshot and use one new
-  reference or revised locator. Do not extend the budget by cycling locators.
-  For runtime/session/daemon/observer unavailability, a crashed tab, or timeout,
-  inspect state once and switch to `opencli-browser` only when that Skill and
-  the `opencli` command are available. Read its `SKILL.md`, run `opencli doctor`,
-  then use one stable session with `bind`/`open`, `state`/`find`, an action, and
-  explicit verification. Otherwise report the missing prerequisite.
+
+## Managed Browser First
+
+Read the installed `agent-browser` Skill for every web page, public web-data,
+website automation, or browser verification task. A reliable purpose-built API
+or direct data source may run first only when it clearly satisfies the request.
+If it returns no data, incomplete data, a static shell for dynamic content, an
+authentication boundary, or an unverifiable result, the managed browser is a
+mandatory fallback before reporting that the data is unavailable.
+
+Use the current gateway in this order:
+
+1. Search for the exact browser intent and read the best returned capability.
+2. List and reuse a managed tab; open another tab only when explicitly needed.
+3. Open the target page and use `iyw.browser.page.read.v1` or a fresh snapshot.
+4. Use dedicated actions when available. Read `agent-browser` before using
+   `iyw.browser.command.run.v1` for an advanced operation.
+5. After navigation, a route change, popup, material DOM update, or write, take
+   another snapshot before reusing a reference.
+6. Verify the business result through URL, title, text, element state,
+   downloaded file, or another stable signal. A successful click is not enough.
+
+For a stale reference or locator failure, make one recovery attempt for the
+same action with a fresh snapshot and one new reference or revised locator. Do
+not cycle locators, switch browsers, or request user takeover for an ordinary
+selector problem. For runtime/session/daemon/observer unavailability or a
+timeout, inspect managed state once. Only when that check confirms the managed
+route is unavailable may the Agent switch to `opencli-browser`, and only when
+that Skill and the `opencli` command are actually available. Read its current
+Skill and run `opencli doctor`; otherwise report the missing prerequisite.
+
+### Browser User Actions
+
+Use the stable capability `iyw.browser.user_action.request.v1` when the Agent
+cannot safely or reliably complete a visible browser step itself, such as
+login requiring user-held credentials, MFA, CAPTCHA, device approval, secure
+payment confirmation, an interaction the managed browser cannot perform, or a
+final human review.
+Do not use it for ordinary navigation, snapshots, clicks, fills, waits, or
+other actions already covered by the managed browser tools. In particular, do
+not request user action merely because a selector was stale, missing, or
+ambiguous.
+
+Invoke it through the normal gateway sequence, using the exact schema returned
+by `read_iyw_capability`:
+
+1. Search for `browser user action` (or `浏览器 用户 操作`).
+2. Read the available `iyw.browser.user_action.request.v1` result.
+3. Invoke that exact capability with `reason`, and optionally `tab_id`,
+   `completion`, and `timeout_ms`.
+
+The host opens a new visible browser window for the requested tab and pauses
+the Agent while the user operates it. Do not ask the user to click a separate
+"take over" or "return control" button. The user's first meaningful browser
+input is the hand-off signal; the host keeps Agent actions blocked until the
+user becomes idle.
+
+Completion conditions are optional. When supplied, all supplied conditions are
+required (AND semantics):
+
+```json
+{
+  "reason": "Complete the sign-in and any verification shown by the website",
+  "completion": {
+    "urlContains": "/dashboard",
+    "textContains": "Sign out"
+  },
+  "timeout_ms": 180000
+}
+```
+
+Supported conditions are `urlContains`, `titleContains`, `textContains`,
+`selector`, and `downloadCompleted`. Prefer stable post-action evidence such as
+an authenticated URL, a success message, a known result element, or a
+completed download. Do not put passwords, one-time codes, cookies, tokens, or
+other secrets in `reason` or completion conditions. If no condition can be
+stated safely, omit `completion`; after the user pauses, inspect the returned
+fresh browser state and decide whether the task can continue. A timeout or a
+closed detached window is a failed hand-off, not proof that the action
+completed.
+
+### Proactive Browser Presentation
+
+When the task produces a web interface, local service page, HTML preview,
+visual report, or another browser-readable result that the user should inspect,
+proactively use `iyw.browser.window.present.v1` after the page is ready. This
+is a non-blocking display action: it opens or focuses a detached browser window
+and lets the Agent continue. Do not present every research page or background
+automation step; present user-facing results, previews, and meaningful visual
+checkpoints.
+
+Use the normal search/read/invoke trio with `browser present` (or `展示网页
+成果`) and pass either a fresh `url` (optionally with `new_tab`) or an existing
+`tab_id`. Verify that the URL is the intended page before presenting it. A
+local service must be reachable through the user's own managed browser; do not
+expose credentials or private tokens in the URL.
+
+After the visual result is no longer needed, invoke
+`iyw.browser.window.close.v1` with the same `tab_id` (or the active tab). It
+closes only the detached display window and preserves the managed tab, page
+state, cookies, and sign-in session. Never use this capability when the user
+still needs to inspect the page, and never confuse it with
+`iyw.browser.tabs.close.v1`, which closes the tab itself.
+
 - Destructive automation, channel, browser, or delegation operations require
   an exact target and the confirmation rules returned by `read`.
 - For long work, use a visible feedback capability or discover one at sensible

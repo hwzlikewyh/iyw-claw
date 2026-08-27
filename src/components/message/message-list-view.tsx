@@ -80,6 +80,9 @@ import { resolveArtifactConversationId } from "@/lib/artifact-conversation-id"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { UserMemoryMessageActions } from "@/components/message/user-memory-message-actions"
 import { CurrentReplyArtifacts } from "@/components/message/current-reply-artifacts"
+import { AssistantTurnContent } from "@/components/message/assistant-turn-content"
+import { useConversationDisplayPreferences } from "@/contexts/conversation-display-context"
+import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
 import {
   CompletionEntrance,
   MessageEntrance,
@@ -489,6 +492,9 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   isResponseComplete = true,
   showCurrentReplyArtifacts = false,
   animationEnabled = false,
+  conversationDisplayMode,
+  collapseCompletedTurn,
+  autoOpenErrors,
 }: {
   group: ResolvedMessageGroup
   conversationId: number
@@ -501,6 +507,9 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   isResponseComplete?: boolean
   showCurrentReplyArtifacts?: boolean
   animationEnabled?: boolean
+  conversationDisplayMode: ConversationDisplayMode
+  collapseCompletedTurn: boolean
+  autoOpenErrors: boolean
 }) {
   if (group.role === "system") {
     return <CollapsibleSystemMessage group={group} />
@@ -540,11 +549,14 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
           </div>
         ) : (
           <MessageContent>
-            <ContentPartsRenderer
+            <AssistantTurnContent
               parts={group.parts}
-              role={group.role}
               entranceKey={`${conversationId}:${group.id}`}
               animationEnabled={animationEnabled}
+              isResponseComplete={isResponseComplete}
+              displayMode={conversationDisplayMode}
+              collapseCompletedTurn={collapseCompletedTurn}
+              autoOpenErrors={autoOpenErrors}
             />
           </MessageContent>
         )}
@@ -564,6 +576,12 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
             enabled={animationEnabled}
             complete={isResponseComplete}
           >
+            {showCurrentReplyArtifacts && (
+              <CurrentReplyArtifacts
+                conversationId={artifactConversationId}
+                parts={group.parts}
+              />
+            )}
             {showStats && (
               <TurnStats
                 usage={group.usage}
@@ -574,12 +592,6 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
                 isResponseComplete={isResponseComplete}
                 copyText={extractTextFromParts(group.parts)}
                 completedAt={group.completed_at}
-              />
-            )}
-            {showCurrentReplyArtifacts && (
-              <CurrentReplyArtifacts
-                conversationId={artifactConversationId}
-                parts={group.parts}
               />
             )}
           </CompletionEntrance>
@@ -656,6 +668,11 @@ export function MessageListView({
     artifactConversationId
   )
   const t = useTranslations("Folder.chat.messageList")
+  const {
+    mode: conversationDisplayMode,
+    collapseCompletedTurn,
+    autoOpenErrors,
+  } = useConversationDisplayPreferences()
   const sharedT = useTranslations("Folder.chat.shared")
   const backendErrorT = useTranslations(
     "Folder.chat.acpConnections.backendErrors"
@@ -888,6 +905,9 @@ export function MessageListView({
                     item === lastAssistantItem && item.phase === "persisted"
                   }
                   animationEnabled={animationEnabled}
+                  conversationDisplayMode={conversationDisplayMode}
+                  collapseCompletedTurn={collapseCompletedTurn}
+                  autoOpenErrors={autoOpenErrors}
                 />
               </div>
             </MessageEntrance>
@@ -940,6 +960,9 @@ export function MessageListView({
       resolvedArtifactConversationId,
       detailLoading,
       enableUserMemoryActions,
+      conversationDisplayMode,
+      collapseCompletedTurn,
+      autoOpenErrors,
       lastAssistantItem,
       loadEarlierHistory,
       t,

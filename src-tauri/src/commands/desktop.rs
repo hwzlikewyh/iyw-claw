@@ -146,9 +146,11 @@ fn hide_main_window(app: &AppHandle) -> Result<(), AppCommandError> {
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| AppCommandError::window("Main window is unavailable", String::new()))?;
-    window
-        .hide()
-        .map_err(|error| AppCommandError::window("Failed to hide main window", error.to_string()))
+    window.hide().map_err(|error| {
+        AppCommandError::window("Failed to hide main window", error.to_string())
+    })?;
+    crate::webview_memory::note_hidden(app);
+    Ok(())
 }
 
 impl From<CloseAction> for CloseBehavior {

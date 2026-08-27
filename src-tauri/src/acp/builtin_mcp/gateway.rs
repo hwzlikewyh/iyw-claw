@@ -9,23 +9,13 @@ use crate::models::AgentType;
 use crate::plugin_runtime::types::{PluginCallContext, PluginToolCall};
 
 use super::capability::{CapabilityCatalog, ResolveError, ResolvedCapability};
-use super::capability_registry::tool_name_for_capability_id;
 use super::features::FeatureSnapshot;
 use super::plugin_catalog::PluginCapabilityRegistry;
+use super::tool_identity::{
+    GatewayTool, CAPABILITY_ID_MAX_CHARS, INVOKE_TOOL, READ_TOOL, SEARCH_TOOL,
+};
 
-pub(super) const SEARCH_TOOL: &str = "search_iyw_capabilities";
-pub(super) const READ_TOOL: &str = "read_iyw_capability";
-pub(super) const INVOKE_TOOL: &str = "invoke_iyw_capability";
 pub(super) const PLUGIN_INSTALL_CAPABILITY: &str = "iyw.plugins.install.request.v1";
-
-const MAX_GATEWAY_WRAPPER_DEPTH: u8 = 4;
-
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum GatewayToolIdentity {
-    NotGateway,
-    UnresolvedGateway,
-    Resolved(String),
-}
 
 pub(super) enum GatewayAction {
     Return(CallToolResult),
@@ -40,73 +30,6 @@ pub(super) struct PluginInstallRequest {
     pub plugin_name: String,
 }
 
-pub(crate) fn invoked_tool_name(raw_input: &Option<String>) -> GatewayToolIdentity {
-    let Some(raw_input) = raw_input.as_deref() else {
-        return GatewayToolIdentity::NotGateway;
-    };
-    if !raw_input.contains(INVOKE_TOOL)
-        && (!raw_input.contains("capability_id") || !raw_input.contains("arguments"))
-    {
-        return GatewayToolIdentity::NotGateway;
-    }
-    let Ok(value) = serde_json::from_str::<Value>(raw_input) else {
-        return GatewayToolIdentity::NotGateway;
-    };
-    gateway_tool_identity(&value, 0)
-}
-
-fn gateway_tool_identity(value: &Value, depth: u8) -> GatewayToolIdentity {
-    if depth > MAX_GATEWAY_WRAPPER_DEPTH {
-        return GatewayToolIdentity::NotGateway;
-    }
-    if let Some(encoded) = value.as_str() {
-        return serde_json::from_str::<Value>(encoded)
-            .map_or(GatewayToolIdentity::NotGateway, |decoded| {
-                gateway_tool_identity(&decoded, depth + 1)
-            });
-    }
-    let Some(object) = value.as_object() else {
-        return GatewayToolIdentity::NotGateway;
-    };
-    if let Some(tool_name) = object.get("toolName") {
-        return codebuddy_gateway_identity(tool_name, object.get("params"), depth);
-    }
-    direct_gateway_identity(value)
-}
-
-fn codebuddy_gateway_identity(
-    tool_name: &Value,
-    params: Option<&Value>,
-    depth: u8,
-) -> GatewayToolIdentity {
-    let Some(tool_name) = tool_name.as_str() else {
-        return GatewayToolIdentity::NotGateway;
-    };
-    if canonical_name(tool_name.trim()) != Some(INVOKE_TOOL) {
-        return GatewayToolIdentity::NotGateway;
-    }
-    let Some(params) = params else {
-        return GatewayToolIdentity::UnresolvedGateway;
-    };
-    match gateway_tool_identity(params, depth + 1) {
-        GatewayToolIdentity::Resolved(tool_name) => GatewayToolIdentity::Resolved(tool_name),
-        _ => GatewayToolIdentity::UnresolvedGateway,
-    }
-}
-
-fn direct_gateway_identity(value: &Value) -> GatewayToolIdentity {
-    let Ok(params) = serde_json::from_value::<InvokeParams>(value.clone()) else {
-        return GatewayToolIdentity::NotGateway;
-    };
-    let Ok(capability_id) = parse_capability_id(&params.capability_id) else {
-        return GatewayToolIdentity::NotGateway;
-    };
-    tool_name_for_capability_id(capability_id)
-        .map_or(GatewayToolIdentity::UnresolvedGateway, |tool_name| {
-            GatewayToolIdentity::Resolved(tool_name.to_string())
-        })
-}
-
 pub(super) fn tools() -> Result<Vec<Tool>, serde_json::Error> {
     [search_tool(), read_tool(), invoke_tool()]
         .into_iter()
@@ -115,20 +38,19 @@ pub(super) fn tools() -> Result<Vec<Tool>, serde_json::Error> {
 }
 
 pub(super) fn dispatch(
-    raw_name: &str,
+    tool: GatewayTool,
     arguments: Option<JsonObject>,
     features: &FeatureSnapshot,
-    server_name: &str,
     cwd: &Path,
     agent_type: AgentType,
     request_cancel: tokio_util::sync::CancellationToken,
     authority_cancel: tokio_util::sync::CancellationToken,
 ) -> Result<GatewayAction, ErrorData> {
     let catalog = load_catalog()?;
-    match authorized_name(raw_name, server_name) {
-        Some(SEARCH_TOOL) => search(arguments, features, &catalog, cwd, agent_type),
-        Some(READ_TOOL) => read(arguments, features, &catalog, cwd, agent_type),
-        Some(INVOKE_TOOL) => invoke(
+    match tool {
+        GatewayTool::Search => search(arguments, features, &catalog, cwd, agent_type),
+        GatewayTool::Read => read(arguments, features, &catalog, cwd, agent_type),
+        GatewayTool::Invoke => invoke(
             arguments,
             features,
             &catalog,
@@ -137,7 +59,6 @@ pub(super) fn dispatch(
             request_cancel,
             authority_cancel,
         ),
-        _ => Err(ErrorData::invalid_params("unknown MCP gateway tool", None)),
     }
 }
 
@@ -375,7 +296,7 @@ fn parse_delivery_ack(value: Option<String>) -> Result<Option<String>, ErrorData
         return Ok(None);
     };
     let value = value.trim();
-    if value.is_empty() || value.chars().count() > 128 {
+    if value.is_empty() || value.chars().count() > CAPABILITY_ID_MAX_CHARS {
         return Err(ErrorData::invalid_params(
             "delivery_ack must be a non-empty receipt",
             None,
@@ -386,7 +307,7 @@ fn parse_delivery_ack(value: Option<String>) -> Result<Option<String>, ErrorData
 
 fn parse_capability_id(value: &str) -> Result<&str, ErrorData> {
     let value = value.trim();
-    if value.is_empty() || value.chars().count() > 128 {
+    if value.is_empty() || value.chars().count() > CAPABILITY_ID_MAX_CHARS {
         return Err(ErrorData::invalid_params(
             "capability_id must contain between 1 and 128 characters",
             None,
@@ -409,32 +330,6 @@ fn load_catalog() -> Result<CapabilityCatalog, ErrorData> {
 fn parse<T: DeserializeOwned>(arguments: Option<JsonObject>) -> Result<T, ErrorData> {
     serde_json::from_value(Value::Object(arguments.unwrap_or_default()))
         .map_err(|error| ErrorData::invalid_params(error.to_string(), None))
-}
-
-fn canonical_name(raw: &str) -> Option<&'static str> {
-    let name = raw.rsplit("__").next().unwrap_or(raw);
-    bare_gateway_name(name)
-}
-
-fn authorized_name(raw: &str, server_name: &str) -> Option<&'static str> {
-    if let Some(name) = bare_gateway_name(raw) {
-        return Some(name);
-    }
-    let mcp_prefix = format!("mcp__{server_name}__");
-    let host_prefix = format!("{server_name}__");
-    let name = raw
-        .strip_prefix(&mcp_prefix)
-        .or_else(|| raw.strip_prefix(&host_prefix))?;
-    bare_gateway_name(name)
-}
-
-fn bare_gateway_name(name: &str) -> Option<&'static str> {
-    match name {
-        SEARCH_TOOL => Some(SEARCH_TOOL),
-        READ_TOOL => Some(READ_TOOL),
-        INVOKE_TOOL => Some(INVOKE_TOOL),
-        _ => None,
-    }
 }
 
 fn unknown_capability() -> ErrorData {
@@ -490,7 +385,11 @@ fn read_tool() -> Value {
             "type": "object",
             "required": ["capability_id"],
             "properties": {
-                "capability_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+                "capability_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": CAPABILITY_ID_MAX_CHARS
+                }
             },
             "additionalProperties": false
         }
@@ -505,7 +404,11 @@ fn invoke_tool() -> Value {
             "type": "object",
             "required": ["capability_id", "arguments"],
             "properties": {
-                "capability_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+                "capability_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": CAPABILITY_ID_MAX_CHARS
+                },
                 "arguments": { "type": "object" },
                 "delivery_ack": { "type": "string", "minLength": 1, "maxLength": 128 }
             },

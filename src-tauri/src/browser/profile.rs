@@ -35,6 +35,21 @@ struct LockedProcess {
 }
 
 impl ProfileGuard {
+    pub async fn reclaim_stale(
+        root: &Path,
+        sidecar_path: &Path,
+        engine_path: &Path,
+    ) -> Result<usize, BrowserError> {
+        let lock_path = root.join("runtime.lock.json");
+        match std::fs::metadata(&lock_path) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(_) => return Err(profile_error()),
+        }
+        let profile_path = root.join("profile-v1");
+        reclaim_stale_lock(&lock_path, sidecar_path, engine_path, &profile_path).await
+    }
+
     pub async fn acquire(
         root: &Path,
         runtime_id: &str,
@@ -113,7 +128,7 @@ async fn reclaim_stale_lock(
     sidecar_path: &Path,
     engine_path: &Path,
     profile_path: &Path,
-) -> Result<(), BrowserError> {
+) -> Result<usize, BrowserError> {
     let record = read_lock(path)?;
     let process = ProcessRecord {
         pid: record.pid,
@@ -149,9 +164,10 @@ async fn reclaim_stale_lock(
         &profile_path.to_string_lossy(),
         "stale-browser-engine",
     ));
-    cleanup_stale_processes(stale).await?;
+    let reclaimed = cleanup_stale_processes(stale).await?;
     let _ = tokio::fs::remove_dir_all(runtime_dir).await;
-    std::fs::remove_file(path).map_err(|_| profile_locked())
+    std::fs::remove_file(path).map_err(|_| profile_locked())?;
+    Ok(reclaimed)
 }
 
 fn locked_process(process: LockedProcess, sidecar_path: &Path) -> ProcessRecord {
@@ -185,9 +201,10 @@ async fn discover_published_daemon(
     None
 }
 
-async fn cleanup_stale_processes(mut processes: Vec<ProcessRecord>) -> Result<(), BrowserError> {
+async fn cleanup_stale_processes(mut processes: Vec<ProcessRecord>) -> Result<usize, BrowserError> {
     processes.sort_by_key(|process| (process.pid, process.started_at));
     processes.dedup_by_key(|process| (process.pid, process.started_at));
+    let mut reclaimed = 0;
     for process in processes {
         if !process_matches(&process) {
             continue;
@@ -198,8 +215,9 @@ async fn cleanup_stale_processes(mut processes: Vec<ProcessRecord>) -> Result<()
         if !wait_for_exit(&process, Duration::from_secs(2)).await {
             return Err(profile_locked());
         }
+        reclaimed += 1;
     }
-    Ok(())
+    Ok(reclaimed)
 }
 
 fn read_lock(path: &Path) -> Result<LockRecord, BrowserError> {

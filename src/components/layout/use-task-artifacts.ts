@@ -11,7 +11,12 @@ import {
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
-import { listTaskArtifacts, type TaskArtifactInfo } from "@/lib/api"
+import {
+  listAllTaskArtifacts,
+  listTaskArtifacts,
+  type TaskArtifactInfo,
+  type TaskArtifactPage,
+} from "@/lib/api"
 import { onTransportReconnect, subscribe } from "@/lib/platform"
 
 const REFRESH_DEBOUNCE_MS = 80
@@ -21,10 +26,17 @@ interface TaskArtifactFilters {
   folderId: number | null
   scope: "current" | "all"
   latestTurnOnly?: boolean
+  search?: string
+  page?: number
+  pageSize?: number
+  loadAll?: boolean
 }
 
 interface TaskArtifactState {
   items: TaskArtifactInfo[]
+  total: number
+  page: number
+  pageSize: number
   loading: boolean
   refreshing: boolean
   error: boolean
@@ -32,6 +44,9 @@ interface TaskArtifactState {
 
 const INITIAL_TASK_ARTIFACT_STATE: TaskArtifactState = {
   items: [],
+  total: 0,
+  page: 1,
+  pageSize: 50,
   loading: true,
   refreshing: false,
   error: false,
@@ -82,7 +97,16 @@ export function useTaskArtifacts(filters: TaskArtifactFilters) {
 function useArtifactLoader(filters: TaskArtifactFilters) {
   const t = useTranslations("Folder.taskArtifacts")
   const loadFailed = t("loadFailed")
-  const { conversationId, folderId, scope, latestTurnOnly = false } = filters
+  const {
+    conversationId,
+    folderId,
+    scope,
+    latestTurnOnly = false,
+    search = "",
+    page = 1,
+    pageSize,
+    loadAll = false,
+  } = filters
   const [state, setState] = useState(INITIAL_TASK_ARTIFACT_STATE)
   const requestIdRef = useRef(0)
   const trackerRef = useRef<ArtifactLoadTracker>({
@@ -93,7 +117,16 @@ function useArtifactLoader(filters: TaskArtifactFilters) {
   const load = useCallback(
     (requestBackground = false, queueIfBusy = false) =>
       startArtifactLoad({
-        filters: { conversationId, folderId, scope, latestTurnOnly },
+        filters: {
+          conversationId,
+          folderId,
+          scope,
+          latestTurnOnly,
+          search,
+          page,
+          pageSize,
+          loadAll,
+        },
         requestBackground,
         queueIfBusy,
         requestIdRef,
@@ -101,7 +134,17 @@ function useArtifactLoader(filters: TaskArtifactFilters) {
         loadFailed,
         trackerRef,
       }),
-    [conversationId, folderId, latestTurnOnly, loadFailed, scope]
+    [
+      conversationId,
+      folderId,
+      latestTurnOnly,
+      loadFailed,
+      page,
+      pageSize,
+      loadAll,
+      scope,
+      search,
+    ]
   )
   const cancel = useArtifactCancel(requestIdRef)
   return { state, load, cancel }
@@ -198,7 +241,15 @@ async function performTaskArtifactLoad({
     if (requestId !== requestIdRef.current) return
     trackerRef.current.snapshotKey = filterKey
     trackerRef.current.foregroundKey = null
-    setState({ items, loading: false, refreshing: false, error: false })
+    setState({
+      items: items.items,
+      total: items.total,
+      page: items.page,
+      pageSize: items.pageSize,
+      loading: false,
+      refreshing: false,
+      error: false,
+    })
   } catch (error) {
     if (requestId !== requestIdRef.current) return
     if (!background) trackerRef.current.foregroundKey = null
@@ -216,7 +267,7 @@ async function performTaskArtifactLoad({
 function taskArtifactFilterKey(filters: TaskArtifactFilters): string {
   const id =
     filters.scope === "current" ? filters.conversationId : filters.folderId
-  return `${filters.scope}:${id ?? "none"}:latest=${filters.latestTurnOnly ? "1" : "0"}`
+  return `${filters.scope}:${id ?? "none"}:latest=${filters.latestTurnOnly ? "1" : "0"}:search=${filters.search?.trim() ?? ""}:page=${filters.page ?? 1}:size=${filters.pageSize ?? "default"}:all=${filters.loadAll ? "1" : "0"}`
 }
 
 function useInitialArtifactLoad(
@@ -234,22 +285,48 @@ function useInitialArtifactLoad(
 
 async function fetchTaskArtifacts(
   filters: TaskArtifactFilters
-): Promise<TaskArtifactInfo[]> {
-  if (filters.scope === "all" && filters.folderId == null) return []
+): Promise<TaskArtifactPage> {
   if (
     filters.scope === "current" &&
     (filters.conversationId == null || filters.conversationId <= 0)
   ) {
-    return []
+    return { items: [], total: 0, page: filters.page ?? 1, pageSize: 50 }
   }
-  return listTaskArtifacts(
+  const request =
     filters.scope === "current"
       ? {
           conversationId: filters.conversationId,
           latestTurnOnly: filters.latestTurnOnly,
+          ...(!filters.latestTurnOnly && !filters.pageSize
+            ? { pageSize: 100 }
+            : {}),
         }
       : { folderId: filters.folderId }
-  )
+  if (filters.loadAll) {
+    const items = await listAllTaskArtifacts({
+      ...request,
+      search: filters.search,
+    })
+    return {
+      items,
+      total: items.length,
+      page: 1,
+      pageSize: items.length || 100,
+    }
+  }
+  const result = await listTaskArtifacts({
+    ...request,
+    ...(filters.search?.trim() ? { search: filters.search } : {}),
+    ...(filters.page && filters.page > 1 ? { page: filters.page } : {}),
+    ...(filters.pageSize ? { pageSize: filters.pageSize } : {}),
+  })
+  if (!Array.isArray(result)) return result
+  return {
+    items: result,
+    total: result.length,
+    page: filters.page ?? 1,
+    pageSize: filters.pageSize ?? (filters.latestTurnOnly ? 100 : 50),
+  }
 }
 
 function useTaskArtifactUpdates(refresh: () => void) {

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 40] = [
+pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 45] = [
     (
         "list_scheduled_task_projects",
         "iyw.automation.projects.list.v1",
@@ -12,6 +12,7 @@ pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 40] = [
     ("browser_list_tabs", "iyw.browser.tabs.list.v1"),
     ("browser_open", "iyw.browser.page.open.v1"),
     ("browser_snapshot", "iyw.browser.page.snapshot.v1"),
+    ("browser_read", "iyw.browser.page.read.v1"),
     ("browser_click", "iyw.browser.element.click.v1"),
     ("browser_fill", "iyw.browser.element.fill.v1"),
     ("browser_press", "iyw.browser.keyboard.press.v1"),
@@ -19,6 +20,13 @@ pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 40] = [
     ("browser_wait", "iyw.browser.page.wait.v1"),
     ("browser_screenshot", "iyw.browser.page.screenshot.v1"),
     ("browser_close_tab", "iyw.browser.tabs.close.v1"),
+    ("browser_command", "iyw.browser.command.run.v1"),
+    (
+        "browser_request_user_action",
+        "iyw.browser.user_action.request.v1",
+    ),
+    ("browser_present", "iyw.browser.window.present.v1"),
+    ("browser_close_window", "iyw.browser.window.close.v1"),
     ("present_task_files", "iyw.artifacts.present.v1"),
     ("delegate_to_agent", "iyw.delegation.tasks.create.v1"),
     ("get_delegation_status", "iyw.delegation.tasks.read.v1"),

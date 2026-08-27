@@ -3067,7 +3067,7 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "iyw-claw"
-version = "0.1.122"
+version = "0.1.131"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -3145,7 +3145,9 @@ dependencies = [
  "urlencoding",
  "uuid",
  "walkdir",
+ "webview2-com",
  "which 7.0.3",
+ "windows-core 0.61.2",
  "windows-sys 0.59.0",
  "zip 2.4.2",
  "zstd",

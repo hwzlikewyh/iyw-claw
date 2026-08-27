@@ -54,7 +54,7 @@ function blockedIssue(
   return targetIssue(target, reasons.join(", "))
 }
 
-export function useSkillInventory(enabled: boolean) {
+export function useSkillInventory(enabled: boolean, refreshKey?: string) {
   const tabs = useTabStore((state) => state.tabs)
   const activeTabId = useTabStore((state) => state.activeTabId)
   const workspacePath = useMemo(
@@ -85,7 +85,7 @@ export function useSkillInventory(enabled: boolean) {
   useEffect(() => {
     if (!enabled) return
     void refresh()
-  }, [enabled, refresh])
+  }, [enabled, refresh, refreshKey])
 
   const setActivation = useCallback(
     async (
@@ -243,8 +243,10 @@ export function useSkillInventory(enabled: boolean) {
     }
   }, [workspacePath])
 
+  const currentSnapshot =
+    snapshot?.workspacePath === workspacePath ? snapshot : null
   return {
-    snapshot,
+    snapshot: currentSnapshot,
     workspacePath,
     loading,
     error,

@@ -4,6 +4,8 @@ mod agent_tool_actions;
 mod agent_tool_cancellation;
 #[cfg(feature = "tauri-runtime")]
 mod agent_tool_capture;
+#[cfg(feature = "tauri-runtime")]
+mod agent_tool_command;
 #[cfg(not(feature = "tauri-runtime"))]
 mod agent_tool_stub;
 #[cfg(feature = "tauri-runtime")]
@@ -52,6 +54,8 @@ mod process;
 mod profile;
 mod records;
 #[cfg(feature = "tauri-runtime")]
+mod resource_gate;
+#[cfg(feature = "tauri-runtime")]
 mod runtime;
 #[cfg(feature = "tauri-runtime")]
 mod runtime_launch;
@@ -94,6 +98,12 @@ mod tab_recovery;
 mod tabs;
 mod types;
 mod types_cdp;
+#[cfg(feature = "tauri-runtime")]
+mod user_action;
+#[cfg(feature = "tauri-runtime")]
+mod user_action_completion;
+#[cfg(feature = "tauri-runtime")]
+mod agent_window;
 mod user_control_lease;
 #[cfg(feature = "tauri-runtime")]
 mod view_host_lifecycle;
@@ -108,6 +118,8 @@ pub use control_lease::AgentControlLease;
 pub use error::{BrowserError, BrowserErrorCode, BrowserErrorContext};
 pub use manager::BrowserSessionManager;
 #[cfg(feature = "tauri-runtime")]
+pub(crate) use runtime::ManagedBrowserProcessSnapshot;
+#[cfg(feature = "tauri-runtime")]
 pub use stream_input::*;
 pub use types::*;
 pub use types_cdp::*;
@@ -115,6 +127,7 @@ pub use types_cdp::*;
 pub const BROWSER_AGENT_TOOL_NAMES: &[&str] = &[
     "browser_list_tabs",
     "browser_open",
+    "browser_read",
     "browser_snapshot",
     "browser_click",
     "browser_fill",
@@ -123,6 +136,10 @@ pub const BROWSER_AGENT_TOOL_NAMES: &[&str] = &[
     "browser_wait",
     "browser_screenshot",
     "browser_close_tab",
+    "browser_request_user_action",
+    "browser_present",
+    "browser_close_window",
+    "browser_command",
 ];
 
 pub const MAX_DETACHED_BROWSER_WINDOWS: usize = 8;

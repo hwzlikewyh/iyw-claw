@@ -292,5 +292,6 @@ fn stale_claim(claim: &ViewClaimRecord) -> BrowserError {
         tab_generation: Some(claim.tab_generation),
         view_generation: Some(claim.target_view_generation),
         control_epoch: None,
+        ..BrowserErrorContext::default()
     })
 }

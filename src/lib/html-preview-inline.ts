@@ -21,9 +21,8 @@
 //
 // Security model: the returned HTML carries no privileges of its own. It is
 // meant to be rendered with an opaque-origin sandbox (NO `allow-same-origin`)
-// plus the CSP from `withSandboxCsp`. In the default (untrusted) mode the
-// iframe is rendered WITHOUT `allow-scripts`, so no JavaScript runs at all.
-// Enabling scripts is an explicit, per-file user opt-in (see HtmlPreview).
+// plus the CSP from `withSandboxCsp`. HtmlPreview uses the trusted policy by
+// default so local HTML pages render their normal interactive behavior.
 
 export type Base64Reader = (absPath: string) => Promise<string>
 
@@ -720,10 +719,9 @@ export async function inlineHtmlResources(
   return `<!DOCTYPE html>\n<html${wrap.html}>\n<head${wrap.head}>${headTpl.innerHTML}</head>\n<body${wrap.body}>${bodyTpl.innerHTML}</body>\n</html>`
 }
 
-// Default (untrusted) policy. Paired with a sandbox that omits `allow-scripts`,
-// so script execution is blocked outright; `default-src 'none'` with no
-// `connect-src` additionally blocks any network fetch, and `frame-src` /
-// `form-action` / `base-uri` are locked down.
+// Strict policy retained for callers that need a non-executing HTML document;
+// `default-src 'none'` with no `connect-src` additionally blocks any network
+// fetch, and `frame-src` / `form-action` / `base-uri` are locked down.
 const CSP_STRICT = [
   "default-src 'none'",
   "img-src data: blob:",
@@ -736,9 +734,9 @@ const CSP_STRICT = [
   "frame-src 'none'",
 ].join("; ")
 
-// Trusted policy (explicit per-file opt-in). Allows the file's own scripts and
-// network access. The iframe is still opaque-origin, so the host app's origin
-// stays protected.
+// Trusted policy used by HtmlPreview. Allows the file's own scripts and network
+// access. The iframe is still opaque-origin, so the host app's origin stays
+// protected.
 const CSP_TRUSTED = [
   "default-src 'none'",
   "img-src data: blob: https: http:",

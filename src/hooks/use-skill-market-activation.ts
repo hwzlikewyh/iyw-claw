@@ -25,7 +25,8 @@ export function useSkillMarketActivation({
     detail?.installState !== "not_installed" &&
     Boolean(detail && !isConnectorOnlyPlugin(detail))
   const inventory = useSkillInventory(
-    view === "installed" || detailNeedsInventory
+    view === "installed" || view === "enabled" || detailNeedsInventory,
+    view
   )
   const activation = useMemo(
     () =>

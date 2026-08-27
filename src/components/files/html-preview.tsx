@@ -2,20 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useTranslations } from "next-intl"
-import { ShieldCheck, ShieldOff } from "lucide-react"
 import { readWorkspaceFileBase64 } from "@/lib/api"
 import {
   extractHtmlTitle,
   inlineHtmlResources,
   withSandboxCsp,
 } from "@/lib/html-preview-inline"
-import { cn } from "@/lib/utils"
 
-// Trusted sandbox: scripts run, popups/forms/modals work, but the frame still
-// has an opaque origin (no allow-same-origin) and cannot navigate the top
-// window (no allow-top-navigation). The default untrusted mode uses an empty
-// sandbox, which renders markup/CSS/images but blocks ALL script execution —
-// the actual in-app security boundary for previewing untrusted HTML.
+// Scripts run by default, while the frame still has an opaque origin
+// (no allow-same-origin) and cannot navigate the top window
+// (no allow-top-navigation).
 const SANDBOX_TRUSTED = "allow-scripts allow-popups allow-forms allow-modals"
 
 export function HtmlPreview({
@@ -34,7 +30,6 @@ export function HtmlPreview({
   const t = useTranslations("Folder.fileWorkspacePanel")
   const [inlined, setInlined] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [trusted, setTrusted] = useState(false)
 
   // The document's own <title>, shown at the left of the header bar; falls back
   // to the file name when the document has none. Parsed from the raw source
@@ -82,7 +77,8 @@ export function HtmlPreview({
     }
   }, [content, path, rootPath])
 
-  const srcDoc = inlined != null ? withSandboxCsp(inlined, { trusted }) : ""
+  const srcDoc =
+    inlined != null ? withSandboxCsp(inlined, { trusted: true }) : ""
   const loading = inlined == null && error == null
 
   return (
@@ -94,25 +90,6 @@ export function HtmlPreview({
         >
           {heading}
         </span>
-        <button
-          type="button"
-          onClick={() => setTrusted((v) => !v)}
-          aria-pressed={trusted}
-          title={t("htmlPreviewTrustHint")}
-          className={cn(
-            "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors",
-            trusted
-              ? "text-amber-600 dark:text-amber-500 hover:bg-amber-500/10"
-              : "text-muted-foreground hover:bg-primary/8"
-          )}
-        >
-          {trusted ? (
-            <ShieldOff className="h-3.5 w-3.5" />
-          ) : (
-            <ShieldCheck className="h-3.5 w-3.5" />
-          )}
-          {t("htmlPreviewTrust")}
-        </button>
       </div>
       <div className="relative flex-1 min-h-0">
         {loading && (
@@ -127,9 +104,8 @@ export function HtmlPreview({
         ) : (
           inlined != null && (
             <iframe
-              key={trusted ? "trusted" : "strict"}
               title={t("htmlPreviewTitle")}
-              sandbox={trusted ? SANDBOX_TRUSTED : ""}
+              sandbox={SANDBOX_TRUSTED}
               srcDoc={srcDoc}
               className="absolute inset-0 h-full w-full border-0 bg-white"
             />

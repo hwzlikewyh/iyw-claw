@@ -123,6 +123,25 @@ export interface BrowserStateSnapshot {
   fileChoosers: BrowserFileChooserSnapshot[]
   downloads: BrowserDownloadSnapshot[]
   viewClaims: BrowserViewClaimSnapshot[]
+  userActionRequests: BrowserUserActionRequestSnapshot[]
+  windowOpenRequests: BrowserWindowOpenRequestSnapshot[]
+  windowCloseRequests: BrowserWindowCloseRequestSnapshot[]
+}
+
+export interface BrowserUserActionRequestSnapshot {
+  requestId: string
+  browserTabId: string
+  reason: string
+}
+
+export interface BrowserWindowCloseRequestSnapshot {
+  requestId: string
+  browserTabId: string
+}
+
+export interface BrowserWindowOpenRequestSnapshot {
+  requestId: string
+  browserTabId: string
 }
 
 export interface BrowserFrameSubscriptionSnapshot {

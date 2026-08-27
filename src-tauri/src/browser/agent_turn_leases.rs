@@ -72,6 +72,10 @@ impl AgentTurnLeaseRegistry {
         close_now
     }
 
+    pub async fn keep_tab_open(&self, tab_id: &str) {
+        self.inner.lock().await.close_pending.remove(tab_id);
+    }
+
     pub async fn inherit_tab(&self, source_tab_id: &str, target_tab_id: &str) -> bool {
         let mut inner = self.inner.lock().await;
         let Some(owners) = inner.owners.get(source_tab_id).cloned() else {
@@ -168,6 +172,15 @@ impl AgentTurnLeaseRegistry {
                 .as_ref()
                 .is_some_and(|tab_id| visible.contains(tab_id))
         });
+        snapshot
+            .user_action_requests
+            .retain(|request| visible.contains(&request.browser_tab_id));
+        snapshot
+            .window_open_requests
+            .retain(|request| visible.contains(&request.browser_tab_id));
+        snapshot
+            .window_close_requests
+            .retain(|request| visible.contains(&request.browser_tab_id));
     }
 
     pub async fn is_empty(&self) -> bool {

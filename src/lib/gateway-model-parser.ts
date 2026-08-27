@@ -12,6 +12,7 @@ export interface GatewayModel {
   contextWindow: number | null
   maxInputTokens: number | null
   maxOutputTokens: number | null
+  compactionAtTokens: number | null
 }
 
 export interface GatewayModelCapabilities {
@@ -133,6 +134,7 @@ function parseGatewayModel(value: unknown): GatewayModel | null {
     contextWindow: tokenLimit(limits, "context_window"),
     maxInputTokens: tokenLimit(limits, "max_input_tokens"),
     maxOutputTokens: tokenLimit(limits, "max_output_tokens"),
+    compactionAtTokens: tokenLimit(limits, "compaction_at_tokens"),
   }
 }
 

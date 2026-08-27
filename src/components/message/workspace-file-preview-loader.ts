@@ -5,7 +5,8 @@ import {
   readFilePreview,
   readWorkspaceFileBase64,
 } from "@/lib/api"
-import { isImageFile } from "@/lib/language-detect"
+import { joinRootRel } from "@/lib/file-open-target"
+import { isImageFile, isOfficePreviewable } from "@/lib/language-detect"
 
 const PREVIEW_CACHE_TTL_MS = 2_000
 const PREVIEW_CACHE_MAX_ENTRIES = 8
@@ -179,4 +180,36 @@ export function loadWorkspacePreview(
     .finally(() => previewRequests.delete(key))
   previewRequests.set(key, request)
   return request
+}
+
+export function loadWorkspaceFilePreview(
+  rootPath: string,
+  path: string,
+  options?: {
+    renderMarkdown?: boolean
+    renderHtml?: boolean
+    renderPdf?: boolean
+  }
+): Promise<PreviewState> {
+  if (isOfficePreviewable(path)) {
+    return Promise.resolve({ status: "office", path })
+  }
+  if (options?.renderPdf === true && isPdfPath(path)) {
+    return loadPdfPreview(joinRootRel(rootPath, path)).then((src) => ({
+      status: "pdf",
+      path,
+      src,
+    }))
+  }
+  return loadWorkspacePreview(rootPath, path, options)
+}
+
+export function revokeWorkspacePreviewResource(state: PreviewState): void {
+  if (state.status === "pdf" && state.src.startsWith("blob:")) {
+    URL.revokeObjectURL(state.src)
+  }
+}
+
+function isPdfPath(path: string): boolean {
+  return /\.pdf$/i.test(path)
 }

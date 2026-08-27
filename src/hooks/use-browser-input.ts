@@ -65,9 +65,31 @@ export function useBrowserInput(
     (event: { clientX: number; clientY: number }) => {
       const rect = canvasRef.current?.getBoundingClientRect()
       if (!rect) return { x: 0, y: 0 }
+      const logicalWidth = readViewportDimension(
+        canvasRef.current?.dataset.browserViewportWidth,
+        rect.width
+      )
+      const logicalHeight = readViewportDimension(
+        canvasRef.current?.dataset.browserViewportHeight,
+        rect.height
+      )
       return {
-        x: Math.max(0, Math.min(rect.width, event.clientX - rect.left)),
-        y: Math.max(0, Math.min(rect.height, event.clientY - rect.top)),
+        x: Math.max(
+          0,
+          Math.min(
+            logicalWidth,
+            ((event.clientX - rect.left) / Math.max(1, rect.width)) *
+              logicalWidth
+          )
+        ),
+        y: Math.max(
+          0,
+          Math.min(
+            logicalHeight,
+            ((event.clientY - rect.top) / Math.max(1, rect.height)) *
+              logicalHeight
+          )
+        ),
       }
     },
     [canvasRef]
@@ -223,6 +245,14 @@ export function useBrowserInput(
     },
     inputError,
   }
+}
+
+function readViewportDimension(
+  value: string | undefined,
+  fallback: number
+): number {
+  const parsed = value ? Number(value) : fallback
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
 function modifiers(event: {

@@ -678,6 +678,8 @@ function matchesView(
       return item.audience === "owner_private"
     case "installed":
       return item.installState !== "not_installed"
+    case "enabled":
+      return false
     case "needs_update":
       return item.installState === "update_available"
   }

@@ -16,6 +16,7 @@ const LOCAL_MODEL_CAPABILITY_DEFAULTS: Pick<
   | "contextWindow"
   | "maxInputTokens"
   | "maxOutputTokens"
+  | "compactionAtTokens"
 > = {
   capabilities: {
     streaming: false,
@@ -33,6 +34,7 @@ const LOCAL_MODEL_CAPABILITY_DEFAULTS: Pick<
   contextWindow: null,
   maxInputTokens: null,
   maxOutputTokens: null,
+  compactionAtTokens: null,
 }
 
 export const AGENT_MODEL_IDS: Record<BuiltinAgentType, readonly string[]> = {

@@ -302,6 +302,51 @@
           "type": "boolean",
           "default": true,
           "description": "Remove empty structural nodes."
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64,
+          "description": "Optional maximum accessibility-tree depth."
+        },
+        "selector": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "Optional CSS selector that scopes the snapshot."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_read",
+    "description": "Read the current managed-browser tab as agent-readable text. Use this as the mandatory browser fallback when a direct API, search result, or static fetch is unavailable, incomplete, dynamically rendered, or requires the managed signed-in profile. This operation remains pinned to tab_id and does not start another browser. Use outline for heading discovery, filter to narrow large pages, and raw only when the response body itself is required.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["tab_id"],
+      "properties": {
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Browser tab id from browser_list_tabs.tabs[].browserTabId."
+        },
+        "filter": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "description": "Optional page-section, links, or heading filter accepted by agent-browser read."
+        },
+        "outline": {
+          "type": "boolean",
+          "default": false,
+          "description": "Return a heading outline instead of the full page text."
+        },
+        "raw": {
+          "type": "boolean",
+          "default": false,
+          "description": "Return the raw response body instead of extracted page text."
         }
       },
       "additionalProperties": false
@@ -448,6 +493,178 @@
           "minLength": 1,
           "maxLength": 128,
           "description": "Browser tab id from browser_list_tabs.tabs[].browserTabId."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_request_user_action",
+    "description": "Open the requested managed-browser tab in a new visible window and wait for the user to complete a genuinely human-only step. The Agent pauses while the user operates the page, then receives a fresh state after activity settles. Use only for user-held credentials, MFA, CAPTCHA, device approval, secure payment confirmation, an interaction unavailable to the managed browser, or explicit human review. Do not use this for selector errors or operations available through browser_command, and do not include passwords or one-time codes in completion conditions.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["reason"],
+      "properties": {
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Optional browser tab id. Omit to use the current active tab."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "description": "Short explanation of the browser action the user must perform."
+        },
+        "completion": {
+          "type": "object",
+          "properties": {
+            "urlContains": { "type": "string", "maxLength": 2048 },
+            "titleContains": { "type": "string", "maxLength": 512 },
+            "textContains": { "type": "string", "maxLength": 32768 },
+            "selector": { "type": "string", "maxLength": 2048 },
+            "downloadCompleted": { "type": "boolean", "default": false }
+          },
+          "additionalProperties": false,
+          "description": "Optional page state used to detect completion automatically."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 300000,
+          "default": 180000,
+          "description": "Maximum wait in milliseconds."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_command",
+    "description": "Run an advanced agent-browser operation against one exact iyw-claw managed tab. The host appends the fixed CDP endpoint and strict tab pinning and never invokes a shell. Read the installed agent-browser Skill before use. Supported commands cover page data extraction, navigation, semantic locators, keyboard/mouse/form interaction, upload/download, waits, PDF, frames/dialogs, JavaScript, browser settings, cookies/storage/state, network inspection, accessibility/performance/React inspection, and debugging. Host lifecycle commands such as open/close/tab/window/session/profile/record/install/upgrade/mcp/plugin/dashboard/chat are intentionally rejected; use the dedicated managed tools instead. Treat cookies, storage, state, headers, credentials, clipboard data, and page scripts as sensitive and use them only when the current task explicitly requires them.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["tab_id", "command"],
+      "properties": {
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Browser tab id from browser_list_tabs.tabs[].browserTabId."
+        },
+        "command": {
+          "type": "string",
+          "enum": [
+            "a11y",
+            "back",
+            "check",
+            "clipboard",
+            "console",
+            "cookies",
+            "dialog",
+            "diff",
+            "download",
+            "dblclick",
+            "drag",
+            "errors",
+            "eval",
+            "find",
+            "focus",
+            "forward",
+            "frame",
+            "get",
+            "highlight",
+            "hover",
+            "inspect",
+            "is",
+            "keydown",
+            "keyboard",
+            "keyup",
+            "mouse",
+            "network",
+            "pdf",
+            "profiler",
+            "pushstate",
+            "react",
+            "read",
+            "reload",
+            "removeinitscript",
+            "scrollintoview",
+            "select",
+            "set",
+            "state",
+            "storage",
+            "swipe",
+            "tap",
+            "trace",
+            "type",
+            "uncheck",
+            "upload",
+            "vitals",
+            "wait",
+            "device"
+          ],
+          "description": "Allowlisted agent-browser command. Supply every following CLI token separately in arguments."
+        },
+        "arguments": {
+          "type": "array",
+          "maxItems": 48,
+          "items": {
+            "type": "string",
+            "maxLength": 8192
+          },
+          "description": "Command arguments in exact order, without the command name, shell quoting, pipes, redirects, or command chaining."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120000,
+          "default": 30000,
+          "description": "Bounded command timeout. Prefer deterministic wait conditions over long timeouts."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_present",
+    "description": "Proactively show a managed-browser page to the user in a new detached iyw-claw browser window. Use for completed web interfaces, running local services, HTML previews, visual verification results, or any browser result the user benefits from seeing. This call does not wait for user input. Pass url to navigate first, or tab_id to present an existing tab. Use browser_close_window when the display is no longer needed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "Optional HTTP/HTTPS URL or about:blank to navigate before presenting."
+        },
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Optional existing tab id. Omit to use the active tab."
+        },
+        "new_tab": {
+          "type": "boolean",
+          "default": false,
+          "description": "When url is supplied, create another tab instead of navigating the active tab. Do not combine with tab_id."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_close_window",
+    "description": "Close the detached iyw-claw browser window displaying a managed tab while preserving the tab, page state, cookies, and sign-in session. Use after a visible user-action hand-off is complete and the browser no longer needs to remain on screen. This never closes the main iyw-claw window and does not close the managed tab.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "tab_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Optional browser tab id. Omit to use the current active tab."
         }
       },
       "additionalProperties": false

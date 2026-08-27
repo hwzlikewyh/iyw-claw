@@ -66,8 +66,9 @@ function agentDisplayName(agentType: string): string {
 function groupRank(group: ProcessGroup): number {
   if (group.id === "main") return 0
   if (group.id.startsWith("webview2-")) return 1
-  if (group.isAgentSession) return 2
-  return 3
+  if (group.id.startsWith("managed-browser-")) return 2
+  if (group.isAgentSession) return 3
+  return 4
 }
 
 export function buildProcessGroups(
@@ -107,7 +108,11 @@ export function buildProcessGroups(
     }
     if (proc.agentType) existing.isAgentSession = true
     existing.processes.push(proc)
-    if (proc.processRole === "main" || proc.processRole === "launcher") {
+    if (
+      proc.processRole === "main" ||
+      proc.processRole === "launcher" ||
+      proc.processRole === "controller"
+    ) {
       existing.rootPid = proc.pid
     }
     groups.set(id, existing)

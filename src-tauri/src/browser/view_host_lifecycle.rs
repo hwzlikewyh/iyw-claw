@@ -12,18 +12,75 @@ impl BrowserSessionManager {
         &self,
         host_id: &str,
     ) -> Result<BrowserStateSnapshot, BrowserError> {
-        let (removed, close_now) = self.remove_browser_host(host_id).await;
+        let preserve_tabs = self.preserved_host_closures.lock().await.remove(host_id);
+        let claimed_tab_ids = self
+            .snapshot()
+            .await
+            .view_claims
+            .into_iter()
+            .filter(|claim| {
+                claim.target_host_id == host_id || claim.source_host_id.as_deref() == Some(host_id)
+            })
+            .map(|claim| claim.browser_tab_id)
+            .collect::<Vec<_>>();
+        let (removed, close_now) = self.remove_browser_host(host_id, preserve_tabs).await;
+        let mut cancel_ids = removed.tab_ids.clone();
+        cancel_ids.extend(claimed_tab_ids);
+        cancel_ids.sort();
+        cancel_ids.dedup();
+        self.cancel_user_action_requests(cancel_ids.clone()).await;
+        self.cancel_window_close_requests(cancel_ids.clone()).await;
+        self.cancel_window_open_requests(cancel_ids).await;
         self.release_host_resources(removed, close_now, "host_unregistered")
             .await;
         Ok(self.snapshot().await)
     }
 
-    async fn remove_browser_host(&self, host_id: &str) -> (HostRemoval, Vec<String>) {
+    async fn remove_browser_host(
+        &self,
+        host_id: &str,
+        preserve_tabs: bool,
+    ) -> (HostRemoval, Vec<String>) {
         let _tab_guard = self.tab_open_lock.lock().await;
         let tab_ids = self.state.read().await.host_tab_ids(host_id);
-        let close_now = self.agent_turn_leases.mark_close_pending(&tab_ids).await;
+        let close_now = if preserve_tabs {
+            for tab_id in &tab_ids {
+                self.agent_turn_leases.keep_tab_open(tab_id).await;
+            }
+            Vec::new()
+        } else {
+            self.agent_turn_leases.mark_close_pending(&tab_ids).await
+        };
         let removed = self.state.write().await.unregister_host(host_id);
         (removed, close_now)
+    }
+
+    pub async fn preserve_browser_window_tabs(
+        &self,
+        window_label: &str,
+    ) -> Result<String, BrowserError> {
+        let mut preserved = self.preserved_host_closures.lock().await;
+        let _tab_guard = self.tab_open_lock.lock().await;
+        let host_id = self
+            .state
+            .read()
+            .await
+            .hosts
+            .values()
+            .find(|host| {
+                host.window_label == window_label
+                    && host.kind == super::types::BrowserHostKind::Detached
+            })
+            .map(|host| host.id.clone())
+            .ok_or_else(|| {
+                super::state_hosts::view_conflict("The detached browser host is unavailable")
+            })?;
+        preserved.insert(host_id.clone());
+        Ok(host_id)
+    }
+
+    pub async fn cancel_preserved_browser_window(&self, host_id: &str) {
+        self.preserved_host_closures.lock().await.remove(host_id);
     }
 
     pub async fn unregister_browser_window(&self, window_label: &str) -> BrowserStateSnapshot {
@@ -79,6 +136,12 @@ impl BrowserSessionManager {
         close_now: Vec<String>,
         reason: &'static str,
     ) {
+        self.cancel_user_action_requests(removed.tab_ids.clone())
+            .await;
+        self.cancel_window_close_requests(removed.tab_ids.clone())
+            .await;
+        self.cancel_window_open_requests(removed.tab_ids.clone())
+            .await;
         for tab_id in &removed.tab_ids {
             let _ = self.set_user_held(tab_id, false).await;
             self.streams.close_tab(tab_id).await;

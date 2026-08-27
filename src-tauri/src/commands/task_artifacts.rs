@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::acp::delegation::listener::TaskArtifactAccess;
 use crate::app_error::AppCommandError;
-use crate::db::service::task_artifact_service::{self, TaskArtifactInfo};
+use crate::db::service::task_artifact_service::{self, TaskArtifactPage};
 use crate::db::AppDatabase;
 use crate::web::event_bridge::{emit_event, EventEmitter, TASK_ARTIFACT_CHANGED_EVENT};
 
@@ -102,7 +102,14 @@ pub async fn list_task_artifacts_core(
     conversation_id: Option<i32>,
     folder_id: Option<i32>,
     latest_turn_only: bool,
-) -> Result<Vec<TaskArtifactInfo>, AppCommandError> {
+    search: Option<String>,
+    page: Option<u64>,
+    page_size: Option<u64>,
+) -> Result<TaskArtifactPage, AppCommandError> {
+    let page = page.unwrap_or(1).max(1);
+    let page_size = page_size
+        .unwrap_or(task_artifact_service::DEFAULT_PAGE_SIZE)
+        .clamp(1, task_artifact_service::MAX_PAGE_SIZE);
     let started = Instant::now();
     if conversation_id.is_some_and(|id| id <= 0)
         || folder_id.is_some_and(|id| id <= 0)
@@ -118,19 +125,34 @@ pub async fn list_task_artifacts_core(
             "Invalid artifact filter combination",
         ));
     }
-    match task_artifact_service::list_artifacts(conn, conversation_id, folder_id, latest_turn_only)
-        .await
+    match task_artifact_service::list_artifacts(
+        conn,
+        conversation_id,
+        folder_id,
+        latest_turn_only,
+        search.as_deref(),
+        page,
+        page_size,
+    )
+    .await
     {
-        Ok(items) => {
+        Ok(result) => {
             tracing::info!(
                 conversation_id,
                 folder_id,
                 latest_turn_only,
-                count = items.len(),
+                search_chars = search
+                    .as_deref()
+                    .map(|value| value.chars().count())
+                    .unwrap_or(0),
+                page,
+                page_size,
+                count = result.items.len(),
+                total = result.total,
                 elapsed_ms = started.elapsed().as_millis(),
                 "[task-artifacts] list completed"
             );
-            Ok(items)
+            Ok(result)
         }
         Err(error) => {
             tracing::error!(
@@ -152,6 +174,9 @@ pub struct ListTaskArtifactsParams {
     pub conversation_id: Option<i32>,
     pub folder_id: Option<i32>,
     pub latest_turn_only: Option<bool>,
+    pub search: Option<String>,
+    pub page: Option<u64>,
+    pub page_size: Option<u64>,
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
@@ -160,7 +185,10 @@ pub async fn list_task_artifacts(
     conversation_id: Option<i32>,
     folder_id: Option<i32>,
     latest_turn_only: Option<bool>,
-) -> Result<Vec<TaskArtifactInfo>, AppCommandError> {
+    search: Option<String>,
+    page: Option<u64>,
+    page_size: Option<u64>,
+) -> Result<TaskArtifactPage, AppCommandError> {
     #[cfg(feature = "tauri-runtime")]
     {
         list_task_artifacts_core(
@@ -168,12 +196,22 @@ pub async fn list_task_artifacts(
             conversation_id,
             folder_id,
             latest_turn_only.unwrap_or(false),
+            search,
+            page,
+            page_size,
         )
         .await
     }
     #[cfg(not(feature = "tauri-runtime"))]
     {
-        let _ = (conversation_id, folder_id, latest_turn_only);
+        let _ = (
+            conversation_id,
+            folder_id,
+            latest_turn_only,
+            search,
+            page,
+            page_size,
+        );
         Err(AppCommandError::configuration_invalid("tauri-only command"))
     }
 }

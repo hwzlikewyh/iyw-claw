@@ -154,6 +154,8 @@ export function classifyToolKind(toolName: string): ToolKindLabel {
     name === "fetch" ||
     name === "browser" ||
     name === "browser_action" ||
+    name === "browser_read" ||
+    name === "browser_command" ||
     name === "web_search"
   ) {
     return "fetch"

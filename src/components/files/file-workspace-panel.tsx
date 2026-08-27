@@ -51,9 +51,12 @@ import {
 } from "@/lib/monaco-themes"
 import { useZoomLevel, useEditorFont } from "@/hooks/use-appearance"
 import { useImeSafeEditorValue } from "@/hooks/use-ime-safe-editor-value"
+import { useDelayedPresence } from "@/hooks/use-delayed-presence"
 import { ScrollArea } from "@/components/ui/scroll-area"
 
 import "@/lib/monaco-local"
+
+const HIDDEN_EDITOR_UNMOUNT_DELAY_MS = 30_000
 
 function resolveRelativePath(base: string, relative: string): string {
   // Strip URL fragment (e.g. #gh-light-mode-only) and query string
@@ -960,8 +963,12 @@ function DiffFileList({
   )
 }
 
-export function FileWorkspacePanel() {
+export function FileWorkspacePanel({ isVisible }: { isVisible: boolean }) {
   const t = useTranslations("Folder.fileWorkspacePanel")
+  const editorPresent = useDelayedPresence(
+    isVisible,
+    HIDDEN_EDITOR_UNMOUNT_DELAY_MS
+  )
   const { activeFileTab, pendingFileReveal, previewFileTabIds } =
     useWorkspaceFileTabs()
   const {
@@ -2213,7 +2220,8 @@ export function FileWorkspacePanel() {
           </div>
         )}
         <div className="flex-1 min-h-0">
-          {hasTabContent(activeFileTab) || !activeFileTab.loading ? (
+          {editorPresent &&
+          (hasTabContent(activeFileTab) || !activeFileTab.loading) ? (
             <MonacoEditor
               beforeMount={defineMonacoThemes}
               onMount={handleEditorMount}
@@ -2252,11 +2260,11 @@ export function FileWorkspacePanel() {
                 },
               }}
             />
-          ) : (
+          ) : editorPresent ? (
             <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
               {t("loadingEditor")}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

@@ -242,6 +242,25 @@ fn parse_limits(value: &serde_json::Map<String, serde_json::Value>) -> ModelLimi
         context_window: limit("context_window"),
         max_input_tokens: limit("max_input_tokens"),
         max_output_tokens: limit("max_output_tokens"),
+        compaction_at_tokens: limit("compaction_at_tokens"),
+    }
+}
+
+/// Return the configured absolute compaction threshold without guessing a
+/// percentage for unknown windows.
+pub fn compaction_threshold(model: Option<&str>, context_window: u64) -> Option<u64> {
+    if let Some(model) = model {
+        if let Some(value) = model_capabilities(model)
+            .and_then(|snapshot| snapshot.limits.compaction_at_tokens)
+            .filter(|value| *value > 0)
+        {
+            return Some(value);
+        }
+    }
+    match context_window {
+        1_000_000 => Some(358_000),
+        200_000 => Some(120_000),
+        _ => None,
     }
 }
 

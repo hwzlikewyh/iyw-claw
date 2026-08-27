@@ -46,6 +46,8 @@ mod terminal;
 pub mod update;
 pub mod user_memory;
 pub mod web;
+#[cfg(feature = "tauri-runtime")]
+mod webview_memory;
 pub mod wecom_ai;
 #[cfg(target_os = "windows")]
 mod windows_file_clipboard;
@@ -312,6 +314,7 @@ mod tauri_app {
             .manage(TerminalManager::new())
             .manage(ChatChannelManager::new())
             .manage(realtime_voice_commands::RealtimeVoiceState::default())
+            .manage(crate::webview_memory::MainWebviewMemoryController::default())
             .manage(windows::SettingsWindowState::new())
             .manage(windows::CommitWindowState::new())
             .manage(windows::MergeWindowState::new())
@@ -397,6 +400,7 @@ mod tauri_app {
                 }
                 app.manage(crate::browser::BrowserSessionManager::new_desktop(
                     effective_data_dir.clone(),
+                    app.state::<ConnectionManager>().clone_ref(),
                 ));
 
                 // IR-006：更新后的首次启动对比持久区摘要（一次性记录）。
@@ -1148,6 +1152,9 @@ mod tauri_app {
                             .visible(!hide_for_autostart);
                         let window = windows::apply_platform_window_style(builder).build()?;
                         windows::post_window_setup(&window);
+                        if hide_for_autostart {
+                            crate::webview_memory::note_hidden(app.handle());
+                        }
                     }
                     Ok::<(), tauri::Error>(())
                 })?;
@@ -1716,6 +1723,10 @@ mod tauri_app {
                 browser_commands::browser_register_host,
                 browser_commands::browser_create_window,
                 browser_commands::browser_close_window,
+                browser_commands::browser_close_window_preserving_tabs,
+                browser_commands::browser_focus_window,
+                browser_commands::browser_complete_window_open,
+                browser_commands::browser_complete_window_close,
                 browser_commands::browser_heartbeat_host,
                 browser_commands::browser_unregister_host,
                 browser_commands::browser_set_host_visible,

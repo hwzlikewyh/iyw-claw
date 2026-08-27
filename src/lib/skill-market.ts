@@ -456,6 +456,7 @@ export type SkillMarketViewV2 =
   | "organization"
   | "mine"
   | "installed"
+  | "enabled"
   | "needs_update"
 
 export type SkillMarketInstallErrorCode =
