@@ -1266,6 +1266,7 @@ pub(crate) async fn spawn_agent_connection(
     startup_trace: crate::acp::startup_trace::StartupTrace,
     preferred_mode_id: Option<String>,
     preferred_config_values: BTreeMap<String, String>,
+    force_host_restart: bool,
     user_memory_context: crate::user_memory::UserMemoryContextSnapshot,
     is_delegation_child: bool,
     delegation_injection: Option<DelegationInjection>,
@@ -1393,8 +1394,10 @@ pub(crate) async fn spawn_agent_connection(
             },
         )
         .await?;
-        let process_fingerprint =
-            crate::commands::acp::fingerprint_config(agent_type, &prepared.environment);
+        let process_fingerprint = crate::commands::acp::fingerprint_config(
+            agent_type,
+            &prepared.environment,
+        );
         let process_cwd =
             runtime_host_process_cwd(agent_type, &storage, &launch_cwd).to_path_buf();
         let agent = build_agent(AgentLaunchSpec {
@@ -1408,7 +1411,7 @@ pub(crate) async fn spawn_agent_connection(
         Ok::<_, AcpError>((agent, prepared, process_fingerprint, process_cwd))
     }
     .await;
-    let (agent, prepared_prompt, process_fingerprint, process_cwd) = match launch {
+    let (agent, prepared_prompt, mut process_fingerprint, process_cwd) = match launch {
         Ok(launch) => {
             process_prepare_stage.finish("ok");
             launch
@@ -1451,6 +1454,10 @@ pub(crate) async fn spawn_agent_connection(
             return Err(error);
         }
     };
+    if force_host_restart {
+        process_fingerprint.push_str(":forced:");
+        process_fingerprint.push_str(&uuid::Uuid::new_v4().simple().to_string());
+    }
     let crate::acp::builtin_prompt_injection::PreparedBuiltinPrompt {
         environment: launch_environment,
         prompt: builtin_prompt,

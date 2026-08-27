@@ -35,6 +35,8 @@ interface UseConnectionLifecycleOptions {
   attachOnlyOnActivate?: boolean
   /** Keep the shared connection alive while a split-group move reparents a view. */
   isTransientUnmount?: () => boolean
+  /** Hide connection progress while a caller performs a background reconnect. */
+  silentReconnect?: boolean
 }
 
 export interface UseConnectionLifecycleReturn {
@@ -85,6 +87,7 @@ export function useConnectionLifecycle({
   conversationId,
   attachOnlyOnActivate = false,
   isTransientUnmount,
+  silentReconnect = false,
 }: UseConnectionLifecycleOptions): UseConnectionLifecycleReturn {
   const t = useTranslations("Folder.chat.connectionLifecycle")
   const { setActiveKey, touchActivity } = useAcpActions()
@@ -221,6 +224,13 @@ export function useConnectionLifecycle({
   // Manage task status for connection progress
   const taskIdRef = useRef<string | null>(null)
   useEffect(() => {
+    if (silentReconnect) {
+      if (taskIdRef.current) {
+        removeTask(taskIdRef.current)
+        taskIdRef.current = null
+      }
+      return
+    }
     if (status === "connecting") {
       if (!taskIdRef.current) {
         const id = `acp-connect-${Date.now()}`
@@ -252,7 +262,7 @@ export function useConnectionLifecycle({
         taskIdRef.current = null
       }
     }
-  }, [status, addTask, updateTask, removeTask, agentType, t])
+  }, [status, silentReconnect, addTask, updateTask, removeTask, agentType, t])
 
   const clearSelectorTask = useCallback(() => {
     if (selectorTaskIdRef.current) {
@@ -262,6 +272,10 @@ export function useConnectionLifecycle({
   }, [removeTask])
 
   useEffect(() => {
+    if (silentReconnect) {
+      clearSelectorTask()
+      return
+    }
     const isInteractive = status === "connected" || status === "prompting"
     if (!isInteractive) {
       clearSelectorTask()
@@ -286,6 +300,7 @@ export function useConnectionLifecycle({
     }
   }, [
     status,
+    silentReconnect,
     selectorsReady,
     agentType,
     addTask,

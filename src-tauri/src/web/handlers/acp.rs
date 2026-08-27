@@ -55,6 +55,8 @@ pub struct AcpConnectParams {
     pub preferred_mode_id: Option<String>,
     #[serde(default)]
     pub preferred_config_values: Option<BTreeMap<String, String>>,
+    #[serde(default)]
+    pub force_host_restart: bool,
 }
 
 pub async fn acp_connect(
@@ -133,6 +135,7 @@ pub async fn acp_connect(
             emitter,
             params.preferred_mode_id,
             params.preferred_config_values.unwrap_or_default(),
+            params.force_host_restart,
             startup_trace,
         )
         .await

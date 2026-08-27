@@ -96,7 +96,10 @@ export interface UseConnectionReturn {
   /** Restart the session (disconnect + resume same sessionId) so it picks up
    *  current agent/model settings. Returns `true` if it actually restarted,
    *  `false` on a no-op (viewer / delegation child / no connection). */
-  reapplyConfig: () => Promise<boolean>
+  reapplyConfig: (
+    forceHostRestart?: boolean,
+    conversationId?: number
+  ) => Promise<boolean>
   /** Dismiss the stale banner for the current drift without restarting. */
   dismissConfigStale: () => void
   sendPrompt: (
@@ -237,7 +240,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       workingDir?: string,
       sessionId?: string,
       conversationId?: number,
-      options?: { attachOnly?: boolean }
+      options?: { attachOnly?: boolean; forceHostRestart?: boolean }
     ) =>
       actions.connect(
         contextKey,
@@ -296,7 +299,8 @@ export function useConnection(contextKey: string): UseConnectionReturn {
   )
 
   const reapplyConfig = useCallback(
-    () => actions.reapplyConfig(contextKey),
+    (forceHostRestart?: boolean, conversationId?: number) =>
+      actions.reapplyConfig(contextKey, forceHostRestart, conversationId),
     [actions, contextKey]
   )
 

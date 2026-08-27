@@ -227,7 +227,8 @@ export async function acpConnect(
   workingDir?: string,
   sessionId?: string,
   preferredModeId?: string | null,
-  preferredConfigValues?: Record<string, string> | null
+  preferredConfigValues?: Record<string, string> | null,
+  forceHostRestart = false
 ): Promise<string> {
   return getTransport().call("acp_connect", {
     agentType,

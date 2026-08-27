@@ -132,6 +132,8 @@ import {
 import { isInsufficientBalanceError } from "@/lib/agent-runtime-error"
 import type { SessionConfigTranslator } from "@/lib/session-config-localization"
 
+const MODEL_REAPPLY_TIMEOUT_MS = 45_000
+
 function scenarioPackageReady(
   snapshot: SkillInventorySnapshot,
   packageRef: PromptSkillPackage,
@@ -512,6 +514,7 @@ const ConversationTabView = memo(function ConversationTabView({
   >(() => getSavedPrefsForConnect(agentType).configValues ?? {})
   const [modelReapplyAttempt, setModelReapplyAttempt] = useState<{
     target: string
+    previousModel: string
     sourceConnectionId: string
   } | null>(null)
   const [requestedModel, setRequestedModel] = useState<string | null>(null)
@@ -773,8 +776,12 @@ const ConversationTabView = memo(function ConversationTabView({
       () => isReparentUnmount(useTabStore.getState(), tabId, groupId),
       [groupId, tabId]
     ),
+    silentReconnect: modelReapplyAttempt !== null,
   })
   const { status: connStatus, sessionId: connSessionId } = conn
+  const isSilentModelSwitch = modelReapplyAttempt !== null
+  const visibleConnStatus = isSilentModelSwitch ? "connected" : connStatus
+  const visibleConnError = isSilentModelSwitch ? null : conn.error
   const pendingBalanceRecoveryRef = useRef<PendingBalanceRecovery | null>(null)
   const [dismissedContinuationGeneration, setDismissedContinuationGeneration] =
     useState<number | null>(null)
@@ -878,8 +885,11 @@ const ConversationTabView = memo(function ConversationTabView({
   // Present "connecting" to the composer while connected-but-not-ready. The
   // composer still accepts submissions and the send handler queues them until
   // this tab's working directory matches the live connection.
-  const composerConnStatus =
-    connStatus === "connected" && !connectionReady ? "connecting" : connStatus
+  const composerConnStatus = isSilentModelSwitch
+    ? "connected"
+    : connStatus === "connected" && !connectionReady
+      ? "connecting"
+      : connStatus
   const fixedOptions = useMemo(() => {
     void catalogVersion
     return getFixedAgentOptions(
@@ -991,33 +1001,33 @@ const ConversationTabView = memo(function ConversationTabView({
     }
     if (
       !target ||
-      !live ||
-      live.kind.type !== "select" ||
       !fixed ||
       fixed.kind.type !== "select" ||
       !fixed.kind.options.some((option) => option.value === target) ||
       !connectionReady ||
       !conn.selectorsReady ||
-      connStatus !== "connected" ||
       conn.isViewer ||
       conn.isDelegationChild ||
       !conn.connectionId
     ) {
       return
     }
+    if (connStatus === "prompting") return
+    if (!live || live.kind.type !== "select") return
     if (live.kind.options.some((option) => option.value === target)) {
-      if (live.kind.current_value === target) setRequestedModel(null)
-      if (modelReapplyAttempt?.target === target) {
+      if (live.kind.current_value === target) {
+        setRequestedModel(null)
+        if (modelReapplyAttempt?.target === target) {
+          setModelReapplyAttempt(null)
+        }
+        return
+      }
+      if (!modelReapplyAttempt) {
+        return
+      }
+      if (modelReapplyAttempt.target === target) {
         setModelReapplyAttempt(null)
       }
-      return
-    }
-    if (modelReapplyAttempt) return
-
-    const sourceConnectionId = conn.connectionId
-    setModelReapplyAttempt({ target, sourceConnectionId })
-    void acpActions.reapplyConfig(tabId).catch((error: unknown) => {
-      setModelReapplyAttempt(null)
       setRequestedModel(null)
       setDraftConfigValues((current) => {
         if (current.model !== target) return current
@@ -1025,10 +1035,32 @@ const ConversationTabView = memo(function ConversationTabView({
         saveConfigPreference(selectedAgent, "model", live.kind.current_value)
         return next
       })
-      toast.error(tConfigStale("modelSwitchFailed"), {
-        description: error instanceof Error ? error.message : String(error),
-      })
+      toast.error(tConfigStale("modelSwitchFailed"))
+      return
+    }
+    if (modelReapplyAttempt) return
+
+    const sourceConnectionId = conn.connectionId
+    setModelReapplyAttempt({
+      target,
+      previousModel: live.kind.current_value,
+      sourceConnectionId,
     })
+    void acpActions
+      .reapplyConfig(tabId, true, dbConvIdRef.current ?? undefined)
+      .catch((error: unknown) => {
+        setModelReapplyAttempt(null)
+        setRequestedModel(null)
+        setDraftConfigValues((current) => {
+          if (current.model !== target) return current
+          const next = { ...current, model: live.kind.current_value }
+          saveConfigPreference(selectedAgent, "model", live.kind.current_value)
+          return next
+        })
+        toast.error(tConfigStale("modelSwitchFailed"), {
+          description: error instanceof Error ? error.message : String(error),
+        })
+      })
   }, [
     acpActions,
     conn.configOptions,
@@ -1047,6 +1079,33 @@ const ConversationTabView = memo(function ConversationTabView({
     tabId,
   ])
 
+  const modelReapplyTarget = modelReapplyAttempt?.target
+  const modelReapplyPreviousModel = modelReapplyAttempt?.previousModel
+  useEffect(() => {
+    if (!modelReapplyTarget || modelReapplyPreviousModel == null) return
+    const target = modelReapplyTarget
+    const fallbackModel = modelReapplyPreviousModel
+    const timer = setTimeout(() => {
+      setModelReapplyAttempt((current) =>
+        current?.target === target ? null : current
+      )
+      setRequestedModel((current) => (current === target ? null : current))
+      setDraftConfigValues((current) => {
+        if (current.model !== target) return current
+        const next = { ...current, model: fallbackModel }
+        saveConfigPreference(selectedAgent, "model", fallbackModel)
+        return next
+      })
+      toast.error(tConfigStale("modelSwitchFailed"))
+    }, MODEL_REAPPLY_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [
+    modelReapplyPreviousModel,
+    modelReapplyTarget,
+    selectedAgent,
+    tConfigStale,
+  ])
+
   // Validate the first post-reconnect selector snapshot. If the Agent still
   // does not advertise the requested model, roll back instead of leaving a
   // permanently misleading fixed-catalog selection in the composer.
@@ -1063,16 +1122,18 @@ const ConversationTabView = memo(function ConversationTabView({
     if (
       live.kind.options.some(
         (option) => option.value === modelReapplyAttempt.target
-      )
+      ) && live.kind.current_value === modelReapplyAttempt.target
     ) {
       setModelReapplyAttempt(null)
       return
     }
     const target = modelReapplyAttempt.target
+    const fallbackModel =
+      live.kind.current_value || modelReapplyAttempt.previousModel
     setDraftConfigValues((current) => {
       if (current.model !== target) return current
-      const next = { ...current, model: live.kind.current_value }
-      saveConfigPreference(selectedAgent, "model", live.kind.current_value)
+      const next = { ...current, model: fallbackModel }
+      saveConfigPreference(selectedAgent, "model", fallbackModel)
       return next
     })
     setModelReapplyAttempt(null)
@@ -2398,12 +2459,16 @@ const ConversationTabView = memo(function ConversationTabView({
 
   return (
     <ConversationShell
-      topBanner={<SessionConfigStaleBanner contextKey={tabId} />}
-      status={connStatus}
+      topBanner={
+        isSilentModelSwitch ? null : (
+          <SessionConfigStaleBanner contextKey={tabId} />
+        )
+      }
+      status={visibleConnStatus}
       promptCapabilities={conn.promptCapabilities}
       defaultPath={workingDirForConnection}
       agentName={getAgentDisplayName(selectedAgent)}
-      error={conn.error}
+      error={visibleConnError}
       claudeApiRetry={conn.claudeApiRetry}
       sessionFailures={conn.sessionFailures}
       onSessionFailureAction={
@@ -2489,7 +2554,7 @@ const ConversationTabView = memo(function ConversationTabView({
                 disabled={hasSentMessage || dbConversationId != null}
               />
             </div>
-            {autoConnectError || agentConnectError ? (
+            {!isSilentModelSwitch && (autoConnectError || agentConnectError) ? (
               <button
                 type="button"
                 onClick={handleOpenAgentsSettings}
