@@ -1,11 +1,10 @@
 import type { TaskArtifactTarget } from "@/components/layout/task-artifact-actions"
 import type { PreviewState } from "@/components/message/workspace-file-preview"
 import {
-  loadPdfPreview,
-  loadWorkspacePreview,
+  loadWorkspaceFilePreview,
+  revokeWorkspacePreviewResource,
 } from "@/components/message/workspace-file-preview-loader"
 import type { TaskArtifactInfo } from "@/lib/api"
-import { joinRootRel } from "@/lib/file-open-target"
 import { isOfficePreviewable } from "@/lib/language-detect"
 
 export interface LoadedArtifactPreview {
@@ -68,14 +67,10 @@ function createArtifactPreviewRequest(
       : null
   }
   if (!target || isOfficePreviewable(target.ioPath)) return null
-  if (isPdfPath(target.ioPath)) {
-    return loadPdfPreview(joinRootRel(target.rootPath, target.ioPath)).then(
-      (src) => ({ status: "pdf", path: target.ioPath, src })
-    )
-  }
-  return loadWorkspacePreview(target.rootPath, target.ioPath, {
+  return loadWorkspaceFilePreview(target.rootPath, target.ioPath, {
     renderMarkdown: true,
     renderHtml: true,
+    renderPdf: true,
   })
 }
 
@@ -128,13 +123,7 @@ function artifactPreviewKey(artifact: TaskArtifactInfo): string {
 }
 
 function revokePreviewResource(state: PreviewState): void {
-  if (state.status === "pdf" && state.src.startsWith("blob:")) {
-    URL.revokeObjectURL(state.src)
-  }
-}
-
-function isPdfPath(path: string): boolean {
-  return /\.pdf$/i.test(path)
+  revokeWorkspacePreviewResource(state)
 }
 
 function remoteArtifactFrameSrc(path: string): string {

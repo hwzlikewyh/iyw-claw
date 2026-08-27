@@ -31,7 +31,9 @@ export function TaskArtifactDirectoryPreview({
       key={`${artifact.id}:${artifact.path}`}
       rootPath={artifact.path}
       className="h-full"
+      renderMarkdown
       renderHtml
+      renderPdf
       onOpenWorkspace={onOpenWorkspace}
     />
   )
