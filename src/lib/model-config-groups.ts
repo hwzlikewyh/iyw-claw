@@ -26,13 +26,27 @@ export function currentModelName(
 ): string | null {
   const model = options?.find(isModelConfigOption)
   if (!model) return null
-  const currentValue = model.kind.current_value.trim()
+  return modelDisplayName(options, model.kind.current_value)
+}
+
+export function modelDisplayName(
+  options: SessionConfigOptionInfo[] | undefined,
+  value: string | null | undefined
+): string | null {
+  const currentValue = value?.trim()
+  if (!currentValue) return null
+  const model = options?.find(isModelConfigOption)
+  if (!model) return currentValue
   const candidates = [
     ...model.kind.options,
     ...model.kind.groups.flatMap((group) => group.options),
   ]
-  const selected = candidates.find((option) => option.value === currentValue)
-  return selected?.name.trim() || currentValue || null
+  const selected =
+    candidates.find((option) => option.value === currentValue) ??
+    [...candidates]
+      .sort((left, right) => right.value.length - left.value.length)
+      .find((option) => currentValue.startsWith(`${option.value}-`))
+  return selected?.name.trim() || currentValue
 }
 
 // The namespace before the FIRST "/", or `null` when there is no usable prefix

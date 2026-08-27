@@ -407,6 +407,7 @@ function SubAgentSessionBody({
           conversationId={childConversationId}
           agentType={agentType ?? "claude_code"}
           modelName={currentModelName(childConn?.configOptions ?? undefined)}
+          modelOptions={childConn?.configOptions ?? undefined}
           connStatus={connStatus}
           isAwaitingUserInput={Boolean(
             childPendingPermission ||

@@ -4,24 +4,7 @@ import { AlertTriangle, Bot, Copy, Package, ArrowUpRight } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import type {
-  LogicalSkillInventoryItem,
-  SkillInventoryStatus,
-} from "@/lib/types"
-
-const STATUS_TONES: Record<SkillInventoryStatus, string> = {
-  installed_active:
-    "border-emerald-500/30 text-emerald-700 dark:text-emerald-300",
-  installed_inactive: "text-muted-foreground",
-  partial: "border-amber-500/30 text-amber-700 dark:text-amber-300",
-  agent_builtin: "text-muted-foreground",
-  duplicate: "border-amber-500/30 text-amber-700 dark:text-amber-300",
-  conflict: "border-destructive/30 text-destructive",
-  stale_market_record: "border-destructive/30 text-destructive",
-  blocked: "border-destructive/30 text-destructive",
-  out_of_sync: "border-amber-500/30 text-amber-700 dark:text-amber-300",
-  unreadable: "border-destructive/30 text-destructive",
-}
+import type { LogicalSkillInventoryItem, SkillInventoryStatus } from "@/lib/types"
 
 function StatusIcon({ status }: { status: SkillInventoryStatus }) {
   if (
@@ -49,7 +32,6 @@ export function InstalledInventoryCard({
   const enabled = skill.agentStates.filter(
     (state) => state.actualEnabled
   ).length
-  const showStatusBadge = skill.status !== "stale_market_record"
   return (
     <article
       className={cn(
@@ -84,11 +66,6 @@ export function InstalledInventoryCard({
           />
         </span>
         <span className="mt-2.5 flex h-5 items-center gap-1.5 overflow-hidden">
-          {showStatusBadge ? (
-            <Badge variant="outline" className={STATUS_TONES[skill.status]}>
-              {t(`status.${skill.status}`)}
-            </Badge>
-          ) : null}
           {skill.localOnly ? (
             <Badge variant="secondary">{t("localOnly")}</Badge>
           ) : null}
