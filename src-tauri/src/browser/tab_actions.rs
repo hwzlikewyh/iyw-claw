@@ -35,6 +35,9 @@ impl BrowserSessionManager {
     ) -> Result<(BrowserStateSnapshot, String), BrowserError> {
         let url = validated_url(&url)?;
         let runtime = self.ensure_runtime_running(cancellation.clone()).await?;
+        if let Some(governor) = &self.resource_governor {
+            governor.guard_new_tab()?;
+        }
         let ticket = self.reserve_tab(url.clone(), host_id).await?;
         let launched =
             match launch_tab(&self.tab_cleanups, &runtime, &ticket, &url, cancellation).await {

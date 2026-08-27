@@ -23,19 +23,19 @@
 - 修改 `src-tauri/src/browser/error.rs`
 - 修改 `src-tauri/src/lib.rs`
 
-- [ ] 在 desktop `BrowserSessionManager` 中保存 `ConnectionManager::clone_ref()`；server stub 不
+- [x] 在 desktop `BrowserSessionManager` 中保存 `ConnectionManager::clone_ref()`；server stub 不
   引入该字段。确认 `DelegationInjection` 不持有 browser manager，避免新增 `Arc` 环。
-- [ ] 在 `profile.rs` 提取“存在 lock 才回收”的 preflight：只复用 PID、启动时间、sidecar/
+- [x] 在 `profile.rs` 提取“存在 lock 才回收”的 preflight：只复用 PID、启动时间、sidecar/
   engine executable 和 profile 参数校验；controller 退出后不调用任何 session CLI。
-- [ ] 在 `resource_gate.rs` 封装 runtime-start/new-tab 两种判断。runtime start 先清 stale，采样
+- [x] 在 `resource_gate.rs` 封装 runtime-start/new-tab 两种判断。runtime start 先清 stale，采样
   内存，压力下调用一次 `sweep_excess_idle`，重新采样；仍为 shrinking/emergency 时返回可重试
   `BROWSER_INSUFFICIENT_MEMORY`。`Unknown` 降级放行并记录。
-- [ ] 门禁在 `runtime_start_lock` 内、`begin_runtime_start` 前执行，完成后重新检查 shutdown
+- [x] 门禁在 `runtime_start_lock` 内、`begin_runtime_start` 前执行，完成后重新检查 shutdown
   epoch/cancellation。已有 running runtime 直接复用，不触发 Agent 回收。
-- [ ] 新标签在统一 `create_browser_tab_with_id_unlocked` 路径、reserve/launch 前检查；仅
+- [x] 新标签在统一 `create_browser_tab_with_id_unlocked` 路径、reserve/launch 前检查；仅
   emergency 拒绝，覆盖 UI、initial tab 和 Agent `browser_open`，不影响导航已有标签。
-- [ ] 错误 context 只增加 pressure、available/total bytes 和阈值；不记录命令行/profile 路径。
-- [ ] 静态审查 Failed cleanup、空 tab registry、start/stop 竞争、Agent cancellation 和失败回滚。
+- [x] 错误 context 只增加 pressure、available/total bytes 和阈值；不记录命令行/profile 路径。
+- [x] 静态审查 Failed cleanup、空 tab registry、start/stop 竞争、Agent cancellation 和失败回滚。
 
 ## Task 2：性能页纳入 managed browser 进程树
 

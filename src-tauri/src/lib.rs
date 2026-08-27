@@ -396,6 +396,7 @@ mod tauri_app {
                 }
                 app.manage(crate::browser::BrowserSessionManager::new_desktop(
                     effective_data_dir.clone(),
+                    app.state::<ConnectionManager>().clone_ref(),
                 ));
 
                 // IR-006：更新后的首次启动对比持久区摘要（一次性记录）。

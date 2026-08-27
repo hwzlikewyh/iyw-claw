@@ -12,9 +12,16 @@ use super::state::BrowserState;
 use super::types::{BrowserCapability, BrowserRuntimeStatus, BrowserStateSnapshot};
 
 impl BrowserSessionManager {
-    pub fn new_desktop(data_root: PathBuf) -> Self {
+    pub fn new_desktop(
+        data_root: PathBuf,
+        connections: crate::acp::manager::ConnectionManager,
+    ) -> Self {
         let runtime = Arc::new(BrowserRuntime::new(data_root));
-        Self::with_runtime(BrowserRuntime::initial_capability(), Some(runtime))
+        let mut manager = Self::with_runtime(BrowserRuntime::initial_capability(), Some(runtime));
+        manager.resource_governor = Some(Arc::new(
+            super::resource_gate::BrowserResourceGovernor::new(connections),
+        ));
+        manager
     }
 
     pub async fn refresh_capability(&self) -> BrowserStateSnapshot {
@@ -83,6 +90,12 @@ impl BrowserSessionManager {
         }
         let capability = runtime.verify().await?;
         self.set_capability(capability).await;
+        if let Some(governor) = &self.resource_governor {
+            governor.guard_runtime_start(runtime, &cancellation).await?;
+        }
+        if cancellation.is_cancelled() {
+            return Err(BrowserError::shutting_down());
+        }
         match self.begin_runtime_start().await? {
             RuntimeStartDecision::AlreadyRunning => {
                 runtime.context().await.ok_or_else(runtime_state_mismatch)
@@ -207,6 +220,7 @@ impl BrowserSessionManager {
             tab_open_lock: Arc::new(tokio::sync::Mutex::new(())),
             shutdown_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             runtime,
+            resource_governor: None,
             tabs: Arc::new(super::tabs::BrowserTabRegistry::default()),
             tab_cleanups: Arc::new(
                 super::tab_cleanup_registry::PendingTabCleanupRegistry::default(),

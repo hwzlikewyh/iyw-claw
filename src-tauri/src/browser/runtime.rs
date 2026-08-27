@@ -184,6 +184,16 @@ impl BrowserRuntime {
         })
     }
 
+    pub async fn reclaim_stale_profile(&self) -> Result<usize, BrowserError> {
+        let dependencies = self.dependencies().await?;
+        ProfileGuard::reclaim_stale(
+            &self.data_root.join("browser"),
+            &dependencies.sidecar,
+            &dependencies.engine.path,
+        )
+        .await
+    }
+
     async fn dependencies(&self) -> Result<VerifiedDependencies, BrowserError> {
         if let Some(dependencies) = self.verified.lock().await.clone() {
             return Ok(dependencies);

@@ -54,6 +54,8 @@ mod process;
 mod profile;
 mod records;
 #[cfg(feature = "tauri-runtime")]
+mod resource_gate;
+#[cfg(feature = "tauri-runtime")]
 mod runtime;
 #[cfg(feature = "tauri-runtime")]
 mod runtime_launch;
