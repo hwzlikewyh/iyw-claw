@@ -25,7 +25,7 @@
 
 ## 方案
 
-复用 `skill_inventory_list` 返回的 `SkillInventorySnapshot` 作为已安装和已启用视图的唯一状态来源。库存项过滤全部观察项均为只读或 Agent 内置的项目自带项；含有可管理市场/用户来源的混合项继续保留：
+复用 `skill_inventory_list` 返回的 `SkillInventorySnapshot` 作为已安装和已启用视图的唯一状态来源。库存项过滤全部观察项均为只读或 Agent 内置的应用自带项；含有可管理市场/用户来源的混合项继续保留：
 
 - “已安装”显示所有非纯内置库存项。
 - “已启用”显示 `agentStates` 中至少一个 `actualEnabled === true` 的库存项。

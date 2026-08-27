@@ -254,6 +254,15 @@ function buildFileTree(
 
 class TransportSkillMarketSource implements SkillMarketSource {
   async list(query: SkillMarketListQueryV2): Promise<SkillMarketV2CatalogPage> {
+    if (query.view === "enabled") {
+      return {
+        items: [],
+        nextCursor: null,
+        total: 0,
+        catalogRevision: "inventory-only",
+        offline: false,
+      }
+    }
     const view = (() => {
       if (query.view === "needs_update" || query.view === "installed")
         return "market" as const

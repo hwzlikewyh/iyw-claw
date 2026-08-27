@@ -2884,6 +2884,9 @@
           "serviceUnavailable": "语音识别暂时不可用，已保留输入框中的文字。"
         },
         "skills": "技能",
+        "skillsLoading": "正在扫描技能目录…",
+        "skillsScanFailed": "技能目录扫描失败，请重试。",
+        "skillsEmpty": "当前目录没有已启用的技能",
         "taskCommands": {
           "title": "任务方式",
           "enabled": "已启用",
@@ -5319,6 +5322,7 @@
       "organization": "组织",
       "mine": "我的",
       "installed": "已安装",
+      "enabled": "已启用",
       "needs_update": "需要更新"
     },
     "uploadShort": "上传",
@@ -5373,6 +5377,10 @@
       "budget": "最高 Agent 路由预算：{used}/{limit} 字符 · {count} 个 Skill",
       "noDescription": "没有可用描述",
       "agentCount": "{enabled}/{total} 个 Agent",
+      "count": "{count} 项技能",
+      "openDetail": "打开 {name} 的详情",
+      "details": "技能详情",
+      "detailsHint": "查看技能的安装位置和 Agent 启用状态。",
       "agents": "Agent 启用状态",
       "requiredDependency": "依赖强制启用",
       "dependencies": "依赖：{values}",

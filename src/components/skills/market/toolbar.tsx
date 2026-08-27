@@ -28,6 +28,7 @@ const VIEW_ORDER: SkillMarketViewV2[] = [
   "organization",
   "mine",
   "installed",
+  "enabled",
   "needs_update",
 ]
 
