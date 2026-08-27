@@ -117,23 +117,48 @@ an ordinary URL alone is not proof of Artifact registration.
 ## Other Categories
 
 - Current account identity belongs to the session/profile category, not memory.
-- Browser references expire after navigation, a route change, popup, material
-  DOM update, or write. For a stale reference or locator failure, make only one
-  recovery attempt for the same action: take a fresh snapshot and use one new
-  reference or revised locator. Do not extend the budget by cycling locators.
-  For runtime/session/daemon/observer unavailability, a crashed tab, or timeout,
-  inspect state once and switch to `opencli-browser` only when that Skill and
-  the `opencli` command are available. Read its `SKILL.md`, run `opencli doctor`,
-  then use one stable session with `bind`/`open`, `state`/`find`, an action, and
-  explicit verification. Otherwise report the missing prerequisite.
+
+## Managed Browser First
+
+Read the installed `agent-browser` Skill for every web page, public web-data,
+website automation, or browser verification task. A reliable purpose-built API
+or direct data source may run first only when it clearly satisfies the request.
+If it returns no data, incomplete data, a static shell for dynamic content, an
+authentication boundary, or an unverifiable result, the managed browser is a
+mandatory fallback before reporting that the data is unavailable.
+
+Use the current gateway in this order:
+
+1. Search for the exact browser intent and read the best returned capability.
+2. List and reuse a managed tab; open another tab only when explicitly needed.
+3. Open the target page and use `iyw.browser.page.read.v1` or a fresh snapshot.
+4. Use dedicated actions when available. Read `agent-browser` before using
+   `iyw.browser.command.run.v1` for an advanced operation.
+5. After navigation, a route change, popup, material DOM update, or write, take
+   another snapshot before reusing a reference.
+6. Verify the business result through URL, title, text, element state,
+   downloaded file, or another stable signal. A successful click is not enough.
+
+For a stale reference or locator failure, make one recovery attempt for the
+same action with a fresh snapshot and one new reference or revised locator. Do
+not cycle locators, switch browsers, or request user takeover for an ordinary
+selector problem. For runtime/session/daemon/observer unavailability or a
+timeout, inspect managed state once. Only when that check confirms the managed
+route is unavailable may the Agent switch to `opencli-browser`, and only when
+that Skill and the `opencli` command are actually available. Read its current
+Skill and run `opencli doctor`; otherwise report the missing prerequisite.
 
 ### Browser User Actions
 
 Use the stable capability `iyw.browser.user_action.request.v1` when the Agent
 cannot safely or reliably complete a visible browser step itself, such as
-login, MFA, CAPTCHA, drag-and-drop, device approval, or a final human review.
+login requiring user-held credentials, MFA, CAPTCHA, device approval, secure
+payment confirmation, an interaction the managed browser cannot perform, or a
+final human review.
 Do not use it for ordinary navigation, snapshots, clicks, fills, waits, or
-other actions already covered by the managed browser tools.
+other actions already covered by the managed browser tools. In particular, do
+not request user action merely because a selector was stale, missing, or
+ambiguous.
 
 Invoke it through the normal gateway sequence, using the exact schema returned
 by `read_iyw_capability`:

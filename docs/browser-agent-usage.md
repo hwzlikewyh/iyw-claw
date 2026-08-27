@@ -1,18 +1,48 @@
 # Agent 浏览器调用与 OpenCLI 回退
 
+## 浏览器优先级
+
+对于网页和公开数据任务，已有可靠专用 API 或直接数据源且能完整满足请求时可以先用；
+出现无数据、数据不完整、动态渲染、登录态依赖或结果无法验证时，必须转入 iyw-claw
+内置托管浏览器，不能直接报告“拿不到”，也不能先切换其他浏览器。所有浏览器方案中，
+内置 `agent-browser` 始终排第一。
+
+Agent 在浏览器工作前读取内置 `agent-browser` Skill。该 Skill 基于
+`agent-browser-plus-1.0.2` 的完整操作说明，并按 iyw-claw 固定 sidecar、固定页签、
+持久 profile、用户接管和安全策略进行了适配。
+
 ## 默认调用链
 
 用户没有指定浏览器时，Agent 使用 iyw-claw 内置托管浏览器：
 
 ```text
 browser_list_tabs
-  -> browser_open / browser_snapshot
-  -> browser_click / browser_fill / browser_press / browser_scroll / browser_wait
+  -> browser_open
+  -> browser_read / browser_snapshot
+  -> browser_click / browser_fill / browser_press / browser_scroll / browser_wait / browser_command
   -> fresh browser_snapshot
   -> 业务结果验证
 ```
 
 MCP 工具由 `src-tauri/src/acp/delegation/tool_schema.json` 广告，经内置 HTTP MCP gateway 和 delegation listener 分发到 `BrowserSessionManager::execute_agent_tool`。交互动作最终使用固定页签的 `agent-browser --cdp ... --pin-tab` 控制器，不是 Tauri WebView 的 DOM 事件。
+
+`browser_read` 是网页数据读取入口；`browser_command` 是高级受管入口。后者把
+`command` 和逐项 `arguments` 直接作为进程参数传给固定页签控制器，不经过 shell，
+支持参考 Skill 中没有独立 MCP 工具的操作：
+
+- 导航与读取：back、forward、reload、read、get、is、find。
+- 页面交互：dblclick、focus、hover、type、键盘、checkbox、select、drag、upload、download。
+- 等待与定位：text/URL/load/function 等 wait 变体、scrollintoview。
+- 输出与调试：PDF、trace、profiler、console、errors、highlight、diff。
+- 页面环境：viewport、device、geo、media、mouse、frame、dialog、eval。
+- 高级检查：network、cookies/storage/state、a11y、vitals、React、pushstate。
+
+open、close、tab/window、session/profile、record、install/upgrade、MCP、plugin、dashboard 和 chat
+不会通过高级入口执行：open/close/tab/window/session/profile 由 iyw-claw 自己维护
+页签、窗口和运行时身份；install/upgrade/MCP/plugin/dashboard/chat 属于 sidecar 控制面；
+record 会创建新 context，目前也会破坏固定页签身份。
+cookies、storage、state、headers、credentials、clipboard
+和 eval 均视为敏感操作，只能按当前 schema 和明确任务使用，不得写入日志或用户报告。
 
 ## 内置浏览器引用规则
 
@@ -20,7 +50,14 @@ MCP 工具由 `src-tauri/src/acp/delegation/tool_schema.json` 广告，经内置
 - `browser_snapshot` 生成的 `@eN` 只对应当时的页面状态。
 - 导航、SPA 路由变化、弹窗、列表刷新或一次写操作后，必须重新 snapshot。
 - 动作失败时，先判断是 stale reference、selector 问题还是 runtime/session 问题。stale/locator 类问题对同一预期动作总共只有一次恢复机会：重新 snapshot，使用一个新引用或修正后的 locator；不能通过轮换 locator 扩大重试预算。
-- runtime/session/daemon/observer 或 timeout 类失败只检查一次当前状态，不要求重新 snapshot；随后由 Agent 决定停止或切换 OpenCLI。写操作如果返回 `effectMayHaveOccurred`，先读取页面状态确认结果，再决定是否继续。
+- runtime/session/daemon/observer 或 timeout 类失败只检查一次当前状态，不要求重新 snapshot；只有该检查确认内置路由不可用后，Agent 才能停止或切换实际可用的 OpenCLI。写操作如果返回 `effectMayHaveOccurred`，先读取页面状态确认结果，再决定是否继续。
+
+## 用户接管边界
+
+只有登录所需的用户凭据、MFA/OTP、CAPTCHA、设备批准、安全支付确认、内置能力确实
+无法完成的交互或明确的最终人工复核，才调用 `browser_request_user_action`。普通 selector
+失败、陈旧引用、页面慢、等待条件遗漏或常规数据提取失败不能转交用户；Agent 先做一次
+新 snapshot 和定位修正。用户操作结束后继续复用同一托管页签并验证业务结果。
 
 ## 错误判断
 
@@ -39,7 +76,7 @@ MCP 工具由 `src-tauri/src/acp/delegation/tool_schema.json` 广告，经内置
 
 ## OpenCLI 回退流程
 
-OpenCLI 是 Agent 自主选择的外部真实 Chrome 路径，iyw-claw 不会在 Rust MCP 层自动接管。
+OpenCLI 是内置浏览器确认不可用后的最后浏览器回退，iyw-claw 不会在 Rust MCP 层自动接管。
 
 只有当前 Agent 实际能读取 `opencli-browser` Skill 且能解析 `opencli` 命令时才能进入回退；任一前置条件缺失时应报告具体缺项并停止。
 

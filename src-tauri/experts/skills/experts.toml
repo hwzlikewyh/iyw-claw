@@ -1,7 +1,7 @@
 [bundle]
 schema_version = 1
-version = "0.0.18"
-min_app_version = "0.1.17"
+version = "0.0.19"
+min_app_version = "0.1.122"
 
 [[expert]]
 id = "writing-plans"
@@ -72,6 +72,20 @@ en = "IYW Capability Gateway"
 [expert.description]
 en = "Highest-priority route for concrete iyw-claw host state or actions when its complete gateway trio is visible; explicit direct tools still win."
 "zh-CN" = "完整网关三件套可见时，优先路由具体的爱原物宿主状态与动作；用户明确指定的直接工具仍优先。"
+
+[[expert]]
+id = "agent-browser"
+category = "meta"
+icon = "Globe"
+sort_order = 222
+
+[expert.display_name]
+en = "Agent Browser"
+"zh-CN" = "Agent 浏览器"
+
+[expert.description]
+en = "Uses the iyw-claw managed browser first for web pages and public web data, with complete interaction, verification, recovery, and human-takeover guidance."
+"zh-CN" = "网页与公开数据任务优先使用 iyw-claw 内置浏览器，并提供完整的交互、验证、恢复和人工接管规则。"
 
 [[expert]]
 id = "wecom-unified"

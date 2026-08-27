@@ -4,6 +4,8 @@ mod agent_tool_actions;
 mod agent_tool_cancellation;
 #[cfg(feature = "tauri-runtime")]
 mod agent_tool_capture;
+#[cfg(feature = "tauri-runtime")]
+mod agent_tool_command;
 #[cfg(not(feature = "tauri-runtime"))]
 mod agent_tool_stub;
 #[cfg(feature = "tauri-runtime")]
@@ -121,6 +123,7 @@ pub use types_cdp::*;
 pub const BROWSER_AGENT_TOOL_NAMES: &[&str] = &[
     "browser_list_tabs",
     "browser_open",
+    "browser_read",
     "browser_snapshot",
     "browser_click",
     "browser_fill",
@@ -132,6 +135,7 @@ pub const BROWSER_AGENT_TOOL_NAMES: &[&str] = &[
     "browser_request_user_action",
     "browser_present",
     "browser_close_window",
+    "browser_command",
 ];
 
 pub const MAX_DETACHED_BROWSER_WINDOWS: usize = 8;

@@ -44,6 +44,8 @@ static WRITING_SKILLS_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/writing-skills");
 static IYW_CAPABILITY_GATEWAY_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/iyw-capability-gateway");
+static AGENT_BROWSER_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/agent-browser");
 static WECOM_UNIFIED_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/wecom-unified");
 static IMAGEGEN_BUNDLE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/experts/skills/imagegen");
@@ -593,6 +595,7 @@ fn bundled_skill_dir(expert_id: &str) -> Option<&'static Dir<'static>> {
         "using-superpowers" => Some(&USING_SUPERPOWERS_BUNDLE),
         "writing-skills" => Some(&WRITING_SKILLS_BUNDLE),
         "iyw-capability-gateway" => Some(&IYW_CAPABILITY_GATEWAY_BUNDLE),
+        "agent-browser" => Some(&AGENT_BROWSER_BUNDLE),
         "wecom-unified" => Some(&WECOM_UNIFIED_BUNDLE),
         "imagegen" => Some(&IMAGEGEN_BUNDLE),
         "plugin-creator" => Some(&PLUGIN_CREATOR_BUNDLE),

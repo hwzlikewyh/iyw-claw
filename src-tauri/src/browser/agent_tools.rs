@@ -68,6 +68,7 @@ impl BrowserSessionManager {
                 self.agent_state(context, None, None).await
             }
             "browser_open" => self.agent_open(context, input).await,
+            "browser_read" => self.agent_read(context, input).await,
             "browser_snapshot" => self.agent_snapshot(context, input).await,
             "browser_click" => self.agent_click(context, input).await,
             "browser_fill" => self.agent_fill(context, input).await,
@@ -79,6 +80,7 @@ impl BrowserSessionManager {
             "browser_request_user_action" => self.agent_request_user_action(context, input).await,
             "browser_present" => self.agent_present_window(context, input).await,
             "browser_close_window" => self.agent_close_window(context, input).await,
+            "browser_command" => self.agent_command(context, input).await,
             _ => Err(invalid_argument("Unknown browser tool")),
         }
     }

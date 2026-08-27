@@ -248,6 +248,7 @@ fn browser_operation_mutates(tool_name: &str) -> bool {
     matches!(
         tool_name,
         "browser_open"
+            | "browser_command"
             | "browser_click"
             | "browser_fill"
             | "browser_press"
