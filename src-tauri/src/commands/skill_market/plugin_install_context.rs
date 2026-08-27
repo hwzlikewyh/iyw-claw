@@ -11,6 +11,8 @@ pub(super) struct PreparedPluginInstall {
     pub(super) slug: String,
     pub(super) version: String,
     pub(super) object_sha256: String,
+    pub(super) publisher_id: String,
+    pub(super) signature_key_id: String,
     pub(super) package: ValidatedSkillPackage,
     pub(super) plugin: ValidatedPluginPackage,
     pub(super) marker: MarketSkillMarker,

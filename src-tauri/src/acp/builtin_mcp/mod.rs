@@ -16,6 +16,7 @@ mod handler;
 mod http;
 mod invocation;
 mod lease;
+mod plugin_catalog;
 mod policy;
 mod receipt;
 mod result;

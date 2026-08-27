@@ -14,6 +14,12 @@ pub struct Model {
     pub object_sha256: String,
     pub agent_types_json: String,
     pub manifest_json: String,
+    pub schema_version: i32,
+    pub publisher_id: String,
+    pub trust_state: String,
+    pub artifact_signature_key_id: String,
+    pub permissions_digest: String,
+    pub reconcile_state: String,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }

@@ -758,6 +758,22 @@ pub(crate) async fn do_start_web_server_tauri(
             .state::<Arc<crate::acp::capability_policy::CapabilityPolicyRefreshRuntime>>()
             .inner()
             .clone(),
+        plugin_registry: app
+            .state::<crate::plugin_runtime::registry::PluginRegistry>()
+            .inner()
+            .clone(),
+        plugin_supervisor: app
+            .state::<Arc<crate::plugin_runtime::supervisor::PluginRuntimeSupervisor>>()
+            .inner()
+            .clone(),
+        plugin_router: app
+            .state::<crate::plugin_runtime::router::PluginRouter>()
+            .inner()
+            .clone(),
+        plugin_apps: app
+            .state::<crate::plugin_runtime::app_host::PluginAppRegistry>()
+            .inner()
+            .clone(),
         connection_manager: (*app.state::<crate::acp::manager::ConnectionManager>()).clone_ref(),
         terminal_manager: (*app.state::<crate::terminal::manager::TerminalManager>()).clone_ref(),
         event_broadcaster: app

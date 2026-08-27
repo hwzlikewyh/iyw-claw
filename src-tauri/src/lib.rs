@@ -31,6 +31,7 @@ pub mod paths;
 pub mod pet_sessions;
 pub mod pet_state_mapper;
 pub mod pets;
+pub mod plugin_runtime;
 #[cfg(feature = "tauri-runtime")]
 pub mod preferences;
 pub mod process;
@@ -537,6 +538,34 @@ mod tauri_app {
                     }
                 }
                 app.manage(database);
+                crate::plugin_runtime::global::install_database(
+                    app.state::<db::AppDatabase>().conn.clone(),
+                );
+                let plugin_registry = tauri::async_runtime::block_on(
+                    crate::plugin_runtime::registry::PluginRegistry::load(
+                        &app.state::<db::AppDatabase>().conn,
+                    ),
+                )
+                .unwrap_or_else(|error| {
+                    tracing::error!(error = %error, "[plugin-registry] startup restore failed closed");
+                    crate::plugin_runtime::registry::PluginRegistry::default()
+                });
+                let plugin_registry =
+                    crate::plugin_runtime::registry::install_global(plugin_registry);
+                let plugin_supervisor =
+                    crate::plugin_runtime::global::install_supervisor(std::sync::Arc::new(
+                        crate::plugin_runtime::supervisor::PluginRuntimeSupervisor::new(),
+                    ));
+                let plugin_router = crate::plugin_runtime::router::PluginRouter::new(
+                    plugin_registry.clone(),
+                    plugin_supervisor.clone(),
+                );
+                let plugin_router = crate::plugin_runtime::global::install_router(plugin_router);
+                let plugin_apps = crate::plugin_runtime::app_host::PluginAppRegistry::default();
+                app.manage(plugin_registry);
+                app.manage(plugin_supervisor);
+                app.manage(plugin_router);
+                app.manage(plugin_apps);
                 let catalog = tauri::async_runtime::block_on(
                     crate::acp::version_center::CatalogStore::load(
                         &app.state::<db::AppDatabase>().conn,

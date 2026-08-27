@@ -11,6 +11,7 @@ pub struct Model {
     pub managed_resource_key: String,
     pub relative_path: Option<String>,
     pub server_key: Option<String>,
+    pub component_config_json: String,
     pub created_at: DateTimeUtc,
 }
 

@@ -10,21 +10,34 @@ export interface SkillPluginManifest {
   schemaVersion: number
   name: string
   version: string
-  targets: Array<"codex" | "claude_code">
+  targets: Array<"codex" | "claude_code" | "iyw-claw">
   components: SkillPluginComponent[]
   bindings: SkillPluginBinding[]
+  permissions?: SkillPluginPermissions | null
+  manifestDigest?: string | null
 }
 
 export interface SkillPluginComponent {
-  type: "skill" | "connector"
+  type: "skill" | "connector" | "runtime" | "capability" | "app"
   key: string
   path?: string
   serverKey?: string
+  config?: Record<string, unknown> | null
 }
 
 export interface SkillPluginBinding {
   skillKey: string
   connectorKey: string
+}
+
+export interface SkillPluginPermissions {
+  workspace: { read: string[]; write: string[] }
+  network: {
+    connectDomains: string[]
+    resourceDomains: string[]
+    frameDomains: string[]
+  }
+  host: Array<"send-message" | "clipboard-write" | "open-link">
 }
 
 export interface SkillDependency {
@@ -48,13 +61,33 @@ export interface SkillMarketVersion {
   id: string
   version: string
   changelog: string | null
-  status: "ready" | "failed"
+  status: "ready" | "artifact_pending" | "failed"
   fileCount: number
   packageSize: number
+  artifactSize?: number
+  artifactSha256?: string | null
+  failureCode?: string | null
+  activeArtifactId?: string | null
+  artifact?: SkillMarketArtifact | null
   packageType: SkillPackageType
   dependencies: SkillDependency[]
   plugin?: SkillPluginManifest | null
   createdAt: string
+}
+
+export interface SkillMarketArtifact {
+  id: string
+  generation: number
+  status: "pending" | "building" | "ready" | "failed"
+  rawSize: number
+  artifactSize: number
+  artifactSha256: string
+  fileName: string
+  packageKind: string
+  failureCode?: string | null
+  verifiedAt?: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export interface SkillMarketFile {
@@ -298,21 +331,43 @@ async function validatePluginFolderEntry(
 ): Promise<void> {
   if (bytes.byteLength > MAX_SKILL_MD_BYTES)
     throw new Error("skillFileTooLarge")
-  if (
-    !paths.includes(".codex-plugin/plugin.json") ||
-    !paths.includes(".claude-plugin/plugin.json")
-  ) {
+  const hasPortableManifest = paths.includes(".iyw-plugin.json")
+  const hasNativeManifest =
+    paths.includes(".codex-plugin/plugin.json") &&
+    paths.includes(".claude-plugin/plugin.json")
+  const hasNativeArtifacts = paths.some(
+    (path) =>
+      path === ".codex-plugin/plugin.json" ||
+      path === ".claude-plugin/plugin.json"
+  )
+  if (!hasPortableManifest && !hasNativeManifest) {
     throw new Error("missingPluginManifest")
   }
   try {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
     const manifest = JSON.parse(text) as Record<string, unknown>
     if (
-      manifest.schemaVersion !== 1 ||
       manifest.name !== folderName ||
       typeof manifest.version !== "string" ||
       !manifest.version
     ) {
+      throw new Error("invalidPluginManifest")
+    }
+    if (manifest.schemaVersion === 2) {
+      const targets = manifest.targets
+      if (
+        !hasPortableManifest ||
+        hasNativeArtifacts ||
+        !Array.isArray(targets) ||
+        targets.length !== 1 ||
+        targets[0] !== "iyw-claw" ||
+        paths.includes(".mcp.json")
+      ) {
+        throw new Error("invalidPluginManifest")
+      }
+      return
+    }
+    if (manifest.schemaVersion !== 1 || !hasNativeManifest) {
       throw new Error("invalidPluginManifest")
     }
   } catch (error) {
@@ -428,6 +483,7 @@ export interface SkillMarketV2Version {
   artifactSize: number
   rawSize?: number
   artifactSha256: string | null
+  artifact?: SkillMarketArtifact | null
   dependencies: SkillDependency[]
   packageType: SkillPackageType
   plugin?: SkillPluginManifest | null

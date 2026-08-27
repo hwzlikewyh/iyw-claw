@@ -95,9 +95,11 @@ function targetAgents(
 }
 
 export function isConnectorOnlyPlugin(detail: SkillMarketV2Detail): boolean {
-  const components = detail.currentVersion.plugin?.components ?? []
+  const plugin = detail.currentVersion.plugin
+  const components = plugin?.components ?? []
   return (
     detail.packageType === "plugin" &&
+    plugin?.schemaVersion === 1 &&
     components.some((component) => component.type === "connector") &&
     !components.some((component) => component.type === "skill")
   )

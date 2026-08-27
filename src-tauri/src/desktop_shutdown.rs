@@ -287,6 +287,18 @@ async fn shutdown_builtin_mcp(
     }
 }
 
+async fn shutdown_plugin_runtime(
+    service: Option<&std::sync::Arc<crate::plugin_runtime::supervisor::PluginRuntimeSupervisor>>,
+    timeout: Duration,
+) -> bool {
+    match service {
+        Some(service) => tokio::time::timeout(timeout, service.shutdown())
+            .await
+            .is_ok(),
+        None => true,
+    }
+}
+
 async fn shutdown_builtin_mcp_with_retry(
     builtin_mcp: Option<&std::sync::Arc<crate::acp::builtin_mcp::BuiltinMcpService>>,
     reason: ShutdownReason,
@@ -337,6 +349,13 @@ async fn force_stop_entrypoints(app: &tauri::AppHandle, reason: ShutdownReason) 
     if let Some(service) = builtin_mcp.as_ref() {
         service.quiesce();
     }
+    let plugin_runtime = app
+        .try_state::<std::sync::Arc<crate::plugin_runtime::supervisor::PluginRuntimeSupervisor>>();
+    let plugin_runtime_completed = shutdown_plugin_runtime(
+        plugin_runtime.as_ref().map(|state| state.inner()),
+        FORCED_SERVICE_TIMEOUT,
+    )
+    .await;
     let (disconnected, connection_completed) =
         disconnect_connections(app, FORCED_CONNECTION_TIMEOUT).await;
     let builtin_result = shutdown_builtin_mcp(
@@ -349,11 +368,12 @@ async fn force_stop_entrypoints(app: &tauri::AppHandle, reason: ShutdownReason) 
         forced_service_timeout_ms = FORCED_SERVICE_TIMEOUT.as_millis(),
         forced_connection_timeout_ms = FORCED_CONNECTION_TIMEOUT.as_millis(),
         builtin_mcp_completed = builtin_result,
+        plugin_runtime_completed,
         disconnected,
         connection_completed,
         "[shutdown] forced MCP entrypoint cleanup completed"
     );
-    builtin_result && connection_completed
+    builtin_result && plugin_runtime_completed && connection_completed
 }
 
 async fn stop_entrypoints_inner(app: &tauri::AppHandle, reason: ShutdownReason) -> bool {
@@ -363,6 +383,14 @@ async fn stop_entrypoints_inner(app: &tauri::AppHandle, reason: ShutdownReason) 
     if let Some(service) = builtin_mcp.as_ref() {
         service.quiesce();
     }
+    let plugin_runtime = app
+        .try_state::<std::sync::Arc<crate::plugin_runtime::supervisor::PluginRuntimeSupervisor>>();
+    let plugin_runtime_found = plugin_runtime.is_some();
+    let plugin_runtime_completed = shutdown_plugin_runtime(
+        plugin_runtime.as_ref().map(|state| state.inner()),
+        ENTRYPOINT_SERVICE_TIMEOUT,
+    )
+    .await;
     let web_server_found = if let Some(state) = app.try_state::<crate::web::WebServerState>() {
         crate::web::do_stop_web_server(&state).await;
         true
@@ -380,11 +408,13 @@ async fn stop_entrypoints_inner(app: &tauri::AppHandle, reason: ShutdownReason) 
         web_server_found,
         builtin_mcp_found,
         builtin_mcp_completed,
+        plugin_runtime_found,
+        plugin_runtime_completed,
         disconnected,
         connection_completed,
         "[shutdown] entrypoints stopped"
     );
-    !(builtin_mcp_completed && connection_completed)
+    !(builtin_mcp_completed && plugin_runtime_completed && connection_completed)
 }
 
 fn stop_terminals(app: &tauri::AppHandle, reason: ShutdownReason) {

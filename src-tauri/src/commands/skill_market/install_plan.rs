@@ -42,7 +42,7 @@ pub(super) fn validate_install_plan(
             ));
         }
         total_bytes = total_bytes
-            .checked_add(item.download.package_size)
+            .checked_add(transfer_size(&item.download))
             .filter(|value| *value <= MAX_INSTALL_PLAN_BYTES)
             .ok_or_else(|| {
                 AppCommandError::invalid_input("Skill install plan is too large to install safely")
@@ -107,7 +107,9 @@ fn validate_install_plan_item(
         ));
     }
     ensure_download_artifact_ready(&item.download)?;
-    if item.download.package_size > MAX_PACKAGE_BYTES {
+    if item.download.package_size > MAX_PACKAGE_BYTES
+        || item.download.artifact_size > MAX_PACKAGE_BYTES
+    {
         return Err(AppCommandError::configuration_invalid(
             "Skill install plan download metadata is inconsistent",
         ));
@@ -132,6 +134,13 @@ fn validate_package_metadata(item: &SkillInstallPlanItem) -> Result<(), AppComma
                     "Plugin install plan is missing component metadata",
                 )
             })?;
+            if plugin.schema_version >= 2
+                && (item.download.artifact_size == 0 || !valid_sha256(&item.download.object_sha256))
+            {
+                return Err(AppCommandError::artifact_not_ready(
+                    "The plugin artifact has incomplete trust metadata",
+                ));
+            }
             validate_plugin_summary(plugin, &item.slug, &item.version)
         }
         SkillPackageType::Skill | SkillPackageType::Expert => {
@@ -151,10 +160,8 @@ fn validate_package_metadata(item: &SkillInstallPlanItem) -> Result<(), AppComma
 }
 
 /// Validate the metadata needed to safely download and inspect an artifact.
-/// `packageSize` is a transfer bound, not an exact ZIP length: the gateway
-/// may build a compressed ZIP at request time, while `contentSha256` remains
-/// the stable digest of the extracted file tree. `objectSha256` is optional
-/// for older releases and, when present, is checked against the ZIP bytes.
+/// `artifactSize` is the exact frozen ZIP length when present. `packageSize`
+/// remains the legacy transfer bound and source-file total.
 fn ensure_download_artifact_ready(
     download: &super::types::SkillDownloadInfo,
 ) -> Result<(), AppCommandError> {
@@ -163,7 +170,8 @@ fn ensure_download_artifact_ready(
             "The Skill artifact is not ready yet; this version cannot be installed",
         )
         .with_detail(format!(
-            "artifact metadata incomplete: package_size={}, object_sha256={}, content_sha256={}",
+            "artifact metadata incomplete: artifact_size={}, package_size={}, object_sha256={}, content_sha256={}",
+            download.artifact_size,
             download.package_size,
             digest_presence(&download.object_sha256),
             digest_presence(&download.content_sha256),
@@ -177,6 +185,31 @@ fn digest_presence(value: &str) -> &'static str {
         "missing"
     } else {
         "present"
+    }
+}
+
+fn valid_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+pub(super) fn validate_downloaded_artifact_size(
+    item: &SkillInstallPlanItem,
+    actual_size: usize,
+) -> Result<(), AppCommandError> {
+    if item.download.artifact_size > 0 && actual_size as u64 != item.download.artifact_size {
+        return Err(AppCommandError::invalid_input(format!(
+            "Downloaded Skill package size check failed for {}@{}",
+            item.slug, item.version
+        )));
+    }
+    Ok(())
+}
+
+fn transfer_size(download: &super::types::SkillDownloadInfo) -> u64 {
+    if download.artifact_size > 0 {
+        download.artifact_size
+    } else {
+        download.package_size
     }
 }
 

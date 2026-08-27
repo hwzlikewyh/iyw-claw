@@ -12,7 +12,8 @@ import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { cn } from "@/lib/utils"
 
 export function SkillMarketPage() {
-  const { skillMarketTarget, consumeSkillMarketTarget } = useWorkbenchRoute()
+  const { skillMarketTarget, consumeSkillMarketTarget, openSkillMarket } =
+    useWorkbenchRoute()
   const [section, setSection] = useState<CapabilityMarketSection>("skills")
   const [visited, setVisited] = useState<Set<CapabilityMarketSection>>(
     () => new Set(["skills"])
@@ -46,7 +47,12 @@ export function SkillMarketPage() {
         ) : null}
         {visited.has("plugins") ? (
           <div className={cn("h-full", section !== "plugins" && "hidden")}>
-            <PluginMarketPreview />
+            <PluginMarketPreview
+              onOpenPlugin={(slug) => {
+                openSection("skills")
+                openSkillMarket(slug)
+              }}
+            />
           </div>
         ) : null}
       </CapabilityMarketShell>

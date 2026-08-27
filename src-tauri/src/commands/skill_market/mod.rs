@@ -6,7 +6,9 @@ mod plugin_install;
 mod plugin_install_context;
 mod plugin_install_data;
 mod plugin_install_rollback;
+mod plugin_install_runtime_state;
 mod plugin_manifest;
+mod plugin_manifest_v2;
 mod plugin_storage;
 mod plugin_types;
 mod routing_description;
@@ -20,7 +22,9 @@ use reqwest::Method;
 use sea_orm::DatabaseConnection;
 
 use crate::app_error::AppCommandError;
-pub use plugin_types::{SkillPluginBinding, SkillPluginComponent, SkillPluginManifest};
+pub use plugin_types::{
+    SkillPluginBinding, SkillPluginComponent, SkillPluginManifest, SkillPluginPermissions,
+};
 pub(crate) use types::parse_value;
 use types::{parse_id, FileNode, FileTree, SkillMarketFile, SkillMarketItem};
 pub use types::{

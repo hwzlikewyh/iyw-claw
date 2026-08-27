@@ -4,14 +4,14 @@ use crate::acp::skill_package::PackageFile;
 use crate::app_error::AppCommandError;
 
 use super::plugin_manifest::{
-    invalid_plugin, NativeManifest, PortableConnector, PortableManifest, PortableSkill,
+    invalid_plugin, NativeManifest, PortableConnector, PortableManifestV1, PortableSkill,
     CODEX_MANIFEST, MAX_MANIFEST_BYTES,
 };
 use super::plugin_types::{SkillPluginBinding, SkillPluginComponent, SkillPluginManifest};
 
 pub(super) fn build_manifest(
     files: &[PackageFile],
-    portable: PortableManifest,
+    portable: PortableManifestV1,
     servers: BTreeSet<String>,
 ) -> Result<SkillPluginManifest, AppCommandError> {
     let (skills, bindings, paths) = build_skills(files, portable.components.skills)?;
@@ -29,6 +29,8 @@ pub(super) fn build_manifest(
         targets: portable.targets,
         components,
         bindings,
+        permissions: None,
+        manifest_digest: None,
     })
 }
 
@@ -56,6 +58,7 @@ fn build_skills(
             key: value.key,
             path: value.path,
             server_key: String::new(),
+            config: None,
         });
     }
     if declared != actual {
@@ -124,6 +127,7 @@ fn build_connectors(
             key: value.key,
             path: String::new(),
             server_key: value.server_key,
+            config: None,
         });
     }
     if &server_keys != servers {
