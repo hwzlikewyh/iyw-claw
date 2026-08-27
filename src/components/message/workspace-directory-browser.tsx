@@ -10,17 +10,19 @@ import { useLazyWorkspaceTree } from "@/components/message/workspace-file-tree-d
 import { WorkspaceTreePane } from "@/components/message/workspace-file-tree"
 import {
   getCachedWorkspacePreview,
-  loadWorkspacePreview,
+  loadWorkspaceFilePreview,
+  revokeWorkspacePreviewResource,
 } from "@/components/message/workspace-file-preview-loader"
 import { toErrorMessage } from "@/lib/app-error"
-import { isOfficePreviewable } from "@/lib/language-detect"
 import type { FileTreeNode } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 interface WorkspaceDirectoryBrowserProps {
   rootPath: string
   className?: string
+  renderMarkdown?: boolean
   renderHtml?: boolean
+  renderPdf?: boolean
   onOpenWorkspace?: () => void
 }
 
@@ -35,7 +37,9 @@ function collectFilePaths(nodes: FileTreeNode[], paths = new Set<string>()) {
 function useDirectoryPreview(
   rootPath: string,
   nodes: FileTreeNode[],
-  renderHtml: boolean
+  renderMarkdown: boolean,
+  renderHtml: boolean,
+  renderPdf: boolean
 ) {
   const [preview, setPreview] = useState<PreviewState>({ status: "idle" })
   const requestId = useRef(0)
@@ -45,19 +49,19 @@ function useDirectoryPreview(
     async (path: string) => {
       if (!filePaths.has(path)) return
       const request = (requestId.current += 1)
-      const cached = getCachedWorkspacePreview(rootPath, path, { renderHtml })
+      const options = { renderMarkdown, renderHtml, renderPdf }
+      const cached = getCachedWorkspacePreview(rootPath, path, options)
       if (cached) {
         setPreview(cached)
         return
       }
-      if (isOfficePreviewable(path)) {
-        setPreview({ status: "office", path })
-        return
-      }
       setPreview({ status: "loading", path })
       try {
-        const next = await loadWorkspacePreview(rootPath, path, { renderHtml })
-        if (request !== requestId.current) return
+        const next = await loadWorkspaceFilePreview(rootPath, path, options)
+        if (request !== requestId.current) {
+          revokeWorkspacePreviewResource(next)
+          return
+        }
         setPreview(next)
       } catch (reason) {
         if (request !== requestId.current) return
@@ -69,10 +73,11 @@ function useDirectoryPreview(
         setPreview({ status: "error", path, message })
       }
     },
-    [filePaths, renderHtml, rootPath]
+    [filePaths, renderHtml, renderMarkdown, renderPdf, rootPath]
   )
 
   useEffect(() => () => void (requestId.current += 1), [])
+  useEffect(() => () => revokeWorkspacePreviewResource(preview), [preview])
 
   return { preview, selectFile }
 }
@@ -132,7 +137,9 @@ function EmptyWorkspaceState() {
 export function WorkspaceDirectoryBrowser({
   rootPath,
   className,
+  renderMarkdown = false,
   renderHtml = false,
+  renderPdf = false,
   onOpenWorkspace,
 }: WorkspaceDirectoryBrowserProps) {
   return (
@@ -140,7 +147,9 @@ export function WorkspaceDirectoryBrowser({
       key={rootPath}
       rootPath={rootPath}
       className={className}
+      renderMarkdown={renderMarkdown}
       renderHtml={renderHtml}
+      renderPdf={renderPdf}
       onOpenWorkspace={onOpenWorkspace}
     />
   )
@@ -149,7 +158,9 @@ export function WorkspaceDirectoryBrowser({
 function WorkspaceDirectoryBrowserContent({
   rootPath,
   className,
+  renderMarkdown = false,
   renderHtml = false,
+  renderPdf = false,
   onOpenWorkspace,
 }: WorkspaceDirectoryBrowserProps) {
   const t = useTranslations("Folder.chat.workspaceFiles")
@@ -157,7 +168,9 @@ function WorkspaceDirectoryBrowserContent({
   const { preview, selectFile } = useDirectoryPreview(
     rootPath,
     tree.nodes,
-    renderHtml
+    renderMarkdown,
+    renderHtml,
+    renderPdf
   )
   const selectedPath = preview.status === "idle" ? undefined : preview.path
   const empty = !tree.loading && !tree.error && tree.nodes.length === 0
