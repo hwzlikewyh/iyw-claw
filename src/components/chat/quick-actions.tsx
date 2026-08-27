@@ -21,6 +21,8 @@ import { scenariosCatalog } from "@/lib/api"
 import type { Scenario, ScenarioCatalog } from "@/lib/types"
 import type { ComposerInjectContent } from "@/components/chat/message-input"
 import { cn } from "@/lib/utils"
+import { ScenarioPreferencesDialog } from "./scenario-preferences-dialog"
+import { useScenarioPreferences } from "./scenario-preferences"
 
 const ICONS: Record<string, LucideIcon> = {
   barChart3: BarChart3,
@@ -95,13 +97,17 @@ interface QuickActionsProps {
 
 export function QuickActions({ onSelect }: QuickActionsProps) {
   const { catalog, error } = useOfficialScenarioCatalog()
+  const { preferences, updatePreference, resetPreference } =
+    useScenarioPreferences()
   const [categoryKey, setCategoryKey] = useState<string | null>(null)
   const categories = catalog?.categories ?? []
   const activeCategory =
     categoryKey ??
     categories.find((category) =>
       (catalog?.scenarios ?? []).some(
-        (scenario) => scenario.categoryKey === category.key
+        (scenario) =>
+          scenario.categoryKey === category.key &&
+          !preferences[scenario.id]?.hidden
       )
     )?.key ??
     categories[0]?.key ??
@@ -110,8 +116,13 @@ export function QuickActions({ onSelect }: QuickActionsProps) {
     () =>
       (catalog?.scenarios ?? [])
         .filter((item) => item.categoryKey === activeCategory)
-        .sort((left, right) => left.sortOrder - right.sortOrder),
-    [activeCategory, catalog?.scenarios]
+        .filter((item) => !preferences[item.id]?.hidden)
+        .sort(
+          (left, right) =>
+            (preferences[left.id]?.sortOrder ?? left.sortOrder) -
+            (preferences[right.id]?.sortOrder ?? right.sortOrder)
+        ),
+    [activeCategory, catalog?.scenarios, preferences]
   )
   if (error)
     return <EmptyScenario text="官方场景暂时不可用，请直接输入任务。" />
@@ -142,6 +153,13 @@ export function QuickActions({ onSelect }: QuickActionsProps) {
             </button>
           ))}
         </div>
+        <ScenarioPreferencesDialog
+          categories={categories}
+          scenarios={catalog.scenarios}
+          preferences={preferences}
+          onUpdate={updatePreference}
+          onReset={resetPreference}
+        />
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {scenarios.length ? (
