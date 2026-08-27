@@ -66,6 +66,10 @@ function latestDirectiveReferences(editor: Editor): {
   return { task, expert }
 }
 
+export function getExpertReference(editor: Editor): ReferenceAttrs | null {
+  return latestDirectiveReferences(editor).expert
+}
+
 export function getTaskReference(editor: Editor): ReferenceAttrs | null {
   return latestDirectiveReferences(editor).task
 }

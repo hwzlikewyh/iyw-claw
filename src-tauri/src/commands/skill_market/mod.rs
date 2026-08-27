@@ -21,7 +21,8 @@ use sea_orm::DatabaseConnection;
 
 use crate::app_error::AppCommandError;
 pub use plugin_types::{SkillPluginBinding, SkillPluginComponent, SkillPluginManifest};
-use types::{parse_id, parse_value, FileNode, FileTree, SkillMarketFile, SkillMarketItem};
+pub(crate) use types::parse_value;
+use types::{parse_id, FileNode, FileTree, SkillMarketFile, SkillMarketItem};
 pub use types::{
     SkillDependencyInput, SkillMarketAddVersionRequest, SkillMarketCategory, SkillMarketDetail,
     SkillMarketListParams, SkillMarketListResult, SkillMarketMetadataRequest,

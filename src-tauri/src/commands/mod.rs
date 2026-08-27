@@ -71,12 +71,13 @@ pub mod remote_proxy;
 #[cfg(feature = "tauri-runtime")]
 pub mod remote_workspace;
 pub mod runtime_bootstrap;
+pub mod scenarios;
 pub mod session_config;
 pub mod session_info;
 pub mod skill_inventory;
 pub mod skill_market;
-pub mod skill_watch;
 mod skill_metadata;
+pub mod skill_watch;
 pub mod system_settings;
 pub mod system_skills;
 pub mod task_artifacts;

@@ -116,6 +116,7 @@ import type {
   ExpertListItem,
   PromptCapabilitiesInfo,
   PromptDraft,
+  PromptSkillPackage,
   PromptInputBlock,
   QuickMessage,
   SessionConfigOptionInfo,
@@ -194,6 +195,7 @@ import {
   applyTaskReference,
   applyExpertReference,
   clearTaskReference,
+  getExpertReference,
   getTaskReference,
   isComposerChromeClick,
   isComposerEmpty,
@@ -237,7 +239,7 @@ import {
  */
 export interface ComposerInjectContent {
   text: string
-  skill?: { id: string; label: string }
+  skill?: { id: string; label: string; package?: PromptSkillPackage }
 }
 
 interface PendingSendSnapshot {
@@ -333,7 +335,10 @@ interface MessageInputProps {
   /** Existing queued drafts may run before a new direct send. In that case the
    *  composer must not label the newly queued task as the active turn. */
   hasQueuedMessages?: boolean
-  onEnqueue?: (draft: PromptDraft, modeId: string | null) => boolean | void
+  onEnqueue?: (
+    draft: PromptDraft,
+    modeId: string | null
+  ) => boolean | void | Promise<boolean>
   /** Id of the queue item being edited — the stable key for (re)hydration, so
    *  switching between two items with identical display text still reloads. */
   editingItemId?: string | null
@@ -1307,7 +1312,13 @@ export function MessageInput({
               id: payload.skill.id,
               label: payload.skill.label,
               uri: null,
-              meta: { invocationPrefix: skillPrefix, scope: "expert" },
+              meta: {
+                invocationPrefix: skillPrefix,
+                scope: "expert",
+                marketSkillId: payload.skill.package?.id,
+                marketSkillSlug: payload.skill.package?.slug,
+                marketSkillVersion: payload.skill.package?.version,
+              },
             })
           }
         }
@@ -3268,7 +3279,19 @@ export function MessageInput({
       ).length,
       resourceCount: blocks.filter((block) => block.type !== "image").length,
     })
-    return { blocks, displayText }
+    const expert = editor ? getExpertReference(editor) : null
+    const packageMeta = expert?.meta
+    const skillPackage =
+      packageMeta?.marketSkillId &&
+      packageMeta.marketSkillSlug &&
+      packageMeta.marketSkillVersion
+        ? {
+            id: packageMeta.marketSkillId,
+            slug: packageMeta.marketSkillSlug,
+            version: packageMeta.marketSkillVersion,
+          }
+        : undefined
+    return { blocks, displayText, skillPackage }
   }, [attachments, skillPrefix, tAttach])
 
   // Clear the accepted draft immediately. Invalidate the pre-send debounce so
@@ -3384,13 +3407,27 @@ export function MessageInput({
 
     // Prompting mode: enqueue instead of sending
     if (isPrompting) {
-      if (!onEnqueue) return
-      const accepted = onEnqueue(
-        draft,
-        showModeSelector ? effectiveModeId : null
-      )
-      if (accepted === false) return
+      if (!onEnqueue || sendPendingRef.current) return
+      const snapshot = capturePendingSend(draft)
+      const result = onEnqueue(draft, showModeSelector ? effectiveModeId : null)
+      if (result === false) return
       resetComposer()
+      if (result instanceof Promise) {
+        sendPendingRef.current = true
+        setSendPending(true)
+        void result
+          .then((accepted) => {
+            if (accepted === false) rejectPendingSend(snapshot)
+          })
+          .catch((error) => {
+            console.error("[MessageInput] enqueue preflight failed", { error })
+            rejectPendingSend(snapshot)
+          })
+          .finally(() => {
+            sendPendingRef.current = false
+            setSendPending(false)
+          })
+      }
       return
     }
 

@@ -73,8 +73,11 @@ import {
   queueAgentInput,
   reorderAgentInputs,
   retryAgentInput,
+  skillActivationSet,
+  skillInventoryList,
   submitAgentInput,
 } from "@/lib/api"
+import { skillMarketInstall } from "@/lib/skill-market"
 import {
   flushRetryDelayMs,
   forkSendBlockedByQueue,
@@ -106,6 +109,8 @@ import {
   type PromptDraft,
   type QuestionAnswer,
   type UserMessageBlock,
+  type PromptSkillPackage,
+  type SkillInventorySnapshot,
 } from "@/lib/types"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import {
@@ -126,6 +131,97 @@ import {
 } from "@/lib/session-failures"
 import { isInsufficientBalanceError } from "@/lib/agent-runtime-error"
 import type { SessionConfigTranslator } from "@/lib/session-config-localization"
+
+function scenarioPackageReady(
+  snapshot: SkillInventorySnapshot,
+  packageRef: PromptSkillPackage,
+  agentType: AgentType
+): boolean {
+  const root = snapshot.skills.find((skill) =>
+    skill.observations.some(
+      (observation) =>
+        observation.marketSkillId === packageRef.id &&
+        observation.installedVersion === packageRef.version
+    )
+  )
+  if (!root) return false
+  const byId = new Map(snapshot.skills.map((skill) => [skill.skillId, skill]))
+  const pending = [root.skillId]
+  const visited = new Set<string>()
+  while (pending.length > 0) {
+    const skillId = pending.pop()
+    if (!skillId || visited.has(skillId)) continue
+    visited.add(skillId)
+    const skill = byId.get(skillId)
+    if (
+      !skill ||
+      !skill.agentStates.some(
+        (state) => state.agentType === agentType && state.actualEnabled
+      )
+    ) {
+      return false
+    }
+    pending.push(...skill.dependencies)
+  }
+  return true
+}
+
+function scenarioPackageRoot(
+  snapshot: SkillInventorySnapshot,
+  packageRef: PromptSkillPackage
+) {
+  return snapshot.skills.find((skill) =>
+    skill.observations.some(
+      (observation) =>
+        observation.marketSkillId === packageRef.id &&
+        observation.installedVersion === packageRef.version
+    )
+  )
+}
+
+function scenarioPackageTargetsAgent(
+  snapshot: SkillInventorySnapshot,
+  packageRef: PromptSkillPackage,
+  agentType: AgentType
+): boolean {
+  const root = scenarioPackageRoot(snapshot, packageRef)
+  return Boolean(
+    root?.observations.some((observation) =>
+      observation.locations.some((location) =>
+        location.agentTypes.includes(agentType)
+      )
+    )
+  )
+}
+
+async function prepareScenarioPackage(
+  packageRef: PromptSkillPackage,
+  agentType: AgentType,
+  workspacePath?: string
+) {
+  let snapshot = await skillInventoryList(workspacePath)
+  if (!scenarioPackageTargetsAgent(snapshot, packageRef, agentType)) {
+    await skillMarketInstall(packageRef.id, packageRef.version, [agentType])
+    snapshot = await skillInventoryList(workspacePath)
+  }
+  if (!scenarioPackageReady(snapshot, packageRef, agentType)) {
+    const root = scenarioPackageRoot(snapshot, packageRef)
+    if (!root) throw new Error("技能包安装记录不存在")
+    const result = await skillActivationSet({
+      skillId: root.skillId,
+      scope: root.scope,
+      workspacePath,
+      agentType,
+      enabled: true,
+      expectedRevision: snapshot.revision,
+    })
+    if (result.error) throw new Error(result.error)
+    snapshot = await skillInventoryList(workspacePath)
+  }
+  if (!scenarioPackageReady(snapshot, packageRef, agentType)) {
+    throw new Error("技能包或依赖未能对当前 Agent 启用")
+  }
+}
 import {
   getSavedModeId,
   getSavedPrefsForConnect,
@@ -1056,8 +1152,12 @@ const ConversationTabView = memo(function ConversationTabView({
     (
       draft: PromptDraft,
       modeId?: string | null,
-      opts?: { fromQueueFlush?: boolean; queuedMessage?: QueuedMessage }
-    ) => void
+      opts?: {
+        fromQueueFlush?: boolean
+        queuedMessage?: QueuedMessage
+        scenarioPrepared?: boolean
+      }
+    ) => boolean | void | Promise<boolean>
   >(() => {})
   // Timestamp of the last send that bounced with TurnBusyError. The flush below
   // backs off after a bounce so repeated busy rejections (backend still running
@@ -1252,7 +1352,11 @@ const ConversationTabView = memo(function ConversationTabView({
       // input send (no flag) must NOT jump ahead of already-queued items: when
       // a queue exists it tail-enqueues instead of sending, and on a bounce it
       // re-queues at the TAIL.
-      opts?: { fromQueueFlush?: boolean; queuedMessage?: QueuedMessage }
+      opts?: {
+        fromQueueFlush?: boolean
+        queuedMessage?: QueuedMessage
+        scenarioPrepared?: boolean
+      }
     ) => {
       const fromQueueFlush = opts?.fromQueueFlush ?? false
       if (!ensureConversationPointsAvailable()) {
@@ -1260,6 +1364,38 @@ const ConversationTabView = memo(function ConversationTabView({
           mqRequeueItemFront({ ...opts.queuedMessage, blocked: true })
         }
         return false
+      }
+      const packageRef = draft.skillPackage
+      if (packageRef && !opts?.scenarioPrepared) {
+        const prepareAndContinue = async (): Promise<boolean> => {
+          const toastId = toast.loading(
+            `正在准备技能包 ${packageRef.slug}@${packageRef.version}`
+          )
+          try {
+            await prepareScenarioPackage(
+              packageRef,
+              selectedAgent,
+              workingDirForConnection
+            )
+            toast.success(`技能包 ${packageRef.slug} 已就绪`, { id: toastId })
+            const continued = handleSendRef.current(
+              { ...draft, skillPackage: undefined },
+              selectedModeIdArg,
+              { ...opts, scenarioPrepared: true }
+            )
+            return continued instanceof Promise
+              ? continued
+              : continued !== false
+          } catch (error) {
+            toast.error("技能包准备失败", {
+              id: toastId,
+              description:
+                error instanceof Error ? error.message : String(error),
+            })
+            return false
+          }
+        }
+        return prepareAndContinue()
       }
       // Capture the tab's chat-draft state + eager scratch dir synchronously.
       // The user may submit before the Agent connects; that branch queues below
@@ -1619,6 +1755,7 @@ const ConversationTabView = memo(function ConversationTabView({
       conn.connectionId,
       conn.promptCapabilities.image,
       ensureConversationPointsAvailable,
+      workingDirForConnection,
       t,
     ]
   )
@@ -1646,28 +1783,18 @@ const ConversationTabView = memo(function ConversationTabView({
     )
   }, [visibleAutoContinuation])
 
-  const handlePromptingSubmit = useCallback(
-    (draft: PromptDraft, selectedModeIdArg: string | null) => {
-      if (!ensureConversationPointsAvailable()) return false
+  const enqueueAgentDraft = useCallback(
+    (prepared: PromptDraft, selectedModeIdArg: string | null) => {
       const messageId = `agent-input-${randomUUID()}`
       const conversationId = dbConvIdRef.current
-      const fallbackToLocalQueue = () =>
-        mqEnqueueAgentInput(messageId, draft, selectedModeIdArg)
-
-      if (conversationId == null) {
-        fallbackToLocalQueue()
-        return true
-      }
-
-      fallbackToLocalQueue()
+      mqEnqueueAgentInput(messageId, prepared, selectedModeIdArg)
+      if (conversationId == null) return true
       void queueAgentInput(conversationId, messageId, {
-        blocks: draft.blocks,
-        display_text: draft.displayText,
+        blocks: prepared.blocks,
+        display_text: prepared.displayText,
         mode_id: selectedModeIdArg,
       })
-        .then(() => {
-          mqRemove(messageId)
-        })
+        .then(() => mqRemove(messageId))
         .catch((error) => {
           console.error("[agent-input] durable submission failed", {
             messageId,
@@ -1675,17 +1802,48 @@ const ConversationTabView = memo(function ConversationTabView({
           })
           saveMessageInputDraft(
             buildConversationDraftStorageKey(conversationId),
-            draft.displayText
+            prepared.displayText
           )
           toast.error(tAgentInput("durableQueueFailed"))
         })
       return true
     },
+    [mqEnqueueAgentInput, mqRemove, tAgentInput]
+  )
+
+  const handlePromptingSubmit = useCallback(
+    (draft: PromptDraft, selectedModeIdArg: string | null) => {
+      if (!ensureConversationPointsAvailable()) return false
+      const packageRef = draft.skillPackage
+      if (!packageRef) return enqueueAgentDraft(draft, selectedModeIdArg)
+      const toastId = toast.loading(
+        `正在准备技能包 ${packageRef.slug}@${packageRef.version}`
+      )
+      return prepareScenarioPackage(
+        packageRef,
+        selectedAgent,
+        workingDirForConnection
+      )
+        .then(() => {
+          toast.success(`技能包 ${packageRef.slug} 已就绪`, { id: toastId })
+          return enqueueAgentDraft(
+            { ...draft, skillPackage: undefined },
+            selectedModeIdArg
+          )
+        })
+        .catch((error) => {
+          toast.error("技能包准备失败", {
+            id: toastId,
+            description: error instanceof Error ? error.message : String(error),
+          })
+          return false
+        })
+    },
     [
       ensureConversationPointsAvailable,
-      mqEnqueueAgentInput,
-      mqRemove,
-      tAgentInput,
+      enqueueAgentDraft,
+      selectedAgent,
+      workingDirForConnection,
     ]
   )
 

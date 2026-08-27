@@ -1059,6 +1059,7 @@ pub fn build_router(
             "/skill_market_rebuild_artifact",
             post(handlers::skill_market::rebuild_artifact),
         )
+        .route("/scenarios_catalog", post(handlers::scenarios::catalog))
         // ─── Experts ───
         .route("/experts_list", post(handlers::experts::experts_list))
         .route(

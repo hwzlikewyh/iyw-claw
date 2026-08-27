@@ -1024,6 +1024,14 @@ export interface AgentInputItem {
 export interface PromptDraft {
   blocks: PromptInputBlock[]
   displayText: string
+  /** Official scenario package metadata retained through queue/send boundaries. */
+  skillPackage?: PromptSkillPackage
+}
+
+export interface PromptSkillPackage {
+  id: string
+  slug: string
+  version: string
 }
 
 // Permission option info from agent
@@ -2613,6 +2621,35 @@ export interface QuickMessage {
   sort_order: number
   created_at: string
   updated_at: string
+}
+
+export interface ScenarioCategory {
+  id: string
+  key: string
+  displayName: string
+  icon: string | null
+  sortOrder: number
+}
+
+export interface Scenario {
+  id: string
+  categoryKey: string
+  slug: string
+  displayName: string
+  summary: string
+  promptTemplate: string
+  skillPackageId: string
+  skillPackageSlug: string
+  skillPackageVersion: string
+  icon: string | null
+  tone: string | null
+  sortOrder: number
+}
+
+export interface ScenarioCatalog {
+  revision: string
+  categories: ScenarioCategory[]
+  scenarios: Scenario[]
 }
 
 export interface GitStatusEntry {
