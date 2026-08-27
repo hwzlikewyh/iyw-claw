@@ -2184,6 +2184,19 @@ fn load_codex_config_toml_raw() -> Option<String> {
     fs::read_to_string(codex_config_toml_path()).ok()
 }
 
+fn load_codex_model_catalog_raw() -> Option<String> {
+    fs::read_to_string(codex_model_catalog_path()).ok()
+}
+
+fn load_codex_model_catalog_raw_for_env(runtime_env: &BTreeMap<String, String>) -> Option<String> {
+    runtime_env
+        .get("CODEX_HOME")
+        .map(PathBuf::from)
+        .map(|home| home.join(CODEX_MODEL_CATALOG_FILE))
+        .and_then(|path| fs::read_to_string(path).ok())
+        .or_else(load_codex_model_catalog_raw)
+}
+
 /// Project codex `config.toml` text into the launch-relevant config map shared
 /// by the settings read-back and the staleness fingerprint. Pure (no I/O) so it
 /// is unit-testable; [`load_codex_local_config_json`] is the on-disk wrapper
@@ -2333,13 +2346,13 @@ fn codex_config_projection_from_toml(raw_toml: &str) -> serde_json::Map<String, 
     merged
 }
 
-fn load_codex_local_config_json() -> Option<String> {
-    let mut merged = match fs::read_to_string(codex_config_toml_path()) {
+fn load_codex_local_config_json_at(home: &Path) -> Option<String> {
+    let mut merged = match fs::read_to_string(home.join("config.toml")) {
         Ok(raw_toml) => codex_config_projection_from_toml(&raw_toml),
         Err(_) => serde_json::Map::new(),
     };
 
-    if let Ok(raw_auth) = fs::read_to_string(codex_auth_json_path()) {
+    if let Ok(raw_auth) = fs::read_to_string(home.join("auth.json")) {
         if let Ok(auth) = serde_json::from_str::<serde_json::Value>(&raw_auth) {
             if let Some(api_key) = auth
                 .get("OPENAI_API_KEY")
@@ -2372,6 +2385,10 @@ fn load_codex_local_config_json() -> Option<String> {
         return None;
     }
     serde_json::to_string_pretty(&serde_json::Value::Object(merged)).ok()
+}
+
+fn load_codex_local_config_json() -> Option<String> {
+    load_codex_local_config_json_at(&codex_home_dir())
 }
 
 fn persist_codex_local_config(config_patch_json: Option<&str>) -> Result<(), AcpError> {
@@ -8853,8 +8870,23 @@ pub(crate) fn fingerprint_config(
         hasher.update([0u8]);
     }
     hasher.update(b"\x01native\x01");
-    if let Some(native) = load_agent_local_config_json(agent_type) {
+    let native = if agent_type == AgentType::Codex {
+        runtime_env
+            .get("CODEX_HOME")
+            .map(PathBuf::from)
+            .and_then(|home| load_codex_local_config_json_at(&home))
+            .or_else(|| load_codex_local_config_json())
+    } else {
+        load_agent_local_config_json(agent_type)
+    };
+    if let Some(native) = native {
         hasher.update(native.as_bytes());
+    }
+    if agent_type == AgentType::Codex {
+        hasher.update(b"\x01codex_model_catalog\x01");
+        if let Some(catalog) = load_codex_model_catalog_raw_for_env(runtime_env) {
+            hasher.update(catalog.as_bytes());
+        }
     }
     // Grok's native TOML is edited through its settings surface and is not
     // represented by the generic JSON projection above. Include it explicitly
@@ -9058,6 +9090,7 @@ pub async fn acp_connect(
     session_id: Option<String>,
     preferred_mode_id: Option<String>,
     preferred_config_values: Option<BTreeMap<String, String>>,
+    force_host_restart: Option<bool>,
     manager: State<'_, ConnectionManager>,
     db: State<'_, AppDatabase>,
     app_handle: tauri::AppHandle,
@@ -9137,6 +9170,7 @@ pub async fn acp_connect(
             emitter,
             preferred_mode_id,
             preferred_config_values.unwrap_or_default(),
+            force_host_restart.unwrap_or(false),
             startup_trace,
         )
         .await

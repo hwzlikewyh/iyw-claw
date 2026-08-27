@@ -56,6 +56,23 @@ export function StatusBarConnection() {
     getActiveKey
   )
 
+  const subscribeReplacing = useCallback(
+    (cb: () => void) => {
+      if (!activeKey) return () => {}
+      return store.subscribeKey(activeKey, cb)
+    },
+    [store, activeKey]
+  )
+  const getReplacingSnapshot = useCallback(
+    () => (activeKey ? store.isReplacing(activeKey) : false),
+    [store, activeKey]
+  )
+  const isReplacing = useSyncExternalStore(
+    subscribeReplacing,
+    getReplacingSnapshot,
+    getReplacingSnapshot
+  )
+
   // Subscribe to the active connection's changes
   const subscribeConn = useCallback(
     (cb: () => void) => {
@@ -75,7 +92,8 @@ export function StatusBarConnection() {
   )
 
   const status = activeConn?.status ?? null
-  const agentType = activeConn?.agentType ?? null
+  const activeTab = tabs.find((tab) => tab.id === activeTabId)
+  const agentType = activeConn?.agentType ?? activeTab?.agentType ?? null
 
   // Selecting the primitive model string keeps this component inert to every
   // unrelated conversation update.
@@ -88,7 +106,7 @@ export function StatusBarConnection() {
     return conv?.model ?? null
   })
 
-  if (!agentType || !status || status === "disconnected") {
+  if (!agentType || (!isReplacing && (!status || status === "disconnected"))) {
     return (
       <TooltipProvider>
         <Tooltip>
@@ -104,13 +122,15 @@ export function StatusBarConnection() {
     )
   }
 
-  const style = STATUS_STYLE[status]
+  const effectiveStatus = isReplacing ? "connected" : status
+  if (!effectiveStatus) return null
+  const style = STATUS_STYLE[effectiveStatus]
   if (!style) return null
 
   const label = getAgentDisplayName(agentType)
   const statusLabel = t(style.labelKey)
   const tooltipText =
-    status === "error" && activeConn?.error
+    !isReplacing && status === "error" && activeConn?.error
       ? t("tooltipError", { agent: label, error: activeConn.error })
       : t("tooltip", { agent: label, status: statusLabel })
 

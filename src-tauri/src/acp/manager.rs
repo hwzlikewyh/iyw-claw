@@ -719,6 +719,7 @@ impl ConnectionManager {
             emitter,
             preferred_mode_id,
             preferred_config_values,
+            false,
             crate::user_memory::UserMemoryOrigin::Root,
             startup_trace,
         )
@@ -736,6 +737,7 @@ impl ConnectionManager {
         emitter: EventEmitter,
         preferred_mode_id: Option<String>,
         preferred_config_values: BTreeMap<String, String>,
+        force_host_restart: bool,
         startup_trace: crate::acp::startup_trace::StartupTrace,
     ) -> Result<String, AcpError> {
         self.spawn_agent_with_origin_traced(
@@ -747,6 +749,7 @@ impl ConnectionManager {
             emitter,
             preferred_mode_id,
             preferred_config_values,
+            force_host_restart,
             crate::user_memory::UserMemoryOrigin::Root,
             startup_trace,
         )
@@ -782,6 +785,7 @@ impl ConnectionManager {
             emitter,
             preferred_mode_id,
             preferred_config_values,
+            false,
             user_memory_origin,
             startup_trace,
         )
@@ -799,6 +803,7 @@ impl ConnectionManager {
         emitter: EventEmitter,
         preferred_mode_id: Option<String>,
         preferred_config_values: BTreeMap<String, String>,
+        force_host_restart: bool,
         user_memory_origin: crate::user_memory::UserMemoryOrigin,
         startup_trace: crate::acp::startup_trace::StartupTrace,
     ) -> Result<String, AcpError> {
@@ -860,20 +865,26 @@ impl ConnectionManager {
             None
         };
 
-        if let Some(existing) = self
-            .find_connection_for_reuse(agent_type, working_dir_path.as_ref(), session_id.as_deref())
-            .await
-        {
-            startup_trace.bind_connection(existing.clone());
-            startup_trace.record("connection_reuse", "reused", Duration::ZERO);
-            tracing::info!(
-                connection_id = existing,
-                session_id = session_id.as_deref().unwrap_or(""),
-                agent = %agent_type,
-                origin = ?user_memory_origin,
-                "[ACP] connection reused"
-            );
-            return Ok(existing);
+        if !force_host_restart {
+            if let Some(existing) = self
+                .find_connection_for_reuse(
+                    agent_type,
+                    working_dir_path.as_ref(),
+                    session_id.as_deref(),
+                )
+                .await
+            {
+                startup_trace.bind_connection(existing.clone());
+                startup_trace.record("connection_reuse", "reused", Duration::ZERO);
+                tracing::info!(
+                    connection_id = existing,
+                    session_id = session_id.as_deref().unwrap_or(""),
+                    agent = %agent_type,
+                    origin = ?user_memory_origin,
+                    "[ACP] connection reused"
+                );
+                return Ok(existing);
+            }
         }
 
         let verification_stage = startup_trace.stage("local_runtime_verify");
@@ -929,6 +940,7 @@ impl ConnectionManager {
             startup_trace,
             preferred_mode_id,
             preferred_config_values,
+            force_host_restart,
             user_memory_context,
             matches!(
                 user_memory_origin,

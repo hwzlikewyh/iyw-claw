@@ -17,10 +17,14 @@ must never be shown as applied before the Agent acknowledges it.
    been parsed; Agent errors are returned to the caller and still emitted as a
    recoverable session error.
 3. The chat panel does not send configuration changes while a turn is running.
-   If an idle connection does not advertise the selected model, it performs one
-   guarded same-session reconnect. The fresh Agent process reads the updated
-   native model projection and re-advertises selectors. If the model is still
-   unavailable, the selection rolls back to the Agent-reported current value.
+   Catalog refreshes only update the selectable model list. When the user picks
+   a model that the current Agent selector does not advertise, the panel queues
+   a silent same-session replacement; if a turn is active, it waits for the
+   idle edge first. The replacement explicitly bypasses shared Host reuse so a
+   fresh Agent process reads the updated native model projection. The switch is
+   successful only when the new selector both advertises and reports the target
+   as `current_value`; otherwise the selection rolls back to the Agent-reported
+   current value.
 4. Existing queue, prompt, viewer, and snapshot flows remain unchanged. Model
    preferences are persisted only as the desired value; failed recovery removes
    the unsupported value and restores the confirmed live value.
@@ -32,6 +36,9 @@ must never be shown as applied before the Agent acknowledges it.
 - The frontend never treats command-channel enqueue as model-switch success.
 - No model reconnect is attempted during `prompting`, for viewers, or for
   delegation children.
+- A catalog update alone never reconnects an Agent or changes the active model.
+- A user-triggered missing-model replacement is silent: no connecting task,
+  loading label, or transient connection error is rendered in the chat panel.
 - Same-session reconnect preserves the external session ID and conversation
   history.
 - Existing user-controlled model choice is preserved when new catalog entries
