@@ -2330,6 +2330,7 @@ const ConversationTabView = memo(function ConversationTabView({
       artifactConversationId={dbConversationId}
       agentType={selectedAgent}
       modelName={currentModelName(connectionConfigOptions)}
+      modelOptions={connectionConfigOptions}
       connStatus={connStatus}
       isActive={isActive}
       sendSignal={sendSignal}

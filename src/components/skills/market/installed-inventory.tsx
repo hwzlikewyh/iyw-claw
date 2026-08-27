@@ -47,7 +47,7 @@ function InventoryListState({
   const t = useTranslations("SkillMarketV2.inventory")
   if (kind === "loading") {
     return (
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-3 p-4 sm:p-5">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-3 p-4 sm:p-5">
         {Array.from({ length: 6 }, (_, index) => (
           <Skeleton key={index} className="h-[11.75rem] rounded-lg" />
         ))}
@@ -113,7 +113,7 @@ function InventoryCards({
 }) {
   return (
     <ScrollArea className="min-h-0 flex-1">
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,17rem),1fr))] gap-3 p-4 sm:p-5">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-3 p-4 sm:p-5">
         {skills.map((skill) => (
           <InstalledInventoryCard
             key={inventoryKey(skill)}

@@ -63,8 +63,14 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useTranslations } from "next-intl"
-import type { AgentType, ConnectionStatus, SessionStats } from "@/lib/types"
+import type {
+  AgentType,
+  ConnectionStatus,
+  SessionConfigOptionInfo,
+  SessionStats,
+} from "@/lib/types"
 import { copyTextToClipboard } from "@/lib/utils"
+import { modelDisplayName } from "@/lib/model-config-groups"
 import { VirtualizedMessageThread } from "@/components/message/virtualized-message-thread"
 import type { MessageScrollPosition } from "@/components/message/virtualized-message-thread"
 import { SubAgentDelegationsPopover } from "@/components/message/sub-agent-delegations-popover"
@@ -94,6 +100,7 @@ interface MessageListViewProps {
   artifactConversationId?: number | null
   agentType: AgentType
   modelName?: string | null
+  modelOptions?: SessionConfigOptionInfo[]
   connStatus?: ConnectionStatus | null
   isActive?: boolean
   sendSignal?: number
@@ -485,6 +492,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   conversationId,
   artifactConversationId,
   agentType,
+  modelOptions,
   enableUserMemoryActions,
   dimmed = false,
   showStats = true,
@@ -500,6 +508,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   conversationId: number
   artifactConversationId: number | null
   agentType: AgentType
+  modelOptions?: SessionConfigOptionInfo[]
   enableUserMemoryActions: boolean
   dimmed?: boolean
   showStats?: boolean
@@ -586,8 +595,10 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
               <TurnStats
                 usage={group.usage}
                 duration_ms={group.duration_ms}
-                model={group.model}
-                models={group.models}
+                model={modelDisplayName(modelOptions, group.model)}
+                models={group.models?.map(
+                  (model) => modelDisplayName(modelOptions, model) ?? model
+                )}
                 previousUserIndex={previousUserIndex}
                 isResponseComplete={isResponseComplete}
                 copyText={extractTextFromParts(group.parts)}
@@ -643,6 +654,7 @@ export function MessageListView({
   artifactConversationId,
   agentType,
   modelName,
+  modelOptions,
   connStatus,
   isActive = true,
   sendSignal = 0,
@@ -896,6 +908,7 @@ export function MessageListView({
                   conversationId={conversationId}
                   artifactConversationId={resolvedArtifactConversationId}
                   agentType={agentType}
+                  modelOptions={modelOptions}
                   enableUserMemoryActions={enableUserMemoryActions}
                   dimmed={item.phase === "optimistic"}
                   showStats={item.showStats}
@@ -965,6 +978,7 @@ export function MessageListView({
       autoOpenErrors,
       lastAssistantItem,
       loadEarlierHistory,
+      modelOptions,
       t,
     ]
   )

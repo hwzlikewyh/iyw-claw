@@ -96,11 +96,9 @@ function ErrorNotice({
 function MemoryStatusBadges({
   settings,
   health,
-  staleRunningSessions,
 }: {
   settings: UserMemorySettingsSnapshot
   health: MemoryHealth
-  staleRunningSessions: number
 }) {
   const t = useTranslations("UserMemorySettings")
   if (health.availabilityDown)
@@ -110,15 +108,6 @@ function MemoryStatusBadges({
   }
   if (health.activityDown) {
     return <StatusBadge text={t("status.candidateUnavailable")} />
-  }
-  if (staleRunningSessions > 0) {
-    return (
-      <StatusBadge
-        text={t("status.newConversationRequired", {
-          count: staleRunningSessions,
-        })}
-      />
-    )
   }
   if (!settings.enabled)
     return <Badge variant="outline">{t("status.disabled")}</Badge>
@@ -137,11 +126,7 @@ function HeaderActions({ state, health }: LoadedProps) {
   const t = useTranslations("UserMemorySettings")
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <MemoryStatusBadges
-        settings={state.settings}
-        health={health}
-        staleRunningSessions={state.staleRunningSessions}
-      />
+      <MemoryStatusBadges settings={state.settings} health={health} />
       <Button
         size="sm"
         variant="outline"

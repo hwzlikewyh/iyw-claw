@@ -8,7 +8,6 @@ import { MarketBadgeGroup } from "@/components/skills/market/badges"
 import {
   audienceBadgeInfo,
   compatibilityBadgeInfo,
-  installStateBadgeInfo,
   primaryInstallAction,
   type MarketBadgeInfo,
   type SkillMarketTranslator,
@@ -27,7 +26,6 @@ function itemBadges(item: SkillMarketV2Item): MarketBadgeInfo[] {
           },
         ]
       : []),
-    installStateBadgeInfo(item.installState),
     ...(item.compatibility !== "compatible"
       ? [compatibilityBadgeInfo(item.compatibility)]
       : []),
