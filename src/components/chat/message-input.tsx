@@ -156,7 +156,7 @@ import {
   type SessionConfigTranslator,
 } from "@/lib/session-config-localization"
 import { orderSessionSelectors } from "@/lib/session-selector-order"
-import { useAgentSkills } from "@/hooks/use-agent-skills"
+import { refreshAgentSkills, useAgentSkills } from "@/hooks/use-agent-skills"
 import { useBuiltInExperts } from "@/hooks/use-built-in-experts"
 import { useEnabledSkillIds } from "@/hooks/use-enabled-skill-ids"
 import { useScrollbarSafeDismiss } from "@/hooks/use-scrollbar-safe-dismiss"
@@ -957,6 +957,8 @@ export function MessageInput({
   const collapsedSelectorsGuard = useScrollbarSafeDismiss()
   const [quickMessages, setQuickMessages] = useState<QuickMessage[]>([])
   const [quickMessagesLoading, setQuickMessagesLoading] = useState(false)
+  const [skillsMenuScanning, setSkillsMenuScanning] = useState(false)
+  const [skillsMenuScanFailed, setSkillsMenuScanFailed] = useState(false)
   // Whether the async Clipboard read API is usable here. It's absent in
   // non-secure web deployments served over HTTP/LAN (see installClipboardFallback
   // in lib/utils, which only shims writeText), so the composer's custom
@@ -2696,6 +2698,21 @@ export function MessageInput({
     [loadQuickMessages]
   )
 
+  const handleSkillsMenuOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open || !agentType) return
+      setSkillsMenuScanFailed(false)
+      setSkillsMenuScanning(true)
+      void refreshAgentSkills(agentType, defaultPath ?? null)
+        .catch((error) => {
+          setSkillsMenuScanFailed(true)
+          console.error("[MessageInput] skill directory scan failed:", error)
+        })
+        .finally(() => setSkillsMenuScanning(false))
+    },
+    [agentType, defaultPath]
+  )
+
   const handleQuickMessageSelect = useCallback((message: QuickMessage) => {
     if (!message.content) return
     editorRef.current?.insertTextAtCursor(message.content)
@@ -4271,10 +4288,10 @@ export function MessageInput({
                         skillPrefix={skillPrefix}
                         onSelect={handleTaskCommandSelect}
                       />
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger
-                          disabled={visibleEnabledSkills.length === 0}
-                        >
+                      <DropdownMenuSub
+                        onOpenChange={handleSkillsMenuOpenChange}
+                      >
+                        <DropdownMenuSubTrigger disabled={!agentType}>
                           <BookOpenText className="size-4" />
                           {t("skills")}
                         </DropdownMenuSubTrigger>
@@ -4286,24 +4303,40 @@ export function MessageInput({
                               "min(32rem, var(--radix-dropdown-menu-content-available-height))",
                           }}
                         >
-                          {visibleEnabledSkills.map((skill) => (
-                            <DropdownMenuItem
-                              key={`${skill.scope}-${skill.id}`}
-                              onClick={() => handleSkillMenuSelect(skill)}
-                            >
-                              <BookOpenText className="size-4" />
-                              <span className="min-w-0 flex-1">
-                                <span className="block truncate">
-                                  {skill.name || skill.id}
-                                </span>
-                                {skill.description && (
-                                  <span className="block truncate text-xs text-muted-foreground">
-                                    {skill.description}
+                          {skillsMenuScanning &&
+                          visibleEnabledSkills.length === 0 ? (
+                            <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                              {t("skillsLoading")}
+                            </div>
+                          ) : skillsMenuScanFailed &&
+                            visibleEnabledSkills.length === 0 ? (
+                            <div className="px-3 py-4 text-center text-xs text-destructive">
+                              {t("skillsScanFailed")}
+                            </div>
+                          ) : visibleEnabledSkills.length === 0 ? (
+                            <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                              {t("skillsEmpty")}
+                            </div>
+                          ) : (
+                            visibleEnabledSkills.map((skill) => (
+                              <DropdownMenuItem
+                                key={`${skill.scope}-${skill.id}`}
+                                onClick={() => handleSkillMenuSelect(skill)}
+                              >
+                                <BookOpenText className="size-4" />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate">
+                                    {skill.name || skill.id}
                                   </span>
-                                )}
-                              </span>
-                            </DropdownMenuItem>
-                          ))}
+                                  {skill.description && (
+                                    <span className="block truncate text-xs text-muted-foreground">
+                                      {skill.description}
+                                    </span>
+                                  )}
+                                </span>
+                              </DropdownMenuItem>
+                            ))
+                          )}
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
                       {/* A custom-dir pi can't have skills managed by iyw-claw's

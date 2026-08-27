@@ -2892,6 +2892,9 @@
           "serviceUnavailable": "Voice recognition is temporarily unavailable. Text already in the input was kept."
         },
         "skills": "Skills",
+        "skillsLoading": "Scanning Skill directories…",
+        "skillsScanFailed": "Could not scan Skill directories. Try again.",
+        "skillsEmpty": "No enabled Skills found for this workspace",
         "taskCommands": {
           "title": "Task style",
           "enabled": "Enabled",
@@ -5345,6 +5348,7 @@
       "organization": "Organization",
       "mine": "Mine",
       "installed": "Installed",
+      "enabled": "Enabled",
       "needs_update": "Updates"
     },
     "uploadShort": "Upload",
@@ -5399,6 +5403,10 @@
       "budget": "Highest agent routing budget: {used}/{limit} chars · {count} Skills",
       "noDescription": "No description available",
       "agentCount": "{enabled}/{total} agents",
+      "count": "{count} skills",
+      "openDetail": "Open details for {name}",
+      "details": "Skill details",
+      "detailsHint": "Review the Skill's installed locations and Agent activation state.",
       "agents": "Agent activation",
       "requiredDependency": "Required dependency",
       "dependencies": "Dependencies: {values}",
