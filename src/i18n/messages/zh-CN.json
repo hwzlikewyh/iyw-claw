@@ -5308,6 +5308,7 @@
       "catalogTitle": "可用插件",
       "catalogSubtitle": "来自 Fusion 市场的真实插件版本与组件",
       "catalogCount": "{count} 个插件",
+      "openDetail": "打开 {name} 详情",
       "loading": "正在加载插件",
       "retry": "重试",
       "empty": "当前市场中没有可用插件",

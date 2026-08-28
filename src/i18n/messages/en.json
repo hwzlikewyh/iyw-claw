@@ -5326,6 +5326,7 @@
       "catalogTitle": "Available plugins",
       "catalogSubtitle": "Live plugin releases and components from Fusion",
       "catalogCount": "{count} plugins",
+      "openDetail": "Open {name} details",
       "loading": "Loading plugins",
       "retry": "Retry",
       "empty": "No plugins are currently available",

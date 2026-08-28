@@ -33,7 +33,8 @@ export function SkillMarketView({
 }) {
   const market = useSkillMarket(navigationTarget?.skillId)
   const install = useSkillMarketInstall()
-  const { list, selectItem } = market
+  const { list, selectItem, updateQuery } = market
+  const targetQueryRequestRef = useRef<number | null>(null)
   const targetLoadingRequestRef = useRef<number | null>(null)
   const handledTargetRequestRef = useRef<number | null>(null)
 
@@ -65,6 +66,27 @@ export function SkillMarketView({
     if (!navigationTarget) return
     const { requestId, skillId } = navigationTarget
     if (handledTargetRequestRef.current === requestId) return
+    const item = list.items.find((candidate) => candidate.slug === skillId)
+    if (item) {
+      handledTargetRequestRef.current = requestId
+      selectItem(item)
+      setDetailOpen(true)
+      onNavigationTargetConsumed(requestId)
+      return
+    }
+    if (targetQueryRequestRef.current !== requestId) {
+      targetQueryRequestRef.current = requestId
+      updateQuery({
+        view: "market",
+        publisher: "all",
+        distribution: "all",
+        compatibility: "all",
+        category: null,
+        sort: "recommended",
+        q: skillId,
+      })
+      return
+    }
     if (list.loading) {
       targetLoadingRequestRef.current = requestId
       return
@@ -72,10 +94,6 @@ export function SkillMarketView({
     if (targetLoadingRequestRef.current !== requestId || list.error) return
 
     handledTargetRequestRef.current = requestId
-    const item = list.items.find((candidate) => candidate.slug === skillId)
-    if (!item) return
-    selectItem(item)
-    setDetailOpen(true)
     onNavigationTargetConsumed(requestId)
   }, [
     list.error,
@@ -84,6 +102,7 @@ export function SkillMarketView({
     navigationTarget,
     onNavigationTargetConsumed,
     selectItem,
+    updateQuery,
   ])
 
   const handlePrimaryAction = useCallback(

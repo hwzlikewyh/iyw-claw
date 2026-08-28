@@ -149,7 +149,12 @@ function PluginCard({
   const components = plugin?.components ?? []
   const status = item.currentVersion.status
   return (
-    <article className="group flex min-h-44 flex-col rounded-lg border bg-background p-4 transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-md">
+    <button
+      type="button"
+      className="group flex min-h-44 flex-col rounded-lg border bg-background p-4 text-left transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      aria-label={t("openDetail", { name: item.displayName })}
+      onClick={onOpen}
+    >
       <div className="flex items-start justify-between gap-3">
         <span className="flex size-9 items-center justify-center rounded-md bg-primary/10">
           <Package className="size-4" aria-hidden="true" />
@@ -158,14 +163,10 @@ function PluginCard({
           {t(`status.${status}`)}
         </span>
       </div>
-      <button
-        type="button"
-        className="mt-4 flex min-w-0 items-center gap-1 text-left text-sm font-semibold hover:underline"
-        onClick={onOpen}
-      >
+      <span className="mt-4 flex min-w-0 items-center gap-1 text-sm font-semibold group-hover:underline">
         <span className="truncate">{item.displayName}</span>
         <ArrowUpRight className="size-3.5 shrink-0" aria-hidden="true" />
-      </button>
+      </span>
       <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
         {item.summary}
       </p>
@@ -190,7 +191,7 @@ function PluginCard({
           v{item.currentVersion.version}
         </span>
       </div>
-    </article>
+    </button>
   )
 }
 
