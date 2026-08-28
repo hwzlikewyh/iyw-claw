@@ -1,5 +1,5 @@
 use sea_orm_migration::prelude::*;
-use sea_orm_migration::sea_orm::{ConnectionTrait, DatabaseTransaction, TransactionTrait};
+use sea_orm_migration::sea_orm::ConnectionTrait;
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -17,29 +17,24 @@ impl MigrationTrait for Migration {
         let add_component_config = !manager
             .has_column("plugin_component_ownership", "component_config_json")
             .await?;
-        let transaction = connection.begin().await?;
-        let result = async {
-            for statement in column_statements {
-                transaction.execute_unprepared(statement).await?;
-            }
-            if add_component_config {
-                transaction
-                    .execute_unprepared(COMPONENT_CONFIG_COLUMN)
-                    .await?;
-            }
-            for statement in CREATE_STATE_TABLES {
-                transaction.execute_unprepared(statement).await?;
-            }
-            transaction
-                .execute_unprepared(
-                    "UPDATE plugin_installation SET schema_version = 1, trust_state = 'legacy', \
-                     reconcile_state = 'ready', status = 'installed' WHERE schema_version = 0",
-                )
-                .await?;
-            Ok::<(), DbErr>(())
+        for statement in column_statements {
+            connection.execute_unprepared(statement).await?;
         }
-        .await;
-        finish_transaction(transaction, result).await
+        if add_component_config {
+            connection
+                .execute_unprepared(COMPONENT_CONFIG_COLUMN)
+                .await?;
+        }
+        for statement in CREATE_STATE_TABLES {
+            connection.execute_unprepared(statement).await?;
+        }
+        connection
+            .execute_unprepared(
+                "UPDATE plugin_installation SET schema_version = 1, trust_state = 'legacy', \
+                 reconcile_state = 'ready', status = 'installed' WHERE schema_version = 0",
+            )
+            .await?;
+        Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
@@ -54,19 +49,6 @@ impl MigrationTrait for Migration {
                 .await?;
         }
         Ok(())
-    }
-}
-
-async fn finish_transaction(
-    transaction: DatabaseTransaction,
-    result: Result<(), DbErr>,
-) -> Result<(), DbErr> {
-    match result {
-        Ok(()) => transaction.commit().await,
-        Err(error) => {
-            let _ = transaction.rollback().await;
-            Err(error)
-        }
     }
 }
 

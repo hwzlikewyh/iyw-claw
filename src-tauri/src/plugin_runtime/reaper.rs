@@ -9,7 +9,7 @@ const REAP_INTERVAL: Duration = Duration::from_secs(30);
 
 pub(super) fn spawn(inner: &Arc<SupervisorInner>) {
     let weak = Arc::downgrade(inner);
-    tokio::spawn(async move {
+    let task = async move {
         let mut interval = tokio::time::interval(REAP_INTERVAL);
         loop {
             interval.tick().await;
@@ -21,7 +21,11 @@ pub(super) fn spawn(inner: &Arc<SupervisorInner>) {
             }
             reap_idle(&inner).await;
         }
-    });
+    };
+    #[cfg(feature = "tauri-runtime")]
+    tauri::async_runtime::spawn(task);
+    #[cfg(not(feature = "tauri-runtime"))]
+    tokio::spawn(task);
 }
 
 async fn reap_idle(inner: &Arc<SupervisorInner>) {
