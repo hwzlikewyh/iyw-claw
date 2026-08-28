@@ -21,7 +21,6 @@ import { scenariosCatalog } from "@/lib/api"
 import type { Scenario, ScenarioCatalog } from "@/lib/types"
 import type { ComposerInjectContent } from "@/components/chat/message-input"
 import { cn } from "@/lib/utils"
-import { ScenarioPreferencesDialog } from "./scenario-preferences-dialog"
 import { useScenarioPreferences } from "./scenario-preferences"
 
 const ICONS: Record<string, LucideIcon> = {
@@ -97,8 +96,7 @@ interface QuickActionsProps {
 
 export function QuickActions({ onSelect }: QuickActionsProps) {
   const { catalog, error } = useOfficialScenarioCatalog()
-  const { preferences, updatePreference, resetPreference } =
-    useScenarioPreferences()
+  const { preferences } = useScenarioPreferences()
   const [categoryKey, setCategoryKey] = useState<string | null>(null)
   const categories = catalog?.categories ?? []
   const activeCategory =
@@ -153,13 +151,6 @@ export function QuickActions({ onSelect }: QuickActionsProps) {
             </button>
           ))}
         </div>
-        <ScenarioPreferencesDialog
-          categories={categories}
-          scenarios={catalog.scenarios}
-          preferences={preferences}
-          onUpdate={updatePreference}
-          onReset={resetPreference}
-        />
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {scenarios.length ? (
