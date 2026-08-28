@@ -372,10 +372,13 @@ pub async fn iyw_account_list_models_core(
         .get(crate::acp::provider_overlay::model_gateway_models_url())
         .header("token", token.expose())
         .header("Content-Type", "application/json");
-    if let Some(agent_type) = agent_type {
-        let sdk_id = crate::acp::version_center::platform_id(conn, agent_type).await?;
-        request = request.query(&[("sdk_id", sdk_id)]);
-    }
+    let scoped_request = if let Some(agent_type) = agent_type {
+        let platform_id = crate::acp::version_center::platform_id(conn, agent_type).await?;
+        request = request.query(&[("sdk_id", &platform_id)]);
+        Some((agent_type, platform_id))
+    } else {
+        None
+    };
     let response = request.send().await.map_err(|error| {
         AppCommandError::network("Failed to fetch gateway models").with_detail(error.to_string())
     })?;
@@ -390,22 +393,22 @@ pub async fn iyw_account_list_models_core(
             AppCommandError::network("Gateway model response was invalid")
                 .with_detail(error.to_string())
         })?;
-    let catalog_changed = if agent_type.is_none() {
-        // The complete catalog is authoritative and may remove models.
-        crate::acp::model_catalog::update_from_payload(&payload)
-    } else {
-        // An SDK-filtered response is authoritative only for that Agent. Merge
-        // its entries so a newly published model reaches the next safe Agent
-        // spawn without deleting models belonging to other Agents.
-        crate::acp::model_catalog::merge_from_payload(&payload)
+    let catalog_changed = match scoped_request.as_ref() {
+        None => crate::acp::model_catalog::update_from_payload(&payload),
+        Some((agent_type, platform_id)) => crate::acp::model_catalog::replace_scoped_from_payload(
+            *agent_type,
+            platform_id,
+            &payload,
+        ),
     };
-    if catalog_changed {
-        // Keep already-created Agent profiles in sync with the catalog. Running
-        // ACP processes are not mutated here; their idle reconnect path will
-        // read these projections without interrupting an active turn.
-        if let Err(error) =
-            crate::acp::provider_overlay::enforce_existing_active_provider_overlays()
-        {
+    if catalog_changed || scoped_request.is_some() {
+        let projection = match scoped_request {
+            Some((agent_type, _)) => {
+                crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
+            }
+            None => crate::acp::provider_overlay::enforce_existing_active_provider_overlays(),
+        };
+        if let Err(error) = projection {
             tracing::warn!("[ModelCatalog] failed to update Agent model projections: {error}");
         }
     }

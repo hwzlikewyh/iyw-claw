@@ -75,6 +75,10 @@ async fn emit_options(
         state,
         emitter,
         AcpEvent::SessionConfigOptions {
+            model_switch_capability: crate::acp::types::ModelSwitchCapability::classify(
+                AgentType::Grok,
+                &options,
+            ),
             config_options: options,
         },
     )

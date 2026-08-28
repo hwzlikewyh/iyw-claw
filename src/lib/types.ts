@@ -1400,6 +1400,7 @@ export type AcpEvent =
   | {
       type: "session_config_options"
       config_options: SessionConfigOptionInfo[]
+      model_switch_capability?: ModelSwitchCapability
     }
   | {
       type: "selectors_ready"
@@ -1822,6 +1823,7 @@ export interface LiveSessionSnapshot {
   modes: SessionModeStateInfo | null
   current_mode: string | null
   config_options: SessionConfigOptionInfo[] | null
+  model_switch_capability?: ModelSwitchCapability
   prompt_capabilities: PromptCapabilitiesInfo | null
   usage: SessionUsageUpdateInfo | null
   compaction_at_tokens?: number | null
@@ -1840,6 +1842,8 @@ export interface LiveSessionSnapshot {
   session_failures?: SessionFailureRecord[]
   event_seq: number
 }
+
+export type ModelSwitchCapability = "none" | "startup_only" | "interactive"
 
 // Connection info returned by acp_list_connections
 export interface ConnectionInfo {

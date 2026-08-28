@@ -237,6 +237,15 @@ pub(crate) fn patch_json_config(
                 default_model,
             );
             set_json(root, &["env"], "ANTHROPIC_DEFAULT_HAIKU_MODEL", &haiku);
+            root.insert(
+                "availableModels".into(),
+                serde_json::Value::Array(
+                    model_ids
+                        .iter()
+                        .map(|model| serde_json::Value::String((*model).to_string()))
+                        .collect(),
+                ),
+            );
         }
         AgentType::CodeBuddy => {
             let existing = root

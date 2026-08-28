@@ -49,6 +49,7 @@ import type {
   ConnectionStatus,
   ConversationConnectionInfo,
   EventEnvelope,
+  ModelSwitchCapability,
   PlanEntryInfo,
   PermissionOptionInfo,
   PendingChannelConfirmationState,
@@ -194,6 +195,7 @@ export interface ConnectionState {
   sessionId: string | null
   modes: SessionModeStateInfo | null
   configOptions: SessionConfigOptionInfo[] | null
+  modelSwitchCapability: ModelSwitchCapability
   availableCommands: AvailableCommandInfo[] | null
   usage: SessionUsageUpdateInfo | null
   compactionAtTokens: number | null
@@ -529,6 +531,7 @@ type Action =
       type: "SESSION_CONFIG_OPTIONS"
       contextKey: string
       configOptions: SessionConfigOptionInfo[]
+      modelSwitchCapability: ModelSwitchCapability
     }
   | {
       type: "CONFIG_STALE_CHANGED"
@@ -1190,6 +1193,7 @@ function connectionsReducer(
         sessionId: null,
         modes: null,
         configOptions: null,
+        modelSwitchCapability: "none",
         availableCommands: null,
         usage: null,
         compactionAtTokens: null,
@@ -1252,6 +1256,7 @@ function connectionsReducer(
         sessionId: null,
         modes: null,
         configOptions: null,
+        modelSwitchCapability: "none",
         availableCommands: null,
         usage: null,
         compactionAtTokens: null,
@@ -1319,6 +1324,10 @@ function connectionsReducer(
       const mergedModes = current.modes ?? action.patch.modes
       const mergedConfigOptions =
         current.configOptions ?? action.patch.configOptions
+      const mergedModelSwitchCapability =
+        current.configOptions !== null
+          ? current.modelSwitchCapability
+          : action.patch.modelSwitchCapability
       const mergedAvailableCommands =
         current.availableCommands ?? action.patch.availableCommands
       const mergedPromptCapabilities =
@@ -1344,6 +1353,7 @@ function connectionsReducer(
           mergedSupportsFork === current.supportsFork &&
           mergedModes === current.modes &&
           mergedConfigOptions === current.configOptions &&
+          mergedModelSwitchCapability === current.modelSwitchCapability &&
           mergedAvailableCommands === current.availableCommands &&
           mergedPromptCapabilities === current.promptCapabilities &&
           mergedAgentInputs === current.agentInputs &&
@@ -1356,6 +1366,7 @@ function connectionsReducer(
           ...current,
           modes: mergedModes,
           configOptions: mergedConfigOptions,
+          modelSwitchCapability: mergedModelSwitchCapability,
           availableCommands: mergedAvailableCommands,
           promptCapabilities: mergedPromptCapabilities,
           selectorsReady: mergedSelectorsReady,
@@ -1378,6 +1389,7 @@ function connectionsReducer(
         sessionId: action.patch.sessionId,
         modes: action.patch.modes,
         configOptions: action.patch.configOptions,
+        modelSwitchCapability: action.patch.modelSwitchCapability,
         availableCommands: action.patch.availableCommands,
         usage: action.patch.usage,
         compactionAtTokens: action.patch.compactionAtTokens,
@@ -2150,13 +2162,17 @@ function connectionsReducer(
     case "SESSION_CONFIG_OPTIONS": {
       const conn = state.get(action.contextKey)
       if (!conn) return state
-      if (sameConfigOptions(conn.configOptions, action.configOptions)) {
+      if (
+        sameConfigOptions(conn.configOptions, action.configOptions) &&
+        conn.modelSwitchCapability === action.modelSwitchCapability
+      ) {
         return state
       }
       const next = new Map(state)
       next.set(action.contextKey, {
         ...conn,
         configOptions: action.configOptions,
+        modelSwitchCapability: action.modelSwitchCapability,
       })
       return next
     }
@@ -3103,7 +3119,11 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         delay,
       })
     },
-    [reportReplacementRetryExhausted, runPendingReplacement, setReplacementState]
+    [
+      reportReplacementRetryExhausted,
+      runPendingReplacement,
+      setReplacementState,
+    ]
   )
 
   useEffect(
@@ -3710,6 +3730,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             type: "SESSION_CONFIG_OPTIONS",
             contextKey,
             configOptions: e.config_options,
+            modelSwitchCapability: e.model_switch_capability ?? "none",
           })
           const cfgConn = storeRef.current.connections.get(contextKey)
           if (cfgConn) {

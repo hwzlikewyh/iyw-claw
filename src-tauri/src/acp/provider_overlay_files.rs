@@ -65,6 +65,12 @@ fn enforce_provider_overlay_at_root_with_kind(
     if !super::provider_overlay::uses_managed_gateway(agent) {
         return Ok(());
     }
+    if crate::acp::model_catalog::has_authoritative_empty_catalog(agent) {
+        return Err(format!(
+            "no compatible gateway model is configured for {}",
+            crate::acp::registry::registry_id_for(agent)
+        ));
+    }
     // Codex / Claude Code 走统一 reconciler：受控字段幂等写入 + 回读校验 +
     // fingerprint + 诊断；失败会阻止新会话 spawn（不得以未知配置启动）。
     if matches!(agent, AgentType::Codex | AgentType::ClaudeCode) {

@@ -44,6 +44,7 @@ export interface SnapshotPatch {
   sessionId: string | null
   modes: SessionModeStateInfo | null
   configOptions: SessionConfigOptionInfo[] | null
+  modelSwitchCapability: import("@/lib/types").ModelSwitchCapability
   availableCommands: AvailableCommandInfo[] | null
   usage: SessionUsageUpdateInfo | null
   compactionAtTokens: number | null
@@ -100,11 +101,14 @@ export function denormalizeSnapshot(wire: LiveSessionSnapshot): SnapshotPatch {
     sessionId: wire.external_id,
     modes: wire.modes,
     configOptions: wire.config_options,
+    modelSwitchCapability: wire.model_switch_capability ?? "none",
     availableCommands: wire.available_commands ?? null,
     usage: wire.usage,
-    compactionAtTokens: wire.compaction_at_tokens ?? wire.usage?.compaction_at_tokens ?? null,
+    compactionAtTokens:
+      wire.compaction_at_tokens ?? wire.usage?.compaction_at_tokens ?? null,
     compactionPending:
-      wire.compaction_pending === true || wire.usage?.compaction_pending === true,
+      wire.compaction_pending === true ||
+      wire.usage?.compaction_pending === true,
     liveMessage: wire.live_message
       ? denormalizeLiveMessage(wire.live_message, toolMap)
       : null,

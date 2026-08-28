@@ -24,6 +24,7 @@ import type {
   QuestionAnswer,
   SessionConfigOptionInfo,
   SessionModeStateInfo,
+  ModelSwitchCapability,
   PromptInputBlock,
   SessionFailureRecord,
 } from "@/lib/types"
@@ -61,6 +62,7 @@ export interface UseConnectionReturn {
   connectedWorkingDir: string | null
   modes: SessionModeStateInfo | null
   configOptions: SessionConfigOptionInfo[] | null
+  modelSwitchCapability: ModelSwitchCapability
   availableCommands: AvailableCommandInfo[] | null
   pendingPermission: PendingPermission | null
   agentInputs: AgentInputItem[]
@@ -213,6 +215,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
   const modes = connection?.modes ?? cached?.modes ?? null
   const configOptions =
     connection?.configOptions ?? cached?.configOptions ?? null
+  const modelSwitchCapability = connection?.modelSwitchCapability ?? "none"
   const availableCommands = connection?.availableCommands ?? null
   const pendingPermission = connection?.pendingPermission ?? null
   const agentInputs = connection?.agentInputs ?? EMPTY_AGENT_INPUTS
@@ -323,6 +326,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       connectedWorkingDir,
       modes,
       configOptions,
+      modelSwitchCapability,
       availableCommands,
       pendingPermission,
       agentInputs,
@@ -365,6 +369,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       connectedWorkingDir,
       modes,
       configOptions,
+      modelSwitchCapability,
       availableCommands,
       pendingPermission,
       agentInputs,

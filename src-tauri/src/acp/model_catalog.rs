@@ -1,22 +1,23 @@
-//! Runtime model catalog with persisted effective image capabilities.
+//! Runtime model catalog with complete and Agent-scoped layers.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock, RwLock};
 
 use crate::acp::provider_overlay_formats::MANAGED_MODEL_IDS;
+use crate::acp::registry;
 use crate::models::agent::AgentType;
 
 pub use super::model_catalog_types::{
     ImageInputMode, ModelCapabilities, ModelCapabilitySnapshot, ModelLimits,
 };
 use super::model_catalog_types::{
-    PersistedCatalog, PersistedCatalogV2, PersistedModel, RuntimeCatalog,
+    ModelCatalogLayer, PersistedCatalog, PersistedCatalogV4, PersistedModel, RuntimeCatalog,
 };
 
 const PERSIST_FILE_NAME: &str = "model-catalog.json";
-const PERSIST_VERSION: u32 = 3;
-const PREVIOUS_PERSIST_VERSION: u32 = 2;
+const PERSIST_VERSION: u32 = 4;
+const PREVIOUS_PERSIST_VERSIONS: [u32; 2] = [2, 3];
 
 fn interner() -> &'static Mutex<HashSet<&'static str>> {
     static INTERNER: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
@@ -39,63 +40,65 @@ fn catalog() -> &'static RwLock<RuntimeCatalog> {
 }
 
 fn initial_catalog() -> RuntimeCatalog {
-    load_persisted().unwrap_or_else(|| {
-        tracing::info!(
-            "[ModelCatalog] no persisted catalog, using built-in seed ({} models)",
-            MANAGED_MODEL_IDS.len()
-        );
-        RuntimeCatalog {
-            ids: MANAGED_MODEL_IDS.to_vec(),
-            capabilities: HashMap::new(),
-        }
+    load_persisted().unwrap_or_else(|| RuntimeCatalog {
+        complete: layer_from_models(
+            MANAGED_MODEL_IDS
+                .iter()
+                .map(|id| legacy_model((*id).to_string()))
+                .collect(),
+        ),
+        scoped: HashMap::new(),
+        agent_platform_ids: HashMap::new(),
     })
 }
 
 fn persist_path() -> Option<PathBuf> {
     let data_dir = std::env::var_os("IYW_CLAW_DATA_DIR")?;
-    if data_dir.is_empty() {
-        return None;
-    }
-    Some(PathBuf::from(data_dir).join(PERSIST_FILE_NAME))
+    (!data_dir.is_empty()).then(|| PathBuf::from(data_dir).join(PERSIST_FILE_NAME))
 }
 
 fn load_persisted() -> Option<RuntimeCatalog> {
-    let path = persist_path()?;
-    let raw = std::fs::read_to_string(&path).ok()?;
-    let persisted: PersistedCatalog = match serde_json::from_str(&raw) {
-        Ok(value) => value,
-        Err(error) => {
-            tracing::warn!("[ModelCatalog] failed to parse persisted catalog: {error}");
-            return None;
-        }
-    };
-    let models = match persisted {
-        PersistedCatalog::Legacy(ids) => ids
-            .into_iter()
-            .map(|id| PersistedModel {
-                id,
-                capabilities: ModelCapabilities::default(),
-                image_input_mode: ImageInputMode::None,
-                limits: ModelLimits::default(),
+    let raw = std::fs::read_to_string(persist_path()?).ok()?;
+    let persisted: PersistedCatalog = serde_json::from_str(&raw).ok()?;
+    match persisted {
+        PersistedCatalog::Legacy(ids) => Some(RuntimeCatalog {
+            complete: layer_from_models(ids.into_iter().map(legacy_model).collect()),
+            scoped: HashMap::new(),
+            agent_platform_ids: HashMap::new(),
+        }),
+        PersistedCatalog::Current(value) if PREVIOUS_PERSIST_VERSIONS.contains(&value.version) => {
+            Some(RuntimeCatalog {
+                complete: layer_from_models(value.models),
+                scoped: HashMap::new(),
+                agent_platform_ids: HashMap::new(),
             })
-            .collect(),
-        PersistedCatalog::Current(value)
-            if matches!(value.version, PREVIOUS_PERSIST_VERSION | PERSIST_VERSION) =>
-        {
-            value.models
         }
-        PersistedCatalog::Current(value) => {
-            tracing::warn!(
-                "[ModelCatalog] unsupported persisted version {}",
-                value.version
-            );
-            return None;
+        PersistedCatalog::Scoped(value) if value.version == PERSIST_VERSION => {
+            let scoped = value
+                .scoped
+                .into_iter()
+                .map(|(platform_id, models)| (platform_id, layer_from_models(models)))
+                .collect();
+            Some(RuntimeCatalog {
+                complete: layer_from_models(value.models),
+                scoped,
+                agent_platform_ids: value.agent_platform_ids,
+            })
         }
-    };
-    runtime_catalog(models)
+        _ => None,
+    }
 }
 
-fn runtime_catalog(models: Vec<PersistedModel>) -> Option<RuntimeCatalog> {
+fn legacy_model(id: String) -> PersistedModel {
+    PersistedModel {
+        id,
+        capabilities: ModelCapabilities::default(),
+        image_input_mode: ImageInputMode::None,
+        limits: ModelLimits::default(),
+    }
+}
+
+pub(super) fn layer_from_models(models: Vec<PersistedModel>) -> ModelCatalogLayer {
     let mut ids = Vec::new();
     let mut capabilities = HashMap::new();
     let mut seen = HashSet::new();
@@ -115,18 +118,15 @@ fn runtime_catalog(models: Vec<PersistedModel>) -> Option<RuntimeCatalog> {
             },
         );
     }
-    (!ids.is_empty()).then_some(RuntimeCatalog { ids, capabilities })
+    ModelCatalogLayer { ids, capabilities }
 }
 
-fn persist(value: &RuntimeCatalog) {
-    let Some(path) = persist_path() else {
-        return;
-    };
-    let models = value
+fn persisted_models(layer: &ModelCatalogLayer) -> Vec<PersistedModel> {
+    layer
         .ids
         .iter()
         .map(|id| {
-            let snapshot = value.capabilities.get(id).copied().unwrap_or_default();
+            let snapshot = layer.capabilities.get(id).copied().unwrap_or_default();
             PersistedModel {
                 id: (*id).to_string(),
                 capabilities: snapshot.capabilities,
@@ -134,120 +134,153 @@ fn persist(value: &RuntimeCatalog) {
                 limits: snapshot.limits,
             }
         })
-        .collect();
-    let payload = PersistedCatalogV2 {
+        .collect()
+}
+
+fn persist(value: &RuntimeCatalog) {
+    let Some(path) = persist_path() else { return };
+    let payload = PersistedCatalogV4 {
         version: PERSIST_VERSION,
-        models,
+        models: persisted_models(&value.complete),
+        scoped: value
+            .scoped
+            .iter()
+            .map(|(platform_id, layer)| (platform_id.clone(), persisted_models(layer)))
+            .collect(),
+        agent_platform_ids: value.agent_platform_ids.clone(),
     };
-    if let Ok(json) = serde_json::to_string(&payload) {
-        if let Err(error) = std::fs::write(&path, json) {
-            tracing::warn!("[ModelCatalog] failed to persist catalog: {error}");
-        }
+    let Ok(json) = serde_json::to_string(&payload) else {
+        return;
+    };
+    if let Err(error) = std::fs::write(path, json) {
+        tracing::warn!(%error, "[ModelCatalog] failed to persist catalog");
     }
 }
 
 pub fn update_from_payload(payload: &serde_json::Value) -> bool {
-    let Some(next) = catalog_from_payload(payload) else {
+    let Some(complete) = super::model_catalog_payload::layer_from_payload(payload) else {
         return false;
     };
-    let changed = {
-        let mut current = catalog().write().expect("catalog poisoned");
-        let changed = *current != next;
-        *current = next.clone();
-        changed
-    };
-    if changed {
-        tracing::info!("[ModelCatalog] catalog updated ({} models)", next.ids.len());
-        persist(&next);
+    if complete.ids.is_empty() {
+        return false;
     }
-    changed
-}
-
-/// Merge an Agent-scoped catalog response into the complete catalog.
-///
-/// A filtered response is authoritative only for the Agent that requested it;
-/// replacing the global catalog here would silently remove models used by
-/// other Agents. New IDs are added and existing metadata is refreshed.
-pub fn merge_from_payload(payload: &serde_json::Value) -> bool {
-    let Some(incoming) = catalog_from_payload(payload) else {
-        return false;
-    };
     let changed = {
         let mut current = catalog().write().expect("catalog poisoned");
-        let mut next = current.clone();
-        for id in incoming.ids {
-            if !next.ids.contains(&id) {
-                next.ids.push(id);
-            }
-            if let Some(snapshot) = incoming.capabilities.get(&id) {
-                next.capabilities.insert(id, *snapshot);
-            }
-        }
-        let changed = *current != next;
-        *current = next.clone();
+        let changed = current.complete != complete;
+        current.complete = complete;
         changed
     };
     if changed {
         let snapshot = catalog().read().expect("catalog poisoned").clone();
         tracing::info!(
-            "[ModelCatalog] merged Agent-scoped catalog ({} models)",
-            snapshot.ids.len()
+            model_count = snapshot.complete.ids.len(),
+            "[ModelCatalog] complete catalog updated"
         );
         persist(&snapshot);
     }
     changed
 }
 
-fn catalog_from_payload(payload: &serde_json::Value) -> Option<RuntimeCatalog> {
-    let entries = payload.get("data").and_then(serde_json::Value::as_array)?;
-    let models = entries.iter().filter_map(parse_payload_model).collect();
-    runtime_catalog(models)
-}
-
-fn parse_payload_model(value: &serde_json::Value) -> Option<PersistedModel> {
-    let id = value.get("id")?.as_str()?.trim();
-    if id.is_empty() {
-        return None;
+/// Replace only one Agent Platform scoped layer. Empty `data` is authoritative.
+pub fn replace_scoped_from_payload(
+    agent: AgentType,
+    platform_id: &str,
+    payload: &serde_json::Value,
+) -> bool {
+    let Some(layer) = super::model_catalog_payload::layer_from_payload(payload) else {
+        return false;
+    };
+    let platform_id = platform_id.trim();
+    if platform_id.is_empty() {
+        return false;
     }
-    let capabilities = value
-        .get("capabilities")
-        .and_then(serde_json::Value::as_object)
-        .map(parse_capabilities)
-        .unwrap_or_default();
-    let image_input_mode = value
-        .pointer("/image_input/mode")
-        .and_then(serde_json::Value::as_str)
-        .and_then(parse_image_input_mode)
-        .unwrap_or(if capabilities.vision {
-            ImageInputMode::Native
-        } else {
-            ImageInputMode::None
-        });
-    let limits = value
-        .get("limits")
-        .and_then(serde_json::Value::as_object)
-        .map(parse_limits)
-        .unwrap_or_default();
-    Some(PersistedModel {
-        id: id.to_string(),
-        capabilities,
-        image_input_mode,
-        limits,
-    })
-}
-
-fn parse_limits(value: &serde_json::Map<String, serde_json::Value>) -> ModelLimits {
-    let limit = |key: &str| value.get(key).and_then(serde_json::Value::as_u64);
-    ModelLimits {
-        context_window: limit("context_window"),
-        max_input_tokens: limit("max_input_tokens"),
-        max_output_tokens: limit("max_output_tokens"),
-        compaction_at_tokens: limit("compaction_at_tokens"),
+    let registry_id = registry::registry_id_for(agent).to_string();
+    let changed = {
+        let mut current = catalog().write().expect("catalog poisoned");
+        let changed = current.scoped.get(platform_id) != Some(&layer)
+            || current
+                .agent_platform_ids
+                .get(&registry_id)
+                .map(String::as_str)
+                != Some(platform_id);
+        current.scoped.insert(platform_id.to_string(), layer);
+        current
+            .agent_platform_ids
+            .insert(registry_id, platform_id.to_string());
+        changed
+    };
+    if changed {
+        let snapshot = catalog().read().expect("catalog poisoned").clone();
+        let model_count = snapshot
+            .scoped
+            .get(platform_id)
+            .map_or(0, |layer| layer.ids.len());
+        tracing::info!(
+            agent = %agent,
+            platform_id,
+            model_count,
+            authoritative_empty = model_count == 0,
+            "[ModelCatalog] Agent-scoped catalog updated"
+        );
+        persist(&snapshot);
     }
+    changed
 }
 
-/// Return the configured absolute compaction threshold without guessing a
-/// percentage for unknown windows.
+fn active_layer(agent: AgentType) -> Option<ModelCatalogLayer> {
+    let current = catalog().read().expect("catalog poisoned");
+    let registry_id = registry::registry_id_for(agent);
+    current
+        .agent_platform_ids
+        .get(registry_id)
+        .and_then(|platform_id| current.scoped.get(platform_id))
+        .cloned()
+}
+
+pub fn has_authoritative_empty_catalog(agent: AgentType) -> bool {
+    active_layer(agent).is_some_and(|layer| layer.ids.is_empty())
+}
+
+pub fn all_model_ids() -> Vec<&'static str> {
+    catalog()
+        .read()
+        .expect("catalog poisoned")
+        .complete
+        .ids
+        .clone()
+}
+
+pub fn model_capabilities(model: &str) -> Option<ModelCapabilitySnapshot> {
+    let normalized = model.trim();
+    let current = catalog().read().expect("catalog poisoned");
+    current
+        .complete
+        .capabilities
+        .iter()
+        .find_map(|(id, value)| id.eq_ignore_ascii_case(normalized).then_some(*value))
+        .or_else(|| {
+            current.scoped.values().find_map(|layer| {
+                layer
+                    .capabilities
+                    .iter()
+                    .find_map(|(id, value)| id.eq_ignore_ascii_case(normalized).then_some(*value))
+            })
+        })
+}
+
+pub fn model_ids_for(agent: AgentType) -> Vec<&'static str> {
+    active_layer(agent)
+        .map(|layer| layer.ids)
+        .unwrap_or_else(all_model_ids)
+}
+
+pub fn default_model_for(agent: AgentType) -> &'static str {
+    model_ids_for(agent)
+        .into_iter()
+        .next()
+        .unwrap_or(MANAGED_MODEL_IDS[0])
+}
+
 pub fn compaction_threshold(model: Option<&str>, context_window: u64) -> Option<u64> {
     if let Some(model) = model {
         if let Some(value) = model_capabilities(model)
@@ -262,55 +295,4 @@ pub fn compaction_threshold(model: Option<&str>, context_window: u64) -> Option<
         200_000 => Some(120_000),
         _ => None,
     }
-}
-
-fn parse_capabilities(value: &serde_json::Map<String, serde_json::Value>) -> ModelCapabilities {
-    let enabled = |key: &str| value.get(key).and_then(serde_json::Value::as_bool) == Some(true);
-    ModelCapabilities {
-        streaming: enabled("streaming"),
-        tool_calling: enabled("tool_calling"),
-        parallel_tool_calling: enabled("parallel_tool_calling"),
-        web_search: enabled("web_search"),
-        vision: enabled("vision"),
-        audio_input: enabled("audio_input"),
-        structured_output: enabled("structured_output"),
-        prompt_cache: enabled("prompt_cache"),
-        image_generation: enabled("image_generation"),
-        image_editing: enabled("image_editing"),
-    }
-}
-
-fn parse_image_input_mode(value: &str) -> Option<ImageInputMode> {
-    match value {
-        "native" => Some(ImageInputMode::Native),
-        "fallback" => Some(ImageInputMode::Fallback),
-        "none" => Some(ImageInputMode::None),
-        _ => None,
-    }
-}
-
-pub fn all_model_ids() -> Vec<&'static str> {
-    catalog().read().expect("catalog poisoned").ids.clone()
-}
-
-pub fn model_capabilities(model: &str) -> Option<ModelCapabilitySnapshot> {
-    let normalized = model.trim();
-    catalog()
-        .read()
-        .expect("catalog poisoned")
-        .capabilities
-        .iter()
-        .find_map(|(id, value)| id.eq_ignore_ascii_case(normalized).then_some(*value))
-}
-
-pub fn model_ids_for(_agent: AgentType) -> Vec<&'static str> {
-    let ids = all_model_ids();
-    if !ids.is_empty() {
-        return ids;
-    }
-    MANAGED_MODEL_IDS.to_vec()
-}
-
-pub fn default_model_for(agent: AgentType) -> &'static str {
-    model_ids_for(agent)[0]
 }

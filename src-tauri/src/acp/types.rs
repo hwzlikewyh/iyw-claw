@@ -206,6 +206,7 @@ pub enum AcpEvent {
     /// Session configuration options are available/updated for this connection
     SessionConfigOptions {
         config_options: Vec<SessionConfigOptionInfo>,
+        model_switch_capability: ModelSwitchCapability,
     },
     /// Initial selector payloads (modes/config options) have been emitted
     SelectorsReady,
@@ -563,6 +564,38 @@ pub struct SessionConfigOptionInfo {
     pub description: Option<String>,
     pub category: Option<String>,
     pub kind: SessionConfigKindInfo,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelSwitchCapability {
+    #[default]
+    None,
+    StartupOnly,
+    Interactive,
+}
+
+impl ModelSwitchCapability {
+    pub fn classify(
+        agent_type: crate::models::agent::AgentType,
+        options: &[SessionConfigOptionInfo],
+    ) -> Self {
+        let interactive = options.iter().any(|option| {
+            (option.id == "model" || option.category.as_deref() == Some("model"))
+                && match &option.kind {
+                    SessionConfigKindInfo::Select(select) => !select.options.is_empty(),
+                }
+        });
+        if interactive {
+            return Self::Interactive;
+        }
+        if crate::acp::provider_overlay::uses_managed_gateway(agent_type)
+            && !crate::acp::model_catalog::has_authoritative_empty_catalog(agent_type)
+        {
+            return Self::StartupOnly;
+        }
+        Self::None
+    }
 }
 
 /// Read-only snapshot of the modes + config_options an agent advertises

@@ -121,6 +121,11 @@ import {
 } from "@/lib/fixed-agent-options"
 import { reconcileModelConfigValues } from "@/lib/gateway-model-catalog"
 import {
+  hasManagedGatewayModelProjection,
+  liveAgentConfigOptions,
+  modelReapplyTimeoutMs,
+} from "@/lib/agent-model-switch"
+import {
   currentModelName,
   isModelConfigOption,
 } from "@/lib/model-config-groups"
@@ -131,8 +136,6 @@ import {
 } from "@/lib/session-failures"
 import { isInsufficientBalanceError } from "@/lib/agent-runtime-error"
 import type { SessionConfigTranslator } from "@/lib/session-config-localization"
-
-const MODEL_REAPPLY_TIMEOUT_MS = 45_000
 
 function scenarioPackageReady(
   snapshot: SkillInventorySnapshot,
@@ -516,6 +519,7 @@ const ConversationTabView = memo(function ConversationTabView({
     target: string
     previousModel: string
     sourceConnectionId: string
+    replacementConnectionId: string | null
   } | null>(null)
   const [requestedModel, setRequestedModel] = useState<string | null>(null)
   useEffect(() => {
@@ -903,15 +907,22 @@ const ConversationTabView = memo(function ConversationTabView({
     [fixedOptions.modes]
   )
   const connectionConfigOptions = useMemo(() => {
-    if (!conn.selectorsReady) return fixedOptions.config_options
-    const liveHasModel = conn.configOptions?.some(isModelConfigOption) === true
-    return liveHasModel
-      ? fixedOptions.config_options
-      : fixedOptions.config_options.filter(
-          (option) => !isModelConfigOption(option)
-        )
-  }, [conn.configOptions, conn.selectorsReady, fixedOptions.config_options])
+    return liveAgentConfigOptions(
+      selectedAgent,
+      fixedOptions.config_options,
+      conn.configOptions,
+      conn.selectorsReady,
+      conn.modelSwitchCapability
+    )
+  }, [
+    conn.configOptions,
+    conn.modelSwitchCapability,
+    conn.selectorsReady,
+    fixedOptions.config_options,
+    selectedAgent,
+  ])
   const canReconcileModelConfig =
+    hasManagedGatewayModelProjection(selectedAgent) &&
     hasAuthoritativeFixedAgentOptions(selectedAgent)
   useEffect(() => {
     if (!canReconcileModelConfig) return
@@ -975,6 +986,12 @@ const ConversationTabView = memo(function ConversationTabView({
   // Agent advertises the updated model list. Never interrupt a live turn or a
   // connection owned by another client.
   useEffect(() => {
+    if (
+      !hasManagedGatewayModelProjection(selectedAgent) ||
+      conn.modelSwitchCapability !== "interactive"
+    ) {
+      return
+    }
     const target = requestedModel
     const live = conn.configOptions?.find(isModelConfigOption)
     const fixed = fixedOptions.config_options.find(isModelConfigOption)
@@ -1045,6 +1062,7 @@ const ConversationTabView = memo(function ConversationTabView({
       target,
       previousModel: live.kind.current_value,
       sourceConnectionId,
+      replacementConnectionId: null,
     })
     void acpActions
       .reapplyConfig(tabId, true, dbConvIdRef.current ?? undefined)
@@ -1067,22 +1085,47 @@ const ConversationTabView = memo(function ConversationTabView({
     conn.connectionId,
     conn.isDelegationChild,
     conn.isViewer,
+    conn.modelSwitchCapability,
     conn.selectorsReady,
     connStatus,
     connectionConfigOptions,
     connectionReady,
     fixedOptions.config_options,
+    selectedAgent,
     modelReapplyAttempt,
     requestedModel,
-    selectedAgent,
     tConfigStale,
     tabId,
   ])
 
+  useEffect(() => {
+    if (
+      !modelReapplyAttempt ||
+      modelReapplyAttempt.replacementConnectionId ||
+      !conn.connectionId ||
+      conn.connectionId === modelReapplyAttempt.sourceConnectionId
+    ) {
+      return
+    }
+    setModelReapplyAttempt((current) =>
+      current &&
+      current.sourceConnectionId === modelReapplyAttempt.sourceConnectionId
+        ? { ...current, replacementConnectionId: conn.connectionId }
+        : current
+    )
+  }, [conn.connectionId, modelReapplyAttempt])
+
   const modelReapplyTarget = modelReapplyAttempt?.target
   const modelReapplyPreviousModel = modelReapplyAttempt?.previousModel
+  const modelReapplyConnectionId = modelReapplyAttempt?.replacementConnectionId
   useEffect(() => {
-    if (!modelReapplyTarget || modelReapplyPreviousModel == null) return
+    if (
+      !modelReapplyTarget ||
+      modelReapplyPreviousModel == null ||
+      !modelReapplyConnectionId
+    ) {
+      return
+    }
     const target = modelReapplyTarget
     const fallbackModel = modelReapplyPreviousModel
     const timer = setTimeout(() => {
@@ -1097,10 +1140,11 @@ const ConversationTabView = memo(function ConversationTabView({
         return next
       })
       toast.error(tConfigStale("modelSwitchFailed"))
-    }, MODEL_REAPPLY_TIMEOUT_MS)
+    }, modelReapplyTimeoutMs(selectedAgent))
     return () => clearTimeout(timer)
   }, [
     modelReapplyPreviousModel,
+    modelReapplyConnectionId,
     modelReapplyTarget,
     selectedAgent,
     tConfigStale,
@@ -1112,17 +1156,32 @@ const ConversationTabView = memo(function ConversationTabView({
   useEffect(() => {
     if (
       !modelReapplyAttempt ||
-      conn.connectionId === modelReapplyAttempt.sourceConnectionId ||
+      !modelReapplyAttempt.replacementConnectionId ||
+      conn.connectionId !== modelReapplyAttempt.replacementConnectionId ||
       !conn.selectorsReady
     ) {
       return
     }
     const live = conn.configOptions?.find(isModelConfigOption)
-    if (!live || live.kind.type !== "select") return
+    if (!live || live.kind.type !== "select") {
+      const target = modelReapplyAttempt.target
+      const fallbackModel = modelReapplyAttempt.previousModel
+      setDraftConfigValues((current) => {
+        if (current.model !== target) return current
+        const next = { ...current, model: fallbackModel }
+        saveConfigPreference(selectedAgent, "model", fallbackModel)
+        return next
+      })
+      setModelReapplyAttempt(null)
+      setRequestedModel(null)
+      toast.error(tConfigStale("modelSwitchFailed"))
+      return
+    }
     if (
       live.kind.options.some(
         (option) => option.value === modelReapplyAttempt.target
-      ) && live.kind.current_value === modelReapplyAttempt.target
+      ) &&
+      live.kind.current_value === modelReapplyAttempt.target
     ) {
       setModelReapplyAttempt(null)
       return

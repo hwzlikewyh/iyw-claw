@@ -61,6 +61,7 @@ pub mod lifecycle;
 pub mod manager;
 pub mod memory_turn;
 pub mod model_catalog;
+mod model_catalog_payload;
 mod model_catalog_types;
 pub(crate) mod model_gateway_chat;
 pub mod npm_runtime;

@@ -55,15 +55,34 @@ pub struct ModelCapabilitySnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct RuntimeCatalog {
+pub(super) struct ModelCatalogLayer {
     pub ids: Vec<&'static str>,
     pub capabilities: HashMap<&'static str, ModelCapabilitySnapshot>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RuntimeCatalog {
+    pub complete: ModelCatalogLayer,
+    pub scoped: HashMap<String, ModelCatalogLayer>,
+    pub agent_platform_ids: HashMap<String, String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(super) struct PersistedCatalogV2 {
     pub version: u32,
     pub models: Vec<PersistedModel>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PersistedCatalogV4 {
+    pub version: u32,
+    pub models: Vec<PersistedModel>,
+    #[serde(default)]
+    pub scoped: HashMap<String, Vec<PersistedModel>>,
+    #[serde(default)]
+    pub agent_platform_ids: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -82,4 +101,5 @@ pub(super) struct PersistedModel {
 pub(super) enum PersistedCatalog {
     Legacy(Vec<String>),
     Current(PersistedCatalogV2),
+    Scoped(PersistedCatalogV4),
 }

@@ -52,11 +52,11 @@ use crate::acp::turn_output::{
     finish_turn_reason, DropLogThrottle, DropSite, EmptyTurnReport, TurnOutputProbe,
 };
 use crate::acp::types::{
-    AcpEvent, AvailableCommandInfo, ConnectionInfo, ConnectionStatus, PermissionOptionInfo,
-    PlanEntryInfo, PromptCapabilitiesInfo, PromptInputBlock, SessionConfigKindInfo,
-    SessionConfigOptionInfo, SessionConfigSelectGroupInfo, SessionConfigSelectInfo,
-    SessionConfigSelectOptionInfo, SessionModeInfo, SessionModeStateInfo, ToolCallImageInfo,
-    UserMessageBlock,
+    AcpEvent, AvailableCommandInfo, ConnectionInfo, ConnectionStatus, ModelSwitchCapability,
+    PermissionOptionInfo, PlanEntryInfo, PromptCapabilitiesInfo, PromptInputBlock,
+    SessionConfigKindInfo, SessionConfigOptionInfo, SessionConfigSelectGroupInfo,
+    SessionConfigSelectInfo, SessionConfigSelectOptionInfo, SessionModeInfo, SessionModeStateInfo,
+    ToolCallImageInfo, UserMessageBlock,
 };
 use crate::models::agent::AgentType;
 use crate::network::proxy;
@@ -1952,6 +1952,7 @@ async fn emit_session_config_options_values(
         state,
         emitter,
         AcpEvent::SessionConfigOptions {
+            model_switch_capability: ModelSwitchCapability::classify(agent_type, &mapped),
             config_options: mapped,
         },
     )
@@ -1961,12 +1962,17 @@ async fn emit_session_config_options_values(
 async fn emit_session_config_options_info(
     state: &Arc<RwLock<SessionState>>,
     emitter: &EventEmitter,
+    agent_type: AgentType,
     config_options: Vec<SessionConfigOptionInfo>,
 ) {
+    let model_switch_capability = ModelSwitchCapability::classify(agent_type, &config_options);
     emit_with_state(
         state,
         emitter,
-        AcpEvent::SessionConfigOptions { config_options },
+        AcpEvent::SessionConfigOptions {
+            config_options,
+            model_switch_capability,
+        },
     )
     .await;
 }
@@ -4274,7 +4280,7 @@ async fn apply_and_emit_session_config_options(
             &specs,
         )
         .await;
-        emit_session_config_options_info(state, emitter, options).await;
+        emit_session_config_options_info(state, emitter, agent_type, options).await;
         return;
     }
     let updated = apply_preferred_session_config_options(

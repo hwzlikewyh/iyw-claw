@@ -354,6 +354,7 @@ pub struct SessionState {
     pub modes: Option<SessionModeStateInfo>,
     pub current_mode: Option<String>,
     pub config_options: Option<Vec<SessionConfigOptionInfo>>,
+    pub model_switch_capability: crate::acp::types::ModelSwitchCapability,
     /// Model name currently selected in the agent's `model` config option.
     /// Extracted from `SessionConfigOptions` whenever it fires (the agent
     /// broadcasts the full option set on every config change, so this always
@@ -655,6 +656,10 @@ impl SessionState {
             modes: None,
             current_mode: None,
             config_options: None,
+            model_switch_capability: crate::acp::types::ModelSwitchCapability::classify(
+                agent_type,
+                &[],
+            ),
             current_model: None,
             managed_agent_version: None,
             startup_trace: None,
@@ -831,11 +836,15 @@ impl SessionState {
                     modes.current_mode_id = mode_id.clone();
                 }
             }
-            AcpEvent::SessionConfigOptions { config_options } => {
+            AcpEvent::SessionConfigOptions {
+                config_options,
+                model_switch_capability,
+            } => {
                 if let Some(model) = extract_model_from_config_options(config_options) {
                     self.current_model = Some(model);
                 }
                 self.config_options = Some(config_options.clone());
+                self.model_switch_capability = *model_switch_capability;
             }
             AcpEvent::SessionConfigStale { stale, kind } => {
                 self.config_stale = *stale;
@@ -1671,6 +1680,7 @@ impl SessionState {
             modes: self.modes.clone(),
             current_mode: self.current_mode.clone(),
             config_options: self.config_options.clone(),
+            model_switch_capability: self.model_switch_capability,
             prompt_capabilities: self.prompt_capabilities.clone(),
             usage: self.usage.clone(),
             compaction_at_tokens: self.compaction_at_tokens,
@@ -1790,6 +1800,8 @@ pub struct LiveSessionSnapshot {
     pub modes: Option<SessionModeStateInfo>,
     pub current_mode: Option<String>,
     pub config_options: Option<Vec<SessionConfigOptionInfo>>,
+    #[serde(default)]
+    pub model_switch_capability: crate::acp::types::ModelSwitchCapability,
     pub prompt_capabilities: Option<PromptCapabilitiesInfo>,
     pub usage: Option<UsageInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

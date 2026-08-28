@@ -104,6 +104,26 @@ pub fn apply_provider_runtime_env(
     apply_provider_runtime_env_with_base(agent_type, runtime_env, &base_url);
 }
 
+pub fn apply_preferred_model_runtime_env(
+    agent_type: AgentType,
+    runtime_env: &mut BTreeMap<String, String>,
+    preferred_model: Option<&str>,
+) {
+    if !uses_managed_gateway(agent_type) {
+        return;
+    }
+    let Some(model) = preferred_model
+        .map(str::trim)
+        .filter(|model| !model.is_empty() && managed_model_ids_for(agent_type).contains(model))
+    else {
+        return;
+    };
+    runtime_env.insert(
+        provider_model_env_key(agent_type).to_string(),
+        model.to_string(),
+    );
+}
+
 pub(crate) fn apply_provider_runtime_env_with_base(
     agent_type: AgentType,
     runtime_env: &mut BTreeMap<String, String>,
@@ -126,7 +146,7 @@ pub(crate) fn apply_provider_runtime_env_with_base(
         let models = managed_model_ids_for(agent_type);
         // The catalog can shrink to a single compatible model; reuse the
         // primary for the fast/sub-agent slots rather than indexing past it.
-        let primary = models[0];
+        let primary = models.first().copied().unwrap_or(MANAGED_DEFAULT_MODEL);
         let secondary = models.get(1).copied().unwrap_or(primary);
         for (key, model) in [
             ("CODEBUDDY_MODEL", primary),

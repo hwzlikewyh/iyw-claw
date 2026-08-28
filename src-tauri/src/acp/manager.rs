@@ -810,6 +810,11 @@ impl ConnectionManager {
         let _operation_guard = self.acquire_operation_read().await?;
         let storage_read_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
         let mut runtime_env = runtime_env;
+        crate::acp::provider_overlay::apply_preferred_model_runtime_env(
+            agent_type,
+            &mut runtime_env,
+            preferred_config_values.get("model").map(String::as_str),
+        );
         crate::acp::trusted_agents::restrict_configured_runtime_env(agent_type, &mut runtime_env);
         if let Some(required) = crate::acp::trusted_agents::minimum_node_version(agent_type) {
             crate::acp::preflight::enforce_minimum_node_version(&runtime_env, required)
