@@ -4650,6 +4650,7 @@ export interface PluginAppResourceMeta {
 export interface PluginAppOpenResponse {
   launch: PluginAppLaunch
   html: string
+  hostVersion: string
   resourceMeta?: PluginAppResourceMeta
 }
 

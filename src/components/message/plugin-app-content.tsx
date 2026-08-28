@@ -28,6 +28,7 @@ type AppState =
       status: "ready"
       html: string
       launch: PluginAppLaunch
+      hostVersion: string
       resourceMeta?: PluginAppResourceMeta
     }
   | { status: "error"; message: string }
@@ -55,6 +56,7 @@ export function PluginAppContent({
         status: "ready",
         html: response.html,
         launch: response.launch,
+        hostVersion: response.hostVersion,
         resourceMeta: response.resourceMeta,
       })
     } catch (error) {
@@ -76,6 +78,7 @@ export function PluginAppContent({
             status: "ready",
             html: response.html,
             launch: response.launch,
+            hostVersion: response.hostVersion,
             resourceMeta: response.resourceMeta,
           })
         }
@@ -143,6 +146,7 @@ export function PluginAppContent({
       <PluginAppHost
         html={state.html}
         launch={state.launch}
+        hostVersion={state.hostVersion}
         resourceMeta={state.resourceMeta}
         displayMode={fullscreen ? "fullscreen" : "inline"}
         onDisplayModeRequest={(mode) => {

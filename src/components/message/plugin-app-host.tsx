@@ -19,6 +19,7 @@ type DisplayMode = "inline" | "fullscreen"
 type PluginAppHostProps = {
   html: string
   launch: PluginAppLaunch
+  hostVersion: string
   resourceMeta?: PluginAppResourceMeta
   displayMode?: DisplayMode
   onDisplayModeRequest?: (mode: DisplayMode) => DisplayMode
@@ -28,6 +29,7 @@ type MessageContext = {
   message: PluginAppMessage
   launch: PluginAppLaunch
   html: string
+  hostVersion: string
   resourceMeta?: PluginAppResourceMeta
   bridge: PluginAppBridge
   currentDisplayMode: () => DisplayMode
@@ -39,6 +41,7 @@ const MAX_APP_HTML_BYTES = 8 * 1024 * 1024
 export function PluginAppHost({
   html,
   launch,
+  hostVersion,
   resourceMeta,
   displayMode = "inline",
   onDisplayModeRequest,
@@ -61,6 +64,7 @@ export function PluginAppHost({
       iframe,
       launch,
       html,
+      hostVersion,
       resourceMeta,
       currentDisplayMode: () => displayModeRef.current,
       requestDisplayMode: (mode) =>
@@ -78,7 +82,7 @@ export function PluginAppHost({
         conversationId: launch.conversationId,
       })
     }
-  }, [html, launch, oversized, resourceMeta])
+  }, [hostVersion, html, launch, oversized, resourceMeta])
 
   useEffect(() => {
     bridgeRef.current?.notify({
@@ -108,6 +112,7 @@ function createBridge(input: {
   iframe: HTMLIFrameElement
   launch: PluginAppLaunch
   html: string
+  hostVersion: string
   resourceMeta?: PluginAppResourceMeta
   currentDisplayMode: () => DisplayMode
   requestDisplayMode: (mode: DisplayMode) => DisplayMode
@@ -134,6 +139,7 @@ async function routeMessage(
           accepted: true,
           result: initializeResult(
             context.currentDisplayMode(),
+            context.hostVersion,
             context.resourceMeta
           ),
         }
@@ -179,6 +185,7 @@ function authorizeMessage(context: MessageContext) {
 
 function initializeResult(
   displayMode: DisplayMode,
+  hostVersion: string,
   resourceMeta?: PluginAppResourceMeta
 ) {
   return {
@@ -193,7 +200,7 @@ function initializeResult(
         permissions: resourceMeta?.permissions,
       },
     },
-    hostInfo: { name: "iyw-claw", version: "0.1.138" },
+    hostInfo: { name: "iyw-claw", version: hostVersion },
     hostContext: {
       displayMode,
       availableDisplayModes: ["inline", "fullscreen"],

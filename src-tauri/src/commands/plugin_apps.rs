@@ -47,6 +47,7 @@ pub struct PluginAppTeardownRequest {
 pub struct PluginAppOpenResponse {
     pub launch: crate::plugin_runtime::app_host::PluginAppLaunch,
     pub html: String,
+    pub host_version: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resource_meta: Option<PluginAppResourceMeta>,
 }
@@ -168,6 +169,7 @@ pub async fn open_core(
     Ok(PluginAppOpenResponse {
         launch,
         html,
+        host_version: env!("CARGO_PKG_VERSION").to_string(),
         resource_meta,
     })
 }
