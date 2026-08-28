@@ -42,7 +42,7 @@ impl PluginMcpClient {
             INITIALIZE_TIMEOUT,
             rmcp::serve_client(
                 (),
-                rmcp::transport::AsyncRwTransport::new_client(stdout, stdin),
+                rmcp::transport::async_rw::AsyncRwTransport::new_client(stdout, stdin),
             ),
         )
         .await

@@ -179,7 +179,7 @@ pub(super) fn validate_summary_v2(
     if value.manifest_digest.as_deref() != Some(expected_digest.as_str()) {
         return Err(invalid_plugin("Plugin v2 install plan digest is invalid"));
     }
-    let mut kinds: BTreeMap<&str, BTreeSet<&str>> = BTreeMap::new();
+    let mut kinds: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
     for component in &value.components {
         if !matches!(
             component.kind.as_str(),
@@ -189,7 +189,7 @@ pub(super) fn validate_summary_v2(
             || !kinds
                 .entry(&component.kind)
                 .or_default()
-                .insert(&component.key)
+                .insert(component.key.clone())
         {
             return Err(invalid_plugin("Plugin v2 components are invalid"));
         }

@@ -286,7 +286,7 @@ fn delegation_tool(tool_name: &str) -> bool {
     )
 }
 
-fn agent_wire_name(authority: &SessionContext) -> Option<String> {
+pub(super) fn agent_wire_name(authority: &SessionContext) -> Option<String> {
     serde_json::to_value(authority.agent_type())
         .ok()
         .and_then(|value| value.as_str().map(str::to_owned))

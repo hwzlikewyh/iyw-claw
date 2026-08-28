@@ -113,10 +113,7 @@ impl PluginAppRegistry {
             display_mode,
             launch_payload,
             lease_token: random_token(),
-        };
-        let launch = PluginAppLaunch {
             nonce: nonce.clone(),
-            ..launch
         };
         let lease = Lease {
             launch: launch.clone(),

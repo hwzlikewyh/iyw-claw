@@ -160,7 +160,7 @@ fn invoke(
         }
         return plugin_install_request(params.arguments);
     }
-    let arguments = Value::Object(params.arguments);
+    let arguments = Value::Object(params.arguments.clone());
     match catalog.resolve(features, capability_id, arguments.clone()) {
         Ok(resolved) => {
             let mut resolved = resolved;
@@ -199,8 +199,12 @@ fn invoke(
         cancellation: request_cancel,
         authority_cancellation: authority_cancel,
         permission_revision: crate::plugin_runtime::registry::global_snapshot()
-            .and_then(|snapshot| snapshot.plugins.get(plugin.get("plugin_slug")?.as_str()?))
-            .map(|plugin| plugin.permissions_digest.clone())
+            .and_then(|snapshot| {
+                snapshot
+                    .plugins
+                    .get(plugin.get("plugin_slug")?.as_str()?)
+                    .map(|plugin| plugin.permissions_digest.clone())
+            })
             .unwrap_or_default(),
     };
     return Ok(GatewayAction::PluginInvoke(PluginToolCall {

@@ -24,7 +24,8 @@ use super::gateway::PluginInstallRequest;
 use super::gateway::{self, GatewayAction};
 use super::http::AuthenticatedRequest;
 use super::invocation::{
-    ensure_active, execute_invocation, InvocationContext, InvocationDependencies,
+    agent_wire_name, ensure_active, execute_invocation, InvocationContext,
+    InvocationDependencies,
 };
 use super::receipt::DeliveryReceiptRegistry;
 use super::result::catalog_error;
