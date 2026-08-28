@@ -113,6 +113,12 @@ export type AdaptedPlanPart = {
   isStreaming: boolean
 }
 
+export type AdaptedPluginAppPart = {
+  type: "plugin-app"
+  instanceId: string
+  toolCallId: string
+}
+
 export type AdaptedContentPart =
   | { type: "text"; text: string }
   | AdaptedToolCallPart
@@ -156,6 +162,7 @@ export type AdaptedContentPart =
   | AdaptedGeneratedImagePart
   | AdaptedDisplayedImagePart
   | AdaptedPlanPart
+  | AdaptedPluginAppPart
 
 export interface UserResourceDisplay {
   name: string
@@ -987,6 +994,15 @@ function generateToolCallId(messageId: string, blockIndex: number): string {
   return `${messageId}-tool-${blockIndex}`
 }
 
+function pluginAppInstanceId(
+  meta: Record<string, unknown> | null | undefined
+): string | null {
+  const value = meta?.["iyw-claw.plugin-app"]
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const instanceId = (value as Record<string, unknown>).instanceId
+  return typeof instanceId === "string" && instanceId.trim() ? instanceId : null
+}
+
 /**
  * Transform a single ContentBlock to AdaptedContentPart
  */
@@ -1729,6 +1745,23 @@ export function adaptMessageTurn(
       }
 
       const toolCallId = block.tool_use_id || generateToolCallId(turn.id, index)
+      const instanceId = pluginAppInstanceId(block.meta)
+      if (instanceId) {
+        if (block.tool_use_id && resultMap.get(block.tool_use_id)) {
+          matchedResultIds.add(block.tool_use_id)
+        } else {
+          const nextBlock = turn.blocks[index + 1]
+          if (
+            !block.tool_use_id &&
+            nextBlock?.type === "tool_result" &&
+            !nextBlock.tool_use_id
+          ) {
+            positionMatchedIndices.add(index + 1)
+          }
+        }
+        adaptedContent.push({ type: "plugin-app", instanceId, toolCallId })
+        continue
+      }
       const matchedResult = block.tool_use_id
         ? resultMap.get(block.tool_use_id)
         : undefined

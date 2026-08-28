@@ -77,6 +77,15 @@ pub(super) async fn install_market_plan(
     }
     finish_storage(storage, root_skill_id);
     require_registry_state(conn, root_skill_id, true).await?;
+    for (plugin, old) in plugins.iter().zip(&previous) {
+        if let Some(old) = old {
+            crate::plugin_runtime::global::stop_plugin_version(
+                &plugin.slug,
+                Some(&old.installation.version),
+            )
+            .await;
+        }
+    }
     Ok(())
 }
 

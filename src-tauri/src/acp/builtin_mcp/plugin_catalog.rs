@@ -98,10 +98,8 @@ fn capabilities(plugin: &PluginDescriptor, cwd: &Path, agent_type: AgentType) ->
             let _tool_name = config.get("toolName")?.as_str()?;
             let schema_path = config.get("schemaPath")?.as_str()?;
             let (input_schema, schema_digest) = load_schema(plugin, schema_path)?;
-            let status = if plugin.available
-                && activation_enabled(plugin, connector, cwd, agent_type)
-                && permission_granted(plugin, cwd)
-            {
+            let unavailable_reason = unavailable_reason(plugin, connector, cwd, agent_type);
+            let status = if unavailable_reason.is_none() {
                 "available"
             } else {
                 "unavailable"
@@ -127,12 +125,31 @@ fn capabilities(plugin: &PluginDescriptor, cwd: &Path, agent_type: AgentType) ->
                 "schema_digest": schema_digest,
                 "input_schema": input_schema,
                 "status": status,
+                "unavailable_reason": unavailable_reason,
                 "plugin_slug": plugin.slug,
                 "plugin_version": plugin.version,
                 "_searchText": search_text,
             }))
         })
         .collect()
+}
+
+fn unavailable_reason(
+    plugin: &PluginDescriptor,
+    connector: &str,
+    cwd: &Path,
+    agent_type: AgentType,
+) -> Option<&'static str> {
+    if !plugin.available {
+        return Some("plugin_unavailable");
+    }
+    if !activation_enabled(plugin, connector, cwd, agent_type) {
+        return Some("connector_disabled");
+    }
+    if !permission_granted(plugin, cwd) {
+        return Some("permission_pending");
+    }
+    None
 }
 
 fn load_schema(plugin: &PluginDescriptor, relative: &str) -> Option<(Value, String)> {
@@ -149,32 +166,13 @@ fn load_schema(plugin: &PluginDescriptor, relative: &str) -> Option<(Value, Stri
     Some((value, format!("sha256:{:x}", Sha256::digest(&bytes))))
 }
 
-pub(super) fn permission_summary(
-    snapshot: Option<&PluginRegistrySnapshot>,
-    plugin_slug: &str,
-) -> Option<String> {
-    let plugin = snapshot?.plugins.get(plugin_slug)?;
-    let grants = plugin
-        .permission_grants
-        .iter()
-        .map(|grant| grant.grant_state.as_str())
-        .collect::<Vec<_>>();
-    Some(format!(
-        "plugin={} version={} permissions_digest={} grant_state={}",
-        plugin.slug,
-        plugin.version,
-        plugin.permissions_digest,
-        grants.first().copied().unwrap_or("pending")
-    ))
-}
-
 fn activation_enabled(
     plugin: &PluginDescriptor,
     connector: &str,
     cwd: &Path,
     agent_type: AgentType,
 ) -> bool {
-    let workspace_key = cwd.to_string_lossy();
+    let workspace_key = workspace_key(cwd);
     let agent_type = agent_type.as_wire();
     plugin.activations.iter().any(|activation| {
         activation.component_key == connector
@@ -187,12 +185,16 @@ fn activation_enabled(
 }
 
 fn permission_granted(plugin: &PluginDescriptor, cwd: &Path) -> bool {
-    let workspace_key = cwd.to_string_lossy();
+    let workspace_key = workspace_key(cwd);
     plugin.permission_grants.iter().any(|grant| {
         grant.permissions_digest == plugin.permissions_digest
             && grant.grant_state == "granted"
             && (grant.scope == "global" || grant.workspace_key == workspace_key)
     })
+}
+
+fn workspace_key(cwd: &Path) -> String {
+    crate::commands::skill_inventory::workspace_key(Some(cwd.to_string_lossy().as_ref()))
 }
 
 fn agent_type_supports_host_gateway(agent_type: AgentType) -> bool {

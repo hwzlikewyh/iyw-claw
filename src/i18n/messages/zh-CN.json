@@ -3376,6 +3376,11 @@
         }
       },
       "contentParts": {
+        "pluginApp": {
+          "retry": "重新加载插件界面",
+          "fullscreen": "全屏打开",
+          "inline": "恢复嵌入显示"
+        },
         "showingTailOutput": "为保证性能，流式输出时仅显示尾部内容。",
         "result": "结果",
         "unknown": "未知",
@@ -5308,6 +5313,7 @@
       "catalogTitle": "可用插件",
       "catalogSubtitle": "来自 Fusion 市场的真实插件版本与组件",
       "catalogCount": "{count} 个插件",
+      "openDetail": "打开 {name} 详情",
       "loading": "正在加载插件",
       "retry": "重试",
       "empty": "当前市场中没有可用插件",

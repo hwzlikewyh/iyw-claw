@@ -30,6 +30,7 @@ pub mod model_provider;
 pub mod office_tools;
 pub mod office_watch_proxy;
 pub mod performance;
+pub mod plugin_apps;
 pub mod question;
 pub mod quick_messages;
 pub mod remote_image;

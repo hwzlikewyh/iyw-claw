@@ -1,9 +1,7 @@
-use std::collections::BTreeMap;
-
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseTransaction, EntityTrait,
-    QueryFilter, Set, TransactionTrait,
+    QueryFilter, Set,
 };
 
 use crate::db::entities::{plugin_activation_policy, plugin_permission_grant};
@@ -45,30 +43,23 @@ pub(crate) async fn preserve_existing_in_transaction(
     let activations = plugin_activation_policy::Entity::find()
         .filter(plugin_activation_policy::Column::PluginSlug.eq(plugin_slug))
         .all(transaction)
-        .await?
-        .into_iter()
-        .map(|value| {
-            (
-                (
-                    value.component_key,
-                    value.scope,
-                    value.workspace_key,
-                    value.agent_type,
-                ),
-                (value.requested_enabled, value.policy_source),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
+        .await?;
     for value in &mut input.activations {
-        let key = (
-            value.component_key.clone(),
-            value.scope.clone(),
-            value.workspace_key.clone(),
-            value.agent_type.clone(),
-        );
-        if let Some((enabled, source)) = activations.get(&key) {
-            value.requested_enabled = *enabled;
-            value.policy_source = source.clone();
+        if let Some(existing) = activations
+            .iter()
+            .find(|existing| same_activation(value, existing))
+        {
+            value.requested_enabled = existing.requested_enabled;
+            value.policy_source = existing.policy_source.clone();
+        }
+    }
+    for existing in &activations {
+        if !input
+            .activations
+            .iter()
+            .any(|value| same_activation(value, existing))
+        {
+            input.activations.push(activation_from_model(existing));
         }
     }
     let grants = plugin_permission_grant::Entity::find()
@@ -100,7 +91,57 @@ pub(crate) async fn preserve_existing_in_transaction(
             value.granted_at = existing.granted_at;
         }
     }
+    for existing in &grants {
+        if !input
+            .permission_grants
+            .iter()
+            .any(|value| same_grant_scope(value, existing))
+        {
+            input.permission_grants.push(grant_from_model(existing));
+        }
+    }
     Ok(input)
+}
+
+fn same_activation(
+    input: &PluginActivationInput,
+    existing: &plugin_activation_policy::Model,
+) -> bool {
+    input.component_key == existing.component_key
+        && input.scope == existing.scope
+        && input.workspace_key == existing.workspace_key
+        && input.agent_type == existing.agent_type
+}
+
+fn same_grant_scope(
+    input: &PluginPermissionGrantInput,
+    existing: &plugin_permission_grant::Model,
+) -> bool {
+    input.scope == existing.scope && input.workspace_key == existing.workspace_key
+}
+
+fn activation_from_model(value: &plugin_activation_policy::Model) -> PluginActivationInput {
+    PluginActivationInput {
+        component_key: value.component_key.clone(),
+        scope: value.scope.clone(),
+        workspace_key: value.workspace_key.clone(),
+        agent_type: value.agent_type.clone(),
+        requested_enabled: value.requested_enabled,
+        routing_mode: value.routing_mode.clone(),
+        policy_source: value.policy_source.clone(),
+    }
+}
+
+fn grant_from_model(value: &plugin_permission_grant::Model) -> PluginPermissionGrantInput {
+    PluginPermissionGrantInput {
+        scope: value.scope.clone(),
+        workspace_key: value.workspace_key.clone(),
+        permissions_digest: value.permissions_digest.clone(),
+        granted_permissions_json: value.granted_permissions_json.clone(),
+        permission_ceiling_json: value.granted_permissions_json.clone(),
+        grant_state: value.grant_state.clone(),
+        granted_at: value.granted_at,
+    }
 }
 
 fn permission_subset(requested: &str, granted: &str) -> bool {
@@ -187,79 +228,4 @@ pub async fn list_permission_grants(
         .all(conn)
         .await
         .map_err(Into::into)
-}
-
-pub async fn approve_plugin(
-    conn: &sea_orm::DatabaseConnection,
-    plugin_slug: &str,
-    workspace_key: &str,
-    agent_type: &str,
-) -> Result<(), DbError> {
-    let transaction = conn.begin().await?;
-    let installation = crate::db::entities::plugin_installation::Entity::find()
-        .filter(crate::db::entities::plugin_installation::Column::Slug.eq(plugin_slug))
-        .one(&transaction)
-        .await?
-        .ok_or_else(|| DbError::NotFound("plugin installation".to_string()))?;
-    let manifest = serde_json::from_str::<serde_json::Value>(&installation.manifest_json)
-        .map_err(|error| DbError::Validation(error.to_string()))?;
-    let permissions = manifest
-        .get("permissions")
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!({}));
-    let permissions_json = serde_json::to_string(&permissions)
-        .map_err(|error| DbError::Validation(error.to_string()))?;
-    let now = Utc::now();
-    let activations = plugin_activation_policy::Entity::update_many()
-        .col_expr(
-            plugin_activation_policy::Column::RequestedEnabled,
-            sea_orm::sea_query::Expr::value(true),
-        )
-        .col_expr(
-            plugin_activation_policy::Column::AgentType,
-            sea_orm::sea_query::Expr::value(agent_type),
-        )
-        .col_expr(
-            plugin_activation_policy::Column::UpdatedAt,
-            sea_orm::sea_query::Expr::value(now),
-        )
-        .filter(plugin_activation_policy::Column::PluginSlug.eq(plugin_slug))
-        .exec(&transaction)
-        .await?;
-    let _workspace_activations = plugin_activation_policy::Entity::update_many()
-        .col_expr(
-            plugin_activation_policy::Column::WorkspaceKey,
-            sea_orm::sea_query::Expr::value(workspace_key),
-        )
-        .filter(plugin_activation_policy::Column::PluginSlug.eq(plugin_slug))
-        .filter(plugin_activation_policy::Column::Scope.eq("workspace"))
-        .exec(&transaction)
-        .await?;
-    let grants = plugin_permission_grant::Entity::update_many()
-        .col_expr(
-            plugin_permission_grant::Column::GrantedPermissionsJson,
-            sea_orm::sea_query::Expr::value(permissions_json),
-        )
-        .col_expr(
-            plugin_permission_grant::Column::GrantState,
-            sea_orm::sea_query::Expr::value("granted"),
-        )
-        .col_expr(
-            plugin_permission_grant::Column::GrantedAt,
-            sea_orm::sea_query::Expr::value(now),
-        )
-        .col_expr(
-            plugin_permission_grant::Column::UpdatedAt,
-            sea_orm::sea_query::Expr::value(now),
-        )
-        .filter(plugin_permission_grant::Column::PluginSlug.eq(plugin_slug))
-        .exec(&transaction)
-        .await?;
-    if activations.rows_affected == 0 || grants.rows_affected == 0 {
-        return Err(DbError::Validation(
-            "plugin runtime state is incomplete".to_string(),
-        ));
-    }
-    transaction.commit().await?;
-    Ok(())
 }

@@ -1,5 +1,8 @@
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, IntoActiveModel, Set};
+use sea_orm::{
+    sea_query::Expr, ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait,
+    IntoActiveModel, QueryFilter, Set,
+};
 
 use crate::db::entities::plugin_app_instance;
 use crate::db::error::DbError;
@@ -69,5 +72,67 @@ pub async fn find(
     plugin_app_instance::Entity::find_by_id(instance_id.to_string())
         .one(conn)
         .await
+        .map_err(Into::into)
+}
+
+pub async fn list_for_conversation(
+    conn: &DatabaseConnection,
+    conversation_id: i64,
+) -> Result<Vec<plugin_app_instance::Model>, DbError> {
+    plugin_app_instance::Entity::find()
+        .filter(plugin_app_instance::Column::ConversationId.eq(conversation_id))
+        .all(conn)
+        .await
+        .map_err(Into::into)
+}
+
+pub async fn mark_plugin_inactive(
+    conn: &DatabaseConnection,
+    plugin_slug: &str,
+) -> Result<u64, DbError> {
+    mark_plugin_inactive_version(conn, plugin_slug, None).await
+}
+
+pub async fn mark_plugin_inactive_version(
+    conn: &DatabaseConnection,
+    plugin_slug: &str,
+    plugin_version: Option<&str>,
+) -> Result<u64, DbError> {
+    let mut query = plugin_app_instance::Entity::update_many()
+        .col_expr(plugin_app_instance::Column::State, Expr::value("inactive"))
+        .col_expr(
+            plugin_app_instance::Column::UpdatedAt,
+            Expr::value(Utc::now()),
+        )
+        .filter(plugin_app_instance::Column::PluginSlug.eq(plugin_slug));
+    if let Some(plugin_version) = plugin_version {
+        query = query.filter(plugin_app_instance::Column::PluginVersion.eq(plugin_version));
+    }
+    query
+        .exec(conn)
+        .await
+        .map(|result| result.rows_affected)
+        .map_err(Into::into)
+}
+
+pub async fn mark_inactive(
+    conn: &DatabaseConnection,
+    instance_id: &str,
+    conversation_id: Option<i64>,
+) -> Result<bool, DbError> {
+    let mut query = plugin_app_instance::Entity::update_many()
+        .col_expr(plugin_app_instance::Column::State, Expr::value("inactive"))
+        .col_expr(
+            plugin_app_instance::Column::UpdatedAt,
+            Expr::value(Utc::now()),
+        )
+        .filter(plugin_app_instance::Column::InstanceId.eq(instance_id));
+    if let Some(conversation_id) = conversation_id {
+        query = query.filter(plugin_app_instance::Column::ConversationId.eq(conversation_id));
+    }
+    query
+        .exec(conn)
+        .await
+        .map(|result| result.rows_affected > 0)
         .map_err(Into::into)
 }

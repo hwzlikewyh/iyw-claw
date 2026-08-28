@@ -154,11 +154,18 @@ impl PluginRuntimeSupervisor {
     }
 
     pub async fn stop_plugin(&self, plugin_slug: &str) {
+        self.stop_plugin_version(plugin_slug, None).await;
+    }
+
+    pub async fn stop_plugin_version(&self, plugin_slug: &str, plugin_version: Option<&str>) {
         let slots = {
             let mut values = self.inner.slots.lock().await;
             let keys = values
                 .keys()
-                .filter(|key| key.plugin_slug == plugin_slug)
+                .filter(|key| {
+                    key.plugin_slug == plugin_slug
+                        && plugin_version.is_none_or(|version| key.plugin_version == version)
+                })
                 .cloned()
                 .collect::<Vec<_>>();
             keys.into_iter()

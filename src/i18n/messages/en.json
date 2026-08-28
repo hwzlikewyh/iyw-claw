@@ -3376,6 +3376,11 @@
         }
       },
       "contentParts": {
+        "pluginApp": {
+          "retry": "Retry plugin app",
+          "fullscreen": "Open fullscreen",
+          "inline": "Restore inline"
+        },
         "showingTailOutput": "Showing tail output while streaming for performance.",
         "result": "Result",
         "unknown": "unknown",
@@ -5326,6 +5331,7 @@
       "catalogTitle": "Available plugins",
       "catalogSubtitle": "Live plugin releases and components from Fusion",
       "catalogCount": "{count} plugins",
+      "openDetail": "Open {name} details",
       "loading": "Loading plugins",
       "retry": "Retry",
       "empty": "No plugins are currently available",

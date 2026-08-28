@@ -104,10 +104,6 @@ fn apply_minimal_environment(
         .env("PYTHONUTF8", "1")
         .env("PYTHONIOENCODING", "utf-8")
         .env("IYW_PLUGIN_ROOT", plugin_root)
-        // Cowart's generated MCP bundle reads its own root variable. Keep the
-        // compatibility variable scoped to the child process; plugins never
-        // inherit the host environment because command.env_clear() is used.
-        .env("COWART_PLUGIN_ROOT", plugin_root)
         .env("IYW_PLUGIN_DATA_DIR", data_root)
         .env("IYW_WORKSPACE_DIR", workspace);
     for key in ["SYSTEMROOT", "WINDIR", "TEMP", "TMP"] {

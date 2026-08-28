@@ -71,6 +71,7 @@ pub(crate) mod operation_gate;
 pub(crate) mod operation_guard;
 mod permission_queue;
 mod permission_runtime;
+pub(crate) mod plugin_app_events;
 pub mod preflight;
 pub mod profile_import;
 mod profile_import_activation;

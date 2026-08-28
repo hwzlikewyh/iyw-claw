@@ -22,6 +22,7 @@ pub mod import_service;
 pub mod model_provider_service;
 pub mod plugin_app_instance_service;
 pub mod plugin_installation_service;
+pub mod plugin_runtime_approval_service;
 pub mod plugin_runtime_state_service;
 pub mod quick_message_service;
 pub mod remote_workspace_connection_service;

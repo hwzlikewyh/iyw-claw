@@ -1,16 +1,16 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::Value;
 
+use super::app_binding::{resolve_app_intent, AppIntentInput};
 use super::registry::{PluginDescriptor, PluginRegistry};
+use super::runtime_spec::{component_config, launch_spec};
 use super::supervisor::PluginRuntimeSupervisor;
 use super::types::{
-    ExpectedTool, PluginInvokeError, PluginInvokeResult, PluginToolCall, RuntimeKey,
-    RuntimeLaunchSpec,
+    PluginAppReadRequest, PluginAppToolCall, PluginInvokeError, PluginInvokeResult,
+    PluginRouteResult, PluginRoutedResult, PluginToolCall,
 };
 use rmcp::model::ReadResourceResult;
-use tokio_util::sync::CancellationToken;
 
 #[derive(Clone)]
 pub struct PluginRouter {
@@ -26,7 +26,7 @@ impl PluginRouter {
         }
     }
 
-    pub async fn invoke(&self, call: PluginToolCall) -> PluginInvokeResult {
+    pub async fn invoke(&self, call: PluginToolCall) -> PluginRouteResult {
         if !call.context.host_gateway_supported {
             return Err(unavailable("Agent session does not support HostGateway"));
         }
@@ -45,59 +45,81 @@ impl PluginRouter {
             call.context.agent_type,
         )?;
         let spec = launch_spec(plugin, &route.connector_key, &call)?;
-        self.supervisor
+        let requested_mode = call
+            .arguments
+            .get("displayMode")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let tool_arguments = call.arguments.clone();
+        let result = self
+            .supervisor
             .invoke(
                 spec,
-                route.tool_name,
+                route.tool_name.clone(),
                 call.arguments,
-                call.context.cancellation,
-                call.context.authority_cancellation,
+                call.context.cancellation.clone(),
+                call.context.authority_cancellation.clone(),
             )
-            .await
+            .await?;
+        let launch_payload = serde_json::json!({
+            "arguments": tool_arguments,
+            "result": result,
+        });
+        let app = resolve_app_intent(AppIntentInput {
+            plugin,
+            route: &route,
+            context: &call.context,
+            requested_mode: requested_mode.as_deref(),
+            launch_payload,
+        })?;
+        Ok(PluginRoutedResult { result, app })
     }
 
     pub async fn read_app_resource(
         &self,
-        plugin_slug: &str,
-        app_key: &str,
-        workspace_key: String,
-        workspace_dir: PathBuf,
-        agent_type: crate::models::AgentType,
-        permission_revision: String,
-        cancellation: CancellationToken,
-        authority_cancellation: CancellationToken,
+        request: PluginAppReadRequest,
     ) -> Result<ReadResourceResult, PluginInvokeError> {
         let snapshot = self.registry.snapshot();
         let plugin = snapshot
             .plugins
-            .get(plugin_slug)
+            .get(&request.plugin_slug)
             .filter(|plugin| plugin.available)
             .ok_or_else(|| unavailable("Plugin is not available"))?;
-        if permission_revision != plugin.permissions_digest {
+        if request.plugin_version != plugin.version {
+            return Err(unavailable("Plugin app version is no longer current"));
+        }
+        if request.permission_revision != plugin.permissions_digest {
             return Err(unavailable("Plugin permission revision changed"));
         }
-        let app = component_config(plugin, "app", app_key)?;
+        let app = component_config(plugin, "app", &request.app_key)?;
         let connector = app["connectorKey"]
             .as_str()
             .ok_or_else(|| unavailable("Plugin app connector is missing"))?;
-        validate_activation(plugin, connector, &workspace_key, agent_type)?;
+        validate_activation(
+            plugin,
+            connector,
+            &request.workspace_key,
+            request.agent_type,
+        )?;
         let call = PluginToolCall {
             context: super::types::PluginCallContext {
-                plugin_slug: plugin_slug.to_string(),
+                connection_id: String::new(),
+                plugin_slug: request.plugin_slug.clone(),
                 capability_id: app["capabilityKey"]
                     .as_str()
                     .unwrap_or_default()
                     .to_string(),
-                workspace_key: workspace_key.clone(),
-                workspace_dir,
-                agent_type,
+                workspace_key: request.workspace_key.clone(),
+                workspace_dir: request.workspace_dir,
+                agent_type: request.agent_type,
                 host_gateway_supported: true,
-                cancellation: cancellation.clone(),
-                authority_cancellation: authority_cancellation.clone(),
-                permission_revision: permission_revision.clone(),
+                cancellation: request.cancellation.clone(),
+                authority_cancellation: request.authority_cancellation.clone(),
+                permission_revision: request.permission_revision.clone(),
             },
             arguments: serde_json::Map::new(),
         };
+        validate_permission(plugin, &call)?;
         let spec = launch_spec(plugin, connector, &call)?;
         self.supervisor
             .read_resource(
@@ -106,16 +128,53 @@ impl PluginRouter {
                     .as_str()
                     .ok_or_else(|| unavailable("Plugin app resource URI is missing"))?
                     .to_string(),
-                cancellation,
-                authority_cancellation,
+                request.cancellation,
+                request.authority_cancellation,
+            )
+            .await
+    }
+
+    pub async fn invoke_app_tool(&self, call: PluginAppToolCall) -> PluginInvokeResult {
+        let tool_name = call.tool_name.clone();
+        let snapshot = self.registry.snapshot();
+        let plugin = snapshot
+            .plugins
+            .get(&call.plugin_slug)
+            .filter(|plugin| plugin.available)
+            .ok_or_else(|| unavailable("Plugin is not available"))?;
+        if plugin.version != call.plugin_version {
+            return Err(unavailable("Plugin app version is no longer current"));
+        }
+        let app = component_config(plugin, "app", &call.app_key)?;
+        let connector_key = app["connectorKey"]
+            .as_str()
+            .ok_or_else(|| contract_error("Plugin app connector is missing"))?;
+        let capability_id = app_tool_capability(plugin, connector_key, &tool_name)?;
+        let routed_call = app_plugin_call(plugin, call, capability_id);
+        validate_permission(plugin, &routed_call)?;
+        validate_activation(
+            plugin,
+            connector_key,
+            &routed_call.context.workspace_key,
+            routed_call.context.agent_type,
+        )?;
+        let spec = launch_spec(plugin, connector_key, &routed_call)?;
+        self.supervisor
+            .invoke(
+                spec,
+                tool_name,
+                routed_call.arguments,
+                routed_call.context.cancellation,
+                routed_call.context.authority_cancellation,
             )
             .await
     }
 }
 
-struct ResolvedRoute {
-    connector_key: String,
-    tool_name: String,
+pub(super) struct ResolvedRoute {
+    pub capability_key: String,
+    pub connector_key: String,
+    pub tool_name: String,
 }
 
 fn validate_permission(
@@ -173,6 +232,7 @@ fn resolve_route(
         })?;
         if config["id"].as_str() == Some(capability_id) {
             return Ok(ResolvedRoute {
+                capability_key: component.key.clone(),
                 connector_key: config["connectorKey"]
                     .as_str()
                     .unwrap_or_default()
@@ -184,106 +244,50 @@ fn resolve_route(
     Err(unavailable("Plugin capability is unavailable"))
 }
 
-fn launch_spec(
+fn app_tool_capability(
     plugin: &PluginDescriptor,
     connector_key: &str,
-    call: &PluginToolCall,
-) -> Result<RuntimeLaunchSpec, PluginInvokeError> {
-    let connector = component_config(plugin, "connector", connector_key)?;
-    if connector["routing"]["mode"].as_str() != Some("host_gateway") {
-        return Err(unavailable("Plugin connector is not HostGateway routed"));
-    }
-    let runtime_key = connector["runtimeKey"].as_str().unwrap_or_default();
-    let runtime = component_config(plugin, "runtime", runtime_key)?;
-    let paths = crate::acp::agent_storage::AgentStoragePaths::active()
-        .ok_or_else(|| unavailable("Plugin storage is unavailable"))?;
-    Ok(RuntimeLaunchSpec {
-        key: RuntimeKey {
-            plugin_slug: plugin.slug.clone(),
-            plugin_version: plugin.version.clone(),
-            connector_key: connector_key.to_string(),
-            workspace_key: call.context.workspace_key.clone(),
-        },
-        runtime_kind: runtime["kind"].as_str().unwrap_or_default().to_string(),
-        entrypoint: runtime["entrypoint"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string(),
-        install_root: PathBuf::from(&plugin.install_root),
-        plugin_data_dir: paths.root().join("plugin-data").join(&plugin.slug),
-        workspace_dir: call.context.workspace_dir.clone(),
-        permission_revision: plugin.permissions_digest.clone(),
-        expected_tools: expected_tools(plugin, connector_key)?,
-        resource_uris: resource_uris(plugin, connector_key)?,
-    })
-}
-
-fn component_config<'a>(
-    plugin: &'a PluginDescriptor,
-    kind: &str,
-    key: &str,
-) -> Result<&'a Value, PluginInvokeError> {
+    tool_name: &str,
+) -> Result<String, PluginInvokeError> {
     plugin
         .manifest
         .components
         .iter()
-        .find(|component| component.kind == kind && component.key == key)
-        .and_then(|component| component.config.as_ref())
-        .ok_or_else(|| {
-            PluginInvokeError::before_effect(
-                "plugin_contract_mismatch",
-                format!("Missing {kind} component {key}"),
-            )
+        .filter(|component| component.kind == "capability")
+        .filter_map(|component| component.config.as_ref())
+        .find(|config| {
+            config["connectorKey"].as_str() == Some(connector_key)
+                && config["toolName"].as_str() == Some(tool_name)
         })
+        .and_then(|config| config["id"].as_str())
+        .map(str::to_string)
+        .ok_or_else(|| unavailable("Plugin app tool is not declared by its connector"))
 }
 
-fn expected_tools(
+fn app_plugin_call(
     plugin: &PluginDescriptor,
-    connector_key: &str,
-) -> Result<Vec<ExpectedTool>, PluginInvokeError> {
-    let mut result = Vec::new();
-    for component in &plugin.manifest.components {
-        if component.kind != "capability" {
-            continue;
-        }
-        let config = component.config.as_ref().ok_or_else(|| {
-            PluginInvokeError::before_effect("plugin_contract_mismatch", "Capability config")
-        })?;
-        if config["connectorKey"].as_str() == Some(connector_key) {
-            result.push(ExpectedTool {
-                name: config["toolName"].as_str().unwrap_or_default().to_string(),
-                schema_path: config["schemaPath"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string(),
-            });
-        }
+    call: PluginAppToolCall,
+    capability_id: String,
+) -> PluginToolCall {
+    PluginToolCall {
+        context: super::types::PluginCallContext {
+            connection_id: String::new(),
+            plugin_slug: plugin.slug.clone(),
+            capability_id,
+            workspace_key: call.workspace_key,
+            workspace_dir: call.workspace_dir,
+            agent_type: call.agent_type,
+            host_gateway_supported: true,
+            cancellation: tokio_util::sync::CancellationToken::new(),
+            authority_cancellation: tokio_util::sync::CancellationToken::new(),
+            permission_revision: plugin.permissions_digest.clone(),
+        },
+        arguments: call.arguments,
     }
-    Ok(result)
 }
 
-fn resource_uris(
-    plugin: &PluginDescriptor,
-    connector_key: &str,
-) -> Result<Vec<String>, PluginInvokeError> {
-    let mut result = Vec::new();
-    for component in &plugin.manifest.components {
-        if component.kind != "app" {
-            continue;
-        }
-        let config = component.config.as_ref().ok_or_else(|| {
-            PluginInvokeError::before_effect("plugin_contract_mismatch", "App config")
-        })?;
-        if config["connectorKey"].as_str() == Some(connector_key) {
-            result.push(
-                config["resourceUri"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string(),
-            );
-        }
-    }
-    Ok(result)
+fn contract_error(message: impl Into<String>) -> PluginInvokeError {
+    PluginInvokeError::before_effect("plugin_contract_mismatch", message)
 }
 
 fn unavailable(message: impl Into<String>) -> PluginInvokeError {

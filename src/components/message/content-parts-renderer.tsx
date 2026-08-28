@@ -57,6 +57,7 @@ import { GeneratedImagesBlock } from "./generated-images-block"
 import { GoalRunPart, GoalToolCallPart } from "./goal-tool-call"
 import { PlanCard, PlanEntriesList } from "./plan-card"
 import { PlanModeCard } from "./plan-mode-card"
+import { PluginAppContent } from "./plugin-app-content"
 import { PlainTextWithBadges } from "./plain-text-with-badges"
 import {
   FileTextIcon,
@@ -2554,6 +2555,7 @@ const ToolGroupPart = memo(function ToolGroupPart({
 interface ContentPartsRendererProps {
   parts: AdaptedContentPart[]
   role?: MessageRole
+  conversationId?: number
   entranceKey?: string
   animationEnabled?: boolean
 }
@@ -2561,6 +2563,7 @@ interface ContentPartsRendererProps {
 export const ContentPartsRenderer = memo(function ContentPartsRenderer({
   parts,
   role,
+  conversationId,
   entranceKey,
   animationEnabled = false,
 }: ContentPartsRendererProps) {
@@ -2577,6 +2580,18 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
 
     if (part.type === "tool-call") {
       return <ToolCallPart key={`tc-${part.toolCallId ?? keyId}`} part={part} />
+    }
+
+    if (part.type === "plugin-app") {
+      if (!conversationId) return null
+      return (
+        <PluginAppContent
+          key={`plugin-app-${part.instanceId}`}
+          instanceId={part.instanceId}
+          toolCallId={part.toolCallId}
+          conversationId={conversationId}
+        />
+      )
     }
 
     if (part.type === "tool-group") {

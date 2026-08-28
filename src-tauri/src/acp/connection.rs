@@ -7874,7 +7874,15 @@ async fn emit_conversation_update(
             let meta_marks_subagent = codebuddy_meta_marks_subagent(agent_type, tc.meta.as_ref());
             let meta_marks_background =
                 codebuddy_meta_marks_background(agent_type, tc.meta.as_ref());
-            let meta = tc.meta.map(serde_json::Value::Object);
+            let meta = crate::acp::plugin_app_events::enrich_tool_meta(
+                crate::acp::plugin_app_events::PluginAppEventInput {
+                    state,
+                    tool_call_id: &tool_call_id,
+                    meta: tc.meta.map(serde_json::Value::Object),
+                    raw_output: tc.raw_output.as_ref(),
+                },
+            )
+            .await;
             let status = format!("{:?}", tc.status).to_lowercase();
             raw_output_cache.remove_if_final(&tool_call_id, Some(status.as_str()));
             // Avoid logging titles/payloads below — they can be model-generated
@@ -8006,7 +8014,15 @@ async fn emit_conversation_update(
             let meta_marks_subagent = codebuddy_meta_marks_subagent(agent_type, tcu.meta.as_ref());
             let meta_marks_background =
                 codebuddy_meta_marks_background(agent_type, tcu.meta.as_ref());
-            let meta = tcu.meta.clone().map(serde_json::Value::Object);
+            let meta = crate::acp::plugin_app_events::enrich_tool_meta(
+                crate::acp::plugin_app_events::PluginAppEventInput {
+                    state,
+                    tool_call_id: &tool_call_id,
+                    meta: tcu.meta.clone().map(serde_json::Value::Object),
+                    raw_output: tcu.fields.raw_output.as_ref(),
+                },
+            )
+            .await;
             let status = tcu.fields.status.map(|s| format!("{:?}", s).to_lowercase());
             raw_output_cache.remove_if_final(&tool_call_id, status.as_deref());
             if let Some((name, _)) = &grok_use_tool {
