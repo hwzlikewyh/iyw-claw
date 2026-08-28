@@ -3376,6 +3376,11 @@
         }
       },
       "contentParts": {
+        "pluginApp": {
+          "retry": "重新加载插件界面",
+          "fullscreen": "全屏打开",
+          "inline": "恢复嵌入显示"
+        },
         "showingTailOutput": "为保证性能，流式输出时仅显示尾部内容。",
         "result": "结果",
         "unknown": "未知",

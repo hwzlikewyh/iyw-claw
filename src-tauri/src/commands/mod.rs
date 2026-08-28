@@ -59,6 +59,7 @@ pub mod notification;
 pub mod office_tools;
 pub mod performance;
 pub mod pet;
+pub mod plugin_apps;
 pub mod question;
 pub mod quick_messages;
 #[cfg(feature = "tauri-runtime")]

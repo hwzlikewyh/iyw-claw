@@ -1,5 +1,7 @@
-pub mod global;
+mod app_binding;
 pub mod app_host;
+pub mod app_launch_broker;
+pub mod global;
 mod lease;
 mod mcp_client;
 mod process;
@@ -7,5 +9,6 @@ mod reaper;
 mod recovery;
 pub mod registry;
 pub mod router;
+mod runtime_spec;
 pub mod supervisor;
 pub mod types;

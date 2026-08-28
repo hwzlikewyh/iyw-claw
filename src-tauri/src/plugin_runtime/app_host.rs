@@ -39,21 +39,59 @@ pub struct PluginAppRegistry {
 }
 
 impl PluginAppRegistry {
+    pub fn renew(&self, input: PluginAppLeaseInput) -> Result<PluginAppLaunch, PluginInvokeError> {
+        validate_resource_uri(&input.resource_uri)?;
+        if !matches!(input.display_mode.as_str(), "inline" | "fullscreen") {
+            return Err(PluginInvokeError::before_effect(
+                "plugin_app_invalid",
+                "Unsupported plugin app display mode",
+            ));
+        }
+        let nonce = random_token();
+        let launch = PluginAppLaunch {
+            instance_id: input.instance_id.clone(),
+            conversation_id: input.conversation_id,
+            tool_call_id: input.tool_call_id,
+            plugin_slug: input.plugin_slug,
+            plugin_version: input.plugin_version,
+            app_key: input.app_key,
+            resource_uri: input.resource_uri,
+            display_mode: input.display_mode,
+            launch_payload: input.launch_payload,
+            lease_token: random_token(),
+            nonce: nonce.clone(),
+        };
+        self.leases
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(
+                input.instance_id,
+                Lease {
+                    launch: launch.clone(),
+                    nonce,
+                    expires_at: Instant::now() + LEASE_TTL,
+                },
+            );
+        Ok(launch)
+    }
+
     pub async fn create_persisted(
         &self,
         conn: &sea_orm::DatabaseConnection,
         input: PluginAppLaunchInput,
     ) -> Result<PluginAppLaunch, PluginInvokeError> {
-        let launch = self.create(
-            input.conversation_id,
-            input.tool_call_id.clone(),
-            input.plugin_slug.clone(),
-            input.plugin_version.clone(),
-            input.app_key.clone(),
-            input.resource_uri,
-            input.display_mode,
-            input.launch_payload,
-        )?;
+        let workspace_key = input.workspace_key.clone();
+        let launch = self.renew(PluginAppLeaseInput {
+            instance_id: uuid::Uuid::new_v4().to_string(),
+            conversation_id: input.conversation_id,
+            tool_call_id: input.tool_call_id,
+            plugin_slug: input.plugin_slug,
+            plugin_version: input.plugin_version,
+            app_key: input.app_key,
+            resource_uri: input.resource_uri,
+            display_mode: input.display_mode,
+            launch_payload: input.launch_payload,
+        })?;
         let payload = serde_json::to_string(&launch.launch_payload).map_err(|error| {
             PluginInvokeError::before_effect("plugin_app_invalid", error.to_string())
         })?;
@@ -66,7 +104,7 @@ impl PluginAppRegistry {
                 plugin_slug: launch.plugin_slug.clone(),
                 plugin_version: launch.plugin_version.clone(),
                 app_key: launch.app_key.clone(),
-                workspace_key: input.workspace_key,
+                workspace_key,
                 launch_payload_json: payload,
                 state: "active".to_string(),
             },
@@ -79,51 +117,6 @@ impl PluginAppRegistry {
             self.teardown(&launch.instance_id);
             return Err(error);
         }
-        Ok(launch)
-    }
-
-    pub fn create(
-        &self,
-        conversation_id: i64,
-        tool_call_id: String,
-        plugin_slug: String,
-        plugin_version: String,
-        app_key: String,
-        resource_uri: String,
-        display_mode: String,
-        launch_payload: serde_json::Value,
-    ) -> Result<PluginAppLaunch, PluginInvokeError> {
-        validate_resource_uri(&resource_uri)?;
-        if !matches!(display_mode.as_str(), "inline" | "fullscreen") {
-            return Err(PluginInvokeError::before_effect(
-                "plugin_app_invalid",
-                "Unsupported plugin app display mode",
-            ));
-        }
-        let instance_id = uuid::Uuid::new_v4().to_string();
-        let nonce = random_token();
-        let launch = PluginAppLaunch {
-            instance_id: instance_id.clone(),
-            conversation_id,
-            tool_call_id,
-            plugin_slug,
-            plugin_version,
-            app_key,
-            resource_uri,
-            display_mode,
-            launch_payload,
-            lease_token: random_token(),
-            nonce: nonce.clone(),
-        };
-        let lease = Lease {
-            launch: launch.clone(),
-            nonce,
-            expires_at: Instant::now() + LEASE_TTL,
-        };
-        self.leases
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(instance_id, lease);
         Ok(launch)
     }
 
@@ -169,6 +162,27 @@ impl PluginAppRegistry {
             .is_some()
     }
 
+    pub fn teardown_plugin(&self, plugin_slug: &str) -> usize {
+        self.teardown_plugin_version(plugin_slug, None)
+    }
+
+    pub fn teardown_plugin_version(
+        &self,
+        plugin_slug: &str,
+        plugin_version: Option<&str>,
+    ) -> usize {
+        let mut leases = self
+            .leases
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let before = leases.len();
+        leases.retain(|_, lease| {
+            lease.launch.plugin_slug != plugin_slug
+                || plugin_version.is_some_and(|version| lease.launch.plugin_version != version)
+        });
+        before.saturating_sub(leases.len())
+    }
+
     pub fn reap_expired(&self) -> usize {
         let now = Instant::now();
         let mut leases = self
@@ -190,6 +204,18 @@ pub struct PluginAppLaunchInput {
     pub resource_uri: String,
     pub display_mode: String,
     pub workspace_key: String,
+    pub launch_payload: serde_json::Value,
+}
+
+pub struct PluginAppLeaseInput {
+    pub instance_id: String,
+    pub conversation_id: i64,
+    pub tool_call_id: String,
+    pub plugin_slug: String,
+    pub plugin_version: String,
+    pub app_key: String,
+    pub resource_uri: String,
+    pub display_mode: String,
     pub launch_payload: serde_json::Value,
 }
 
@@ -223,6 +249,21 @@ fn random_token() -> String {
 fn allowed_method(method: &str) -> bool {
     matches!(
         method,
-        "ui/initialize" | "ui/message" | "ui/resize" | "ui/teardown"
+        "initialize"
+            | "ui/initialize"
+            | "ui/open-link"
+            | "ui/message"
+            | "ui/request-display-mode"
+            | "ui/update-model-context"
+            | "ui/resource-teardown"
+            | "tools/call"
+            | "resources/list"
+            | "resources/read"
+            | "notifications/message"
+            | "ping"
+            | "ui/notifications/initialized"
+            | "ui/notifications/size-changed"
+            | "ui/notifications/sandbox-proxy-ready"
+            | "ui/notifications/request-teardown"
     )
 }

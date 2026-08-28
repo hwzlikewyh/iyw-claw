@@ -66,6 +66,12 @@ pub struct SkillPluginNetworkPermissions {
     pub resource_domains: Vec<String>,
     #[serde(default, deserialize_with = "deserialize_null_vec")]
     pub frame_domains: Vec<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_null_vec",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub base_uri_domains: Vec<String>,
 }
 
 pub(super) fn deserialize_null_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>

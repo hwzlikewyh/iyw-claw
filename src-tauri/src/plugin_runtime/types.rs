@@ -33,6 +33,7 @@ pub struct ExpectedTool {
 
 #[derive(Clone)]
 pub struct PluginCallContext {
+    pub connection_id: String,
     pub plugin_slug: String,
     pub capability_id: String,
     pub workspace_key: String,
@@ -47,6 +48,47 @@ pub struct PluginCallContext {
 pub struct PluginToolCall {
     pub context: PluginCallContext,
     pub arguments: serde_json::Map<String, Value>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PluginAppIntent {
+    pub connection_id: String,
+    pub plugin_slug: String,
+    pub plugin_version: String,
+    pub app_key: String,
+    pub resource_uri: String,
+    pub display_mode: String,
+    pub workspace_key: String,
+    pub permission_revision: String,
+    pub launch_payload: serde_json::Value,
+}
+
+pub struct PluginRoutedResult {
+    pub result: rmcp::model::CallToolResult,
+    pub app: Option<PluginAppIntent>,
+}
+
+pub struct PluginAppReadRequest {
+    pub plugin_slug: String,
+    pub plugin_version: String,
+    pub app_key: String,
+    pub workspace_key: String,
+    pub workspace_dir: PathBuf,
+    pub agent_type: crate::models::AgentType,
+    pub permission_revision: String,
+    pub cancellation: CancellationToken,
+    pub authority_cancellation: CancellationToken,
+}
+
+pub struct PluginAppToolCall {
+    pub plugin_slug: String,
+    pub plugin_version: String,
+    pub app_key: String,
+    pub tool_name: String,
+    pub arguments: serde_json::Map<String, Value>,
+    pub workspace_key: String,
+    pub workspace_dir: PathBuf,
+    pub agent_type: crate::models::AgentType,
 }
 
 #[derive(Debug, Clone)]
@@ -75,3 +117,4 @@ impl PluginInvokeError {
 }
 
 pub type PluginInvokeResult = Result<CallToolResult, PluginInvokeError>;
+pub type PluginRouteResult = Result<PluginRoutedResult, PluginInvokeError>;

@@ -107,6 +107,14 @@ app instances: 0
 - 不恢复 `scripts/start-canvas.sh` 作为正式产品路径；
 - 不顺带实现 NativeAgent 双投影或其它插件的定制 Widget。
 
+### 4.3 通用插件接入约束
+
+Cowart 只是首个验收包，不得成为宿主代码中的特例。核心 Host、Gateway、数据库、API、
+消息 adapter 和前端 renderer 禁止按 `cowart` slug、tool name 或 resource URI 分支。未来
+v2 插件只通过 manifest 声明 runtime、connector、capability、app、permissions 和 binding，
+即可复用同一安装、授权、ticket、instance、lease、resource、tools/call、恢复和卸载链路；
+若一个新插件仍需要修改通用宿主才能显示其标准 MCP App，视为宿主 contract 不完整。
+
 ## 5. 插件状态与授权
 
 ### 5.1 状态分解
@@ -226,6 +234,8 @@ clipboard、open-link 与 Widget tools/call 都继续校验 source、nonce、lea
 - capability、app、schema、entrypoint 和 resource path canonicalize 后必须位于安装版本目录；
 - app HTML、launch payload、postMessage、tool 参数/返回值和 resize 都有硬上限；
 - CSP 取宿主上限、manifest ceiling 与用户 grant 的交集，默认拒绝未声明网络与 frame；
+- `resources/read` 保持标准 MCP Apps JSON-RPC；资源 `_meta.ui.csp` / `permissions` 经过
+  manifest ceiling、用户 grant 与资源声明的交集后下发，供后续插件复用；
 - 日志记录 plugin/version、workspace hash、Agent、状态转换、runtime/instance ID 和稳定错误码；
 - 不记录 token、nonce、完整权限 JSON、HTML、用户消息、绝对 workspace 路径或 canvas 内容；
 - 权限拒绝、runtime 崩溃和 Widget bridge 失败分别记录，不能全部归为 `unavailable`。
@@ -244,6 +254,9 @@ metadata、定向 TypeScript/ESLint、i18n key 检查、`git diff --check` 和�
 除非用户另行批准，不新增单元/集成/E2E 测试文件。
 
 此外必须用真实 Cowart 包和正式安装客户端完成运行验证：
+
+当前已完成隔离 Cowart 包的 runtime JSON-RPC smoke；这只证明插件进程、工具目录和
+`text/html;profile=mcp-app` 资源可读，不替代正式客户端 UI 证据。
 
 - 已安装 pending 状态无需重装即可出现授权确认；拒绝与批准路径均核对 SQLite；
 - 当前 workspace/Agent 可用，其它 workspace/Agent 仍不可用；

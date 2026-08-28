@@ -269,6 +269,7 @@ fn validate_permissions(value: &SkillPluginPermissions) -> Result<(), AppCommand
         .iter()
         .chain(&value.network.resource_domains)
         .chain(&value.network.frame_domains)
+        .chain(&value.network.base_uri_domains)
     {
         let parsed = reqwest::Url::parse(domain).ok();
         if domain.chars().any(|character| {
@@ -290,7 +291,12 @@ fn validate_permissions(value: &SkillPluginPermissions) -> Result<(), AppCommand
     if value.host.iter().any(|item| {
         !matches!(
             item.as_str(),
-            "send-message" | "clipboard-write" | "open-link"
+            "send-message"
+                | "clipboard-write"
+                | "open-link"
+                | "camera"
+                | "microphone"
+                | "geolocation"
         )
     }) {
         return Err(invalid_plugin("Plugin v2 host permission is unsupported"));

@@ -661,6 +661,7 @@ pub async fn get_folder_conversation_core(
         .await
         .unwrap_or_default();
     inject_delegation_meta(&mut turns, &children);
+    crate::acp::plugin_app_events::inject_history_meta(conn, conversation_id, &mut turns).await;
 
     Ok((
         DbConversationDetail {

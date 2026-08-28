@@ -3376,6 +3376,11 @@
         }
       },
       "contentParts": {
+        "pluginApp": {
+          "retry": "Retry plugin app",
+          "fullscreen": "Open fullscreen",
+          "inline": "Restore inline"
+        },
         "showingTailOutput": "Showing tail output while streaming for performance.",
         "result": "Result",
         "unknown": "unknown",

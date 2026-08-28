@@ -168,8 +168,13 @@ available、另一个 workspace 仍 unavailable。
    fullscreen 容器切换不得提前 teardown。
 6. Widget 继续使用 opaque sandbox、MessageChannel、nonce、source 和 CSP；不开放 Tauri
    globals、Cookie 或宿主 token。
+7. `resources/list` 仅返回当前 app binding 声明的资源，`resources/read` 由后端统一路由；资源 `_meta.ui.csp` / `permissions` 只以
+   manifest ceiling、用户 grant 与资源声明的交集传给 sandbox，未声明能力默认拒绝。
 
 **验证：** Prettier、定向 ESLint/TypeScript、i18n；人工检查窄/中/宽窗口无重叠或布局跳动。
+
+**当前证据：** 相关前端文件已通过仓库现有 Prettier、定向 ESLint 和 TypeScript；inline 与
+fullscreen 使用同一 `PluginAppHost`/instance，未执行正式安装客户端视觉检查。
 
 ## Task 8：更新 Cowart 包与 Skills
 
@@ -191,18 +196,28 @@ available、另一个 workspace 仍 unavailable。
 
 **验证：** package file list、manifest digest、Skill 触发条件、artifact ready；不执行安装脚本。
 
+**当前证据：** 隔离 staging `F:\projects\iyw\.tmp\cowart-v0.1.29` 的 source-expanded 与
+package 共 32 个文件逐文件 SHA-256 一致；manifest/Skills 已升到 `0.1.29`，host permission
+包含 `send-message`。未生成或上传正式 artifact，tldraw production license 尚未提供。
+
 ## Task 9：静态与真实纵向验证
 
 1. 运行 `cargo fmt --check`、`cargo metadata --no-deps`。
-2. 运行相关前端文件的 Prettier、ESLint/TypeScript 正常入口；运行 `git diff --check`。
-3. 安装开发构建或下一正式包前备份本地数据库；不停止当前正常客户端直到替换窗口。
-4. 用本机 pending Cowart 验证：拒绝、批准、同会话重新发现、runtime cold/warm 调用。
-5. 验证真实 Widget 首帧非空、inline/fullscreen 同 instance、保存、刷新、历史恢复、图片、
+2. 扫描通用 Host/Gateway/API/renderer，禁止出现 `cowart` slug、tool name 或 resource URI
+   特判；Cowart 字面量只能存在于独立验收包、发布操作和验收说明中。
+3. 运行相关前端文件的 Prettier、ESLint/TypeScript 正常入口；运行 `git diff --check`。
+4. 安装开发构建或下一正式包前备份本地数据库；不停止当前正常客户端直到替换窗口。
+5. 用本机 pending Cowart 验证：拒绝、批准、同会话重新发现、runtime cold/warm 调用。
+6. 验证真实 Widget 首帧非空、inline/fullscreen 同 instance、保存、刷新、历史恢复、图片、
    HTML、复制、下载、DPR 和中等宽度。
-6. 验证另一个 workspace/Agent 不继承授权；权限摘要变化需重授权。
-7. 验证禁用、升级、卸载、会话断开和应用退出无 runtime/lease 残留，canvas 数据保留。
+7. 验证另一个 workspace/Agent 不继承授权；权限摘要变化需重授权。
+8. 验证禁用、升级、卸载、会话断开和应用退出无 runtime/lease 残留，canvas 数据保留。
 
 **停止条件：** 任一层只有静态/HTTP 证据而没有真实 UI 证据时，不声称纵向完成、不重新上架。
+
+**已完成的非 UI 证据：** 隔离 Cowart runtime 真实 JSON-RPC smoke 通过：initialize、13 个
+tools、1 个 `ui://` resource、`text/html;profile=mcp-app` 资源读取（6.7 MB）及 render tool
+结构化结果均正常。真实 Windows 安装客户端的 Widget 首帧、保存/刷新和跨作用域验证仍未完成。
 
 ## Task 10：提交、发布与重新上架
 

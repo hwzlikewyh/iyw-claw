@@ -4613,3 +4613,74 @@ export async function scanExternalConflictsWeb(
     { timeoutMs: BACKUP_LONG_CALL_TIMEOUT_MS }
   )
 }
+
+export interface PluginAppLaunch {
+  instanceId: string
+  conversationId: number
+  toolCallId: string
+  pluginSlug: string
+  pluginVersion: string
+  appKey: string
+  resourceUri: string
+  displayMode: "inline" | "fullscreen"
+  launchPayload: unknown
+  leaseToken: string
+  nonce: string
+}
+
+export interface PluginAppResourceCsp {
+  connectDomains?: string[]
+  resourceDomains?: string[]
+  frameDomains?: string[]
+  baseUriDomains?: string[]
+}
+
+export interface PluginAppResourcePermissions {
+  camera?: Record<string, never>
+  microphone?: Record<string, never>
+  geolocation?: Record<string, never>
+  clipboardWrite?: Record<string, never>
+}
+
+export interface PluginAppResourceMeta {
+  csp?: PluginAppResourceCsp
+  permissions?: PluginAppResourcePermissions
+}
+
+export interface PluginAppOpenResponse {
+  launch: PluginAppLaunch
+  html: string
+  resourceMeta?: PluginAppResourceMeta
+}
+
+export async function pluginAppOpen(args: {
+  instanceId: string
+  conversationId: number
+  displayMode?: "inline" | "fullscreen"
+}): Promise<PluginAppOpenResponse> {
+  return getTransport().call<PluginAppOpenResponse>("plugin_app_open", {
+    request: args,
+  })
+}
+
+export async function pluginAppMessage(args: {
+  instanceId: string
+  leaseToken: string
+  nonce: string
+  method: string
+  id?: string | number
+  params?: unknown
+}): Promise<{
+  accepted: boolean
+  result?: unknown
+  error?: { code: number; message: string }
+}> {
+  return getTransport().call("plugin_app_message", { request: args })
+}
+
+export async function pluginAppTeardown(args: {
+  instanceId: string
+  conversationId: number
+}): Promise<void> {
+  return getTransport().call("plugin_app_teardown", { request: args })
+}

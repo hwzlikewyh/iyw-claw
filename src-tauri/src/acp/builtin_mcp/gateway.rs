@@ -23,6 +23,7 @@ pub(super) enum GatewayAction {
 }
 
 pub(super) struct GatewaySession<'a> {
+    pub connection_id: &'a str,
     pub features: &'a FeatureSnapshot,
     pub cwd: &'a Path,
     pub agent_type: AgentType,
@@ -192,6 +193,7 @@ fn plugin_call_context(
     session: GatewaySession<'_>,
 ) -> PluginCallContext {
     let context = PluginCallContext {
+        connection_id: session.connection_id.to_string(),
         plugin_slug: plugin_slug.to_string(),
         capability_id: capability_id.to_string(),
         workspace_key: crate::commands::skill_inventory::workspace_key(Some(

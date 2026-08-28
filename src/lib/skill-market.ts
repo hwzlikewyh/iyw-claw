@@ -36,8 +36,16 @@ export interface SkillPluginPermissions {
     connectDomains: string[]
     resourceDomains: string[]
     frameDomains: string[]
+    baseUriDomains?: string[]
   }
-  host: Array<"send-message" | "clipboard-write" | "open-link">
+  host: Array<
+    | "send-message"
+    | "clipboard-write"
+    | "open-link"
+    | "camera"
+    | "microphone"
+    | "geolocation"
+  >
 }
 
 export interface SkillDependency {

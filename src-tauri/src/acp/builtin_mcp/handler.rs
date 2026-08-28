@@ -87,6 +87,7 @@ impl BuiltinMcpHandler {
             route.tool(),
             request.arguments,
             gateway::GatewaySession {
+                connection_id: authority.connection_id(),
                 features: authority.features(),
                 cwd: authority.cwd(),
                 agent_type: authority.agent_type(),
@@ -152,7 +153,7 @@ impl BuiltinMcpHandler {
     ) -> Result<CallToolResult, ErrorData> {
         let router = crate::plugin_runtime::global::router()
             .ok_or_else(|| ErrorData::internal_error("plugin router is unavailable", None))?;
-        router.invoke(invocation).await.map_err(|error| {
+        let routed = router.invoke(invocation).await.map_err(|error| {
             ErrorData::internal_error(
                 error.message,
                 Some(json!({
@@ -160,7 +161,13 @@ impl BuiltinMcpHandler {
                     "effectMayHaveOccurred": error.effect_may_have_occurred,
                 })),
             )
-        })
+        })?;
+        let mut result = routed.result;
+        if let Some(app) = routed.app {
+            let ticket = crate::plugin_runtime::global::app_launch_broker().issue(app);
+            crate::plugin_runtime::app_launch_broker::attach_ticket(&mut result, ticket);
+        }
+        Ok(result)
     }
 
     pub(super) fn invocation_dependencies(&self) -> InvocationDependencies<'_> {

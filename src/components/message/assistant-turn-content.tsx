@@ -23,6 +23,7 @@ interface AssistantTurnContentProps {
   displayMode: ConversationDisplayMode
   collapseCompletedTurn: boolean
   autoOpenErrors: boolean
+  conversationId: number
 }
 
 function hasError(part: AdaptedContentPart): boolean {
@@ -79,6 +80,7 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
   displayMode,
   collapseCompletedTurn,
   autoOpenErrors,
+  conversationId,
 }: AssistantTurnContentProps) {
   const t = useTranslations("Folder.chat.messageList")
   const summaryIndex = useMemo(
@@ -105,6 +107,7 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
       role="assistant"
       entranceKey={key}
       animationEnabled={animationEnabled}
+      conversationId={conversationId}
     />
   )
 

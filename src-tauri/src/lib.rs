@@ -84,8 +84,8 @@ mod tauri_app {
         managed_skills as managed_skills_commands, mcp as mcp_commands,
         model_provider as model_provider_commands, notification,
         office_tools as office_tools_commands, performance as performance_commands,
-        question as question_commands, quick_messages as quick_messages_commands,
-        realtime_voice as realtime_voice_commands,
+        plugin_apps as plugin_apps_commands, question as question_commands,
+        quick_messages as quick_messages_commands, realtime_voice as realtime_voice_commands,
         remote_chat_image_upload as remote_chat_image_upload_commands,
         remote_image as remote_image_commands, remote_proxy as remote_proxy_commands,
         remote_workspace as remote_workspace_commands,
@@ -561,7 +561,9 @@ mod tauri_app {
                     plugin_supervisor.clone(),
                 );
                 let plugin_router = crate::plugin_runtime::global::install_router(plugin_router);
-                let plugin_apps = crate::plugin_runtime::app_host::PluginAppRegistry::default();
+                let plugin_apps = crate::plugin_runtime::global::install_apps(
+                    crate::plugin_runtime::app_host::PluginAppRegistry::default(),
+                );
                 app.manage(plugin_registry);
                 app.manage(plugin_supervisor);
                 app.manage(plugin_router);
@@ -1465,6 +1467,9 @@ mod tauri_app {
                 skill_market_commands::skill_market_install,
                 skill_market_commands::skill_market_uninstall,
                 skill_market_commands::skill_market_rebuild_artifact,
+                plugin_apps_commands::plugin_app_open,
+                plugin_apps_commands::plugin_app_message,
+                plugin_apps_commands::plugin_app_teardown,
                 scenarios_commands::scenarios_catalog,
                 iyw_account_commands::iyw_account_get_wechat_qrcode,
                 iyw_account_commands::iyw_account_poll_wechat_login,

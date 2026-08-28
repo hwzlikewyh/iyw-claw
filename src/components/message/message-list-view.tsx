@@ -551,6 +551,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
               <ContentPartsRenderer
                 parts={group.parts}
                 role={group.role}
+                conversationId={conversationId}
                 entranceKey={`${conversationId}:${group.id}`}
                 animationEnabled={animationEnabled}
               />
@@ -560,6 +561,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
           <MessageContent>
             <AssistantTurnContent
               parts={group.parts}
+              conversationId={conversationId}
               entranceKey={`${conversationId}:${group.id}`}
               animationEnabled={animationEnabled}
               isResponseComplete={isResponseComplete}
