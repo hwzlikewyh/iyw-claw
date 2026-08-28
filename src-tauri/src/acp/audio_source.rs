@@ -5,6 +5,7 @@ use tempfile::TempPath;
 
 use crate::acp::audio_transcription::AudioToolFailure;
 use crate::acp::delegation::transport::AudioTranscriptionSource;
+use crate::acp::media_tool::MediaToolRunner;
 
 #[path = "audio_source_convert.rs"]
 mod convert;
@@ -34,8 +35,9 @@ pub(crate) async fn prepare(
 ) -> Result<PreparedAudioFile, AudioToolFailure> {
     validate_source(source)?;
     let loaded = load(working_dir, source, max_bytes).await?;
-    convert::enforce_duration(&loaded.path, flash).await?;
-    let loaded = convert::normalize(loaded, flash).await?;
+    let tools = MediaToolRunner::discover().map_err(convert::map_tool_error)?;
+    convert::enforce_duration(&tools, &loaded.path, flash).await?;
+    let loaded = convert::normalize(&tools, loaded, flash).await?;
     let metadata = tokio::fs::metadata(&loaded.path)
         .await
         .map_err(|_| AudioToolFailure::invalid_source())?;

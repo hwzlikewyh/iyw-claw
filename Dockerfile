@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y \
     openssh-client \
     ca-certificates \
     curl \
+    ffmpeg \
     python3 \
     python3-pip \
     libicu72 \

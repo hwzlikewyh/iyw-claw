@@ -72,6 +72,27 @@ impl AudioToolFailure {
         )
     }
 
+    pub(crate) fn probe_unavailable() -> Self {
+        Self::new(
+            "audio_transcription_probe_unavailable",
+            "ffprobe is required to inspect this audio source but is not available.",
+        )
+    }
+
+    pub(crate) fn probe_failed() -> Self {
+        Self::new(
+            "audio_transcription_probe_failed",
+            "The audio source could not be inspected.",
+        )
+    }
+
+    pub(crate) fn tool_timeout() -> Self {
+        Self::new(
+            "audio_transcription_tool_timeout",
+            "Audio preparation took too long and was cancelled.",
+        )
+    }
+
     pub(crate) fn conversion_failed() -> Self {
         Self::new(
             "audio_transcription_conversion_failed",

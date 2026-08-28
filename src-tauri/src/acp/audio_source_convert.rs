@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use crate::acp::audio_transcription::AudioToolFailure;
+use crate::acp::media_tool::{MediaToolError, MediaToolRunner, ProbeInfo};
 
 use super::{new_temp_path, LoadedAudio};
 
@@ -8,6 +9,7 @@ const FLASH_MAX_DURATION_SECONDS: f64 = 2.0 * 60.0 * 60.0;
 const STANDARD_MAX_DURATION_SECONDS: f64 = 5.0 * 60.0 * 60.0;
 
 pub(super) async fn normalize(
+    tools: &MediaToolRunner,
     loaded: LoadedAudio,
     flash: bool,
 ) -> Result<LoadedAudio, AudioToolFailure> {
@@ -18,17 +20,12 @@ pub(super) async fn normalize(
         return Ok(loaded);
     }
     let output = new_temp_path(Some("wav"))?;
-    let status = tokio::process::Command::new("ffmpeg")
-        .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i"])
-        .arg(&loaded.path)
-        .args(["-vn", "-acodec", "pcm_s16le", "-f", "wav"])
-        .arg(&output)
-        .status()
+    tools
+        .normalize_to_wav(&loaded.path, &output)
         .await
-        .map_err(|_| AudioToolFailure::converter_unavailable())?;
-    if !status.success() {
-        return Err(AudioToolFailure::conversion_failed());
-    }
+        .map_err(map_tool_error)?;
+    let probe = tools.probe(&output).await.map_err(map_tool_error)?;
+    validate_flash_output(probe)?;
     Ok(LoadedAudio {
         path: output.to_path_buf(),
         file_name: replace_extension(&loaded.file_name, "wav"),
@@ -37,39 +34,62 @@ pub(super) async fn normalize(
     })
 }
 
-pub(super) async fn enforce_duration(path: &Path, flash: bool) -> Result<(), AudioToolFailure> {
-    let output = tokio::process::Command::new("ffprobe")
-        .args([
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=nokey=1:noprint_wrappers=1",
-        ])
-        .arg(path)
-        .output()
-        .await;
-    let Ok(output) = output else {
-        return Ok(());
-    };
-    if !output.status.success() {
-        return Ok(());
-    }
-    let duration = String::from_utf8_lossy(&output.stdout)
-        .trim()
-        .parse::<f64>()
-        .ok();
+pub(super) async fn enforce_duration(
+    tools: &MediaToolRunner,
+    path: &Path,
+    flash: bool,
+) -> Result<(), AudioToolFailure> {
+    let probe = tools.probe(path).await.map_err(map_tool_error)?;
     let max_duration = if flash {
         FLASH_MAX_DURATION_SECONDS
     } else {
         STANDARD_MAX_DURATION_SECONDS
     };
-    if duration.is_some_and(|value| value > max_duration) {
+    if probe.duration_seconds > max_duration {
         Err(AudioToolFailure::duration_exceeded())
     } else {
         Ok(())
     }
+}
+
+pub(super) fn map_tool_error(error: MediaToolError) -> AudioToolFailure {
+    match error {
+        MediaToolError::NotFound("ffprobe") => AudioToolFailure::probe_unavailable(),
+        MediaToolError::NotFound(_) => AudioToolFailure::converter_unavailable(),
+        MediaToolError::Spawn("ffprobe") | MediaToolError::InvalidOutput("ffprobe") => {
+            AudioToolFailure::probe_failed()
+        }
+        MediaToolError::Spawn(_) | MediaToolError::InvalidOutput(_) => {
+            AudioToolFailure::conversion_failed()
+        }
+        MediaToolError::TimedOut(tool) => {
+            tracing::warn!(tool, "[AudioTranscription] media tool timed out");
+            AudioToolFailure::tool_timeout()
+        }
+        MediaToolError::Failed { tool, code, stderr } => {
+            tracing::warn!(
+                tool,
+                exit_code = ?code,
+                stderr_present = !stderr.is_empty(),
+                "[AudioTranscription] media tool failed"
+            );
+            if tool == "ffprobe" {
+                AudioToolFailure::probe_failed()
+            } else {
+                AudioToolFailure::conversion_failed()
+            }
+        }
+    }
+}
+
+fn validate_flash_output(probe: ProbeInfo) -> Result<(), AudioToolFailure> {
+    if probe.sample_rate != Some(16_000) || probe.channels != Some(1) {
+        return Err(AudioToolFailure::conversion_failed());
+    }
+    if probe.bits_per_sample.is_some_and(|value| value != 16) {
+        return Err(AudioToolFailure::conversion_failed());
+    }
+    Ok(())
 }
 
 fn replace_extension(file_name: &str, extension: &str) -> String {
