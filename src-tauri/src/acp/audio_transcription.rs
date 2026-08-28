@@ -23,7 +23,7 @@ pub(crate) use failure::AudioToolFailure;
 const TRANSCRIPTION_WAIT_WINDOW: Duration = Duration::from_secs(45);
 const TRANSCRIPTION_QUERY_INTERVAL: Duration = Duration::from_secs(3);
 const STANDARD_MAX_BYTES: u64 = (512 << 20) - 1;
-const FLASH_MAX_BYTES: u64 = 100 << 20;
+const FLASH_MAX_BYTES: u64 = 95 << 20;
 
 #[async_trait]
 pub trait AudioTranscriptionAccess: Send + Sync {

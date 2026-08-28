@@ -1720,6 +1720,18 @@ fn safe_audio_error(code: &str) -> (&'static str, &'static str) {
             "audio_transcription_converter_unavailable",
             "ffmpeg is required to convert this audio format but is not available.",
         ),
+        "audio_transcription_probe_unavailable" => (
+            "audio_transcription_probe_unavailable",
+            "ffprobe is required to inspect this audio source but is not available.",
+        ),
+        "audio_transcription_probe_failed" => (
+            "audio_transcription_probe_failed",
+            "The audio source could not be inspected.",
+        ),
+        "audio_transcription_tool_timeout" => (
+            "audio_transcription_tool_timeout",
+            "Audio preparation took too long and was cancelled.",
+        ),
         "audio_transcription_conversion_failed" => (
             "audio_transcription_conversion_failed",
             "The audio source could not be converted to a supported format.",

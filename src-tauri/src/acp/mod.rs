@@ -22,6 +22,7 @@ mod automatic_mode;
 pub mod automation_tools;
 mod channel_confirmation_manager;
 pub mod channel_tools;
+mod media_tool;
 pub use channel_confirmation_manager::ConnectionManagerChannelConfirmationLookup;
 pub(crate) mod background_watch;
 pub mod binary_cache;
