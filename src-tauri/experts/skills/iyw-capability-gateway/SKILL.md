@@ -1,10 +1,10 @@
 ---
 name: iyw-capability-gateway
 short-description: Route iyw-claw host actions through the live capability catalog.
-description: Use when a concrete task needs iyw-claw host state or action and one complete gateway trio is visible. Search the live catalog, read the best match, and invoke its exact current schema. Skip trivial requests and never guess IDs or arguments.
+description: Use when a concrete task needs iyw-claw host state or action, memory learning/maintenance, deep research, or internet/platform evidence and one complete gateway trio is visible. Search the live catalog, read the best match, and invoke its exact current schema. Skip trivial requests and never guess IDs or arguments.
 routing:
   capability: iyw-claw host routing
-  coreTriggers: [host action, memory, artifact, browser, channel, automation]
+  coreTriggers: [host action, memory, artifact, browser, channel, automation, research, internet]
   exclusions: [trivial request, direct tool fits, incomplete gateway]
   aliases: [iyw gateway, host capability, 主机能力]
   invocation: Search, read best match, invoke exact current ID and schema.
@@ -88,9 +88,32 @@ Recall is task-sensitive, not mandatory for every turn.
   not explicitly confirmed, search with intent such as `propose memory`.
 - Never store passwords, tokens, cookies, private keys, full credentials,
   transient task state, or speculative claims.
-- Never edit `user-memory.md`, `user-profile.md`, or `user-soul.md` directly.
-  Host memory capabilities own persistence, locking, candidate lifecycle, and
-  recall context.
+- Do not edit `user-memory.md`, `user-profile.md`, or `user-soul.md` through a
+  shell or arbitrary path. Edit them only through the discovered
+  `update_user_memory_documents`
+  capability with the current overall revision and document eTags. Never use a
+  shell path or arbitrary file writer. Host capabilities still own locking,
+  transactions, reference integrity, candidate lifecycle, and recall context.
+
+For the complete self-improving behavior mapping, read
+[memory-and-learning.md](references/memory-and-learning.md). For a concrete
+memory tool's current schema and result handling, read
+[tool-usage.md](references/tool-usage.md).
+
+## Deep Research
+
+When the user asks to research, compare, investigate, or gather current web
+evidence, follow [research-workflow.md](references/research-workflow.md). Plan
+sub-questions, collect multiple sources, deep-read the strongest pages, keep a
+claim-to-source ledger, mark uncertainty, and deliver generated reports through
+the current Artifacts capability. Use the managed browser and current gateway
+catalog; do not copy fixed `/home/clawdbot`, DuckDuckGo, curl, or other external
+paths from another Skill.
+
+For platform-specific internet routing and the absorbed Agent Reach behavior,
+read [internet-routing.md](references/internet-routing.md) when the request
+mentions a platform, URL, social discussion, code search, video, podcast, RSS,
+or a login-backed source.
 
 ## Images
 

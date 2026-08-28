@@ -78,6 +78,7 @@ pub enum MemoryCapability {
     Propose,
     Recall,
     ReadDocuments,
+    Management,
 }
 
 /// Independent memory permissions captured when the session is issued.
@@ -87,15 +88,23 @@ pub struct MemoryPermissions {
     propose: bool,
     recall: bool,
     read_documents: bool,
+    management: bool,
 }
 
 impl MemoryPermissions {
-    pub fn new(append: bool, propose: bool, recall: bool, read_documents: bool) -> Self {
+    pub fn new(
+        append: bool,
+        propose: bool,
+        recall: bool,
+        read_documents: bool,
+        management: bool,
+    ) -> Self {
         Self {
             append,
             propose,
             recall,
             read_documents,
+            management,
         }
     }
 
@@ -105,6 +114,7 @@ impl MemoryPermissions {
             MemoryCapability::Propose => self.propose,
             MemoryCapability::Recall => self.recall,
             MemoryCapability::ReadDocuments => self.read_documents,
+            MemoryCapability::Management => self.management,
         }
     }
 
@@ -122,5 +132,9 @@ impl MemoryPermissions {
 
     pub fn documents_read_enabled(&self) -> bool {
         self.read_documents
+    }
+
+    pub fn management_enabled(&self) -> bool {
+        self.management
     }
 }

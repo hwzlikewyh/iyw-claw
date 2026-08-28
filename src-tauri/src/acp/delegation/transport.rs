@@ -245,6 +245,17 @@ pub struct BrokerMemoryDocumentsReadRequest {
     pub documents: Vec<crate::user_memory::UserMemoryDocumentId>,
 }
 
+/// Typed host-scoped memory administration request. Identity, workspace and
+/// authorization are derived from the launch token by the listener.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerMemoryAdminRequest {
+    pub token: String,
+    pub tool: String,
+    #[serde(default)]
+    pub input: Value,
+}
+
 /// Register files produced by the current task. The listener resolves the
 /// conversation from the authenticated companion token and owns validation
 /// and persistence.
@@ -400,6 +411,7 @@ pub enum BrokerMessage {
     MemoryProposal(BrokerMemoryProposalRequest),
     MemoryRecall(BrokerMemoryRecallRequest),
     MemoryDocumentsRead(BrokerMemoryDocumentsReadRequest),
+    MemoryAdmin(BrokerMemoryAdminRequest),
     Artifacts(BrokerArtifactsRequest),
     ImageAnalysis(BrokerImageAnalysisRequest),
     Channel(BrokerChannelRequest),

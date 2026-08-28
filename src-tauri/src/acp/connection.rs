@@ -2418,6 +2418,7 @@ fn companion_features_arg(
     ask_enabled: bool,
     sessions_enabled: bool,
     memory_enabled: bool,
+    memory_management_enabled: bool,
 ) -> String {
     let mut features: Vec<&str> = vec!["images", "artifacts", "channels"];
     if delegation_enabled {
@@ -2434,6 +2435,9 @@ fn companion_features_arg(
     }
     if memory_enabled {
         features.push("memory");
+    }
+    if memory_management_enabled {
+        features.push("memory-management");
     }
     features.join(",")
 }
@@ -2461,6 +2465,7 @@ struct MemoryLaunchAccess {
     candidate_proposal: bool,
     recall: bool,
     documents_read: bool,
+    management: bool,
     turn_tracker: Arc<crate::acp::memory_turn::MemoryTurnTracker>,
 }
 
@@ -2586,6 +2591,7 @@ async fn resolve_companion_features(
         ask_enabled,
         sessions_enabled,
         memory_access.confirmed_append,
+        memory_access.management,
     );
     let browser_enabled = cfg!(all(
         feature = "tauri-runtime",
@@ -2603,7 +2609,8 @@ async fn resolve_companion_features(
         memory_tools_expected: memory_access.confirmed_append
             || memory_access.candidate_proposal
             || memory_access.recall
-            || memory_access.documents_read,
+            || memory_access.documents_read
+            || memory_access.management,
     }
 }
 
@@ -2688,6 +2695,7 @@ fn http_session_authority(
             memory_access.candidate_proposal,
             memory_access.recall,
             memory_access.documents_read,
+            memory_access.management,
         ),
     )
     .with_parent_cancellation(context.parent_cancellation)
@@ -2887,6 +2895,11 @@ async fn project_memory_launch_access(
         candidate_proposal: projected.capabilities.candidate_proposal.available,
         recall: projected.recall_tool_enabled && projected.capabilities.read_context.available,
         documents_read: projected.capabilities.read_documents.available && host_bridge_available,
+        management: host_bridge_available
+            && (projected.capabilities.confirmed_append.available
+                || projected.capabilities.candidate_proposal.available
+                || projected.capabilities.read_context.available
+                || projected.capabilities.read_documents.available),
         turn_tracker: session.memory_turn_tracker.clone(),
     }
 }
@@ -8245,7 +8258,7 @@ mod tests {
     #[test]
     fn images_stays_on_with_every_optional_group_off() {
         assert_eq!(
-            companion_features_arg(false, false, false, false, false),
+            companion_features_arg(false, false, false, false, false, false),
             "images"
         );
     }
@@ -8257,7 +8270,7 @@ mod tests {
     #[test]
     fn emitted_features_parse_back_into_show_image_access() {
         for flag in [false, true] {
-            let features = companion_features_arg(flag, flag, flag, flag, flag);
+            let features = companion_features_arg(flag, flag, flag, flag, flag, flag);
             let parsed = CompanionFeatures::parse(Some(&features));
             assert!(parsed.images, "images lost in round-trip for {features:?}");
             assert!(
@@ -8280,14 +8293,15 @@ mod tests {
             "append_user_memory",
         ];
 
-        let all =
-            CompanionFeatures::parse(Some(&companion_features_arg(true, true, true, true, true)));
+        let all = CompanionFeatures::parse(Some(&companion_features_arg(
+            true, true, true, true, true, true,
+        )));
         for tool in gated {
             assert!(all.allows_tool(tool), "{tool} missing when all flags on");
         }
 
         let none = CompanionFeatures::parse(Some(&companion_features_arg(
-            false, false, false, false, false,
+            false, false, false, false, false, false,
         )));
         for tool in gated {
             assert!(!none.allows_tool(tool), "{tool} exposed when all flags off");

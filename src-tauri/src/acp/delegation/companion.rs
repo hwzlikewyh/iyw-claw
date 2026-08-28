@@ -53,9 +53,10 @@ use crate::acp::delegation::transport::{
     BrokerAudioTranscriptionRequest, BrokerBrowserRequest, BrokerCancelRequest,
     BrokerCancelTaskRequest, BrokerChannelRequest, BrokerCommitFeedbackRequest,
     BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerImageAnalysisRequest,
-    BrokerMemoryAppendRequest, BrokerMemoryDocumentsReadRequest, BrokerMemoryProposalRequest,
-    BrokerMemoryRecallRequest, BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest,
-    BrokerStatusRequest, BrokerUserProfileRequest, COMPANION_PROTOCOL_VERSION,
+    BrokerMemoryAdminRequest, BrokerMemoryAppendRequest, BrokerMemoryDocumentsReadRequest,
+    BrokerMemoryProposalRequest, BrokerMemoryRecallRequest, BrokerMessage, BrokerRequest,
+    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest, BrokerUserProfileRequest,
+    COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::question::parse_questions;
 use crate::acp::session_info::MAX_SESSION_MESSAGES;
@@ -171,6 +172,7 @@ pub struct CompanionFeatures {
     pub memory_proposal: bool,
     pub memory_recall: bool,
     pub memory_documents_read: bool,
+    pub memory_management: bool,
     pub artifacts: bool,
     pub channels: bool,
     pub browser: bool,
@@ -188,6 +190,7 @@ impl CompanionFeatures {
             memory_proposal: true,
             memory_recall: true,
             memory_documents_read: true,
+            memory_management: true,
             artifacts: true,
             channels: true,
             browser: true,
@@ -211,6 +214,7 @@ impl CompanionFeatures {
                 memory_proposal: false,
                 memory_recall: false,
                 memory_documents_read: false,
+                memory_management: false,
                 artifacts: false,
                 channels: false,
                 browser: false,
@@ -226,6 +230,7 @@ impl CompanionFeatures {
             memory_proposal: false,
             memory_recall: false,
             memory_documents_read: false,
+            memory_management: false,
             artifacts: false,
             channels: false,
             browser: false,
@@ -241,6 +246,7 @@ impl CompanionFeatures {
                 "memory-proposal" => f.memory_proposal = true,
                 "memory-recall" => f.memory_recall = true,
                 "memory-documents" => f.memory_documents_read = true,
+                "memory-management" => f.memory_management = true,
                 "artifacts" => f.artifacts = true,
                 "channels" => f.channels = true,
                 "browser" => f.browser = true,
@@ -263,6 +269,15 @@ impl CompanionFeatures {
             "propose_user_memory" => self.memory_proposal,
             "memory_recall" => self.memory_recall,
             "read_user_memory_documents" => self.memory_documents_read,
+            "list_user_memory_candidates"
+            | "resolve_user_memory_candidate"
+            | "delete_user_memory_candidate"
+            | "get_user_memory_harvest_status"
+            | "rescan_user_memory_harvest"
+            | "rebuild_user_memory_candidate_index"
+            | "get_user_memory_settings"
+            | "update_user_memory_documents"
+            | "correct_user_memory" => self.memory_management,
             "present_task_files" => self.artifacts,
             name if crate::acp::channel_tools::CHANNEL_TOOL_NAMES.contains(&name) => self.channels,
             name if crate::browser::BROWSER_AGENT_TOOL_NAMES.contains(&name) => self.browser,
@@ -751,7 +766,16 @@ fn tool_family(name: &str) -> ToolFamily {
         "append_user_memory"
         | "propose_user_memory"
         | "memory_recall"
-        | "read_user_memory_documents" => ToolFamily::Memory,
+        | "read_user_memory_documents"
+        | "list_user_memory_candidates"
+        | "resolve_user_memory_candidate"
+        | "delete_user_memory_candidate"
+        | "get_user_memory_harvest_status"
+        | "rescan_user_memory_harvest"
+        | "rebuild_user_memory_candidate_index"
+        | "get_user_memory_settings"
+        | "update_user_memory_documents"
+        | "correct_user_memory" => ToolFamily::Memory,
         "get_current_user_profile" => ToolFamily::Identity,
         "delegate_to_agent"
         | "get_delegation_status"
@@ -938,6 +962,15 @@ async fn dispatch_memory_tool(bridge: CompanionBridge, call: ToolInvocation) -> 
         "propose_user_memory" => spawn_memory_proposal(bridge, call).await,
         "memory_recall" => spawn_memory_recall(bridge, call).await,
         "read_user_memory_documents" => spawn_memory_documents_read(bridge, call).await,
+        "list_user_memory_candidates"
+        | "resolve_user_memory_candidate"
+        | "delete_user_memory_candidate"
+        | "get_user_memory_harvest_status"
+        | "rescan_user_memory_harvest"
+        | "rebuild_user_memory_candidate_index"
+        | "get_user_memory_settings"
+        | "update_user_memory_documents"
+        | "correct_user_memory" => spawn_memory_admin(bridge, call).await,
         _ => unreachable!("memory family contains only memory tools"),
     }
 }
@@ -1120,6 +1153,25 @@ async fn spawn_memory_documents_read(bridge: CompanionBridge, call: ToolInvocati
         None,
         round_trip,
         render_memory_documents_read_result,
+    )
+    .await
+}
+
+async fn spawn_memory_admin(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let request = BrokerMemoryAdminRequest {
+        token: bridge.context.token,
+        tool: call.name,
+        input: call.arguments,
+    };
+    let round_trip =
+        memory_backend_round_trip(bridge.backend, BrokerMessage::MemoryAdmin(request), "admin");
+    let round_trip = Box::pin(async move { memory_round_trip_result(round_trip.await, "admin") });
+    register_and_spawn(
+        bridge.inflight,
+        call.id,
+        None,
+        round_trip,
+        render_memory_admin_result,
     )
     .await
 }
@@ -2736,6 +2788,22 @@ pub fn render_memory_documents_read_result(outcome: &Value) -> Value {
             .unwrap_or(&Value::Array(Vec::new())),
     )
     .unwrap_or_else(|_| "[]".to_string());
+    json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": false,
+        "structuredContent": outcome.clone(),
+    })
+}
+
+fn render_memory_admin_result(outcome: &Value) -> Value {
+    if let Some(message) = outcome.get("error").and_then(Value::as_str) {
+        return json!({
+            "content": [{ "type": "text", "text": memory_error_text(message) }],
+            "isError": true,
+            "structuredContent": normalized_memory_error(outcome, "memory_admin_failed"),
+        });
+    }
+    let text = serde_json::to_string(outcome).unwrap_or_else(|_| "{}".to_string());
     json!({
         "content": [{ "type": "text", "text": text }],
         "isError": false,

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 46] = [
+pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 55] = [
     (
         "list_scheduled_task_projects",
         "iyw.automation.projects.list.v1",
@@ -53,6 +53,33 @@ pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 46] = [
     ("propose_user_memory", "iyw.memory.candidate.propose.v1"),
     ("memory_recall", "iyw.memory.recall.search.v1"),
     ("read_user_memory_documents", "iyw.memory.documents.read.v1"),
+    (
+        "list_user_memory_candidates",
+        "iyw.memory.candidates.list.v1",
+    ),
+    (
+        "resolve_user_memory_candidate",
+        "iyw.memory.candidate.resolve.v1",
+    ),
+    (
+        "delete_user_memory_candidate",
+        "iyw.memory.candidate.delete.v1",
+    ),
+    (
+        "get_user_memory_harvest_status",
+        "iyw.memory.harvest.status.v1",
+    ),
+    ("rescan_user_memory_harvest", "iyw.memory.harvest.rescan.v1"),
+    (
+        "rebuild_user_memory_candidate_index",
+        "iyw.memory.candidate.index.rebuild.v1",
+    ),
+    ("get_user_memory_settings", "iyw.memory.settings.read.v1"),
+    (
+        "update_user_memory_documents",
+        "iyw.memory.documents.update.v1",
+    ),
+    ("correct_user_memory", "iyw.memory.documents.correct.v1"),
     ("list_message_channels", "iyw.channels.list.v1"),
     ("save_message_channel", "iyw.channels.save.v1"),
     ("delete_message_channel", "iyw.channels.delete.v1"),

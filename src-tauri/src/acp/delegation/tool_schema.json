@@ -1102,6 +1102,117 @@
     }
   },
   {
+    "name": "list_user_memory_candidates",
+    "description": "List host-managed memory learning candidates with optional lifecycle filtering and optimistic-concurrency revision. Use to inspect tentative, emerging, pending-confirmation, or terminal candidates; it never exposes local paths or credentials.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "enum": ["tentative", "emerging", "pending_confirmation", "terminal"] },
+        "offset": { "type": "integer", "minimum": 0, "default": 0 },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "resolve_user_memory_candidate",
+    "description": "Resolve one host-managed memory candidate using its exact id and revision. Confirm appends durable memory through the host transaction; reject or supersede preserves reference normalization. Read the candidate list first and never guess ids or revisions.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["candidateId", "expectedRevision", "resolution"],
+      "properties": {
+        "candidateId": { "type": "string", "minLength": 1 },
+        "expectedRevision": { "type": "string", "minLength": 1 },
+        "resolution": {
+          "oneOf": [
+            { "type": "object", "required": ["type"], "properties": { "type": { "type": "string", "enum": ["confirm"] }, "editedContent": { "type": ["string", "null"], "maxLength": 1000 } }, "additionalProperties": false },
+            { "type": "object", "required": ["type"], "properties": { "type": { "type": "string", "enum": ["reject"] } }, "additionalProperties": false },
+            { "type": "object", "required": ["type", "candidateId"], "properties": { "type": { "type": "string", "enum": ["supersede_by_candidate"] }, "candidateId": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+            { "type": "object", "required": ["type", "entryId"], "properties": { "type": { "type": "string", "enum": ["supersede_by_memory_entry"] }, "entryId": { "type": "string", "minLength": 1 } }, "additionalProperties": false }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "delete_user_memory_candidate",
+    "description": "Delete one already-terminal host memory candidate by exact id and revision. Never delete tentative, emerging, or pending candidates and never retry after a revision conflict without re-reading.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["candidateId", "expectedRevision"],
+      "properties": { "candidateId": { "type": "string", "minLength": 1 }, "expectedRevision": { "type": "string", "minLength": 1 } },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_user_memory_harvest_status",
+    "description": "Read the host-owned TurnComplete memory-harvest queue status, including queued, extracting, proposed, noop, failed, dead, and backlog counts. This is read-only and does not force processing.",
+    "inputSchema": { "type": "object", "additionalProperties": false }
+  },
+  {
+    "name": "rescan_user_memory_harvest",
+    "description": "Preview or explicitly execute a host memory-harvest rescan. Call with execute false first; only call execute true after the user explicitly requests the rescan. Existing terminal records are retained.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["execute"],
+      "properties": { "execute": { "type": "boolean" } },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "rebuild_user_memory_candidate_index",
+    "description": "Preview or explicitly execute an idempotent rebuild of host candidate digests and observation keys. Call with execute false first and execute true only when the user requests repair.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["execute"],
+      "properties": { "execute": { "type": "boolean" } },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "get_user_memory_settings",
+    "description": "Read a safe host memory health and capability summary for the current Agent. It omits local paths, credentials, raw private context, and full document contents unless separately requested.",
+    "inputSchema": { "type": "object", "additionalProperties": false }
+  },
+  {
+    "name": "update_user_memory_documents",
+    "description": "Update selected host-owned user memory documents through the transactional revision/eTag path. Read the current documents first, send only intended changes, and never use this route for arbitrary files or guessed paths.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["expectedRevision", "documents"],
+      "properties": {
+        "expectedRevision": { "type": "string", "minLength": 1 },
+        "documents": {
+          "type": "object",
+          "minProperties": 1,
+          "properties": {
+            "memory": { "type": "object", "properties": { "content": { "type": "string", "maxLength": 65536 }, "enabled": { "type": "boolean" }, "expectedEtag": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+            "profile": { "type": "object", "properties": { "content": { "type": "string", "maxLength": 65536 }, "enabled": { "type": "boolean" }, "expectedEtag": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
+            "soul": { "type": "object", "properties": { "content": { "type": "string", "maxLength": 65536 }, "enabled": { "type": "boolean" }, "expectedEtag": { "type": "string", "minLength": 1 } }, "additionalProperties": false }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "correct_user_memory",
+    "description": "Replace one exact memory entry through the host correction transaction and normalize candidate references. Read the target document first and provide its current eTag; do not perform textual replacement with shell tools.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["document", "oldContent", "newContent", "expectedEtag"],
+      "properties": {
+        "document": { "type": "string", "enum": ["memory", "profile", "soul"] },
+        "oldContent": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "newContent": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "expectedEtag": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "list_message_channels",
     "description": "List iyw-claw message channels using safe, non-secret views. Omit filters to list all channels. This never returns credentials, raw provider target ids, or config JSON.",
     "inputSchema": {

@@ -30,10 +30,10 @@ use crate::acp::delegation::transport::{
     BrokerAudioTranscriptionQueryRequest, BrokerAudioTranscriptionRequest, BrokerBrowserRequest,
     BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
     BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerImageAnalysisRequest,
-    BrokerMemoryAppendRequest, BrokerMemoryDocumentsReadRequest, BrokerMemoryProposalRequest,
-    BrokerMemoryProposalResult, BrokerMemoryRecallRequest, BrokerMessage, BrokerRequest,
-    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest, BrokerUserProfileRequest,
-    COMPANION_PROTOCOL_VERSION,
+    BrokerMemoryAdminRequest, BrokerMemoryAppendRequest, BrokerMemoryDocumentsReadRequest,
+    BrokerMemoryProposalRequest, BrokerMemoryProposalResult, BrokerMemoryRecallRequest,
+    BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
+    BrokerUserProfileRequest, COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::delegation::types::{DelegationRequest, DelegationTaskReport, TaskStatus};
 use crate::acp::feedback::{PendingFeedback, SessionFeedbackAccess};
@@ -47,6 +47,18 @@ use crate::user_memory::{
     MEMORY_RECALL_TOOL, PROPOSE_USER_MEMORY_TOOL,
 };
 use serde_json::Value;
+
+const MEMORY_ADMIN_TOOLS: [&str; 9] = [
+    "list_user_memory_candidates",
+    "resolve_user_memory_candidate",
+    "delete_user_memory_candidate",
+    "get_user_memory_harvest_status",
+    "rescan_user_memory_harvest",
+    "rebuild_user_memory_candidate_index",
+    "get_user_memory_settings",
+    "update_user_memory_documents",
+    "correct_user_memory",
+];
 
 /// Hard ceiling on a *positive* `get_delegation_status` long-poll, so a single
 /// MCP tool call can't block the companion's round-trip unbounded. The child
@@ -110,6 +122,7 @@ pub struct TokenEntry {
     pub memory_recall_enabled: bool,
     /// Independent launch-snapshot authorization for current document reads.
     pub memory_documents_read_enabled: bool,
+    pub memory_management_enabled: bool,
     /// Stable hash-derived provenance id; raw launch tokens are never persisted.
     pub opaque_source_id: String,
     /// Read-only authority for the current accepted turn nonce.
@@ -142,6 +155,7 @@ struct CompanionReadyCandidate {
     proposal_required: bool,
     recall_required: bool,
     documents_read_required: bool,
+    management_required: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -283,6 +297,7 @@ impl TokenRegistry {
             proposal_required,
             recall_required,
             documents_read_required,
+            management_required: false,
         }
         .publish()
     }
@@ -423,12 +438,17 @@ impl CompanionReadyCandidate {
                 .tools
                 .iter()
                 .any(|tool| tool == crate::user_memory::READ_USER_MEMORY_DOCUMENTS_TOOL);
+        let missing_management = self.management_required
+            && MEMORY_ADMIN_TOOLS
+                .iter()
+                .any(|required| !self.tools.iter().any(|tool| tool == required));
         if missing_image_analysis
             || missing_project_listing
             || missing_append
             || missing_proposal
             || missing_recall
             || missing_documents_read
+            || missing_management
             || !missing_channel_tools.is_empty()
         {
             tracing::warn!(
@@ -441,6 +461,7 @@ impl CompanionReadyCandidate {
                 missing_recall,
                 documents_read_required = self.documents_read_required,
                 missing_documents_read,
+                missing_management,
                 missing_image_analysis,
                 missing_project_listing,
                 missing_channel_tools = ?missing_channel_tools,
@@ -510,12 +531,16 @@ fn effective_token_entry(registered: &RegisteredToken) -> TokenEntry {
                 .tools
                 .iter()
                 .any(|tool| tool == crate::user_memory::READ_USER_MEMORY_DOCUMENTS_TOOL);
+            entry.memory_management_enabled &= MEMORY_ADMIN_TOOLS
+                .iter()
+                .all(|tool| report.tools.iter().any(|advertised| advertised == tool));
         }
         CompanionReadyState::Pending | CompanionReadyState::Disabled => {
             entry.memory_write_enabled = false;
             entry.memory_proposal_enabled = false;
             entry.memory_recall_enabled = false;
             entry.memory_documents_read_enabled = false;
+            entry.memory_management_enabled = false;
         }
     }
     entry
@@ -912,6 +937,9 @@ impl DelegationListener {
             }
             BrokerMessage::MemoryDocumentsRead(req) => {
                 memory_documents_read_response(self.process_memory_documents_read(req).await)?
+            }
+            BrokerMessage::MemoryAdmin(req) => {
+                memory_admin_response(self.process_memory_admin(req).await)?
             }
             BrokerMessage::Artifacts(req) => BrokerResponse {
                 outcome: self.process_artifacts(req).await,
@@ -1531,6 +1559,255 @@ impl DelegationListener {
         result.map_err(|error| error.message)
     }
 
+    async fn process_memory_admin(&self, req: BrokerMemoryAdminRequest) -> Result<Value, String> {
+        let Some(entry) = self.tokens.lookup(&req.token).await else {
+            return Err("User memory administration is unavailable for this session.".into());
+        };
+        if !entry.memory_management_enabled || !MEMORY_ADMIN_TOOLS.contains(&req.tool.as_str()) {
+            return Err("User memory administration is unavailable for this session.".into());
+        }
+        match req.tool.as_str() {
+            "list_user_memory_candidates" => self.admin_list(req.input).await,
+            "resolve_user_memory_candidate" => {
+                self.admin_resolve(req.token, entry, req.input).await
+            }
+            "delete_user_memory_candidate" => self.admin_delete(req.token, entry, req.input).await,
+            "get_user_memory_harvest_status" => self.admin_harvest_status().await,
+            "rescan_user_memory_harvest" => self.admin_rescan(req.token, entry, req.input).await,
+            "rebuild_user_memory_candidate_index" => {
+                self.admin_rebuild(req.token, entry, req.input).await
+            }
+            "get_user_memory_settings" => self.admin_settings().await,
+            "update_user_memory_documents" => {
+                self.admin_update_documents(req.token, entry, req.input)
+                    .await
+            }
+            "correct_user_memory" => self.admin_correct(req.token, entry, req.input).await,
+            _ => unreachable!(),
+        }
+    }
+
+    async fn admin_list(&self, input: Value) -> Result<Value, String> {
+        let request = serde_json::from_value(input)
+            .map_err(|error| format!("invalid candidate list arguments: {error}"))?;
+        let result = crate::commands::user_memory::list_user_memory_candidates_core(
+            &self.user_memory,
+            request,
+        )
+        .await
+        .map_err(|error| error.message)?;
+        Self::serialize_memory_admin(result)
+    }
+
+    async fn admin_resolve(
+        &self,
+        token: String,
+        entry: TokenEntry,
+        input: Value,
+    ) -> Result<Value, String> {
+        Self::ensure_memory_admin_mutation(&entry)?;
+        let request = serde_json::from_value(input)
+            .map_err(|error| format!("invalid candidate resolution arguments: {error}"))?;
+        let _mutation = self.acquire_memory_admin_mutation(&token, &entry).await?;
+        let result = crate::commands::user_memory::resolve_user_memory_candidate_core(
+            &self.user_memory,
+            request,
+        )
+        .await
+        .map_err(|error| error.message)?;
+        Self::serialize_memory_admin(result)
+    }
+
+    async fn admin_delete(
+        &self,
+        token: String,
+        entry: TokenEntry,
+        input: Value,
+    ) -> Result<Value, String> {
+        Self::ensure_memory_admin_mutation(&entry)?;
+        let request = serde_json::from_value(input)
+            .map_err(|error| format!("invalid candidate delete arguments: {error}"))?;
+        let _mutation = self.acquire_memory_admin_mutation(&token, &entry).await?;
+        let result = crate::commands::user_memory::delete_user_memory_candidate_core(
+            &self.user_memory,
+            request,
+        )
+        .await
+        .map_err(|error| error.message)?;
+        Self::serialize_memory_admin(result)
+    }
+
+    async fn admin_harvest_status(&self) -> Result<Value, String> {
+        let result =
+            crate::commands::user_memory::get_user_memory_harvest_status_core(&self.user_memory)
+                .await
+                .map_err(|error| error.message)?;
+        Self::serialize_memory_admin(result)
+    }
+
+    async fn admin_rescan(
+        &self,
+        token: String,
+        entry: TokenEntry,
+        input: Value,
+    ) -> Result<Value, String> {
+        let execute = input
+            .get("execute")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let _mutation = self
+            .maybe_memory_admin_mutation(&token, &entry, execute)
+            .await?;
+        let result = crate::commands::user_memory::rescan_user_memory_harvest_core(
+            Arc::clone(&self.user_memory),
+            execute,
+        )
+        .await
+        .map_err(|error| error.message)?;
+        Self::serialize_memory_admin(result)
+    }
+
+    async fn admin_rebuild(
+        &self,
+        token: String,
+        entry: TokenEntry,
+        input: Value,
+    ) -> Result<Value, String> {
+        let execute = input
+            .get("execute")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let _mutation = self
+            .maybe_memory_admin_mutation(&token, &entry, execute)
+            .await?;
+        let result = crate::commands::user_memory::rebuild_user_memory_candidate_index_core(
+            &self.user_memory,
+            execute,
+        )
+        .await
+        .map_err(|error| error.message)?;
+        Self::serialize_memory_admin(result)
+    }
+
+    async fn admin_settings(&self) -> Result<Value, String> {
+        let result = self
+            .user_memory
+            .settings_snapshot()
+            .await
+            .map_err(|error| error.message)?;
+        Ok(Self::safe_memory_settings(&result))
+    }
+
+    async fn admin_update_documents(
+        &self,
+        token: String,
+        entry: TokenEntry,
+        input: Value,
+    ) -> Result<Value, String> {
+        Self::ensure_memory_admin_mutation(&entry)?;
+        let request = serde_json::from_value(input)
+            .map_err(|error| format!("invalid memory document update arguments: {error}"))?;
+        let _mutation = self.acquire_memory_admin_mutation(&token, &entry).await?;
+        let result = self
+            .user_memory
+            .update(request)
+            .await
+            .map_err(|error| error.message)?;
+        Ok(serde_json::json!({ "settings": Self::safe_memory_settings(&result) }))
+    }
+
+    async fn admin_correct(
+        &self,
+        token: String,
+        entry: TokenEntry,
+        input: Value,
+    ) -> Result<Value, String> {
+        Self::ensure_memory_admin_mutation(&entry)?;
+        let request = serde_json::from_value(input)
+            .map_err(|error| format!("invalid memory correction arguments: {error}"))?;
+        let _mutation = self.acquire_memory_admin_mutation(&token, &entry).await?;
+        let result =
+            crate::commands::user_memory::correct_user_memory_core(&self.user_memory, request)
+                .await
+                .map_err(|error| error.message)?;
+        Self::serialize_memory_admin(result)
+    }
+
+    async fn acquire_memory_admin_mutation(
+        &self,
+        token: &str,
+        entry: &TokenEntry,
+    ) -> Result<MutationLease, String> {
+        self.tokens
+            .acquire_mutation_commit(token, entry)
+            .await
+            .ok_or_else(|| "User memory administration authority was revoked.".to_string())
+    }
+
+    async fn maybe_memory_admin_mutation(
+        &self,
+        token: &str,
+        entry: &TokenEntry,
+        execute: bool,
+    ) -> Result<Option<MutationLease>, String> {
+        if !execute {
+            return Ok(None);
+        }
+        Self::ensure_memory_admin_mutation(entry)?;
+        self.acquire_memory_admin_mutation(token, entry)
+            .await
+            .map(Some)
+    }
+
+    fn safe_memory_settings(settings: &crate::user_memory::UserMemorySettingsSnapshot) -> Value {
+        let documents = settings
+            .documents
+            .iter()
+            .map(|(id, document)| {
+                (
+                    format!("{id:?}").to_ascii_lowercase(),
+                    serde_json::json!({
+                        "enabled": document.enabled,
+                        "readable": document.readable,
+                        "readonly": document.readonly,
+                    }),
+                )
+            })
+            .collect::<serde_json::Map<_, _>>();
+        serde_json::json!({
+            "enabled": settings.enabled,
+            "agentWriteEnabled": settings.agent_write_enabled,
+            "inheritToSubagents": settings.inherit_to_subagents,
+            "revision": settings.revision,
+            "availability": {
+                "available": settings.availability.available,
+                "reason": settings.availability.reason,
+            },
+            "candidateDiagnostic": {
+                "available": settings.candidate_diagnostic.available,
+                "reason": settings.candidate_diagnostic.reason,
+            },
+            "candidateCounts": settings.candidate_counts,
+            "companionHealth": {
+                "status": settings.companion_health.status,
+                "reason": settings.companion_health.reason,
+            },
+            "documents": documents,
+        })
+    }
+
+    fn ensure_memory_admin_mutation(entry: &TokenEntry) -> Result<(), String> {
+        if entry.memory_write_enabled {
+            Ok(())
+        } else {
+            Err("User memory administration writes are disabled for this session.".into())
+        }
+    }
+
+    fn serialize_memory_admin<T: serde::Serialize>(value: T) -> Result<Value, String> {
+        serde_json::to_value(value).map_err(|error| error.to_string())
+    }
+
     async fn process_user_profile(&self, req: BrokerUserProfileRequest) -> Value {
         if self.tokens.lookup(&req.token).await.is_none() {
             return serde_json::json!({
@@ -1780,6 +2057,14 @@ fn memory_documents_read_response(
             std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {error}"))
         })?,
         Err(message) => memory_failure_outcome("memory_documents_read_failed", message),
+    };
+    Ok(BrokerResponse { outcome })
+}
+
+fn memory_admin_response(result: Result<Value, String>) -> std::io::Result<BrokerResponse> {
+    let outcome = match result {
+        Ok(value) => value,
+        Err(message) => memory_failure_outcome("memory_admin_failed", message),
     };
     Ok(BrokerResponse { outcome })
 }
