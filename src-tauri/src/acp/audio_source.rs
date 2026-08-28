@@ -34,9 +34,7 @@ pub(crate) async fn prepare(
 ) -> Result<PreparedAudioFile, AudioToolFailure> {
     validate_source(source)?;
     let loaded = load(working_dir, source, max_bytes).await?;
-    if flash {
-        convert::enforce_duration(&loaded.path).await?;
-    }
+    convert::enforce_duration(&loaded.path, flash).await?;
     let loaded = convert::normalize(loaded, flash).await?;
     let metadata = tokio::fs::metadata(&loaded.path)
         .await
@@ -199,24 +197,29 @@ fn parse_relative_path(source: &str) -> Result<PathBuf, AudioToolFailure> {
 }
 
 pub(super) fn audio_content_type(file_name: &str, mime_type: Option<&str>) -> Option<&'static str> {
+    let extension = Path::new(file_name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase);
+    if matches!(extension.as_deref(), Some("m4a")) {
+        return Some("audio/m4a");
+    }
     match normalized_mime(mime_type).as_deref() {
         Some("audio/wav" | "audio/x-wav" | "audio/wave") => return Some("audio/wav"),
         Some("audio/mpeg" | "audio/mp3") => return Some("audio/mpeg"),
         Some("audio/ogg" | "audio/opus" | "application/ogg") => return Some("audio/ogg"),
-        Some("audio/mp4" | "audio/m4a" | "audio/x-m4a" | "video/mp4") => return Some("audio/mp4"),
+        Some("audio/m4a" | "audio/x-m4a") => return Some("audio/m4a"),
+        Some("audio/mp4" | "video/mp4") => return Some("audio/mp4"),
         Some("audio/pcm" | "audio/l16" | "application/octet-stream") => return Some("audio/pcm"),
         _ => {}
     }
-    match Path::new(file_name)
-        .extension()?
-        .to_str()?
-        .to_ascii_lowercase()
-        .as_str()
-    {
+    match extension?.as_str() {
         "wav" | "wave" => Some("audio/wav"),
         "mp3" => Some("audio/mpeg"),
         "ogg" | "oga" | "opus" => Some("audio/ogg"),
-        "mp4" | "m4a" | "m4b" => Some("audio/mp4"),
+        "mp4" => Some("audio/mp4"),
+        "m4a" => Some("audio/m4a"),
+        "m4b" => Some("audio/m4a"),
         "pcm" => Some("audio/pcm"),
         _ => None,
     }

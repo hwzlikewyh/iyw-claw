@@ -846,7 +846,7 @@
   },
   {
     "name": "transcribe_audio",
-    "description": "Transcribe audio asynchronously. Provide exactly one of path (workspace-relative file), url (HTTPS), or data (Base64/Data URI). Data requires fileName and raw Base64 also requires mimeType. The host downloads or decodes the source, converts unsupported formats with ffmpeg, uploads it to managed storage, and returns the transcript or job status.",
+    "description": "Submit durable asynchronous transcription for complex audio. Use this route for meeting or multi-speaker work, channel separation, files that may exceed the flash limits of 100 MiB or 2 hours, or any task that must be recoverable by job ID. It accepts audio under 512 MiB and up to 5 hours. For ordinary short audio that only needs immediate text, prefer transcribe_audio_flash. Provide exactly one of path (workspace-relative file), url (HTTPS), or data (Base64/Data URI). Data requires fileName and raw Base64 also requires mimeType. The host uploads the normalized source and returns either the transcript or a job status for query_audio_transcription.",
     "inputSchema": {
       "type": "object",
       "oneOf": [
@@ -901,7 +901,7 @@
   },
   {
     "name": "transcribe_audio_flash",
-    "description": "Transcribe audio with Volcengine's synchronous flash model. Provide exactly one of path (workspace-relative file), url (HTTPS), or data (Base64/Data URI). Data requires fileName and raw Base64 also requires mimeType. The host downloads or decodes the source, converts it to an upstream-supported WAV when needed, uploads it to managed storage, and returns the completed transcript.",
+    "description": "Preferred route for ordinary short audio that needs immediate text. Volcengine flash transcription returns a completed result synchronously and accepts audio up to 100 MiB and 2 hours; the host preserves WAV/MP3/OGG and internally converts M4A or other supported audio containers to WAV when the flash upstream does not accept their native format. Do not use it for speaker diarization, background or resumable work, or sources that may exceed those limits; use transcribe_audio instead. Provide exactly one of path (workspace-relative file), url (HTTPS), or data (Base64/Data URI). Data requires fileName and raw Base64 also requires mimeType. The host normalizes and uploads the source before returning the completed transcript.",
     "inputSchema": {
       "type": "object",
       "oneOf": [

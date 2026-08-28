@@ -47,7 +47,7 @@ impl AudioToolFailure {
     pub(crate) fn duration_exceeded() -> Self {
         Self::new(
             "audio_transcription_duration_exceeded",
-            "Flash transcription accepts audio up to two hours long.",
+            "The audio source exceeds the selected transcription duration limit.",
         )
     }
 

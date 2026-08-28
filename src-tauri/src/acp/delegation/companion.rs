@@ -1638,7 +1638,7 @@ fn safe_audio_error(code: &str) -> (&'static str, &'static str) {
         ),
         "audio_transcription_duration_exceeded" => (
             "audio_transcription_duration_exceeded",
-            "Flash transcription accepts audio up to two hours long.",
+            "The audio source exceeds the selected transcription duration limit.",
         ),
         "audio_transcription_invalid_arguments" => (
             "audio_transcription_invalid_arguments",

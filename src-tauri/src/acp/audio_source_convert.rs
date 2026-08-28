@@ -5,6 +5,7 @@ use crate::acp::audio_transcription::AudioToolFailure;
 use super::{new_temp_path, LoadedAudio};
 
 const FLASH_MAX_DURATION_SECONDS: f64 = 2.0 * 60.0 * 60.0;
+const STANDARD_MAX_DURATION_SECONDS: f64 = 5.0 * 60.0 * 60.0;
 
 pub(super) async fn normalize(
     loaded: LoadedAudio,
@@ -36,7 +37,7 @@ pub(super) async fn normalize(
     })
 }
 
-pub(super) async fn enforce_duration(path: &Path) -> Result<(), AudioToolFailure> {
+pub(super) async fn enforce_duration(path: &Path, flash: bool) -> Result<(), AudioToolFailure> {
     let output = tokio::process::Command::new("ffprobe")
         .args([
             "-v",
@@ -59,7 +60,12 @@ pub(super) async fn enforce_duration(path: &Path) -> Result<(), AudioToolFailure
         .trim()
         .parse::<f64>()
         .ok();
-    if duration.is_some_and(|value| value > FLASH_MAX_DURATION_SECONDS) {
+    let max_duration = if flash {
+        FLASH_MAX_DURATION_SECONDS
+    } else {
+        STANDARD_MAX_DURATION_SECONDS
+    };
+    if duration.is_some_and(|value| value > max_duration) {
         Err(AudioToolFailure::duration_exceeded())
     } else {
         Ok(())
