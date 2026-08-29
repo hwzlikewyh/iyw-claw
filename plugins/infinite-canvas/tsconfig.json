@@ -10,7 +10,8 @@
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node"],
+    "typeRoots": ["node_modules/.pnpm/@types+node@22.19.7/node_modules/@types"]
   },
-  "include": ["runtime/src/**/*.ts", "shared/**/*.ts"]
+  "include": ["runtime/src/**/*.ts", "shared/**/*.ts", "widget/src/**/*.ts"]
 }

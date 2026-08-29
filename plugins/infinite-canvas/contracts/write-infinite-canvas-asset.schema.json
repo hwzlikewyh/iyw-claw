@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "uploadId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "sourcePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 180
+    },
+    "mimeType": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "expectedBytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "expectedSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "chunkIndex": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "dataBase64": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 174768
+    },
+    "finalize": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

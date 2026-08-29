@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "canvasId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "format": {
+      "enum": [
+        "json",
+        "html",
+        "png",
+        "svg"
+      ]
+    },
+    "sourceAssetSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "fileName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 180
+    }
+  },
+  "required": [
+    "canvasId",
+    "format"
+  ],
+  "additionalProperties": false
+}

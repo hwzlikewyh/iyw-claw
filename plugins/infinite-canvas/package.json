@@ -1,6 +1,6 @@
 {
   "name": "@iyw/infinite-canvas-plugin",
-  "version": "0.1.0",
+  "version": "0.1.8",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.18.0",
@@ -8,6 +8,7 @@
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "verify": "node scripts/verify.mjs",
+    "smoke": "node scripts/smoke-runtime.mjs",
     "package": "node scripts/package.mjs"
   },
   "dependencies": {

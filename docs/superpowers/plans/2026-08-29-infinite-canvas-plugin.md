@@ -17,7 +17,7 @@
 - 正式路径不得依赖 `canvas.best`、loopback HTTP 服务或浏览器 IndexedDB。
 - workspace 权限只覆盖 `canvas/infinite-canvas`；网络权限默认空。
 - 所有 Widget 工具必须由 `.iyw-plugin.json` capability 声明；不绕过 HostGateway。
-- 复用现有 100 MiB 产品上传上限；Widget 分块原始数据每块 128 KiB，保证 base64 JSON 低于 256 KiB bridge 上限。
+- 不设置插件级单文件总大小上限；Widget 分块原始数据每块 128 KiB，保证 base64 JSON 低于 256 KiB bridge 上限。磁盘、解码或导出失败返回明确错误，不静默截断。
 - 按仓库 `AGENTS.md` 不新增或运行测试文件；每个任务使用 typecheck、build、verifier、静态调用链审查和真实客户端验收。
 - 当前主工作区保持不变；所有实现位于 `feat/infinite-canvas-plugin-20260829` 独立 worktree。
 - 新增函数 ≤50 行、文件 ≤300 行、嵌套 ≤3、位置参数 ≤3、圈复杂度 ≤10；注释默认简体中文。
@@ -68,7 +68,7 @@ Widget、Agent、迁移器和导入导出全部使用 `CanvasScene` 与 `CanvasO
 ## Completion Gate
 
 - [ ] 四份子计划全部完成，并且 staged/source/artifact 文件清单一致。
-- [ ] `pnpm typecheck`、`pnpm build`、`pnpm verify` 和 `git diff --check` 成功。
+- [x] `pnpm typecheck`、`pnpm build`、`pnpm verify` 和 `git diff --check` 成功。
 - [ ] v2 manifest/runtime tool schemas/resource URI 通过 iyw-claw 安装时的真实 contract 校验。
 - [ ] 正式 Windows 客户端完成安装、授权、打开、Agent 读写、刷新恢复、全屏、升级、禁用和卸载。
 - [ ] 图片、标注、HTML、Markdown、SVG、Slides 和 Cowart 样例迁移有真实画面/文件证据。

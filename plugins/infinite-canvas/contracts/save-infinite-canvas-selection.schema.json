@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "canvasId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "selectedNodeIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]{1,64}$"
+      },
+      "maxItems": 200
+    }
+  },
+  "required": [
+    "canvasId",
+    "revision",
+    "selectedNodeIds"
+  ],
+  "additionalProperties": false
+}

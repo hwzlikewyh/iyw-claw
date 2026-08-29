@@ -33,7 +33,7 @@
 **Interfaces:**
 - Produces: `migrate_cowart_canvas({pageId,targetCanvasId?,dryRun?})` 和 report JSON。
 
-- [ ] **Step 1: 定义无 tldraw 的宽松 record 类型**
+- [x] **Step 1: 定义无 tldraw 的宽松 record 类型**
 
 ```ts
 export type CowartRecord = {
@@ -52,25 +52,25 @@ export type CowartRecord = {
 Reader 只接受 JSON object，snapshot records 总数和文件大小使用 verifier ceiling；单条非法
 record 写报告后跳过，不让 prototype key 进入 mapper。
 
-- [ ] **Step 2: 声明 migration schema**
+- [x] **Step 2: 声明 migration schema**
 
 输入 pageId 只允许已存在的 `canvas/pages/<pageId>` 直接子目录；targetCanvasId 默认
 `cowart-<normalized-pageId>`；dryRun 默认 false。manifest 新增
 `plugin.infinite-canvas.canvas.migrate-cowart.v1`，最终 contract count 为 10。
 
-- [ ] **Step 3: 映射标准 shape**
+- [x] **Step 3: 映射标准 shape**
 
 映射表固定为：image/video → media node；text/note → text node；frame/group → group；geo →
 annotation rect/ellipse/diamond；arrow/line/draw → annotation shape；bookmark/embed → HTML link
 node。绑定箭头两端均指向已映射 node 时改为 CanvasConnection，否则保留 annotation。
 
-- [ ] **Step 4: 映射 Cowart custom metadata**
+- [x] **Step 4: 映射 Cowart custom metadata**
 
 `cowartAiImageHolder` → pending/error image config node；`cowartAiDraftHolder`/HTML draft → HTML
 node并复制 page asset；`cowartAiSlides` → `iyw:slides`，按 page asset 顺序生成 pages；未知
 `cowart*` meta 写 `unsupportedRecords`，包含 record ID/type/reason，不包含大 payload。
 
-- [ ] **Step 5: 保存非破坏结果**
+- [x] **Step 5: 保存非破坏结果**
 
 目标 canvas 已存在时返回 `migration_target_exists`，不合并。成功写 scene/assets 后再写
 `canvas/infinite-canvas/migrations/<pageId>-<timestamp>.json`；report 包含 source SHA-256、
@@ -93,12 +93,12 @@ mapped/skipped counts、warnings、targetCanvasId。dryRun 不写任何文件。
 open Skill 在用户明确要求迁移时才搜索；普通打开不扫描旧目录。迁移对话框列出 page ID、
 源文件时间和 dry-run summary，不自动选择全部。
 
-- [ ] **Step 2: 要求显式迁移确认**
+- [x] **Step 2: 要求显式迁移确认**
 
 确认文案说明新建目标、不修改旧文件、未知 shapes 会进入报告。用户取消零写入；确认后逐页
 串行调用，单页失败不阻止其它页，但最终清楚列出成功/失败。
 
-- [ ] **Step 3: 展示并打开结果**
+- [x] **Step 3: 展示并打开结果**
 
 结果页显示 mapped/skipped/warnings 和报告相对路径；“打开”重新调用 render 指定
 targetCanvasId，不复用旧 Cowart app instance。
@@ -114,26 +114,26 @@ targetCanvasId，不复用旧 Cowart app instance。
 **Interfaces:**
 - Produces: 可审计 license report、source/artifact manifest、SHA-256 receipt。
 
-- [ ] **Step 1: 生成生产依赖许可证清单**
+- [x] **Step 1: 生成生产依赖许可证清单**
 
 Run: `pnpm --dir plugins/infinite-canvas licenses list --prod --json`
 
 将 package/version/license/resolved integrity 写入排序后的 `license-report.json`。MIT、ISC、BSD、
 Apache-2.0 可接受；AGPL/GPL/SSPL/BUSL/unknown 直接失败并停止发布，不能靠根 MIT 覆盖。
 
-- [ ] **Step 2: 关闭上游元数据冲突**
+- [x] **Step 2: 关闭上游元数据冲突**
 
 报告明确：根源码和 Canvas Agent 是 MIT；错误的上游 `.codex-plugin` AGPL 文件未进入源码
 构建和 artifact；我们分发的每个 vendored 文件均受根 MIT 或单独 notice 覆盖。若无法从
 上游一手证据确认，版本保持 disabled，不发布。
 
-- [ ] **Step 3: 验证 source 和 artifact 完整性**
+- [x] **Step 3: 验证 source 和 artifact 完整性**
 
 Verifier 读取 Git tracked vendor/source 列表，确认 upstream.json commit、source SHA、dist
 hash 和 ZIP manifest。检查 ≤512 files、≤50 MiB expanded、无 symlink、无 tldraw、无未知
 license、无 `.codex-plugin`/`.mcp.json`、runtime entrypoint 和 10 schemas/resource 一致。
 
-- [ ] **Step 4: 生成最终 0.1.0 artifact**
+- [x] **Step 4: 生成最终 0.1.8 artifact**
 
 Run:
 
@@ -157,30 +157,30 @@ Widget size、license counts 和 upstream commit。
 - Consumes: plugin ZIP/source directory、Fusion Admin Upload API。
 - Produces: disabled v2 Skill Market version 和 ready deterministic artifact。
 
-- [ ] **Step 1: 读取 Fusion 仓库规则和现有 Cowart importer**
+- [x] **Step 1: 读取 Fusion 仓库规则和现有 Cowart importer**
 
 重新读取 `AGENT.md`、`docs/relay-proxy-development-plan.md`、
 `scripts/import_cowart_plugin.mjs` 和 skilladmin upload handlers；只复用已存在 API，不新增
 endpoint/schema/DB migration。
 
-- [ ] **Step 2: 实现 dry-run**
+- [x] **Step 2: 实现 dry-run**
 
 脚本参数为 `--source`、`--dry-run`、`--base-url`；本地先运行插件 verifier、读取 receipt、
 校验 slug/version/manifest/tool/resource/license。未提供 `FUSION_BASE_URL` 或
 `FUSION_ADMIN_TOKEN` 时强制 dry-run，绝不发送网络请求。
 
-- [ ] **Step 3: 实现 init → PUT → complete**
+- [x] **Step 3: 实现 init → PUT → complete**
 
 复用 `/admin/api/skills/uploads/init`、预签名 upload URL、
 `/admin/api/skills/uploads/complete`；complete 后轮询 status/detail，要求 version artifact
 `ready`、size/SHA 一致、10 capability + 1 app + 1 runtime + 1 connector + 3 Skill 组件完整。
 
-- [ ] **Step 4: 默认保持 disabled**
+- [x] **Step 4: 默认保持 disabled**
 
 新建/更新记录必须 `disabled=true`；脚本没有 `--publish` 参数，不能在导入结束自动开放。
 正式开放在真实客户端验收后单独执行 `set-disabled(false)`。
 
-- [ ] **Step 5: 运行 importer dry-run**
+- [x] **Step 5: 运行 importer dry-run**
 
 Run: `node scripts/import_infinite_canvas_plugin.mjs --dry-run --source <plugin-root>`
 
@@ -199,7 +199,7 @@ Expected: exit 0；打印 manifest/version/file count/size/SHA/components；无 
 
 - [ ] **Step 2: 验证安装/拒绝/批准**
 
-从 hidden 管理详情安装 0.1.0；拒绝权限时无 runtime/app instance/文件写入；批准后仅当前
+从 hidden 管理详情安装 0.1.8；拒绝权限时无 runtime/app instance/文件写入；批准后仅当前
 workspace/Agent available，同一会话重新 search/read/invoke 无需重启。
 
 - [ ] **Step 3: 验证原生 Widget**

@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 2,
+  "name": "infinite-canvas",
+  "version": "0.1.8",
+  "targets": ["iyw-claw"],
+  "components": {
+    "runtimes": [
+      {
+        "key": "infinite-canvas-node",
+        "kind": "node",
+        "entrypoint": "runtime/dist/infinite-canvas-mcp.mjs",
+        "dependencies": "bundled"
+      }
+    ],
+    "connectors": [
+      {
+        "key": "infinite-canvas-mcp",
+        "transport": "stdio",
+        "runtimeKey": "infinite-canvas-node",
+        "routing": { "mode": "host_gateway" },
+        "activation": { "mode": "lazy", "scope": "workspace" }
+      }
+    ],
+    "skills": [
+      { "key": "infinite-canvas-open", "path": "skills/infinite-canvas-open", "requiresConnectors": ["infinite-canvas-mcp"] },
+      { "key": "infinite-canvas-edit", "path": "skills/infinite-canvas-edit", "requiresConnectors": ["infinite-canvas-mcp"] },
+      { "key": "infinite-canvas-image-workflow", "path": "skills/infinite-canvas-image-workflow", "requiresConnectors": ["infinite-canvas-mcp"] }
+    ],
+    "capabilities": [
+      { "key": "render-canvas", "id": "plugin.infinite-canvas.canvas.render-canvas.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "render_infinite_canvas_widget", "schemaPath": "contracts/render-infinite-canvas-widget.schema.json", "description": "Open the Infinite Canvas MCP App widget.", "intentTerms": ["infinite canvas", "canvas", "open"], "readOnlyHint": true },
+      { "key": "get-canvas-state", "id": "plugin.infinite-canvas.canvas.get-canvas-state.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "get_infinite_canvas_state", "schemaPath": "contracts/get-infinite-canvas-state.schema.json", "description": "Read the current project canvas scene.", "intentTerms": ["canvas", "state", "scene"], "readOnlyHint": true },
+      { "key": "get-selection", "id": "plugin.infinite-canvas.canvas.get-selection.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "get_infinite_canvas_selection", "schemaPath": "contracts/get-infinite-canvas-selection.schema.json", "description": "Read the current canvas selection.", "intentTerms": ["canvas", "selection"], "readOnlyHint": true },
+      { "key": "save-selection", "id": "plugin.infinite-canvas.canvas.save-selection.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "save_infinite_canvas_selection", "schemaPath": "contracts/save-infinite-canvas-selection.schema.json", "description": "Persist the current canvas selection.", "intentTerms": ["canvas", "selection", "save"], "readOnlyHint": false },
+      { "key": "apply-ops", "id": "plugin.infinite-canvas.canvas.apply-ops.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "apply_infinite_canvas_ops", "schemaPath": "contracts/apply-infinite-canvas-ops.schema.json", "description": "Apply ordered scene operations with revision protection.", "intentTerms": ["canvas", "edit", "nodes"], "readOnlyHint": false },
+      { "key": "save-snapshot", "id": "plugin.infinite-canvas.canvas.save-snapshot.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "save_infinite_canvas_snapshot", "schemaPath": "contracts/save-infinite-canvas-snapshot.schema.json", "description": "Persist a complete canvas snapshot with revision protection.", "intentTerms": ["canvas", "snapshot", "save"], "readOnlyHint": false },
+      { "key": "read-asset", "id": "plugin.infinite-canvas.canvas.read-asset.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "read_infinite_canvas_asset", "schemaPath": "contracts/read-infinite-canvas-asset.schema.json", "description": "Read a range from a canvas asset.", "intentTerms": ["canvas", "asset", "read"], "readOnlyHint": true },
+      { "key": "write-asset", "id": "plugin.infinite-canvas.canvas.write-asset.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "write_infinite_canvas_asset", "schemaPath": "contracts/write-infinite-canvas-asset.schema.json", "description": "Upload or import a canvas asset.", "intentTerms": ["canvas", "asset", "upload"], "readOnlyHint": false },
+      { "key": "export-canvas", "id": "plugin.infinite-canvas.canvas.export.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "export_infinite_canvas", "schemaPath": "contracts/export-infinite-canvas.schema.json", "description": "Export a canvas scene or uploaded asset.", "intentTerms": ["canvas", "export"], "readOnlyHint": false },
+      { "key": "migrate-cowart", "id": "plugin.infinite-canvas.canvas.migrate-cowart.v1", "connectorKey": "infinite-canvas-mcp", "toolName": "migrate_cowart_canvas", "schemaPath": "contracts/migrate-cowart-canvas.schema.json", "description": "Preview or migrate a Cowart page into a new canvas.", "intentTerms": ["cowart", "migrate", "canvas"], "readOnlyHint": false }
+    ],
+    "apps": [
+      { "key": "infinite-canvas", "connectorKey": "infinite-canvas-mcp", "resourceUri": "ui://widget/infinite-canvas/canvas.html", "capabilityKey": "render-canvas", "displayModes": ["fullscreen", "inline"] }
+    ]
+  },
+  "permissions": {
+    "workspace": { "read": ["canvas/infinite-canvas"], "write": ["canvas/infinite-canvas"] },
+    "network": { "connectDomains": [], "resourceDomains": [], "frameDomains": [] },
+    "host": ["send-message", "clipboard-write", "open-link"]
+  }
+}

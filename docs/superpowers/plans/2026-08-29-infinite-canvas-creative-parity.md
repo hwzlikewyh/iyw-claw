@@ -30,7 +30,7 @@
 **Interfaces:**
 - Produces: `CreativeRequestV1` 和可被 Agent 读取的 revision-bound selection。
 
-- [ ] **Step 1: 定义稳定请求 envelope**
+- [x] **Step 1: 定义稳定请求 envelope**
 
 ```ts
 export type CreativeRequestV1 = {
@@ -48,13 +48,13 @@ export type CreativeRequestV1 = {
 
 `requestId` 只用于幂等和 UI 对应，不作为自动重试依据。
 
-- [ ] **Step 2: 同步 selection**
+- [x] **Step 2: 同步 selection**
 
 Widget 选区变化防抖调用 `save_infinite_canvas_selection`，携带当前 scene revision；runtime
 拒绝不存在的 node ID 或过期 revision。Agent Skill 在任何“这个/当前/选中”请求前调用
 `get-selection` 并核对 revision。
 
-- [ ] **Step 3: 发送安全 Agent 消息**
+- [x] **Step 3: 发送安全 Agent 消息**
 
 `sendCreativeRequest()` 发送一段用户可见中文摘要和一个 fenced JSON envelope；只包含相对
 asset path，不包含 token、绝对路径或完整 scene。按钮进入 pending，收到 scene 新 revision
@@ -79,7 +79,7 @@ Skill 必须：读取 scene/selection；选择当前 Agent 可用的 IYW 图片�
 node；成功后写 `status:"success"`。失败时只把占位节点改为 `status:"error"` 和安全错误码，
 不自动再次生成。
 
-- [ ] **Step 2: 实现 Widget 生成面板**
+- [x] **Step 2: 实现 Widget 生成面板**
 
 面板字段只包含 prompt、参考节点和输出数量；提交前创建 `status:"pending"` 的 config node，
 再发送 request。重复点击同一 pending requestId 禁止；用户可明确点击“重试”生成新的
@@ -90,7 +90,7 @@ requestId，新结果不覆盖旧图。
 Agent 根据原图 bounds 以固定间距向右排列，保持图片比例；多图使用 group 节点包裹并保存
 primary image ID。Widget 不在结果到达前猜测图片尺寸。
 
-- [ ] **Step 4: 静态审查计费与失败路径**
+- [x] **Step 4: 静态审查计费与失败路径**
 
 检查 pending、取消、Agent 断开、模型 402、部分成功和显式重试；任何失败都保留 prompt 和
 成功图片，且没有后台自动 replay。
@@ -108,7 +108,7 @@ primary image ID。Widget 不在结果到达前猜测图片尺寸。
 **Interfaces:**
 - Produces: `iyw:annotation-layer` node；export 返回 `asset://sha` 和 workspace relativePath。
 
-- [ ] **Step 1: 定义 normalized annotation shapes**
+- [x] **Step 1: 定义 normalized annotation shapes**
 
 ```ts
 export type AnnotationShape =
@@ -120,19 +120,19 @@ export type AnnotationShape =
 
 坐标相对关联图片归一化到 0..1；文本长度、点数和 shape 数在保存前验证。
 
-- [ ] **Step 2: 实现 SVG overlay 编辑器**
+- [x] **Step 2: 实现 SVG overlay 编辑器**
 
 选中图片后创建/复用关联 annotation-layer；工具栏支持箭头、矩形、椭圆、文字、自由画、
 选择和删除。pointer capture 在 pointerup/cancel 全部释放；缩放只改变显示，不改 normalized
 数据。
 
-- [ ] **Step 3: 实现确定性扁平导出**
+- [x] **Step 3: 实现确定性扁平导出**
 
 读取原图 object URL，在 Canvas 2D 按原图像素尺寸绘制图片和 SVG 等价 shapes；限制采用
 现有图片路由的 20 MiB 输入和 1600 万总像素门禁，超限显示明确错误，不降质静默继续。
 导出 PNG 通过分块 asset uploader 写入项目。
 
-- [ ] **Step 4: 发送 annotation-edit**
+- [x] **Step 4: 发送 annotation-edit**
 
 请求包含原图 relativePath、扁平标注图 relativePath、文字标注摘要和目标 node ID。Agent
 调用图片编辑能力，结果作为新 image node 放在原图右侧；旧图和 annotation-layer 保留。
@@ -147,7 +147,7 @@ export type AnnotationShape =
 **Interfaces:**
 - Produces: HTML node metadata `{source, revision, requestId, status}`。
 
-- [ ] **Step 1: 增加“生成网页/编辑网页”动作**
+- [x] **Step 1: 增加“生成网页/编辑网页”动作**
 
 图片、文本和 HTML node 工具栏可发 `html.generate`/`html.edit`；请求包含选中内容摘要和 asset
 路径。pending node 立即出现但 `source` 保留旧内容，失败时不清空。
@@ -158,7 +158,7 @@ Agent 生成单文件 HTML，禁止远程 script、iframe、表单提交和自�
 target HTML node。编辑请求基于当前 source revision，过期时先读取最新 scene 再要求用户
 确认，不覆盖并行编辑。
 
-- [ ] **Step 3: 保持编辑/预览双态**
+- [x] **Step 3: 保持编辑/预览双态**
 
 编辑器使用纯文本 code editor；保存才提交 operation。预览沿用 Native Widget 的严格二级
 sandbox。导出 HTML 写 workspace 相对文件并返回可下载成果，不通过 data URL 打开。
@@ -178,7 +178,7 @@ sandbox。导出 HTML 写 workspace 相对文件并返回可下载成果，不�
 **Interfaces:**
 - Produces: `iyw:slides` node，pages 可编辑、可演示、可导出、可发标注编辑请求。
 
-- [ ] **Step 1: 定义 slide deck**
+- [x] **Step 1: 定义 slide deck**
 
 ```ts
 export type SlideDeck = {
@@ -192,7 +192,7 @@ export type SlideDeck = {
 
 每页 HTML 使用与 HTML node 相同 sanitizer/sandbox ceiling；page ID 唯一，至少一页。
 
-- [ ] **Step 2: 实现节点和演示器**
+- [x] **Step 2: 实现节点和演示器**
 
 节点显示缩略图和页列表；presenter 在 Widget fullscreen 内切页，不打开新窗口。退出演示恢复
 原 canvas viewport/selection；键盘监听在 unmount/teardown 时释放。
@@ -213,12 +213,12 @@ HTML 导出为自包含 deck；图片导出每页 PNG 并写入 `canvas/infinite
 - Modify: `plugins/infinite-canvas/scripts/verify.mjs`
 - Modify: `plugins/infinite-canvas/THIRD_PARTY_NOTICES.md`
 
-- [ ] **Step 1: 扩展 verifier**
+- [x] **Step 1: 扩展 verifier**
 
 确认 annotation、HTML、Slides 节点均在 builtin registry；CreativeRequest action 与 Skill
 分支完全对应；bundle 无模型 Key UI、远程 API endpoint、tldraw 或未声明 network domain。
 
-- [ ] **Step 2: 运行静态门禁**
+- [x] **Step 2: 运行静态门禁**
 
 Run:
 
@@ -231,7 +231,7 @@ git diff --check
 
 Expected: exit 0；6 creative actions、3 builtin plugin families、0 external model calls。
 
-- [ ] **Step 3: 静态调用链审查**
+- [x] **Step 3: 静态调用链审查**
 
 逐条审查生成、402、取消、显式重试、标注导出、HTML revision、Slides page revision、资源
 释放和 teardown；记录无法由静态检查证明的真实模型/UI 验收项。

@@ -1,0 +1,159 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "canvasId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "baseRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "scene": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "canvasId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,64}$"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              },
+              "type": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "height": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "rotation": {
+                "type": "number"
+              },
+              "metadata": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "additionalProperties": true
+          },
+          "maxItems": 10000
+        },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              },
+              "fromNodeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              },
+              "toNodeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              }
+            },
+            "required": [
+              "id",
+              "fromNodeId",
+              "toNodeId"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 20000
+        },
+        "backgroundMode": {
+          "enum": [
+            "dots",
+            "lines",
+            "blank"
+          ]
+        },
+        "showImageInfo": {
+          "type": "boolean"
+        },
+        "viewport": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            },
+            "k": {
+              "type": "number",
+              "minimum": 0.05,
+              "maximum": 5
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "k"
+          ],
+          "additionalProperties": false
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "canvasId",
+        "revision",
+        "nodes",
+        "connections",
+        "backgroundMode",
+        "showImageInfo",
+        "viewport",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "canvasId",
+    "baseRevision",
+    "scene"
+  ],
+  "additionalProperties": false
+}

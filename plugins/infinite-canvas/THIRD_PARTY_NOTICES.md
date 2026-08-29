@@ -10,6 +10,14 @@
 进入本插件源码或制品。本插件发布前仍必须以生产依赖清单和逐文件来源审计为准，不能用
 根许可证覆盖未知或不兼容依赖。
 
+## Provenance audit (2026-08-29)
+
+`upstream.json` 固定了上游 commit 和 MIT 根许可证；构建 verifier 会拒绝缺失或非 MIT 的
+上游 provenance，并逐项拒绝 `.codex-plugin`、`.claude-plugin` 和 `.mcp.json`。打包清单只
+包含本插件的 runtime、Widget、contracts、Skills、许可证和 notices，因此错误的 AGPL 元数据
+文件不在源码构建输入或发布 artifact 中。生产依赖仍由 verifier 单独按 package license
+审计，任何 AGPL/GPL/SSPL/BUSL/UNKNOWN 都会 fail closed。
+
 ## Production dependencies
 
 生产依赖的 package、精确版本、完整性摘要和许可证由以下命令生成并写入发布报告：
