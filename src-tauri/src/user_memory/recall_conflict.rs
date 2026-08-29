@@ -179,8 +179,8 @@ async fn unresolved_conflict_ids<C: ConnectionTrait>(
          JOIN memory_item_current AS target ON target.id = r.target_id \
          WHERE r.source_id IN ({placeholders}) AND r.relation = 'contradicts' \
          AND r.confidence >= 50 AND {source_scope} AND {target_scope} \
-         AND source.trust_class = 'host_confirmed' AND source.sensitive = 0 \
-         AND source.superseded_by IS NULL AND target.trust_class = 'host_confirmed' \
+         AND source.trust_class IN ('host_confirmed', 'agent_experience') AND source.sensitive = 0 \
+         AND source.superseded_by IS NULL AND target.trust_class IN ('host_confirmed', 'agent_experience') \
          AND target.sensitive = 0 AND target.superseded_by IS NULL \
          {source_validity}{target_validity} ORDER BY r.source_id"
     );

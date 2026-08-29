@@ -845,6 +845,29 @@
     }
   },
   {
+    "name": "search_session_history",
+    "description": "Search bounded historical iyw-claw task projections by task keywords. Use this for questions such as what tasks were completed before; it is separate from memory_recall, which searches stored decisions, preferences, and reusable experience. Results contain session metadata plus bounded intent/result/failure summaries; use get_session_info with an exact session id when recent messages are needed.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["query"],
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Two to five task-oriented keywords or a concise task phrase."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 8
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "transcribe_audio",
     "description": "Submit durable asynchronous transcription for complex audio. Use this route for meeting or multi-speaker work, channel separation, files that may exceed the flash limits of 100 MiB or 2 hours, or any task that must be recoverable by job ID. It accepts audio under 512 MiB and up to 5 hours. For ordinary short audio that only needs immediate text, prefer transcribe_audio_flash. Provide exactly one of path (workspace-relative file), url (HTTPS), or data (Base64/Data URI). Data requires fileName and raw Base64 also requires mimeType. The host uploads the normalized source and returns either the transcript or a job status for query_audio_transcription.",
     "inputSchema": {
@@ -1018,8 +1041,17 @@
     }
   },
   {
+    "name": "read_memory_policy",
+    "description": "Read iyw-claw's complete current memory and self-learning policy before the first direct memory operation in a turn. This is read-only, returns a versioned digest and the canonical policy document, and never returns user memory content.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "append_user_memory",
-    "description": "Append one durable, cross-task fact or preference that the user clearly stated to iyw-claw's user memory. Use this only when the information will remain useful in future conversations. Never store secrets, credentials, inferred sensitive traits, repository facts, temporary progress, or one-off task details. This tool is append-only: it cannot overwrite user memory and cannot modify the user's profile or soul documents.",
+    "description": "Append one durable, cross-task fact or preference that the user clearly stated to iyw-claw's user memory. Before the first memory operation in each turn, call read_memory_policy. Use this only when the information will remain useful in future conversations. Never store secrets, credentials, inferred sensitive traits, repository facts, temporary progress, or one-off task details. This tool is append-only: it cannot overwrite user memory and cannot modify the user's profile or soul documents.",
     "inputSchema": {
       "type": "object",
       "required": ["content"],
@@ -1036,7 +1068,7 @@
   },
   {
     "name": "propose_user_memory",
-    "description": "Submit one conservative internal observation when a reusable correction, preference, or fact may be durable but the Agent is not yet confident enough to append it to active memory. This records activity for later Agent maintenance; it does not require user confirmation. Never submit secrets, inferred sensitive traits, repository facts, temporary progress, one-off task details, or agent reflections, and never claim that a proposal is already durable memory.",
+    "description": "Submit one conservative internal observation when a reusable correction, preference, or fact may be durable but the Agent is not yet confident enough to append it to active memory. Before the first memory operation in each turn, call read_memory_policy. This records activity for later Agent maintenance; it does not require user confirmation. Never submit secrets, inferred sensitive traits, repository facts, temporary progress, one-off task details, or agent reflections, and never claim that a proposal is already durable memory.",
     "inputSchema": {
       "type": "object",
       "required": ["content", "signal"],
@@ -1058,7 +1090,7 @@
   },
   {
     "name": "memory_recall",
-    "description": "Read matching stored user memory for the current launch when it materially helps the task. This is read-only and bounded. The resultState distinguishes matched, no_evidence, and unavailable; no_evidence means the index was usable but no stored memory matched, never that the fact is false. Use the current-user-profile capability for account name, nickname, or salutation instead of memory recall.",
+    "description": "Read matching confirmed user memory and active Agent experience for the current launch when it materially helps the task. Before the first memory operation in each turn, call read_memory_policy. Use it proactively before work that depends on prior decisions, preferences, repeated workflows, or earlier failure/workaround experience. This is read-only and bounded. The resultState distinguishes matched, no_evidence, and unavailable; no_evidence means the index was usable but no stored memory matched, never that the fact is false. Use the current-user-profile capability for account name, nickname, or salutation instead of memory recall.",
     "inputSchema": {
       "type": "object",
       "required": ["query"],
@@ -1081,7 +1113,7 @@
   },
   {
     "name": "read_user_memory_documents",
-    "description": "Read the current authoritative contents of selected host-owned user memory documents. Use only when the task needs the current user-memory, profile, or soul document itself; request the smallest relevant set. This is read-only, path-free, bounded by host policy, and does not replace memory_recall for historical search.",
+    "description": "Read the current authoritative contents of selected host-owned user memory documents. Before the first memory operation in each turn, call read_memory_policy. Use only when the task needs the current user-memory, profile, or soul document itself; request the smallest relevant set. This is read-only, path-free, bounded by host policy, and does not replace memory_recall for historical search.",
     "inputSchema": {
       "type": "object",
       "required": ["documents"],
@@ -1103,7 +1135,7 @@
   },
   {
     "name": "list_user_memory_candidates",
-    "description": "List host-managed memory learning candidates with optional lifecycle filtering and optimistic-concurrency revision. Use to inspect tentative, emerging, pending-confirmation, or terminal candidates; it never exposes local paths or credentials.",
+    "description": "List host-managed memory learning candidates with optional lifecycle filtering and optimistic-concurrency revision. Before the first memory operation in each turn, call read_memory_policy. Use to inspect tentative, emerging, pending-confirmation, or terminal candidates; it never exposes local paths or credentials.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1116,7 +1148,7 @@
   },
   {
     "name": "resolve_user_memory_candidate",
-    "description": "Resolve one host-managed memory candidate using its exact id and revision. Confirm appends durable memory through the host transaction; reject or supersede preserves reference normalization. Read the candidate list first and never guess ids or revisions.",
+    "description": "Resolve one host-managed memory candidate using its exact id and revision. Before the first memory operation in each turn, call read_memory_policy. Confirm appends durable memory through the host transaction; reject or supersede preserves reference normalization. Read the candidate list first and never guess ids or revisions.",
     "inputSchema": {
       "type": "object",
       "required": ["candidateId", "expectedRevision", "resolution"],
@@ -1137,7 +1169,7 @@
   },
   {
     "name": "delete_user_memory_candidate",
-    "description": "Delete one already-terminal host memory candidate by exact id and revision. Never delete tentative, emerging, or pending candidates and never retry after a revision conflict without re-reading.",
+    "description": "Delete one already-terminal host memory candidate by exact id and revision. Before the first memory operation in each turn, call read_memory_policy. Never delete tentative, emerging, or pending candidates and never retry after a revision conflict without re-reading.",
     "inputSchema": {
       "type": "object",
       "required": ["candidateId", "expectedRevision"],
@@ -1147,12 +1179,12 @@
   },
   {
     "name": "get_user_memory_harvest_status",
-    "description": "Read the host-owned TurnComplete memory-harvest queue status, including queued, extracting, proposed, noop, failed, dead, and backlog counts. This is read-only and does not force processing.",
+    "description": "Read the host-owned TurnComplete memory-harvest queue status, including queued, extracting, proposed, noop, failed, dead, and backlog counts. Before the first memory operation in each turn, call read_memory_policy. This is read-only and does not force processing.",
     "inputSchema": { "type": "object", "additionalProperties": false }
   },
   {
     "name": "rescan_user_memory_harvest",
-    "description": "Preview or explicitly execute a host memory-harvest rescan. Call with execute false first; only call execute true after the user explicitly requests the rescan. Existing terminal records are retained.",
+    "description": "Preview or explicitly execute a host memory-harvest rescan. Before the first memory operation in each turn, call read_memory_policy. Call with execute false first; only call execute true after the user explicitly requests the rescan. Existing terminal records are retained.",
     "inputSchema": {
       "type": "object",
       "required": ["execute"],
@@ -1162,7 +1194,7 @@
   },
   {
     "name": "rebuild_user_memory_candidate_index",
-    "description": "Preview or explicitly execute an idempotent rebuild of host candidate digests and observation keys. Call with execute false first and execute true only when the user requests repair.",
+    "description": "Preview or explicitly execute an idempotent rebuild of host candidate digests and observation keys. Before the first memory operation in each turn, call read_memory_policy. Call with execute false first and execute true only when the user requests repair.",
     "inputSchema": {
       "type": "object",
       "required": ["execute"],
@@ -1172,12 +1204,12 @@
   },
   {
     "name": "get_user_memory_settings",
-    "description": "Read a safe host memory health and capability summary for the current Agent. It omits local paths, credentials, raw private context, and full document contents unless separately requested.",
+    "description": "Read a safe host memory health and capability summary for the current Agent. Before the first memory operation in each turn, call read_memory_policy. It omits local paths, credentials, raw private context, and full document contents unless separately requested.",
     "inputSchema": { "type": "object", "additionalProperties": false }
   },
   {
     "name": "update_user_memory_documents",
-    "description": "Update selected host-owned user memory documents through the transactional revision/eTag path. Read the current documents first, send only intended changes, and never use this route for arbitrary files or guessed paths.",
+    "description": "Update selected host-owned user memory documents through the transactional revision/eTag path. Before the first memory operation in each turn, call read_memory_policy. Read the current documents first, send only intended changes, and never use this route for arbitrary files or guessed paths.",
     "inputSchema": {
       "type": "object",
       "required": ["expectedRevision", "documents"],
@@ -1199,7 +1231,7 @@
   },
   {
     "name": "correct_user_memory",
-    "description": "Replace one exact memory entry through the host correction transaction and normalize candidate references. Read the target document first and provide its current eTag; do not perform textual replacement with shell tools.",
+    "description": "Replace one exact memory entry through the host correction transaction and normalize candidate references. Before the first memory operation in each turn, call read_memory_policy. Read the target document first and provide its current eTag; do not perform textual replacement with shell tools.",
     "inputSchema": {
       "type": "object",
       "required": ["document", "oldContent", "newContent", "expectedEtag"],

@@ -13,13 +13,25 @@ creating a second local memory runtime.
 - [Safety and transparency](#safety-and-transparency)
 - [Maintenance and degradation](#maintenance-and-degradation)
 
+## Runtime authority and progressive disclosure
+
+This file is the detailed policy behind the bundled
+`iyw-capability-gateway` Skill. The canonical source is the Skill embedded by
+the running iyw-claw build and reconciled into the host's central Skill store;
+an arbitrary `.codex-worktrees` path is never a runtime source. Adapters that
+can load Skill references should read this file before their first memory
+operation. Adapters that cannot expose file reads must use the versioned
+`iyw.memory.policy.read.v1` result instead. The host enforces that preflight
+per accepted turn, so a skipped file read cannot silently bypass this policy.
+
 ## Activation and signals
 
-Apply memory behavior when the task depends on prior decisions, preferences,
-repeated workflows, earlier failures/workarounds, or an explicit request to
-remember, forget, export, inspect, or repair memory. After meaningful work,
-perform a private quality check: did the result meet intent, what could improve,
-and is the lesson reusable?
+Apply memory behavior for substantive coding, configuration, debugging,
+research, or multi-step work unless the request is clearly self-contained,
+as well as for explicit requests to remember, forget, export, inspect, or
+repair memory. Before the first memory operation, complete the current-turn
+policy preflight. After meaningful work, perform a private quality check: did
+the result meet intent, what could improve, and is the lesson reusable?
 
 Treat these as learning signals:
 
@@ -63,6 +75,7 @@ made-up scope field.
 
 | Intent | Gateway capability | Rules |
 | --- | --- | --- |
+| Load current policy | `iyw.memory.policy.read.v1` | Read-only turn preflight for direct memory surfaces; returns revision, digest, and this complete policy document. |
 | Recall historical context | `iyw.memory.recall.search.v1` | Bounded read; `matched` is evidence, `no_evidence` is not false, `unavailable` is a routing limitation. |
 | Read current authoritative context | `iyw.memory.documents.read.v1` | Request only `memory`, `profile`, and/or `soul` actually needed; max three, unique. |
 | Save explicit durable fact/preference | `iyw.memory.confirmed.append.v1` | Append-only, concise, cross-task, user-grounded. |

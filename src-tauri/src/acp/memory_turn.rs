@@ -8,13 +8,18 @@ const APPEND_CALL_MASK: u64 = 1 << 1;
 const PROPOSAL_CALL_MASK: u64 = 1 << 2;
 const RECALL_CALL_MASK: u64 = 1 << 3;
 const DOCUMENT_READ_CALL_MASK: u64 = 1 << 4;
-const CALL_MASK: u64 =
-    APPEND_CALL_MASK | PROPOSAL_CALL_MASK | RECALL_CALL_MASK | DOCUMENT_READ_CALL_MASK;
-const NONCE_SHIFT: u32 = 5;
+const POLICY_CALL_MASK: u64 = 1 << 5;
+const CALL_MASK: u64 = APPEND_CALL_MASK
+    | PROPOSAL_CALL_MASK
+    | RECALL_CALL_MASK
+    | DOCUMENT_READ_CALL_MASK
+    | POLICY_CALL_MASK;
+const NONCE_SHIFT: u32 = 6;
 const SOURCE_ID_DOMAIN: &[u8] = b"iyw-claw:user-memory-source:v1\0";
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum MemoryCapabilityCall {
+    Policy,
     Append,
     Propose,
     Recall,
@@ -23,6 +28,7 @@ pub(crate) enum MemoryCapabilityCall {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct MemoryCapabilityCalls {
+    pub policy: bool,
     pub append: bool,
     pub propose: bool,
     pub recall: bool,
@@ -94,6 +100,7 @@ impl MemoryTurnTracker {
 
     pub(crate) fn record_call(&self, capability: MemoryCapabilityCall) {
         let mask = match capability {
+            MemoryCapabilityCall::Policy => POLICY_CALL_MASK,
             MemoryCapabilityCall::Append => APPEND_CALL_MASK,
             MemoryCapabilityCall::Propose => PROPOSAL_CALL_MASK,
             MemoryCapabilityCall::Recall => RECALL_CALL_MASK,
@@ -148,6 +155,7 @@ impl MemoryTurnTracker {
 impl MemoryCapabilityCalls {
     fn from_state(state: u64) -> Self {
         Self {
+            policy: state & POLICY_CALL_MASK != 0,
             append: state & APPEND_CALL_MASK != 0,
             propose: state & PROPOSAL_CALL_MASK != 0,
             recall: state & RECALL_CALL_MASK != 0,

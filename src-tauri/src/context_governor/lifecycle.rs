@@ -53,6 +53,7 @@ pub(super) fn memory_lifecycle(
 ) -> Vec<CapabilityLifecycleReceipt> {
     let installed = memory.capability_inputs.service_available;
     vec![
+        lifecycle("memory.policy", installed, installed, installed, false),
         lifecycle(
             "memory.read_context",
             installed,
@@ -96,7 +97,14 @@ pub(super) fn apply_called_observations(
     calls: MemoryCapabilityCalls,
 ) {
     for item in lifecycle {
+        if item.capability_id == "memory.policy" {
+            item.set_observation(
+                CapabilityLifecycleState::Loaded,
+                CapabilityObservation::known(calls.policy),
+            );
+        }
         let called = match item.capability_id {
+            "memory.policy" => CapabilityObservation::known(calls.policy),
             "memory.append" => CapabilityObservation::known(calls.append),
             "memory.propose" => CapabilityObservation::known(calls.propose),
             "memory.recall" => CapabilityObservation::known(calls.recall),
@@ -176,11 +184,10 @@ fn memory_recall_exposed(memory: &UserMemoryContextSnapshot) -> bool {
         && memory_read_enabled(memory)
         && inputs.host_bridge_available
         && inputs.companion_health.status == CompanionHealthStatus::Ready
-        && inputs
-            .companion_health
-            .advertised_tools
-            .iter()
-            .any(|tool| tool == MEMORY_RECALL_TOOL)
+        && crate::user_memory::companion_exposes_capability(
+            &inputs.companion_health,
+            MEMORY_RECALL_TOOL,
+        )
 }
 
 fn memory_append_enabled(memory: &UserMemoryContextSnapshot) -> bool {

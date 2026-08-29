@@ -50,6 +50,17 @@ export interface UserMemoryCompanionHealth {
   detail?: string | null
 }
 
+export interface UserMemoryRecallIndexStatus {
+  sourceKey: string
+  sourceDigest?: string | null
+  indexGeneration?: number | null
+  indexedAt?: string | null
+  status: string
+  ftsUnicodeStatus: string
+  ftsTrigramStatus: string
+  lastError?: string | null
+}
+
 export interface UserMemoryCapabilityResult {
   available: boolean
   reason: string
@@ -91,6 +102,7 @@ export interface UserMemorySettingsSnapshot {
   candidateCounts?: Partial<Record<UserMemoryCandidateStatus, number>>
   projectedCapabilities?: Partial<Record<AgentType, UserMemoryCapabilities>>
   companionHealth?: UserMemoryCompanionHealth
+  recallIndexStatus?: UserMemoryRecallIndexStatus | null
 }
 
 export type UserMemoryCandidateStatus =

@@ -1,15 +1,18 @@
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use super::features::{FeatureSnapshot, MemoryPermissions};
+use crate::acp::memory_turn::MemoryTurnTracker;
 use crate::models::AgentType;
 
 const MAX_ACTIVE_REQUESTS_PER_TOKEN: usize = 16;
 const MAX_ACTIVE_STREAMS_PER_TOKEN: usize = 1;
+const MEMORY_POLICY_UNLOADED: u64 = 0;
 
 #[derive(Debug)]
 pub struct SessionIdentity {
@@ -42,6 +45,8 @@ pub struct SessionAuthority {
     features: FeatureSnapshot,
     memory: MemoryPermissions,
     cancellation: CancellationToken,
+    memory_turn_tracker: Arc<MemoryTurnTracker>,
+    memory_policy_loaded_nonce: Arc<AtomicU64>,
 }
 
 impl SessionAuthority {
@@ -49,12 +54,15 @@ impl SessionAuthority {
         identity: SessionIdentity,
         features: FeatureSnapshot,
         memory: MemoryPermissions,
+        memory_turn_tracker: Arc<MemoryTurnTracker>,
     ) -> Self {
         Self {
             identity,
             features,
             memory,
             cancellation: CancellationToken::new(),
+            memory_turn_tracker,
+            memory_policy_loaded_nonce: Arc::new(AtomicU64::new(MEMORY_POLICY_UNLOADED)),
         }
     }
 
@@ -89,6 +97,14 @@ impl SessionAuthority {
 
     pub fn cancellation(&self) -> &CancellationToken {
         &self.cancellation
+    }
+
+    pub(super) fn memory_policy_state(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.memory_policy_loaded_nonce)
+    }
+
+    pub(super) fn memory_turn_tracker(&self) -> Arc<MemoryTurnTracker> {
+        Arc::clone(&self.memory_turn_tracker)
     }
 
     fn cancel(&self) {

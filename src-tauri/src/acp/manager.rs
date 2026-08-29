@@ -52,6 +52,27 @@ fn combine_prompt_context(launch: Option<Arc<str>>, private: Option<Arc<str>>) -
     }
 }
 
+async fn align_conversation_turn_generation(
+    db: &AppDatabase,
+    state: &Arc<tokio::sync::RwLock<SessionState>>,
+    conversation_id: i32,
+) -> Result<(), AcpError> {
+    let Some(row) = conversation::Entity::find_by_id(conversation_id)
+        .one(&db.conn)
+        .await
+        .map_err(|error| AcpError::protocol(error.to_string()))?
+    else {
+        return Err(AcpError::protocol(format!(
+            "conversation {conversation_id} not found"
+        )));
+    };
+    let mut snapshot = state.write().await;
+    snapshot.turn_generation = snapshot
+        .turn_generation
+        .max(row.last_completed_turn_generation);
+    Ok(())
+}
+
 fn has_prompt_images(blocks: &[PromptInputBlock]) -> bool {
     blocks
         .iter()
@@ -608,6 +629,11 @@ impl ConnectionManager {
         let Some(service) = self.user_memory_service.get() else {
             return crate::user_memory::UserMemoryContextSnapshot::pending(origin);
         };
+        if origin != crate::user_memory::UserMemoryOrigin::Probe {
+            service
+                .ensure_recall_ready(std::time::Duration::from_secs(8))
+                .await;
+        }
         match service.launch_context_for(agent_type, origin).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
@@ -905,6 +931,38 @@ impl ConnectionManager {
             return Err(error);
         }
         verification_stage.finish("ok");
+
+        // Delegation and probe launches do not pass through acp_connect's
+        // skill reconcile hook. Enforce the internal gateway bundle here as
+        // the common last-mile gate for every new Agent process, including
+        // resumed sessions and subagents. The helper is idempotent and uses
+        // the compiled bundle as the canonical source, never a worktree path.
+        let gateway_stage = startup_trace.stage("gateway_skill_ready");
+        match crate::commands::experts::ensure_builtin_gateway_skill_ready(agent_type).await {
+            Ok(_) => gateway_stage.finish("ok"),
+            Err(error) if crate::acp::connection::agent_supports_builtin_mcp(agent_type) => {
+                gateway_stage.finish("error");
+                tracing::error!(
+                    agent = %agent_type,
+                    error = %error,
+                    "[ACP] capability gateway Skill is not ready"
+                );
+                return Err(AcpError::protocol(format!(
+                    "Capability gateway Skill is not ready for {agent_type}: {error}"
+                )));
+            }
+            Err(error) => {
+                // OpenClaw/Pi adapters intentionally do not carry the host MCP
+                // surface. Keep them launchable when their native Skill path is
+                // unavailable, but make the degraded route visible.
+                gateway_stage.finish("degraded");
+                tracing::warn!(
+                    agent = %agent_type,
+                    error = %error,
+                    "[ACP] capability gateway Skill unavailable on non-MCP adapter"
+                );
+            }
+        }
 
         let user_memory_context = self
             .user_memory_context_for(agent_type, user_memory_origin)
@@ -1815,6 +1873,7 @@ impl ConnectionManager {
                         },
                     )
                     .await;
+                    align_conversation_turn_generation(db, &state_arc, caller_conv_id).await?;
                 }
                 // Function-entry guard rejects this combination.
                 (Some(_), None) => unreachable!(

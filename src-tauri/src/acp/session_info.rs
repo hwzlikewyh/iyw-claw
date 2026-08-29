@@ -31,6 +31,7 @@ use crate::models::conversation::SessionStats;
 /// the resolver treats it as the authoritative ceiling so a pathological value
 /// can't blow up the UDS frame or the LLM context.
 pub const MAX_SESSION_MESSAGES: u32 = 200;
+pub const MAX_SESSION_HISTORY_RESULTS: u32 = 20;
 
 /// One compacted turn from the referenced session's transcript. NEVER carries a
 /// raw `MessageTurn` / image bytes — only role + truncated text + tool names — so
@@ -108,6 +109,44 @@ pub struct SessionInfo {
     pub note: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionHistoryItem {
+    pub session_id: i32,
+    pub matched_turn_generation: Option<i64>,
+    pub title: Option<String>,
+    pub intent: Option<String>,
+    pub result: Option<String>,
+    pub decisions: Option<String>,
+    pub failures: Option<String>,
+    pub pending_items: Option<String>,
+    pub agent_type: String,
+    pub status: String,
+    pub workspace_name: Option<String>,
+    pub git_branch: Option<String>,
+    pub message_count: u32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionHistorySearch {
+    pub query: String,
+    pub items: Vec<SessionHistoryItem>,
+    pub truncated: bool,
+}
+
+impl SessionHistorySearch {
+    pub fn unavailable(query: String) -> Self {
+        Self {
+            query,
+            items: Vec::new(),
+            truncated: false,
+        }
+    }
+}
+
 impl SessionInfo {
     /// A "no session matches this id" outcome — the id was well-formed but no
     /// non-deleted conversation row exists for it.
@@ -136,6 +175,14 @@ pub trait SessionInfoAccess: Send + Sync {
     /// most recent compacted turns (capped at [`MAX_SESSION_MESSAGES`]). A
     /// missing / deleted id yields [`SessionInfo::not_found`].
     async fn resolve(&self, session_id: i32, max_messages: u32) -> SessionInfo;
+
+    /// Search bounded conversation metadata for a historical task query. The
+    /// default keeps older adapters compatible while exposing a safe no-hit
+    /// result until they implement the route.
+    async fn search(&self, query: &str, limit: u32) -> SessionHistorySearch {
+        let _ = limit;
+        SessionHistorySearch::unavailable(query.to_string())
+    }
 }
 
 /// The hot-swappable feature config read at MCP injection time. Kept tiny and

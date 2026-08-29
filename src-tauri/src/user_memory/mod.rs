@@ -13,12 +13,16 @@ mod context;
 mod correction;
 mod fs;
 mod harvest;
+mod harvest_legacy;
+mod harvest_store;
+mod harvest_store_sql;
 mod helpers;
 mod index;
 mod index_checkpoint;
 mod index_fts;
 mod index_integrity;
 mod index_parse;
+mod index_source;
 mod index_types;
 mod index_verification;
 mod journal;
@@ -30,7 +34,7 @@ mod recall_config;
 mod recall_conflict;
 mod recall_execute;
 mod recall_execute_record;
-mod recall_fallback;
+#[cfg(test)]
 mod recall_fallback_scan;
 #[cfg(test)]
 mod recall_fallback_tests;
@@ -51,6 +55,7 @@ mod service;
 mod settings_projection;
 mod store;
 mod structured_file;
+mod task_history_store;
 mod transaction;
 mod types;
 
@@ -58,7 +63,10 @@ pub use candidate_api_types::*;
 pub use candidate_types::*;
 pub use capabilities::*;
 pub use capability_types::*;
-pub use context::{strip_user_context, USER_CONTEXT_END, USER_CONTEXT_START};
+pub use context::{
+    memory_policy_digest, strip_user_context, MEMORY_POLICY_DOCUMENT, MEMORY_POLICY_REFERENCE,
+    MEMORY_POLICY_REVISION, MEMORY_POLICY_SUMMARY, USER_CONTEXT_END, USER_CONTEXT_START,
+};
 pub use harvest::{
     harvest_reference, MemoryHarvestRequest, UserMemoryCandidateIndexRebuildResult,
     UserMemoryHarvestRescanPreview, UserMemoryHarvestRescanResult, UserMemoryHarvestState,

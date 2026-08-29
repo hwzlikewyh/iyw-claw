@@ -54,8 +54,9 @@ use crate::acp::delegation::transport::{
     BrokerCancelTaskRequest, BrokerChannelRequest, BrokerCommitFeedbackRequest,
     BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerImageAnalysisRequest,
     BrokerMemoryAdminRequest, BrokerMemoryAppendRequest, BrokerMemoryDocumentsReadRequest,
-    BrokerMemoryProposalRequest, BrokerMemoryRecallRequest, BrokerMessage, BrokerRequest,
-    BrokerResponse, BrokerSessionRequest, BrokerStatusRequest, BrokerUserProfileRequest,
+    BrokerMemoryPolicyRequest, BrokerMemoryProposalRequest, BrokerMemoryRecallRequest,
+    BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionHistorySearchRequest,
+    BrokerSessionRequest, BrokerStatusRequest, BrokerUserProfileRequest,
     COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::question::parse_questions;
@@ -261,10 +262,17 @@ impl CompanionFeatures {
         match name {
             "check_user_feedback" => self.feedback,
             "ask_user_question" => self.ask,
-            "get_session_info" => self.sessions,
+            "get_session_info" | "search_session_history" => self.sessions,
             "get_current_user_profile" => true,
             "show_image" | "analyze_image" => self.images,
             "transcribe_audio" | "transcribe_audio_flash" | "query_audio_transcription" => true,
+            "read_memory_policy" => {
+                self.memory
+                    || self.memory_proposal
+                    || self.memory_recall
+                    || self.memory_documents_read
+                    || self.memory_management
+            }
             "append_user_memory" => self.memory,
             "propose_user_memory" => self.memory_proposal,
             "memory_recall" => self.memory_recall,
@@ -763,7 +771,8 @@ fn tool_family(name: &str) -> ToolFamily {
             ToolFamily::Browser
         }
         "present_task_files" => ToolFamily::Artifacts,
-        "append_user_memory"
+        "read_memory_policy"
+        | "append_user_memory"
         | "propose_user_memory"
         | "memory_recall"
         | "read_user_memory_documents"
@@ -782,7 +791,8 @@ fn tool_family(name: &str) -> ToolFamily {
         | "cancel_delegation"
         | "check_user_feedback"
         | "ask_user_question"
-        | "get_session_info" => ToolFamily::Delegation,
+        | "get_session_info"
+        | "search_session_history" => ToolFamily::Delegation,
         _ => ToolFamily::Unknown,
     }
 }
@@ -958,6 +968,7 @@ async fn dispatch_artifacts_tool(bridge: CompanionBridge, call: ToolInvocation) 
 async fn dispatch_memory_tool(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
     let name = call.name.clone();
     match name.as_str() {
+        "read_memory_policy" => spawn_memory_policy(bridge, call).await,
         "append_user_memory" => spawn_memory_append(bridge, call).await,
         "propose_user_memory" => spawn_memory_proposal(bridge, call).await,
         "memory_recall" => spawn_memory_recall(bridge, call).await,
@@ -973,6 +984,32 @@ async fn dispatch_memory_tool(bridge: CompanionBridge, call: ToolInvocation) -> 
         | "correct_user_memory" => spawn_memory_admin(bridge, call).await,
         _ => unreachable!("memory family contains only memory tools"),
     }
+}
+
+async fn spawn_memory_policy(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    if !call
+        .arguments
+        .as_object()
+        .is_some_and(serde_json::Map::is_empty)
+    {
+        return LineAction::Respond(err(
+            call.id,
+            -32602,
+            "read_memory_policy does not accept arguments",
+        ));
+    }
+    let request = BrokerMemoryPolicyRequest {
+        token: bridge.context.token,
+    };
+    let round_trip = broker_round_trip(bridge.backend, BrokerMessage::MemoryPolicy(request));
+    register_and_spawn(
+        bridge.inflight,
+        call.id,
+        None,
+        round_trip,
+        render_memory_policy_result,
+    )
+    .await
 }
 
 async fn spawn_memory_append(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
@@ -1185,6 +1222,7 @@ async fn dispatch_delegation_tool(bridge: CompanionBridge, call: ToolInvocation)
         "check_user_feedback" => spawn_feedback(bridge, call).await,
         "ask_user_question" => spawn_question(bridge, call).await,
         "get_session_info" => spawn_session_info(bridge, call).await,
+        "search_session_history" => spawn_session_history_search(bridge, call).await,
         _ => unreachable!("delegation family contains only delegation tools"),
     }
 }
@@ -1314,6 +1352,51 @@ async fn spawn_session_info(bridge: CompanionBridge, call: ToolInvocation) -> Li
         None,
         round_trip,
         render_session_result,
+    )
+    .await
+}
+
+async fn spawn_session_history_search(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
+    let query = match call.arguments.get("query").and_then(Value::as_str) {
+        Some(query) if !query.trim().is_empty() => query.trim().to_string(),
+        _ => {
+            return LineAction::Respond(err(
+                call.id,
+                -32602,
+                "search_session_history requires non-empty string `query`",
+            ));
+        }
+    };
+    if query.chars().count() > 256 {
+        return LineAction::Respond(err(
+            call.id,
+            -32602,
+            "search_session_history query exceeds 256 characters",
+        ));
+    }
+    let limit = call
+        .arguments
+        .get("limit")
+        .and_then(Value::as_u64)
+        .map(|value| {
+            value.clamp(
+                1,
+                crate::acp::session_info::MAX_SESSION_HISTORY_RESULTS as u64,
+            ) as u32
+        });
+    let request = BrokerSessionHistorySearchRequest {
+        token: bridge.context.token,
+        query,
+        limit,
+    };
+    let round_trip =
+        broker_round_trip(bridge.backend, BrokerMessage::SessionHistorySearch(request));
+    register_and_spawn(
+        bridge.inflight,
+        call.id,
+        None,
+        round_trip,
+        render_session_history_result,
     )
     .await
 }
@@ -2482,6 +2565,57 @@ pub fn render_session_result(outcome: &Value) -> Value {
     })
 }
 
+pub fn render_session_history_result(outcome: &Value) -> Value {
+    let query = outcome.get("query").and_then(Value::as_str).unwrap_or("");
+    let items = outcome
+        .get("items")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let text = if items.is_empty() {
+        format!("No stored conversation matched the task query `{query}`.")
+    } else {
+        let mut text = format!("Historical conversations matching `{query}`:\n");
+        for (index, item) in items.iter().enumerate() {
+            let id = item
+                .get("sessionId")
+                .and_then(Value::as_i64)
+                .unwrap_or_default();
+            let title = item
+                .get("title")
+                .and_then(Value::as_str)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("(untitled)");
+            let status = item
+                .get("status")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            text.push_str(&format!("{}. [{}] {} — {}\n", index + 1, id, title, status));
+            if let Some(intent) = item.get("intent").and_then(Value::as_str) {
+                text.push_str(&format!("   Intent: {intent}\n"));
+            }
+            if let Some(result) = item.get("result").and_then(Value::as_str) {
+                text.push_str(&format!("   Result: {result}\n"));
+            }
+            if let Some(decisions) = item.get("decisions").and_then(Value::as_str) {
+                text.push_str(&format!("   Decisions: {decisions}\n"));
+            }
+            if let Some(failures) = item.get("failures").and_then(Value::as_str) {
+                text.push_str(&format!("   Failures: {failures}\n"));
+            }
+            if let Some(pending) = item.get("pendingItems").and_then(Value::as_str) {
+                text.push_str(&format!("   Pending: {pending}\n"));
+            }
+        }
+        text
+    };
+    json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": false,
+        "structuredContent": outcome.clone(),
+    })
+}
+
 pub fn render_user_profile_result(outcome: &Value) -> Value {
     let status = outcome
         .get("status")
@@ -2638,6 +2772,25 @@ pub fn render_memory_append_result(outcome: &Value) -> Value {
     };
     json!({
         "content": [{ "type": "text", "text": text }],
+        "isError": false,
+        "structuredContent": outcome.clone(),
+    })
+}
+
+pub fn render_memory_policy_result(outcome: &Value) -> Value {
+    if let Some(message) = outcome.get("error").and_then(Value::as_str) {
+        return json!({
+            "content": [{ "type": "text", "text": message }],
+            "isError": true,
+            "structuredContent": outcome.clone(),
+        });
+    }
+    let document = outcome
+        .get("document")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    json!({
+        "content": [{ "type": "text", "text": document }],
         "isError": false,
         "structuredContent": outcome.clone(),
     })

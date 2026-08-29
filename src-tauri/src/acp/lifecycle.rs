@@ -493,6 +493,16 @@ pub(crate) async fn handle_event(
                         );
                     }
                 }
+            } else if let Err(error) =
+                conversation_service::mark_completed_turn_generation(db_conn, cid, turn_generation)
+                    .await
+            {
+                tracing::warn!(
+                    conversation_id = cid,
+                    turn_generation,
+                    error = %error,
+                    "[lifecycle] failed to persist non-success turn generation"
+                );
             }
 
             // If this conversation was spawned by a delegation, resolve the
@@ -526,16 +536,31 @@ pub(crate) async fn handle_event(
                     snap.last_completed_turn_harvest.take()
                 };
                 if let Some(capture) = capture {
-                    let agent_type = state_arc.read().await.agent_type.clone();
+                    let state = state_arc.read().await;
+                    let agent_type = state.agent_type;
+                    let workspace_key = state.working_dir.as_ref().map(|path| {
+                        crate::commands::skill_inventory::workspace_key(Some(
+                            path.to_string_lossy().as_ref(),
+                        ))
+                    });
                     let request = crate::user_memory::MemoryHarvestRequest {
                         conversation: cid.to_string(),
-                        turn_nonce: capture.turn_nonce,
+                        // Persist the conversation generation rather than the
+                        // connection-local memory nonce. A resumed connection
+                        // restarts its nonce at one; using it directly would
+                        // overwrite the first task projection from that
+                        // conversation after reconnect.
+                        turn_nonce: u64::try_from(capture.turn_generation)
+                            .unwrap_or(capture.turn_nonce),
                         agent_type,
+                        workspace_key,
                         stop_reason: Some(capture.stop_reason),
                         user_input_ref: capture.user_input_ref,
                         assistant_input_ref: capture.assistant_input_ref,
+                        tool_outcome_ref: capture.tool_outcome_ref,
                         submitted_at: chrono::Utc::now().to_rfc3339(),
                     };
+                    drop(state);
                     if let Err(error) = harvest.submit_turn_harvest(request).await {
                         tracing::warn!(
                             "[lifecycle] user-memory harvest submit failed for conversation {cid}: {error}"

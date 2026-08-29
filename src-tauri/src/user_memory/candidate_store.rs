@@ -6,12 +6,13 @@ use crate::app_error::AppCommandError;
 use super::helpers::{hash_parts, memory_entry_id, normalize_candidate};
 use super::structured_file;
 use super::{
-    is_lower_hex_string, is_valid_candidate_id, is_valid_memory_entry_id,
-    is_valid_opaque_source_id, UserMemoryCandidate, UserMemoryCandidateSignal,
+    is_lower_hex_string, is_valid_candidate_id, is_valid_experience_id, is_valid_memory_entry_id,
+    is_valid_opaque_source_id, AgentExperience, UserMemoryCandidate, UserMemoryCandidateSignal,
     UserMemoryCandidateStateSnapshot, UserMemoryCandidateStatus, UserMemoryLearningState,
     USER_MEMORY_CANDIDATE_FILE, USER_MEMORY_CANDIDATE_INVALID_REASON,
-    USER_MEMORY_CANDIDATE_SCHEMA_VERSION, USER_MEMORY_MAX_CANDIDATES,
-    USER_MEMORY_MAX_OBSERVATION_DETAILS, USER_MEMORY_MAX_WORDING_VARIANTS,
+    USER_MEMORY_CANDIDATE_SCHEMA_VERSION, USER_MEMORY_MAX_CANDIDATES, USER_MEMORY_MAX_EXPERIENCES,
+    USER_MEMORY_MAX_EXPERIENCE_EVIDENCE, USER_MEMORY_MAX_OBSERVATION_DETAILS,
+    USER_MEMORY_MAX_WORDING_VARIANTS,
 };
 
 const USER_MEMORY_MAX_CANDIDATE_STATE_CHARS: usize = 16_777_216;
@@ -128,7 +129,69 @@ pub(super) fn validate_state(state: &UserMemoryLearningState) -> Result<(), AppC
             return Err(invalid_state("duplicate candidate identity"));
         }
     }
+    validate_experiences(state)?;
     validate_supersession_targets(state)
+}
+
+fn validate_experiences(state: &UserMemoryLearningState) -> Result<(), AppCommandError> {
+    if state.experiences.len() > USER_MEMORY_MAX_EXPERIENCES {
+        return Err(invalid_state("experience record limit exceeded"));
+    }
+    let mut ids = BTreeSet::new();
+    let mut digests = BTreeSet::new();
+    for experience in &state.experiences {
+        validate_experience(experience)?;
+        if !ids.insert(experience.id.as_str())
+            || !digests.insert(experience.content_digest.as_str())
+        {
+            return Err(invalid_state("duplicate experience identity"));
+        }
+    }
+    Ok(())
+}
+
+fn validate_experience(experience: &AgentExperience) -> Result<(), AppCommandError> {
+    let normalized = normalize_candidate(&experience.content)
+        .map_err(|error| invalid_state(error.to_string()))?;
+    if !is_valid_experience_id(&experience.id)
+        || normalized != experience.content
+        || experience.content.is_empty()
+        || experience.content_digest != super::harvest::experience_digest(&experience.content)
+        || experience.observation_count == 0
+        || experience.confidence > 100
+        || experience.scope_type == "workspace" && experience.scope_key.is_empty()
+        || !matches!(experience.scope_type.as_str(), "global" | "workspace")
+        || experience.evidence.is_empty()
+        || experience.evidence.len() > USER_MEMORY_MAX_EXPERIENCE_EVIDENCE
+    {
+        return Err(invalid_state("experience identity or bounds are invalid"));
+    }
+    let first = parse_timestamp(&experience.first_observed_at)?;
+    let last = parse_timestamp(&experience.last_observed_at)?;
+    if first > last {
+        return Err(invalid_state("experience timestamp order is invalid"));
+    }
+    let mut seen = BTreeSet::new();
+    for evidence in &experience.evidence {
+        if !is_valid_opaque_source_id(&evidence.opaque_source_id)
+            || evidence.turn_nonce == 0
+            || !seen.insert((&evidence.opaque_source_id, evidence.turn_nonce))
+        {
+            return Err(invalid_state("experience evidence is invalid"));
+        }
+        let observed = parse_timestamp(&evidence.observed_at)?;
+        if observed < first || observed > last {
+            return Err(invalid_state("experience evidence time is invalid"));
+        }
+    }
+    if experience
+        .superseded_by
+        .as_deref()
+        .is_some_and(|id| !is_valid_experience_id(id))
+    {
+        return Err(invalid_state("experience supersession target is invalid"));
+    }
+    Ok(())
 }
 
 fn validate_candidate(candidate: &UserMemoryCandidate) -> Result<(), AppCommandError> {

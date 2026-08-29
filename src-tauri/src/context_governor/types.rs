@@ -41,6 +41,7 @@ pub(crate) struct ContextPlanStart<'a> {
 pub(crate) struct ContextPlanFinish<'a> {
     pub stop_reason: &'a str,
     pub memory_calls: crate::acp::memory_turn::MemoryCapabilityCalls,
+    pub memory_recall_expected: bool,
 }
 
 #[derive(Debug)]
@@ -119,6 +120,10 @@ impl ContextPlanReceiptSeed {
 
     pub fn finish(mut self, finish: ContextPlanFinish<'_>) -> ContextPlanReceipt {
         apply_called_observations(&mut self.memory_lifecycle, finish.memory_calls);
+        if finish.memory_recall_expected && !finish.memory_calls.recall {
+            self.reason_codes
+                .push("recall_expected_but_not_called".to_string());
+        }
         let stop_reason = bounded_reason_code(finish.stop_reason);
         let outcome = if finish.stop_reason == "end_turn" {
             "completed"

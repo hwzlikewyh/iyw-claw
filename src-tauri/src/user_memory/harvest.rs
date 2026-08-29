@@ -20,11 +20,14 @@ use crate::app_error::AppCommandError;
 use crate::models::agent::AgentType;
 
 use super::candidate_store;
+use super::harvest_store::{self, StoreOutcome};
 use super::helpers::{contains_potential_secret, hash_parts, normalize_candidate};
 use super::structured_file;
 use super::{
-    AgentMemoryProposal, CandidateObservationSource, UserMemoryCandidateSignal,
-    UserMemoryProposalResult, UserMemoryService, USER_MEMORY_MAX_CANDIDATE_CHARS,
+    AgentExperience, AgentExperienceEvidence, AgentMemoryProposal, CandidateObservationSource,
+    UserMemoryCandidateSignal, UserMemoryProposalResult, UserMemoryService,
+    USER_MEMORY_MAX_CANDIDATE_CHARS, USER_MEMORY_MAX_EXPERIENCES,
+    USER_MEMORY_MAX_EXPERIENCE_EVIDENCE,
 };
 
 pub const USER_MEMORY_HARVEST_FILE: &str = ".user-memory-harvest.json";
@@ -33,6 +36,7 @@ pub const USER_MEMORY_HARVEST_MAX_QUEUED: usize = 256;
 pub const USER_MEMORY_HARVEST_MAX_RETRIES: u32 = 3;
 pub const USER_MEMORY_HARVEST_MIN_CONTENT_CHARS: usize = 24;
 pub const USER_MEMORY_HARVEST_MAX_STATE_CHARS: usize = 16_777_216;
+const HARVEST_OUTBOX_IMPORT_KEY: &str = "user_memory.harvest_outbox_imported_v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,16 +47,6 @@ pub enum UserMemoryHarvestState {
     Noop,
     Failed,
     Dead,
-}
-
-impl UserMemoryHarvestState {
-    pub(crate) fn is_recoverable(self) -> bool {
-        matches!(self, Self::Queued | Self::Extracting)
-    }
-
-    pub(crate) fn is_terminal(self) -> bool {
-        matches!(self, Self::Proposed | Self::Noop | Self::Dead)
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,13 +62,17 @@ pub enum UserMemoryHarvestFailureKind {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct MemoryHarvestRequest {
     /// Conversation identifier as a string (Snowflake-safe). Uniqueness with
-    /// `turn_nonce` is the queue's deduplication key.
+    /// the durable conversation turn generation in `turn_nonce` is the queue's
+    /// deduplication key. The field name is retained for wire compatibility.
     pub conversation: String,
     /// Turn nonce from the connection's `MemoryTurnTracker` (accepted prompt
     /// start; unique within a connection).
     pub turn_nonce: u64,
     /// Agent that ran the turn.
     pub agent_type: AgentType,
+    /// Opaque workspace scope used only for Agent experience retrieval.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_key: Option<String>,
     /// Raw stop reason from `TurnComplete`; abnormal reasons are `noop`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<String>,
@@ -87,6 +85,10 @@ pub struct MemoryHarvestRequest {
     /// beyond the checkpoint's bounded copy).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assistant_input_ref: Option<String>,
+    /// Sanitized, bounded summary of failed tool outcomes for experience
+    /// extraction; raw tool payloads are never persisted here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_outcome_ref: Option<String>,
     /// Host wall-clock submission time (RFC 3339).
     pub submitted_at: String,
 }
@@ -111,6 +113,8 @@ pub(crate) struct HarvestRecord {
     pub(crate) noop_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) candidate_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) experience_ids: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) processed_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -150,7 +154,7 @@ pub struct UserMemoryHarvestSubmitResult {
     pub queued_total: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UserMemoryHarvestStatus {
     pub queued: u32,
@@ -166,6 +170,20 @@ pub struct UserMemoryHarvestStatus {
     pub last_success_write_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_failure_at: Option<String>,
+}
+
+impl UserMemoryHarvestStatus {
+    pub(super) fn set_count(&mut self, state: &str, count: u32) {
+        match state {
+            "queued" => self.queued = count,
+            "extracting" => self.extracting = count,
+            "proposed" => self.proposed = count,
+            "noop" => self.noop = count,
+            "failed" => self.failed = count,
+            "dead" => self.dead = count,
+            _ => {}
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,53 +227,13 @@ impl UserMemoryService {
         request: MemoryHarvestRequest,
     ) -> Result<UserMemoryHarvestSubmitResult, AppCommandError> {
         validate_harvest_request(&request)?;
-        let result = {
-            let root = self.harvest_root()?;
-            let mut checkpoint = self.harvest_checkpoint().await?;
-            let key = request.dedup_key();
-            if checkpoint
-                .records
-                .iter()
-                .any(|record| record.request.dedup_key() == key && !record.state.is_terminal())
-            {
-                return Ok(UserMemoryHarvestSubmitResult {
-                    enqueued: false,
-                    duplicate: true,
-                    queued_total: checkpoint.records.len() as u32,
-                });
-            }
-            if checkpoint.records.len() >= USER_MEMORY_HARVEST_MAX_QUEUED {
-                return Err(AppCommandError::invalid_input(
-                    "User memory harvest queue is full",
-                ));
-            }
-            checkpoint.records.push(HarvestRecord {
-                request,
-                state: UserMemoryHarvestState::Queued,
-                attempts: 0,
-                failure_kind: None,
-                failure_detail: None,
-                noop_reason: None,
-                candidate_ids: None,
-                processed_at: None,
-                processing_ms: None,
-            });
-            checkpoint.last_harvest_at = Some(chrono::Utc::now().to_rfc3339());
-            let queued_total = checkpoint.records.len() as u32;
-            write_checkpoint(&root, &checkpoint)?;
-            Ok(UserMemoryHarvestSubmitResult {
-                enqueued: true,
-                duplicate: false,
-                queued_total,
-            })
-        };
+        let result = harvest_store::submit(&self.db, &request).await;
         self.ensure_harvest_worker();
         result
     }
 
     pub async fn harvest_status(&self) -> Result<UserMemoryHarvestStatus, AppCommandError> {
-        let checkpoint = self.harvest_checkpoint().await?;
-        Ok(project_harvest_status(&checkpoint))
+        harvest_store::status(&self.db).await
     }
 
     /// Re-queue unprocessed or recoverable records. Returns a preview first;
@@ -264,37 +242,9 @@ impl UserMemoryService {
         self: &Arc<Self>,
         execute: bool,
     ) -> Result<UserMemoryHarvestRescanResult, AppCommandError> {
-        let root = self.harvest_root()?;
-        let mut checkpoint = self.harvest_checkpoint().await?;
-        let mut re_queued = 0u32;
-        let mut retained_terminal = 0u32;
-        for record in &mut checkpoint.records {
-            if record.state.is_terminal() {
-                retained_terminal += 1;
-                continue;
-            }
-            if record.state.is_recoverable()
-                || (record.state == UserMemoryHarvestState::Failed
-                    && record.attempts < USER_MEMORY_HARVEST_MAX_RETRIES)
-            {
-                re_queued += 1;
-                if execute {
-                    record.state = UserMemoryHarvestState::Queued;
-                }
-            }
-        }
-        let preview = UserMemoryHarvestRescanPreview {
-            re_queued,
-            retained_terminal,
-        };
-        if execute {
-            write_checkpoint(&root, &checkpoint)?;
-        }
+        let result = harvest_store::rescan(&self.db, execute).await?;
         self.ensure_harvest_worker();
-        Ok(UserMemoryHarvestRescanResult {
-            preview,
-            executed: execute,
-        })
+        Ok(result)
     }
 
     /// Recompute the candidate index (digests / observation keys) from stored
@@ -352,7 +302,36 @@ impl UserMemoryService {
                     let Some(service) = weak.upgrade() else {
                         break;
                     };
-                    let _ = service.process_recoverable_harvest().await;
+                    loop {
+                        match service.process_recoverable_harvest().await {
+                            Ok(0) => match harvest_store::next_retry_delay(&service.db).await {
+                                Ok(Some(delay)) if delay.is_zero() => continue,
+                                Ok(Some(delay)) => {
+                                    tokio::select! {
+                                        _ = tokio::time::sleep(delay) => {}
+                                        _ = inner.wake.notified() => {}
+                                    }
+                                }
+                                Ok(None) => break,
+                                Err(error) => {
+                                    tracing::warn!(
+                                        error = %error,
+                                        "[user-memory] harvest retry schedule read failed"
+                                    );
+                                    break;
+                                }
+                            },
+                            Ok(_) => continue,
+                            Err(error) => {
+                                tracing::warn!(
+                                    error = %error,
+                                    "[user-memory] harvest worker pass failed"
+                                );
+                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                break;
+                            }
+                        }
+                    }
                 }
             });
             ()
@@ -360,22 +339,39 @@ impl UserMemoryService {
         self.harvest.inner.wake.notify_one();
     }
 
-    async fn process_recoverable_harvest(self: &Arc<Self>) -> Result<(), AppCommandError> {
-        let checkpoint = self.harvest_checkpoint().await?;
-        let recoverable = checkpoint
-            .records
-            .iter()
-            .filter(|record| {
-                record.state.is_recoverable()
-                    || (record.state == UserMemoryHarvestState::Failed
-                        && record.attempts < USER_MEMORY_HARVEST_MAX_RETRIES)
-            })
-            .map(|record| record.request.clone())
-            .collect::<Vec<_>>();
+    /// Start the harvest worker during application startup so records left by a
+    /// previous process are drained even before the next completed turn.
+    pub fn start_background_workers(self: &Arc<Self>) {
+        self.ensure_harvest_worker();
+        let service = Arc::clone(self);
+        tokio::spawn(async move {
+            match import_legacy_harvest_once(&service).await {
+                Ok(imported) if imported > 0 => {
+                    tracing::info!(imported, "[user-memory] imported legacy harvest checkpoint")
+                }
+                Ok(_) => {}
+                Err(error) => tracing::warn!(
+                    error = %error,
+                    "[user-memory] legacy harvest import failed"
+                ),
+            }
+            if let Err(error) = harvest_store::recover_interrupted(&service.db).await {
+                tracing::warn!(error = %error, "[user-memory] harvest recovery failed");
+            }
+            service.harvest.inner.wake.notify_one();
+        });
+    }
+
+    async fn process_recoverable_harvest(self: &Arc<Self>) -> Result<usize, AppCommandError> {
+        let recoverable = harvest_store::recoverable(&self.db).await?;
+        let recoverable_count = recoverable.len();
         for request in recoverable {
-            let _ = self.process_harvest_request(request).await;
+            if let Err(error) = self.process_harvest_request(request).await {
+                tracing::warn!(error = %error, "[user-memory] harvest record processing failed");
+                return Err(error);
+            }
         }
-        Ok(())
+        Ok(recoverable_count)
     }
 
     async fn process_harvest_request(
@@ -383,106 +379,82 @@ impl UserMemoryService {
         request: MemoryHarvestRequest,
     ) -> Result<(), AppCommandError> {
         let started = std::time::Instant::now();
-        let root = self.harvest_root()?;
-        {
-            let mut checkpoint = self.harvest_checkpoint().await?;
-            let Some(index) = checkpoint
-                .records
-                .iter()
-                .position(|record| record.request.dedup_key() == request.dedup_key())
-            else {
-                return Ok(());
-            };
-            if checkpoint.records[index].state.is_terminal() {
-                return Ok(());
-            }
-            checkpoint.records[index].state = UserMemoryHarvestState::Extracting;
-            checkpoint.records[index].attempts =
-                checkpoint.records[index].attempts.saturating_add(1);
-            write_checkpoint(&root, &checkpoint)?;
-        }
-
-        let outcome = self.extract_and_propose(&request).await;
-
-        let mut checkpoint = self.harvest_checkpoint().await?;
-        let Some(index) = checkpoint
-            .records
-            .iter()
-            .position(|record| record.request.dedup_key() == request.dedup_key())
-        else {
+        let key = request.dedup_key();
+        if !harvest_store::claim(&self.db, &key).await? {
             return Ok(());
-        };
-        let now = chrono::Utc::now().to_rfc3339();
-        let elapsed = started.elapsed().as_millis() as u64;
-        match outcome {
-            Ok(ExtractionOutcome::Proposed(candidate_ids)) => {
-                checkpoint.records[index].state = UserMemoryHarvestState::Proposed;
-                checkpoint.records[index].candidate_ids = Some(candidate_ids);
-                checkpoint.records[index].processed_at = Some(now.clone());
-                checkpoint.records[index].processing_ms = Some(elapsed);
-                checkpoint.last_success_write_at = Some(now);
-            }
-            Ok(ExtractionOutcome::Noop(reason)) => {
-                checkpoint.records[index].state = UserMemoryHarvestState::Noop;
-                checkpoint.records[index].noop_reason = Some(reason);
-                checkpoint.records[index].processed_at = Some(now);
-                checkpoint.records[index].processing_ms = Some(elapsed);
-            }
-            Err(error) => {
-                let kind = harvest_failure_kind(&error);
-                checkpoint.records[index].state =
-                    if checkpoint.records[index].attempts >= USER_MEMORY_HARVEST_MAX_RETRIES {
-                        UserMemoryHarvestState::Dead
-                    } else {
-                        UserMemoryHarvestState::Failed
-                    };
-                checkpoint.records[index].failure_kind = Some(kind);
-                checkpoint.records[index].failure_detail =
-                    Some(error.detail.unwrap_or(error.message));
-                checkpoint.records[index].processed_at = Some(now.clone());
-                checkpoint.records[index].processing_ms = Some(elapsed);
-                checkpoint.last_failure_at = Some(now);
-            }
         }
-        write_checkpoint(&root, &checkpoint)?;
-        Ok(())
+        let _ = super::task_history_store::project(&self.db, &request).await;
+        let outcome = self.extract_and_propose(&request).await;
+        let elapsed = started.elapsed().as_millis() as u64;
+        let outcome = match outcome {
+            Ok(ExtractionOutcome::Proposed {
+                candidate_ids,
+                experience_ids,
+            }) => StoreOutcome::Proposed {
+                candidate_ids,
+                experience_ids,
+            },
+            Ok(ExtractionOutcome::Noop(reason)) => StoreOutcome::Noop(reason),
+            Err(error) => StoreOutcome::Failed {
+                kind: harvest_failure_kind(&error),
+                detail: error.detail.unwrap_or(error.message),
+            },
+        };
+        harvest_store::finish(&self.db, &key, elapsed, outcome).await
     }
 
     async fn extract_and_propose(
         &self,
         request: &MemoryHarvestRequest,
     ) -> Result<ExtractionOutcome, AppCommandError> {
-        if abnormal_stop_reason(request.stop_reason.as_deref()) {
-            return Ok(ExtractionOutcome::Noop("abnormal stop reason".to_string()));
-        }
-        let Some(user_input) = request.user_input_ref.as_deref() else {
-            return Ok(ExtractionOutcome::Noop("missing user input".to_string()));
-        };
-        if user_input.chars().count() < USER_MEMORY_HARVEST_MIN_CONTENT_CHARS {
-            return Ok(ExtractionOutcome::Noop("content too short".to_string()));
-        }
-        if contains_potential_secret(user_input) {
-            return Ok(ExtractionOutcome::Noop("sensitive content".to_string()));
-        }
         let mut candidate_ids = Vec::new();
-        for sentence in candidate_sentences(user_input) {
-            let Some(signal) = durable_signal(&sentence) else {
-                continue;
-            };
-            let content = normalize_candidate(&sentence)?;
-            let proposal = self
-                .propose_harvest_candidate(content, signal, request)
-                .await?;
-            if proposal.observation_added || proposal.confirmation_recommended {
-                candidate_ids.push(proposal.candidate.id);
+        if !abnormal_stop_reason(request.stop_reason.as_deref()) {
+            if let Some(user_input) = request.user_input_ref.as_deref() {
+                if user_input.chars().count() >= USER_MEMORY_HARVEST_MIN_CONTENT_CHARS
+                    && !contains_potential_secret(user_input)
+                {
+                    for sentence in candidate_sentences(user_input) {
+                        let Some(signal) = durable_signal(&sentence) else {
+                            continue;
+                        };
+                        let content = normalize_candidate(&sentence)?;
+                        let proposal = self
+                            .propose_harvest_candidate(content, signal, request)
+                            .await?;
+                        if proposal.observation_added || proposal.confirmation_recommended {
+                            candidate_ids.push(proposal.candidate.id);
+                        }
+                    }
+                }
             }
         }
-        if candidate_ids.is_empty() {
+        let experience_ids = self.extract_experiences(request).await?;
+        if candidate_ids.is_empty() && experience_ids.is_empty() {
             return Ok(ExtractionOutcome::Noop(
-                "no durable signal in user input".to_string(),
+                "no reusable signal in completed turn".to_string(),
             ));
         }
-        Ok(ExtractionOutcome::Proposed(candidate_ids))
+        Ok(ExtractionOutcome::Proposed {
+            candidate_ids,
+            experience_ids,
+        })
+    }
+
+    async fn extract_experiences(
+        &self,
+        request: &MemoryHarvestRequest,
+    ) -> Result<Vec<String>, AppCommandError> {
+        let mut ids = Vec::new();
+        if let Some(text) = request.assistant_input_ref.as_deref() {
+            for sentence in candidate_sentences(text) {
+                if !experience_sentence_allowed(&sentence) {
+                    continue;
+                }
+                let content = normalize_candidate(&sentence)?;
+                ids.push(self.record_agent_experience(content, request).await?);
+            }
+        }
+        Ok(ids)
     }
 
     async fn propose_harvest_candidate(
@@ -503,9 +475,81 @@ impl UserMemoryService {
         .await
     }
 
-    async fn harvest_checkpoint(&self) -> Result<HarvestCheckpoint, AppCommandError> {
-        let root = self.harvest_root()?;
-        read_checkpoint(&root)
+    async fn record_agent_experience(
+        &self,
+        content: String,
+        request: &MemoryHarvestRequest,
+    ) -> Result<String, AppCommandError> {
+        let (_io_guard, _file_guard) = self.acquire_locks().await?;
+        let root = self.resolved_root()?.to_path_buf();
+        let mut state = candidate_store::read_state(&root)?;
+        let digest = experience_digest(&content);
+        let id = experience_id(&digest);
+        let now = chrono::Utc::now().to_rfc3339();
+        let evidence = AgentExperienceEvidence {
+            opaque_source_id: derive_harvest_source_id(&request.conversation),
+            turn_nonce: request.turn_nonce,
+            observed_at: now.clone(),
+        };
+        if let Some(existing) = state
+            .experiences
+            .iter_mut()
+            .find(|experience| experience.content_digest == digest)
+        {
+            if !existing.evidence.iter().any(|item| {
+                item.opaque_source_id == evidence.opaque_source_id
+                    && item.turn_nonce == evidence.turn_nonce
+            }) {
+                existing.observation_count = existing.observation_count.saturating_add(1);
+                existing.confidence = (40 + existing.observation_count.saturating_mul(15)).min(100);
+                existing.last_observed_at = now;
+                existing.evidence.push(evidence);
+                if existing.evidence.len() > USER_MEMORY_MAX_EXPERIENCE_EVIDENCE {
+                    existing.evidence.remove(0);
+                }
+                candidate_store::write_state(&root, &state)?;
+            }
+        } else {
+            if state.experiences.len() >= USER_MEMORY_MAX_EXPERIENCES {
+                state.experiences.sort_by(|left, right| {
+                    left.confidence
+                        .cmp(&right.confidence)
+                        .then(left.last_observed_at.cmp(&right.last_observed_at))
+                });
+                state.experiences.remove(0);
+            }
+            state.experiences.push(AgentExperience {
+                id: id.clone(),
+                content_digest: digest,
+                content,
+                agent_type: request.agent_type,
+                scope_type: if request
+                    .workspace_key
+                    .as_deref()
+                    .is_some_and(|key| !key.is_empty())
+                {
+                    "workspace".to_string()
+                } else {
+                    "global".to_string()
+                },
+                scope_key: request
+                    .workspace_key
+                    .clone()
+                    .filter(|key| !key.is_empty())
+                    .unwrap_or_default(),
+                observation_count: 1,
+                confidence: 40,
+                first_observed_at: now.clone(),
+                last_observed_at: now,
+                evidence: vec![evidence],
+                superseded_by: None,
+            });
+            candidate_store::write_state(&root, &state)?;
+        }
+        drop(_file_guard);
+        drop(_io_guard);
+        self.schedule_index_refresh();
+        Ok(id)
     }
 
     fn harvest_root(&self) -> Result<std::path::PathBuf, AppCommandError> {
@@ -513,8 +557,31 @@ impl UserMemoryService {
     }
 }
 
+async fn import_legacy_harvest_once(
+    service: &Arc<UserMemoryService>,
+) -> Result<usize, AppCommandError> {
+    use crate::db::service::app_metadata_service;
+    if app_metadata_service::get_value(&service.db, HARVEST_OUTBOX_IMPORT_KEY)
+        .await
+        .map_err(AppCommandError::from)?
+        .is_some()
+    {
+        return Ok(0);
+    }
+    let root = service.harvest_root()?;
+    let checkpoint = read_checkpoint(&root)?;
+    let imported = super::harvest_legacy::import(&service.db, &checkpoint.records).await?;
+    app_metadata_service::upsert_value(&service.db, HARVEST_OUTBOX_IMPORT_KEY, "1")
+        .await
+        .map_err(AppCommandError::from)?;
+    Ok(imported)
+}
+
 enum ExtractionOutcome {
-    Proposed(Vec<String>),
+    Proposed {
+        candidate_ids: Vec<String>,
+        experience_ids: Vec<String>,
+    },
     Noop(String),
 }
 
@@ -532,7 +599,20 @@ fn validate_harvest_request(request: &MemoryHarvestRequest) -> Result<(), AppCom
             "Harvest request must carry a conversation and turn nonce",
         ));
     }
-    for reference in [&request.user_input_ref, &request.assistant_input_ref] {
+    if request
+        .workspace_key
+        .as_deref()
+        .is_some_and(|key| key.chars().count() > 512)
+    {
+        return Err(AppCommandError::invalid_input(
+            "Harvest workspace scope exceeds size limit",
+        ));
+    }
+    for reference in [
+        &request.user_input_ref,
+        &request.assistant_input_ref,
+        &request.tool_outcome_ref,
+    ] {
         if let Some(reference) = reference {
             if reference.chars().count() > USER_MEMORY_MAX_CANDIDATE_CHARS * 4 {
                 return Err(AppCommandError::invalid_input(
@@ -571,10 +651,10 @@ pub fn harvest_reference(input: &str) -> Option<String> {
         chars += 1;
     }
     let cleaned = cleaned.trim().to_string();
-    (!cleaned.is_empty()).then_some(cleaned)
+    (!cleaned.is_empty() && !contains_potential_secret(&cleaned)).then_some(cleaned)
 }
 
-fn abnormal_stop_reason(reason: Option<&str>) -> bool {
+pub(super) fn abnormal_stop_reason(reason: Option<&str>) -> bool {
     let Some(reason) = reason else {
         return false;
     };
@@ -616,37 +696,108 @@ fn candidate_sentences(input: &str) -> Vec<String> {
 fn durable_signal(sentence: &str) -> Option<UserMemoryCandidateSignal> {
     let lower = sentence.to_ascii_lowercase();
     const CORRECTION: &[&str] = &[
+        "不对",
+        "其实",
         "不要",
         "别再",
         "不要再",
         "不再",
+        "以后不要",
+        "请改",
+        "改成",
+        "改为",
         "never",
         "do not",
         "don't",
         "stop",
+        "actually",
+        "instead",
     ];
     const PREFERENCE: &[&str] = &[
+        "我喜欢",
+        "我偏好",
         "喜欢",
         "偏好",
         "希望以后",
-        "以后",
+        "以后请",
         "总是",
+        "从不",
         "每次",
+        "必须",
+        "for me",
+        "i like",
+        "i prefer",
         "prefer",
         "always",
         "usually",
     ];
-    const FACT: &[&str] = &["记住", "记得", "remember", "我是", "我的"];
-    if CORRECTION.iter().any(|marker| sentence.contains(marker)) {
+    const FACT: &[&str] = &[
+        "记住",
+        "记得",
+        "请记住",
+        "remember",
+        "我是",
+        "我叫",
+        "我的名字",
+        "my name",
+        "i am",
+    ];
+    if CORRECTION.iter().any(|marker| lower.contains(marker)) {
         return Some(UserMemoryCandidateSignal::Correction);
     }
     if PREFERENCE.iter().any(|marker| lower.contains(marker)) {
         return Some(UserMemoryCandidateSignal::Preference);
     }
-    if FACT.iter().any(|marker| sentence.contains(marker)) {
+    if FACT.iter().any(|marker| lower.contains(marker)) {
         return Some(UserMemoryCandidateSignal::Fact);
     }
     None
+}
+
+pub(crate) fn experience_digest(content: &str) -> String {
+    hash_parts(&[b"iyw-agent-experience:v1\0", content.as_bytes()])
+}
+
+fn experience_id(digest: &str) -> String {
+    format!("iyw-experience-{}", &digest[..32])
+}
+
+fn experience_sentence_allowed(sentence: &str) -> bool {
+    sentence.chars().count() >= USER_MEMORY_HARVEST_MIN_CONTENT_CHARS
+        && is_experience_sentence(sentence)
+        && !contains_potential_secret(sentence)
+}
+
+fn is_experience_sentence(sentence: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        "原因",
+        "根因",
+        "问题在",
+        "解决",
+        "解决方案",
+        "修复",
+        "排查",
+        "结论",
+        "注意",
+        "避免",
+        "建议",
+        "经验",
+        "教训",
+        "下次",
+        "改为",
+        "workaround",
+        "root cause",
+        "fixed",
+        "lesson",
+        "next time",
+        "avoid",
+        "pitfall",
+        "best practice",
+    ];
+    let lower = sentence.to_ascii_lowercase();
+    MARKERS
+        .iter()
+        .any(|marker| sentence.contains(marker) || lower.contains(marker))
 }
 
 pub(crate) fn derive_harvest_source_id(conversation: &str) -> String {
@@ -672,47 +823,6 @@ fn read_checkpoint(root: &Path) -> Result<HarvestCheckpoint, AppCommandError> {
         }
     }
     Ok(checkpoint)
-}
-
-fn write_checkpoint(root: &Path, checkpoint: &HarvestCheckpoint) -> Result<(), AppCommandError> {
-    if checkpoint.schema_version != USER_MEMORY_HARVEST_SCHEMA_VERSION {
-        return Err(AppCommandError::configuration_invalid(
-            "User memory harvest checkpoint version is unsupported",
-        ));
-    }
-    structured_file::ensure_writable_optional(root, USER_MEMORY_HARVEST_FILE)?;
-    structured_file::write_json_atomic(root, USER_MEMORY_HARVEST_FILE, checkpoint)
-}
-
-fn project_harvest_status(checkpoint: &HarvestCheckpoint) -> UserMemoryHarvestStatus {
-    let mut queued = 0u32;
-    let mut extracting = 0u32;
-    let mut proposed = 0u32;
-    let mut noop = 0u32;
-    let mut failed = 0u32;
-    let mut dead = 0u32;
-    for record in &checkpoint.records {
-        match record.state {
-            UserMemoryHarvestState::Queued => queued += 1,
-            UserMemoryHarvestState::Extracting => extracting += 1,
-            UserMemoryHarvestState::Proposed => proposed += 1,
-            UserMemoryHarvestState::Noop => noop += 1,
-            UserMemoryHarvestState::Failed => failed += 1,
-            UserMemoryHarvestState::Dead => dead += 1,
-        }
-    }
-    UserMemoryHarvestStatus {
-        queued,
-        extracting,
-        proposed,
-        noop,
-        failed,
-        dead,
-        backlog: queued + extracting + failed,
-        last_harvest_at: checkpoint.last_harvest_at.clone(),
-        last_success_write_at: checkpoint.last_success_write_at.clone(),
-        last_failure_at: checkpoint.last_failure_at.clone(),
-    }
 }
 
 fn harvest_failure_kind(error: &AppCommandError) -> UserMemoryHarvestFailureKind {

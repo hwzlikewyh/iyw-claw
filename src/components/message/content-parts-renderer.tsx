@@ -792,7 +792,11 @@ function getToolIcon(
   if (name === "apply_patch") return <FilePenLineIcon className={ICON_CLASS} />
   if (name === "glob" || name === "grep")
     return <SearchIcon className={ICON_CLASS} />
-  if (name === "memory_recall" || name === "read_user_memory_documents")
+  if (
+    name === "read_memory_policy" ||
+    name === "memory_recall" ||
+    name === "read_user_memory_documents"
+  )
     return <BrainIcon className={ICON_CLASS} />
   if (
     name === "webfetch" ||

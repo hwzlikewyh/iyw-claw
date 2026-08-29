@@ -355,6 +355,8 @@ async fn async_main() -> ExitCode {
             user_memory_resolution,
         ),
     );
+    user_memory.start_background_workers();
+    user_memory.schedule_index_refresh();
     restore_memory.schedule_index_refresh(|| {
         user_memory.schedule_index_refresh();
     });

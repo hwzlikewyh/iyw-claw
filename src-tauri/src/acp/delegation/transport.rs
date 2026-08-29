@@ -65,7 +65,7 @@ use crate::acp::question::QuestionSpec;
 #[path = "backend.rs"]
 pub mod backend;
 
-pub const COMPANION_PROTOCOL_VERSION: u32 = 7;
+pub const COMPANION_PROTOCOL_VERSION: u32 = 8;
 
 const fn default_companion_protocol_version() -> u32 {
     COMPANION_PROTOCOL_VERSION
@@ -197,6 +197,17 @@ pub struct BrokerSessionRequest {
     pub max_messages: Option<u32>,
 }
 
+/// Search bounded historical conversation metadata for a task-oriented query.
+/// The listener derives identity and storage roots from the launch token.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerSessionHistorySearchRequest {
+    pub token: String,
+    pub query: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
 /// Read the current logged-in user's safe display profile. The listener owns
 /// the account session and returns only an Agent-facing field allowlist.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,6 +244,12 @@ pub struct BrokerMemoryRecallRequest {
     pub query: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerMemoryPolicyRequest {
+    pub token: String,
 }
 
 /// Read the current contents of selected host-owned user memory documents.
@@ -406,7 +423,9 @@ pub enum BrokerMessage {
     CommitFeedback(BrokerCommitFeedbackRequest),
     Ask(BrokerAskRequest),
     SessionInfo(BrokerSessionRequest),
+    SessionHistorySearch(BrokerSessionHistorySearchRequest),
     UserProfile(BrokerUserProfileRequest),
+    MemoryPolicy(BrokerMemoryPolicyRequest),
     MemoryAppend(BrokerMemoryAppendRequest),
     MemoryProposal(BrokerMemoryProposalRequest),
     MemoryRecall(BrokerMemoryRecallRequest),
@@ -632,6 +651,18 @@ pub async fn client_memory_recall_round_trip(
     req: &BrokerMemoryRecallRequest,
 ) -> io::Result<BrokerResponse> {
     message_round_trip(socket_path, &BrokerMessage::MemoryRecall(req.clone())).await
+}
+
+/// Search bounded historical conversation metadata by task keywords.
+pub async fn client_session_history_search_round_trip(
+    socket_path: &str,
+    req: &BrokerSessionHistorySearchRequest,
+) -> io::Result<BrokerResponse> {
+    message_round_trip(
+        socket_path,
+        &BrokerMessage::SessionHistorySearch(req.clone()),
+    )
+    .await
 }
 
 /// Read selected current user-memory documents through the authenticated

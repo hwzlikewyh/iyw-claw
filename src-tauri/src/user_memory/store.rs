@@ -93,6 +93,7 @@ impl UserMemoryService {
             candidate_counts,
             projected_capabilities: BTreeMap::new(),
             companion_health: Default::default(),
+            recall_index_status: None,
         })
     }
 
@@ -129,6 +130,7 @@ impl UserMemoryService {
             candidate_counts: empty_candidate_counts(),
             projected_capabilities: BTreeMap::new(),
             companion_health: Default::default(),
+            recall_index_status: None,
         })
     }
 
@@ -152,7 +154,7 @@ impl UserMemoryService {
         })
     }
 
-    fn read_document_optional(
+    pub(super) fn read_document_optional(
         &self,
         id: UserMemoryDocumentId,
     ) -> Result<Option<String>, AppCommandError> {

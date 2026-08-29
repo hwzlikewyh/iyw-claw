@@ -4,7 +4,10 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
+use crate::acp::memory_turn::MemoryTurnTracker;
 use crate::models::AgentType;
 use crate::plugin_runtime::types::{PluginCallContext, PluginToolCall};
 
@@ -29,6 +32,8 @@ pub(super) struct GatewaySession<'a> {
     pub agent_type: AgentType,
     pub request_cancel: tokio_util::sync::CancellationToken,
     pub authority_cancel: tokio_util::sync::CancellationToken,
+    pub memory_policy_loaded_nonce: Arc<AtomicU64>,
+    pub memory_turn_tracker: Arc<MemoryTurnTracker>,
 }
 
 pub(super) fn tools() -> Result<Vec<Tool>, serde_json::Error> {
@@ -130,6 +135,32 @@ fn invoke(
 ) -> Result<GatewayAction, ErrorData> {
     let params = parse::<InvokeParams>(arguments)?;
     let capability_id = parse_capability_id(&params.capability_id)?;
+    let memory_policy_ready = capability_id.starts_with("iyw.memory.")
+        && capability_id != "iyw.memory.policy.read.v1"
+        && session
+            .memory_turn_tracker
+            .active_nonce()
+            .is_some_and(|nonce| {
+                session.memory_policy_loaded_nonce.load(Ordering::Acquire) == nonce
+            });
+    if capability_id.starts_with("iyw.memory.") && !memory_policy_ready {
+        return Ok(GatewayAction::Return(CallToolResult::structured_error(
+            json!({
+                "code": "memory_policy_required",
+                "error": "Memory policy preflight is required before this memory operation.",
+                "memoryPolicyRequired": true,
+                "retryable": true,
+                "reason": "memory_policy_not_loaded_for_current_turn",
+                "turnNonce": session.memory_turn_tracker.active_nonce(),
+                "policy": {
+                    "revision": crate::user_memory::MEMORY_POLICY_REVISION,
+                    "digest": crate::user_memory::memory_policy_digest(),
+                    "summary": crate::user_memory::MEMORY_POLICY_SUMMARY,
+                    "reference": crate::user_memory::MEMORY_POLICY_REFERENCE
+                }
+            }),
+        )));
+    }
     if let Some(request) = plugin_control::parse_request(capability_id, params.arguments.clone())? {
         if params.delivery_ack.is_some() {
             return Err(ErrorData::invalid_params(

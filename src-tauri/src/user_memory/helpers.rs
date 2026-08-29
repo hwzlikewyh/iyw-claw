@@ -116,6 +116,71 @@ pub(super) fn contains_potential_secret(content: &str) -> bool {
     markers.iter().any(|marker| lower.contains(marker))
         || content.split_whitespace().any(looks_like_jwt)
         || contains_aws_access_key(content.as_bytes())
+        || contains_disallowed_personal_data(content, &lower)
+}
+
+/// Reject high-risk personal data from both durable memory writes and the
+/// derived recall index. The check is intentionally conservative and only
+/// targets explicit identifiers or precise personal records; ordinary
+/// project/domain words such as "medical product" remain valid.
+fn contains_disallowed_personal_data(content: &str, lower: &str) -> bool {
+    const LABELS: &[&str] = &[
+        "手机号码",
+        "手机号",
+        "电话号码",
+        "邮箱地址",
+        "电子邮箱",
+        "家庭住址",
+        "详细地址",
+        "门牌号",
+        "身份证",
+        "护照号",
+        "银行卡",
+        "信用卡",
+        "银行账号",
+        "银行账户",
+        "税号",
+        "社保号",
+        "病历",
+        "诊断结果",
+        "用药记录",
+        "处方",
+        "疾病史",
+        "过敏史",
+        "指纹",
+        "人脸",
+        "虹膜",
+        "声纹",
+        "phone number",
+        "email address",
+        "home address",
+        "credit card",
+        "bank account",
+        "medical record",
+        "diagnosis",
+        "medication",
+        "biometric",
+    ];
+    if LABELS.iter().any(|label| lower.contains(label)) {
+        return true;
+    }
+    lower.contains("住在") || lower.contains("live at") || looks_like_email(content)
+}
+
+fn looks_like_email(content: &str) -> bool {
+    content.split_whitespace().any(|token| {
+        let token = token.trim_matches(|ch: char| {
+            !ch.is_ascii_alphanumeric() && !matches!(ch, '.' | '_' | '%' | '+' | '-' | '@')
+        });
+        let Some((local, domain)) = token.split_once('@') else {
+            return false;
+        };
+        !local.is_empty()
+            && domain.contains('.')
+            && domain
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-'))
+    })
 }
 
 fn looks_like_jwt(value: &str) -> bool {
@@ -159,6 +224,11 @@ pub(super) fn validate_document_update_content(content: &str) -> Result<(), AppC
     if content.contains(USER_CONTEXT_START) || content.contains(USER_CONTEXT_END) {
         return Err(AppCommandError::invalid_input(
             "User memory cannot contain private context markers",
+        ));
+    }
+    if contains_potential_secret(content) {
+        return Err(AppCommandError::invalid_input(
+            "Potential secrets or high-risk personal data cannot be stored in user memory",
         ));
     }
     Ok(())

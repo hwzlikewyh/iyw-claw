@@ -87,7 +87,7 @@ fn fast_fts_statement(query: &FtsQuery<'_>, match_query: &str) -> Statement {
     let validity = valid_at_sql("memory_item_current");
     let scope = query.scope.predicate("memory_item_current");
     let sql = format!(
-        "SELECT memory_item_current.id FROM (SELECT {table}.rowid, rank AS fts_rank FROM {table} WHERE {table} MATCH ? LIMIT ?) AS matches JOIN memory_item_current ON memory_item_current.row_id = matches.rowid WHERE {scope} AND memory_item_current.trust_class = 'host_confirmed' AND memory_item_current.sensitive = 0 AND memory_item_current.superseded_by IS NULL{validity} ORDER BY matches.fts_rank, memory_item_current.id LIMIT ?",
+        "SELECT memory_item_current.id FROM (SELECT {table}.rowid, rank AS fts_rank FROM {table} WHERE {table} MATCH ? LIMIT ?) AS matches JOIN memory_item_current ON memory_item_current.row_id = matches.rowid WHERE {scope} AND memory_item_current.trust_class IN ('host_confirmed', 'agent_experience') AND memory_item_current.sensitive = 0 AND memory_item_current.superseded_by IS NULL{validity} ORDER BY matches.fts_rank, memory_item_current.id LIMIT ?",
         table = query.table,
     );
     let mut values = vec![
@@ -118,7 +118,7 @@ fn filtered_fts_statement(query: &FtsQuery<'_>, match_query: &str) -> Statement 
     let validity = valid_at_sql("memory_item_current");
     let scope = query.scope.predicate("memory_item_current");
     let sql = format!(
-        "SELECT memory_item_current.id FROM (SELECT {table}.rowid, rank AS fts_rank FROM {table} WHERE {table} MATCH ? AND EXISTS (SELECT 1 FROM memory_item_current WHERE memory_item_current.row_id = {table}.rowid AND {scope} AND memory_item_current.trust_class = 'host_confirmed' AND memory_item_current.sensitive = 0 AND memory_item_current.superseded_by IS NULL{validity}) ORDER BY rank LIMIT ?) AS matches JOIN memory_item_current ON memory_item_current.row_id = matches.rowid ORDER BY matches.fts_rank, memory_item_current.id",
+        "SELECT memory_item_current.id FROM (SELECT {table}.rowid, rank AS fts_rank FROM {table} WHERE {table} MATCH ? AND EXISTS (SELECT 1 FROM memory_item_current WHERE memory_item_current.row_id = {table}.rowid AND {scope} AND memory_item_current.trust_class IN ('host_confirmed', 'agent_experience') AND memory_item_current.sensitive = 0 AND memory_item_current.superseded_by IS NULL{validity}) ORDER BY rank LIMIT ?) AS matches JOIN memory_item_current ON memory_item_current.row_id = matches.rowid ORDER BY matches.fts_rank, memory_item_current.id",
         table = query.table,
     );
     let mut values = vec![match_query.to_string().into()];

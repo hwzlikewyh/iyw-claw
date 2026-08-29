@@ -9,6 +9,8 @@ pub const USER_MEMORY_MAX_CANDIDATE_CHARS: usize = 1_000;
 pub const USER_MEMORY_MAX_CANDIDATES: usize = 500;
 pub const USER_MEMORY_MAX_OBSERVATION_DETAILS: usize = 10;
 pub const USER_MEMORY_MAX_WORDING_VARIANTS: usize = 5;
+pub const USER_MEMORY_MAX_EXPERIENCES: usize = 256;
+pub const USER_MEMORY_MAX_EXPERIENCE_EVIDENCE: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -133,6 +135,35 @@ pub struct UserMemoryCandidate {
     pub superseded_by_memory_entry_id: Option<String>,
 }
 
+/// Host-owned, non-user memory that records reusable Agent execution lessons.
+/// It is indexed separately from confirmed user facts and never appears in
+/// the user-memory Markdown documents or candidate review list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentExperience {
+    pub id: String,
+    pub content_digest: String,
+    pub content: String,
+    pub agent_type: AgentType,
+    pub scope_type: String,
+    pub scope_key: String,
+    pub observation_count: u32,
+    pub confidence: u32,
+    pub first_observed_at: String,
+    pub last_observed_at: String,
+    pub evidence: Vec<AgentExperienceEvidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub superseded_by: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentExperienceEvidence {
+    pub opaque_source_id: String,
+    pub turn_nonce: u64,
+    pub observed_at: String,
+}
+
 impl UserMemoryCandidate {
     pub(crate) fn mark_terminal(&mut self, status: UserMemoryCandidateStatus) {
         self.status = status;
@@ -187,6 +218,14 @@ pub(crate) fn new_candidate_id() -> String {
 pub struct UserMemoryLearningState {
     pub schema_version: u32,
     pub candidates: Vec<UserMemoryCandidate>,
+    #[serde(default)]
+    pub experiences: Vec<AgentExperience>,
+}
+
+pub(crate) fn is_valid_experience_id(value: &str) -> bool {
+    value
+        .strip_prefix("iyw-experience-")
+        .is_some_and(|suffix| is_lower_hex_string(suffix, 32))
 }
 
 impl Default for UserMemoryLearningState {
@@ -194,6 +233,7 @@ impl Default for UserMemoryLearningState {
         Self {
             schema_version: USER_MEMORY_CANDIDATE_SCHEMA_VERSION,
             candidates: Vec::new(),
+            experiences: Vec::new(),
         }
     }
 }

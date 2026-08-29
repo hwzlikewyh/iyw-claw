@@ -1768,7 +1768,36 @@ fn ensure_builtin_gateway_skill_ready_blocking(
     if central_changed || manifest != original_manifest {
         invalidate_central_experts_cache("gateway_skill_ready");
     }
+    ensure_gateway_reference_files(&expert_central_path(CAPABILITY_GATEWAY_EXPERT_ID))?;
     link_central_skill_locked(CAPABILITY_GATEWAY_EXPERT_ID, agent_type)
+}
+
+fn ensure_gateway_reference_files(central: &Path) -> Result<(), ExpertsError> {
+    for relative in ["SKILL.md", "references/memory-and-learning.md"] {
+        let path = central.join(relative);
+        let metadata = fs::symlink_metadata(&path).map_err(|error| {
+            tracing::error!(
+                target = "system_skills",
+                file = relative,
+                path = %path.display(),
+                error = %error,
+                "gateway Skill reference file is unavailable"
+            );
+            ExpertsError::CentralUnavailable("gateway Skill reference file is unavailable".into())
+        })?;
+        if !metadata.file_type().is_file() || metadata.len() == 0 {
+            tracing::error!(
+                target = "system_skills",
+                file = relative,
+                path = %path.display(),
+                "gateway Skill reference file is empty or not regular"
+            );
+            return Err(ExpertsError::CentralUnavailable(
+                "gateway Skill reference file is empty or not regular".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn link_with_dependencies_locked(

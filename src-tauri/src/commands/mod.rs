@@ -74,6 +74,7 @@ pub mod remote_workspace;
 pub mod runtime_bootstrap;
 pub mod scenarios;
 pub mod session_config;
+pub(crate) mod session_history;
 pub mod session_info;
 pub mod skill_inventory;
 pub mod skill_market;

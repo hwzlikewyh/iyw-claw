@@ -1711,6 +1711,13 @@ pub(crate) async fn prewarm_agent_runtime(
                 .to_string(),
         )
     })?;
+    crate::commands::experts::ensure_builtin_gateway_skill_ready(agent_type)
+        .await
+        .map_err(|error| {
+            AcpError::protocol(format!(
+                "Capability gateway Skill is not ready for {agent_type}: {error}"
+            ))
+        })?;
     let prepared = crate::acp::builtin_prompt_injection::prepare(
         crate::acp::builtin_prompt_injection::PrepareRequest {
             agent_type,
@@ -2697,6 +2704,7 @@ fn http_session_authority(
             memory_access.documents_read,
             memory_access.management,
         ),
+        Arc::clone(&memory_access.turn_tracker),
     )
     .with_parent_cancellation(context.parent_cancellation)
 }

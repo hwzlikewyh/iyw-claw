@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 use crate::models::agent::AgentType;
 use crate::paths::UserMemoryRootSource;
 
-use super::{CompanionHealthSnapshot, UserMemoryCandidateStatus, UserMemoryCapabilities};
+use super::{
+    CompanionHealthSnapshot, UserMemoryCandidateStatus, UserMemoryCapabilities,
+    UserMemoryIndexStatus,
+};
 
 pub const USER_MEMORY_MAX_DOCUMENT_CHARS: usize = 65_536;
 pub const USER_MEMORY_MAX_APPEND_CHARS: usize = 1_000;
@@ -145,6 +148,8 @@ pub struct UserMemorySettingsSnapshot {
     pub candidate_counts: BTreeMap<UserMemoryCandidateStatus, u32>,
     pub projected_capabilities: BTreeMap<AgentType, UserMemoryCapabilities>,
     pub companion_health: CompanionHealthSnapshot,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recall_index_status: Option<UserMemoryIndexStatus>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -42,6 +42,17 @@ pub(super) struct CapabilityDetail {
     pub status: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unavailable_reason: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_policy: Option<MemoryPolicyHint>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub(super) struct MemoryPolicyHint {
+    pub revision: &'static str,
+    pub digest: &'static str,
+    pub summary: &'static str,
+    pub reference: &'static str,
+    pub document: &'static str,
 }
 
 #[derive(Debug, Clone)]
@@ -188,6 +199,7 @@ impl CapabilityCatalog {
                 "unavailable"
             },
             unavailable_reason: (!available).then_some("disabled_for_session"),
+            memory_policy: memory_policy_hint(entry.id),
         })
     }
 
@@ -222,6 +234,18 @@ impl CapabilityCatalog {
     fn find(&self, capability_id: &str) -> Option<&CatalogEntry> {
         self.entries.iter().find(|entry| entry.id == capability_id)
     }
+}
+
+fn memory_policy_hint(capability_id: &str) -> Option<MemoryPolicyHint> {
+    capability_id
+        .eq("iyw.memory.policy.read.v1")
+        .then_some(MemoryPolicyHint {
+            revision: crate::user_memory::MEMORY_POLICY_REVISION,
+            digest: crate::user_memory::memory_policy_digest(),
+            summary: crate::user_memory::MEMORY_POLICY_SUMMARY,
+            reference: crate::user_memory::MEMORY_POLICY_REFERENCE,
+            document: crate::user_memory::MEMORY_POLICY_DOCUMENT,
+        })
 }
 
 fn search_match(entry: &CatalogEntry, query: &str) -> Option<(usize, CapabilitySummary)> {

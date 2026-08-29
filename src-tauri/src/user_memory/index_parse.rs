@@ -63,6 +63,7 @@ pub(super) fn build_index_snapshot(
     }
 
     add_candidate_evidence(&mut items, candidates);
+    add_agent_experiences(&mut items, &mut item_positions, candidates);
     IndexSnapshot {
         source_key: SOURCE_KEY.to_string(),
         source_digest,
@@ -222,6 +223,47 @@ fn add_candidate_evidence(items: &mut [IndexItem], state: Option<&UserMemoryLear
                 observed_at,
             });
         }
+    }
+}
+
+fn add_agent_experiences(
+    items: &mut Vec<IndexItem>,
+    item_positions: &mut HashMap<(String, String), usize>,
+    state: Option<&UserMemoryLearningState>,
+) {
+    let Some(state) = state else {
+        return;
+    };
+    for experience in state
+        .experiences
+        .iter()
+        .filter(|item| item.superseded_by.is_none())
+    {
+        let mut item = IndexItem::new(
+            experience.id.clone(),
+            experience.content.clone(),
+            IndexItemSource {
+                kind: "experience".to_string(),
+                revision: experience.last_observed_at.clone(),
+            },
+        );
+        item.trust_class = "agent_experience".to_string();
+        item.scope_type = experience.scope_type.clone();
+        item.scope_key = experience.scope_key.clone();
+        item.confidence = experience.confidence as i64;
+        item.importance = 0.6;
+        item.add_alias("agent_type", experience.agent_type.as_wire().into_owned());
+        for evidence in &experience.evidence {
+            item.add_evidence(IndexEvidence {
+                source_kind: "agent_experience".to_string(),
+                source_id: evidence.opaque_source_id.clone(),
+                conversation_id: None,
+                turn_nonce: evidence.turn_nonce as i64,
+                excerpt_digest: experience.content_digest.clone(),
+                observed_at: evidence.observed_at.clone(),
+            });
+        }
+        push_index_item(items, item_positions, item);
     }
 }
 

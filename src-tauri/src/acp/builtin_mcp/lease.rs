@@ -236,6 +236,7 @@ fn token_entry(
             connection_id,
         ),
         memory_turn_tracker: turn_tracker,
+        memory_policy_loaded_nonce: authority.memory_policy_state(),
         cancellation: authority.cancellation().clone(),
         mutation_gate: crate::acp::delegation::mutation_gate::MutationGate::new(),
     }

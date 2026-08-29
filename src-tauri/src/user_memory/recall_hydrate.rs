@@ -67,7 +67,7 @@ async fn load_hydrated_items<C: ConnectionTrait>(
     let validity = valid_at_sql("memory_item_current");
     let scope_predicate = scope.predicate("memory_item_current");
     let sql = format!(
-        "SELECT id, kind, content, confidence, importance, source_revision FROM memory_item_current INDEXED BY sqlite_autoindex_memory_item_current_1 WHERE id IN ({placeholders}) AND {scope_predicate} AND trust_class = 'host_confirmed' AND sensitive = 0 AND superseded_by IS NULL{validity}"
+        "SELECT id, kind, content, confidence, importance, source_revision FROM memory_item_current INDEXED BY sqlite_autoindex_memory_item_current_1 WHERE id IN ({placeholders}) AND {scope_predicate} AND trust_class IN ('host_confirmed', 'agent_experience') AND sensitive = 0 AND superseded_by IS NULL{validity}"
     );
     let expected_count = ids.len();
     let mut values = ids.iter().cloned().map(Value::from).collect::<Vec<_>>();

@@ -91,7 +91,7 @@ pub(super) async fn collect_exact<C: ConnectionTrait>(
     let validity = valid_at_sql("memory_item_current");
     let scope = query.scope.predicate("memory_item_current");
     let sql = format!(
-        "SELECT id FROM memory_item_current WHERE id = ? AND {scope} AND trust_class = 'host_confirmed' AND sensitive = 0 AND superseded_by IS NULL{validity} LIMIT ?"
+        "SELECT id FROM memory_item_current WHERE id = ? AND {scope} AND trust_class IN ('host_confirmed', 'agent_experience') AND sensitive = 0 AND superseded_by IS NULL{validity} LIMIT ?"
     );
     let mut values = vec![query.query.to_string().into()];
     query.scope.push_bind(&mut values);
@@ -126,7 +126,7 @@ pub(super) async fn collect_alias<C: ConnectionTrait>(
     let alias_scope = query.scope.predicate("a");
     let item_scope = query.scope.predicate("i");
     let sql = format!(
-        "SELECT a.memory_id FROM memory_alias_current AS a JOIN memory_item_current AS i ON i.id = a.memory_id WHERE a.normalized_alias = ? AND {alias_scope} AND {item_scope} AND i.trust_class = 'host_confirmed' AND i.sensitive = 0 AND i.superseded_by IS NULL{validity} GROUP BY a.memory_id ORDER BY a.memory_id LIMIT ?"
+        "SELECT a.memory_id FROM memory_alias_current AS a JOIN memory_item_current AS i ON i.id = a.memory_id WHERE a.normalized_alias = ? AND {alias_scope} AND {item_scope} AND i.trust_class IN ('host_confirmed', 'agent_experience') AND i.sensitive = 0 AND i.superseded_by IS NULL{validity} GROUP BY a.memory_id ORDER BY a.memory_id LIMIT ?"
     );
     let mut values = vec![normalize_alias(query.query).into()];
     query.scope.push_bind(&mut values);
@@ -168,7 +168,7 @@ pub(super) async fn collect_relations<C: ConnectionTrait>(
     let validity = valid_at_sql("i");
     let scope = query.scope.predicate("i");
     let sql = format!(
-        "SELECT r.target_id FROM memory_relation_current AS r JOIN memory_item_current AS i ON i.id = r.target_id WHERE r.source_id IN ({placeholders}) AND r.relation IN ('supports', 'relates_to', 'related') AND r.confidence >= 50 AND {scope} AND i.trust_class = 'host_confirmed' AND i.sensitive = 0 AND i.superseded_by IS NULL{validity} GROUP BY r.target_id ORDER BY MAX(r.confidence) DESC, r.target_id LIMIT ?"
+        "SELECT r.target_id FROM memory_relation_current AS r JOIN memory_item_current AS i ON i.id = r.target_id WHERE r.source_id IN ({placeholders}) AND r.relation IN ('supports', 'relates_to', 'related') AND r.confidence >= 50 AND {scope} AND i.trust_class IN ('host_confirmed', 'agent_experience') AND i.sensitive = 0 AND i.superseded_by IS NULL{validity} GROUP BY r.target_id ORDER BY MAX(r.confidence) DESC, r.target_id LIMIT ?"
     );
     let mut values = query
         .seeds

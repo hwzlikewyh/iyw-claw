@@ -7,16 +7,18 @@ use crate::app_error::AppCommandError;
 
 use super::index_checkpoint::mark_stale_if_current;
 use super::recall_execute::execute_index_recall;
-use super::recall_fallback::SourceFallbackRequest;
 use super::recall_result::{complete_index_result, empty_attempt_result};
 use super::recall_scope::UserMemoryRecallScope;
 use super::recall_shadow::RecallShadow;
 use super::recall_status::{empty_result, load_index_status, same_checkpoint_generation};
-use super::recall_types::{UserMemoryIndexStatus, UserMemoryRecallRequest, UserMemoryRecallResult};
+use super::recall_types::{
+    UserMemoryIndexStatus, UserMemoryRecallRequest, UserMemoryRecallResult, UserMemoryRecallState,
+};
 use super::UserMemoryService;
 
 const SOURCE_KEY: &str = "user_memory";
 const LOCAL_RECALL_TIMEOUT: Duration = Duration::from_millis(100);
+const COLD_RECALL_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Clone)]
 pub(super) struct RecallAttempt {
@@ -50,12 +52,17 @@ impl UserMemoryService {
             started_at,
             scope,
         };
-        match tokio::time::timeout(LOCAL_RECALL_TIMEOUT, self.recall_normalized(attempt)).await {
+        let timeout = if self.index_verified_for_process() {
+            LOCAL_RECALL_TIMEOUT
+        } else {
+            COLD_RECALL_TIMEOUT
+        };
+        match tokio::time::timeout(timeout, self.recall_normalized(attempt)).await {
             Ok(result) => result,
             Err(_) => {
                 tracing::info!(
                     query_chars,
-                    timeout_ms = LOCAL_RECALL_TIMEOUT.as_millis(),
+                    timeout_ms = timeout.as_millis(),
                     "[memory-recall] local recall timed out; abstaining"
                 );
                 RecallShadow::new(started_at).log("timeout", &[], "recall_timeout");
@@ -92,8 +99,7 @@ impl UserMemoryService {
     }
 
     async fn memory_read_enabled(&self) -> Result<bool, ()> {
-        let (_io_guard, _file_guard) = self.acquire_locks().await.map_err(|_| ())?;
-        let policy = self.load_policy().await.map_err(|_| ())?;
+        let policy = self.load_policy_unrecovered().await.map_err(|_| ())?;
         Ok(policy.enabled && policy.documents.values().any(|enabled| *enabled))
     }
 
@@ -102,22 +108,28 @@ impl UserMemoryService {
         attempt: RecallAttempt,
     ) -> Result<ReadyRecall, UserMemoryRecallResult> {
         let (attempt, checkpoint) = self.ready_recall_checkpoint(attempt).await?;
-        let source_digest = match self.read_index_source_digest().await {
+        let source_digest = match self.read_index_source_digest_fast().await {
             Ok(digest) => digest,
             Err(_) => {
                 self.mark_recall_checkpoint_stale(&checkpoint, "memory_source_unavailable")
                     .await;
                 self.schedule_index_refresh_if_due();
-                let fallback = SourceFallbackRequest::new(attempt, "memory_source_unavailable");
-                return Err(self.recall_source_fallback(fallback).await);
+                return Err(unavailable_attempt(
+                    attempt,
+                    Some(&checkpoint),
+                    "memory_source_unavailable",
+                ));
             }
         };
         if checkpoint.source_digest.as_deref() != Some(source_digest.as_str()) {
             self.mark_recall_checkpoint_stale(&checkpoint, "index_stale_source")
                 .await;
             self.schedule_index_refresh_if_due();
-            let fallback = SourceFallbackRequest::new(attempt, "index_stale_source");
-            return Err(self.recall_source_fallback(fallback).await);
+            return Err(unavailable_attempt(
+                attempt,
+                Some(&checkpoint),
+                "index_stale_source",
+            ));
         }
         Ok(ReadyRecall {
             attempt,
@@ -131,33 +143,34 @@ impl UserMemoryService {
         attempt: RecallAttempt,
     ) -> Result<(RecallAttempt, UserMemoryIndexStatus), UserMemoryRecallResult> {
         if !self.recall_index_enabled {
-            tracing::debug!("[memory-recall] indexed recall disabled; using source fallback");
-            let fallback = SourceFallbackRequest::new(attempt, "index_recall_disabled");
-            return Err(self.recall_source_fallback(fallback).await);
+            return Err(unavailable_attempt(attempt, None, "index_recall_disabled"));
         }
         if !self.index_verified_for_process() {
             self.ensure_index_refresh();
-            let fallback = SourceFallbackRequest::new(attempt, "index_unverified");
-            return Err(self.recall_source_fallback(fallback).await);
+            return Err(unavailable_attempt(attempt, None, "index_unverified"));
         }
         let checkpoint = match self.index_status().await {
             Ok(checkpoint) => checkpoint,
             Err(_) => {
                 self.schedule_index_refresh_if_due();
-                let fallback = SourceFallbackRequest::new(attempt, "index_unavailable");
-                return Err(self.recall_source_fallback(fallback).await);
+                return Err(unavailable_attempt(attempt, None, "index_unavailable"));
             }
         };
         if checkpoint.status == "ready_fallback" {
-            tracing::debug!("[memory-recall] FTS lanes unavailable; using source fallback");
             self.schedule_degraded_index_refresh_if_due();
-            let fallback = SourceFallbackRequest::new(attempt, "index_fts_unavailable");
-            return Err(self.recall_source_fallback(fallback).await);
+            return Err(unavailable_attempt(
+                attempt,
+                Some(&checkpoint),
+                "index_fts_unavailable",
+            ));
         }
         if checkpoint.status != "ready" {
             self.schedule_index_refresh_if_due();
-            let fallback = SourceFallbackRequest::new(attempt, "index_stale");
-            return Err(self.recall_source_fallback(fallback).await);
+            return Err(unavailable_attempt(
+                attempt,
+                Some(&checkpoint),
+                "index_stale",
+            ));
         }
         Ok((attempt, checkpoint))
     }
@@ -169,26 +182,26 @@ impl UserMemoryService {
         let txn = match self.db.begin().await {
             Ok(txn) => txn,
             Err(error) => {
-                tracing::warn!(error = %error, "[memory-recall] read transaction unavailable; using source fallback");
+                tracing::warn!(error = %error, "[memory-recall] read transaction unavailable");
                 return Ok(self
-                    .fallback_ready_context(context, "index_transaction_error", None)
+                    .unavailable_ready_context(context, "index_transaction_error", None)
                     .await);
             }
         };
         let current = match load_index_status(&txn).await {
             Ok(current) => current,
             Err(error) => {
-                tracing::warn!(error = %error, "[memory-recall] checkpoint read failed; using source fallback");
+                tracing::warn!(error = %error, "[memory-recall] checkpoint read failed");
                 let _ = txn.rollback().await;
                 return Ok(self
-                    .fallback_ready_context(context, "checkpoint_read_error", None)
+                    .unavailable_ready_context(context, "checkpoint_read_error", None)
                     .await);
             }
         };
         if !same_checkpoint_generation(&context.checkpoint, &current) {
             let _ = txn.rollback().await;
             return Ok(self
-                .fallback_ready_context(context, "index_changed_before_recall", None)
+                .unavailable_ready_context(context, "index_changed_before_recall", None)
                 .await);
         }
         self.execute_recall_transaction(context, txn).await
@@ -204,21 +217,21 @@ impl UserMemoryService {
             Err(failure) => {
                 let _ = txn.rollback().await;
                 return Ok(self
-                    .fallback_ready_context(context, failure.reason, Some(failure.shadow))
+                    .unavailable_ready_context(context, failure.reason, Some(failure.shadow))
                     .await);
             }
         };
         if let Err(error) = txn.commit().await {
-            tracing::warn!(error = %error, "[memory-recall] read transaction commit failed; using source fallback");
+            tracing::warn!(error = %error, "[memory-recall] read transaction commit failed");
             return Ok(self
-                .fallback_ready_context(context, "index_transaction_error", Some(indexed.shadow))
+                .unavailable_ready_context(context, "index_transaction_error", Some(indexed.shadow))
                 .await);
         }
         if self.read_index_source_digest().await.ok().as_deref()
             != Some(context.source_digest.as_str())
         {
             return Ok(self
-                .fallback_ready_context(
+                .unavailable_ready_context(
                     context,
                     "index_changed_during_recall",
                     Some(indexed.shadow),
@@ -228,7 +241,7 @@ impl UserMemoryService {
         Ok(complete_index_result(context, indexed))
     }
 
-    async fn fallback_ready_context(
+    async fn unavailable_ready_context(
         &self,
         context: ReadyRecall,
         reason: &'static str,
@@ -237,11 +250,9 @@ impl UserMemoryService {
         self.mark_recall_checkpoint_stale(&context.checkpoint, reason)
             .await;
         self.schedule_index_refresh_if_due();
-        let fallback = match shadow {
-            Some(shadow) => SourceFallbackRequest::with_shadow(context.attempt, reason, shadow),
-            None => SourceFallbackRequest::new(context.attempt, reason),
-        };
-        self.recall_source_fallback(fallback).await
+        let shadow = shadow.unwrap_or_else(|| RecallShadow::new(context.attempt.started_at));
+        shadow.log("unavailable", &[], reason);
+        unavailable_result(context.attempt, Some(&context.checkpoint), reason)
     }
 
     async fn mark_recall_checkpoint_stale(
@@ -264,5 +275,35 @@ impl UserMemoryService {
 
     pub async fn index_status(&self) -> Result<UserMemoryIndexStatus, AppCommandError> {
         load_index_status(&self.db).await
+    }
+}
+
+fn unavailable_attempt(
+    attempt: RecallAttempt,
+    checkpoint: Option<&UserMemoryIndexStatus>,
+    reason: &'static str,
+) -> UserMemoryRecallResult {
+    RecallShadow::new(attempt.started_at).log("unavailable", &[], reason);
+    unavailable_result(attempt, checkpoint, reason)
+}
+
+fn unavailable_result(
+    attempt: RecallAttempt,
+    checkpoint: Option<&UserMemoryIndexStatus>,
+    reason: &'static str,
+) -> UserMemoryRecallResult {
+    UserMemoryRecallResult {
+        query: attempt.query,
+        items: Vec::new(),
+        index_generation: checkpoint.and_then(|value| value.index_generation),
+        source_digest: checkpoint.and_then(|value| value.source_digest.clone()),
+        status: "unavailable".to_string(),
+        result_state: UserMemoryRecallState::Unavailable,
+        abstained: true,
+        reason_codes: vec![
+            reason.to_string(),
+            "index_rebuild_queued".to_string(),
+            "recall_abstained".to_string(),
+        ],
     }
 }

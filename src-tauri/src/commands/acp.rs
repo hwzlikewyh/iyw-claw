@@ -8615,6 +8615,20 @@ async fn reconcile_agent_skills_before_launch(db: &AppDatabase, agent_type: Agen
             "[skills] failed to initialize Agent profile before launch"
         );
     }
+    // The capability gateway is an internal routing contract, not an optional
+    // user skill. Make its central bundle and Agent link ready before the
+    // general (and potentially slower) family reconcile. This closes the
+    // startup race where the Agent could start with an older or missing
+    // `references/memory-and-learning.md` copy.
+    if let Err(error) =
+        crate::commands::experts::ensure_builtin_gateway_skill_ready(agent_type).await
+    {
+        tracing::error!(
+            agent_type = %agent_type,
+            error = %error,
+            "[skills] capability gateway readiness before Agent launch failed"
+        );
+    }
     let install_report = crate::commands::experts::ensure_central_experts_installed().await;
     if !install_report.errors.is_empty() {
         tracing::warn!(

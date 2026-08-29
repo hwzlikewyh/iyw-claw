@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement, TransactionTrait};
 
 use crate::app_error::AppCommandError;
@@ -37,6 +39,18 @@ impl UserMemoryService {
         let _refresh_guard = self.index_refresh_lock.clone().lock_owned().await;
         self.mark_index_unverified();
         let source = self.read_index_source().await?;
+        if let Ok(checkpoint) = super::recall_status::load_index_status(&self.db).await {
+            if checkpoint.status == "ready"
+                && checkpoint.source_digest.as_deref() == Some(source.source_digest.as_str())
+            {
+                self.mark_index_verified_if_idle();
+                tracing::debug!(
+                    generation = ?checkpoint.index_generation,
+                    "[memory-index] refresh skipped; index is already current"
+                );
+                return Ok(());
+            }
+        }
         write_index(&self.db, &source)
             .await
             .map_err(database_error)?;
@@ -64,6 +78,41 @@ impl UserMemoryService {
         Ok(())
     }
 
+    /// Ensure the first Agent turn does not race the asynchronous startup
+    /// index rebuild. The wait is bounded; a slow or broken index remains an
+    /// explicit `unavailable` recall result instead of blocking Agent launch.
+    pub(crate) async fn ensure_recall_ready(&self, timeout: Duration) -> bool {
+        if !self.recall_index_enabled || self.index_verified_for_process() {
+            return self.index_verified_for_process();
+        }
+        let started_at = std::time::Instant::now();
+        match tokio::time::timeout(timeout, self.refresh_index()).await {
+            Ok(Ok(())) => {
+                tracing::info!(
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    "[memory-index] recall index ready before Agent launch"
+                );
+                self.index_verified_for_process()
+            }
+            Ok(Err(error)) => {
+                self.mark_index_refresh_failed();
+                tracing::warn!(
+                    error = %error,
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    "[memory-index] recall index readiness failed before Agent launch"
+                );
+                false
+            }
+            Err(_) => {
+                tracing::warn!(
+                    timeout_ms = timeout.as_millis(),
+                    "[memory-index] recall index readiness timed out before Agent launch"
+                );
+                false
+            }
+        }
+    }
+
     pub(super) async fn read_index_source(&self) -> Result<IndexSnapshot, AppCommandError> {
         self.read_index_source_with(|settings, candidates| {
             build_index_snapshot(&settings, candidates.as_ref())
@@ -72,10 +121,25 @@ impl UserMemoryService {
     }
 
     pub(crate) async fn read_index_source_digest(&self) -> Result<String, AppCommandError> {
-        self.read_index_source_with(|settings, candidates| {
-            source_digest(&settings, candidates.as_ref())
+        self.read_index_source_digest_fast().await
+    }
+
+    /// Read the source digest without taking the writer lock. Canonical files
+    /// and candidate state are replaced atomically, so a lock-free snapshot is
+    /// safe for deciding whether an already-published index can serve recall.
+    pub(crate) async fn read_index_source_digest_fast(&self) -> Result<String, AppCommandError> {
+        let policy = self.load_policy_unrecovered().await?;
+        let service = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let settings = super::index_source::readonly_snapshot(&service, &policy)?;
+            let candidates = candidate_store::read_optional(service.resolved_root()?)?;
+            Ok(source_digest(&settings, candidates.as_ref()))
         })
         .await
+        .map_err(|error| {
+            AppCommandError::task_execution_failed("User memory fast source read task failed")
+                .with_detail(error.to_string())
+        })?
     }
 
     pub(super) async fn read_index_source_with<T, F>(

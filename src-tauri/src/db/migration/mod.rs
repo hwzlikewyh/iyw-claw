@@ -43,6 +43,7 @@ mod m20260820_000001_chat_channel_conversation_binding;
 mod m20260822_000001_conversation_title_source;
 mod m20260825_000001_current_reply_artifact_generation;
 mod m20260826_000001_plugin_runtime_state;
+mod m20260829_000001_memory_learning;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -92,6 +93,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260822_000001_conversation_title_source::Migration),
             Box::new(m20260825_000001_current_reply_artifact_generation::Migration),
             Box::new(m20260826_000001_plugin_runtime_state::Migration),
+            Box::new(m20260829_000001_memory_learning::Migration),
         ]
     }
 }

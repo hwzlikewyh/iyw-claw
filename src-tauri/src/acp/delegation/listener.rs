@@ -31,8 +31,9 @@ use crate::acp::delegation::transport::{
     BrokerCancelRequest, BrokerCancelTaskRequest, BrokerCommitFeedbackRequest,
     BrokerCompanionReadyRequest, BrokerFeedbackRequest, BrokerImageAnalysisRequest,
     BrokerMemoryAdminRequest, BrokerMemoryAppendRequest, BrokerMemoryDocumentsReadRequest,
-    BrokerMemoryProposalRequest, BrokerMemoryProposalResult, BrokerMemoryRecallRequest,
-    BrokerMessage, BrokerRequest, BrokerResponse, BrokerSessionRequest, BrokerStatusRequest,
+    BrokerMemoryPolicyRequest, BrokerMemoryProposalRequest, BrokerMemoryProposalResult,
+    BrokerMemoryRecallRequest, BrokerMessage, BrokerRequest, BrokerResponse,
+    BrokerSessionHistorySearchRequest, BrokerSessionRequest, BrokerStatusRequest,
     BrokerUserProfileRequest, COMPANION_PROTOCOL_VERSION,
 };
 use crate::acp::delegation::types::{DelegationRequest, DelegationTaskReport, TaskStatus};
@@ -127,6 +128,9 @@ pub struct TokenEntry {
     pub opaque_source_id: String,
     /// Read-only authority for the current accepted turn nonce.
     pub memory_turn_tracker: Arc<crate::acp::memory_turn::MemoryTurnTracker>,
+    /// Shared host policy handshake state used by both gateway and direct
+    /// companion memory routes.
+    pub memory_policy_loaded_nonce: Arc<std::sync::atomic::AtomicU64>,
     /// Cancels in-flight channel mutations when the launch token is revoked.
     pub cancellation: tokio_util::sync::CancellationToken,
     /// Serializes irreversible work against token revocation.
@@ -923,9 +927,15 @@ impl DelegationListener {
             BrokerMessage::SessionInfo(req) => {
                 session_response(self.process_session_info(req).await)?
             }
+            BrokerMessage::SessionHistorySearch(req) => {
+                session_history_response(self.process_session_history_search(req).await)?
+            }
             BrokerMessage::UserProfile(req) => BrokerResponse {
                 outcome: self.process_user_profile(req).await,
             },
+            BrokerMessage::MemoryPolicy(req) => {
+                memory_admin_response(self.process_memory_policy(req).await)?
+            }
             BrokerMessage::MemoryAppend(req) => {
                 memory_append_response(self.process_memory_append(req).await)?
             }
@@ -1397,6 +1407,22 @@ impl DelegationListener {
             .await
     }
 
+    async fn process_session_history_search(
+        &self,
+        req: BrokerSessionHistorySearchRequest,
+    ) -> crate::acp::session_info::SessionHistorySearch {
+        let Some(_entry) = self.tokens.lookup(&req.token).await else {
+            return crate::acp::session_info::SessionHistorySearch::unavailable(req.query);
+        };
+        self.session_info
+            .search(
+                &req.query,
+                req.limit
+                    .unwrap_or(crate::acp::session_info::MAX_SESSION_HISTORY_RESULTS),
+            )
+            .await
+    }
+
     /// Authenticate the launch token and enforce the connection's captured
     /// memory-write permission before calling the append-only backend service.
     async fn process_memory_append(
@@ -1408,6 +1434,10 @@ impl DelegationListener {
             log_memory_unavailable("append", "unknown_token", content_chars);
             return Err("User memory update is unavailable for this session.".into());
         };
+        if let Err(error) = require_memory_policy(&entry) {
+            log_memory_unavailable("append", "memory_policy_required", content_chars);
+            return Err(error);
+        }
         entry
             .memory_turn_tracker
             .record_call(crate::acp::memory_turn::MemoryCapabilityCall::Append);
@@ -1434,6 +1464,40 @@ impl DelegationListener {
         result.map_err(|error| error.message)
     }
 
+    async fn process_memory_policy(&self, req: BrokerMemoryPolicyRequest) -> Result<Value, String> {
+        let entry = self
+            .tokens
+            .lookup(&req.token)
+            .await
+            .ok_or_else(|| "Memory policy is unavailable for this session.".to_string())?;
+        let nonce = entry
+            .memory_turn_tracker
+            .active_nonce()
+            .ok_or_else(|| "Memory policy is unavailable without an active turn.".to_string())?;
+        entry
+            .memory_policy_loaded_nonce
+            .store(nonce, std::sync::atomic::Ordering::Release);
+        entry
+            .memory_turn_tracker
+            .record_call(crate::acp::memory_turn::MemoryCapabilityCall::Policy);
+        tracing::info!(
+            target: "user_memory",
+            turn_nonce = nonce,
+            revision = crate::user_memory::MEMORY_POLICY_REVISION,
+            digest = crate::user_memory::memory_policy_digest(),
+            source = "direct_policy_tool",
+            "memory policy loaded for current turn"
+        );
+        Ok(serde_json::json!({
+            "revision": crate::user_memory::MEMORY_POLICY_REVISION,
+            "digest": crate::user_memory::memory_policy_digest(),
+            "reference": crate::user_memory::MEMORY_POLICY_REFERENCE,
+            "summary": crate::user_memory::MEMORY_POLICY_SUMMARY,
+            "document": crate::user_memory::MEMORY_POLICY_DOCUMENT,
+            "turnNonce": nonce,
+        }))
+    }
+
     /// Authenticate proposal capability and derive all provenance from the
     /// launch token entry. The companion supplies only content and signal.
     async fn process_memory_proposal(
@@ -1446,6 +1510,10 @@ impl DelegationListener {
             log_memory_unavailable("proposal", "unknown_token", content_chars);
             unavailable()
         })?;
+        if let Err(error) = require_memory_policy(&entry) {
+            log_memory_unavailable("proposal", "memory_policy_required", content_chars);
+            return Err(error);
+        }
         entry
             .memory_turn_tracker
             .record_call(crate::acp::memory_turn::MemoryCapabilityCall::Propose);
@@ -1502,6 +1570,14 @@ impl DelegationListener {
             log_memory_unavailable("recall", "unknown_token", req.query.chars().count());
             "User memory recall is unavailable for this session.".to_string()
         })?;
+        if let Err(error) = require_memory_policy(&entry) {
+            log_memory_unavailable(
+                "recall",
+                "memory_policy_required",
+                req.query.chars().count(),
+            );
+            return Err(error);
+        }
         entry
             .memory_turn_tracker
             .record_call(crate::acp::memory_turn::MemoryCapabilityCall::Recall);
@@ -1531,6 +1607,10 @@ impl DelegationListener {
             log_memory_document_read_unavailable("unknown_token", req.documents.len());
             "User memory document read is unavailable for this session.".to_string()
         })?;
+        if let Err(error) = require_memory_policy(&entry) {
+            log_memory_document_read_unavailable("memory_policy_required", req.documents.len());
+            return Err(error);
+        }
         entry
             .memory_turn_tracker
             .record_call(crate::acp::memory_turn::MemoryCapabilityCall::ReadDocuments);
@@ -1563,6 +1643,9 @@ impl DelegationListener {
         let Some(entry) = self.tokens.lookup(&req.token).await else {
             return Err("User memory administration is unavailable for this session.".into());
         };
+        if let Err(error) = require_memory_policy(&entry) {
+            return Err(error);
+        }
         if !entry.memory_management_enabled || !MEMORY_ADMIN_TOOLS.contains(&req.tool.as_str()) {
             return Err("User memory administration is unavailable for this session.".into());
         }
@@ -1792,6 +1875,14 @@ impl DelegationListener {
                 "status": settings.companion_health.status,
                 "reason": settings.companion_health.reason,
             },
+            "recallIndex": settings.recall_index_status.as_ref().map(|status| serde_json::json!({
+                "status": status.status,
+                "indexGeneration": status.index_generation,
+                "indexedAt": status.indexed_at,
+                "ftsUnicodeStatus": status.fts_unicode_status,
+                "ftsTrigramStatus": status.fts_trigram_status,
+                "lastError": status.last_error,
+            })),
             "documents": documents,
         })
     }
@@ -2013,6 +2104,16 @@ fn session_response(info: SessionInfo) -> std::io::Result<BrokerResponse> {
     })
 }
 
+fn session_history_response(
+    search: crate::acp::session_info::SessionHistorySearch,
+) -> std::io::Result<BrokerResponse> {
+    Ok(BrokerResponse {
+        outcome: serde_json::to_value(search).map_err(|error| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("encode: {error}"))
+        })?,
+    })
+}
+
 fn memory_append_response(
     result: Result<UserMemoryAppendResult, String>,
 ) -> std::io::Result<BrokerResponse> {
@@ -2069,14 +2170,43 @@ fn memory_admin_response(result: Result<Value, String>) -> std::io::Result<Broke
     Ok(BrokerResponse { outcome })
 }
 
+fn require_memory_policy(entry: &TokenEntry) -> Result<(), String> {
+    let nonce = entry.memory_turn_tracker.active_nonce().ok_or_else(|| {
+        format!(
+            "Memory policy preflight is required for the active turn ({})",
+            crate::user_memory::MEMORY_POLICY_REVISION
+        )
+    })?;
+    if entry
+        .memory_policy_loaded_nonce
+        .load(std::sync::atomic::Ordering::Acquire)
+        == nonce
+    {
+        return Ok(());
+    }
+    Err(format!(
+        "Memory policy preflight is required before memory calls; read {} ({})",
+        crate::user_memory::MEMORY_POLICY_REFERENCE,
+        crate::user_memory::MEMORY_POLICY_REVISION
+    ))
+}
+
 fn memory_failure_outcome(default_code: &str, message: String) -> Value {
     let unavailable = message.contains("unavailable for this session");
+    let policy_required = message.contains("Memory policy preflight");
     serde_json::json!({
         "error": message,
-        "code": if unavailable { "memory_session_unavailable" } else { default_code },
-        "retryable": false,
+        "code": if policy_required { "memory_policy_required" } else if unavailable { "memory_session_unavailable" } else { default_code },
+        "retryable": policy_required,
         "durableChanged": false,
         "fallback": "host_memory_action",
+        "memoryPolicyRequired": policy_required,
+        "policy": policy_required.then(|| serde_json::json!({
+            "revision": crate::user_memory::MEMORY_POLICY_REVISION,
+            "digest": crate::user_memory::memory_policy_digest(),
+            "reference": crate::user_memory::MEMORY_POLICY_REFERENCE,
+            "summary": crate::user_memory::MEMORY_POLICY_SUMMARY,
+        })),
     })
 }
 /// The `declined` outcome — used when the token is invalid, the connection is

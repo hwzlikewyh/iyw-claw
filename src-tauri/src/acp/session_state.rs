@@ -248,9 +248,15 @@ pub(crate) struct NativeBackgroundTurn {
 /// bounded text references. Consumed by the lifecycle worker, then cleared.
 #[derive(Debug, Clone)]
 pub struct TurnHarvestCapture {
+    /// Connection-local nonce used by the memory policy tracker.
     pub turn_nonce: u64,
+    /// Monotonic conversation generation used for durable harvest/task-history
+    /// identity. This is aligned with the persisted conversation marker before
+    /// a resumed connection accepts its first prompt.
+    pub turn_generation: i64,
     pub user_input_ref: Option<String>,
     pub assistant_input_ref: Option<String>,
+    pub tool_outcome_ref: Option<String>,
     pub stop_reason: String,
 }
 
@@ -608,6 +614,11 @@ impl SessionState {
 
     fn finish_context_plan_receipt(&mut self, stop_reason: &str) {
         let memory_calls = self.memory_turn_tracker.finish_turn();
+        let memory_recall_expected = self.user_memory_capabilities.read_context.available
+            && self
+                .pending_user_message
+                .as_ref()
+                .is_some_and(substantive_prompt_requires_recall);
         let Some(seed) = self.context_plan_receipt.take() else {
             return;
         };
@@ -616,6 +627,7 @@ impl SessionState {
             crate::context_governor::ContextPlanFinish {
                 stop_reason,
                 memory_calls,
+                memory_recall_expected,
             },
         );
     }
@@ -1028,6 +1040,7 @@ impl SessionState {
                         .active_nonce()
                         .map(|turn_nonce| TurnHarvestCapture {
                             turn_nonce,
+                            turn_generation: self.turn_generation,
                             user_input_ref: self.pending_user_message.as_ref().and_then(
                                 |pending| {
                                     let mut text = String::new();
@@ -1041,6 +1054,9 @@ impl SessionState {
                                 },
                             ),
                             assistant_input_ref: None,
+                            tool_outcome_ref: harvest_tool_outcome_reference(
+                                &self.active_tool_calls,
+                            ),
                             stop_reason: stop_reason.clone(),
                         });
                 self.finish_context_plan_receipt(stop_reason);
@@ -1696,6 +1712,82 @@ impl SessionState {
             turn_generation: self.turn_generation,
         }
     }
+}
+
+fn harvest_tool_outcome_reference(calls: &BTreeMap<String, ToolCallState>) -> Option<String> {
+    let failed = calls
+        .values()
+        .filter(|call| matches!(call.status, ToolCallStatus::Failed))
+        .map(|call| {
+            let label = crate::user_memory::harvest_reference(&call.label)
+                .unwrap_or_else(|| "unknown tool".to_string());
+            format!("tool {label} failed")
+        })
+        .collect::<Vec<_>>();
+    crate::user_memory::harvest_reference(&failed.join("; "))
+}
+
+fn substantive_prompt_requires_recall(message: &PendingUserMessage) -> bool {
+    let text = message
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            UserMessageBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() < 20 {
+        return false;
+    }
+    const TERMS: &[&str] = &[
+        "代码",
+        "修复",
+        "实现",
+        "排查",
+        "检查",
+        "研究",
+        "分析",
+        "部署",
+        "配置",
+        "迁移",
+        "发布",
+        "提交",
+        "推送",
+        "评审",
+        "项目",
+        "任务",
+        "记忆",
+        "文件",
+        "接口",
+        "数据库",
+        "fix",
+        "implement",
+        "debug",
+        "build",
+        "test",
+        "research",
+        "investigate",
+        "compare",
+        "configure",
+        "migrate",
+        "deploy",
+        "release",
+        "commit",
+        "push",
+        "review",
+        "file",
+        "api",
+        "database",
+        "memory",
+        "task",
+        "project",
+    ];
+    let lower = normalized.to_ascii_lowercase();
+    TERMS
+        .iter()
+        .any(|term| normalized.contains(term) || lower.contains(term))
 }
 
 fn completed_turn_title_input(

@@ -93,6 +93,8 @@ impl BuiltinMcpHandler {
                 agent_type: authority.agent_type(),
                 request_cancel: context.ct.clone(),
                 authority_cancel: authority.cancellation().clone(),
+                memory_policy_loaded_nonce: authority.memory_policy_state(),
+                memory_turn_tracker: authority.memory_turn_tracker(),
             },
         )
         .map_err(|error| {
@@ -105,6 +107,9 @@ impl BuiltinMcpHandler {
                 Ok(result)
             }
             GatewayAction::Invoke(invocation) => {
+                let is_memory_policy = invocation.tool_name == "read_memory_policy";
+                let policy_state = authority.memory_policy_state();
+                let turn_tracker = authority.memory_turn_tracker();
                 let request_id = serde_json::to_value(&context.id)
                     .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
                 let result = execute_invocation(
@@ -121,6 +126,25 @@ impl BuiltinMcpHandler {
                 match &result {
                     Ok(value) => trace.log_result(value),
                     Err(error) => trace.log_error(invocation_error_stage(error), error),
+                }
+                if is_memory_policy
+                    && result
+                        .as_ref()
+                        .is_ok_and(|value| value.is_error != Some(true))
+                {
+                    if let Some(nonce) = turn_tracker.active_nonce() {
+                        turn_tracker
+                            .record_call(crate::acp::memory_turn::MemoryCapabilityCall::Policy);
+                        policy_state.store(nonce, std::sync::atomic::Ordering::Release);
+                        tracing::info!(
+                            target: "builtin_mcp",
+                            turn_nonce = nonce,
+                            revision = crate::user_memory::MEMORY_POLICY_REVISION,
+                            digest = crate::user_memory::memory_policy_digest(),
+                            source = "gateway_policy_invocation",
+                            "memory policy loaded for current turn"
+                        );
+                    }
                 }
                 result
             }

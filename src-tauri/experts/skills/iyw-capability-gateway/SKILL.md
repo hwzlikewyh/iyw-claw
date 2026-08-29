@@ -51,6 +51,35 @@ complete trio on one current callable surface only:
 If a tier has multiple trios, or any role is missing, do not use the gateway.
 For nested tools, invoke them only through their owning orchestration tool.
 
+## Self-learning contract (mandatory for memory work)
+
+The memory policy is part of the gateway contract, not an optional suggestion.
+For every substantive turn, make a private relevance check before acting. If
+the request depends on prior decisions, preferences, repeated workflows,
+earlier failures, or reusable Agent experience:
+
+1. Read this Skill's `references/memory-and-learning.md` when the Skill loader
+   exposes files. If it does not, use the host policy result as authoritative;
+   never substitute a path from a development worktree.
+2. Complete one `read_memory_policy` preflight before the first direct memory
+   operation in the turn. The host rejects memory calls that skip this step.
+3. For substantive coding, configuration, debugging, research, or multi-step
+   work, perform one bounded recall unless the request is clearly
+   self-contained. Recall only the relevant scope, judge results against
+   current evidence, and distinguish `matched`, `no_evidence`, and
+   `unavailable`.
+4. After meaningful execution, privately summarize a reusable lesson. The host
+   TurnComplete harvester records Agent experience separately from user memory.
+   Do not write a user fact from Agent-only reflection.
+
+For an explicit durable user fact, preference, or correction, use the matching
+host memory capability. Do not claim that a candidate is durable until the
+host confirms it. This short contract is intentionally repeated here because
+reference files are progressive-disclosure details and are not always loaded
+by every Agent adapter. Never store credentials, financial, medical,
+biometric, precise-location, sensitive-inference, repository, or transient
+task data.
+
 ## Progressive Disclosure
 
 1. Search with 2-5 discriminating action/object terms in Chinese or English,
@@ -70,7 +99,13 @@ set, using a close synonym.
 
 ## Memory
 
-Recall is task-sensitive, not mandatory for every turn.
+Recall is task-sensitive, not mandatory for every turn. The mandatory
+preflight above applies only when a memory operation is relevant.
+
+The complete self-improving workflow is defined by this Skill's
+`references/memory-and-learning.md`; there is no second memory writer or
+fallback file. The host policy handshake remains authoritative when an Agent
+adapter cannot report Skill-file reads.
 
 - When the task refers to previous work, prior decisions, user preferences,
   repeated workflows, or historical context, search with intent such as

@@ -193,6 +193,17 @@ function StorageDiagnostics({
           ? ` — ${candidateDiagnostic.detail}`
           : ""}
       </p>
+      {settings.recallIndexStatus && (
+        <p className="mt-1">
+          {t("diagnostics.recallIndex")}: {settings.recallIndexStatus.status}
+          {settings.recallIndexStatus.indexGeneration != null
+            ? ` · #${settings.recallIndexStatus.indexGeneration}`
+            : ""}
+          {settings.recallIndexStatus.lastError
+            ? ` — ${settings.recallIndexStatus.lastError}`
+            : ""}
+        </p>
+      )}
       {settings.migrationReport &&
         (settings.migrationReport.warnings.length > 0 ? (
           <p className="mt-1 text-amber-500">

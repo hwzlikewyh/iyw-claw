@@ -23,7 +23,7 @@ pub(super) async fn collect_temporal<C: ConnectionTrait>(
     let validity = valid_at_sql("i");
     let scope = query.scope().predicate("i");
     let sql = format!(
-        "SELECT e.memory_id FROM memory_evidence AS e INDEXED BY idx_memory_evidence_time CROSS JOIN memory_item_current AS i ON i.id = e.memory_id WHERE e.observed_at >= ? AND e.observed_at < ? AND {scope} AND i.trust_class = 'host_confirmed' AND i.sensitive = 0 AND i.superseded_by IS NULL{validity} GROUP BY e.memory_id ORDER BY MAX(e.observed_at) DESC, e.memory_id LIMIT ?"
+        "SELECT e.memory_id FROM memory_evidence AS e INDEXED BY idx_memory_evidence_time CROSS JOIN memory_item_current AS i ON i.id = e.memory_id WHERE e.observed_at >= ? AND e.observed_at < ? AND {scope} AND i.trust_class IN ('host_confirmed', 'agent_experience') AND i.sensitive = 0 AND i.superseded_by IS NULL{validity} GROUP BY e.memory_id ORDER BY MAX(e.observed_at) DESC, e.memory_id LIMIT ?"
     );
     let mut values = vec![range.start.into(), range.end.into()];
     query.scope().push_bind(&mut values);

@@ -614,6 +614,11 @@ mod tauri_app {
                         tracing::warn!("[user-memory] legacy migration unavailable: {error}")
                     }
                 }
+                user_memory.start_background_workers();
+                let startup_memory_refresh = user_memory.clone();
+                tauri::async_runtime::spawn(async move {
+                    startup_memory_refresh.schedule_index_refresh();
+                });
                 restore_memory.schedule_index_refresh(|| {
                     let user_memory_refresh = user_memory.clone();
                     tauri::async_runtime::spawn(async move {

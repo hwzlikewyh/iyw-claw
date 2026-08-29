@@ -13,6 +13,7 @@
 //!     injection time via [`SessionInfoRuntimeConfig`]. Persist + apply + broadcast
 //!     follows the exact shape of the ask-question / feedback toggles.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,8 +22,9 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
 use crate::acp::session_info::{
-    SessionInfo, SessionInfoAccess, SessionInfoConfig, SessionInfoRuntimeConfig,
-    SessionMessageItem, SessionMessages, MAX_SESSION_MESSAGES,
+    SessionHistoryItem, SessionHistorySearch, SessionInfo, SessionInfoAccess, SessionInfoConfig,
+    SessionInfoRuntimeConfig, SessionMessageItem, SessionMessages, MAX_SESSION_HISTORY_RESULTS,
+    MAX_SESSION_MESSAGES,
 };
 use crate::app_error::AppCommandError;
 use crate::commands::conversations::get_folder_conversation_core;
@@ -172,6 +174,136 @@ impl SessionInfoAccess for DbSessionInfoLookup {
         }
         info
     }
+
+    async fn search(&self, query: &str, limit: u32) -> SessionHistorySearch {
+        let query = query.trim().to_string();
+        let limit = limit.clamp(1, MAX_SESSION_HISTORY_RESULTS) as usize;
+        match crate::commands::session_history::search_task_history(&self.db.conn, &query, limit)
+            .await
+        {
+            Ok(hits) if !hits.is_empty() => {
+                let mut items = Vec::with_capacity(hits.len());
+                for hit in hits {
+                    let Ok(summary) =
+                        conversation_service::get_by_id(&self.db.conn, hit.conversation_id).await
+                    else {
+                        continue;
+                    };
+                    let workspace_name =
+                        folder_service::get_folder_by_id(&self.db.conn, summary.folder_id)
+                            .await
+                            .ok()
+                            .flatten()
+                            .map(|folder| folder.name);
+                    items.push(SessionHistoryItem {
+                        session_id: summary.id,
+                        matched_turn_generation: Some(hit.turn_generation),
+                        title: summary.title,
+                        intent: Some(hit.intent),
+                        result: hit.result,
+                        decisions: hit.decisions,
+                        failures: hit.failures,
+                        pending_items: hit.pending_items,
+                        agent_type: agent_type_str(summary.agent_type),
+                        status: summary.status,
+                        workspace_name,
+                        git_branch: summary.git_branch,
+                        message_count: summary.message_count,
+                        created_at: summary.created_at,
+                        updated_at: summary.updated_at,
+                    });
+                }
+                return SessionHistorySearch {
+                    query,
+                    truncated: items.len() == limit,
+                    items,
+                };
+            }
+            Ok(_) => {}
+            Err(error) => tracing::warn!(
+                error = %error,
+                "[session-history] task projection search failed"
+            ),
+        }
+        let terms = history_search_terms(&query);
+        let mut rows = BTreeMap::new();
+        for term in terms {
+            let result = conversation_service::list_all(
+                &self.db.conn,
+                None,
+                None,
+                term,
+                Some("newest".to_string()),
+                None,
+                false,
+            )
+            .await;
+            match result {
+                Ok(items) => {
+                    for item in items {
+                        rows.insert(item.id, item);
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(error = %error, "[session-history] metadata search failed");
+                    return SessionHistorySearch::unavailable(query);
+                }
+            }
+        }
+        let mut rows = rows.into_values().collect::<Vec<_>>();
+        rows.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        let truncated = rows.len() > limit;
+        let items = rows
+            .into_iter()
+            .take(limit)
+            .map(|summary| SessionHistoryItem {
+                session_id: summary.id,
+                matched_turn_generation: None,
+                title: summary.title,
+                intent: None,
+                result: None,
+                decisions: None,
+                failures: None,
+                pending_items: None,
+                agent_type: agent_type_str(summary.agent_type),
+                status: summary.status,
+                workspace_name: None,
+                git_branch: summary.git_branch,
+                message_count: summary.message_count,
+                created_at: summary.created_at,
+                updated_at: summary.updated_at,
+            })
+            .collect();
+        SessionHistorySearch {
+            query,
+            items,
+            truncated,
+        }
+    }
+}
+
+fn history_search_terms(query: &str) -> Vec<Option<String>> {
+    if is_broad_history_query(query) {
+        return vec![None];
+    }
+    let terms = query
+        .split_whitespace()
+        .filter(|term| term.chars().count() >= 2)
+        .take(5)
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if terms.is_empty() {
+        vec![Some(query.to_string())]
+    } else {
+        terms.into_iter().map(Some).collect()
+    }
+}
+
+fn is_broad_history_query(query: &str) -> bool {
+    let broad_markers = [
+        "之前", "以前", "历史", "做过", "干过", "任务", "事情", "what did",
+    ];
+    broad_markers.iter().any(|marker| query.contains(marker)) && query.chars().count() <= 32
 }
 
 /// Outcome of a permit-gated, timeout-bounded parse (see [`bounded_parse`]).
