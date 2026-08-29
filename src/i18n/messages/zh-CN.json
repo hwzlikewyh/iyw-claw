@@ -37,7 +37,7 @@
     "cancel": "取消",
     "confirm": "确定",
     "retry": "重试",
-    "runtimeUnavailable": "请检查 Chrome 或 Edge 后重试。",
+    "runtimeUnavailable": "浏览器不可用，请稍后重试。",
     "tabStatus": {
       "creating": "正在创建页签",
       "live": "已就绪",
@@ -51,6 +51,7 @@
       "unsupported": "当前环境不支持共享浏览器",
       "missing": "浏览器组件不可用",
       "verifying": "正在检查浏览器组件",
+      "preparing": "正在准备浏览器",
       "ready": "浏览器已就绪",
       "starting": "正在启动浏览器",
       "running": "浏览器运行中",

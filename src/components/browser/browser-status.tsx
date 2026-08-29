@@ -12,6 +12,10 @@ export function BrowserStatus() {
     state?.runtime.status ?? state?.capability.status ?? "verifying"
   const loading =
     busy || ["verifying", "starting", "recovering"].includes(status)
+  const statusLabel =
+    busy && status !== "running"
+      ? t("runtime.preparing")
+      : t(`runtime.${status}`)
 
   return (
     <div className="flex h-full min-h-0 items-center justify-center bg-background px-6 text-center">
@@ -21,7 +25,7 @@ export function BrowserStatus() {
         ) : (
           <CircleAlert className="mx-auto mb-3 size-5 text-muted-foreground" />
         )}
-        <div className="text-sm font-medium">{t(`runtime.${status}`)}</div>
+        <div className="text-sm font-medium">{statusLabel}</div>
         {error || state?.runtime.failureCode || state?.capability.reason ? (
           <div className="mt-1 text-xs text-muted-foreground">
             {t("runtimeUnavailable")}

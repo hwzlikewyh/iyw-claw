@@ -37,7 +37,7 @@
     "cancel": "Cancel",
     "confirm": "OK",
     "retry": "Retry",
-    "runtimeUnavailable": "Check Chrome or Edge and try again.",
+    "runtimeUnavailable": "The browser is unavailable. Try again later.",
     "tabStatus": {
       "creating": "Creating tab",
       "live": "Ready",
@@ -51,6 +51,7 @@
       "unsupported": "Shared browser is not supported here",
       "missing": "Browser components are unavailable",
       "verifying": "Checking browser components",
+      "preparing": "Preparing browser",
       "ready": "Browser is ready",
       "starting": "Starting browser",
       "running": "Browser is running",

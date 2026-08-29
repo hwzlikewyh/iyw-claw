@@ -35,6 +35,15 @@ pub(super) fn capture_process(pid: u32, label: impl Into<String>) -> Option<Proc
     })
 }
 
+pub(super) fn executable_is_running(executable: &Path) -> bool {
+    let system = System::new_all();
+    system.processes().values().any(|process| {
+        process
+            .exe()
+            .is_some_and(|path| same_path(path, executable))
+    })
+}
+
 pub(super) fn process_matches(record: &ProcessRecord) -> bool {
     let system = System::new_all();
     system

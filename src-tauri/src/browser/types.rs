@@ -62,6 +62,10 @@ pub enum BrowserHostKind {
 pub enum BrowserEngineKind {
     Chrome,
     Edge,
+    Brave,
+    Vivaldi,
+    Opera,
+    Chromium,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

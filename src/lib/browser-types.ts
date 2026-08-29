@@ -40,7 +40,10 @@ export interface BrowserCapability {
   architecture: string
   sidecarVersion: string
   sidecarVerified: boolean
-  engine?: { kind: "chrome" | "edge"; version: string }
+  engine?: {
+    kind: "chrome" | "edge" | "brave" | "vivaldi" | "opera" | "chromium"
+    version: string
+  }
 }
 
 export interface BrowserTabSnapshot {

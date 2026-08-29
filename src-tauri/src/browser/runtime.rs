@@ -5,16 +5,18 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use super::command_runner::AgentBrowserCli;
-use super::engine::{detect_engine, BrowserEngine};
+use super::engine::BrowserEngine;
 use super::error::{BrowserError, BrowserErrorCode};
 use super::process::ProcessRecord;
 use super::profile::ProfileGuard;
 use super::runtime_launch;
-use super::sidecar::{self, AGENT_BROWSER_VERSION};
+use super::sidecar::AGENT_BROWSER_VERSION;
 use super::types::{BrowserCapability, BrowserRuntimeStatus};
 
 const PROCESS_WATCH_INTERVAL: Duration = Duration::from_millis(250);
 
+#[path = "runtime_dependencies.rs"]
+mod dependencies;
 mod shutdown;
 
 #[derive(Debug)]
@@ -114,16 +116,12 @@ impl BrowserRuntime {
                 "The shared browser currently requires Windows x64 desktop",
             ));
         }
-        let mut verified = self.verified.lock().await;
-        if let Some(dependencies) = verified.as_ref() {
+        if let Some(dependencies) = self.verified.lock().await.clone() {
             return Ok(dependencies.capability());
         }
         let started = std::time::Instant::now();
-        let sidecar = sidecar::verify_sidecar().await?;
-        let engine = detect_engine().await?;
-        let dependencies = VerifiedDependencies { sidecar, engine };
+        let dependencies = self.resolve_dependencies().await?;
         let capability = dependencies.capability();
-        *verified = Some(dependencies);
         tracing::info!(
             target: "iyw_claw_browser",
             duration_ms = started.elapsed().as_millis() as u64,
@@ -146,8 +144,7 @@ impl BrowserRuntime {
                 .then_some(context)
                 .ok_or_else(incomplete_cleanup_error);
         }
-        self.verify().await?;
-        let dependencies = self.dependencies().await?;
+        let dependencies = self.prepare_dependencies(cancellation.clone()).await?;
         let handle =
             match runtime_launch::launch(&self.data_root, dependencies, generation, cancellation)
                 .await
@@ -209,18 +206,6 @@ impl BrowserRuntime {
             &dependencies.engine.path,
         )
         .await
-    }
-
-    async fn dependencies(&self) -> Result<VerifiedDependencies, BrowserError> {
-        if let Some(dependencies) = self.verified.lock().await.clone() {
-            return Ok(dependencies);
-        }
-        self.verify().await?;
-        self.verified
-            .lock()
-            .await
-            .clone()
-            .ok_or_else(unavailable_error)
     }
 }
 

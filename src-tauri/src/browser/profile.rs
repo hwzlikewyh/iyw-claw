@@ -96,6 +96,14 @@ impl ProfileGuard {
         }
         Ok(())
     }
+
+    pub async fn seed_user_profile(
+        &self,
+        source: &Path,
+        browser_executable: &Path,
+    ) -> Result<(), BrowserError> {
+        super::profile_seed::seed(&self.profile_path, source, browser_executable).await
+    }
 }
 
 impl Drop for ProfileGuard {

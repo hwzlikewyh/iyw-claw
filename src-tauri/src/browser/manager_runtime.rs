@@ -94,7 +94,7 @@ impl BrowserSessionManager {
         if !self.tabs.is_empty().await {
             return Err(incomplete_tab_cleanup_error());
         }
-        let capability = runtime.verify().await?;
+        let capability = runtime.prepare_for_start(cancellation.clone()).await?;
         self.set_capability(capability).await;
         if let Some(governor) = &self.resource_governor {
             governor.guard_runtime_start(runtime, &cancellation).await?;

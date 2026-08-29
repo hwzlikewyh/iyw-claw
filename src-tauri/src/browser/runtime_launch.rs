@@ -43,6 +43,19 @@ pub(super) async fn launch(
     let profile = acquire_profile(data_root, &runtime_id, &runtime_dir, &dependencies)
         .await
         .map_err(|error| launch_failure(error, None))?;
+    if let Some(source) = dependencies.engine.profile_source.as_deref() {
+        if let Err(error) = profile
+            .seed_user_profile(source, &dependencies.engine.path)
+            .await
+        {
+            tracing::warn!(
+                target: "iyw_claw_browser",
+                engine = ?dependencies.engine.kind,
+                error_code = ?error.code,
+                "browser user profile seed failed; continuing with isolated profile"
+            );
+        }
+    }
     let download_path = prepare_download_path(data_root, &runtime_dir)
         .await
         .map_err(|error| launch_failure(error, None))?;
