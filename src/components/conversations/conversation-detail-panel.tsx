@@ -122,7 +122,6 @@ import {
 import { reconcileModelConfigValues } from "@/lib/gateway-model-catalog"
 import {
   hasManagedGatewayModelProjection,
-  liveAgentConfigOptions,
   modelReapplyTimeoutMs,
 } from "@/lib/agent-model-switch"
 import {
@@ -130,6 +129,7 @@ import {
   isModelConfigOption,
 } from "@/lib/model-config-groups"
 import { planSessionConfigSync } from "@/lib/session-config-compat"
+import { compareSessionControlInventory } from "@/lib/session-control-compat"
 import {
   lastUserPromptText,
   type SessionFailureAction,
@@ -907,18 +907,33 @@ const ConversationTabView = memo(function ConversationTabView({
     [fixedOptions.modes]
   )
   const connectionConfigOptions = useMemo(() => {
-    return liveAgentConfigOptions(
-      selectedAgent,
-      fixedOptions.config_options,
-      conn.configOptions,
-      conn.selectorsReady,
-      conn.modelSwitchCapability
-    )
+    return fixedOptions.config_options
+  }, [fixedOptions.config_options])
+  const selectorMismatchSignatureRef = useRef("")
+  useEffect(() => {
+    if (!conn.selectorsReady) return
+    const mismatches = compareSessionControlInventory({
+      fixedModes: fixedOptions.modes,
+      liveModes: conn.modes,
+      fixedConfig: fixedOptions.config_options,
+      liveConfig: conn.configOptions,
+    })
+    const signature = JSON.stringify(mismatches)
+    if (signature === selectorMismatchSignatureRef.current) return
+    selectorMismatchSignatureRef.current = signature
+    if (mismatches.length === 0) return
+    console.warn("[ConversationTabView] static selector contract mismatch", {
+      agentType: selectedAgent,
+      connectionId: conn.connectionId,
+      mismatches,
+    })
   }, [
     conn.configOptions,
-    conn.modelSwitchCapability,
+    conn.connectionId,
+    conn.modes,
     conn.selectorsReady,
     fixedOptions.config_options,
+    fixedOptions.modes,
     selectedAgent,
   ])
   const canReconcileModelConfig =
@@ -1211,8 +1226,49 @@ const ConversationTabView = memo(function ConversationTabView({
     if (modeId && connectionModes.some((mode) => mode.id === modeId)) {
       return modeId
     }
-    return conn.modes?.current_mode_id ?? connectionModes[0]?.id ?? null
+    const liveModeId = conn.modes?.current_mode_id
+    if (liveModeId && connectionModes.some((mode) => mode.id === liveModeId)) {
+      return liveModeId
+    }
+    return connectionModes[0]?.id ?? null
   }, [conn.modes?.current_mode_id, connectionModes, modeId])
+
+  const handleModeError = useCallback(
+    (error: unknown, previousModeId: string | null) => {
+      const fallbackModeId =
+        previousModeId &&
+        connectionModes.some((mode) => mode.id === previousModeId)
+          ? previousModeId
+          : (connectionModes[0]?.id ?? null)
+      if (!fallbackModeId || !fixedOptions.modes) return
+      setModeId(fallbackModeId)
+      saveModePreference(selectedAgent, {
+        ...fixedOptions.modes,
+        current_mode_id: fallbackModeId,
+      })
+      const fallback = connectionModes.find(
+        (mode) => mode.id === fallbackModeId
+      )
+      const errorMessage =
+        error instanceof Error ? error.message : String(error)
+      console.error("[ConversationTabView] mode rejected", {
+        agentType: selectedAgent,
+        requestedModeId: selectedModeId,
+        fallbackModeId,
+        error: errorMessage,
+      })
+      toast.error(
+        tConfig("modeChangeFailed", { mode: fallback?.name ?? fallbackModeId })
+      )
+    },
+    [
+      connectionModes,
+      fixedOptions.modes,
+      selectedAgent,
+      selectedModeId,
+      tConfig,
+    ]
+  )
 
   useEffect(() => {
     if (connSessionId) {
@@ -1680,6 +1736,14 @@ const ConversationTabView = memo(function ConversationTabView({
         }
         return false
       }
+      const onModeRejected = (
+        error: unknown,
+        previousModeId: string | null
+      ) => {
+        removeOptimisticTurn(effectiveConversationId, optimisticTurn.id)
+        setSyncState(effectiveConversationId, "idle")
+        handleModeError(error, previousModeId)
+      }
 
       // Pin the tab if it was a temporary preview (single-click opened)
       if (ownTab && !ownTab.isPinned) {
@@ -1700,6 +1764,7 @@ const ConversationTabView = memo(function ConversationTabView({
           // turn by exact id (and never suppresses a different sender's prompt).
           clientMessageId: optimisticTurn.id,
           onTurnInProgress,
+          onModeError: onModeRejected,
           onError: needsImageFallback ? onImageAnalysisError : undefined,
         })
         if (needsImageFallback) {
@@ -1806,6 +1871,7 @@ const ConversationTabView = memo(function ConversationTabView({
             conversationId: newConversationId,
             clientMessageId: optimisticTurn.id,
             onTurnInProgress,
+            onModeError: onModeRejected,
             onError: needsImageFallback ? onImageAnalysisError : undefined,
           })
           return needsImageFallback
@@ -1856,6 +1922,7 @@ const ConversationTabView = memo(function ConversationTabView({
       draftStorageKey,
       folderId,
       hasPersistedConversation,
+      handleModeError,
       lifecycleSend,
       rememberSubmittedDraft,
       pinTab,
@@ -2197,7 +2264,7 @@ const ConversationTabView = memo(function ConversationTabView({
     (newModeId: string) => {
       setModeId(newModeId)
       // Persist mode selection to localStorage immediately
-      const modes = conn.modes ?? fixedOptions.modes
+      const modes = fixedOptions.modes
       if (modes) {
         saveModePreference(selectedAgent, {
           ...modes,
@@ -2205,7 +2272,7 @@ const ConversationTabView = memo(function ConversationTabView({
         })
       }
     },
-    [conn.modes, fixedOptions.modes, selectedAgent]
+    [fixedOptions.modes, selectedAgent]
   )
 
   const handleConfigOptionChange = useCallback(

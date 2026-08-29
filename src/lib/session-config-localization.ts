@@ -11,6 +11,7 @@ type ConfigDomain =
   | "model"
   | "reasoning"
   | "responseMode"
+  | "collaboration"
   | "webSearch"
   | "switch"
 
@@ -61,6 +62,11 @@ const RESPONSE_MODE_VALUE_KEYS: Record<string, string> = {
   fast: "fast",
 }
 
+const COLLABORATION_VALUE_KEYS: Record<string, string> = {
+  default: "standard",
+  plan: "plan",
+}
+
 function translateOrFallback(
   t: SessionConfigTranslator,
   key: string,
@@ -88,6 +94,9 @@ function optionDomain(option: SessionConfigOptionInfo): ConfigDomain | null {
 
   if (id === "mode" || category === "mode" || lookup.includes("approval")) {
     return "mode"
+  }
+  if (id === "collaboration_mode" || category === "collaboration_mode") {
+    return "collaboration"
   }
   if (
     id === "fast-mode" ||
@@ -165,6 +174,12 @@ function responseModeValueKey(
   return RESPONSE_MODE_VALUE_KEYS[normalized(option.name)] ?? null
 }
 
+function collaborationValueKey(
+  option: SessionConfigSelectOptionInfo
+): string | null {
+  return COLLABORATION_VALUE_KEYS[normalized(option.value)] ?? null
+}
+
 function localizeValue(
   option: SessionConfigSelectOptionInfo,
   domain: ConfigDomain | null,
@@ -223,6 +238,26 @@ function localizeValue(
           ? translateOrFallback(
               t,
               `sessionConfig.values.responseMode.${key}.description`,
+              option.description
+            )
+          : option.description,
+      }
+    }
+  }
+
+  if (domain === "collaboration") {
+    const key = collaborationValueKey(option)
+    if (key) {
+      return {
+        name: translateOrFallback(
+          t,
+          `sessionConfig.values.collaboration.${key}.name`,
+          option.name
+        ),
+        description: option.description
+          ? translateOrFallback(
+              t,
+              `sessionConfig.values.collaboration.${key}.description`,
               option.description
             )
           : option.description,

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { DropdownRadioItemContent } from "@/components/chat/dropdown-radio-item-content"
 import { ModelOptionList } from "@/components/chat/model-option-list"
 import { ModelIcon } from "@/components/chat/model-icon"
+import type { SessionConfigOptionInfo } from "@/lib/types"
 import {
   hasSessionConfigValueIcon,
   SessionConfigValueIcon,
@@ -46,6 +47,8 @@ export interface SessionSelectorSetting {
   /** When set, the detail pane renders a searchable + virtualized list instead
    *  of the plain button list — used for long model lists that otherwise jank. */
   search?: SessionSelectorSearch
+  modelBehaviorOptions?: SessionConfigOptionInfo[]
+  onModelBehaviorSelect?: (configId: string, valueId: string) => void
 }
 
 interface SessionSelectorsPanelProps {
@@ -144,6 +147,16 @@ export function SessionSelectorsPanel({
             searchAriaLabel={active.search.inputLabel}
             listAriaLabel={active.search.listLabel}
             emptyLabel={active.search.empty}
+            behaviorOptions={active.modelBehaviorOptions}
+            onBehaviorSelect={
+              active.onModelBehaviorSelect
+                ? (configId, valueId) => {
+                    active.onModelBehaviorSelect?.(configId, valueId)
+                    onAfterSelect?.()
+                  }
+                : undefined
+            }
+            compact
           />
         </div>
       ) : (

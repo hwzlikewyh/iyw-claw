@@ -18,6 +18,7 @@
  */
 
 import { automaticAgentMode } from "@/lib/automatic-agent-mode"
+import { getAgentModeState } from "@/lib/agent-modes"
 import type { AgentType, SessionModeStateInfo } from "@/lib/types"
 
 const STORAGE_KEY = "iyw-claw:selector-prefs"
@@ -72,7 +73,40 @@ function resolveModeId(
   agentType: AgentType,
   prefs?: SelectorPrefs
 ): string | null {
-  return prefs?.modeId ?? automaticAgentMode(agentType)?.id ?? null
+  const normalized = normalizeLegacyPrefs(agentType, prefs)
+  const saved = normalized.modeId
+  const modes = getAgentModeState(agentType).available_modes
+  if (saved && modes.some(({ id }) => id === saved)) return saved
+  return automaticAgentMode(agentType)?.id ?? null
+}
+
+const PI_THINKING_LEVELS = new Set([
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+])
+
+function normalizeLegacyPrefs(
+  agentType: AgentType,
+  prefs?: SelectorPrefs
+): SelectorPrefs {
+  const next: SelectorPrefs = {
+    modeId: prefs?.modeId,
+    configValues: { ...prefs?.configValues },
+  }
+  if (agentType === "codex" && next.modeId === "plan") {
+    next.modeId = "agent"
+    next.configValues!.collaboration_mode ??= "plan"
+  }
+  const legacyPiMode = next.modeId
+  if (agentType === "pi" && PI_THINKING_LEVELS.has(legacyPiMode ?? "")) {
+    next.configValues!.thought_level ??= legacyPiMode!
+    next.modeId = undefined
+  }
+  return next
 }
 
 /** Read the saved mode, falling back to the product automatic mode. */
@@ -96,8 +130,7 @@ export function getSavedPrefsForConnect(agentType: AgentType): {
   configValues: Record<string, string> | null
 } {
   const all = readAll()
-  const prefs = all[agentType]
-  if (!prefs) return { modeId: null, configValues: null }
+  const prefs = normalizeLegacyPrefs(agentType, all[agentType])
 
   // The selected model is a session preference. The native provider config
   // remains the launch fallback, while ACP applies this value to a resumed
@@ -105,7 +138,7 @@ export function getSavedPrefsForConnect(agentType: AgentType): {
   const configValues = { ...prefs.configValues }
 
   return {
-    modeId: prefs.modeId ?? null,
+    modeId: resolveModeId(agentType, prefs),
     configValues: Object.keys(configValues).length > 0 ? configValues : null,
   }
 }

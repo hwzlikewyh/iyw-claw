@@ -14,6 +14,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { orderSessionSelectors } from "@/lib/session-selector-order"
+import {
+  isModelBehaviorConfigOption,
+  isModelConfigOption,
+  modelListGroups,
+} from "@/lib/model-config-groups"
+import { ModelOptionPicker } from "@/components/chat/model-option-picker"
 import { cn } from "@/lib/utils"
 import type { AgentOptionsSnapshot, SessionConfigOptionInfo } from "@/lib/types"
 
@@ -81,14 +87,22 @@ export function AgentConfigSection({
 
   const hasModes =
     !hideMode && !!snapshot.modes && snapshot.modes.available_modes.length > 0
-  const hasOptions = snapshot.config_options.length > 0
+  const behaviorOptions = inline
+    ? snapshot.config_options.filter(isModelBehaviorConfigOption)
+    : []
+  const visibleOptions = inline
+    ? snapshot.config_options.filter(
+        (option) => !isModelBehaviorConfigOption(option)
+      )
+    : snapshot.config_options
+  const hasOptions = visibleOptions.length > 0
   if (!hasModes && !hasOptions) {
     // Inline lives in the composer bottom bar — stay silent rather than print a
     // sentence there; the stacked form still surfaces the hint.
     if (inline) return null
     return <p className="text-xs text-muted-foreground">{t("configNone")}</p>
   }
-  const selectors = orderSessionSelectors(hasModes, snapshot.config_options)
+  const selectors = orderSessionSelectors(hasModes, visibleOptions)
 
   return (
     <div
@@ -119,6 +133,22 @@ export function AgentConfigSection({
           )
         }
         const option = selector.option
+        if (inline && isModelConfigOption(option)) {
+          return (
+            <ModelOptionPicker
+              key={`config:${option.id}`}
+              option={option}
+              groups={modelListGroups(option)}
+              behaviorOptions={behaviorOptions}
+              onSelect={(configId, valueId) =>
+                onConfigChange(configId, valueId)
+              }
+              onBehaviorSelect={(configId, valueId) =>
+                onConfigChange(configId, valueId)
+              }
+            />
+          )
+        }
         return (
           <ConfigOptionRow
             key={`config:${option.id}`}

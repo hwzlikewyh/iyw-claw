@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/popover"
 import { ModelOptionList } from "@/components/chat/model-option-list"
 import { useScrollbarSafeDismiss } from "@/hooks/use-scrollbar-safe-dismiss"
+import { cn } from "@/lib/utils"
 import type { ModelOptionGroup } from "@/lib/model-config-groups"
 import type { SessionConfigOptionInfo } from "@/lib/types"
 
@@ -19,20 +20,19 @@ interface ModelOptionPickerProps {
   /** The grouped list to show (derived `provider/` groups, or a single
    *  headerless group for a long flat list). */
   groups: ModelOptionGroup[]
+  behaviorOptions?: SessionConfigOptionInfo[]
   onSelect: (configId: string, valueId: string) => void
+  onBehaviorSelect?: (configId: string, valueId: string) => void
 }
 
-// Wide-form model picker for LONG model lists: a trigger button opening a
-// Popover that hosts the searchable + virtualized {@link ModelOptionList}.
-// Replaces the Radix `DropdownMenu` (whose roving focus over hundreds of items
-// is the scroll jank) only for the model option, only when it's large — short
-// lists keep `InlineSessionConfigSelector`. Mirrors the BranchPicker layout
-// (Popover `overflow-hidden p-0`, the list is the sole nested scroller). The
-// dismiss guard handles WebKit bouncing focus outside during a scrollbar drag.
+// Model picker Popover with the searchable list and model behavior cascade.
+// The dismiss guard handles WebKit bouncing focus outside during a scrollbar drag.
 export function ModelOptionPicker({
   option,
   groups,
+  behaviorOptions = [],
   onSelect,
+  onBehaviorSelect,
 }: ModelOptionPickerProps) {
   const t = useTranslations("Folder.chat.messageInput")
   const [open, setOpen] = useState(false)
@@ -78,7 +78,10 @@ export function ModelOptionPicker({
         align="start"
         onPointerDownOutside={onPointerDownOutside}
         onFocusOutside={onFocusOutside}
-        className="w-[22rem] max-w-[calc(100vw-1rem)] overflow-hidden p-0"
+        className={cn(
+          "max-w-[calc(100vw-1rem)] overflow-hidden p-0",
+          behaviorOptions.length > 0 ? "w-auto" : "w-[22rem]"
+        )}
       >
         <ModelOptionList
           groups={groups}
@@ -91,6 +94,11 @@ export function ModelOptionPicker({
           searchAriaLabel={t("searchModelAria")}
           listAriaLabel={t("modelListLabel")}
           emptyLabel={t("noModels")}
+          behaviorOptions={behaviorOptions}
+          onBehaviorSelect={(configId, valueId) => {
+            onBehaviorSelect?.(configId, valueId)
+            setOpen(false)
+          }}
           autoFocus
         />
       </PopoverContent>

@@ -21,6 +21,33 @@ export function isModelConfigOption(option: SessionConfigOptionInfo): boolean {
   return option.id === "model" || option.category === "model"
 }
 
+function normalizedConfigId(option: SessionConfigOptionInfo): string {
+  return option.id.trim().toLowerCase().replace(/_/g, "-")
+}
+
+export function isReasoningConfigOption(
+  option: SessionConfigOptionInfo
+): boolean {
+  const id = normalizedConfigId(option)
+  return (
+    option.category === "thought_level" ||
+    id.includes("reasoning") ||
+    id.includes("thought") ||
+    id.includes("effort")
+  )
+}
+
+export function isFastConfigOption(option: SessionConfigOptionInfo): boolean {
+  const id = normalizedConfigId(option)
+  return id === "fast" || id === "fast-mode"
+}
+
+export function isModelBehaviorConfigOption(
+  option: SessionConfigOptionInfo
+): boolean {
+  return isReasoningConfigOption(option) || isFastConfigOption(option)
+}
+
 export function currentModelName(
   options: SessionConfigOptionInfo[] | undefined
 ): string | null {

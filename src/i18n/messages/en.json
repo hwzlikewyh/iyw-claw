@@ -2870,6 +2870,7 @@
         "dropFilesToAttach": "Drop files to attach",
         "loadingSettings": "Loading settings...",
         "loadingMode": "Loading mode...",
+        "modeChangeFailed": "The agent rejected this mode. Restored {mode}.",
         "modeLabel": "Mode",
         "agentSettings": "Agent settings",
         "searchModel": "Search models...",
@@ -2951,6 +2952,10 @@
               "name": "Response mode",
               "description": "Choose how quickly the model responds."
             },
+            "collaboration": {
+              "name": "Work mode",
+              "description": "Choose how the agent collaborates on subsequent turns."
+            },
             "webSearch": {
               "name": "Web search",
               "description": "Allow the agent to use web search when needed."
@@ -3009,6 +3014,16 @@
               "fast": {
                 "name": "Fast",
                 "description": "Faster model responses with additional usage"
+              }
+            },
+            "collaboration": {
+              "standard": {
+                "name": "Standard",
+                "description": "Analyze or act directly based on the task."
+              },
+              "plan": {
+                "name": "Plan first",
+                "description": "Create a plan before making changes."
               }
             },
             "switch": {

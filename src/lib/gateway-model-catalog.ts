@@ -1,13 +1,15 @@
 import { getAgentModeState } from "@/lib/agent-modes"
+import {
+  getAgentModelBehaviorIds,
+  getStaticAgentConfigOptions,
+} from "@/lib/agent-control-profiles"
 import { listGatewayModels } from "@/lib/api"
 import type {
   AgentOptionsSnapshot,
   AgentType,
-  BuiltinAgentType,
   SessionConfigOptionInfo,
   SessionConfigSelectOptionInfo,
 } from "@/lib/types"
-import { isCustomAgentType } from "@/lib/types"
 import type { GatewayModel } from "@/lib/gateway-model-parser"
 import {
   browserPayloadCache,
@@ -66,6 +68,7 @@ function buildModelOption(
 
 function buildEffortOption(
   selected: GatewayModel,
+  id: string,
   configuredEffort: string | undefined
 ): SessionConfigOptionInfo | null {
   if (selected.efforts.length === 0) return null
@@ -76,7 +79,7 @@ function buildEffortOption(
       ? selected.defaultEffort
       : selected.efforts[0]
   return {
-    id: "reasoning_effort",
+    id,
     name: "Reasoning effort",
     description: "Adjust how deeply the model reasons before responding.",
     category: "thought_level",
@@ -91,21 +94,12 @@ function buildEffortOption(
   }
 }
 
-const FAST_MODE_CONFIG_IDS: Partial<Record<BuiltinAgentType, string>> = {
-  codex: "fast-mode",
-  claude_code: "fast",
-}
-
 function buildFastModeOption(
   selected: GatewayModel,
-  agentType: AgentType,
+  id: string,
   configuredValue: string | undefined
 ): SessionConfigOptionInfo | null {
   if (!selected.fastModeSupported) return null
-  const id = isCustomAgentType(agentType)
-    ? undefined
-    : FAST_MODE_CONFIG_IDS[agentType]
-  if (!id) return null
   const current =
     configuredValue === "on" || configuredValue === "off"
       ? configuredValue
@@ -137,20 +131,29 @@ export function buildAgentOptionsSnapshot(
   const selected =
     models.find((model) => model.id === configValues.model) ?? models[0]
   const configOptions: SessionConfigOptionInfo[] = []
+  const behavior = getAgentModelBehaviorIds(agentType)
   if (selected) {
     configOptions.push(buildModelOption(selected, models))
-    const effort = buildEffortOption(selected, configValues.reasoning_effort)
-    if (effort) configOptions.push(effort)
-    const fastModeConfigId = isCustomAgentType(agentType)
-      ? undefined
-      : FAST_MODE_CONFIG_IDS[agentType]
-    const fastMode = buildFastModeOption(
-      selected,
-      agentType,
-      configValues[fastModeConfigId ?? ""]
-    )
-    if (fastMode) configOptions.push(fastMode)
+    if (behavior.effortConfigId) {
+      const configured =
+        configValues[behavior.effortConfigId] ?? configValues.reasoning_effort
+      const effort = buildEffortOption(
+        selected,
+        behavior.effortConfigId,
+        configured
+      )
+      if (effort) configOptions.push(effort)
+    }
+    if (behavior.fastConfigId) {
+      const fastMode = buildFastModeOption(
+        selected,
+        behavior.fastConfigId,
+        configValues[behavior.fastConfigId]
+      )
+      if (fastMode) configOptions.push(fastMode)
+    }
   }
+  configOptions.push(...getStaticAgentConfigOptions(agentType, configValues))
   return {
     modes: getAgentModeState(agentType),
     config_options: configOptions,
@@ -161,6 +164,8 @@ export function buildAgentOptionsSnapshot(
 const MODEL_CONFIG_IDS = [
   "model",
   "reasoning_effort",
+  "effort",
+  "thought_level",
   "fast-mode",
   "fast",
   "fast_mode",

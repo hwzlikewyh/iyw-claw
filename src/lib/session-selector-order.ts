@@ -1,16 +1,12 @@
-import { isModelConfigOption } from "@/lib/model-config-groups"
+import {
+  isModelConfigOption,
+  isReasoningConfigOption,
+} from "@/lib/model-config-groups"
 import type { SessionConfigOptionInfo } from "@/lib/types"
 
 export type OrderedSessionSelector =
   | { kind: "mode" }
   | { kind: "config"; option: SessionConfigOptionInfo }
-
-function isReasoningOption(option: SessionConfigOptionInfo): boolean {
-  const id = option.id.trim().toLowerCase().replace(/_/g, "-")
-  return (
-    id.includes("reasoning") || id.includes("thought") || id.includes("effort")
-  )
-}
 
 export function orderSessionSelectors(
   showMode: boolean,
@@ -18,10 +14,10 @@ export function orderSessionSelectors(
 ): OrderedSessionSelector[] {
   const models = options.filter(isModelConfigOption)
   const reasoning = options.filter(
-    (option) => !isModelConfigOption(option) && isReasoningOption(option)
+    (option) => !isModelConfigOption(option) && isReasoningConfigOption(option)
   )
   const others = options.filter(
-    (option) => !isModelConfigOption(option) && !isReasoningOption(option)
+    (option) => !isModelConfigOption(option) && !isReasoningConfigOption(option)
   )
   return [
     ...(showMode ? ([{ kind: "mode" }] as const) : []),

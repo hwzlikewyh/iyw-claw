@@ -2870,6 +2870,7 @@
         "dropFilesToAttach": "拖拽文件到此处附加",
         "loadingSettings": "正在加载设置...",
         "loadingMode": "正在加载模式...",
+        "modeChangeFailed": "智能体拒绝了该模式，已恢复为{mode}。",
         "modeLabel": "模式",
         "agentSettings": "智能体设置",
         "searchModel": "搜索模型...",
@@ -2944,12 +2945,16 @@
               "description": "选择本次会话使用的模型。"
             },
             "reasoning": {
-              "name": "推理强度",
+              "name": "思考等级",
               "description": "调整模型在回复前的思考深度。"
             },
             "responseMode": {
-              "name": "响应模式",
+              "name": "响应速度",
               "description": "选择模型的响应速度。"
+            },
+            "collaboration": {
+              "name": "工作方式",
+              "description": "选择智能体在后续轮次中的协作方式。"
             },
             "webSearch": {
               "name": "联网搜索",
@@ -3009,6 +3014,16 @@
               "fast": {
                 "name": "Fast",
                 "description": "模型快速响应模式（会产生额外消耗）"
+              }
+            },
+            "collaboration": {
+              "standard": {
+                "name": "标准协作",
+                "description": "根据任务直接分析或执行。"
+              },
+              "plan": {
+                "name": "先规划",
+                "description": "先形成计划，再进行修改。"
               }
             },
             "switch": {

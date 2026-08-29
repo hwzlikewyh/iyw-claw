@@ -60,6 +60,7 @@ export interface UseConnectionLifecycleReturn {
        * draft instead of treating it as an error.
        */
       onTurnInProgress?: () => void
+      onModeError?: (error: unknown, previousModeId: string | null) => void
       onError?: (error: unknown) => void
     }
   ) => Promise<boolean>
@@ -412,6 +413,7 @@ export function useConnectionLifecycle({
         conversationId?: number | null
         clientMessageId?: string | null
         onTurnInProgress?: () => void
+        onModeError?: (error: unknown, previousModeId: string | null) => void
         onError?: (error: unknown) => void
       }
     ): Promise<boolean> => {
@@ -421,7 +423,12 @@ export function useConnectionLifecycle({
         await ensureConnected()
         const currentModeId = modeIdRef.current
         if (modeId && modeId !== currentModeId) {
-          await connSetMode(modeId)
+          try {
+            await connSetMode(modeId)
+          } catch (error) {
+            opts?.onModeError?.(error, currentModeId)
+            throw error
+          }
           // Optimistically track selected mode to avoid duplicate set_mode
           // calls before CurrentModeUpdate arrives from the agent.
           modeIdRef.current = modeId

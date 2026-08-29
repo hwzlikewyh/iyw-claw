@@ -147,10 +147,9 @@ import {
 } from "@/components/chat/session-selectors-panel"
 import {
   deriveModelGroups,
+  isModelBehaviorConfigOption,
   isModelConfigOption,
   modelListGroups,
-  MODEL_LIST_VIRTUALIZE_THRESHOLD,
-  type ModelOptionGroup,
 } from "@/lib/model-config-groups"
 import {
   localizeSessionConfigOption,
@@ -785,21 +784,6 @@ function SelectorLoadingChip({ label }: { label: string }) {
   )
 }
 
-// Groups for the searchable + virtualized model picker, or `null` when the
-// option should keep the lightweight selectors. Only the MODEL option, and only
-// when its list is long enough to jank, qualifies. Falls back to a single
-// headerless group for a long flat (un-prefixed) list.
-function modelPickerGroups(
-  option: SessionConfigOptionInfo
-): ModelOptionGroup[] | null {
-  if (!isModelConfigOption(option)) return null
-  if (option.kind.type !== "select") return null
-  if (option.kind.options.length <= MODEL_LIST_VIRTUALIZE_THRESHOLD) return null
-  // Preserve derived `provider/` groups, server-provided groups, or a flat list
-  // (never silently flatten server groups — keeps wide/collapsed consistent).
-  return modelListGroups(option)
-}
-
 export function MessageInput({
   onSend,
   placeholder,
@@ -1375,7 +1359,18 @@ export function MessageInput({
       ),
     [rawConfigOptions, tSessionConfig]
   )
-  const hasConfigOptions = availableConfigOptions.length > 0
+  const modelBehaviorOptions = useMemo(
+    () => availableConfigOptions.filter(isModelBehaviorConfigOption),
+    [availableConfigOptions]
+  )
+  const topLevelConfigOptions = useMemo(
+    () =>
+      availableConfigOptions.filter(
+        (option) => !isModelBehaviorConfigOption(option)
+      ),
+    [availableConfigOptions]
+  )
+  const hasConfigOptions = topLevelConfigOptions.length > 0
   const hasModes = availableModes.length > 0
 
   const effectiveModeId = useMemo(() => {
@@ -1392,8 +1387,8 @@ export function MessageInput({
   const showModeLoading = modeLoading && !showModeSelector
   const showConfigLoading = configOptionsLoading && !hasConfigOptions
   const orderedSessionSelectors = useMemo(
-    () => orderSessionSelectors(showModeSelector, availableConfigOptions),
-    [showModeSelector, availableConfigOptions]
+    () => orderSessionSelectors(showModeSelector, topLevelConfigOptions),
+    [showModeSelector, topLevelConfigOptions]
   )
   const orderedConfigOptions = useMemo(
     () =>
@@ -3720,17 +3715,17 @@ export function MessageInput({
       )}
       {hasConfigOptions &&
         orderedConfigOptions.map((option) => {
-          // Long model lists get the searchable + virtualized popover (a Radix
-          // menu of hundreds of items is the scroll jank); every other option —
-          // and short model lists — keep the lightweight inline dropdown.
-          const listGroups = modelPickerGroups(option)
-          if (listGroups) {
+          if (isModelConfigOption(option)) {
             return (
               <ModelOptionPicker
                 key={option.id}
                 option={option}
-                groups={listGroups}
+                groups={modelListGroups(option)}
+                behaviorOptions={modelBehaviorOptions}
                 onSelect={(configId, valueId) =>
+                  onConfigOptionChange?.(configId, valueId)
+                }
+                onBehaviorSelect={(configId, valueId) =>
                   onConfigOptionChange?.(configId, valueId)
                 }
               />
@@ -3826,9 +3821,7 @@ export function MessageInput({
           .find((item) => item.value === kind.current_value)
         // A long model list gets a searchable + virtualized detail pane (a plain
         // list of hundreds of buttons janks); short lists keep plain buttons.
-        const searchable =
-          isModelConfigOption(option) &&
-          kind.options.length > MODEL_LIST_VIRTUALIZE_THRESHOLD
+        const searchable = isModelConfigOption(option)
         result.push({
           key: `config:${option.id}`,
           title: option.name,
@@ -3836,6 +3829,11 @@ export function MessageInput({
           currentLabel: current?.name ?? kind.current_value,
           groups,
           onSelect: (value) => onConfigOptionChange?.(option.id, value),
+          ...(isModelConfigOption(option) && {
+            modelBehaviorOptions,
+            onModelBehaviorSelect: (configId: string, valueId: string) =>
+              onConfigOptionChange?.(configId, valueId),
+          }),
           ...(searchable && {
             search: {
               placeholder: t("searchModel"),
@@ -3850,6 +3848,7 @@ export function MessageInput({
     return result
   }, [
     hasConfigOptions,
+    modelBehaviorOptions,
     orderedConfigOptions,
     showModeSelector,
     availableModes,
