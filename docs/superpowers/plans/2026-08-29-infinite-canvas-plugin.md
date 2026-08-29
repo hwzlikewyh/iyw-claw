@@ -6,7 +6,7 @@
 
 **Architecture:** 插件使用一个 workspace 级 Node MCP runtime 和一个小于 8 MiB 的自包含 Widget。Widget 与 Agent 通过同一组 manifest-declared capabilities 读写 `canvas/infinite-canvas/`；宿主只提供通用 Plugin v2、授权、生命周期和 MCP Apps bridge。
 
-**Tech Stack:** TypeScript 5.8、Node.js managed runtime、MCP SDK 1.12、Vite 7、React 19、Zod 3、pnpm 11、iyw-claw Plugin v2/Fusion Skill Market。
+**Tech Stack:** TypeScript 5.8、Node.js managed runtime、MCP SDK 1.29、Vite 7、React 19、Zod 3、pnpm 11、iyw-claw Plugin v2/Fusion Skill Market。
 
 ## Global Constraints
 

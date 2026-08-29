@@ -6,7 +6,7 @@
 
 **Architecture:** 一个 bundled Node MCP 进程以 `IYW_WORKSPACE_DIR` 为唯一 workspace 根目录，通过原子 JSON、内容寻址资产和 revision 操作协议持久化画布。工具 schema 和 Fusion contract 文件由同一 TypeScript 常量生成，避免运行时与 manifest 漂移。
 
-**Tech Stack:** Node.js、TypeScript、MCP SDK 1.12.1、Zod 3.25.76、esbuild 0.25.12、pnpm 11、Plugin v2。
+**Tech Stack:** Node.js、TypeScript、MCP SDK 1.29.0、Zod 3.25.76、esbuild 0.25.12、pnpm 11、Plugin v2。
 
 ## Global Constraints
 - 执行主计划 `2026-08-29-infinite-canvas-plugin.md` 的全部 Global Constraints。
@@ -62,10 +62,11 @@ Copy-Item -Recurse -LiteralPath "$source\plugins\canvas" -Destination "plugins\i
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "1.7.5",
-    "@modelcontextprotocol/sdk": "1.12.1",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "zod": "3.25.76"
   },
   "devDependencies": {
+    "@types/node": "22.19.7",
     "esbuild": "0.25.12",
     "typescript": "5.8.3",
     "vite": "7.3.6",
