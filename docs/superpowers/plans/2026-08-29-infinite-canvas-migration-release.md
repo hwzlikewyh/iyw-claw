@@ -133,7 +133,7 @@ Verifier 读取 Git tracked vendor/source 列表，确认 upstream.json commit�
 hash 和 ZIP manifest。检查 ≤512 files、≤50 MiB expanded、无 symlink、无 tldraw、无未知
 license、无 `.codex-plugin`/`.mcp.json`、runtime entrypoint 和 10 schemas/resource 一致。
 
-- [x] **Step 4: 生成最终 0.1.9 artifact**
+- [x] **Step 4: 生成最终 0.1.10 artifact**
 
 Run:
 
@@ -199,7 +199,7 @@ Expected: exit 0；打印 manifest/version/file count/size/SHA/components；无 
 
 - [ ] **Step 2: 验证安装/拒绝/批准**
 
-从 hidden 管理详情安装 0.1.9；拒绝权限时无 runtime/app instance/文件写入；批准后仅当前
+从 hidden 管理详情安装 0.1.10；拒绝权限时无 runtime/app instance/文件写入；批准后仅当前
 workspace/Agent available，同一会话重新 search/read/invoke 无需重启。
 
 - [ ] **Step 3: 验证原生 Widget**
