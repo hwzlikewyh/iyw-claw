@@ -1,0 +1,104 @@
+name: Publish Infinite Canvas Plugin
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref (branch or tag) that contains plugins/infinite-canvas. Leave empty to use the ref this action runs on."
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Dry run: build and verify only, do not publish to Fusion"
+        required: false
+        type: boolean
+        default: true
+
+env:
+  HUSKY: 0
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout iyw-claw
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.18.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: plugins/infinite-canvas/pnpm-lock.yaml
+
+      - name: Install plugin dependencies
+        working-directory: plugins/infinite-canvas
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: plugins/infinite-canvas
+        run: pnpm typecheck
+
+      - name: Build
+        working-directory: plugins/infinite-canvas
+        run: pnpm build
+
+      - name: Verify
+        working-directory: plugins/infinite-canvas
+        run: pnpm verify
+
+      - name: Package
+        working-directory: plugins/infinite-canvas
+        run: pnpm package
+
+      - name: Show package artifact
+        id: plugin
+        working-directory: plugins/infinite-canvas
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          test -f "dist/infinite-canvas-$version.zip"
+          ls -lh dist/
+          cat dist/verify-receipt.json
+
+      - name: Upload package artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: infinite-canvas-${{ steps.plugin.outputs.version }}
+          path: plugins/infinite-canvas/dist/infinite-canvas-${{ steps.plugin.outputs.version }}.zip
+          if-no-files-found: error
+
+      - name: Dev-run sanity (never publish)
+        if: inputs.dry_run
+        working-directory: .
+        env:
+          INFINITE_CANVAS_SOURCE: ${{ github.workspace }}/plugins/infinite-canvas
+        run: |
+          node .github/scripts/publish-infinite-canvas-plugin.mjs --dry-run --source "$INFINITE_CANVAS_SOURCE"
+
+      - name: Publish to Fusion
+        if: ${{ !inputs.dry_run }}
+        working-directory: .
+        env:
+          INFINITE_CANVAS_SOURCE: ${{ github.workspace }}/plugins/infinite-canvas
+          FUSION_BASE_URL: ${{ secrets.FUSION_BASE_URL }}
+          FUSION_ADMIN_TOKEN: ${{ secrets.FUSION_ADMIN_TOKEN }}
+          FUSION_GATEWAY_TOKEN: ${{ secrets.FUSION_GATEWAY_TOKEN }}
+        run: |
+          if [ -z "$FUSION_BASE_URL" ] || [ -z "$FUSION_ADMIN_TOKEN" ] || [ -z "$FUSION_GATEWAY_TOKEN" ]; then
+            echo "::error::FUSION_BASE_URL, FUSION_ADMIN_TOKEN, and FUSION_GATEWAY_TOKEN secrets are required; cannot publish."
+            exit 1
+          fi
+          node .github/scripts/publish-infinite-canvas-plugin.mjs --source "$INFINITE_CANVAS_SOURCE"
