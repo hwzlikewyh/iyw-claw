@@ -2773,7 +2773,9 @@
           "turnFailedEmptyMetadata": "{agent} sent only status updates this turn and no reply.",
           "toolProtocolViolation": "{model} did not start a structured tool call, so iyw-claw stopped retrying. Retry the task or choose a tool-compatible model.",
           "detailsInAlerts": "Open Alerts in the status bar and expand Details to inspect the agent output.",
-          "compactionNotApplied": "{agent} ended the compact request without writing a new compacted summary. Compaction was not applied; check the agent logs and try again."
+          "compactionNotApplied": "{agent} ended the compact request without writing a new compacted summary. Compaction was not applied; check the agent logs and try again.",
+          "promptStallTimeout": "{agent} stopped reporting progress for too long. iyw-claw requested a safe cancellation for this turn.",
+          "promptStallDisconnect": "{agent} did not acknowledge cancellation. iyw-claw closed this connection to prevent later replies from mixing into the turn. Reconnect and try again."
         },
         "unableReadAgentConfig": "Unable to read Agent config: {message}",
         "connectFailedTitle": "{agent} connection failed",

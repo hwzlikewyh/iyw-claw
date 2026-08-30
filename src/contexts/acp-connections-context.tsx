@@ -3968,6 +3968,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                 return t("backendErrors.compactionNotApplied", {
                   agent: agentLabel,
                 })
+              case "prompt_stall_timeout":
+                return t("backendErrors.promptStallTimeout", {
+                  agent: agentLabel,
+                })
+              case "prompt_stall_disconnect":
+                return t("backendErrors.promptStallDisconnect", {
+                  agent: agentLabel,
+                })
               case "grok_model_switch_incompatible_agent":
                 return t("backendErrors.grokModelSwitchIncompatibleAgent", {
                   agent: agentLabel,

@@ -2773,7 +2773,9 @@
           "turnFailedEmptyMetadata": "{agent} 本轮只收到状态更新，没有收到任何回复。",
           "toolProtocolViolation": "{model} 未成功发起结构化工具调用，已停止继续尝试。可重试当前任务或更换兼容工具模型。",
           "detailsInAlerts": "请在状态栏的“告警”中展开详情，查看 Agent 输出。",
-          "compactionNotApplied": "{agent} 已结束压缩请求，但没有写入新的压缩摘要，压缩未生效。请检查代理日志后重试。"
+          "compactionNotApplied": "{agent} 已结束压缩请求，但没有写入新的压缩摘要，压缩未生效。请检查代理日志后重试。",
+          "promptStallTimeout": "{agent} 长时间没有返回进展，原助理已请求安全停止本轮回复。",
+          "promptStallDisconnect": "{agent} 未确认停止请求，原助理已关闭本次连接以避免后续回复错乱。请重新连接后重试。"
         },
         "unableReadAgentConfig": "无法读取 Agent 配置：{message}",
         "connectFailedTitle": "{agent} 连接失败",

@@ -6717,12 +6717,25 @@ async fn run_conversation_loop<'a>(
                                     if let Some(inj) = delegation_injection {
                                         inj.broker.cancel_by_parent_turn(conn_id).await;
                                     }
-                                    // Drain the prompt response in the background so
-                                    // the SACP library doesn't log "receiver dropped"
-                                    // errors when the agent eventually responds.
-                                    tokio::spawn(async move {
-                                        let _ = prompt_response.await;
-                                    });
+                                    // Do not accept a new prompt while the cancelled
+                                    // request is still being drained. Reusing the ACP
+                                    // session before this response settles can mix a
+                                    // late old response into the next turn.
+                                    if tokio::time::timeout(
+                                        crate::acp::manager::STALLED_PROMPT_CANCEL_GRACE,
+                                        &mut prompt_response,
+                                    )
+                                    .await
+                                    .is_err()
+                                    {
+                                        let turn_generation = state.read().await.turn_generation;
+                                        tracing::error!(
+                                            connection_id = conn_id,
+                                            turn_generation,
+                                            "[ACP] cancelled prompt did not drain before reuse deadline; closing connection"
+                                        );
+                                        disconnect_requested = true;
+                                    }
                                     break;
                                 }
                                 Some(ConnectionCommand::SafeCancel {
@@ -6745,6 +6758,10 @@ async fn run_conversation_loop<'a>(
                                                 "[agent-input] safe cancellation request failed"
                                             );
                                         }
+                                        terminal_runtime
+                                            .release_all_for_session(sid.0.as_ref())
+                                            .await;
+                                        tracked_terminal_tool_calls.clear();
                                     } else {
                                         tracing::debug!(
                                             connection_id = conn_id,
