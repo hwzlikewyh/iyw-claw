@@ -14,6 +14,7 @@ type CreativeFlowOptions = {
   getSelected: () => ReadonlySet<string>
   setScene: (scene: Scene) => void
   render: () => void
+  markMutation: () => void
   report: (error: unknown) => void
 }
 
@@ -28,6 +29,7 @@ export class CreativeFlow {
     const pending: NodeData = { id: `request-${request.requestId.slice(0, 8)}`, type: "creative-request", x: 120, y: 240 + scene.nodes.length * 8, width: 300, height: 72, metadata: { requestId: request.requestId, action, prompt, status: "pending", selectionNodeIds: request.selectionNodeIds, ...(targetNodeId ? { targetNodeId, targetBaseRevision: scene.revision } : {}) } }
     try {
       const next = await this.options.client.apply([{ type: "add_node", node: pending }], scene.revision)
+      this.options.markMutation()
       this.options.setScene(next as Scene)
       this.options.render()
       await sendCreativeRequest(this.options.app, request)
@@ -70,6 +72,7 @@ export class CreativeFlow {
     if (!value) return
     const scene = this.options.getScene()
     const next = await applyCreativeResult(this.options.client, this.options.assets, scene, value)
+    this.options.markMutation()
     this.options.setScene(next as Scene)
     this.options.render()
   }
@@ -86,6 +89,7 @@ export class CreativeFlow {
     const scene = this.options.getScene()
     if (!scene.nodes.some((item) => item.id === node.id)) return
     const next = await this.options.client.apply([{ type: "update_node", nodeId: node.id, patch: { metadata: { ...(node.metadata ?? {}), status: "error", errorCode: error instanceof Error ? error.message : "request_failed" } } }], scene.revision)
+    this.options.markMutation()
     this.options.setScene(next as Scene)
     this.options.render()
   }

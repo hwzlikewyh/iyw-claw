@@ -49,7 +49,7 @@ function render() {
   statusElement.textContent = `${scene.canvasId} · revision ${scene.revision} · ${scene.nodes.length} nodes`
   statusElement.classList.remove("error")
 }
-const creative = new CreativeFlow({ app, client, assets: client.assetClient(), getScene: () => scene, getSelected: () => selected, setScene: (next) => { scene = next }, render, report: showError })
+const creative = new CreativeFlow({ app, client, assets: client.assetClient(), getScene: () => scene, getSelected: () => selected, setScene: (next) => { scene = next }, markMutation: () => { localMutationEpoch += 1 }, render, report: showError })
 type DragState = { nodeId: string; pointerId: number; startX: number; startY: number; originX: number; originY: number }
 let dragState: DragState | undefined
 type PanState = { pointerId: number; startX: number; startY: number; originX: number; originY: number }
@@ -207,7 +207,7 @@ async function addAnnotation(): Promise<void> {
   scene = { ...scene, ...(next as unknown as Scene) }
   render()
   const request = newCreativeRequest("image.annotation-edit", canvasId, "Apply the annotations to the selected image", [node.id], node.id, scene.revision)
-  const pending: NodeData = { id: `request-${request.requestId.slice(0, 8)}`, type: "creative-request", x: node.x + node.width + 32, y: node.y, width: 300, height: 72, metadata: { requestId: request.requestId, action: request.action, prompt: request.prompt, status: "pending", selectionNodeIds: [node.id], targetNodeId: node.id } }
+  const pending: NodeData = { id: `request-${request.requestId.slice(0, 8)}`, type: "creative-request", x: node.x + node.width + 32, y: node.y, width: 300, height: 72, metadata: { requestId: request.requestId, action: request.action, prompt: request.prompt, status: "pending", selectionNodeIds: [node.id], targetNodeId: node.id, targetBaseRevision: scene.revision } }
   localMutationEpoch += 1
   const pendingScene = await client.apply([{ type: "add_node", node: pending }], scene.revision)
   scene = { ...scene, ...(pendingScene as unknown as Scene) }
