@@ -1,0 +1,213 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "canvasId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "baseRevision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "add_node"
+              },
+              "node": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  },
+                  "width": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  },
+                  "rotation": {
+                    "type": "number"
+                  },
+                  "metadata": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                },
+                "required": [
+                  "id",
+                  "type",
+                  "x",
+                  "y",
+                  "width",
+                  "height"
+                ],
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "type",
+              "node"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "update_node"
+              },
+              "nodeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              },
+              "patch": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "required": [
+              "type",
+              "nodeId",
+              "patch"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "remove_node"
+              },
+              "nodeId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              }
+            },
+            "required": [
+              "type",
+              "nodeId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "add_connection"
+              },
+              "connection": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                  },
+                  "fromNodeId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                  },
+                  "toNodeId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,64}$"
+                  }
+                },
+                "required": [
+                  "id",
+                  "fromNodeId",
+                  "toNodeId"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "connection"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "remove_connection"
+              },
+              "connectionId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              }
+            },
+            "required": [
+              "type",
+              "connectionId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "set_viewport"
+              },
+              "viewport": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  },
+                  "k": {
+                    "type": "number",
+                    "minimum": 0.05,
+                    "maximum": 5
+                  }
+                },
+                "required": [
+                  "x",
+                  "y",
+                  "k"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "viewport"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "minItems": 1,
+      "maxItems": 200
+    }
+  },
+  "required": [
+    "canvasId",
+    "baseRevision",
+    "operations"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,18 @@
+{
+  "repository": "https://github.com/basketikun/infinite-canvas",
+  "commit": "ed013e8e5ce8ccab47cf2fc779f8e94555eb4c23",
+  "syncedAt": "2026-08-29",
+  "license": "MIT",
+  "vendoredTreeSha256": "2d13286c46ae517937446289d6d3aa798ad8f385b9ff4c577897bfdd631b8004",
+  "vendoredPaths": [
+    "web/src",
+    "web/public",
+    "plugins/canvas"
+  ],
+  "localPatches": [
+    "MCP Apps Widget entry",
+    "workspace scene and asset persistence",
+    "network and Canvas Agent removal",
+    "HTML sandbox hardening"
+  ]
+}

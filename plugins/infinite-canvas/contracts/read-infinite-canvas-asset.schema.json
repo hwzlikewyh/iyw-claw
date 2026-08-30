@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "length": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 131072
+    }
+  },
+  "required": [
+    "sha256",
+    "offset",
+    "length"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "typeRoots": ["node_modules/.pnpm/@types+node@22.19.7/node_modules/@types"]
+  },
+  "include": ["runtime/src/**/*.ts", "shared/**/*.ts", "widget/src/**/*.ts"]
+}

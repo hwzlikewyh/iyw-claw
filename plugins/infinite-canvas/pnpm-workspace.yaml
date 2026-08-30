@@ -1,0 +1,4 @@
+packages:
+  - widget
+allowBuilds:
+  esbuild: true
