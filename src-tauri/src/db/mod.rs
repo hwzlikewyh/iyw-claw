@@ -4,8 +4,9 @@ pub mod migration;
 pub mod restore_memory;
 pub mod service;
 
+use std::future::Future;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use sea_orm::sqlx::sqlite::{SqliteJournalMode, SqliteSynchronous};
 use sea_orm::{
@@ -15,6 +16,18 @@ use sea_orm_migration::MigratorTrait;
 
 use error::DbError;
 use migration::Migrator;
+
+const SQLITE_BUSY_TIMEOUT: Duration = Duration::from_secs(3);
+const SQLITE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const SQLITE_RUNTIME_MAX_CONNECTIONS: u32 = 3;
+const SQLITE_STATEMENT_CACHE_CAPACITY: usize = 256;
+const SQLITE_CACHE_SIZE_KIB: i32 = -32_768;
+const SQLITE_WAL_AUTOCHECKPOINT_PAGES: i32 = 1_000;
+const SQLITE_MMAP_SIZE_BYTES: i64 = 67_108_864;
+const SQLITE_MIGRATION_RETRIES: usize = 3;
+const SQLITE_MIGRATION_RETRY_BASE: Duration = Duration::from_millis(250);
+const SQLITE_MAINTENANCE_RETRIES: usize = 2;
+const SQLITE_MAINTENANCE_RETRY_BASE: Duration = Duration::from_millis(150);
 
 pub struct AppDatabase {
     pub conn: DatabaseConnection,
@@ -131,12 +144,43 @@ fn database_url(app_data_dir: &Path) -> String {
 }
 
 async fn migrate_database(db_url: &str) -> Result<(), DbError> {
+    let started = Instant::now();
+    for attempt in 0..=SQLITE_MIGRATION_RETRIES {
+        match migrate_database_once(db_url).await {
+            Ok(()) => {
+                if attempt > 0 {
+                    tracing::info!(
+                        attempt,
+                        elapsed_ms = started.elapsed().as_millis(),
+                        "SQLite migration recovered after lock contention"
+                    );
+                }
+                return Ok(());
+            }
+            Err(error) if attempt < SQLITE_MIGRATION_RETRIES && is_sqlite_busy(&error) => {
+                let delay = SQLITE_MIGRATION_RETRY_BASE * 2_u32.pow(attempt as u32);
+                tracing::warn!(
+                    attempt = attempt + 1,
+                    max_retries = SQLITE_MIGRATION_RETRIES,
+                    delay_ms = delay.as_millis(),
+                    error = %error,
+                    "SQLite migration is locked; retrying"
+                );
+                tokio::time::sleep(delay).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("SQLite migration retry loop always returns")
+}
+
+async fn migrate_database_once(db_url: &str) -> Result<(), DbError> {
     // A single connection observes every DDL change in migration order.
     let mut migrate_opts = ConnectOptions::new(db_url);
     migrate_opts
         .max_connections(1)
         .min_connections(1)
-        .connect_timeout(Duration::from_secs(10))
+        .connect_timeout(SQLITE_CONNECT_TIMEOUT)
         .sqlx_logging(false);
     configure_sqlite_connections(&mut migrate_opts);
     let migrate_conn = Database::connect(migrate_opts).await?;
@@ -146,9 +190,9 @@ async fn migrate_database(db_url: &str) -> Result<(), DbError> {
 
 async fn connect_runtime_database(db_url: String) -> Result<DatabaseConnection, DbError> {
     let mut opts = ConnectOptions::new(db_url);
-    opts.max_connections(5)
+    opts.max_connections(SQLITE_RUNTIME_MAX_CONNECTIONS)
         .min_connections(1)
-        .connect_timeout(Duration::from_secs(10))
+        .connect_timeout(SQLITE_CONNECT_TIMEOUT)
         .idle_timeout(Duration::from_secs(300))
         .sqlx_logging(false);
     configure_sqlite_connections(&mut opts);
@@ -190,10 +234,61 @@ async fn execute_sql(conn: &DatabaseConnection, sql: &str) -> Result<(), sea_orm
 fn configure_sqlite_connections(options: &mut ConnectOptions) {
     options.map_sqlx_sqlite_opts(|sqlite| {
         sqlite
+            .statement_cache_capacity(SQLITE_STATEMENT_CACHE_CAPACITY)
             .journal_mode(SqliteJournalMode::Wal)
-            .busy_timeout(Duration::from_secs(5))
+            .busy_timeout(SQLITE_BUSY_TIMEOUT)
             .synchronous(SqliteSynchronous::Normal)
             .foreign_keys(true)
-            .pragma("cache_size", "-8000")
+            .pragma("cache_size", SQLITE_CACHE_SIZE_KIB.to_string())
+            .pragma("temp_store", "MEMORY")
+            .pragma(
+                "wal_autocheckpoint",
+                SQLITE_WAL_AUTOCHECKPOINT_PAGES.to_string(),
+            )
+            .pragma("mmap_size", SQLITE_MMAP_SIZE_BYTES.to_string())
     });
+}
+
+fn is_sqlite_busy(error: &DbError) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("database is locked")
+        || message.contains("database table is locked")
+        || message.contains("database schema is locked")
+        || message.contains("database is busy")
+        || message.contains("database or disk is busy")
+        || message.contains("(code: 5)")
+        || message.contains("(code: 6)")
+        || message.contains("(code: 517)")
+}
+
+/// Retry an idempotent maintenance transaction after a transient SQLite lock.
+/// Callers must keep the operation transaction-scoped so a failed attempt can
+/// be safely replayed after rollback.
+pub(crate) async fn retry_sqlite_maintenance<T, F, Fut>(
+    operation: &'static str,
+    mut task: F,
+) -> Result<T, DbError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, DbError>>,
+{
+    for attempt in 0..=SQLITE_MAINTENANCE_RETRIES {
+        match task().await {
+            Ok(value) => return Ok(value),
+            Err(error) if attempt < SQLITE_MAINTENANCE_RETRIES && is_sqlite_busy(&error) => {
+                let delay = SQLITE_MAINTENANCE_RETRY_BASE * 2_u32.pow(attempt as u32);
+                tracing::warn!(
+                    operation,
+                    attempt = attempt + 1,
+                    max_retries = SQLITE_MAINTENANCE_RETRIES,
+                    delay_ms = delay.as_millis(),
+                    error = %error,
+                    "SQLite maintenance transaction is locked; retrying"
+                );
+                tokio::time::sleep(delay).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("SQLite maintenance retry loop always returns")
 }

@@ -631,6 +631,13 @@ pub async fn list_active_runs(
 /// interruption. Fail them (never fake success, never re-fire — the automation
 /// re-fires naturally on its next schedule). Returns how many were reconciled.
 pub async fn boot_reconcile_interrupted(conn: &DatabaseConnection) -> Result<u64, DbError> {
+    crate::db::retry_sqlite_maintenance("automation.boot_reconcile_interrupted", || {
+        boot_reconcile_interrupted_once(conn)
+    })
+    .await
+}
+
+async fn boot_reconcile_interrupted_once(conn: &DatabaseConnection) -> Result<u64, DbError> {
     let active = list_active_runs(conn).await?;
     let mut n = 0;
     for r in active {
@@ -720,6 +727,13 @@ pub async fn claim_due(
 /// Best-effort retention: soft-hide conversations owned by expired terminal
 /// runs, then delete those run rows. Session files and worktrees are untouched.
 pub async fn prune_old_runs(conn: &DatabaseConnection, keep_days: i64) -> Result<u64, DbError> {
+    crate::db::retry_sqlite_maintenance("automation.prune_old_runs", || {
+        prune_old_runs_once(conn, keep_days)
+    })
+    .await
+}
+
+async fn prune_old_runs_once(conn: &DatabaseConnection, keep_days: i64) -> Result<u64, DbError> {
     use sea_orm::TransactionTrait;
 
     let cutoff = Utc::now() - chrono::Duration::days(keep_days);

@@ -719,6 +719,8 @@ mod tauri_app {
                 let system_skills_data_dir = effective_data_dir.clone();
                 let system_skills_emitter =
                     crate::web::event_bridge::EventEmitter::Tauri(app.handle().clone());
+                let (startup_maintenance_ready_tx, startup_maintenance_ready_rx) =
+                    tokio::sync::oneshot::channel();
                 tauri::async_runtime::spawn(async move {
                     let report = crate::commands::experts::ensure_central_experts_installed().await;
                     if !report.errors.is_empty() {
@@ -793,6 +795,7 @@ mod tauri_app {
                             tracing::warn!("[internet-tools] startup bootstrap failed: {error}");
                         }
                     }
+                    let _ = startup_maintenance_ready_tx.send(());
                 });
 
                 // Reclaim orphaned chat scratch dirs (pre-send drafts that never
@@ -985,27 +988,6 @@ mod tauri_app {
                     broker
                 };
 
-                // Prewarm can spawn a Codex runtime Host, so schedule it only
-                // after the built-in HTTP MCP startup attempt completes.
-                let runtime_prewarm_manager = app.state::<ConnectionManager>().clone_ref();
-                tauri::async_runtime::spawn(async move {
-                    let prewarm_started = std::time::Instant::now();
-                    match runtime_prewarm_manager.prewarm_codex_runtime().await {
-                        Ok(true) => tracing::info!(
-                            elapsed_ms = prewarm_started.elapsed().as_millis(),
-                            "[ACP][startup] Codex runtime Host prewarmed"
-                        ),
-                        Ok(false) => tracing::info!(
-                            "[ACP][startup] Codex runtime Host prewarm disabled"
-                        ),
-                        Err(error) => tracing::info!(
-                            elapsed_ms = prewarm_started.elapsed().as_millis(),
-                            error = %error,
-                            "[ACP][startup] Codex runtime Host prewarm deferred"
-                        ),
-                    }
-                });
-
                 // Start chat channel tasks only after the built-in HTTP MCP
                 // startup attempt completes.
                 {
@@ -1183,6 +1165,46 @@ mod tauri_app {
                     event = "startup_ready",
                     "desktop startup completed"
                 );
+                // Prewarm is deliberately scheduled after the window is usable and
+                // after startup maintenance has had a chance to release its DB
+                // writes. The bounded wait keeps a stuck maintenance task from
+                // blocking prewarm forever, while the delay avoids competing with
+                // first-screen initialization on slower HDD-backed profiles.
+                let runtime_prewarm_manager = app.state::<ConnectionManager>().clone_ref();
+                tauri::async_runtime::spawn(async move {
+                    let wait_started = std::time::Instant::now();
+                    let maintenance = tokio::time::timeout(
+                        std::time::Duration::from_secs(30),
+                        startup_maintenance_ready_rx,
+                    )
+                    .await;
+                    let wait_outcome = match maintenance {
+                        Ok(Ok(())) => "maintenance_ready",
+                        Ok(Err(_)) => "maintenance_channel_closed",
+                        Err(_) => "maintenance_timeout",
+                    };
+                    tracing::info!(
+                        wait_outcome,
+                        wait_ms = wait_started.elapsed().as_millis(),
+                        "[ACP][startup] Codex runtime prewarm gate released"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    let prewarm_started = std::time::Instant::now();
+                    match runtime_prewarm_manager.prewarm_codex_runtime().await {
+                        Ok(true) => tracing::info!(
+                            elapsed_ms = prewarm_started.elapsed().as_millis(),
+                            "[ACP][startup] Codex runtime Host prewarmed"
+                        ),
+                        Ok(false) => tracing::info!(
+                            "[ACP][startup] Codex runtime Host prewarm disabled"
+                        ),
+                        Err(error) => tracing::info!(
+                            elapsed_ms = prewarm_started.elapsed().as_millis(),
+                            error = %error,
+                            "[ACP][startup] Codex runtime Host prewarm deferred"
+                        ),
+                    }
+                });
                 setup_stage.complete();
                 crate::logging::emergency::set_process_stage("runtime");
                 Ok(())
