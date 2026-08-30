@@ -54,7 +54,7 @@ impl BrowserSessionManager {
             runtime_cleanup_error = runtime_result.as_ref().err().map(|error| error.message.as_str()),
             "browser controller exited unexpectedly"
         );
-        tabs_result.is_ok() && runtime_result.is_ok()
+        runtime_result.is_ok()
     }
 
     pub(super) fn schedule_recovery(&self, runtime: Arc<BrowserRuntime>, failed_generation: u64) {
@@ -83,11 +83,12 @@ impl BrowserSessionManager {
             };
             match outcome {
                 Ok(context) => {
-                    self.recover_tabs(&context, &plan).await;
+                    let restored_tabs = self.recover_tabs(&context, &plan).await;
                     tracing::info!(
                         target: "iyw_claw_browser",
                         runtime_generation = context.generation,
-                        restored_tabs = plan.tabs.len(),
+                        restored_tabs,
+                        planned_tabs = plan.tabs.len(),
                         "browser runtime recovery completed"
                     );
                     return;
@@ -133,11 +134,11 @@ impl BrowserSessionManager {
         Some((plan, outcome))
     }
 
-    async fn recover_tabs(&self, runtime: &BrowserRuntimeContext, plan: &RecoveryPlan) {
+    async fn recover_tabs(&self, runtime: &BrowserRuntimeContext, plan: &RecoveryPlan) -> usize {
         let epoch = self.current_shutdown_epoch();
         let _tab_guard = self.tab_open_lock.lock().await;
         if self.ensure_shutdown_epoch(epoch).is_err() {
-            return;
+            return 0;
         }
         let cancellation = self.shutdown_cancellation().await;
         let tasks = plan.tabs.iter().cloned().map(|tab| {
@@ -146,15 +147,20 @@ impl BrowserSessionManager {
             let cancellation = cancellation.clone();
             async move { manager.recover_tab(&runtime, tab, cancellation).await }
         });
+        let mut restored = 0;
         for result in join_all(tasks).await {
-            if let Err(error) = result {
-                tracing::warn!(
-                    target: "iyw_claw_browser",
-                    error_code = ?error.code,
-                    "logical browser tab could not be restored"
-                );
+            match result {
+                Ok(()) => restored += 1,
+                Err(error) => {
+                    tracing::warn!(
+                        target: "iyw_claw_browser",
+                        error_code = ?error.code,
+                        "logical browser tab could not be restored"
+                    );
+                }
             }
         }
+        restored
     }
 
     async fn recover_tab(

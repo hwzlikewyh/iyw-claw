@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use super::error::{BrowserError, BrowserErrorCode};
-use super::types::{BrowserHostKind, BrowserStateSnapshot};
+use super::types::{BrowserHostKind, BrowserStateSnapshot, BrowserTabStatus};
 
 pub(super) const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 pub(super) const SNAPSHOT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
@@ -32,7 +32,13 @@ pub(super) fn default_agent_tab_id(state: &BrowserStateSnapshot) -> Option<Strin
     [BrowserHostKind::Docked, BrowserHostKind::Detached]
         .into_iter()
         .find_map(|kind| active_host_tab(state, kind))
-        .or_else(|| state.tabs.first().map(|tab| tab.browser_tab_id.clone()))
+        .or_else(|| {
+            state
+                .tabs
+                .iter()
+                .find(|tab| tab.status == BrowserTabStatus::Live)
+                .map(|tab| tab.browser_tab_id.clone())
+        })
 }
 
 pub(super) fn preferred_agent_host_id(state: &BrowserStateSnapshot) -> Option<String> {
@@ -53,7 +59,7 @@ fn active_host_tab(state: &BrowserStateSnapshot, kind: BrowserHostKind) -> Optio
             state
                 .tabs
                 .iter()
-                .any(|tab| tab.browser_tab_id == *tab_id)
+                .any(|tab| tab.browser_tab_id == *tab_id && tab.status == BrowserTabStatus::Live)
                 .then(|| tab_id.clone())
         })
 }

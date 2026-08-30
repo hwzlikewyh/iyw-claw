@@ -43,7 +43,8 @@ impl BrowserSessionManager {
         }
     }
 
-    pub(super) async fn handle_cdp_disconnect(&self, generation: u64) {
+    pub(super) async fn handle_cdp_disconnect(&self, generation: u64, reason: String) {
+        let reason = reason.chars().take(128).collect::<String>();
         let accepted = self
             .record_runtime_exit(generation, "BROWSER_CDP_DISCONNECTED".to_string())
             .await;
@@ -64,13 +65,11 @@ impl BrowserSessionManager {
         let mut recovered = false;
         if let Some(runtime) = &self.runtime {
             let runtime_result = runtime.stop().await;
-            let tabs_result = if tabs_result.is_err() && runtime_result.is_ok() {
-                self.finish_shutdown_tabs_after_runtime().await
-            } else {
-                tabs_result
-            };
+            if tabs_result.is_err() && runtime_result.is_ok() {
+                let _ = self.finish_shutdown_tabs_after_runtime().await;
+            }
             self.observer.lock().await.take();
-            if tabs_result.is_ok() && runtime_result.is_ok() {
+            if runtime_result.is_ok() {
                 self.schedule_recovery(runtime.clone(), generation);
                 recovered = true;
             }
@@ -81,6 +80,7 @@ impl BrowserSessionManager {
             target: "iyw_claw_browser",
             runtime_generation = generation,
             recovery_scheduled = recovered,
+            disconnect_reason = %reason,
             "browser CDP observer disconnected unexpectedly"
         );
     }

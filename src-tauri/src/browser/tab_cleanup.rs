@@ -239,7 +239,14 @@ pub(super) async fn close_target_by_id(
         .await
     {
         Ok(_) => Ok(()),
-        Err(error) if error.code == BrowserErrorCode::BrowserTabGone => Ok(()),
+        Err(error)
+            if matches!(
+                error.code,
+                BrowserErrorCode::BrowserTabGone | BrowserErrorCode::BrowserRuntimeUnavailable
+            ) =>
+        {
+            Ok(())
+        }
         Err(error) => Err(error),
     }
 }

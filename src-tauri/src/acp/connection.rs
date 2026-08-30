@@ -3058,6 +3058,7 @@ async fn run_connection(
     http_lease_issued: Arc<AtomicBool>,
 ) -> Result<(), AcpError> {
     let mut attempt_agent = Some(agent);
+    let mut reconnect_attempts = 0usize;
     let attempt_stderr_tail = stderr_tail;
     loop {
         let agent = attempt_agent
@@ -3203,6 +3204,8 @@ async fn run_connection(
         let mut cmd_rx = &mut cmd_rx;
         let attempt_cancellation = cancellation.clone();
         let authority_parent_cancellation = attempt_cancellation.clone();
+        let reconnect_session_id = session_id.clone();
+        let reconnect_host_health = Arc::clone(&host_health);
         let connection = async move {
             let state = state_outer;
             let managed_agent_version = state.read().await.managed_agent_version.clone();
@@ -3951,6 +3954,33 @@ async fn run_connection(
         match result {
             Ok(()) => return Ok(()),
             Err(ConnectionAttemptError::Protocol(error)) => {
+                let can_reconnect = reconnect_session_id.is_some()
+                    && !cancellation.is_cancelled()
+                    && !reconnect_host_health.load(Ordering::Acquire)
+                    && reconnect_attempts < 1;
+                if can_reconnect {
+                    reconnect_attempts += 1;
+                    tracing::warn!(
+                        connection_id,
+                        agent = %agent_type,
+                        attempt = reconnect_attempts,
+                        session_id = reconnect_session_id.as_deref().unwrap_or(""),
+                        error = %safe_error_detail(&error.to_string()),
+                        "[ACP] reconnecting after runtime Host failure"
+                    );
+                    emit_with_state(
+                        &state,
+                        &emitter,
+                        AcpEvent::StatusChanged {
+                            status: ConnectionStatus::Connecting,
+                        },
+                    )
+                    .await;
+                    attempt_agent =
+                        Some(rebuild_agent(&agent_rebuild, &attempt_stderr_tail).await?);
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                    continue;
+                }
                 return Err(AcpError::protocol(safe_error_detail(&error.to_string())));
             }
             Err(ConnectionAttemptError::BuiltinMcp(error)) => return Err(error),
@@ -5434,6 +5464,36 @@ fn prompt_error_kind(detail: &str) -> &'static str {
     }
 }
 
+struct StreamDisconnectContext<'a> {
+    state: &'a Arc<RwLock<SessionState>>,
+    emitter: &'a EventEmitter,
+    permissions: &'a PendingPermissions,
+    session_id: &'a str,
+    agent_type: AgentType,
+}
+
+async fn finish_stream_disconnected_turn(context: StreamDisconnectContext<'_>) {
+    let active = context.state.read().await.turn_in_flight;
+    if !active {
+        return;
+    }
+    tracing::warn!(
+        session_id = context.session_id,
+        agent_type = %context.agent_type,
+        "[ACP] completing interrupted turn after stream disconnect"
+    );
+    PermissionRuntime::new(context.state, context.emitter, context.permissions)
+        .drain_then_emit(
+            "stream_disconnected",
+            AcpEvent::TurnComplete {
+                session_id: context.session_id.to_string(),
+                stop_reason: "stream_disconnected".into(),
+                agent_type: context.agent_type.to_string(),
+            },
+        )
+        .await;
+}
+
 fn auto_continuation_is_active(state: &SessionState) -> bool {
     state
         .auto_continuation
@@ -5924,6 +5984,14 @@ async fn run_conversation_loop<'a>(
                                             error = %safe_error_detail(&e.to_string()),
                                             "[ACP] runtime Host became unhealthy"
                                         );
+                                        finish_stream_disconnected_turn(StreamDisconnectContext {
+                                            state,
+                                            emitter,
+                                            permissions: perms,
+                                            session_id: sid.0.as_ref(),
+                                            agent_type,
+                                        })
+                                        .await;
                                         return Err(e);
                                     }
                                     output_probe.note_dropped(DropSite::Decode, &e);
@@ -6230,6 +6298,14 @@ async fn run_conversation_loop<'a>(
                                             error = %safe_error_detail(&error.to_string()),
                                             "[ACP] prompt RPC failed on an unusable transport"
                                         );
+                                        finish_stream_disconnected_turn(StreamDisconnectContext {
+                                            state,
+                                            emitter,
+                                            permissions: perms,
+                                            session_id: sid.0.as_ref(),
+                                            agent_type,
+                                        })
+                                        .await;
                                         return Err(error);
                                     }
                                     let detail = safe_error_detail(&error.to_string());

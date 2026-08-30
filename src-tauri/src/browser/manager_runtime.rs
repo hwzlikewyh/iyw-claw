@@ -184,11 +184,19 @@ impl BrowserSessionManager {
     ) -> Result<(), BrowserError> {
         self.cancel_cdp_observer_without_wait().await;
         let result = self.stop_runtime_owners(runtime).await;
+        let runtime_stopped = runtime.context().await.is_none();
         let failure_code = result
             .as_ref()
             .err()
             .map(|error| format!("{:?}", error.code));
         self.state.write().await.finish_runtime_stop(failure_code);
+        if result.is_err() && runtime_stopped {
+            tracing::warn!(
+                target: "iyw_claw_browser",
+                "browser cleanup had retained owners; allowing runtime restart"
+            );
+            return Ok(());
+        }
         result
     }
 

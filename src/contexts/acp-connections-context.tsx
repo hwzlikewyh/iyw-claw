@@ -3889,6 +3889,11 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           break
         }
         case "error": {
+          // Stream disconnect is completed by the following TurnComplete event.
+          // Keep this transport detail silent in the user-facing UI.
+          if (e.code === "stream_disconnected") {
+            break
+          }
           flushStreamingQueue()
           if (
             isInsufficientBalanceError(e.message, e.code) &&

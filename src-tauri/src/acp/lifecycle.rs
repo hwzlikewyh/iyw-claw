@@ -395,9 +395,12 @@ pub(crate) async fn handle_event(
             // frontend-driven.
             let target_status = match stop_reason.as_str() {
                 "end_turn" => Some(ConversationStatus::PendingReview),
-                "refusal" | "max_tokens" | "max_turn_requests" | "unknown" | "empty" => {
-                    Some(ConversationStatus::Cancelled)
-                }
+                "refusal"
+                | "max_tokens"
+                | "max_turn_requests"
+                | "unknown"
+                | "empty"
+                | "stream_disconnected" => Some(ConversationStatus::Cancelled),
                 // `cancelled` and any future reason: don't write here.
                 _ => None,
             };

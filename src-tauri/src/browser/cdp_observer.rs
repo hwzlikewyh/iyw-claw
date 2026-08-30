@@ -160,7 +160,7 @@ async fn run_observer<S>(
     let mut sessions = HashMap::new();
     let mut frames = HashMap::new();
     let mut next_id = 1_u64;
-    let mut disconnected = false;
+    let mut disconnect_reason = None;
     loop {
         tokio::select! {
             _ = cancellation.cancelled() => {
@@ -180,20 +180,26 @@ async fn run_observer<S>(
                     SOCKET_WRITE_TIMEOUT,
                 ).await.is_err() {
                     let _ = request.response.send(Err(unavailable()));
-                    disconnected = true;
+                    disconnect_reason = Some("socket_write_failed".to_string());
                     break;
                 }
                 pending.insert(id, request.response);
             }
             incoming = source.next() => {
-                let Some(result) = incoming else { disconnected = true; break; };
-                let Ok(message) = result else { disconnected = true; break; };
+                let Some(result) = incoming else {
+                    disconnect_reason = Some("socket_eof".to_string());
+                    break;
+                };
+                let Ok(message) = result else {
+                    disconnect_reason = Some("socket_read_failed".to_string());
+                    break;
+                };
                 if let Message::Text(text) = message {
                     if handle_message(
                         &text, &mut pending, &mut sessions, &mut frames,
                         &manager, generation, &mut sink, &mut next_id,
                     ).await.is_err() {
-                        disconnected = true;
+                        disconnect_reason = Some("event_dispatch_failed".to_string());
                         break;
                     }
                 }
@@ -203,8 +209,8 @@ async fn run_observer<S>(
     for (_, response) in pending {
         let _ = response.send(Err(unavailable()));
     }
-    if disconnected && !cancellation.is_cancelled() {
-        manager.handle_cdp_disconnect(generation).await;
+    if let Some(reason) = disconnect_reason.filter(|_| !cancellation.is_cancelled()) {
+        manager.handle_cdp_disconnect(generation, reason).await;
     }
 }
 

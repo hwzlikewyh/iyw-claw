@@ -136,8 +136,11 @@ impl BrowserRuntime {
         cancellation: CancellationToken,
     ) -> Result<BrowserRuntimeContext, BrowserError> {
         let _mutation = self.mutation.lock().await;
-        if self.pending_cleanup.lock().await.is_some() {
-            return Err(incomplete_cleanup_error());
+        if let Some(mut cleanup) = self.pending_cleanup.lock().await.take() {
+            if let Err(error) = runtime_launch::cleanup_partial_owner(&mut cleanup).await {
+                *self.pending_cleanup.lock().await = Some(cleanup);
+                return Err(error);
+            }
         }
         if let Some(context) = self.context().await {
             return (context.generation == generation)
