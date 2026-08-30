@@ -6,26 +6,15 @@ const CHUNK_BYTES = 128 * 1024
 
 export class AssetUrlCache {
   private readonly entries = new Map<string, Entry>()
-  private readonly pending = new Map<string, Promise<string>>()
+  private readonly pending = new Map<string, { promise: Promise<string>; generation: number }>()
+  private readonly generations = new Map<string, number>()
   private disposed = false
 
   async acquire(sha256: string, bytes: number, mimeType: string, read: AssetReader): Promise<string> {
-    if (this.disposed) throw new Error("asset cache is disposed")
-    const key = `${sha256}:${mimeType}`
-    const cached = this.entries.get(key)
-    if (cached) {
-      cached.refs += 1
-      return cached.url
-    }
-    const existing = this.pending.get(key)
-    const url = existing ?? Promise.resolve().then(() => this.load(sha256, bytes, mimeType, read))
-    if (!existing) this.pending.set(key, url)
-    let resolved: string
-    try { resolved = await url } finally { if (this.pending.get(key) === url) this.pending.delete(key) }
-    const entry = this.entries.get(key)
+    const url = await this.getOrCreate(sha256, bytes, mimeType, read)
+    const entry = this.entries.get(`${sha256}:${mimeType}`)
     if (entry) entry.refs += 1
-    else this.entries.set(key, { url: resolved, refs: 1 })
-    return resolved
+    return url
   }
 
   async getOrCreate(sha256: string, bytes: number, mimeType: string, read: AssetReader): Promise<string> {
@@ -34,14 +23,15 @@ export class AssetUrlCache {
     const cached = this.entries.get(key)
     if (cached) return cached.url
     const pending = this.pending.get(key)
-    const url = pending ?? Promise.resolve().then(() => this.load(sha256, bytes, mimeType, read))
-    if (!pending) this.pending.set(key, url)
+    const url = pending?.promise ?? Promise.resolve().then(() => this.load(sha256, bytes, mimeType, read))
+    if (!pending) this.pending.set(key, { promise: url, generation: this.generations.get(key) ?? 0 })
     try {
       const resolved = await url
-      if (this.disposed) { URL.revokeObjectURL(resolved); throw new Error("asset cache is disposed") }
+      const current = this.pending.get(key)
+      if (this.disposed || !current || current.promise !== url || current.generation !== (this.generations.get(key) ?? 0)) { URL.revokeObjectURL(resolved); throw new Error("asset cache is disposed") }
       if (!this.entries.has(key)) this.entries.set(key, { url: resolved, refs: 0 })
       return resolved
-    } finally { if (this.pending.get(key) === url) this.pending.delete(key) }
+    } finally { if (this.pending.get(key)?.promise === url) this.pending.delete(key) }
   }
 
   release(sha256: string, mimeType: string): void {
@@ -59,6 +49,7 @@ export class AssetUrlCache {
     for (const entry of this.entries.values()) URL.revokeObjectURL(entry.url)
     this.entries.clear()
     this.pending.clear()
+    this.generations.clear()
   }
 
   retain(keys: ReadonlySet<string>): void {
@@ -66,6 +57,10 @@ export class AssetUrlCache {
       if (keys.has(key)) continue
       URL.revokeObjectURL(entry.url)
       this.entries.delete(key)
+    }
+    for (const [key, pending] of this.pending) {
+      if (keys.has(key)) continue
+      this.generations.set(key, pending.generation + 1)
     }
   }
 

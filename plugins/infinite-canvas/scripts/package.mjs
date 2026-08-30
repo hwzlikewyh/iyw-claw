@@ -4,7 +4,7 @@ import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
-const output = join(root, "dist/infinite-canvas-0.1.10.zip")
+const output = join(root, "dist/infinite-canvas-0.1.11.zip")
 const included = [".iyw-plugin.json", "runtime/dist/infinite-canvas-mcp.mjs", "widget/dist/infinite-canvas-widget.html", "contracts", "skills", "LICENSE", "THIRD_PARTY_NOTICES.md", "upstream.json", "dist/license-report.json"]
 const files = await collect(included)
 files.sort((left, right) => left.path.localeCompare(right.path))

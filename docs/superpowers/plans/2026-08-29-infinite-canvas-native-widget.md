@@ -56,7 +56,7 @@
 import { App } from "@modelcontextprotocol/ext-apps"
 
 const app = new App(
-  { name: "Infinite Canvas", version: "0.1.10" },
+  { name: "Infinite Canvas", version: "0.1.11" },
   { availableDisplayModes: ["inline", "fullscreen"] },
 )
 

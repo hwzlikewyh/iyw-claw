@@ -7,7 +7,7 @@ import { listResources, readResource } from "./resource.js"
 
 export function createInfiniteCanvasServer() {
   const handlers = createToolHandlers()
-  const server = new Server({ name: "infinite-canvas", version: "0.1.10" }, { capabilities: { tools: {}, resources: {} } })
+  const server = new Server({ name: "infinite-canvas", version: "0.1.11" }, { capabilities: { tools: {}, resources: {} } })
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: Object.entries(contracts).map(([name, value]) => ({ name, description: value.description, inputSchema: value.inputSchema, annotations: { readOnlyHint: value.readOnlyHint } })) }))
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     try { const result = await handlers.call(request.params.name, (request.params.arguments ?? {}) as Record<string, unknown>); return { content: [{ type: "text", text: JSON.stringify(result.data) }] } }

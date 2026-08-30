@@ -5,7 +5,7 @@ import { CanvasRuntimeError, invalid } from "./errors.js"
 import { rejectSymlinkPath, storageRoot } from "./paths.js"
 import { SceneStore } from "./scene-store.js"
 import { AssetStore } from "./asset-store.js"
-import type { CanvasOperation, CanvasScene } from "./types.js"
+import { MAX_OPERATIONS, type CanvasOperation, type CanvasScene } from "./types.js"
 import { listCowartPages, readCowartPage } from "./migration/cowart-reader.js"
 import { mapCowartPage } from "./migration/cowart-mapper.js"
 import { writeMigrationReport } from "./migration/cowart-report.js"
@@ -98,7 +98,7 @@ async function saveSelection(store: SceneStore, args: JsonObject): Promise<ToolR
 async function applyOps(store: SceneStore, args: JsonObject): Promise<ToolResult> {
   const canvasId = stringArg(args, "canvasId")
   const baseRevision = integerArg(args, "baseRevision")
-  if (!Array.isArray(args.operations) || args.operations.length < 1) throw invalid("operations_invalid")
+  if (!Array.isArray(args.operations) || args.operations.length < 1 || args.operations.length > MAX_OPERATIONS) throw invalid("operations_invalid")
   const scene = await store.apply(canvasId, baseRevision, args.operations as CanvasOperation[])
   return { data: sceneSummary(scene) }
 }
