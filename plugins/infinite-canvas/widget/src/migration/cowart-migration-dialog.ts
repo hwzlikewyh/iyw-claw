@@ -2,6 +2,17 @@ import type { App } from "@modelcontextprotocol/ext-apps"
 
 export type MigrationSummary = { pageId: string; targetCanvasId: string; mapped: number; skipped: number; warnings: string[] }
 
+export type CowartPageSummary = { pageId: string; sourcePath: string; sourceSha256: string; bytes: number; updatedAt: string }
+
+export async function discoverCowartPages(app: App): Promise<CowartPageSummary[]> {
+  const result = await app.callServerTool({ name: "migrate_cowart_canvas", arguments: { listOnly: true } })
+  if (result.isError) throw new Error("Cowart page discovery failed")
+  const text = (result.content as Array<{ type: string; text?: string }>).find((item) => item.type === "text")?.text
+  if (!text) throw new Error("Cowart page discovery is empty")
+  const value = JSON.parse(text) as { pages?: CowartPageSummary[] }
+  return Array.isArray(value.pages) ? value.pages : []
+}
+
 export async function previewCowartMigration(app: App, pageId: string): Promise<MigrationSummary> {
   const result = await app.callServerTool({ name: "migrate_cowart_canvas", arguments: { pageId, dryRun: true } })
   if (result.isError) throw new Error("Cowart migration preview failed")

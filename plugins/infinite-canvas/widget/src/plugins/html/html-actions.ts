@@ -22,7 +22,7 @@ export function sanitizeHtml(source: string): string {
   return `<!doctype html>${documentValue.documentElement.outerHTML}`
 }
 
-export async function requestHtml(app: App, canvasId: string, prompt: string, targetNodeId?: string): Promise<void> {
-  const request = newCreativeRequest(targetNodeId ? "html.edit" : "html.generate", canvasId, prompt, [], targetNodeId, 0)
+export async function requestHtml(app: App, canvasId: string, prompt: string, targetNodeId?: string, revision = 0): Promise<void> {
+  const request = newCreativeRequest(targetNodeId ? "html.edit" : "html.generate", canvasId, prompt, [], targetNodeId, revision)
   await sendCreativeRequest(app, request)
 }

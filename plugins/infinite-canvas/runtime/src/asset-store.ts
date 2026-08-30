@@ -3,55 +3,68 @@ import { mkdir, open, readFile, rename, stat, readdir, unlink, copyFile } from "
 import { createReadStream } from "node:fs"
 import { basename, extname, join } from "node:path"
 import { CanvasRuntimeError, invalid } from "./errors.js"
-import { assertWithin, pluginDataRoot, rejectSymlink, storageRoot, workspacePath } from "./paths.js"
+import { assertWithin, pluginDataRoot, rejectSymlink, rejectSymlinkPath, storageRoot, workspacePath } from "./paths.js"
 import type { AssetRef } from "./types.js"
 
 const CHUNK_BYTES = 128 * 1024
 const SHA_PATTERN = /^[a-f0-9]{64}$/
 
-type Upload = { id: string; path: string; name: string; mimeType: string; expectedBytes: number; expectedSha256: string; nextIndex: number; bytes: number }
+type Upload = { id: string; path: string; name: string; mimeType: string; expectedBytes: number; expectedSha256: string; nextIndex: number; bytes: number; lock: Promise<void> }
 
 export class AssetStore {
   private readonly uploads = new Map<string, Upload>()
+  private closing = false
 
   async begin(name: string, mimeType: string, expectedBytes: number, expectedSha256: string): Promise<{ uploadId: string }> {
+    if (this.closing) throw new CanvasRuntimeError("runtime_unavailable", "asset store is closing")
     if (!Number.isSafeInteger(expectedBytes) || expectedBytes < 1 || !SHA_PATTERN.test(expectedSha256)) throw invalid("asset_upload_metadata_invalid")
     const id = randomUUID()
     const root = join(pluginDataRoot(), "uploads")
+    await rejectSymlinkPath(root)
     await mkdir(root, { recursive: true })
     const path = join(root, `${id}.part`)
     const handle = await open(path, "wx")
     await handle.close()
-    this.uploads.set(id, { id, path, name, mimeType, expectedBytes, expectedSha256, nextIndex: 0, bytes: 0 })
+    this.uploads.set(id, { id, path, name, mimeType, expectedBytes, expectedSha256, nextIndex: 0, bytes: 0, lock: Promise.resolve() })
     return { uploadId: id }
   }
 
   async writeChunk(uploadId: string, chunkIndex: number, dataBase64: string): Promise<{ bytes: number; nextIndex: number }> {
     const upload = this.uploads.get(uploadId)
     if (!upload || !Number.isInteger(chunkIndex) || chunkIndex !== upload.nextIndex) throw new CanvasRuntimeError("asset_upload_invalid", "upload chunk index is invalid")
-    const data = decodeChunk(dataBase64)
-    if (upload.bytes + data.byteLength > upload.expectedBytes) throw new CanvasRuntimeError("asset_upload_invalid", "asset exceeds declared size")
-    const handle = await open(upload.path, "a")
-    try { await handle.write(data) } finally { await handle.close() }
-    upload.bytes += data.byteLength
-    upload.nextIndex += 1
-    return { bytes: upload.bytes, nextIndex: upload.nextIndex }
+    return this.withUploadLock(upload, async () => {
+      if (this.uploads.get(uploadId) !== upload) throw new CanvasRuntimeError("asset_upload_invalid", "upload is no longer active")
+      if (chunkIndex !== upload.nextIndex) throw new CanvasRuntimeError("asset_upload_invalid", "upload chunk index is invalid")
+      const data = decodeChunk(dataBase64)
+      if (upload.bytes + data.byteLength > upload.expectedBytes) throw new CanvasRuntimeError("asset_upload_invalid", "asset exceeds declared size")
+      const handle = await open(upload.path, "a")
+      try { await handle.write(data) } finally { await handle.close() }
+      upload.bytes += data.byteLength
+      upload.nextIndex += 1
+      return { bytes: upload.bytes, nextIndex: upload.nextIndex }
+    })
   }
 
   async finalize(uploadId: string): Promise<AssetRef> {
     const upload = this.uploads.get(uploadId)
     if (!upload) throw new CanvasRuntimeError("asset_upload_invalid", "upload is not active")
-    if (upload.bytes !== upload.expectedBytes) throw new CanvasRuntimeError("asset_upload_incomplete", "asset size is incomplete", { bytes: upload.bytes, expectedBytes: upload.expectedBytes })
-    const hash = await hashFile(upload.path)
-    if (hash !== upload.expectedSha256) {
-      await this.discard(upload)
-      throw new CanvasRuntimeError("asset_hash_mismatch", "asset hash does not match", { expectedSha256: upload.expectedSha256 })
-    }
-    const target = await this.uniqueAssetPath(hash, upload.name)
-    await mkdir(join(storageRoot(), "assets"), { recursive: true })
-    await rename(upload.path, target)
-    this.uploads.delete(uploadId)
-    return { sha256: hash, mimeType: upload.mimeType, bytes: upload.bytes, path: this.relativeAssetPath(target) }
+    return this.withUploadLock(upload, async () => {
+      if (this.uploads.get(uploadId) !== upload) throw new CanvasRuntimeError("asset_upload_invalid", "upload is no longer active")
+      if (upload.bytes !== upload.expectedBytes) throw new CanvasRuntimeError("asset_upload_incomplete", "asset size is incomplete", { bytes: upload.bytes, expectedBytes: upload.expectedBytes })
+      const hash = await hashFile(upload.path)
+      if (hash !== upload.expectedSha256) {
+        await this.discard(upload)
+        throw new CanvasRuntimeError("asset_hash_mismatch", "asset hash does not match", { expectedSha256: upload.expectedSha256 })
+      }
+      const target = await this.uniqueAssetPath(hash, upload.name)
+      const assetRoot = join(storageRoot(), "assets")
+      await rejectSymlinkPath(assetRoot)
+      await mkdir(assetRoot, { recursive: true })
+      if (target.existing) await unlink(upload.path)
+      else await rename(upload.path, target.path)
+      this.uploads.delete(uploadId)
+      return { sha256: hash, mimeType: upload.mimeType, bytes: upload.bytes, path: this.relativeAssetPath(target.path) }
+    })
   }
 
   async importSource(sourcePath: string, name: string, mimeType: string, expectedSha256?: string): Promise<AssetRef> {
@@ -61,13 +74,20 @@ export class AssetStore {
     if (!info.isFile()) throw invalid("asset_source_not_file")
     const hash = await hashFile(source)
     if (expectedSha256 && hash !== expectedSha256) throw new CanvasRuntimeError("asset_hash_mismatch", "source asset hash does not match")
-    await mkdir(join(storageRoot(), "assets"), { recursive: true })
+    const assetRoot = join(storageRoot(), "assets")
+    await rejectSymlinkPath(assetRoot)
+    await mkdir(assetRoot, { recursive: true })
     const upload = await this.begin(name || basename(source), mimeType, info.size, hash)
     const state = this.uploads.get(upload.uploadId)
     if (!state) throw new CanvasRuntimeError("asset_upload_invalid", "source upload is not active")
-    await copyFile(source, state.path)
-    state.bytes = info.size
-    return this.finalize(upload.uploadId)
+    try {
+      await copyFile(source, state.path)
+      state.bytes = info.size
+      return await this.finalize(upload.uploadId)
+    } catch (error) {
+      await this.cancel(upload.uploadId)
+      throw error
+    }
   }
 
   async readSourceText(sourcePath: string, maxBytes = 200_000): Promise<string> {
@@ -87,8 +107,14 @@ export class AssetStore {
   }
 
   async close(): Promise<void> {
-    await Promise.all([...this.uploads.values()].map((upload) => unlink(upload.path).catch(() => undefined)))
-    this.uploads.clear()
+    this.closing = true
+    await Promise.all([...this.uploads.values()].map((upload) => this.withUploadLock(upload, async () => { await unlink(upload.path).catch(() => undefined); this.uploads.delete(upload.id) })))
+  }
+
+  async cancel(uploadId: string): Promise<void> {
+    const upload = this.uploads.get(uploadId)
+    if (!upload) return
+    await this.withUploadLock(upload, async () => { if (this.uploads.get(uploadId) === upload) await this.discard(upload) })
   }
 
   private async discard(upload: Upload): Promise<void> {
@@ -103,17 +129,31 @@ export class AssetStore {
     })
     const name = entries.find((entry) => entry.startsWith(`${sha256}.`))
     if (!name) throw new CanvasRuntimeError("asset_not_found", "asset was not found")
-    return assertWithin(join(storageRoot(), "assets"), join(storageRoot(), "assets", name))
+    const path = assertWithin(join(storageRoot(), "assets"), join(storageRoot(), "assets", name))
+    await rejectSymlinkPath(path)
+    return path
   }
 
-  private async uniqueAssetPath(hash: string, name: string): Promise<string> {
+  private async uniqueAssetPath(hash: string, name: string): Promise<{ path: string; existing: boolean }> {
+    const directory = join(storageRoot(), "assets")
+    await rejectSymlinkPath(directory)
+    const existingName = await readdir(directory).then((entries) => entries.find((entry) => entry.startsWith(`${hash}.`))).catch(() => undefined)
+    if (existingName) return { path: join(directory, existingName), existing: true }
     const extension = normalizeExtension(name)
-    const path = join(storageRoot(), "assets", `${hash}${extension}`)
-    try { await stat(path); return path } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return path; throw error }
+    const path = join(directory, `${hash}${extension}`)
+    try { await stat(path); return { path, existing: true } } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return { path, existing: false }; throw error }
   }
 
   private relativeAssetPath(path: string): string {
     return path.slice(storageRoot().length + 1).replaceAll("\\", "/")
+  }
+
+  private async withUploadLock<T>(upload: Upload, action: () => Promise<T>): Promise<T> {
+    const previous = upload.lock
+    let release!: () => void
+    upload.lock = new Promise<void>((resolve) => { release = resolve })
+    await previous
+    try { return await action() } finally { release() }
   }
 }
 

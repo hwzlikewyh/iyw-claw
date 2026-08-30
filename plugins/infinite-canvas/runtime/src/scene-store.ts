@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, unlink, open } from "node:fs/promises"
 import { join } from "node:path"
 import { CanvasRuntimeError } from "./errors.js"
-import { canvasRoot, storageRoot } from "./paths.js"
+import { canvasRoot, rejectSymlinkPath, storageRoot } from "./paths.js"
 import { withFileLock } from "./lock.js"
 import { applyOperations, validateScene } from "./operations.js"
 import { defaultScene, type CanvasOperation, type CanvasScene, type CanvasSelection } from "./types.js"
@@ -13,6 +13,7 @@ export class SceneStore {
 
   async read(canvasId = "main"): Promise<CanvasScene> {
     const root = canvasRoot(canvasId)
+    await rejectSymlinkPath(root)
     await mkdir(root, { recursive: true })
     try {
       const scene = JSON.parse(await readFile(join(root, "scene.json"), "utf8")) as CanvasScene
@@ -27,6 +28,7 @@ export class SceneStore {
 
   async save(scene: CanvasScene, baseRevision?: number): Promise<CanvasScene> {
     const root = canvasRoot(scene.canvasId)
+    await rejectSymlinkPath(root)
     return withFileLock(join(root, ".scene.lock"), async () => {
       const current = await this.read(scene.canvasId)
       if (baseRevision !== undefined && current.revision !== baseRevision) throw new CanvasRuntimeError("revision_conflict", "scene revision changed", { latestRevision: current.revision })
@@ -49,6 +51,7 @@ export class SceneStore {
   }
 
   async readSelection(canvasId = "main"): Promise<CanvasSelection> {
+    await rejectSymlinkPath(canvasRoot(canvasId))
     try {
       const value = JSON.parse(await readFile(join(canvasRoot(canvasId), "selection.json"), "utf8")) as CanvasSelection
       if (!Number.isSafeInteger(value.revision) || value.revision < 0 || !Array.isArray(value.selectedNodeIds) || !value.selectedNodeIds.every((id) => typeof id === "string")) throw new Error("selection invalid")
@@ -61,7 +64,12 @@ export class SceneStore {
 
   async saveSelection(canvasId: string, selection: CanvasSelection): Promise<CanvasSelection> {
     const root = canvasRoot(canvasId)
+    await rejectSymlinkPath(root)
     return withFileLock(join(root, ".scene.lock"), async () => {
+      const current = await this.read(canvasId)
+      if (current.revision !== selection.revision) throw new CanvasRuntimeError("revision_conflict", "scene revision changed", { latestRevision: current.revision })
+      const selectedNodeIds = selection.selectedNodeIds.filter((id) => current.nodes.some((node) => node.id === id))
+      if (selectedNodeIds.length !== selection.selectedNodeIds.length) throw new CanvasRuntimeError("invalid_input", "selection references a missing node")
       const next = { ...selection, updatedAt: new Date().toISOString() }
       await mkdir(root, { recursive: true })
       await atomicJson(join(root, "selection.json"), next)
@@ -70,6 +78,7 @@ export class SceneStore {
   }
 
   private async updateIndex(scene: CanvasScene): Promise<void> {
+    await rejectSymlinkPath(storageRoot())
     await withFileLock(join(storageRoot(), ".index.lock"), async () => {
       const path = join(storageRoot(), "index.json")
       let index: Record<string, unknown> = {}

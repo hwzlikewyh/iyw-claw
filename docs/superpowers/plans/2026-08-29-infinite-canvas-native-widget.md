@@ -56,7 +56,7 @@
 import { App } from "@modelcontextprotocol/ext-apps"
 
 const app = new App(
-  { name: "Infinite Canvas", version: "0.1.8" },
+  { name: "Infinite Canvas", version: "0.1.9" },
   { availableDisplayModes: ["inline", "fullscreen"] },
 )
 
@@ -165,7 +165,7 @@ for (let offset = 0, index = 0; offset < file.size; offset += CHUNK_BYTES, index
 `asset://sha` 首次显示时分块 `read-asset`，合成 Blob 并生成 object URL；引用计数归零或
 teardown 时 `URL.revokeObjectURL()`。cache key 包含 sha 和 MIME，不持久化 blob。
 
-- [ ] **Step 3: 适配上游 image/file storage**
+- [x] **Step 3: 适配上游 image/file storage**
 
 两个 adapter 保持上游函数签名，内部只调用 asset client。删除节点不立即删除内容寻址资产；
 孤儿清理由 runtime verifier/维护工具在无 scene 引用时执行，避免跨画布误删。
@@ -207,7 +207,7 @@ LocalAgentPanel、agent-url-bootstrap、app-sync 和线上插件 registry。Vite
 工具栏 full-screen 按钮调用官方 `requestDisplayMode()`；监听 `onhostcontextchanged` 更新布局，
 不卸载 scene store。Escape 由宿主处理，Widget 不创建第二个 root 或 app instance。
 
-- [ ] **Step 4: 建立确定错误态**
+- [x] **Step 4: 建立确定错误态**
 
 覆盖 connect 失败、runtime unavailable、scene corrupted、revision conflict、asset missing、
 upload rejected 和 teardown。错误态提供重试当前动作，不跳转线上页面、不自动清空 scene。
@@ -233,7 +233,7 @@ upload rejected 和 teardown。错误态提供重试当前动作，不跳转线�
 HTML preview iframe 使用 `sandbox=""`，CSP 为 `default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'`；
 编辑器文本写 scene，预览 DOM 不获得脚本、表单、导航、下载或网络权限。
 
-- [ ] **Step 3: 验证节点 round-trip**
+- [x] **Step 3: 验证节点 round-trip**
 
 分别创建 HTML、Markdown、SVG，保存、重读、修改和删除；Expected: scene 只有 node metadata，
 无 object URL、绝对路径、外部脚本或远程插件地址。

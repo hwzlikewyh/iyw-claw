@@ -1,74 +1,81 @@
+import { AssetClient } from "./asset-client.js"
+
 export type CanvasOperation = Record<string, unknown>
 export type CanvasState = { canvasId: string; revision: number; nodes: Array<Record<string, unknown>>; [key: string]: unknown }
 export type ToolCaller = (name: string, args: Record<string, unknown>) => Promise<unknown>
 
-const CHUNK_BYTES = 128 * 1024
-
 export class CanvasClient {
   private writeQueue: Promise<unknown> = Promise.resolve()
-  private readonly objectUrls = new Map<string, string>()
+  private pendingWriteCount = 0
+  private readonly assets: AssetClient
 
-  constructor(private readonly call: ToolCaller, private readonly getCanvasId: () => string) {}
+  constructor(private readonly call: ToolCaller, private readonly getCanvasId: () => string) { this.assets = new AssetClient(call) }
+
+  assetClient(): AssetClient { return this.assets }
+
+  callTool(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+    return this.call(name, args) as Promise<Record<string, unknown>>
+  }
+
+  hasPendingWrites(): boolean { return this.pendingWriteCount > 0 }
+
+  retainAssets(references: Array<{ sha256: string; bytes: number; mimeType: string }>): void { this.assets.retain(references) }
 
   async getState(sinceRevision?: number): Promise<CanvasState | null> {
-    const value = await this.call("get_infinite_canvas_state", { canvasId: this.getCanvasId(), ...(sinceRevision === undefined ? {} : { sinceRevision }) }) as Record<string, unknown>
+    return this.getStateFor(this.getCanvasId(), sinceRevision)
+  }
+
+  private async getStateFor(canvasId: string, sinceRevision?: number): Promise<CanvasState | null> {
+    const value = await this.call("get_infinite_canvas_state", { canvasId, ...(sinceRevision === undefined ? {} : { sinceRevision }) }) as Record<string, unknown>
     return value.unchanged ? null : value as unknown as CanvasState
   }
 
   apply(operations: CanvasOperation[], baseRevision: number): Promise<CanvasState> {
+    const canvasId = this.getCanvasId()
     return this.enqueue(async () => {
-      try { return await this.call("apply_infinite_canvas_ops", { canvasId: this.getCanvasId(), baseRevision, operations }) as CanvasState } catch (error) {
+      try { return await this.call("apply_infinite_canvas_ops", { canvasId, baseRevision, operations }) as CanvasState } catch (error) {
         const typed = error as { code?: string }
         if (typed.code !== "revision_conflict") throw error
-        const latest = await this.getState()
+        const latest = await this.getStateFor(canvasId)
         if (!latest) throw error
-        const replayable = operations.filter((operation) => canReplay(operation, latest))
-        if (!replayable.length) throw error
-        return await this.call("apply_infinite_canvas_ops", { canvasId: this.getCanvasId(), baseRevision: latest.revision, operations: replayable }) as CanvasState
+        if (!canReplayBatch(operations, latest)) throw error
+        return await this.call("apply_infinite_canvas_ops", { canvasId, baseRevision: latest.revision, operations }) as CanvasState
       }
     })
   }
 
   saveSelection(revision: number, selectedNodeIds: string[]): Promise<void> {
-    return this.enqueue(async () => { await this.call("save_infinite_canvas_selection", { canvasId: this.getCanvasId(), revision, selectedNodeIds }) })
+    const canvasId = this.getCanvasId()
+    return this.enqueue(async () => { await this.call("save_infinite_canvas_selection", { canvasId, revision, selectedNodeIds }) })
+  }
+
+  async readSelection(): Promise<{ revision: number; selectedNodeIds: string[] }> {
+    return this.call("get_infinite_canvas_selection", { canvasId: this.getCanvasId() }) as Promise<{ revision: number; selectedNodeIds: string[] }>
+  }
+
+  saveSnapshot(scene: CanvasState, baseRevision: number): Promise<CanvasState> {
+    return this.call("save_infinite_canvas_snapshot", { canvasId: scene.canvasId, baseRevision, scene }) as Promise<CanvasState>
   }
 
   async upload(blob: Blob, name: string, mimeType = blob.type || "application/octet-stream"): Promise<Record<string, unknown>> {
-    const bytes = new Uint8Array(await blob.arrayBuffer())
-    if (!bytes.byteLength) throw new Error("asset is empty")
-    const digest = await crypto.subtle.digest("SHA-256", bytes)
-    const expectedSha256 = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("")
-    const started = await this.call("write_infinite_canvas_asset", { name, mimeType, expectedBytes: bytes.byteLength, expectedSha256 }) as { uploadId: string }
-    for (let offset = 0, chunkIndex = 0; offset < bytes.length; offset += CHUNK_BYTES, chunkIndex += 1) {
-      const dataBase64 = toBase64(bytes.subarray(offset, offset + CHUNK_BYTES))
-      await this.call("write_infinite_canvas_asset", { uploadId: started.uploadId, chunkIndex, dataBase64 })
-    }
-    return this.call("write_infinite_canvas_asset", { uploadId: started.uploadId, finalize: true }) as Promise<Record<string, unknown>>
+    return this.assets.upload(blob, name, mimeType) as Promise<Record<string, unknown>>
   }
 
   async objectUrl(sha256: string, bytes: number, mimeType: string): Promise<string> {
-    const cached = this.objectUrls.get(sha256)
-    if (cached) return cached
-    const parts: Uint8Array[] = []
-    for (let offset = 0; offset < bytes; offset += CHUNK_BYTES) {
-      const value = await this.call("read_infinite_canvas_asset", { sha256, offset, length: CHUNK_BYTES }) as { dataBase64: string }
-      parts.push(fromBase64(value.dataBase64))
-    }
-    const url = URL.createObjectURL(new Blob(parts, { type: mimeType }))
-    this.objectUrls.set(sha256, url)
-    return url
+    return this.assets.getUrl({ sha256, bytes, mimeType })
   }
 
   dispose() {
-    for (const url of this.objectUrls.values()) URL.revokeObjectURL(url)
-    this.objectUrls.clear()
+    this.assets.dispose()
   }
 
   startPolling(onRefresh: () => Promise<void>): () => void {
     let stopped = false
     let timer: ReturnType<typeof setTimeout> | undefined
     const tick = async () => {
-      if (!stopped && document.visibilityState === "visible") await onRefresh().catch(() => undefined)
+      if (!stopped && document.visibilityState === "visible" && this.pendingWriteCount === 0) {
+        try { await onRefresh() } catch { stopped = true }
+      }
       if (!stopped) timer = setTimeout(tick, 1600)
     }
     timer = setTimeout(tick, 1600)
@@ -76,29 +83,23 @@ export class CanvasClient {
   }
 
   private enqueue<T>(action: () => Promise<T>): Promise<T> {
-    const next = this.writeQueue.then(action, action)
+    this.pendingWriteCount += 1
+    const next = this.writeQueue.then(action, action).finally(() => { this.pendingWriteCount -= 1 })
     this.writeQueue = next.catch(() => undefined)
     return next
   }
 }
 
-function toBase64(bytes: Uint8Array): string {
-  let value = ""
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) value += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
-  return btoa(value)
-}
-
-function fromBase64(value: string): Uint8Array {
-  const binary = atob(value)
-  return Uint8Array.from(binary, (character) => character.charCodeAt(0))
-}
-
-function canReplay(operation: CanvasOperation, scene: CanvasState): boolean {
+function canReplayBatch(operations: CanvasOperation[], scene: CanvasState): boolean {
   const nodes = new Set(scene.nodes.map((node) => node.id))
   const connections = new Set((scene.connections as Array<Record<string, unknown>> | undefined)?.map((connection) => connection.id))
-  if (operation.type === "add_node") return typeof (operation.node as Record<string, unknown>)?.id === "string" && !nodes.has((operation.node as Record<string, unknown>).id as string)
-  if (operation.type === "update_node" || operation.type === "remove_node") return typeof operation.nodeId === "string" && nodes.has(operation.nodeId)
-  if (operation.type === "add_connection") { const connection = operation.connection as Record<string, unknown>; return typeof connection?.id === "string" && !connections.has(connection.id) && nodes.has(connection.fromNodeId) && nodes.has(connection.toNodeId) }
-  if (operation.type === "remove_connection") return typeof operation.connectionId === "string" && connections.has(operation.connectionId)
-  return operation.type === "set_viewport"
+  for (const operation of operations) {
+    if (operation.type === "add_node") { const node = operation.node as Record<string, unknown>; if (typeof node?.id !== "string" || nodes.has(node.id)) return false; nodes.add(node.id); continue }
+    if (operation.type === "update_node") { if (typeof operation.nodeId !== "string" || !nodes.has(operation.nodeId)) return false; continue }
+    if (operation.type === "remove_node") { if (typeof operation.nodeId !== "string" || !nodes.has(operation.nodeId)) return false; nodes.delete(operation.nodeId); continue }
+    if (operation.type === "add_connection") { const connection = operation.connection as Record<string, unknown>; if (typeof connection?.id !== "string" || connections.has(connection.id) || !nodes.has(connection.fromNodeId) || !nodes.has(connection.toNodeId)) return false; connections.add(connection.id); continue }
+    if (operation.type === "remove_connection") { if (typeof operation.connectionId !== "string" || !connections.has(operation.connectionId)) return false; connections.delete(operation.connectionId); continue }
+    if (operation.type !== "set_viewport") return false
+  }
+  return true
 }

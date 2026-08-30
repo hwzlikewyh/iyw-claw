@@ -12,10 +12,10 @@
     },
     "dryRun": {
       "type": "boolean"
+    },
+    "listOnly": {
+      "type": "boolean"
     }
   },
-  "required": [
-    "pageId"
-  ],
   "additionalProperties": false
 }

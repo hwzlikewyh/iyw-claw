@@ -40,6 +40,9 @@
     },
     "finalize": {
       "type": "boolean"
+    },
+    "cancel": {
+      "type": "boolean"
     }
   },
   "additionalProperties": false

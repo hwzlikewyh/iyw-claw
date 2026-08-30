@@ -17,6 +17,7 @@ type RenderOptions = {
 }
 
 export function renderScene(sceneElement: HTMLElement, scene: Scene, options: RenderOptions): void {
+  options.client.retainAssets(scene.nodes.flatMap((node) => isAsset(node.metadata?.asset) ? [node.metadata.asset] : []))
   sceneElement.style.transform = `translate(${scene.viewport.x}px, ${scene.viewport.y}px) scale(${scene.viewport.k})`
   const nodes = scene.nodes.map((node) => renderNode(node, options))
   sceneElement.replaceChildren(renderConnections(scene), ...nodes)
@@ -50,7 +51,15 @@ function renderNodeContent(element: HTMLElement, node: NodeData, options: Render
   if (node.type === "iyw:markdown" || node.type === "markdown:doc") return renderMarkdownNode(element, metadata)
   if (node.type === "iyw:svg" || node.type === "svg:vector") return renderSvgNode(element, metadata)
   if (node.type === "iyw:slides" && metadata.deck && typeof metadata.deck === "object") return renderSlidesNode(element, metadata.deck as SlideDeck)
+  if (node.type === "creative-request") return renderCreativeRequest(element, metadata)
   showText(element, typeof metadata.text === "string" ? metadata.text : node.type)
+}
+
+function renderCreativeRequest(element: HTMLElement, metadata: Record<string, unknown>): void {
+  const status = typeof metadata.status === "string" ? metadata.status : "pending"
+  const prompt = typeof metadata.prompt === "string" ? metadata.prompt : "Creative request"
+  const error = typeof metadata.errorCode === "string" ? ` (${metadata.errorCode})` : ""
+  showText(element, `${status}: ${prompt}${error}`)
 }
 
 function renderHtml(element: HTMLElement, metadata: Record<string, unknown>): void {

@@ -1,5 +1,5 @@
 import { CanvasRuntimeError, invalid } from "./errors.js"
-import type { CanvasOperation, CanvasScene, CanvasNodeData, CanvasConnection } from "./types.js"
+import { MAX_NODE_METADATA_BYTES, MAX_SCENE_CONNECTIONS, MAX_SCENE_NODES, type CanvasOperation, type CanvasScene, type CanvasNodeData, type CanvasConnection } from "./types.js"
 
 const FORBIDDEN_KEYS = new Set(["__proto__", "prototype", "constructor"])
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
@@ -61,8 +61,8 @@ function setViewport(scene: CanvasScene, viewport: CanvasScene["viewport"]): voi
 }
 
 export function validateScene(scene: CanvasScene): void {
-  if (scene.schemaVersion !== 1 || !ID_PATTERN.test(scene.canvasId) || !Number.isInteger(scene.revision) || scene.revision < 0) throw new CanvasRuntimeError("scene_invalid", "scene identity is invalid")
-  if (!Array.isArray(scene.nodes) || !Array.isArray(scene.connections)) throw new CanvasRuntimeError("scene_invalid", "scene collections are invalid")
+  if (scene.schemaVersion !== 1 || !ID_PATTERN.test(scene.canvasId) || !Number.isInteger(scene.revision) || scene.revision < 0 || !["dots", "lines", "blank"].includes(scene.backgroundMode) || typeof scene.showImageInfo !== "boolean" || Number.isNaN(Date.parse(scene.updatedAt))) throw new CanvasRuntimeError("scene_invalid", "scene identity is invalid")
+  if (!Array.isArray(scene.nodes) || scene.nodes.length > MAX_SCENE_NODES || !Array.isArray(scene.connections) || scene.connections.length > MAX_SCENE_CONNECTIONS) throw new CanvasRuntimeError("scene_invalid", "scene collections are invalid")
   const nodeIds = new Set<string>()
   scene.nodes.forEach((node) => { validateNode(node); if (nodeIds.has(node.id)) throw invalid("node_id_duplicate"); nodeIds.add(node.id) })
   const connectionIds = new Set<string>()
@@ -71,9 +71,16 @@ export function validateScene(scene: CanvasScene): void {
 }
 
 function validateNode(node: CanvasNodeData): void {
-  if (!node || !ID_PATTERN.test(node.id) || typeof node.type !== "string" || !node.type || ![node.x, node.y, node.width, node.height].every(Number.isFinite) || node.width <= 0 || node.height <= 0) throw invalid("node_invalid")
+  if (!node || !ID_PATTERN.test(node.id) || typeof node.type !== "string" || !node.type || node.type.length > 80 || ![node.x, node.y, node.width, node.height].every(Number.isFinite) || node.width <= 0 || node.height <= 0 || (node.rotation !== undefined && !Number.isFinite(node.rotation))) throw invalid("node_invalid")
+  if (node.metadata !== undefined && (!node.metadata || typeof node.metadata !== "object" || Array.isArray(node.metadata) || Buffer.byteLength(JSON.stringify(node.metadata), "utf8") > MAX_NODE_METADATA_BYTES || containsForbiddenKey(node.metadata))) throw invalid("node_metadata_invalid")
 }
 
 function validateConnection(connection: CanvasConnection): void {
   if (!connection || !ID_PATTERN.test(connection.id) || !ID_PATTERN.test(connection.fromNodeId) || !ID_PATTERN.test(connection.toNodeId)) throw invalid("connection_invalid")
+}
+
+function containsForbiddenKey(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false
+  if (Array.isArray(value)) return value.some(containsForbiddenKey)
+  return Object.entries(value).some(([key, item]) => FORBIDDEN_KEYS.has(key) || containsForbiddenKey(item))
 }

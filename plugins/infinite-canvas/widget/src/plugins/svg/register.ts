@@ -8,6 +8,15 @@ export function sanitizeSvg(source: string): string {
       if (value && !value.startsWith("data:")) element.removeAttribute(attribute)
     }
   }
+  for (const element of parsed.querySelectorAll("*")) {
+    for (const attribute of element.getAttributeNames()) {
+      if (attribute.toLowerCase().startsWith("on")) element.removeAttribute(attribute)
+      if (attribute.toLowerCase() === "style" && /url\s*\(|@import|expression\s*\(/i.test(element.getAttribute(attribute) ?? "")) element.removeAttribute(attribute)
+    }
+  }
+  for (const element of parsed.querySelectorAll("style")) {
+    if (/@import|url\s*\(|expression\s*\(/i.test(element.textContent ?? "")) element.remove()
+  }
   return new XMLSerializer().serializeToString(parsed.documentElement)
 }
 

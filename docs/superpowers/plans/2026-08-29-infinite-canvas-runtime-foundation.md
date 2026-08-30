@@ -50,7 +50,7 @@ Copy-Item -Recurse -LiteralPath "$source\plugins\canvas" -Destination "plugins\i
 ```json
 {
   "name": "@iyw/infinite-canvas-plugin",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.18.0",
@@ -256,7 +256,7 @@ workspace 外路径。
 - Create: `plugins/infinite-canvas/scripts/build.mjs`
 - Create: `plugins/infinite-canvas/scripts/package.mjs`
 - Create: `plugins/infinite-canvas/scripts/verify.mjs`
-- Create: `plugins/infinite-canvas/dist/infinite-canvas-0.1.8.zip`
+- Create: `plugins/infinite-canvas/dist/infinite-canvas-0.1.9.zip`
 
 **Interfaces:**
 - Produces: deterministic ZIP、SHA-256、文件清单和 verifier receipt。

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { readFile, stat } from "node:fs/promises"
+import { readdir, readFile, stat } from "node:fs/promises"
 import { join } from "node:path"
 import { CanvasRuntimeError } from "../errors.js"
 import { requiredEnv, assertId, assertWithin, rejectSymlink } from "../paths.js"
@@ -17,7 +17,14 @@ export async function readCowartPage(pageId: string): Promise<CowartPage> {
   if (!info.isFile() || info.size > MAX_SOURCE_BYTES) throw new CanvasRuntimeError("invalid_input", "Cowart source file is invalid")
   const bytes = await readFile(sourcePath)
   const sourceSha256 = createHash("sha256").update(bytes).digest("hex")
-  const value = JSON.parse(bytes.toString("utf8")) as Record<string, unknown>
+  let value: Record<string, unknown>
+  try {
+    const parsed = JSON.parse(bytes.toString("utf8"))
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("root is not an object")
+    value = parsed as Record<string, unknown>
+  } catch (error) {
+    throw new CanvasRuntimeError("invalid_input", "Cowart source JSON is invalid", { reason: error instanceof Error ? error.message : "parse_failed" })
+  }
   const rawRecords = Array.isArray(value.records) ? value.records : Array.isArray((value.document as Record<string, unknown> | undefined)?.records) ? ((value.document as Record<string, unknown>).records as unknown[]) : []
   const warnings: string[] = []
   const records = rawRecords.flatMap((raw, index) => {
@@ -27,6 +34,27 @@ export async function readCowartPage(pageId: string): Promise<CowartPage> {
     return []
   })
   return { pageId, sourcePath: `canvas/pages/${pageId}/cowart-canvas.json`, sourceDirectory: `canvas/pages/${pageId}`, sourceSha256, records, warnings }
+}
+
+export async function listCowartPages(): Promise<Array<{ pageId: string; sourcePath: string; sourceSha256: string; bytes: number; updatedAt: string }>> {
+  const pagesRoot = assertWithin(requiredEnv("IYW_WORKSPACE_DIR"), join(requiredEnv("IYW_WORKSPACE_DIR"), "canvas", "pages"))
+  const entries = await readdir(pagesRoot, { withFileTypes: true }).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return []
+    throw error
+  })
+  const pages: Array<{ pageId: string; sourcePath: string; sourceSha256: string; bytes: number; updatedAt: string }> = []
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^[A-Za-z0-9_-]{1,64}$/.test(entry.name)) continue
+    const source = join(pagesRoot, entry.name, "cowart-canvas.json")
+    try {
+      await rejectSymlink(source)
+      const info = await stat(source)
+      if (!info.isFile() || info.size > MAX_SOURCE_BYTES) continue
+      const bytes = await readFile(source)
+      pages.push({ pageId: entry.name, sourcePath: `canvas/pages/${entry.name}/cowart-canvas.json`, sourceSha256: createHash("sha256").update(bytes).digest("hex"), bytes: info.size, updatedAt: info.mtime.toISOString() })
+    } catch { continue }
+  }
+  return pages.sort((left, right) => left.pageId.localeCompare(right.pageId))
 }
 
 function parseRecord(value: unknown): CowartRecord | null {

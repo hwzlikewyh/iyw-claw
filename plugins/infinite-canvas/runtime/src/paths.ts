@@ -1,5 +1,5 @@
 import { lstat } from "node:fs/promises"
-import { isAbsolute, relative, resolve, sep } from "node:path"
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 import { CanvasRuntimeError, invalid, type RuntimeErrorCode } from "./errors.js"
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/
@@ -45,6 +45,27 @@ export function assertId(value: string, code: RuntimeErrorCode = "invalid_input"
 }
 
 export async function rejectSymlink(pathValue: string): Promise<void> {
-  const info = await lstat(pathValue)
-  if (info.isSymbolicLink()) throw new CanvasRuntimeError("path_not_allowed", "symbolic links are not allowed")
+  let current = resolve(pathValue)
+  while (true) {
+    const info = await lstat(current)
+    if (info.isSymbolicLink()) throw new CanvasRuntimeError("path_not_allowed", "symbolic links are not allowed")
+    const parent = dirname(current)
+    if (parent === current) return
+    current = parent
+  }
+}
+
+export async function rejectSymlinkPath(pathValue: string): Promise<void> {
+  let current = resolve(pathValue)
+  while (true) {
+    try {
+      const info = await lstat(current)
+      if (info.isSymbolicLink()) throw new CanvasRuntimeError("path_not_allowed", "symbolic links are not allowed")
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+    const parent = dirname(current)
+    if (parent === current) return
+    current = parent
+  }
 }

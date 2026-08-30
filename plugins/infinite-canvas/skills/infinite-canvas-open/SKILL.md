@@ -9,4 +9,6 @@ plugin is not installed or authorized, ask the host to install or authorize it; 
 runtime, start a local web server, or search for a native MCP namespace.
 
 After opening, use `plugin.infinite-canvas.canvas.get-canvas-state.v1` to confirm the canvas ID and
-revision. Do not scan or migrate legacy Cowart pages unless the user explicitly asks for migration.
+revision. Do not discover or migrate legacy Cowart pages unless the user explicitly asks for
+migration; when asked, call the migration capability with `listOnly: true` first and present the
+read-only page list before previewing or confirming a target.

@@ -117,19 +117,19 @@ export const contracts = Object.freeze({
     schemaPath: "contracts/write-infinite-canvas-asset.schema.json",
     description: "Upload or import a canvas asset using verified chunks.",
     readOnlyHint: false,
-    inputSchema: schema({ uploadId: id, sourcePath: { type: "string", minLength: 1, maxLength: 4096 }, name: { type: "string", minLength: 1, maxLength: 180 }, mimeType: { type: "string", minLength: 1, maxLength: 120 }, expectedBytes: { type: "integer", minimum: 1 }, expectedSha256: sha256, chunkIndex: { type: "integer", minimum: 0 }, dataBase64: { type: "string", minLength: 1, maxLength: 174768 }, finalize: { type: "boolean" } }),
+    inputSchema: schema({ uploadId: id, sourcePath: { type: "string", minLength: 1, maxLength: 4096 }, name: { type: "string", minLength: 1, maxLength: 180 }, mimeType: { type: "string", minLength: 1, maxLength: 120 }, expectedBytes: { type: "integer", minimum: 1 }, expectedSha256: sha256, chunkIndex: { type: "integer", minimum: 0 }, dataBase64: { type: "string", minLength: 1, maxLength: 174768 }, finalize: { type: "boolean" }, cancel: { type: "boolean" } }),
   },
   export_infinite_canvas: {
     schemaPath: "contracts/export-infinite-canvas.schema.json",
     description: "Export a canvas scene or a previously uploaded asset.",
     readOnlyHint: false,
-    inputSchema: schema({ canvasId: id, format: { enum: ["json", "html", "png", "svg"] }, sourceAssetSha256: sha256, fileName: { type: "string", minLength: 1, maxLength: 180 } }, ["canvasId", "format"]),
+    inputSchema: schema({ canvasId: id, format: { enum: ["json", "html", "png", "svg"] }, sourceAssetSha256: sha256, fileName: { type: "string", minLength: 1, maxLength: 180 }, exportId: id }, ["canvasId", "format"]),
   },
   migrate_cowart_canvas: {
     schemaPath: "contracts/migrate-cowart-canvas.schema.json",
     description: "Preview or migrate a Cowart page into a new canvas.",
     readOnlyHint: false,
-    inputSchema: schema({ pageId: id, targetCanvasId: id, dryRun: { type: "boolean" } }, ["pageId"]),
+    inputSchema: schema({ pageId: id, targetCanvasId: id, dryRun: { type: "boolean" }, listOnly: { type: "boolean" } }),
   },
 })
 

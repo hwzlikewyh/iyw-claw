@@ -1,11 +1,12 @@
+import { createHash } from "node:crypto"
 import { mkdir, rename, unlink, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
 import { CanvasRuntimeError, invalid } from "./errors.js"
-import { storageRoot } from "./paths.js"
+import { rejectSymlinkPath, storageRoot } from "./paths.js"
 import { SceneStore } from "./scene-store.js"
 import { AssetStore } from "./asset-store.js"
 import type { CanvasOperation, CanvasScene } from "./types.js"
-import { readCowartPage } from "./migration/cowart-reader.js"
+import { listCowartPages, readCowartPage } from "./migration/cowart-reader.js"
 import { mapCowartPage } from "./migration/cowart-mapper.js"
 import { writeMigrationReport } from "./migration/cowart-report.js"
 
@@ -34,8 +35,9 @@ export function createToolHandlers(sceneStore = new SceneStore(), assetStore = n
 }
 
 async function migrateCowart(store: SceneStore, assets: AssetStore, args: JsonObject): Promise<ToolResult> {
+  if (args.listOnly === true) return { data: { pages: await listCowartPages() } }
   const page = await readCowartPage(stringArg(args, "pageId"))
-  const targetCanvasId = stringArg(args, "targetCanvasId", `cowart-${page.pageId}`)
+  const targetCanvasId = stringArg(args, "targetCanvasId", defaultMigrationCanvasId(page.pageId))
   const mapped = mapCowartPage(page, targetCanvasId)
   const dryRun = args.dryRun === true
   if (dryRun) return { data: { ...mapped, scene: sceneSummary(mapped.scene), dryRun: true } }
@@ -44,6 +46,12 @@ async function migrateCowart(store: SceneStore, assets: AssetStore, args: JsonOb
   const saved = await store.save(mapped.scene, 0)
   const reportPath = await writeMigrationReport({ schemaVersion: 1, pageId: page.pageId, targetCanvasId, dryRun: false, sourcePath: page.sourcePath, sourceSha256: page.sourceSha256, mapped: mapped.mapped, skipped: mapped.skipped, warnings: mapped.warnings, unsupportedRecords: mapped.unsupportedRecords })
   return { data: { targetCanvasId, revision: saved.revision, mapped: mapped.mapped, skipped: mapped.skipped, warnings: mapped.warnings, unsupportedRecords: mapped.unsupportedRecords, reportPath } }
+}
+
+function defaultMigrationCanvasId(pageId: string): string {
+  const prefix = pageId.slice(0, 40)
+  const suffix = createHash("sha256").update(pageId).digest("hex").slice(0, 16)
+  return `cowart-${prefix}-${suffix}`
 }
 
 async function importCowartAssets(scene: CanvasScene, assets: AssetStore, warnings: string[]): Promise<void> {
@@ -114,6 +122,7 @@ async function writeAsset(store: AssetStore, args: JsonObject): Promise<ToolResu
     await store.writeChunk(started.uploadId, integerArg(args, "chunkIndex", 0), args.dataBase64)
     return args.finalize === true ? { data: await store.finalize(started.uploadId) } : { data: started }
   }
+  if (args.cancel === true) { await store.cancel(uploadId); return { data: { uploadId, cancelled: true } } }
   if (typeof args.dataBase64 === "string") await store.writeChunk(uploadId, integerArg(args, "chunkIndex"), args.dataBase64)
   return args.finalize === true ? { data: await store.finalize(uploadId) } : { data: { uploadId } }
 }
@@ -123,10 +132,15 @@ async function exportCanvas(sceneStore: SceneStore, assets: AssetStore, args: Js
   const format = stringArg(args, "format", "json")
   if (!(["json", "html", "png", "svg"] as string[]).includes(format)) throw invalid("export_format_invalid")
   const fileName = safeFileName(stringArg(args, "fileName", `canvas-${canvasId}.${format}`))
-  const target = join(storageRoot(), "exports", fileName)
-  await mkdir(join(storageRoot(), "exports"), { recursive: true })
+  const exportId = optionalString(args, "exportId")
+  if (exportId && !/^[A-Za-z0-9_-]{1,64}$/.test(exportId)) throw invalid("export_id_invalid")
+  const exportRoot = join(storageRoot(), "exports", ...(exportId ? [exportId] : []))
+  const target = join(exportRoot, fileName)
+  await rejectSymlinkPath(exportRoot)
+  await rejectSymlinkPath(target)
+  await mkdir(exportRoot, { recursive: true })
   if (format === "json") await atomicWrite(target, JSON.stringify(await sceneStore.read(canvasId), null, 2) + "\n")
-  else if (format === "html") await atomicWrite(target, sceneToHtml(await sceneStore.read(canvasId)))
+  else if (format === "html" && typeof args.sourceAssetSha256 !== "string") await atomicWrite(target, sceneToHtml(await sceneStore.read(canvasId)))
   else {
     const hash = stringArg(args, "sourceAssetSha256")
     const chunk = await assets.readChunk(hash, 0, 128 * 1024)

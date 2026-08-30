@@ -10,6 +10,10 @@ export type CanvasNodeData = {
   [key: string]: unknown
 }
 
+export const MAX_SCENE_NODES = 10_000
+export const MAX_SCENE_CONNECTIONS = 20_000
+export const MAX_NODE_METADATA_BYTES = 256 * 1024
+
 export type CanvasConnection = {
   id: string
   fromNodeId: string

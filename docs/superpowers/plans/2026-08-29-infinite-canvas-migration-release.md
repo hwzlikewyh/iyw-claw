@@ -88,7 +88,7 @@ mapped/skipped counts、warnings、targetCanvasId。dryRun 不写任何文件。
 - Consumes: migration capability。
 - Produces: 发现、dry-run、确认迁移、打开结果四步 UI。
 
-- [ ] **Step 1: 只读发现 Cowart pages**
+- [x] **Step 1: 只读发现 Cowart pages**
 
 open Skill 在用户明确要求迁移时才搜索；普通打开不扫描旧目录。迁移对话框列出 page ID、
 源文件时间和 dry-run summary，不自动选择全部。
@@ -133,7 +133,7 @@ Verifier 读取 Git tracked vendor/source 列表，确认 upstream.json commit�
 hash 和 ZIP manifest。检查 ≤512 files、≤50 MiB expanded、无 symlink、无 tldraw、无未知
 license、无 `.codex-plugin`/`.mcp.json`、runtime entrypoint 和 10 schemas/resource 一致。
 
-- [x] **Step 4: 生成最终 0.1.8 artifact**
+- [x] **Step 4: 生成最终 0.1.9 artifact**
 
 Run:
 
@@ -199,7 +199,7 @@ Expected: exit 0；打印 manifest/version/file count/size/SHA/components；无 
 
 - [ ] **Step 2: 验证安装/拒绝/批准**
 
-从 hidden 管理详情安装 0.1.8；拒绝权限时无 runtime/app instance/文件写入；批准后仅当前
+从 hidden 管理详情安装 0.1.9；拒绝权限时无 runtime/app instance/文件写入；批准后仅当前
 workspace/Agent available，同一会话重新 search/read/invoke 无需重启。
 
 - [ ] **Step 3: 验证原生 Widget**
@@ -224,7 +224,7 @@ Kimi Code、Grok 和受信 Custom；OpenClaw 与 Pi 必须明确显示 unsupport
 不变。随后验证升级、permission digest 变化、禁用、卸载和退出；无残留 runtime/lease，
 `canvas/infinite-canvas` 数据仍存在。
 
-- [ ] **Step 7: 写验证 receipt**
+- [x] **Step 7: 写验证 receipt**
 
 记录每项 pass/fail/evidence path、客户端版本、artifact SHA、plugin version、runtime PID
 回收、workspace data hash；不记录 token、绝对用户文件内容或画布正文。

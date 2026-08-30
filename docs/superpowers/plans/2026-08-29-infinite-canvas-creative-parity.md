@@ -72,7 +72,7 @@ asset path，不包含 token、绝对路径或完整 scene。按钮进入 pendin
 - Consumes: `CreativeRequestV1(action="image.generate")`。
 - Produces: 一个或多个 image nodes，保留 prompt、requestId 和生成状态。
 
-- [ ] **Step 1: 写 Agent 图片工作流**
+- [x] **Step 1: 写 Agent 图片工作流**
 
 Skill 必须：读取 scene/selection；选择当前 Agent 可用的 IYW 图片能力或 ImageGen；将生成文件
 保存到 workspace；调用 `write-asset(sourcePath)`；用 `apply-ops` 在选中节点右侧添加 image
@@ -85,7 +85,7 @@ node；成功后写 `status:"success"`。失败时只把占位节点改为 `stat
 再发送 request。重复点击同一 pending requestId 禁止；用户可明确点击“重试”生成新的
 requestId，新结果不覆盖旧图。
 
-- [ ] **Step 3: 处理多图布局**
+- [x] **Step 3: 处理多图布局**
 
 Agent 根据原图 bounds 以固定间距向右排列，保持图片比例；多图使用 group 节点包裹并保存
 primary image ID。Widget 不在结果到达前猜测图片尺寸。
@@ -152,7 +152,7 @@ export type AnnotationShape =
 图片、文本和 HTML node 工具栏可发 `html.generate`/`html.edit`；请求包含选中内容摘要和 asset
 路径。pending node 立即出现但 `source` 保留旧内容，失败时不清空。
 
-- [ ] **Step 2: 写 Agent HTML 工作流**
+- [x] **Step 2: 写 Agent HTML 工作流**
 
 Agent 生成单文件 HTML，禁止远程 script、iframe、表单提交和自动导航；使用 apply-ops 写入
 target HTML node。编辑请求基于当前 source revision，过期时先读取最新 scene 再要求用户
@@ -197,12 +197,12 @@ export type SlideDeck = {
 节点显示缩略图和页列表；presenter 在 Widget fullscreen 内切页，不打开新窗口。退出演示恢复
 原 canvas viewport/selection；键盘监听在 unmount/teardown 时释放。
 
-- [ ] **Step 3: 实现生成和标注编辑**
+- [x] **Step 3: 实现生成和标注编辑**
 
 `slides.generate` 让 Agent 根据选中素材生成 deck JSON 并 apply-ops；annotation-edit 导出当前
 页 PNG 和标注摘要，Agent 只更新目标 page，旧 page revision 不匹配时拒绝覆盖。
 
-- [ ] **Step 4: 实现导出**
+- [x] **Step 4: 实现导出**
 
 HTML 导出为自包含 deck；图片导出每页 PNG 并写入 `canvas/infinite-canvas/exports/<requestId>/`。
 导出失败保留已成功页面并返回 manifest，用户可显式重试缺失页面。
