@@ -265,41 +265,34 @@ export function ConversationShell({
           shrinks the message list instead of covering it, while staying aligned
           to the input width. */}
       <div>
-        {autoContinuation && autoContinuation.phase !== "completed" && (
+        {autoContinuation && autoContinuation.phase === "needs_user_action" && (
           <div className="mx-auto w-full max-w-4xl px-4 pb-2">
-            {autoContinuation.phase === "needs_user_action" ? (
-              <div className="flex items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
-                <span className="min-w-0 text-amber-700 dark:text-amber-300">
-                  {tAcp("autoContinuation.needsUserAction")}
-                </span>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={onAutoContinuationContinue}
-                    disabled={!onAutoContinuationContinue}
-                  >
-                    <Play className="mr-1.5 h-3.5 w-3.5" />
-                    {tAcp("autoContinuation.continue")}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={onAutoContinuationStop}
-                    disabled={!onAutoContinuationStop}
-                  >
-                    <X className="mr-1.5 h-3.5 w-3.5" />
-                    {tAcp("autoContinuation.stop")}
-                  </Button>
-                </div>
+            <div className="flex items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
+              <span className="min-w-0 text-amber-700 dark:text-amber-300">
+                {tAcp("autoContinuation.needsUserAction")}
+              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={onAutoContinuationContinue}
+                  disabled={!onAutoContinuationContinue}
+                >
+                  <Play className="mr-1.5 h-3.5 w-3.5" />
+                  {tAcp("autoContinuation.continue")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={onAutoContinuationStop}
+                  disabled={!onAutoContinuationStop}
+                >
+                  <X className="mr-1.5 h-3.5 w-3.5" />
+                  {tAcp("autoContinuation.stop")}
+                </Button>
               </div>
-            ) : (
-              <div className="flex items-center gap-2 border-t border-muted px-1 py-2 text-xs text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                <span>{tAcp("autoContinuation.running")}</span>
-              </div>
-            )}
+            </div>
           </div>
         )}
         {pendingChannelConfirmation && (

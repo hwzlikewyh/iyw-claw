@@ -60,9 +60,25 @@ impl BrowserSessionManager {
     pub(super) fn schedule_recovery(&self, runtime: Arc<BrowserRuntime>, failed_generation: u64) {
         let manager = self.clone();
         tokio::spawn(async move {
+            {
+                let mut recoveries = manager.runtime_recoveries.lock().await;
+                if !recoveries.insert(failed_generation) {
+                    tracing::debug!(
+                        target: "iyw_claw_browser",
+                        runtime_generation = failed_generation,
+                        "browser runtime recovery already scheduled"
+                    );
+                    return;
+                }
+            }
             manager
                 .recover_after_failure(runtime, failed_generation)
                 .await;
+            manager
+                .runtime_recoveries
+                .lock()
+                .await
+                .remove(&failed_generation);
         });
     }
 

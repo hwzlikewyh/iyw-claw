@@ -70,6 +70,8 @@ pub struct BrowserSessionManager {
     pub(super) observer: Arc<Mutex<Option<CdpObserverHandle>>>,
     #[cfg(feature = "tauri-runtime")]
     pub(super) agent_turn_leases: Arc<AgentTurnLeaseRegistry>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) runtime_recoveries: Arc<Mutex<HashSet<u64>>>,
 }
 
 impl BrowserSessionManager {
@@ -110,6 +112,8 @@ impl BrowserSessionManager {
             observer: Arc::new(Mutex::new(None)),
             #[cfg(feature = "tauri-runtime")]
             agent_turn_leases: Arc::new(AgentTurnLeaseRegistry::default()),
+            #[cfg(feature = "tauri-runtime")]
+            runtime_recoveries: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 

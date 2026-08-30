@@ -242,6 +242,7 @@ impl BrowserSessionManager {
             streams: Arc::new(super::stream::BrowserStreamRegistry::default()),
             observer: Arc::new(tokio::sync::Mutex::new(None)),
             agent_turn_leases: Arc::new(super::agent_turn_leases::AgentTurnLeaseRegistry::default()),
+            runtime_recoveries: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
         }
     }
 

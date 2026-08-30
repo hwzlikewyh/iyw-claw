@@ -46,7 +46,7 @@ pub(crate) fn evaluate(
     is_action_promise(&text).then_some(AutoContinuationEvidence {
         reason_code: "action_promise_without_tool",
         evidence_kind: "commitment_text",
-        auto_run: false,
+        auto_run: true,
     })
 }
 
