@@ -1023,6 +1023,13 @@ impl CodexParser {
                 }
                 "turn_context" => {
                     // A new API turn means any prior agent lifecycle is complete.
+                    if let Some(previous_start) = last_turn_context_ts {
+                        assign_codex_turn_duration(
+                            &mut messages,
+                            previous_start,
+                            parse_codex_timestamp(&value),
+                        );
+                    }
                     active_agent_count = 0;
                     let turn_model = value
                         .get("payload")
@@ -1353,23 +1360,6 @@ impl CodexParser {
                                                 if last_msg.usage.is_none() {
                                                     last_msg.usage = Some(usage);
                                                 }
-                                            }
-                                        }
-                                    }
-                                }
-                                // Compute duration from turn_context to token_count
-                                if let (Some(start_ts), Some(end_ts)) =
-                                    (last_turn_context_ts, parse_codex_timestamp(&value))
-                                {
-                                    let duration = (end_ts - start_ts).num_milliseconds();
-                                    if duration > 0 {
-                                        if let Some(last_msg) = messages
-                                            .iter_mut()
-                                            .rev()
-                                            .find(|m| matches!(m.role, MessageRole::Assistant))
-                                        {
-                                            if last_msg.duration_ms.is_none() {
-                                                last_msg.duration_ms = Some(duration as u64);
                                             }
                                         }
                                     }
@@ -1824,6 +1814,11 @@ impl CodexParser {
             }
         }
 
+        // Finalize the last API turn once, using its terminal event timestamp.
+        if let Some(start_ts) = last_turn_context_ts {
+            assign_codex_turn_duration(&mut messages, start_ts, last_timestamp);
+        }
+
         // Streaming reasoning at the very end of a truncated/interrupted rollout
         // (the `agent_reasoning` events were written but the file ended before the
         // grouped `response_item.reasoning` summary) — flush it so it isn't lost.
@@ -2154,6 +2149,27 @@ fn flush_pending_reasoning(
         model: None,
         completed_at: Some(timestamp),
     });
+}
+
+fn assign_codex_turn_duration(
+    messages: &mut [UnifiedMessage],
+    start: DateTime<Utc>,
+    end: Option<DateTime<Utc>>,
+) {
+    let Some(end) = end else {
+        return;
+    };
+    let duration = (end - start).num_milliseconds();
+    if duration <= 0 {
+        return;
+    }
+    if let Some(last) = messages
+        .iter_mut()
+        .rev()
+        .find(|message| matches!(message.role, MessageRole::Assistant))
+    {
+        last.duration_ms = Some(duration as u64);
+    }
 }
 
 fn agents_instructions_regex() -> &'static Regex {
