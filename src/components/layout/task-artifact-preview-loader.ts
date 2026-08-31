@@ -1,5 +1,8 @@
 import type { TaskArtifactTarget } from "@/components/layout/task-artifact-actions"
-import type { PreviewState } from "@/components/message/workspace-file-preview"
+import type {
+  PreviewState,
+  RemoteArtifactMediaType,
+} from "@/components/message/workspace-file-preview"
 import {
   loadWorkspaceFilePreview,
   revokeWorkspacePreviewResource,
@@ -111,11 +114,39 @@ function resolveRemoteArtifactPreview(
   if (urlPathMatches(artifact.path, /\.pdf$/i)) {
     return { status: "pdf", path: artifact.path, src: artifact.path }
   }
+  const mediaType = remoteArtifactMediaType(artifact.path)
+  if (mediaType) {
+    return {
+      status: "media",
+      mediaType,
+      path: artifact.path,
+      src: artifact.path,
+    }
+  }
   return {
     status: "url",
     path: artifact.path,
     src: remoteArtifactFrameSrc(artifact.path),
   }
+}
+
+function remoteArtifactMediaType(path: string): RemoteArtifactMediaType | null {
+  if (
+    urlPathMatches(path, /\.(?:apng|avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i)
+  ) {
+    return "image"
+  }
+  if (
+    urlPathMatches(path, /\.(?:3gp|avi|m4v|mkv|mov|mp4|mpeg|mpg|ogv|webm)$/i)
+  ) {
+    return "video"
+  }
+  if (
+    urlPathMatches(path, /\.(?:aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|wma)$/i)
+  ) {
+    return "audio"
+  }
+  return null
 }
 
 function artifactPreviewKey(artifact: TaskArtifactInfo): string {

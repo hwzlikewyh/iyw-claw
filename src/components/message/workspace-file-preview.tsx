@@ -2,6 +2,7 @@
 
 import { AlertCircle, FileCode2, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { useState } from "react"
 import { Streamdown } from "streamdown"
 
 import { useStreamdownPlugins } from "@/components/ai-elements/streamdown-plugins"
@@ -23,7 +24,15 @@ export type PreviewState =
   | { status: "html-too-large"; path: string; maxMegabytes: number }
   | { status: "pdf"; path: string; src: string }
   | { status: "url"; path: string; src: string }
+  | {
+      status: "media"
+      mediaType: RemoteArtifactMediaType
+      path: string
+      src: string
+    }
   | { status: "error"; path: string; message: string }
+
+export type RemoteArtifactMediaType = "image" | "video" | "audio"
 
 const IMAGE_MIME_TYPES: Record<string, string> = {
   bmp: "image/bmp",
@@ -139,20 +148,13 @@ export function WorkspaceFilePreview({
     )
   }
   if (state.status === "url") {
-    const officeOnline = state.src.startsWith(
-      "https://view.officeapps.live.com/"
-    )
+    return <RemoteUrlPreview path={state.path} src={state.src} />
+  }
+  if (state.status === "media") {
     return (
-      <iframe
-        title={fileName(state.path)}
-        src={state.src}
-        sandbox={
-          officeOnline
-            ? "allow-scripts allow-same-origin allow-forms allow-popups"
-            : "allow-scripts allow-forms allow-popups"
-        }
-        referrerPolicy="no-referrer"
-        className="h-full w-full border-0 bg-white"
+      <RemoteMediaPreview
+        key={`${state.mediaType}:${state.src}`}
+        state={state}
       />
     )
   }
@@ -177,6 +179,49 @@ export function WorkspaceFilePreview({
     )
   }
   return <TextPreview state={state} />
+}
+
+function RemoteMediaPreview({
+  state,
+}: {
+  state: Extract<PreviewState, { status: "media" }>
+}) {
+  const [failed, setFailed] = useState(false)
+  if (failed) return <RemoteUrlPreview path={state.path} src={state.src} />
+
+  if (state.mediaType !== "image") {
+    return <RemoteUrlPreview path={state.path} src={state.src} />
+  }
+
+  return (
+    <div className="flex h-full min-h-0 w-full items-center justify-center overflow-auto bg-muted/20 p-6">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={state.src}
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+        alt={fileName(state.path)}
+        className="max-h-full max-w-full object-contain"
+      />
+    </div>
+  )
+}
+
+function RemoteUrlPreview({ path, src }: { path: string; src: string }) {
+  const officeOnline = src.startsWith("https://view.officeapps.live.com/")
+  return (
+    <iframe
+      title={fileName(path)}
+      src={src}
+      sandbox={
+        officeOnline
+          ? "allow-scripts allow-same-origin allow-forms allow-popups"
+          : "allow-scripts allow-forms allow-popups"
+      }
+      referrerPolicy="no-referrer"
+      className="h-full w-full border-0 bg-white"
+    />
+  )
 }
 
 function MarkdownPreview({
