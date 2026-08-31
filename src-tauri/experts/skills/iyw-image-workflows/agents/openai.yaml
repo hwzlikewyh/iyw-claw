@@ -1,7 +1,7 @@
 interface:
   display_name: "IYW 图片工作流"
-  short_description: "IYW 图片搜索、图片工具、分身生图和上传检测"
-  default_prompt: "使用 $iyw-image-workflows 处理 IYW 产品、素材、趋势、知识库、上传审查或商业图片工作流，并在最终回复前把所有最终文件和 URL 注册到当前会话成果区。"
+  short_description: "IYW 图片工具、商品套图、趋势知识与 Agent 工作流"
+  default_prompt: "使用 $iyw-image-workflows 处理 IYW 产品、商品套图、素材、趋势、知识库、上传审查或商业图片任务；先按场景手册选择工具和底部设置，再复用提示词模板，调用已确认的 IYW 网关/CLI，验证结果后交付最终文件或 URL。工具选择权重：有基准图做趋势或同系列优先 tool extend；有 2-10 张图且要融合优先 tool mix；单图轻量改动优先使用已封装的 tool variation，它调用 g_tools_generate_image 并固定 toolName；无图纯创意才用 fission-generate。趋势或主题且有基准图片时优先 tool extend，明确失败后只回退一次 tool variation；用户要求智能搜索驱动设计时，先搜索并推荐趋势或主题，生成前询问系列产品、4/6 宫格系列套组或单品/系列企划案，优先推荐系列；每主题单页用 modelChannel 2 的 variation，多页按顺序用 modelChannel 2 的 mix，种子作品再用 modelChannel 2 的 extend 做系列延伸；成组版式先用一个任务直出完整合成图，只有明确失败或视觉确认布局不符才生成分图并 compose-layout，无法视觉检查时不增加任务；分身生图默认单平台并优先通道四，明确要求多平台比稿时才传 --compare-platforms。"
 
 policy:
   allow_implicit_invocation: true

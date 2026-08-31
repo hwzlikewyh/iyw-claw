@@ -37,7 +37,13 @@ approach; domain skills then carry out the work.
 
 - "Implement this written plan" -> `executing-plans`, when available.
 - A user-requested visible Skill or direct tool that fully satisfies a subgoal -> use it first.
-- "Generate or edit an IYW product/material image, upload/review it, or query IYW knowledge" -> `iyw-image-workflows` first; `imagegen` is the explicit/GPT-specific fallback.
+- "Generate or edit an IYW product/material/pattern image, build a product-kit,
+  use trends or the IYW knowledge base, upload/review an image, or call an IYW
+  image tool" -> `iyw-image-workflows` first; load its scenario playbook for
+  page-specific inputs and bottom settings. Within ordinary image requests,
+  prefer `extend` for a baseline series, `mix` for 2-10 references, and
+  `variation` for one-image changes. `imagegen` is the explicit/GPT Image or
+  free-creative fallback.
 - "Read a web page, obtain public web data, or automate a website" -> `agent-browser`; a reliable direct data source may run first, but missing, incomplete, dynamic, or authenticated data must fall back to the managed browser before another browser or user hand-off.
 - "Perform a remaining concrete iyw-claw host state or action" -> use the complete unique `iyw-capability-gateway` trio first.
 - "Create or update a skill" -> `writing-skills` or `skill-creator`.

@@ -51,6 +51,14 @@ follow its workflow**. Do not treat the reference as optional background reading
    `agent-browser`, `iyw-image-workflows`, `imagegen`, `wecom-unified`,
    `open-computer-use`, `skill-creator`, `skill-installer`, `plugin-creator`,
    `writing-plans`, or `executing-plans`.
+   For any IYW product, material, pattern, trend, knowledge, commerce,
+   product-kit, model-scene, try-on, 3D, video, background, line-art, color,
+   or image-tool request, load `iyw-image-workflows` first. It owns tool
+   selection, upload/check, dynamic settings, prompt templates, and task
+   contracts. When no dedicated tool is named, prefer `extend` for a baseline
+   series/trend task, `mix` for 2-10 inputs with a fusion goal, `variation` for
+   one-image bounded changes, and fission for pure text creation. Do not route
+   those requests to `imagegen` merely because they contain the words "generate image".
 2. Use this gateway for the remaining iyw-claw host sub-goal: current session
    state, user profile, historical task lookup, memory, artifacts, browser
    host actions, audio, image display/understanding, channels, automation,
@@ -77,6 +85,24 @@ follow its workflow**. Do not treat the reference as optional background reading
 An empty result, unavailable capability, malformed output, timeout, unknown ID,
 schema rejection, or two non-matching reads ends gateway use for this turn. Do
 not switch namespaces, invent names, cycle locators, or replay stale arguments.
+
+## Image Workflow Bridge
+
+For a combined image task, split the work into two layers:
+
+1. Let `iyw-image-workflows` select the website-backed operation and settings.
+   Its scenario playbook is based on the current `ai.iyw.cn` tool pages and
+   must be read when the request names a specific tool or has a product image.
+2. Use this gateway only for host-owned work around that operation: retrieve
+   relevant memory, inspect or display an image, present a browser page, and
+   register final artifacts. Search the live catalog for the exact capability
+   IDs and schemas before each host action.
+
+This ordering is the default automatic priority. A user naming `imagegen`, GPT
+Image, or another exact tool still overrides it for that sub-goal; remaining
+IYW or host sub-goals are routed independently. Website point totals, model
+choices, and channel settings are live values and must never be copied into a
+static gateway rule.
 
 ## Memory Gate
 

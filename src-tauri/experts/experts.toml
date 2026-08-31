@@ -160,7 +160,7 @@ en = "Installs Agent skills from curated or repository sources."
 id = "iyw-image-workflows"
 category = "image"
 icon = "Images"
-sort_order = 400
+sort_order = 280
 
 [expert.display_name]
 en = "IYW Image Workflows"
