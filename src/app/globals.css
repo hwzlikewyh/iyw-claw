@@ -1795,39 +1795,116 @@ body {
 
 /* Scenario variables remain editable in the same composer line as the prompt. */
 .iyw-claw-composer .iyw-claw-scenario-variable {
+  position: relative;
   display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  margin: 0 0.15rem;
-  padding: 0.08rem 0.3rem 0.08rem 0.4rem;
-  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
-  border-radius: 0.35rem;
-  background: color-mix(in srgb, var(--primary) 7%, var(--background));
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  min-width: 5.5rem;
+  min-height: 2.45rem;
+  margin: 0.2rem 0.22rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--background);
   color: var(--muted-foreground);
   vertical-align: baseline;
   white-space: nowrap;
+  box-shadow: 0 1px 1px color-mix(in srgb, var(--foreground) 5%, transparent);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease;
 }
 .iyw-claw-composer .iyw-claw-scenario-variable-label {
-  font-size: 0.7rem;
+  display: block;
+  padding: 0.28rem 0.62rem 0.2rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  background: color-mix(in srgb, var(--muted) 32%, var(--background));
+  font-size: 0.66rem;
+  font-weight: 600;
+  line-height: 1;
   color: var(--muted-foreground);
+}
+.iyw-claw-composer .iyw-claw-scenario-variable-value {
+  display: flex;
+  min-width: 0;
+  align-items: center;
 }
 .iyw-claw-composer .iyw-claw-scenario-variable input,
 .iyw-claw-composer .iyw-claw-scenario-variable select {
-  min-width: 4rem;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 5.5rem;
   max-width: 12rem;
-  height: 1.35rem;
+  height: 1.72rem;
+  padding: 0.28rem 0.62rem 0.3rem;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--foreground);
-  font-size: 0.75rem;
+  font-family: inherit;
+  font-size: 0.78rem;
+  line-height: 1.1;
+}
+.iyw-claw-composer .iyw-claw-scenario-variable select {
+  appearance: none;
+  padding-right: 1.75rem;
+  cursor: pointer;
+}
+.iyw-claw-composer .iyw-claw-scenario-variable[data-scenario-custom="true"] {
+  min-width: 8rem;
+}
+.iyw-claw-composer
+  .iyw-claw-scenario-variable[data-scenario-custom="true"][data-scenario-type="select"] {
+  min-width: 11rem;
+}
+.iyw-claw-composer
+  .iyw-claw-scenario-variable[data-scenario-custom="true"]
+  select {
+  flex: 0 0 5.5rem;
+  width: 5.5rem;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+}
+.iyw-claw-composer
+  .iyw-claw-scenario-variable[data-scenario-custom="true"][data-scenario-type="select"]::after {
+  right: auto;
+  left: 4.35rem;
+}
+.iyw-claw-composer
+  .iyw-claw-scenario-variable[data-scenario-type="select"]::after {
+  content: "";
+  position: absolute;
+  right: 0.68rem;
+  bottom: 0.55rem;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-right: 1.5px solid var(--muted-foreground);
+  border-bottom: 1.5px solid var(--muted-foreground);
+  pointer-events: none;
+  transform: rotate(45deg);
 }
 .iyw-claw-composer .iyw-claw-scenario-variable input::placeholder {
   color: var(--muted-foreground);
+  opacity: 0.8;
+}
+.iyw-claw-composer
+  .iyw-claw-scenario-variable[data-scenario-filled="false"]
+  select {
+  color: var(--muted-foreground);
 }
 .iyw-claw-composer .iyw-claw-scenario-variable:focus-within {
-  border-color: var(--ring);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent);
+  border-color: color-mix(in srgb, var(--ring) 72%, var(--border));
+  background: color-mix(in srgb, var(--primary) 4%, var(--background));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 18%, transparent);
+}
+.iyw-claw-composer
+  .iyw-claw-scenario-variable:focus-within
+  .iyw-claw-scenario-variable-label {
+  border-bottom-color: color-mix(in srgb, var(--ring) 24%, var(--border));
+  background: color-mix(in srgb, var(--primary) 8%, var(--background));
+  color: var(--foreground);
 }
 .iyw-claw-composer .iyw-claw-task-reference {
   display: inline-block;
