@@ -1,6 +1,11 @@
 import type { JSONContent } from "@tiptap/core"
 
-const KEPT_INLINE = new Set(["text", "hardBreak", "reference"])
+const KEPT_INLINE = new Set([
+  "text",
+  "hardBreak",
+  "reference",
+  "scenarioVariable",
+])
 const INLINE_CONTENT_BLOCK = new Set(["paragraph", "heading", "codeBlock"])
 const BLOCK_CONTENT_BLOCK = new Set([
   "blockquote",
@@ -29,6 +34,8 @@ function sanitizeInline(nodes: JSONContent[] | undefined): JSONContent[] {
       output.push({ type: "hardBreak" })
     } else if (type === "reference") {
       output.push({ type: "reference", attrs: node.attrs })
+    } else if (type === "scenarioVariable") {
+      output.push({ type: "scenarioVariable", attrs: node.attrs })
     } else if (Array.isArray(node?.content)) {
       output.push(...sanitizeInline(node.content))
     }

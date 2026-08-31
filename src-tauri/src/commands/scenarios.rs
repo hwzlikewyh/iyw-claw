@@ -17,6 +17,25 @@ pub struct ScenarioCategory {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ScenarioVariable {
+    pub key: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub variable_type: String,
+    #[serde(default)]
+    pub options: Vec<String>,
+    #[serde(default)]
+    pub default_value: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub allow_custom: bool,
+    #[serde(default)]
+    pub placeholder: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Scenario {
     pub id: String,
     pub category_key: String,
@@ -24,6 +43,8 @@ pub struct Scenario {
     pub display_name: String,
     pub summary: String,
     pub prompt_template: String,
+    #[serde(default)]
+    pub variables: Vec<ScenarioVariable>,
     pub skill_package_id: String,
     pub skill_package_slug: String,
     pub skill_package_version: String,

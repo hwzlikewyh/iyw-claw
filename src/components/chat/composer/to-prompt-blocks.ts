@@ -5,6 +5,7 @@ import type { PromptInputBlock } from "@/lib/types"
 
 import { referenceToMarkdown } from "./reference-text"
 import { isEmbeddedReferenceUri } from "./reference-uri"
+import { scenarioVariableText } from "./nodes/scenario-variable-node"
 import type { ReferenceAttrs } from "./types"
 
 /**
@@ -59,6 +60,9 @@ export function composerLeafText(
       return ""
     }
     return referenceToMarkdown(attrs)
+  }
+  if (leaf.type.name === "scenarioVariable") {
+    return scenarioVariableText(leaf.attrs)
   }
   if (leaf.type.name === "hardBreak") return "\n"
   return ""

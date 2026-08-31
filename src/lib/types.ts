@@ -2643,6 +2643,17 @@ export interface ScenarioCategory {
   sortOrder: number
 }
 
+export interface ScenarioVariable {
+  key: string
+  label: string
+  type: "input" | "select"
+  options?: string[]
+  defaultValue?: string
+  required?: boolean
+  allowCustom?: boolean
+  placeholder?: string
+}
+
 export interface Scenario {
   id: string
   categoryKey: string
@@ -2650,6 +2661,8 @@ export interface Scenario {
   displayName: string
   summary: string
   promptTemplate: string
+  /** Optional for compatibility with older Fusion catalog responses. */
+  variables?: ScenarioVariable[]
   skillPackageId: string
   skillPackageSlug: string
   skillPackageVersion: string

@@ -1792,6 +1792,43 @@ body {
   user-select: none;
   white-space: normal;
 }
+
+/* Scenario variables remain editable in the same composer line as the prompt. */
+.iyw-claw-composer .iyw-claw-scenario-variable {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0 0.15rem;
+  padding: 0.08rem 0.3rem 0.08rem 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--primary) 7%, var(--background));
+  color: var(--muted-foreground);
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.iyw-claw-composer .iyw-claw-scenario-variable-label {
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+}
+.iyw-claw-composer .iyw-claw-scenario-variable input,
+.iyw-claw-composer .iyw-claw-scenario-variable select {
+  min-width: 4rem;
+  max-width: 12rem;
+  height: 1.35rem;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.75rem;
+}
+.iyw-claw-composer .iyw-claw-scenario-variable input::placeholder {
+  color: var(--muted-foreground);
+}
+.iyw-claw-composer .iyw-claw-scenario-variable:focus-within {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent);
+}
 .iyw-claw-composer .iyw-claw-task-reference {
   display: inline-block;
   width: 0;

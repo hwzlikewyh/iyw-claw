@@ -116,6 +116,7 @@ import type {
   ExpertListItem,
   PromptCapabilitiesInfo,
   PromptDraft,
+  ScenarioVariable,
   PromptSkillPackage,
   PromptInputBlock,
   QuickMessage,
@@ -239,6 +240,7 @@ import {
 export interface ComposerInjectContent {
   text: string
   skill?: { id: string; label: string; package?: PromptSkillPackage }
+  scenario?: { variables: ScenarioVariable[] }
 }
 
 interface PendingSendSnapshot {
@@ -1285,7 +1287,11 @@ export function MessageInput({
     const raf = requestAnimationFrame(() => {
       const handle = editorRef.current
       if (handle) {
-        handle.setText(payload.text)
+        if (payload.scenario) {
+          handle.setScenarioTemplate(payload.text, payload.scenario.variables)
+        } else {
+          handle.setText(payload.text)
+        }
         // Prepend the skill as the leading invocation badge, so the sent
         // message opens with `${prefix}${id}`.
         if (payload.skill) {
@@ -3201,6 +3207,16 @@ export function MessageInput({
     // first-class ResourceLinks; agent/session/commit/skill stay inline text;
     // embedded badges are dropped here and re-added below from the payload map).
     const blocks: PromptInputBlock[] = editor ? docToPromptBlocks(editor) : []
+    const missingVariables =
+      editorRef.current?.getUnfilledScenarioVariables() ?? []
+    if (missingVariables.length > 0) {
+      toast.error(
+        t("scenarioVariablesRequired", {
+          variables: missingVariables.join("、"),
+        })
+      )
+      return null
+    }
     // Keep embedded attachment badges visible in the optimistic bubble even
     // though their synthetic URI is omitted from the wire text.
     const displayProse = editor
@@ -3287,7 +3303,7 @@ export function MessageInput({
           }
         : undefined
     return { blocks, displayText, skillPackage }
-  }, [attachments, skillPrefix, tAttach])
+  }, [attachments, skillPrefix, t, tAttach])
 
   // Clear the accepted draft immediately. Invalidate the pre-send debounce so
   // it cannot write the old document back after the visible composer is empty.

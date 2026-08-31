@@ -77,7 +77,7 @@ function loadCatalog(force = false): Promise<ScenarioCatalog> {
   return catalogRequest
 }
 
-function useOfficialScenarioCatalog() {
+function useOfficialScenarioCatalog(refreshKey?: string | number) {
   const [catalog, setCatalog] = useState<ScenarioCatalog | null>(cachedCatalog)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
@@ -93,23 +93,24 @@ function useOfficialScenarioCatalog() {
           if (active)
             setError(cause instanceof Error ? cause.message : String(cause))
         })
-    void refresh()
+    void refresh(true)
     const onFocus = () => void refresh(true)
     window.addEventListener("focus", onFocus)
     return () => {
       active = false
       window.removeEventListener("focus", onFocus)
     }
-  }, [])
+  }, [refreshKey])
   return { catalog, error }
 }
 
 interface QuickActionsProps {
   onSelect: (payload: ComposerInjectContent) => void
+  refreshKey?: string | number
 }
 
-export function QuickActions({ onSelect }: QuickActionsProps) {
-  const { catalog, error } = useOfficialScenarioCatalog()
+export function QuickActions({ onSelect, refreshKey }: QuickActionsProps) {
+  const { catalog, error } = useOfficialScenarioCatalog(refreshKey)
   const { preferences } = useScenarioPreferences()
   const [categoryKey, setCategoryKey] = useState<string | null>(null)
   const categories = catalog?.categories ?? []
@@ -210,6 +211,7 @@ function ScenarioCard({
       onClick={() =>
         onSelect({
           text: prompt,
+          scenario: { variables: scenario.variables ?? [] },
           skill: {
             id: scenario.skillPackageSlug,
             label: scenario.displayName,

@@ -2669,7 +2669,10 @@ const ConversationTabView = memo(function ConversationTabView({
           <div className="flex-[1.18]" />
           <div className="mx-auto flex w-full max-w-4xl shrink-0 flex-col gap-6 px-4 py-4">
             <WelcomeHero />
-            <QuickActions onSelect={handleQuickAction} />
+            <QuickActions
+              onSelect={handleQuickAction}
+              refreshKey={`${tabId}:${conversationId ?? "draft"}`}
+            />
             <div className="flex justify-center">
               <AgentSelector
                 align="center"

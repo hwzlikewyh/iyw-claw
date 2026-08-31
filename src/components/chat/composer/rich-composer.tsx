@@ -15,11 +15,17 @@ import { EditorContent, useEditor } from "@tiptap/react"
 import { exitSuggestion } from "@tiptap/suggestion"
 
 import { matchShortcutEvent } from "@/lib/keyboard-shortcuts"
+import type { ScenarioVariable } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 import { buildComposerExtensions } from "./editor-config"
 import { textToDoc, textToInlineContent } from "./plain-text-content"
 import { setRealtimeVoicePartial } from "./realtime-partial"
+import {
+  inferScenarioVariables,
+  missingScenarioVariables,
+  scenarioTemplateToDoc,
+} from "./scenario-template"
 import { serializeDocToText } from "./to-prompt-blocks"
 import { decideComposerKey } from "./submit-key"
 import type {
@@ -47,6 +53,8 @@ export interface RichComposerHandle {
   getText: () => string
   /** Replace the whole document from plain text. */
   setText: (text: string) => void
+  /** Replace the document and turn configured {{variables}} into inline controls. */
+  setScenarioTemplate: (text: string, variables: ScenarioVariable[]) => void
   /**
    * Replace the whole document from a Tiptap JSON doc — used to hydrate a v2
    * draft or a queue-edit payload, preserving reference badges.
@@ -68,6 +76,8 @@ export interface RichComposerHandle {
   isEmpty: () => boolean
   /** Serialize the current document to Tiptap JSON (for draft persistence). */
   getJSON: () => JSONContent
+  /** Return labels of required scenario controls that are still empty. */
+  getUnfilledScenarioVariables: () => string[]
   /** Insert plain text at the current selection. */
   insertTextAtCursor: (text: string) => void
   /** Append confirmed voice text to the current document end. */
@@ -390,6 +400,13 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       (): RichComposerHandle => ({
         getText: () => (editor ? serializeDocToText(editor.state.doc) : ""),
         setText: (text) => editor?.commands.setContent(textToDoc(text)),
+        setScenarioTemplate: (text, variables) =>
+          editor?.commands.setContent(
+            scenarioTemplateToDoc(
+              text,
+              variables?.length ? variables : inferScenarioVariables(text)
+            )
+          ),
         setDoc: (doc) => editor?.commands.setContent(doc),
         clear: () => editor?.commands.clearContent(true),
         focus: () => editor?.commands.focus("end"),
@@ -426,6 +443,8 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
         },
         isEmpty: () => editor?.isEmpty ?? true,
         getJSON: () => editor?.getJSON() ?? { type: "doc", content: [] },
+        getUnfilledScenarioVariables: () =>
+          editor ? missingScenarioVariables(editor.getJSON()) : [],
         insertTextAtCursor: (text) =>
           editor
             ?.chain()
