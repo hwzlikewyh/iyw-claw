@@ -54,7 +54,7 @@ export function SkillCard({
   return (
     <article
       className={cn(
-        "group flex h-[11.75rem] min-w-0 flex-col rounded-lg border bg-background p-3.5 transition-[border-color,box-shadow,transform]",
+        "group flex h-[11.75rem] min-w-0 flex-col overflow-hidden rounded-lg border bg-background p-3.5 transition-[border-color,box-shadow,transform]",
         selected
           ? "border-foreground/35 shadow-[inset_3px_0_0_hsl(var(--foreground))]"
           : "hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-[0_8px_22px_rgba(15,23,42,0.055)]"
@@ -85,7 +85,7 @@ function SkillCardSummary({
   return (
     <button
       type="button"
-      className="min-w-0 flex-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
       onClick={() => onSelect(item)}
       aria-current={selected ? "true" : undefined}
       aria-label={t("a11y.openDetail", { name: item.displayName })}
@@ -117,7 +117,7 @@ function SkillCardSummary({
         limit={3}
         className="mt-2.5 h-5 overflow-hidden"
       />
-      <span className="mt-2 line-clamp-2 block text-xs leading-5 text-muted-foreground">
+      <span className="mt-2 line-clamp-2 h-10 shrink-0 overflow-hidden break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]">
         {item.summary}
       </span>
     </button>
@@ -139,7 +139,7 @@ function SkillCardFooter({
 }) {
   const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
   return (
-    <div className="mt-2.5 flex min-w-0 items-center gap-2 border-t pt-2.5">
+    <div className="mt-2.5 flex min-w-0 shrink-0 items-center gap-2 border-t pt-2.5">
       <div className="flex min-w-0 flex-1 gap-1 overflow-hidden">
         {item.tags.slice(0, 2).map((tag) => (
           <span
