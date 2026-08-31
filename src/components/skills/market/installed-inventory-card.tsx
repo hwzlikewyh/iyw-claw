@@ -3,7 +3,7 @@
 import { AlertTriangle, Bot, Copy, Package, ArrowUpRight } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Badge } from "@/components/ui/badge"
-import { cn } from "@/lib/utils"
+import { marketCardClass } from "@/components/skills/market/skill-card"
 import type {
   LogicalSkillInventoryItem,
   SkillInventoryStatus,
@@ -36,14 +36,7 @@ export function InstalledInventoryCard({
     (state) => state.actualEnabled
   ).length
   return (
-    <article
-      className={cn(
-        "group flex h-[11.75rem] min-w-0 flex-col overflow-hidden rounded-lg border bg-background p-3.5 transition-[border-color,box-shadow,transform]",
-        selected
-          ? "border-foreground/35 shadow-[inset_3px_0_0_hsl(var(--foreground))]"
-          : "hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-[0_8px_22px_rgba(15,23,42,0.055)]"
-      )}
-    >
+    <article className={marketCardClass(selected)}>
       <button
         type="button"
         className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
@@ -68,7 +61,7 @@ export function InstalledInventoryCard({
             aria-hidden="true"
           />
         </span>
-        <span className="mt-2.5 flex h-5 items-center gap-1.5 overflow-hidden">
+        <span className="mt-2.5 flex h-5 shrink-0 items-center gap-1.5 overflow-hidden">
           {skill.localOnly ? (
             <Badge variant="secondary">{t("localOnly")}</Badge>
           ) : null}

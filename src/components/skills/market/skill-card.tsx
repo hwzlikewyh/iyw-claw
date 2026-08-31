@@ -15,6 +15,18 @@ import {
 } from "@/lib/skill-market"
 import { cn } from "@/lib/utils"
 
+const MARKET_CARD_BASE_CLASS =
+  "group flex h-[12.5rem] min-w-0 flex-col overflow-hidden rounded-lg border bg-background p-3.5 transition-[border-color,box-shadow,transform]"
+
+export function marketCardClass(selected: boolean): string {
+  return cn(
+    MARKET_CARD_BASE_CLASS,
+    selected
+      ? "border-foreground/35 shadow-[inset_3px_0_0_hsl(var(--foreground))]"
+      : "hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-[0_8px_22px_rgba(15,23,42,0.055)]"
+  )
+}
+
 function itemBadges(item: SkillMarketV2Item): MarketBadgeInfo[] {
   return [
     ...(item.packageType === "plugin"
@@ -52,14 +64,7 @@ export function SkillCard({
       : "buildFailed"
     : action
   return (
-    <article
-      className={cn(
-        "group flex h-[11.75rem] min-w-0 flex-col overflow-hidden rounded-lg border bg-background p-3.5 transition-[border-color,box-shadow,transform]",
-        selected
-          ? "border-foreground/35 shadow-[inset_3px_0_0_hsl(var(--foreground))]"
-          : "hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-[0_8px_22px_rgba(15,23,42,0.055)]"
-      )}
-    >
+    <article className={marketCardClass(selected)}>
       <SkillCardSummary item={item} selected={selected} onSelect={onSelect} />
       <SkillCardFooter
         item={item}
@@ -115,7 +120,7 @@ function SkillCardSummary({
       <MarketBadgeGroup
         badges={itemBadges(item)}
         limit={3}
-        className="mt-2.5 h-5 overflow-hidden"
+        className="mt-2.5 h-5 shrink-0 overflow-hidden"
       />
       <span className="mt-2 line-clamp-2 h-10 shrink-0 overflow-hidden break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]">
         {item.summary}
@@ -139,17 +144,7 @@ function SkillCardFooter({
 }) {
   const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
   return (
-    <div className="mt-2.5 flex min-w-0 shrink-0 items-center gap-2 border-t pt-2.5">
-      <div className="flex min-w-0 flex-1 gap-1 overflow-hidden">
-        {item.tags.slice(0, 2).map((tag) => (
-          <span
-            key={tag}
-            className="max-w-24 truncate text-[9px] text-muted-foreground"
-          >
-            {tag}
-          </span>
-        ))}
-      </div>
+    <div className="mt-2.5 flex min-w-0 shrink-0 items-center justify-end gap-2 border-t pt-2.5">
       <Button
         size="xs"
         variant={action === "update" ? "default" : "outline"}

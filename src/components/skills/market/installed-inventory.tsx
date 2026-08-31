@@ -49,7 +49,7 @@ function InventoryListState({
     return (
       <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-3 p-4 sm:p-5">
         {Array.from({ length: 6 }, (_, index) => (
-          <Skeleton key={index} className="h-[11.75rem] rounded-lg" />
+          <Skeleton key={index} className="h-[12.5rem] rounded-lg" />
         ))}
       </div>
     )
