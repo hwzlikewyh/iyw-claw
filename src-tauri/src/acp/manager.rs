@@ -933,7 +933,7 @@ impl ConnectionManager {
                 "Agent platform authorization is not initialized",
             ));
         };
-        let resolved_conversation_id = match session_id.as_deref() {
+        let resolved_from_session_id = match session_id.as_deref() {
             Some(external_id) => {
                 match crate::db::service::conversation_service::find_id_by_external_id(
                     &version_center_db,
@@ -953,11 +953,16 @@ impl ConnectionManager {
                     }
                 }
             }
+            None => None,
+        };
+        let resolved_conversation_id = match resolved_from_session_id {
+            Some(id) => Some(id),
             None => match database_conversation_id {
                 Some(candidate_id) => {
-                    match crate::db::service::conversation_service::find_id_by_id_and_agent_type(
+                    match crate::db::service::conversation_service::find_id_by_identity(
                         &version_center_db,
                         candidate_id,
+                        session_id.as_deref(),
                         agent_type,
                     )
                     .await
@@ -968,7 +973,7 @@ impl ConnectionManager {
                                 agent = %agent_type,
                                 conversation_id = candidate_id,
                                 error = %error,
-                                "[ACP] failed to validate database conversation id"
+                                "[ACP] failed to validate database conversation identity"
                             );
                             None
                         }

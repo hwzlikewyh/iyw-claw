@@ -526,26 +526,31 @@ pub async fn find_id_by_external_id(
 }
 
 /// Validate a caller-provided conversation id against the persisted Agent
-/// type. The returned id is always read from the database, never copied from
-/// the request payload.
-pub async fn find_id_by_id_and_agent_type(
+/// type and, when available, its Agent session id. A newly-created row may
+/// still have a NULL `external_id` until the first prompt binds it.
+pub async fn find_id_by_identity(
     conn: &DatabaseConnection,
     conversation_id: i32,
+    external_id: Option<&str>,
     agent_type: AgentType,
 ) -> Result<Option<i32>, DbError> {
     let agent_type = serde_json::to_value(agent_type)
         .ok()
         .and_then(|value| value.as_str().map(str::to_owned))
         .unwrap_or_default();
-    Ok(conversation::Entity::find()
+    let mut query = conversation::Entity::find()
         .select_only()
         .column(conversation::Column::Id)
         .filter(conversation::Column::Id.eq(conversation_id))
         .filter(conversation::Column::AgentType.eq(agent_type))
-        .filter(conversation::Column::DeletedAt.is_null())
-        .into_tuple::<i32>()
-        .one(conn)
-        .await?)
+        .filter(conversation::Column::DeletedAt.is_null());
+    if let Some(external_id) = external_id.filter(|value| !value.trim().is_empty()) {
+        let external_match = sea_orm::Condition::any()
+            .add(conversation::Column::ExternalId.eq(external_id))
+            .add(conversation::Column::ExternalId.is_null());
+        query = query.filter(external_match);
+    }
+    Ok(query.into_tuple::<i32>().one(conn).await?)
 }
 
 pub async fn list_by_folder(
