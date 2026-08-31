@@ -7,8 +7,8 @@ pub use manager::{
 };
 pub use state::{SystemSkillsUpdateState, SYSTEM_SKILLS_UPDATE_EVENT};
 
-/// Legacy checkout path retained only so old installs can leave the directory
-/// in place. Bundled Skill resolution never reads from it.
+/// Legacy checkout path retained for old installs. It may remain the managed
+/// source when a runtime environment must stay in place during a refresh.
 pub fn repository_dir() -> std::path::PathBuf {
     crate::commands::experts::central_experts_dir().join(".system-repo")
 }
