@@ -7,6 +7,12 @@ import {
 } from "@/lib/adapters/tool-kind-classifier"
 import type { MessageRole, PlanEntryInfo } from "@/lib/types"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
+import {
+  isCommandLikeTool,
+  sanitizeCommandDisplayValue,
+  sanitizeCommandDisplayPayload,
+  sanitizeCommandDisplayText,
+} from "@/lib/command-display"
 import { getBuiltinToolDisplay } from "@/lib/builtin-tool-display"
 import { parseBackgroundLaunch } from "@/lib/background-task"
 import { normalizePriority, normalizeStatus } from "@/lib/plan-parse"
@@ -269,145 +275,14 @@ function simplifyShellCommand(command: string): string {
   return current
 }
 
-const COMMAND_FIELD_NAMES = new Set([
-  "command",
-  "cmd",
-  "script",
-  "shellcommand",
-  "commandline",
-  "executable",
-  "program",
-  "argv",
-  "args",
-])
-
-const COMMAND_TOOL_NAME_RE =
-  /(?:^|[.:/_-])(bash|sh|shell|exec|command|terminal|run|process)(?:$|[.:/_-])/i
-
-function normalizedCommandFieldName(key: string): string {
-  return key.toLowerCase().replace(/[\s_-]+/g, "")
-}
-
-function containsCommandField(value: unknown, depth = 0): boolean {
-  if (depth > 5 || value === null || typeof value !== "object") {
-    return false
-  }
-  if (Array.isArray(value)) {
-    return value.some((item) => containsCommandField(item, depth + 1))
-  }
-  const object = value as Record<string, unknown>
-  return Object.entries(object).some(
-    ([key, nested]) =>
-      COMMAND_FIELD_NAMES.has(normalizedCommandFieldName(key)) ||
-      containsCommandField(nested, depth + 1)
-  )
-}
-
-/** Whether a tool's visible payload represents a command execution. */
-export function isCommandLikeTool(
-  toolName: string,
-  input: string | null
-): boolean {
-  const normalizedName = normalizeToolName(toolName).toLowerCase()
-  if (
-    normalizedName === "bash" ||
-    normalizedName === "exec_command" ||
-    COMMAND_TOOL_NAME_RE.test(normalizedName)
-  ) {
-    return true
-  }
-  if (!input) return false
-
-  try {
-    return containsCommandField(JSON.parse(input))
-  } catch {
-    return false
-  }
-}
-
-function isAbsoluteDisplayPath(value: string): boolean {
-  return (
-    /^[A-Za-z]:[\\/]/.test(value) ||
-    /^\\\\/.test(value) ||
-    /^\/(?:[^/]|$)/.test(value) ||
-    /^~[\\/]/.test(value) ||
-    /^\$\{?HOME\}?[\\/]/i.test(value) ||
-    /^%[^%]+%[\\/]/.test(value)
-  )
-}
-
-function pathLeaf(value: string): string {
-  const withoutTrailingSeparators = value.replace(/[\\/]+$/, "")
-  return withoutTrailingSeparators.split(/[\\/]/).pop() ?? value
-}
-
-/** Hide absolute path prefixes while retaining the executable/file name. */
-export function sanitizeCommandDisplayText(text: string): string {
-  const quotedPathRe =
-    /(["'`])((?:[A-Za-z]:[\\/]|\\\\|\/|~[\\/]|\$\{?HOME\}?[\\/]|%[^%]+%[\\/])[^"'`]*?)\1/g
-  const unquotedPathRe =
-    /(?<![\w"'`])(?:[A-Za-z]:[\\/](?:[^\\/\s"'`]+[\\/])*[^\\/\s"'`]+|\\\\[^\\/\s"'`]+(?:[\\/][^\\/\s"'`]+)+|\/(?:[^\/\s"'`]+[\/])*[^\/\s"'`]+|~[\\/](?:[^\\/\s"'`]+[\\/])*[^\\/\s"'`]+|\$\{?HOME\}?[\\/](?:[^\\/\s"'`]+[\\/])*[^\\/\s"'`]+|%[^%]+%[\\/](?:[^\\/\s"'`]+[\\/])*[^\\/\s"'`]+)/g
-
-  const quoted = text.replace(
-    quotedPathRe,
-    (match, quote: string, path: string) =>
-      isAbsoluteDisplayPath(path) ? `${quote}${pathLeaf(path)}${quote}` : match
-  )
-  return quoted.replace(unquotedPathRe, (match) => pathLeaf(match))
-}
-
-function sanitizeCommandDisplayValue(value: unknown, depth = 0): unknown {
-  if (depth > 8 || value === null || value === undefined) return value
-  if (typeof value === "string") return sanitizeCommandDisplayText(value)
-  if (typeof value !== "object") return value
-  if (Array.isArray(value)) {
-    return value.map((item) => sanitizeCommandDisplayValue(item, depth + 1))
-  }
-  if (Object.prototype.toString.call(value) !== "[object Object]") {
-    return value
-  }
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>).map(([key, nested]) => [
-      key,
-      sanitizeCommandDisplayValue(nested, depth + 1),
-    ])
-  )
-}
-
-/** Sanitize a JSON or plain-text command payload for display only. */
-export function sanitizeCommandDisplayPayload(raw: string): string {
-  try {
-    const parsed: unknown = JSON.parse(raw)
-    return JSON.stringify(sanitizeCommandDisplayValue(parsed), null, 2) ?? ""
-  } catch {
-    return sanitizeCommandDisplayText(raw)
-  }
-}
-
 function extractCommandFromUnknownInput(input: string): string | null {
   const trimmed = input.trim()
   if (!trimmed) return null
 
   try {
     const parsed: unknown = JSON.parse(trimmed)
-    if (typeof parsed === "string") {
-      return parsed
-    }
-    if (Array.isArray(parsed)) {
-      const parts = parsed.filter((p): p is string => typeof p === "string")
-      if (parts.length > 0) return parts.join(" ")
-    }
-    if (parsed && typeof parsed === "object") {
-      const obj = parsed as Record<string, unknown>
-      const direct = obj.command ?? obj.cmd ?? obj.script
-      if (typeof direct === "string") {
-        return direct
-      }
-      if (Array.isArray(direct)) {
-        const parts = direct.filter((p): p is string => typeof p === "string")
-        if (parts.length > 0) return parts.join(" ")
-      }
-    }
+    const command = commandFromUnknownValue(parsed)
+    if (command) return command
   } catch {
     // Non-JSON command text is handled below.
   }
@@ -439,13 +314,25 @@ function commandFromUnknownValue(value: unknown): string | null {
   }
 
   const obj = value as Record<string, unknown>
+  const program = commandFromUnknownValue(obj.executable ?? obj.program)
+  const args = commandFromUnknownValue(obj.args ?? obj.argv ?? obj.command_args)
+  if (program && args) return `${program} ${args}`
+
   const directKeys = [
     "command",
     "cmd",
     "script",
+    "shell_command",
+    "shellCommand",
+    "command_line",
+    "commandLine",
+    "command_text",
+    "commandText",
+    "command_args",
+    "executable",
+    "program",
     "args",
     "argv",
-    "command_args",
   ]
   for (const key of directKeys) {
     const found = commandFromUnknownValue(obj[key])
@@ -954,6 +841,7 @@ function deriveToolTitle(
   const parsedInput = input ? tryParseJson(input) : null
   const parsedOutput = output ? tryParseJson(output) : null
   const parsed = parsedInput ?? parsedOutput
+  const commandLikeTool = isCommandLikeTool(toolName, input ?? output ?? null)
 
   const getField = (key: string): string | null => {
     const nested = findStringFieldDeep(parsed, key)
@@ -997,7 +885,7 @@ function deriveToolTitle(
   }
 
   // Command tools
-  if (name === "bash" || name === "exec_command") {
+  if (commandLikeTool) {
     const description = getField("description")
     if (description) {
       return ellipsis(sanitizeCommandDisplayText(description), 80)
@@ -1957,7 +1845,7 @@ function StructuredToolInput({
   )
     return <TaskToolInput input={parsed} />
 
-  return <GenericToolInput input={input} />
+  return <GenericToolInput input={displayInput} />
 }
 
 // ── Shared field components ──────────────────────────────────────────
@@ -2204,7 +2092,21 @@ const ToolCallPart = memo(function ToolCallPart({
     [normalizedToolName, part.input]
   )
   const toolNameLower = normalizedToolName.toLowerCase()
-  const isCommandTool = isCommandLikeTool(normalizedToolName, part.input)
+  const isShellCommandTool =
+    toolNameLower === "bash" || toolNameLower === "exec_command"
+  const isCommandTool = isCommandLikeTool(
+    normalizedToolName,
+    part.input ?? part.output ?? part.errorText ?? null
+  )
+  const displayOutput = isCommandTool
+    ? typeof part.output === "string"
+      ? sanitizeCommandDisplayPayload(part.output)
+      : sanitizeCommandDisplayValue(part.output)
+    : part.output
+  const displayError =
+    isCommandTool && part.errorText
+      ? sanitizeCommandDisplayPayload(part.errorText)
+      : part.errorText
   // A `Bash(run_in_background: true)` launch — its result is just the task id +
   // an "output is being written to …" notice. Flag the command card as a
   // background launch (header badge + concise body) instead of dumping that
@@ -2529,15 +2431,20 @@ const ToolCallPart = memo(function ToolCallPart({
         )}
         {toolNameLower === "task" && part.output ? (
           <div className="text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside">
-            <MessageResponse>{part.output}</MessageResponse>
+            <MessageResponse>
+              {isCommandTool && typeof part.output === "string"
+                ? sanitizeCommandDisplayPayload(part.output)
+                : part.output}
+            </MessageResponse>
           </div>
-        ) : isCommandTool ? (
+        ) : isCommandTool && isShellCommandTool ? (
           part.errorText ? (
-            <ToolOutput
-              output={null}
-              errorText={sanitizeCommandDisplayText(part.errorText)}
-            />
+            <ToolOutput output={null} errorText={displayError} />
           ) : null
+        ) : isCommandTool ? (
+          (displayOutput || displayError) && (
+            <ToolOutput output={displayOutput} errorText={displayError} />
+          )
         ) : (
           !shouldHideDuplicateResult &&
           (part.output || part.errorText) && (

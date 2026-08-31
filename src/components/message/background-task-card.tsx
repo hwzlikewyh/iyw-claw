@@ -28,6 +28,7 @@ import {
 import { useTranslations } from "next-intl"
 
 import { cn } from "@/lib/utils"
+import { sanitizeCommandDisplayText } from "@/lib/command-display"
 import type { AdaptedToolCallPart } from "@/lib/adapters/ai-elements-adapter"
 import {
   buildBackgroundTaskRows,
@@ -77,8 +78,11 @@ export function BackgroundTaskCard({
 function BackgroundTaskRowView({ row }: { row: BackgroundTaskRow }) {
   const t = useTranslations("Folder.chat.contentParts.backgroundTask")
   const shortId = row.taskId ? row.taskId.slice(0, 9) : null
-  const title = row.command
-    ? row.command.split("\n")[0].slice(0, 80)
+  const displayCommand = row.command
+    ? sanitizeCommandDisplayText(row.command)
+    : null
+  const title = displayCommand
+    ? displayCommand.split("\n")[0].slice(0, 80)
     : shortId
       ? t("titleWithId", { id: shortId })
       : t("title")
@@ -95,7 +99,7 @@ function BackgroundTaskRowView({ row }: { row: BackgroundTaskRow }) {
       />
       <span
         className="min-w-0 truncate font-medium text-foreground"
-        title={row.command ?? row.taskId ?? undefined}
+        title={displayCommand ?? row.taskId ?? undefined}
       >
         {isRunning && row.isInFlight ? (
           <Shimmer as="span" duration={1} shineColor="var(--primary)">
