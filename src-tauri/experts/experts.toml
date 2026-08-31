@@ -111,8 +111,8 @@ en = "Image Generation"
 "zh-CN" = "图像生成"
 
 [expert.description]
-en = "GPT Image-specific raster generation and editing fallback when IYW Image Workflows is not selected or cannot cover the request."
-"zh-CN" = "在用户指定或爱原物图片工作流无法覆盖时，回退执行 GPT Image 专用位图生成与编辑。"
+en = "Primary ordinary text-to-image and editing route using the live IYW Fusion image model catalog; IYW business workflows remain separate."
+"zh-CN" = "普通文生图与图片编辑的首选入口，使用爱原物 Fusion 实时图片模型目录；IYW 商业工作流继续独立处理。"
 
 [[expert]]
 id = "plugin-creator"
@@ -167,8 +167,8 @@ en = "IYW Image Workflows"
 "zh-CN" = "爱原物图片工作流"
 
 [expert.description]
-en = "Primary IYW workflow for image and material generation, editing, upload, review, and knowledge; Image Generation is the GPT-specific fallback."
-"zh-CN" = "爱原物图片、素材、生成、编辑、上传、审查与知识任务的首选工作流；图像生成为 GPT 专用回退。"
+en = "Primary workflow for IYW business images, materials, editing, upload, review, and knowledge; ordinary text-to-image uses Image Generation."
+"zh-CN" = "爱原物商业图片、素材、编辑、上传、审查与知识任务的首选工作流；普通文生图使用图像生成。"
 
 [[expert]]
 id = "open-computer-use"

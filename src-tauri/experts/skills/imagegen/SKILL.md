@@ -1,12 +1,12 @@
 ---
 name: imagegen
-description: Use for free raster creation or editing, when the user requests GPT Image, when GPT Image-specific parameters are required, or when iyw-image-workflows does not cover the request. Route IYW product, material, trend, knowledge, upload, review, and commerce workflows through iyw-image-workflows first. Do not ask the user to specify GPT again when GPT Image is already requested.
+description: Use first for ordinary text-to-image, anime, character portraits, free raster creation or editing, GPT Image requests, or when iyw-image-workflows does not cover the request. Load available image models from IYW Fusion before live work and expose only model display names. Route IYW product, material, trend, knowledge, upload, review, and commerce workflows through iyw-image-workflows first.
 routing:
-  capability: free image creation and editing
-  coreTriggers: [free create or edit, GPT Image]
+  capability: ordinary image creation and editing through Fusion image models
+  coreTriggers: [text to image, anime portrait, free create or edit, GPT Image]
   exclusions: [IYW business workflow, image understanding]
   aliases: [imagegen, GPT Image]
-  invocation: Use for free create/edit; use IYW Skill for business workflows.
+  invocation: Use for ordinary create/edit; use IYW Skill for business workflows.
 ---
 
 # Image Generation
@@ -22,12 +22,19 @@ Choose between the two bundled image Skills by task intent:
   the current subgoal.
 - Use its verified commerce workflow for upload/review, product variation,
   series extension, multi-image fusion, commerce upscale, and task queries.
-- Use its verified `fission-generate` command first for ordinary text-to-image
-  requests.
+- Use this Skill first for ordinary text-to-image requests, including anime and
+  character portraits. Before generation, load the Fusion image model catalog
+  with `GET /v1/models?model_type=image`, select a model with
+  `capabilities.image_generation`, and use its internal `id` only in the API
+  request.
 - Use this Skill first for free creation or free editing that does not require
   an IYW business workflow, and for GPT Image requests or parameters. Do not ask
   the user to specify GPT again when GPT Image is already requested.
 - Never guess an IYW endpoint or commerce payload.
+
+Model catalog IDs are internal routing values. Select models by catalog display
+name and keep the resolved ID inside the CLI request. Dry-runs, errors, logs,
+and Agent responses expose only `display_name`; never show an internal ID.
 
 ## Optional Knowledge Context
 

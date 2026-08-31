@@ -1,5 +1,8 @@
 # 分身生图契约
 
+本契约仅用于用户明确要求 IYW 分身或多平台比稿。普通纯文生图、动漫和人物形象优先
+使用内置 `imagegen`，由它从 Fusion 图片模型目录选择可生成模型。
+
 分身生图使用 microModel batch 接口，不使用旧 Agent Image 路由，也不使用 commerce
 任务查询接口。CLI 负责实时配置解析和 payload 构造，agent 只提供提示词。
 
@@ -65,8 +68,8 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
 状态使用 `process`：`10` 为成功，`20` 或 `30` 为失败，其他值为排队或运行中。
 只保留 `images[].image` 中的 HTTPS URL，并按 batch 任务顺序、任务内图片顺序返回。
 
-等待超时时返回已有状态和原 task ID。继续使用 `fission-task-wait` 查询，不要创建
-替代 batch。对话内展示直接按 `SKILL.md` 的 Markdown 优先规则嵌入远程图片，不要为了
+等待超时时保留已有状态和原 task ID 供内部继续查询，但不向用户展示该 ID。继续使用
+`fission-task-wait` 查询，不要创建替代 batch。对话内展示直接按 `SKILL.md` 的 Markdown 优先规则嵌入远程图片，不要为了
 展示而下载；用户要求放入成果区时，另按 `SKILL.md` 的 `present_task_files`/完整网关
 注册规则处理，不能用下载到工作区根目录代替成果区注册。
 

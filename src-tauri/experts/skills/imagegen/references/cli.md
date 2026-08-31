@@ -62,12 +62,19 @@ Do not retry a batch automatically when its completion state is uncertain.
 
 ## Common Flags
 
-- `--model`: defaults to `gpt-image-2`.
+- `--model`: optional Fusion image model display name. When omitted, the CLI
+  loads `GET /v1/models?model_type=image` and uses the first available model
+  with image-generation capability. The catalog's display name, such as the
+  currently configured general image-processing model, is the only model label
+  shown to the user.
 - `--size`: `auto` or a supported `WIDTHxHEIGHT`.
 - `--quality`: `low`, `medium`, `high`, or `auto`.
 - `--output-format`: `png`, `jpeg`, or `webp`.
 - `--force`: overwrite an existing output only when the user authorized it.
 - `--dry-run`: validate and print the non-secret request shape without a call.
+
+The CLI keeps the selected catalog `id` private for the image request. Dry-run
+output, errors, and user-facing status use only the model `display_name`.
 
 ## Authentication and Network
 

@@ -15,11 +15,10 @@ routing:
 分身生图、上传检测、固定图片工具还是任务查询，再执行对应命令。知识库和资料检索
 是一项可单独使用的能力，不要求后续生图；生图也不强制先查询知识库。
 
-在已覆盖的 IYW 图片生成或编辑、商品图或素材图、上传审查及知识资料任务中，
-本 Skill 是默认最高优先级。用户明确指定且可完整满足当前子目标的可见 Skill 或
-直接工具仍优先。`imagegen` 仅用于用户明确选择、需要 GPT Image 专用参数、
-本 Skill 不可用或不覆盖请求的情况。只理解、识别、比较或判断已有图片时，使用
-宿主提供的图片分析路径，不触发图片生产工作流。
+在已覆盖的 IYW 商业图片生成或编辑、商品图或素材图、上传审查及知识资料任务中，
+本 Skill 是默认最高优先级。普通纯文生图、动漫和人物形象优先 `imagegen`；用户明确
+指定且可完整满足当前子目标的可见 Skill 或直接工具仍优先。只理解、识别、比较或
+判断已有图片时，使用宿主提供的图片分析路径，不触发图片生产工作流。
 
 实际网站同时提供图片工具和 Agent 入口。图片工具由本 Skill 的 CLI 负责稳定调用；
 需求解析、AI Agent、电商 Agent、设计画布、历史/收藏、知识库和私有趋势需要宿主
@@ -39,13 +38,14 @@ routing:
 `iywctl commerce`、`iywctl upload`、`iywctl task`、`list` 或 `describe`。
 
 当前不要调用 `scripts/iyw_image.py` 的 `models`、`generate`、`edit`、
-`upscale` 等命令；这些 Agent Image 路由尚未重新确认，不能作为生产接口。分身生图
-固定使用 `scripts/iyw_commerce.py fission-generate`，不要用旧 `generate` 替代。
+`upscale` 等命令；这些 Agent Image 路由尚未重新确认，不能作为生产接口。普通纯文
+生图、动漫和人物形象优先使用内置 `imagegen`；只有用户明确要求 IYW 分身或多平台
+比稿时，才使用 `scripts/iyw_commerce.py fission-generate`。
 
-普通文生图使用 `fission-generate`；有图片时按“图片输入优先级”选择固定 `tool`。
+普通文生图使用 `imagegen`；有图片时按“图片输入优先级”选择固定 `tool`。
 使用已封装的 `tool variation` 命令变款；CLI 会调用 `g_tools_generate_image`，payload 的 `toolName` 固定为
 `variation`，不要把它当作接口 operation。`extend` 使用同一 operation。
-用户明确要求 GPT Image 参数时，使用 `imagegen` Skill 的 `scripts/image_gen.py`。
+用户明确要求 GPT Image 参数时，也使用 `imagegen` Skill 的 `scripts/image_gen.py`。
 
 `fission-generate` 默认只向一个平台下发并优先使用通道四；通道四不可用时，回退到实时配置顺序中的第一个可用平台。只有明确要求多平台比稿时才传 `--compare-platforms`。
 
@@ -155,7 +155,7 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
 
 1. 用户明确要求编辑、扩图、高清修复、图层拆分、画质增强、提取图案、格式转换、线稿、配色、3D、视频或模特场景：执行对应专用 `tool`。
 2. 用户提供一张基准图片并指定趋势或主题：先上传/检测，优先执行 `tool extend`；明确失败后只回退一次 `tool variation`。
-3. 其他有图请求：先上传/检测，再执行已封装的 `tool variation` 命令变款；该别名内部调用 `g_tools_generate_image`。没有基准图片的纯文生图仍执行 `fission-generate`。
+3. 其他有图请求：先上传/检测，再执行已封装的 `tool variation` 命令变款；该别名内部调用 `g_tools_generate_image`。没有基准图片的普通纯文生图返回 `imagegen`。
 
 用户要求宫格、联图或其他成组版式时，`variation`/`extend` 先用单个任务直接生成一张完整合成图，不拆分并发。只有任务失败或视觉检查确认布局不符时才生成分图，并用 `compose-layout` 按用户指定布局拼接；无法视觉检查时不增加任务。细则见 [references/commerce-operations.md](references/commerce-operations.md)。
 
@@ -167,7 +167,7 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
 1. `extend`：已有基准图，并且目标是趋势延伸、同系列新品、多个相关产品或保持产品语言的一组设计。
 2. `mix`：已有 2-10 张图片，且目标是融合产品结构、图案、材质、配色或主题；按用户顺序引用图片。
 3. `variation`：已有 1 张图片，目标是改颜色、材质、细节、局部造型或轻量变款，同时保留主体结构。
-4. `fission-generate`：没有图片、没有需要融合的参考素材，只描述一个新产品或创意方向。
+4. `fission-generate`：仅限用户明确指定 IYW 分身或多平台比稿。
 
 背景替换、扩图、抠图、编辑、放大、修复、图层、线稿、色彩、格式、3D、视频、试衣、
 模特和商品套图属于专用工具，始终优先于上述通用权重。`extend`、`mix`、`variation`
@@ -207,6 +207,9 @@ host/path，只发送 `token` 请求头；不得传入 Cookie、`securitykey`、
 `Authorization` 或任意 prefix。
 
 ## 分身生图
+
+本入口只处理用户明确指定的 IYW 分身或多平台比稿。普通纯文生图、动漫和人物形象
+返回 `imagegen`，由它读取 Fusion 图片模型目录后生成。
 
 执行前读取
 [references/fission-generation.md](references/fission-generation.md)。只提供提示词，
@@ -371,6 +374,6 @@ uv run --project $skillDir --python 3.13 python $knowledgeCli `
 - 创建请求超时或结果不确定时，只查询原 task ID，不要重建任务。
 - 仅重试 `retryable: true` 的只读请求；不要自动重试收费创建请求。
 - 知识库查询失败默认不阻塞后续生图；用户明确要求必须依据知识库时除外。
-- 对用户只返回简洁状态、task ID，最终图片按上述展示规则处理。
+- 对用户只返回简洁状态和最终图片；task ID 只在内部用于继续查询，不得展示。
 - 不得暴露模型名、模型 ID、channel、provider、platform、`commerceType`、
   `toolType`、内部统计、token 或签名信息。

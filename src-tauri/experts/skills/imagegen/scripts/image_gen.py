@@ -13,10 +13,14 @@ import re
 import sys
 import time
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from io import BytesIO
 
-DEFAULT_MODEL = "gpt-image-2"
+DRY_RUN_MODEL_ID = "catalog-image-model"
+MODEL_NAME_FALLBACK = "selected image model"
 DEFAULT_SIZE = "auto"
 DEFAULT_QUALITY = "medium"
 DEFAULT_OUTPUT_FORMAT = "png"
@@ -26,6 +30,7 @@ DEFAULT_OUTPUT_PATH = "output/imagegen/output.png"
 DEFAULT_API_BASE_URL = "https://gateway.iyw.cn/iyw-fusion-api/v1"
 ACCOUNT_TOKEN_FILENAME = "iyw-account-token.json"
 GPT_IMAGE_MODEL_PREFIX = "gpt-image-"
+MODEL_CATALOG_TIMEOUT_SECONDS = 20
 
 ALLOWED_LEGACY_SIZES = {"1024x1024", "1536x1024", "1024x1536", "auto"}
 ALLOWED_QUALITIES = {"low", "medium", "high", "auto"}
@@ -103,6 +108,108 @@ def _client_options() -> Dict[str, Any]:
     }
 
 
+def _fusion_api_base_url() -> str:
+    return os.getenv("IYW_FUSION_API_BASE_URL", DEFAULT_API_BASE_URL).strip().rstrip("/")
+
+
+def _fetch_image_models(*, editing: bool = False) -> List[Dict[str, str]]:
+    token = _resolve_token()
+    if not token:
+        _die("IYW token is required to load the Fusion image model catalog.")
+    base_url = _fusion_api_base_url()
+    if not base_url:
+        _die("IYW_FUSION_API_BASE_URL must not be empty.")
+    query = urlencode({"model_type": "image"})
+    request = Request(
+        f"{base_url}/models?{query}",
+        headers={"Accept": "application/json", "token": token},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=MODEL_CATALOG_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        _die(f"Fusion image model catalog request failed (HTTP {exc.code}).")
+    except (URLError, TimeoutError, OSError) as exc:
+        _die(f"Fusion image model catalog request failed: {exc.__class__.__name__}.")
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        _die("Fusion image model catalog returned invalid JSON.")
+    capability = "image_editing" if editing else "image_generation"
+    models = _parse_image_models(payload, capability)
+    if not models:
+        operation = "editing" if editing else "generation"
+        _die(f"Fusion image model catalog has no available {operation} models.")
+    return models
+
+
+def _parse_image_models(payload: Any, capability: str) -> List[Dict[str, str]]:
+    raw_models = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(raw_models, list):
+        _die("Fusion image model catalog returned an invalid response.")
+    models: List[Dict[str, str]] = []
+    seen_ids = set()
+    for item in raw_models:
+        if not isinstance(item, dict):
+            continue
+        model_id = item.get("id")
+        display_name = item.get("display_name")
+        capabilities = item.get("capabilities")
+        if (
+            not isinstance(model_id, str)
+            or not model_id.strip()
+            or not isinstance(display_name, str)
+            or not display_name.strip()
+            or not isinstance(capabilities, dict)
+            or capabilities.get(capability) is not True
+            or model_id in seen_ids
+        ):
+            continue
+        seen_ids.add(model_id)
+        models.append({"id": model_id, "name": display_name.strip()})
+    return models
+
+
+def _resolve_image_model(
+    requested: Optional[str], models: List[Dict[str, str]]
+) -> Dict[str, str]:
+    normalized = requested.strip() if isinstance(requested, str) else ""
+    if normalized:
+        for model in models:
+            if normalized.casefold() == model["name"].casefold():
+                return model
+        for model in models:
+            if normalized == model["id"]:
+                return model
+        names = ", ".join(model["name"] for model in models)
+        _die(f"Requested image model is unavailable. Available models: {names}")
+    return models[0]
+
+
+def _public_model_payload(payload: Dict[str, Any], display_name: str) -> Dict[str, Any]:
+    public = dict(payload)
+    public.pop("model", None)
+    if display_name:
+        public["model_name"] = display_name
+    else:
+        public["model_selection"] = "Fusion image catalog at runtime"
+    return public
+
+
+def _redact_model_id(message: str, model_id: str, display_name: str = "") -> str:
+    replacement = display_name or "selected image model"
+    return message.replace(model_id, replacement) if model_id else message
+
+
+def _resolve_request_model(
+    requested: Optional[str], *, editing: bool = False, dry_run: bool = False,
+    models: Optional[List[Dict[str, str]]] = None,
+) -> Dict[str, str]:
+    if dry_run:
+        return {"id": DRY_RUN_MODEL_ID, "name": ""}
+    catalog = models if models is not None else _fetch_image_models(editing=editing)
+    return _resolve_image_model(requested, catalog)
+
+
 def _read_prompt(prompt: Optional[str], prompt_file: Optional[str]) -> str:
     if prompt and prompt_file:
         _die("Use --prompt or --prompt-file, not both.")
@@ -145,7 +252,7 @@ def _parse_size(size: str) -> Optional[Tuple[int, int]]:
     return int(match.group(1)), int(match.group(2))
 
 
-def _validate_gpt_image_2_size(size: str) -> None:
+def _validate_gpt_image_2_size(size: str, model_name: str) -> None:
     if size == "auto":
         return
 
@@ -159,26 +266,28 @@ def _validate_gpt_image_2_size(size: str) -> None:
     total_pixels = width * height
 
     if max_edge > GPT_IMAGE_2_MAX_EDGE:
-        _die("gpt-image-2 size maximum edge length must be less than or equal to 3840px.")
+        _die(f"{model_name} size maximum edge length must be less than or equal to 3840px.")
     if width % 16 != 0 or height % 16 != 0:
-        _die("gpt-image-2 size width and height must be multiples of 16px.")
+        _die(f"{model_name} size width and height must be multiples of 16px.")
     if max_edge / min_edge > GPT_IMAGE_2_MAX_RATIO:
         _die("gpt-image-2 size long edge to short edge ratio must not exceed 3:1.")
     if total_pixels < GPT_IMAGE_2_MIN_PIXELS or total_pixels > GPT_IMAGE_2_MAX_PIXELS:
         _die(
-            "gpt-image-2 size total pixels must be at least 655,360 and no more than 8,294,400."
+            f"{model_name} size total pixels must be at least 655,360 and no more than 8,294,400."
         )
 
 
-def _validate_size(size: str, model: str) -> None:
+def _validate_size(size: str, model: str, model_name: str = MODEL_NAME_FALLBACK) -> None:
     if model == GPT_IMAGE_2_MODEL:
-        _validate_gpt_image_2_size(size)
+        _validate_gpt_image_2_size(size, model_name)
         return
 
-    if size not in ALLOWED_LEGACY_SIZES:
+    if model.startswith(GPT_IMAGE_MODEL_PREFIX) and size not in ALLOWED_LEGACY_SIZES:
         _die(
-            "size must be one of 1024x1024, 1536x1024, 1024x1536, or auto for this GPT Image model."
+            f"size must be one of 1024x1024, 1536x1024, 1024x1536, or auto for {model_name}."
         )
+    if not model.startswith(GPT_IMAGE_MODEL_PREFIX) and size != "auto" and _parse_size(size) is None:
+        _die("size must be auto or WIDTHxHEIGHT, for example 1024x1024.")
 
 
 def _validate_quality(quality: str) -> None:
@@ -197,10 +306,8 @@ def _validate_input_fidelity(input_fidelity: Optional[str]) -> None:
 
 
 def _validate_model(model: str) -> None:
-    if not model.startswith(GPT_IMAGE_MODEL_PREFIX):
-        _die(
-            "model must be a GPT Image model (for example gpt-image-1.5, gpt-image-1, or gpt-image-1-mini)."
-        )
+    if not isinstance(model, str) or not model.strip():
+        _die("an image model is required")
 
 
 def _validate_transparency(background: Optional[str], output_format: str) -> None:
@@ -212,23 +319,26 @@ def _validate_model_specific_options(
     *,
     model: str,
     background: Optional[str],
+    model_name: str = MODEL_NAME_FALLBACK,
     input_fidelity: Optional[str] = None,
 ) -> None:
     if model != GPT_IMAGE_2_MODEL:
         return
     if background == "transparent":
         _die(
-            "transparent backgrounds are not supported in gpt-image-2, the latest model. "
-            "Use --model gpt-image-1.5 --background transparent --output-format png instead."
+            f"transparent backgrounds are not supported in {model_name}, the selected model. "
+            "Choose a catalog model that supports transparent output."
         )
     if input_fidelity is not None:
         _die(
-            "input_fidelity is not supported in gpt-image-2 because image inputs always use high fidelity for this model."
+            f"input_fidelity is not supported in {model_name} because image inputs always use high fidelity for this model."
         )
 
 
-def _validate_generate_payload(payload: Dict[str, Any]) -> None:
-    model = str(payload.get("model", DEFAULT_MODEL))
+def _validate_generate_payload(
+    payload: Dict[str, Any], model_name: str = MODEL_NAME_FALLBACK
+) -> None:
+    model = str(payload.get("model", DRY_RUN_MODEL_ID))
     _validate_model(model)
     n = int(payload.get("n", 1))
     if n < 1 or n > 10:
@@ -236,10 +346,12 @@ def _validate_generate_payload(payload: Dict[str, Any]) -> None:
     size = str(payload.get("size", DEFAULT_SIZE))
     quality = str(payload.get("quality", DEFAULT_QUALITY))
     background = payload.get("background")
-    _validate_size(size, model)
+    _validate_size(size, model, model_name)
     _validate_quality(quality)
     _validate_background(background)
-    _validate_model_specific_options(model=model, background=background)
+    _validate_model_specific_options(
+        model=model, model_name=model_name, background=background
+    )
     oc = payload.get("output_compression")
     if oc is not None and not (0 <= int(oc) <= 100):
         _die("output_compression must be between 0 and 100")
@@ -598,6 +710,7 @@ async def _generate_one_with_retries(
 async def _run_generate_batch(args: argparse.Namespace) -> int:
     jobs = _read_jobs_jsonl(args.input)
     out_dir = Path(args.out_dir)
+    model_catalog = None if args.dry_run else _fetch_image_models()
 
     base_fields = _fields_from_args(args)
     base_payload = {
@@ -624,7 +737,11 @@ async def _run_generate_batch(args: argparse.Namespace) -> int:
             job_payload = _merge_non_null(job_payload, {k: job.get(k) for k in base_payload.keys()})
             job_payload = {k: v for k, v in job_payload.items() if v is not None}
 
-            _validate_generate_payload(job_payload)
+            model = _resolve_request_model(
+                job_payload.get("model"), dry_run=True, models=model_catalog
+            )
+            job_payload["model"] = model["id"]
+            _validate_generate_payload(job_payload, model["name"])
             effective_output_format = _normalize_output_format(job_payload.get("output_format"))
             _validate_transparency(job_payload.get("background"), effective_output_format)
             job_payload["output_format"] = effective_output_format
@@ -645,17 +762,22 @@ async def _run_generate_batch(args: argparse.Namespace) -> int:
                 ]
             _print_request(
                 {
-                    "endpoint": "/v1/images/generations",
+                    "operation": "image_generation",
                     "job": i,
                     "outputs": [str(p) for p in outputs],
                     "outputs_downscaled": downscaled,
-                    **job_payload,
+                    **_public_model_payload(job_payload, model["name"]),
                 }
             )
         return 0
 
     client = _create_async_client()
     sem = asyncio.Semaphore(args.concurrency)
+    print(
+        "Available image models: "
+        + ", ".join(model["name"] for model in model_catalog or []),
+        file=sys.stderr,
+    )
 
     any_failed = False
 
@@ -673,8 +795,12 @@ async def _run_generate_batch(args: argparse.Namespace) -> int:
         payload = _merge_non_null(payload, {k: job.get(k) for k in base_payload.keys()})
         payload = {k: v for k, v in payload.items() if v is not None}
 
+        model = _resolve_request_model(
+            payload.get("model"), models=model_catalog
+        )
+        payload["model"] = model["id"]
         n = int(payload.get("n", 1))
-        _validate_generate_payload(payload)
+        _validate_generate_payload(payload, model["name"])
         effective_output_format = _normalize_output_format(payload.get("output_format"))
         _validate_transparency(payload.get("background"), effective_output_format)
         payload["output_format"] = effective_output_format
@@ -710,10 +836,15 @@ async def _run_generate_batch(args: argparse.Namespace) -> int:
             return i, None
         except Exception as exc:
             any_failed = True
-            print(f"{job_label} failed: {exc}", file=sys.stderr)
+            print(
+                f"{job_label} failed: {_redact_model_id(str(exc), payload['model'], model['name'])}",
+                file=sys.stderr,
+            )
             if args.fail_fast:
-                raise
-            return i, str(exc)
+                raise RuntimeError(
+                    _redact_model_id(str(exc), payload["model"], model["name"])
+                ) from None
+            return i, _redact_model_id(str(exc), payload["model"], model["name"])
 
     tasks = [asyncio.create_task(run_job(i, job)) for i, job in enumerate(jobs, start=1)]
 
@@ -737,9 +868,10 @@ def _generate_batch(args: argparse.Namespace) -> None:
 def _generate(args: argparse.Namespace) -> None:
     prompt = _read_prompt(args.prompt, args.prompt_file)
     prompt = _augment_prompt(args, prompt)
+    model = _resolve_request_model(args.model, dry_run=args.dry_run)
 
     payload = {
-        "model": args.model,
+        "model": model["id"],
         "prompt": prompt,
         "n": args.n,
         "size": args.size,
@@ -750,6 +882,7 @@ def _generate(args: argparse.Namespace) -> None:
         "moderation": args.moderation,
     }
     payload = {k: v for k, v in payload.items() if v is not None}
+    _validate_generate_payload(payload, model["name"] or MODEL_NAME_FALLBACK)
 
     output_format = _normalize_output_format(args.output_format)
     _validate_transparency(args.background, output_format)
@@ -762,21 +895,25 @@ def _generate(args: argparse.Namespace) -> None:
     if args.dry_run:
         _print_request(
             {
-                "endpoint": "/v1/images/generations",
+                "operation": "image_generation",
                 "outputs": [str(p) for p in output_paths],
                 "outputs_downscaled": downscaled,
-                **payload,
+                **_public_model_payload(payload, model["name"]),
             }
         )
         return
 
+    print(f"Using image model: {model['name']}", file=sys.stderr)
     print(
         "Calling Image API (generation). This can take up to a couple of minutes.",
         file=sys.stderr,
     )
     started = time.time()
     client = _create_client()
-    result = client.images.generate(**payload)
+    try:
+        result = client.images.generate(**payload)
+    except Exception as exc:
+        _die(_redact_model_id(str(exc), model["id"], model["name"]))
     elapsed = time.time() - started
     print(f"Generation completed in {elapsed:.1f}s.", file=sys.stderr)
 
@@ -796,6 +933,7 @@ def _edit(args: argparse.Namespace) -> None:
     prompt = _augment_prompt(args, prompt)
 
     image_paths = _check_image_paths(args.image)
+    model = _resolve_request_model(args.model, editing=True, dry_run=args.dry_run)
     mask_path = Path(args.mask) if args.mask else None
     if mask_path:
         if not mask_path.exists():
@@ -806,7 +944,7 @@ def _edit(args: argparse.Namespace) -> None:
             _warn(f"Mask exceeds 50MB limit: {mask_path}")
 
     payload = {
-        "model": args.model,
+        "model": model["id"],
         "prompt": prompt,
         "n": args.n,
         "size": args.size,
@@ -818,6 +956,14 @@ def _edit(args: argparse.Namespace) -> None:
         "moderation": args.moderation,
     }
     payload = {k: v for k, v in payload.items() if v is not None}
+    _validate_model(payload["model"])
+    _validate_size(args.size, model["id"], model["name"] or MODEL_NAME_FALLBACK)
+    _validate_model_specific_options(
+        model=model["id"],
+        model_name=model["name"] or MODEL_NAME_FALLBACK,
+        background=args.background,
+        input_fidelity=args.input_fidelity,
+    )
 
     output_format = _normalize_output_format(args.output_format)
     _validate_transparency(args.background, output_format)
@@ -835,14 +981,18 @@ def _edit(args: argparse.Namespace) -> None:
             payload_preview["mask"] = str(mask_path)
         _print_request(
             {
-                "endpoint": "/v1/images/edits",
+                "operation": "image_editing",
                 "outputs": [str(p) for p in output_paths],
                 "outputs_downscaled": downscaled,
-                **payload_preview,
+                **_public_model_payload(payload_preview, model["name"]),
             }
         )
         return
 
+    print(
+        f"Using image model: {model['name']}",
+        file=sys.stderr,
+    )
     print(
         f"Calling Image API (edit) with {len(image_paths)} image(s).",
         file=sys.stderr,
@@ -855,7 +1005,10 @@ def _edit(args: argparse.Namespace) -> None:
         request["image"] = image_files if len(image_files) > 1 else image_files[0]
         if mask_file is not None:
             request["mask"] = mask_file
-        result = client.images.edit(**request)
+        try:
+            result = client.images.edit(**request)
+        except Exception as exc:
+            _die(_redact_model_id(str(exc), model["id"], model["name"]))
 
     elapsed = time.time() - started
     print(f"Edit completed in {elapsed:.1f}s.", file=sys.stderr)
@@ -925,7 +1078,10 @@ class _FileBundle:
 
 
 def _add_shared_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument(
+        "--model",
+        help="Image model display name; when omitted, use the first available Fusion image model.",
+    )
     parser.add_argument("--prompt")
     parser.add_argument("--prompt-file")
     parser.add_argument("--n", type=int, default=1)
@@ -1003,15 +1159,8 @@ def main() -> int:
     if getattr(args, "downscale_max_dim", None) is not None and args.downscale_max_dim < 1:
         _die("--downscale-max-dim must be >= 1")
 
-    _validate_model(args.model)
-    _validate_size(args.size, args.model)
     _validate_quality(args.quality)
     _validate_background(args.background)
-    _validate_model_specific_options(
-        model=args.model,
-        background=args.background,
-        input_fidelity=getattr(args, "input_fidelity", None),
-    )
     _ensure_token(args.dry_run)
 
     args.func(args)

@@ -5,9 +5,15 @@ client uses the OpenAI-compatible Image API at the IYW Fusion endpoint.
 
 ## Models
 
+Before a live generation or edit, read the Fusion catalog with
+`GET /v1/models?model_type=image`. Select only entries whose
+`capabilities.image_generation` or `capabilities.image_editing` flag matches
+the operation. Send the selected `id` to the image endpoint, but expose only
+its `display_name` in dry-runs, errors, logs, and Agent responses.
+
 | Model | Quality | Input fidelity | Size | Use |
 |---|---|---|---|---|
-| `gpt-image-2` | `low`, `medium`, `high`, `auto` | Always high; omit the flag | `auto` or validated flexible sizes | Default generation and editing |
+| `gpt-image-2` | `low`, `medium`, `high`, `auto` | Always high; omit the flag | `auto` or validated flexible sizes | Compatibility constraints when this catalog ID is selected |
 | `gpt-image-1.5` | `low`, `medium`, `high`, `auto` | `low`, `high` | `1024x1024`, `1024x1536`, `1536x1024`, `auto` | Native transparent output and compatibility |
 | `gpt-image-1` | `low`, `medium`, `high`, `auto` | `low`, `high` | Legacy fixed sizes | Compatibility only |
 | `gpt-image-1-mini` | `low`, `medium`, `high`, `auto` | `low`, `high` | Legacy fixed sizes | Lower-cost compatibility |

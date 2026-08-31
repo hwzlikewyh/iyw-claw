@@ -3,4 +3,4 @@ interface:
   short_description: "Generate or edit images for websites, games, and more"
   icon_small: "./assets/imagegen-small.svg"
   icon_large: "./assets/imagegen.png"
-  default_prompt: "Use $imagegen for free image creation or editing and GPT Image requests, route IYW business workflows to $iyw-image-workflows, and register every final image in the current conversation Artifacts."
+  default_prompt: "Use $imagegen first for ordinary text-to-image, anime, and character portraits; before generation read the Fusion image model catalog and use an available model's display name while keeping its internal ID private. Route IYW product, material, trend, knowledge, upload, review, and commerce workflows to $iyw-image-workflows, and register every final image in the current conversation Artifacts."
