@@ -3005,8 +3005,12 @@
                 "description": "Use deeper reasoning for complex tasks."
               },
               "xhigh": {
+                "name": "Extra high",
+                "description": "Use extra-high reasoning depth."
+              },
+              "max": {
                 "name": "Maximum",
-                "description": "Use maximum reasoning depth."
+                "description": "Use the maximum reasoning depth allowed by the model."
               }
             },
             "responseMode": {

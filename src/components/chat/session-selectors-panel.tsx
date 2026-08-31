@@ -6,7 +6,10 @@ import { cn } from "@/lib/utils"
 import { DropdownRadioItemContent } from "@/components/chat/dropdown-radio-item-content"
 import { ModelOptionList } from "@/components/chat/model-option-list"
 import { ModelIcon } from "@/components/chat/model-icon"
-import type { SessionConfigOptionInfo } from "@/lib/types"
+import type {
+  SessionConfigOptionInfo,
+  SessionConfigSelectOptionInfo,
+} from "@/lib/types"
 import {
   hasSessionConfigValueIcon,
   SessionConfigValueIcon,
@@ -18,6 +21,7 @@ export interface SessionSelectorOption {
   name: string
   description?: string | null
   iconUrl?: string | null
+  modelBehavior?: SessionConfigSelectOptionInfo["modelBehavior"]
 }
 
 // A visual group of options. `name === null` renders the options ungrouped
@@ -150,7 +154,10 @@ export function SessionSelectorsPanel({
             behaviorOptions={active.modelBehaviorOptions}
             onBehaviorSelect={
               active.onModelBehaviorSelect
-                ? (configId, valueId) => {
+                ? (modelValue, configId, valueId) => {
+                    if (modelValue !== active.currentValue) {
+                      active.onSelect(modelValue)
+                    }
                     active.onModelBehaviorSelect?.(configId, valueId)
                     onAfterSelect?.()
                   }

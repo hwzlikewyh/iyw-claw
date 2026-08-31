@@ -39,7 +39,7 @@ export function ModelBehaviorMenu({
   )
   const [activeId, setActiveId] = useState<string | null>(null)
   if (visible.length === 0) return null
-  const active = visible.find(({ id }) => id === activeId) ?? null
+  const active = visible.find(({ id }) => id === activeId) ?? visible[0]
 
   return (
     <div

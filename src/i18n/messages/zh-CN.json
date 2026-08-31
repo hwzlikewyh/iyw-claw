@@ -3005,8 +3005,12 @@
                 "description": "为复杂任务使用更深推理。"
               },
               "xhigh": {
+                "name": "超高",
+                "description": "使用超高推理深度。"
+              },
+              "max": {
                 "name": "最高",
-                "description": "使用最高推理深度。"
+                "description": "使用模型允许的最高推理深度。"
               }
             },
             "responseMode": {

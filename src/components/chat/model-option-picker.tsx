@@ -95,7 +95,10 @@ export function ModelOptionPicker({
           listAriaLabel={t("modelListLabel")}
           emptyLabel={t("noModels")}
           behaviorOptions={behaviorOptions}
-          onBehaviorSelect={(configId, valueId) => {
+          onBehaviorSelect={(modelValue, configId, valueId) => {
+            if (modelValue !== currentValue) {
+              onSelect(option.id, modelValue)
+            }
             onBehaviorSelect?.(configId, valueId)
             setOpen(false)
           }}

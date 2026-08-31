@@ -41,9 +41,20 @@ function selectOption(
 }
 
 function effortLabel(effort: string): string {
-  return effort === "xhigh"
-    ? "Max"
-    : effort.charAt(0).toUpperCase() + effort.slice(1)
+  const normalized = effort.trim().toLowerCase().replace(/_/g, "-")
+  if (normalized === "xhigh" || normalized === "extra-high") {
+    return "Extra high"
+  }
+  if (normalized === "max") return "Maximum"
+  return effort.charAt(0).toUpperCase() + effort.slice(1)
+}
+
+function buildReasoningOptions(
+  model: GatewayModel
+): SessionConfigSelectOptionInfo[] {
+  return model.efforts.map((effort) =>
+    selectOption(effort, effortLabel(effort), null)
+  )
 }
 
 function buildModelOption(
@@ -58,9 +69,15 @@ function buildModelOption(
     kind: {
       type: "select",
       current_value: selected.id,
-      options: models.map((model) =>
-        selectOption(model.id, model.name, model.description, model.iconUrl)
-      ),
+      options: models.map((model) => ({
+        ...selectOption(model.id, model.name, model.description, model.iconUrl),
+        modelBehavior: {
+          reasoningOptions: buildReasoningOptions(model),
+          defaultReasoningEffort: model.defaultEffort,
+          fastModeSupported: model.fastModeSupported,
+          fastModeDefaultEnabled: model.fastModeDefaultEnabled,
+        },
+      })),
       groups: [],
     },
   }

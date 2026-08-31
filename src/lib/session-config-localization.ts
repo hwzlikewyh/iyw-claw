@@ -40,7 +40,7 @@ const REASONING_VALUE_KEYS: Record<string, string> = {
   medium: "medium",
   high: "high",
   xhigh: "xhigh",
-  max: "xhigh",
+  max: "max",
   "extra-high": "xhigh",
   extra_high: "xhigh",
 }
@@ -294,10 +294,21 @@ function localizeSelectOption(
   t: SessionConfigTranslator
 ): SessionConfigSelectOptionInfo {
   const localized = localizeValue(option, domain, t)
+  const modelBehavior = option.modelBehavior
   return {
     ...option,
     name: localized.name,
     description: localized.description,
+    ...(modelBehavior
+      ? {
+          modelBehavior: {
+            ...modelBehavior,
+            reasoningOptions: modelBehavior.reasoningOptions.map((item) =>
+              localizeSelectOption(item, "reasoning", t)
+            ),
+          },
+        }
+      : {}),
   }
 }
 

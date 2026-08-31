@@ -7,13 +7,15 @@ import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { DropdownRadioItemContent } from "@/components/chat/dropdown-radio-item-content"
 import { ModelIcon } from "@/components/chat/model-icon"
-import { ModelBehaviorMenu } from "@/components/chat/model-behavior-menu"
+import { ModelBehaviorPreviewPanel } from "@/components/chat/model-behavior-preview-panel"
+import { useModelOptionKeyboard } from "@/components/chat/use-model-option-keyboard"
 import {
   filterModelGroups,
   flattenModelGroups,
   type ModelOptionGroup,
 } from "@/lib/model-config-groups"
 import type { SessionConfigOptionInfo } from "@/lib/types"
+import { useModelBehaviorPreview } from "@/components/chat/use-model-behavior-preview"
 
 interface ModelOptionListProps {
   groups: ModelOptionGroup[]
@@ -24,7 +26,11 @@ interface ModelOptionListProps {
   listAriaLabel: string
   emptyLabel: string
   behaviorOptions?: SessionConfigOptionInfo[]
-  onBehaviorSelect?: (configId: string, valueId: string) => void
+  onBehaviorSelect?: (
+    modelValue: string,
+    configId: string,
+    valueId: string
+  ) => void
   compact?: boolean
   /** Focus the search box on mount (the wide popover opens straight into it). */
   autoFocus?: boolean
@@ -48,7 +54,6 @@ export function ModelOptionList({
 }: ModelOptionListProps) {
   const [query, setQuery] = useState("")
   const [activeIndex, setActiveIndex] = useState(0)
-  const [behaviorVisible, setBehaviorVisible] = useState(false)
   const virtualizerRef = useRef<VirtualizerHandle>(null)
   const viewportRef = useRef<HTMLElement | null>(null)
   const [viewportEl, setViewportEl] = useState<HTMLElement | null>(null)
@@ -71,20 +76,21 @@ export function ModelOptionList({
     () => rows.flatMap((row, index) => (row.kind === "option" ? [index] : [])),
     [rows]
   )
+  const modelOptions = useMemo(
+    () => rows.flatMap((row) => (row.kind === "option" ? [row.option] : [])),
+    [rows]
+  )
   const optionCount = optionRowIndices.length
-  const hasBehaviorMenu =
-    behaviorOptions.length > 0 && onBehaviorSelect !== undefined
-  const behaviorSummary = useMemo(
-    () =>
-      behaviorOptions
-        .map((option) => {
-          const current = option.kind.options.find(
-            ({ value }) => value === option.kind.current_value
-          )
-          return `${option.name}：${current?.name ?? option.kind.current_value}`
-        })
-        .join(" · "),
-    [behaviorOptions]
+  const {
+    behaviorModelValue,
+    setBehaviorModelValue,
+    behaviorOptionsForModel,
+    activeBehaviorOptions,
+    behaviorSummary,
+  } = useModelBehaviorPreview(
+    modelOptions,
+    currentValue,
+    behaviorOptions
   )
   const optionIndexByRow = useMemo(() => {
     const map = new Map<number, number>()
@@ -109,54 +115,17 @@ export function ModelOptionList({
     [optionCount, optionRowIndices]
   )
 
-  const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLInputElement>) => {
-      if (event.nativeEvent.isComposing || event.key === "Process") return
-      switch (event.key) {
-        case "ArrowDown":
-          event.preventDefault()
-          moveActiveTo(activeIndexClamped + 1)
-          break
-        case "ArrowUp":
-          event.preventDefault()
-          moveActiveTo(activeIndexClamped - 1)
-          break
-        case "Home":
-          event.preventDefault()
-          moveActiveTo(0)
-          break
-        case "End":
-          event.preventDefault()
-          moveActiveTo(optionCount - 1)
-          break
-        case "Enter": {
-          const rowIndex = optionRowIndices[activeIndexClamped]
-          const row = rowIndex != null ? rows[rowIndex] : undefined
-          if (row && row.kind === "option") {
-            event.preventDefault()
-            if (row.option.value === currentValue && hasBehaviorMenu) {
-              setBehaviorVisible(true)
-            } else {
-              onSelect(row.option.value)
-            }
-          }
-          break
-        }
-        default:
-          break
-      }
-    },
-    [
-      activeIndexClamped,
-      currentValue,
-      hasBehaviorMenu,
-      moveActiveTo,
-      onSelect,
-      optionCount,
-      optionRowIndices,
-      rows,
-    ]
-  )
+  const handleKeyDown = useModelOptionKeyboard({
+    rows,
+    optionRowIndices,
+    activeIndexClamped,
+    optionCount,
+    currentValue,
+    moveActiveTo,
+    onSelect,
+    behaviorOptionsForModel,
+    showBehavior: setBehaviorModelValue,
+  })
 
   const listHeight = Math.min(
     MAX_LIST_HEIGHT_PX,
@@ -168,7 +137,7 @@ export function ModelOptionList({
   return (
     <div
       className={cn("flex min-w-0 items-start", compact && "w-full flex-col")}
-      onMouseLeave={() => setBehaviorVisible(false)}
+      onMouseLeave={() => setBehaviorModelValue(null)}
     >
       <div
         className={cn(
@@ -195,7 +164,7 @@ export function ModelOptionList({
             onChange={(event) => {
               setQuery(event.target.value)
               setActiveIndex(0)
-              setBehaviorVisible(false)
+              setBehaviorModelValue(null)
             }}
             onKeyDown={handleKeyDown}
             className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
@@ -248,11 +217,17 @@ export function ModelOptionList({
                           title={row.option.name}
                           onMouseMove={() => {
                             setActiveIndex(optionIndex)
-                            setBehaviorVisible(selected)
+                            const options = behaviorOptionsForModel(row.option)
+                            setBehaviorModelValue(
+                              options.length > 0 ? row.option.value : null
+                            )
                           }}
                           onClick={() => {
-                            if (selected && hasBehaviorMenu) {
-                              setBehaviorVisible(true)
+                            const rowBehaviorOptions = behaviorOptionsForModel(
+                              row.option
+                            )
+                            if (selected && rowBehaviorOptions.length > 0) {
+                              setBehaviorModelValue(row.option.value)
                               return
                             }
                             onSelect(row.option.value)
@@ -288,9 +263,10 @@ export function ModelOptionList({
           </div>
         )}
       </div>
-      {behaviorVisible && onBehaviorSelect ? (
-        <ModelBehaviorMenu
-          options={behaviorOptions}
+      {onBehaviorSelect ? (
+        <ModelBehaviorPreviewPanel
+          modelValue={behaviorModelValue}
+          options={activeBehaviorOptions}
           onSelect={onBehaviorSelect}
           compact={compact}
         />
