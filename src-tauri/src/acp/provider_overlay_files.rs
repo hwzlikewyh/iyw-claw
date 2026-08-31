@@ -63,6 +63,13 @@ fn enforce_provider_overlay_at_root_with_kind(
     resumed: bool,
 ) -> Result<(), String> {
     if !super::provider_overlay::uses_managed_gateway(agent) {
+        // Gemini keeps its user-selected endpoint/authentication path, but its
+        // native compression threshold is still safe for the host to manage.
+        if agent == AgentType::Gemini {
+            return patch_json(&profile.join("settings.json"), |value| {
+                patch_json_config(agent, value, "")
+            });
+        }
         return Ok(());
     }
     if crate::acp::model_catalog::has_authoritative_empty_catalog(agent) {

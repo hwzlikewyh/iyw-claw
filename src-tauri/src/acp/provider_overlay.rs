@@ -122,6 +122,7 @@ pub fn apply_preferred_model_runtime_env(
         provider_model_env_key(agent_type).to_string(),
         model.to_string(),
     );
+    apply_native_budget_runtime_env(agent_type, runtime_env, model);
 }
 
 pub(crate) fn apply_provider_runtime_env_with_base(
@@ -157,10 +158,37 @@ pub(crate) fn apply_provider_runtime_env_with_base(
             runtime_env.insert(key.to_string(), model.to_string());
         }
     } else {
+        let model = managed_default_model_for(agent_type);
         runtime_env.insert(
             provider_model_env_key(agent_type).to_string(),
-            managed_default_model_for(agent_type).to_string(),
+            model.to_string(),
         );
+        apply_native_budget_runtime_env(agent_type, runtime_env, model);
+    }
+}
+
+fn apply_native_budget_runtime_env(
+    agent_type: AgentType,
+    runtime_env: &mut BTreeMap<String, String>,
+    model: &str,
+) {
+    match agent_type {
+        AgentType::ClaudeCode => {
+            let context = crate::acp::model_budget::context_window(Some(model), 1_000_000)
+                .unwrap_or(1_000_000);
+            let threshold = crate::acp::model_budget::compaction_threshold(Some(model), context)
+                .unwrap_or(context * 9 / 10);
+            runtime_env.insert(
+                "CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(),
+                threshold.to_string(),
+            );
+        }
+        AgentType::KimiCode => {
+            if let Some(context) = crate::acp::model_budget::context_window(Some(model), 0) {
+                runtime_env.insert("KIMI_MODEL_MAX_CONTEXT_SIZE".into(), context.to_string());
+            }
+        }
+        _ => {}
     }
 }
 

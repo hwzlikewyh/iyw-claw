@@ -61,6 +61,7 @@ pub mod internal_bus;
 pub mod lifecycle;
 pub mod manager;
 pub mod memory_turn;
+pub mod model_budget;
 pub mod model_catalog;
 mod model_catalog_payload;
 mod model_catalog_types;

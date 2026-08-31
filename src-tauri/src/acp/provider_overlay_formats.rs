@@ -1,5 +1,7 @@
 use crate::models::agent::AgentType;
 
+use super::model_budget;
+
 pub const MANAGED_PROVIDER_ID: &str = "iyw-claw";
 /// Seed catalog: the compiled-in fallback used until the first successful
 /// online `/v1/models` fetch (see `acp::model_catalog`). Order matters — it
@@ -41,6 +43,18 @@ fn selected_provider_model_or_default(
         model_ids,
         default_model,
     )
+}
+
+fn model_context_limit(model: &str, fallback: u64) -> Option<u64> {
+    model_budget::context_window(Some(model), fallback)
+}
+
+fn model_output_limit(model: &str) -> Option<u64> {
+    model_budget::max_output_tokens(Some(model), 0)
+}
+
+fn model_compaction_limit(model: &str, fallback: u64) -> Option<u64> {
+    model_budget::compaction_threshold(Some(model), fallback)
 }
 
 pub fn managed_model_ids_for(agent: AgentType) -> Vec<&'static str> {
@@ -126,7 +140,10 @@ pub(crate) fn patch_kimi_toml(raw: &str, base_url: &str) -> Result<String, Strin
         &model_ids,
         default_model,
     );
-    root.insert("default_model".into(), toml::Value::String(selected_model));
+    root.insert(
+        "default_model".into(),
+        toml::Value::String(selected_model.clone()),
+    );
     let providers = table_entry(root, "providers")?;
     providers.retain(|name, _| name == MANAGED_PROVIDER_ID);
     let provider = table_entry(providers, MANAGED_PROVIDER_ID)?;
@@ -144,7 +161,26 @@ pub(crate) fn patch_kimi_toml(raw: &str, base_url: &str) -> Result<String, Strin
             toml::Value::String(MANAGED_PROVIDER_ID.into()),
         );
         model.insert("model".into(), toml::Value::String((*model_id).into()));
-        model.insert("max_context_size".into(), toml::Value::Integer(1_000_000));
+        let context = model_context_limit(model_id, 1_000_000).unwrap_or(1_000_000);
+        model.insert(
+            "max_context_size".into(),
+            toml::Value::Integer(context as i64),
+        );
+    }
+    let loop_control = table_entry(root, "loop_control")?;
+    if let Some(output) = model_output_limit(&selected_model) {
+        loop_control.insert(
+            "reserved_context_size".into(),
+            toml::Value::Integer(output as i64),
+        );
+    }
+    if let Some(context) = model_context_limit(&selected_model, 1_000_000) {
+        if let Some(threshold) = model_compaction_limit(&selected_model, context) {
+            loop_control.insert(
+                "compaction_trigger_ratio".into(),
+                toml::Value::Float((threshold as f64 / context as f64).clamp(0.5, 0.99)),
+            );
+        }
     }
     toml::to_string_pretty(&value).map_err(|error| error.to_string())
 }
@@ -178,7 +214,11 @@ pub(crate) fn patch_grok_toml(raw: &str, base_url: &str) -> Result<String, Strin
             "api_backend".into(),
             toml::Value::String("chat_completions".into()),
         );
-        model.insert("context_window".into(), toml::Value::Integer(1_000_000));
+        let context = model_context_limit(model_id, 1_000_000).unwrap_or(1_000_000);
+        model.insert(
+            "context_window".into(),
+            toml::Value::Integer(context as i64),
+        );
     }
     toml::to_string_pretty(&value).map_err(|error| error.to_string())
 }
@@ -188,9 +228,6 @@ pub(crate) fn patch_json_config(
     mut value: serde_json::Value,
     base_url: &str,
 ) -> Result<serde_json::Value, String> {
-    if agent == AgentType::Gemini {
-        return Ok(value);
-    }
     let root = value
         .as_object_mut()
         .ok_or("agent config root must be a JSON object")?;
@@ -237,6 +274,13 @@ pub(crate) fn patch_json_config(
                 default_model,
             );
             set_json(root, &["env"], "ANTHROPIC_DEFAULT_HAIKU_MODEL", &haiku);
+            let context = model_context_limit(&model, 1_000_000).unwrap_or(1_000_000);
+            let threshold = model_compaction_limit(&model, context).unwrap_or(context * 9 / 10);
+            root.insert("autoCompactEnabled".into(), serde_json::Value::Bool(true));
+            root.insert(
+                "autoCompactWindow".into(),
+                serde_json::Value::Number(serde_json::Number::from(threshold)),
+            );
             root.insert(
                 "availableModels".into(),
                 serde_json::Value::Array(
@@ -246,6 +290,37 @@ pub(crate) fn patch_json_config(
                         .collect(),
                 ),
             );
+        }
+        AgentType::Gemini => {
+            let existing = root
+                .get("env")
+                .and_then(serde_json::Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            let configured_model = root
+                .get("model")
+                .and_then(serde_json::Value::as_object)
+                .and_then(|model| model.get("name"))
+                .and_then(serde_json::Value::as_str);
+            let model = selected_model_or_default(
+                configured_model.or_else(|| {
+                    existing
+                        .get("GEMINI_MODEL")
+                        .and_then(serde_json::Value::as_str)
+                }),
+                &model_ids,
+                default_model,
+            );
+            let context = model_context_limit(&model, 1_000_000).unwrap_or(1_000_000);
+            let threshold = model_compaction_limit(&model, context).unwrap_or(context / 2);
+            let ratio = (threshold as f64 / context as f64).clamp(0.01, 0.99);
+            let model_config = ensure_json_object(root, &["model"]);
+            if let Some(value) = serde_json::Number::from_f64(ratio) {
+                model_config.insert(
+                    "compressionThreshold".into(),
+                    serde_json::Value::Number(value),
+                );
+            }
         }
         AgentType::CodeBuddy => {
             let existing = root
@@ -489,7 +564,7 @@ fn managed_model_object(model_ids: &[&str]) -> serde_json::Value {
     serde_json::Value::Object(
         model_ids
             .iter()
-            .map(|model| ((*model).to_string(), serde_json::json!({"name": model})))
+            .map(|model| ((*model).to_string(), managed_opencode_model(model)))
             .collect(),
     )
 }
@@ -498,7 +573,46 @@ fn managed_model_array(model_ids: &[&str]) -> serde_json::Value {
     serde_json::Value::Array(
         model_ids
             .iter()
-            .map(|model| serde_json::json!({"id": model, "name": model}))
+            .map(|model| managed_provider_model(model))
             .collect(),
     )
+}
+
+fn managed_opencode_model(model: &str) -> serde_json::Value {
+    let mut value = serde_json::json!({"name": model});
+    let limits = model_budget::limits_for(Some(model), 0);
+    let context = limits.context_window;
+    let input = limits.max_input_tokens;
+    let output = limits.max_output_tokens;
+    if let Some(object) = value.as_object_mut() {
+        if context.is_some() || output.is_some() {
+            let mut limit = serde_json::Map::new();
+            if let Some(context) = context {
+                limit.insert("context".into(), serde_json::json!(context));
+            }
+            if let Some(input) = input {
+                limit.insert("input".into(), serde_json::json!(input));
+            }
+            if let Some(output) = output {
+                limit.insert("output".into(), serde_json::json!(output));
+            }
+            object.insert("limit".into(), serde_json::Value::Object(limit));
+        }
+    }
+    value
+}
+
+fn managed_provider_model(model: &str) -> serde_json::Value {
+    let mut value = serde_json::json!({"id": model, "name": model});
+    let context = model_context_limit(model, 0);
+    let output = model_output_limit(model);
+    if let Some(object) = value.as_object_mut() {
+        if let Some(context) = context {
+            object.insert("contextWindow".into(), serde_json::json!(context));
+        }
+        if let Some(output) = output {
+            object.insert("maxTokens".into(), serde_json::json!(output));
+        }
+    }
+    value
 }

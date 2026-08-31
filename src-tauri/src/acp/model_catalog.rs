@@ -282,17 +282,5 @@ pub fn default_model_for(agent: AgentType) -> &'static str {
 }
 
 pub fn compaction_threshold(model: Option<&str>, context_window: u64) -> Option<u64> {
-    if let Some(model) = model {
-        if let Some(value) = model_capabilities(model)
-            .and_then(|snapshot| snapshot.limits.compaction_at_tokens)
-            .filter(|value| *value > 0)
-        {
-            return Some(value);
-        }
-    }
-    match context_window {
-        1_000_000 => Some(358_000),
-        200_000 => Some(120_000),
-        _ => None,
-    }
+    super::model_budget::compaction_threshold(model, context_window)
 }

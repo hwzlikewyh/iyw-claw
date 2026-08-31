@@ -2072,10 +2072,11 @@ fn codex_base_instructions_for_model(model: &str) -> String {
 }
 
 fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value {
-    let context_window = crate::acp::model_catalog::model_capabilities(model)
-        .and_then(|snapshot| snapshot.limits.context_window)
-        .filter(|value| *value > 0)
-        .unwrap_or(CODEX_MODEL_CONTEXT_WINDOW);
+    let context_window =
+        crate::acp::model_budget::context_window(Some(model), CODEX_MODEL_CONTEXT_WINDOW)
+            .unwrap_or(CODEX_MODEL_CONTEXT_WINDOW);
+    let auto_compact_token_limit =
+        crate::acp::model_budget::compaction_threshold(Some(model), context_window);
     serde_json::json!({
         "slug": model,
         "display_name": model,
@@ -2102,6 +2103,8 @@ fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value 
         // Enables Codex ACP transport; the online model catalog still gates UI exposure.
         "additional_speed_tiers": ["fast"],
         "context_window": context_window,
+        "max_context_window": context_window,
+        "auto_compact_token_limit": auto_compact_token_limit,
         "effective_context_window_percent": 95,
         "experimental_supported_tools": []
     })

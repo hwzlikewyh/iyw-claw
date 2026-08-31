@@ -108,6 +108,16 @@ pub fn claude_code_spec() -> ProviderConfigSpec {
                 kind: ManagedFieldKind::Model,
                 required: true,
             },
+            ManagedFieldSpec {
+                path: "autoCompactEnabled",
+                kind: ManagedFieldKind::Gateway,
+                required: true,
+            },
+            ManagedFieldSpec {
+                path: "autoCompactWindow",
+                kind: ManagedFieldKind::Gateway,
+                required: true,
+            },
         ],
     }
 }
@@ -156,7 +166,12 @@ pub fn extract_json_controlled_fields(
             for segment in &segments {
                 current = current.get(*segment)?;
             }
-            current.as_str().map(|text| (field.path, text.to_string()))
+            match current {
+                serde_json::Value::String(text) => Some((field.path, text.clone())),
+                serde_json::Value::Bool(flag) => Some((field.path, flag.to_string())),
+                serde_json::Value::Number(number) => Some((field.path, number.to_string())),
+                _ => None,
+            }
         })
         .collect()
 }
@@ -250,13 +265,18 @@ mod tests {
                 "ANTHROPIC_MODEL": "gpt-5",
                 "ANTHROPIC_MAX_RETRIES": "10",
                 "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5"
-            }
+            },
+            "autoCompactEnabled": true,
+            "autoCompactWindow": 358000
         });
         let fields = extract_json_controlled_fields(&value, &spec);
         assert_eq!(fields.len(), spec.fields.len());
         assert!(fields.iter().any(|(path, value)| {
             *path == "env.ANTHROPIC_BASE_URL" && value == "https://gateway.example/v1"
         }));
+        assert!(fields
+            .iter()
+            .any(|(path, value)| { *path == "autoCompactEnabled" && value == "true" }));
     }
 
     #[test]
