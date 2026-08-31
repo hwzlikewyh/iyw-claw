@@ -77,6 +77,7 @@ pub(super) fn cleanup_stale(storage: &AgentStoragePaths) -> Result<(), AcpError>
         AgentType::Cline,
         AgentType::OpenCode,
         AgentType::KimiCode,
+        AgentType::DeepSeek,
     ];
     let mut errors = Vec::new();
     for agent_type in agents {
@@ -195,6 +196,11 @@ fn bridge_spec(
         },
         AgentType::KimiCode => BridgeSpec {
             slug: "kimi-code",
+            target: profile()?.join("AGENTS.md"),
+            agent_type,
+        },
+        AgentType::DeepSeek => BridgeSpec {
+            slug: "deepseek",
             target: profile()?.join("AGENTS.md"),
             agent_type,
         },

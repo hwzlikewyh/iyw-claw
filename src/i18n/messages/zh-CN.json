@@ -200,8 +200,31 @@
       "sectionOrderChatsFirst": "聊天在上"
     },
     "conversation": {
-      "sectionTitle": "对话过程",
-      "sectionDescription": "控制 Agent 思考、工具调用和完成后过程的显示方式。",
+      "sectionTitle": "回复与过程",
+      "sectionDescription": "分别控制智能体的回答风格和执行过程显示。",
+      "responseStyleTitle": "回答风格",
+      "responseStyleDescription": "影响最终回复的组织方式；不会删减必要信息。",
+      "responseStyleNote": "该选项会作为智能体回复约束；错误、风险和必要验证结果不会被省略。",
+      "responseStyles": {
+        "concise": {
+          "title": "简洁",
+          "description": "先给结论，保留必要依据"
+        },
+        "standard": {
+          "title": "标准",
+          "description": "结论与解释保持平衡"
+        },
+        "detailed": {
+          "title": "详尽",
+          "description": "展开背景、方案与步骤"
+        }
+      },
+      "processTitle": "执行过程",
+      "processDescription": "只决定思考与工具调用在对话中的展开方式。",
+      "processConclusionFirst": "结论优先",
+      "processSummaryFirst": "摘要优先",
+      "processFullFirst": "过程优先",
+      "processSafetyNote": "错误、权限请求和需要你选择的问题始终会显示。",
       "displayModeTitle": "默认显示模式",
       "displayModeDescription": "选择完成后的 Agent 过程默认展开程度。",
       "modeSummary": "重点摘要",
@@ -2834,6 +2857,7 @@
       },
       "messageInput": {
         "askAnything": "请开始输入...",
+        "scenarioVariablesRequired": "请先填写：{variables}",
         "conversationStarting": "正在发起对话...",
         "removeAttachmentAria": "移除 {name}",
         "attachFiles": "附加文件",

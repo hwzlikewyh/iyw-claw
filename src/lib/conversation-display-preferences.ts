@@ -1,8 +1,10 @@
 "use client"
 
 export type ConversationDisplayMode = "summary" | "full" | "minimal"
+export type ConversationResponseStyle = "concise" | "standard" | "detailed"
 
 export interface ConversationDisplayPreferences {
+  responseStyle: ConversationResponseStyle
   mode: ConversationDisplayMode
   collapseCompletedTurn: boolean
   autoOpenErrors: boolean
@@ -10,6 +12,7 @@ export interface ConversationDisplayPreferences {
 
 export const DEFAULT_CONVERSATION_DISPLAY_PREFERENCES: ConversationDisplayPreferences =
   {
+    responseStyle: "concise",
     mode: "summary",
     collapseCompletedTurn: true,
     autoOpenErrors: true,
@@ -25,6 +28,10 @@ function isDisplayMode(value: unknown): value is ConversationDisplayMode {
   return value === "summary" || value === "full" || value === "minimal"
 }
 
+function isResponseStyle(value: unknown): value is ConversationResponseStyle {
+  return value === "concise" || value === "standard" || value === "detailed"
+}
+
 export function parseConversationDisplayPreferences(
   raw: string | null
 ): ConversationDisplayPreferences {
@@ -37,6 +44,9 @@ export function parseConversationDisplayPreferences(
 
     const value = parsed as Record<string, unknown>
     return {
+      responseStyle: isResponseStyle(value.responseStyle)
+        ? value.responseStyle
+        : DEFAULT_CONVERSATION_DISPLAY_PREFERENCES.responseStyle,
       mode: isDisplayMode(value.mode)
         ? value.mode
         : DEFAULT_CONVERSATION_DISPLAY_PREFERENCES.mode,

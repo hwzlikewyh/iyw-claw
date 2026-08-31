@@ -1,6 +1,5 @@
 "use client"
 
-import type { ReactNode } from "react"
 import {
   Check,
   MessageSquareMore,
@@ -22,9 +21,9 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { useSidebarViewOptions } from "@/contexts/sidebar-view-options-context"
 import { useConversationDisplayPreferences } from "@/contexts/conversation-display-context"
-import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
 import { useThemeColor, useZoomLevel } from "@/hooks/use-appearance"
 import { cn } from "@/lib/utils"
+import { ConversationDisplayPreview } from "./conversation-display-preview"
 import type {
   SidebarSectionOrder,
   SidebarSortMode,
@@ -41,48 +40,13 @@ import { FontSettingsSection } from "./font-settings-section"
 import {
   SettingsPageLayout,
   SettingsPageHeader,
+  SegmentedControl,
   SettingSection,
   SettingRow,
   SettingSectionBody,
 } from "@/components/settings/settings-ui"
 
 type ThemeMode = "system" | "light" | "dark"
-
-function SegmentedControl<T extends string>({
-  value,
-  options,
-  onChange,
-}: {
-  value: T
-  options: Array<{ value: T; label: string; icon?: ReactNode }>
-  onChange: (value: T) => void
-}) {
-  return (
-    <div className="inline-grid rounded-lg border bg-muted/40 p-1 sm:auto-cols-fr sm:grid-flow-col">
-      {options.map((option) => {
-        const active = value === option.value
-        return (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => onChange(option.value)}
-            aria-pressed={active}
-            className={cn(
-              "inline-flex h-8 min-w-28 items-center justify-center gap-1.5 rounded-md px-3",
-              "text-xs font-medium transition-[background-color,color,box-shadow]",
-              active
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {option.icon}
-            {option.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
 
 export function AppearanceSettings() {
   const t = useTranslations("AppearanceSettings")
@@ -100,9 +64,11 @@ export function AppearanceSettings() {
   } = useSidebarViewOptions()
   const {
     mode: conversationDisplayMode,
+    responseStyle,
     collapseCompletedTurn,
     autoOpenErrors,
     setMode: setConversationDisplayMode,
+    setResponseStyle,
     setCollapseCompletedTurn,
     setAutoOpenErrors,
   } = useConversationDisplayPreferences()
@@ -322,51 +288,16 @@ export function AppearanceSettings() {
         title={t("conversation.sectionTitle")}
         description={t("conversation.sectionDescription")}
       >
-        <SettingSectionBody>
-          <SettingRow
-            title={t("conversation.displayModeTitle")}
-            description={t("conversation.displayModeDescription")}
-          >
-            <SegmentedControl<ConversationDisplayMode>
-              value={conversationDisplayMode}
-              onChange={setConversationDisplayMode}
-              options={[
-                {
-                  value: "summary",
-                  label: t("conversation.modeSummary"),
-                },
-                {
-                  value: "full",
-                  label: t("conversation.modeFull"),
-                },
-                {
-                  value: "minimal",
-                  label: t("conversation.modeMinimal"),
-                },
-              ]}
-            />
-          </SettingRow>
-          <SettingRow
-            title={t("conversation.collapseCompletedTitle")}
-            description={t("conversation.collapseCompletedDescription")}
-          >
-            <Switch
-              checked={collapseCompletedTurn}
-              onCheckedChange={setCollapseCompletedTurn}
-              aria-label={t("conversation.collapseCompletedTitle")}
-            />
-          </SettingRow>
-          <SettingRow
-            title={t("conversation.autoOpenErrorsTitle")}
-            description={t("conversation.autoOpenErrorsDescription")}
-          >
-            <Switch
-              checked={autoOpenErrors}
-              onCheckedChange={setAutoOpenErrors}
-              aria-label={t("conversation.autoOpenErrorsTitle")}
-            />
-          </SettingRow>
-        </SettingSectionBody>
+        <ConversationDisplayPreview
+          responseStyle={responseStyle}
+          processMode={conversationDisplayMode}
+          collapseCompletedTurn={collapseCompletedTurn}
+          autoOpenErrors={autoOpenErrors}
+          setProcessMode={setConversationDisplayMode}
+          setResponseStyle={setResponseStyle}
+          setCollapseCompletedTurn={setCollapseCompletedTurn}
+          setAutoOpenErrors={setAutoOpenErrors}
+        />
       </SettingSection>
 
       {/* Font section */}

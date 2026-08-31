@@ -13,6 +13,7 @@ pub struct PrepareRequest<'a> {
     pub session_id: Option<&'a str>,
     pub environment: &'a BTreeMap<String, String>,
     pub storage: &'a AgentStoragePaths,
+    pub response_style: Option<&'a str>,
 }
 
 pub struct PreparedBuiltinPrompt {
@@ -23,7 +24,11 @@ pub struct PreparedBuiltinPrompt {
 }
 
 pub async fn prepare(request: PrepareRequest<'_>) -> Result<PreparedBuiltinPrompt, AcpError> {
-    let prompt = builtin_agent_prompt::render(request.agent_type, Some(request.storage))?;
+    let prompt = builtin_agent_prompt::render(
+        request.agent_type,
+        Some(request.storage),
+        request.response_style,
+    )?;
     let bridges =
         PreparedPromptBridges::prepare(crate::acp::builtin_prompt_bridge::PrepareRequest {
             agent_type: request.agent_type,

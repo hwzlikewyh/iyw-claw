@@ -200,8 +200,31 @@
       "sectionOrderChatsFirst": "Chats first"
     },
     "conversation": {
-      "sectionTitle": "Conversation process",
-      "sectionDescription": "Control how Agent reasoning, tool calls, and completed work are shown.",
+      "sectionTitle": "Replies and process",
+      "sectionDescription": "Control the assistant's response style and execution process separately.",
+      "responseStyleTitle": "Response style",
+      "responseStyleDescription": "Changes how the final response is organized without removing necessary information.",
+      "responseStyleNote": "This setting constrains Agent responses; errors, risks, and necessary verification results remain visible.",
+      "responseStyles": {
+        "concise": {
+          "title": "Concise",
+          "description": "Lead with the answer and keep essential context"
+        },
+        "standard": {
+          "title": "Standard",
+          "description": "Balance the answer with a concise explanation"
+        },
+        "detailed": {
+          "title": "Detailed",
+          "description": "Include background, options, and steps"
+        }
+      },
+      "processTitle": "Execution process",
+      "processDescription": "Only controls how reasoning and tool calls expand in the conversation.",
+      "processConclusionFirst": "Conclusion first",
+      "processSummaryFirst": "Summary first",
+      "processFullFirst": "Process first",
+      "processSafetyNote": "Errors, permission requests, and questions that need your choice always stay visible.",
       "displayModeTitle": "Default display mode",
       "displayModeDescription": "Choose how much of the Agent process is expanded after completion.",
       "modeSummary": "Key summary",
@@ -2834,6 +2857,7 @@
       },
       "messageInput": {
         "askAnything": "Ask anything...",
+        "scenarioVariablesRequired": "Fill in first: {variables}",
         "conversationStarting": "Starting conversation...",
         "removeAttachmentAria": "Remove {name}",
         "attachFiles": "Attach files",

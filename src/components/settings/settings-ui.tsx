@@ -156,6 +156,43 @@ export function SettingRow({
   )
 }
 
+/** Compact option control shared by settings that have a small fixed set. */
+export function SegmentedControl<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T
+  options: Array<{ value: T; label: string; icon?: ReactNode }>
+  onChange: (value: T) => void
+}) {
+  return (
+    <div className="inline-grid rounded-lg border bg-muted/40 p-1 sm:auto-cols-fr sm:grid-flow-col">
+      {options.map((option) => {
+        const active = value === option.value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            aria-pressed={active}
+            className={cn(
+              "inline-flex h-8 min-w-28 items-center justify-center gap-1.5 rounded-md px-3",
+              "text-xs font-medium transition-[background-color,color,box-shadow]",
+              active
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {option.icon}
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Free-form section body ───────────────────────────────────────────────────
 
 /**

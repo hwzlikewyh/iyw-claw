@@ -20,6 +20,7 @@
 import { automaticAgentMode } from "@/lib/automatic-agent-mode"
 import { getAgentModeState } from "@/lib/agent-modes"
 import type { AgentType, SessionModeStateInfo } from "@/lib/types"
+import { loadConversationDisplayPreferences } from "@/lib/conversation-display-preferences"
 
 const STORAGE_KEY = "iyw-claw:selector-prefs"
 
@@ -135,7 +136,10 @@ export function getSavedPrefsForConnect(agentType: AgentType): {
   // The selected model is a session preference. The native provider config
   // remains the launch fallback, while ACP applies this value to a resumed
   // session before publishing its selectors.
-  const configValues = { ...prefs.configValues }
+  const configValues = {
+    ...prefs.configValues,
+    __iyw_response_style: loadConversationDisplayPreferences().responseStyle,
+  }
 
   return {
     modeId: resolveModeId(agentType, prefs),

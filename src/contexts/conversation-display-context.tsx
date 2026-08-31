@@ -12,6 +12,7 @@ import {
   CONVERSATION_DISPLAY_STORAGE_KEY,
   parseConversationDisplayPreferences,
   saveConversationDisplayPreferences,
+  type ConversationResponseStyle,
   type ConversationDisplayMode,
   type ConversationDisplayPreferences,
 } from "@/lib/conversation-display-preferences"
@@ -41,6 +42,7 @@ function getServerSnapshot() {
 }
 
 interface ConversationDisplayContextValue extends ConversationDisplayPreferences {
+  setResponseStyle: (style: ConversationResponseStyle) => void
   setMode: (mode: ConversationDisplayMode) => void
   setCollapseCompletedTurn: (value: boolean) => void
   setAutoOpenErrors: (value: boolean) => void
@@ -77,6 +79,10 @@ export function ConversationDisplayProvider({
     (mode: ConversationDisplayMode) => update({ mode }),
     [update]
   )
+  const setResponseStyle = useCallback(
+    (responseStyle: ConversationResponseStyle) => update({ responseStyle }),
+    [update]
+  )
   const setCollapseCompletedTurn = useCallback(
     (collapseCompletedTurn: boolean) => update({ collapseCompletedTurn }),
     [update]
@@ -90,6 +96,7 @@ export function ConversationDisplayProvider({
     <ConversationDisplayContext.Provider
       value={{
         ...preferences,
+        setResponseStyle,
         setMode,
         setCollapseCompletedTurn,
         setAutoOpenErrors,

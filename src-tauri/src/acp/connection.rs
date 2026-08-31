@@ -1391,6 +1391,7 @@ pub(crate) async fn spawn_agent_connection(
                 session_id: session_id.as_deref(),
                 environment: &runtime_env,
                 storage: &storage,
+                response_style: preferred_config_values.get("__iyw_response_style").map(String::as_str),
             },
         )
         .await?;
@@ -1725,6 +1726,7 @@ pub(crate) async fn prewarm_agent_runtime(
             session_id: None,
             environment: &runtime_env,
             storage: &storage,
+            response_style: None,
         },
     )
     .await?;
