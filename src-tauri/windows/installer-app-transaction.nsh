@@ -5,6 +5,7 @@ Var IywClawTransactionActive
 Var IywClawTransactionError
 Var IywClawRestartOnFailure
 Var IywClawRestartArgs
+Var IywClawRecoveryDir
 
 !include "${__FILEDIR__}\installer-app-backup.nsh"
 
@@ -15,6 +16,7 @@ Function IywClawConfigureAppTransaction
   StrCpy $IywClawTransactionError ""
   StrCpy $IywClawRestartOnFailure "0"
   StrCpy $IywClawRestartArgs ""
+  StrCpy $IywClawRecoveryDir ""
   ClearErrors
   ${GetOptions} $CMDLINE "/R" $R0
   IfErrors transaction_configured 0
@@ -98,8 +100,9 @@ Function IywClawReconcileHistoricalBackup
 
   discard_historical_backup:
     DetailPrint "当前 app 完整，正在清理上次遗留的 installer backup..."
-    RMDir /r "$IywClawBackupDir"
-    IfFileExists "$IywClawBackupDir" historical_cleanup_failed 0
+    Call IywClawCleanupOrIsolateHistoricalBackup
+    Pop $R0
+    StrCmp $R0 "1" 0 historical_cleanup_failed
     Goto no_historical_backup
 
   restore_historical_backup:
@@ -117,7 +120,7 @@ Function IywClawReconcileHistoricalBackup
     Push "0"
     Return
   historical_cleanup_failed:
-    StrCpy $IywClawTransactionError "无法清理历史 installer backup"
+    StrCpy $IywClawTransactionError "无法清理或隔离历史 installer backup"
     Push "0"
     Return
   historical_restore_failed:
@@ -203,10 +206,12 @@ Function IywClawCommitAppTransaction
     Goto commit_transaction_failed
 
   app_legacy_check_complete:
-    ; 新 app 完整即成为可恢复版本。backup 删除不是原子操作，不能在部分删除后
-    ; 再用它覆盖完整新 app；但残留 backup 仍可能包含旧 MCP，必须阻断成功。
+    ; 新 app 完整即成为可恢复版本。backup 删除不是原子操作，优先清理，失败时
+    ; 隔离到 recovery 目录；只有清理和隔离都失败才阻断成功。
     StrCpy $IywClawTransactionActive "0"
-    RMDir /r "$IywClawBackupDir"
+    Call IywClawCleanupOrIsolateHistoricalBackup
+    Pop $R0
+    StrCmp $R0 "1" 0 backup_cleanup_failed
     Push "$IywClawBackupDir"
     Push "check-legacy-files"
     Call IywClawRunKnownProcessCommandAt
@@ -227,7 +232,7 @@ Function IywClawCommitAppTransaction
     Goto commit_transaction_done
 
   backup_cleanup_failed:
-    StrCpy $IywClawTransactionError "新 app 已完整，但 installer backup 清理未完成"
+    StrCpy $IywClawTransactionError "新 app 已完整，但 installer backup 清理或隔离未完成"
     Goto commit_transaction_failed
 
   inactive_transaction:
