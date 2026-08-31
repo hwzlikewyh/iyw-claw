@@ -226,6 +226,7 @@ export async function acpConnect(
   agentType: AgentType,
   workingDir?: string,
   sessionId?: string,
+  conversationId?: number,
   preferredModeId?: string | null,
   preferredConfigValues?: Record<string, string> | null,
   forceHostRestart = false
@@ -234,6 +235,7 @@ export async function acpConnect(
     agentType,
     workingDir: workingDir ?? null,
     sessionId: sessionId ?? null,
+    conversationId: conversationId ?? null,
     preferredModeId: preferredModeId ?? null,
     preferredConfigValues: preferredConfigValues ?? null,
     forceHostRestart,

@@ -51,6 +51,7 @@ pub struct AcpConnectParams {
     pub agent_type: AgentType,
     pub working_dir: Option<String>,
     pub session_id: Option<String>,
+    pub conversation_id: Option<i32>,
     #[serde(default)]
     pub preferred_mode_id: Option<String>,
     #[serde(default)]
@@ -130,6 +131,7 @@ pub async fn acp_connect(
             params.agent_type,
             working_dir,
             params.session_id,
+            params.conversation_id,
             runtime_env,
             "web".to_string(),
             emitter,

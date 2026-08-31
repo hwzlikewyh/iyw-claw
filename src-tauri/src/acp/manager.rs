@@ -742,6 +742,7 @@ impl ConnectionManager {
             agent_type,
             working_dir,
             session_id,
+            None,
             runtime_env,
             owner_window_label,
             emitter,
@@ -760,6 +761,7 @@ impl ConnectionManager {
         agent_type: AgentType,
         working_dir: Option<String>,
         session_id: Option<String>,
+        database_conversation_id: Option<i32>,
         runtime_env: BTreeMap<String, String>,
         owner_window_label: String,
         emitter: EventEmitter,
@@ -772,6 +774,7 @@ impl ConnectionManager {
             agent_type,
             working_dir,
             session_id,
+            database_conversation_id,
             runtime_env,
             owner_window_label,
             emitter,
@@ -808,6 +811,7 @@ impl ConnectionManager {
             agent_type,
             working_dir,
             session_id,
+            None,
             runtime_env,
             owner_window_label,
             emitter,
@@ -826,6 +830,7 @@ impl ConnectionManager {
         agent_type: AgentType,
         working_dir: Option<String>,
         session_id: Option<String>,
+        database_conversation_id: Option<i32>,
         runtime_env: BTreeMap<String, String>,
         owner_window_label: String,
         emitter: EventEmitter,
@@ -928,6 +933,50 @@ impl ConnectionManager {
                 "Agent platform authorization is not initialized",
             ));
         };
+        let resolved_conversation_id = match session_id.as_deref() {
+            Some(external_id) => {
+                match crate::db::service::conversation_service::find_id_by_external_id(
+                    &version_center_db,
+                    external_id,
+                    agent_type,
+                )
+                .await
+                {
+                    Ok(value) => value,
+                    Err(error) => {
+                        tracing::warn!(
+                            agent = %agent_type,
+                            error = %error,
+                            "[ACP] failed to resolve database conversation id for resumed session"
+                        );
+                        None
+                    }
+                }
+            }
+            None => match database_conversation_id {
+                Some(candidate_id) => {
+                    match crate::db::service::conversation_service::find_id_by_id_and_agent_type(
+                        &version_center_db,
+                        candidate_id,
+                        agent_type,
+                    )
+                    .await
+                    {
+                        Ok(value) => value,
+                        Err(error) => {
+                            tracing::warn!(
+                                agent = %agent_type,
+                                conversation_id = candidate_id,
+                                error = %error,
+                                "[ACP] failed to validate database conversation id"
+                            );
+                            None
+                        }
+                    }
+                }
+                None => None,
+            },
+        };
         if let Err(error) = crate::commands::acp::verify_agent_installed(agent_type, &runtime_env) {
             verification_stage.finish("inventory_verification_error");
             return Err(error);
@@ -996,6 +1045,7 @@ impl ConnectionManager {
             agent_type,
             working_dir,
             session_id,
+            resolved_conversation_id,
             runtime_env,
             owner_window_label,
             emitter,

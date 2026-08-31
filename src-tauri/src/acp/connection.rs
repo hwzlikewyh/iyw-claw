@@ -27,6 +27,7 @@ use sacp::util::MatchDispatch;
 use sacp::{Agent, ConnectionTo, Dispatch, Responder, SessionMessage, UntypedMessage};
 use sacp_tokio::AcpAgent;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::sync::{mpsc, RwLock};
 
 use crate::acp::agent_input_capabilities::NativeSteerOutcome;
@@ -1257,6 +1258,7 @@ pub(crate) async fn spawn_agent_connection(
     agent_type: AgentType,
     working_dir: Option<String>,
     session_id: Option<String>,
+    database_conversation_id: Option<i32>,
     runtime_env: BTreeMap<String, String>,
     owner_window_label: String,
     emitter: EventEmitter,
@@ -1564,6 +1566,7 @@ pub(crate) async fn spawn_agent_connection(
                 agent_type,
                 working_dir,
                 session_id,
+                database_conversation_id,
                 recovery_in_progress_for_run,
                 cmd_rx,
                 emitter_clone.clone(),
@@ -2678,6 +2681,7 @@ struct CompanionLaunchContext<'a> {
     builtin_mcp: Option<&'a crate::acp::builtin_mcp::BuiltinMcpClient>,
     http_lease_issued: &'a AtomicBool,
     connection_id: &'a str,
+    database_conversation_id: Option<i32>,
     working_dir: &'a Path,
     agent_type: AgentType,
     state: &'a Arc<RwLock<SessionState>>,
@@ -2720,7 +2724,7 @@ async fn prepare_http_companion(
     let memory_access = project_memory_launch_access(context.state, &health, true).await;
     let resolved =
         resolve_companion_features(injection, client.capability_tools(), &memory_access).await;
-    let server_name = builtin_mcp_server_name();
+    let server_name = builtin_mcp_server_name(context.database_conversation_id, context.agent_type);
     let authority = http_session_authority(context, &resolved, &memory_access, &server_name);
     let bearer = client
         .issue(authority, Arc::clone(&memory_access.turn_tracker))
@@ -3010,13 +3014,44 @@ fn canonical_spec_to_mcp_server(name: &str, spec: &serde_json::Value) -> Result<
     }
 }
 
-fn builtin_mcp_server_name() -> String {
-    let suffix = uuid::Uuid::new_v4().simple().to_string();
+/// Keep the Agent-visible MCP namespace stable across host restarts. Persisted
+/// conversations use their database primary key; new conversations use an
+/// installation/Agent fallback until a row exists. The bearer lease remains
+/// the authority boundary for each individual connection.
+fn builtin_mcp_server_name(database_conversation_id: Option<i32>, agent_type: AgentType) -> String {
+    if let Some(conversation_id) = database_conversation_id.filter(|id| *id > 0) {
+        return format!("{IYW_CLAW_MCP_SERVER_PREFIX}c{conversation_id}");
+    }
+    let root = std::env::var_os("IYW_CLAW_DATA_DIR")
+        .or_else(|| std::env::var_os("IYW_CLAW_HOME"))
+        .map(PathBuf::from)
+        .map(|path| crate::git_credential::absolutize(&path))
+        .or_else(|| dirs::data_dir().map(|path| path.join("iyw-claw")))
+        .unwrap_or_else(|| PathBuf::from("iyw-claw-default"));
+    stable_mcp_server_name(&root, agent_type)
+}
+
+fn stable_mcp_server_name(root: &Path, agent_type: AgentType) -> String {
+    let root = crate::git_credential::absolutize(root)
+        .to_string_lossy()
+        .replace('\\', "/");
+    let root = if cfg!(windows) {
+        root.to_ascii_lowercase()
+    } else {
+        root
+    };
+    let agent = agent_type.as_wire();
+    let mut hasher = Sha256::new();
+    hasher.update(b"iyw-claw/mcp-server-name/v1\0");
+    hasher.update(root.as_bytes());
+    hasher.update([0]);
+    hasher.update(agent.as_bytes());
+    let digest = format!("{:x}", hasher.finalize());
     let suffix_len = IYW_CLAW_MCP_SERVER_MAX_CHARS - IYW_CLAW_MCP_SERVER_PREFIX.len();
     debug_assert!(suffix_len > 0);
     format!(
         "{IYW_CLAW_MCP_SERVER_PREFIX}{}",
-        &suffix[..suffix_len.min(suffix.len())]
+        &digest[..suffix_len.min(digest.len())]
     )
 }
 
@@ -3039,6 +3074,7 @@ async fn run_connection(
     agent_type: AgentType,
     working_dir: Option<String>,
     session_id: Option<String>,
+    database_conversation_id: Option<i32>,
     recovery_in_progress: Arc<RecoveryProgress>,
     mut cmd_rx: mpsc::Receiver<ConnectionCommand>,
     emitter: EventEmitter,
@@ -3321,6 +3357,7 @@ async fn run_connection(
                 builtin_mcp: builtin_mcp.as_ref(),
                 http_lease_issued: http_lease_issued.as_ref(),
                 connection_id: &conn_id,
+                database_conversation_id,
                 working_dir: &cwd,
                 agent_type,
                 state: &state,
@@ -8425,5 +8462,33 @@ mod tests {
         for tool in gated {
             assert!(!none.allows_tool(tool), "{tool} exposed when all flags off");
         }
+    }
+
+    #[test]
+    fn builtin_mcp_server_name_is_stable_and_installation_scoped() {
+        let root = Path::new("C:/iyw-claw-data");
+        let same = builtin_mcp_server_name(Some(226), AgentType::Codex);
+        assert_eq!(same, "iyw-claw-builtin-c226");
+        assert_eq!(same, builtin_mcp_server_name(Some(226), AgentType::Codex));
+        assert_ne!(same, builtin_mcp_server_name(Some(227), AgentType::Codex));
+        assert_eq!(
+            same,
+            builtin_mcp_server_name(Some(226), AgentType::ClaudeCode)
+        );
+
+        let same = stable_mcp_server_name(root, AgentType::Codex);
+        assert_eq!(same, stable_mcp_server_name(root, AgentType::Codex));
+        assert_eq!(same.len(), IYW_CLAW_MCP_SERVER_MAX_CHARS);
+        assert!(same.starts_with(IYW_CLAW_MCP_SERVER_PREFIX));
+        assert!(!same.contains("iyw-claw-data"));
+        assert_ne!(
+            same,
+            stable_mcp_server_name(Path::new("C:/other-data"), AgentType::Codex)
+        );
+        assert_ne!(same, stable_mcp_server_name(root, AgentType::ClaudeCode));
+        assert_eq!(
+            builtin_mcp_server_name(None, AgentType::Codex).len(),
+            IYW_CLAW_MCP_SERVER_MAX_CHARS
+        );
     }
 }

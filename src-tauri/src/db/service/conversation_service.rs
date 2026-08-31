@@ -503,6 +503,51 @@ pub async fn find_folder_path_by_external_id(
         .map(|folder| folder.path))
 }
 
+/// Resolve the database conversation id for a persisted Agent session.
+/// `external_id` is scoped by Agent type, so both fields are required.
+pub async fn find_id_by_external_id(
+    conn: &DatabaseConnection,
+    external_id: &str,
+    agent_type: AgentType,
+) -> Result<Option<i32>, DbError> {
+    let agent_type = serde_json::to_value(agent_type)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_default();
+    Ok(conversation::Entity::find()
+        .select_only()
+        .column(conversation::Column::Id)
+        .filter(conversation::Column::ExternalId.eq(external_id))
+        .filter(conversation::Column::AgentType.eq(agent_type))
+        .filter(conversation::Column::DeletedAt.is_null())
+        .into_tuple::<i32>()
+        .one(conn)
+        .await?)
+}
+
+/// Validate a caller-provided conversation id against the persisted Agent
+/// type. The returned id is always read from the database, never copied from
+/// the request payload.
+pub async fn find_id_by_id_and_agent_type(
+    conn: &DatabaseConnection,
+    conversation_id: i32,
+    agent_type: AgentType,
+) -> Result<Option<i32>, DbError> {
+    let agent_type = serde_json::to_value(agent_type)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_default();
+    Ok(conversation::Entity::find()
+        .select_only()
+        .column(conversation::Column::Id)
+        .filter(conversation::Column::Id.eq(conversation_id))
+        .filter(conversation::Column::AgentType.eq(agent_type))
+        .filter(conversation::Column::DeletedAt.is_null())
+        .into_tuple::<i32>()
+        .one(conn)
+        .await?)
+}
+
 pub async fn list_by_folder(
     conn: &DatabaseConnection,
     folder_id: i32,

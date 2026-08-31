@@ -5028,6 +5028,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           agentType,
           workingDir,
           sessionId,
+          conversationId,
           savedPrefs.modeId,
           savedPrefs.configValues,
           request.forceHostRestart ?? false
