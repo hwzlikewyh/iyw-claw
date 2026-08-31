@@ -97,10 +97,7 @@ import {
 } from "@/stores/conversation-runtime-store"
 import { useShallow } from "zustand/react/shallow"
 import { useConversationDetail } from "@/hooks/use-conversation-detail"
-import {
-  extractUserImagesFromDraft,
-  getPromptDraftDisplayText,
-} from "@/lib/prompt-draft"
+import { getPromptDraftDisplayText } from "@/lib/prompt-draft"
 import {
   type AgentType,
   type ContentBlock,
@@ -293,36 +290,25 @@ function buildOptimisticUserTurnFromDraft(
   attachedResourcesFallback: string,
   messageId?: string
 ): MessageTurn {
-  // `draft.displayText` is the composer's full Markdown, which already renders
-  // every inline file/resource badge as a `[label](uri)` link (see
-  // `referenceToMarkdown`). Re-appending the resource blocks here would duplicate
-  // each attached file in the optimistic bubble, so the display text is used
-  // as-is — images are the only out-of-band content left to add as blocks.
-  const images = extractUserImagesFromDraft(draft)
-  const imageUris = new Set(
-    images
-      .map((image) => image.uri?.trim())
-      .filter((uri): uri is string => Boolean(uri))
-  )
-  const hasVisibleNonImageContent = draft.blocks.some((block) => {
-    if (block.type === "text") return block.text.trim().length > 0
-    if (block.type === "resource") return true
-    return block.type === "resource_link" && !imageUris.has(block.uri.trim())
+  const blocks: ContentBlock[] = draft.blocks.map((block) => {
+    if (block.type === "image") {
+      return {
+        type: "image",
+        data: block.data,
+        mime_type: block.mime_type,
+        uri: block.uri ?? null,
+      }
+    }
+    if (block.type === "text") return { type: "text", text: block.text }
+    if (block.type === "resource_link") {
+      return { type: "text", text: `[${block.name}](${block.uri})` }
+    }
+    return { type: "text", text: `[${block.uri}](${block.uri})` }
   })
-  const text = hasVisibleNonImageContent
-    ? getPromptDraftDisplayText(draft, attachedResourcesFallback)
-    : ""
-
-  const blocks: ContentBlock[] = []
-  for (const image of images) {
-    blocks.push({
-      type: "image",
-      data: image.data,
-      mime_type: image.mime_type,
-      uri: image.uri ?? null,
-    })
+  if (blocks.length === 0) {
+    const text = getPromptDraftDisplayText(draft, attachedResourcesFallback)
+    if (text) blocks.push({ type: "text", text })
   }
-  if (text) blocks.push({ type: "text", text })
 
   return {
     id: messageId ?? `optimistic-${randomUUID()}`,

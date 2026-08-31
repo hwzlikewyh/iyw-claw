@@ -20,8 +20,12 @@ const FALLBACK_LABELS: Record<string, string> = {
 }
 
 function variableAttrs(variable: ScenarioVariable): ScenarioVariableAttrs {
-  const defaultValue = variable.defaultValue?.trim() ?? ""
   const options = variable.options ?? []
+  const configuredDefault = variable.defaultValue?.trim() ?? ""
+  const defaultValue =
+    variable.type === "select" && !configuredDefault
+      ? (options[0] ?? "")
+      : configuredDefault
   return {
     key: variable.key,
     label: variable.label,
@@ -34,7 +38,7 @@ function variableAttrs(variable: ScenarioVariable): ScenarioVariableAttrs {
     placeholder: variable.placeholder ?? "",
     customMode:
       variable.type === "input" ||
-      (defaultValue !== "" && !options.includes(defaultValue)),
+      (configuredDefault !== "" && !options.includes(configuredDefault)),
   }
 }
 

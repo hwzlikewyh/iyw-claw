@@ -4,6 +4,7 @@ import { randomUUID } from "@/lib/utils"
 import type { InputAttachment } from "../message-input-attachments"
 import { parseIywClawReferenceUri as parseReferenceUri } from "./reference-uri"
 import type { ReferenceAttrs } from "./types"
+import type { ImageAttachmentAttrs } from "./nodes/image-attachment-node"
 
 /**
  * Restore serialization (loose inverse of
@@ -33,6 +34,7 @@ import type { ReferenceAttrs } from "./types"
 export type RestoreSegment =
   | { kind: "text"; text: string }
   | { kind: "reference"; attrs: ReferenceAttrs }
+  | { kind: "image"; attrs: ImageAttachmentAttrs }
 
 export interface RestoredDraft {
   segments: RestoreSegment[]
@@ -49,7 +51,10 @@ export function blocksToRestoredDraft(
   for (const block of blocks) {
     switch (block.type) {
       case "text": {
-        if (block.text.trim().length > 0) {
+        // Keep whitespace-only separators between inline image blocks. Leading
+        // and trailing whitespace has already been normalized by the sender,
+        // but a middle separator is part of the authored order/content.
+        if (block.text.length > 0) {
           segments.push({ kind: "text", text: block.text })
         }
         break
@@ -84,14 +89,26 @@ export function blocksToRestoredDraft(
         break
       }
       case "image": {
+        const attachmentId = makeId()
         attachments.push({
-          id: makeId(),
+          id: attachmentId,
           type: "image",
           data: block.data,
           uri: block.uri ?? null,
           localPath: block.local_path ?? null,
           name: imageName(block),
           mimeType: block.mime_type,
+        })
+        segments.push({
+          kind: "image",
+          attrs: {
+            attachmentId,
+            name: imageName(block),
+            mimeType: block.mime_type,
+            uri: block.uri ?? null,
+            localPath: block.local_path ?? null,
+            status: block.data || block.uri ? "ready" : "failed",
+          },
         })
         break
       }

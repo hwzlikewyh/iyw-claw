@@ -19,7 +19,10 @@ export function isComposerEmpty(editor: Editor): boolean {
   let hasReference = false
   editor.state.doc.descendants((node) => {
     if (hasReference) return false
-    if (node.type.name === "reference") {
+    if (
+      node.type.name === "reference" ||
+      node.type.name === "imageAttachment"
+    ) {
       hasReference = true
       return false
     }
@@ -218,7 +221,9 @@ export function restoreBlocksIntoEditor(
     chain =
       segment.kind === "text"
         ? chain.insertContent(textToInlineContent(segment.text))
-        : chain.insertReference(segment.attrs)
+        : segment.kind === "reference"
+          ? chain.insertReference(segment.attrs)
+          : chain.insertImageAttachment(segment.attrs)
   }
   chain.focus("end").run()
   normalizeDirectiveReferences(editor)

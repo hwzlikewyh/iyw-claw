@@ -34,7 +34,6 @@ import { isContextCompactionMeta } from "@/lib/context-compaction"
 import { TurnStats } from "./turn-stats"
 import { LiveTurnStats } from "./live-turn-stats"
 import { UserResourceLinks } from "./user-resource-links"
-import { UserImageAttachments } from "./user-image-attachments"
 import { MessageTimestamp } from "./message-timestamp"
 import { useSessionStats } from "@/contexts/session-stats-context"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
@@ -532,9 +531,6 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   return (
     <div className={dimmed ? "opacity-70" : undefined}>
       <Message from={group.role}>
-        {group.role === "user" && group.images.length > 0 ? (
-          <UserImageAttachments images={group.images} className="self-end" />
-        ) : null}
         {group.role === "user" ? (
           <div className="group/user-msg flex w-fit ml-auto max-w-full items-start gap-1">
             <UserMessageCopyButton

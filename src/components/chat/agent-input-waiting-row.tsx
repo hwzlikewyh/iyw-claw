@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, type PointerEvent } from "react"
+import Image from "next/image"
 import { Reorder, useDragControls } from "motion/react"
 import {
   CircleAlert,
@@ -21,12 +22,8 @@ import {
 } from "@/components/ui/dropdown-menu"
 
 import { PlainTextWithBadges } from "@/components/message/plain-text-with-badges"
-import { UserImageAttachments } from "@/components/message/user-image-attachments"
 import { UserResourceLinks } from "@/components/message/user-resource-links"
-import {
-  extractUserImagesFromDraft,
-  extractUserResourcesFromDraft,
-} from "@/lib/prompt-draft"
+import { extractUserResourcesFromDraft } from "@/lib/prompt-draft"
 import type { AgentInputItem, PromptDraft } from "@/lib/types"
 
 export interface AgentInputWaitingRowProps {
@@ -69,7 +66,6 @@ function WaitingMessage({ item }: { item: AgentInputItem }) {
     blocks: item.payload.blocks,
     displayText: item.payload.display_text,
   }
-  const images = extractUserImagesFromDraft(draft)
   const resources = extractUserResourcesFromDraft(draft)
   const failed = item.status === "failed"
   const locked = isAgentInputLocked(item)
@@ -78,13 +74,33 @@ function WaitingMessage({ item }: { item: AgentInputItem }) {
       <div className="text-[10px] font-medium text-muted-foreground">
         {failed ? t("failed") : locked ? t("dispatching") : t("waiting")}
       </div>
-      {images.length > 0 && <UserImageAttachments images={images} />}
-      {item.payload.display_text.trim() && (
-        <PlainTextWithBadges
-          text={item.payload.display_text}
-          className="line-clamp-3 text-xs text-foreground/85"
-        />
-      )}
+      <div className="line-clamp-3 text-xs text-foreground/85">
+        {draft.blocks.map((block, index) =>
+          block.type === "image" ? (
+            <span
+              key={`image-${index}`}
+              className="mr-1 inline-flex max-w-20 align-middle overflow-hidden rounded border border-border/70 bg-muted/30"
+            >
+              <Image
+                src={
+                  block.uri || `data:${block.mime_type};base64,${block.data}`
+                }
+                alt={block.uri ? "图片附件" : `图片附件 ${index + 1}`}
+                width={40}
+                height={40}
+                unoptimized
+                className="h-10 w-10 object-cover"
+              />
+            </span>
+          ) : block.type === "text" ? (
+            <PlainTextWithBadges
+              key={`text-${index}`}
+              text={block.text}
+              className="whitespace-pre-wrap"
+            />
+          ) : null
+        )}
+      </div>
       {!item.payload.display_text.trim() && resources.length > 0 && (
         <UserResourceLinks resources={resources} />
       )}

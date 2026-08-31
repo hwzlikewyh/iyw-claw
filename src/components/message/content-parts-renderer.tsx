@@ -1,4 +1,5 @@
 import { memo, useMemo, useState, type ReactNode } from "react"
+import Image from "next/image"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import {
   classifyToolKind,
@@ -24,6 +25,9 @@ import {
   estimateChangedLineStats,
 } from "@/lib/line-change-stats"
 import { MessageResponse } from "@/components/ai-elements/message"
+import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog"
+import { toErrorMessage } from "@/lib/app-error"
+import { downloadImage } from "@/lib/image-download"
 import { Shimmer } from "@/components/ai-elements/shimmer"
 import {
   Collapsible,
@@ -84,6 +88,7 @@ import {
   BrainIcon,
   MessageCircleQuestionMarkIcon,
   UsersIcon,
+  DownloadIcon,
 } from "lucide-react"
 
 // ── helpers ────────────────────────────────────────────────────────────
@@ -2721,6 +2726,10 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
       )
     }
 
+    if (part.type === "user-image") {
+      return <InlineUserImage key={`uimg-${keyId}`} image={part.image} />
+    }
+
     return null
   }
 
@@ -2730,3 +2739,63 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
     </div>
   )
 })
+
+function InlineUserImage({
+  image,
+}: {
+  image: Extract<AdaptedContentPart, { type: "user-image" }>["image"]
+}) {
+  const t = useTranslations("Folder.chat.messageList")
+  const [open, setOpen] = useState(false)
+  const source = image.uri || `data:${image.mime_type};base64,${image.data}`
+  const imageLabel = t("imageAttachmentLabel", { name: image.name })
+  const handleDownload = async () => {
+    try {
+      await downloadImage({
+        data: image.data,
+        mime_type: image.mime_type,
+        suggestedName: image.name,
+        uri: image.uri,
+      })
+    } catch (error) {
+      window.alert(t("downloadFailed", { message: toErrorMessage(error) }))
+    }
+  }
+  return (
+    <>
+      <span className="group relative inline-flex max-w-full align-middle">
+        <button
+          type="button"
+          className="inline-flex max-w-full overflow-hidden rounded-md border border-border/70 bg-muted/30 transition-opacity hover:opacity-85"
+          onClick={() => setOpen(true)}
+          title={imageLabel}
+          aria-label={imageLabel}
+        >
+          <Image
+            src={source}
+            alt={imageLabel}
+            width={224}
+            height={224}
+            unoptimized
+            className="max-h-56 max-w-full object-contain"
+          />
+        </button>
+        <button
+          type="button"
+          className="absolute right-1 top-1 rounded-full bg-background/85 p-1 text-foreground/80 opacity-0 shadow-sm transition-opacity hover:bg-background hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+          onClick={() => void handleDownload()}
+          aria-label={t("downloadImage")}
+          title={t("downloadImage")}
+        >
+          <DownloadIcon className="size-3.5" />
+        </button>
+      </span>
+      <ImagePreviewDialog
+        src={source}
+        alt={imageLabel}
+        open={open}
+        onOpenChange={setOpen}
+      />
+    </>
+  )
+}

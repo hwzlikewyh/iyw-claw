@@ -984,6 +984,28 @@ function deriveImageNameFromBlock(
   return `image.${ext}`
 }
 
+function extractImageMetadataFromBlocks(
+  blocks: ContentBlock[]
+): UserImageDisplay[] {
+  return blocks.flatMap((block) => {
+    if (
+      block.type !== "image" ||
+      (!block.data && !block.uri) ||
+      !block.mime_type
+    ) {
+      return []
+    }
+    return [
+      {
+        name: deriveImageNameFromBlock(block),
+        data: block.data,
+        mime_type: block.mime_type,
+        uri: block.uri ?? null,
+      },
+    ]
+  })
+}
+
 /**
  * Generate a stable tool call ID based on message ID and block index
  */
@@ -1986,10 +2008,10 @@ export function adaptMessageTurn(
         )
       : adaptedContent
 
-  // Only user-uploaded images surface as top-of-message attachments.
-  // Assistant-side image_generation flows through the inline
-  // `generated-image` part, rendered in-position.
-  const userImages: UserImageDisplay[] = []
+  // Keep the legacy image list for copy/accessibility and old callers. New
+  // user-image parts are rendered in their original block positions.
+  const userImages =
+    turn.role === "user" ? extractImageMetadataFromBlocks(turn.blocks) : []
   const userSplit =
     turn.role === "user"
       ? splitUserTextAndResources(

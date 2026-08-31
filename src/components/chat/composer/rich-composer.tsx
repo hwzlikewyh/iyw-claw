@@ -42,6 +42,7 @@ import type {
   SuggestionPopupHandle,
 } from "./suggestion/types"
 import type { ReferenceAttrs, ReferenceKind } from "./types"
+import type { ImageAttachmentAttrs } from "./nodes/image-attachment-node"
 
 /**
  * Imperative handle exposed to the parent (e.g. the message input that owns
@@ -84,6 +85,13 @@ export interface RichComposerHandle {
   appendText: (text: string) => void
   /** Insert an inline reference badge at the current selection. */
   insertReference: (attrs: ReferenceAttrs) => void
+  /** Insert an inline image attachment at the current selection. */
+  insertImageAttachment: (attrs: ImageAttachmentAttrs) => void
+  /** Update an inline image attachment node by its stable attachment ID. */
+  updateImageAttachment: (
+    attachmentId: string,
+    attrs: Partial<ImageAttachmentAttrs>
+  ) => void
   /** Escape hatch to the underlying editor (null until initialized). */
   getEditor: () => Editor | null
 }
@@ -468,6 +476,12 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
         insertReference: (attrs) => {
           editor?.chain().focus().insertReference(attrs).run()
         },
+        insertImageAttachment: (attrs) => {
+          editor?.chain().focus().insertImageAttachment(attrs).run()
+        },
+        updateImageAttachment: (attachmentId, attrs) => {
+          editor?.commands.updateImageAttachment(attachmentId, attrs)
+        },
         getEditor: () => editor ?? null,
       }),
       [editor]
@@ -491,10 +505,21 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
 
     const handleReferenceSelect = useCallback(
       (reference: ReferenceAttrs, range: { from: number; to: number }) => {
+        if (!editor) return
+        // Commit removal of the live mention query before invoking the host.
+        // Image references are consumed asynchronously by MessageInput and
+        // insert an inline node at the current selection; doing that before
+        // this deletion would leave the stale range pointing at the new node.
+        editor.chain().focus().deleteRange(range).run()
         const consumed = onReferenceSelectRef.current?.(reference) === true
-        const chain = editor?.chain().focus().deleteRange(range)
-        if (!consumed) chain?.insertReference(reference)
-        chain?.insertContent(" ").run()
+        if (!consumed) {
+          editor
+            .chain()
+            .focus()
+            .insertReference(reference)
+            .insertContent(" ")
+            .run()
+        }
         closeMention()
       },
       [editor, closeMention]

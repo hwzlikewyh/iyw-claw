@@ -6,6 +6,7 @@ import { InactiveSelectionHighlight } from "./inactive-selection"
 import { RealtimeVoicePartial } from "./realtime-partial"
 import { Reference } from "./nodes/reference-node"
 import { ScenarioVariable } from "./nodes/scenario-variable-node"
+import { ImageAttachment } from "./nodes/image-attachment-node"
 import {
   MentionSuggestion,
   type MentionController,
@@ -95,6 +96,7 @@ export function buildComposerExtensions(
     }),
     Reference,
     ScenarioVariable,
+    ImageAttachment,
     // Keeps the selection visible when focus moves to the right-click menu.
     InactiveSelectionHighlight,
     RealtimeVoicePartial,

@@ -6,6 +6,7 @@ import type { PromptInputBlock } from "@/lib/types"
 import { referenceToMarkdown } from "./reference-text"
 import { isEmbeddedReferenceUri } from "./reference-uri"
 import { scenarioVariableText } from "./nodes/scenario-variable-node"
+import type { ImageAttachmentAttrs } from "./nodes/image-attachment-node"
 import type { ReferenceAttrs } from "./types"
 
 /**
@@ -37,13 +38,74 @@ import type { ReferenceAttrs } from "./types"
  *   send-time payload map), so emitting their synthetic display link here would
  *   leak a uri the agent shouldn't see.
  *
- * The whole document serializes to a single text block (no mid-paragraph
- * fragmentation), with every reference sitting inline exactly where the sender
- * placed it.
+ * Text is merged only across adjacent text/reference content. Inline image
+ * attachment nodes intentionally split the block stream so their position is
+ * preserved exactly where the sender placed them.
  */
-export function docToPromptBlocks(editor: Editor): PromptInputBlock[] {
-  const text = serializeDocToText(editor.state.doc).trim()
-  return text ? [{ type: "text", text }] : []
+export interface DocToPromptBlocksOptions {
+  resolveImage?: (
+    attrs: ImageAttachmentAttrs
+  ) => Extract<PromptInputBlock, { type: "image" }> | null
+}
+
+function appendTextBlock(blocks: PromptInputBlock[], text: string): void {
+  if (!text) return
+  const previous = blocks[blocks.length - 1]
+  if (previous?.type === "text") {
+    previous.text += text
+  } else {
+    blocks.push({ type: "text", text })
+  }
+}
+
+function appendDocumentNode(
+  node: ProseMirrorNode,
+  blocks: PromptInputBlock[],
+  options: DocToPromptBlocksOptions
+): void {
+  if (node.type.name === "imageAttachment") {
+    const image = options.resolveImage?.(node.attrs as ImageAttachmentAttrs)
+    if (image) {
+      blocks.push(image)
+    } else {
+      appendTextBlock(
+        blocks,
+        `[${String((node.attrs as ImageAttachmentAttrs).name || "image")}]`
+      )
+    }
+    return
+  }
+  if (node.isText) {
+    appendTextBlock(blocks, node.text ?? "")
+    return
+  }
+  if (node.type.name === "hardBreak") {
+    appendTextBlock(blocks, "\n")
+    return
+  }
+  if (node.isLeaf) {
+    appendTextBlock(blocks, composerLeafText(node))
+    return
+  }
+  node.forEach((child) => appendDocumentNode(child, blocks, options))
+}
+
+export function docToPromptBlocks(
+  editor: Editor,
+  options: DocToPromptBlocksOptions = {}
+): PromptInputBlock[] {
+  const blocks: PromptInputBlock[] = []
+  editor.state.doc.forEach((child, index) => {
+    if (index > 0) appendTextBlock(blocks, "\n")
+    appendDocumentNode(child, blocks, options)
+  })
+  const first = blocks[0]
+  if (first?.type === "text") first.text = first.text.trimStart()
+  const last = blocks[blocks.length - 1]
+  if (last?.type === "text") last.text = last.text.trimEnd()
+  return blocks.filter(
+    (block) => block.type !== "text" || block.text.length > 0
+  )
 }
 
 export function composerLeafText(

@@ -9,7 +9,6 @@ import {
   type SetStateAction,
 } from "react"
 import { isDesktop, openFileDialog } from "@/lib/platform"
-import Image from "next/image"
 import { useLocale, useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import {
@@ -19,12 +18,10 @@ import {
   ClipboardPaste,
   Cog,
   Copy,
-  FileImage,
   FileStack,
   FolderSearch,
   GitFork,
   Lock,
-  LoaderCircle,
   MessageSquareText,
   Paperclip,
   Plus,
@@ -32,9 +29,7 @@ import {
   Send,
   Sparkles,
   TextSelect,
-  RotateCcw,
   Square,
-  TriangleAlert,
   Upload,
   X,
 } from "lucide-react"
@@ -133,7 +128,6 @@ import {
 } from "@/lib/session-attachment-events"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import {
-  ConversationContextBar,
   ConversationFolderBranchPicker,
   useConversationFolderBranchPickerVisible,
 } from "@/components/chat/conversation-context-bar"
@@ -210,6 +204,11 @@ import {
 } from "@/components/chat/composer/invocation-reference"
 import { cutSelectionToClipboard } from "@/components/chat/composer/clipboard-actions"
 import type { ReferenceAttrs } from "@/components/chat/composer/types"
+import type { ImageAttachmentAttrs } from "@/components/chat/composer/nodes/image-attachment-node"
+import {
+  IMAGE_ATTACHMENT_PREVIEW_EVENT,
+  IMAGE_ATTACHMENT_RETRY_EVENT,
+} from "@/components/chat/composer/nodes/image-attachment-view"
 import type { Editor, JSONContent } from "@tiptap/core"
 import {
   useReferenceSearch,
@@ -539,8 +538,10 @@ function prepareRestoredImages(restored: InputAttachment[]): {
       if (!attachment.data) return attachment
       try {
         const file = restoredImageFile(attachment)
+        const previewUrl = URL.createObjectURL(file)
         const next: ImageInputAttachment = {
           ...attachment,
+          previewUrl,
           staging: {
             status: "uploading",
             source: { kind: "browser-file", file },
@@ -761,7 +762,13 @@ function stripEmbeddedReferences(doc: JSONContent): JSONContent {
     ) {
       continue
     }
-    content.push(stripEmbeddedReferences(child))
+    if (child.type === "imageAttachment" && child.attrs) {
+      const attrs = { ...child.attrs }
+      delete attrs.previewUrl
+      content.push(stripEmbeddedReferences({ ...child, attrs }))
+    } else {
+      content.push(stripEmbeddedReferences(child))
+    }
   }
   return { ...doc, content }
 }
@@ -775,6 +782,17 @@ function hasEmbeddedReference(doc: JSONContent): boolean {
     return true
   }
   return doc.content?.some(hasEmbeddedReference) ?? false
+}
+
+function inlineImageAttrs(editor: Editor): ImageAttachmentAttrs[] {
+  const attrs: ImageAttachmentAttrs[] = []
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === "imageAttachment") {
+      attrs.push(node.attrs as ImageAttachmentAttrs)
+    }
+    return true
+  })
+  return attrs
 }
 
 function SelectorLoadingChip({ label }: { label: string }) {
@@ -890,6 +908,12 @@ export function MessageInput({
     supported: skillManagementSupported,
   } = useEnabledSkillIds(agentType ?? null)
   const editorRef = useRef<RichComposerHandle>(null)
+  const updateInlineImage = useCallback(
+    (id: string, attrs: Partial<ImageAttachmentAttrs>) => {
+      editorRef.current?.updateImageAttachment(id, attrs)
+    },
+    []
+  )
   const composerInstanceIdRef = useRef(randomUUID())
   // The editor owns the content now; this mirror of its empty state drives the
   // send button and `hasSendableContent`.
@@ -1131,6 +1155,14 @@ export function MessageInput({
                 staging: undefined,
               }))
             )
+            updateInlineImage(attachment.id, {
+              name: prepared.name,
+              mimeType: prepared.mimeType,
+              uri: prepared.url,
+              localPath: prepared.localPath,
+              status: "ready",
+              previewUrl: undefined,
+            })
           })
           .catch((error) => {
             console.error("[MessageInput] restored image upload failed", {
@@ -1146,13 +1178,41 @@ export function MessageInput({
                 },
               }))
             )
+            updateInlineImage(attachment.id, { status: "failed" })
             toast.error(
               tAttach("attachUploadFailed", { names: attachment.name })
             )
           })
       }
     },
-    [chatImageStorage, setAttachments, tAttach]
+    [chatImageStorage, setAttachments, tAttach, updateInlineImage]
+  )
+
+  const restorePersistedInlineImages = useCallback(
+    (editor: Editor) => {
+      const restored: ImageInputAttachment[] = []
+      for (const attrs of inlineImageAttrs(editor)) {
+        if (attrs.status !== "ready" || !isPublicImageUrl(attrs.uri)) {
+          updateInlineImage(attrs.attachmentId, {
+            status: "failed",
+            previewUrl: undefined,
+          })
+          continue
+        }
+        restored.push({
+          id: attrs.attachmentId,
+          type: "image",
+          data: "",
+          uri: attrs.uri,
+          localPath: attrs.localPath,
+          name: attrs.name,
+          mimeType: attrs.mimeType,
+          sourceMimeType: attrs.mimeType,
+        })
+      }
+      setAttachments(restored)
+    },
+    [setAttachments, updateInlineImage]
   )
 
   // Replay a sent `PromptInputBlock[]` (a queued message being re-edited) into
@@ -1165,10 +1225,20 @@ export function MessageInput({
       const restored = restoreBlocksIntoEditor(editor, blocks)
       const { images, uploads } = prepareRestoredImages(restored)
       setAttachments(images)
+      for (const image of images) {
+        updateInlineImage(image.id, {
+          name: image.name,
+          mimeType: image.mimeType,
+          uri: image.uri,
+          localPath: image.localPath ?? null,
+          status: image.staging ? "uploading" : "ready",
+          previewUrl: image.previewUrl,
+        })
+      }
       uploadRestoredImages(uploads)
       insertRestoredResources(editor, restored, embeddedPayloadsRef.current)
     },
-    [setAttachments, uploadRestoredImages]
+    [setAttachments, updateInlineImage, uploadRestoredImages]
   )
 
   // One-time hydration once the editor is ready: a queue-edit payload, else a v2
@@ -1213,6 +1283,8 @@ export function MessageInput({
           const loaded = loadMessageInputDraftV2(effectiveDraftStorageKey)
           if (loaded?.kind === "doc") {
             ed.setDoc(loaded.doc)
+            const editor = ed.getEditor()
+            if (editor) restorePersistedInlineImages(editor)
           } else if (loaded?.kind === "legacyMarkdown") {
             ed.setText(loaded.markdown)
           }
@@ -1235,6 +1307,7 @@ export function MessageInput({
     editingDraftBlocks,
     effectiveDraftStorageKey,
     hydrateFromBlocks,
+    restorePersistedInlineImages,
   ])
 
   // Re-hydrate when the user (re)edits a *different* queue item after the
@@ -1346,11 +1419,27 @@ export function MessageInput({
     syncComposerEmpty()
     const editor = editorRef.current?.getEditor()
     setDraftTask(editor ? getTaskReference(editor) : null)
+    if (editor) {
+      const liveImageIds = new Set(
+        inlineImageAttrs(editor).map((attrs) => attrs.attachmentId)
+      )
+      if (
+        attachmentsRef.current.some(
+          (item) => item.type === "image" && !liveImageIds.has(item.id)
+        )
+      ) {
+        setAttachments((current) =>
+          current.filter(
+            (item) => item.type !== "image" || liveImageIds.has(item.id)
+          )
+        )
+      }
+    }
     if (programmaticResetRef.current) return
     composerMutationVersionRef.current += 1
     scheduleDraftSave()
     detectSlashTriggerRef.current?.()
-  }, [syncComposerEmpty, scheduleDraftSave])
+  }, [setAttachments, syncComposerEmpty, scheduleDraftSave])
 
   const handleComposerReady = useCallback(() => {
     setComposerReady(true)
@@ -1713,15 +1802,7 @@ export function MessageInput({
       }
       const id = options.id ?? randomUUID()
       setAttachments((current) => [
-        ...(uri &&
-        current.some(
-          (attachment) => attachment.type === "image" && attachment.uri === uri
-        )
-          ? current.filter(
-              (attachment) =>
-                attachment.type !== "image" || attachment.uri !== uri
-            )
-          : current),
+        ...current,
         {
           id,
           type: "image",
@@ -1735,6 +1816,15 @@ export function MessageInput({
           staging: options.staging,
         },
       ])
+      editorRef.current?.insertImageAttachment({
+        attachmentId: id,
+        name: name || "image",
+        mimeType,
+        uri,
+        localPath: options.localPath ?? null,
+        status: options.staging ? "uploading" : "ready",
+        previewUrl: options.previewUrl,
+      })
       return id
     },
     [setAttachments]
@@ -1755,6 +1845,7 @@ export function MessageInput({
           item.staging && !item.previewUrl ? { ...item, previewUrl } : item
         )
       )
+      editorRef.current?.updateImageAttachment(id, { previewUrl })
     },
     [setAttachments]
   )
@@ -1783,32 +1874,48 @@ export function MessageInput({
         sourceMimeType: mimeType,
         staging: { status: "uploading", source },
       })
-      try {
-        const prepared = await uploadChatImage(file, {
-          ...chatImageStorage,
-          mimeType,
+      void uploadChatImage(file, {
+        ...chatImageStorage,
+        mimeType,
+      })
+        .then((prepared) => {
+          setAttachments((current) =>
+            applyPreparedImage(current, id, prepared, mimeType)
+          )
+          updateInlineImage(id, {
+            name: prepared.name,
+            mimeType: prepared.mimeType,
+            uri: prepared.url,
+            localPath: prepared.localPath,
+            status: "ready",
+            previewUrl: undefined,
+          })
         })
-        setAttachments((current) =>
-          applyPreparedImage(current, id, prepared, mimeType)
-        )
-      } catch (error) {
-        console.error("[MessageInput] image file staging failed", {
-          name: file.name,
-          mimeType,
-          size: file.size,
-          error,
+        .catch((error) => {
+          console.error("[MessageInput] image file staging failed", {
+            name: file.name,
+            mimeType,
+            size: file.size,
+            error,
+          })
+          setAttachments((current) =>
+            updateImageAttachment(current, id, (item) => ({
+              ...item,
+              staging: { status: "failed", source },
+            }))
+          )
+          updateInlineImage(id, { status: "failed" })
+          toast.error(tAttach("attachUploadFailed", { names: file.name }))
         })
-        setAttachments((current) =>
-          updateImageAttachment(current, id, (item) => ({
-            ...item,
-            staging: { status: "failed", source },
-          }))
-        )
-        toast.error(tAttach("attachUploadFailed", { names: file.name }))
-      }
       return true
     },
-    [appendImageAttachment, chatImageStorage, setAttachments, tAttach]
+    [
+      appendImageAttachment,
+      chatImageStorage,
+      setAttachments,
+      tAttach,
+      updateInlineImage,
+    ]
   )
 
   const appendImagePath = useCallback(
@@ -1834,40 +1941,45 @@ export function MessageInput({
           if (previewUrl) applyStagingImagePreview(id, previewUrl)
         }
       )
-      try {
-        const prepared = await prepareChatImagePath(
-          path,
-          source,
-          chatImageStorage
-        )
-        setAttachments((current) =>
-          applyPreparedImage(
-            current,
-            id,
-            prepared,
-            opts.sourceMimeType ?? mimeType
+      void prepareChatImagePath(path, source, chatImageStorage)
+        .then((prepared) => {
+          setAttachments((current) =>
+            applyPreparedImage(
+              current,
+              id,
+              prepared,
+              opts.sourceMimeType ?? mimeType
+            )
           )
-        )
-      } catch (error) {
-        setAttachments((current) =>
-          updateImageAttachment(current, id, (item) => ({
-            ...item,
-            staging: { status: "failed", source: stagingSource },
-          }))
-        )
-        const tooLarge = imageTooLargeDetails(error, name)
-        if (tooLarge) {
-          toast.error(tAttach("attachImageTooLarge", tooLarge))
-          return true
-        }
-        console.error("[MessageInput] image path read failed", {
-          name,
-          mimeType,
-          error,
+          updateInlineImage(id, {
+            name: prepared.name,
+            mimeType: prepared.mimeType,
+            uri: prepared.url,
+            localPath: prepared.localPath,
+            status: "ready",
+            previewUrl: undefined,
+          })
         })
-        toast.error(tAttach("attachImageReadFailed", { name }))
-        return true
-      }
+        .catch((error) => {
+          setAttachments((current) =>
+            updateImageAttachment(current, id, (item) => ({
+              ...item,
+              staging: { status: "failed", source: stagingSource },
+            }))
+          )
+          updateInlineImage(id, { status: "failed" })
+          const tooLarge = imageTooLargeDetails(error, name)
+          if (tooLarge) {
+            toast.error(tAttach("attachImageTooLarge", tooLarge))
+            return
+          }
+          console.error("[MessageInput] image path read failed", {
+            name,
+            mimeType,
+            error,
+          })
+          toast.error(tAttach("attachImageReadFailed", { name }))
+        })
       return true
     },
     [
@@ -1876,6 +1988,7 @@ export function MessageInput({
       chatImageStorage,
       setAttachments,
       tAttach,
+      updateInlineImage,
     ]
   )
 
@@ -1915,34 +2028,40 @@ export function MessageInput({
       ).then((previewUrl) => {
         if (previewUrl) applyStagingImagePreview(id, previewUrl)
       })
-      try {
-        const staged = await uploadLocalChatImagePathToRemote(
-          path,
-          chatImageStorage
-        )
-        setAttachments((current) =>
-          applyPreparedImage(current, id, staged, sourceMimeType)
-        )
-        return true
-      } catch (error) {
-        setAttachments((current) =>
-          updateImageAttachment(current, id, (item) => ({
-            ...item,
-            staging: { status: "failed", source },
-          }))
-        )
-        const tooLarge = imageTooLargeDetails(error, name)
-        if (tooLarge) {
-          toast.error(tAttach("attachImageTooLarge", tooLarge))
-          return true
-        }
-        console.error("[MessageInput] remote image staging failed", {
-          name,
-          error,
+      void uploadLocalChatImagePathToRemote(path, chatImageStorage)
+        .then((staged) => {
+          setAttachments((current) =>
+            applyPreparedImage(current, id, staged, sourceMimeType)
+          )
+          updateInlineImage(id, {
+            name: staged.name,
+            mimeType: staged.mimeType,
+            uri: staged.url,
+            localPath: staged.localPath,
+            status: "ready",
+            previewUrl: undefined,
+          })
         })
-        toast.error(tAttach("attachUploadFailed", { names: name }))
-        return true
-      }
+        .catch((error) => {
+          setAttachments((current) =>
+            updateImageAttachment(current, id, (item) => ({
+              ...item,
+              staging: { status: "failed", source },
+            }))
+          )
+          updateInlineImage(id, { status: "failed" })
+          const tooLarge = imageTooLargeDetails(error, name)
+          if (tooLarge) {
+            toast.error(tAttach("attachImageTooLarge", tooLarge))
+            return
+          }
+          console.error("[MessageInput] remote image staging failed", {
+            name,
+            error,
+          })
+          toast.error(tAttach("attachUploadFailed", { names: name }))
+        })
+      return true
     },
     [
       appendImageAttachment,
@@ -1950,6 +2069,7 @@ export function MessageInput({
       chatImageStorage,
       setAttachments,
       tAttach,
+      updateInlineImage,
     ]
   )
 
@@ -2084,25 +2204,17 @@ export function MessageInput({
       const localPaths: string[] = []
       const uploadCandidates: File[] = []
 
-      const classified = await Promise.all(
-        files.map(async (file) => {
-          const path = getFilePath(file)
-          if (path && showNativePaperclip) {
-            return (await appendImagePath(path))
-              ? null
-              : ({ kind: "local-path", path } as const)
-          }
-          if (path && getActiveRemoteConnectionId() !== null) {
-            if (await appendRemoteLocalImagePath(path)) return null
-          }
-          return (await appendImageFile(file))
-            ? null
-            : ({ kind: "upload", file } as const)
-        })
-      )
-      for (const item of classified) {
-        if (item?.kind === "local-path") localPaths.push(item.path)
-        if (item?.kind === "upload") uploadCandidates.push(item.file)
+      for (const file of files) {
+        const path = getFilePath(file)
+        if (path && showNativePaperclip) {
+          if (await appendImagePath(path)) continue
+          localPaths.push(path)
+          continue
+        }
+        if (path && getActiveRemoteConnectionId() !== null) {
+          if (await appendRemoteLocalImagePath(path)) continue
+        }
+        if (!(await appendImageFile(file))) uploadCandidates.push(file)
       }
 
       if (localPaths.length > 0) {
@@ -2268,15 +2380,14 @@ export function MessageInput({
 
   const collectOrdinaryNativePaths = useCallback(
     async (paths: string[], remote: boolean) => {
-      const classified = await Promise.all(
-        paths.map(async (path) => ({
-          path,
-          handled: remote
-            ? await appendRemoteLocalImagePath(path)
-            : await appendImagePath(path),
-        }))
-      )
-      return classified.filter((item) => !item.handled).map((item) => item.path)
+      const ordinary: string[] = []
+      for (const path of paths) {
+        const handled = remote
+          ? await appendRemoteLocalImagePath(path)
+          : await appendImagePath(path)
+        if (!handled) ordinary.push(path)
+      }
+      return ordinary
     },
     [appendImagePath, appendRemoteLocalImagePath]
   )
@@ -3088,13 +3199,6 @@ export function MessageInput({
     }
   }, [collectOrdinaryNativePaths, setDragActiveIfChanged])
 
-  const removeAttachment = useCallback(
-    (id: string) => {
-      setAttachments((prev) => prev.filter((item) => item.id !== id))
-    },
-    [setAttachments]
-  )
-
   const retryImageStaging = useCallback(
     async (id: string) => {
       const attachment = attachments.find(
@@ -3111,6 +3215,7 @@ export function MessageInput({
           staging: { status: "uploading", source },
         }))
       )
+      updateInlineImage(id, { status: "uploading" })
       try {
         const staged = await retryImageUpload(source, {
           ...chatImageStorage,
@@ -3119,6 +3224,14 @@ export function MessageInput({
         setAttachments((current) =>
           applyPreparedImage(current, id, staged, attachment.sourceMimeType)
         )
+        updateInlineImage(id, {
+          name: staged.name,
+          mimeType: staged.mimeType,
+          uri: staged.url,
+          localPath: staged.localPath,
+          status: "ready",
+          previewUrl: undefined,
+        })
       } catch (error) {
         console.error("[MessageInput] image staging retry failed", {
           name: attachment.name,
@@ -3130,11 +3243,33 @@ export function MessageInput({
             staging: { status: "failed", source },
           }))
         )
+        updateInlineImage(id, { status: "failed" })
         toast.error(tAttach("attachUploadFailed", { names: attachment.name }))
       }
     },
-    [attachments, chatImageStorage, setAttachments, tAttach]
+    [attachments, chatImageStorage, setAttachments, tAttach, updateInlineImage]
   )
+
+  useEffect(() => {
+    const onPreview = (event: Event) => {
+      const id = (event as CustomEvent<{ attachmentId?: string }>).detail
+        ?.attachmentId
+      if (id && attachmentsRef.current.some((item) => item.id === id)) {
+        setPreviewAttachmentId(id)
+      }
+    }
+    const onRetry = (event: Event) => {
+      const id = (event as CustomEvent<{ attachmentId?: string }>).detail
+        ?.attachmentId
+      if (id) void retryImageStaging(id)
+    }
+    window.addEventListener(IMAGE_ATTACHMENT_PREVIEW_EVENT, onPreview)
+    window.addEventListener(IMAGE_ATTACHMENT_RETRY_EVENT, onRetry)
+    return () => {
+      window.removeEventListener(IMAGE_ATTACHMENT_PREVIEW_EVENT, onPreview)
+      window.removeEventListener(IMAGE_ATTACHMENT_RETRY_EVENT, onRetry)
+    }
+  }, [retryImageStaging])
 
   const applyAttachmentEdit = useCallback(
     async (result: EditorImageResult) => {
@@ -3165,6 +3300,14 @@ export function MessageInput({
           staging: { status: "uploading", source },
         }))
       )
+      updateInlineImage(previewAttachmentId, {
+        name: result.name,
+        mimeType: result.mime_type,
+        uri: null,
+        localPath: null,
+        status: "uploading",
+        previewUrl,
+      })
       try {
         const prepared = await uploadChatImage(file, {
           ...chatImageStorage,
@@ -3178,6 +3321,14 @@ export function MessageInput({
             result.mime_type
           )
         )
+        updateInlineImage(previewAttachmentId, {
+          name: prepared.name,
+          mimeType: prepared.mimeType,
+          uri: prepared.url,
+          localPath: prepared.localPath,
+          status: "ready",
+          previewUrl: undefined,
+        })
       } catch (error) {
         console.error("[MessageInput] edited image staging failed", {
           name: result.name,
@@ -3189,10 +3340,11 @@ export function MessageInput({
             staging: { status: "failed", source },
           }))
         )
+        updateInlineImage(previewAttachmentId, { status: "failed" })
         throw error
       }
     },
-    [chatImageStorage, previewAttachmentId, setAttachments]
+    [chatImageStorage, previewAttachmentId, setAttachments, updateInlineImage]
   )
 
   const buildDraft = useCallback((): PromptDraft | null => {
@@ -3203,10 +3355,38 @@ export function MessageInput({
       normalizeDirectiveReferences(editor)
       restampSkillPrefixes(editor, skillPrefix)
     }
-    // Inline badges + prose → text/resource_link blocks (file mentions become
-    // first-class ResourceLinks; agent/session/commit/skill stay inline text;
-    // embedded badges are dropped here and re-added below from the payload map).
-    const blocks: PromptInputBlock[] = editor ? docToPromptBlocks(editor) : []
+    const inlineImages = editor ? inlineImageAttrs(editor) : []
+    const missingInlineImage = inlineImages.find(
+      (attrs) =>
+        !attachmentsRef.current.some(
+          (item) => item.type === "image" && item.id === attrs.attachmentId
+        )
+    )
+    if (missingInlineImage) {
+      toast.error(
+        `图片附件已失效，请移除后重新添加：${missingInlineImage.name}`
+      )
+      return null
+    }
+    const blocks: PromptInputBlock[] = editor
+      ? docToPromptBlocks(editor, {
+          resolveImage: (attrs) => {
+            const attachment = attachmentsRef.current.find(
+              (item): item is ImageInputAttachment =>
+                item.type === "image" && item.id === attrs.attachmentId
+            )
+            if (!attachment || attachment.staging) return null
+            if (!attachment.data && !attachment.uri) return null
+            return {
+              type: "image",
+              data: attachment.data,
+              mime_type: attachment.mimeType,
+              uri: attachment.uri,
+              local_path: attachment.localPath ?? null,
+            }
+          },
+        })
+      : []
     const missingVariables =
       editorRef.current?.getUnfilledScenarioVariables() ?? []
     if (missingVariables.length > 0) {
@@ -3267,19 +3447,6 @@ export function MessageInput({
       return null
     }
     if (blocks.length === 0 && attachments.length === 0) return null
-
-    // `attachments` holds only images now — files live inline as badges above.
-    for (const attachment of attachments) {
-      if (attachment.type === "image") {
-        blocks.push({
-          type: "image",
-          data: "",
-          mime_type: attachment.mimeType,
-          uri: attachment.uri,
-          local_path: attachment.localPath ?? null,
-        })
-      }
-    }
 
     const displayText =
       displayProse ||
@@ -3715,7 +3882,6 @@ export function MessageInput({
     ]
   )
 
-  const hasImageAttachments = imageAttachments.length > 0
   const showDragActive = isDragActive && !disabled
   const visibleTask = draftTask ?? (isPrompting ? runningTask : null)
 
@@ -4082,117 +4248,6 @@ export function MessageInput({
                 className
               )}
             >
-              <ConversationContextBar
-                hasExtraContent={hasImageAttachments}
-                scrollEndTrigger={attachments.length}
-                extraContent={
-                  <>
-                    {imageAttachments.map((attachment) => {
-                      const imageSrc = imageAttachmentSrc(attachment)
-                      return (
-                        <div
-                          key={attachment.id}
-                          className={cn(
-                            "relative shrink-0 overflow-hidden rounded-md border bg-muted/30",
-                            attachment.staging?.status === "failed"
-                              ? "border-amber-500/70"
-                              : "border-border/70"
-                          )}
-                        >
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setPreviewAttachmentId(attachment.id)
-                            }
-                            disabled={!imageSrc}
-                            className="cursor-pointer transition-opacity hover:opacity-80 disabled:cursor-default"
-                          >
-                            {imageSrc ? (
-                              <Image
-                                src={imageSrc}
-                                alt={attachment.name}
-                                width={56}
-                                height={56}
-                                unoptimized
-                                className="h-14 w-14 object-cover"
-                              />
-                            ) : (
-                              <span className="flex h-14 w-14 items-center justify-center text-muted-foreground">
-                                <FileImage className="h-5 w-5" aria-hidden />
-                              </span>
-                            )}
-                          </button>
-                          {attachment.staging?.status === "uploading" ? (
-                            <span
-                              className="pointer-events-none absolute bottom-1 right-1 rounded-sm bg-background/85 p-0.5 shadow-sm"
-                              role="status"
-                              aria-label={t("attachUploading", {
-                                name: attachment.name,
-                              })}
-                              title={t("attachUploading", {
-                                name: attachment.name,
-                              })}
-                            >
-                              <LoaderCircle
-                                className="h-3 w-3 animate-spin"
-                                aria-hidden
-                              />
-                            </span>
-                          ) : attachment.staging ? (
-                            <>
-                              <span
-                                className="pointer-events-none absolute bottom-1 left-1 rounded-sm bg-background/85 p-0.5 text-amber-600 shadow-sm"
-                                role="img"
-                                aria-label={t("attachUploadFailed", {
-                                  names: attachment.name,
-                                })}
-                                title={t("attachUploadFailed", {
-                                  names: attachment.name,
-                                })}
-                              >
-                                <TriangleAlert
-                                  className="h-3 w-3"
-                                  aria-hidden
-                                />
-                                <span className="sr-only">
-                                  {t("attachUploadFailed", {
-                                    names: attachment.name,
-                                  })}
-                                </span>
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void retryImageStaging(attachment.id)
-                                }
-                                className="absolute bottom-1 right-1 rounded-sm bg-background/85 p-0.5 shadow-sm hover:bg-background"
-                                aria-label={t("retryAttachment", {
-                                  name: attachment.name,
-                                })}
-                                title={t("retryAttachment", {
-                                  name: attachment.name,
-                                })}
-                              >
-                                <RotateCcw className="h-3 w-3" />
-                              </button>
-                            </>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => removeAttachment(attachment.id)}
-                            className="absolute right-1 top-1 rounded-sm bg-background/70 p-0.5 hover:bg-background"
-                            aria-label={t("removeAttachmentAria", {
-                              name: attachment.name,
-                            })}
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </>
-                }
-              />
               {visibleTask && (
                 <TaskModeRail
                   task={visibleTask}
