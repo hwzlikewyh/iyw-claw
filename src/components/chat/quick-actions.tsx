@@ -6,15 +6,22 @@ import {
   BriefcaseBusiness,
   ChartNoAxesCombined,
   ClipboardList,
+  Copyright,
+  FileText,
   FileSearch,
+  Flame,
+  Image,
   Megaphone,
+  Network,
   Package,
+  Palette,
   PenLine,
   Search,
   ShieldCheck,
   ShoppingCart,
   Sparkles,
   Users,
+  Video,
   type LucideIcon,
 } from "lucide-react"
 import { scenariosCatalog } from "@/lib/api"
@@ -28,15 +35,22 @@ const ICONS: Record<string, LucideIcon> = {
   briefcase: BriefcaseBusiness,
   chart: ChartNoAxesCombined,
   clipboard: ClipboardList,
+  copyright: Copyright,
+  fileText: FileText,
   fileSearch: FileSearch,
+  flame: Flame,
+  image: Image,
   megaphone: Megaphone,
+  network: Network,
   package: Package,
+  palette: Palette,
   penLine: PenLine,
   search: Search,
   shield: ShieldCheck,
   shoppingCart: ShoppingCart,
   sparkles: Sparkles,
   users: Users,
+  video: Video,
 }
 const TONES: Record<string, string> = {
   amber: "border-amber-200 bg-amber-50/55 hover:border-amber-400",
@@ -130,8 +144,8 @@ export function QuickActions({ onSelect }: QuickActionsProps) {
     return <EmptyScenario text="暂无可用场景，请直接输入任务。" />
   return (
     <section className="flex flex-col gap-3" aria-label="官方场景">
-      <div className="flex items-center gap-2">
-        <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1">
+      <div className="flex items-center justify-center gap-2">
+        <div className="flex min-w-0 justify-center gap-2 overflow-x-auto pb-1">
           {categories.map((category) => (
             <button
               key={category.key}
@@ -152,7 +166,7 @@ export function QuickActions({ onSelect }: QuickActionsProps) {
           ))}
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mx-auto grid w-full gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {scenarios.length ? (
           scenarios.map((scenario) => (
             <ScenarioCard
@@ -213,8 +227,8 @@ function ScenarioCard({
       )}
       aria-label={`${scenario.displayName}，使用 ${scenario.skillPackageSlug}`}
     >
-      <span className="flex items-center gap-2">
-        <span className="flex size-7 items-center justify-center rounded-md bg-background/80 text-foreground">
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-background/80 text-foreground">
           <ScenarioIcon name={scenario.icon} className="size-4" />
         </span>
         <span className="text-sm font-semibold text-foreground">
