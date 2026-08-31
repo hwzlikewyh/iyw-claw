@@ -1888,7 +1888,7 @@ impl DelegationListener {
     }
 
     fn ensure_memory_admin_mutation(entry: &TokenEntry) -> Result<(), String> {
-        if entry.memory_write_enabled {
+        if entry.memory_management_enabled {
             Ok(())
         } else {
             Err("User memory administration writes are disabled for this session.".into())
@@ -2185,9 +2185,9 @@ fn require_memory_policy(entry: &TokenEntry) -> Result<(), String> {
         return Ok(());
     }
     Err(format!(
-        "Memory policy preflight is required before memory calls; read {} ({})",
+        "Memory policy preflight is required before memory calls; invoke the read_memory_policy capability (iyw.memory.policy.read.v1) for the active turn. Reading capability schema alone does not load policy; policy reference: {} ({}).",
         crate::user_memory::MEMORY_POLICY_REFERENCE,
-        crate::user_memory::MEMORY_POLICY_REVISION
+        crate::user_memory::MEMORY_POLICY_REVISION,
     ))
 }
 

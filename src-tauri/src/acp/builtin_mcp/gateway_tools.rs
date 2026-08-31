@@ -25,7 +25,7 @@ fn search_tool() -> Value {
 fn read_tool() -> Value {
     json!({
         "name": READ_TOOL,
-        "description": "Call this gateway role only through the exact current callable identity and surface that advertised it. On an unknown, unsupported, or not-found routing error, stop this gateway for the turn and never retry through another name or surface. Read the full description and current input schema for one exact stable capability id returned by this session's search. Read before invoking and obey the returned schema. For a memory capability, also follow the returned memory policy and its current-turn preflight before invoking. Ask for missing referenced objects or required inputs; never guess ids, paths, URLs, field names, or arguments.",
+        "description": "Call this gateway role only through the exact current callable identity and surface that advertised it. On an unknown, unsupported, or not-found routing error, stop this gateway for the turn and never retry through another name or surface. Read the full description and current input schema for one exact stable capability id returned by this session's search. This is metadata/schema only: it does not execute the capability or load the current-turn memory policy. For a memory operation, read the policy capability schema, then invoke iyw.memory.policy.read.v1 through invoke_iyw_capability with empty arguments before invoking any other memory capability. Read before invoking and obey the returned schema. Ask for missing referenced objects or required inputs; never guess ids, paths, URLs, field names, or arguments.",
         "inputSchema": {
             "type": "object",
             "required": ["capability_id"],

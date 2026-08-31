@@ -70,10 +70,23 @@ impl GatewayCallTrace {
         } else {
             "success"
         };
+        let stage = match self.role {
+            Some(GatewayTool::Search) => "capability_search",
+            Some(GatewayTool::Read) => "schema_read",
+            Some(GatewayTool::Invoke) => "capability_invoke",
+            _ => "completed",
+        };
+        let error_code = result
+            .structured_content
+            .as_ref()
+            .and_then(|value| value.get("code"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string();
         self.log_outcome(CallOutcome {
-            stage: "completed",
+            stage,
             outcome,
-            error_code: String::new(),
+            error_code,
         });
     }
 

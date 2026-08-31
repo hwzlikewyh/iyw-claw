@@ -417,7 +417,9 @@ impl UserMemoryService {
                         let Some(signal) = durable_signal(&sentence) else {
                             continue;
                         };
-                        let content = normalize_candidate(&sentence)?;
+                        let Some(content) = normalize_harvest_candidate(&sentence, "user")? else {
+                            continue;
+                        };
                         let proposal = self
                             .propose_harvest_candidate(content, signal, request)
                             .await?;
@@ -450,7 +452,9 @@ impl UserMemoryService {
                 if !experience_sentence_allowed(&sentence) {
                     continue;
                 }
-                let content = normalize_candidate(&sentence)?;
+                let Some(content) = normalize_harvest_candidate(&sentence, "experience")? else {
+                    continue;
+                };
                 ids.push(self.record_agent_experience(content, request).await?);
             }
         }
@@ -554,6 +558,29 @@ impl UserMemoryService {
 
     fn harvest_root(&self) -> Result<std::path::PathBuf, AppCommandError> {
         Ok(self.resolved_root()?.to_path_buf())
+    }
+}
+
+fn normalize_harvest_candidate(
+    sentence: &str,
+    candidate_type: &'static str,
+) -> Result<Option<String>, AppCommandError> {
+    match normalize_candidate(sentence) {
+        Ok(content) => Ok(Some(content)),
+        Err(error)
+            if error.code == crate::app_error::AppErrorCode::InvalidInput
+                && error.message == "Memory entry is too long" =>
+        {
+            tracing::warn!(
+                target: "user_memory",
+                candidate_type,
+                content_chars = sentence.chars().count(),
+                max_chars = super::USER_MEMORY_MAX_CANDIDATE_CHARS,
+                "skipped oversized harvest candidate"
+            );
+            Ok(None)
+        }
+        Err(error) => Err(error),
     }
 }
 
