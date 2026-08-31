@@ -54,23 +54,20 @@ pub(super) async fn probe_engine(
     if !path.is_file() {
         return None;
     }
-    if !matches!(kind, BrowserEngineKind::Chromium) {
-        return Some(BrowserEngine {
-            kind,
-            version: installed_version(&path),
-            path,
-            profile_source,
-        });
+    let version = probe_version(&path).await?;
+    Some(BrowserEngine {
+        kind,
+        version: version.chars().take(128).collect(),
+        path,
+        profile_source,
+    })
+}
+
+async fn probe_version(path: &Path) -> Option<String> {
+    if executable_is_running(path) {
+        return Some(installed_version(path));
     }
-    if executable_is_running(&path) {
-        return Some(BrowserEngine {
-            kind,
-            version: installed_version(&path),
-            path,
-            profile_source,
-        });
-    }
-    let mut command = Command::new(&path);
+    let mut command = Command::new(path);
     command.arg("--version");
     configure_hidden_process(&mut command);
     let output = tokio::time::timeout(ENGINE_PROBE_TIMEOUT, command.output())
@@ -85,22 +82,11 @@ pub(super) async fn probe_engine(
     } else {
         String::from_utf8_lossy(&output.stdout)
     };
-    let version = raw
-        .lines()
+    raw.lines()
         .next()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
-        .unwrap_or_else(|| installed_version(&path));
-    if version.is_empty() {
-        return None;
-    }
-    Some(BrowserEngine {
-        kind,
-        version: version.chars().take(128).collect(),
-        path,
-        profile_source,
-    })
+        .map(|value| value.chars().take(128).collect())
 }
 
 fn installed_version(path: &Path) -> String {

@@ -125,6 +125,8 @@ impl BrowserRuntime {
         tracing::info!(
             target: "iyw_claw_browser",
             duration_ms = started.elapsed().as_millis() as u64,
+            engine = ?dependencies.engine.kind,
+            engine_version = %dependencies.engine.version,
             "browser capability verification completed"
         );
         Ok(capability)

@@ -256,6 +256,7 @@ fn log_command_completed(
         operation,
         duration_ms = started.elapsed().as_millis() as u64,
         success = result.success,
+        exit_code = result.exit_code,
         stdout_bytes = result.stdout.len(),
         stderr_bytes = result.stderr.len(),
         "browser controller command completed"

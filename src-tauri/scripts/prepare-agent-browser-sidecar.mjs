@@ -17,10 +17,10 @@ const SCRIPT_PATH = fileURLToPath(import.meta.url)
 const SRC_TAURI = resolve(dirname(SCRIPT_PATH), "..")
 const BINARIES_DIR = join(SRC_TAURI, "binaries")
 const SUPPORTED_TARGET = "x86_64-pc-windows-msvc"
-const VERSION = "0.34.0"
-const EXPECTED_SIZE = 13_580_288
+const VERSION = "0.35.1"
+const EXPECTED_SIZE = 13_665_280
 const EXPECTED_SHA256 =
-  "604820a9e86cdb8bba46da737fc0edb31bc92de6691c73dbc61d3673c370a6b5"
+  "def2614c2c193518463ad9126718a1ff828a7bf217d7f75f156249c0dbb16c83"
 const DOWNLOAD_URL =
   `https://github.com/vercel-labs/agent-browser/releases/download/v${VERSION}/` +
   "agent-browser-win32-x64.exe"

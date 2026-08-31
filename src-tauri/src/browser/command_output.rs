@@ -12,6 +12,7 @@ const OUTPUT_DRAIN_IDLE_TIMEOUT: Duration = Duration::from_millis(200);
 
 pub(super) struct CollectedOutput {
     pub(super) success: bool,
+    pub(super) exit_code: Option<i32>,
     pub(super) stdout: Vec<u8>,
     pub(super) stderr: Vec<u8>,
 }
@@ -31,8 +32,10 @@ pub(super) async fn collect_output(mut child: Child) -> Result<CollectedOutput, 
         read_bounded(stdout, child_exited.clone()),
         read_bounded(stderr, child_exited)
     );
+    let status = status.map_err(|_| unavailable_error())?;
     Ok(CollectedOutput {
-        success: status.map_err(|_| unavailable_error())?.success(),
+        success: status.success(),
+        exit_code: status.code(),
         stdout: stdout?,
         stderr: stderr?,
     })
@@ -99,7 +102,20 @@ pub(super) fn parse_output(
             "The browser controller returned too much data",
         ));
     }
-    let value: Value = serde_json::from_slice(stdout).map_err(|_| unavailable_error())?;
+    let value: Value = match serde_json::from_slice(stdout) {
+        Ok(value) => value,
+        Err(_) => {
+            let diagnostic = if stderr.is_empty() { stdout } else { stderr };
+            tracing::warn!(
+                target: "iyw_claw_browser",
+                session,
+                operation,
+                controller_error_summary = %summarize_controller_error("", "", diagnostic),
+                "browser controller returned invalid JSON"
+            );
+            return Err(unavailable_error());
+        }
+    };
     if success && value.get("success").and_then(Value::as_bool) != Some(false) {
         return Ok(value);
     }
@@ -119,6 +135,7 @@ pub(super) fn parse_output(
         controller_error_code = known_controller_error_code(code).unwrap_or("unknown"),
         error_code = ?error.code,
         retryable = error.retryable,
+        controller_error_summary = %summarize_controller_error(code, message, stderr),
         "browser controller rejected operation"
     );
     Err(error)
@@ -208,6 +225,49 @@ fn known_controller_error_code(code: &str) -> Option<&str> {
         | "selector_ambiguous" | "operation_timeout" | "timeout" | "timed_out" => Some(code),
         _ => None,
     }
+}
+
+fn summarize_controller_error(code: &str, message: &str, stderr: &[u8]) -> String {
+    let stderr = String::from_utf8_lossy(stderr);
+    let source = if message.trim().is_empty() {
+        stderr.as_ref()
+    } else {
+        message
+    };
+    let summary = sanitize_error_text(source);
+    if !summary.is_empty() {
+        return summary;
+    }
+    if code.is_empty() {
+        "empty controller error".to_string()
+    } else {
+        format!("controller code {code}")
+    }
+}
+
+fn sanitize_error_text(value: &str) -> String {
+    value
+        .split_whitespace()
+        .map(sanitize_error_token)
+        .filter(|token| !token.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(256)
+        .collect()
+}
+
+fn sanitize_error_token(token: &str) -> String {
+    if token.starts_with("http://") || token.starts_with("https://") || token.contains("://") {
+        return "<url>".to_string();
+    }
+    if token.contains(":\\") || token.contains('\\') || token.starts_with('/') {
+        return "<path>".to_string();
+    }
+    if token.starts_with("--") && token.contains('=') {
+        return format!("{}=<value>", token.split('=').next().unwrap_or("--arg"));
+    }
+    token.chars().filter(|ch| !ch.is_control()).collect()
 }
 
 pub(super) fn unavailable_error() -> BrowserError {

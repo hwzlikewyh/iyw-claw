@@ -107,10 +107,58 @@ impl BrowserSessionManager {
                 runtime.context().await.ok_or_else(runtime_state_mismatch)
             }
             RuntimeStartDecision::Start(ticket) => {
-                self.start_runtime_with_ticket(runtime, ticket, cancellation)
-                    .await
+                let result = self
+                    .start_runtime_with_ticket(runtime, ticket, cancellation.clone())
+                    .await;
+                match result {
+                    Ok(context) => Ok(context),
+                    Err(error) => {
+                        self.retry_initial_runtime_start(runtime, cancellation, error)
+                            .await
+                    }
+                }
             }
         }
+    }
+
+    async fn retry_initial_runtime_start(
+        &self,
+        runtime: &Arc<BrowserRuntime>,
+        cancellation: CancellationToken,
+        error: BrowserError,
+    ) -> Result<BrowserRuntimeContext, BrowserError> {
+        if !matches!(
+            error.code,
+            BrowserErrorCode::BrowserRuntimeUnavailable
+                | BrowserErrorCode::BrowserRuntimeStartTimeout
+                | BrowserErrorCode::BrowserOperationTimeout
+        ) {
+            return Err(error);
+        }
+        if cancellation.is_cancelled() {
+            return Err(BrowserError::shutting_down());
+        }
+        tracing::warn!(
+            target: "iyw_claw_browser",
+            error_code = ?error.code,
+            "browser initial runtime start failed; retrying once"
+        );
+        if let Err(cleanup_error) = self.retry_failed_cleanup_before_start(runtime).await {
+            tracing::warn!(
+                target: "iyw_claw_browser",
+                error_code = ?cleanup_error.code,
+                "browser initial runtime retry cleanup failed"
+            );
+            return Err(error);
+        }
+        let ticket = match self.begin_runtime_start().await? {
+            RuntimeStartDecision::AlreadyRunning => {
+                return runtime.context().await.ok_or_else(runtime_state_mismatch);
+            }
+            RuntimeStartDecision::Start(ticket) => ticket,
+        };
+        self.start_runtime_with_ticket(runtime, ticket, cancellation)
+            .await
     }
 
     pub(super) async fn begin_shutdown(&self) -> u64 {

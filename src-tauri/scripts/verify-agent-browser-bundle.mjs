@@ -4,10 +4,10 @@ import { join } from "node:path"
 export const AGENT_BROWSER_NAME = "agent-browser"
 const SUPPORTED_TARGET = "x86_64-pc-windows-msvc"
 const EXCLUDED_TARGET = "i686-pc-windows-msvc"
-const VERSION = "0.34.0"
-const EXPECTED_SIZE = 13_580_288
+const VERSION = "0.35.1"
+const EXPECTED_SIZE = 13_665_280
 const EXPECTED_SHA256 =
-  "604820a9e86cdb8bba46da737fc0edb31bc92de6691c73dbc61d3673c370a6b5"
+  "def2614c2c193518463ad9126718a1ff828a7bf217d7f75f156249c0dbb16c83"
 
 export function agentBrowserStagePath(srcTauri, target) {
   return join(srcTauri, "binaries", `${AGENT_BROWSER_NAME}-${target}.exe`)

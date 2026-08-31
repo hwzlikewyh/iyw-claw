@@ -4,6 +4,8 @@ use super::types_cdp::{
     BrowserDialogSnapshot, BrowserDownloadSnapshot, BrowserFileChooserSnapshot,
 };
 
+pub const BROWSER_SIDECAR_VERSION: &str = "0.35.1";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BrowserRuntimeStatus {
@@ -115,7 +117,7 @@ impl BrowserCapability {
             reason: Some(reason.into()),
             platform: std::env::consts::OS.to_string(),
             architecture: std::env::consts::ARCH.to_string(),
-            sidecar_version: "0.34.0".to_string(),
+            sidecar_version: BROWSER_SIDECAR_VERSION.to_string(),
             sidecar_verified: false,
             engine: None,
         }

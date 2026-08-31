@@ -7,11 +7,12 @@ use tokio::process::Command;
 
 use super::error::{BrowserError, BrowserErrorCode};
 use super::process::configure_hidden_process;
+use super::types::BROWSER_SIDECAR_VERSION;
 
-pub const AGENT_BROWSER_VERSION: &str = "0.34.0";
-pub const AGENT_BROWSER_SIZE: u64 = 13_580_288;
+pub const AGENT_BROWSER_VERSION: &str = BROWSER_SIDECAR_VERSION;
+pub const AGENT_BROWSER_SIZE: u64 = 13_665_280;
 pub const AGENT_BROWSER_SHA256: &str =
-    "604820a9e86cdb8bba46da737fc0edb31bc92de6691c73dbc61d3673c370a6b5";
+    "def2614c2c193518463ad9126718a1ff828a7bf217d7f75f156249c0dbb16c83";
 const VERIFY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn sidecar_candidates() -> Vec<PathBuf> {

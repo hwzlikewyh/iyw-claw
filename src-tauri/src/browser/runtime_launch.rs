@@ -151,6 +151,12 @@ async fn launch_controller(
     cleanup: &mut RuntimeCleanupHandle,
     cancellation: CancellationToken,
 ) -> Result<String, BrowserError> {
+    tracing::info!(
+        target: "iyw_claw_browser",
+        session = %cleanup.controller_session,
+        phase = "bootstrap_open",
+        "browser runtime launch phase started"
+    );
     cleanup
         .cli
         .bootstrap(
@@ -160,12 +166,25 @@ async fn launch_controller(
             cancellation.clone(),
         )
         .await?;
+    tracing::info!(
+        target: "iyw_claw_browser",
+        session = %cleanup.controller_session,
+        phase = "bootstrap_open",
+        "browser runtime launch phase completed"
+    );
     let daemon = wait_for_pid_file(
         &cleanup.cli.pid_path(&cleanup.controller_session),
         cleanup.cli.executable_path(),
         Duration::from_secs(3),
     )
     .await?;
+    tracing::info!(
+        target: "iyw_claw_browser",
+        session = %cleanup.controller_session,
+        phase = "daemon_identity",
+        daemon_pid = daemon.pid,
+        "browser runtime daemon identity confirmed"
+    );
     cleanup.profile.bind_daemon(&daemon)?;
     cleanup.daemon = Some(daemon);
     let response = cleanup
@@ -177,7 +196,23 @@ async fn launch_controller(
             cancellation,
         )
         .await?;
-    parse_cdp_url(&response)
+    let cdp_url = parse_cdp_url(&response).map_err(|error| {
+        tracing::warn!(
+            target: "iyw_claw_browser",
+            session = %cleanup.controller_session,
+            phase = "cdp_url",
+            error_code = ?error.code,
+            "browser runtime returned an invalid CDP endpoint"
+        );
+        error
+    })?;
+    tracing::info!(
+        target: "iyw_claw_browser",
+        session = %cleanup.controller_session,
+        phase = "cdp_url",
+        "browser runtime CDP endpoint confirmed"
+    );
+    Ok(cdp_url)
 }
 
 pub(super) async fn cleanup_partial_owner(

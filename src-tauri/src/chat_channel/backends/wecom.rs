@@ -657,7 +657,7 @@ async fn ensure_cli_ready(data_dir: &Path) -> Result<(), ChatChannelError> {
 /// `authorized` / `unauthorized` per wecom-cli. Note "unauthorized" contains
 /// "authorized" as a substring — check the negative first.
 pub async fn auth_status(data_dir: &Path) -> Result<bool, ChatChannelError> {
-    let output = run_cli_raw(data_dir, &["auth", "show", "--auth-status"]).await?;
+    let output = run_cli_raw(data_dir, &["auth", "show", "--status"]).await?;
     let normalized = output.to_lowercase();
     if normalized.contains("unauthorized") {
         return Ok(false);
