@@ -1,296 +1,96 @@
 ---
 name: iyw-capability-gateway
-short-description: Route iyw-claw host actions through the live capability catalog.
-description: Use when a concrete task needs iyw-claw host state or action, memory learning/maintenance, deep research, or internet/platform evidence and one complete gateway trio is visible. Search the live catalog, read the best match, and invoke its exact current schema. Skip trivial requests and never guess IDs or arguments.
+short-description: Route concrete iyw-claw host work through the live capability catalog.
+description: >-
+  Use proactively when a concrete task needs iyw-claw host state or action:
+  memory or self-learning, session/profile/history, final artifacts, managed
+  browser or public web evidence, audio transcription, image understanding or
+  display, channels and messages, scheduled automation, user interaction, or
+  delegated work. First load the matching gateway reference, then use one
+  complete search/read/invoke trio against the current catalog. Prefer a direct
+  tool or domain Skill when it fully owns the task; when a required input or
+  user decision is unclear, ask through the interaction capability before
+  acting; never guess IDs, arguments, paths, URLs, or schemas.
 routing:
-  capability: iyw-claw host routing
-  coreTriggers: [host action, memory, artifact, browser, channel, automation, research, internet]
-  exclusions: [trivial request, direct tool fits, incomplete gateway]
-  aliases: [iyw gateway, host capability, 主机能力]
-  invocation: Search, read best match, invoke exact current ID and schema.
+  capability: iyw-claw host routing through live capabilities
+  coreTriggers: [host action, memory, self-learning, session, profile, history, artifact, browser, web, internet, audio, transcription, image understanding, channel, message, automation, scheduled task, feedback, question, clarification, ambiguous requirement, needs decision, 需求不清, 需要选择, delegation]
+  exclusions: [trivial request, self-contained explanation, direct tool fully covers the task, incomplete gateway trio]
+  aliases: [iyw gateway, host capability, capability catalog, 主机能力, 能力网关]
+  invocation: Load the matching reference, search the live catalog, read one best match, and invoke its exact current schema.
 ---
 
 # IYW Capability Gateway
 
-Use this Skill as a routing gate, not as a static tool catalog. The current
-callable surface and live capability catalog are authoritative for tool names,
-stable IDs, schemas, required inputs, availability, and schema digests.
+This Skill is an active routing gate, not a static tool list. The host catalog is
+authoritative for current capability IDs, schemas, required inputs, availability,
+permissions, and schema digests.
 
-## When to Search
+## Load References Actively
 
-Search the gateway when a concrete goal needs iyw-claw host state or action and
-no visible direct tool already completes that subgoal. Typical categories:
+When a trigger below is present, **load the named reference before searching and
+follow its workflow**. Do not treat the reference as optional background reading.
 
-| Category | Search when the task needs |
+| Task signal | Load first |
 | --- | --- |
-| Memory | current user-memory documents, recall of prior decisions/preferences, or durable memory write |
-| Session | current session state or account profile |
-| Artifacts | final files, directories, or public URLs delivered to this conversation |
-| Image | image understanding/display through host tools |
-| Browser | managed browser navigation or interaction |
-| Audio | transcription or transcription result lookup |
-| Interaction | user feedback or a required user decision |
-| Delegation | a bounded task another Agent can execute independently |
-| Channels | configured channel discovery, message history, or sending |
-| Automation | scheduled-task listing, creation, update, or deletion |
+| Session, profile, history, interaction, or plugin capability | [capability-families.md](references/capability-families.md) |
+| Unclear requirement, missing decision, or multiple reasonable interpretations | [capability-families.md](references/capability-families.md) |
+| Final file, directory, URL, HTML/Markdown delivery, or image references in a document | [artifact-delivery.md](references/artifact-delivery.md) |
+| Channel discovery, targets, messages, credentials, QR authorization, or connection state | [channel-operations.md](references/channel-operations.md) |
+| Scheduled task project selection, cron, create, update, pause, or delete | [automation.md](references/automation.md) |
+| Independent subtask, parallel Agent, task ID, wait, or cancellation | [delegation.md](references/delegation.md) |
+| Web page, public web data, browser interaction, screenshot, visual page, audio, transcription, or image understanding | [browser-and-media.md](references/browser-and-media.md) |
+| Prior decisions, preferences, repeated workflows, memory, learning, correction, candidate, or memory repair | [memory-and-learning.md](references/memory-and-learning.md) |
+| Research, comparison, investigation, current web evidence, or cited report | [research-workflow.md](references/research-workflow.md), plus [browser-and-media.md](references/browser-and-media.md) for browser work |
+| Platform, URL, social discussion, GitHub, video, podcast, RSS, finance, or login-backed source | [internet-routing.md](references/internet-routing.md) |
+| Unsure which family or how to call the trio | [tool-usage.md](references/tool-usage.md) |
 
-Do not search for greetings, ordinary explanations, self-contained translation,
-one-line commands, current-turn-only context, or to enumerate tools. If the
-required primary object is missing, ask for it before searching.
+## Route Proactively
 
-## Gateway Gate
+1. Use an exact visible direct tool when it fully satisfies the current
+   sub-goal. Otherwise use the domain Skill that owns the business workflow:
+   `agent-browser`, `iyw-image-workflows`, `imagegen`, `wecom-unified`,
+   `open-computer-use`, `skill-creator`, `skill-installer`, `plugin-creator`,
+   `writing-plans`, or `executing-plans`.
+2. Use this gateway for the remaining iyw-claw host sub-goal: current session
+   state, user profile, historical task lookup, memory, artifacts, browser
+   host actions, audio, image display/understanding, channels, automation,
+   interaction, delegation, or a live plugin capability.
+3. Inspect the actual callable surface and select one complete trio of
+   `search_iyw_capabilities`, `read_iyw_capability`, and
+   `invoke_iyw_capability`. Prefer the unique visible
+   `iyw-claw-builtin-*` trio; if the trio is incomplete or ambiguous, stop and
+   use an actually visible direct route.
 
-The logical roles are `search_iyw_capabilities`, `read_iyw_capability`, and
-`invoke_iyw_capability`; they are not automatically top-level tools. Use one
-complete trio on one current callable surface only:
+## Mandatory Gateway Sequence
 
-1. Prefer the unique visible `iyw-claw-builtin-*` trio.
-2. Otherwise use a complete bare trio.
-3. Otherwise use the only remaining complete trio in one nested registry.
+1. Search with 2-5 action/object terms in Chinese or English, such as
+   `查询 历史 记忆`, `读取 网页`, `会议 音频 转写`, or `send channel message`.
+2. Treat results as current session evidence. Read the best plausible stable
+   `capability_id`; read at most one same-result alternative if needed.
+3. Invoke only the ID returned by the current search and only with the schema
+   returned by the current read. Ask for a missing primary object instead of
+   guessing it.
+4. Verify the business result, status, and any required follow-up. Preserve an
+   `iyw_delivery_receipt` exactly as top-level `delivery_ack` on the next real
+   invocation.
 
-If a tier has multiple trios, or any role is missing, do not use the gateway.
-For nested tools, invoke them only through their owning orchestration tool.
+An empty result, unavailable capability, malformed output, timeout, unknown ID,
+schema rejection, or two non-matching reads ends gateway use for this turn. Do
+not switch namespaces, invent names, cycle locators, or replay stale arguments.
 
-## Self-learning contract (mandatory for memory work)
+## Memory Gate
 
-The memory policy is part of the gateway contract, not an optional suggestion.
-For every substantive turn, make a private relevance check before acting. If
-the request depends on prior decisions, preferences, repeated workflows,
-earlier failures, or reusable Agent experience:
+For any relevant memory operation, load `memory-and-learning.md` and run the
+current-turn `read_memory_policy` preflight before the first other memory call.
+For substantive coding, debugging, configuration, research, or multi-step work,
+proactively perform one bounded recall unless the request is clearly
+self-contained. Use the returned `matched`, `no_evidence`, or `unavailable`
+state honestly; do not claim that no history exists from a timeout.
 
-1. Read this Skill's `references/memory-and-learning.md` when the Skill loader
-   exposes files. If it does not, use the host policy result as authoritative;
-   never substitute a path from a development worktree.
-2. Complete one `read_memory_policy` preflight before the first direct memory
-   operation in the turn. The host rejects memory calls that skip this step.
-3. For substantive coding, configuration, debugging, research, or multi-step
-   work, perform one bounded recall unless the request is clearly
-   self-contained. Recall only the relevant scope, judge results against
-   current evidence, and distinguish `matched`, `no_evidence`, and
-   `unavailable`.
-4. After meaningful execution, privately summarize a reusable lesson. The host
-   TurnComplete harvester records Agent experience separately from user memory.
-   Do not write a user fact from Agent-only reflection.
+## Do Not Bypass the Host
 
-For an explicit durable user fact, preference, or correction, use the matching
-host memory capability. Do not claim that a candidate is durable until the
-host confirms it. This short contract is intentionally repeated here because
-reference files are progressive-disclosure details and are not always loaded
-by every Agent adapter. Never store credentials, financial, medical,
-biometric, precise-location, sensitive-inference, repository, or transient
-task data.
-
-## Progressive Disclosure
-
-1. Search with 2-5 discriminating action/object terms in Chinese or English,
-   such as `查询 历史 记忆`, `提交 成果 文件`, or `send channel message`.
-2. Treat returned summaries, aliases, `when_to_use`, status, required inputs,
-   and schema digest as current catalog evidence.
-3. Read the best matching result using its exact stable ID. Read at most one
-   other candidate from the same result set if the first does not fit.
-4. Invoke only an available ID returned by the current search and only with
-   arguments matching the current read schema.
-
-An empty result, no plausible match, two non-matching reads, malformed output,
-timeout, unknown ID, unavailable capability, or routing error ends gateway use
-for the turn. Do not retry through another namespace, invent a tool name, or
-guess an argument. One search retry is allowed only after an exhausted result
-set, using a close synonym.
-
-## Memory
-
-Recall is task-sensitive, not mandatory for every turn. The mandatory
-preflight above applies only when a memory operation is relevant.
-
-The complete self-improving workflow is defined by this Skill's
-`references/memory-and-learning.md`; there is no second memory writer or
-fallback file. The host policy handshake remains authoritative when an Agent
-adapter cannot report Skill-file reads.
-
-- When the task refers to previous work, prior decisions, user preferences,
-  repeated workflows, or historical context, search with intent such as
-  `recall memory history`, then read and invoke the exact current capability.
-- When the task needs current authoritative user context, search with intent such
-  as `read current user memory document`, then read and invoke
-  `read_user_memory_documents` for the smallest relevant set of `memory`,
-  `profile`, and `soul` documents. Their contents are never injected at launch.
-- Skip recall for simple self-contained requests and when the user supplied all
-  relevant context. `no_evidence` means no matching evidence, not that the user
-  lacks the fact; `unavailable` is a routing limitation.
-- When the user explicitly asks to remember a durable fact, preference, or
-  correction, search with intent such as `remember confirmed memory`.
-- For a conservative reusable fact or correction that may be valuable but was
-  not explicitly confirmed, search with intent such as `propose memory`.
-- Never store passwords, tokens, cookies, private keys, full credentials,
-  transient task state, or speculative claims.
-- Do not edit `user-memory.md`, `user-profile.md`, or `user-soul.md` through a
-  shell or arbitrary path. Edit them only through the discovered
-  `update_user_memory_documents`
-  capability with the current overall revision and document eTags. Never use a
-  shell path or arbitrary file writer. Host capabilities still own locking,
-  transactions, reference integrity, candidate lifecycle, and recall context.
-
-For the complete self-improving behavior mapping, read
-[memory-and-learning.md](references/memory-and-learning.md). For a concrete
-memory tool's current schema and result handling, read
-[tool-usage.md](references/tool-usage.md).
-
-## Deep Research
-
-When the user asks to research, compare, investigate, or gather current web
-evidence, follow [research-workflow.md](references/research-workflow.md). Plan
-sub-questions, collect multiple sources, deep-read the strongest pages, keep a
-claim-to-source ledger, mark uncertainty, and deliver generated reports through
-the current Artifacts capability. Use the managed browser and current gateway
-catalog; do not copy fixed `/home/clawdbot`, DuckDuckGo, curl, or other external
-paths from another Skill.
-
-For platform-specific internet routing and the absorbed Agent Reach behavior,
-read [internet-routing.md](references/internet-routing.md) when the request
-mentions a platform, URL, social discussion, code search, video, podcast, RSS,
-or a login-backed source.
-
-## Images
-
-- IYW product, material, trend, knowledge, and commerce workflows: use the
-  installed `iyw-image-workflows` Skill first.
-- Free editing, GPT Image requests, or GPT Image-specific parameters: use the
-  installed `imagegen` Skill first. Do not ask the user to separately specify
-  GPT when the request already says GPT Image.
-- Understanding an existing image is `analyze_image`; displaying a result is
-  `show_image`. Neither is an image-generation route.
-
-Follow the selected image Skill's execution contract. Do not guess image API
-endpoints or payloads in this gateway.
-
-## Final Artifacts
-
-If the task produces a final user-facing file, directory, or public URL, it
-must be registered in the current conversation Artifacts before completion is
-claimed. Prefer a directly visible `present_task_files`; otherwise discover it
-through this gateway. Submit all final items together when possible.
-
-Do not register source, configuration, tests, migrations, build output, caches,
-logs, temporary files, or internal work unless the user explicitly requested
-that exact item as the deliverable. If the artifact route is unavailable or
-rejects an item, report that delivery was not completed. A Markdown preview or
-an ordinary URL alone is not proof of Artifact registration.
-
-## Other Categories
-
-- Current account identity belongs to the session/profile category, not memory.
-
-## Managed Browser First
-
-Read the installed `agent-browser` Skill for every web page, public web-data,
-website automation, or browser verification task. A reliable purpose-built API
-or direct data source may run first only when it clearly satisfies the request.
-If it returns no data, incomplete data, a static shell for dynamic content, an
-authentication boundary, or an unverifiable result, the managed browser is a
-mandatory fallback before reporting that the data is unavailable.
-
-Use the current gateway in this order:
-
-1. Search for the exact browser intent and read the best returned capability.
-2. List and reuse a managed tab; open another tab only when explicitly needed.
-3. Open the target page and use `iyw.browser.page.read.v1` or a fresh snapshot.
-4. Use dedicated actions when available. Read `agent-browser` before using
-   `iyw.browser.command.run.v1` for an advanced operation.
-5. After navigation, a route change, popup, material DOM update, or write, take
-   another snapshot before reusing a reference.
-6. Verify the business result through URL, title, text, element state,
-   downloaded file, or another stable signal. A successful click is not enough.
-
-For a stale reference or locator failure, make one recovery attempt for the
-same action with a fresh snapshot and one new reference or revised locator. Do
-not cycle locators, switch browsers, or request user takeover for an ordinary
-selector problem. For runtime/session/daemon/observer unavailability or a
-timeout, inspect managed state once. Only when that check confirms the managed
-route is unavailable may the Agent switch to `opencli-browser`, and only when
-that Skill and the `opencli` command are actually available. Read its current
-Skill and run `opencli doctor`; otherwise report the missing prerequisite.
-
-### Browser User Actions
-
-Use the stable capability `iyw.browser.user_action.request.v1` when the Agent
-cannot safely or reliably complete a visible browser step itself, such as
-login requiring user-held credentials, MFA, CAPTCHA, device approval, secure
-payment confirmation, an interaction the managed browser cannot perform, or a
-final human review.
-Do not use it for ordinary navigation, snapshots, clicks, fills, waits, or
-other actions already covered by the managed browser tools. In particular, do
-not request user action merely because a selector was stale, missing, or
-ambiguous.
-
-Invoke it through the normal gateway sequence, using the exact schema returned
-by `read_iyw_capability`:
-
-1. Search for `browser user action` (or `浏览器 用户 操作`).
-2. Read the available `iyw.browser.user_action.request.v1` result.
-3. Invoke that exact capability with `reason`, and optionally `tab_id`,
-   `completion`, and `timeout_ms`.
-
-The host opens a new visible browser window for the requested tab and pauses
-the Agent while the user operates it. Do not ask the user to click a separate
-"take over" or "return control" button. The user's first meaningful browser
-input is the hand-off signal; the host keeps Agent actions blocked until the
-user becomes idle.
-
-Completion conditions are optional. When supplied, all supplied conditions are
-required (AND semantics):
-
-```json
-{
-  "reason": "Complete the sign-in and any verification shown by the website",
-  "completion": {
-    "urlContains": "/dashboard",
-    "textContains": "Sign out"
-  },
-  "timeout_ms": 180000
-}
-```
-
-Supported conditions are `urlContains`, `titleContains`, `textContains`,
-`selector`, and `downloadCompleted`. Prefer stable post-action evidence such as
-an authenticated URL, a success message, a known result element, or a
-completed download. Do not put passwords, one-time codes, cookies, tokens, or
-other secrets in `reason` or completion conditions. If no condition can be
-stated safely, omit `completion`; after the user pauses, inspect the returned
-fresh browser state and decide whether the task can continue. A timeout or a
-closed detached window is a failed hand-off, not proof that the action
-completed.
-
-### Proactive Browser Presentation
-
-When the task produces a web interface, local service page, HTML preview,
-visual report, or another browser-readable result that the user should inspect,
-proactively use `iyw.browser.window.present.v1` after the page is ready. This
-is a non-blocking display action: it opens or focuses a detached browser window
-and lets the Agent continue. Do not present every research page or background
-automation step; present user-facing results, previews, and meaningful visual
-checkpoints.
-
-Use the normal search/read/invoke trio with `browser present` (or `展示网页
-成果`) and pass either a fresh `url` (optionally with `new_tab`) or an existing
-`tab_id`. Verify that the URL is the intended page before presenting it. A
-local service must be reachable through the user's own managed browser; do not
-expose credentials or private tokens in the URL.
-
-After the visual result is no longer needed, invoke
-`iyw.browser.window.close.v1` with the same `tab_id` (or the active tab). It
-closes only the detached display window and preserves the managed tab, page
-state, cookies, and sign-in session. Never use this capability when the user
-still needs to inspect the page, and never confuse it with
-`iyw.browser.tabs.close.v1`, which closes the tab itself.
-
-- Destructive automation, channel, browser, or delegation operations require
-  an exact target and the confirmation rules returned by `read`.
-- For long work, use a visible feedback capability or discover one at sensible
-  checkpoints; use a question capability only for a necessary unresolved input.
-
-## Delivery Receipts
-
-If an invocation returns `iyw_delivery_receipt`, preserve it exactly. On the
-next real invocation, send it as the top-level `delivery_ack`, never inside
-business arguments. Do not fabricate an invocation just to acknowledge a
-receipt.
+Never edit host-owned memory documents with shell tools, expose credentials or
+provider IDs, use arbitrary browser paths, register internal files as artifacts,
+or treat this document as a replacement for the live catalog. The host owns
+authorization, locking, idempotency, confirmation, cancellation, persistence,
+and result semantics.

@@ -98,6 +98,13 @@ then register the final file through `iyw.artifacts.present.v1`. Do not register
 source files, caches, logs, temporary fetches, or internal notes. A URL or preview
 alone is not proof of Artifact registration.
 
+If the report is HTML or Markdown and embeds images, prefer the validated
+`iyw-image-workflows` upload path for new/local images and write only the
+verified public HTTPS URL returned after the upload/check. Do not embed
+presigned URLs, temporary signed query URLs, or local absolute paths. Respect
+privacy and local-only requirements; if hosting is unavailable, use a valid
+workspace-relative fallback and state the limitation.
+
 Do not automatically save the research topic or conclusions to user memory.
 Only use memory MCP when the user explicitly asks to remember a durable personal
 preference/fact or when the user confirms a reusable preference discovered in the
