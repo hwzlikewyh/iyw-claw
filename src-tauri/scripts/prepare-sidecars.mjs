@@ -15,14 +15,32 @@
 // Windows GitHub runners.
 
 import { execFileSync } from "node:child_process"
-import { resolve } from "node:path"
+import { existsSync, readdirSync, unlinkSync } from "node:fs"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 
 import { prepareAgentBrowserSidecar } from "./prepare-agent-browser-sidecar.mjs"
 
+const SRC_TAURI = resolve(dirname(fileURLToPath(import.meta.url)), "..")
+
 function log(msg) {
   console.log(`[prepare-sidecars] ${msg}`)
+}
+
+function removeLegacyMcpSidecars() {
+  const binariesDir = resolve(SRC_TAURI, "binaries")
+  if (!existsSync(binariesDir)) return
+  const legacyPattern = /^iyw-claw-mcp(?:-|\.|$)/i
+  const removed = readdirSync(binariesDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && legacyPattern.test(entry.name))
+    .map((entry) => {
+      unlinkSync(join(binariesDir, entry.name))
+      return entry.name
+    })
+  if (removed.length > 0) {
+    log(`removed ${removed.length} legacy MCP sidecar(s)`)
+  }
 }
 
 function parseArgs(argv) {
@@ -54,6 +72,8 @@ async function main() {
     log("IYW_CLAW_SKIP_SIDECAR=1 — skipping sidecar preparation")
     return
   }
+
+  removeLegacyMcpSidecars()
 
   const { target: cliTarget } = parseArgs(process.argv.slice(2))
   const configuredTarget = cliTarget || process.env.TAURI_TARGET_TRIPLE
