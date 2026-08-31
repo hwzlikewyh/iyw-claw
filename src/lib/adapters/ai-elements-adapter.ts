@@ -34,6 +34,7 @@ import {
   formatAgentRuntimeError,
   type AgentRuntimeErrorMessages,
 } from "@/lib/agent-runtime-error"
+import { normalizeToolResultError } from "@/lib/memory-policy-error"
 
 /**
  * Adapted content part types for AI SDK Elements components
@@ -381,7 +382,10 @@ function parseInlineToolResultPayload(payload: string): {
       return { output: toInlinePayloadString(parsed), isError: false }
     }
 
+    const nestedResult = asRecord(obj.result)
     const isError =
+      obj.isError === true ||
+      nestedResult?.isError === true ||
       obj.is_error === true ||
       obj.error === true ||
       (typeof obj.status === "string" && obj.status.toLowerCase() === "error")
@@ -399,10 +403,11 @@ function parseInlineToolResultPayload(payload: string): {
       .map((value) => toInlinePayloadString(value))
       .find((value): value is string => typeof value === "string")
 
-    return {
-      output: output ?? toInlinePayloadString(parsed),
+    return normalizeToolResultError(
+      output ?? toInlinePayloadString(parsed),
       isError,
-    }
+      parsed
+    )
   } catch {
     return {
       output: trimmed,
@@ -1037,14 +1042,18 @@ function adaptContentBlock(
       // a single image is the realistic shape.
       const imageParts = adaptImageToolResultParts(block)
       if (imageParts) return imageParts[0]
+      const normalizedResult = normalizeToolResultError(
+        block.output_preview,
+        block.is_error
+      )
       return {
         type: "tool-result",
         toolCallId: generateToolCallId(messageId, blockIndex),
-        output: block.output_preview,
-        errorText: block.is_error
-          ? block.output_preview || undefined
+        output: normalizedResult.output,
+        errorText: normalizedResult.isError
+          ? normalizedResult.output || undefined
           : undefined,
-        state: block.is_error ? "output-error" : "output-available",
+        state: normalizedResult.isError ? "output-error" : "output-available",
       }
     }
 
@@ -1782,6 +1791,11 @@ export function adaptMessageTurn(
           adaptedContent.push(...imageParts)
           continue
         }
+        const normalizedResult = normalizeToolResultError(
+          matchedResult.output_preview,
+          matchedResult.is_error,
+          matchedResult
+        )
         adaptedContent.push({
           type: "tool-call",
           toolCallId,
@@ -1789,12 +1803,12 @@ export function adaptMessageTurn(
           input: block.input_preview,
           state: isToolStillRunning
             ? "input-available"
-            : matchedResult.is_error
+            : normalizedResult.isError
               ? "output-error"
               : "output-available",
-          output: matchedResult.output_preview,
-          errorText: matchedResult.is_error
-            ? matchedResult.output_preview || undefined
+          output: normalizedResult.output,
+          errorText: normalizedResult.isError
+            ? normalizedResult.output || undefined
             : undefined,
           agentStats: matchedResult.agent_stats ?? undefined,
           meta: block.meta ?? null,
@@ -1818,17 +1832,22 @@ export function adaptMessageTurn(
             adaptedContent.push(...imageParts)
             continue
           }
+          const normalizedResult = normalizeToolResultError(
+            positionalResult.output_preview,
+            positionalResult.is_error,
+            positionalResult
+          )
           adaptedContent.push({
             type: "tool-call",
             toolCallId,
             toolName: block.tool_name,
             input: block.input_preview,
-            state: positionalResult.is_error
+            state: normalizedResult.isError
               ? "output-error"
               : "output-available",
-            output: positionalResult.output_preview,
-            errorText: positionalResult.is_error
-              ? positionalResult.output_preview || undefined
+            output: normalizedResult.output,
+            errorText: normalizedResult.isError
+              ? normalizedResult.output || undefined
               : undefined,
             agentStats: positionalResult.agent_stats ?? undefined,
             meta: block.meta ?? null,

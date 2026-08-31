@@ -18,6 +18,7 @@ import {
   isAsyncLaunchAckText,
   parseBackgroundTaskMarker,
 } from "@/lib/background-agent"
+import { normalizeToolResultError } from "@/lib/memory-policy-error"
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`
@@ -32,15 +33,24 @@ function adaptToolCalls(
   parentId: string
 ): AdaptedContentPart[] {
   return calls.map(
-    (call, i): Extract<AdaptedContentPart, { type: "tool-call" }> => ({
-      type: "tool-call",
-      toolCallId: `${parentId}-sub-${i}`,
-      toolName: call.tool_name,
-      input: call.input_preview ?? null,
-      state: call.is_error ? "output-error" : "output-available",
-      output: call.output_preview ?? null,
-      errorText: call.is_error ? (call.output_preview ?? undefined) : undefined,
-    })
+    (call, i): Extract<AdaptedContentPart, { type: "tool-call" }> => {
+      const normalizedResult = normalizeToolResultError(
+        call.output_preview,
+        call.is_error,
+        call
+      )
+      return {
+        type: "tool-call",
+        toolCallId: `${parentId}-sub-${i}`,
+        toolName: call.tool_name,
+        input: call.input_preview ?? null,
+        state: normalizedResult.isError ? "output-error" : "output-available",
+        output: normalizedResult.output,
+        errorText: normalizedResult.isError
+          ? normalizedResult.output || undefined
+          : undefined,
+      }
+    }
   )
 }
 
