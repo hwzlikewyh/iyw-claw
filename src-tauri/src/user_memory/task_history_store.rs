@@ -16,7 +16,10 @@ pub(super) async fn project(
     if intent.is_empty() {
         return Ok(());
     }
-    let result = safe_bounded(request.assistant_input_ref.as_deref().unwrap_or(""), 1_500);
+    let result = safe_bounded(
+        &super::harvest::strip_agent_lessons(request.assistant_input_ref.as_deref().unwrap_or("")),
+        1_500,
+    );
     let failures = safe_bounded(request.tool_outcome_ref.as_deref().unwrap_or(""), 800);
     let decisions = extract(
         &result,

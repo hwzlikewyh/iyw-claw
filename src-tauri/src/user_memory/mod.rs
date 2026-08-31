@@ -68,10 +68,10 @@ pub use context::{
     MEMORY_POLICY_REVISION, MEMORY_POLICY_SUMMARY, USER_CONTEXT_END, USER_CONTEXT_START,
 };
 pub use harvest::{
-    harvest_reference, MemoryHarvestRequest, UserMemoryCandidateIndexRebuildResult,
-    UserMemoryHarvestRescanPreview, UserMemoryHarvestRescanResult, UserMemoryHarvestState,
-    UserMemoryHarvestStatus, UserMemoryHarvestSubmitResult, USER_MEMORY_HARVEST_FILE,
-    USER_MEMORY_HARVEST_SCHEMA_VERSION,
+    extract_agent_lessons, harvest_reference, strip_agent_lessons, MemoryHarvestRequest,
+    UserMemoryCandidateIndexRebuildResult, UserMemoryHarvestRescanPreview,
+    UserMemoryHarvestRescanResult, UserMemoryHarvestState, UserMemoryHarvestStatus,
+    UserMemoryHarvestSubmitResult, USER_MEMORY_HARVEST_FILE, USER_MEMORY_HARVEST_SCHEMA_VERSION,
 };
 pub use recall_scope::UserMemoryRecallScope;
 pub use recall_types::{

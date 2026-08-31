@@ -13,7 +13,7 @@ use super::{
 };
 
 const SOURCE_KEY: &str = "user_memory";
-const INDEX_PROJECTION_VERSION: &[u8] = b"user-memory-index-v2";
+const INDEX_PROJECTION_VERSION: &[u8] = b"user-memory-index-v3-agent-lessons";
 
 struct DocumentSource<'a> {
     id: UserMemoryDocumentId,
@@ -234,11 +234,9 @@ fn add_agent_experiences(
     let Some(state) = state else {
         return;
     };
-    for experience in state
-        .experiences
-        .iter()
-        .filter(|item| item.superseded_by.is_none())
-    {
+    for experience in state.experiences.iter().filter(|item| {
+        item.superseded_by.is_none() && is_structured_agent_experience(&item.content)
+    }) {
         let mut item = IndexItem::new(
             experience.id.clone(),
             experience.content.clone(),
@@ -265,6 +263,19 @@ fn add_agent_experiences(
         }
         push_index_item(items, item_positions, item);
     }
+}
+
+fn is_structured_agent_experience(content: &str) -> bool {
+    [
+        "Context: ",
+        "Outcome: ",
+        "Lesson: ",
+        "Evidence: ",
+        "Verification: ",
+        "Reuse when: ",
+    ]
+    .iter()
+    .all(|marker| content.contains(marker))
 }
 
 fn add_confirmed_wording_aliases(item: &mut IndexItem, candidate: &UserMemoryCandidate) {

@@ -3,8 +3,10 @@
 //! The ACP TurnComplete hook (wired by Task 13) submits a small
 //! [`MemoryHarvestRequest`] via [`UserMemoryService::submit_turn_harvest`].
 //! This module persists a checkpoint in the user memory root, deduplicates by
-//! (conversation, turn nonce), and extracts conservative candidate
-//! observations asynchronously without blocking the UI completion event.
+//! (conversation, turn nonce), and accepts explicit structured Agent lessons
+//! asynchronously without blocking the UI completion event. User-memory
+//! candidates are proposed by the Agent through the authenticated MCP route;
+//! the host never guesses them from ordinary conversation text.
 //!
 //! States: `queued -> extracting -> proposed | noop | failed -> dead`.
 //! Recovery: on restart, `queued`/`extracting` records are re-queued, and
@@ -21,13 +23,11 @@ use crate::models::agent::AgentType;
 
 use super::candidate_store;
 use super::harvest_store::{self, StoreOutcome};
-use super::helpers::{contains_potential_secret, hash_parts, normalize_candidate};
+use super::helpers::{contains_potential_secret, hash_parts};
 use super::structured_file;
 use super::{
-    AgentExperience, AgentExperienceEvidence, AgentMemoryProposal, CandidateObservationSource,
-    UserMemoryCandidateSignal, UserMemoryProposalResult, UserMemoryService,
-    USER_MEMORY_MAX_CANDIDATE_CHARS, USER_MEMORY_MAX_EXPERIENCES,
-    USER_MEMORY_MAX_EXPERIENCE_EVIDENCE,
+    AgentExperience, AgentExperienceEvidence, UserMemoryService, USER_MEMORY_MAX_CANDIDATE_CHARS,
+    USER_MEMORY_MAX_EXPERIENCES, USER_MEMORY_MAX_EXPERIENCE_EVIDENCE,
 };
 
 pub const USER_MEMORY_HARVEST_FILE: &str = ".user-memory-harvest.json";
@@ -36,6 +36,9 @@ pub const USER_MEMORY_HARVEST_MAX_QUEUED: usize = 256;
 pub const USER_MEMORY_HARVEST_MAX_RETRIES: u32 = 3;
 pub const USER_MEMORY_HARVEST_MIN_CONTENT_CHARS: usize = 24;
 pub const USER_MEMORY_HARVEST_MAX_STATE_CHARS: usize = 16_777_216;
+const AGENT_LESSON_START: &str = "<!-- IYW_CLAW_AGENT_LESSON_V1 ";
+const AGENT_LESSON_END: &str = " -->";
+const MAX_AGENT_LESSON_CHARS: usize = 2_400;
 const HARVEST_OUTBOX_IMPORT_KEY: &str = "user_memory.harvest_outbox_imported_v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -384,7 +387,7 @@ impl UserMemoryService {
             return Ok(());
         }
         let _ = super::task_history_store::project(&self.db, &request).await;
-        let outcome = self.extract_and_propose(&request).await;
+        let outcome = self.extract_lessons(&request).await;
         let elapsed = started.elapsed().as_millis() as u64;
         let outcome = match outcome {
             Ok(ExtractionOutcome::Proposed {
@@ -403,41 +406,18 @@ impl UserMemoryService {
         harvest_store::finish(&self.db, &key, elapsed, outcome).await
     }
 
-    async fn extract_and_propose(
+    async fn extract_lessons(
         &self,
         request: &MemoryHarvestRequest,
     ) -> Result<ExtractionOutcome, AppCommandError> {
-        let mut candidate_ids = Vec::new();
-        if !abnormal_stop_reason(request.stop_reason.as_deref()) {
-            if let Some(user_input) = request.user_input_ref.as_deref() {
-                if user_input.chars().count() >= USER_MEMORY_HARVEST_MIN_CONTENT_CHARS
-                    && !contains_potential_secret(user_input)
-                {
-                    for sentence in candidate_sentences(user_input) {
-                        let Some(signal) = durable_signal(&sentence) else {
-                            continue;
-                        };
-                        let Some(content) = normalize_harvest_candidate(&sentence, "user")? else {
-                            continue;
-                        };
-                        let proposal = self
-                            .propose_harvest_candidate(content, signal, request)
-                            .await?;
-                        if proposal.observation_added || proposal.confirmation_recommended {
-                            candidate_ids.push(proposal.candidate.id);
-                        }
-                    }
-                }
-            }
-        }
         let experience_ids = self.extract_experiences(request).await?;
-        if candidate_ids.is_empty() && experience_ids.is_empty() {
+        if experience_ids.is_empty() {
             return Ok(ExtractionOutcome::Noop(
                 "no reusable signal in completed turn".to_string(),
             ));
         }
         Ok(ExtractionOutcome::Proposed {
-            candidate_ids,
+            candidate_ids: Vec::new(),
             experience_ids,
         })
     }
@@ -446,37 +426,14 @@ impl UserMemoryService {
         &self,
         request: &MemoryHarvestRequest,
     ) -> Result<Vec<String>, AppCommandError> {
+        let Some(text) = request.assistant_input_ref.as_deref() else {
+            return Ok(Vec::new());
+        };
         let mut ids = Vec::new();
-        if let Some(text) = request.assistant_input_ref.as_deref() {
-            for sentence in candidate_sentences(text) {
-                if !experience_sentence_allowed(&sentence) {
-                    continue;
-                }
-                let Some(content) = normalize_harvest_candidate(&sentence, "experience")? else {
-                    continue;
-                };
-                ids.push(self.record_agent_experience(content, request).await?);
-            }
+        for lesson in extract_agent_lessons(text) {
+            ids.push(self.record_agent_experience(lesson, request).await?);
         }
         Ok(ids)
-    }
-
-    async fn propose_harvest_candidate(
-        &self,
-        content: String,
-        signal: UserMemoryCandidateSignal,
-        request: &MemoryHarvestRequest,
-    ) -> Result<UserMemoryProposalResult, AppCommandError> {
-        let opaque_source_id = derive_harvest_source_id(&request.conversation);
-        self.propose_agent_memory_authorized(
-            AgentMemoryProposal { content, signal },
-            CandidateObservationSource {
-                agent_type: request.agent_type,
-                opaque_source_id,
-                turn_nonce: request.turn_nonce,
-            },
-        )
-        .await
     }
 
     async fn record_agent_experience(
@@ -558,29 +515,6 @@ impl UserMemoryService {
 
     fn harvest_root(&self) -> Result<std::path::PathBuf, AppCommandError> {
         Ok(self.resolved_root()?.to_path_buf())
-    }
-}
-
-fn normalize_harvest_candidate(
-    sentence: &str,
-    candidate_type: &'static str,
-) -> Result<Option<String>, AppCommandError> {
-    match normalize_candidate(sentence) {
-        Ok(content) => Ok(Some(content)),
-        Err(error)
-            if error.code == crate::app_error::AppErrorCode::InvalidInput
-                && error.message == "Memory entry is too long" =>
-        {
-            tracing::warn!(
-                target: "user_memory",
-                candidate_type,
-                content_chars = sentence.chars().count(),
-                max_chars = super::USER_MEMORY_MAX_CANDIDATE_CHARS,
-                "skipped oversized harvest candidate"
-            );
-            Ok(None)
-        }
-        Err(error) => Err(error),
     }
 }
 
@@ -681,6 +615,93 @@ pub fn harvest_reference(input: &str) -> Option<String> {
     (!cleaned.is_empty() && !contains_potential_secret(&cleaned)).then_some(cleaned)
 }
 
+/// Parse only the explicit Agent-owned lesson envelope. The host deliberately
+/// does not infer lessons from ordinary prose: a missing envelope means no
+/// experience is persisted.
+pub fn extract_agent_lessons(input: &str) -> Vec<String> {
+    let mut lessons = Vec::new();
+    let mut cursor = 0usize;
+    while let Some(relative) = input[cursor..].find(AGENT_LESSON_START) {
+        let start = cursor + relative + AGENT_LESSON_START.len();
+        let Some(end_relative) = input[start..].find(AGENT_LESSON_END) else {
+            break;
+        };
+        let end = start + end_relative;
+        if !input[end + AGENT_LESSON_END.len()..].trim().is_empty() {
+            cursor = end + AGENT_LESSON_END.len();
+            continue;
+        }
+        let payload = input[start..end].trim();
+        if let Some(lesson) = parse_agent_lesson(payload) {
+            if !lessons.contains(&lesson) {
+                lessons.push(lesson);
+            }
+        }
+        cursor = end + AGENT_LESSON_END.len();
+    }
+    lessons
+}
+
+/// Remove internal lesson envelopes before a transcript or UI projection is
+/// persisted. This keeps Agent-led learning invisible to the user.
+pub fn strip_agent_lessons(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut cursor = 0usize;
+    while let Some(relative) = input[cursor..].find(AGENT_LESSON_START) {
+        let start = cursor + relative;
+        output.push_str(&input[cursor..start]);
+        let payload_start = start + AGENT_LESSON_START.len();
+        let Some(end_relative) = input[payload_start..].find(AGENT_LESSON_END) else {
+            // An incomplete internal envelope is never user-facing content.
+            // Drop it rather than leaking protocol text into the transcript.
+            output.truncate(output.trim_end().len());
+            cursor = input.len();
+            break;
+        };
+        cursor = payload_start + end_relative + AGENT_LESSON_END.len();
+    }
+    output.push_str(&input[cursor..]);
+    output.trim().to_string()
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AgentLessonEnvelope {
+    context: String,
+    outcome: String,
+    lesson: String,
+    evidence: String,
+    verification: String,
+    reuse_when: String,
+}
+
+fn parse_agent_lesson(payload: &str) -> Option<String> {
+    if payload.chars().count() > MAX_AGENT_LESSON_CHARS {
+        return None;
+    }
+    let lesson: AgentLessonEnvelope = serde_json::from_str(payload).ok()?;
+    let fields = [
+        lesson.context,
+        lesson.outcome,
+        lesson.lesson,
+        lesson.evidence,
+        lesson.verification,
+        lesson.reuse_when,
+    ];
+    if fields.iter().any(|value| value.trim().is_empty())
+        || fields.iter().any(|value| contains_potential_secret(value))
+    {
+        return None;
+    }
+    let content = format!(
+        "Context: {}; Outcome: {}; Lesson: {}; Evidence: {}; Verification: {}; Reuse when: {}",
+        fields[0], fields[1], fields[2], fields[3], fields[4], fields[5]
+    );
+    (content.chars().count() >= USER_MEMORY_HARVEST_MIN_CONTENT_CHARS
+        && content.chars().count() <= USER_MEMORY_MAX_CANDIDATE_CHARS * 2)
+        .then_some(content)
+}
+
 pub(super) fn abnormal_stop_reason(reason: Option<&str>) -> bool {
     let Some(reason) = reason else {
         return false;
@@ -699,132 +720,12 @@ pub(super) fn abnormal_stop_reason(reason: Option<&str>) -> bool {
     ) || reason.is_empty()
 }
 
-fn candidate_sentences(input: &str) -> Vec<String> {
-    let separators = ['。', '！', '？', '!', '?', '\n'];
-    let mut sentences = Vec::new();
-    let mut current = String::new();
-    for character in input.chars() {
-        current.push(character);
-        if separators.contains(&character) {
-            let trimmed = current.trim();
-            if !trimmed.is_empty() {
-                sentences.push(trimmed.to_string());
-            }
-            current.clear();
-        }
-    }
-    let trimmed = current.trim();
-    if !trimmed.is_empty() {
-        sentences.push(trimmed.to_string());
-    }
-    sentences
-}
-
-fn durable_signal(sentence: &str) -> Option<UserMemoryCandidateSignal> {
-    let lower = sentence.to_ascii_lowercase();
-    const CORRECTION: &[&str] = &[
-        "不对",
-        "其实",
-        "不要",
-        "别再",
-        "不要再",
-        "不再",
-        "以后不要",
-        "请改",
-        "改成",
-        "改为",
-        "never",
-        "do not",
-        "don't",
-        "stop",
-        "actually",
-        "instead",
-    ];
-    const PREFERENCE: &[&str] = &[
-        "我喜欢",
-        "我偏好",
-        "喜欢",
-        "偏好",
-        "希望以后",
-        "以后请",
-        "总是",
-        "从不",
-        "每次",
-        "必须",
-        "for me",
-        "i like",
-        "i prefer",
-        "prefer",
-        "always",
-        "usually",
-    ];
-    const FACT: &[&str] = &[
-        "记住",
-        "记得",
-        "请记住",
-        "remember",
-        "我是",
-        "我叫",
-        "我的名字",
-        "my name",
-        "i am",
-    ];
-    if CORRECTION.iter().any(|marker| lower.contains(marker)) {
-        return Some(UserMemoryCandidateSignal::Correction);
-    }
-    if PREFERENCE.iter().any(|marker| lower.contains(marker)) {
-        return Some(UserMemoryCandidateSignal::Preference);
-    }
-    if FACT.iter().any(|marker| lower.contains(marker)) {
-        return Some(UserMemoryCandidateSignal::Fact);
-    }
-    None
-}
-
 pub(crate) fn experience_digest(content: &str) -> String {
     hash_parts(&[b"iyw-agent-experience:v1\0", content.as_bytes()])
 }
 
 fn experience_id(digest: &str) -> String {
     format!("iyw-experience-{}", &digest[..32])
-}
-
-fn experience_sentence_allowed(sentence: &str) -> bool {
-    sentence.chars().count() >= USER_MEMORY_HARVEST_MIN_CONTENT_CHARS
-        && is_experience_sentence(sentence)
-        && !contains_potential_secret(sentence)
-}
-
-fn is_experience_sentence(sentence: &str) -> bool {
-    const MARKERS: &[&str] = &[
-        "原因",
-        "根因",
-        "问题在",
-        "解决",
-        "解决方案",
-        "修复",
-        "排查",
-        "结论",
-        "注意",
-        "避免",
-        "建议",
-        "经验",
-        "教训",
-        "下次",
-        "改为",
-        "workaround",
-        "root cause",
-        "fixed",
-        "lesson",
-        "next time",
-        "avoid",
-        "pitfall",
-        "best practice",
-    ];
-    let lower = sentence.to_ascii_lowercase();
-    MARKERS
-        .iter()
-        .any(|marker| sentence.contains(marker) || lower.contains(marker))
 }
 
 pub(crate) fn derive_harvest_source_id(conversation: &str) -> String {
@@ -860,5 +761,47 @@ fn harvest_failure_kind(error: &AppCommandError) -> UserMemoryHarvestFailureKind
             UserMemoryHarvestFailureKind::InvalidInput
         }
         _ => UserMemoryHarvestFailureKind::Internal,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_agent_lessons, strip_agent_lessons};
+
+    fn envelope() -> &'static str {
+        r#"<!-- IYW_CLAW_AGENT_LESSON_V1 {"context":"Rust build","outcome":"fixed","lesson":"Use the isolated target when the shared Cargo lock is stale","evidence":"cargo stayed before rustc","verification":"isolated cargo check passed","reuseWhen":"a Windows Cargo check stalls before rustc"} -->"#
+    }
+
+    #[test]
+    fn only_explicit_structured_lessons_are_extracted() {
+        let input = format!("visible answer\n{}", envelope());
+        let lessons = extract_agent_lessons(&input);
+        assert_eq!(lessons.len(), 1);
+        assert!(lessons[0].contains("Use the isolated target"));
+    }
+
+    #[test]
+    fn lesson_envelope_is_removed_from_visible_text() {
+        let input = format!("visible answer\n{}", envelope());
+        assert_eq!(strip_agent_lessons(&input), "visible answer");
+    }
+
+    #[test]
+    fn malformed_lesson_never_leaks_to_visible_text() {
+        let input = "visible answer <!-- IYW_CLAW_AGENT_LESSON_V1 {\"lesson\":\"oops\"}";
+        assert_eq!(strip_agent_lessons(input), "visible answer");
+        assert!(extract_agent_lessons(input).is_empty());
+    }
+
+    #[test]
+    fn ordinary_reflection_prose_is_not_a_lesson() {
+        let input = "结论：问题已经修复。建议下次先检查缓存。";
+        assert!(extract_agent_lessons(input).is_empty());
+    }
+
+    #[test]
+    fn lesson_must_be_the_final_internal_block() {
+        let input = format!("{}\nextra visible text", envelope());
+        assert!(extract_agent_lessons(&input).is_empty());
     }
 }

@@ -681,19 +681,22 @@ pub async fn get_folder_conversation_core(
 
 fn strip_private_user_context(turns: &mut Vec<MessageTurn>) {
     for turn in turns.iter_mut() {
-        if !matches!(turn.role, TurnRole::User) {
-            continue;
-        }
         turn.blocks.retain_mut(|block| match block {
-            ContentBlock::Text { text } => {
+            ContentBlock::Text { text } if matches!(turn.role, TurnRole::User) => {
                 *text = crate::user_memory::strip_user_context(text);
                 !text.is_empty()
                     && !crate::acp::conversation_title_summary::is_private_title_candidate(text)
             }
+            ContentBlock::Text { text } if matches!(turn.role, TurnRole::Assistant) => {
+                *text = crate::user_memory::strip_agent_lessons(text);
+                !text.is_empty()
+            }
             _ => true,
         });
     }
-    turns.retain(|turn| !matches!(turn.role, TurnRole::User) || !turn.blocks.is_empty());
+    turns.retain(|turn| {
+        !matches!(turn.role, TurnRole::User | TurnRole::Assistant) || !turn.blocks.is_empty()
+    });
 }
 
 fn first_visible_user_title(turns: &[MessageTurn]) -> Option<String> {

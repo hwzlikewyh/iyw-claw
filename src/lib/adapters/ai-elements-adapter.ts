@@ -36,6 +36,27 @@ import {
 } from "@/lib/agent-runtime-error"
 import { normalizeToolResultError } from "@/lib/memory-policy-error"
 
+const AGENT_LESSON_START = "<!-- IYW_CLAW_AGENT_LESSON_V1 "
+const AGENT_LESSON_END = " -->"
+
+function stripAgentLessonText(value: string): string {
+  let output = value
+  let cursor = 0
+  while (true) {
+    const start = output.indexOf(AGENT_LESSON_START, cursor)
+    if (start < 0) break
+    const payloadStart = start + AGENT_LESSON_START.length
+    const end = output.indexOf(AGENT_LESSON_END, payloadStart)
+    if (end < 0) {
+      output = output.slice(0, start)
+      break
+    }
+    output = `${output.slice(0, start)}${output.slice(end + AGENT_LESSON_END.length)}`
+    cursor = start
+  }
+  return output.trim()
+}
+
 /**
  * Adapted content part types for AI SDK Elements components
  */
@@ -89,6 +110,11 @@ export type AdaptedDisplayedImagePart = {
   caption: string | null
   image: UserImageDisplay
   sourceKind: DisplayImageSourceKind | null
+}
+
+export type AdaptedUserImagePart = {
+  type: "user-image"
+  image: UserImageDisplay
 }
 
 export type AdaptedGoalRunPart = {
@@ -162,6 +188,7 @@ export type AdaptedContentPart =
   | AdaptedGoalRunPart
   | AdaptedGeneratedImagePart
   | AdaptedDisplayedImagePart
+  | AdaptedUserImagePart
   | AdaptedPlanPart
   | AdaptedPluginAppPart
 
@@ -740,24 +767,6 @@ function addResource(
   resources.push(resource)
 }
 
-function addImage(images: UserImageDisplay[], image: UserImageDisplay) {
-  const key = image.uri
-    ? `uri:${image.uri}`
-    : `${image.mime_type}:${image.data.length}:${image.data.slice(0, 64)}`
-  if (
-    images.some(
-      (item) =>
-        (item.uri
-          ? `uri:${item.uri}`
-          : `${item.mime_type}:${item.data.length}:${item.data.slice(0, 64)}`) ===
-        key
-    )
-  ) {
-    return
-  }
-  images.push(image)
-}
-
 // A `<…>` span (an autolink, a typed bare uri, or a tag). A genuine blocked
 // marker is plain `@name [blocked: …]` prose, never angle-wrapped, so the
 // blocked-mention pass skips these spans rather than mangle a uri/tag that
@@ -973,23 +982,6 @@ function deriveImageNameFromBlock(
   }
   const ext = block.mime_type.split("/")[1]?.split("+")[0] ?? "image"
   return `image.${ext}`
-}
-
-function extractUserImagesFromBlocks(
-  blocks: ContentBlock[]
-): UserImageDisplay[] {
-  const images: UserImageDisplay[] = []
-  for (const block of blocks) {
-    if (block.type !== "image") continue
-    if ((!block.data && !block.uri) || !block.mime_type) continue
-    addImage(images, {
-      name: deriveImageNameFromBlock(block),
-      data: block.data,
-      mime_type: block.mime_type,
-      uri: block.uri ?? null,
-    })
-  }
-  return images
 }
 
 /**
@@ -1275,6 +1267,64 @@ export function dropHiddenFeedbackChecks(
     // Surface errors (rare) so a failed check isn't silently swallowed.
     if (part.state === "output-error" || part.errorText?.trim()) return true
     return feedbackCheckHasContent(part.output ?? null)
+  })
+}
+
+/**
+ * Memory policy/recall/harvest calls are internal steering, not user-facing
+ * work. Keep their results available to the Agent and final answer, but omit
+ * their tool cards from the transcript so proactive learning stays invisible.
+ */
+export function dropHiddenMemoryCalls(
+  parts: AdaptedContentPart[]
+): AdaptedContentPart[] {
+  const hidden = new Set([
+    "read_memory_policy",
+    "memory_recall",
+    "read_user_memory_documents",
+    "append_user_memory",
+    "propose_user_memory",
+    "list_user_memory_candidates",
+    "resolve_user_memory_candidate",
+    "delete_user_memory_candidate",
+    "get_user_memory_harvest_status",
+    "rescan_user_memory_harvest",
+    "rebuild_user_memory_candidate_index",
+    "get_user_memory_settings",
+    "update_user_memory_documents",
+    "correct_user_memory",
+  ])
+  return parts.filter((part) => {
+    if (part.type !== "tool-call") return true
+    const name = normalizeToolName(part.toolName)
+    if (hidden.has(name)) return false
+    if (
+      name !== "search_iyw_capabilities" &&
+      name !== "read_iyw_capability" &&
+      name !== "invoke_iyw_capability"
+    ) {
+      return true
+    }
+    const raw = part.input ?? ""
+    try {
+      const parsed = JSON.parse(part.input ?? "{}") as {
+        capability_id?: unknown
+        arguments?: { capability_id?: unknown }
+      }
+      const capabilityId =
+        parsed.capability_id ?? parsed.arguments?.capability_id
+      if (
+        typeof capabilityId === "string" &&
+        capabilityId.startsWith("iyw.memory.")
+      ) {
+        return false
+      }
+    } catch {
+      // Keep malformed non-memory gateway calls visible for diagnosis.
+    }
+    return /(?:memory|记忆|learning|学习|candidate|候选)/i.test(raw)
+      ? false
+      : true
   })
 }
 
@@ -1683,9 +1733,26 @@ export function adaptMessageTurn(
   for (let index = 0; index < turn.blocks.length; index++) {
     const block = turn.blocks[index]
 
+    if (turn.role === "user" && block.type === "image") {
+      if ((block.data || block.uri) && block.mime_type) {
+        adaptedContent.push({
+          type: "user-image",
+          image: {
+            name: deriveImageNameFromBlock(block),
+            data: block.data,
+            mime_type: block.mime_type,
+            uri: block.uri ?? null,
+          },
+        })
+      }
+      continue
+    }
+
     if (turn.role === "assistant" && block.type === "text") {
+      const visibleText = stripAgentLessonText(block.text)
+      if (!visibleText) continue
       const localizedError = formatAgentRuntimeError(
-        block.text,
+        visibleText,
         text.runtimeErrors
       )
       if (localizedError) {
@@ -1694,7 +1761,7 @@ export function adaptMessageTurn(
       }
 
       const goalExpandedParts = expandGoalUpdateText(
-        block.text,
+        visibleText,
         turn.id,
         index,
         text.toolCallFailed,
@@ -1706,7 +1773,7 @@ export function adaptMessageTurn(
       }
 
       const expandedParts = expandInlineToolText(
-        block.text,
+        visibleText,
         turn.id,
         index,
         text.toolCallFailed
@@ -1911,7 +1978,7 @@ export function adaptMessageTurn(
           groupConsecutiveBackgroundTasks(
             groupConsecutiveDelegationStatus(
               groupConsecutiveToolCalls(
-                dropHiddenFeedbackChecks(adaptedContent)
+                dropHiddenMemoryCalls(dropHiddenFeedbackChecks(adaptedContent))
               )
             )
           ),
@@ -1922,8 +1989,7 @@ export function adaptMessageTurn(
   // Only user-uploaded images surface as top-of-message attachments.
   // Assistant-side image_generation flows through the inline
   // `generated-image` part, rendered in-position.
-  const userImages =
-    turn.role === "user" ? extractUserImagesFromBlocks(turn.blocks) : []
+  const userImages: UserImageDisplay[] = []
   const userSplit =
     turn.role === "user"
       ? splitUserTextAndResources(

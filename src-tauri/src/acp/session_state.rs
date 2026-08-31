@@ -1086,17 +1086,16 @@ impl SessionState {
                         })
                         .collect::<Vec<&str>>()
                         .join("");
-                    self.last_assistant_text = if assembled.trim().is_empty() {
+                    let visible = crate::user_memory::strip_agent_lessons(&assembled);
+                    self.last_assistant_text = if visible.trim().is_empty() {
                         None
                     } else {
-                        Some(assembled)
+                        Some(visible)
                     };
-                }
-                if let Some(capture) = self.last_completed_turn_harvest.as_mut() {
-                    capture.assistant_input_ref = self
-                        .last_assistant_text
-                        .as_deref()
-                        .and_then(crate::user_memory::harvest_reference);
+                    if let Some(capture) = self.last_completed_turn_harvest.as_mut() {
+                        capture.assistant_input_ref =
+                            crate::user_memory::harvest_reference(&assembled);
+                    }
                 }
                 self.last_completed_turn_title_input = completed_turn_title_input(
                     self.pending_user_message.as_ref(),

@@ -11,13 +11,13 @@ use super::{
 
 pub const USER_CONTEXT_START: &str = "<!-- IYW_CLAW_USER_CONTEXT_V1_START -->";
 pub const USER_CONTEXT_END: &str = "<!-- IYW_CLAW_USER_CONTEXT_V1_END -->";
-pub const MEMORY_POLICY_REVISION: &str = "memory-policy-v3";
+pub const MEMORY_POLICY_REVISION: &str = "memory-policy-v4";
 pub const MEMORY_POLICY_REFERENCE: &str =
     "iyw-capability-gateway/references/memory-and-learning.md";
 pub const MEMORY_POLICY_DOCUMENT: &str =
     include_str!("../../experts/skills/iyw-capability-gateway/references/memory-and-learning.md");
 pub const MEMORY_POLICY_SUMMARY: &str =
-    "Memory policy v3: recall prior decisions, preferences, repeated workflows, or failures before a dependent action; read current memory/profile/soul documents only when their authoritative text is needed. `matched` is evidence, `no_evidence` is not false, and `unavailable` is a routing/index limitation. Explicit durable user facts use confirmed append; uncertain reusable signals use candidate proposal. Keep Agent experience separate from user documents. Current system, project, and user instructions override memory. Never store secrets, credentials, financial, medical, biometric, precise-location, sensitive-inference, repository, or temporary-progress data.";
+    "Memory policy v4: the Agent owns the learning loop: recall prior decisions, preferences, repeated workflows, or failures before a dependent action; apply and verify the result; then submit only a specific, transferable, evidence-backed lesson. Read current memory/profile/soul documents only when their authoritative text is needed. `matched` is evidence, `no_evidence` is not false, and `unavailable` is a routing/index limitation. The host never infers user candidates or Agent lessons from ordinary prose. Explicit durable user facts use confirmed append; uncertain reusable user signals use candidate proposal. Keep Agent experience separate from user documents. Current system, project, and user instructions override memory. Never store secrets, credentials, financial, medical, biometric, precise-location, sensitive-inference, repository, or temporary-progress data.";
 
 pub fn memory_policy_digest() -> &'static str {
     static DIGEST: OnceLock<String> = OnceLock::new();

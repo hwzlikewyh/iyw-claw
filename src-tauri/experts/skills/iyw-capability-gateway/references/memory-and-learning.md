@@ -67,10 +67,13 @@ tentative (1 observation)
 Candidate observations are deduplicated by content/signal and an opaque source
 plus turn key. Equivalent wording can be retained as bounded variants; the host
 updates observation count, confidence, status, provenance, and references. The
+TurnComplete harvester does not infer user candidates from raw prompt text;
+the Agent must explicitly decide that a user signal is reusable and call the
+candidate capability.
 most specific scope wins (workspace/project, then domain, then global); callers
 must not invent a namespace selector. When confirmation is recommended, inspect
-the current candidate and ask the user only if a decision is needed. Never claim
-that a proposal is durable before the host confirms it.
+the current candidate and resolve it automatically if current evidence still
+supports it. Never claim that a proposal is durable before the host confirms it.
 
 Candidate list, resolve, and delete operations use optimistic concurrency:
 
@@ -84,14 +87,33 @@ manually rewrite candidate JSON, memory markers, or references. Only terminal
 candidates can be deleted; active candidates must be resolved rather than
 removed.
 
-### Durable TurnComplete harvesting
+### Agent-led learning and durable harvesting
 
-After meaningful execution, keep the reusable lesson private. The host's
-TurnComplete harvester submits a bounded request to the SQLite
+The Agent owns the semantic work. For every substantive task it should load
+this policy, recall the smallest relevant context, apply it, verify the result,
+and privately review whether a reusable lesson exists. The host must not infer a
+lesson from ordinary answer prose, capability descriptions, progress updates,
+or keyword matches. If the Agent has no specific, transferable, evidence-backed
+lesson, it should submit nothing.
+
+When a lesson qualifies, the Agent appends one hidden structured envelope to
+its final answer using the format required by the built-in Agent prompt. The
+host validates the envelope, strips it from user-visible transcript content,
+and stores only the normalized lesson in Agent experience. This keeps the
+learning process automatic while preventing a pile of low-value text. The
+host's TurnComplete harvester submits a bounded request to the SQLite
 `memory_harvest_outbox`; it is not a second user-memory writer and does not
 store every transcript as a user fact. The outbox uses a deduplication key tied
 to the conversation/turn generation and keeps separate projections for user
 memory candidates, Agent experience, and session task history.
+
+The envelope is eligible only when all six fields are filled with concrete
+content: `context`, `outcome`, `lesson`, `evidence`, `verification`, and
+`reuseWhen`. `lesson` must describe a transferable action, `evidence` must say
+what was observed, `verification` must say how the result was checked, and
+`reuseWhen` must define the triggering situation. A generic summary, capability
+list, progress update, speculative recommendation, or unverified claim is not
+eligible. The Agent does not ask the user to approve this internal record.
 
 The queue can report `queued`, `extracting`, `proposed`, `noop`, `failed`, or
 `dead`, plus backlog and failure timestamps. Startup recovery returns interrupted
@@ -134,8 +156,10 @@ Apply memory behavior for substantive coding, configuration, debugging,
 research, or multi-step work unless the request is clearly self-contained,
 as well as for explicit requests to remember, forget, export, inspect, or
 repair memory. Before the first memory operation, complete the current-turn
-policy preflight. After meaningful work, perform a private quality check: did
-the result meet intent, what could improve, and is the lesson reusable?
+policy preflight. The Agent must actively perform the recall and reflection;
+the host only enforces safety, bounds, provenance, and persistence. After
+meaningful work, perform a private quality check: did the result meet intent,
+what evidence proves it, what could improve, and is the lesson reusable?
 
 Treat these as learning signals:
 
@@ -146,11 +170,23 @@ Treat these as learning signals:
 | Repeated workflow or stable preference | Propose a candidate and rely on host observation counts; do not invent promotion. |
 | User edits or praise | Treat as evidence only when the user expresses a reusable rule; silence is not confirmation. |
 | One-off instruction, hypothetical, third-party preference, transient task state | Do not learn. |
-| Agent-only reflection | Keep it internal unless the user explicitly turns it into a reusable preference/fact. |
+| Agent-only reflection | Keep it out of user memory; persist it as Agent experience only through the explicit structured lesson envelope when it is specific and evidence-backed. |
 
 Classify candidates as `correction`, `preference`, or `fact`. Keep the statement
 short, standalone, scoped, and grounded in the user's words. Do not store a
 repository fact merely because it was discovered while working.
+
+The Agent performs routine candidate maintenance without asking the user. When
+the host reports `confirmationRecommended` after repeated consistent
+observations, re-read the exact candidate and revision, check for a newer
+contradiction, and resolve it through the host transaction. Do not ask the user
+to approve an ordinary learning operation. When a high-confidence structured
+Agent lesson has been independently reused and verified across multiple tasks,
+the Agent may use the installed `skill-creator` workflow to create or update
+the smallest project- or domain-scoped Skill. Preserve trigger conditions,
+boundaries, usage timing, and verification steps; validate and revert a draft
+on failure. Never create a Skill from one task, generic advice, a capability
+list, or an unverified suggestion.
 
 ## Lifecycle and scope
 
@@ -166,8 +202,8 @@ tentative (one observation)
 The host owns deduplication, wording variants, observation keys, confidence,
 source provenance, bounded candidate history, and terminal reference
 normalization. When a proposal result says `confirmationRecommended`, inspect
-the candidate and ask for confirmation only if a user decision is actually
-needed; never claim that a candidate is durable before a confirmed append.
+the candidate and resolve it automatically only when current evidence still
+supports it; never claim that a candidate is durable before a confirmed append.
 
 Use the most specific applicable scope: current project/workspace over domain
 over global. The current MCP request does not accept a caller-defined namespace;
@@ -215,6 +251,16 @@ For candidate operations, optimistic concurrency is mandatory:
 
 The host may normalize references when confirming, rejecting, superseding, or
 deleting candidates. Do not manually rewrite candidate JSON or memory markers.
+
+During normal related work, the Agent should also keep memory current: when a
+recalled user rule is explicitly corrected, propose the replacement and
+supersede the stale candidate through the exact lifecycle; when an old
+candidate is terminal and no longer useful, delete it through the host after
+reading its current revision. For Agent experience, stop applying a lesson
+when current evidence disproves it and submit a replacement structured lesson;
+the host keeps the old evidence for audit and excludes superseded content from
+recall. Do this as part of the task loop, without asking the user to operate
+routine maintenance.
 
 ## Safety and transparency
 

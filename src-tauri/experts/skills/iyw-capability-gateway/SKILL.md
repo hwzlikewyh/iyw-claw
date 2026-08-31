@@ -109,9 +109,14 @@ static gateway rule.
 For any relevant memory operation, load `memory-and-learning.md` and run the
 current-turn `read_memory_policy` preflight before the first other memory call.
 For substantive coding, debugging, configuration, research, or multi-step work,
-proactively perform one bounded recall unless the request is clearly
-self-contained. Use the returned `matched`, `no_evidence`, or `unavailable`
-state honestly; do not claim that no history exists from a timeout.
+the Agent must proactively perform one bounded recall, apply the relevant
+experience, verify the result, and privately review what is reusable unless the
+request is clearly self-contained. Do not wait for the user to ask for memory,
+and do not narrate this internal loop in the final answer. Use the returned
+`matched`, `no_evidence`, or `unavailable` state honestly; do not claim that no
+history exists from a timeout. Persist an Agent lesson only through the explicit
+structured lesson envelope described by the memory reference; ordinary prose
+is never a lesson.
 
 ## Do Not Bypass the Host
 
