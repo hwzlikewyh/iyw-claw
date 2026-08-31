@@ -135,15 +135,9 @@ fn invoke(
 ) -> Result<GatewayAction, ErrorData> {
     let params = parse::<InvokeParams>(arguments)?;
     let capability_id = parse_capability_id(&params.capability_id)?;
-    let memory_policy_ready = capability_id.starts_with("iyw.memory.")
-        && capability_id != "iyw.memory.policy.read.v1"
-        && session
-            .memory_turn_tracker
-            .active_nonce()
-            .is_some_and(|nonce| {
-                session.memory_policy_loaded_nonce.load(Ordering::Acquire) == nonce
-            });
-    if capability_id.starts_with("iyw.memory.") && !memory_policy_ready {
+    let active_nonce = session.memory_turn_tracker.active_nonce();
+    let policy_loaded_nonce = session.memory_policy_loaded_nonce.load(Ordering::Acquire);
+    if memory_policy_required(capability_id, active_nonce, policy_loaded_nonce) {
         return Ok(GatewayAction::Return(CallToolResult::structured_error(
             json!({
                 "code": "memory_policy_required",
@@ -181,6 +175,16 @@ fn invoke(
         Err(error) => return Err(resolve_error(error)),
     };
     resolve_plugin_invoke(capability_id, params.arguments, session)
+}
+
+fn memory_policy_required(
+    capability_id: &str,
+    active_nonce: Option<u64>,
+    policy_loaded_nonce: u64,
+) -> bool {
+    capability_id.starts_with("iyw.memory.")
+        && capability_id != "iyw.memory.policy.read.v1"
+        && !active_nonce.is_some_and(|nonce| policy_loaded_nonce == nonce)
 }
 
 fn resolve_plugin_invoke(
@@ -329,3 +333,7 @@ struct InvokeParams {
     arguments: Map<String, Value>,
     delivery_ack: Option<String>,
 }
+
+#[cfg(test)]
+#[path = "gateway_tests.rs"]
+mod tests;
