@@ -13,7 +13,7 @@ use tauri::{
 use crate::app_error::AppCommandError;
 use crate::db::service::app_metadata_service;
 use crate::db::AppDatabase;
-use crate::models::FolderDetail;
+use crate::models::{FolderDetail, FolderHistoryEntry};
 
 /// Base traffic-light position (logical px) at 100 % zoom.
 #[cfg(target_os = "macos")]
@@ -1598,7 +1598,14 @@ fn load_macos_tray_template_icon() -> Result<tauri::image::Image<'static>, Strin
 /// Stable id namespace for tray menu items. Routed through the app-wide
 /// `on_menu_event` handler in `lib.rs`.
 pub const TRAY_MENU_ID_PREFIX: &str = "tray:";
+pub const TRAY_ACTION_EVENT: &str = "workspace://tray-action";
 pub const TRAY_MENU_ID_SHOW: &str = "tray:show";
+pub const TRAY_MENU_ID_OPEN: &str = TRAY_MENU_ID_SHOW;
+pub const TRAY_MENU_ID_NEW: &str = "tray:new";
+pub const TRAY_MENU_ID_RECENT_PREFIX: &str = "tray:recent:";
+pub const TRAY_MENU_ID_RECENT_EMPTY: &str = "tray:recent:none";
+pub const TRAY_MENU_ID_SETTINGS: &str = "tray:settings";
+pub const TRAY_MENU_ID_UPDATE: &str = "tray:update";
 pub const TRAY_MENU_ID_QUIT: &str = "tray:quit";
 pub const TRAY_ICON_ID: &str = "iyw-claw-tray";
 
@@ -1687,7 +1694,13 @@ fn restore_main_window(main: &tauri::WebviewWindow) {
 
 #[cfg(feature = "tauri-runtime")]
 struct TrayLabels {
+    status: &'static str,
     show_workspace: &'static str,
+    new_conversation: &'static str,
+    recent_projects: &'static str,
+    no_recent_projects: &'static str,
+    settings: &'static str,
+    check_update: &'static str,
     quit: &'static str,
 }
 
@@ -1696,14 +1709,104 @@ fn tray_labels_for(locale: crate::models::system::AppLocale) -> TrayLabels {
     use crate::models::system::AppLocale;
     match locale {
         AppLocale::ZhCn => TrayLabels {
-            show_workspace: "显示工作台",
-            quit: "退出 iyw-claw",
+            status: "原助理 · 正在后台运行",
+            show_workspace: "打开工作台",
+            new_conversation: "新建会话",
+            recent_projects: "最近项目",
+            no_recent_projects: "暂无最近项目",
+            settings: "设置",
+            check_update: "检查更新",
+            quit: "退出原助理",
         },
         AppLocale::En => TrayLabels {
-            show_workspace: "Show Workspace",
-            quit: "Quit iyw-claw",
+            status: "原助理 · Running in background",
+            show_workspace: "Open Workspace",
+            new_conversation: "New Conversation",
+            recent_projects: "Recent Projects",
+            no_recent_projects: "No recent projects",
+            settings: "Settings",
+            check_update: "Check for Updates",
+            quit: "Quit 原助理",
         },
     }
+}
+
+#[cfg(feature = "tauri-runtime")]
+fn tray_menu_item(
+    app: &AppHandle,
+    id: &str,
+    text: &str,
+    enabled: bool,
+) -> tauri::Result<tauri::menu::MenuItem<tauri::Wry>> {
+    tauri::menu::MenuItem::with_id(app, id, text, enabled, None::<&str>)
+}
+
+#[cfg(feature = "tauri-runtime")]
+fn build_recent_projects_menu(
+    app: &AppHandle,
+    labels: &TrayLabels,
+    recent_projects: &[FolderHistoryEntry],
+) -> tauri::Result<tauri::menu::Submenu<tauri::Wry>> {
+    use tauri::menu::SubmenuBuilder;
+
+    let mut items = Vec::with_capacity(recent_projects.len().min(5).max(1));
+    for project in recent_projects.iter().take(5) {
+        items.push(tray_menu_item(
+            app,
+            &format!("{TRAY_MENU_ID_RECENT_PREFIX}{}", project.id),
+            &project.name,
+            true,
+        )?);
+    }
+    if items.is_empty() {
+        items.push(tray_menu_item(
+            app,
+            TRAY_MENU_ID_RECENT_EMPTY,
+            labels.no_recent_projects,
+            false,
+        )?);
+    }
+    let mut builder = SubmenuBuilder::with_id(app, "tray:recent", labels.recent_projects);
+    for item in &items {
+        builder = builder.item(item);
+    }
+    builder.build()
+}
+
+#[cfg(feature = "tauri-runtime")]
+fn build_tray_menu(
+    app: &AppHandle,
+    locale: crate::models::system::AppLocale,
+    recent_projects: &[FolderHistoryEntry],
+) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{MenuBuilder, PredefinedMenuItem};
+
+    let labels = tray_labels_for(locale);
+    let status_item = tray_menu_item(app, "tray:status", labels.status, false)?;
+    let open_item = tray_menu_item(app, TRAY_MENU_ID_OPEN, labels.show_workspace, true)?;
+    let new_item = tray_menu_item(app, TRAY_MENU_ID_NEW, labels.new_conversation, true)?;
+    let recent_menu = build_recent_projects_menu(app, &labels, recent_projects)?;
+    let separator_one = PredefinedMenuItem::separator(app)?;
+    let separator_two = PredefinedMenuItem::separator(app)?;
+    let separator_three = PredefinedMenuItem::separator(app)?;
+    let settings_item = tray_menu_item(app, TRAY_MENU_ID_SETTINGS, labels.settings, true)?;
+    let update_item = tray_menu_item(app, TRAY_MENU_ID_UPDATE, labels.check_update, true)?;
+    let quit_item = tray_menu_item(app, TRAY_MENU_ID_QUIT, labels.quit, true)?;
+
+    MenuBuilder::new(app)
+        .items(&[
+            &status_item,
+            &separator_one,
+            &open_item,
+            &new_item,
+            &recent_menu,
+            &separator_two,
+            &settings_item,
+            &update_item,
+            &separator_three,
+            &quit_item,
+        ])
+        .build()
 }
 
 /// Install the system tray icon and its right-click menu. Left-click
@@ -1715,26 +1818,15 @@ fn tray_labels_for(locale: crate::models::system::AppLocale) -> TrayLabels {
 pub fn install_tray_icon(
     app: &AppHandle,
     locale: crate::models::system::AppLocale,
+    recent_projects: &[FolderHistoryEntry],
 ) -> tauri::Result<()> {
-    use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-    let labels = tray_labels_for(locale);
-    let show_item = MenuItem::with_id(
-        app,
-        TRAY_MENU_ID_SHOW,
-        labels.show_workspace,
-        true,
-        None::<&str>,
-    )?;
-    let separator = PredefinedMenuItem::separator(app)?;
-    let quit_item = MenuItem::with_id(app, TRAY_MENU_ID_QUIT, labels.quit, true, None::<&str>)?;
-    let menu = MenuBuilder::new(app)
-        .items(&[&show_item, &separator, &quit_item])
-        .build()?;
+    let menu = build_tray_menu(app, locale, recent_projects)?;
+    let tooltip = tray_labels_for(locale).status;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ICON_ID)
-        .tooltip("iyw-claw")
+        .tooltip(tooltip)
         .menu(&menu)
         // `false` is required for `on_tray_icon_event::Click` to fire on
         // every platform we ship: the default `true` causes the OS to
@@ -1792,29 +1884,43 @@ pub fn install_tray_icon(
 pub fn refresh_tray_menu(
     app: &AppHandle,
     locale: crate::models::system::AppLocale,
+    recent_projects: &[FolderHistoryEntry],
 ) -> tauri::Result<()> {
-    use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem};
-
     let Some(tray) = app.tray_by_id(TRAY_ICON_ID) else {
         return Ok(());
     };
 
-    let labels = tray_labels_for(locale);
-    let show_item = MenuItem::with_id(
-        app,
-        TRAY_MENU_ID_SHOW,
-        labels.show_workspace,
-        true,
-        None::<&str>,
-    )?;
-    let separator = PredefinedMenuItem::separator(app)?;
-    let quit_item = MenuItem::with_id(app, TRAY_MENU_ID_QUIT, labels.quit, true, None::<&str>)?;
-    let menu = MenuBuilder::new(app)
-        .items(&[&show_item, &separator, &quit_item])
-        .build()?;
+    let menu = build_tray_menu(app, locale, recent_projects)?;
 
     tray.set_menu(Some(menu))?;
+    tray.set_tooltip(Some(tray_labels_for(locale).status))?;
     Ok(())
+}
+
+#[cfg(feature = "tauri-runtime")]
+async fn load_recent_tray_projects(
+    db: &AppDatabase,
+) -> Result<Vec<FolderHistoryEntry>, AppCommandError> {
+    crate::db::service::folder_service::list_folders(&db.conn)
+        .await
+        .map_err(AppCommandError::from)
+}
+
+/// Refresh the native menu after a folder is opened or renamed. The menu reads
+/// the same recent-folder history as the folder picker and keeps five entries.
+#[cfg(feature = "tauri-runtime")]
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn refresh_tray_menu_command(
+    app: AppHandle,
+    db: tauri::State<'_, AppDatabase>,
+) -> Result<(), AppCommandError> {
+    let locale = crate::commands::system_settings::load_system_language_settings(&db.conn)
+        .await
+        .map(|settings| settings.language)
+        .unwrap_or_default();
+    let recent_projects = load_recent_tray_projects(&db).await?;
+    refresh_tray_menu(&app, locale, &recent_projects)
+        .map_err(|e| AppCommandError::window("Failed to refresh tray menu", e.to_string()))
 }
 
 /// Push the current effective UI locale to the system tray. Called by
@@ -1824,8 +1930,10 @@ pub fn refresh_tray_menu(
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn set_tray_locale(
     app: AppHandle,
+    db: tauri::State<'_, AppDatabase>,
     locale: crate::models::system::AppLocale,
 ) -> Result<(), AppCommandError> {
-    refresh_tray_menu(&app, locale)
+    let recent_projects = load_recent_tray_projects(&db).await?;
+    refresh_tray_menu(&app, locale, &recent_projects)
         .map_err(|e| AppCommandError::window("Failed to refresh tray menu", e.to_string()))
 }

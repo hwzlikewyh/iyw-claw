@@ -698,7 +698,18 @@ mod tauri_app {
                 )
                 .map(|settings| settings.language)
                 .unwrap_or_default();
-                if let Err(err) = windows::install_tray_icon(app.handle(), tray_locale) {
+                let recent_tray_projects = tauri::async_runtime::block_on(
+                    crate::db::service::folder_service::list_folders(&db.conn),
+                )
+                .unwrap_or_else(|error| {
+                    tracing::warn!(error = %error, "[Tray] failed to load recent projects");
+                    Vec::new()
+                });
+                if let Err(err) = windows::install_tray_icon(
+                    app.handle(),
+                    tray_locale,
+                    &recent_tray_projects,
+                ) {
                     tracing::error!("[Tray] failed to install tray icon: {err}");
                 }
 
@@ -1216,9 +1227,32 @@ mod tauri_app {
                 // workspace and quitting are both pure runtime concerns
                 // with no UI state to coordinate.
                 if id.starts_with(windows::TRAY_MENU_ID_PREFIX) {
+                    let emit_tray_action = |action: &str, folder_id: Option<i32>| {
+                        windows::show_main_window(app);
+                        let mut payload = serde_json::json!({ "action": action });
+                        if let Some(folder_id) = folder_id {
+                            payload["folderId"] = serde_json::json!(folder_id);
+                        }
+                        if let Err(error) = app.emit_to("main", windows::TRAY_ACTION_EVENT, payload)
+                        {
+                            tracing::warn!(action, error = %error, "[Tray] failed to signal main window");
+                        }
+                    };
                     match id.as_str() {
-                        windows::TRAY_MENU_ID_SHOW => windows::show_main_window(app),
+                        windows::TRAY_MENU_ID_OPEN => emit_tray_action("open", None),
+                        windows::TRAY_MENU_ID_NEW => emit_tray_action("new", None),
+                        windows::TRAY_MENU_ID_SETTINGS => emit_tray_action("settings", None),
+                        windows::TRAY_MENU_ID_UPDATE => emit_tray_action("update", None),
                         windows::TRAY_MENU_ID_QUIT => crate::desktop_shutdown::request_exit(app),
+                        _ if id.starts_with(windows::TRAY_MENU_ID_RECENT_PREFIX) => {
+                            let Some(folder_id) = id
+                                .strip_prefix(windows::TRAY_MENU_ID_RECENT_PREFIX)
+                                .and_then(|raw| raw.parse::<i32>().ok())
+                            else {
+                                return;
+                            };
+                            emit_tray_action("recent", Some(folder_id));
+                        }
                         _ => {}
                     }
                     return;
@@ -1477,6 +1511,7 @@ mod tauri_app {
                 windows::update_traffic_light_position,
                 windows::update_appearance_mode,
                 windows::set_tray_locale,
+                windows::refresh_tray_menu_command,
                 app_update_commands::app_update_state,
                 app_update_commands::check_app_update,
                 app_update_commands::get_app_update_preferences,

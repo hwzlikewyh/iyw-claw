@@ -459,6 +459,19 @@ export async function setTrayLocale(locale: AppLocale): Promise<void> {
   return invoke("set_tray_locale", { locale })
 }
 
+export const TRAY_ACTION_EVENT = "workspace://tray-action"
+
+export type TrayActionPayload =
+  | { action: "open" }
+  | { action: "new" }
+  | { action: "settings" }
+  | { action: "update" }
+  | { action: "recent"; folderId: number }
+
+export async function refreshTrayMenu(): Promise<void> {
+  return invoke("refresh_tray_menu_command")
+}
+
 export async function getSystemRenderingSettings(): Promise<SystemRenderingSettings> {
   return invoke("get_system_rendering_settings")
 }

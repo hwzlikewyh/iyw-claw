@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>原助理托盘菜单预览</title>
+    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+    <style>
+      :root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; color: #1e293b; background: #edf1f5; }
+      * { box-sizing: border-box; }
+      body { min-width: 320px; margin: 0; background: #edf1f5; }
+      button { font: inherit; }
+      .preview { min-height: 100vh; display: grid; place-items: center; padding: 32px; }
+      .desktop { position: relative; width: min(1180px, 100%); height: min(760px, calc(100vh - 64px)); min-height: 560px; overflow: hidden; border: 1px solid #d3dbe5; border-radius: 16px; background: #f8fafc; box-shadow: 0 24px 60px #18283b24; }
+      .app-bar { height: 58px; display: flex; align-items: center; justify-content: space-between; padding: 0 26px; border-bottom: 1px solid #e2e8f0; background: #fff; }
+      .app-brand, .tray-brand { display: flex; align-items: center; gap: 10px; }
+      .brand-mark { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 9px; color: #fff; background: #2563eb; }
+      .app-brand strong { font-size: 15px; }
+      .app-brand span { color: #94a3b8; font-size: 13px; }
+      .app-content { display: grid; grid-template-columns: 230px 1fr; height: calc(100% - 108px); }
+      .sidebar { padding: 28px 18px; border-right: 1px solid #e2e8f0; background: #f1f5f9; }
+      .sidebar-label { margin: 0 10px 16px; color: #94a3b8; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
+      .sidebar-row { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border-radius: 8px; color: #64748b; font-size: 13px; }
+      .sidebar-row.active { color: #1d4ed8; background: #dbeafe; }
+      .workspace { padding: 42px clamp(26px, 7vw, 88px); background: #fff; }
+      .workspace h1 { margin: 0 0 12px; font-size: 31px; letter-spacing: 0; }
+      .workspace p { max-width: 520px; margin: 0; color: #64748b; line-height: 1.7; }
+      .workspace-rule { height: 1px; margin: 38px 0 20px; background: #e2e8f0; }
+      .workspace-note { display: flex; align-items: center; gap: 9px; color: #64748b; font-size: 13px; }
+      .workspace-note i { color: #16a34a; }
+      .taskbar { position: absolute; right: 0; bottom: 0; left: 0; height: 50px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 0 16px; color: #cbd5e1; background: #1e293b; }
+      .taskbar-time { margin-right: 6px; color: #94a3b8; font-size: 12px; }
+      .tray-button { position: relative; width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 8px; color: #e2e8f0; background: transparent; cursor: pointer; }
+      .tray-button:hover, .tray-button[aria-expanded="true"] { background: #334155; }
+      .tray-dot { position: absolute; right: 5px; bottom: 5px; width: 7px; height: 7px; border: 2px solid #1e293b; border-radius: 50%; background: #22c55e; }
+      .tray-menu { position: absolute; right: 14px; bottom: 60px; z-index: 4; width: 306px; padding: 8px; border: 1px solid #d7dee8; border-radius: 10px; background: #fff; box-shadow: 0 14px 35px #1e293b2b; }
+      .tray-menu[hidden], .submenu[hidden], .toast[hidden] { display: none; }
+      .menu-context { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 12px; border-bottom: 1px solid #eef2f6; }
+      .tray-brand { color: #1e293b; font-size: 13px; font-weight: 700; }
+      .tray-brand .brand-mark { width: 24px; height: 24px; border-radius: 7px; }
+      .menu-status { color: #64748b; font-size: 11px; }
+      .menu-group { padding: 6px 0; }
+      .menu-group + .menu-group { border-top: 1px solid #eef2f6; }
+      .menu-item { position: relative; width: 100%; min-height: 38px; display: flex; align-items: center; gap: 11px; padding: 8px 11px; border: 0; border-radius: 7px; color: #334155; text-align: left; font-size: 13px; cursor: pointer; background: transparent; }
+      .menu-item:hover, .menu-item:focus-visible { outline: none; color: #1d4ed8; background: #eff6ff; }
+      .menu-item i { width: 17px; height: 17px; color: #64748b; }
+      .menu-item:hover i, .menu-item:focus-visible i { color: #2563eb; }
+      .menu-item .chevron { width: 15px; height: 15px; margin-left: auto; }
+      .menu-item.danger { color: #b42318; }
+      .menu-item.danger i { color: #dc2626; }
+      .submenu { margin: 2px 6px 4px 38px; padding: 3px; border-left: 2px solid #dbeafe; background: #f8fafc; }
+      .submenu button { width: 100%; display: block; padding: 7px 10px; border: 0; border-radius: 5px; color: #475569; text-align: left; font-size: 12px; cursor: pointer; background: transparent; }
+      .submenu button:hover { color: #1d4ed8; background: #e0ecff; }
+      .toast { position: absolute; right: 24px; bottom: 72px; z-index: 5; max-width: 320px; padding: 11px 14px; border: 1px solid #bbf7d0; border-radius: 8px; color: #166534; font-size: 12px; background: #f0fdf4; box-shadow: 0 8px 20px #1e293b1c; }
+      @media (max-width: 700px) {
+        .preview { padding: 0; }
+        .desktop { width: 100%; height: 100vh; min-height: 520px; border: 0; border-radius: 0; }
+        .app-content { grid-template-columns: 1fr; }
+        .sidebar { display: none; }
+        .workspace { padding: 34px 24px; }
+        .tray-menu { right: 10px; bottom: 60px; width: min(306px, calc(100vw - 20px)); }
+        .toast { right: 10px; bottom: 120px; max-width: calc(100vw - 20px); }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="preview"><section class="desktop" aria-label="原助理桌面预览">
+      <header class="app-bar"><div class="app-brand"><span class="brand-mark"><i data-lucide="sparkles"></i></span><strong>原助理</strong><span>/ 工作台</span></div><span class="menu-status">后台运行中</span></header>
+      <div class="app-content"><aside class="sidebar"><p class="sidebar-label">工作区</p><div class="sidebar-row active"><i data-lucide="message-square"></i>会话</div><div class="sidebar-row"><i data-lucide="folder-kanban"></i>项目</div><div class="sidebar-row"><i data-lucide="settings-2"></i>设置</div></aside><article class="workspace"><h1>工作台已准备好</h1><p>关闭窗口后，原助理会继续在系统托盘运行。点击托盘图标可以快速唤回工作台或创建新会话。</p><div class="workspace-rule"></div><div class="workspace-note"><i data-lucide="circle-check"></i>托盘服务正常运行</div></article></div>
+      <nav class="tray-menu" id="trayMenu" role="menu" aria-label="原助理托盘菜单">
+        <div class="menu-context"><div class="tray-brand"><span class="brand-mark"><i data-lucide="sparkles"></i></span>原助理</div><span class="menu-status" id="menuStatus">已在后台运行</span></div>
+        <div class="menu-group"><button class="menu-item" data-action="open" role="menuitem"><i data-lucide="panels-top-left"></i>打开工作台</button><button class="menu-item" data-action="new" role="menuitem"><i data-lucide="plus"></i>新建会话</button><button class="menu-item" id="recentTrigger" role="menuitem" aria-expanded="false"><i data-lucide="folder-open"></i>最近项目<i class="chevron" data-lucide="chevron-right"></i></button><div class="submenu" id="recentSubmenu" hidden><button data-project="iyw-claw">iyw-claw</button><button data-project="fusion-api">iyw-fusion-api</button><button data-project="skill">skill</button></div></div>
+        <div class="menu-group"><button class="menu-item" data-action="settings" role="menuitem"><i data-lucide="settings-2"></i>设置</button><button class="menu-item" data-action="update" role="menuitem"><i data-lucide="refresh-cw"></i>检查更新</button></div>
+        <div class="menu-group"><button class="menu-item danger" data-action="quit" role="menuitem"><i data-lucide="power"></i>退出原助理</button></div>
+      </nav>
+      <div class="toast" id="toast" role="status" hidden></div>
+      <footer class="taskbar"><span class="taskbar-time">15:42</span><button class="tray-button" id="trayButton" type="button" aria-label="打开原助理托盘菜单" aria-expanded="true"><i data-lucide="sparkles"></i><span class="tray-dot"></span></button></footer>
+    </section></main>
+    <script>
+      const menu = document.querySelector("#trayMenu")
+      const trayButton = document.querySelector("#trayButton")
+      const recentTrigger = document.querySelector("#recentTrigger")
+      const recentSubmenu = document.querySelector("#recentSubmenu")
+      const toast = document.querySelector("#toast")
+      const menuStatus = document.querySelector("#menuStatus")
+      let toastTimer
+      function setMenu(open) {
+        menu.hidden = !open
+        trayButton.setAttribute("aria-expanded", String(open))
+        if (!open) { recentSubmenu.hidden = true; recentTrigger.setAttribute("aria-expanded", "false") }
+      }
+      function notify(message) {
+        toast.textContent = message; toast.hidden = false; clearTimeout(toastTimer)
+        toastTimer = setTimeout(() => { toast.hidden = true }, 2600)
+      }
+      trayButton.addEventListener("click", (event) => { event.stopPropagation(); setMenu(menu.hidden) })
+      recentTrigger.addEventListener("click", () => { const open = recentSubmenu.hidden; recentSubmenu.hidden = !open; recentTrigger.setAttribute("aria-expanded", String(open)) })
+      document.querySelectorAll("[data-project]").forEach((item) => item.addEventListener("click", () => { notify(`已准备打开项目：${item.dataset.project}`); setMenu(false) }))
+      document.querySelectorAll("[data-action]").forEach((item) => item.addEventListener("click", () => {
+        const messages = { open: "工作台已打开并聚焦", new: "已准备新会话", settings: "正在打开设置", update: "当前已是最新版本", quit: "已发送退出请求" }
+        menuStatus.textContent = item.dataset.action === "quit" ? "退出中" : "已在后台运行"; notify(messages[item.dataset.action]); setMenu(false)
+      }))
+      document.addEventListener("click", (event) => { if (!menu.contains(event.target) && event.target !== trayButton) setMenu(false) })
+      document.addEventListener("keydown", (event) => { if (event.key === "Escape") setMenu(false) })
+      if (window.lucide) window.lucide.createIcons()
+    </script>
+  </body>
+</html>
