@@ -214,7 +214,7 @@ jobs:
               echo "::error::Sidecar $file is missing or empty after prepare-sidecars"
               exit 1
             }
-            "$file" --version | grep -Fx "agent-browser 0.34.0"
+            "$file" --version | grep -Fx "agent-browser 0.35.1"
             ls -la "$file"
           fi
 
