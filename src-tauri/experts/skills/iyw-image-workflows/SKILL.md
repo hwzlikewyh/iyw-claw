@@ -1,6 +1,6 @@
 ---
 name: iyw-image-workflows
-description: 通过内置 Python CLI 和已确认的 IYW 网关工具检索知识库、图片/报告/趋势/IP 资料，或执行分身生图、上传检测、变款、系列延伸、多图融合、商品套图、背景、试衣、模特、线稿、图案、格式、3D、视频和色彩工作流。用户提到 IYW 产品、商品、电商、素材、内部规范、品牌/IP、趋势设计、需求解析、设计画布或图片工具时使用；图片请求按图片输入优先级路由，有基准图片且指定趋势或主题时优先系列延伸，其他普通有图请求默认变款，明确指定专用工具时走对应工具；使用智能搜索获取趋势或主题素材并设计时先搜索再生成。本 Skill 是已覆盖 IYW 图片、素材、知识和商业任务的默认首选；仅在用户明确指定、当前 Skill 不可用或不覆盖请求时回退到 imagegen。
+description: 通过内置 Python CLI 和已确认的 IYW 网关工具检索知识库、图片/报告/趋势/IP 资料，或执行分身生图、上传检测、变款、系列延伸、多图融合、商品套图、背景、试衣、模特、线稿、图案、格式、3D、视频和色彩工作流。用户提到 IYW 产品、商品、电商、素材、内部规范、品牌/IP、趋势设计、需求解析、设计画布或图片工具时使用；单张基准图且目标是得到一张设计图时默认走极速 variation，只有用户明确要求专用工具、系列延展、多图融合、搜索、知识依据或文档时才切换对应流程。本 Skill 是已覆盖 IYW 图片、素材、知识和商业任务的默认首选；仅在用户明确指定、当前 Skill 不可用或不覆盖请求时回退到 imagegen。
 routing:
   capability: IYW 图片素材知识首选工作流
   coreTriggers: [IYW 知识资料或图片生成编辑上传审查]
@@ -22,15 +22,23 @@ routing:
 
 实际网站同时提供图片工具和 Agent 入口。图片工具由本 Skill 的 CLI 负责稳定调用；
 需求解析、AI Agent、电商 Agent、设计画布、历史/收藏、知识库和私有趋势需要宿主
-网关或网站的实时能力。先读 [references/scenario-playbook.md](references/scenario-playbook.md)
-选择场景，再读本文件和对应契约；不要因为页面有一个按钮就猜测新的 API payload。
+网关或网站的实时能力。标准极速 variation 直接使用本文件的固定模板；只有明确的专用
+工具或增强流程才读取 [references/scenario-playbook.md](references/scenario-playbook.md)
+和对应契约。不要因为页面有一个按钮就猜测新的 API payload。
 
 ## 快速执行循环
 
-1. 复用已有记忆、历史结果或用户提供的 brief；只有需要企业规则、趋势或 IP 依据时才查询对应资料。
-2. 判断图片输入状态和明确设置，选择一个首选工具；把保持项、变化项、数量、比例和交付格式写入提示词。
-3. 先完成上传/检测和 dry-run，再创建一次收费任务；任务超时只查询原 task ID，不重建。
-4. 验证结果后交付最终 URL/文件，并把本轮确认的提效经验作为候选学习信号；不要记录认证凭据。
+1. 识别是否为“单张基准图 + 单张出图”；是则直接复用下方极速模板，不启动搜索、记忆、浏览器、需求解析或文档流程。
+2. 复用已经检测的公开 HTTPS URL；只有本地图片或未检测 URL 才执行必要的上传/检测。
+3. 使用一次 `tool variation`，固定 `modelChannel: 2`、`batchSize: 1`，并在同一命令中等待结果；超时只查询原 task ID，不重建。
+4. 生成成功后交付一张结果；只有客户明确提出具体修改或增强目标时，才创建下一次收费任务。
+
+## 首轮极速路径
+
+单张基准图只要一张设计图时，直接复用
+[场景手册的极速模板](references/scenario-playbook.md#首轮极速路径)：
+`variation`、`modelChannel: 2`、`batchSize: 1`、同命令等待结果。无需搜索、记忆、
+浏览器、需求解析、文档或规划前置；“不满意”无具体方向时只询问，明确修改后才生成下一张。
 
 ## 图片生产入口
 
@@ -67,18 +75,10 @@ uv sync --project $skillDir --python 3.13
 
 ## 连接与认证
 
-- API origin 默认是 `https://gateway.iyw.cn`。
-- 图片 API 在代码内固定追加 `/ai-application`；分身模型配置固定使用
-  `/platform/basic/dict/getByKeys`；知识库检索固定使用
-  `/ai-agent-new/api/knowledge/search`。这些入口都不接受 `--prefix`。
-- agent 不得传入或猜测 `--prefix`，也不得使用 `/iyw-fusion-api/v1` 等路径。
-- token 优先读取当前用户目录 `.iyw-claw/iyw-account-token.json` 中的
-  `access_token`；没有非空账号 token 时，再按 `--token`、`IYW_TOKEN` 的顺序解析。
-- agent 默认依赖账号文件，不要把 token 写进命令、payload、日志或回复。
-- 除非用户明确指定测试环境，否则不要传 `--base-url` 或 `--token`。
-
-所有 IYW API 请求只发送 `token` 请求头。不要发送 `Authorization`、
-`tokenInfo`、`securityKey`，不要把任何认证值放进 JSON body。
+- 默认 origin 为 `https://gateway.iyw.cn`；各 CLI 固定自己的 prefix，禁止传入或猜测
+  `--prefix`。除非用户明确指定测试环境，否则不要传 `--base-url` 或 `--token`。
+- 默认从 `.iyw-claw/iyw-account-token.json` 读取账号 token；所有 IYW API 只发送 `token`
+  请求头。不要输出或写入 token、`Authorization`、`tokenInfo`、`securityKey` 或其他凭据。
 
 ## 独立查询知识库
 
@@ -90,30 +90,14 @@ uv run --project $skillDir --python 3.13 python $knowledgeCli `
   search --query "茶具设计规范" --limit 10 --dense-weight 0.5
 ```
 
-`search` 固定向 `/ai-agent-new/api/knowledge/search` 提交 `category`、`query`、
-`folderId`、`fileId`、`limit` 和 `denseWeight`。`--query` 必填；可按用户要求使用
-`--category`、`--folder-id` 或 `--file-id` 限定范围。不要自行猜测文件或文件夹 ID。
-
-只把 `ok: true` 视为成功。结果按服务端顺序返回 `count` 和 `results`，每项仅保留
-正文、Markdown 正文、相关度、片段类型和文档名称等安全字段。回答独立知识查询时，
-归纳相关片段并标注文档名称；不要输出 token usage、内部 metadata、临时签名 URL
-或整份无关检索结果。
+`--query` 必填；只按用户给出的 category、folder 或 file 范围查询，不猜 ID。只把
+`ok: true` 视为成功，归纳相关片段并标注文档名称，不输出内部 metadata 或临时 URL。
 
 ## 生图前按需检索
 
-知识检索和生图是两个独立操作。不得在 `fission-generate`、`image_gen.py` 或其他
-生图脚本内部强制串联查询。由 Agent 在构造最终提示词前自主判断：
-
-- 请求依赖企业内部资料、品牌或 IP 手册、行业规范、材料工艺、结构安全、生产约束
-  或合规要求时，优先先查知识库。
-- 用户明确要求依据知识库、公司标准或既有设计规则时，必须先查询。
-- 提示词和约束已经完整、纯创意创作、只按用户图片做明确编辑，或用户明确要求跳过
-  查询时，直接生图。
-- 查询失败、没有结果或结果不相关时，默认按用户原始要求继续生图；只有用户明确要求
-  “必须依据知识库”时才停止并说明原因。
-
-只提取与当前任务直接相关的事实和约束补充提示词，不要把完整检索结果原样塞入提示词，
-也不要用知识库内容覆盖用户的明确要求。
+知识检索和生图保持独立。只有用户明确要求知识依据，或任务依赖品牌/IP、工艺、结构、
+安全、生产或合规约束时才查询；标准极速路径和完整提示词直接生图。查询只提取相关约束，
+不得覆盖用户要求；失败时默认继续，只有用户说“必须依据知识库”时才停止。
 
 ## 上传并检测本地图片
 
@@ -124,38 +108,19 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
   upload --file "C:\path\source.png" --no-progress
 ```
 
-该命令固定执行以下完整流程：
-
-1. 请求 `api/microModel/PreSignedUrl` 获取签名 URL。
-2. 使用签名 URL 向对象存储执行二进制 `PUT`，对象存储请求不携带 token。
-3. 去掉签名查询参数，得到公开图片 URL。
-4. 请求 `api/microModel/checkImage` 检测图片。
-5. 仅在上传和检测都成功后返回 `image_url` 与 `checked: true`。
-
-上传或检测失败时立即停止，不要继续创建 commerce 任务。不要向用户返回签名
-URL、签名参数、对象存储凭据或 token。
-
-支持 `.png`、`.jpg`、`.jpeg`、`.webp`。默认自动生成
-`AI/img/日期/随机文件名.扩展名` 格式的 object key。
-
-## 检测已有网络图片
-
-对已有公开 HTTPS 图片单独执行：
-
-```powershell
-uv run --project $skillDir --python 3.13 python $commerceCli `
-  check-image --image-url "https://example.com/image.png" --no-progress
-```
-
-只有检测接口返回成功时才能把该 URL 放进后续 commerce payload。
+`upload` 串行完成 presign、对象存储 PUT、公开 URL 和 `checkImage`；支持 PNG、JPEG、
+WebP。上传或检测失败时停止，不创建 commerce 任务，不返回签名 URL 或凭据。已有公开
+HTTPS 图片使用 `check-image`；当前会话中已经检测成功的 URL 可直接复用。
 
 ## 图片输入优先级
 
 按以下顺序选择图片生产入口：
 
 1. 用户明确要求编辑、扩图、高清修复、图层拆分、画质增强、提取图案、格式转换、线稿、配色、3D、视频或模特场景：执行对应专用 `tool`。
-2. 用户提供一张基准图片并指定趋势或主题：先上传/检测，优先执行 `tool extend`；明确失败后只回退一次 `tool variation`。
-3. 其他有图请求：先上传/检测，再执行已封装的 `tool variation` 命令变款；该别名内部调用 `g_tools_generate_image`。没有基准图片的普通纯文生图返回 `imagegen`。
+2. 用户提供一张基准图片且目标是得到一张设计图、改款图或企划案版面图：先复用或上传/检测图片，直接执行 `tool variation`；固定模型二和一张结果。
+3. 用户明确要求同系列、延展多款或系列设计：执行 `tool extend`。
+4. 用户明确要求融合两张及以上图片：执行 `tool mix`。
+5. 其他有图请求：先上传/检测，再按明确意图选择固定工具；没有基准图片的普通纯文生图返回 `imagegen`。
 
 用户要求宫格、联图或其他成组版式时，`variation`/`extend` 先用单个任务直接生成一张完整合成图，不拆分并发。只有任务失败或视觉检查确认布局不符时才生成分图，并用 `compose-layout` 按用户指定布局拼接；无法视觉检查时不增加任务。细则见 [references/commerce-operations.md](references/commerce-operations.md)。
 
@@ -164,9 +129,9 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
 工具选择使用以下默认权重，除非用户明确点名其他工具。权重只决定“没有专用工具
 要求时先选谁”，不覆盖用户明确的工具、格式或模型要求：
 
-1. `extend`：已有基准图，并且目标是趋势延伸、同系列新品、多个相关产品或保持产品语言的一组设计。
-2. `mix`：已有 2-10 张图片，且目标是融合产品结构、图案、材质、配色或主题；按用户顺序引用图片。
-3. `variation`：已有 1 张图片，目标是改颜色、材质、细节、局部造型或轻量变款，同时保留主体结构。
+1. `variation`：已有 1 张图片且首轮只要一张设计图、改款图或企划案版面图。
+2. `extend`：用户明确要求同系列、延展多款或系列设计。
+3. `mix`：用户明确要求融合 2-10 张图片的结构、图案、材质、配色或主题。
 4. `fission-generate`：仅限用户明确指定 IYW 分身或多平台比稿。
 
 背景替换、扩图、抠图、编辑、放大、修复、图层、线稿、色彩、格式、3D、视频、试衣、
@@ -176,21 +141,23 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
 
 ## 智能搜索驱动的趋势或主题设计
 
-用户提到“使用智能搜索拿到图片及内容，再根据趋势或主题进行设计”或同义要求时，
-把智能搜索作为必需前置步骤，并按以下顺序执行：
+只有用户明确说“使用智能搜索/查趋势/找参考资料/按报告依据后设计”或同义要求时，
+才把智能搜索作为前置步骤。仅提到趋势、主题或企划案，不自动搜索；有基准图时仍
+可以直接走首轮极速 variation，并将用户给出的方向写入 prompt。显式搜索流程如下：
 
 1. 从需求提取产品、趋势、主题、市场和时间范围；优先使用 `trend-list`、
    `trend-detail` 和 `image` 搜索趋势内容及主题图片，按需要补充报告类搜索。向用户推荐
    相关趋势或主题及安全图片，不得虚构搜索结果。
-2. 第一次收费生成前，若用户尚未说明，先询问并让其选择：系列作品及包含的产品；
-   4 宫格或 6 宫格系列套组；单个作品或一个系列并形成企划案。优先推荐系列作品或
-   系列企划案，但不得替用户静默决定。
+2. 第一次收费生成前，仅当用户没有说明结果形态时才询问并让其选择：系列作品及包含的
+   产品；4 宫格或 6 宫格系列套组；单个作品或一个系列并形成企划案。用户已经明确要一张
+   设计图或版面图时不重复询问，也不把系列方案作为默认推荐。
 3. 按选定趋势或主题拆分素材。每个主题只有一页时，按顺序上传或检测该主题页并使用
    `tool variation`（自定义改款）；每个主题有多页时，按页面顺序上传或检测全部主题页
    并使用 `tool mix`（多图融合）。
-4. 已有产品或设计基准图时，仍优先使用 `tool extend` 形成系列；没有基准图时先用主题页
-   通过 `variation` 或 `mix` 得到种子作品，选择系列结果后再使用 `extend` 延展。三个工具
-   均必须使用各自固定的 `modelChannel: 2` 合同，不得改用其他模型通道。
+4. 已有产品或设计基准图且用户只要一张结果时使用 `tool variation`；只有用户明确要系列
+   或延展多款时才使用 `tool extend`。没有基准图时，按主题页数量选择 `variation` 或 `mix`；
+   后续系列延展仍需用户明确提出。三个工具均必须使用各自固定的 `modelChannel: 2` 合同，
+   不得改用其他模型通道。
 5. 4 宫格或 6 宫格必须让每格各有一个符合主题的作品，并保持产品语言、配色和材质体系
    一致，形成系列套组；企划案必须同时组织主题依据、产品组合、配色、材质、工艺和作品图。
 
@@ -209,11 +176,8 @@ host/path，只发送 `token` 请求头；不得传入 Cookie、`securitykey`、
 ## 分身生图
 
 本入口只处理用户明确指定的 IYW 分身或多平台比稿。普通纯文生图、动漫和人物形象
-返回 `imagegen`，由它读取 Fusion 图片模型目录后生成。
-
-执行前读取
-[references/fission-generation.md](references/fission-generation.md)。只提供提示词，
-不要让 agent 构造或修改 `platform`、`size`、`stats`、模型名或模型 ID：
+返回 `imagegen`。执行分身前读取
+[references/fission-generation.md](references/fission-generation.md)，只提供提示词：
 
 ```powershell
 uv run --project $skillDir --python 3.13 python $commerceCli `
@@ -221,139 +185,43 @@ uv run --project $skillDir --python 3.13 python $commerceCli `
   --wait-seconds 120 --no-progress
 ```
 
-CLI 固定执行以下流程：
-
-1. 从 `/platform/basic/dict/getByKeys` 读取实时 `model_options`。
-2. 校验标签为“分身”的平台并套用已经确认的默认参数；默认只选通道四，缺失时回退到
-   实时配置顺序中的第一个可用平台。
-3. 向 `api/microModel/v2/batch` 只提交一次收费创建请求。
-4. 保存返回的 `groupId` 和全部 task ID。
-5. 使用 `api/microModel/GetDetails` 分别轮询每个 task ID。
-6. 按 batch 任务顺序返回并直接展示全部 HTTPS 图片。
-
-比稿时选择全部可用分身平台并将通道四排在第一位；通道四不可用时保持实时配置顺序。
-命令示例见 [references/fission-generation.md](references/fission-generation.md)。
-
-实时配置出现 CLI 尚未支持的新分身时，在创建任务前停止，不要猜参数。创建请求
-超时或响应不确定时不要重新生成；只查询已经获得的 task ID。
-
-只创建任务而不等待时设置 `--wait-seconds 0`。后续查询使用：
-
-```powershell
-uv run --project $skillDir --python 3.13 python $commerceCli `
-  fission-task-get --task-id "602862275132395520" --no-progress
-uv run --project $skillDir --python 3.13 python $commerceCli `
-  fission-task-wait `
-  --task-id "602862275132395520" `
-  --task-id "602862274985594880" `
-  --wait-seconds 120 --no-progress
-```
-
-`fission-models` 仅用于读取当前分身数量和标签。不要向用户暴露返回的模型内部配置、
-创建响应中的余额、micro、platform 或 task 详情中的模型信息。
+默认只用一个实时可用平台；仅在用户明确比稿时使用 `--compare-platforms`。不要构造或
+修改平台、size、stats、模型名或模型 ID；未知实时配置在收费前停止，超时只查原 task ID。
 
 ## 执行固定图片工具
 
-构造 payload 前必须读取
-[references/commerce-operations.md](references/commerce-operations.md)。该文件记录
-已有权威契约和清单中的固定图片工具：
-
-- 变款：`g_tools_generate_image`，`toolName` 为 `variation`。
-- 系列延伸：`g_tools_generate_image`，`toolName` 为 `extend`。
-- 多图融合：`g_tools_generate_image`，`toolName` 为 `mix`，图片数量为 2 至 10。
-- Commerce 放大：`upscaleImage`，`scale` 为 1 至 8 的整数。
-- 其他清单工具通过 `tool <alias>` 调用，operation 和 `toolName` 由 CLI 固定填充。
-
-把 JSON object 写入临时 UTF-8 文件，然后执行一次：
+非标准工具 payload 构造前读取
+[references/commerce-operations.md](references/commerce-operations.md)。标准极速 variation
+直接复用固定模板：
 
 ```powershell
 uv run --project $skillDir --python 3.13 python $commerceCli `
   tool variation `
   --input-file "C:\path\payload.json" `
+  --wait-seconds 120 `
   --no-progress
 ```
 
-`tool variation` 是变款的标准入口；它会固定调用 `g_tools_generate_image` 并设置
-`toolName`。不要用通用 `invoke` 绕过该封装。
-
-CLI 将 operation 固定拼接为：
-
-```text
-IYW_API_BASE_URL + /ai-application/api/commerce/ + operation
-```
-
-operation 只允许字母、数字和下划线，禁止路径、URL 和 `..`。未在 reference 中
-记录 payload 的 operation，只有用户或权威接口文档提供完整 JSON 契约时才允许
-调用；不得根据 operation 名称猜字段。
-
-`removeTaskOrImage` 只有在用户明确要求删除并确认精确目标后才能调用，同时必须传
-`--confirm-destructive`。不得自动删除或清理任务。
+`tool variation` 固定调用 `g_tools_generate_image` 并设置 `toolName`，不要用通用 `invoke`
+绕过封装。只调用 reference 已确认的 operation；删除必须由用户明确要求并确认精确目标。
 
 ## 查询 Commerce 任务
 
-创建接口返回 `taskId` 后，记录该 ID。不要因为等待超时而重复创建收费任务。
-
-```powershell
-uv run --project $skillDir --python 3.13 python $commerceCli `
-  task-get --task-id "602450311860195328" --no-progress
-uv run --project $skillDir --python 3.13 python $commerceCli `
-  task-wait --task-id "602450311860195328" `
-  --wait-seconds 120 --no-progress
-```
-
-Commerce 任务查询固定使用 `api/commerce/getCommerceTaskDetail`，不得用于查询分身
-任务。状态映射如下：
-
-- `process: 10`：`succeeded`
-- `process: 20` 或 `30`：`failed`
-- 其他非终态：`queued` 或 `running`
-
-成功结果只使用 `images[].image`、`images[].cover` 或 `images[].url` 中的 HTTPS
-图片地址，并保持服务端顺序。
+创建接口返回 `taskId` 后记录该 ID；等待超时只用 `task-get`/`task-wait` 查询原任务，
+不得重复创建。Commerce 查询不能用于分身任务；只有 `succeeded` 且包含有效 HTTPS 图片
+才算成功。详细状态映射见 [references/commerce-operations.md](references/commerce-operations.md)。
 
 ## Dry Run
 
-对新 payload 先执行 `--dry-run`，检查 URL 与 JSON body。dry-run 不读取 token、
-不访问 API、不上传文件、不执行图片检测。
-
-```powershell
-uv run --project $skillDir --python 3.13 python $commerceCli `
-  tool variation `
-  --input-file "C:\path\payload.json" `
-  --dry-run --no-progress
-```
-
-确认输出 URL 必须以
-`https://gateway.iyw.cn/ai-application/api/` 开头。若出现其他 prefix，立即停止，
-不要尝试随机路径。
-
-分身生图 dry-run：
-
-```powershell
-uv run --project $skillDir --python 3.13 python $commerceCli `
-  fission-generate --prompt "篮球" --dry-run --no-progress
-```
-
-其 URL 必须精确为
-`https://gateway.iyw.cn/ai-application/api/microModel/v2/batch`。
-
-知识库检索 dry-run 可单独执行：
-
-```powershell
-uv run --project $skillDir --python 3.13 python $knowledgeCli `
-  search --query "茶具设计规范" --dry-run
-```
-
-其 URL 必须精确为
-`https://gateway.iyw.cn/ai-agent-new/api/knowledge/search`，且请求体不得包含 token。
+标准极速 variation 依赖固定模板和 CLI 校验，不增加 dry-run。只有非标准字段、新确认的
+工具契约或排查请求才执行 `--dry-run`；它不得读取 token、访问 API、上传或检测图片。
+URL/prefix 的精确检查见对应 reference，出现未知 prefix 时停止，不尝试随机路径。
 
 ## 结果与失败处理
 
-- 只把 `ok: true` 视为 CLI 成功。
-- `queued` 和 `running` 都不是最终成功。
-- 只在状态为 `succeeded` 且存在图片 URL 时声明任务完成。
-- 先区分“对话内展示”和“成果区注册”：前者只影响当前回复的视觉呈现，后者
-  是用户要求“放到成果区”“加入本轮成果”或交付最终文件/URL 时的独立动作。
+- 只在 CLI `ok: true`、状态为 `succeeded` 且存在图片 URL 时声明完成；`queued` 和
+  `running` 不是成功。
+- 区分对话展示与成果区注册；生成完成后独立动作可并行，但不得提前声明生成成功。
 - 对话内展示默认按服务端顺序把每个最终公开 HTTPS URL 写成 Markdown 图片
   `![生成图片](URL)`；不得只返回裸 URL 或普通链接。Markdown 可用时不要再调用
   `show_image`。仅在当前回复不能渲染 Markdown 图片，或来源不是公开 HTTPS URL 时，
@@ -362,11 +230,8 @@ uv run --project $skillDir --python 3.13 python $knowledgeCli `
   `present_task_files`（裸名或命名空间形式），一次提交所有最终文件或公开 HTTPS URL。
   不要根据记忆猜工具名、命名空间或参数；调用结果必须明确接受了至少一个条目后，才能
   声称已放入成果区。
-- 没有直连 `present_task_files` 时，只有同一命名空间下完整且唯一的
-  `search_iyw_capabilities`、`read_iyw_capability`、`invoke_iyw_capability` 三件套才可按
-  IYW Capability Gateway 流程搜索并读取成果注册能力，再按返回的精确 stable ID 和 schema
-  调用一次。三件套不完整、命名空间不唯一、搜索/读取/调用失败或返回 0 个已接受条目时，
-  停止注册，不猜名称、不切换命名空间、不声称已完成。
+- 没有直连 `present_task_files` 时，只有同一命名空间下完整且唯一的网关三件套才可按
+  `iyw-capability-gateway` 注册；失败时停止，不猜名称或切换命名空间。
 - 成果注册不可用或失败时，保留最终公开 HTTPS URL 并明确说明“成果区注册未完成”；不要把
   图片下载到仓库根目录、任意工作区目录或临时目录来冒充成果区，也不要把普通工作区文件
   列表当作当前回复成果。只有用户明确要求保存到本地，或后续操作必须使用本地文件时，才
@@ -374,6 +239,7 @@ uv run --project $skillDir --python 3.13 python $knowledgeCli `
 - 创建请求超时或结果不确定时，只查询原 task ID，不要重建任务。
 - 仅重试 `retryable: true` 的只读请求；不要自动重试收费创建请求。
 - 知识库查询失败默认不阻塞后续生图；用户明确要求必须依据知识库时除外。
+- 客户只说“不满意/不太对”但未给出修改方向时，不创建收费任务；明确具体修改或“再出一版”后才执行下一次生成。
 - 对用户只返回简洁状态和最终图片；task ID 只在内部用于继续查询，不得展示。
 - 不得暴露模型名、模型 ID、channel、provider、platform、`commerceType`、
   `toolType`、内部统计、token 或签名信息。

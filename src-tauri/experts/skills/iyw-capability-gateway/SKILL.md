@@ -55,10 +55,15 @@ follow its workflow**. Do not treat the reference as optional background reading
    product-kit, model-scene, try-on, 3D, video, background, line-art, color,
    or image-tool request, load `iyw-image-workflows` first. It owns tool
    selection, upload/check, dynamic settings, prompt templates, and task
-   contracts. When no dedicated tool is named, prefer `extend` for a baseline
-   series/trend task, `mix` for 2-10 inputs with a fusion goal, `variation` for
-   one-image bounded changes, and fission for pure text creation. Do not route
-   those requests to `imagegen` merely because they contain the words "generate image".
+   contracts. A named dedicated image tool still takes precedence. Otherwise,
+   when there is one baseline image, one requested design result, and no explicit
+   request for search, knowledge, research, series, fusion, or document work,
+   use its reusable fast path directly: `variation`, `modelChannel: 2`,
+   `batchSize: 1`. Do not add search, research, memory, browser, document, or
+   planning work before that self-contained operation. Use `extend` only for an
+   explicit series/extension request, `mix` only for an explicit multi-image
+   fusion request, and fission for pure text creation. Do not route those
+   requests to `imagegen` merely because they contain the words "generate image".
 2. Use this gateway for the remaining iyw-claw host sub-goal: current session
    state, user profile, historical task lookup, memory, artifacts, browser
    host actions, audio, image display/understanding, channels, automation,
@@ -91,12 +96,14 @@ not switch namespaces, invent names, cycle locators, or replay stale arguments.
 For a combined image task, split the work into two layers:
 
 1. Let `iyw-image-workflows` select the website-backed operation and settings.
-   Its scenario playbook is based on the current `ai.iyw.cn` tool pages and
-   must be read when the request names a specific tool or has a product image.
-2. Use this gateway only for host-owned work around that operation: retrieve
-   relevant memory, inspect or display an image, present a browser page, and
-   register final artifacts. Search the live catalog for the exact capability
-   IDs and schemas before each host action.
+   A self-contained one-image fast-path request may use its fixed variation
+   template without loading the scenario playbook; read that playbook when the
+   request names a specialized tool or an explicit enhanced workflow.
+2. Use this gateway only for host-owned work around that operation: inspect or
+   display an image and register final artifacts after generation. Retrieve
+   memory, open a browser page, or perform research only when the user asks for
+   that additional goal. Search the live catalog for exact capability IDs and
+   schemas before each host action.
 
 This ordering is the default automatic priority. A user naming `imagegen`, GPT
 Image, or another exact tool still overrides it for that sub-goal; remaining
@@ -111,7 +118,9 @@ current-turn `read_memory_policy` preflight before the first other memory call.
 For substantive coding, debugging, configuration, research, or multi-step work,
 the Agent must proactively perform one bounded recall, apply the relevant
 experience, verify the result, and privately review what is reusable unless the
-request is clearly self-contained. Do not wait for the user to ask for memory,
+    request is clearly self-contained. A self-contained one-image fast-path
+    generation is explicitly exempt from this recall and research preflight. Do
+    not wait for the user to ask for memory,
 and do not narrate this internal loop in the final answer. Use the returned
 `matched`, `no_evidence`, or `unavailable` state honestly; do not claim that no
 history exists from a timeout. Persist an Agent lesson only through the explicit
