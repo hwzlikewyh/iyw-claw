@@ -2774,10 +2774,10 @@ function InlineUserImage({
           <Image
             src={source}
             alt={imageLabel}
-            width={224}
-            height={224}
+            width={96}
+            height={96}
             unoptimized
-            className="max-h-56 max-w-full object-contain"
+            className="size-24 object-cover"
           />
         </button>
         <button
