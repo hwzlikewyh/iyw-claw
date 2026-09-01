@@ -57,11 +57,8 @@ export function collectArtifacts(srcTauri = SRC_TAURI) {
   const artifacts = []
 
   for (const releaseDir of releaseDirs(srcTauri)) {
-    // Main application binary.
-    const mainExe = join(releaseDir, "iyw-claw.exe")
-    if (existsSync(mainExe)) artifacts.push(mainExe)
-
-    // NSIS installers, including the branded copies.
+    // The bundler restores the unsigned source EXE after packaging. Its signed
+    // copy is verified from the disposable NSIS install instead.
     const nsis = join(releaseDir, "bundle", "nsis")
     if (existsSync(nsis)) {
       for (const name of readdirSync(nsis)) {
@@ -128,29 +125,8 @@ export function parseVerifyOptions(argv) {
   return options
 }
 
-export function main(argv = process.argv.slice(2)) {
-  const { warnOnly, targets } = parseVerifyOptions(argv)
-
-  if (process.platform !== "win32") {
-    throw new Error(
-      `signature verification needs Windows (signtool.exe); current platform is ${process.platform}`
-    )
-  }
-
-  const artifacts = targets.length > 0 ? targets : collectArtifacts()
-  if (artifacts.length === 0) {
-    throw new Error(
-      "no artifacts found to verify — build first (pnpm tauri:build:signed)"
-    )
-  }
-  for (const file of artifacts) {
-    if (!existsSync(file)) throw new Error(`nothing to verify at ${file}`)
-  }
-
-  const signtool = discoverSigntool()
-  const results = artifacts.map((file) => verifyOne(signtool, file))
+function reportResults(results, warnOnly) {
   const unsigned = results.filter((result) => !result.signed)
-
   const LABELS = {
     signed: "signed   ",
     unsigned: "UNSIGNED ",
@@ -188,6 +164,32 @@ export function main(argv = process.argv.slice(2)) {
       )
     }
   }
+}
+
+export function verifyArtifacts(artifacts, warnOnly = false) {
+  if (process.platform !== "win32") {
+    throw new Error(
+      `signature verification needs Windows (signtool.exe); current platform is ${process.platform}`
+    )
+  }
+  if (artifacts.length === 0) {
+    throw new Error(
+      "no artifacts found to verify — build first (pnpm tauri:build:signed)"
+    )
+  }
+  for (const file of artifacts) {
+    if (!existsSync(file)) throw new Error(`nothing to verify at ${file}`)
+  }
+  const signtool = discoverSigntool()
+  reportResults(
+    artifacts.map((file) => verifyOne(signtool, file)),
+    warnOnly
+  )
+}
+
+export function main(argv = process.argv.slice(2)) {
+  const { warnOnly, targets } = parseVerifyOptions(argv)
+  verifyArtifacts(targets.length > 0 ? targets : collectArtifacts(), warnOnly)
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === resolve(SCRIPT_PATH)) {

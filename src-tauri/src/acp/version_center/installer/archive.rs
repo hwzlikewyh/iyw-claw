@@ -73,6 +73,12 @@ pub fn extract_tool_zip(
                 "Managed tool archive expands beyond the allowed size",
             ));
         }
+        #[cfg(unix)]
+        if let Some(mode) = entry.unix_mode() {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&output, std::fs::Permissions::from_mode(mode & 0o777))
+                .map_err(AppCommandError::io)?;
+        }
         extracted += written;
     }
     ensure_tool_layout(&locate_payload(destination, tool_id)?, tool_id)
@@ -315,6 +321,8 @@ fn uv_relative_path(name: &str) -> PathBuf {
 fn browser_engine_relative_path() -> PathBuf {
     if cfg!(windows) {
         PathBuf::from("chrome.exe")
+    } else if cfg!(target_os = "macos") {
+        Path::new("Google Chrome for Testing.app").join("Contents/MacOS/Google Chrome for Testing")
     } else {
         PathBuf::from("chrome")
     }

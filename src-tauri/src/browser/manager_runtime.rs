@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
+use super::engine_prefetch::BrowserEnginePrefetch;
 use super::error::{BrowserError, BrowserErrorCode};
 use super::manager::BrowserSessionManager;
 use super::records::{RuntimeStartDecision, RuntimeTicket};
@@ -16,12 +17,25 @@ impl BrowserSessionManager {
         data_root: PathBuf,
         connections: crate::acp::manager::ConnectionManager,
     ) -> Self {
-        let runtime = Arc::new(BrowserRuntime::new(data_root));
+        let runtime = Arc::new(BrowserRuntime::new(data_root.clone()));
         let mut manager = Self::with_runtime(BrowserRuntime::initial_capability(), Some(runtime));
+        manager.browser_engine_prefetch = BrowserEnginePrefetch::new(data_root);
         manager.resource_governor = Some(Arc::new(
             super::resource_gate::BrowserResourceGovernor::new(connections),
         ));
         manager
+    }
+
+    pub async fn set_database(&self, database: sea_orm::DatabaseConnection) {
+        self.browser_engine_prefetch.set_database(database).await;
+    }
+
+    pub fn schedule_engine_prefetch(&self) {
+        let prefetch = self.browser_engine_prefetch.clone();
+        let manager = self.clone();
+        tauri::async_runtime::spawn(async move {
+            prefetch.schedule(manager.shutdown_cancellation().await);
+        });
     }
 
     pub async fn refresh_capability(&self) -> BrowserStateSnapshot {
@@ -94,6 +108,9 @@ impl BrowserSessionManager {
         if !self.tabs.is_empty().await {
             return Err(incomplete_tab_cleanup_error());
         }
+        self.browser_engine_prefetch
+            .ensure_ready(cancellation.clone())
+            .await?;
         let capability = runtime.prepare_for_start(cancellation.clone()).await?;
         self.set_capability(capability).await;
         if let Some(governor) = &self.resource_governor {
@@ -291,6 +308,7 @@ impl BrowserSessionManager {
             observer: Arc::new(tokio::sync::Mutex::new(None)),
             agent_turn_leases: Arc::new(super::agent_turn_leases::AgentTurnLeaseRegistry::default()),
             runtime_recoveries: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
+            browser_engine_prefetch: BrowserEnginePrefetch::new(PathBuf::new()),
         }
     }
 

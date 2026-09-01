@@ -1,8 +1,7 @@
 use tokio_util::sync::CancellationToken;
 
-use super::super::engine::{self, detect_engine};
-use super::super::engine_download;
-use super::super::error::{BrowserError, BrowserErrorCode};
+use super::super::engine::detect_engine;
+use super::super::error::BrowserError;
 use super::super::sidecar;
 use super::{BrowserCapability, BrowserRuntime, VerifiedDependencies};
 
@@ -23,7 +22,7 @@ impl BrowserRuntime {
             return Ok(dependencies);
         }
         let sidecar = sidecar::verify_sidecar().await?;
-        let engine = detect_engine().await?;
+        let engine = detect_engine(&self.data_root).await?;
         let dependencies = VerifiedDependencies { sidecar, engine };
         *self.verified.lock().await = Some(dependencies.clone());
         Ok(dependencies)
@@ -33,25 +32,7 @@ impl BrowserRuntime {
         &self,
         cancellation: CancellationToken,
     ) -> Result<VerifiedDependencies, BrowserError> {
-        match self.resolve_dependencies().await {
-            Ok(mut dependencies) => {
-                if dependencies.engine.profile_source.is_none() {
-                    dependencies.engine.profile_source = engine::user_profile_source(
-                        dependencies.engine.kind,
-                        &dependencies.engine.path,
-                    );
-                    *self.verified.lock().await = Some(dependencies.clone());
-                }
-                Ok(dependencies)
-            }
-            Err(error) if error.code == BrowserErrorCode::BrowserEngineNotFound => {
-                let sidecar = sidecar::verify_sidecar().await?;
-                let engine = engine_download::ensure_managed_engine(cancellation).await?;
-                let dependencies = VerifiedDependencies { sidecar, engine };
-                *self.verified.lock().await = Some(dependencies.clone());
-                Ok(dependencies)
-            }
-            Err(error) => Err(error),
-        }
+        let _ = cancellation;
+        self.resolve_dependencies().await
     }
 }

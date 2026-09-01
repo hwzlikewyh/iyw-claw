@@ -10,9 +10,6 @@ use super::process::configure_hidden_process;
 use super::types::BROWSER_SIDECAR_VERSION;
 
 pub const AGENT_BROWSER_VERSION: &str = BROWSER_SIDECAR_VERSION;
-pub const AGENT_BROWSER_SIZE: u64 = 13_665_280;
-pub const AGENT_BROWSER_SHA256: &str =
-    "def2614c2c193518463ad9126718a1ff828a7bf217d7f75f156249c0dbb16c83";
 const VERIFY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn sidecar_candidates() -> Vec<PathBuf> {
@@ -30,7 +27,8 @@ pub fn sidecar_candidates() -> Vec<PathBuf> {
     }
     if cfg!(debug_assertions) {
         candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
-            "binaries/agent-browser-x86_64-pc-windows-msvc{}",
+            "binaries/agent-browser-{}{}",
+            env!("IYW_CLAW_TARGET_TRIPLE"),
             std::env::consts::EXE_SUFFIX
         )));
     }
@@ -54,8 +52,9 @@ pub async fn verify_sidecar() -> Result<PathBuf, BrowserError> {
 }
 
 fn verify_size_and_hash(path: &Path) -> Result<(), BrowserError> {
+    let (expected_size, expected_hash) = expected_asset_digest();
     let metadata = std::fs::metadata(path).map_err(|_| integrity_error())?;
-    if metadata.len() != AGENT_BROWSER_SIZE {
+    if metadata.len() != expected_size {
         return Err(integrity_error());
     }
     let mut file = std::fs::File::open(path).map_err(|_| integrity_error())?;
@@ -68,7 +67,7 @@ fn verify_size_and_hash(path: &Path) -> Result<(), BrowserError> {
         }
         hasher.update(&buffer[..read]);
     }
-    (format!("{:x}", hasher.finalize()) == AGENT_BROWSER_SHA256)
+    (format!("{:x}", hasher.finalize()) == expected_hash)
         .then_some(())
         .ok_or_else(integrity_error)
 }
@@ -90,6 +89,32 @@ async fn verify_version(path: &Path) -> Result<(), BrowserError> {
 
 fn sidecar_filename(base: &str) -> String {
     format!("{base}{}", std::env::consts::EXE_SUFFIX)
+}
+
+fn expected_asset_digest() -> (u64, &'static str) {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64") => (
+            13_707_264,
+            "5ffcad90cda06114730e8b202285c45ec0866d1b8d7876b561329e4a8cfbb126",
+        ),
+        ("macos", "x86_64") => (
+            13_378_880,
+            "d76cfc76885d5007f3c119008a80a145b381ec4dfdd202f43e46cd0829751774",
+        ),
+        ("macos", "aarch64") => (
+            12_247_424,
+            "e1e08f3b0a1c711750209e6a25b6f3a9dab7ed6e6a24b55a2556050b991fcc97",
+        ),
+        ("linux", "x86_64") => (
+            14_021_032,
+            "b699f24eebdb7fde91a34a9d697a1b84c3145f54327b60694b46f06b2972ce4d",
+        ),
+        ("linux", "aarch64") => (
+            12_332_896,
+            "1599fec4f4e75dc26fc08eecc06ca4b729a0361932b32a6afb99885f0f829ecb",
+        ),
+        _ => (0, ""),
+    }
 }
 
 fn integrity_error() -> BrowserError {

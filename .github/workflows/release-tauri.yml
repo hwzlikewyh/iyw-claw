@@ -26,11 +26,15 @@ on:
       build_matrix:
         required: false
         type: string
-        default: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"8","lto":"thin","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"8","lto":"thin","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows x64","runner":"windows-2022","target":"x86_64-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows 32-bit","runner":"windows-2022","target":"i686-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false}]}'
+        default: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"8","lto":"thin","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"8","lto":"thin","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows x64","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"x86_64-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows 32-bit","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"i686-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false}]}'
       release_draft:
         required: false
         type: boolean
         default: true
+      browser_engine_fixture:
+        required: false
+        type: string
+        default: ""
 
 env:
   RUST_BACKTRACE: short
@@ -134,6 +138,7 @@ jobs:
         env:
           # Empty when the secret/variable is not set. Every read below uses a
           # `:-` default so `set -u` does not abort on an unconfigured repo.
+          SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
           SIGN_PFX_BASE64: ${{ secrets.WINDOWS_SIGN_PFX_BASE64 }}
           SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGN_PFX_PASSWORD }}
           SIGN_AZURE_METADATA: ${{ secrets.WINDOWS_SIGN_AZURE_METADATA }}
@@ -145,7 +150,15 @@ jobs:
           # Written to $GITHUB_ENV rather than passed inline to the build step:
           # one source of truth, and every later step (staging, build, verify)
           # inherits the same configuration automatically.
-          if [ -n "${SIGN_AZURE_METADATA:-}" ]; then
+          if [ -n "${SIGN_THUMBPRINT:-}" ]; then
+            {
+              echo "IYW_CLAW_SIGN_MODE=signtool"
+              echo "IYW_CLAW_SIGN_REQUIRED=1"
+              echo "IYW_CLAW_SIGN_THUMBPRINT=${SIGN_THUMBPRINT}"
+            } >> "$GITHUB_ENV"
+            mode=signtool
+
+          elif [ -n "${SIGN_AZURE_METADATA:-}" ]; then
             # Azure Artifact Signing (formerly Trusted Signing): the private key
             # stays in Microsoft's HSM, so there is no .pfx to handle here.
             if [ -z "${SIGN_AZURE_DLIB:-}" ]; then
@@ -172,7 +185,7 @@ jobs:
             mode=pfx
 
           else
-            echo "::warning::No Windows code-signing certificate is configured, so this build ships UNSIGNED. Unsigned installers trip SmartScreen and are flagged by antivirus heuristics. Set WINDOWS_SIGN_PFX_BASE64 (+ WINDOWS_SIGN_PFX_PASSWORD) or WINDOWS_SIGN_AZURE_METADATA/_DLIB to enable signing."
+            echo "::warning::No Windows code-signing certificate is configured, so this build ships UNSIGNED. Unsigned installers trip SmartScreen and are flagged by antivirus heuristics. Set WINDOWS_SIGN_THUMBPRINT, WINDOWS_SIGN_PFX_BASE64 (+ WINDOWS_SIGN_PFX_PASSWORD), or WINDOWS_SIGN_AZURE_METADATA/_DLIB to enable signing."
             # `config_arg` must still be defined: the build step interpolates it
             # into `args`, where an unset output would render as the literal
             # empty string only by luck of expression evaluation.
@@ -214,9 +227,20 @@ jobs:
               echo "::error::Sidecar $file is missing or empty after prepare-sidecars"
               exit 1
             }
-            "$file" --version | grep -Fx "agent-browser 0.35.1"
+            "$file" --version | grep -Fx "agent-browser 0.35.2"
             ls -la "$file"
           fi
+
+      - name: Run managed browser smoke
+        if: inputs.browser_engine_fixture != '' && matrix.target != 'i686-pc-windows-msvc'
+        shell: bash
+        env:
+          IYW_CLAW_REQUIRED_BROWSER_SMOKE: "1"
+          IYW_CLAW_BROWSER_ENGINE: ${{ inputs.browser_engine_fixture }}
+        run: |
+          sidecar="src-tauri/binaries/agent-browser-${{ matrix.target }}"
+          if [[ "${{ matrix.target }}" == *windows* ]]; then sidecar+=".exe"; fi
+          pnpm tauri:browser-smoke -- --sidecar "$sidecar" --engine "$IYW_CLAW_BROWSER_ENGINE"
 
       - name: Cache runtime seed archives
         if: matrix.target != 'i686-pc-windows-msvc'

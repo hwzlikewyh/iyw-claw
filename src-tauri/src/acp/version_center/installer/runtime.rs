@@ -78,6 +78,19 @@ fn managed_tool_executable_at(
         .then_some(candidate)
 }
 
+/// 浏览器运行时不能只信任 `current.json`；还必须验证当前目标的受管 marker。
+pub async fn managed_browser_engine_executable(data_dir: &Path) -> Option<PathBuf> {
+    let root = data_dir.join("runtime").join("browser-engine");
+    let raw = tokio::fs::read_to_string(root.join("current.json"))
+        .await
+        .ok()?;
+    let pointer = serde_json::from_str::<CurrentPointer>(&raw).ok()?;
+    if !active_tool_is_healthy(data_dir, "browser-engine", &pointer.version).await {
+        return None;
+    }
+    managed_tool_executable_at(data_dir, "browser-engine", Some(&pointer.version))
+}
+
 pub fn runtime_dir(
     data_dir: &Path,
     tool_id: &str,
@@ -171,8 +184,8 @@ pub(super) fn platform_dir_name() -> &'static str {
         ("windows", "x86_64") => "win-x64",
         ("windows", "aarch64") => "win-arm64",
         ("windows", "x86") => "win-x86",
-        ("macos", "x86_64") => "darwin-x64",
-        ("macos", "aarch64") => "darwin-arm64",
+        ("darwin", "x86_64") => "darwin-x64",
+        ("darwin", "aarch64") => "darwin-arm64",
         ("linux", "x86_64") => "linux-x64",
         ("linux", "aarch64") => "linux-arm64",
         _ => "unknown",
@@ -214,6 +227,8 @@ fn uv_relative_path(name: &str) -> PathBuf {
 fn browser_engine_relative_path() -> PathBuf {
     if cfg!(windows) {
         PathBuf::from("chrome.exe")
+    } else if cfg!(target_os = "macos") {
+        Path::new("Google Chrome for Testing.app").join("Contents/MacOS/Google Chrome for Testing")
     } else {
         PathBuf::from("chrome")
     }

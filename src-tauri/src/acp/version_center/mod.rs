@@ -27,8 +27,8 @@ pub use client::{AgentPlatformClient, CapabilityPolicyHttpFetcher, CatalogFetch}
 // Task 06 新增统一初始化入口的再导出（最小改动：仅追加三行，供命令层/前端接线）。
 pub use installer::{
     bootstrap_init_status, bootstrap_initialize, consume_pending_activations_at_startup,
-    digest_managed_root, install_managed_tool, managed_tool_executable, InitStatusReport,
-    ManagedToolInstallResult,
+    digest_managed_root, install_managed_tool, managed_browser_engine_executable,
+    managed_tool_executable, InitStatusReport, ManagedToolInstallResult,
 };
 pub(crate) use installer::{
     extract_tool_zip, install_managed_binary_agent, locate_payload,

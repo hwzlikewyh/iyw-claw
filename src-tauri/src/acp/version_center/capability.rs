@@ -19,6 +19,8 @@ pub fn known_tool(tool_id: &str) -> bool {
 pub fn current_target() -> &'static str {
     if cfg!(windows) {
         TARGET
+    } else if cfg!(target_os = "macos") {
+        "darwin"
     } else {
         std::env::consts::OS
     }

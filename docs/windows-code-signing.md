@@ -93,8 +93,9 @@ signtool 命令），所以覆盖层里不写这两项，摘要和时间戳统�
 `.github/workflows/release-tauri.yml` 里的 `Configure Windows Authenticode signing`
 在 sidecar 暂存**之前**运行，通过 `$GITHUB_ENV` 把配置传给后续所有步骤。
 
-按需配置以下 secrets 之一组：
+按需配置以下签名来源之一：
 
+- 自托管 Windows runner：仓库变量 `WINDOWS_SIGN_THUMBPRINT`（SafeNet token 中证书的 SHA-1 指纹）
 - `WINDOWS_SIGN_PFX_BASE64` + `WINDOWS_SIGN_PFX_PASSWORD`（base64 编码的 .pfx）
 - `WINDOWS_SIGN_AZURE_METADATA` + `WINDOWS_SIGN_AZURE_DLIB`（Azure Artifact Signing）
 - 可选变量 `WINDOWS_SIGN_TIMESTAMP_URL`
@@ -102,8 +103,9 @@ signtool 命令），所以覆盖层里不写这两项，摘要和时间戳统�
 都没配置时，构建照常进行但产物无签名，并在 job summary 里留一条 warning。
 `Verify Authenticode signatures` 步骤在未配置时是 advisory（`--warn`），配置后转为强制失败。
 
-USB token 无法在 GitHub 托管 runner 上使用（需要物理设备），只能用 self-hosted runner
-配合 `mode=signtool`,或改用云 HSM / Azure。
+USB token 无法在 GitHub 托管 runner 上使用（需要物理设备）。Windows release 矩阵通过
+`iyw-signing` 标签固定到装有 SafeNet 客户端并插入 token 的 self-hosted runner，使用
+`WINDOWS_SIGN_THUMBPRINT` 配合 `mode=signtool`；也可以改用云 HSM / Azure。
 
 ## 校验产物
 

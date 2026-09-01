@@ -6,7 +6,9 @@
 - User decision: do not add Chrome for Testing to the desktop installer.
 - User decision: prefetch the browser engine silently after the first app startup.
 - User decision: support Windows, macOS, and Linux desktop targets.
-- Implementation has not started. This document requires user review before the implementation plan.
+- Implementation is in progress. The first implementation slice wires the existing
+  managed-tool installer, startup prefetch coordinator, and cross-platform sidecar
+  staging; native installed-client smoke remains a release-gate task.
 
 ## Objective
 
@@ -280,8 +282,9 @@ Source build success does not prove installed-client behavior. A target is not d
 ## Rollout
 
 1. Publish test-only `browser-engine` artifacts for the supported matrix without changing production policy.
-2. Add client support behind a default-off runtime flag and verify source plus installed packages.
-3. Enable silent prefetch for an internal installation cohort.
+2. Add client support and verify source plus installed packages.
+3. Enable silent prefetch for an internal installation cohort through the existing
+   managed-tool policy and release controls.
 4. Confirm acquisition success, bytes, duration, activation, launch, and cleanup metrics.
 5. Expand rollout while preserving last-known-good behavior.
 6. Enable the feature by default only after every required installed target passes its smoke gate.

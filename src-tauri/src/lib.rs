@@ -538,6 +538,10 @@ mod tauri_app {
                     }
                 }
                 app.manage(database);
+                tauri::async_runtime::block_on(
+                    app.state::<crate::browser::BrowserSessionManager>()
+                        .set_database(app.state::<db::AppDatabase>().conn.clone()),
+                );
                 crate::plugin_runtime::global::install_database(
                     app.state::<db::AppDatabase>().conn.clone(),
                 );
@@ -1176,6 +1180,8 @@ mod tauri_app {
                     event = "startup_ready",
                     "desktop startup completed"
                 );
+                app.state::<crate::browser::BrowserSessionManager>()
+                    .schedule_engine_prefetch();
                 // Prewarm is deliberately scheduled after the window is usable and
                 // after startup maintenance has had a chance to release its DB
                 // writes. The bounded wait keeps a stuck maintenance task from

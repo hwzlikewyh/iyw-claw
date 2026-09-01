@@ -14,6 +14,7 @@ import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 import { verifyInstalledRuntimeSeed } from "./runtime-seed-bundle-verification.mjs"
+import { verifyArtifacts } from "./verify-signatures.mjs"
 
 import {
   addAgentBrowserHash,
@@ -156,6 +157,9 @@ function resolveInstalledApp(directory) {
 }
 
 function verifyInstalledSidecars(appDirectory, target, expectedHashes = null) {
+  if ((process.env.IYW_CLAW_SIGN_MODE ?? "none") !== "none") {
+    verifyArtifacts([join(appDirectory, "iyw-claw.exe")])
+  }
   verifyInstalledAgentBrowser(appDirectory, target, expectedHashes, {
     die,
     logFile,

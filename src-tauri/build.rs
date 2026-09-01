@@ -66,7 +66,14 @@ fn ensure_sidecar_placeholders() {
         ""
     };
     let dir = PathBuf::from("binaries");
-    if triple.contains("windows") {
+    if matches!(
+        triple.as_str(),
+        "x86_64-pc-windows-msvc"
+            | "x86_64-apple-darwin"
+            | "aarch64-apple-darwin"
+            | "x86_64-unknown-linux-gnu"
+            | "aarch64-unknown-linux-gnu"
+    ) {
         ensure_sidecar_placeholder(&dir, "agent-browser", &triple, ext);
     }
 }

@@ -35,10 +35,12 @@ For every request that needs a web page or public web data:
 5. Verify the requested result using page text, URL, title, a stable element,
    a downloaded file, or another explicit success signal. A successful click
    alone is not proof that the business action completed.
-6. Only after one state check shows that the managed runtime/session/daemon is
-   unavailable, or the page cannot provide the requested data, may you use an
-   actually installed alternative route. Read its current Skill first; never
-   switch merely because a selector needs correction.
+6. If one state check shows that the managed runtime/session/daemon is
+   unavailable, stop and report the managed-browser failure by default. An
+   alternative route such as OpenCLI is allowed only when the user explicitly
+   requested it in the current task or the external-browser setting is enabled;
+   read that route's current Skill first. Never switch merely because a
+   selector needs correction or because the managed route is temporarily slow.
 
 Prefer a reliable API or direct data source only when it is already available
 and clearly satisfies the request. If it does not return data, is incomplete,
@@ -215,8 +217,10 @@ permission to start a second browser or alter the managed runtime.
 - `BROWSER_TAB_GONE`: list tabs and reuse or create the exact missing tab.
 - `BROWSER_OPERATION_TIMEOUT`: inspect state once; do not repeat blindly.
 - `BROWSER_CONTROL_CHANGED`: handle the visible obstruction, then refresh state.
-- `BROWSER_RUNTIME_UNAVAILABLE`: inspect managed state once. Only then read an
-  installed `opencli-browser` Skill and run its documented doctor/fallback.
+- `BROWSER_RUNTIME_UNAVAILABLE`: inspect managed state once and report the
+  failure. Read an installed `opencli-browser` Skill and run its documented
+  doctor/fallback only after explicit user authorization or an enabled
+  external-browser setting.
 
 An error is not evidence that a click succeeded or failed to have an effect.
 For write operations with `effectMayHaveOccurred`, inspect the page before

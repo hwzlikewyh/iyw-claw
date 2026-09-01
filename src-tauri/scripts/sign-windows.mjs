@@ -4,11 +4,9 @@
  * Authenticode signing shim for the Windows bundle.
  *
  * Tauri calls this through `bundle.windows.signCommand`, once per artifact,
- * with the artifact path substituted for `%1`. It can also be run directly
- * with `--sidecars` to sign staged `agent-browser-*.exe` sidecars
- * before bundling — those are dropped onto disk at install time and are the
- * files antivirus heuristics react to most, so they need a signature even
- * though the bundler does not cover them.
+ * with the artifact path substituted for `%1`. The pinned third-party
+ * `agent-browser` sidecar is intentionally left byte-identical to upstream;
+ * its fixed size and SHA-256 are verified before and after bundling.
  *
  * Every input is an environment variable so no certificate material and no
  * machine-specific path is ever committed:
@@ -35,15 +33,13 @@
  */
 
 import { spawnSync } from "node:child_process"
-import { existsSync, readdirSync, statSync } from "node:fs"
+import { existsSync, readdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url)
 const REPO_ROOT = resolve(dirname(SCRIPT_PATH), "..", "..")
-const SIDECAR_DIR = join(REPO_ROOT, "src-tauri", "binaries")
-
 /**
  * DigiCert's public RFC3161 endpoint. Timestamping is not optional: without it
  * every signature stops validating the day the certificate expires, which
@@ -58,22 +54,15 @@ const TIMESTAMP_ATTEMPTS = 3
 const TIMESTAMP_RETRY_DELAY_MS = 5000
 
 export function parseSignOptions(argv) {
-  const options = { sidecars: false, targets: [] }
+  const targets = []
   for (const arg of argv) {
-    if (arg === "--sidecars") {
-      options.sidecars = true
-    } else if (arg.startsWith("--")) {
+    if (arg.startsWith("--")) {
       throw new Error(`unknown option: ${arg}`)
     } else {
-      options.targets.push(arg)
+      targets.push(arg)
     }
   }
-  if (options.sidecars && options.targets.length > 0) {
-    throw new Error(
-      "--sidecars signs the staged sidecars and takes no file arguments"
-    )
-  }
-  return options
+  return { targets }
 }
 
 export function resolveSignMode(env = process.env) {
@@ -242,20 +231,6 @@ function signFile(signtool, mode, file, env) {
 }
 
 /**
- * Staged sidecars worth signing. Only the currently packaged agent-browser
- * executable is eligible; ignored legacy MCP binaries in this directory must
- * never be revived by a manual `--sidecars` invocation.
- */
-export function collectSidecars(dir = SIDECAR_DIR) {
-  if (!existsSync(dir)) return []
-  return readdirSync(dir)
-    .filter((name) => /^agent-browser-[a-z0-9_-]+\.exe$/i.test(name))
-    .map((name) => join(dir, name))
-    .filter((file) => statSync(file).size > 0)
-    .sort()
-}
-
-/**
  * Sign `files` with the configured mode. Exported so other build scripts can
  * sign an artifact in place (see prepare-sidecars.mjs) without shelling out.
  *
@@ -279,13 +254,17 @@ export function signFiles(files, env = process.env) {
 
   const signtool = discoverSigntool(env)
   for (const file of files) {
+    if (/^agent-browser-[a-z0-9_-]+\.exe$/i.test(file.split(/[\\/]/).at(-1))) {
+      console.log(`[sign-windows] preserving pinned vendor sidecar ${file}`)
+      continue
+    }
     signFile(signtool, mode, file, env)
     console.log(`[sign-windows] signed ${file}`)
   }
 }
 
 export function main(argv = process.argv.slice(2), env = process.env) {
-  const options = parseSignOptions(argv)
+  const { targets } = parseSignOptions(argv)
   const mode = resolveSignMode(env)
 
   if (mode === "none") {
@@ -302,14 +281,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
     return
   }
 
-  const targets = options.sidecars ? collectSidecars() : options.targets
   if (targets.length === 0) {
-    if (options.sidecars) {
-      console.log(
-        "[sign-windows] no non-empty sidecars staged, nothing to sign"
-      )
-      return
-    }
     throw new Error("no file to sign was passed")
   }
 

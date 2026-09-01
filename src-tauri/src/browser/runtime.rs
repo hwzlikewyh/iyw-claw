@@ -93,9 +93,16 @@ impl BrowserRuntime {
     }
 
     pub fn initial_capability() -> BrowserCapability {
+        let supported = cfg!(any(
+            all(target_os = "windows", target_arch = "x86_64"),
+            all(target_os = "macos", target_arch = "x86_64"),
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64"),
+            all(target_os = "linux", target_arch = "aarch64"),
+        ));
         BrowserCapability {
-            supported: cfg!(all(target_os = "windows", target_arch = "x86_64")),
-            status: if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+            supported,
+            status: if supported {
                 BrowserRuntimeStatus::Verifying
             } else {
                 BrowserRuntimeStatus::Unsupported
@@ -110,10 +117,16 @@ impl BrowserRuntime {
     }
 
     pub async fn verify(&self) -> Result<BrowserCapability, BrowserError> {
-        if !cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        if !cfg!(any(
+            all(target_os = "windows", target_arch = "x86_64"),
+            all(target_os = "macos", target_arch = "x86_64"),
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "x86_64"),
+            all(target_os = "linux", target_arch = "aarch64"),
+        )) {
             return Err(BrowserError::new(
                 BrowserErrorCode::BrowserUnsupportedRuntime,
-                "The shared browser currently requires Windows x64 desktop",
+                "The shared browser is unavailable for this desktop target",
             ));
         }
         if let Some(dependencies) = self.verified.lock().await.clone() {
