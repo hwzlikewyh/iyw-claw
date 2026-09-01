@@ -1277,6 +1277,10 @@ pub(crate) async fn spawn_agent_connection(
     storage_read_guard: crate::acp::agent_storage_work::AgentStorageReadGuard,
 ) -> Result<tokio::sync::oneshot::Receiver<()>, AcpError> {
     let spawn_gate = connection_tasks.begin_spawn().await?;
+    let mut preferred_config_values = preferred_config_values;
+    if is_delegation_child {
+        preferred_config_values.remove("__iyw_response_style");
+    }
     // 恢复会话（session_id 为 Some）走 reconcile_resumed_session：保持策略
     // 代际，只刷新允许热更新的安全字段；新建会话走完整 reconcile。两种路径
     // 都先经过 provider overlay 门，失败都会阻止 spawn。
@@ -1393,7 +1397,11 @@ pub(crate) async fn spawn_agent_connection(
                 session_id: session_id.as_deref(),
                 environment: &runtime_env,
                 storage: &storage,
-                response_style: preferred_config_values.get("__iyw_response_style").map(String::as_str),
+                response_style: effective_response_style(
+                    is_delegation_child,
+                    &preferred_config_values,
+                ),
+                is_delegation_child,
             },
         )
         .await?;
@@ -1574,6 +1582,7 @@ pub(crate) async fn spawn_agent_connection(
                 terminal_base_env,
                 preferred_mode_id,
                 preferred_config_values,
+                is_delegation_child,
                 delegation_injection,
                 builtin_mcp,
                 builtin_prompt,
@@ -1729,7 +1738,10 @@ pub(crate) async fn prewarm_agent_runtime(
             session_id: None,
             environment: &runtime_env,
             storage: &storage,
-            response_style: None,
+            // Keep the default prewarmed Codex Host aligned with the default
+            // settings-page style so the first concise session can reuse it.
+            response_style: Some("concise"),
+            is_delegation_child: false,
         },
     )
     .await?;
@@ -2027,6 +2039,16 @@ fn resolve_working_dir(working_dir: Option<&str>) -> PathBuf {
     }
 }
 
+fn effective_response_style<'a>(
+    is_delegation_child: bool,
+    preferred_config_values: &'a BTreeMap<String, String>,
+) -> Option<&'a str> {
+    (!is_delegation_child)
+        .then(|| preferred_config_values.get("__iyw_response_style"))
+        .flatten()
+        .map(String::as_str)
+}
+
 #[derive(Clone, Copy)]
 struct SessionRequestContext<'a> {
     agent_type: AgentType,
@@ -2034,6 +2056,7 @@ struct SessionRequestContext<'a> {
     mcp_servers: &'a [McpServer],
     builtin_prompt: &'a str,
     openclaw_session_key: Option<&'a str>,
+    response_style: Option<&'a str>,
 }
 
 impl SessionRequestContext<'_> {
@@ -2042,6 +2065,7 @@ impl SessionRequestContext<'_> {
             self.agent_type,
             self.builtin_prompt,
             self.openclaw_session_key,
+            self.response_style,
         )
     }
 }
@@ -3082,6 +3106,7 @@ async fn run_connection(
     terminal_base_env: BTreeMap<String, String>,
     preferred_mode_id: Option<String>,
     preferred_config_values: BTreeMap<String, String>,
+    is_delegation_child: bool,
     delegation_injection: Option<DelegationInjection>,
     builtin_mcp: Option<crate::acp::builtin_mcp::BuiltinMcpClient>,
     builtin_prompt: crate::acp::builtin_agent_prompt::RenderedBuiltinPrompt,
@@ -3398,6 +3423,10 @@ async fn run_connection(
                 mcp_servers: &mcp_servers,
                 builtin_prompt: &builtin_prompt.text,
                 openclaw_session_key: openclaw_session_key.as_deref(),
+                response_style: effective_response_style(
+                    is_delegation_child,
+                    &preferred_config_values,
+                ),
             };
 
             if let Some(sid) = session_id {

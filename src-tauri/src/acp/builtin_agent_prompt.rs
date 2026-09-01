@@ -101,8 +101,10 @@ pub fn render(
         .collect::<Vec<_>>()
         .join("\n");
     let mut sections = vec![COMMON_PROMPT.replace("{tools}", &tools)];
-    if let Some(style) = response_style_instruction(response_style) {
-        sections.push(style.to_string());
+    if !native_response_style_is_sufficient(agent_type, response_style) {
+        if let Some(style) = response_style_instruction(response_style) {
+            sections.push(style.to_string());
+        }
     }
     if matches!(agent_type, AgentType::OpenClaw | AgentType::Pi) {
         sections.push(NO_HOST_MCP.to_string());
@@ -133,6 +135,33 @@ fn response_style_instruction(style: Option<&str>) -> Option<&'static str> {
     }
 }
 
+/// Map the shared settings value to Codex's native personality option.
+pub fn codex_personality(style: Option<&str>) -> Option<&'static str> {
+    match style {
+        Some("concise") => Some("pragmatic"),
+        Some("standard" | "detailed") => Some("none"),
+        _ => None,
+    }
+}
+
+/// Map the shared settings value to Claude Code's native output style.
+pub fn claude_output_style(style: Option<&str>) -> Option<&'static str> {
+    match style {
+        Some("concise") => Some("Concise"),
+        Some("standard") => Some("Default"),
+        Some("detailed") => Some("Explanatory"),
+        _ => None,
+    }
+}
+
+fn native_response_style_is_sufficient(agent_type: AgentType, style: Option<&str>) -> bool {
+    match agent_type {
+        AgentType::ClaudeCode => claude_output_style(style).is_some(),
+        AgentType::Codex => style == Some("concise"),
+        _ => false,
+    }
+}
+
 pub(crate) fn discover_tools(
     paths: Option<&AgentStoragePaths>,
 ) -> Vec<(&'static str, Option<PathBuf>)> {
@@ -160,12 +189,17 @@ pub struct EnvironmentRequest<'a> {
     pub agent_type: AgentType,
     pub environment: &'a mut BTreeMap<String, String>,
     pub prompt: &'a str,
+    pub response_style: Option<&'a str>,
     pub opencode_instruction: Option<&'a Path>,
 }
 
 pub fn apply_environment(request: EnvironmentRequest<'_>) -> Result<(), AcpError> {
     match request.agent_type {
-        AgentType::Codex => merge_codex_instructions(request.environment, request.prompt),
+        AgentType::Codex => merge_codex_instructions(
+            request.environment,
+            request.prompt,
+            codex_personality(request.response_style),
+        ),
         AgentType::OpenCode => {
             merge_opencode_instructions(request.environment, request.opencode_instruction)
         }
@@ -184,6 +218,7 @@ pub fn apply_environment(request: EnvironmentRequest<'_>) -> Result<(), AcpError
 fn merge_codex_instructions(
     environment: &mut BTreeMap<String, String>,
     prompt: &str,
+    personality: Option<&str>,
 ) -> Result<(), AcpError> {
     const ENV_KEY: &str = "CODEX_CONFIG";
     const FIELD: &str = "developer_instructions";
@@ -201,6 +236,12 @@ fn merge_codex_instructions(
         FIELD.to_string(),
         Value::String(append_text(&previous, prompt)),
     );
+    if let Some(personality) = personality {
+        object.insert(
+            "personality".to_string(),
+            Value::String(personality.to_string()),
+        );
+    }
     serialize_environment(environment, ENV_KEY, object)
 }
 
@@ -275,13 +316,17 @@ pub fn session_meta(
     agent_type: AgentType,
     prompt: &str,
     openclaw_session_key: Option<&str>,
+    response_style: Option<&str>,
 ) -> Option<Map<String, Value>> {
     let mut meta = Map::new();
     if agent_type == AgentType::ClaudeCode {
-        meta.insert(
-            "claudeCode".to_string(),
-            serde_json::json!({"emitRawSDKMessages": true}),
-        );
+        let mut claude_code = serde_json::json!({"emitRawSDKMessages": true});
+        if let Some(output_style) = claude_output_style(response_style) {
+            claude_code["options"] = serde_json::json!({
+                "settings": {"outputStyle": output_style}
+            });
+        }
+        meta.insert("claudeCode".to_string(), claude_code);
         meta.insert(
             "systemPrompt".to_string(),
             serde_json::json!({"append": prompt}),

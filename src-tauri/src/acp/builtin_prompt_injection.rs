@@ -14,6 +14,7 @@ pub struct PrepareRequest<'a> {
     pub environment: &'a BTreeMap<String, String>,
     pub storage: &'a AgentStoragePaths,
     pub response_style: Option<&'a str>,
+    pub is_delegation_child: bool,
 }
 
 pub struct PreparedBuiltinPrompt {
@@ -24,11 +25,13 @@ pub struct PreparedBuiltinPrompt {
 }
 
 pub async fn prepare(request: PrepareRequest<'_>) -> Result<PreparedBuiltinPrompt, AcpError> {
-    let prompt = builtin_agent_prompt::render(
-        request.agent_type,
-        Some(request.storage),
-        request.response_style,
-    )?;
+    let response_style = if request.is_delegation_child {
+        None
+    } else {
+        request.response_style
+    };
+    let prompt =
+        builtin_agent_prompt::render(request.agent_type, Some(request.storage), response_style)?;
     let bridges =
         PreparedPromptBridges::prepare(crate::acp::builtin_prompt_bridge::PrepareRequest {
             agent_type: request.agent_type,
@@ -55,6 +58,7 @@ pub async fn prepare(request: PrepareRequest<'_>) -> Result<PreparedBuiltinPromp
         agent_type: request.agent_type,
         environment: &mut environment,
         prompt: &prompt.text,
+        response_style,
         opencode_instruction: bridges.opencode_instruction.as_deref(),
     })?;
     Ok(PreparedBuiltinPrompt {
