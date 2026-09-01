@@ -55,6 +55,7 @@ fn managed_tool_executable_at(
         "npm" => ("node", npm_relative_path()),
         "uv" => ("uv", uv_relative_path("uv")),
         "uvx" => ("uv", uv_relative_path("uvx")),
+        "browser-engine" => ("browser-engine", browser_engine_relative_path()),
         _ => return None,
     };
     let root = data_dir.join("runtime").join(tool_id);
@@ -207,5 +208,13 @@ fn uv_relative_path(name: &str) -> PathBuf {
         PathBuf::from(format!("{name}.exe"))
     } else {
         PathBuf::from(name)
+    }
+}
+
+fn browser_engine_relative_path() -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from("chrome.exe")
+    } else {
+        PathBuf::from("chrome")
     }
 }

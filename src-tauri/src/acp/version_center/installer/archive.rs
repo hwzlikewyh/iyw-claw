@@ -9,6 +9,7 @@ const MAX_EXTRACTED_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 10_000;
 const MAX_COMPRESSION_RATIO: u64 = 100;
 const MAX_SINGLE_FILE_BYTES: u64 = 512 * 1024 * 1024;
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
 pub fn extract_tool_zip(
     bytes: &[u8],
@@ -112,6 +113,7 @@ pub async fn probe_payload(
             vec![root.join(uv_relative_path("uv"))],
             vec![root.join(uv_relative_path("uvx"))],
         ),
+        "browser-engine" => (vec![root.join(browser_engine_relative_path())], Vec::new()),
         _ => return Err(AppCommandError::invalid_input("Unknown managed tool")),
     };
     let version_core = version.split('+').next().unwrap_or(version);
@@ -122,8 +124,13 @@ pub async fn probe_payload(
     };
     for command in versioned {
         let text = probe_version_output(&command, bin_dir.as_deref()).await?;
-        if !text.contains(version_core) {
+        if tool_id != "browser-engine" && !text.contains(version_core) {
             return Err(unexpected_version(tool_id, version_core, &text));
+        }
+        if tool_id == "browser-engine" && text.trim().is_empty() {
+            return Err(AppCommandError::task_execution_failed(
+                "Managed browser engine probe returned no version",
+            ));
         }
     }
     if tool_id == "node" {
@@ -195,15 +202,28 @@ async fn run_probe(
         .map_err(|error| AppCommandError::invalid_input(error.to_string()))?;
         process.env("PATH", path);
     }
-    let output = process.output().await.map_err(|error| {
-        AppCommandError::task_execution_failed("Managed tool probe failed").with_detail(format!(
-            "command={}; error={error}",
-            command
-                .file_name()
-                .unwrap_or_else(|| OsStr::new("unknown"))
-                .to_string_lossy()
-        ))
-    })?;
+    let output = tokio::time::timeout(PROBE_TIMEOUT, process.output())
+        .await
+        .map_err(|_| {
+            AppCommandError::task_execution_failed("Managed tool probe timed out").with_detail(
+                command
+                    .file_name()
+                    .unwrap_or_else(|| OsStr::new("unknown"))
+                    .to_string_lossy()
+                    .into_owned(),
+            )
+        })?
+        .map_err(|error| {
+            AppCommandError::task_execution_failed("Managed tool probe failed").with_detail(
+                format!(
+                    "command={}; error={error}",
+                    command
+                        .file_name()
+                        .unwrap_or_else(|| OsStr::new("unknown"))
+                        .to_string_lossy()
+                ),
+            )
+        })?;
     ensure_probe_success(command, &output)?;
     Ok(output)
 }
@@ -255,6 +275,7 @@ fn has_tool_layout(root: &Path, tool_id: &str) -> bool {
             root.join(uv_relative_path("uv")).is_file()
                 && root.join(uv_relative_path("uvx")).is_file()
         }
+        "browser-engine" => root.join(browser_engine_relative_path()).is_file(),
         _ => false,
     }
 }
@@ -288,6 +309,14 @@ fn uv_relative_path(name: &str) -> PathBuf {
         PathBuf::from(format!("{name}.exe"))
     } else {
         PathBuf::from(name)
+    }
+}
+
+fn browser_engine_relative_path() -> PathBuf {
+    if cfg!(windows) {
+        PathBuf::from("chrome.exe")
+    } else {
+        PathBuf::from("chrome")
     }
 }
 

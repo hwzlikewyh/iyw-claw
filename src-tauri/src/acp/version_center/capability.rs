@@ -10,7 +10,7 @@ pub const TARGET: &str = "windows";
 pub const ARCH: &str = "x86_64";
 pub const TARGET_TRIPLE: &str = env!("IYW_CLAW_TARGET_TRIPLE");
 
-pub const TOOL_IDS: [&str; 3] = ["git", "node", "uv"];
+pub const TOOL_IDS: [&str; 4] = ["git", "node", "uv", "browser-engine"];
 
 pub fn known_tool(tool_id: &str) -> bool {
     TOOL_IDS.contains(&tool_id)
