@@ -15,7 +15,7 @@ export const DEFAULT_CONVERSATION_DISPLAY_PREFERENCES: ConversationDisplayPrefer
     responseStyle: "concise",
     mode: "summary",
     collapseCompletedTurn: true,
-    autoOpenErrors: true,
+    autoOpenErrors: false,
   }
 
 export const CONVERSATION_DISPLAY_STORAGE_KEY =

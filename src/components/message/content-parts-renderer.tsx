@@ -2496,7 +2496,7 @@ const ReasoningPart = memo(function ReasoningPart({
     <Reasoning
       isStreaming={part.isStreaming}
       expandable={expandable}
-      defaultOpen={false}
+      defaultOpen={part.isStreaming ? undefined : false}
     >
       <ReasoningTrigger />
       {expandable && <ReasoningContent>{part.content}</ReasoningContent>}

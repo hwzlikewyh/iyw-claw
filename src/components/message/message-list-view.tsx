@@ -556,6 +556,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
         ) : (
           <MessageContent>
             <AssistantTurnContent
+              agentType={agentType}
               parts={group.parts}
               conversationId={conversationId}
               entranceKey={`${conversationId}:${group.id}`}
@@ -564,6 +565,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
               displayMode={conversationDisplayMode}
               collapseCompletedTurn={collapseCompletedTurn}
               autoOpenErrors={autoOpenErrors}
+              durationMs={group.duration_ms}
             />
           </MessageContent>
         )}
