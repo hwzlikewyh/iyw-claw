@@ -86,6 +86,7 @@ export interface UseConnectionReturn {
    *  banner hides for these — the user can't restart a broker-owned process. */
   isDelegationChild: boolean
   backgroundOutstanding: number
+  backgroundUncertain: boolean
   backgroundSettleSyncingSince: number | null
   connect: (
     agentType: AgentType,
@@ -234,6 +235,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
   const configStaleDismissed = connection?.configStaleDismissed ?? false
   const isDelegationChild = connection?.isDelegationChild ?? false
   const backgroundOutstanding = connection?.backgroundOutstanding ?? 0
+  const backgroundUncertain = connection?.backgroundUncertain ?? false
   const backgroundSettleSyncingSince =
     connection?.backgroundSettleSyncingSince ?? null
 
@@ -344,6 +346,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       configStaleDismissed,
       isDelegationChild,
       backgroundOutstanding,
+      backgroundUncertain,
       backgroundSettleSyncingSince,
       connect,
       disconnect,
@@ -387,6 +390,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       configStaleDismissed,
       isDelegationChild,
       backgroundOutstanding,
+      backgroundUncertain,
       backgroundSettleSyncingSince,
       connect,
       disconnect,

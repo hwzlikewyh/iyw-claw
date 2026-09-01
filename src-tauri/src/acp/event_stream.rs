@@ -459,6 +459,7 @@ fn estimate_envelope_size(envelope: &EventEnvelope) -> usize {
             session_id,
             turns,
             outstanding: _,
+            uncertain: _,
             settled,
             watermark: _,
         } => {

@@ -44,6 +44,8 @@ use crate::db::entities::conversation::{self, ConversationKind, ConversationStat
 use crate::db::service::conversation_service;
 use crate::db::AppDatabase;
 
+const MAX_EMERGENCY_RECLAIMS_PER_TICK: usize = 4;
+
 fn combine_prompt_context(launch: Option<Arc<str>>, private: Option<Arc<str>>) -> Option<Arc<str>> {
     match (launch, private) {
         (None, None) => None,
@@ -1223,10 +1225,36 @@ impl ConnectionManager {
         disconnected
     }
 
-    /// Reclaim at most one recoverable idle session per tick. A user-selected
-    /// count cap applies in normal conditions; pressure overrides it to 1 or 0.
-    /// Active work, pending input, and unreliable sessions are excluded.
+    /// Reclaim recoverable idle sessions. Normal conditions reclaim at most one
+    /// per tick; emergency pressure may reclaim up to a small bounded batch,
+    /// re-sampling memory after every successful disconnect.
     pub async fn sweep_excess_idle(&self, max_keep: Option<usize>) -> usize {
+        let emergency_batch = crate::acp::resource_governor::ResourceSnapshot::capture()
+            .memory
+            .pressure
+            == crate::acp::resource_governor::MemoryPressure::Emergency;
+        let mut disconnected = 0;
+        loop {
+            let reclaimed = self.sweep_excess_idle_once(max_keep).await;
+            disconnected += reclaimed;
+            if reclaimed == 0 || !emergency_batch || disconnected >= MAX_EMERGENCY_RECLAIMS_PER_TICK
+            {
+                break;
+            }
+            let memory = crate::acp::resource_governor::ResourceSnapshot::capture().memory;
+            if memory.pressure != crate::acp::resource_governor::MemoryPressure::Emergency {
+                break;
+            }
+            tracing::info!(
+                disconnected,
+                available_bytes = memory.available_bytes,
+                "[ACP] emergency memory reclaim pass continuing"
+            );
+        }
+        disconnected
+    }
+
+    async fn sweep_excess_idle_once(&self, max_keep: Option<usize>) -> usize {
         let now = chrono::Utc::now();
         let mut resources = crate::acp::resource_governor::ResourceSnapshot::capture();
         let (previous_pressure, pressure) = {

@@ -290,11 +290,15 @@ pub enum AcpEvent {
     /// Claude transcript activity that occurred outside an iyw-claw prompt
     /// turn. The transcript is authoritative for these turns; live ACP deltas
     /// received out of turn are deliberately not used as a second render path.
+    /// `uncertain` means the watcher lost a terminal heartbeat and cannot prove
+    /// that all launched external tasks have stopped.
     BackgroundActivity {
         session_id: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         turns: Vec<crate::models::message::MessageTurn>,
         outstanding: u32,
+        #[serde(default, skip_serializing_if = "is_false")]
+        uncertain: bool,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         settled: Vec<BackgroundSettledInfo>,
         watermark: u64,

@@ -1469,6 +1469,8 @@ export type AcpEvent =
       session_id: string
       turns?: MessageTurn[]
       outstanding: number
+      /** True when the watcher lost a terminal heartbeat; task state is unknown. */
+      uncertain?: boolean
       settled?: BackgroundSettledInfo[]
       watermark: number
     }
@@ -1820,6 +1822,8 @@ export interface LiveSessionSnapshot {
   auto_continuation?: AutoContinuationInfo | null
   /** Launched but unresolved Claude background tasks. Absent means zero. */
   background_outstanding?: number
+  /** True when background task state is unknown and must remain protected. */
+  background_uncertain?: boolean
   /** Whether this agent has the `check_user_feedback` tool (fixed at launch).
    *  The frontend gates the feedback bar on this — the agent's real capability —
    *  not the (possibly later-toggled) global setting. Absent → `false`. */

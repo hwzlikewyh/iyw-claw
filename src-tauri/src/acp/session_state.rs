@@ -352,8 +352,12 @@ pub struct SessionState {
     pub auto_continuation: Option<AutoContinuationInfo>,
 
     /// Launched but unresolved Claude background tasks mirrored from the
-    /// transcript watcher. A recent watcher heartbeat keeps the CLI alive.
+    /// transcript watcher. A missing heartbeat marks the state unknown rather
+    /// than proving that the external task has stopped.
     pub background_outstanding: u32,
+    /// True when the watcher lost a terminal heartbeat. Unknown tasks remain
+    /// protected from resource reclamation until a terminal record arrives.
+    pub background_uncertain: bool,
     pub background_activity_at: Option<DateTime<Utc>>,
 
     // ACP 协商出的能力
@@ -664,6 +668,7 @@ impl SessionState {
             agent_inputs: Vec::new(),
             auto_continuation: None,
             background_outstanding: 0,
+            background_uncertain: false,
             background_activity_at: None,
             modes: None,
             current_mode: None,
@@ -1356,8 +1361,13 @@ impl SessionState {
             AcpEvent::FeedbackWithdrawn { ids } => {
                 self.feedback.retain(|item| !ids.contains(&item.id));
             }
-            AcpEvent::BackgroundActivity { outstanding, .. } => {
+            AcpEvent::BackgroundActivity {
+                outstanding,
+                uncertain,
+                ..
+            } => {
                 self.background_outstanding = *outstanding;
+                self.background_uncertain = *uncertain;
                 self.background_activity_at = Some(Utc::now());
             }
             AcpEvent::SessionFailure { record } => {
@@ -1376,6 +1386,9 @@ impl SessionState {
     }
 
     pub fn has_active_background_work(&self, now: DateTime<Utc>) -> bool {
+        if self.background_uncertain {
+            return true;
+        }
         if self.background_outstanding == 0 {
             return false;
         }
@@ -1690,6 +1703,7 @@ impl SessionState {
                 .collect(),
             auto_continuation: self.auto_continuation.clone(),
             background_outstanding: self.background_outstanding,
+            background_uncertain: self.background_uncertain,
             feedback_tool_available: self.feedback_tool_available,
             user_memory_capabilities: self.user_memory_capabilities.clone(),
             modes: self.modes.clone(),
@@ -1877,6 +1891,9 @@ pub struct LiveSessionSnapshot {
     pub auto_continuation: Option<AutoContinuationInfo>,
     #[serde(default, skip_serializing_if = "u32_is_zero")]
     pub background_outstanding: u32,
+    /// True when the watcher lost a terminal heartbeat; task state is unknown.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub background_uncertain: bool,
     /// Whether this agent has the `check_user_feedback` tool (see
     /// `SessionState.feedback_tool_available`). `#[serde(default)]` so older
     /// payloads deserialize to `false`; the frontend gates the feedback bar on

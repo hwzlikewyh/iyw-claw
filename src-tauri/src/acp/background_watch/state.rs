@@ -31,6 +31,7 @@ pub(super) struct WatchState {
     pub(super) accounting: TaskAccounting,
     pub(super) turn_origins: HashMap<String, Option<String>>,
     pub(super) last_emitted_outstanding: u32,
+    pub(super) last_emitted_uncertain: bool,
     pub(super) last_episode_base: u64,
     /// A ledger-matched foreground prompt whose first assistant record has not
     /// been observed yet. Claude may write additional user-shaped records for
@@ -54,6 +55,7 @@ impl WatchState {
             accounting: TaskAccounting::new(),
             turn_origins: HashMap::new(),
             last_emitted_outstanding: 0,
+            last_emitted_uncertain: false,
             last_episode_base: 0,
             foreground_awaiting_reply: false,
             foreground_submission_id: None,
@@ -68,8 +70,12 @@ impl WatchState {
         self.last_stat = None;
         self.mode = Mode::Foreground;
         self.episode = None;
+        // Task ids belong to the previous Claude session. Do not carry a
+        // stale or uncertain task into the new session after resume/fork.
+        self.accounting = TaskAccounting::new();
         self.turn_origins.clear();
         self.last_emitted_outstanding = 0;
+        self.last_emitted_uncertain = false;
         self.last_episode_base = 0;
         self.close_foreground_submission();
         self.last_disk_activity = None;
@@ -186,15 +192,19 @@ impl WatchState {
     ) -> Option<AcpEvent> {
         strip_private_user_context_from_turns(&mut turns);
         let outstanding = self.accounting.outstanding();
+        let uncertain = self.accounting.uncertain();
         let accounting_changed = outstanding != self.last_emitted_outstanding;
-        if turns.is_empty() && settled.is_empty() && !accounting_changed {
+        let uncertainty_changed = uncertain != self.last_emitted_uncertain;
+        if turns.is_empty() && settled.is_empty() && !accounting_changed && !uncertainty_changed {
             return None;
         }
         self.last_emitted_outstanding = outstanding;
+        self.last_emitted_uncertain = uncertain;
         Some(AcpEvent::BackgroundActivity {
             session_id: self.session_id.clone(),
             turns,
             outstanding,
+            uncertain,
             settled,
             watermark: self.tail.committed(),
         })

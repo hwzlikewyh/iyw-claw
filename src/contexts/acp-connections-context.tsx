@@ -297,6 +297,7 @@ export interface ConnectionState {
    */
   configStaleDismissed: boolean
   backgroundOutstanding: number
+  backgroundUncertain: boolean
   backgroundSettleSyncingSince: number | null
   outOfTurnToolCalls: ReadonlyMap<string, ToolCallInfo> | null
 }
@@ -406,6 +407,7 @@ type Action =
       type: "SET_BACKGROUND_OUTSTANDING"
       contextKey: string
       outstanding: number
+      uncertain?: boolean
       outOfTurnSettleCount: number
       turnsCount: number
     }
@@ -1219,6 +1221,7 @@ function connectionsReducer(
         configStaleKind: null,
         configStaleDismissed: false,
         backgroundOutstanding: 0,
+        backgroundUncertain: false,
         backgroundSettleSyncingSince: null,
         outOfTurnToolCalls: null,
       })
@@ -1282,6 +1285,7 @@ function connectionsReducer(
         configStaleKind: null,
         configStaleDismissed: false,
         backgroundOutstanding: 0,
+        backgroundUncertain: false,
         backgroundSettleSyncingSince: null,
         outOfTurnToolCalls: null,
       })
@@ -1411,6 +1415,7 @@ function connectionsReducer(
         configStale: action.patch.configStale,
         configStaleKind: action.patch.configStaleKind,
         backgroundOutstanding: action.patch.backgroundOutstanding,
+        backgroundUncertain: action.patch.backgroundUncertain,
         error: action.patch.lastError,
         lastAppliedSeq: action.patch.eventSeq,
       })
@@ -1609,6 +1614,7 @@ function connectionsReducer(
             : conn.backgroundSettleSyncingSince
       if (
         conn.backgroundOutstanding === action.outstanding &&
+        conn.backgroundUncertain === (action.uncertain === true) &&
         conn.backgroundSettleSyncingSince === syncingSince
       ) {
         return state
@@ -1617,6 +1623,7 @@ function connectionsReducer(
       next.set(action.contextKey, {
         ...conn,
         backgroundOutstanding: action.outstanding,
+        backgroundUncertain: action.uncertain === true,
         backgroundSettleSyncingSince: syncingSince,
       })
       return next
@@ -3585,6 +3592,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             type: "SET_BACKGROUND_OUTSTANDING",
             contextKey,
             outstanding: e.outstanding,
+            uncertain: e.uncertain === true,
             outOfTurnSettleCount:
               e.settled?.filter((settled) => !settled.wire_visible).length ?? 0,
             turnsCount: e.turns?.length ?? 0,

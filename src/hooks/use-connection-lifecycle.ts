@@ -13,11 +13,16 @@ export function shouldDisconnectOnUnmount(args: {
   status: string | null
   isViewer: boolean
   backgroundOutstanding: number
+  backgroundUncertain: boolean
   transientUnmount?: boolean
 }): boolean {
   if (args.transientUnmount) return false
   if (args.isViewer) return true
-  return args.status !== "prompting" && args.backgroundOutstanding === 0
+  return (
+    args.status !== "prompting" &&
+    args.backgroundOutstanding === 0 &&
+    !args.backgroundUncertain
+  )
 }
 
 interface UseConnectionLifecycleOptions {
@@ -152,6 +157,10 @@ export function useConnectionLifecycle({
   useEffect(() => {
     backgroundOutstandingRef.current = conn.backgroundOutstanding
   }, [conn.backgroundOutstanding])
+  const backgroundUncertainRef = useRef(conn.backgroundUncertain)
+  useEffect(() => {
+    backgroundUncertainRef.current = conn.backgroundUncertain
+  }, [conn.backgroundUncertain])
   const contextKeyRef = useRef(contextKey)
   useEffect(() => {
     contextKeyRef.current = contextKey
@@ -340,6 +349,7 @@ export function useConnectionLifecycle({
           status: statusRef.current,
           isViewer: isViewerRef.current,
           backgroundOutstanding: backgroundOutstandingRef.current,
+          backgroundUncertain: backgroundUncertainRef.current,
           transientUnmount: isTransientUnmountRef.current?.() === true,
         })
       ) {

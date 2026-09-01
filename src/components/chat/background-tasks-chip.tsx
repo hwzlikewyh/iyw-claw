@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Loader2 } from "lucide-react"
+import { CircleAlert, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { useConnection } from "@/hooks/use-connection"
@@ -18,8 +18,11 @@ export function BackgroundTasksChip({
   inline = false,
 }: BackgroundTasksChipProps) {
   const t = useTranslations("Folder.chat.backgroundTasks")
-  const { backgroundOutstanding, backgroundSettleSyncingSince } =
-    useConnection(contextKey)
+  const {
+    backgroundOutstanding,
+    backgroundUncertain,
+    backgroundSettleSyncingSince,
+  } = useConnection(contextKey)
   const [expiredFor, setExpiredFor] = useState<number | null>(null)
 
   useEffect(() => {
@@ -35,18 +38,26 @@ export function BackgroundTasksChip({
 
   const showSyncing =
     backgroundOutstanding <= 0 &&
+    !backgroundUncertain &&
     backgroundSettleSyncingSince != null &&
     expiredFor !== backgroundSettleSyncingSince
 
-  if (backgroundOutstanding <= 0 && !showSyncing) return null
+  if (backgroundOutstanding <= 0 && !backgroundUncertain && !showSyncing)
+    return null
 
   const status = (
     <span className="inline-flex min-w-0 items-center gap-1 leading-none text-sky-700 dark:text-sky-300">
-      <Loader2 className="size-3 shrink-0 animate-spin" />
+      {backgroundUncertain ? (
+        <CircleAlert className="size-3 shrink-0" />
+      ) : (
+        <Loader2 className="size-3 shrink-0 animate-spin" />
+      )}
       <span className="min-w-0 truncate">
-        {backgroundOutstanding > 0
-          ? t("running", { count: backgroundOutstanding })
-          : t("settling")}
+        {backgroundUncertain
+          ? t("unknown")
+          : backgroundOutstanding > 0
+            ? t("running", { count: backgroundOutstanding })
+            : t("settling")}
       </span>
     </span>
   )

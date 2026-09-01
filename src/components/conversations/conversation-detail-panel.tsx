@@ -278,7 +278,7 @@ interface ConversationTabViewProps {
   groupId: string
 }
 
-interface PendingBalanceRecovery {
+interface PendingPromptRecovery {
   connectionId: string
   draft: PromptDraft
   modeId: string | null
@@ -772,7 +772,7 @@ const ConversationTabView = memo(function ConversationTabView({
   const isSilentModelSwitch = modelReapplyAttempt !== null
   const visibleConnStatus = isSilentModelSwitch ? "connected" : connStatus
   const visibleConnError = isSilentModelSwitch ? null : conn.error
-  const pendingBalanceRecoveryRef = useRef<PendingBalanceRecovery | null>(null)
+  const pendingPromptRecoveryRef = useRef<PendingPromptRecovery | null>(null)
   const [dismissedContinuationGeneration, setDismissedContinuationGeneration] =
     useState<number | null>(null)
   const visibleAutoContinuation =
@@ -799,7 +799,7 @@ const ConversationTabView = memo(function ConversationTabView({
   const rememberSubmittedDraft = useCallback(
     (draft: PromptDraft, modeId?: string | null) => {
       if (!conn.connectionId || conn.isViewer) return
-      pendingBalanceRecoveryRef.current = {
+      pendingPromptRecoveryRef.current = {
         connectionId: conn.connectionId,
         draft,
         modeId: modeId ?? null,
@@ -809,14 +809,14 @@ const ConversationTabView = memo(function ConversationTabView({
     [conn.connectionId, conn.isViewer]
   )
 
-  const handleBalanceRecoveryEvent = useCallback(
+  const handlePromptRecoveryEvent = useCallback(
     (envelope: EventEnvelope) => {
       if (envelope.connection_id !== conn.connectionId) return
-      const pending = pendingBalanceRecoveryRef.current
+      const pending = pendingPromptRecoveryRef.current
 
       if (envelope.type === "turn_complete") {
         if (pending?.connectionId === envelope.connection_id) {
-          pendingBalanceRecoveryRef.current = null
+          pendingPromptRecoveryRef.current = null
         }
         return
       }
@@ -824,17 +824,17 @@ const ConversationTabView = memo(function ConversationTabView({
         envelope.type === "status_changed" &&
         envelope.status === "disconnected"
       ) {
-        pendingBalanceRecoveryRef.current = null
+        pendingPromptRecoveryRef.current = null
         return
       }
-      if (
-        envelope.type !== "error" ||
-        !isInsufficientBalanceError(envelope.message, envelope.code) ||
-        !pending ||
-        pending.requeued
-      ) {
+      if (envelope.type !== "error" || !pending || pending.requeued) {
         return
       }
+
+      const requiresExplicitRetry =
+        isInsufficientBalanceError(envelope.message, envelope.code) ||
+        envelope.code === "prompt_stall_disconnect"
+      if (!requiresExplicitRetry) return
 
       pending.requeued = true
       mqEnqueue(pending.draft, pending.modeId, { blocked: true })
@@ -842,7 +842,7 @@ const ConversationTabView = memo(function ConversationTabView({
     [conn.connectionId, mqEnqueue]
   )
 
-  useAcpEvent(handleBalanceRecoveryEvent)
+  useAcpEvent(handlePromptRecoveryEvent)
   const msgQueueLength = msgQueue.length
   const msgQueueHeadBlocked = msgQueue[0]?.blocked
   const [outboxFlushPending, setOutboxFlushPending] = useState<string | null>(

@@ -12,6 +12,9 @@ struct TaskEntry {
 
 pub(super) struct TaskAccounting {
     tasks: HashMap<String, TaskEntry>,
+    /// Heartbeat expiry is not proof that an external task stopped. Keep such
+    /// tasks protected until a terminal record or explicit stop is observed.
+    uncertain_ids: HashSet<String>,
     settled_ids: HashSet<String>,
     held_turn_ids: HashSet<String>,
     was_prompting: bool,
@@ -22,6 +25,7 @@ impl TaskAccounting {
     pub(super) fn new() -> Self {
         Self {
             tasks: HashMap::new(),
+            uncertain_ids: HashSet::new(),
             settled_ids: HashSet::new(),
             held_turn_ids: HashSet::new(),
             was_prompting: false,
@@ -44,24 +48,27 @@ impl TaskAccounting {
         self.tasks.len() as u32
     }
 
+    pub(super) fn uncertain(&self) -> bool {
+        !self.uncertain_ids.is_empty()
+    }
+
     pub(super) fn is_held_task(&self, task_id: &str) -> bool {
         self.held_turn_ids.contains(task_id)
     }
 
     pub(super) fn expire(&mut self, max_age: Duration) -> bool {
-        let before = self.tasks.len();
-        self.tasks.retain(|task_id, entry| {
-            let keep = entry.started_at.elapsed() < max_age;
-            if !keep {
+        let mut changed = false;
+        for (task_id, entry) in &self.tasks {
+            if entry.started_at.elapsed() >= max_age && self.uncertain_ids.insert(task_id.clone()) {
+                changed = true;
                 tracing::info!(
-                    "[bg-watch] expiring {} task={} after keepalive limit",
+                    "[bg-watch] marking {} task={} uncertain after keepalive limit",
                     entry.kind,
                     task_id
                 );
             }
-            keep
-        });
-        self.tasks.len() != before
+        }
+        changed
     }
 
     pub(super) fn observe(&mut self, value: &serde_json::Value) -> Vec<BackgroundSettledInfo> {
@@ -88,6 +95,7 @@ impl TaskAccounting {
         };
         let task_id = notification.task_id.clone();
         self.tasks.remove(&task_id);
+        self.uncertain_ids.remove(&task_id);
         self.settled_ids.insert(task_id.clone());
         vec![BackgroundSettledInfo {
             task_id: task_id.clone(),
@@ -126,7 +134,14 @@ impl TaskAccounting {
             .and_then(|value| value.as_str())
             .unwrap_or("");
         if is_terminal_task_status(status) && self.tasks.remove(id).is_some() {
+            self.uncertain_ids.remove(id);
             self.settled_ids.insert(id.to_string());
+        } else if let Some(entry) = self.tasks.get_mut(id) {
+            // A fresh non-terminal task update is evidence that the task is
+            // alive. Reset the age window so a long-running task can recover
+            // from a temporary watcher gap without being re-marked instantly.
+            self.uncertain_ids.remove(id);
+            entry.started_at = Instant::now();
         }
     }
 
@@ -174,11 +189,13 @@ impl TaskAccounting {
             return;
         };
         if self.tasks.remove(id).is_some() {
+            self.uncertain_ids.remove(id);
             self.settled_ids.insert(id.to_string());
         }
     }
 
     fn register(&mut self, id: &str, kind: &'static str) {
+        self.uncertain_ids.remove(id);
         self.tasks.entry(id.to_string()).or_insert(TaskEntry {
             kind,
             started_at: Instant::now(),
