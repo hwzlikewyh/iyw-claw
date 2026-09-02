@@ -44,6 +44,27 @@ describe("splitAssistantTurnParts", () => {
     expect(sections.responseParts).toEqual([])
   })
 
+  it("keeps completed body and tool parts ordered before the summary", () => {
+    const parts: AdaptedContentPart[] = [
+      { type: "text", text: "先说明执行范围。" },
+      {
+        type: "tool-call",
+        toolCallId: "read",
+        toolName: "Read",
+        input: null,
+        output: null,
+        state: "output-available",
+      },
+      { type: "text", text: "已完成检查。" },
+      { type: "text", text: "最终总结。" },
+    ]
+
+    const sections = splitAssistantTurnParts(parts, true)
+
+    expect(sections.processParts).toEqual([parts[0], parts[1], parts[2]])
+    expect(sections.responseParts).toEqual([parts[3]])
+  })
+
   it("keeps generated results outside the process surface", () => {
     const result = {
       type: "displayed-image" as const,
