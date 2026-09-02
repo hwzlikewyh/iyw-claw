@@ -107,16 +107,15 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
             <Loader2 className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />
             {t("processRunning")}
           </div>
-        ) : (
+        ) : processCount > 0 ? (
           processSurface
-        )}
+        ) : null}
         {sections.reasoningParts.length > 0 && (
           <AssistantReasoningSurface
             parts={sections.reasoningParts}
             isResponseComplete={false}
           />
         )}
-        {responseContent}
         {sections.resultParts.length > 0 &&
           renderParts(sections.resultParts, `${entranceKey}:results`)}
       </div>

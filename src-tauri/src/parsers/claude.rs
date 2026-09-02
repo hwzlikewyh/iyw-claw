@@ -660,8 +660,23 @@ impl ClaudeParser {
                 }
             }
 
-            // Skip system meta messages
+            // `turn_duration` is emitted as a system meta record by newer
+            // Claude Code versions. Preserve its timing marker while keeping
+            // all other meta records hidden from the conversation.
+            let is_turn_duration = msg_type == "system"
+                && value.get("subtype").and_then(|s| s.as_str()) == Some("turn_duration");
             if is_meta_message(&value) {
+                if is_turn_duration {
+                    if let Some(duration) = value.get("durationMs").and_then(|d| d.as_u64()) {
+                        if let Some(last) = messages
+                            .iter_mut()
+                            .rev()
+                            .find(|m| matches!(m.role, MessageRole::Assistant))
+                        {
+                            last.duration_ms = Some(duration);
+                        }
+                    }
+                }
                 continue;
             }
             background_lifecycle.observe_notification(&value);
@@ -1610,4 +1625,54 @@ pub(crate) fn group_into_turns(messages: Vec<UnifiedMessage>) -> Vec<MessageTurn
     }
 
     turns
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::ClaudeParser;
+
+    #[test]
+    fn parse_detail_attaches_meta_turn_duration() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "iyw-claude-parser-{}-{nonce}.jsonl",
+            std::process::id()
+        ));
+        let assistant = serde_json::json!({
+            "type": "assistant",
+            "uuid": "assistant-1",
+            "sessionId": "session-1",
+            "timestamp": "2026-09-03T10:00:00Z",
+            "message": {
+                "model": "claude-sonnet",
+                "content": [{"type": "text", "text": "done"}]
+            }
+        });
+        let duration = serde_json::json!({
+            "type": "system",
+            "subtype": "turn_duration",
+            "isMeta": true,
+            "durationMs": 4200,
+            "timestamp": "2026-09-03T10:00:04Z"
+        });
+        let content = format!("{}\n{}\n", assistant, duration);
+        fs::write(&path, content).expect("write parser fixture");
+
+        let parser = ClaudeParser {
+            base_dir: std::env::temp_dir(),
+        };
+        let detail = parser
+            .parse_conversation_detail(&path, "session-1")
+            .expect("parse parser fixture");
+        fs::remove_file(&path).expect("remove parser fixture");
+
+        assert_eq!(detail.turns.len(), 1);
+        assert_eq!(detail.turns[0].duration_ms, Some(4200));
+    }
 }

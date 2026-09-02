@@ -15,7 +15,7 @@ describe("AssistantTurnContent", () => {
     vi.stubGlobal("cancelAnimationFrame", vi.fn())
   })
 
-  it("keeps process and deep thinking independently closed above the final answer", () => {
+  it("keeps process and deep thinking independently collapsed", () => {
     render(
       <NextIntlClientProvider locale="zh-CN" messages={messages}>
         <AssistantTurnContent
@@ -55,7 +55,7 @@ describe("AssistantTurnContent", () => {
     expect(screen.getByText("这是独立的思考内容。")).not.toBeNull()
   })
 
-  it("keeps live response text outside the process viewport", () => {
+  it("keeps live body text inside the ordered process viewport", () => {
     render(
       <NextIntlClientProvider locale="zh-CN" messages={messages}>
         <AssistantTurnContent
@@ -83,7 +83,7 @@ describe("AssistantTurnContent", () => {
     )
 
     const response = screen.getByText("正在整理最终答复。")
-    expect(response.closest(".assistant-process-viewport")).toBeNull()
+    expect(response.closest(".assistant-process-viewport")).not.toBeNull()
     expect(document.querySelector(".assistant-process-viewport")).not.toBeNull()
   })
 })

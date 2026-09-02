@@ -41,7 +41,14 @@ describe("Windows installer compatibility contract", () => {
       hooks.indexOf("Call IywClawEnsureDesktopShortcut")
     )
     expect(shortcut).toContain(
-      'CreateShortcut "$DESKTOP\\${PRODUCTNAME}.lnk" "$IywClawAppDir\\${MAINBINARYNAME}.exe"'
+      'CreateShortcut "$DESKTOP\\$(^Name).lnk" "$IywClawAppDir\\iyw-claw.exe"'
+    )
+    expect(shortcut).toContain(
+      'CreateShortcut "$SMPROGRAMS\\$(^Name)\\$(^Name).lnk" "$IywClawAppDir\\iyw-claw.exe"'
+    )
+    expect(shortcut).toContain("Function un.IywClawRemoveShortcuts")
+    expect(hooks.indexOf("Call un.IywClawRemoveShortcuts")).toBeGreaterThan(
+      hooks.indexOf("iyw_uninstall_processes_stopped:")
     )
     expect(shortcut).toContain("SetLnkAppUserModelId")
   })

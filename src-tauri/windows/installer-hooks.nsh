@@ -270,6 +270,7 @@ FunctionEnd
     Abort
 
   iyw_uninstall_processes_stopped:
+  Call un.IywClawRemoveShortcuts
 
   ${If} $UpdateMode = 1
     Goto iyw_uninstall_done

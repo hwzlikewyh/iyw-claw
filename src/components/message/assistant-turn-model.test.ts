@@ -24,6 +24,47 @@ describe("splitAssistantTurnParts", () => {
     expect(sections.resultParts).toEqual([])
   })
 
+  it("keeps live body text in the ordered process stream", () => {
+    const parts: AdaptedContentPart[] = [
+      { type: "text", text: "先说明执行范围。" },
+      {
+        type: "tool-call",
+        toolCallId: "read",
+        toolName: "Read",
+        input: null,
+        output: null,
+        state: "input-available",
+      },
+      { type: "text", text: "正在整理结果。" },
+    ]
+
+    const sections = splitAssistantTurnParts(parts, false)
+
+    expect(sections.processParts).toEqual(parts)
+    expect(sections.responseParts).toEqual([])
+  })
+
+  it("keeps completed body and tool parts ordered before the summary", () => {
+    const parts: AdaptedContentPart[] = [
+      { type: "text", text: "先说明执行范围。" },
+      {
+        type: "tool-call",
+        toolCallId: "read",
+        toolName: "Read",
+        input: null,
+        output: null,
+        state: "output-available",
+      },
+      { type: "text", text: "已完成检查。" },
+      { type: "text", text: "最终总结。" },
+    ]
+
+    const sections = splitAssistantTurnParts(parts, true)
+
+    expect(sections.processParts).toEqual([parts[0], parts[1], parts[2]])
+    expect(sections.responseParts).toEqual([parts[3]])
+  })
+
   it("keeps generated results outside the process surface", () => {
     const result = {
       type: "displayed-image" as const,
@@ -53,12 +94,8 @@ describe("splitAssistantTurnParts", () => {
       true
     )
 
-    expect(sections.processParts).toEqual([
-      { type: "text", text: "过程说明" },
-    ])
-    expect(sections.responseParts).toEqual([
-      { type: "text", text: "最终答复" },
-    ])
+    expect(sections.processParts).toEqual([{ type: "text", text: "过程说明" }])
+    expect(sections.responseParts).toEqual([{ type: "text", text: "最终答复" }])
   })
 })
 

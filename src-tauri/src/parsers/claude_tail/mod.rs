@@ -60,7 +60,12 @@ impl ClaudeTailAccumulator {
             return;
         }
         self.resolve_pending_command(&value);
-        if is_meta_message(&value) {
+        // Claude Code marks the turn completion marker as meta, but it still
+        // carries user-visible timing data that must be attached to the last
+        // assistant message. Keep all other meta records hidden.
+        let is_turn_duration = record_type == "system"
+            && value.get("subtype").and_then(|kind| kind.as_str()) == Some("turn_duration");
+        if is_meta_message(&value) && !is_turn_duration {
             return;
         }
         self.observe_metadata(&value, record_type);
@@ -156,6 +161,51 @@ impl ClaudeTailAccumulator {
             self.metadata.first_timestamp = Some(timestamp);
         }
         self.metadata.last_timestamp = Some(timestamp);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ClaudeTailAccumulator;
+
+    #[test]
+    fn meta_turn_duration_is_attached_to_last_assistant_turn() {
+        let mut accumulator = ClaudeTailAccumulator::new("session.jsonl".into());
+
+        accumulator.feed_value(serde_json::json!({
+            "type": "assistant",
+            "uuid": "assistant-1",
+            "timestamp": "2026-09-03T10:00:00Z",
+            "message": {
+                "model": "claude-sonnet",
+                "content": [{"type": "text", "text": "done"}]
+            }
+        }));
+        accumulator.feed_value(serde_json::json!({
+            "type": "system",
+            "subtype": "turn_duration",
+            "isMeta": true,
+            "durationMs": 4200,
+            "timestamp": "2026-09-03T10:00:04Z"
+        }));
+
+        let turns = accumulator.collect_turns(None);
+        assert_eq!(turns.len(), 1);
+        assert_eq!(turns[0].duration_ms, Some(4200));
+    }
+
+    #[test]
+    fn unrelated_meta_records_remain_hidden() {
+        let mut accumulator = ClaudeTailAccumulator::new("session.jsonl".into());
+
+        accumulator.feed_value(serde_json::json!({
+            "type": "system",
+            "subtype": "api_retry",
+            "isMeta": true,
+            "timestamp": "2026-09-03T10:00:00Z"
+        }));
+
+        assert_eq!(accumulator.message_count(), 0);
     }
 }
 
