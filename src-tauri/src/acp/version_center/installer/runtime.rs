@@ -79,7 +79,7 @@ fn managed_tool_executable_at(
 }
 
 /// 浏览器运行时不能只信任 `current.json`；还必须验证当前目标的受管 marker。
-pub async fn managed_browser_engine_executable(data_dir: &Path) -> Option<PathBuf> {
+pub async fn managed_browser_engine_installation(data_dir: &Path) -> Option<(PathBuf, String)> {
     let root = data_dir.join("runtime").join("browser-engine");
     let raw = tokio::fs::read_to_string(root.join("current.json"))
         .await
@@ -88,7 +88,15 @@ pub async fn managed_browser_engine_executable(data_dir: &Path) -> Option<PathBu
     if !active_tool_is_healthy(data_dir, "browser-engine", &pointer.version).await {
         return None;
     }
-    managed_tool_executable_at(data_dir, "browser-engine", Some(&pointer.version))
+    let executable =
+        managed_tool_executable_at(data_dir, "browser-engine", Some(&pointer.version))?;
+    Some((executable, pointer.version))
+}
+
+pub async fn managed_browser_engine_executable(data_dir: &Path) -> Option<PathBuf> {
+    managed_browser_engine_installation(data_dir)
+        .await
+        .map(|(path, _)| path)
 }
 
 pub fn runtime_dir(
