@@ -148,6 +148,43 @@ pub async fn ensure_initial_agent_storage(
     Ok(())
 }
 
+/// Rebase a persisted Agent storage root onto the current installation root.
+///
+/// Older installs could persist a removable-drive path. Merge only files that
+/// are absent at the new root, then update the DB pointer; existing files are
+/// never overwritten or deleted.
+pub async fn reconcile_agent_storage_root(
+    conn: &DatabaseConnection,
+    selected_root: &Path,
+) -> Result<Option<PathBuf>, AgentStorageError> {
+    let Some(mut config) = load_config(conn).await? else {
+        return Ok(None);
+    };
+    let Some(source) = config.root.clone().filter(|_| config.initialized) else {
+        return Ok(None);
+    };
+    if same_path(&source, selected_root) {
+        return Ok(None);
+    }
+
+    // The installer already preserves the current root's persistent areas.
+    // Switch the pointer without copying or deleting files; an explicit
+    // user-driven migration remains available for moving a complete root.
+    config.root = Some(selected_root.to_path_buf());
+    save_config(conn, &config).await?;
+    Ok(Some(source))
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    let normalize = |path: &Path| {
+        path.to_string_lossy()
+            .replace('\\', "/")
+            .trim_end_matches('/')
+            .to_lowercase()
+    };
+    normalize(left) == normalize(right)
+}
+
 fn absolutize(path: PathBuf) -> PathBuf {
     if path.is_absolute() {
         return path;
