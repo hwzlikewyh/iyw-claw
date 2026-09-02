@@ -1,0 +1,191 @@
+name: GitHub Hosted Packaging Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Test version without v"
+        required: true
+        type: string
+      source_ref:
+        description: "Commit, branch, or tag to build"
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-hosted-packaging-test-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  HUSKY: "0"
+  RUST_BACKTRACE: short
+  TEST_VERSION: ${{ inputs.version }}
+
+jobs:
+  prepare-frontend:
+    name: Prepare frontend input
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies and set test version
+        run: |
+          pnpm install --frozen-lockfile
+          node scripts/set-version.mjs "$TEST_VERSION"
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Upload frontend input
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-hosted-test-frontend-${{ inputs.version }}
+          path: out
+          if-no-files-found: error
+          retention-days: 2
+
+  build-desktop:
+    name: Build ${{ matrix.name }} on GitHub hosted
+    needs: prepare-frontend
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x64
+            runner: windows-2022
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+          - name: Windows x86
+            runner: windows-2022
+            target: i686-pc-windows-msvc
+            bundles: nsis
+          - name: macOS x64
+            runner: macos-latest
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+          - name: macOS arm64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - name: Linux x64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: appimage
+    env:
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
+      CARGO_PROFILE_RELEASE_LTO: thin
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+          shared-key: github-hosted-${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Download frontend input
+        uses: actions/download-artifact@v4
+        with:
+          name: github-hosted-test-frontend-${{ inputs.version }}
+          path: out
+
+      - name: Set test version
+        shell: bash
+        run: node scripts/set-version.mjs "$TEST_VERSION"
+
+      - name: Stage and verify sidecars
+        shell: bash
+        env:
+          IYW_CLAW_BROWSER_SIDECAR_EXCLUDED: ${{ matrix.target == 'i686-pc-windows-msvc' && '1' || '' }}
+        run: |
+          pnpm tauri:prepare-sidecars --target "${{ matrix.target }}"
+          node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
+
+      - name: Cache runtime seed archives
+        if: matrix.target != 'i686-pc-windows-msvc'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/iyw-runtime-seed-cache
+          key: github-hosted-runtime-seed-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('src-tauri/scripts/*runtime-seed*.mjs', 'src-tauri/runtime-seed/codex/package-lock.json') }}
+
+      - name: Prepare and verify runtime seed
+        shell: bash
+        env:
+          IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}/iyw-runtime-seed-cache
+        run: |
+          pnpm tauri:prepare-runtime-seed --target "${{ matrix.target }}"
+          pnpm tauri:verify-runtime-seed --target "${{ matrix.target }}"
+
+      - name: Build unsigned desktop bundle
+        shell: bash
+        env:
+          IYW_CLAW_SKIP_SIDECAR: "1"
+          TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
+        run: >-
+          pnpm dlx --prefer-offline @tauri-apps/cli@2.11.4 build
+          --target "${{ matrix.target }}"
+          --features tauri-runtime
+          --bundles "${{ matrix.bundles }}"
+          --config src-tauri/tauri.ci.conf.json
+          ${{ matrix.target == 'i686-pc-windows-msvc' && '--config src-tauri/tauri.windows-x86.conf.json' || '' }}
+          ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
+          --no-sign
+
+      - name: Verify desktop bundle size
+        shell: bash
+        run: pnpm tauri:verify-bundle-size --target "${{ matrix.target }}"
+
+      - name: Upload desktop test bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-hosted-${{ matrix.target }}-${{ inputs.version }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/**
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Show sccache statistics
+        if: always()
+        shell: bash
+        run: sccache --show-stats
