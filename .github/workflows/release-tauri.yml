@@ -58,12 +58,15 @@ jobs:
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.codegen_units }}
       CARGO_PROFILE_RELEASE_LTO: ${{ matrix.lto }}
       RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: "true"
+      SCCACHE_GHA_ENABLED: ${{ contains(toJSON(matrix.runner), 'self-hosted') && 'false' || 'true' }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_ref || inputs.release_tag }}
-          fetch-depth: 0
+          # A persistent self-hosted runner keeps target/ between matrix jobs.
+          # Hosted runners remain clean because their workspaces are ephemeral.
+          clean: ${{ !contains(toJSON(matrix.runner), 'self-hosted') }}
+          fetch-depth: 1
 
       - name: Checkout release tooling
         uses: actions/checkout@v4
@@ -83,6 +86,26 @@ jobs:
         with:
           node-version: 24
 
+      - name: Configure persistent self-hosted caches
+        if: contains(toJSON(matrix.runner), 'self-hosted')
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache_root="${RUNNER_TOOL_CACHE:-$HOME/.cache}/iyw-claw"
+          mkdir -p "$cache_root/sccache" "$cache_root/pnpm-store" \
+            "$cache_root/runtime-seed/${{ matrix.target }}"
+          {
+            echo "SCCACHE_DIR=$cache_root/sccache"
+            echo "IYW_CLAW_RUNTIME_SEED_CACHE=$cache_root/runtime-seed/${{ matrix.target }}"
+          } >> "$GITHUB_ENV"
+          pnpm config set store-dir "$cache_root/pnpm-store"
+          echo "[cache] persistent root: $cache_root"
+
+      - name: Configure hosted runtime seed cache
+        if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') }}
+        shell: bash
+        run: echo "IYW_CLAW_RUNTIME_SEED_CACHE=${RUNNER_TEMP}/iyw-runtime-seed-cache" >> "$GITHUB_ENV"
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -92,6 +115,7 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Rust cache
+        if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') }}
         uses: swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
@@ -120,7 +144,13 @@ jobs:
           aarch64-linux-gnu-gcc -v
           rustup target list --installed
 
-      - name: Download frontend build
+      - name: Clear stale frontend output on self-hosted runner
+        if: ${{ contains(toJSON(matrix.runner), 'self-hosted') }}
+        shell: bash
+        run: |
+          node -e "require('node:fs').rmSync('out', { recursive: true, force: true })"
+
+      - name: Download frontend build contents
         uses: actions/download-artifact@v4
         with:
           name: ${{ inputs.frontend_artifact }}
@@ -243,7 +273,7 @@ jobs:
           pnpm tauri:browser-smoke -- --sidecar "$sidecar" --engine "$IYW_CLAW_BROWSER_ENGINE"
 
       - name: Cache runtime seed archives
-        if: matrix.target != 'i686-pc-windows-msvc'
+        if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') && matrix.target != 'i686-pc-windows-msvc' }}
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/iyw-runtime-seed-cache
@@ -251,8 +281,6 @@ jobs:
 
       - name: Prepare runtime seed
         shell: bash
-        env:
-          IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}/iyw-runtime-seed-cache
         run: pnpm tauri:prepare-runtime-seed --target ${{ matrix.target }}
 
       - name: Verify runtime seed
@@ -277,7 +305,7 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
-          tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
+          tauriScript: pnpm dlx --prefer-offline @tauri-apps/cli@2.11.4
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
           includeUpdaterJson: false
           retryAttempts: 2
@@ -305,7 +333,7 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
-          tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
+          tauriScript: pnpm dlx --prefer-offline @tauri-apps/cli@2.11.4
           # steps.signing.outputs.config_arg is either empty (unsigned) or
           # `--config <abs path to generated overlay>`.
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles nsis --config src-tauri/tauri.ci.conf.json ${{ matrix.target == 'i686-pc-windows-msvc' && '--config src-tauri/tauri.windows-x86.conf.json' || '' }} ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} ${{ steps.signing.outputs.config_arg }}
@@ -369,7 +397,7 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
-          tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
+          tauriScript: pnpm dlx --prefer-offline @tauri-apps/cli@2.11.4
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles appimage --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
           includeUpdaterJson: false
           retryAttempts: 2
@@ -393,7 +421,7 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
-          tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
+          tauriScript: pnpm dlx --prefer-offline @tauri-apps/cli@2.11.4
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles app,dmg --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
           includeUpdaterJson: false
           retryAttempts: 2
@@ -402,6 +430,11 @@ jobs:
         if: contains(matrix.target, 'apple-darwin')
         shell: bash
         run: pnpm tauri:verify-bundle-size --target "${{ matrix.target }}"
+
+      - name: Verify macOS runtime seed in app bundle
+        if: contains(matrix.target, 'apple-darwin')
+        shell: bash
+        run: pnpm tauri:verify-runtime-seed-bundle --target "${{ matrix.target }}"
 
       - name: Show sccache statistics
         if: always()

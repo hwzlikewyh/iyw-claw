@@ -199,20 +199,21 @@ async function prepareComponent(id, info, target, seedRoot, cacheDir) {
 }
 
 async function prepareComponents(info, target, staging, cacheDir) {
-  const components = []
-  for (const id of ["node", "git", "uv", "codex-acp"]) {
-    console.log(`[runtime-seed] preparing component: ${id}`)
-    const component = await prepareComponent(
-      id,
-      info,
-      target,
-      staging,
-      cacheDir
-    )
-    components.push(component)
-    console.log(`[runtime-seed] component ready: ${id}`)
-  }
-  return components
+  const ids = ["node", "git", "uv", "codex-acp"]
+  return Promise.all(
+    ids.map(async (id) => {
+      console.log(`[runtime-seed] preparing component: ${id}`)
+      const component = await prepareComponent(
+        id,
+        info,
+        target,
+        staging,
+        cacheDir
+      )
+      console.log(`[runtime-seed] component ready: ${id}`)
+      return component
+    })
+  )
 }
 
 async function writeSeedManifest(staging, target, info, components) {

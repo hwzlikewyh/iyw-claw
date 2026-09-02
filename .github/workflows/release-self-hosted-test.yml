@@ -109,6 +109,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_ref }}
+          # Keep the self-hosted runner's target/ and ignored dependency caches.
+          clean: false
           fetch-depth: 1
 
       - name: Show runner
@@ -141,6 +143,29 @@ jobs:
           }
           node --version
           npm --version
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Configure persistent Windows build caches
+        shell: pwsh
+        run: |
+          $base = $env:RUNNER_TOOL_CACHE
+          if (-not $base) { $base = Join-Path $HOME '.cache' }
+          $cacheRoot = Join-Path $base 'iyw-claw'
+          $sccache = Join-Path $cacheRoot 'sccache'
+          $pnpmStore = Join-Path $cacheRoot 'pnpm-store'
+          $runtimeCache = Join-Path $cacheRoot "runtime-seed\${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $sccache, $pnpmStore, $runtimeCache | Out-Null
+          "SCCACHE_DIR=$sccache" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "IYW_CLAW_RUNTIME_SEED_CACHE=$runtimeCache" | Out-File -FilePath $env:GITHUB_ENV -Append
+          pnpm config set store-dir $pnpmStore
+          Write-Host "Persistent cache root: $cacheRoot"
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Verify Windows build prerequisites
         shell: pwsh
@@ -176,6 +201,10 @@ jobs:
         shell: pwsh
         run: node scripts/set-version.mjs "$env:TEST_VERSION"
 
+      - name: Clear stale frontend output
+        shell: pwsh
+        run: Remove-Item -LiteralPath out -Recurse -Force -ErrorAction SilentlyContinue
+
       - name: Download frontend input
         uses: actions/download-artifact@v4
         with:
@@ -196,8 +225,6 @@ jobs:
 
       - name: Prepare runtime seed
         shell: pwsh
-        env:
-          IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}\iyw-runtime-seed-cache
         run: node src-tauri/scripts/prepare-runtime-seed.mjs --target ${{ matrix.target }}
 
       - name: Prepare Authenticode signing
@@ -215,7 +242,7 @@ jobs:
       - name: Build Authenticode-signed bundle
         shell: pwsh
         run: >-
-          npx --yes @tauri-apps/cli@2.11.4 build
+          pnpm dlx --prefer-offline @tauri-apps/cli@2.11.4 build
           --target ${{ matrix.target }}
           --features tauri-runtime
           --bundles ${{ matrix.bundle }}
@@ -356,6 +383,11 @@ jobs:
           --config src-tauri/tauri.ci.conf.json
           --config src-tauri/tauri.runtime-seed.conf.json
           --no-sign
+
+      - name: Verify macOS runtime seed in app bundle
+        if: contains(matrix.target, 'apple-darwin')
+        shell: bash
+        run: node src-tauri/scripts/verify-runtime-seed-bundle.mjs --target "${{ matrix.target }}"
 
       - name: Upload macOS test bundle
         uses: actions/upload-artifact@v4
