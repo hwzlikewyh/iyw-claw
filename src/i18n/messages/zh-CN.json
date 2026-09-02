@@ -3229,6 +3229,7 @@
         "running": "运行中"
       },
       "reasoning": {
+        "deepThinking": "深度思考",
         "thinking": "思考中…",
         "thoughtForFewSeconds": "思考",
         "thoughtForSeconds": "思考"

@@ -16,7 +16,16 @@ describe("Windows installer compatibility contract", () => {
     ).toBeLessThan(
       hooks.indexOf('ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey"')
     )
-    expect(migration).toContain('ReadRegStr $R8 SHCTX "${MANUPRODUCTKEY}"')
+    expect(migration).toContain(
+      'ReadRegStr $R8 SHCTX "${UNINSTKEY}" "InstallLocation"'
+    )
+    expect(migration).toContain(
+      'StrCmp $IywClawInstallerTestMode "1" iyw_legacy_root_done 0'
+    )
+    expect(migration).not.toContain(
+      'ReadRegStr $R8 SHCTX "${MANUPRODUCTKEY}" "InstallLocation"'
+    )
+    expect(migration).toContain('StrCpy $R8 $R8 "" 1')
     expect(migration).toContain('IfFileExists "$R8\\iyw-claw.exe"')
     expect(migration).toContain('GetFullPathName $R7 "$R9\\app"')
     expect(migration).toContain(

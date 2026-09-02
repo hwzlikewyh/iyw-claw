@@ -57,7 +57,7 @@ function CompletedLabel({
       ? formatElapsedLabel(durationMs, tLive)
       : null
   return (
-    <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+    <span className="inline-flex min-w-0 max-w-full flex-wrap items-center gap-1.5 break-words text-xs text-muted-foreground">
       <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
       <span>
         {duration
@@ -131,9 +131,9 @@ export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
     <Collapsible
       open={open}
       onOpenChange={setOpen}
-      className="overflow-hidden rounded-md border border-border/70 bg-muted/15"
+      className="assistant-process-surface"
     >
-      <CollapsibleTrigger className="group flex min-h-9 w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors duration-150 hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <CollapsibleTrigger className="assistant-process-trigger group flex min-h-9 min-w-0 max-w-full flex-wrap items-center gap-2 text-left text-xs transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <ChevronDown
           className={cn(
             "size-3.5 shrink-0 text-muted-foreground transition-transform duration-200",
@@ -166,12 +166,12 @@ export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
           </Badge>
         )}
       </CollapsibleTrigger>
-      <CollapsibleContent className="assistant-process-content border-t">
+      <CollapsibleContent className="assistant-process-content">
         <div className="relative">
           <div
             ref={viewportRef}
             onScroll={handleScroll}
-            className="assistant-process-viewport max-h-[min(18rem,40vh)] overflow-y-auto overscroll-contain px-3 py-3 pe-2"
+            className="assistant-process-viewport assistant-process-details max-h-[min(18rem,40vh)] overflow-y-auto overscroll-contain pe-2"
           >
             <div className="space-y-3">
               <ProcessRows
@@ -183,7 +183,7 @@ export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
               />
             </div>
           </div>
-          {!isFollowing && !props.isResponseComplete && (
+          {!isFollowing && (
             <button
               type="button"
               onClick={scrollToLatest}

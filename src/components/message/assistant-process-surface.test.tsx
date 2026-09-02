@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react"
+import { act } from "react"
 import { NextIntlClientProvider } from "next-intl"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -59,5 +60,20 @@ describe("AssistantProcessSurface", () => {
     fireEvent.click(trigger)
     expect(trigger.getAttribute("data-state")).toBe("open")
     expect(screen.getByText("正在分析现有实现。")).not.toBeNull()
+  })
+
+  it("settles a live process into the collapsed completed state", () => {
+    vi.useFakeTimers()
+    const view = render(<ProcessSurface />)
+    const trigger = screen.getByRole("button")
+    expect(trigger.getAttribute("data-state")).toBe("open")
+
+    view.rerender(<ProcessSurface complete />)
+    expect(trigger.getAttribute("data-state")).toBe("open")
+    act(() => vi.advanceTimersByTime(500))
+
+    expect(trigger.getAttribute("data-state")).toBe("closed")
+    expect(screen.queryByText("正在分析现有实现。")).toBeNull()
+    vi.useRealTimers()
   })
 })

@@ -2,33 +2,49 @@ import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 
 export interface AssistantTurnSections {
   processParts: AdaptedContentPart[]
+  reasoningParts: Extract<AdaptedContentPart, { type: "reasoning" }>[]
   resultParts: AdaptedContentPart[]
-  summaryParts: AdaptedContentPart[]
+  responseParts: Extract<AdaptedContentPart, { type: "text" }>[]
 }
 
 function isResultPart(part: AdaptedContentPart): boolean {
   return part.type === "generated-image" || part.type === "displayed-image"
 }
 
-function findSummaryIndex(parts: AdaptedContentPart[]): number {
-  for (let index = parts.length - 1; index >= 0; index -= 1) {
-    const part = parts[index]
-    if (part.type === "text" && part.text.trim()) return index
-  }
-  return -1
-}
-
 export function splitAssistantTurnParts(
   parts: AdaptedContentPart[],
   complete: boolean
 ): AssistantTurnSections {
-  const summaryIndex = complete ? findSummaryIndex(parts) : -1
+  const summaryIndex = complete
+    ? parts.reduce(
+        (last, part, index) =>
+          part.type === "text" && part.text.trim() ? index : last,
+        -1
+      )
+    : -1
+
+  const processParts = parts.filter((part, index) => {
+    if (isResultPart(part) || part.type === "reasoning") return false
+    if (part.type === "text") {
+      return Boolean(part.text.trim()) && complete && index !== summaryIndex
+    }
+    return true
+  })
+  const responseParts = parts.filter(
+    (part, index): part is Extract<AdaptedContentPart, { type: "text" }> =>
+      part.type === "text" &&
+      Boolean(part.text.trim()) &&
+      (!complete || index === summaryIndex)
+  )
+
   return {
-    processParts: parts.filter(
-      (part, index) => index !== summaryIndex && !isResultPart(part)
+    processParts,
+    reasoningParts: parts.filter(
+      (part): part is Extract<AdaptedContentPart, { type: "reasoning" }> =>
+        part.type === "reasoning"
     ),
     resultParts: parts.filter(isResultPart),
-    summaryParts: summaryIndex >= 0 ? [parts[summaryIndex]] : [],
+    responseParts,
   }
 }
 
