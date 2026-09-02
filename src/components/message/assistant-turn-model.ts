@@ -23,6 +23,9 @@ export function splitAssistantTurnParts(
       )
     : -1
 
+  // Keep body text and tool events in source order. Once a turn completes,
+  // only the last non-empty text block is promoted to the visible summary;
+  // everything else remains available in the collapsible execution stream.
   const processParts = parts.filter((part, index) => {
     if (isResultPart(part) || part.type === "reasoning") return false
     if (part.type === "text") {
