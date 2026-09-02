@@ -18,7 +18,7 @@ describe("splitAssistantTurnParts", () => {
 
     const sections = splitAssistantTurnParts(parts, true)
 
-    expect(sections.processParts).toEqual([parts[0], parts[1], parts[2]])
+    expect(sections.processParts).toEqual([parts[1]])
     expect(sections.reasoningParts).toEqual([parts[0], parts[2]])
     expect(sections.responseParts).toEqual([parts[3]])
     expect(sections.resultParts).toEqual([])
@@ -58,7 +58,7 @@ describe("splitAssistantTurnParts", () => {
 
     const sections = splitAssistantTurnParts(parts, false)
 
-    expect(sections.processParts).toEqual([parts[0]])
+    expect(sections.processParts).toEqual([])
     expect(sections.resultParts).toEqual([result])
     expect(sections.reasoningParts).toEqual([parts[0]])
   })
