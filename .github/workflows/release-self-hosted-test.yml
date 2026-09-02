@@ -12,6 +12,19 @@ on:
         required: true
         default: main
         type: string
+      windows_arches:
+        description: "Windows architectures to build"
+        required: true
+        default: x64
+        type: choice
+        options:
+          - x64
+          - both
+      run_macos:
+        description: "Also run the self-hosted macOS matrix"
+        required: true
+        default: false
+        type: boolean
       windows_proxy_url:
         description: "Optional HTTP proxy for the Windows runner (for example http://127.0.0.1:7890)"
         required: false
@@ -30,7 +43,7 @@ on:
 
 concurrency:
   group: self-hosted-release-test-${{ inputs.version }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -44,6 +57,7 @@ env:
 jobs:
   prepare-frontend:
     name: Prepare frontend input
+    if: inputs.run_macos
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout source
@@ -80,7 +94,6 @@ jobs:
 
   build-windows:
     name: Windows ${{ matrix.target }} on self-hosted
-    needs: prepare-frontend
     runs-on: [self-hosted, Windows, X64, iyw-signing]
     timeout-minutes: 120
     env:
@@ -91,17 +104,14 @@ jobs:
       GIT_CONFIG_VALUE_0: HTTP/1.1
       HTTP_PROXY: ${{ inputs.windows_proxy_url }}
       HTTPS_PROXY: ${{ inputs.windows_proxy_url }}
+      NO_PROXY: .actions.githubusercontent.com,.blob.core.windows.net
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
-        include:
-          - target: x86_64-pc-windows-msvc
-            bundle: nsis
-          - target: i686-pc-windows-msvc
-            bundle: nsis
+        target: ${{ fromJSON(inputs.windows_arches == 'both' && '["x86_64-pc-windows-msvc","i686-pc-windows-msvc"]' || '["x86_64-pc-windows-msvc"]') }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -190,27 +200,40 @@ jobs:
             Add-Content -Path $env:GITHUB_PATH -Value $cargoBin
             $env:Path = "$cargoBin;$env:Path"
           }
-          rustup toolchain install stable --profile minimal
+
+          $toolchains = @(rustup toolchain list)
+          if ($LASTEXITCODE -ne 0) { throw "rustup toolchain list failed" }
+          if (-not ($toolchains -match '^stable')) {
+            rustup toolchain install stable --profile minimal
+            if ($LASTEXITCODE -ne 0) { throw "stable Rust installation failed" }
+          }
           rustup default stable
-          rustup target add '${{ matrix.target }}' --toolchain stable
+          if ($LASTEXITCODE -ne 0) { throw "selecting stable Rust failed" }
+
+          $target = '${{ matrix.target }}'
+          $targets = @(rustup target list --installed --toolchain stable)
+          if ($LASTEXITCODE -ne 0) { throw "listing Rust targets failed" }
+          if ($targets -notcontains $target) {
+            rustup target add $target --toolchain stable
+            if ($LASTEXITCODE -ne 0) { throw "installing Rust target $target failed" }
+          }
           rustc +stable --version
+          if ($LASTEXITCODE -ne 0) { throw "rustc verification failed" }
 
-      - name: Set test version
+      - name: Build frontend input locally
         shell: pwsh
-        run: node scripts/set-version.mjs "$env:TEST_VERSION"
-
-      - name: Clear stale frontend output
-        shell: pwsh
-        run: Remove-Item -LiteralPath out -Recurse -Force -ErrorAction SilentlyContinue
-
-      - name: Download frontend input
-        uses: actions/download-artifact@v4
-        with:
-          name: self-hosted-test-frontend-${{ inputs.version }}
-          path: out
+        run: |
+          pnpm install --frozen-lockfile --prefer-offline
+          if ($LASTEXITCODE -ne 0) { throw "pnpm install failed" }
+          node scripts/set-version.mjs "$env:TEST_VERSION"
+          if ($LASTEXITCODE -ne 0) { throw "setting test version failed" }
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { throw "frontend build failed" }
 
       - name: Prepare sidecars
         shell: pwsh
+        env:
+          IYW_CLAW_BROWSER_SIDECAR_EXCLUDED: ${{ matrix.target == 'i686-pc-windows-msvc' && '1' || '' }}
         run: node src-tauri/scripts/prepare-sidecars.mjs --target ${{ matrix.target }}
 
       - name: Run managed browser smoke
@@ -239,19 +262,39 @@ jobs:
 
       - name: Build Authenticode-signed bundle
         shell: pwsh
-        run: >-
-          pnpm dlx @tauri-apps/cli@2.11.4 build
-          --target ${{ matrix.target }}
-          --features tauri-runtime
-          --bundles ${{ matrix.bundle }}
-          --config src-tauri/tauri.ci.conf.json
-          ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
-          --config "$env:IYW_CLAW_SIGN_CONFIG"
-          --config '{"bundle":{"createUpdaterArtifacts":false}}'
+        run: |
+          $target = '${{ matrix.target }}'
+          $bundleDir = "src-tauri/target/$target/release/bundle/nsis"
+          Remove-Item -LiteralPath $bundleDir -Recurse -Force -ErrorAction SilentlyContinue
+          $arguments = @(
+            "tauri", "build",
+            "--target", $target,
+            "--features", "tauri-runtime",
+            "--bundles", "nsis",
+            "--config", "src-tauri/tauri.ci.conf.json"
+          )
+          if ($target -eq 'i686-pc-windows-msvc') {
+            $arguments += @("--config", "src-tauri/tauri.windows-x86.conf.json")
+          } else {
+            $arguments += @("--config", "src-tauri/tauri.runtime-seed.conf.json")
+          }
+          $arguments += @(
+            "--config", $env:IYW_CLAW_SIGN_CONFIG,
+            "--config", '{"bundle":{"createUpdaterArtifacts":false}}'
+          )
+          pnpm exec @arguments
+          if ($LASTEXITCODE -ne 0) { throw "signed Tauri build failed" }
 
       - name: Verify Authenticode signatures
         shell: pwsh
-        run: node src-tauri/scripts/verify-signatures.mjs
+        run: |
+          $bundleDir = 'src-tauri/target/${{ matrix.target }}/release/bundle/nsis'
+          $installers = @(Get-ChildItem -LiteralPath $bundleDir -Filter '*-setup.exe' -File)
+          if ($installers.Count -ne 1) {
+            throw "Expected one installer in $bundleDir, found $($installers.Count)"
+          }
+          node src-tauri/scripts/verify-signatures.mjs $installers[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw "Authenticode verification failed" }
 
       - name: Upload Windows test bundle
         uses: actions/upload-artifact@v4
@@ -263,6 +306,7 @@ jobs:
 
   build-macos:
     name: macOS ${{ matrix.target }} on self-hosted
+    if: inputs.run_macos
     needs: prepare-frontend
     runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 120
@@ -275,7 +319,7 @@ jobs:
       HTTP_PROXY: ${{ inputs.macos_proxy_url }}
       HTTPS_PROXY: ${{ inputs.macos_proxy_url }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - target: aarch64-apple-darwin
