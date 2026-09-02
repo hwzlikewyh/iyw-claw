@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -24,12 +25,16 @@ export function useProcessAutoFollow(contentVersion: unknown, active: boolean) {
     setIsFollowing(following)
   }, [])
 
-  const scrollToLatest = useCallback(() => {
+  const alignToLatest = useCallback(() => {
     const viewport = viewportRef.current
     if (!viewport) return
     viewport.scrollTop = viewport.scrollHeight
+  }, [])
+
+  const scrollToLatest = useCallback(() => {
+    alignToLatest()
     setFollowing(true)
-  }, [setFollowing])
+  }, [alignToLatest, setFollowing])
 
   const handleScroll = useCallback<UIEventHandler<HTMLDivElement>>(
     (event) => setFollowing(isNearScrollEnd(event.currentTarget)),
@@ -38,9 +43,35 @@ export function useProcessAutoFollow(contentVersion: unknown, active: boolean) {
 
   useLayoutEffect(() => {
     if (!active || !followingRef.current) return
+    alignToLatest()
     const frame = requestAnimationFrame(scrollToLatest)
     return () => cancelAnimationFrame(frame)
-  }, [active, contentVersion, scrollToLatest])
+  }, [active, alignToLatest, contentVersion, scrollToLatest])
+
+  useEffect(() => {
+    const viewport = viewportRef.current
+    const content = viewport?.firstElementChild
+    if (
+      !active ||
+      !viewport ||
+      !content ||
+      typeof ResizeObserver === "undefined"
+    ) {
+      return
+    }
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      if (!followingRef.current) return
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(scrollToLatest)
+    })
+    observer.observe(content)
+    observer.observe(viewport)
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [active, scrollToLatest])
 
   return { handleScroll, isFollowing, scrollToLatest, viewportRef }
 }

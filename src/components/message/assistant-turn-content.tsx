@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl"
 
 import { AgentIcon } from "@/components/agent-icon"
 import { AssistantProcessSurface } from "@/components/message/assistant-process-surface"
+import { AssistantReasoningSurface } from "@/components/message/assistant-reasoning-surface"
 import { ContentPartsRenderer } from "@/components/message/content-parts-renderer"
 import {
   countProcessItems,
@@ -92,6 +93,10 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
       durationMs={durationMs}
     />
   )
+  const responseContent =
+    sections.responseParts.length > 0
+      ? renderParts(sections.responseParts, `${entranceKey}:response`)
+      : null
 
   if (!isResponseComplete) {
     return (
@@ -105,26 +110,37 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
         ) : (
           processSurface
         )}
+        {sections.reasoningParts.length > 0 && (
+          <AssistantReasoningSurface
+            parts={sections.reasoningParts}
+            isResponseComplete={false}
+          />
+        )}
+        {responseContent}
         {sections.resultParts.length > 0 &&
           renderParts(sections.resultParts, `${entranceKey}:results`)}
       </div>
     )
   }
 
-  const hasVisibleSummary =
-    sections.summaryParts.length > 0 || sections.resultParts.length > 0
+  const hasVisibleResponse =
+    sections.responseParts.length > 0 || sections.resultParts.length > 0
   const showProcess =
     processCount > 0 &&
-    (displayMode !== "minimal" || processHasError || !hasVisibleSummary)
+    (displayMode !== "minimal" || processHasError || !hasVisibleResponse)
 
   return (
     <div className="space-y-3">
       <AssistantIdentity agentType={agentType} />
       {showProcess ? processSurface : null}
-      {sections.summaryParts.length > 0 ? (
-        <div className="assistant-turn-summary">
-          {renderParts(sections.summaryParts, `${entranceKey}:summary`)}
-        </div>
+      {sections.reasoningParts.length > 0 ? (
+        <AssistantReasoningSurface
+          parts={sections.reasoningParts}
+          isResponseComplete
+        />
+      ) : null}
+      {responseContent ? (
+        <div className="assistant-turn-summary">{responseContent}</div>
       ) : null}
       {sections.resultParts.length > 0 ? (
         <div className="assistant-turn-results">

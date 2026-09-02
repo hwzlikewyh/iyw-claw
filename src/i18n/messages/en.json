@@ -3229,6 +3229,7 @@
         "running": "Running"
       },
       "reasoning": {
+        "deepThinking": "Deep thinking",
         "thinking": "Thinking…",
         "thoughtForFewSeconds": "Thought",
         "thoughtForSeconds": "Thought"
