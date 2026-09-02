@@ -7,7 +7,9 @@ use tokio::sync::{watch, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 use super::error::{BrowserError, BrowserErrorCode};
-use crate::acp::version_center::{install_managed_tool, managed_browser_engine_executable};
+use crate::acp::version_center::install_managed_tool;
+#[cfg(not(target_os = "windows"))]
+use crate::app_error::AppCommandError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PrefetchState {
@@ -25,6 +27,8 @@ struct PrefetchFailure {
 
 const FAILURE_RETRY_DELAY: Duration = Duration::from_secs(5);
 const MISSING_ENGINE_RETRY_DELAY: Duration = Duration::from_secs(60);
+#[cfg(not(target_os = "windows"))]
+const TOOL_NOT_FOUND: &str = "AGENT_TOOL_NOT_FOUND";
 
 #[derive(Debug, Clone)]
 pub(super) struct BrowserEnginePrefetch {
@@ -68,16 +72,16 @@ impl BrowserEnginePrefetch {
         &self,
         cancellation: CancellationToken,
     ) -> Result<PathBuf, BrowserError> {
-        if let Some(path) = managed_browser_engine_executable(&self.data_root).await {
+        if let Ok(engine) = super::engine::detect_engine(&self.data_root).await {
             self.mark_ready().await;
-            return Ok(path);
+            return Ok(engine.path);
         }
         let mut state_change = self.state_change.subscribe();
         loop {
             let current_state = *self.state.lock().await;
             if current_state == PrefetchState::Ready {
-                if let Some(path) = managed_browser_engine_executable(&self.data_root).await {
-                    return Ok(path);
+                if let Ok(engine) = super::engine::detect_engine(&self.data_root).await {
+                    return Ok(engine.path);
                 }
             }
             if current_state == PrefetchState::Failed {
@@ -122,8 +126,8 @@ impl BrowserEnginePrefetch {
                     }
                 }
             }
-            if let Some(path) = managed_browser_engine_executable(&self.data_root).await {
-                return Ok(path);
+            if let Ok(engine) = super::engine::detect_engine(&self.data_root).await {
+                return Ok(engine.path);
             }
             if matches!(*self.state.lock().await, PrefetchState::Failed) {
                 return Err(self
@@ -187,11 +191,11 @@ impl BrowserEnginePrefetch {
             }
             #[cfg(not(target_os = "windows"))]
             {
-                return Err(engine_unavailable());
+                return Err(map_install_error(error));
             }
         }
-        if let Some(path) = managed_browser_engine_executable(&self.data_root).await {
-            return Ok(path);
+        if let Ok(engine) = super::engine::detect_engine(&self.data_root).await {
+            return Ok(engine.path);
         }
         #[cfg(target_os = "windows")]
         {
@@ -216,6 +220,24 @@ impl BrowserEnginePrefetch {
         };
         (failure.occurred_at.elapsed() < retry_delay).then_some(failure.error)
     }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn map_install_error(error: AppCommandError) -> BrowserError {
+    tracing::info!(
+        target: "iyw_claw_browser",
+        error_code = ?error.code,
+        detail_present = error.detail.is_some(),
+        "managed browser engine installation failed"
+    );
+    if error.detail.as_deref() == Some(TOOL_NOT_FOUND) {
+        return BrowserError::new(
+            BrowserErrorCode::BrowserEngineNotFound,
+            "No managed browser engine release is available",
+        )
+        .retryable(true);
+    }
+    engine_unavailable()
 }
 
 fn engine_unavailable() -> BrowserError {
