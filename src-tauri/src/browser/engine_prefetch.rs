@@ -6,10 +6,8 @@ use sea_orm::DatabaseConnection;
 use tokio::sync::{watch, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use crate::acp::version_center::{install_managed_tool, managed_browser_engine_executable};
-use crate::app_error::AppCommandError;
-
 use super::error::{BrowserError, BrowserErrorCode};
+use crate::acp::version_center::{install_managed_tool, managed_browser_engine_executable};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PrefetchState {
@@ -27,7 +25,6 @@ struct PrefetchFailure {
 
 const FAILURE_RETRY_DELAY: Duration = Duration::from_secs(5);
 const MISSING_ENGINE_RETRY_DELAY: Duration = Duration::from_secs(60);
-const TOOL_NOT_FOUND: &str = "AGENT_TOOL_NOT_FOUND";
 
 #[derive(Debug, Clone)]
 pub(super) struct BrowserEnginePrefetch {
@@ -162,7 +159,7 @@ impl BrowserEnginePrefetch {
                 );
                 "stable".to_string()
             });
-        install_managed_tool(
+        let managed_result = install_managed_tool(
             &conn,
             &self.data_root,
             "browser-engine",
@@ -172,11 +169,38 @@ impl BrowserEnginePrefetch {
             None,
             None,
         )
-        .await
-        .map_err(map_install_error)?;
-        managed_browser_engine_executable(&self.data_root)
-            .await
-            .ok_or_else(engine_unavailable)
+        .await;
+        if let Err(error) = managed_result {
+            #[cfg(target_os = "windows")]
+            {
+                tracing::warn!(
+                    target: "iyw_claw_browser",
+                    error_code = ?error.code,
+                    "managed browser engine unavailable; trying verified local Chromium fallback"
+                );
+                return super::engine_download::ensure_managed_engine(
+                    &self.data_root,
+                    cancellation,
+                )
+                .await
+                .map(|engine| engine.path);
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                return Err(engine_unavailable());
+            }
+        }
+        if let Some(path) = managed_browser_engine_executable(&self.data_root).await {
+            return Ok(path);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            return super::engine_download::ensure_managed_engine(&self.data_root, cancellation)
+                .await
+                .map(|engine| engine.path);
+        }
+        #[cfg(not(target_os = "windows"))]
+        Err(engine_unavailable())
     }
 
     async fn mark_ready(&self) {
@@ -194,42 +218,10 @@ impl BrowserEnginePrefetch {
     }
 }
 
-fn map_install_error(error: AppCommandError) -> BrowserError {
-    tracing::info!(
-        target: "iyw_claw_browser",
-        error_code = ?error.code,
-        detail_present = error.detail.is_some(),
-        "managed browser engine installation failed"
-    );
-    if error.detail.as_deref() == Some(TOOL_NOT_FOUND) {
-        return BrowserError::new(
-            BrowserErrorCode::BrowserEngineNotFound,
-            "No managed browser engine release is available",
-        )
-        .retryable(true);
-    }
-    engine_unavailable()
-}
-
 fn engine_unavailable() -> BrowserError {
     BrowserError::new(
         BrowserErrorCode::BrowserRuntimeUnavailable,
         "The managed browser engine is unavailable",
     )
     .retryable(true)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn maps_missing_managed_tool_to_browser_engine_not_found() {
-        let error = AppCommandError::invalid_input("missing").with_detail(TOOL_NOT_FOUND);
-
-        let mapped = map_install_error(error);
-
-        assert_eq!(mapped.code, BrowserErrorCode::BrowserEngineNotFound);
-        assert!(mapped.retryable);
-    }
 }

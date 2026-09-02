@@ -11,6 +11,7 @@ const HOME_DIR_ENV: &str = "IYW_CLAW_HOME";
 const LOG_DIR_ENV: &str = "IYW_CLAW_LOG_DIR";
 const USER_MEMORY_APP_DIR_NAME: &str = ".iyw-claw";
 pub const INSTALL_ROOT_ENV: &str = "IYW_CLAW_INSTALL_ROOT";
+const REBASED_PROFILE_FILES: [&str; 2] = ["config/codex/config.toml", "config/hermes/config.yaml"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesktopBootstrap {
@@ -150,9 +151,11 @@ pub async fn ensure_initial_agent_storage(
 
 /// Rebase a persisted Agent storage root onto the current installation root.
 ///
-/// Older installs could persist a removable-drive path. Merge only files that
-/// are absent at the new root, then update the DB pointer; existing files are
-/// never overwritten or deleted.
+/// Older installs could persist a former installation root after an upgrade.
+/// A custom Agent-only directory must remain user-controlled, so only a root
+/// that contains the desktop application is rebased. The installer preserves
+/// application storage at the selected root; this updates the pointer and the
+/// small set of active managed profile paths that carry an install-root value.
 pub async fn reconcile_agent_storage_root(
     conn: &DatabaseConnection,
     selected_root: &Path,
@@ -166,13 +169,39 @@ pub async fn reconcile_agent_storage_root(
     if same_path(&source, selected_root) {
         return Ok(None);
     }
+    if !source.join(APP_DIR_NAME).join("iyw-claw.exe").is_file() {
+        return Ok(None);
+    }
 
+    rebase_profile_path_references(selected_root, &source)?;
     // The installer already preserves the current root's persistent areas.
     // Switch the pointer without copying or deleting files; an explicit
     // user-driven migration remains available for moving a complete root.
     config.root = Some(selected_root.to_path_buf());
     save_config(conn, &config).await?;
     Ok(Some(source))
+}
+
+fn rebase_profile_path_references(
+    selected_root: &Path,
+    previous_root: &Path,
+) -> Result<(), AgentStorageError> {
+    let previous = previous_root.to_string_lossy();
+    let selected = selected_root.to_string_lossy();
+    for relative in REBASED_PROFILE_FILES {
+        let path = selected_root.join(relative);
+        let raw = match std::fs::read_to_string(&path) {
+            Ok(raw) => raw,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(AgentStorageError::InvalidConfig(error.to_string())),
+        };
+        if !raw.contains(previous.as_ref()) {
+            continue;
+        }
+        std::fs::write(&path, raw.replace(previous.as_ref(), selected.as_ref()))
+            .map_err(|error| AgentStorageError::InvalidConfig(error.to_string()))?;
+    }
+    Ok(())
 }
 
 fn same_path(left: &Path, right: &Path) -> bool {
