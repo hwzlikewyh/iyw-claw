@@ -1,6 +1,7 @@
 "use client"
 
 import { memo, useMemo } from "react"
+import { Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { AgentIcon } from "@/components/agent-icon"
@@ -53,6 +54,7 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
   conversationId,
   durationMs,
 }: AssistantTurnContentProps) {
+  const t = useTranslations("Folder.chat.messageList")
   const sections = useMemo(
     () => splitAssistantTurnParts(parts, isResponseComplete),
     [isResponseComplete, parts]
@@ -99,14 +101,25 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
     return (
       <div className="space-y-3">
         <AssistantIdentity agentType={agentType} />
-        {processCount > 0 ? processSurface : null}
+        {displayMode === "minimal" ? (
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Loader2 className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />
+            {t("processRunning")}
+          </div>
+        ) : processCount > 0 ? (
+          processSurface
+        ) : null}
         {sections.resultParts.length > 0 &&
           renderParts(sections.resultParts, `${entranceKey}:results`)}
       </div>
     )
   }
 
-  const showProcess = processCount > 0
+  const hasVisibleResponse =
+    sections.responseParts.length > 0 || sections.resultParts.length > 0
+  const showProcess =
+    processCount > 0 &&
+    (displayMode !== "minimal" || processHasError || !hasVisibleResponse)
 
   return (
     <div className="space-y-3">
