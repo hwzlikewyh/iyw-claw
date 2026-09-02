@@ -278,9 +278,13 @@ jobs:
           } else {
             $arguments += @("--config", "src-tauri/tauri.runtime-seed.conf.json")
           }
+          $bundleConfig = Join-Path $env:RUNNER_TEMP 'tauri-test-bundle.conf.json'
+          Set-Content -LiteralPath $bundleConfig `
+            -Value '{"bundle":{"createUpdaterArtifacts":false}}' `
+            -Encoding utf8NoBOM
           $arguments += @(
             "--config", $env:IYW_CLAW_SIGN_CONFIG,
-            "--config", '{"bundle":{"createUpdaterArtifacts":false}}'
+            "--config", $bundleConfig
           )
           pnpm exec @arguments
           if ($LASTEXITCODE -ne 0) { throw "signed Tauri build failed" }
