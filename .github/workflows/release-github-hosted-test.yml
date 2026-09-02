@@ -164,7 +164,7 @@ jobs:
           IYW_CLAW_SKIP_SIDECAR: "1"
           TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
         run: >-
-          pnpm dlx --prefer-offline @tauri-apps/cli@2.11.4 build
+          pnpm dlx @tauri-apps/cli@2.11.4 build
           --target "${{ matrix.target }}"
           --features tauri-runtime
           --bundles "${{ matrix.bundles }}"

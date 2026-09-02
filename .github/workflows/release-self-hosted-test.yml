@@ -242,7 +242,7 @@ jobs:
       - name: Build Authenticode-signed bundle
         shell: pwsh
         run: >-
-          pnpm dlx --prefer-offline @tauri-apps/cli@2.11.4 build
+          pnpm dlx @tauri-apps/cli@2.11.4 build
           --target ${{ matrix.target }}
           --features tauri-runtime
           --bundles ${{ matrix.bundle }}
