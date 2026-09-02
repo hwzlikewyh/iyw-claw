@@ -3263,6 +3263,7 @@
         "processSummary": "执行过程 · {count} 项",
         "processWithErrors": "执行过程 · {count} 项 · 包含错误",
         "processDetails": "查看过程",
+        "backToLatest": "回到最新",
         "processRunning": "正在处理，过程已按极简模式隐藏。",
         "systemMessage": "系统消息",
         "copyMessage": "复制",

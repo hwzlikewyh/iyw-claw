@@ -46,6 +46,7 @@ import { generateUnifiedDiff } from "@/lib/unified-diff-generator"
 import { FilePathLink } from "@/components/ai-elements/link-safety"
 import {
   Reasoning,
+  ReasoningBody,
   ReasoningTrigger,
   ReasoningContent,
 } from "@/components/ai-elements/reasoning"
@@ -2622,6 +2623,7 @@ interface ContentPartsRendererProps {
   conversationId?: number
   entranceKey?: string
   animationEnabled?: boolean
+  reasoningPresentation?: "disclosure" | "inline"
 }
 
 export const ContentPartsRenderer = memo(function ContentPartsRenderer({
@@ -2630,6 +2632,7 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
   conversationId,
   entranceKey,
   animationEnabled = false,
+  reasoningPresentation = "disclosure",
 }: ContentPartsRendererProps) {
   const renderPart = (part: AdaptedContentPart, keyId: string): ReactNode => {
     if (part.type === "text") {
@@ -2689,6 +2692,13 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
     }
 
     if (part.type === "reasoning") {
+      if (reasoningPresentation === "inline") {
+        return part.content.trim() ? (
+          <ReasoningBody key={`reasoning-${keyId}`}>
+            {part.content}
+          </ReasoningBody>
+        ) : null
+      }
       return (
         <ReasoningPart
           key={`reasoning-${keyId}`}
