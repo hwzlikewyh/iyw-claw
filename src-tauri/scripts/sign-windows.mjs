@@ -203,7 +203,9 @@ function signOnce(signtool, args, env) {
   const result = spawnSync(signtool, args, {
     cwd: REPO_ROOT,
     stdio: "inherit",
-    windowsHide: nonInteractive,
+    // SafeNet's CSP may need the runner's interactive desktop even when
+    // Single Logon has already cached the token session.
+    windowsHide: false,
     ...(nonInteractive
       ? { timeout: NON_INTERACTIVE_TIMEOUT_MS, killSignal: "SIGTERM" }
       : {}),

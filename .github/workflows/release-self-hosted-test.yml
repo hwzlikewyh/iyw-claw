@@ -99,6 +99,8 @@ jobs:
     env:
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
       CARGO_PROFILE_RELEASE_LTO: thin
+      RUSTC_WRAPPER: sccache
+      SCCACHE_CACHE_SIZE: 10G
       GIT_CONFIG_COUNT: "1"
       GIT_CONFIG_KEY_0: http.version
       GIT_CONFIG_VALUE_0: HTTP/1.1
