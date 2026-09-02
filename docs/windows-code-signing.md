@@ -53,6 +53,7 @@ Get-ChildItem Cert:\CurrentUser\My | Select-Object Thumbprint, Subject
 | `IYW_CLAW_SIGN_TIMESTAMP_URL` | RFC 3161 时间戳服务器，默认 `http://timestamp.digicert.com` |
 | `IYW_CLAW_SIGN_DIGEST` | 摘要算法，默认 `sha256` |
 | `IYW_CLAW_SIGNTOOL` | 显式指定 `signtool.exe`，跳过 SDK 自动发现 |
+| `IYW_CLAW_SIGN_NONINTERACTIVE` | 设为 `1` 时不传递或重试 PIN；token 未预先登录会在 30 秒内失败 |
 
 `mode=pfx` 只适合本地冒烟测试：signtool 通过命令行接收 .pfx 密码，子进程存活期间密码在进程列表里可见。
 真实发布用 `signtool` 或 `azure`。
@@ -106,6 +107,11 @@ signtool 命令），所以覆盖层里不写这两项，摘要和时间戳统�
 USB token 无法在 GitHub 托管 runner 上使用（需要物理设备）。Windows release 矩阵通过
 `iyw-signing` 标签固定到装有 SafeNet 客户端并插入 token 的 self-hosted runner，使用
 `WINDOWS_SIGN_THUMBPRINT` 配合 `mode=signtool`；也可以改用云 HSM / Azure。
+
+自托管测试 workflow 默认启用 `IYW_CLAW_SIGN_NONINTERACTIVE=1`。请在启动 job 前
+通过 SafeNet Authentication Client 的 Single Logon 让当前交互会话完成一次 token
+登录；workflow 不保存或传递 PIN。若 token 未登录，签名步骤会超时失败并停止上传，
+不会在 workflow 中输入或重试密码；SafeNet 客户端自身是否显示提示由其策略决定。
 
 ## 校验产物
 

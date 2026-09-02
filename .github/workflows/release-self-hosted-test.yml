@@ -107,6 +107,7 @@ jobs:
       NO_PROXY: .actions.githubusercontent.com,.blob.core.windows.net
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
+      IYW_CLAW_SIGN_NONINTERACTIVE: "1"
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
     strategy:
       fail-fast: true

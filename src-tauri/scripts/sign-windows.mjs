@@ -24,6 +24,7 @@
  *   IYW_CLAW_SIGN_TIMESTAMP_URL   RFC3161 timestamp server
  *   IYW_CLAW_SIGN_DIGEST          digest algorithm (default sha256)
  *   IYW_CLAW_SIGNTOOL             explicit signtool.exe, skips SDK discovery
+ *   IYW_CLAW_SIGN_NONINTERACTIVE   1 => fail instead of waiting for token PIN UI
  *
  * mode=pfx exists for local smoke tests against a self-signed certificate.
  * A self-signed signature does NOT help with SmartScreen or antivirus — only a
@@ -52,6 +53,7 @@ const VALID_MODES = new Set(["signtool", "pfx", "azure", "none"])
 /** Timestamp servers rate-limit and flake; a signing run must not die on that. */
 const TIMESTAMP_ATTEMPTS = 3
 const TIMESTAMP_RETRY_DELAY_MS = 5000
+const NON_INTERACTIVE_TIMEOUT_MS = 30_000
 
 export function parseSignOptions(argv) {
   const targets = []
@@ -196,9 +198,25 @@ export function redactSigntoolArgs(args) {
   return redacted
 }
 
-function signOnce(signtool, args) {
-  const result = spawnSync(signtool, args, { cwd: REPO_ROOT, stdio: "inherit" })
-  if (result.error) throw result.error
+function signOnce(signtool, args, env) {
+  const nonInteractive = (env.IYW_CLAW_SIGN_NONINTERACTIVE ?? "").trim() === "1"
+  const result = spawnSync(signtool, args, {
+    cwd: REPO_ROOT,
+    stdio: "inherit",
+    windowsHide: nonInteractive,
+    ...(nonInteractive
+      ? { timeout: NON_INTERACTIVE_TIMEOUT_MS, killSignal: "SIGTERM" }
+      : {}),
+  })
+  if (result.error) {
+    if (result.error.code === "ETIMEDOUT") {
+      throw new Error(
+        "signtool timed out; unlock the SafeNet token before starting a " +
+          "non-interactive signing job"
+      )
+    }
+    throw result.error
+  }
   return result.status ?? 1
 }
 
@@ -209,9 +227,16 @@ function signFile(signtool, mode, file, env) {
   const args = buildSigntoolArgs(mode, file, env)
   console.log(`[sign-windows] signtool ${redactSigntoolArgs(args).join(" ")}`)
 
+  const nonInteractive = (env.IYW_CLAW_SIGN_NONINTERACTIVE ?? "").trim() === "1"
+
   for (let attempt = 1; attempt <= TIMESTAMP_ATTEMPTS; attempt += 1) {
-    const status = signOnce(signtool, args)
+    const status = signOnce(signtool, args, env)
     if (status === 0) return
+    if (nonInteractive) {
+      throw new Error(
+        `signtool exited with code ${status} in non-interactive mode for ${file}`
+      )
+    }
     if (attempt === TIMESTAMP_ATTEMPTS) {
       throw new Error(`signtool exited with code ${status} for ${file}`)
     }
