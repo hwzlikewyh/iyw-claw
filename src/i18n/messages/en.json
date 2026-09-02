@@ -3263,6 +3263,7 @@
         "processSummary": "Process · {count} items",
         "processWithErrors": "Process · {count} items · errors included",
         "processDetails": "View process",
+        "backToLatest": "Back to latest",
         "processRunning": "Working; process details are hidden in minimal mode.",
         "systemMessage": "System message",
         "copyMessage": "Copy",

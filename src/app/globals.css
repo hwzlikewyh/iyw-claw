@@ -1177,6 +1177,54 @@ body {
   }
 }
 
+.assistant-process-content {
+  overflow: hidden;
+  transform-origin: top;
+}
+
+.assistant-process-content[data-state="open"] {
+  animation: assistant-process-expand 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.assistant-process-content[data-state="closed"] {
+  animation: assistant-process-collapse 160ms ease-in;
+}
+
+.assistant-process-viewport {
+  scrollbar-gutter: stable;
+}
+
+@keyframes assistant-process-expand {
+  from {
+    height: 0;
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes assistant-process-collapse {
+  from {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+  }
+  to {
+    height: 0;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-process-content[data-state="open"],
+  .assistant-process-content[data-state="closed"] {
+    animation: none;
+  }
+}
+
 /* Welcome-page quick actions: single-row seamless marquee. The motion is driven
    by a JS requestAnimationFrame loop (see quick-actions.tsx) that sets the track
    transform every frame — NOT a CSS animation. A CSS transform animation gets

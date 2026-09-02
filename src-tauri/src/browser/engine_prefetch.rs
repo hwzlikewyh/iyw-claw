@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use sea_orm::DatabaseConnection;
 use tokio::sync::{watch, Mutex, RwLock};
@@ -19,9 +20,20 @@ enum PrefetchState {
 }
 
 #[derive(Debug, Clone)]
+struct PrefetchFailure {
+    occurred_at: Instant,
+    error: BrowserError,
+}
+
+const FAILURE_RETRY_DELAY: Duration = Duration::from_secs(5);
+const MISSING_ENGINE_RETRY_DELAY: Duration = Duration::from_secs(60);
+const TOOL_NOT_FOUND: &str = "AGENT_TOOL_NOT_FOUND";
+
+#[derive(Debug, Clone)]
 pub(super) struct BrowserEnginePrefetch {
     state: Arc<Mutex<PrefetchState>>,
     state_change: watch::Sender<PrefetchState>,
+    last_failure: Arc<Mutex<Option<PrefetchFailure>>>,
     database: Arc<RwLock<Option<DatabaseConnection>>>,
     data_root: PathBuf,
 }
@@ -32,6 +44,7 @@ impl BrowserEnginePrefetch {
         Self {
             state: Arc::new(Mutex::new(PrefetchState::Idle)),
             state_change,
+            last_failure: Arc::new(Mutex::new(None)),
             database: Arc::new(RwLock::new(None)),
             data_root,
         }
@@ -70,15 +83,31 @@ impl BrowserEnginePrefetch {
                     return Ok(path);
                 }
             }
-            let should_install = if current_state == PrefetchState::Running {
-                false
-            } else {
-                *self.state.lock().await = PrefetchState::Running;
-                self.state_change.send_replace(PrefetchState::Running);
-                true
+            if current_state == PrefetchState::Failed {
+                if let Some(error) = self.cached_failure().await {
+                    return Err(error);
+                }
+            }
+            let should_install = {
+                let mut state = self.state.lock().await;
+                if *state == PrefetchState::Running {
+                    false
+                } else {
+                    *state = PrefetchState::Running;
+                    self.state_change.send_replace(PrefetchState::Running);
+                    true
+                }
             };
             if should_install {
                 let result = self.install(cancellation.clone()).await;
+                if let Err(error) = &result {
+                    *self.last_failure.lock().await = Some(PrefetchFailure {
+                        occurred_at: Instant::now(),
+                        error: error.clone(),
+                    });
+                } else {
+                    *self.last_failure.lock().await = None;
+                }
                 let state = if result.is_ok() {
                     PrefetchState::Ready
                 } else {
@@ -100,7 +129,13 @@ impl BrowserEnginePrefetch {
                 return Ok(path);
             }
             if matches!(*self.state.lock().await, PrefetchState::Failed) {
-                return Err(engine_unavailable());
+                return Err(self
+                    .last_failure
+                    .lock()
+                    .await
+                    .as_ref()
+                    .map(|failure| failure.error.clone())
+                    .unwrap_or_else(engine_unavailable));
             }
         }
     }
@@ -148,6 +183,15 @@ impl BrowserEnginePrefetch {
         *self.state.lock().await = PrefetchState::Ready;
         self.state_change.send_replace(PrefetchState::Ready);
     }
+
+    async fn cached_failure(&self) -> Option<BrowserError> {
+        let failure = self.last_failure.lock().await.clone()?;
+        let retry_delay = match failure.error.code {
+            BrowserErrorCode::BrowserEngineNotFound => MISSING_ENGINE_RETRY_DELAY,
+            _ => FAILURE_RETRY_DELAY,
+        };
+        (failure.occurred_at.elapsed() < retry_delay).then_some(failure.error)
+    }
 }
 
 fn map_install_error(error: AppCommandError) -> BrowserError {
@@ -157,6 +201,13 @@ fn map_install_error(error: AppCommandError) -> BrowserError {
         detail_present = error.detail.is_some(),
         "managed browser engine installation failed"
     );
+    if error.detail.as_deref() == Some(TOOL_NOT_FOUND) {
+        return BrowserError::new(
+            BrowserErrorCode::BrowserEngineNotFound,
+            "No managed browser engine release is available",
+        )
+        .retryable(true);
+    }
     engine_unavailable()
 }
 
@@ -166,4 +217,19 @@ fn engine_unavailable() -> BrowserError {
         "The managed browser engine is unavailable",
     )
     .retryable(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_missing_managed_tool_to_browser_engine_not_found() {
+        let error = AppCommandError::invalid_input("missing").with_detail(TOOL_NOT_FOUND);
+
+        let mapped = map_install_error(error);
+
+        assert_eq!(mapped.code, BrowserErrorCode::BrowserEngineNotFound);
+        assert!(mapped.retryable);
+    }
 }
