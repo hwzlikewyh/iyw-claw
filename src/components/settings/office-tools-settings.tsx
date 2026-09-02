@@ -72,10 +72,11 @@ function DetectionCard({
   const t = useTranslations("OfficeToolsSettings")
   const installed = info?.installed === true
   const runtimeError = info?.runtimeError ?? null
+  const updateRequired = info?.updateRequired === true
   // "Installed" means the binary file exists; "healthy" additionally means it
   // actually runs. On a slim Linux server it can be present yet unrunnable
   // (missing libicu), which must NOT read as a green, working install.
-  const healthy = installed && !runtimeError
+  const healthy = installed && !runtimeError && !updateRequired
 
   return (
     <div
@@ -100,6 +101,13 @@ function DetectionCard({
                 className="h-5 px-1.5 text-[10px] border-green-500/40 bg-green-500/10 text-green-600 dark:text-green-400"
               >
                 {t("detection.installed")}
+              </Badge>
+            ) : updateRequired ? (
+              <Badge
+                variant="outline"
+                className="h-5 px-1.5 text-[10px] border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+              >
+                {t("detection.updateRequired")}
               </Badge>
             ) : installed ? (
               <Badge
@@ -139,6 +147,20 @@ function DetectionCard({
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {installed ? (
             <>
+              {updateRequired && (
+                <Button
+                  size="sm"
+                  disabled={installing || detecting}
+                  onClick={onInstall}
+                >
+                  {installing ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  {t("detection.update")}
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="outline"
@@ -294,6 +316,7 @@ export function OfficeToolsSettings() {
   )
 
   const handleInstall = useCallback(async () => {
+    const updating = info?.updateRequired === true
     setInstalling(true)
     // Subscribe to the install log stream before kicking off the backend so no
     // early lines are missed; `taskId` correlates the stream to this install.
@@ -302,7 +325,9 @@ export function OfficeToolsSettings() {
     try {
       const result = await officecliInstall(taskId)
       setInfo(result)
-      toast.success(t("toasts.installSuccess"))
+      toast.success(
+        t(updating ? "toasts.updateSuccess" : "toasts.installSuccess")
+      )
       // Auto-sync the newly available skills, surfacing failures like handleSync
       // so a partial/failed sync isn't silently swallowed behind the success toast.
       const report = await officecliSyncSkills()
@@ -317,9 +342,12 @@ export function OfficeToolsSettings() {
       }
       await refreshSkills()
     } catch (err) {
-      toast.error(t("toasts.installFailed"), {
-        description: toErrorMessage(err),
-      })
+      toast.error(
+        t(updating ? "toasts.updateFailed" : "toasts.installFailed"),
+        {
+          description: toErrorMessage(err),
+        }
+      )
       // The installer may have placed a present-but-unrunnable binary (e.g.
       // missing libicu on a Linux server); re-detect so the card shows the real
       // "installed but not runnable" state instead of staying stale.
@@ -330,7 +358,7 @@ export function OfficeToolsSettings() {
     // `installStream` is a fresh object each render, but its state lives in this
     // component so a streamed line already re-renders us; handleInstall identity
     // is immaterial (its only consumer isn't memoized).
-  }, [t, detect, refreshSkills, installStream])
+  }, [t, detect, refreshSkills, installStream, info?.updateRequired])
 
   const handleUninstall = useCallback(async () => {
     try {

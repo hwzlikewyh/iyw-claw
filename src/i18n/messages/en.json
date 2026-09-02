@@ -4487,10 +4487,12 @@
     "previewTitle": "SKILL.md preview",
     "detection": {
       "installed": "Installed",
+      "updateRequired": "Version too old — update required",
       "notInstalled": "Not installed",
       "notRunnable": "Installed but not runnable",
       "installHint": "Install OfficeCLI to enable office document generation skills for your AI agents.",
       "install": "Install",
+      "update": "Update",
       "uninstall": "Uninstall",
       "syncSkills": "Sync Skills"
     },
@@ -4520,7 +4522,9 @@
       "enableFailed": "Failed to enable skill",
       "disableFailed": "Failed to disable skill",
       "installSuccess": "OfficeCLI installed successfully",
+      "updateSuccess": "OfficeCLI updated successfully",
       "installFailed": "Failed to install OfficeCLI",
+      "updateFailed": "Failed to update OfficeCLI",
       "uninstallSuccess": "OfficeCLI uninstalled",
       "uninstallFailed": "Failed to uninstall OfficeCLI",
       "syncSuccess": "{synced} skills synced successfully",

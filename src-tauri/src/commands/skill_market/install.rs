@@ -57,12 +57,34 @@ pub async fn install_core(
         .to_string();
     let plan = request_install_plan(conn, requested_id, &requested_version).await?;
     validate_install_plan(&plan, requested_id, &requested_version)?;
+    if crate::commands::office_tools::is_officecli_skill_id(&plan.root_slug) {
+        return Err(AppCommandError::invalid_input(
+            "OfficeCLI skills are managed by iyw-claw and cannot be installed from Skill Market",
+        ));
+    }
+    let mut managed_office_slugs = BTreeSet::new();
+    for item in &plan.items {
+        if crate::commands::office_tools::is_officecli_skill_id(&item.slug) {
+            crate::commands::office_tools::ensure_managed_office_skill_ready(&item.slug)
+                .await
+                .map_err(|error| {
+                    AppCommandError::task_execution_failed(
+                        "OfficeCLI dependency is not ready for this Skill",
+                    )
+                    .with_detail(error.to_string())
+                })?;
+            managed_office_slugs.insert(item.slug.clone());
+        }
+    }
     let agent_types = validated_agent_targets_for_plan(conn, &plan, agent_types).await?;
     let root_slug = plan.root_slug.clone();
-    let package_count = plan.items.len();
+    let package_count = plan.items.len().saturating_sub(managed_office_slugs.len());
     let mut installs = Vec::with_capacity(package_count);
     let mut plugins = Vec::new();
     for item in plan.items {
+        if managed_office_slugs.contains(&item.slug) {
+            continue;
+        }
         let skill_id = item.skill_id.clone();
         let item_version = item.version.clone();
         let package_bytes = download_package(conn, &skill_id, &item_version, &item.download).await.map_err(|error| {

@@ -15,6 +15,7 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
+use semver::Version;
 use serde::Serialize;
 use tokio::sync::{watch, Mutex};
 
@@ -85,6 +86,8 @@ pub struct OfficecliInfo {
     pub installed: bool,
     pub version: Option<String>,
     pub path: Option<String>,
+    pub compatible: bool,
+    pub update_required: bool,
     /// Set when the binary file is present (`installed = true`) but actually
     /// running it failed — e.g. a self-contained-.NET startup failure from a
     /// missing system library (libicu) on a slim Linux server image. Carries a
@@ -246,6 +249,7 @@ fn find_skill_def(id: &str) -> Option<&'static SkillDef> {
 
 const OFFICECLI_BOOTSTRAP_MARKER: &str = ".officecli-bootstrap-complete.v1";
 const OFFICECLI_BOOTSTRAP_DISABLED_MARKER: &str = ".officecli-bootstrap-disabled.v1";
+const OFFICECLI_MINIMUM_VERSION: &str = "1.0.146";
 
 type OfficecliBootstrapResult = Result<SkillSyncReport, OfficeToolsError>;
 
@@ -330,6 +334,7 @@ fn officecli_bootstrap_disabled_marker_path(data_dir: &Path) -> PathBuf {
 fn officecli_bootstrap_assets_complete(info: &OfficecliInfo, skill_root: &Path) -> bool {
     info.installed
         && info.runtime_error.is_none()
+        && info.compatible
         && skill_defs()
             .iter()
             .all(|skill| skill_root.join(skill.id).join("SKILL.md").is_file())
@@ -585,6 +590,26 @@ struct OfficecliProbe {
     runtime_error: Option<String>,
 }
 
+fn parse_officecli_version(value: &str) -> Option<Version> {
+    let value = value.trim_matches(|c: char| !c.is_ascii_digit() && c != '.' && c != '-');
+    Version::parse(value).ok().or_else(|| {
+        let parts: Vec<_> = value.split('.').collect();
+        (parts.len() == 4 && parts[3].chars().all(|c| c.is_ascii_digit()))
+            .then(|| Version::parse(&parts[..3].join(".")).ok())
+            .flatten()
+    })
+}
+
+fn officecli_version_is_compatible(version: Option<&str>) -> bool {
+    version
+        .and_then(parse_officecli_version)
+        .is_some_and(|value| {
+            value
+                >= Version::parse(OFFICECLI_MINIMUM_VERSION)
+                    .expect("OFFICECLI_MINIMUM_VERSION must be valid semver")
+        })
+}
+
 /// Run `officecli --version` to learn the version AND confirm the binary can
 /// actually execute. A present-but-unrunnable binary (e.g. missing libicu on a
 /// slim Linux server) yields `runtime_error` so the UI can show "installed but
@@ -592,9 +617,13 @@ struct OfficecliProbe {
 async fn probe_officecli(binary: &Path) -> OfficecliProbe {
     match tokio_command(binary).arg("--version").output().await {
         Ok(output) if output.status.success() => {
-            let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let version = String::from_utf8_lossy(&output.stdout)
+                .split_whitespace()
+                .rev()
+                .find_map(parse_officecli_version)
+                .map(|value| value.to_string());
             OfficecliProbe {
-                version: (!version.is_empty()).then_some(version),
+                version,
                 runtime_error: None,
             }
         }
@@ -627,10 +656,14 @@ pub async fn officecli_detect() -> OfficecliInfo {
     match resolve_officecli() {
         Some(path) => {
             let probe = probe_officecli(&path).await;
+            let compatible = probe.runtime_error.is_none()
+                && officecli_version_is_compatible(probe.version.as_deref());
             OfficecliInfo {
                 installed: true,
                 version: probe.version,
                 path: Some(path.to_string_lossy().to_string()),
+                compatible,
+                update_required: probe.runtime_error.is_none() && !compatible,
                 runtime_error: probe.runtime_error,
             }
         }
@@ -638,6 +671,8 @@ pub async fn officecli_detect() -> OfficecliInfo {
             installed: false,
             version: None,
             path: None,
+            compatible: false,
+            update_required: false,
             runtime_error: None,
         },
     }
@@ -733,7 +768,7 @@ pub(crate) async fn officecli_install_core(
     // for the process-wide mutation lock. Re-check under the lock so concurrent
     // startup/manual requests never run the vendor installer twice.
     let existing = officecli_detect().await;
-    if existing.installed && existing.runtime_error.is_none() {
+    if existing.installed && existing.runtime_error.is_none() && existing.compatible {
         emit_officecli_install_event(
             emitter,
             &task_id,
@@ -861,6 +896,15 @@ async fn officecli_install_locked(
             runtime_error.clone(),
         );
         return Err(OfficeToolsError::CommandFailed(runtime_error.clone()));
+    }
+
+    if !info.compatible {
+        let current = info.version.as_deref().unwrap_or("unknown");
+        let msg = format!(
+            "OfficeCLI {current} is below the minimum compatible version {OFFICECLI_MINIMUM_VERSION}"
+        );
+        emit_officecli_install_event(emitter, &task_id, OfficecliInstallEventKind::Failed, &msg);
+        return Err(OfficeToolsError::CommandFailed(msg));
     }
 
     let done = match &info.version {
@@ -1261,6 +1305,52 @@ pub(crate) async fn officecli_sync_skills_core() -> Result<SkillSyncReport, Offi
     officecli_sync_skills_locked().await
 }
 
+/// Ensure one bundled OfficeCLI skill is available for a market package
+/// dependency. Market packages must not download or overwrite these reserved
+/// IDs; the Office Tools owner updates and synchronizes them instead.
+pub(crate) async fn ensure_managed_office_skill_ready(
+    skill_id: &str,
+) -> Result<(), OfficeToolsError> {
+    if find_skill_def(skill_id).is_none() {
+        return Err(OfficeToolsError::SkillNotFound(skill_id.to_string()));
+    }
+    let info = officecli_detect().await;
+    if !info.installed {
+        return Err(OfficeToolsError::NotInstalled);
+    }
+    if let Some(runtime_error) = info.runtime_error {
+        return Err(OfficeToolsError::CommandFailed(runtime_error));
+    }
+    let mut needs_sync = false;
+    if !info.compatible {
+        let current = info.version.as_deref().unwrap_or("unknown");
+        let data_dir = std::env::var_os("IYW_CLAW_DATA_DIR")
+            .map(PathBuf::from)
+            .or_else(|| dirs::data_dir().map(|path| path.join("iyw-claw")))
+            .unwrap_or_else(|| PathBuf::from(".iyw-claw-data"));
+        officecli_install_core(
+            &data_dir,
+            "skill-market-officecli-update".to_string(),
+            &EventEmitter::Noop,
+        )
+        .await
+        .map_err(|error| {
+            OfficeToolsError::CommandFailed(format!(
+                "OfficeCLI {current} requires update to {OFFICECLI_MINIMUM_VERSION}: {error}"
+            ))
+        })?;
+        needs_sync = true;
+    }
+    if needs_sync || !skill_central_path(skill_id).join("SKILL.md").is_file() {
+        officecli_sync_skills_core().await?;
+    }
+    if skill_central_path(skill_id).join("SKILL.md").is_file() {
+        Ok(())
+    } else {
+        Err(OfficeToolsError::SkillNotFound(skill_id.to_string()))
+    }
+}
+
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 pub async fn officecli_sync_skills(
@@ -1280,6 +1370,19 @@ pub async fn officecli_sync_skills(
 
 /// Sync the bundled OfficeCLI skills while the caller holds `mutation_lock`.
 async fn officecli_sync_skills_locked() -> Result<SkillSyncReport, OfficeToolsError> {
+    let info = officecli_detect().await;
+    if !info.installed {
+        return Err(OfficeToolsError::NotInstalled);
+    }
+    if let Some(runtime_error) = info.runtime_error {
+        return Err(OfficeToolsError::CommandFailed(runtime_error));
+    }
+    if !info.compatible {
+        return Err(OfficeToolsError::CommandFailed(format!(
+            "OfficeCLI {} is below the minimum compatible version {OFFICECLI_MINIMUM_VERSION}; update it before syncing skills",
+            info.version.as_deref().unwrap_or("unknown")
+        )));
+    }
     let binary = resolve_officecli().ok_or(OfficeToolsError::NotInstalled)?;
 
     let central_dir = central_experts_dir();
@@ -1370,7 +1473,7 @@ pub(crate) async fn officecli_bootstrap_core(
         },
         || async move {
             let info = officecli_detect().await;
-            if !info.installed {
+            if !info.installed || info.runtime_error.is_some() || !info.compatible {
                 emit_officecli_install_event(
                     emitter,
                     &task_id,

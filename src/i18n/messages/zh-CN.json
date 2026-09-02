@@ -4487,10 +4487,12 @@
     "previewTitle": "SKILL.md 预览",
     "detection": {
       "installed": "已安装",
+      "updateRequired": "版本过低，需要更新",
       "notInstalled": "未安装",
       "notRunnable": "已安装但无法运行",
       "installHint": "安装 OfficeCLI 以为 AI 智能体启用办公文档生成技能。",
       "install": "安装",
+      "update": "更新",
       "uninstall": "卸载",
       "syncSkills": "同步技能"
     },
@@ -4520,7 +4522,9 @@
       "enableFailed": "启用技能失败",
       "disableFailed": "禁用技能失败",
       "installSuccess": "OfficeCLI 安装成功",
+      "updateSuccess": "OfficeCLI 更新成功",
       "installFailed": "安装 OfficeCLI 失败",
+      "updateFailed": "更新 OfficeCLI 失败",
       "uninstallSuccess": "OfficeCLI 已卸载",
       "uninstallFailed": "卸载 OfficeCLI 失败",
       "syncSuccess": "已成功同步 {synced} 个技能",
