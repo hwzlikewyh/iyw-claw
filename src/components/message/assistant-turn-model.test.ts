@@ -18,8 +18,9 @@ describe("splitAssistantTurnParts", () => {
 
     const sections = splitAssistantTurnParts(parts, true)
 
-    expect(sections.processParts).toEqual(parts.slice(0, 3))
-    expect(sections.summaryParts).toEqual([parts[3]])
+    expect(sections.processParts).toEqual([parts[1]])
+    expect(sections.reasoningParts).toEqual([parts[0], parts[2]])
+    expect(sections.responseParts).toEqual([parts[3]])
     expect(sections.resultParts).toEqual([])
   })
 
@@ -37,8 +38,27 @@ describe("splitAssistantTurnParts", () => {
 
     const sections = splitAssistantTurnParts(parts, false)
 
-    expect(sections.processParts).toEqual([parts[0]])
+    expect(sections.processParts).toEqual([])
     expect(sections.resultParts).toEqual([result])
+    expect(sections.reasoningParts).toEqual([parts[0]])
+  })
+
+  it("does not create empty process rows for whitespace text", () => {
+    const sections = splitAssistantTurnParts(
+      [
+        { type: "text", text: "   " },
+        { type: "text", text: "过程说明" },
+        { type: "text", text: "最终答复" },
+      ],
+      true
+    )
+
+    expect(sections.processParts).toEqual([
+      { type: "text", text: "过程说明" },
+    ])
+    expect(sections.responseParts).toEqual([
+      { type: "text", text: "最终答复" },
+    ])
   })
 })
 
