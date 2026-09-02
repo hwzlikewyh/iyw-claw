@@ -12,6 +12,19 @@ on:
         required: true
         default: main
         type: string
+      windows_arches:
+        description: "Windows architectures to build"
+        required: true
+        default: x64
+        type: choice
+        options:
+          - x64
+          - both
+      run_macos:
+        description: "Also run the self-hosted macOS matrix"
+        required: true
+        default: false
+        type: boolean
       windows_proxy_url:
         description: "Optional HTTP proxy for the Windows runner (for example http://127.0.0.1:7890)"
         required: false
@@ -97,11 +110,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: x86_64-pc-windows-msvc
-            bundle: nsis
-          - target: i686-pc-windows-msvc
-            bundle: nsis
+        target: ${{ fromJSON(inputs.windows_arches == 'both' && '["x86_64-pc-windows-msvc","i686-pc-windows-msvc"]' || '["x86_64-pc-windows-msvc"]') }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -243,7 +252,7 @@ jobs:
           pnpm dlx --prefer-offline @tauri-apps/cli@2.11.4 build
           --target ${{ matrix.target }}
           --features tauri-runtime
-          --bundles ${{ matrix.bundle }}
+          --bundles nsis
           --config src-tauri/tauri.ci.conf.json
           ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
           --config "$env:IYW_CLAW_SIGN_CONFIG"
@@ -263,6 +272,7 @@ jobs:
 
   build-macos:
     name: macOS ${{ matrix.target }} on self-hosted
+    if: inputs.run_macos
     needs: prepare-frontend
     runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 120
