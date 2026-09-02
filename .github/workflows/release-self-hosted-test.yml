@@ -57,6 +57,7 @@ env:
 jobs:
   prepare-frontend:
     name: Prepare frontend input
+    if: inputs.run_macos
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout source
@@ -93,7 +94,6 @@ jobs:
 
   build-windows:
     name: Windows ${{ matrix.target }} on self-hosted
-    needs: prepare-frontend
     runs-on: [self-hosted, Windows, X64, iyw-signing]
     timeout-minutes: 120
     env:
@@ -205,19 +205,12 @@ jobs:
           rustup target add '${{ matrix.target }}' --toolchain stable
           rustc +stable --version
 
-      - name: Set test version
+      - name: Build frontend input locally
         shell: pwsh
-        run: node scripts/set-version.mjs "$env:TEST_VERSION"
-
-      - name: Clear stale frontend output
-        shell: pwsh
-        run: Remove-Item -LiteralPath out -Recurse -Force -ErrorAction SilentlyContinue
-
-      - name: Download frontend input
-        uses: actions/download-artifact@v4
-        with:
-          name: self-hosted-test-frontend-${{ inputs.version }}
-          path: out
+        run: |
+          pnpm install --frozen-lockfile --prefer-offline
+          node scripts/set-version.mjs "$env:TEST_VERSION"
+          pnpm build
 
       - name: Prepare sidecars
         shell: pwsh
