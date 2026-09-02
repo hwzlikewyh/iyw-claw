@@ -104,6 +104,7 @@ jobs:
       GIT_CONFIG_VALUE_0: HTTP/1.1
       HTTP_PROXY: ${{ inputs.windows_proxy_url }}
       HTTPS_PROXY: ${{ inputs.windows_proxy_url }}
+      NO_PROXY: .actions.githubusercontent.com,.blob.core.windows.net
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
