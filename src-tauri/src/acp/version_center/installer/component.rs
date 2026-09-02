@@ -351,7 +351,7 @@ pub(super) fn update_checkpoint_deferred(
     state.upsert_component(checkpoint);
 }
 
-pub(crate) fn empty_checkpoint(component_id: &str) -> super::state::ComponentCheckpoint {
+pub(super) fn empty_checkpoint(component_id: &str) -> super::state::ComponentCheckpoint {
     super::state::ComponentCheckpoint {
         component_id: component_id.to_string(),
         component_kind: "runtime_tool".to_string(),

@@ -33,49 +33,12 @@ pub(crate) async fn import_runtime_seed(
     let seed_root = request.resource_dir.join(SEED_DIR);
     if !seed_root.join("manifest.json").is_file() {
         tracing::info!("[runtime-seed] bundled seed is unavailable; using Version Center");
-        return Err(AppCommandError::not_found(
-            "Bundled runtime seed is unavailable",
-        ));
-    }
-    let manifest = RuntimeSeedManifest::read(&seed_root)?;
-    let mut failures = tools::import(&request, &seed_root, &manifest).await;
-    failures.extend(codex::import(&request, &seed_root, &manifest).await);
-    if failures.is_empty() {
         return Ok(());
     }
-    Err(
-        AppCommandError::invalid_input("Bundled runtime seed import failed")
-            .with_detail(failures.join("; ")),
-    )
-}
-
-pub(super) fn error_summary(error: &AppCommandError) -> String {
-    let summary = match error.detail.as_deref() {
-        Some(detail) if !detail.trim().is_empty() => {
-            format!("{}: {}", error.message, detail)
-        }
-        _ => error.message.clone(),
-    };
-    crate::acp::stderr_tail::sanitize_diagnostic(&summary)
-        .chars()
-        .take(512)
-        .collect()
-}
-
-pub(super) fn with_context(
-    error: AppCommandError,
-    seed_import_error: Option<&str>,
-) -> AppCommandError {
-    let Some(seed_error) = seed_import_error else {
-        return error;
-    };
-    let existing = error.detail.as_deref().unwrap_or_default();
-    let detail = if existing.is_empty() {
-        format!("bundled_seed={seed_error}")
-    } else {
-        format!("{existing}; bundled_seed={seed_error}")
-    };
-    error.with_detail(detail)
+    let manifest = RuntimeSeedManifest::read(&seed_root)?;
+    tools::import(&request, &seed_root, &manifest).await;
+    codex::import(&request, &seed_root, &manifest).await;
+    Ok(())
 }
 
 pub(crate) async fn import_runtime_seed_exclusive(
