@@ -264,6 +264,10 @@ jobs:
         uses: tauri-apps/tauri-action@v0.6.1
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
+          # agent-browser is a pinned vendor binary. Its exact source hash and
+          # size are verified before and after bundling; do not require a
+          # second Authenticode signature on that byte-identical sidecar.
+          TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
