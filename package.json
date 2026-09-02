@@ -29,6 +29,7 @@
     "tauri:prepare-sidecars": "node src-tauri/scripts/prepare-sidecars.mjs",
     "tauri:prepare-runtime-seed": "node src-tauri/scripts/prepare-runtime-seed.mjs",
     "tauri:verify-runtime-seed": "node src-tauri/scripts/verify-runtime-seed.mjs",
+    "tauri:verify-runtime-seed-bundle": "node src-tauri/scripts/verify-runtime-seed-bundle.mjs",
     "tauri:verify-bundle-size": "node src-tauri/scripts/verify-desktop-bundle-size.mjs",
     "tauri:verify-sidecars": "node src-tauri/scripts/verify-sidecar-bundle.mjs",
     "tauri:browser-smoke": "node src-tauri/scripts/verify-managed-browser-smoke.mjs",
