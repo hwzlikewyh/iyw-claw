@@ -13,6 +13,7 @@ use super::manifest::{
     PendingActivation,
 };
 use super::runtime::{read_current_pointer, restore_current_pointer, write_current_pointer};
+use super::state::{write_state, BootstrapState, InitPhase};
 use crate::acp::version_center::capability;
 use crate::acp::version_center::inventory::{self, ReadyToolInstallation};
 use crate::app_error::AppCommandError;
@@ -273,4 +274,27 @@ pub(super) async fn cleanup_remaining(
             super::bootstrap_component::cleanup_prepared_component(component).await;
         }
     }
+}
+
+pub(super) async fn mark_component_failed(
+    data_dir: &Path,
+    state: &mut BootstrapState,
+    manifest: &InventoryManifest,
+    tool_id: &str,
+    error: &AppCommandError,
+) -> Result<(), AppCommandError> {
+    state.set_phase(if manifest.entries.is_empty() {
+        InitPhase::Blocked
+    } else {
+        InitPhase::Degraded
+    });
+    if let Some(checkpoint) = state
+        .components
+        .iter_mut()
+        .find(|item| item.component_id == tool_id)
+    {
+        checkpoint.last_error = Some(error.message.clone());
+        checkpoint.phase = state.phase;
+    }
+    write_state(data_dir, state).await
 }

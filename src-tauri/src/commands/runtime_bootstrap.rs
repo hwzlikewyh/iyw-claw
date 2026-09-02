@@ -223,7 +223,7 @@ pub async fn runtime_bootstrap(
             {
                 tracing::warn!(
                     error_code = ?error.code,
-                    "[runtime-seed] bundled seed unavailable or rejected; continuing with Version Center"
+                    "[runtime-seed] seed manifest rejected; continuing with Version Center"
                 );
             }
         }

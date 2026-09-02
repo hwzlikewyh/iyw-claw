@@ -9,7 +9,6 @@ mod archive;
 mod bootstrap_commit;
 mod bootstrap_component;
 mod bootstrap_download;
-mod bootstrap_failure;
 mod bootstrap_finalize;
 mod bootstrap_reconcile;
 mod component;
@@ -36,7 +35,9 @@ pub(crate) use archive::{extract_tool_zip, locate_payload};
 pub use init::{bootstrap_init_status, bootstrap_initialize, InitStatusReport};
 pub use manifest::digest_managed_root;
 pub(crate) use manifest::{push_pending_activation, PendingActivation};
-pub use runtime::{managed_browser_engine_executable, managed_tool_executable};
+pub use runtime::{
+    managed_browser_engine_executable, managed_browser_engine_installation, managed_tool_executable,
+};
 pub(crate) use runtime::{runtime_dir, write_current_pointer};
 pub(crate) use runtime_bundle::{
     install_runtime_bundle, InstalledRuntimeBundle, RuntimeBundleInstallError, RuntimeBundleRequest,

@@ -106,6 +106,9 @@ pub async fn probe_payload(
     tool_id: &str,
     version: &str,
 ) -> Result<(), AppCommandError> {
+    if tool_id == "browser-engine" {
+        return ensure_tool_layout(root, tool_id);
+    }
     // Only the tool's own executable reports the managed version. Bundled companions
     // (npm, uvx) carry independent version numbers, so they are probed for successful
     // execution only -- matching them against the tool version always fails.
@@ -119,7 +122,6 @@ pub async fn probe_payload(
             vec![root.join(uv_relative_path("uv"))],
             vec![root.join(uv_relative_path("uvx"))],
         ),
-        "browser-engine" => (vec![root.join(browser_engine_relative_path())], Vec::new()),
         _ => return Err(AppCommandError::invalid_input("Unknown managed tool")),
     };
     let version_core = version.split('+').next().unwrap_or(version);
@@ -130,13 +132,8 @@ pub async fn probe_payload(
     };
     for command in versioned {
         let text = probe_version_output(&command, bin_dir.as_deref()).await?;
-        if tool_id != "browser-engine" && !text.contains(version_core) {
+        if !text.contains(version_core) {
             return Err(unexpected_version(tool_id, version_core, &text));
-        }
-        if tool_id == "browser-engine" && text.trim().is_empty() {
-            return Err(AppCommandError::task_execution_failed(
-                "Managed browser engine probe returned no version",
-            ));
         }
     }
     if tool_id == "node" {

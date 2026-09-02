@@ -110,8 +110,8 @@ OpenCLI 的 session/page identity 与内置浏览器的 `browserTabId` 不同，
 
 桌面应用安装包不包含 Chrome for Testing。首次启动完成后，应用在后台从 Fusion
 受管组件服务预下载 `browser-engine`，过程不打开浏览器窗口、不弹窗，也不唤醒系统
-Chrome/Edge。下载、摘要、签名、解压和可执行文件探测全部通过后才会激活版本；失败
-只保留已有的 last-known-good 版本。
+Chrome/Edge。下载、摘要、签名、解压、文件布局和受管 marker 校验全部通过后才会激活
+版本；启动阶段不会执行浏览器程序。失败只保留已有的 last-known-good 版本。
 
 用户首次打开内置浏览器时，如果后台下载仍在进行，前台请求会等待同一个安装任务，
 不会创建第二个下载。离线或未登录时，后台失败保持内部状态；用户主动重试时才显示
