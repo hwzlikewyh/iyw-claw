@@ -18,8 +18,8 @@ use std::path::Path;
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
 
+use super::bootstrap_commit::mark_component_failed;
 use super::bootstrap_component::prepare_tool_components;
-use super::bootstrap_failure::mark_component_failed;
 use super::bootstrap_finalize::commit_prepared_components;
 use super::bootstrap_reconcile::reconcile_active_components;
 use super::manifest::{
@@ -136,7 +136,6 @@ pub async fn bootstrap_initialize(
     // 一次性旧目录迁移（幂等 receipt）。
     let _migrated = run_legacy_migration(data_dir).await?.receipt_written;
 
-    let mut seed_import_error = None;
     if !defer_while_active {
         if let Some(resource_dir) = resource_dir {
             if let Err(error) =
@@ -149,11 +148,9 @@ pub async fn bootstrap_initialize(
                 })
                 .await
             {
-                seed_import_error = Some(super::runtime_seed::error_summary(&error));
                 tracing::warn!(
                     error_code = ?error.code,
-                    error_detail = %seed_import_error.as_deref().unwrap_or_default(),
-                    "[runtime-seed] bundled seed unavailable or rejected; continuing with Version Center"
+                    "[runtime-seed] seed manifest rejected; continuing with Version Center"
                 );
             }
         }
@@ -198,7 +195,6 @@ pub async fn bootstrap_initialize(
     {
         Ok(components) => components,
         Err((tool_id, error)) => {
-            let error = super::runtime_seed::with_context(error, seed_import_error.as_deref());
             mark_component_failed(data_dir, &mut state, &manifest, &tool_id, &error).await?;
             emit_init_event(
                 emitter,

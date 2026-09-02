@@ -19,18 +19,14 @@ pub(super) async fn import(
     request: &RuntimeSeedImport<'_>,
     seed_root: &Path,
     seed: &RuntimeSeedManifest,
-) -> Vec<String> {
+) {
     let mut manifest = match read_manifest(request.data_dir).await {
         Ok(value) => value,
         Err(error) => {
             log_component_error("tool-inventory", "read_manifest", &error);
-            return vec![format!(
-                "tool-inventory/read_manifest: {}",
-                super::error_summary(&error)
-            )];
+            return;
         }
     };
-    let mut failures = Vec::new();
     for tool_id in ["node", "git", "uv"] {
         let Some(component) = seed.component(tool_id) else {
             continue;
@@ -43,7 +39,6 @@ pub(super) async fn import(
             Ok(value) => value,
             Err(error) => {
                 log_component_error(tool_id, "stage", &error);
-                failures.push(format!("{tool_id}/stage: {}", super::error_summary(&error)));
                 continue;
             }
         };
@@ -64,16 +59,9 @@ pub(super) async fn import(
                 version = %outcome.version,
                 "[runtime-seed] tool imported and activated"
             ),
-            Err(error) => {
-                log_component_error(tool_id, "activate", &error);
-                failures.push(format!(
-                    "{tool_id}/activate: {}",
-                    super::error_summary(&error)
-                ));
-            }
+            Err(error) => log_component_error(tool_id, "activate", &error),
         }
     }
-    failures
 }
 
 async fn prepare(

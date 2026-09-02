@@ -9,7 +9,6 @@ mod archive;
 mod bootstrap_commit;
 mod bootstrap_component;
 mod bootstrap_download;
-mod bootstrap_failure;
 mod bootstrap_finalize;
 mod bootstrap_reconcile;
 mod component;

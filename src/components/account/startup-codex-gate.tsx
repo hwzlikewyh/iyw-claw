@@ -20,14 +20,14 @@ import {
   acpDetectAgentLocalVersion,
   acpListAgents,
   acpPrepareNpxAgent,
-  bootstrapInitialize,
   officecliBootstrap,
+  runtimeBootstrap,
 } from "@/lib/api"
 import { subscribe } from "@/lib/platform"
-import type { BootstrapInitEvent } from "@/lib/types"
+import type { RuntimeBootstrapEvent } from "@/lib/types"
 import { randomUUID } from "@/lib/utils"
 
-const BOOTSTRAP_INIT_EVENT = "app://bootstrap-init"
+const RUNTIME_BOOTSTRAP_EVENT = "app://runtime-bootstrap"
 
 type CodexBootstrapState =
   | "idle"
@@ -36,6 +36,8 @@ type CodexBootstrapState =
   | "installing"
   | "ready"
   | "error"
+
+type RuntimePercents = Partial<Record<"node" | "git" | "uv", number>>
 
 // The bootstrap steps, in order. Kept on screen with the failure so a report
 // says which one broke instead of only that something did.
@@ -46,7 +48,7 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
   const { status } = useIywAccount()
   const { refresh: refreshAgents } = useAcpAgents()
   const [state, setState] = useState<CodexBootstrapState>("idle")
-  const [bootstrapPercent, setBootstrapPercent] = useState<number | null>(null)
+  const [runtimePercents, setRuntimePercents] = useState<RuntimePercents>({})
   // Why the run failed. Without this the dialog blamed the network for every
   // failure, including bugs that had nothing to do with it, and a user report
   // carried no information at all.
@@ -80,23 +82,14 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
     if (!authenticated) return
     let disposed = false
     let unsubscribe: (() => void) | null = null
-    void subscribe<BootstrapInitEvent>(BOOTSTRAP_INIT_EVENT, (event) => {
-      if (event.taskId !== runtimeTaskIdRef.current) return
-      const activePhase = [
-        "downloading",
-        "staging",
-        "activating",
-        "health_check",
-      ].includes(event.phase)
-      if (!activePhase) return
-      setState((current) => (current === "checking" ? "runtime" : current))
-      if (event.phase === "downloading" && event.total && event.total > 0) {
-        setBootstrapPercent(
-          Math.min(
-            100,
-            Math.max(0, ((event.downloaded ?? 0) / event.total) * 100)
-          )
-        )
+    void subscribe<RuntimeBootstrapEvent>(RUNTIME_BOOTSTRAP_EVENT, (event) => {
+      if (event.task_id !== runtimeTaskIdRef.current) return
+      if (!event.component) return
+      if (event.kind === "progress" && event.percent != null) {
+        setState((current) => (current === "checking" ? "runtime" : current))
+        const component = event.component
+        const percent = event.percent
+        setRuntimePercents((current) => ({ ...current, [component]: percent }))
       }
     }).then((fn) => {
       if (disposed) fn()
@@ -125,7 +118,7 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
     if (runningRef.current) return
     runningRef.current = true
     setState("checking")
-    setBootstrapPercent(null)
+    setRuntimePercents({})
     setFailure(null)
     void bootstrapOfficeCli()
     // Which step is in flight, so the catch below can name it. Four different
@@ -151,29 +144,24 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
       // this call in the invisible checking state: ready components emit no
       // progress and therefore do not flash a bootstrap dialog.
       step = "runtime"
-      const runtimeReport = await bootstrapInitialize({
-        taskId: runtimeTaskIdRef.current,
-      })
-      if (runtimeReport.writerBusy || runtimeReport.phase === "retryable") {
-        throw new Error("另一个窗口正在准备运行环境，请稍后重试")
-      }
-      const requiredComponents = ["node", "git", "uv"]
-      const components = new Map(
-        runtimeReport.components.map((component) => [
-          component.componentId,
-          component,
-        ])
+      const runtimeReport = await runtimeBootstrap(runtimeTaskIdRef.current)
+      const failures = (
+        [
+          ["node", runtimeReport.node],
+          ["git", runtimeReport.git],
+          ["uv", runtimeReport.uv],
+        ] as const
+      ).filter(([, component]) =>
+        ["failed", "deferred"].includes(component.status)
       )
-      const failures = requiredComponents.flatMap((componentId) => {
-        const component = components.get(componentId)
-        if (!component) return [`${componentId}: unavailable`]
-        if (!component.installed || !component.active) {
-          return [`${componentId}: ${component.lastError ?? component.phase}`]
-        }
-        return []
-      })
       if (failures.length > 0) {
-        throw new Error(failures.join("\n"))
+        throw new Error(
+          failures
+            .map(
+              ([name, component]) => `${name}: ${component.detail ?? "failed"}`
+            )
+            .join("\n")
+        )
       }
       step = "detect"
       // The initial agent inventory already validates the active Codex
@@ -210,6 +198,14 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (status === "authenticated" && state === "idle") void bootstrap()
   }, [bootstrap, state, status])
+
+  const tracked = Object.values(runtimePercents)
+  const runtimePercent =
+    tracked.length > 0
+      ? Math.round(
+          tracked.reduce((sum, percent) => sum + percent, 0) / tracked.length
+        )
+      : null
 
   const title =
     state === "runtime"
@@ -254,7 +250,7 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
             <Progress
               value={
                 state === "runtime"
-                  ? (bootstrapPercent ?? 5)
+                  ? (runtimePercent ?? 5)
                   : state === "installing"
                     ? 75
                     : 30

@@ -97,16 +97,14 @@ pub(super) async fn ensure_component(
             }
             Err(error) => {
                 let allowed = fallback_allowed(&error);
-                let fallback_supported = cfg!(windows);
                 tracing::warn!(
                     decision = "managed_install_failed",
                     managed_error_code = ?error.code,
                     managed_detail_present = error.detail.is_some(),
                     fallback_allowed = allowed,
-                    fallback_supported,
                     "managed runtime install decision"
                 );
-                if allowed && fallback_supported {
+                if allowed {
                     install_fallback(data_dir, tool_id, task_id, emitter, &error).await
                 } else {
                     managed_failure(tool_id, task_id, emitter, error)
@@ -124,9 +122,6 @@ pub(super) async fn ensure_component(
 }
 
 fn fallback_allowed(error: &AppCommandError) -> bool {
-    if !cfg!(windows) {
-        return false;
-    }
     if error.code == AppErrorCode::NetworkError {
         return true;
     }

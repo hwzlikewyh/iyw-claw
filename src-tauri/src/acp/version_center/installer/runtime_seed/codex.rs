@@ -27,18 +27,13 @@ pub(super) async fn import(
     request: &RuntimeSeedImport<'_>,
     seed_root: &Path,
     manifest: &RuntimeSeedManifest,
-) -> Vec<String> {
+) {
     let Some(component) = manifest.component(COMPONENT) else {
-        return vec![format!("{COMPONENT}: component is missing")];
+        return;
     };
     if let Err(error) = import_inner(request, seed_root, component).await {
         log_component_error(COMPONENT, "import", &error);
-        return vec![format!(
-            "{COMPONENT}/import: {}",
-            super::error_summary(&error)
-        )];
     }
-    Vec::new()
 }
 
 async fn import_inner(
