@@ -15,7 +15,7 @@ describe("AssistantTurnContent", () => {
     vi.stubGlobal("cancelAnimationFrame", vi.fn())
   })
 
-  it("keeps process and deep thinking independently closed above the final answer", () => {
+  it("collapses the ordered process stream above the final answer", () => {
     render(
       <NextIntlClientProvider locale="zh-CN" messages={messages}>
         <AssistantTurnContent
@@ -46,16 +46,17 @@ describe("AssistantTurnContent", () => {
     expect(screen.queryByText("这是独立的思考内容。")).toBeNull()
 
     const process = screen.getByRole("button", { name: /已完成 3 秒/ })
-    const reasoning = screen.getByRole("button", { name: "深度思考" })
     fireEvent.click(process)
     expect(screen.getByText("这是执行过程说明。")).not.toBeNull()
-    expect(screen.queryByText("这是独立的思考内容。")).toBeNull()
-
-    fireEvent.click(reasoning)
     expect(screen.getByText("这是独立的思考内容。")).not.toBeNull()
+
+    const details = screen.getByText("这是执行过程说明。").closest(
+      ".assistant-process-viewport"
+    )
+    expect(details?.textContent).toContain("这是独立的思考内容。")
   })
 
-  it("keeps live response text outside the process viewport", () => {
+  it("keeps live body text inside the ordered process viewport", () => {
     render(
       <NextIntlClientProvider locale="zh-CN" messages={messages}>
         <AssistantTurnContent
@@ -83,7 +84,7 @@ describe("AssistantTurnContent", () => {
     )
 
     const response = screen.getByText("正在整理最终答复。")
-    expect(response.closest(".assistant-process-viewport")).toBeNull()
+    expect(response.closest(".assistant-process-viewport")).not.toBeNull()
     expect(document.querySelector(".assistant-process-viewport")).not.toBeNull()
   })
 })

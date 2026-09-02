@@ -24,9 +24,9 @@ export function splitAssistantTurnParts(
     : -1
 
   const processParts = parts.filter((part, index) => {
-    if (isResultPart(part) || part.type === "reasoning") return false
+    if (isResultPart(part)) return false
     if (part.type === "text") {
-      return Boolean(part.text.trim()) && complete && index !== summaryIndex
+      return Boolean(part.text.trim()) && index !== summaryIndex
     }
     return true
   })
@@ -34,7 +34,8 @@ export function splitAssistantTurnParts(
     (part, index): part is Extract<AdaptedContentPart, { type: "text" }> =>
       part.type === "text" &&
       Boolean(part.text.trim()) &&
-      (!complete || index === summaryIndex)
+      complete &&
+      index === summaryIndex
   )
 
   return {

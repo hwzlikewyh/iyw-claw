@@ -1,12 +1,10 @@
 "use client"
 
 import { memo, useMemo } from "react"
-import { Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { AgentIcon } from "@/components/agent-icon"
 import { AssistantProcessSurface } from "@/components/message/assistant-process-surface"
-import { AssistantReasoningSurface } from "@/components/message/assistant-reasoning-surface"
 import { ContentPartsRenderer } from "@/components/message/content-parts-renderer"
 import {
   countProcessItems,
@@ -55,7 +53,6 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
   conversationId,
   durationMs,
 }: AssistantTurnContentProps) {
-  const t = useTranslations("Folder.chat.messageList")
   const sections = useMemo(
     () => splitAssistantTurnParts(parts, isResponseComplete),
     [isResponseComplete, parts]
@@ -102,43 +99,19 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
     return (
       <div className="space-y-3">
         <AssistantIdentity agentType={agentType} />
-        {displayMode === "minimal" ? (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Loader2 className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />
-            {t("processRunning")}
-          </div>
-        ) : (
-          processSurface
-        )}
-        {sections.reasoningParts.length > 0 && (
-          <AssistantReasoningSurface
-            parts={sections.reasoningParts}
-            isResponseComplete={false}
-          />
-        )}
-        {responseContent}
+        {processCount > 0 ? processSurface : null}
         {sections.resultParts.length > 0 &&
           renderParts(sections.resultParts, `${entranceKey}:results`)}
       </div>
     )
   }
 
-  const hasVisibleResponse =
-    sections.responseParts.length > 0 || sections.resultParts.length > 0
-  const showProcess =
-    processCount > 0 &&
-    (displayMode !== "minimal" || processHasError || !hasVisibleResponse)
+  const showProcess = processCount > 0
 
   return (
     <div className="space-y-3">
       <AssistantIdentity agentType={agentType} />
       {showProcess ? processSurface : null}
-      {sections.reasoningParts.length > 0 ? (
-        <AssistantReasoningSurface
-          parts={sections.reasoningParts}
-          isResponseComplete
-        />
-      ) : null}
       {responseContent ? (
         <div className="assistant-turn-summary">{responseContent}</div>
       ) : null}
