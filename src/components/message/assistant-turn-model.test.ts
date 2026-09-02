@@ -73,12 +73,8 @@ describe("splitAssistantTurnParts", () => {
       true
     )
 
-    expect(sections.processParts).toEqual([
-      { type: "text", text: "过程说明" },
-    ])
-    expect(sections.responseParts).toEqual([
-      { type: "text", text: "最终答复" },
-    ])
+    expect(sections.processParts).toEqual([{ type: "text", text: "过程说明" }])
+    expect(sections.responseParts).toEqual([{ type: "text", text: "最终答复" }])
   })
 })
 

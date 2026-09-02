@@ -50,9 +50,9 @@ describe("AssistantTurnContent", () => {
     expect(screen.getByText("这是执行过程说明。")).not.toBeNull()
     expect(screen.getByText("这是独立的思考内容。")).not.toBeNull()
 
-    const details = screen.getByText("这是执行过程说明。").closest(
-      ".assistant-process-viewport"
-    )
+    const details = screen
+      .getByText("这是执行过程说明。")
+      .closest(".assistant-process-viewport")
     expect(details?.textContent).toContain("这是独立的思考内容。")
   })
 
