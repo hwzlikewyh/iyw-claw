@@ -39,6 +39,8 @@ mod control_waiter;
 #[cfg(feature = "tauri-runtime")]
 mod engine;
 #[cfg(feature = "tauri-runtime")]
+mod engine_download;
+#[cfg(feature = "tauri-runtime")]
 mod engine_prefetch;
 mod error;
 #[cfg(feature = "tauri-runtime")]
