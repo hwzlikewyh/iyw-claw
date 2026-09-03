@@ -834,11 +834,7 @@ impl ClaudeParser {
                 }
                 "assistant" => {
                     let timestamp = parse_timestamp(&value).unwrap_or_else(Utc::now);
-                    let uuid = value
-                        .get("uuid")
-                        .and_then(|u| u.as_str())
-                        .unwrap_or("")
-                        .to_string();
+                    let uuid = assistant_message_id(&value);
 
                     let msg_model = value
                         .get("message")
@@ -853,16 +849,19 @@ impl ClaudeParser {
                     let content = extract_assistant_content(&value);
                     let usage = extract_usage(&value);
 
-                    messages.push(UnifiedMessage {
-                        id: uuid,
-                        role: MessageRole::Assistant,
-                        content,
-                        timestamp,
-                        usage,
-                        duration_ms: None,
-                        model: msg_model,
-                        completed_at: Some(timestamp),
-                    });
+                    merge_assistant_message(
+                        &mut messages,
+                        UnifiedMessage {
+                            id: uuid,
+                            role: MessageRole::Assistant,
+                            content,
+                            timestamp,
+                            usage,
+                            duration_ms: None,
+                            model: msg_model,
+                            completed_at: Some(timestamp),
+                        },
+                    );
                 }
                 "system" => {
                     let subtype = value.get("subtype").and_then(|s| s.as_str()).unwrap_or("");
@@ -1295,6 +1294,40 @@ pub(crate) fn extract_assistant_content(value: &serde_json::Value) -> Vec<Conten
     }
 
     blocks
+}
+
+pub(crate) fn assistant_message_id(value: &serde_json::Value) -> String {
+    value
+        .get("message")
+        .and_then(|message| message.get("id"))
+        .and_then(|id| id.as_str())
+        .filter(|id| !id.trim().is_empty())
+        .or_else(|| value.get("uuid").and_then(|id| id.as_str()))
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Claude Code can persist several consecutive records for one assistant
+/// message id while it progresses from thinking to text/tool output.
+pub(crate) fn merge_assistant_message(
+    messages: &mut Vec<UnifiedMessage>,
+    incoming: UnifiedMessage,
+) {
+    if !matches!(incoming.role, MessageRole::Assistant) || incoming.id.is_empty() {
+        messages.push(incoming);
+        return;
+    }
+    let Some(existing) = messages.last_mut().filter(|message| {
+        matches!(message.role, MessageRole::Assistant) && message.id == incoming.id
+    }) else {
+        messages.push(incoming);
+        return;
+    };
+    existing.content.extend(incoming.content);
+    existing.completed_at = incoming.completed_at.or(existing.completed_at);
+    existing.usage = incoming.usage.or(existing.usage.take());
+    existing.duration_ms = incoming.duration_ms.or(existing.duration_ms);
+    existing.model = incoming.model.or_else(|| existing.model.take());
 }
 
 pub(crate) fn extract_usage(value: &serde_json::Value) -> Option<TurnUsage> {

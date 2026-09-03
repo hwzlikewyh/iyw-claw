@@ -35,7 +35,15 @@ function countToolCalls(message: LiveMessage | null): number {
     .length
 }
 
-function useElapsed(startedAt: number | null): number {
+function countOutputCharacters(message: LiveMessage | null): number {
+  return (message?.content ?? []).reduce(
+    (count, block) =>
+      block.type === "text" ? count + Array.from(block.text).length : count,
+    0
+  )
+}
+
+function useElapsed(startedAt: number | null): [number, number] {
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     if (startedAt === null) return
@@ -44,7 +52,7 @@ function useElapsed(startedAt: number | null): number {
     }, 1_000)
     return () => clearInterval(timer)
   }, [startedAt])
-  return startedAt === null ? 0 : Math.max(0, now - startedAt)
+  return [now, startedAt === null ? 0 : Math.max(0, now - startedAt)]
 }
 
 export function LiveTurnStats({
@@ -59,7 +67,19 @@ export function LiveTurnStats({
 }: LiveTurnStatsProps) {
   const t = useTranslations("Folder.chat.liveTurnStats")
   const startedAt = message?.startedAt ?? null
-  const elapsed = useElapsed(startedAt)
+  const [now, elapsed] = useElapsed(startedAt)
+  const outputRateLabel = useMemo(() => {
+    const outputCharacters = countOutputCharacters(message)
+    if (outputCharacters === 0) return null
+    // Older snapshots do not carry firstTextAt; startedAt is a conservative
+    // fallback so a refreshed in-progress turn still exposes a useful rate.
+    const firstTextAt = message?.firstTextAt ?? startedAt
+    if (firstTextAt === null) return null
+    const seconds = Math.max(1, (now - firstTextAt) / 1_000)
+    return t("outputRate", {
+      rate: Math.round(outputCharacters / seconds),
+    })
+  }, [message, now, startedAt, t])
   const resolvedPlanEntries = useMemo(
     () => planEntries ?? getLatestPlanEntries(message),
     [message, planEntries]
@@ -80,6 +100,7 @@ export function LiveTurnStats({
       planEntries={resolvedPlanEntries}
       completedPlanCount={completedPlanCount}
       elapsedLabel={elapsedLabel}
+      outputRateLabel={outputRateLabel}
       toolCallCount={countToolCalls(message)}
       subAgentControl={subAgentControl}
       trailingStatus={trailingStatus}

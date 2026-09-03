@@ -37,6 +37,13 @@ impl RuntimeHostReservation {
         self.shared = true;
     }
 
+    pub(crate) fn keep_warm(mut self) {
+        if self.armed {
+            self.host.release_route_reservation(false);
+            self.armed = false;
+        }
+    }
+
     pub(crate) fn register_route(
         &mut self,
         connection_id: String,
