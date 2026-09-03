@@ -289,8 +289,14 @@ jobs:
             "--config", $env:IYW_CLAW_SIGN_CONFIG,
             "--config", $bundleConfig
           )
-          pnpm exec @arguments
-          if ($LASTEXITCODE -ne 0) { throw "signed Tauri build failed" }
+          $buildLog = Join-Path $env:RUNNER_TEMP "tauri-signed-build-$target.log"
+          Remove-Item -LiteralPath $buildLog -Force -ErrorAction SilentlyContinue
+          pnpm exec @arguments 2>&1 | Tee-Object -FilePath $buildLog
+          $buildExitCode = $LASTEXITCODE
+          if (Select-String -LiteralPath $buildLog -SimpleMatch '[sign-windows][ERROR]' -Quiet) {
+            throw "a signing command failed even though the bundler continued"
+          }
+          if ($buildExitCode -ne 0) { throw "signed Tauri build failed" }
 
       - name: Verify Authenticode signatures
         shell: pwsh
