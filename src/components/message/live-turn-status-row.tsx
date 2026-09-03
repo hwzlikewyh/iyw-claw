@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import { useTranslations } from "next-intl"
 import {
   CircleDashed,
+  Gauge,
   ListTodoIcon,
   Loader2,
   Square,
@@ -36,6 +37,7 @@ interface LiveTurnStatusRowProps {
   planEntries: PlanEntryInfo[]
   completedPlanCount: number
   elapsedLabel: string | null
+  outputRateLabel: string | null
   toolCallCount: number
   isAwaitingUserInput?: boolean
   subAgentControl?: ReactNode
@@ -74,7 +76,7 @@ function currentPlanStep(entries: PlanEntryInfo[]): string | null {
 function phaseLabel(
   message: LiveMessage | null,
   planEntries: PlanEntryInfo[],
-  workingLabel: string
+  labels: { working: string; thinking: string; streaming: string }
 ): string {
   const toolTitle = latestActiveTool(message)?.title.trim()
   if (toolTitle) return toolTitle
@@ -82,7 +84,12 @@ function phaseLabel(
   const planStep = currentPlanStep(planEntries)
   if (planStep) return planStep
 
-  return workingLabel
+  for (let index = (message?.content.length ?? 0) - 1; index >= 0; index -= 1) {
+    const block = message?.content[index]
+    if (block?.type === "text" && block.text.trim()) return labels.streaming
+    if (block?.type === "thinking") return labels.thinking
+  }
+  return labels.working
 }
 
 function PlanProgress({
@@ -205,6 +212,15 @@ function TurnFacts(props: LiveTurnStatusRowProps) {
           </span>
         </>
       )}
+      {props.outputRateLabel && (
+        <>
+          <Separator responsive />
+          <span className="inline-flex items-center gap-1">
+            <Gauge className="size-3 shrink-0" />
+            {props.outputRateLabel}
+          </span>
+        </>
+      )}
       {props.toolCallCount > 0 && (
         <>
           <Separator responsive />
@@ -224,7 +240,11 @@ export function LiveTurnStatusRow(props: LiveTurnStatusRowProps) {
   const t = useTranslations("Folder.chat.liveTurnStats")
   const phase = props.isAwaitingUserInput
     ? t("awaitingUser")
-    : phaseLabel(props.message, props.planEntries, t("working"))
+    : phaseLabel(props.message, props.planEntries, {
+        working: t("working"),
+        thinking: t("thinking", { model: "原助理" }),
+        streaming: t("streaming", { model: "原助理" }),
+      })
 
   return (
     <div className="@container/turnstats shrink-0">

@@ -228,7 +228,10 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
       )
     }
     const visibleParts = parts.filter(
-      (part) => part.type === "text" || isVisibleResultPart(part)
+      (part) =>
+        part.type === "text" ||
+        isReasoningPart(part) ||
+        isVisibleResultPart(part)
     )
     return (
       <div className="space-y-2">

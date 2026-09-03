@@ -179,6 +179,7 @@ export interface LiveMessage {
   role: "assistant" | "tool"
   content: LiveContentBlock[]
   startedAt: number
+  firstTextAt?: number | null
 }
 
 // ── Per-connection state ──
@@ -1082,6 +1083,7 @@ function ensureLiveMessage(prev: LiveMessage | null): LiveMessage {
     role: "assistant",
     content: [],
     startedAt: Date.now(),
+    firstTextAt: null,
   }
 }
 
@@ -1127,7 +1129,14 @@ function applyStreamingAction(
   if (!newContent) return null
   return {
     ...conn,
-    liveMessage: { ...prev, content: newContent },
+    liveMessage: {
+      ...prev,
+      content: newContent,
+      firstTextAt:
+        action.type === "CONTENT_DELTA" && prev.firstTextAt == null
+          ? Date.now()
+          : prev.firstTextAt,
+    },
     // Streaming content implies the SDK has recovered from any in-flight
     // Claude API retry, so hide the retry banner immediately instead of
     // waiting for the prompt cycle to end.
@@ -1138,7 +1147,6 @@ function applyStreamingAction(
 const OUT_OF_TURN_TOOL_CALL_CAP = 8
 const OVERLAY_FOLD_THRESHOLD = 60
 const OVERLAY_FOLD_MIN_INTERVAL_MS = 30_000
-const STREAM_FLUSH_VISIBLE_MS = 16
 const STREAM_FLUSH_HIDDEN_MS = 250
 const STREAM_BATCH_VISIBLE_CAP = 256
 const STREAM_BATCH_HIDDEN_CAP = 1_024
@@ -2913,6 +2921,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   const lastActivityRef = useRef(new Map<string, number>())
   const streamingQueueRef = useRef<StreamingAction[]>([])
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flushRafRef = useRef<number | null>(null)
   const pendingUnmappedEventsRef = useRef(new Map<string, EventEnvelope[]>())
   const recoveringContextKeysRef = useRef(new Set<string>())
   const pendingRecoveryEventsRef = useRef(new Map<string, EventEnvelope[]>())
@@ -3268,6 +3277,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       clearTimeout(flushTimerRef.current)
       flushTimerRef.current = null
     }
+    if (flushRafRef.current !== null) {
+      cancelAnimationFrame(flushRafRef.current)
+      flushRafRef.current = null
+    }
     const queued = streamingQueueRef.current
     if (queued.length === 0) return
     streamingQueueRef.current = []
@@ -3313,12 +3326,25 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           clearTimeout(flushTimerRef.current)
           flushTimerRef.current = null
         }
+        if (flushRafRef.current !== null) {
+          cancelAnimationFrame(flushRafRef.current)
+          flushRafRef.current = null
+        }
         flushStreamingQueue()
         return
       }
-      if (flushTimerRef.current === null) {
-        const delay = hidden ? STREAM_FLUSH_HIDDEN_MS : STREAM_FLUSH_VISIBLE_MS
-        flushTimerRef.current = setTimeout(flushStreamingQueue, delay)
+      if (hidden) {
+        if (flushTimerRef.current === null) {
+          flushTimerRef.current = setTimeout(
+            flushStreamingQueue,
+            STREAM_FLUSH_HIDDEN_MS
+          )
+        }
+      } else if (flushRafRef.current === null) {
+        flushRafRef.current = requestAnimationFrame(() => {
+          flushRafRef.current = null
+          flushStreamingQueue()
+        })
       }
     },
     [flushStreamingQueue]
@@ -4540,6 +4566,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         clearTimeout(flushTimerRef.current)
         flushTimerRef.current = null
       }
+      if (flushRafRef.current !== null) {
+        cancelAnimationFrame(flushRafRef.current)
+        flushRafRef.current = null
+      }
       streamingQueueRef.current = []
       unlisten?.()
     }
@@ -4557,9 +4587,23 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       if (document.visibilityState === "visible") {
         flushStreamingQueue()
         flushPendingToolCallUpdates()
-      } else if (pendingToolCallUpdates.current.length > 0) {
-        clearToolCallUpdateSchedule()
-        scheduleToolCallUpdateFlush()
+      } else {
+        if (streamingQueueRef.current.length > 0) {
+          if (flushRafRef.current !== null) {
+            cancelAnimationFrame(flushRafRef.current)
+            flushRafRef.current = null
+          }
+          if (flushTimerRef.current === null) {
+            flushTimerRef.current = setTimeout(
+              flushStreamingQueue,
+              STREAM_FLUSH_HIDDEN_MS
+            )
+          }
+        }
+        if (pendingToolCallUpdates.current.length > 0) {
+          clearToolCallUpdateSchedule()
+          scheduleToolCallUpdateFlush()
+        }
       }
       const contextKey = storeRef.current.activeKey
       if (!contextKey) return

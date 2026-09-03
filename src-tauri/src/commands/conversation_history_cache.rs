@@ -12,6 +12,7 @@ use super::conversation_history_cache_prune::{prune, remove_old_generations};
 
 pub const HISTORY_PAGE_TURNS: usize = 120;
 const HISTORY_CACHE_DIR: &str = "conversation-history";
+const HISTORY_CACHE_PARSER_REVISION: u8 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PageMeta {
@@ -22,6 +23,8 @@ struct PageMeta {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct HistoryCacheIndex {
     revision: String,
+    #[serde(default)]
+    parser_revision: u8,
     pub(super) directory: String,
     total_turns: usize,
     #[serde(default)]
@@ -60,6 +63,9 @@ pub fn load(
     let root = cache_dir();
     let index: HistoryCacheIndex =
         serde_json::from_slice(&fs::read(index_path(&root, conversation_id)).ok()?).ok()?;
+    if index.parser_revision != HISTORY_CACHE_PARSER_REVISION {
+        return None;
+    }
     let page = select_page(&index.pages, before)?;
     let mut detail: DbConversationDetail = serde_json::from_slice(
         &fs::read(
@@ -171,6 +177,7 @@ fn store_inner(
     };
     let index = HistoryCacheIndex {
         revision: cache_revision,
+        parser_revision: HISTORY_CACHE_PARSER_REVISION,
         directory: generation.clone(),
         total_turns: detail.turns.len(),
         transcript_watermark: detail.transcript_watermark,
@@ -197,6 +204,9 @@ fn newer_index_exists(
     let Ok(existing) = serde_json::from_slice::<HistoryCacheIndex>(&bytes) else {
         return false;
     };
+    if existing.parser_revision != HISTORY_CACHE_PARSER_REVISION {
+        return false;
+    }
     let existing_revision = revision_timestamp(&existing.revision);
     let incoming_revision = revision_timestamp(revision);
     if let Some((existing, incoming)) = existing_revision.zip(incoming_revision) {
