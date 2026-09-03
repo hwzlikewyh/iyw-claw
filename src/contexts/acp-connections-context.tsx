@@ -1138,7 +1138,6 @@ function applyStreamingAction(
 const OUT_OF_TURN_TOOL_CALL_CAP = 8
 const OVERLAY_FOLD_THRESHOLD = 60
 const OVERLAY_FOLD_MIN_INTERVAL_MS = 30_000
-const STREAM_FLUSH_VISIBLE_MS = 16
 const STREAM_FLUSH_HIDDEN_MS = 250
 const STREAM_BATCH_VISIBLE_CAP = 256
 const STREAM_BATCH_HIDDEN_CAP = 1_024
@@ -2913,6 +2912,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   const lastActivityRef = useRef(new Map<string, number>())
   const streamingQueueRef = useRef<StreamingAction[]>([])
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flushRafRef = useRef<number | null>(null)
   const pendingUnmappedEventsRef = useRef(new Map<string, EventEnvelope[]>())
   const recoveringContextKeysRef = useRef(new Set<string>())
   const pendingRecoveryEventsRef = useRef(new Map<string, EventEnvelope[]>())
@@ -3264,6 +3264,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   )
 
   const flushStreamingQueue = useCallback(() => {
+    if (flushRafRef.current !== null) {
+      cancelAnimationFrame(flushRafRef.current)
+      flushRafRef.current = null
+    }
     if (flushTimerRef.current !== null) {
       clearTimeout(flushTimerRef.current)
       flushTimerRef.current = null
@@ -3316,9 +3320,21 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         flushStreamingQueue()
         return
       }
-      if (flushTimerRef.current === null) {
-        const delay = hidden ? STREAM_FLUSH_HIDDEN_MS : STREAM_FLUSH_VISIBLE_MS
-        flushTimerRef.current = setTimeout(flushStreamingQueue, delay)
+      if (hidden) {
+        if (flushTimerRef.current === null) {
+          flushTimerRef.current = setTimeout(
+            flushStreamingQueue,
+            STREAM_FLUSH_HIDDEN_MS
+          )
+        }
+      } else if (flushRafRef.current === null) {
+        // Align visible updates with the browser's paint cycle. A fixed
+        // timeout can be delayed behind a busy WebView and leave the UI on a
+        // stale "waiting" label even though deltas are already queued.
+        flushRafRef.current = requestAnimationFrame(() => {
+          flushRafRef.current = null
+          flushStreamingQueue()
+        })
       }
     },
     [flushStreamingQueue]
@@ -4539,6 +4555,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       if (flushTimerRef.current !== null) {
         clearTimeout(flushTimerRef.current)
         flushTimerRef.current = null
+      }
+      if (flushRafRef.current !== null) {
+        cancelAnimationFrame(flushRafRef.current)
+        flushRafRef.current = null
       }
       streamingQueueRef.current = []
       unlisten?.()

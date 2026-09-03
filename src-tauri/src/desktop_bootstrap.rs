@@ -232,9 +232,20 @@ fn rebase_profile_overrides(config: &mut AgentStorageConfig, source: &Path, sele
 }
 
 fn discover_stale_profile_root(selected_root: &Path) -> Option<PathBuf> {
+    stale_roots_from_codex(selected_root)
+        .into_iter()
+        .chain(stale_root_from_hermes(selected_root))
+        .find(|root| !same_path(root, selected_root))
+}
+
+fn stale_roots_from_codex(selected_root: &Path) -> Vec<PathBuf> {
     let path = selected_root.join("config/codex/config.toml");
-    let raw = std::fs::read_to_string(path).ok()?;
-    let value = raw.parse::<toml::Value>().ok()?;
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(value) = raw.parse::<toml::Value>() else {
+        return Vec::new();
+    };
     let catalog_root = value
         .get("model_catalog_json")
         .and_then(toml::Value::as_str)
@@ -245,11 +256,24 @@ fn discover_stale_profile_root(selected_root: &Path) -> Option<PathBuf> {
         .and_then(|table| table.get("command"))
         .and_then(toml::Value::as_str)
         .and_then(root_from_managed_tool_path);
-    [command_root, catalog_root]
-        .into_iter()
-        .flatten()
-        .filter(|root| !same_path(root, selected_root))
-        .next()
+    [command_root, catalog_root].into_iter().flatten().collect()
+}
+
+fn stale_root_from_hermes(selected_root: &Path) -> Option<PathBuf> {
+    let path = selected_root.join("config/hermes/config.yaml");
+    let raw = std::fs::read_to_string(path).ok()?;
+    let value = serde_yaml::from_str::<serde_yaml::Value>(&raw).ok()?;
+    let command = yaml_value(&value, "mcp_servers")
+        .and_then(|value| yaml_value(value, "open-computer-use"))
+        .and_then(|value| yaml_value(value, "command"))
+        .and_then(serde_yaml::Value::as_str)?;
+    root_from_managed_tool_path(command)
+}
+
+fn yaml_value<'a>(value: &'a serde_yaml::Value, key: &str) -> Option<&'a serde_yaml::Value> {
+    value
+        .as_mapping()?
+        .get(serde_yaml::Value::String(key.to_string()))
 }
 
 fn root_from_catalog_path(value: &str) -> Option<PathBuf> {
@@ -265,6 +289,9 @@ fn root_from_catalog_path(value: &str) -> Option<PathBuf> {
 
 fn root_from_managed_tool_path(value: &str) -> Option<PathBuf> {
     let path = Path::new(value);
+    if !path.is_absolute() {
+        return None;
+    }
     let components: Vec<_> = path.components().collect();
     let runtime_index = components.windows(2).position(|pair| {
         pair[0].as_os_str() == OsStr::new("runtime") && pair[1].as_os_str() == OsStr::new("npm")

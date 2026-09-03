@@ -42,13 +42,7 @@ pub(super) async fn detect_engine(data_root: &Path) -> Result<BrowserEngine, Bro
         });
     }
     #[cfg(target_os = "windows")]
-    if let Some(engine) = probe_engine(
-        BrowserEngineKind::Chromium,
-        super::engine_download::managed_engine_path(data_root),
-        None,
-    )
-    .await
-    {
+    if let Some(engine) = super::engine_download::detect_cached_engine(data_root).await {
         return Ok(engine);
     }
     Err(managed_engine_not_found())
