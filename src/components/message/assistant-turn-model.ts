@@ -2,7 +2,6 @@ import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 
 export interface AssistantTurnSections {
   processParts: AdaptedContentPart[]
-  reasoningParts: Extract<AdaptedContentPart, { type: "reasoning" }>[]
   resultParts: AdaptedContentPart[]
   responseParts: Extract<AdaptedContentPart, { type: "text" }>[]
 }
@@ -23,11 +22,11 @@ export function splitAssistantTurnParts(
       )
     : -1
 
-  // Keep body text and tool events in source order. Once a turn completes,
-  // only the last non-empty text block is promoted to the visible summary;
-  // everything else remains available in the collapsible execution stream.
+  // Keep thinking, body text, and tool events in source order. Once a turn
+  // completes, only the last non-empty text block is promoted to the visible
+  // summary; everything else remains in one collapsible process stream.
   const processParts = parts.filter((part, index) => {
-    if (isResultPart(part) || part.type === "reasoning") return false
+    if (isResultPart(part)) return false
     if (part.type === "text") {
       return Boolean(part.text.trim()) && index !== summaryIndex
     }
@@ -43,10 +42,6 @@ export function splitAssistantTurnParts(
 
   return {
     processParts,
-    reasoningParts: parts.filter(
-      (part): part is Extract<AdaptedContentPart, { type: "reasoning" }> =>
-        part.type === "reasoning"
-    ),
     resultParts: parts.filter(isResultPart),
     responseParts,
   }

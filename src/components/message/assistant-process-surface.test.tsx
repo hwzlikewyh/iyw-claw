@@ -13,13 +13,19 @@ const reasoningPart = {
   isStreaming: true,
 }
 
-function ProcessSurface({ complete = false }: { complete?: boolean }) {
+function ProcessSurface({
+  complete = false,
+  hasError = false,
+}: {
+  complete?: boolean
+  hasError?: boolean
+}) {
   return (
     <NextIntlClientProvider locale="zh-CN" messages={messages}>
       <AssistantProcessSurface
         parts={[{ ...reasoningPart, isStreaming: !complete }]}
         processCount={1}
-        processHasError={false}
+        processHasError={hasError}
         entranceKey="test-turn"
         animationEnabled={false}
         isResponseComplete={complete}
@@ -75,5 +81,11 @@ describe("AssistantProcessSurface", () => {
     expect(trigger.getAttribute("data-state")).toBe("closed")
     expect(screen.queryByText("正在分析现有实现。")).toBeNull()
     vi.useRealTimers()
+  })
+
+  it("keeps error details inside the process stream without a summary badge", () => {
+    render(<ProcessSurface complete hasError />)
+
+    expect(screen.queryByText("包含错误")).toBeNull()
   })
 })

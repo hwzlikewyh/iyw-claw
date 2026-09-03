@@ -15,7 +15,7 @@ describe("AssistantTurnContent", () => {
     vi.stubGlobal("cancelAnimationFrame", vi.fn())
   })
 
-  it("keeps process and deep thinking independently collapsed", () => {
+  it("keeps thinking and process events in one ordered collapsed stream", () => {
     render(
       <NextIntlClientProvider locale="zh-CN" messages={messages}>
         <AssistantTurnContent
@@ -46,13 +46,10 @@ describe("AssistantTurnContent", () => {
     expect(screen.queryByText("这是独立的思考内容。")).toBeNull()
 
     const process = screen.getByRole("button", { name: /已完成 3 秒/ })
-    const reasoning = screen.getByRole("button", { name: "深度思考" })
     fireEvent.click(process)
     expect(screen.getByText("这是执行过程说明。")).not.toBeNull()
-    expect(screen.queryByText("这是独立的思考内容。")).toBeNull()
-
-    fireEvent.click(reasoning)
     expect(screen.getByText("这是独立的思考内容。")).not.toBeNull()
+    expect(screen.queryByRole("button", { name: "深度思考" })).toBeNull()
   })
 
   it("keeps live body text inside the ordered process viewport", () => {

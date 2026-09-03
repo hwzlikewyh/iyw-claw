@@ -7,7 +7,6 @@ import { useTranslations } from "next-intl"
 import { Shimmer } from "@/components/ai-elements/shimmer"
 import { ContentPartsRenderer } from "@/components/message/content-parts-renderer"
 import { OnceEntrance } from "@/components/message/message-entrance"
-import { Badge } from "@/components/ui/badge"
 import {
   Collapsible,
   CollapsibleContent,
@@ -160,11 +159,6 @@ export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
             </span>
           )}
         </span>
-        {props.processHasError && (
-          <Badge variant="destructive" className="h-5 shrink-0 text-[10px]">
-            {t("processHasErrors")}
-          </Badge>
-        )}
       </CollapsibleTrigger>
       <CollapsibleContent className="assistant-process-content">
         <div className="relative">

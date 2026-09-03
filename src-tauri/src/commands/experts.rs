@@ -1683,6 +1683,9 @@ fn link_central_skill_locked(
 
     require_private_agent_storage_for_write()?;
     let link_path = agent_link_path(agent_type, &expert_id)?;
+    if is_bundled_expert_id(expert_id) {
+        repair_bundled_skill_collision(expert_id, agent_type)?;
+    }
     let change = reconcile_managed_link_entry(&central, &link_path, true)
         .map_err(|error| experts_error_from_managed(error, &link_path))?;
     let copy_mode = matches!(change, ManagedLinkChange::Linked { copy_mode: true });
@@ -1745,6 +1748,103 @@ fn ensure_builtin_gateway_skill_ready_blocking(
     }
     ensure_gateway_reference_files(&expert_central_path(CAPABILITY_GATEWAY_EXPERT_ID))?;
     link_central_skill_locked(CAPABILITY_GATEWAY_EXPERT_ID, agent_type)
+}
+
+fn repair_bundled_skill_collision(
+    expert_id: &str,
+    agent_type: AgentType,
+) -> Result<(), ExpertsError> {
+    let central = expert_central_path(expert_id);
+    let link_path = agent_link_path(agent_type, expert_id)?;
+    if classify_link(&link_path, &central) != ExpertLinkState::BlockedByRealDirectory {
+        return Ok(());
+    }
+    // 内置 Skill 归原助理强制管理，旧安装复制出的目录不能阻断更新。
+    // 替换时必须覆盖其中的脚本和说明文件；唯一例外是 .venv 与
+    // node_modules 等运行环境，它们需要迁入中央目录并额外保留备份。
+    preserve_runtime_envs_for_bundled_link(&link_path, &central)?;
+    tracing::warn!(
+        target: "system_skills",
+        agent = %agent_type,
+        skill_id = expert_id,
+        path = %link_path.display(),
+        "replacing a copied built-in Skill with the managed link"
+    );
+    let backup = bundled_skill_repair_backup(expert_id, agent_type)?;
+    fs::rename(&link_path, &backup)?;
+    if let Err(error) = create_link_raw(&central, &link_path) {
+        let _ = fs::rename(&backup, &link_path);
+        return Err(ExpertsError::Io(error.to_string()));
+    }
+    if let Err(error) = clear_bundled_skill_contents(&backup, expert_id) {
+        tracing::warn!(
+            target: "system_skills",
+            skill_id = expert_id,
+            path = %backup.display(),
+            error = %error,
+            "managed link repaired but copied built-in Skill cleanup failed"
+        );
+    } else if retained_runtime_env_dir(&backup).is_none() {
+        let _ = remove_skill_entry(&backup);
+    }
+    Ok(())
+}
+
+fn bundled_skill_repair_backup(
+    expert_id: &str,
+    agent_type: AgentType,
+) -> Result<PathBuf, ExpertsError> {
+    let paths = crate::acp::agent_storage::AgentStoragePaths::active()
+        .ok_or(ExpertsError::AgentStorageNotInitialized)?;
+    let root = paths
+        .trash_dir()
+        .join("bundled-skill-link-repair")
+        .join(crate::acp::registry::registry_id_for(agent_type));
+    fs::create_dir_all(&root)?;
+    Ok(root.join(format!(
+        "{expert_id}-{}-{}",
+        Utc::now().timestamp_millis(),
+        uuid::Uuid::new_v4().simple()
+    )))
+}
+
+fn preserve_runtime_envs_for_bundled_link(
+    source: &Path,
+    central: &Path,
+) -> Result<(), ExpertsError> {
+    for name in RUNTIME_ENV_DIR_NAMES {
+        let source_env = source.join(name);
+        let central_env = central.join(name);
+        if !source_env.is_dir() || central_env.exists() {
+            continue;
+        }
+        copy_runtime_env_atomically(&source_env, &central_env)?;
+        tracing::info!(
+            target: "system_skills",
+            skill_id = central.file_name().and_then(OsStr::to_str).unwrap_or_default(),
+            runtime = name,
+            "preserved bundled Skill runtime environment in central store"
+        );
+    }
+    Ok(())
+}
+
+fn copy_runtime_env_atomically(source: &Path, target: &Path) -> Result<(), ExpertsError> {
+    let name = target
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("runtime");
+    let staging = target.with_file_name(format!(
+        ".{name}.iyw-link-repair-{}-{}.tmp",
+        std::process::id(),
+        uuid::Uuid::new_v4().simple()
+    ));
+    let result = copy_dir_recursive(source, &staging).and_then(|_| fs::rename(&staging, target));
+    if let Err(error) = result {
+        let _ = remove_skill_entry(&staging);
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 fn ensure_gateway_reference_files(central: &Path) -> Result<(), ExpertsError> {
