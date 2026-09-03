@@ -112,7 +112,6 @@ jobs:
           $staging = Join-Path $env:RUNNER_TEMP 'iyw-windows-staging'
           Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $staging | Out-Null
-          Copy-Item -LiteralPath out -Destination (Join-Path $staging 'out') -Recurse -Force
           New-Item -ItemType Directory -Force -Path (Join-Path $staging 'src-tauri') | Out-Null
           Copy-Item -LiteralPath src-tauri\binaries -Destination (Join-Path $staging 'src-tauri\binaries') -Recurse -Force
           Copy-Item -LiteralPath src-tauri\resources\runtime-seed -Destination (Join-Path $staging 'src-tauri\resources\runtime-seed') -Recurse -Force
@@ -133,12 +132,15 @@ jobs:
             files = $manifestFiles
           }
           $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $staging 'staging-manifest.json') -Encoding utf8NoBOM
+          $archive = Join-Path $env:RUNNER_TEMP 'iyw-windows-staging.zip'
+          Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $archive -CompressionLevel Fastest
 
       - name: Upload unsigned staging artifact
         uses: actions/upload-artifact@v4
         with:
           name: staged-windows-x86_64-${{ inputs.version }}
-          path: ${{ runner.temp }}/iyw-windows-staging/**
+          path: ${{ runner.temp }}/iyw-windows-staging.zip
           if-no-files-found: error
           retention-days: 2
 
@@ -186,11 +188,28 @@ jobs:
         shell: pwsh
         run: node scripts/set-version.mjs "$env:TEST_VERSION"
 
+      - name: Rebuild frontend assets
+        shell: pwsh
+        run: |
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { throw "frontend rebuild failed" }
+
       - name: Download unsigned staging artifact
         uses: actions/download-artifact@v4
         with:
           name: staged-windows-x86_64-${{ inputs.version }}
-          path: ${{ runner.temp }}/iyw-windows-staging
+          path: ${{ runner.temp }}/iyw-windows-staging-download
+
+      - name: Extract unsigned staging artifact
+        shell: pwsh
+        env:
+          IYW_CLAW_STAGING_DIR: ${{ runner.temp }}\iyw-windows-staging
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'iyw-windows-staging-download\iyw-windows-staging.zip'
+          if (!(Test-Path -LiteralPath $archive -PathType Leaf)) { throw "staging archive is missing: $archive" }
+          Remove-Item -LiteralPath $env:IYW_CLAW_STAGING_DIR -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $env:IYW_CLAW_STAGING_DIR | Out-Null
+          Expand-Archive -LiteralPath $archive -DestinationPath $env:IYW_CLAW_STAGING_DIR -Force
 
       - name: Finalize, sign, and verify installer
         shell: pwsh
