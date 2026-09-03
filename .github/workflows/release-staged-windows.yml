@@ -1,0 +1,212 @@
+name: Staged Windows Signing Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Test version without v"
+        required: true
+        type: string
+      source_ref:
+        description: "Commit, branch, or tag to build"
+        required: true
+        default: main
+        type: string
+      windows_proxy_url:
+        description: "Optional HTTP proxy for the Windows runner"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staged-windows-signing-${{ inputs.version }}
+  cancel-in-progress: true
+
+env:
+  HUSKY: "0"
+  RUST_BACKTRACE: short
+  TEST_VERSION: ${{ inputs.version }}
+
+jobs:
+  build-staging:
+    name: Build unsigned Windows staging input
+    runs-on: windows-2022
+    timeout-minutes: 120
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
+    env:
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
+      CARGO_PROFILE_RELEASE_LTO: thin
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      HTTP_PROXY: ${{ inputs.windows_proxy_url }}
+      HTTPS_PROXY: ${{ inputs.windows_proxy_url }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+
+      - id: source
+        name: Pin source commit
+        shell: pwsh
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          "sha=$sha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Install dependencies and set version
+        shell: pwsh
+        run: |
+          pnpm install --frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { throw "pnpm install failed" }
+          node scripts/set-version.mjs "$env:TEST_VERSION"
+          if ($LASTEXITCODE -ne 0) { throw "version update failed" }
+
+      - name: Build frontend and stage sidecars
+        shell: pwsh
+        env:
+          IYW_CLAW_BROWSER_SIDECAR_EXCLUDED: ""
+        run: |
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { throw "frontend build failed" }
+          pnpm tauri:prepare-sidecars --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "sidecar preparation failed" }
+          node src-tauri/scripts/verify-sidecar-bundle.mjs --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "sidecar verification failed" }
+
+      - name: Prepare runtime seed
+        shell: pwsh
+        env:
+          IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}\iyw-runtime-seed-cache
+        run: |
+          pnpm tauri:prepare-runtime-seed --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "runtime seed preparation failed" }
+          pnpm tauri:verify-runtime-seed --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "runtime seed verification failed" }
+
+      - name: Build unsigned staging binary
+        shell: pwsh
+        env:
+          IYW_CLAW_SKIP_SIDECAR: "1"
+          TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
+        run: |
+          pnpm exec tauri build --target x86_64-pc-windows-msvc --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.runtime-seed.conf.json --no-bundle --no-sign
+          if ($LASTEXITCODE -ne 0) { throw "unsigned staging binary build failed" }
+          $status = (Get-AuthenticodeSignature -LiteralPath src-tauri\target\x86_64-pc-windows-msvc\release\iyw-claw.exe).Status
+          if ($status -ne 'NotSigned') { throw "staging binary must be unsigned, found $status" }
+
+      - name: Assemble staging artifact and manifest
+        shell: pwsh
+        run: |
+          $staging = Join-Path $env:RUNNER_TEMP 'iyw-windows-staging'
+          Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          Copy-Item -LiteralPath out -Destination (Join-Path $staging 'out') -Recurse -Force
+          New-Item -ItemType Directory -Force -Path (Join-Path $staging 'src-tauri') | Out-Null
+          Copy-Item -LiteralPath src-tauri\binaries -Destination (Join-Path $staging 'src-tauri\binaries') -Recurse -Force
+          Copy-Item -LiteralPath src-tauri\resources\runtime-seed -Destination (Join-Path $staging 'src-tauri\resources\runtime-seed') -Recurse -Force
+          Copy-Item -LiteralPath src-tauri\tauri.runtime-seed.conf.json -Destination (Join-Path $staging 'src-tauri\tauri.runtime-seed.conf.json') -Force
+          $targetRoot = 'src-tauri\target\x86_64-pc-windows-msvc\release'
+          New-Item -ItemType Directory -Force -Path (Join-Path $staging $targetRoot) | Out-Null
+          Copy-Item -LiteralPath (Join-Path $targetRoot 'iyw-claw.exe') -Destination (Join-Path $staging "$targetRoot\iyw-claw.exe") -Force
+          $files = @(Get-ChildItem -LiteralPath $staging -Recurse -File)
+          $manifestFiles = @($files | ForEach-Object {
+            $path = $_.FullName.Substring($staging.Length + 1).Replace('\', '/')
+            [ordered]@{ path = $path; size = $_.Length; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
+          })
+          $manifest = [ordered]@{
+            schemaVersion = 1
+            version = $env:TEST_VERSION
+            sourceCommit = '${{ steps.source.outputs.sha }}'
+            target = 'x86_64-pc-windows-msvc'
+            files = $manifestFiles
+          }
+          $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $staging 'staging-manifest.json') -Encoding utf8NoBOM
+
+      - name: Upload unsigned staging artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: staged-windows-x86_64-${{ inputs.version }}
+          path: ${{ runner.temp }}/iyw-windows-staging/**
+          if-no-files-found: error
+          retention-days: 2
+
+      - name: Show sccache statistics
+        if: always()
+        shell: pwsh
+        run: sccache --show-stats
+
+  finalize-signing:
+    name: Sign staged Windows bundle with SafeNet
+    needs: build-staging
+    runs-on: [self-hosted, Windows, X64, iyw-signing]
+    timeout-minutes: 120
+    env:
+      IYW_CLAW_SIGN_MODE: signtool
+      IYW_CLAW_SIGN_REQUIRED: "1"
+      IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
+      HTTP_PROXY: ${{ inputs.windows_proxy_url }}
+      HTTPS_PROXY: ${{ inputs.windows_proxy_url }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.build-staging.outputs.source_sha }}
+          clean: false
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install local CLI dependencies
+        shell: pwsh
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Set version
+        shell: pwsh
+        run: node scripts/set-version.mjs "$env:TEST_VERSION"
+
+      - name: Download unsigned staging artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: staged-windows-x86_64-${{ inputs.version }}
+          path: ${{ runner.temp }}/iyw-windows-staging
+
+      - name: Finalize, sign, and verify installer
+        shell: pwsh
+        env:
+          IYW_CLAW_SKIP_SIDECAR: "1"
+          IYW_CLAW_STAGING_DIR: ${{ runner.temp }}\iyw-windows-staging
+          TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
+        run: node src-tauri/scripts/finalize-staged-windows.mjs
+
+      - name: Upload final signed artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-windows-x86_64-${{ inputs.version }}
+          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 2
