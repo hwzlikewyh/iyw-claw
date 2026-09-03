@@ -50,9 +50,9 @@ than inventing a virtual ID.
 Make image hosting part of the document's portability before registration:
 
 1. Reuse an already verified public HTTPS image URL when one exists.
-2. For newly generated or local images, load `iyw-image-workflows` and use its
-   validated `upload` path when the user permits external storage. Use the URL
-   returned only after TOS upload and image check succeed.
+2. For newly generated or local images, call `generate_iyw_image`. The gateway
+   uploads non-URL input to TOS and returns a public HTTPS result URL without
+   calling `checkImage`.
 3. Write that verified public URL into HTML `<img src>` or Markdown image link.
 4. Reopen/read the document or inspect its source to verify every image
    reference is intentional and has no local absolute path or temporary token.
@@ -65,12 +65,10 @@ local/offline. If TOS upload is unavailable or fails, do not fabricate a URL;
 use a workspace-relative path only when the recipient can access the
 same artifact directory, and state the portability limitation.
 
-If the image is an IYW product/material/knowledge or commerce asset, the domain
-Skill owns upload, image checking, and business workflow. If it is free raster
-creation/editing or an explicit GPT Image request, use `imagegen` for generation
-and then handle any user-approved hosting through its returned verified URL or
-the appropriate IYW upload path. `analyze_image` and `show_image` do not upload
-or generate images.
+For image production, call `generate_iyw_image`; it owns input preparation,
+generation/editing, result waiting, display, and public URL delivery. Keep
+knowledge retrieval separate through `search_iyw_knowledge`. `analyze_image`
+and `show_image` do not upload or generate images.
 
 ## Preview and Browser Presentation
 

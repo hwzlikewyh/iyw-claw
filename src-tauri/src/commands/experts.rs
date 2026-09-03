@@ -47,15 +47,12 @@ static AGENT_BROWSER_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/agent-browser");
 static WECOM_UNIFIED_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/wecom-unified");
-static IMAGEGEN_BUNDLE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/experts/skills/imagegen");
 static PLUGIN_CREATOR_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/plugin-creator");
 static SKILL_CREATOR_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/skill-creator");
 static SKILL_INSTALLER_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/skill-installer");
-static IYW_IMAGE_WORKFLOWS_BUNDLE: Dir<'_> =
-    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/iyw-image-workflows");
 static OPEN_COMPUTER_USE_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/open-computer-use");
 static EXPERTS_TOML_CONTENT: &str =
@@ -68,12 +65,14 @@ const EXPERTS_TOML: &str = "experts.toml";
 const MANAGED_COPY_MARKER_FILE: &str = ".iyw-claw-managed-copy.json";
 const MANAGED_COPY_MARKER_VERSION: u8 = 1;
 pub(crate) const CAPABILITY_GATEWAY_EXPERT_ID: &str = "iyw-capability-gateway";
-pub(crate) const RETIRED_BUNDLED_EXPERT_IDS: [&str; 5] = [
+pub(crate) const RETIRED_BUNDLED_EXPERT_IDS: [&str; 7] = [
     "self-improving",
     "lixiao-workflows",
     "iyw-copyright-registration",
     "iyw-crm-workflows",
     "iyw-sales-assistant-workflows",
+    "iyw-image-workflows",
+    "imagegen",
 ];
 /// Directories that hold installed runtime dependencies. They are expensive to
 /// rebuild (network installs, native compilation), so refreshes preserve them
@@ -596,11 +595,9 @@ fn bundled_skill_dir(expert_id: &str) -> Option<&'static Dir<'static>> {
         "iyw-capability-gateway" => Some(&IYW_CAPABILITY_GATEWAY_BUNDLE),
         "agent-browser" => Some(&AGENT_BROWSER_BUNDLE),
         "wecom-unified" => Some(&WECOM_UNIFIED_BUNDLE),
-        "imagegen" => Some(&IMAGEGEN_BUNDLE),
         "plugin-creator" => Some(&PLUGIN_CREATOR_BUNDLE),
         "skill-creator" => Some(&SKILL_CREATOR_BUNDLE),
         "skill-installer" => Some(&SKILL_INSTALLER_BUNDLE),
-        "iyw-image-workflows" => Some(&IYW_IMAGE_WORKFLOWS_BUNDLE),
         "open-computer-use" => Some(&OPEN_COMPUTER_USE_BUNDLE),
         _ => None,
     }

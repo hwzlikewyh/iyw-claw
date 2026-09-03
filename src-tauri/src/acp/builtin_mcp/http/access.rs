@@ -11,7 +11,10 @@ use super::{AuthHttpState, SESSION_HEADER};
 use crate::acp::builtin_mcp::authority::SessionContext;
 use crate::acp::builtin_mcp::binding::Principal;
 
-const MAX_BODY_BYTES: usize = 1024 * 1024;
+// `generate_iyw_image` accepts a 20 MiB decoded base64 image. Its JSON payload
+// expands to roughly 27 MiB, so keep the HTTP gate aligned with the existing
+// 32 MiB broker frame cap while the image loader enforces the decoded limit.
+const MAX_BODY_BYTES: usize = 32 * 1024 * 1024;
 
 pub(super) struct AuthenticatedAccess {
     pub(super) context: SessionContext,

@@ -101,20 +101,6 @@ en = "Works with WeCom contacts, documents, mail, schedules, tasks, and messages
 "zh-CN" = "使用企业微信通讯录、文档、邮件、日程、待办和消息能力。"
 
 [[expert]]
-id = "imagegen"
-category = "codex_native"
-icon = "Image"
-sort_order = 300
-
-[expert.display_name]
-en = "Image Generation"
-"zh-CN" = "图像生成"
-
-[expert.description]
-en = "Primary ordinary text-to-image and editing route using the live IYW Fusion image model catalog; IYW business workflows remain separate."
-"zh-CN" = "普通文生图与图片编辑的首选入口，使用爱原物 Fusion 实时图片模型目录；IYW 商业工作流继续独立处理。"
-
-[[expert]]
 id = "plugin-creator"
 category = "codex_native"
 icon = "Puzzle"
@@ -155,20 +141,6 @@ en = "Skill Installer"
 [expert.description]
 en = "Installs Agent skills from curated or repository sources."
 "zh-CN" = "从精选来源或代码仓库安装 Agent 技能。"
-
-[[expert]]
-id = "iyw-image-workflows"
-category = "image"
-icon = "Images"
-sort_order = 280
-
-[expert.display_name]
-en = "IYW Image Workflows"
-"zh-CN" = "爱原物图片工作流"
-
-[expert.description]
-en = "Primary workflow for IYW business images, materials, editing, upload, review, and knowledge; ordinary text-to-image uses Image Generation."
-"zh-CN" = "爱原物商业图片、素材、编辑、上传、审查与知识任务的首选工作流；普通文生图使用图像生成。"
 
 [[expert]]
 id = "open-computer-use"

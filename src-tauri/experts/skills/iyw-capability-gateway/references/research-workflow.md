@@ -29,8 +29,11 @@ variants covering terminology, counterarguments, geography/date, and the user's
 decision criteria. For current events, include a news/current-date variant.
 
 Use the gateway's live catalog to find available search, browser, code, video,
-or platform capabilities. The top-level MCP still has only the gateway trio.
-Read the returned schema before every distinct capability family.
+or platform capabilities. The top-level MCP exposes the capability trio plus
+`generate_iyw_image`, `search_iyw_knowledge`, and `manage_iyw_memory`; use the
+three direct tools for their exact domains and use the trio for every other
+capability family. Read the returned schema before every distinct trio-routed
+capability family.
 
 ## 3. Collect sources
 
@@ -98,9 +101,8 @@ then register the final file through `iyw.artifacts.present.v1`. Do not register
 source files, caches, logs, temporary fetches, or internal notes. A URL or preview
 alone is not proof of Artifact registration.
 
-If the report is HTML or Markdown and embeds images, prefer the validated
-`iyw-image-workflows` upload path for new/local images and write only the
-verified public HTTPS URL returned after the upload/check. Do not embed
+If the report is HTML or Markdown and embeds images, use the public HTTPS URL
+returned by `generate_iyw_image` for new/local images. Do not embed
 presigned URLs, temporary signed query URLs, or local absolute paths. Respect
 privacy and local-only requirements; if hosting is unavailable, use a valid
 workspace-relative fallback and state the limitation.

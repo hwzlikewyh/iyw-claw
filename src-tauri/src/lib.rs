@@ -1004,7 +1004,7 @@ mod tauri_app {
                         ),
                     );
                     match tauri::async_runtime::block_on(
-                        crate::acp::builtin_mcp::BuiltinMcpService::start(listener),
+                        crate::acp::builtin_mcp::BuiltinMcpService::start(listener, db_conn.clone()),
                     ) {
                         Ok(service) => {
                             cm_state.install_builtin_mcp(service.client());

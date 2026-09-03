@@ -24,6 +24,7 @@ use super::http::AuthenticatedRequest;
 use super::invocation::{
     ensure_active, execute_invocation, InvocationContext, InvocationDependencies,
 };
+use super::iyw_service::IywGatewayService;
 use super::receipt::DeliveryReceiptRegistry;
 use super::result::catalog_error;
 use super::runtime::RuntimeRegistry;
@@ -35,6 +36,7 @@ pub(super) struct BuiltinMcpHandler {
     runtimes: Arc<RuntimeRegistry>,
     receipts: DeliveryReceiptRegistry,
     lifecycle: Arc<Mutex<()>>,
+    iyw: Arc<IywGatewayService>,
 }
 
 impl BuiltinMcpHandler {
@@ -43,12 +45,14 @@ impl BuiltinMcpHandler {
         runtimes: Arc<RuntimeRegistry>,
         receipts: DeliveryReceiptRegistry,
         lifecycle: Arc<Mutex<()>>,
+        iyw: Arc<IywGatewayService>,
     ) -> Self {
         Self {
             listener,
             runtimes,
             receipts,
             lifecycle,
+            iyw,
         }
     }
 
@@ -67,7 +71,6 @@ impl BuiltinMcpHandler {
             parts.extensions.get::<RelayDelivery>().cloned(),
         ))
     }
-
     async fn call(
         &self,
         request: CallToolRequestParams,
@@ -168,9 +171,33 @@ impl BuiltinMcpHandler {
                 }
                 result
             }
+            GatewayAction::Image(arguments) => {
+                let result = self.iyw.generate_image(&authority, arguments).await;
+                log_direct_result(&trace, &result);
+                result
+            }
+            GatewayAction::Knowledge(arguments) => {
+                let result = self.iyw.search_knowledge(arguments).await;
+                log_direct_result(&trace, &result);
+                result
+            }
+            GatewayAction::MemoryGroup(request) => {
+                let request_id = serde_json::to_value(&context.id)
+                    .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
+                let result = super::iyw_memory::invoke(
+                    self.invocation_dependencies(),
+                    authority,
+                    delivery,
+                    request,
+                    request_id,
+                    context.ct,
+                )
+                .await;
+                log_direct_result(&trace, &result);
+                result
+            }
         }
     }
-
     async fn invoke_plugin(
         &self,
         invocation: crate::plugin_runtime::types::PluginToolCall,
@@ -201,6 +228,13 @@ impl BuiltinMcpHandler {
             receipts: &self.receipts,
             lifecycle: &self.lifecycle,
         }
+    }
+}
+
+fn log_direct_result(trace: &GatewayCallTrace, result: &Result<CallToolResult, ErrorData>) {
+    match result {
+        Ok(value) => trace.log_result(value),
+        Err(error) => trace.log_error(invocation_error_stage(error), error),
     }
 }
 

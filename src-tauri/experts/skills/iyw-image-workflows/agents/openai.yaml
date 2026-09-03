@@ -1,7 +1,0 @@
-interface:
-  display_name: "IYW 图片工作流"
-  short_description: "IYW 图片工具、商品套图、趋势知识与 Agent 工作流"
-  default_prompt: "使用 $iyw-image-workflows 处理 IYW 产品、商品套图、素材、趋势、知识库、上传审查或商业图片任务；单张基准图且只要一张设计图时直接复用极速路径：variation、modelChannel=2、batchSize=1，并在同一命令中等待结果，不先搜索、研究、记忆、浏览器、文档或规划。只有用户明确指定专用工具、同系列延展、多图融合、搜索/知识依据或企划文档时，才读取场景手册并进入对应流程；普通纯文生图、动漫和人物形象优先交给 $imagegen，只有用户明确要求 IYW 分身或多平台比稿时才用 fission-generate。验证结果后交付最终文件或 URL；不要向用户暴露接口、payload、内部 ID、provider 或 channel。"
-
-policy:
-  allow_implicit_invocation: true

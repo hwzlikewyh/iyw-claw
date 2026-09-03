@@ -32,7 +32,7 @@ Use a concise, outcome-first response by default. Include necessary errors, veri
 
 ## Managed capabilities
 
-For browser, memory, image, audio, artifact, channel, automation, or other host work, load the matching installed Skill and reference before acting. Follow its current capability catalog and verify the business result; do not run unrelated discovery for a self-contained local task.
+For browser, audio, artifact, channel, automation, or other host work, load the matching installed Skill and reference before acting. For image production/editing use the visible `generate_iyw_image` tool directly; for independent IYW knowledge use `search_iyw_knowledge`; for memory use `manage_iyw_memory`. Do not read image workflow Skills or run capability discovery before these direct tools. Follow current schemas and verify the business result; do not run unrelated discovery for a self-contained local task.
 
 ## Runtime commands
 
