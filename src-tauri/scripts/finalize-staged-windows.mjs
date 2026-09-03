@@ -31,7 +31,6 @@ const MANIFEST_PATH = join(STAGING_ROOT, "staging-manifest.json")
 const CLI = join(ROOT, "node_modules", "@tauri-apps", "cli", "tauri.js")
 const TARGET_RELEASE = join("src-tauri", "target", TARGET, "release")
 const ALLOWED_PREFIXES = [
-  "out/",
   "src-tauri/binaries/",
   "src-tauri/resources/runtime-seed/",
 ]
@@ -115,7 +114,6 @@ function verifyManifest() {
 
 function restoreStaging() {
   const directories = [
-    "out",
     join("src-tauri", "binaries"),
     join("src-tauri", "resources", "runtime-seed"),
   ]

@@ -112,7 +112,6 @@ jobs:
           $staging = Join-Path $env:RUNNER_TEMP 'iyw-windows-staging'
           Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $staging | Out-Null
-          Copy-Item -LiteralPath out -Destination (Join-Path $staging 'out') -Recurse -Force
           New-Item -ItemType Directory -Force -Path (Join-Path $staging 'src-tauri') | Out-Null
           Copy-Item -LiteralPath src-tauri\binaries -Destination (Join-Path $staging 'src-tauri\binaries') -Recurse -Force
           Copy-Item -LiteralPath src-tauri\resources\runtime-seed -Destination (Join-Path $staging 'src-tauri\resources\runtime-seed') -Recurse -Force
@@ -188,6 +187,12 @@ jobs:
       - name: Set version
         shell: pwsh
         run: node scripts/set-version.mjs "$env:TEST_VERSION"
+
+      - name: Rebuild frontend assets
+        shell: pwsh
+        run: |
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { throw "frontend rebuild failed" }
 
       - name: Download unsigned staging artifact
         uses: actions/download-artifact@v4

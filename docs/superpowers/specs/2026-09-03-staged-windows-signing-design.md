@@ -20,7 +20,6 @@
 
 staging artifact 内部包含：
 
-- `out/` 前端静态输出；
 - `src-tauri/binaries/` 已校验的 sidecar；
 - `src-tauri/resources/runtime-seed/` 及生成的 runtime overlay；
 - `src-tauri/target/x86_64-pc-windows-msvc/release/iyw-claw.exe` 已编译但未签名的应用输入；
@@ -30,9 +29,10 @@ staging artifact 内部包含：
 finalize 脚本在任何签名动作前校验 manifest、版本、target、文件存在性和哈希；不匹配
 时立即失败。
 
-为避免 GitHub artifact 多文件传输在自托管 runner 上长时间停滞，workflow 将上述目录
-作为单个 `iyw-windows-staging.zip` 上传，签名 job 下载后解压到临时目录，再执行相同
-的 manifest 校验。ZIP 只是传输封装，不改变 manifest 中的路径和 SHA-256 契约。
+为避免 GitHub artifact 传输大量可重建的前端静态文件，staging 不跨 runner 传输 `out/`。
+签名 job 在固定 source checkout 后重新执行 `pnpm build`，再下载包含二进制输入的单个
+`iyw-windows-staging.zip` 并解压。随后仍执行相同的 manifest 校验；ZIP 只是传输封装，
+不改变跨 runner 文件的 SHA-256 契约。
 
 ## Signing Order
 
