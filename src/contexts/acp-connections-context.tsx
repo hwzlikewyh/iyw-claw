@@ -3899,7 +3899,15 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         case "error": {
           // Stream disconnect is completed by the following TurnComplete event.
           // Keep this transport detail silent in the user-facing UI.
-          if (e.code === "stream_disconnected") {
+          // A stall timeout is also non-terminal: the backend has only sent a
+          // generation-checked cancellation request and the Agent may still
+          // acknowledge it normally. Rendering it as an error here makes a
+          // recoverable internal transition look like a failed turn; the
+          // terminal `prompt_stall_disconnect` event remains user-visible.
+          if (
+            e.code === "stream_disconnected" ||
+            e.code === "prompt_stall_timeout"
+          ) {
             break
           }
           flushStreamingQueue()

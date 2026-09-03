@@ -59,6 +59,7 @@ jobs:
       CARGO_PROFILE_RELEASE_LTO: ${{ matrix.lto }}
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: ${{ contains(toJSON(matrix.runner), 'self-hosted') && 'false' || 'true' }}
+      NO_PROXY: ${{ contains(matrix.target, 'windows') && '.actions.githubusercontent.com,.blob.core.windows.net' || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
