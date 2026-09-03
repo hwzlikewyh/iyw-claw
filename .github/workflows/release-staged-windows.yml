@@ -12,11 +12,6 @@ on:
         required: true
         default: main
         type: string
-      signing_proxy_url:
-        description: "Optional HTTP proxy for the SafeNet signing runner"
-        required: false
-        default: ""
-        type: string
 
 permissions:
   contents: read
@@ -167,8 +162,6 @@ jobs:
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
-      HTTP_PROXY: ${{ inputs.signing_proxy_url }}
-      HTTPS_PROXY: ${{ inputs.signing_proxy_url }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
