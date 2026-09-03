@@ -191,6 +191,20 @@ jobs:
           }
           Write-Host "MSVC installation: $vsPath"
 
+      - name: Preflight Authenticode token
+        shell: pwsh
+        run: |
+          $probe = Join-Path $env:RUNNER_TEMP 'iyw-signing-preflight.exe'
+          Copy-Item -LiteralPath (Get-Command node).Source -Destination $probe -Force
+          try {
+            node src-tauri/scripts/sign-windows.mjs $probe
+            if ($LASTEXITCODE -ne 0) {
+              throw "Authenticode token preflight failed with exit code $LASTEXITCODE"
+            }
+          } finally {
+            Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
+          }
+
       - name: Install Rust target
         shell: pwsh
         run: |
