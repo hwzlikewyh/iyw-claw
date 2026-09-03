@@ -24,7 +24,7 @@
  *   IYW_CLAW_SIGN_TIMESTAMP_URL   RFC3161 timestamp server
  *   IYW_CLAW_SIGN_DIGEST          digest algorithm (default sha256)
  *   IYW_CLAW_SIGNTOOL             explicit signtool.exe, skips SDK discovery
- *   IYW_CLAW_SIGN_NONINTERACTIVE   1 => fail instead of waiting for token PIN UI
+ *   IYW_CLAW_SIGN_NONINTERACTIVE   1 => bound each token request to 90 seconds
  *
  * mode=pfx exists for local smoke tests against a self-signed certificate.
  * A self-signed signature does NOT help with SmartScreen or antivirus — only a
@@ -53,7 +53,9 @@ const VALID_MODES = new Set(["signtool", "pfx", "azure", "none"])
 /** Timestamp servers rate-limit and flake; a signing run must not die on that. */
 const TIMESTAMP_ATTEMPTS = 3
 const TIMESTAMP_RETRY_DELAY_MS = 5000
-const NON_INTERACTIVE_TIMEOUT_MS = 30_000
+// The workflow's short preflight rejects a locked token before Rust builds.
+// Bundling signs several NSIS components, each of which can take longer.
+const NON_INTERACTIVE_TIMEOUT_MS = 90_000
 
 export function parseSignOptions(argv) {
   const targets = []
