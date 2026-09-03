@@ -1684,7 +1684,7 @@ fn link_central_skill_locked(
     require_private_agent_storage_for_write()?;
     let link_path = agent_link_path(agent_type, &expert_id)?;
     if is_bundled_expert_id(expert_id) {
-        repair_bundled_skill_collision(expert_id, agent_type)?;
+        repair_bundled_skill_collision_at_path(expert_id, agent_type, &link_path)?;
     }
     let change = reconcile_managed_link_entry(&central, &link_path, true)
         .map_err(|error| experts_error_from_managed(error, &link_path))?;
@@ -1750,19 +1750,19 @@ fn ensure_builtin_gateway_skill_ready_blocking(
     link_central_skill_locked(CAPABILITY_GATEWAY_EXPERT_ID, agent_type)
 }
 
-fn repair_bundled_skill_collision(
+fn repair_bundled_skill_collision_at_path(
     expert_id: &str,
     agent_type: AgentType,
+    link_path: &Path,
 ) -> Result<(), ExpertsError> {
     let central = expert_central_path(expert_id);
-    let link_path = agent_link_path(agent_type, expert_id)?;
-    if classify_link(&link_path, &central) != ExpertLinkState::BlockedByRealDirectory {
+    if classify_link(link_path, &central) != ExpertLinkState::BlockedByRealDirectory {
         return Ok(());
     }
     // 内置 Skill 归原助理强制管理，旧安装复制出的目录不能阻断更新。
     // 替换时必须覆盖其中的脚本和说明文件；唯一例外是 .venv 与
     // node_modules 等运行环境，它们需要迁入中央目录并额外保留备份。
-    preserve_runtime_envs_for_bundled_link(&link_path, &central)?;
+    preserve_runtime_envs_for_bundled_link(link_path, &central)?;
     tracing::warn!(
         target: "system_skills",
         agent = %agent_type,
@@ -1771,9 +1771,9 @@ fn repair_bundled_skill_collision(
         "replacing a copied built-in Skill with the managed link"
     );
     let backup = bundled_skill_repair_backup(expert_id, agent_type)?;
-    fs::rename(&link_path, &backup)?;
-    if let Err(error) = create_link_raw(&central, &link_path) {
-        let _ = fs::rename(&backup, &link_path);
+    fs::rename(link_path, &backup)?;
+    if let Err(error) = create_link_raw(&central, link_path) {
+        let _ = fs::rename(&backup, link_path);
         return Err(ExpertsError::Io(error.to_string()));
     }
     if let Err(error) = clear_bundled_skill_contents(&backup, expert_id) {
@@ -2007,8 +2007,11 @@ fn managed_expert_pair_result(
         Err(error) => return Some(link_failure(expert_id, agent_type, error.to_string())),
     };
     if enable && is_bundled_expert_id(expert_id) {
-        if let Err(error) = repair_bundled_skill_collision(expert_id, agent_type) {
-            return Some(link_failure(expert_id, agent_type, error.to_string()));
+        for path in &paths {
+            if let Err(error) = repair_bundled_skill_collision_at_path(expert_id, agent_type, path)
+            {
+                return Some(link_failure(expert_id, agent_type, error.to_string()));
+            }
         }
     }
     let owned = paths
