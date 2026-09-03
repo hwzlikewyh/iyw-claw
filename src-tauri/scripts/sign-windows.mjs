@@ -212,6 +212,19 @@ function signOnce(signtool, args, env) {
   })
   if (result.error) {
     if (result.error.code === "ETIMEDOUT") {
+      const file = args.at(-1)
+      const verification = spawnSync(
+        signtool,
+        ["verify", "/pa", "/all", file],
+        { cwd: REPO_ROOT, stdio: "ignore" }
+      )
+      if (verification.status === 0) {
+        console.warn(
+          `[sign-windows][WARN] signtool timed out after signing ${file}; ` +
+            "the completed signature verified successfully"
+        )
+        return 0
+      }
       throw new Error(
         "signtool timed out; unlock the SafeNet token before starting a " +
           "non-interactive signing job"
