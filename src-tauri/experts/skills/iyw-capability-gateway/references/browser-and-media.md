@@ -131,17 +131,15 @@ verify that the returned transcript is complete before summarizing or using it.
 
 Use `analyze_image` to understand or judge an existing image and `show_image` to
 display an existing or generated image. Do not use either to generate or edit
-images. Load `iyw-image-workflows` first for IYW product/material/knowledge,
-upload, review, trend, or commerce workflows; load `imagegen` for free raster
-creation/editing or explicit GPT Image requests. Attach SVG, BMP, ICO, and
-other unsupported model-image formats as ordinary files rather than forcing an
-image-analysis route.
+images. Use `generate_iyw_image` for all image production/editing, including
+IYW product/material/commerce and ordinary raster creation. Attach SVG, BMP,
+ICO, and other unsupported model-image formats as ordinary files rather than
+forcing an image-analysis route.
 
 For an HTML or Markdown deliverable that embeds newly generated or local
-images, prefer the `iyw-image-workflows` validated `upload` command. Use the
-public HTTPS URL returned only after the TOS upload and image check succeed.
-Already verified public HTTPS image URLs may be reused. Never embed a presigned
-PUT URL, a temporary signed query URL, or a local absolute path. Skip upload for
+images, use the public HTTPS URL returned by `generate_iyw_image`. Already
+verified public HTTPS image URLs may be reused. Never embed a presigned PUT URL,
+a temporary signed query URL, or a local absolute path. Skip external upload for
 private/sensitive images or an explicit local-only request. If TOS is not
 available, do not invent a URL; use a workspace-relative path only when it is a
 valid fallback and report the limitation before registering the final artifact.

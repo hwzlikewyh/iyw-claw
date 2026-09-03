@@ -16,6 +16,7 @@ use super::authority::SessionAuthority;
 use super::credential::SessionToken;
 use super::handler::BuiltinMcpHandler;
 use super::http::{authenticate_request, AuthHttpState};
+use super::iyw_service::IywGatewayService;
 use super::lease::{BuiltinMcpIssueError, LeaseManager, LeaseShutdownReport};
 
 mod shutdown;
@@ -85,11 +86,16 @@ pub struct BuiltinMcpService {
 }
 
 impl BuiltinMcpService {
-    pub async fn start(listener: Arc<DelegationListener>) -> io::Result<Arc<Self>> {
+    pub async fn start(
+        listener: Arc<DelegationListener>,
+        db: sea_orm::DatabaseConnection,
+    ) -> io::Result<Arc<Self>> {
         super::capability::CapabilityCatalog::load()
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         let advertised_tools = gateway_tool_names()?;
         let capability_tools = embedded_tool_names()?;
+        let iyw = IywGatewayService::new(db, listener.clone())
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
         let tcp = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         crate::web::socket_inherit::mark_listener_non_inheritable(&tcp)?;
         let authority = tcp.local_addr()?.to_string();
@@ -101,6 +107,7 @@ impl BuiltinMcpService {
             endpoint,
             advertised_tools,
             capability_tools,
+            iyw,
             &shutdown,
         );
         let joins = spawn_tasks(tcp, router, client.clone(), shutdown.clone());
@@ -131,6 +138,7 @@ fn build_runtime(
     endpoint: Arc<str>,
     advertised_tools: Arc<[String]>,
     capability_tools: Arc<[String]>,
+    iyw: Arc<IywGatewayService>,
     shutdown: &CancellationToken,
 ) -> (Router, BuiltinMcpClient) {
     let leases = LeaseManager::new(Arc::clone(&listener));
@@ -145,6 +153,7 @@ fn build_runtime(
                 Arc::clone(&handler_runtimes),
                 handler_receipts.clone(),
                 Arc::clone(&handler_lifecycle),
+                Arc::clone(&iyw),
             ))
         },
         Arc::clone(&protocol_sessions),
@@ -178,10 +187,10 @@ fn gateway_tool_names() -> io::Result<Arc<[String]>> {
         .into_iter()
         .map(|tool| tool.name.to_string())
         .collect::<Vec<_>>();
-    if names.len() != 3 {
+    if names.len() != 6 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "HTTP MCP gateway must advertise exactly three tools",
+            "HTTP MCP gateway must advertise exactly six tools",
         ));
     }
     Ok(names.into())

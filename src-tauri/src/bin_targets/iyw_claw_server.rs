@@ -554,7 +554,12 @@ async fn async_main() -> ExitCode {
         ),
     );
     let builtin_mcp_service =
-        match iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService::start(listener).await {
+        match iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService::start(
+            listener,
+            state.db.conn.clone(),
+        )
+        .await
+        {
             Ok(service) => {
                 state
                     .connection_manager

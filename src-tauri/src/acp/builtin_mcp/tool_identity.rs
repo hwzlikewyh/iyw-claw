@@ -6,6 +6,9 @@ use super::capability_registry::tool_name_for_capability_id;
 pub(super) const SEARCH_TOOL: &str = "search_iyw_capabilities";
 pub(super) const READ_TOOL: &str = "read_iyw_capability";
 pub(super) const INVOKE_TOOL: &str = "invoke_iyw_capability";
+pub(super) const IMAGE_TOOL: &str = "generate_iyw_image";
+pub(super) const KNOWLEDGE_TOOL: &str = "search_iyw_knowledge";
+pub(super) const MEMORY_TOOL: &str = "manage_iyw_memory";
 pub(super) const CAPABILITY_ID_MAX_CHARS: usize = 128;
 
 const MAX_GATEWAY_WRAPPER_DEPTH: u8 = 4;
@@ -15,6 +18,9 @@ pub(super) enum GatewayTool {
     Search,
     Read,
     Invoke,
+    Image,
+    Knowledge,
+    Memory,
 }
 
 impl GatewayTool {
@@ -23,6 +29,9 @@ impl GatewayTool {
             Self::Search => SEARCH_TOOL,
             Self::Read => READ_TOOL,
             Self::Invoke => INVOKE_TOOL,
+            Self::Image => IMAGE_TOOL,
+            Self::Knowledge => KNOWLEDGE_TOOL,
+            Self::Memory => MEMORY_TOOL,
         }
     }
 }
@@ -141,6 +150,9 @@ fn bare_gateway_tool(name: &str) -> Option<GatewayTool> {
         SEARCH_TOOL => Some(GatewayTool::Search),
         READ_TOOL => Some(GatewayTool::Read),
         INVOKE_TOOL => Some(GatewayTool::Invoke),
+        IMAGE_TOOL => Some(GatewayTool::Image),
+        KNOWLEDGE_TOOL => Some(GatewayTool::Knowledge),
+        MEMORY_TOOL => Some(GatewayTool::Memory),
         _ => None,
     }
 }

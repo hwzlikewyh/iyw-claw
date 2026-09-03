@@ -23,6 +23,27 @@ pub(super) enum GatewayAction {
     Invoke(ResolvedCapability),
     PluginInvoke(PluginToolCall),
     PluginControl(PluginControlRequest),
+    Image(Value),
+    Knowledge(Value),
+    MemoryGroup(MemoryGroupRequest),
+}
+
+pub(super) struct MemoryGroupRequest {
+    pub(super) operation: String,
+    pub(super) invocation: ResolvedCapability,
+}
+
+pub(super) fn policy_invocation(
+    authority: &super::authority::SessionContext,
+) -> Result<ResolvedCapability, ErrorData> {
+    let catalog = load_catalog()?;
+    catalog
+        .resolve(
+            authority.features(),
+            "iyw.memory.policy.read.v1",
+            Value::Object(Map::new()),
+        )
+        .map_err(resolve_error)
 }
 
 pub(super) struct GatewaySession<'a> {
@@ -53,7 +74,67 @@ pub(super) fn dispatch(
         GatewayTool::Search => search(arguments, &catalog, &session),
         GatewayTool::Read => read(arguments, &catalog, &session),
         GatewayTool::Invoke => invoke(arguments, &catalog, session),
+        GatewayTool::Image => direct_request(arguments, GatewayDirectRequest::Image),
+        GatewayTool::Knowledge => direct_request(arguments, GatewayDirectRequest::Knowledge),
+        GatewayTool::Memory => memory_group(arguments, &catalog, session),
     }
+}
+
+enum GatewayDirectRequest {
+    Image,
+    Knowledge,
+}
+
+fn direct_request(
+    arguments: Option<JsonObject>,
+    request: GatewayDirectRequest,
+) -> Result<GatewayAction, ErrorData> {
+    let value = Value::Object(arguments.unwrap_or_default());
+    match request {
+        GatewayDirectRequest::Image => Ok(GatewayAction::Image(value)),
+        GatewayDirectRequest::Knowledge => Ok(GatewayAction::Knowledge(value)),
+    }
+}
+
+fn memory_group(
+    arguments: Option<JsonObject>,
+    catalog: &CapabilityCatalog,
+    session: GatewaySession<'_>,
+) -> Result<GatewayAction, ErrorData> {
+    let params = parse::<MemoryGroupParams>(arguments)?;
+    let capability_id = memory_capability_id(&params.operation)
+        .ok_or_else(|| ErrorData::invalid_params("unsupported memory operation", None))?;
+    let resolved = catalog
+        .resolve(
+            session.features,
+            capability_id,
+            Value::Object(params.parameters),
+        )
+        .map_err(resolve_error)?;
+    Ok(GatewayAction::MemoryGroup(MemoryGroupRequest {
+        operation: params.operation,
+        invocation: resolved,
+    }))
+}
+
+fn memory_capability_id(operation: &str) -> Option<&'static str> {
+    Some(match operation {
+        "policy.read" => "iyw.memory.policy.read.v1",
+        "recall" => "iyw.memory.recall.search.v1",
+        "documents.read" => "iyw.memory.documents.read.v1",
+        "append" => "iyw.memory.confirmed.append.v1",
+        "propose" => "iyw.memory.candidate.propose.v1",
+        "candidates.list" => "iyw.memory.candidates.list.v1",
+        "candidate.resolve" => "iyw.memory.candidate.resolve.v1",
+        "candidate.delete" => "iyw.memory.candidate.delete.v1",
+        "harvest.status" => "iyw.memory.harvest.status.v1",
+        "harvest.rescan" => "iyw.memory.harvest.rescan.v1",
+        "candidate.index.rebuild" => "iyw.memory.candidate.index.rebuild.v1",
+        "settings.read" => "iyw.memory.settings.read.v1",
+        "documents.update" => "iyw.memory.documents.update.v1",
+        "documents.correct" => "iyw.memory.documents.correct.v1",
+        _ => return None,
+    })
 }
 
 fn search(
@@ -332,6 +413,14 @@ struct InvokeParams {
     capability_id: String,
     arguments: Map<String, Value>,
     delivery_ack: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MemoryGroupParams {
+    operation: String,
+    #[serde(default)]
+    parameters: Map<String, Value>,
 }
 
 #[cfg(test)]
