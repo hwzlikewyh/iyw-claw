@@ -12,8 +12,8 @@ on:
         required: true
         default: main
         type: string
-      windows_proxy_url:
-        description: "Optional HTTP proxy for the Windows runner"
+      signing_proxy_url:
+        description: "Optional HTTP proxy for the SafeNet signing runner"
         required: false
         default: ""
         type: string
@@ -42,8 +42,6 @@ jobs:
       CARGO_PROFILE_RELEASE_LTO: thin
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
-      HTTP_PROXY: ${{ inputs.windows_proxy_url }}
-      HTTPS_PROXY: ${{ inputs.windows_proxy_url }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -152,7 +150,13 @@ jobs:
       - name: Show sccache statistics
         if: always()
         shell: pwsh
-        run: sccache --show-stats
+        run: |
+          $sccache = Get-Command sccache -ErrorAction SilentlyContinue
+          if ($sccache) {
+            & $sccache.Source --show-stats
+          } else {
+            Write-Host 'sccache was not installed because an earlier step failed.'
+          }
 
   finalize-signing:
     name: Sign staged Windows bundle with SafeNet
@@ -163,8 +167,8 @@ jobs:
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
-      HTTP_PROXY: ${{ inputs.windows_proxy_url }}
-      HTTPS_PROXY: ${{ inputs.windows_proxy_url }}
+      HTTP_PROXY: ${{ inputs.signing_proxy_url }}
+      HTTPS_PROXY: ${{ inputs.signing_proxy_url }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
