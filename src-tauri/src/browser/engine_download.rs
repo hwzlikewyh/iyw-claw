@@ -19,25 +19,26 @@ const CHROMIUM_VERSION: &str = "152.0.7977.64";
 const CHROMIUM_ARCHIVE_URL: &str =
     "https://storage.googleapis.com/chrome-for-testing-public/152.0.7977.64/win64/chrome-win64.zip";
 const CHROMIUM_ARCHIVE_SIZE: u64 = 202_713_690;
+const CHROMIUM_ARCHIVE_SHA256: &str =
+    "b0db25dea445822429d8ebd36d53344cadcd63127308759456964029bbe18004";
 const MAX_EXTRACTED_BYTES: u64 = 1024 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES: usize = 10_000;
 const DOWNLOAD_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DOWNLOAD_READ_TIMEOUT: Duration = Duration::from_secs(120);
 
-pub(super) fn managed_engine_root() -> PathBuf {
-    crate::paths::iyw_claw_user_dir()
-        .join("browser")
-        .join("chromium")
+pub(super) fn managed_engine_root(data_root: &Path) -> PathBuf {
+    data_root.join("browser").join("chromium")
 }
 
-pub(super) fn managed_engine_path() -> PathBuf {
-    managed_engine_root().join("chrome.exe")
+pub(super) fn managed_engine_path(data_root: &Path) -> PathBuf {
+    managed_engine_root(data_root).join("chrome.exe")
 }
 
 pub(super) async fn ensure_managed_engine(
+    data_root: &Path,
     cancellation: CancellationToken,
 ) -> Result<BrowserEngine, BrowserError> {
-    let root = managed_engine_root();
+    let root = managed_engine_root(data_root);
     let parent = root
         .parent()
         .ok_or_else(|| unavailable("managed Chromium path has no parent"))?;
@@ -46,8 +47,12 @@ pub(super) async fn ensure_managed_engine(
         .map_err(|error| unavailable(format!("failed to create Chromium directory: {error}")))?;
     let lock = acquire_lock(&parent.join("chromium.lock"))?;
 
-    if let Some(engine) =
-        probe_engine(BrowserEngineKind::Chromium, managed_engine_path(), None).await
+    if let Some(engine) = probe_engine(
+        BrowserEngineKind::Chromium,
+        managed_engine_path(data_root),
+        None,
+    )
+    .await
     {
         drop(lock);
         return Ok(engine);
@@ -95,7 +100,7 @@ async fn install_managed_engine(
         ));
     }
     replace_cache(root, staging)?;
-    probe_engine(BrowserEngineKind::Chromium, managed_engine_path(), None)
+    probe_engine(BrowserEngineKind::Chromium, root.join("chrome.exe"), None)
         .await
         .ok_or_else(|| unavailable("installed Chromium failed its startup probe"))
 }
@@ -181,10 +186,16 @@ async fn stream_archive(
             "Chromium download ended before the pinned size",
         ));
     }
+    let archive_sha256 = format!("{:x}", hasher.finalize());
+    if archive_sha256 != CHROMIUM_ARCHIVE_SHA256 {
+        return Err(unavailable(
+            "Chromium download digest does not match the pinned package",
+        ));
+    }
     tracing::info!(
         target: "iyw_claw_browser",
         archive_bytes = downloaded,
-        archive_sha256 = %format!("{:x}", hasher.finalize()),
+        archive_sha256 = %archive_sha256,
         "managed Chromium archive downloaded"
     );
     Ok(())
