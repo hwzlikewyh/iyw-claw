@@ -133,12 +133,15 @@ jobs:
             files = $manifestFiles
           }
           $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $staging 'staging-manifest.json') -Encoding utf8NoBOM
+          $archive = Join-Path $env:RUNNER_TEMP 'iyw-windows-staging.zip'
+          Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $archive -CompressionLevel Fastest
 
       - name: Upload unsigned staging artifact
         uses: actions/upload-artifact@v4
         with:
           name: staged-windows-x86_64-${{ inputs.version }}
-          path: ${{ runner.temp }}/iyw-windows-staging/**
+          path: ${{ runner.temp }}/iyw-windows-staging.zip
           if-no-files-found: error
           retention-days: 2
 
@@ -190,7 +193,18 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: staged-windows-x86_64-${{ inputs.version }}
-          path: ${{ runner.temp }}/iyw-windows-staging
+          path: ${{ runner.temp }}/iyw-windows-staging-download
+
+      - name: Extract unsigned staging artifact
+        shell: pwsh
+        env:
+          IYW_CLAW_STAGING_DIR: ${{ runner.temp }}\iyw-windows-staging
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'iyw-windows-staging-download\iyw-windows-staging.zip'
+          if (!(Test-Path -LiteralPath $archive -PathType Leaf)) { throw "staging archive is missing: $archive" }
+          Remove-Item -LiteralPath $env:IYW_CLAW_STAGING_DIR -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $env:IYW_CLAW_STAGING_DIR | Out-Null
+          Expand-Archive -LiteralPath $archive -DestinationPath $env:IYW_CLAW_STAGING_DIR -Force
 
       - name: Finalize, sign, and verify installer
         shell: pwsh
