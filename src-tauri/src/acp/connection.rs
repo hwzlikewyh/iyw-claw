@@ -1756,7 +1756,8 @@ pub(crate) async fn prewarm_agent_runtime(
     })
     .await?;
     let host_key = runtime_host_key(agent_type, fingerprint).await?;
-    let _reservation = runtime_hosts.acquire(host_key, agent, stderr_tail).await?;
+    let reservation = runtime_hosts.acquire(host_key, agent, stderr_tail).await?;
+    reservation.keep_warm();
     Ok(true)
 }
 

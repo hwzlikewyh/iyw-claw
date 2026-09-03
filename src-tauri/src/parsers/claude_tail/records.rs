@@ -5,7 +5,6 @@ use chrono::Utc;
 use crate::models::{ContentBlock, MessageRole, UnifiedMessage};
 use crate::parsers::claude;
 
-use super::user::record_id;
 use super::ClaudeTailAccumulator;
 
 impl ClaudeTailAccumulator {
@@ -22,16 +21,19 @@ impl ClaudeTailAccumulator {
         if self.metadata.model.is_none() {
             self.metadata.model = model.clone();
         }
-        self.messages.push(UnifiedMessage {
-            id: record_id(value),
-            role: MessageRole::Assistant,
-            content: claude::extract_assistant_content(value),
-            timestamp,
-            usage: claude::extract_usage(value),
-            duration_ms: None,
-            model,
-            completed_at: Some(timestamp),
-        });
+        claude::merge_assistant_message(
+            &mut self.messages,
+            UnifiedMessage {
+                id: claude::assistant_message_id(value),
+                role: MessageRole::Assistant,
+                content: claude::extract_assistant_content(value),
+                timestamp,
+                usage: claude::extract_usage(value),
+                duration_ms: None,
+                model,
+                completed_at: Some(timestamp),
+            },
+        );
     }
 
     pub(super) fn feed_system(&mut self, value: &serde_json::Value) {

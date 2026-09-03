@@ -179,6 +179,7 @@ export interface LiveMessage {
   role: "assistant" | "tool"
   content: LiveContentBlock[]
   startedAt: number
+  firstTextAt?: number | null
 }
 
 // ── Per-connection state ──
@@ -1082,6 +1083,7 @@ function ensureLiveMessage(prev: LiveMessage | null): LiveMessage {
     role: "assistant",
     content: [],
     startedAt: Date.now(),
+    firstTextAt: null,
   }
 }
 
@@ -1127,7 +1129,14 @@ function applyStreamingAction(
   if (!newContent) return null
   return {
     ...conn,
-    liveMessage: { ...prev, content: newContent },
+    liveMessage: {
+      ...prev,
+      content: newContent,
+      firstTextAt:
+        action.type === "CONTENT_DELTA" && prev.firstTextAt == null
+          ? Date.now()
+          : prev.firstTextAt,
+    },
     // Streaming content implies the SDK has recovered from any in-flight
     // Claude API retry, so hide the retry banner immediately instead of
     // waiting for the prompt cycle to end.
@@ -3317,6 +3326,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           clearTimeout(flushTimerRef.current)
           flushTimerRef.current = null
         }
+        if (flushRafRef.current !== null) {
+          cancelAnimationFrame(flushRafRef.current)
+          flushRafRef.current = null
+        }
         flushStreamingQueue()
         return
       }
@@ -4577,9 +4590,23 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       if (document.visibilityState === "visible") {
         flushStreamingQueue()
         flushPendingToolCallUpdates()
-      } else if (pendingToolCallUpdates.current.length > 0) {
-        clearToolCallUpdateSchedule()
-        scheduleToolCallUpdateFlush()
+      } else {
+        if (streamingQueueRef.current.length > 0) {
+          if (flushRafRef.current !== null) {
+            cancelAnimationFrame(flushRafRef.current)
+            flushRafRef.current = null
+          }
+          if (flushTimerRef.current === null) {
+            flushTimerRef.current = setTimeout(
+              flushStreamingQueue,
+              STREAM_FLUSH_HIDDEN_MS
+            )
+          }
+        }
+        if (pendingToolCallUpdates.current.length > 0) {
+          clearToolCallUpdateSchedule()
+          scheduleToolCallUpdateFlush()
+        }
       }
       const contextKey = storeRef.current.activeKey
       if (!contextKey) return

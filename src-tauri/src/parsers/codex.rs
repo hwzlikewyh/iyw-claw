@@ -102,6 +102,7 @@ impl CodexParser {
         let mut has_real_user = false;
         let mut goal_objective: Option<String> = None;
         let mut goal_opens_session = false;
+        let mut saw_final_answer_in_turn = false;
 
         for line in reader.lines() {
             let line = match line {
@@ -118,6 +119,9 @@ impl CodexParser {
             };
 
             let msg_type = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            if msg_type == "turn_context" {
+                saw_final_answer_in_turn = false;
+            }
 
             if let Some(ts_str) = value.get("timestamp").and_then(|t| t.as_str()) {
                 if let Ok(ts) = ts_str.parse::<DateTime<Utc>>() {
@@ -173,7 +177,13 @@ impl CodexParser {
                                 }
                             }
                             "agent_message" => {
-                                message_count += 1;
+                                let is_final_answer =
+                                    payload.get("phase").and_then(|phase| phase.as_str())
+                                        == Some("final_answer");
+                                if !is_final_answer || !saw_final_answer_in_turn {
+                                    message_count += 1;
+                                }
+                                saw_final_answer_in_turn |= is_final_answer;
                             }
                             "thread_goal_updated" => {
                                 // Capture the first OPENING goal for the fallback,
@@ -981,6 +991,8 @@ impl CodexParser {
         // fallback block with the last buffered section's time.
         let mut pending_reasoning: Vec<String> = Vec::new();
         let mut pending_reasoning_ts: Option<DateTime<Utc>> = None;
+        // 同一 API 回合可能写入多次最终答案，只保留最后一次。
+        let mut final_answer_index: Option<usize> = None;
 
         for line in reader.lines() {
             let line = match line {
@@ -1031,6 +1043,7 @@ impl CodexParser {
                         );
                     }
                     active_agent_count = 0;
+                    final_answer_index = None;
                     let turn_model = value
                         .get("payload")
                         .and_then(|p| p.get("model"))
@@ -1141,6 +1154,22 @@ impl CodexParser {
                                     .and_then(|m| m.as_str())
                                     .unwrap_or("")
                                     .to_string();
+                                let is_final_answer =
+                                    payload.get("phase").and_then(|phase| phase.as_str())
+                                        == Some("final_answer");
+                                if is_final_answer {
+                                    if let Some(message) = final_answer_index
+                                        .and_then(|index| messages.get_mut(index))
+                                        .filter(|message| {
+                                            matches!(message.role, MessageRole::Assistant)
+                                        })
+                                    {
+                                        message.content = vec![ContentBlock::Text { text }];
+                                        message.timestamp = timestamp;
+                                        message.completed_at = Some(timestamp);
+                                        continue;
+                                    }
+                                }
                                 messages.push(UnifiedMessage {
                                     id: format!("assistant-{}", messages.len()),
                                     role: MessageRole::Assistant,
@@ -1151,6 +1180,9 @@ impl CodexParser {
                                     model: None,
                                     completed_at: Some(timestamp),
                                 });
+                                if is_final_answer {
+                                    final_answer_index = Some(messages.len() - 1);
+                                }
                             }
                             "thread_goal_updated" => {
                                 // codex-acp v1.1.0 (#263) routes live goals through

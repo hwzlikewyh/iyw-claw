@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl"
 
 import { AgentIcon } from "@/components/agent-icon"
 import { AssistantProcessSurface } from "@/components/message/assistant-process-surface"
+import { AssistantReasoningSurface } from "@/components/message/assistant-reasoning-surface"
 import { ContentPartsRenderer } from "@/components/message/content-parts-renderer"
 import {
   countProcessItems,
@@ -63,6 +64,22 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
     () => countProcessItems(sections.processParts),
     [sections.processParts]
   )
+  const reasoningParts = useMemo(
+    () =>
+      sections.processParts.filter(
+        (part): part is Extract<AdaptedContentPart, { type: "reasoning" }> =>
+          part.type === "reasoning"
+      ),
+    [sections.processParts]
+  )
+  const liveTextParts = useMemo(
+    () =>
+      sections.processParts.filter(
+        (part): part is Extract<AdaptedContentPart, { type: "text" }> =>
+          part.type === "text"
+      ),
+    [sections.processParts]
+  )
   const processHasError = useMemo(
     () => sections.processParts.some(processPartHasError),
     [sections.processParts]
@@ -102,10 +119,21 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
       <div className="space-y-3">
         <AssistantIdentity agentType={agentType} />
         {displayMode === "minimal" ? (
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Loader2 className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />
-            {t("processRunning")}
-          </div>
+          <>
+            {reasoningParts.length > 0 ? (
+              <AssistantReasoningSurface
+                parts={reasoningParts}
+                isResponseComplete={false}
+              />
+            ) : (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />
+                {t("processRunning")}
+              </div>
+            )}
+            {liveTextParts.length > 0 &&
+              renderParts(liveTextParts, `${entranceKey}:live-response`)}
+          </>
         ) : processCount > 0 ? (
           processSurface
         ) : null}

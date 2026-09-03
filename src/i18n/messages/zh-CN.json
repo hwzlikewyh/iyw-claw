@@ -3369,7 +3369,8 @@
         "elapsedHours": "{value} 小时",
         "elapsedMinutes": "{value} 分钟",
         "elapsedSeconds": "{value} 秒",
-        "toolUseCount": "{count} 次工具调用"
+        "toolUseCount": "{count} 次工具调用",
+        "outputRate": "输出 {rate} 字/秒"
       },
       "tool": {
         "parameters": "参数",
