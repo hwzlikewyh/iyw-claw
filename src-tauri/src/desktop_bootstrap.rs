@@ -245,9 +245,11 @@ fn discover_stale_profile_root(selected_root: &Path) -> Option<PathBuf> {
         .and_then(|table| table.get("command"))
         .and_then(toml::Value::as_str)
         .and_then(root_from_managed_tool_path);
-    command_root
-        .or(catalog_root)
+    [command_root, catalog_root]
+        .into_iter()
+        .flatten()
         .filter(|root| !same_path(root, selected_root))
+        .next()
 }
 
 fn root_from_catalog_path(value: &str) -> Option<PathBuf> {

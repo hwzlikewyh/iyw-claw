@@ -1815,7 +1815,16 @@ fn preserve_runtime_envs_for_bundled_link(
     for name in RUNTIME_ENV_DIR_NAMES {
         let source_env = source.join(name);
         let central_env = central.join(name);
-        if !source_env.is_dir() || central_env.exists() {
+        if !source_env.is_dir() {
+            continue;
+        }
+        if central_env.exists() {
+            tracing::info!(
+                target: "system_skills",
+                skill_id = central.file_name().and_then(OsStr::to_str).unwrap_or_default(),
+                runtime = name,
+                "kept the central bundled Skill runtime; preserved the profile copy in trash"
+            );
             continue;
         }
         copy_runtime_env_atomically(&source_env, &central_env)?;
@@ -1997,6 +2006,11 @@ fn managed_expert_pair_result(
         Ok(paths) => paths,
         Err(error) => return Some(link_failure(expert_id, agent_type, error.to_string())),
     };
+    if enable && is_bundled_expert_id(expert_id) {
+        if let Err(error) = repair_bundled_skill_collision(expert_id, agent_type) {
+            return Some(link_failure(expert_id, agent_type, error.to_string()));
+        }
+    }
     let owned = paths
         .iter()
         .find(|path| managed_link_is_owned(&central, path));
