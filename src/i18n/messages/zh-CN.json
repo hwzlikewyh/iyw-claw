@@ -3091,6 +3091,7 @@
       },
       "welcomeInputPanel": {
         "agentsSettingsPath": "设置 > Agents",
+        "agentNotReady": "{agent} 尚未安装或当前不可用，请前往 {path} 完成安装或启用。",
         "autoConnectFallback": "点击前往 {path} 管理安装。",
         "autoConnectAppend": "{message}，点击前往 {path} 管理安装。",
         "enableAgentFirstPlaceholder": "请先启用至少一个 Agent 后开始会话...",

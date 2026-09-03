@@ -63,6 +63,7 @@ import type { ComposerInjectContent } from "@/components/chat/message-input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   acpFork,
+  acpGetAgentStatus,
   createChatConversation,
   createChatDir,
   createConversation,
@@ -78,6 +79,7 @@ import {
   submitAgentInput,
 } from "@/lib/api"
 import { skillMarketInstall } from "@/lib/skill-market"
+import { toErrorMessage } from "@/lib/app-error"
 import {
   flushRetryDelayMs,
   forkSendBlockedByQueue,
@@ -196,11 +198,42 @@ function scenarioPackageTargetsAgent(
   )
 }
 
+class ScenarioAgentNotReadyError extends Error {
+  readonly agentType: AgentType
+
+  constructor(agentType: AgentType) {
+    super("scenario_agent_not_ready")
+    this.name = "ScenarioAgentNotReadyError"
+    this.agentType = agentType
+  }
+}
+
+function scenarioPackageErrorMessage(
+  error: unknown,
+  agentType: AgentType,
+  notReadyMessage: (agentType: AgentType) => string
+): string {
+  const raw = toErrorMessage(error)
+  const notReady =
+    error instanceof ScenarioAgentNotReadyError ||
+    /(?:validation error:\s*)?.*is not installed/i.test(raw)
+  if (notReady) {
+    return notReadyMessage(
+      error instanceof ScenarioAgentNotReadyError ? error.agentType : agentType
+    )
+  }
+  return raw
+}
+
 async function prepareScenarioPackage(
   packageRef: PromptSkillPackage,
   agentType: AgentType,
   workspacePath?: string
 ) {
+  const agent = await acpGetAgentStatus(agentType)
+  if (!agent.enabled || !agent.available || !agent.installed_version?.trim()) {
+    throw new ScenarioAgentNotReadyError(agentType)
+  }
   let snapshot = await skillInventoryList(workspacePath)
   if (!scenarioPackageTargetsAgent(snapshot, packageRef, agentType)) {
     await skillMarketInstall(packageRef.id, packageRef.version, [agentType])
@@ -1551,8 +1584,15 @@ const ConversationTabView = memo(function ConversationTabView({
           } catch (error) {
             toast.error("技能包准备失败", {
               id: toastId,
-              description:
-                error instanceof Error ? error.message : String(error),
+              description: scenarioPackageErrorMessage(
+                error,
+                selectedAgent,
+                (agentType) =>
+                  tWelcome("agentNotReady", {
+                    agent: getAgentDisplayName(agentType),
+                    path: tWelcome("agentsSettingsPath"),
+                  })
+              ),
             })
             return false
           }
@@ -2007,7 +2047,15 @@ const ConversationTabView = memo(function ConversationTabView({
         .catch((error) => {
           toast.error("技能包准备失败", {
             id: toastId,
-            description: error instanceof Error ? error.message : String(error),
+            description: scenarioPackageErrorMessage(
+              error,
+              selectedAgent,
+              (agentType) =>
+                tWelcome("agentNotReady", {
+                  agent: getAgentDisplayName(agentType),
+                  path: tWelcome("agentsSettingsPath"),
+                })
+            ),
           })
           return false
         })
@@ -2016,6 +2064,7 @@ const ConversationTabView = memo(function ConversationTabView({
       ensureConversationPointsAvailable,
       enqueueAgentDraft,
       selectedAgent,
+      tWelcome,
       workingDirForConnection,
     ]
   )

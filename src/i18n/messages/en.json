@@ -3091,6 +3091,7 @@
       },
       "welcomeInputPanel": {
         "agentsSettingsPath": "Settings > Agents",
+        "agentNotReady": "{agent} is not installed or currently unavailable. Open {path} to install or enable it.",
         "autoConnectFallback": "Click to open {path} and manage installation.",
         "autoConnectAppend": "{message}. Click to open {path} and manage installation.",
         "enableAgentFirstPlaceholder": "Enable at least one agent before starting a session...",

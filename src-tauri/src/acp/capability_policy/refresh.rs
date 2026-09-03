@@ -112,6 +112,11 @@ pub fn start_background_refresh(
     tokio::spawn(async move {
         log_refresh_result(refresh_once(&store, fetcher.as_ref()).await);
         let mut ticker = tokio::time::interval(config.interval);
+        // Do not replay every tick missed while the desktop process was
+        // suspended or the runtime was otherwise stalled. A burst would
+        // exhaust the Agent Platform rate limit without providing fresher
+        // policy data.
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         ticker.tick().await;
         loop {
             tokio::select! {

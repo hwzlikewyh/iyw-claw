@@ -12,6 +12,19 @@ on:
         required: true
         default: main
         type: string
+      windows_arches:
+        description: "Windows architectures to build"
+        required: true
+        default: x64
+        type: choice
+        options:
+          - x64
+          - both
+      run_macos:
+        description: "Also run the self-hosted macOS matrix"
+        required: true
+        default: false
+        type: boolean
       windows_proxy_url:
         description: "Optional HTTP proxy for the Windows runner (for example http://127.0.0.1:7890)"
         required: false
@@ -44,6 +57,7 @@ env:
 jobs:
   prepare-frontend:
     name: Prepare frontend input
+    if: inputs.run_macos
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout source
@@ -80,7 +94,6 @@ jobs:
 
   build-windows:
     name: Windows ${{ matrix.target }} on self-hosted
-    needs: prepare-frontend
     runs-on: [self-hosted, Windows, X64, iyw-signing]
     timeout-minutes: 120
     env:
@@ -91,17 +104,14 @@ jobs:
       GIT_CONFIG_VALUE_0: HTTP/1.1
       HTTP_PROXY: ${{ inputs.windows_proxy_url }}
       HTTPS_PROXY: ${{ inputs.windows_proxy_url }}
+      NO_PROXY: .actions.githubusercontent.com,.blob.core.windows.net
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: x86_64-pc-windows-msvc
-            bundle: nsis
-          - target: i686-pc-windows-msvc
-            bundle: nsis
+        target: ${{ fromJSON(inputs.windows_arches == 'both' && '["x86_64-pc-windows-msvc","i686-pc-windows-msvc"]' || '["x86_64-pc-windows-msvc"]') }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -195,19 +205,12 @@ jobs:
           rustup target add '${{ matrix.target }}' --toolchain stable
           rustc +stable --version
 
-      - name: Set test version
+      - name: Build frontend input locally
         shell: pwsh
-        run: node scripts/set-version.mjs "$env:TEST_VERSION"
-
-      - name: Clear stale frontend output
-        shell: pwsh
-        run: Remove-Item -LiteralPath out -Recurse -Force -ErrorAction SilentlyContinue
-
-      - name: Download frontend input
-        uses: actions/download-artifact@v4
-        with:
-          name: self-hosted-test-frontend-${{ inputs.version }}
-          path: out
+        run: |
+          pnpm install --frozen-lockfile --prefer-offline
+          node scripts/set-version.mjs "$env:TEST_VERSION"
+          pnpm build
 
       - name: Prepare sidecars
         shell: pwsh
@@ -243,7 +246,7 @@ jobs:
           pnpm dlx @tauri-apps/cli@2.11.4 build
           --target ${{ matrix.target }}
           --features tauri-runtime
-          --bundles ${{ matrix.bundle }}
+          --bundles nsis
           --config src-tauri/tauri.ci.conf.json
           ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
           --config "$env:IYW_CLAW_SIGN_CONFIG"
@@ -263,6 +266,7 @@ jobs:
 
   build-macos:
     name: macOS ${{ matrix.target }} on self-hosted
+    if: inputs.run_macos
     needs: prepare-frontend
     runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 120
