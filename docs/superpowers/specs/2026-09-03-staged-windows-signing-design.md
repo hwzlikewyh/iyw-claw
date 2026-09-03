@@ -18,7 +18,7 @@
 
 ## Artifact Contract
 
-staging artifact 包含：
+staging artifact 内部包含：
 
 - `out/` 前端静态输出；
 - `src-tauri/binaries/` 已校验的 sidecar；
@@ -29,6 +29,10 @@ staging artifact 包含：
 
 finalize 脚本在任何签名动作前校验 manifest、版本、target、文件存在性和哈希；不匹配
 时立即失败。
+
+为避免 GitHub artifact 多文件传输在自托管 runner 上长时间停滞，workflow 将上述目录
+作为单个 `iyw-windows-staging.zip` 上传，签名 job 下载后解压到临时目录，再执行相同
+的 manifest 校验。ZIP 只是传输封装，不改变 manifest 中的路径和 SHA-256 契约。
 
 ## Signing Order
 
