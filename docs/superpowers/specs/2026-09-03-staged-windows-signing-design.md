@@ -33,6 +33,9 @@ finalize 脚本在任何签名动作前校验 manifest、版本、target、文�
 签名 job 在固定 source checkout 后重新执行 `pnpm build`，再下载包含二进制输入的单个
 `iyw-windows-staging.zip` 并解压。随后仍执行相同的 manifest 校验；ZIP 只是传输封装，
 不改变跨 runner 文件的 SHA-256 契约。
+专用 SafeNet runner 的外部网络由本机代理提供；finalize job 显式向 Node-based artifact
+action 传递该 runner 的 `HTTP_PROXY`/`HTTPS_PROXY`，避免 Azure Blob artifact 下载绕过
+代理而卡住。不提供可变代理输入，也不向签名器传递 PIN/password。
 
 ## Signing Order
 
