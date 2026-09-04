@@ -27,6 +27,7 @@ pub const MAX_PAGE_SIZE: u64 = 100;
 pub struct TaskArtifactInfo {
     pub id: i32,
     pub conversation_id: i32,
+    pub message_id: Option<String>,
     pub folder_id: i32,
     pub conversation_title: Option<String>,
     pub agent_type: String,
@@ -61,6 +62,7 @@ pub struct ArtifactItemResult {
 async fn upsert_artifact<C: ConnectionTrait>(
     conn: &C,
     conversation_id: i32,
+    message_id: Option<&str>,
     turn_generation: Option<i64>,
     artifact: ResolvedArtifact,
 ) -> Result<ArtifactItemResult, DbError> {
@@ -68,6 +70,7 @@ async fn upsert_artifact<C: ConnectionTrait>(
     let now = Utc::now();
     task_artifact::Entity::insert(task_artifact::ActiveModel {
         conversation_id: Set(conversation_id),
+        message_id: Set(message_id.map(str::to_owned)),
         turn_generation: Set(turn_generation),
         path: Set(path.clone()),
         display_name: Set(artifact.display_name.clone()),
@@ -82,9 +85,11 @@ async fn upsert_artifact<C: ConnectionTrait>(
         OnConflict::columns([
             task_artifact::Column::ConversationId,
             task_artifact::Column::Path,
+            task_artifact::Column::MessageId,
         ])
         .update_columns([
             task_artifact::Column::DisplayName,
+            task_artifact::Column::MessageId,
             task_artifact::Column::Kind,
             task_artifact::Column::TurnGeneration,
             task_artifact::Column::LastCheckedAt,
@@ -106,6 +111,7 @@ async fn upsert_artifact<C: ConnectionTrait>(
 pub async fn register_artifacts(
     conn: &DatabaseConnection,
     conversation_id: i32,
+    message_id: Option<&str>,
     turn_generation: Option<i64>,
     working_dir: &Path,
     files: Vec<String>,
@@ -124,7 +130,9 @@ pub async fn register_artifacts(
     let mut accepted = Vec::new();
     let txn = conn.begin().await?;
     for artifact in resolved {
-        accepted.push(upsert_artifact(&txn, conversation_id, turn_generation, artifact).await?);
+        accepted.push(
+            upsert_artifact(&txn, conversation_id, message_id, turn_generation, artifact).await?,
+        );
     }
     txn.commit().await?;
     Ok(serde_json::json!({ "accepted": accepted, "rejected": rejected }))
@@ -133,6 +141,7 @@ pub async fn register_artifacts(
 pub async fn list_artifacts(
     conn: &DatabaseConnection,
     conversation_id: Option<i32>,
+    message_id: Option<&str>,
     folder_id: Option<i32>,
     latest_turn_only: bool,
     search: Option<&str>,
@@ -174,6 +183,9 @@ pub async fn list_artifacts(
     } else {
         None
     };
+    if let Some(message_id) = message_id.filter(|value| !value.trim().is_empty()) {
+        query = query.filter(task_artifact::Column::MessageId.eq(message_id));
+    }
     if let Some(id) = folder_id {
         query = query.filter(conversation::Column::FolderId.eq(id));
     }
@@ -218,6 +230,7 @@ pub async fn list_artifacts(
         results.push(TaskArtifactInfo {
             id: artifact.id,
             conversation_id: artifact.conversation_id,
+            message_id: artifact.message_id,
             folder_id: conversation.folder_id,
             conversation_title: conversation.title,
             agent_type: conversation.agent_type,

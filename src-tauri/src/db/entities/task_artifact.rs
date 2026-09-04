@@ -6,6 +6,8 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub conversation_id: i32,
+    /// Assistant message that produced or explicitly registered this artifact.
+    pub message_id: Option<String>,
     /// Host turn generation that produced or explicitly registered this
     /// artifact. NULL keeps legacy rows visible in the all-artifacts view.
     pub turn_generation: Option<i64>,

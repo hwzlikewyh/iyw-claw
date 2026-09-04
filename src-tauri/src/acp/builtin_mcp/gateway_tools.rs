@@ -121,7 +121,11 @@ fn image_tool() -> Value {
                 "delivery": {
                     "type": "object",
                     "properties": {
-                        "display": {"type": "boolean", "default": true},
+                        "display": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "Compatibility option. Result URLs are registered directly and are never downloaded by the host."
+                        },
                         "registerArtifact": {"type": "boolean", "default": true}
                     },
                     "additionalProperties": false

@@ -1716,9 +1716,6 @@ impl ConnectionManager {
         self.require_agent_launch_policy(agent_type, true).await?;
         self.validate_agent_image_inputs(agent_type, &state_arc, &blocks)
             .await?;
-        let artifact_context =
-            crate::acp::task_artifact_delivery::prepare_turn_context(&state_arc, conn_id).await;
-        let private_context = combine_prompt_context(private_context, artifact_context);
         // Concurrency gate: reject a second prompt while a turn is already in
         // flight on this connection. Reserve channel capacity FIRST — that
         // `reserve().await` is the only point that can block or be cancelled.
@@ -4244,6 +4241,16 @@ impl crate::acp::delegation::listener::ParentSessionLookup for ConnectionManager
         let state = self.manager.get_state(parent_connection_id).await?;
         let snapshot = state.read().await;
         Some(snapshot.turn_generation)
+    }
+
+    async fn current_assistant_message_id(&self, parent_connection_id: &str) -> Option<String> {
+        let state = self.manager.get_state(parent_connection_id).await?;
+        let snapshot = state.read().await;
+        let conversation_id = snapshot.conversation_id?;
+        snapshot
+            .live_message
+            .as_ref()
+            .map(|message| format!("live-{conversation_id}-{}", message.id))
     }
 }
 

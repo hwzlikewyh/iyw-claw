@@ -15,6 +15,7 @@ pub async fn list_task_artifacts(
         list_task_artifacts_core(
             &state.db.conn,
             params.conversation_id,
+            params.message_id,
             params.folder_id,
             params.latest_turn_only.unwrap_or(false),
             params.search,
