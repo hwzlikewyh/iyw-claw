@@ -71,6 +71,12 @@ const LOCAL_FILE_PROMPT_PREFIX: &str =
 const MAX_INLINE_RESOURCE_WIRE_BYTES: usize = 256 * 1024;
 const MAX_PROMPT_RESOURCE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_RESOURCE_URI_DISPLAY_BYTES: usize = 1024;
+const CODEX_BACKEND_ENV: &str = "IYW_CLAW_CODEX_BACKEND";
+const INTERNAL_CODEX_WORKER_BACKEND: &str = "internal-worker";
+const WORKER_CWD_ENV: &str = "IYW_CLAW_CODEX_WORKER_CWD";
+const WORKER_FINGERPRINT_ENV: &str = "IYW_CLAW_CODEX_WORKER_FINGERPRINT";
+const WORKER_HOME_ENV: &str = "IYW_CLAW_CODEX_WORKER_HOME";
+const WORKER_SESSION_ENV: &str = "IYW_CLAW_CODEX_WORKER_EXPECTED_SESSION_ID";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -735,14 +741,24 @@ fn inherited_env_keys_to_remove(agent_type: AgentType) -> Vec<OsString> {
 
 struct AgentLaunchSpec<'a> {
     agent_type: AgentType,
+    internal_worker: Option<InternalWorkerLaunch<'a>>,
     runtime_env: &'a BTreeMap<String, String>,
     cwd: &'a Path,
     builtin_prompt: &'a str,
     stderr_tail: &'a Arc<StderrTail>,
 }
 
+#[derive(Clone, Copy)]
+struct InternalWorkerLaunch<'a> {
+    expected_session_id: Option<&'a str>,
+    runtime_fingerprint: &'a str,
+}
+
 struct AgentRebuildSpec {
     agent_type: AgentType,
+    dedicated_worker: bool,
+    expected_session_id: Option<String>,
+    runtime_fingerprint: String,
     runtime_env: BTreeMap<String, String>,
     process_cwd: PathBuf,
     builtin_prompt: Arc<str>,
@@ -755,6 +771,10 @@ async fn rebuild_agent(
 ) -> Result<AcpAgent, AcpError> {
     build_agent(AgentLaunchSpec {
         agent_type: spec.agent_type,
+        internal_worker: spec.dedicated_worker.then_some(InternalWorkerLaunch {
+            expected_session_id: spec.expected_session_id.as_deref(),
+            runtime_fingerprint: &spec.runtime_fingerprint,
+        }),
         runtime_env: &spec.runtime_env,
         cwd: &spec.process_cwd,
         builtin_prompt: &spec.builtin_prompt,
@@ -777,8 +797,8 @@ fn shared_runtime_host_enabled(agent_type: AgentType) -> bool {
         })
 }
 
-fn stderr_tail_for_runtime_host(agent_type: AgentType) -> Arc<StderrTail> {
-    if shared_runtime_host_enabled(agent_type) {
+fn stderr_tail_for_runtime_host(agent_type: AgentType, shared_host: bool) -> Arc<StderrTail> {
+    if shared_host && shared_runtime_host_enabled(agent_type) {
         // Capture only the startup window. `AgentRuntimeHost::start` disables
         // this tail after a successful initialize, so shared hosts do not mix
         // stderr from concurrent sessions into turn diagnostics.
@@ -803,11 +823,21 @@ fn runtime_host_process_cwd<'a>(
 async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
     let AgentLaunchSpec {
         agent_type,
+        internal_worker,
         runtime_env,
         cwd,
         builtin_prompt,
         stderr_tail,
     } = spec;
+    if let Some(worker) = internal_worker {
+        return build_internal_codex_worker_agent(
+            runtime_env,
+            cwd,
+            builtin_prompt,
+            stderr_tail,
+            worker,
+        );
+    }
     let meta = registry::try_get_agent_meta(agent_type)
         .ok_or_else(|| AcpError::protocol("Agent identity is not trusted for execution"))?;
     debug_assert_eq!(meta.agent_type, agent_type);
@@ -1245,6 +1275,110 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
     })
 }
 
+fn internal_codex_worker_requested(
+    agent_type: AgentType,
+    runtime_env: &BTreeMap<String, String>,
+) -> bool {
+    agent_type == AgentType::Codex
+        && runtime_env.get(CODEX_BACKEND_ENV).is_some_and(|value| {
+            value
+                .trim()
+                .eq_ignore_ascii_case(INTERNAL_CODEX_WORKER_BACKEND)
+        })
+}
+
+fn build_internal_codex_worker_agent(
+    runtime_env: &BTreeMap<String, String>,
+    cwd: &Path,
+    builtin_prompt: &str,
+    stderr_tail: &Arc<StderrTail>,
+    launch: InternalWorkerLaunch<'_>,
+) -> Result<AcpAgent, AcpError> {
+    ensure_internal_codex_worker_ready()?;
+    let storage = AgentStoragePaths::active().ok_or_else(|| {
+        AcpError::SdkNotInstalled("星河 is not installed: storage is unavailable".to_string())
+    })?;
+    let executable = crate::update::runtime::self_exe();
+    if !executable.is_file() {
+        return Err(AcpError::SdkNotInstalled(
+            "星河 is not installed: application executable is unavailable".to_string(),
+        ));
+    }
+    let environment = internal_worker_environment(runtime_env, cwd, &storage, launch);
+    let env_vars = environment
+        .iter()
+        .map(|(name, value)| sacp::schema::EnvVariable::new(name, value))
+        .collect();
+    let executable = executable.to_string_lossy().into_owned();
+    let server = McpServerStdio::new("星河内部运行器", &executable)
+        .args(vec![crate::internal_codex_worker::WORKER_FLAG.to_string()])
+        .env(env_vars);
+    let prompt_for_log = builtin_prompt.to_string();
+    let tail = Arc::clone(stderr_tail);
+    tracing::info!(
+        agent = "星河",
+        launch_kind = "self_reexec_worker",
+        environment_key_count = environment.len(),
+        "[ACP] selected internal Codex worker"
+    );
+    let agent = AcpAgent::new(McpServer::Stdio(server)).with_debug(move |line, direction| {
+        if direction == sacp_tokio::LineDirection::Stderr {
+            capture_agent_stderr(&tail, line, &prompt_for_log);
+        }
+    });
+    Ok(if cwd.is_dir() {
+        agent.with_current_dir(cwd)
+    } else {
+        agent
+    })
+}
+
+fn internal_worker_environment(
+    runtime_env: &BTreeMap<String, String>,
+    cwd: &Path,
+    storage: &AgentStoragePaths,
+    launch: InternalWorkerLaunch<'_>,
+) -> BTreeMap<String, String> {
+    let mut environment = merge_agent_env(&[], runtime_env)
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+    environment.insert(
+        crate::internal_codex_worker::ACTIVE_ENV.to_string(),
+        "1".to_string(),
+    );
+    environment.insert(
+        WORKER_CWD_ENV.to_string(),
+        cwd.to_string_lossy().into_owned(),
+    );
+    environment.insert(
+        WORKER_HOME_ENV.to_string(),
+        storage
+            .profile(AgentType::Codex)
+            .root
+            .to_string_lossy()
+            .into_owned(),
+    );
+    environment.insert(
+        WORKER_FINGERPRINT_ENV.to_string(),
+        launch.runtime_fingerprint.to_string(),
+    );
+    if let Some(session_id) = launch.expected_session_id {
+        environment.insert(WORKER_SESSION_ENV.to_string(), session_id.to_string());
+    }
+    environment
+}
+
+fn ensure_internal_codex_worker_ready() -> Result<(), AcpError> {
+    crate::internal_codex_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
+    if crate::update::runtime::self_exe().is_file() {
+        Ok(())
+    } else {
+        Err(AcpError::SdkNotInstalled(
+            "星河 is not installed: application executable is unavailable".to_string(),
+        ))
+    }
+}
+
 /// Spawn an ACP agent process and run the connection loop in a background task.
 ///
 /// On success, the newly created `AgentConnection` is inserted into
@@ -1382,7 +1516,6 @@ pub(crate) async fn spawn_agent_connection(
     // nothing at all reaches the log. Emit + log here so the failure is
     // attributable to a concrete path.
     let process_prepare_stage = startup_trace.stage("process_prepare");
-    let stderr_tail = stderr_tail_for_runtime_host(agent_type);
     let launch = async {
         let storage = AgentStoragePaths::active().ok_or_else(|| {
             AcpError::SdkNotInstalled(
@@ -1405,70 +1538,110 @@ pub(crate) async fn spawn_agent_connection(
             },
         )
         .await?;
-        let process_fingerprint = crate::commands::acp::fingerprint_config(
+        let dedicated_worker = if internal_codex_worker_requested(agent_type, &prepared.environment)
+        {
+            match ensure_internal_codex_worker_ready() {
+                Ok(_) => true,
+                Err(error) => {
+                    tracing::warn!(
+                        agent = "星河",
+                        error_code = ?error.code(),
+                        "[ACP] internal Codex worker unavailable; using external ACP fallback"
+                    );
+                    false
+                }
+            }
+        } else {
+            false
+        };
+        let stderr_tail = stderr_tail_for_runtime_host(
+            agent_type,
+            shared_runtime_host_enabled(agent_type) && !dedicated_worker,
+        );
+        let mut process_fingerprint = crate::commands::acp::fingerprint_config(
             agent_type,
             &prepared.environment,
         );
-        let process_cwd =
-            runtime_host_process_cwd(agent_type, &storage, &launch_cwd).to_path_buf();
+        if force_host_restart {
+            process_fingerprint.push_str(":forced:");
+            process_fingerprint.push_str(&uuid::Uuid::new_v4().simple().to_string());
+        }
+        if dedicated_worker {
+            process_fingerprint.push_str(":internal-worker:");
+            process_fingerprint.push_str(&connection_id);
+        }
+        let process_cwd = if dedicated_worker {
+            launch_cwd.clone()
+        } else {
+            runtime_host_process_cwd(agent_type, &storage, &launch_cwd).to_path_buf()
+        };
         let agent = build_agent(AgentLaunchSpec {
             agent_type,
+            internal_worker: dedicated_worker.then_some(InternalWorkerLaunch {
+                expected_session_id: session_id.as_deref(),
+                runtime_fingerprint: &process_fingerprint,
+            }),
             runtime_env: &prepared.environment,
             cwd: &process_cwd,
             builtin_prompt: &prepared.prompt.text,
             stderr_tail: &stderr_tail,
         })
         .await?;
-        Ok::<_, AcpError>((agent, prepared, process_fingerprint, process_cwd))
+        Ok::<_, AcpError>((
+            agent,
+            prepared,
+            process_fingerprint,
+            process_cwd,
+            dedicated_worker,
+            stderr_tail,
+        ))
     }
     .await;
-    let (agent, prepared_prompt, mut process_fingerprint, process_cwd) = match launch {
-        Ok(launch) => {
-            process_prepare_stage.finish("ok");
-            launch
-        }
-        Err(error) => {
-            process_prepare_stage.finish("error");
-            cleanup_delegation_resources(delegation_injection.as_ref(), &connection_id).await;
-            tracing::error!(
-                "[ACP] agent launch preparation failed connection_id={} agent={:?} cwd={} \
+    let (agent, prepared_prompt, process_fingerprint, process_cwd, dedicated_worker, stderr_tail) =
+        match launch {
+            Ok(launch) => {
+                process_prepare_stage.finish("ok");
+                launch
+            }
+            Err(error) => {
+                process_prepare_stage.finish("error");
+                cleanup_delegation_resources(delegation_injection.as_ref(), &connection_id).await;
+                tracing::error!(
+                    "[ACP] agent launch preparation failed connection_id={} agent={:?} cwd={} \
                  code={:?} storage_root={:?} error={error}",
-                connection_id,
-                agent_type,
-                launch_cwd.display(),
-                error.code(),
-                crate::acp::agent_storage::AgentStoragePaths::active().map(|s| s.root().clone()),
-            );
-            let code = error.code().map(String::from);
-            emit_with_state(
-                &session_state,
-                &emitter,
-                AcpEvent::Error {
-                    message: error.to_string(),
-                    agent_type: agent_type.to_string(),
-                    code,
-                    details: None,
-                    // Terminal: the connection was never inserted into the map
-                    // and no `run_connection` task will follow this.
-                    terminal: true,
-                },
-            )
-            .await;
-            emit_with_state(
-                &session_state,
-                &emitter,
-                AcpEvent::StatusChanged {
-                    status: ConnectionStatus::Error,
-                },
-            )
-            .await;
-            return Err(error);
-        }
-    };
-    if force_host_restart {
-        process_fingerprint.push_str(":forced:");
-        process_fingerprint.push_str(&uuid::Uuid::new_v4().simple().to_string());
-    }
+                    connection_id,
+                    agent_type,
+                    launch_cwd.display(),
+                    error.code(),
+                    crate::acp::agent_storage::AgentStoragePaths::active()
+                        .map(|s| s.root().clone()),
+                );
+                let code = error.code().map(String::from);
+                emit_with_state(
+                    &session_state,
+                    &emitter,
+                    AcpEvent::Error {
+                        message: error.to_string(),
+                        agent_type: agent_type.to_string(),
+                        code,
+                        details: None,
+                        // Terminal: the connection was never inserted into the map
+                        // and no `run_connection` task will follow this.
+                        terminal: true,
+                    },
+                )
+                .await;
+                emit_with_state(
+                    &session_state,
+                    &emitter,
+                    AcpEvent::StatusChanged {
+                        status: ConnectionStatus::Error,
+                    },
+                )
+                .await;
+                return Err(error);
+            }
+        };
     let crate::acp::builtin_prompt_injection::PreparedBuiltinPrompt {
         environment: launch_environment,
         prompt: builtin_prompt,
@@ -1477,6 +1650,9 @@ pub(crate) async fn spawn_agent_connection(
     } = prepared_prompt;
     let agent_rebuild = AgentRebuildSpec {
         agent_type,
+        dedicated_worker,
+        expected_session_id: session_id.clone(),
+        runtime_fingerprint: process_fingerprint.clone(),
         runtime_env: launch_environment,
         process_cwd,
         builtin_prompt: Arc::clone(&builtin_prompt.text),
@@ -1570,6 +1746,7 @@ pub(crate) async fn spawn_agent_connection(
             run_connection(
                 agent,
                 agent_rebuild,
+                dedicated_worker,
                 conn_id.clone(),
                 agent_type,
                 working_dir,
@@ -1713,7 +1890,9 @@ pub(crate) async fn prewarm_agent_runtime(
     runtime_env: BTreeMap<String, String>,
     runtime_hosts: Arc<crate::acp::runtime_host::RuntimeHostRegistry>,
 ) -> Result<bool, AcpError> {
-    if !shared_runtime_host_enabled(agent_type) {
+    if !shared_runtime_host_enabled(agent_type)
+        || internal_codex_worker_requested(agent_type, &runtime_env)
+    {
         return Ok(false);
     }
     crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
@@ -1746,16 +1925,17 @@ pub(crate) async fn prewarm_agent_runtime(
     )
     .await?;
     let fingerprint = crate::commands::acp::fingerprint_config(agent_type, &prepared.environment);
-    let stderr_tail = stderr_tail_for_runtime_host(agent_type);
+    let stderr_tail = stderr_tail_for_runtime_host(agent_type, true);
     let agent = build_agent(AgentLaunchSpec {
         agent_type,
+        internal_worker: None,
         runtime_env: &prepared.environment,
         cwd: runtime_host_process_cwd(agent_type, &storage, storage.root()),
         builtin_prompt: &prepared.prompt.text,
         stderr_tail: &stderr_tail,
     })
     .await?;
-    let host_key = runtime_host_key(agent_type, fingerprint).await?;
+    let host_key = runtime_host_key(agent_type, fingerprint, false).await?;
     let _reservation = runtime_hosts.acquire(host_key, agent, stderr_tail).await?;
     Ok(true)
 }
@@ -1763,13 +1943,18 @@ pub(crate) async fn prewarm_agent_runtime(
 async fn runtime_host_key(
     agent_type: AgentType,
     process_fingerprint: String,
+    dedicated_worker: bool,
 ) -> Result<crate::acp::runtime_host::RuntimeHostKey, AcpError> {
     let identity = crate::acp::trusted_agents::runtime_identity(agent_type).ok_or_else(|| {
         AcpError::protocol(format!(
             "ACP runtime Host identity is not trusted for {agent_type}"
         ))
     })?;
-    let policy = crate::acp::runtime_host_policy::resolve(agent_type).await;
+    let policy = if dedicated_worker {
+        crate::acp::runtime_host_policy::RuntimeHostPolicy::deny_all()
+    } else {
+        crate::acp::runtime_host_policy::resolve(agent_type).await
+    };
     Ok(crate::acp::runtime_host::RuntimeHostKey::new(
         agent_type,
         process_fingerprint,
@@ -2708,6 +2893,7 @@ struct CompanionLaunchContext<'a> {
     database_conversation_id: Option<i32>,
     working_dir: &'a Path,
     agent_type: AgentType,
+    backend_allows_builtin_mcp: bool,
     state: &'a Arc<RwLock<SessionState>>,
     agent_http_capable: bool,
     parent_cancellation: &'a tokio_util::sync::CancellationToken,
@@ -2907,6 +3093,16 @@ fn builtin_mcp_unavailable(context: &CompanionLaunchContext<'_>, reason: &str) -
 async fn prepare_companion_launch(
     context: CompanionLaunchContext<'_>,
 ) -> Result<CompanionLaunchPreparation, AcpError> {
+    if !context.backend_allows_builtin_mcp {
+        tracing::info!(
+            connection_id = context.connection_id,
+            agent = %context.agent_type,
+            transport = "unavailable",
+            reason = "internal_codex_worker_isolated",
+            "[ACP] built-in MCP is disabled for the isolated internal Codex worker"
+        );
+        return Ok(unavailable_companion_launch());
+    }
     let Some(policy_monitor) = companion_policy_monitor(&context).await? else {
         return Ok(unavailable_companion_launch());
     };
@@ -3094,6 +3290,7 @@ fn stable_mcp_server_name(root: &Path, agent_type: AgentType) -> String {
 async fn run_connection(
     agent: AcpAgent,
     agent_rebuild: AgentRebuildSpec,
+    dedicated_worker: bool,
     connection_id: String,
     agent_type: AgentType,
     working_dir: Option<String>,
@@ -3162,8 +3359,9 @@ async fn run_connection(
             Arc::clone(&prompt_ledger),
         );
 
-        let shared_host = shared_runtime_host_enabled(agent_type);
-        let host_key = runtime_host_key(agent_type, process_fingerprint.clone()).await?;
+        let shared_host = shared_runtime_host_enabled(agent_type) && !dedicated_worker;
+        let host_key =
+            runtime_host_key(agent_type, process_fingerprint.clone(), dedicated_worker).await?;
         let host_started = std::time::Instant::now();
         let startup_trace = state.read().await.startup_trace.clone();
         let host_stage = startup_trace
@@ -3326,7 +3524,8 @@ async fn run_connection(
             // OpenClaw rejects non-empty MCP lists and Pi's ACP adapter drops them,
             // so neither may receive user-configured or built-in wire MCP entries.
             // This chokepoint feeds new/load/resume and the load-to-new fallback.
-            let agent_supports_mcp = registry::get_agent_meta(agent_type).supports_mcp
+            let agent_supports_mcp = !dedicated_worker
+                && registry::get_agent_meta(agent_type).supports_mcp
                 && agent_delivers_wire_mcp(agent_type);
 
             // Load MCP servers configured for this agent and filter by the
@@ -3385,6 +3584,7 @@ async fn run_connection(
                 database_conversation_id,
                 working_dir: &cwd,
                 agent_type,
+                backend_allows_builtin_mcp: !dedicated_worker,
                 state: &state,
                 agent_http_capable: builtin_http_capability_available(
                     agent_type,

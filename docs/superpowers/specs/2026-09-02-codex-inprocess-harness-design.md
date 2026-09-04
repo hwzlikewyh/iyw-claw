@@ -1,10 +1,11 @@
-# Codex In-Process Harness Design
+# Codex In-Process Harness And Same-Executable Worker Design
 
 ## Status
 
 - Design date: 2026-09-02
 - Decision: use the locked Codex App Server in-process client behind an
-  iyw-claw-owned adapter.
+  iyw-claw-owned adapter, hosted by a private worker child started from the
+  same `iyw-claw.exe` image.
 - Repository boundary: implementation starts in
   `harness/codex` on an isolated branch/worktree.
 - Default behavior: existing external ACP remains enabled and is the fallback.
@@ -13,10 +14,12 @@
 
 ## Objective
 
-Embed the Codex execution engine into the iyw-claw Rust process while keeping
-iyw-claw's session, queue, permission, storage, and UI contracts authoritative.
-The result must remove the Codex CLI/TUI front doors and their extra process
-boundary without creating a second application session system.
+Keep one user-facing `iyw-claw.exe`. For an opted-in Codex session, that
+executable starts itself with an internal worker flag; the child loads a private
+Codex worker DLL and runs the App Server in-process. The parent keeps iyw-claw's
+session, queue, permission, storage, and UI contracts authoritative. This
+removes the Codex CLI/TUI front doors without publishing a second worker
+executable or creating a second application session system.
 
 Success requires all of the following:
 
@@ -69,17 +72,21 @@ release artifact measurements; they cannot be inferred from removing TUI code.
 ```text
 ConnectionManager / AgentInputRuntime / SQLite outbox
                          |
-                 CodexHarness (adapter)
+          same-executable ACP worker child
+          (iyw-claw.exe --internal-codex-worker)
                          |
-         InProcessAppServerClient (upstream facade)
+                 private worker DLL
                          |
-                  Codex App Server core
+          CodexHarness + InProcessAppServerClient
+                         |
+                   Codex App Server core
 ```
 
-`CodexHarness` is an alternate agent backend, not a second connection manager.
-It owns only:
+`CodexHarness` is hosted by the private worker child. It is an alternate Agent
+backend, not a second connection manager. The parent process owns the ACP
+connection and application state; the worker owns only:
 
-- a process-wide in-process runtime keyed by an explicit effective-config
+- a worker-local in-process runtime keyed by an explicit effective-config
   fingerprint;
 - a protocol-neutral session/thread binding table;
 - typed request/event translation;
@@ -91,8 +98,8 @@ account credentials, or a second outbox. Upstream types remain private to the
 adapter module and never cross into `src-tauri/src/acp` or frontend DTOs.
 
 The parent `iyw-codex-harness` crate remains dependency-free by default. The
-upstream client is an optional feature or an isolated probe dependency, so
-ordinary iyw-claw checks do not fetch the 1,000+ crate Codex graph.
+upstream client is linked only into the private `iyw-codex-worker` `cdylib`, so
+ordinary iyw-claw checks do not fetch or link the 1,000+ crate Codex graph.
 
 ## Lifecycle And Data Flow
 
@@ -100,16 +107,21 @@ ordinary iyw-claw checks do not fetch the 1,000+ crate Codex graph.
 
 1. `ConnectionManager` obtains the normal runtime configuration from
    `build_session_runtime_env` and the active private Agent storage profile.
-2. The adapter converts that result into an explicit Codex `Config`,
+2. For `IYW_CLAW_CODEX_BACKEND=internal-worker`, the parent validates the
+   private DLL beside the application or in its packaged resource directory and
+   starts its own executable with `--internal-codex-worker`. Other values keep
+   the existing external ACP path.
+3. The worker converts the inherited, validated context into an explicit Codex `Config`,
    `EnvironmentManager`, `CloudConfigBundleLoader`, feedback/log/state handles,
    client identity, and bounded channel capacity. No process-wide environment
    mutation is used for per-session configuration.
-3. The shared runtime is keyed by the same effective configuration values that
+4. The worker-local runtime is keyed by the same effective configuration values that
    determine Codex host reuse. A different provider, profile, Skill generation,
    sandbox policy, or credential generation cannot silently reuse an old host.
-4. `InProcessAppServerClient::start` performs the App Server initialize
+5. `InProcessAppServerClient::start` performs the App Server initialize
    handshake. A failure leaves no published route and falls back to external
-   ACP.
+   ACP before the worker route is published. The worker backend never shares
+   Runtime Host or built-in MCP authority with another connection.
 
 ### New and resumed sessions
 
@@ -207,7 +219,7 @@ The adapter exposes stable protocol-neutral errors: `NotReady`, `Overloaded`,
 
 The harness adds focused tests for protocol-neutral ownership and lifecycle
 contracts first. Upstream integration tests run only in the isolated probe or
-feature-enabled target.
+the harness's feature-enabled target.
 
 Required gates before default enablement:
 
@@ -227,18 +239,106 @@ Required gates before default enablement:
 6. Run security checks for path escape, capability revocation, cross-session
    request injection, secret/log leakage, and child-process ownership.
 
-Until all gates pass, the feature remains opt-in and external ACP remains the
-default. No release workflow or Fusion publication is part of this design.
+Until all gates pass, external ACP remains the default application backend and
+the internal worker remains opt-in. No release workflow or Fusion publication is
+part of this design.
 
 ## Rollout And Rollback
 
-The first implementation adds a backend selector behind a disabled feature
-flag. It publishes health and parity diagnostics but does not change the
-existing Codex registry distribution or installer. A per-session opt-in can
-exercise the harness while external ACP remains available.
+After dependency isolation is approved, the first application implementation
+adds a backend selector behind a disabled feature flag. It publishes health and
+parity diagnostics but does not change the existing Codex registry distribution
+or installer. A per-session opt-in can exercise the same-executable worker while
+external ACP remains available.
 
 Promotion requires a versioned feature flag and an explicit last-known-good
 backend. On any startup, permission, recovery, or shutdown regression, new
 sessions stop selecting in-process; existing sessions finish or recover through
 the external ACP path after a generation fence. Rollback never deletes the
 private Codex profile, SQLite data, outbox items, Skills, or user settings.
+
+## Implementation Checkpoint (2026-09-03)
+
+The isolated branch has a verified harness foundation only:
+
+- `harness/codex` owns explicit method allowlists, session/thread/generation
+  bindings, active-turn validation, request-id single settlement, and a
+  fail-closed server-request admission boundary.
+- Session-scoped command, file-change, user-input, permission, dynamic-tool,
+  and MCP elicitation requests require their bound `threadId`; turn-scoped
+  forms also require the live `turnId`. `turn/steer` requires its exact
+  `expectedTurnId`.
+- The facade rejects cross-session prompts, duplicate session ownership,
+  malformed text blocks, and non-text delta payloads. It drops notifications
+  without a thread id and stale turn completions; post-completion cancellation
+  is idempotent.
+- Initialize advertises image input only when `Images` is granted and session
+  loading only for a validated persisted session id. Prompt conversion enforces
+  the same image capability before constructing the upstream request.
+- The upstream-enabled harness deliberately excludes Codex CLI/TUI entry
+  points. Its helper dispatcher contains only upstream-required arg0 exec,
+  filesystem sandbox, Windows sandbox, and apply-patch callbacks.
+
+The application now has an opt-in `internal-worker` selector in
+`src-tauri/src/acp/connection.rs`. The parent starts the same executable with
+`--internal-codex-worker`; `src-tauri/src/internal_codex_worker.rs` loads only
+the private resource DLL and dispatches the worker or its upstream helper modes
+before Tauri initialization. The worker uses a dedicated Runtime Host with
+deny-all host policy and receives no built-in MCP entries.
+
+The worker graph is deliberately kept out of `src-tauri`: Cargo resolves the
+upstream graph in `harness/codex-worker` only. `src-tauri` links the small
+`libloading` loader, so ordinary application metadata remains free of the
+Codex/SQLite native graph.
+
+The direct integration is therefore paused at a dependency boundary: Codex
+uses `sqlx 0.9` with `libsqlite3-sys 0.37`, while iyw-claw's SeaORM path uses
+`sqlx 0.8.6` with `libsqlite3-sys 0.30.1`. Cargo rejects both native crates
+because they share `links = "sqlite3"`. The upstream graph also requires
+Codex's patched `tokio-tungstenite` fork. A local SQLite compatibility facade
+compiled in isolated probes, but would change the application-wide native
+SQLite binding and is not part of this experiment.
+
+Keeping the graph in `harness/codex-worker` restores normal `src-tauri`
+dependency resolution while preserving the independent ownership/lifecycle and
+upstream compile evidence. `src-tauri/scripts/prepare-codex-worker.mjs` and
+`tauri.codex-worker.conf.json` are experimental-only packaging steps; release
+workflows do not invoke them. The same-executable worker is not a proven
+installed-client or end-to-end feature until the release gates above pass.
+
+Verification on Windows: the dependency-free harness test target passed 10/10
+tests; the locked `upstream-acp` target passed 28/28 tests. The latter spent
+approximately 55 minutes in a full debug build/link of the isolated Codex
+graph, reinforcing that it must not be added to the ordinary application build.
+
+## Runtime Validation Checkpoint (2026-09-03)
+
+The private Windows x64 worker `cdylib` was built successfully from the locked
+upstream graph with `cargo build --release --locked --target
+x86_64-pc-windows-msvc`. The resulting DLL was 244,667,392 bytes and exported
+both `iyw_codex_worker_run_v1` and `iyw_codex_worker_dispatch_helper_v1`.
+
+A direct DLL protocol probe completed `initialize`, rejected a mismatched cwd,
+then completed `session/new` with the owning cwd and returned a valid ACP
+session id. A subsequent `session/prompt` reached Codex and returned
+`stopReason=refusal` in the unauthenticated probe environment; no bridge or
+JSON-RPC mapping error occurred. This proves worker loading and basic ACP
+lifecycle, not authenticated model generation or installed desktop acceptance.
+
+## Application Boundary Validation Follow-up (2026-09-04)
+
+The application-side boundary was also built and exercised on Windows x64.
+`cargo check --locked --manifest-path src-tauri/Cargo.toml --bin iyw-claw`
+and `cargo build --locked --manifest-path src-tauri/Cargo.toml --bin iyw-claw`
+both passed. After the experimental preparation script staged the private DLL,
+the resulting debug `iyw-claw.exe --internal-codex-worker` returned ACP
+`initialize` with protocol version 1 and completed `session/new` with a valid
+session id using a fresh, temporary Codex profile and cwd. The probe did not
+initialize Tauri or create a desktop window.
+
+This confirms the same-executable early-dispatch, private DLL loading, and
+basic ACP session path. It does not prove an installed-package resource layout,
+authenticated model generation, or parity for MCP, Skills, permissions,
+filesystem, terminal, recovery, and cross-platform packaging. The temporary
+staged DLL, empty frontend resource directory, placeholder sidecar, and probe
+profiles are removed after this verification.
