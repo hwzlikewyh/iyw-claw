@@ -198,6 +198,10 @@ pub struct LinkOpResult {
 pub struct InstallReport {
     pub installed_count: usize,
     pub updated_count: usize,
+    /// Bundled Skill IDs removed from the previous manifest during this
+    /// reconcile. Callers with a database connection use this to clear only
+    /// system-generated activation policies for retired Skills.
+    pub retired: Vec<String>,
     pub pending_user_review: Vec<String>,
     pub errors: Vec<String>,
 }
@@ -1218,6 +1222,37 @@ fn ensure_central_experts_installed_blocking() -> InstallReport {
     report
 }
 
+/// Clear activation policies created by the managed Skill migration/install
+/// paths for bundled Skills that were retired in the current application
+/// version. User-authored policies are intentionally preserved.
+pub async fn cleanup_retired_skill_activation_policies(
+    conn: &sea_orm::DatabaseConnection,
+    retired_ids: &[String],
+) {
+    if retired_ids.is_empty() {
+        return;
+    }
+    match crate::db::service::skill_activation_policy_service::delete_managed_for_skill_ids(
+        conn,
+        retired_ids,
+    )
+    .await
+    {
+        Ok(removed) => tracing::info!(
+            target: "system_skills",
+            retired = ?retired_ids,
+            removed_policies = removed,
+            "cleaned activation policies for retired bundled Skills"
+        ),
+        Err(error) => tracing::warn!(
+            target: "system_skills",
+            retired = ?retired_ids,
+            error = %error,
+            "failed to clean activation policies for retired bundled Skills"
+        ),
+    }
+}
+
 fn retired_experts_need_reconcile() -> bool {
     let manifest = load_manifest();
     !retired_bundled_expert_ids(&manifest).is_empty()
@@ -1249,6 +1284,7 @@ fn retire_bundled_experts(manifest: &mut Manifest, report: &mut InstallReport) {
             continue;
         }
         manifest.experts.remove(id);
+        report.retired.push(id);
     }
 }
 
