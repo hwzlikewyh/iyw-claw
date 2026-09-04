@@ -66,7 +66,10 @@ pub(crate) async fn run(
             return;
         };
         if !snapshot.launch_finalized {
-            snapshot.launch_ready.await;
+            tokio::select! {
+                _ = snapshot.launch_ready => {}
+                _ = snapshot.wake => {}
+            }
             continue;
         }
         let work = match load_work(&db, snapshot.conversation_id, conn_id).await {
