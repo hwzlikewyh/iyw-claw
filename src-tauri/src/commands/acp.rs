@@ -3957,7 +3957,7 @@ pub(crate) fn acp_validate_pi_command_core(command: String) -> PiCommandValidati
 /// and never blocks indefinitely (`Command::output` waits for the short-lived
 /// `--version` child to exit on its own).
 fn probe_pi_version(resolved: &Path) -> Option<String> {
-    let output = std::process::Command::new(resolved)
+    let output = crate::process::std_command(resolved)
         .arg("--version")
         .output()
         .ok()?;
@@ -10732,6 +10732,7 @@ pub async fn acp_open_hermes_setup_terminal(kind: String) -> Result<(), AcpError
 
 #[cfg(feature = "tauri-runtime")]
 fn open_external_terminal_impl(command: &str, cwd: Option<&str>) -> Result<(), AcpError> {
+    #[cfg(any(target_os = "macos", all(unix, not(target_os = "macos"))))]
     use std::process::Command;
     // Reject control characters: a newline breaks out of the macOS AppleScript
     // string literal (and would corrupt the cmd/shell line elsewhere), turning a
@@ -10764,14 +10765,13 @@ fn open_external_terminal_impl(command: &str, cwd: Option<&str>) -> Result<(), A
 
     #[cfg(target_os = "windows")]
     {
-        // `start "" cmd /K <command>` opens a new console that stays open. The
-        // empty "" is the window title `start` would otherwise eat.
-        Command::new("cmd")
-            .args(["/C", "start", "", "cmd", "/K", command])
-            .current_dir(&dir)
-            .spawn()
-            .map_err(|e| AcpError::protocol(format!("open terminal failed: {e}")))?;
-        return Ok(());
+        // Windows desktop builds must never create a visible console. The
+        // settings UI already falls back to copying the exact command when
+        // this interactive-only entry point is unavailable.
+        let _ = (command, dir);
+        return Err(AcpError::protocol(
+            "interactive Hermes setup is unavailable without an external terminal",
+        ));
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
