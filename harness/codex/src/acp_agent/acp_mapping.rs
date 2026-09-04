@@ -344,9 +344,24 @@ fn usage_update(params: &Value) -> Value {
         .get("tokenUsage")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let total = usage.get("total").unwrap_or(&usage);
+    // ACP's `used` is the tokens currently in the active context.  Codex's
+    // `total` breakdown is cumulative across the whole session, so using its
+    // `totalTokens` makes the displayed context grow past the model window
+    // after several turns.  `last` is the latest response/context snapshot
+    // (and is also what Codex uses for its own context-window percentage).
+    let used = usage
+        .get("last")
+        .and_then(|last| last.get("totalTokens"))
+        .or_else(|| {
+            usage
+                .get("total")
+                .and_then(|total| total.get("totalTokens"))
+        })
+        .or_else(|| usage.get("totalTokens"))
+        .cloned()
+        .unwrap_or(json!(0));
     json!({
-        "used": total.get("totalTokens").cloned().unwrap_or(json!(0)),
+        "used": used,
         "size": usage.get("modelContextWindow").cloned().unwrap_or(json!(0))
     })
 }
@@ -425,6 +440,24 @@ mod tests {
         .expect("usage maps");
         assert_eq!(usage.params["used"], 42);
         assert_eq!(usage.params["size"], 100);
+    }
+
+    #[test]
+    fn maps_context_usage_from_latest_snapshot_not_cumulative_total() {
+        let usage = notification_to_update(
+            "thread/tokenUsage/updated",
+            &json!({
+                "tokenUsage": {
+                    "total": {"totalTokens": 1_300_000},
+                    "last": {"totalTokens": 180_000},
+                    "modelContextWindow": 1_000_000
+                }
+            }),
+        )
+        .expect("usage maps");
+
+        assert_eq!(usage.params["used"], 180_000);
+        assert_eq!(usage.params["size"], 1_000_000);
     }
 
     #[test]
