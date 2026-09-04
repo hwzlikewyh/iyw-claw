@@ -43,9 +43,12 @@ export function flushRetryDelayMs(
  */
 export function shouldQueueDirectSend(
   fromQueueFlush: boolean,
-  queueLength: number
+  queueLength: number,
+  pendingAgentInputCount: number = 0
 ): boolean {
-  return !fromQueueFlush && queueLength > 0
+  return (
+    !fromQueueFlush && (queueLength > 0 || pendingAgentInputCount > 0)
+  )
 }
 
 /** Queue a user-originated submit until a matching Agent connection can buffer it. */

@@ -1654,7 +1654,18 @@ const ConversationTabView = memo(function ConversationTabView({
       // Preserve FIFO: a direct send issued while the queue is non-empty joins
       // the tail rather than racing ahead of the queued items. Read the
       // queue length synchronously (it reflects a same-tick bounce requeue).
-      if (shouldQueueDirectSend(fromQueueFlush, mqGetQueueLength())) {
+      if (
+        shouldQueueDirectSend(
+          fromQueueFlush,
+          mqGetQueueLength(),
+          conn.agentInputs.filter(
+            (item) =>
+              item.status === "waiting" ||
+              item.status === "dispatching" ||
+              item.status === "fallback_queued"
+          ).length
+        )
+      ) {
         mqEnqueue(draft, selectedModeIdArg ?? null)
         return
       }
