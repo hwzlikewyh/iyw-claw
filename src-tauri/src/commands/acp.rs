@@ -5862,6 +5862,36 @@ pub(crate) fn installed_market_skill_versions() -> HashMap<i64, String> {
         .collect()
 }
 
+pub(crate) fn installed_market_skill_ids() -> Vec<i64> {
+    let Ok(entries) = fs::read_dir(shared_skills_dir()) else {
+        return Vec::new();
+    };
+    let mut ids = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| read_market_skill_marker(&entry.path()))
+        .map(|marker| marker.skill_id)
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
+pub(crate) fn installed_market_skill_plugin_refs(skill_id: i64) -> Vec<(String, String)> {
+    let Ok(entries) = fs::read_dir(shared_skills_dir()) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| read_market_skill_marker(&entry.path()))
+        .filter(|marker| marker.skill_id == skill_id)
+        .filter_map(|marker| {
+            marker
+                .plugin_slug
+                .map(|slug| (slug, marker.installed_version))
+        })
+        .collect()
+}
+
 pub(crate) fn installed_market_skill_targets(skill_id: i64) -> Vec<AgentType> {
     let Ok(entries) = fs::read_dir(shared_skills_dir()) else {
         return Vec::new();
@@ -11468,7 +11498,7 @@ pub async fn acp_uninstall_agent(
 
 /// The npm package that ships the `pi` binary pi-acp spawns as `pi --mode rpc`.
 /// It is installed beside the pinned pi-acp adapter in the same private prefix.
-const PI_CODING_AGENT_PACKAGE_SPEC: &str = "@earendil-works/pi-coding-agent@0.84.1";
+const PI_CODING_AGENT_PACKAGE_SPEC: &str = "@earendil-works/pi-coding-agent@0.84.4";
 
 /// Install the Pi adapter and child command together in one private runtime.
 pub(crate) async fn acp_install_pi_binary_core(

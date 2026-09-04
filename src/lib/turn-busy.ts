@@ -71,3 +71,63 @@ export function isNoActiveTurnRejection(err: unknown): boolean {
   }
   return false
 }
+
+const TRANSIENT_CONNECTION_CODES = new Set([
+  "connection_not_found",
+  "process_exited",
+  "initialize_timeout",
+  "network_error",
+])
+
+const TRANSIENT_CONNECTION_MARKERS = [
+  "connection not found",
+  "connection is not registered",
+  "agent process exited",
+  "process exited unexpectedly",
+  "initialize timeout",
+  "initialization timeout",
+  "initialization timed out",
+  "connection closed",
+  "transport closed",
+  "channel closed",
+  "broken pipe",
+  "failed to fetch",
+  "network error",
+  "networkerror",
+  "request timed out",
+  "connection reset",
+]
+
+/**
+ * True when a prompt failed because the ACP transport was being replaced or
+ * was no longer available. These failures are safe to re-queue: capability,
+ * validation, billing, and provider errors must remain terminal and visible.
+ */
+export function isTransientConnectionSendError(error: unknown): boolean {
+  const values: string[] = []
+  if (typeof error === "string") {
+    values.push(error)
+  } else if (error instanceof Error) {
+    values.push(error.message)
+  }
+  if (error && typeof error === "object") {
+    const object = error as {
+      code?: unknown
+      message?: unknown
+      detail?: unknown
+    }
+    if (typeof object.code === "string") {
+      if (TRANSIENT_CONNECTION_CODES.has(object.code)) return true
+      values.push(object.code)
+    }
+    for (const value of [object.message, object.detail]) {
+      if (typeof value === "string") values.push(value)
+    }
+  }
+  return values.some((value) => {
+    const normalized = value.toLowerCase()
+    return TRANSIENT_CONNECTION_MARKERS.some((marker) =>
+      normalized.includes(marker)
+    )
+  })
+}

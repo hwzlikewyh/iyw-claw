@@ -186,6 +186,32 @@ impl PluginRuntimeSupervisor {
         }
     }
 
+    pub async fn has_active_leases(&self, plugin_slug: &str, plugin_version: Option<&str>) -> bool {
+        let slots = self
+            .inner
+            .slots
+            .lock()
+            .await
+            .iter()
+            .filter(|(key, _)| {
+                key.plugin_slug == plugin_slug
+                    && plugin_version.is_none_or(|version| key.plugin_version == version)
+            })
+            .map(|(_, slot)| slot.clone())
+            .collect::<Vec<_>>();
+        for slot in slots {
+            let state = slot.lock().await;
+            if state
+                .instance
+                .as_ref()
+                .is_some_and(|instance| instance.active_leases.load(Ordering::Acquire) > 0)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     async fn ensure_instance(
         &self,
         spec: &RuntimeLaunchSpec,

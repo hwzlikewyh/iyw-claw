@@ -984,6 +984,28 @@ impl ConnectionManager {
                 None => None,
             },
         };
+        let resolved_folder_id = match resolved_conversation_id {
+            Some(conversation_id) => {
+                match crate::db::service::conversation_service::find_folder_id(
+                    &version_center_db,
+                    conversation_id,
+                )
+                .await
+                {
+                    Ok(folder_id) => folder_id,
+                    Err(error) => {
+                        tracing::warn!(
+                            agent = %agent_type,
+                            conversation_id,
+                            error = %error,
+                            "[ACP] failed to resolve conversation folder for durable input recovery"
+                        );
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
         if let Err(error) = crate::commands::acp::verify_agent_installed(agent_type, &runtime_env) {
             verification_stage.finish("inventory_verification_error");
             return Err(error);
@@ -1053,6 +1075,7 @@ impl ConnectionManager {
             working_dir,
             session_id,
             resolved_conversation_id,
+            resolved_folder_id,
             runtime_env,
             owner_window_label,
             emitter,
@@ -1773,6 +1796,13 @@ impl ConnectionManager {
             user_messages,
             accepted,
         });
+        let turn_generation = state_arc.read().await.turn_generation;
+        tracing::info!(
+            connection_id = conn_id,
+            agent_type = %agent_type,
+            turn_generation,
+            "[ACP] prompt enqueued to connection command channel"
+        );
         Ok(())
     }
 
@@ -1993,15 +2023,25 @@ impl ConnectionManager {
         // Snapshot what we need from the connection map under one short lock.
         // The conversation-linked check happens INSIDE the prompt lock so
         // any racing send sees a consistent post-link state.
-        let (state_arc, emitter, agent_type, already_linked, turn_in_flight) = {
+        let (
+            state_arc,
+            emitter,
+            agent_type,
+            already_linked,
+            linked_conversation_id,
+            linked_folder_id,
+            turn_in_flight,
+        ) = {
             let connections = self.connections.lock().await;
             let conn = connections
                 .get(conn_id)
                 .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
-            let (already, in_flight) = {
+            let (already, linked_conversation_id, linked_folder_id, in_flight) = {
                 let s = conn.state.read().await;
                 (
                     s.conversation_id.is_some(),
+                    s.conversation_id,
+                    s.folder_id,
                     s.turn_in_flight || s.turn_completion_pending,
                 )
             };
@@ -2010,9 +2050,26 @@ impl ConnectionManager {
                 conn.emitter.clone(),
                 conn.agent_type,
                 already,
+                linked_conversation_id,
+                linked_folder_id,
                 in_flight,
             )
         };
+
+        if already_linked {
+            if let Some(requested_conversation_id) = conversation_id {
+                if linked_conversation_id != Some(requested_conversation_id) {
+                    return Err(AcpError::protocol(
+                        "conversation_id does not match the connection's linked conversation",
+                    ));
+                }
+                if linked_folder_id != folder_id {
+                    return Err(AcpError::protocol(
+                        "folder_id does not match the connection's linked conversation",
+                    ));
+                }
+            }
+        }
 
         // Reject a concurrent prompt while a turn is already in flight, BEFORE
         // any side effects (row creation, InProgress emit, user-message

@@ -245,7 +245,7 @@
   },
   {
     "name": "browser_list_tabs",
-    "description": "List every tab in iyw-claw's managed browser. All managed tabs are available to every Agent session. Read activeTabId for the current/default tab and tabs[].browserTabId for exact tab selection. Pass a browserTabId as tab_id to the other browser tools. If the managed runtime/session cannot be listed after one state check, the Agent may use opencli-browser only when that Skill and the opencli command are actually available.",
+    "description": "List every tab in iyw-claw's managed browser. All managed tabs are available to every Agent session. Read activeTabId for the current/default tab and tabs[].browserTabId for exact tab selection. Pass a browserTabId as tab_id to the other browser tools. If the managed runtime/session cannot be listed after one state check, report the failure and stop; do not start or switch to OpenCLI unless the user explicitly requested it or enabled the external-browser setting.",
     "inputSchema": {
       "type": "object",
       "properties": {},
@@ -254,7 +254,7 @@
   },
   {
     "name": "browser_open",
-    "description": "Open an HTTP/HTTPS URL in iyw-claw's managed browser. By default this navigates activeTabId and does not add a tab. Pass tabs[].browserTabId as tab_id to navigate an exact tab. Set new_tab to true only when the user explicitly asks for another tab. If no tabs exist, the default call starts the browser and creates the first tab. All tabs use the same persistent profile and sign-in state, and the user can see and take over them. Runtime/session startup failure requires one state check, not repeated opens; the Agent may then use opencli-browser only when that Skill and the opencli command are actually available.",
+    "description": "Open an HTTP/HTTPS URL in iyw-claw's managed browser. By default this navigates activeTabId and does not add a tab. Pass tabs[].browserTabId as tab_id to navigate an exact tab. Set new_tab to true only when the user explicitly asks for another tab. If no tabs exist, the default call starts the browser and creates the first tab. All tabs use the same persistent profile and sign-in state, and the user can see and take over them. Runtime/session startup failure requires one state check, not repeated opens; report the failure and stop unless the user explicitly requested OpenCLI or enabled the external-browser setting.",
     "inputSchema": {
       "type": "object",
       "required": ["url"],
@@ -282,7 +282,7 @@
   },
   {
     "name": "browser_snapshot",
-    "description": "Read a fresh accessibility snapshot for one managed browser tab. The snapshot contains @eN references for browser_click and browser_fill; references are valid only for the current page state, so take another snapshot after navigation, route changes, popups, material DOM updates, or write actions. For one intended action, use at most one recovery attempt with a fresh snapshot and one new reference or revised locator; do not extend the budget by cycling locators. After that failure, the Agent may use opencli-browser only when that Skill and the opencli command are actually available.",
+    "description": "Read a fresh accessibility snapshot for one managed browser tab. The snapshot contains @eN references for browser_click and browser_fill; references are valid only for the current page state, so take another snapshot after navigation, route changes, popups, material DOM updates, or write actions. For one intended action, use at most one recovery attempt with a fresh snapshot and one new reference or revised locator; do not extend the budget by cycling locators. After that failure, report the managed-browser failure; do not switch browsers unless the user explicitly requested OpenCLI or enabled the external-browser setting.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id"],
@@ -354,7 +354,7 @@
   },
   {
     "name": "browser_click",
-    "description": "Click an element in a managed browser tab using an @eN reference from the latest browser_snapshot or a CSS selector. Human input preempts this operation. For a stale reference or locator failure, allow only one recovery attempt for the same intended click: take a fresh snapshot and use one new reference or revised locator; do not cycle locators. Runtime/session/daemon/observer failures require only one state check, not a snapshot retry. After either budget is exhausted, the Agent may switch only when the opencli-browser Skill and opencli command are actually available; then read its SKILL.md and run opencli doctor.",
+    "description": "Click an element in a managed browser tab using an @eN reference from the latest browser_snapshot or a CSS selector. Human input preempts this operation. For a stale reference or locator failure, allow only one recovery attempt for the same intended click: take a fresh snapshot and use one new reference or revised locator; do not cycle locators. Runtime/session/daemon/observer failures require only one state check, not a snapshot retry. After either budget is exhausted, report the managed-browser failure; switch to OpenCLI only after explicit user authorization or an enabled external-browser setting.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id", "selector"],
@@ -372,7 +372,7 @@
   },
   {
     "name": "browser_fill",
-    "description": "Clear and fill an input in a managed browser tab using an @eN reference from the latest snapshot or a CSS selector. References expire after page changes. For a stale reference or locator failure, allow only one recovery attempt for the same intended fill using a fresh snapshot and one new reference or revised locator, then verify the resulting value. Never enter secrets unless the user explicitly supplied them for this task. Human input preempts this operation. Runtime/session failures require only one state check; the Agent may then switch only when the opencli-browser Skill and opencli command are actually available.",
+    "description": "Clear and fill an input in a managed browser tab using an @eN reference from the latest snapshot or a CSS selector. References expire after page changes. For a stale reference or locator failure, allow only one recovery attempt for the same intended fill using a fresh snapshot and one new reference or revised locator, then verify the resulting value. Never enter secrets unless the user explicitly supplied them for this task. Human input preempts this operation. Runtime/session failures require only one state check; report the failure and stop unless the user explicitly authorized OpenCLI or enabled the external-browser setting.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id", "selector", "text"],
@@ -391,7 +391,7 @@
   },
   {
     "name": "browser_press",
-    "description": "Press a keyboard key or chord in a managed browser tab, for example Enter, Tab, Escape, or Control+a. Human input preempts this operation. If the managed runtime/session is unavailable or the operation times out, inspect state once instead of retrying indefinitely. The Agent may then switch only when the opencli-browser Skill and opencli command are actually available, after reading the current Skill instructions.",
+    "description": "Press a keyboard key or chord in a managed browser tab, for example Enter, Tab, Escape, or Control+a. Human input preempts this operation. If the managed runtime/session is unavailable or the operation times out, inspect state once instead of retrying indefinitely. Report the failure and stop unless the user explicitly authorized OpenCLI or enabled the external-browser setting, then read the current Skill instructions.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id", "key"],
@@ -409,7 +409,7 @@
   },
   {
     "name": "browser_scroll",
-    "description": "Scroll a managed browser tab in one direction. Human input preempts this operation. If the managed runtime/session is unavailable or the operation times out, inspect state once instead of retrying indefinitely. The Agent may then switch only when the opencli-browser Skill and opencli command are actually available.",
+    "description": "Scroll a managed browser tab in one direction. Human input preempts this operation. If the managed runtime/session is unavailable or the operation times out, inspect state once instead of retrying indefinitely. Report the failure and stop unless the user explicitly authorized OpenCLI or enabled the external-browser setting.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id", "direction"],
@@ -436,7 +436,7 @@
   },
   {
     "name": "browser_wait",
-    "description": "Wait for a selector to appear in a managed browser tab, or wait for a bounded number of milliseconds. Prefer a selector for deterministic page readiness. A material page change invalidates prior snapshot references; refresh the snapshot before the next action. If the managed runtime remains unavailable after one state check, the Agent may use opencli-browser only when that Skill and the opencli command are actually available, instead of repeating waits.",
+    "description": "Wait for a selector to appear in a managed browser tab, or wait for a bounded number of milliseconds. Prefer a selector for deterministic page readiness. A material page change invalidates prior snapshot references; refresh the snapshot before the next action. If the managed runtime remains unavailable after one state check, report the failure and stop instead of repeating waits; use OpenCLI only with explicit user authorization or an enabled external-browser setting.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id"],
@@ -460,7 +460,7 @@
   },
   {
     "name": "browser_screenshot",
-    "description": "Capture a screenshot of a managed browser tab into iyw-claw's managed browser screenshot directory. Returns the generated local path; use analyze_image when visual inspection is needed. If the managed runtime/session is unavailable after one state check, the Agent may use opencli-browser screenshot only when that Skill and the opencli command are actually available.",
+    "description": "Capture a screenshot of a managed browser tab into iyw-claw's managed browser screenshot directory. Returns the generated local path; use analyze_image when visual inspection is needed. If the managed runtime/session is unavailable after one state check, report the failure; use OpenCLI screenshot only with explicit user authorization or an enabled external-browser setting.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id"],

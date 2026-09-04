@@ -5458,7 +5458,11 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       }
     ) => {
       const conn = storeRef.current.connections.get(contextKey)
-      if (!conn) return
+      if (!conn) {
+        throw new Error(
+          `ACP connection is not registered for context "${contextKey}"`
+        )
+      }
       lastActivityRef.current.set(contextKey, Date.now())
       await acpPrompt(
         conn.connectionId,

@@ -610,6 +610,9 @@ async fn async_main() -> ExitCode {
         {
             tracing::warn!("[skills] startup central skill reconcile failed: {error}");
         }
+        iyw_claw_lib::commands::skill_market::spawn_background_availability_reconcile(
+            managed_distribution_db.clone(),
+        );
         iyw_claw_lib::commands::skill_watch::spawn_central_skill_watcher(
             managed_distribution_db.clone(),
         );

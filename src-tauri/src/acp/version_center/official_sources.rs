@@ -37,7 +37,7 @@ pub(crate) fn fallback_npm_agent_install(
         source_key: "official-npm-registry".to_string(),
     }];
     if agent_type == AgentType::Pi {
-        const PI_CODING_AGENT_VERSION: &str = "0.84.1";
+        const PI_CODING_AGENT_VERSION: &str = "0.84.4";
         packages.push(ManagedNpmPackage {
             component_key: "pi-coding-agent".to_string(),
             package_name: "@earendil-works/pi-coding-agent".to_string(),

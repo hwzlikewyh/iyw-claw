@@ -38,7 +38,7 @@ const TARGETS = {
   },
 }
 
-const PINNED_NODE_VERSION = "24.19.0"
+const PINNED_NODE_VERSION = "24.20.0"
 
 const DOWNLOADS = {
   node: {
@@ -46,58 +46,58 @@ const DOWNLOADS = {
     base: `https://nodejs.org/dist/v${PINNED_NODE_VERSION}/`,
     "win-x64": [
       `node-v${PINNED_NODE_VERSION}-win-x64.zip`,
-      "57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73",
+      "6cac9ffbca8f6a47091e4b5c772e0606049c3871cb67d900c0cedde630e545ba",
     ],
     "darwin-x64": [
       `node-v${PINNED_NODE_VERSION}-darwin-x64.tar.gz`,
-      "d1b5e999db158c62fe8f7267a4476b035d8bd93b1a605bac24a3f0dd166e3316",
+      "9e5b2644cf107befb6aefca676b96d3296bc10138096f022ed378d6233ed81f4",
     ],
     "darwin-arm64": [
       `node-v${PINNED_NODE_VERSION}-darwin-arm64.tar.gz`,
-      "8294b7aa9b03997481c06babf1e8b270c859358f27da57a11509afe537ac381d",
+      "40e5607e5ecb3db9192723776da2d75d966260fc74a7a9e731c1bd67dda96bc8",
     ],
     "linux-x64": [
       `node-v${PINNED_NODE_VERSION}-linux-x64.tar.gz`,
-      "f625d97cd707df4ff96254916fbc5ff014f09c09effe5a1e0ca8f6d41a8789d4",
+      "855d581f8a4eb1a8117e3426de25fe02770592febcfb31369aee1ffbfee9e8ec",
     ],
     "linux-arm64": [
       `node-v${PINNED_NODE_VERSION}-linux-arm64.tar.gz`,
-      "d28c8a5bf0a808f0ed434a1dce8c54ae98f0371c0bd86ac58abc613f73e6643f",
+      "3515603e2487879a39bc75716f1a2affd027500c64ba50e845cf72cb33219013",
     ],
   },
   uv: {
-    version: "0.12.1",
-    base: "https://github.com/astral-sh/uv/releases/download/0.12.1/",
+    version: "0.12.9",
+    base: "https://github.com/astral-sh/uv/releases/download/0.12.9/",
     "win-x64": [
       "uv-x86_64-pc-windows-msvc.zip",
-      "8fcb0cb46e1229065e344758980924e569bef5882ef45f46fada8fb24e06b74a",
+      "ddbfcee1ac615a0499f6aa97b5ec8ebdf3ee4a7714a48055ec2ba0030e3cf810",
     ],
     "darwin-x64": [
       "uv-x86_64-apple-darwin.tar.gz",
-      "69d9f9a00337f25a50dcb13882052da08b8469bac11091c98c5694c3c6721467",
+      "e1ca175824f1056589ce9908f7631879ebc3c36535b5e63dc06510beb370b4c1",
     ],
     "darwin-arm64": [
       "uv-aarch64-apple-darwin.tar.gz",
-      "77d2906988e8074fd43f2f329ec452ebbf9b0c257ba1c66451c71de70a6baf42",
+      "301f72afaf54060f92da7016cb0115bd077f43a9c8e39c1d8170a0bac80fd398",
     ],
     "linux-x64": [
       "uv-x86_64-unknown-linux-gnu.tar.gz",
-      "90b2f223fb69d19db49e117da601f64978593417988530aa733d456141b4bcbb",
+      "ec7a99cd05e0cd7f80243f135ce1361c76835cb0ee60055d14d20eba8eba1460",
     ],
     "linux-arm64": [
       "uv-aarch64-unknown-linux-gnu.tar.gz",
-      "769d373e146692c639b5fbaae33b331c297a32e03d30448772051902df52bbf4",
+      "c36fe17937ff6bd16dc42fc13854b5465999fcab2efe0af559381e945e3c6001",
     ],
   },
   git: {
-    version: "2.55.0+windows.3",
+    version: "2.55.0+windows.5",
     nonWindowsVersion: "2.53.0-4",
-    base: "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.3/",
+    base: "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.5/",
     nonWindowsBase:
       "https://github.com/desktop/dugite-native/releases/download/v2.53.0-4/",
     "win-x64": [
-      "MinGit-2.55.0.3-64-bit.zip",
-      "f48e2d2dc74a24454adc6d8fd0ac25bf9c2386f19cfb06202b9465aaad4f9f05",
+      "MinGit-2.55.0.5-64-bit.zip",
+      "56d7b226b7693196cfc71fef26568f536c4a021ab6c37ff2db4287bed908e96e",
     ],
     "darwin-x64": [
       "dugite-native-v2.53.0-4098283-macOS-x64.tar.gz",
@@ -117,10 +117,10 @@ const DOWNLOADS = {
     ],
   },
   "codex-acp": {
-    version: "1.4.0",
+    version: "1.8.0",
     package: "@agentclientprotocol/codex-acp",
     codexPackage: "@openai/codex",
-    codexVersion: "0.147.0",
+    codexVersion: "0.152.1",
   },
 }
 

@@ -20,6 +20,7 @@ pub const MAX_SKILL_MARKET_REQUEST_BYTES: usize = 36 * 1024 * 1024;
 
 use reqwest::Method;
 use sea_orm::DatabaseConnection;
+use std::collections::HashSet;
 
 use crate::app_error::AppCommandError;
 pub use plugin_types::{
@@ -32,6 +33,204 @@ pub use types::{
     SkillMarketListParams, SkillMarketListResult, SkillMarketMetadataRequest,
     SkillMarketPublishRequest, SkillMarketVersion, SkillPackageType,
 };
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SkillAvailability {
+    id: String,
+    slug: Option<String>,
+    status: String,
+}
+
+const AVAILABILITY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+const AVAILABILITY_BATCH_SIZE: usize = 256;
+const AVAILABILITY_RETRY_DELAYS: [std::time::Duration; 3] = [
+    std::time::Duration::from_secs(5),
+    std::time::Duration::from_secs(30),
+    std::time::Duration::from_secs(120),
+];
+
+pub fn spawn_background_availability_reconcile(conn: DatabaseConnection) {
+    static RUNNING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if RUNNING
+        .compare_exchange(
+            false,
+            true,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+        )
+        .is_err()
+    {
+        return;
+    }
+    tokio::spawn(async move {
+        let result = reconcile_market_skill_availability_with_retry(&conn).await;
+        let deferred = result.as_ref().ok().copied().unwrap_or(false);
+        if deferred {
+            tokio::time::sleep(std::time::Duration::from_secs(300)).await;
+            if let Err(error) = reconcile_market_skill_availability_with_retry(&conn).await {
+                tracing::warn!(
+                    error = %error,
+                    "[skill-market] deferred availability cleanup retry failed"
+                );
+            }
+        }
+        RUNNING.store(false, std::sync::atomic::Ordering::Release);
+        if let Err(error) = result {
+            tracing::warn!(error = %error, "[skill-market] background availability reconcile skipped");
+        }
+    });
+}
+
+async fn reconcile_market_skill_availability_with_retry(
+    conn: &DatabaseConnection,
+) -> Result<bool, AppCommandError> {
+    let mut last_error = None;
+    for attempt in 0..=AVAILABILITY_RETRY_DELAYS.len() {
+        match reconcile_market_skill_availability(conn).await {
+            Ok(deferred) => return Ok(deferred),
+            Err(error) => {
+                if !matches!(
+                    error.code,
+                    crate::app_error::AppErrorCode::NetworkError
+                        | crate::app_error::AppErrorCode::DatabaseError
+                ) {
+                    return Err(error);
+                }
+                last_error = Some(error);
+                if let Some(delay) = AVAILABILITY_RETRY_DELAYS.get(attempt) {
+                    tokio::time::sleep(*delay).await;
+                }
+            }
+        }
+    }
+    Err(last_error.expect("availability retry loop always records an error"))
+}
+
+async fn reconcile_market_skill_availability(
+    conn: &DatabaseConnection,
+) -> Result<bool, AppCommandError> {
+    let ids = installed_market_skill_ids(conn).await?;
+    if ids.is_empty() {
+        return Ok(false);
+    }
+    let mut deferred = false;
+    for chunk in ids.chunks(AVAILABILITY_BATCH_SIZE) {
+        deferred |= reconcile_market_skill_availability_batch(conn, chunk).await?;
+    }
+    Ok(deferred)
+}
+
+async fn installed_market_skill_ids(
+    conn: &DatabaseConnection,
+) -> Result<Vec<i64>, AppCommandError> {
+    let mut ids = crate::commands::acp::installed_market_skill_ids();
+    let plugin_ids = crate::db::service::plugin_installation_service::list_installations(conn)
+        .await
+        .map_err(AppCommandError::db)?
+        .into_iter()
+        .map(|installation| installation.market_skill_id);
+    ids.extend(plugin_ids);
+    ids.sort_unstable();
+    ids.dedup();
+    Ok(ids)
+}
+
+async fn reconcile_market_skill_availability_batch(
+    conn: &DatabaseConnection,
+    ids: &[i64],
+) -> Result<bool, AppCommandError> {
+    let body = serde_json::json!({
+        "ids": ids.iter().map(ToString::to_string).collect::<Vec<_>>(),
+    });
+    let builder = client::request(conn, reqwest::Method::POST, "/skills/availability")
+        .await?
+        .json(&body)
+        .timeout(AVAILABILITY_TIMEOUT);
+    let items: Vec<SkillAvailability> = parse_value(client::send(builder).await?, Some("items"))?;
+    let mut deferred = false;
+    let requested_ids = ids.iter().copied().collect::<HashSet<_>>();
+    for item in items {
+        if !matches!(
+            item.status.as_str(),
+            "removed" | "unlisted" | "inaccessible"
+        ) {
+            continue;
+        }
+        let Ok(skill_id) = item.id.parse::<i64>() else {
+            tracing::warn!(
+                id = %item.id,
+                status = %item.status,
+                "[skill-market] availability response contained invalid Skill ID"
+            );
+            continue;
+        };
+        if !requested_ids.contains(&skill_id) {
+            tracing::warn!(
+                skill_id,
+                status = %item.status,
+                "[skill-market] availability response contained an unrequested Skill ID"
+            );
+            continue;
+        }
+        let mut plugin_in_use = false;
+        for (slug, version) in installed_market_skill_plugin_refs(conn, skill_id).await? {
+            if crate::plugin_runtime::global::plugin_version_has_active_leases(
+                &slug,
+                Some(&version),
+            )
+            .await
+            {
+                plugin_in_use = true;
+                break;
+            }
+        }
+        if plugin_in_use {
+            deferred = true;
+            tracing::debug!(
+                skill_id,
+                status = %item.status,
+                "[skill-market] deferred unavailable plugin cleanup while in use"
+            );
+            continue;
+        }
+        match uninstall_core(conn, skill_id.to_string()).await {
+            Ok(()) => tracing::info!(
+                skill_id,
+                slug = item.slug.as_deref().unwrap_or(""),
+                status = %item.status,
+                "[skill-market] removed unavailable managed Skill"
+            ),
+            Err(error) => {
+                deferred = true;
+                tracing::warn!(
+                    skill_id,
+                    status = %item.status,
+                    error = %error,
+                    "[skill-market] unavailable managed Skill cleanup deferred"
+                );
+            }
+        }
+    }
+    Ok(deferred)
+}
+
+async fn installed_market_skill_plugin_refs(
+    conn: &DatabaseConnection,
+    skill_id: i64,
+) -> Result<Vec<(String, String)>, AppCommandError> {
+    let mut refs = crate::commands::acp::installed_market_skill_plugin_refs(skill_id);
+    if let Some(record) =
+        crate::db::service::plugin_installation_service::find_by_market_skill_id(conn, skill_id)
+            .await
+            .map_err(AppCommandError::db)?
+    {
+        refs.push((record.installation.slug, record.installation.version));
+    }
+    refs.sort();
+    refs.dedup();
+    Ok(refs)
+}
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -76,6 +275,7 @@ pub async fn list_core(
         .query(&query);
     let mut result: SkillMarketListResult = parse_value(client::send(builder).await?, None)?;
     apply_local_install_versions(conn, &mut result.items).await?;
+    spawn_background_availability_reconcile(conn.clone());
     Ok(result)
 }
 

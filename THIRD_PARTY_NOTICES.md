@@ -3,7 +3,7 @@
 ## agent-browser
 
 - Project: `vercel-labs/agent-browser`
-- Version: `0.35.1`
+- Version: `0.36.0`
 - Source: https://github.com/vercel-labs/agent-browser
 - License: Apache License 2.0
 
@@ -18,21 +18,21 @@ The desktop packages for Windows x64, macOS x64/arm64, and Linux x64/arm64
 contain target-specific runtime components. Windows x86 intentionally does not
 contain this seed and keeps the online Version Center installation path.
 
-- Node.js `24.19.0` - https://nodejs.org/dist/v24.19.0/ - MIT License. The
+- Node.js `24.20.0` - https://nodejs.org/dist/v24.20.0/ - MIT License. The
   upstream archive includes its license and notice files.
-- uv `0.12.1` - https://github.com/astral-sh/uv/releases/tag/0.12.1 - MIT
+- uv `0.12.9` - https://github.com/astral-sh/uv/releases/tag/0.12.9 - MIT
   License or Apache License 2.0. The upstream archive includes `LICENSE.txt`.
-- Git for Windows MinGit `2.55.0.windows.3` -
-  https://github.com/git-for-windows/git/releases/tag/v2.55.0.windows.3 - GNU
+- Git for Windows MinGit `2.55.0.windows.5` -
+  https://github.com/git-for-windows/git/releases/tag/v2.55.0.windows.5 - GNU
   General Public License v2.0. The upstream archive includes its license
   files.
 - GitHub Desktop dugite-native `2.53.0-4` -
   https://github.com/desktop/dugite-native/releases/tag/v2.53.0-4 - GNU
   General Public License v2.0 and the licenses of its bundled dependencies.
-- `@agentclientprotocol/codex-acp@1.4.0` -
+- `@agentclientprotocol/codex-acp@1.8.0` -
   https://www.npmjs.com/package/@agentclientprotocol/codex-acp - Apache License
   2.0. The npm package includes its license file.
-- `@openai/codex@0.147.0` and its target-specific optional package -
+- `@openai/codex@0.152.1` and its target-specific optional package -
   https://www.npmjs.com/package/@openai/codex - Apache License 2.0. The npm
   packages include their license files.
 

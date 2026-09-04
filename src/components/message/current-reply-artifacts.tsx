@@ -130,6 +130,21 @@ function collectArtifactToolCalls(
         input: part.input,
         output: part.output,
       })
+    } else if (
+      part.type === "generated-image" &&
+      part.sourceToolName &&
+      part.sourceToolOutput &&
+      isArtifactToolCall({
+        toolName: part.sourceToolName,
+        input: null,
+        output: part.sourceToolOutput,
+      })
+    ) {
+      calls.push({
+        toolName: part.sourceToolName,
+        input: null,
+        output: part.sourceToolOutput,
+      })
     } else if (part.type === "tool-group") {
       collectArtifactToolCalls(part.items, calls)
     } else if (part.type === "goal-run") {

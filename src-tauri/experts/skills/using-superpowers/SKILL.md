@@ -37,18 +37,13 @@ approach; domain skills then carry out the work.
 
 - "Implement this written plan" -> `executing-plans`, when available.
 - A user-requested visible Skill or direct tool that fully satisfies a subgoal -> use it first.
-- "Generate or edit an IYW product/material/pattern image, build a product-kit,
-  use trends or the IYW knowledge base, upload/review an image, or call an IYW
-  image tool" -> `iyw-image-workflows` first. When there is one baseline image,
-  one requested design result, and no explicit request for search, knowledge,
-  research, series, fusion, document, or a dedicated tool, use the reusable fast
-  path directly: `variation`, `modelChannel: 2`, `batchSize: 1`; do not start
-  search, research, memory, browser, document, or scenario-planning work first.
-  Load the scenario playbook only for an explicitly requested specialized or
-  enhanced workflow. Use
-  `extend` only for an explicit series/extension request and `mix` only for an
-  explicit multi-image fusion request. `imagegen` is the explicit/GPT Image or
-  free-creative fallback.
+- "Generate or edit an image, create IYW product/material/pattern imagery, or
+  call an IYW image tool" -> use the directly advertised `generate_iyw_image`
+  tool. Omit `type` for the shortest auto route; use an explicit type and full
+  `parameters` only when the task needs precision. Use
+  `search_iyw_knowledge` separately when knowledge-base evidence is requested;
+  do not start search, research, memory, browser, document, or scenario planning
+  before a self-contained one-call image request.
 - "Read a web page, obtain public web data, or automate a website" -> `agent-browser`; a reliable direct data source may run first, but missing, incomplete, dynamic, or authenticated data must fall back to the managed browser before another browser or user hand-off.
 - "Perform a remaining concrete iyw-claw host state or action" -> use the complete unique `iyw-capability-gateway` trio first.
 - "Create or update a skill" -> `writing-skills` or `skill-creator`.

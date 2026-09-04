@@ -21,6 +21,8 @@ pub(super) struct WorkerSnapshot {
     turn_completion_pending: bool,
     native_background_active: bool,
     pub(super) turn_generation: i64,
+    launch_finalized: bool,
+    launch_ready: tokio::sync::futures::OwnedNotified,
     capabilities: AgentInputCapabilities,
     has_tools: bool,
     has_running_tools: bool,
@@ -63,6 +65,13 @@ pub(crate) async fn run(
         let Some(snapshot) = worker_snapshot(&state).await else {
             return;
         };
+        if !snapshot.launch_finalized {
+            tokio::select! {
+                _ = snapshot.launch_ready => {}
+                _ = snapshot.wake => {}
+            }
+            continue;
+        }
         let work = match load_work(&db, snapshot.conversation_id, conn_id).await {
             Ok(Some(work)) => work,
             Ok(None) => {
@@ -139,6 +148,8 @@ async fn worker_snapshot(state: &Arc<tokio::sync::RwLock<SessionState>>) -> Opti
         turn_completion_pending: snapshot.turn_completion_pending,
         native_background_active: snapshot.native_background_turn.is_some(),
         turn_generation: snapshot.turn_generation,
+        launch_finalized: snapshot.launch_finalized,
+        launch_ready: snapshot.launch_ready.clone().notified_owned(),
         capabilities: AgentInputCapabilities::for_connection(
             snapshot.agent_type,
             snapshot.feedback_tool_available,

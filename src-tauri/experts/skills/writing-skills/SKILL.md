@@ -287,7 +287,7 @@ wc -w skills/path/SKILL.md
 **When writing documentation that references other skills:**
 
 Use skill name only, with explicit requirement markers:
-- Good: `**REQUIRED SUB-SKILL:** Use iyw-image-workflows`
+- Good: `**REQUIRED TOOL:** Use generate_iyw_image`
 - Good: `**REQUIRED BACKGROUND:** Read the active repository instructions`
 - Bad: `See another skill somewhere` (unclear and not verifiable)
 - Bad: force-loading unrelated skill files (wastes context)

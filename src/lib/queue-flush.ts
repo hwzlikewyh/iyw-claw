@@ -43,9 +43,12 @@ export function flushRetryDelayMs(
  */
 export function shouldQueueDirectSend(
   fromQueueFlush: boolean,
-  queueLength: number
+  queueLength: number,
+  pendingAgentInputCount: number = 0
 ): boolean {
-  return !fromQueueFlush && queueLength > 0
+  return (
+    !fromQueueFlush && (queueLength > 0 || pendingAgentInputCount > 0)
+  )
 }
 
 /** Queue a user-originated submit until a matching Agent connection can buffer it. */
@@ -77,19 +80,21 @@ export function forkSendBlockedByQueue(queueLength: number): boolean {
 }
 
 /**
- * Whether the live connection can accept a send for THIS tab. The backend
- * command channel exists as soon as `acp_connect` returns, so a matching
- * `connecting` connection can buffer the prompt while Initialize/session setup
- * finishes. This removes the cold-start wait without pretending an old Agent or
- * workspace connection belongs to the newly selected draft.
+ * Whether the live connection can accept a send for THIS tab. A connection id
+ * is allocated before ACP initialization and session setup finish, but the
+ * frontend must not treat that provisional state as a successful send target:
+ * doing so can mark a conversation in progress before the prompt loop exists.
+ * Queueing during the handshake keeps the UI instant; persisted conversations
+ * use the durable backend outbox and new drafts use the local FIFO queue until
+ * their conversation row exists.
  *
- * Bare `connStatus === "connected"` is insufficient. A chat draft that just
- * retargeted into folderless mode (or any tab mid-reconnect) can read a stale
- * "connected" belonging to the PREVIOUS cwd for a render or two before the
- * reconnect lands. Sending then would deliver the prompt to the wrong
- * agent/workspace. Both the direct send (handleSend) and the queue auto-flush
- * gate on this. Nullish cwds are normalized so `null`/`undefined` compare equal
- * (both mean "no cwd yet").
+ * Bare `connStatus === "connected"` is still insufficient. A chat draft that
+ * just retargeted into folderless mode (or any tab mid-reconnect) can read a
+ * stale "connected" belonging to the PREVIOUS cwd for a render or two before
+ * the reconnect lands. Likewise, the status event can arrive before the
+ * session/selector events. Both the direct send (handleSend) and queue
+ * auto-flush gate on this. Nullish cwds are normalized so `null`/`undefined`
+ * compare equal (both mean "no cwd yet").
  */
 export function canConnectionAcceptPrompt(input: {
   connectionId: string | null | undefined
@@ -98,12 +103,16 @@ export function canConnectionAcceptPrompt(input: {
   intendedAgentType: string
   connectedWorkingDir: string | null | undefined
   intendedWorkingDir: string | null | undefined
+  sessionId: string | null | undefined
+  selectorsReady: boolean
 }): boolean {
   return (
     input.connectionId != null &&
-    (input.status === "connecting" || input.status === "connected") &&
+    input.status === "connected" &&
     input.connectedAgentType === input.intendedAgentType &&
-    (input.connectedWorkingDir ?? null) === (input.intendedWorkingDir ?? null)
+    (input.connectedWorkingDir ?? null) === (input.intendedWorkingDir ?? null) &&
+    input.sessionId != null &&
+    input.selectorsReady
   )
 }
 

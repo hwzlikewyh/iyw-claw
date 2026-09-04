@@ -23,6 +23,7 @@ import { collapseLiveCollabBlocks } from "@/lib/collab-collapse"
 import { kimiTodoWriteEntries } from "@/lib/plan-parse"
 import { toErrorMessage } from "@/lib/app-error"
 import { parseDisplayImageMetadata } from "@/lib/display-image-metadata"
+import { extractDeliveredImage } from "@/lib/image-delivery"
 import { computeTurnMetadataPatches } from "@/stores/turn-metadata"
 import { BACKGROUND_TASK_MARKER } from "@/lib/background-agent"
 import { parseFeedbackCheckOutcome } from "@/lib/feedback-check"
@@ -526,6 +527,10 @@ function extractRevisedPrompt(content: string | null): string | null {
   return trimmed
 }
 
+function isImageGenerationToolName(toolName: string): boolean {
+  return /generate[_-]iyw[_-]image$/i.test(toolName.trim())
+}
+
 /** First filesystem path from an ACP tool call's `locations` (`[{ path }]`), or null. */
 function firstLocationPath(locations: unknown): string | null {
   if (!Array.isArray(locations)) return null
@@ -875,7 +880,12 @@ export function buildStreamingTurnsFromLiveMessage(
           // images in one ToolCall, we still emit one block per image so
           // each renders as its own card.
           const imgs = block.info.images ?? []
-          const revisedPrompt = extractRevisedPrompt(block.info.content)
+          const deliveredImage = isImageGenerationToolName(toolName)
+            ? extractDeliveredImage(resolvedOutput)
+            : null
+          const revisedPrompt = deliveredImage
+            ? null
+            : extractRevisedPrompt(block.info.content)
           // Live ToolCallStatus is forwarded so the renderer can show a
           // failure slot when codex reports the call failed before any
           // image bytes arrived. Without this the in-flight skeleton would
@@ -887,20 +897,38 @@ export function buildStreamingTurnsFromLiveMessage(
             currentBlocks.push({
               type: "image_generation",
               revised_prompt: revisedPrompt,
-              image: null,
+              image: deliveredImage
+                ? {
+                    data: "",
+                    mime_type: deliveredImage.mimeType,
+                    uri: deliveredImage.uri,
+                  }
+                : null,
               status,
+              tool_name: toolName,
+              tool_output: deliveredImage ? resolvedOutput : null,
             })
           } else {
             for (const img of imgs) {
+              const deliveredFallback =
+                deliveredImage && !img.data && !img.uri ? deliveredImage : null
               currentBlocks.push({
                 type: "image_generation",
                 revised_prompt: revisedPrompt,
-                image: {
-                  data: img.data,
-                  mime_type: img.mime_type,
-                  uri: img.uri ?? null,
-                },
+                image: deliveredFallback
+                  ? {
+                      data: "",
+                      mime_type: deliveredFallback.mimeType,
+                      uri: deliveredFallback.uri,
+                    }
+                  : {
+                      data: img.data,
+                      mime_type: img.mime_type,
+                      uri: img.uri ?? null,
+                    },
                 status,
+                tool_name: toolName,
+                tool_output: deliveredImage ? resolvedOutput : null,
               })
             }
           }

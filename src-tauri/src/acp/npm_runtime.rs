@@ -688,13 +688,13 @@ mod tests {
     /// the way `@openai/codex` does.
     fn declares_platform_binary(host_token: &str) -> String {
         format!(
-            r#"{{"name":"@openai/codex","version":"0.144.6",
-                 "optionalDependencies":{{"@openai/codex-{host_token}":"0.144.6"}}}}"#
+            r#"{{"name":"@openai/codex","version":"0.152.1",
+                 "optionalDependencies":{{"@openai/codex-{host_token}":"0.152.1"}}}}"#
         )
     }
 
-    const PLATFORM_MANIFEST: &str = r#"{"name":"platform-binary","version":"0.144.6"}"#;
-    const ACP_MANIFEST: &str = r#"{"name":"@agentclientprotocol/codex-acp","version":"1.1.5"}"#;
+    const PLATFORM_MANIFEST: &str = r#"{"name":"platform-binary","version":"0.152.1"}"#;
+    const ACP_MANIFEST: &str = r#"{"name":"@agentclientprotocol/codex-acp","version":"1.8.0"}"#;
 
     /// The layout `npm install --global --prefix=<staging>
     /// @agentclientprotocol/codex-acp` actually produces on Windows: the
@@ -781,8 +781,8 @@ mod tests {
         place_package(
             prefix,
             "@openai/codex",
-            r#"{"name":"@openai/codex","version":"0.144.6",
-                "optionalDependencies":{"@openai/codex-sunos-sparc":"0.144.6"}}"#,
+            r#"{"name":"@openai/codex","version":"0.152.1",
+                "optionalDependencies":{"@openai/codex-sunos-sparc":"0.152.1"}}"#,
         );
 
         verify_host_platform_optional_deps(prefix).unwrap();

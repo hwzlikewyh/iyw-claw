@@ -6,8 +6,12 @@ export interface AssistantTurnSections {
   responseParts: Extract<AdaptedContentPart, { type: "text" }>[]
 }
 
-function isResultPart(part: AdaptedContentPart): boolean {
-  return part.type === "generated-image" || part.type === "displayed-image"
+function isFinalResultPart(part: AdaptedContentPart): boolean {
+  return part.type === "displayed-image"
+}
+
+function isLiveResultPart(part: AdaptedContentPart): boolean {
+  return part.type === "generated-image" || isFinalResultPart(part)
 }
 
 export function splitAssistantTurnParts(
@@ -26,7 +30,7 @@ export function splitAssistantTurnParts(
   // completes, only the last non-empty text block is promoted to the visible
   // summary; everything else remains in one collapsible process stream.
   const processParts = parts.filter((part, index) => {
-    if (isResultPart(part)) return false
+    if (isFinalResultPart(part)) return false
     if (part.type === "text") {
       return Boolean(part.text.trim()) && index !== summaryIndex
     }
@@ -42,7 +46,9 @@ export function splitAssistantTurnParts(
 
   return {
     processParts,
-    resultParts: parts.filter(isResultPart),
+    resultParts: parts.filter((part) =>
+      complete ? isFinalResultPart(part) : isLiveResultPart(part)
+    ),
     responseParts,
   }
 }

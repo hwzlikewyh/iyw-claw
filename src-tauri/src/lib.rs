@@ -827,6 +827,9 @@ mod tauri_app {
                         }
                     }
                     let _ = startup_maintenance_ready_tx.send(());
+                    crate::commands::skill_market::spawn_background_availability_reconcile(
+                        managed_distribution_db.clone(),
+                    );
                 });
 
                 // Reclaim orphaned chat scratch dirs (pre-send drafts that never

@@ -553,6 +553,22 @@ pub async fn find_id_by_identity(
     Ok(query.into_tuple::<i32>().one(conn).await?)
 }
 
+/// Resolve the folder that owns a persisted conversation without hydrating the
+/// full sidebar summary. ACP connection startup uses this to bind its durable
+/// input worker before the first prompt arrives.
+pub async fn find_folder_id(
+    conn: &DatabaseConnection,
+    conversation_id: i32,
+) -> Result<Option<i32>, DbError> {
+    Ok(conversation::Entity::find_by_id(conversation_id)
+        .select_only()
+        .column(conversation::Column::FolderId)
+        .filter(conversation::Column::DeletedAt.is_null())
+        .into_tuple::<i32>()
+        .one(conn)
+        .await?)
+}
+
 pub async fn list_by_folder(
     conn: &DatabaseConnection,
     folder_id: i32,

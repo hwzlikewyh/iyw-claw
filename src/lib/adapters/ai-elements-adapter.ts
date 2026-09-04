@@ -35,6 +35,7 @@ import {
   type AgentRuntimeErrorMessages,
 } from "@/lib/agent-runtime-error"
 import { normalizeToolResultError } from "@/lib/memory-policy-error"
+import { extractDeliveredImage } from "@/lib/image-delivery"
 
 const AGENT_LESSON_START = "<!-- IYW_CLAW_AGENT_LESSON_V1 "
 const AGENT_LESSON_END = " -->"
@@ -103,6 +104,9 @@ export type AdaptedGeneratedImagePart = {
   /** `null` while the agent has emitted the ToolCall but no image yet. */
   image: UserImageDisplay | null
   status: ToolCallStatus | null
+  /** Original tool envelope needed to associate generated URLs with delivery. */
+  sourceToolName?: string | null
+  sourceToolOutput?: string | null
 }
 
 export type AdaptedDisplayedImagePart = {
@@ -1081,7 +1085,7 @@ function adaptContentBlock(
     case "image_generation": {
       const img = block.image ?? null
       const display: UserImageDisplay | null =
-        img && img.data && img.mime_type
+        img && (img.data || img.uri) && img.mime_type
           ? {
               name: deriveImageNameFromImageData(img),
               data: img.data,
@@ -1094,6 +1098,8 @@ function adaptContentBlock(
         revisedPrompt: block.revised_prompt ?? null,
         image: display,
         status: block.status ?? null,
+        sourceToolName: block.tool_name ?? null,
+        sourceToolOutput: block.tool_output ?? null,
       }
     }
 
@@ -1132,6 +1138,21 @@ function deriveImageNameFromImageData(img: {
   }
   const ext = img.mime_type.split("/")[1]?.split("+")[0] ?? "image"
   return `image.${ext}`
+}
+
+function isImageGenerationToolName(toolName: string): boolean {
+  return /generate[_-]iyw[_-]image$/i.test(toolName.trim())
+}
+
+function imageNameFromUri(uri: string): string {
+  try {
+    const value = decodeURIComponent(
+      new URL(uri).pathname.split("/").pop() ?? ""
+    )
+    return value || "image"
+  } catch {
+    return "image"
+  }
 }
 
 /**
@@ -1174,7 +1195,7 @@ function adaptImageToolResultParts(result: {
   const images = result.images
   if (!images || images.length === 0) return null
   for (const img of images) {
-    if (!img.data || !img.mime_type) continue
+    if ((!img.data && !img.uri) || !img.mime_type) continue
     parts.push({
       type: "generated-image",
       // A Read has no model-revised prompt — only codex image generation does.
@@ -1191,6 +1212,22 @@ function adaptImageToolResultParts(result: {
     })
   }
   return parts.length > 0 ? parts : null
+}
+
+function attachImageSourceToolMetadata(
+  parts: (AdaptedGeneratedImagePart | AdaptedDisplayedImagePart)[],
+  toolName: string,
+  toolOutput: string | null | undefined
+): (AdaptedGeneratedImagePart | AdaptedDisplayedImagePart)[] {
+  return parts.map((part) =>
+    part.type === "generated-image" && isImageGenerationToolName(toolName)
+      ? {
+          ...part,
+          sourceToolName: toolName,
+          sourceToolOutput: toolOutput ?? null,
+        }
+      : part
+  )
 }
 
 /**
@@ -1877,7 +1914,33 @@ export function adaptMessageTurn(
           ? null
           : adaptImageToolResultParts(matchedResult)
         if (imageParts) {
-          adaptedContent.push(...imageParts)
+          adaptedContent.push(
+            ...attachImageSourceToolMetadata(
+              imageParts,
+              block.tool_name,
+              matchedResult.output_preview
+            )
+          )
+          continue
+        }
+        const deliveredImage =
+          !isToolStillRunning && isImageGenerationToolName(block.tool_name)
+            ? extractDeliveredImage(matchedResult.output_preview)
+            : null
+        if (deliveredImage) {
+          adaptedContent.push({
+            type: "generated-image",
+            revisedPrompt: null,
+            image: {
+              name: imageNameFromUri(deliveredImage.uri),
+              data: "",
+              mime_type: deliveredImage.mimeType,
+              uri: deliveredImage.uri,
+            },
+            status: null,
+            sourceToolName: block.tool_name,
+            sourceToolOutput: matchedResult.output_preview ?? null,
+          })
           continue
         }
         const normalizedResult = normalizeToolResultError(
@@ -1918,7 +1981,32 @@ export function adaptMessageTurn(
           // returning image bytes renders as image card(s) in-position.
           const imageParts = adaptImageToolResultParts(positionalResult)
           if (imageParts) {
-            adaptedContent.push(...imageParts)
+            adaptedContent.push(
+              ...attachImageSourceToolMetadata(
+                imageParts,
+                block.tool_name,
+                positionalResult.output_preview
+              )
+            )
+            continue
+          }
+          const deliveredImage = isImageGenerationToolName(block.tool_name)
+            ? extractDeliveredImage(positionalResult.output_preview)
+            : null
+          if (deliveredImage) {
+            adaptedContent.push({
+              type: "generated-image",
+              revisedPrompt: null,
+              image: {
+                name: imageNameFromUri(deliveredImage.uri),
+                data: "",
+                mime_type: deliveredImage.mimeType,
+                uri: deliveredImage.uri,
+              },
+              status: null,
+              sourceToolName: block.tool_name,
+              sourceToolOutput: positionalResult.output_preview ?? null,
+            })
             continue
           }
           const normalizedResult = normalizeToolResultError(

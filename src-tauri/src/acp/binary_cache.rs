@@ -971,7 +971,7 @@ fn is_windows_command_script(path: &Path) -> bool {
 
 /// Pinned codex-acp version that used to be bundled by `prepare-sidecars.mjs`.
 /// Must stay in sync with `registry::get_agent_meta(AgentType::Codex)`.
-pub(crate) const BUNDLED_CODEX_ACP_VERSION: &str = "1.4.0";
+pub(crate) const BUNDLED_CODEX_ACP_VERSION: &str = "1.8.0";
 
 /// Seed the bundled codex-acp npm prefix into private Agent storage. Bundling
 /// was removed in the managed distribution work, so this is a no-op stub that

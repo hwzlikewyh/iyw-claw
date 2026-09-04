@@ -26,7 +26,7 @@ export async function downloadImage(opts: {
   if (isDisplayAssetUri(uri)) {
     return downloadBlob(await fetchDisplayAsset(uri!, mime_type), suggestedName)
   }
-  if (uri?.startsWith("https://")) {
+  if (typeof uri === "string" && /^https?:\/\//i.test(uri)) {
     const response = await fetch(uri)
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
     return downloadBlob(await response.blob(), suggestedName)
