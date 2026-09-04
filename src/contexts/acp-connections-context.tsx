@@ -1148,7 +1148,6 @@ const OUT_OF_TURN_TOOL_CALL_CAP = 8
 const OVERLAY_FOLD_THRESHOLD = 60
 const OVERLAY_FOLD_MIN_INTERVAL_MS = 30_000
 const STREAM_FLUSH_HIDDEN_MS = 250
-const STREAM_BATCH_VISIBLE_CAP = 256
 const STREAM_BATCH_HIDDEN_CAP = 1_024
 const TOOL_UPDATE_HIDDEN_FLUSH_MS = 250
 const TOOL_UPDATE_BATCH_CAP = 256
@@ -2921,7 +2920,6 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   const lastActivityRef = useRef(new Map<string, number>())
   const streamingQueueRef = useRef<StreamingAction[]>([])
   const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const flushRafRef = useRef<number | null>(null)
   const pendingUnmappedEventsRef = useRef(new Map<string, EventEnvelope[]>())
   const recoveringContextKeysRef = useRef(new Set<string>())
   const pendingRecoveryEventsRef = useRef(new Map<string, EventEnvelope[]>())
@@ -3277,10 +3275,6 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       clearTimeout(flushTimerRef.current)
       flushTimerRef.current = null
     }
-    if (flushRafRef.current !== null) {
-      cancelAnimationFrame(flushRafRef.current)
-      flushRafRef.current = null
-    }
     const queued = streamingQueueRef.current
     if (queued.length === 0) return
     streamingQueueRef.current = []
@@ -3309,10 +3303,20 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   const enqueueStreamingAction = useCallback(
     (action: StreamingAction) => {
       const hidden = document.visibilityState !== "visible"
+
+      // Visible conversations should show each upstream delta as soon as the
+      // transport delivers it. Do not wait for requestAnimationFrame or collect
+      // adjacent chunks here; the backend already emits one ACP event at a time.
+      // Hidden tabs keep the bounded timer path below so background windows do
+      // not spend a render on every token.
+      if (!hidden) {
+        dispatch(action)
+        return
+      }
+
       const queue = streamingQueueRef.current
       const previous = queue[queue.length - 1]
       if (
-        hidden &&
         previous?.contextKey === action.contextKey &&
         previous.type === action.type
       ) {
@@ -3320,34 +3324,23 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       } else {
         queue.push(action)
       }
-      const cap = hidden ? STREAM_BATCH_HIDDEN_CAP : STREAM_BATCH_VISIBLE_CAP
+      const cap = STREAM_BATCH_HIDDEN_CAP
       if (queue.length >= cap) {
         if (flushTimerRef.current !== null) {
           clearTimeout(flushTimerRef.current)
           flushTimerRef.current = null
         }
-        if (flushRafRef.current !== null) {
-          cancelAnimationFrame(flushRafRef.current)
-          flushRafRef.current = null
-        }
         flushStreamingQueue()
         return
       }
-      if (hidden) {
-        if (flushTimerRef.current === null) {
-          flushTimerRef.current = setTimeout(
-            flushStreamingQueue,
-            STREAM_FLUSH_HIDDEN_MS
-          )
-        }
-      } else if (flushRafRef.current === null) {
-        flushRafRef.current = requestAnimationFrame(() => {
-          flushRafRef.current = null
-          flushStreamingQueue()
-        })
+      if (flushTimerRef.current === null) {
+        flushTimerRef.current = setTimeout(
+          flushStreamingQueue,
+          STREAM_FLUSH_HIDDEN_MS
+        )
       }
     },
-    [flushStreamingQueue]
+    [dispatch, flushStreamingQueue]
   )
 
   const settleRetryIncidentsOnProgress = useCallback(
@@ -3406,7 +3399,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     []
   )
 
-  // ── RAF batching for tool_call_update events ──
+  // ── Bounded batching for hidden tool_call_update events ──
   const pendingToolCallUpdates = useRef<
     Array<{
       contextKey: string
@@ -3424,16 +3417,11 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       images: ToolCallImage[] | null
     }>
   >([])
-  const toolCallUpdateRafId = useRef<number | null>(null)
   const toolCallUpdateTimerId = useRef<ReturnType<typeof setTimeout> | null>(
     null
   )
 
   const clearToolCallUpdateSchedule = useCallback(() => {
-    if (toolCallUpdateRafId.current !== null) {
-      cancelAnimationFrame(toolCallUpdateRafId.current)
-      toolCallUpdateRafId.current = null
-    }
     if (toolCallUpdateTimerId.current !== null) {
       clearTimeout(toolCallUpdateTimerId.current)
       toolCallUpdateTimerId.current = null
@@ -3449,18 +3437,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   }, [clearToolCallUpdateSchedule, dispatch])
 
   const scheduleToolCallUpdateFlush = useCallback(() => {
-    if (
-      toolCallUpdateRafId.current !== null ||
-      toolCallUpdateTimerId.current !== null
-    )
-      return
-    if (document.visibilityState === "visible") {
-      toolCallUpdateRafId.current = requestAnimationFrame(() => {
-        toolCallUpdateRafId.current = null
-        flushPendingToolCallUpdates()
-      })
-      return
-    }
+    if (toolCallUpdateTimerId.current !== null) return
     toolCallUpdateTimerId.current = setTimeout(() => {
       toolCallUpdateTimerId.current = null
       flushPendingToolCallUpdates()
@@ -3532,7 +3509,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           break
         case "tool_call_update":
           flushStreamingQueue()
-          pendingToolCallUpdates.current.push({
+          const toolCallUpdate = {
             contextKey,
             tool_call_id: e.tool_call_id,
             title: e.title,
@@ -3546,7 +3523,12 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             locations: e.locations ?? null,
             meta: (e.meta as ToolCallMeta) ?? null,
             images: e.images ?? null,
-          })
+          }
+          if (document.visibilityState === "visible") {
+            dispatch({ type: "TOOL_CALL_UPDATE", ...toolCallUpdate })
+            break
+          }
+          pendingToolCallUpdates.current.push(toolCallUpdate)
           if (pendingToolCallUpdates.current.length >= TOOL_UPDATE_BATCH_CAP) {
             flushPendingToolCallUpdates()
           } else {
@@ -4566,10 +4548,6 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         clearTimeout(flushTimerRef.current)
         flushTimerRef.current = null
       }
-      if (flushRafRef.current !== null) {
-        cancelAnimationFrame(flushRafRef.current)
-        flushRafRef.current = null
-      }
       streamingQueueRef.current = []
       unlisten?.()
     }
@@ -4589,10 +4567,6 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         flushPendingToolCallUpdates()
       } else {
         if (streamingQueueRef.current.length > 0) {
-          if (flushRafRef.current !== null) {
-            cancelAnimationFrame(flushRafRef.current)
-            flushRafRef.current = null
-          }
           if (flushTimerRef.current === null) {
             flushTimerRef.current = setTimeout(
               flushStreamingQueue,
