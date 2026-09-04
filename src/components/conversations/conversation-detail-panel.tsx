@@ -1789,6 +1789,9 @@ const ConversationTabView = memo(function ConversationTabView({
           } else {
             mqEnqueue(draft, selectedModeIdArg ?? null, { blocked: true })
           }
+          if (!needsImageFallback) {
+            toast.error(toErrorMessage(error))
+          }
           return
         }
         transientConnectionBounced = true
