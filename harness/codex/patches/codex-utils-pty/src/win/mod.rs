@@ -46,6 +46,8 @@ mod job;
 mod procthreadattr;
 mod psuedocon;
 
+pub(crate) const CREATE_NO_WINDOW: DWORD = 0x0800_0000;
+
 pub use conpty::ConPtySystem;
 pub use job::JobObject;
 pub use psuedocon::PsuedoCon;
