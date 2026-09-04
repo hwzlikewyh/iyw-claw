@@ -2059,16 +2059,18 @@ impl ConnectionManager {
             )
         };
 
-        if let Some(requested_conversation_id) = conversation_id {
-            if linked_conversation_id != Some(requested_conversation_id) {
-                return Err(AcpError::protocol(
-                    "conversation_id does not match the connection's linked conversation",
-                ));
-            }
-            if linked_folder_id != folder_id {
-                return Err(AcpError::protocol(
-                    "folder_id does not match the connection's linked conversation",
-                ));
+        if already_linked {
+            if let Some(requested_conversation_id) = conversation_id {
+                if linked_conversation_id != Some(requested_conversation_id) {
+                    return Err(AcpError::protocol(
+                        "conversation_id does not match the connection's linked conversation",
+                    ));
+                }
+                if linked_folder_id != folder_id {
+                    return Err(AcpError::protocol(
+                        "folder_id does not match the connection's linked conversation",
+                    ));
+                }
             }
         }
 
