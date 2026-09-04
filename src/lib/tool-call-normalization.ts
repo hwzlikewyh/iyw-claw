@@ -75,6 +75,8 @@ const EXACT_TOOL_NAME_ALIASES: Record<string, string> = {
   check_user_feedback: "check_user_feedback",
   "mcp__iyw-claw-mcp__check_user_feedback": "check_user_feedback",
   "mcp__iyw-claw__check_user_feedback": "check_user_feedback",
+  // Built-in IYW image generation (server prefix varies by host).
+  generate_iyw_image: "generate_iyw_image",
   // OpenCode
   delegate_task: "task",
   call_omo_agent: "agent",
@@ -347,6 +349,8 @@ export function normalizeToolName(toolName: string): string {
   // collapse every separator to the canonical name the renderer dispatches on.
   if (/[^a-z0-9]check_user_feedback$/.test(canonical))
     return "check_user_feedback"
+  if (/[^a-z0-9]generate_iyw_image$/.test(canonical))
+    return "generate_iyw_image"
 
   const freeform = inferFromFreeformName(trimmed)
   if (freeform) return freeform
