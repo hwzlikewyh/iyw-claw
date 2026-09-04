@@ -768,6 +768,11 @@ mod tauri_app {
                             report.pending_user_review.len()
                         );
                     }
+                    crate::commands::experts::cleanup_retired_skill_activation_policies(
+                        &managed_distribution_db,
+                        &report.retired,
+                    )
+                    .await;
                     crate::system_skills::startup_update_core(
                         &managed_distribution_db,
                         &system_skills_data_dir,

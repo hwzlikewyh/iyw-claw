@@ -598,6 +598,11 @@ async fn async_main() -> ExitCode {
                 report.pending_user_review.len()
             );
         }
+        iyw_claw_lib::commands::experts::cleanup_retired_skill_activation_policies(
+            &managed_distribution_db,
+            &report.retired,
+        )
+        .await;
         iyw_claw_lib::system_skills::startup_update_core(
             &managed_distribution_db,
             &system_skills_data_dir,

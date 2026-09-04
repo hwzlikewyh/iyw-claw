@@ -147,6 +147,19 @@ pub(super) async fn stage_plugin_removal(
             "Plugin registry could not suspend the plugin",
         ));
     }
+    if crate::plugin_runtime::global::plugin_version_has_active_leases(
+        &record.installation.slug,
+        Some(&record.installation.version),
+    )
+    .await
+    {
+        // Suspension prevents new calls from entering the runtime. Restore the
+        // registry snapshot and defer removal until all in-flight calls finish.
+        let _ = require_registry_state(conn, market_skill_id, true).await;
+        return Err(AppCommandError::task_execution_failed(
+            "Plugin is still in use; Skill removal deferred",
+        ));
+    }
     crate::plugin_runtime::global::stop_plugin(&record.installation.slug).await;
     match PluginStorageRemoval::stage(&record.installation.slug) {
         Ok(removal) => Ok(removal),

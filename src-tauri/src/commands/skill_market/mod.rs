@@ -495,6 +495,8 @@ async fn restore_bundled_skills_after_uninstall(
     market_skill_id: i64,
 ) -> Result<(), AppCommandError> {
     let install = crate::commands::experts::ensure_central_experts_installed().await;
+    crate::commands::experts::cleanup_retired_skill_activation_policies(conn, &install.retired)
+        .await;
     if !install.errors.is_empty() {
         tracing::error!(
             market_skill_id,
