@@ -1795,6 +1795,7 @@ const ConversationTabView = memo(function ConversationTabView({
           return
         }
         transientConnectionBounced = true
+        lastFlushBounceAtRef.current = Date.now()
         if (fromQueueFlush && queuedMessage) {
           mqRequeueItemFront(queuedMessage)
         } else {
