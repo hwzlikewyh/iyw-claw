@@ -248,19 +248,7 @@ jobs:
         run: pnpm tauri:prepare-sidecars --target ${{ matrix.target }}
 
       - name: Verify staged sidecars
-        shell: bash
-        run: |
-          node src-tauri/scripts/verify-sidecar-bundle.mjs \
-            --target "${{ matrix.target }}"
-          if [ "${{ matrix.target }}" = "x86_64-pc-windows-msvc" ]; then
-            file="src-tauri/binaries/agent-browser-${{ matrix.target }}.exe"
-            test -s "$file" || {
-              echo "::error::Sidecar $file is missing or empty after prepare-sidecars"
-              exit 1
-            }
-            "$file" --version | grep -Fx "agent-browser 0.35.2"
-            ls -la "$file"
-          fi
+        run: node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
 
       - name: Run managed browser smoke
         if: inputs.browser_engine_fixture != '' && matrix.target != 'i686-pc-windows-msvc'
