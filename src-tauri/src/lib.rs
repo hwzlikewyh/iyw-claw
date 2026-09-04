@@ -21,7 +21,6 @@ pub mod display_assets;
 pub mod git_credential;
 pub mod git_repo;
 pub mod github_mirror;
-pub mod internal_codex_worker;
 pub mod keyring_store;
 pub mod logging;
 pub mod models;
