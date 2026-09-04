@@ -192,7 +192,9 @@ impl PsuedoCon {
                 ptr::null_mut(),
                 ptr::null_mut(),
                 0,
-                EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+                EXTENDED_STARTUPINFO_PRESENT
+                    | CREATE_UNICODE_ENVIRONMENT
+                    | super::CREATE_NO_WINDOW,
                 env_block.as_mut_ptr() as *mut _,
                 cwd.as_ref().map_or(ptr::null(), std::vec::Vec::as_ptr),
                 &mut si.StartupInfo,
