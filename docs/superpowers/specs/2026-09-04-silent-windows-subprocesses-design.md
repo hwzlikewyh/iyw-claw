@@ -28,9 +28,13 @@
 
 - `CREATE_NO_WINDOW`；
 - `CREATE_UNICODE_ENVIRONMENT`；
-- `STARTF_USESHOWWINDOW` + `SW_HIDE`（仅在需要兼容脚本或第三方运行时
-  时使用，避免子进程主动创建窗口）；
 - UTF-8 环境与受管 Node/Git PATH 注入保持现状。
+
+Rust stable 当前不开放 `STARTF_USESHOWWINDOW`/`SW_HIDE` 的
+`std::process::Command` API，因此实现以 `CREATE_NO_WINDOW` 为统一门禁；
+该标志会阻止控制台子进程创建新的控制台窗口，并且不会影响我们通过
+管道收集 stdout/stderr。若未来切换到稳定可用的 Windows 原生启动封装，
+可以再补充 `SW_HIDE`，但不作为本次构建依赖。
 
 调用点不得直接构造未配置的命令。需要明确保留裸 `Command::new` 的代码
 必须说明其不是桌面运行路径（例如仅用于 Unix 或独立服务器）。
@@ -76,8 +80,8 @@
 - 子进程启动失败仍返回原有错误类型和可操作提示。
 - 隐藏窗口不等于吞掉输出：需要协议通信的 stdout/stderr 继续使用管道；
   无需输出的安装或更新任务使用 `Stdio::null()`。
-- `CREATE_NO_WINDOW` 或隐藏启动属性设置失败时，启动直接失败并写入诊断
-  日志，不回退到可见控制台。
+- `CREATE_NO_WINDOW` 设置在统一封装中；启动失败仍返回原有错误并写入
+  诊断日志，不回退到可见控制台。
 - 终端任务超时、取消和退出码沿用现有 kill-tree、超时和回收逻辑。
 
 ## 验证

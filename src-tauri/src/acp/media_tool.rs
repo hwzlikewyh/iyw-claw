@@ -5,7 +5,6 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use serde::Deserialize;
-use tokio::process::Command;
 
 const STDERR_LIMIT: usize = 8 * 1024;
 const TOOL_TIMEOUT: Duration = Duration::from_secs(2 * 60);
@@ -165,7 +164,7 @@ impl MediaToolRunner {
         };
         let output = tokio::time::timeout(
             TOOL_TIMEOUT,
-            Command::new(executable)
+            crate::process::tokio_command(executable)
                 .args(args)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())

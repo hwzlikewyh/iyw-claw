@@ -5981,9 +5981,8 @@ export function AcpAgentSettings({
   )
 
   // Hermes's interactive setup (`--setup` / `hermes model`) needs a real TTY +
-  // browser, so launch it in an external OS terminal on local desktop (the
-  // backend builds the exact command). Fall back to copying the displayed
-  // command (web / remote, or if the launch fails).
+  // browser. Never open a visible OS terminal from the desktop app; copy the
+  // exact command when the local interactive path is unavailable.
   const runHermesSetupCommand = useCallback(
     async (kind: "setup" | "model", displayCommand: string) => {
       const native = isDesktop() && getActiveRemoteConnectionId() === null
