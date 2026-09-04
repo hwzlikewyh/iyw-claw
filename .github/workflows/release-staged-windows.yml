@@ -14,6 +14,7 @@ on:
         type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -113,9 +114,6 @@ jobs:
           Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $staging | Out-Null
           New-Item -ItemType Directory -Force -Path (Join-Path $staging 'src-tauri') | Out-Null
-          Copy-Item -LiteralPath src-tauri\binaries -Destination (Join-Path $staging 'src-tauri\binaries') -Recurse -Force
-          Copy-Item -LiteralPath src-tauri\resources\runtime-seed -Destination (Join-Path $staging 'src-tauri\resources\runtime-seed') -Recurse -Force
-          Copy-Item -LiteralPath src-tauri\tauri.runtime-seed.conf.json -Destination (Join-Path $staging 'src-tauri\tauri.runtime-seed.conf.json') -Force
           $targetRoot = 'src-tauri\target\x86_64-pc-windows-msvc\release'
           New-Item -ItemType Directory -Force -Path (Join-Path $staging $targetRoot) | Out-Null
           Copy-Item -LiteralPath (Join-Path $targetRoot 'iyw-claw.exe') -Destination (Join-Path $staging "$targetRoot\iyw-claw.exe") -Force
@@ -134,7 +132,7 @@ jobs:
           $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $staging 'staging-manifest.json') -Encoding utf8NoBOM
           $archive = Join-Path $env:RUNNER_TEMP 'iyw-windows-staging.zip'
           Remove-Item -LiteralPath $archive -Force -ErrorAction SilentlyContinue
-          Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $archive -CompressionLevel Fastest
+          Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $archive -CompressionLevel Optimal
 
       - name: Upload unsigned staging artifact
         uses: actions/upload-artifact@v4
@@ -165,7 +163,7 @@ jobs:
       IYW_CLAW_SIGN_REQUIRED: "1"
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
       # The dedicated SafeNet runner routes external downloads through its
-      # local proxy; expose the same proxy to Node-based artifact actions.
+      # local proxy; expose the same proxy to repository tooling.
       HTTP_PROXY: http://127.0.0.1:7890
       HTTPS_PROXY: http://127.0.0.1:7890
     steps:
@@ -192,17 +190,32 @@ jobs:
         shell: pwsh
         run: node scripts/set-version.mjs "$env:TEST_VERSION"
 
-      - name: Rebuild frontend assets
+      - name: Rebuild local bundle inputs
         shell: pwsh
         run: |
+          $cacheBase = $env:RUNNER_TOOL_CACHE
+          if (!$cacheBase) { $cacheBase = Join-Path $HOME '.cache' }
+          $runtimeCache = Join-Path $cacheBase 'iyw-claw\runtime-seed\x86_64-pc-windows-msvc'
+          New-Item -ItemType Directory -Force -Path $runtimeCache | Out-Null
+          $env:IYW_CLAW_RUNTIME_SEED_CACHE = $runtimeCache
+          "IYW_CLAW_RUNTIME_SEED_CACHE=$runtimeCache" | Out-File -FilePath $env:GITHUB_ENV -Append
           pnpm build
           if ($LASTEXITCODE -ne 0) { throw "frontend rebuild failed" }
+          pnpm tauri:prepare-sidecars --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "sidecar preparation failed" }
+          node src-tauri/scripts/verify-sidecar-bundle.mjs --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "sidecar verification failed" }
+          pnpm tauri:prepare-runtime-seed --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "runtime seed preparation failed" }
+          pnpm tauri:verify-runtime-seed --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "runtime seed verification failed" }
 
       - name: Download unsigned staging artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: staged-windows-x86_64-${{ inputs.version }}
-          path: ${{ runner.temp }}/iyw-windows-staging-download
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGING_ARTIFACT_NAME: staged-windows-x86_64-${{ inputs.version }}
+        run: "& '.\\src-tauri\\scripts\\download-staged-windows-artifact.ps1'"
 
       - name: Extract unsigned staging artifact
         shell: pwsh

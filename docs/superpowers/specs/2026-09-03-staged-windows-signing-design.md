@@ -20,8 +20,6 @@
 
 staging artifact 内部包含：
 
-- `src-tauri/binaries/` 已校验的 sidecar；
-- `src-tauri/resources/runtime-seed/` 及生成的 runtime overlay；
 - `src-tauri/target/x86_64-pc-windows-msvc/release/iyw-claw.exe` 已编译但未签名的应用输入；
 - `staging-manifest.json`，记录 schema、版本、source commit、target、installer 路径和
   文件 SHA-256。
@@ -29,13 +27,15 @@ staging artifact 内部包含：
 finalize 脚本在任何签名动作前校验 manifest、版本、target、文件存在性和哈希；不匹配
 时立即失败。
 
-为避免 GitHub artifact 传输大量可重建的前端静态文件，staging 不跨 runner 传输 `out/`。
-签名 job 在固定 source checkout 后重新执行 `pnpm build`，再下载包含二进制输入的单个
-`iyw-windows-staging.zip` 并解压。随后仍执行相同的 manifest 校验；ZIP 只是传输封装，
-不改变跨 runner 文件的 SHA-256 契约。
-专用 SafeNet runner 的外部网络由本机代理提供；finalize job 显式向 Node-based artifact
-action 传递该 runner 的 `HTTP_PROXY`/`HTTPS_PROXY`，避免 Azure Blob artifact 下载绕过
-代理而卡住。不提供可变代理输入，也不向签名器传递 PIN/password。
+为避免 GitHub artifact 传输可重建输入，staging 不跨 runner 传输 `out/`、sidecar 或
+runtime seed。签名 job 在固定 source checkout 后重新执行 `pnpm build`，并使用持久缓存
+本地准备、校验 sidecar 和 runtime seed；跨 runner 只传 unsigned 应用二进制及 manifest。
+hosted runner 使用 Optimal ZIP 压缩，签名机再下载单个 `iyw-windows-staging.zip` 并解压。
+随后仍执行相同的 manifest 校验；ZIP 只是传输封装，不改变二进制的 SHA-256 契约。
+专用 SafeNet runner 的外部网络由本机代理提供；finalize job 显式使用该 runner 的
+`http://127.0.0.1:7890` 代理，通过 GitHub API 获取 artifact URL，并使用可断点续传、
+大小校验和 SHA-256 校验的 `curl` 下载，避免 Azure Blob artifact 下载绕过代理后产生
+截断 ZIP。不提供可变代理输入，也不向签名器传递 PIN/password。
 
 ## Signing Order
 
