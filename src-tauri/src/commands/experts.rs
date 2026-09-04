@@ -1316,7 +1316,7 @@ fn retire_bundled_experts(manifest: &mut Manifest, report: &mut InstallReport) {
             )),
         }
         manifest.experts.remove(id);
-        report.retired.push(id);
+        report.retired.push(id.to_string());
     }
 }
 
