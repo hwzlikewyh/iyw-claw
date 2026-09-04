@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 57] = [
+pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 58] = [
     (
         "list_scheduled_task_projects",
         "iyw.automation.projects.list.v1",
@@ -9,6 +9,7 @@ pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 57] = [
     ("create_scheduled_task", "iyw.automation.tasks.create.v1"),
     ("update_scheduled_task", "iyw.automation.tasks.update.v1"),
     ("delete_scheduled_task", "iyw.automation.tasks.delete.v1"),
+    ("browser", "iyw.browser.unified.v1"),
     ("browser_list_tabs", "iyw.browser.tabs.list.v1"),
     ("browser_open", "iyw.browser.page.open.v1"),
     ("browser_snapshot", "iyw.browser.page.snapshot.v1"),

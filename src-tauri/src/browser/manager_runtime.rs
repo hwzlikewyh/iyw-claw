@@ -309,6 +309,7 @@ impl BrowserSessionManager {
             agent_turn_leases: Arc::new(super::agent_turn_leases::AgentTurnLeaseRegistry::default()),
             runtime_recoveries: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
             browser_engine_prefetch: BrowserEnginePrefetch::new(PathBuf::new()),
+            browser_routes: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 

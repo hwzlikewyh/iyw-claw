@@ -1,32 +1,42 @@
-# Agent 浏览器调用与 OpenCLI 回退
+# Agent 浏览器调用与 OpenCLI 优先
 
 ## 浏览器优先级
 
-对于网页和公开数据任务，已有可靠专用 API 或直接数据源且能完整满足请求时可以先用；
-出现无数据、数据不完整、动态渲染、登录态依赖或结果无法验证时，必须转入 iyw-claw
-内置托管浏览器，不能直接报告“拿不到”，也不能先切换其他浏览器。所有浏览器方案中，
-内置 `agent-browser` 始终排第一。
+对于网页和公开数据任务，已有可靠专用 API 或直接数据源且能完整满足请求时可以先用。
+用户明确要求“用浏览器”或任务需要网页交互时，统一调用 `browser` MCP 工具；它会同时
+检查用户已连接的 Chrome/OpenCLI 和 iyw-claw 内置浏览器，默认优先 OpenCLI，以复用
+用户已有 Chrome 登录态。旧的 `browser_*` 工具仍可用，但只是兼容别名。
 
-Agent 在浏览器工作前读取内置 `agent-browser` Skill。该 Skill 基于
+Agent 按统一工具选中的 provider 读取对应 Skill：OpenCLI 路径读取
+`opencli-browser`，内置浏览器路径读取 `agent-browser`。后者基于
 `agent-browser-plus-1.0.2` 的完整操作说明，并按 iyw-claw 固定 sidecar、固定页签、
 持久 profile、用户接管和安全策略进行了适配。
 
 ## 默认调用链
 
-用户没有指定浏览器时，Agent 使用 iyw-claw 内置托管浏览器：
+用户要求使用浏览器时，Agent 使用统一入口：
 
 ```text
-browser_list_tabs
-  -> browser_open
-  -> browser_read / browser_snapshot
-  -> browser_click / browser_fill / browser_press / browser_scroll / browser_wait / browser_command
-  -> fresh browser_snapshot
+browser(action=list_tabs)
+  -> browser(action=open)
+  -> browser(action=read|snapshot)
+  -> browser(action=click|fill|press|scroll|wait|advanced)
+  -> fresh browser(action=snapshot)
   -> 业务结果验证
 ```
 
-MCP 工具由 `src-tauri/src/acp/delegation/tool_schema.json` 广告，经内置 HTTP MCP gateway 和 delegation listener 分发到 `BrowserSessionManager::execute_agent_tool`。交互动作最终使用固定页签的 `agent-browser --cdp ... --pin-tab` 控制器，不是 Tauri WebView 的 DOM 事件。
+MCP 工具由 `src-tauri/src/acp/delegation/tool_schema.json` 广告，经内置 HTTP MCP gateway 和
+delegation listener 分发到 `BrowserSessionManager::execute_agent_tool`。统一入口先运行
+OpenCLI 的 doctor 和真实 Chrome Browser Bridge；若 OpenCLI 不可用，返回具体错误，不会
+因为 Chrome、扩展、CDP、网络、超时、selector 或未知错误自动启动内置浏览器。
 
-`browser_read` 是网页数据读取入口；`browser_command` 是高级受管入口。后者把
+OpenCLI 成功后，一个任务会锁定同一个 OpenCLI session。只有 OpenCLI 明确报告登录、MFA/OTP、
+CAPTCHA、设备批准、安全确认、人工复核或确实需要用户接管的交互，才会切到内置浏览器；
+切换后任务固定使用内置浏览器，不会再切回 OpenCLI。
+普通 OpenCLI 自动化使用 background window，避免抢占用户当前前台窗口；需要人工处理时才
+创建并展示 iyw-claw 内置浏览器页签。
+
+`browser(action=read)` 是网页数据读取入口；`browser(action=advanced)` 是高级受管入口。后者把
 `command` 和逐项 `arguments` 直接作为进程参数传给固定页签控制器，不经过 shell，
 支持参考 Skill 中没有独立 MCP 工具的操作：
 
@@ -46,11 +56,11 @@ cookies、storage、state、headers、credentials、clipboard
 
 ## 内置浏览器引用规则
 
-- `browser_list_tabs` 返回的 `tabs[].browserTabId` 才是其他工具的 `tab_id`。
-- `browser_snapshot` 生成的 `@eN` 只对应当时的页面状态。
+- `browser(action=list_tabs)` 返回的 `browserTabId` 才是后续调用的 `tab_id`。
+- `browser(action=snapshot)` 生成的 `@eN` 只对应当时的页面状态。
 - 导航、SPA 路由变化、弹窗、列表刷新或一次写操作后，必须重新 snapshot。
 - 动作失败时，先判断是 stale reference、selector 问题还是 runtime/session 问题。stale/locator 类问题对同一预期动作总共只有一次恢复机会：重新 snapshot，使用一个新引用或修正后的 locator；不能通过轮换 locator 扩大重试预算。
-- runtime/session/daemon/observer 或 timeout 类失败只检查一次当前状态，不要求重新 snapshot；确认内置路由不可用后，默认停止并报告原因。只有用户明确指定 OpenCLI，或已开启外部浏览器设置时，才允许切换。写操作如果返回 `effectMayHaveOccurred`，先读取页面状态确认结果，再决定是否继续。
+- OpenCLI 的 bridge、Chrome、扩展、daemon、CDP、网络、timeout、selector 或未知失败直接返回具体错误，不切换内置浏览器。只有明确的人工作业错误才允许切换。写操作如果返回 `effectMayHaveOccurred`，先读取页面状态确认结果，再决定是否继续。
 
 ## 用户接管边界
 
@@ -72,21 +82,21 @@ cookies、storage、state、headers、credentials、clipboard
 | `BROWSER_CONTROL_CHANGED` | 点击点被弹窗、横幅或其他元素遮挡 | 先处理遮挡元素或刷新状态，不要归因于 runtime |
 | `BROWSER_RUNTIME_UNAVAILABLE` | daemon/session/runtime/observer 可能不可用，或控制器返回未知错误 | 不要把它解释成“点击功能被禁用”；完成一次状态检查后默认停止，禁止自动回退 |
 
-`BROWSER_RUNTIME_UNAVAILABLE` 是兼容性错误码，不等于已证明浏览器内核退出。排查时结合 `browser_list_tabs`、runtime 日志和页签状态判断。后端只向 Agent 返回白名单内的稳定控制器 code，未知 code 统一隐藏。
+`BROWSER_RUNTIME_UNAVAILABLE` 是内置浏览器兼容性错误码；OpenCLI 失败使用 `OPENCLI_*` 错误码。排查时结合 `browser(action=list_tabs)`、runtime 日志和页签状态判断。
 
-## 外部浏览器流程
+## OpenCLI 流程
 
-OpenCLI 是独立的外部浏览器方案，iyw-claw 不会自动启动、绑定或切换到它。
-只有用户在当前任务中明确指定，或设置中明确开启外部浏览器，才允许执行本节流程。
+OpenCLI 是用户真实 Chrome 的优先浏览器方案。统一 `browser` 工具负责检查和调用它，
+Agent 不需要自行拼接 shell 命令或在内置浏览器与 OpenCLI 之间来回切换。
 
 1. 读取当前安装的 `opencli-browser` Skill；以实际 Skill 文档为准，不猜参数。
-2. 执行：
+2. 统一工具内部执行：
 
    ```bash
    opencli doctor
    ```
 
-   doctor 失败时，先处理 Chrome、扩展或调试端口前置条件。
+   doctor 失败时，统一工具返回 `OPENCLI_*` 错误；除人工操作类错误外，不切换内置浏览器。
 
 3. 为一条连续任务使用稳定 session：
 
@@ -102,7 +112,12 @@ OpenCLI 是独立的外部浏览器方案，iyw-claw 不会自动启动、绑定
 6. 通过 URL、页面文本、字段值或网络结果验证业务动作完成；不要只根据点击返回成功就宣称业务完成。
 7. 自有 session 用 `close`；绑定用户页签只用 `unbind`，不关闭用户窗口。
 
-OpenCLI 的 session/page identity 与内置浏览器的 `browserTabId` 不同，不要交叉传递。遇到登录墙、验证码或人工接管时暂停自动化，让用户完成处理后复用同一个绑定 session。
+OpenCLI 的 session/page identity 与内置浏览器的 `browserTabId` 不同，不要交叉传递。
+统一工具会把 OpenCLI target 包装成不透明 `browserTabId`；Agent 只需回传上一次工具结果
+中的值。遇到登录墙、验证码或人工接管时，工具会创建一次性内置页签并尝试同源 auth
+handoff，然后等待用户操作；handoff 使用 120 秒短期预算，导入完成后立即丢弃中转
+Cookie 和 storage 值，最多导入当前站点的非 HttpOnly Cookie 与 local/session storage，
+不复制密码、完整 Chrome profile、扩展或跨站凭据。
 
 ## 安装和运行时
 

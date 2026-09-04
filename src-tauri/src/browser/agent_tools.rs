@@ -63,24 +63,11 @@ impl BrowserSessionManager {
         input: &Value,
     ) -> Result<Value, BrowserError> {
         match tool {
-            "browser_list_tabs" => {
-                ensure_request_active(context)?;
-                self.agent_state(context, None, None).await
+            "browser" => self.agent_browser(context, input).await,
+            legacy if legacy.starts_with("browser_") => {
+                let input = super::agent_browser_input::legacy_input(legacy, input)?;
+                self.agent_browser(context, &input).await
             }
-            "browser_open" => self.agent_open(context, input).await,
-            "browser_read" => self.agent_read(context, input).await,
-            "browser_snapshot" => self.agent_snapshot(context, input).await,
-            "browser_click" => self.agent_click(context, input).await,
-            "browser_fill" => self.agent_fill(context, input).await,
-            "browser_press" => self.agent_press(context, input).await,
-            "browser_scroll" => self.agent_scroll(context, input).await,
-            "browser_wait" => self.agent_wait(context, input).await,
-            "browser_screenshot" => self.agent_screenshot(context, input).await,
-            "browser_close_tab" => self.agent_close(context, input).await,
-            "browser_request_user_action" => self.agent_request_user_action(context, input).await,
-            "browser_present" => self.agent_present_window(context, input).await,
-            "browser_close_window" => self.agent_close_window(context, input).await,
-            "browser_command" => self.agent_command(context, input).await,
             _ => Err(invalid_argument("Unknown browser tool")),
         }
     }
@@ -193,7 +180,7 @@ impl BrowserSessionManager {
         result.map(|_| ())
     }
 
-    async fn agent_close(
+    pub(super) async fn agent_close(
         &self,
         context: AgentToolContext<'_>,
         input: &Value,

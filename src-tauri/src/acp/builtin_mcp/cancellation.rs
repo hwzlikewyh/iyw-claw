@@ -247,10 +247,21 @@ fn mutation_may_outlive_request(tool_name: &str, arguments: &Value) -> bool {
             | "operate_message_channel"
             | "send_channel_messages"
     ) || channel_operation_mutates(tool_name, arguments)
-        || browser_operation_mutates(tool_name)
+        || browser_operation_mutates(tool_name, arguments)
 }
 
-fn browser_operation_mutates(tool_name: &str) -> bool {
+fn browser_operation_mutates(tool_name: &str, arguments: &Value) -> bool {
+    if tool_name == "browser" {
+        let action = arguments
+            .get("action")
+            .or_else(|| arguments.get("op"))
+            .and_then(Value::as_str)
+            .map(str::to_ascii_lowercase);
+        return !matches!(
+            action.as_deref(),
+            Some("list_tabs" | "snapshot" | "read" | "wait")
+        );
+    }
     matches!(
         tool_name,
         "browser_open"

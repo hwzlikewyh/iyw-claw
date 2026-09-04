@@ -1,26 +1,25 @@
 ---
 name: agent-browser
-description: Use the iyw-claw managed agent-browser first for every web page and public web-data task. Navigate, inspect, extract, interact, verify, and request user takeover only for human-only steps.
+description: Use the iyw-claw managed agent-browser when the unified browser broker selects it for a web page or public-data task. Navigate, inspect, extract, interact, verify, and request user takeover only for human-only steps.
 routing:
   capability: managed agent-browser
   coreTriggers: [browser, web page, public data, website]
   exclusions: [desktop app control]
   aliases: [agent browser, managed browser, 浏览器自动化, 网页数据]
-  invocation: Use the managed browser first; read this Skill for advanced commands and recovery.
+  invocation: Use this Skill when the unified browser broker selects the managed provider; read it for advanced commands and recovery.
 ---
 
 # Agent Browser
 
-Use the iyw-claw managed `agent-browser` runtime as the first browser and web
-data route. The host pins every operation to a managed tab, preserves the
-user-visible profile and sign-in state, and verifies the bundled controller
-before starting it. Do not install another browser, edit an Agent's MCP
-configuration, or switch to an external browser while the managed route is
-available.
+Use the iyw-claw managed `agent-browser` runtime when the unified browser
+broker selects the managed provider. The host pins every operation to a managed
+tab, preserves the user-visible profile and sign-in state, and verifies the
+bundled controller before starting it. Do not install another browser, edit an
+Agent's MCP configuration, or bypass the broker to switch providers.
 
-## Browser-first policy
+## Managed-provider policy
 
-For every request that needs a web page or public web data:
+When the unified broker selects the managed provider:
 
 1. Use the available managed browser capability surface first. If the live
    gateway is present, use the exact `iyw.browser.*` stable capability returned
@@ -36,11 +35,9 @@ For every request that needs a web page or public web data:
    a downloaded file, or another explicit success signal. A successful click
    alone is not proof that the business action completed.
 6. If one state check shows that the managed runtime/session/daemon is
-   unavailable, stop and report the managed-browser failure by default. An
-   alternative route such as OpenCLI is allowed only when the user explicitly
-   requested it in the current task or the external-browser setting is enabled;
-   read that route's current Skill first. Never switch merely because a
-   selector needs correction or because the managed route is temporarily slow.
+   unavailable, stop and report the managed-browser failure. Provider selection
+   and any OpenCLI-to-managed handoff belong to the unified broker; this Skill
+   must not switch providers on its own.
 
 Prefer a reliable API or direct data source only when it is already available
 and clearly satisfies the request. If it does not return data, is incomplete,
@@ -218,9 +215,9 @@ permission to start a second browser or alter the managed runtime.
 - `BROWSER_OPERATION_TIMEOUT`: inspect state once; do not repeat blindly.
 - `BROWSER_CONTROL_CHANGED`: handle the visible obstruction, then refresh state.
 - `BROWSER_RUNTIME_UNAVAILABLE`: inspect managed state once and report the
-  failure. Read an installed `opencli-browser` Skill and run its documented
-  doctor/fallback only after explicit user authorization or an enabled
-  external-browser setting.
+  failure. The unified broker does not switch providers for managed runtime or
+  selector errors; it selects the managed provider only for an OpenCLI
+  human-action requirement.
 
 An error is not evidence that a click succeeded or failed to have an effect.
 For write operations with `effectMayHaveOccurred`, inspect the page before

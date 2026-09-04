@@ -83,8 +83,8 @@ en = "Agent Browser"
 "zh-CN" = "Agent 浏览器"
 
 [expert.description]
-en = "Uses the iyw-claw managed browser first for web pages and public web data, with complete interaction, verification, recovery, and human-takeover guidance."
-"zh-CN" = "网页与公开数据任务优先使用 iyw-claw 内置浏览器，并提供完整的交互、验证、恢复和人工接管规则。"
+en = "Uses the unified browser broker for web pages and public web data: OpenCLI first for the user's connected Chrome, with managed-browser handoff only for human-only steps."
+"zh-CN" = "网页与公开数据任务使用统一浏览器代理：优先连接用户 Chrome 的 OpenCLI，仅在人工作业步骤切换到内置浏览器。"
 
 [[expert]]
 id = "wecom-unified"

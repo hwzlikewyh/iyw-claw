@@ -629,7 +629,18 @@ fn browser_unavailable(code: &str) -> Value {
     })
 }
 
-fn browser_operation_mutates(tool: &str) -> bool {
+fn browser_operation_mutates(tool: &str, input: &Value) -> bool {
+    if tool == "browser" {
+        let action = input
+            .get("action")
+            .or_else(|| input.get("op"))
+            .and_then(Value::as_str)
+            .map(str::to_ascii_lowercase);
+        return !matches!(
+            action.as_deref(),
+            Some("list_tabs" | "snapshot" | "read" | "wait")
+        );
+    }
     matches!(
         tool,
         "browser_open"
@@ -1244,7 +1255,7 @@ impl DelegationListener {
             session_cancellation.cancelled().await;
             bridged.cancel();
         });
-        let _mutation = if browser_operation_mutates(&req.tool) {
+        let _mutation = if browser_operation_mutates(&req.tool, &req.input) {
             match self
                 .tokens
                 .acquire_mutation_commit(&req.token, &entry)
