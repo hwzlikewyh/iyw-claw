@@ -67,6 +67,9 @@ src-tauri/resources/runtime-seed-staging-*/
 .runtime-seed-cache/
 src-tauri/tauri.runtime-seed.conf.json
 
+# Experimental Codex worker library staged only by the opt-in preparation script.
+src-tauri/resources/codex-worker/
+
 # pnpm local store (pnpm 11+)
 .pnpm-store/
 

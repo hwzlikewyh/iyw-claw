@@ -1,0 +1,39 @@
+{
+  "repository": "https://github.com/openai/codex.git",
+  "ref": "rust-v0.152.1",
+  "tagObject": "3c6cfbab81e44218c729dc8c6b304cb760d1b8a1",
+  "commit": "5adb68a49933ae446bf11935662c83dba55a0804",
+  "license": "Apache-2.0",
+  "components": [
+    "codex-rs/app-server",
+    "codex-rs/app-server-client",
+    "codex-rs/app-server-protocol"
+  ],
+  "cargoPatches": [
+    {
+      "repository": "https://github.com/openai-oss-forks/crossterm",
+      "commit": "45fecb9508105988f42fe6ff0441783ed3717f92"
+    },
+    {
+      "repository": "https://github.com/openai-oss-forks/tokio-tungstenite",
+      "commit": "0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186"
+    },
+    {
+      "repository": "https://github.com/openai-oss-forks/tungstenite-rs",
+      "commit": "4fffad30fe373adbdcffab9545e9e9bf4f2fc19f"
+    }
+  ],
+  "localPatches": [
+    {
+      "crate": "codex-utils-pty",
+      "basePath": "codex-rs/utils/pty",
+      "reason": "Windows HANDLE pointer casts required by the locked upstream graph",
+      "files": [
+        "src/win/conpty.rs",
+        "src/win/procthreadattr.rs"
+      ]
+    }
+  ],
+  "integration": "in-process",
+  "syncPolicy": "release-tag-and-commit-locked"
+}
