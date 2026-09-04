@@ -8,8 +8,8 @@
 import { createHash } from "node:crypto"
 import {
   copyFileSync,
-  cpSync,
   existsSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -30,12 +30,7 @@ const STAGING_ROOT = resolve(
 const MANIFEST_PATH = join(STAGING_ROOT, "staging-manifest.json")
 const CLI = join(ROOT, "node_modules", "@tauri-apps", "cli", "tauri.js")
 const TARGET_RELEASE = join("src-tauri", "target", TARGET, "release")
-const ALLOWED_PREFIXES = [
-  "src-tauri/binaries/",
-  "src-tauri/resources/runtime-seed/",
-]
 const ALLOWED_FILES = new Set([
-  "src-tauri/tauri.runtime-seed.conf.json",
   `${TARGET_RELEASE.replaceAll("\\", "/")}/iyw-claw.exe`,
 ])
 
@@ -48,10 +43,7 @@ function sha256(path) {
 }
 
 function allowedStagingPath(path) {
-  return (
-    ALLOWED_FILES.has(path) ||
-    ALLOWED_PREFIXES.some((prefix) => path.startsWith(prefix))
-  )
+  return ALLOWED_FILES.has(path)
 }
 
 function verifyManifest() {
@@ -113,30 +105,26 @@ function verifyManifest() {
 }
 
 function restoreStaging() {
-  const directories = [
-    join("src-tauri", "binaries"),
-    join("src-tauri", "resources", "runtime-seed"),
-  ]
-  for (const directory of directories) {
-    const destination = join(ROOT, directory)
-    rmSync(destination, { recursive: true, force: true })
-    cpSync(join(STAGING_ROOT, directory), destination, { recursive: true })
-  }
-  const files = [
-    join("src-tauri", "tauri.runtime-seed.conf.json"),
-    join(TARGET_RELEASE, "iyw-claw.exe"),
-  ]
-  for (const file of files) {
-    const destination = join(ROOT, file)
-    rmSync(destination, { force: true })
-    cpSync(join(STAGING_ROOT, file), destination)
-  }
-  console.log("[staged-signing] restored verified staging inputs")
+  const file = join(TARGET_RELEASE, "iyw-claw.exe")
+  const destination = join(ROOT, file)
+  rmSync(destination, { force: true })
+  mkdirSync(dirname(destination), { recursive: true })
+  copyFileSync(join(STAGING_ROOT, file), destination)
+  console.log("[staged-signing] restored verified staging binary")
 }
 
 function preflightToken() {
   const probe = join(tmpdir(), `iyw-signing-preflight-${process.pid}.exe`)
-  copyFileSync(process.execPath, probe)
+  const probeSource = join(
+    ROOT,
+    "src-tauri",
+    "binaries",
+    `agent-browser-${TARGET}.exe`
+  )
+  if (!existsSync(probeSource)) {
+    fail(`SafeNet preflight source is missing: ${probeSource}`)
+  }
+  copyFileSync(probeSource, probe)
   try {
     const result = spawnSync(
       process.execPath,

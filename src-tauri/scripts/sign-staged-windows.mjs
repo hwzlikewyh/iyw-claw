@@ -22,13 +22,22 @@ const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 // SafeNet token signing can exceed 90 seconds for NSIS temporary files.
 // Keep the wait bounded so a missing login cannot block on PIN UI forever.
 const TIMEOUT_MS = 180_000
+const VERIFY_TIMEOUT_MS = 30_000
 
 function verifySigned(signtool, file) {
   const result = spawnSync(signtool, ["verify", "/pa", "/all", file], {
     cwd: ROOT,
     stdio: "ignore",
     windowsHide: false,
+    timeout: VERIFY_TIMEOUT_MS,
+    killSignal: "SIGTERM",
   })
+  if (result.error?.code === "ETIMEDOUT") {
+    console.warn(
+      `[sign-staged-windows][WARN] signature verification timed out: ${file}`
+    )
+    return false
+  }
   return result.status === 0
 }
 
@@ -38,6 +47,7 @@ function sign(file, env = process.env) {
   if (mode === "none") throw new Error("staged signing requires a signing mode")
   const signtool = discoverSigntool(env)
   const args = buildSigntoolArgs(mode, file, env)
+  const startedAt = Date.now()
   console.log(
     `[sign-staged-windows] signtool ${redactSigntoolArgs(args).join(" ")}`
   )
@@ -51,7 +61,8 @@ function sign(file, env = process.env) {
   if (result.error?.code === "ETIMEDOUT") {
     if (verifySigned(signtool, file)) {
       console.warn(
-        `[sign-staged-windows][WARN] timeout after completed signature: ${file}`
+        `[sign-staged-windows][WARN] timeout after completed signature: ${file} ` +
+          `(elapsedMs=${Date.now() - startedAt})`
       )
       return
     }
@@ -61,6 +72,9 @@ function sign(file, env = process.env) {
   if (result.status !== 0) {
     throw new Error(`signtool exited with code ${result.status} for ${file}`)
   }
+  console.log(
+    `[sign-staged-windows] completed ${file} (elapsedMs=${Date.now() - startedAt})`
+  )
 }
 
 const file = process.argv[2]
