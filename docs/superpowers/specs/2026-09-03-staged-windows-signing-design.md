@@ -36,9 +36,10 @@ finalize 脚本在任何签名动作前校验 manifest、版本、target、文�
 
 ## Signing Order
 
-finalize 先执行一次临时文件的 SafeNet 预检。预检每次签名最多等待 90 秒，不读取、
-传递或代填 PIN；它只使用 runner 交互桌面中已经建立的 SafeNet 登录会话。会话不存在
-时预检失败，不进入任何长耗时步骤。
+finalize 先执行一次临时文件的 SafeNet 预检。预检及每次 staged 签名最多等待 180 秒，
+以覆盖 SafeNet 对 NSIS 临时文件已观测到的超过 90 秒耗时；仍不读取、传递或代填 PIN。
+它只使用 runner 交互桌面中已经建立的 SafeNet 登录会话。会话不存在时预检失败，不进入
+任何长耗时步骤。
 通过后生成绝对路径 signing overlay，调用 `tauri bundle --target ... --bundles nsis`
 从已编译的应用输入重新生成 NSIS。Tauri 的 `signCommand` 负责主程序、NSIS 组件、
 临时卸载器和最终 installer；固定的 `agent-browser` sidecar 保持原字节并跳过
