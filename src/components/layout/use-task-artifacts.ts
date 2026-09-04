@@ -23,6 +23,7 @@ const REFRESH_DEBOUNCE_MS = 80
 
 interface TaskArtifactFilters {
   conversationId: number | null
+  messageId?: string | null
   folderId: number | null
   scope: "current" | "all"
   latestTurnOnly?: boolean
@@ -99,6 +100,7 @@ function useArtifactLoader(filters: TaskArtifactFilters) {
   const loadFailed = t("loadFailed")
   const {
     conversationId,
+    messageId,
     folderId,
     scope,
     latestTurnOnly = false,
@@ -119,6 +121,7 @@ function useArtifactLoader(filters: TaskArtifactFilters) {
       startArtifactLoad({
         filters: {
           conversationId,
+          messageId,
           folderId,
           scope,
           latestTurnOnly,
@@ -136,6 +139,7 @@ function useArtifactLoader(filters: TaskArtifactFilters) {
       }),
     [
       conversationId,
+      messageId,
       folderId,
       latestTurnOnly,
       loadFailed,
@@ -267,7 +271,7 @@ async function performTaskArtifactLoad({
 function taskArtifactFilterKey(filters: TaskArtifactFilters): string {
   const id =
     filters.scope === "current" ? filters.conversationId : filters.folderId
-  return `${filters.scope}:${id ?? "none"}:latest=${filters.latestTurnOnly ? "1" : "0"}:search=${filters.search?.trim() ?? ""}:page=${filters.page ?? 1}:size=${filters.pageSize ?? "default"}:all=${filters.loadAll ? "1" : "0"}`
+  return `${filters.scope}:${id ?? "none"}:message=${filters.messageId ?? "none"}:latest=${filters.latestTurnOnly ? "1" : "0"}:search=${filters.search?.trim() ?? ""}:page=${filters.page ?? 1}:size=${filters.pageSize ?? "default"}:all=${filters.loadAll ? "1" : "0"}`
 }
 
 function useInitialArtifactLoad(
@@ -296,12 +300,13 @@ async function fetchTaskArtifacts(
     filters.scope === "current"
       ? {
           conversationId: filters.conversationId,
+          messageId: filters.messageId,
           latestTurnOnly: filters.latestTurnOnly,
           ...(!filters.latestTurnOnly && !filters.pageSize
             ? { pageSize: 100 }
             : {}),
         }
-      : { folderId: filters.folderId }
+      : { folderId: filters.folderId, messageId: filters.messageId }
   if (filters.loadAll) {
     const items = await listAllTaskArtifacts({
       ...request,

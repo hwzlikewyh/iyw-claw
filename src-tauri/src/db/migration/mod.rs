@@ -44,6 +44,7 @@ mod m20260822_000001_conversation_title_source;
 mod m20260825_000001_current_reply_artifact_generation;
 mod m20260826_000001_plugin_runtime_state;
 mod m20260829_000001_memory_learning;
+mod m20260904_000001_task_artifact_message;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -94,6 +95,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260825_000001_current_reply_artifact_generation::Migration),
             Box::new(m20260826_000001_plugin_runtime_state::Migration),
             Box::new(m20260829_000001_memory_learning::Migration),
+            Box::new(m20260904_000001_task_artifact_message::Migration),
         ]
     }
 }

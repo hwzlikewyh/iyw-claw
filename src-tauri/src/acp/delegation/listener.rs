@@ -84,13 +84,19 @@ pub trait ParentSessionLookup: Send + Sync {
     async fn current_turn_generation(&self, _parent_connection_id: &str) -> Option<i64> {
         None
     }
+
+    async fn current_assistant_message_id(&self, _parent_connection_id: &str) -> Option<String> {
+        None
+    }
 }
 
 #[async_trait]
 pub trait TaskArtifactAccess: Send + Sync {
     async fn register_task_artifacts(
         &self,
+        connection_id: &str,
         conversation_id: i32,
+        message_id: Option<String>,
         turn_generation: Option<i64>,
         working_dir: &Path,
         files: Vec<String>,
@@ -1947,7 +1953,11 @@ impl DelegationListener {
         };
         self.artifacts
             .register_task_artifacts(
+                &entry.parent_connection_id,
                 conversation_id,
+                self.parent_lookup
+                    .current_assistant_message_id(&entry.parent_connection_id)
+                    .await,
                 self.parent_lookup
                     .current_turn_generation(&entry.parent_connection_id)
                     .await,

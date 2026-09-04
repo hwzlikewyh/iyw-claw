@@ -57,22 +57,6 @@ pub(super) async fn create_managed_directory(identity: &TurnIdentity<'_>) -> io:
     Ok(())
 }
 
-pub(super) async fn verify_managed_directory(
-    identity: &TurnIdentity<'_>,
-    directory: &Path,
-) -> io::Result<()> {
-    let configured_root = crate::paths::iyw_claw_task_artifacts_root();
-    let root = canonical_managed_root(&configured_root).await?;
-    let expected = root
-        .join(identity.conversation_id.to_string())
-        .join(identity.connection_id)
-        .join(format!("turn-{}", identity.turn_generation));
-    if tokio::fs::canonicalize(directory).await? == expected {
-        return Ok(());
-    }
-    Err(scope_escape_error())
-}
-
 async fn canonical_managed_root(root: &Path) -> io::Result<PathBuf> {
     let parent = root.parent().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "artifact root has no parent")

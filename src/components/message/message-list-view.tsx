@@ -588,6 +588,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
             {showCurrentReplyArtifacts && (
               <CurrentReplyArtifacts
                 conversationId={artifactConversationId}
+                messageId={group.id}
                 parts={group.parts}
               />
             )}
@@ -914,9 +915,7 @@ export function MessageListView({
                   showStats={item.showStats}
                   previousUserIndex={item.previousUserIndex}
                   isResponseComplete={item.phase === "persisted"}
-                  showCurrentReplyArtifacts={
-                    item === lastAssistantItem && item.phase === "persisted"
-                  }
+                  showCurrentReplyArtifacts={item.phase === "persisted"}
                   animationEnabled={animationEnabled}
                   conversationDisplayMode={conversationDisplayMode}
                   collapseCompletedTurn={collapseCompletedTurn}
@@ -976,7 +975,6 @@ export function MessageListView({
       conversationDisplayMode,
       collapseCompletedTurn,
       autoOpenErrors,
-      lastAssistantItem,
       loadEarlierHistory,
       modelOptions,
       t,

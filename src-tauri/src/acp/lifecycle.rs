@@ -464,17 +464,24 @@ pub(crate) async fn handle_event(
                 }
             }
             if stop_reason == "end_turn" {
-                crate::acp::task_artifact_delivery::deliver_completed_turn(
-                    crate::acp::task_artifact_delivery::CompletedTurnDelivery {
-                        db: db_conn,
-                        state: &state_arc,
-                        emitter: &emitter,
-                        connection_id: &envelope.connection_id,
-                        conversation_id: cid,
-                        turn_generation,
-                    },
+                match conversation_service::mark_completed_turn_generation(
+                    db_conn,
+                    cid,
+                    turn_generation,
                 )
-                .await;
+                .await
+                {
+                    Ok(true) => {
+                        crate::commands::task_artifacts::emit_task_artifacts_changed(&emitter, cid)
+                    }
+                    Ok(false) => {}
+                    Err(error) => tracing::warn!(
+                        conversation_id = cid,
+                        turn_generation,
+                        error = %error,
+                        "[lifecycle] failed to persist completed turn generation"
+                    ),
+                }
                 if let Some(input) = title_input {
                     let title_context = ConversationTitleContext {
                         conn: db_conn,

@@ -55,7 +55,7 @@ impl Default for WaitOptions {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct DeliveryOptions {
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub(super) display: bool,
     #[serde(default = "default_true")]
     pub(super) register_artifact: bool,
@@ -64,7 +64,7 @@ pub(super) struct DeliveryOptions {
 impl Default for DeliveryOptions {
     fn default() -> Self {
         Self {
-            display: true,
+            display: false,
             register_artifact: true,
         }
     }

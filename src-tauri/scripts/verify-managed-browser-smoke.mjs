@@ -9,7 +9,7 @@ import { join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 import process from "node:process"
 
-const VERSION = "0.35.2"
+const VERSION = "0.36.0"
 
 function parseArgs(argv) {
   const values = {

@@ -57,6 +57,18 @@ pub async fn stop_plugin_version(plugin_slug: &str, plugin_version: Option<&str>
     );
 }
 
+pub async fn plugin_version_has_active_leases(
+    plugin_slug: &str,
+    plugin_version: Option<&str>,
+) -> bool {
+    let Some(supervisor) = GLOBAL_SUPERVISOR.get() else {
+        return false;
+    };
+    supervisor
+        .has_active_leases(plugin_slug, plugin_version)
+        .await
+}
+
 pub fn install_router(router: PluginRouter) -> PluginRouter {
     GLOBAL_ROUTER.get_or_init(|| router).clone()
 }

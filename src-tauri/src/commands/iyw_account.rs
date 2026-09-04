@@ -648,6 +648,7 @@ pub async fn iyw_account_poll_wechat_login_core(
     save_session(conn, &session).await?;
     crate::acp::account_credentials::sync_existing_agent_credentials(conn).await?;
     let profile = fetch_profile_with_session(conn, &session, true).await?;
+    crate::commands::skill_market::spawn_background_availability_reconcile(conn.clone());
 
     Ok(IywWechatPollingResult {
         status: IywWechatPollingStatus::Success,
@@ -718,7 +719,9 @@ pub async fn iyw_account_login_with_password_core(
     };
     save_session(conn, &session).await?;
     crate::acp::account_credentials::sync_existing_agent_credentials(conn).await?;
-    fetch_profile_with_session(conn, &session, true).await
+    let profile = fetch_profile_with_session(conn, &session, true).await?;
+    crate::commands::skill_market::spawn_background_availability_reconcile(conn.clone());
+    Ok(profile)
 }
 
 pub async fn iyw_account_get_identity_profile_core(

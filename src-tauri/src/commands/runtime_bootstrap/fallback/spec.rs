@@ -56,21 +56,21 @@ impl ComponentSpec {
 // Keep these aligned with the mirrored artifacts in iyw_fusion_api_component_artifacts.
 // A pinned fallback that points at a version the mirror does not carry defeats the
 // purpose of the fallback: it downloads a runtime the managed catalog can never match.
-const NODE_VERSION_X64: &str = "24.19.0";
-const NODE_VERSION_X86: &str = "22.23.1";
-const NODE_SHA256_X64: &str = "57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73";
-const NODE_SHA256_ARM64: &str = "8502f4a50b458d4cc38ed8f2001556c2cd239d464920f74017926ccb1e1c157f";
-const NODE_SHA256_X86: &str = "e298b368aad86c571447a3650db3ce19063373ffd39d6d73d014a5d9ad31dc62";
-const GIT_VERSION: &str = "2.55.0+windows.3";
-const GIT_ASSET_VERSION: &str = "2.55.0.3";
-const GIT_RELEASE_TAG: &str = "v2.55.0.windows.3";
-const GIT_SHA256_X64: &str = "f48e2d2dc74a24454adc6d8fd0ac25bf9c2386f19cfb06202b9465aaad4f9f05";
-const GIT_SHA256_ARM64: &str = "f7748965d5068e81ad93ca1923650db6742d6e22332b1ae7567a841c59f6bde5";
-const GIT_SHA256_X86: &str = "352380d06caa45e569a3b3967b6d1d6c605d564c29f37ef059b59e657a522ef4";
-const UV_VERSION: &str = "0.12.1";
-const UV_SHA256_X64: &str = "8fcb0cb46e1229065e344758980924e569bef5882ef45f46fada8fb24e06b74a";
-const UV_SHA256_ARM64: &str = "9bc7c18e616230fa2dc6fb24bc3afde18a95c2b5c9433de747e9502c66041568";
-const UV_SHA256_X86: &str = "9b51c33d307a8ab9e9dfd88d4ae1491761f63de0bffa3cec96bec536491c9b97";
+const NODE_VERSION_X64: &str = "24.20.0";
+const NODE_VERSION_X86: &str = "22.23.2";
+const NODE_SHA256_X64: &str = "6cac9ffbca8f6a47091e4b5c772e0606049c3871cb67d900c0cedde630e545ba";
+const NODE_SHA256_ARM64: &str = "31c6799744de8a54601643098040c68c3697e56c94e407d61d0e5fa5f34191d7";
+const NODE_SHA256_X86: &str = "725c9e2bdd1c2016b41c995a81f4fa36ce4e2ee565b7455d8f889182727df647";
+const GIT_VERSION: &str = "2.55.0+windows.5";
+const GIT_ASSET_VERSION: &str = "2.55.0.5";
+const GIT_RELEASE_TAG: &str = "v2.55.0.windows.5";
+const GIT_SHA256_X64: &str = "56d7b226b7693196cfc71fef26568f536c4a021ab6c37ff2db4287bed908e96e";
+const GIT_SHA256_ARM64: &str = "05843f9d6e60306c3ab886799e2c67200caab921571f10512df3493049179ddb";
+const GIT_SHA256_X86: &str = "2c5c030d18fc6a6437c6d3f85895302e67995507db740afb415648306c6b450d";
+const UV_VERSION: &str = "0.12.9";
+const UV_SHA256_X64: &str = "ddbfcee1ac615a0499f6aa97b5ec8ebdf3ee4a7714a48055ec2ba0030e3cf810";
+const UV_SHA256_ARM64: &str = "d3360363a3cb671f2c854f4ef48cf4a57fe8664f8ec6a248076d68b797a8acc0";
+const UV_SHA256_X86: &str = "62396154da2dc04a9fffb027e75ae3d971ca3ac7d3f0ffa7dd2c27c94798ce3f";
 
 const NODE_MIRROR_BASE: &str = "https://registry.npmmirror.com/-/binary/node";
 const NODE_OFFICIAL_BASE: &str = "https://nodejs.org/dist";

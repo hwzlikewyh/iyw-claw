@@ -64,15 +64,6 @@ const EXPERTS_TOML: &str = "experts.toml";
 const MANAGED_COPY_MARKER_FILE: &str = ".iyw-claw-managed-copy.json";
 const MANAGED_COPY_MARKER_VERSION: u8 = 1;
 pub(crate) const CAPABILITY_GATEWAY_EXPERT_ID: &str = "iyw-capability-gateway";
-pub(crate) const RETIRED_BUNDLED_EXPERT_IDS: [&str; 7] = [
-    "self-improving",
-    "lixiao-workflows",
-    "iyw-copyright-registration",
-    "iyw-crm-workflows",
-    "iyw-sales-assistant-workflows",
-    "iyw-image-workflows",
-    "imagegen",
-];
 /// Directories that hold installed runtime dependencies. They are expensive to
 /// rebuild (network installs, native compilation), so refreshes preserve them
 /// in place and never include them in the replaced Skill content.
@@ -1229,67 +1220,74 @@ fn ensure_central_experts_installed_blocking() -> InstallReport {
 
 fn retired_experts_need_reconcile() -> bool {
     let manifest = load_manifest();
-    RETIRED_BUNDLED_EXPERT_IDS.iter().any(|id| {
-        let central = expert_central_path(id);
-        if retired_expert_is_preserved(id, &central, &manifest) {
-            return false;
-        }
-        if manifest.experts.contains_key(*id) {
-            return true;
-        }
-        if fs::symlink_metadata(&central).is_ok() {
-            return true;
-        }
-        supported_agents().into_iter().any(|agent| {
-            managed_expert_link_paths(id, agent)
-                .map(|(_, paths)| {
-                    paths
-                        .iter()
-                        .any(|path| managed_link_is_owned(&central, path))
-                })
-                .unwrap_or(false)
-        })
-    })
+    !retired_bundled_expert_ids(&manifest).is_empty()
 }
 
 fn retire_bundled_experts(manifest: &mut Manifest, report: &mut InstallReport) {
-    for id in RETIRED_BUNDLED_EXPERT_IDS {
+    for id in retired_bundled_expert_ids(manifest) {
         let central = expert_central_path(id);
-        if retired_expert_is_preserved(id, &central, manifest) {
-            report.pending_user_review.push(id.to_string());
+        // A market installation may intentionally override a bundled Skill
+        // under the same slug. Its marker is a stronger, separate ownership
+        // record, so retirement of the bundled copy must not delete it.
+        if crate::commands::acp::read_market_skill_marker(&central).is_some() {
+            manifest.experts.remove(&id);
+            tracing::debug!(
+                target: "system_skills",
+                skill_id = %id,
+                "kept market override while retiring bundled Skill"
+            );
             continue;
         }
         if let Err(error) = remove_retired_expert_links(id, &central) {
             report.errors.push(format!("{id}: {error}"));
             continue;
         }
-        match fs::symlink_metadata(&central) {
-            Ok(_) => match remove_skill_entry(&central) {
-                Ok(()) => tracing::info!(
-                    target: "system_skills",
-                    skill_id = id,
-                    "removed retired bundled Skill central copy"
-                ),
-                Err(error) => report.errors.push(format!(
-                    "{id}: failed to remove retired central copy: {error}"
-                )),
-            },
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => report.errors.push(format!(
-                "{id}: failed to inspect retired central copy: {error}"
-            )),
+        if let Err(error) = remove_retired_expert_central(id, &central) {
+            report.errors.push(format!(
+                "{id}: failed to remove retired central copy: {error}"
+            ));
+            continue;
         }
         manifest.experts.remove(id);
     }
 }
 
-fn retired_expert_is_preserved(id: &str, central: &Path, manifest: &Manifest) -> bool {
+fn retired_bundled_expert_ids(manifest: &Manifest) -> Vec<String> {
+    if bundled_metadata().is_empty() {
+        return Vec::new();
+    }
+    let current = bundled_metadata()
+        .iter()
+        .map(|metadata| metadata.id.as_str())
+        .collect::<BTreeSet<_>>();
     manifest
         .experts
-        .get(id)
-        .is_some_and(|entry| entry.pending_user_review)
-        || crate::commands::acp::read_market_skill_marker(central).is_some()
-        || retained_runtime_env_dir(central).is_some()
+        .keys()
+        .filter(|id| !current.contains(id.as_str()))
+        .cloned()
+        .collect()
+}
+
+fn remove_retired_expert_central(id: &str, central: &Path) -> Result<(), ExpertsError> {
+    match fs::symlink_metadata(central) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
+            if retained_runtime_env_dir(central).is_some() {
+                clear_bundled_skill_contents(central, id)?;
+            } else {
+                remove_skill_entry(central)?;
+            }
+        }
+        Ok(_) => remove_skill_entry(central)?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    tracing::info!(
+        target: "system_skills",
+        skill_id = id,
+        central_path = %central.display(),
+        "removed retired bundled Skill contents"
+    );
+    Ok(())
 }
 
 fn remove_retired_expert_links(id: &str, central: &Path) -> Result<(), ExpertsError> {

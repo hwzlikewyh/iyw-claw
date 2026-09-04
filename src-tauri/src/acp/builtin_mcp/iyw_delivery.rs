@@ -7,34 +7,15 @@ pub(super) async fn deliver(
     service: &IywGatewayService,
     authority: &SessionContext,
     urls: &[String],
-    display: bool,
+    _display: bool,
     register_artifact: bool,
 ) -> Value {
-    let displayed = if display {
-        display_images(authority, urls).await
-    } else {
-        Vec::new()
-    };
     let artifact = if register_artifact {
         Some(register_artifacts(service, authority, urls).await)
     } else {
         None
     };
-    json!({"displayed": displayed, "artifact": artifact})
-}
-
-async fn display_images(authority: &SessionContext, urls: &[String]) -> Vec<Value> {
-    let mut displayed = Vec::new();
-    for (index, url) in urls.iter().enumerate() {
-        displayed.push(
-            crate::acp::delegation::image_tool::execute(
-                json!({"source": url, "name": format!("generated-{}.png", index + 1)}),
-                authority.cwd().to_path_buf(),
-            )
-            .await,
-        );
-    }
-    displayed
+    json!({"displayed": [], "artifact": artifact})
 }
 
 async fn register_artifacts(
@@ -54,10 +35,16 @@ async fn register_artifacts(
         .parent_lookup
         .current_turn_generation(authority.connection_id())
         .await;
+    let message_id = listener
+        .parent_lookup
+        .current_assistant_message_id(authority.connection_id())
+        .await;
     listener
         .artifacts
         .register_task_artifacts(
+            authority.connection_id(),
             conversation_id,
+            message_id,
             turn_generation,
             authority.cwd(),
             urls.to_vec(),

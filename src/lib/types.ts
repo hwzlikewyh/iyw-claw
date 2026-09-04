@@ -246,6 +246,9 @@ export type ContentBlock =
       revised_prompt?: string | null
       image?: ImageData | null
       status?: ToolCallStatus | null
+      /** Live-only source metadata used to preserve delivery registration. */
+      tool_name?: string | null
+      tool_output?: string | null
     }
   | {
       /** Frontend representation of the built-in MCP `show_image` tool. */

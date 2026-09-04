@@ -1,7 +1,6 @@
 "use client"
 
 import { memo, useCallback, useEffect, useState } from "react"
-import Image from "next/image"
 import {
   AlertCircle,
   Download,
@@ -138,10 +137,15 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
   const imageSrc = image
     ? assetUri
       ? resolvedAssetUrl
-      : `data:${image.mime_type};base64,${image.data}`
+      : isRemoteImageUri(image.uri)
+        ? image.uri
+        : image.data
+          ? `data:${image.mime_type};base64,${image.data}`
+          : null
     : null
   const imageKey = image
     ? (assetUri ??
+      image.uri?.trim() ??
       `${image.mime_type}:${image.data.length}:${image.data.slice(0, 32)}`)
     : null
   // True only when the *current* image's data failed to decode in the browser
@@ -236,12 +240,14 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
               onClick={() => setPreviewOpen(true)}
               className="block cursor-pointer transition-opacity hover:opacity-80"
             >
-              <Image
+              {/* Image URLs are runtime-configured CDN/TOS links, so native img
+                  avoids Next Image's static remote-host allowlist. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src={imageSrc}
                 alt={image.name}
                 width={256}
                 height={256}
-                unoptimized
                 onLoad={(event) => {
                   if (!imageKey) return
                   setLoadedDimensions({
@@ -335,3 +341,13 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
     </div>
   )
 })
+
+function isRemoteImageUri(uri: string | null | undefined): uri is string {
+  if (!uri?.trim()) return false
+  try {
+    const protocol = new URL(uri).protocol
+    return protocol === "http:" || protocol === "https:"
+  } catch {
+    return false
+  }
+}

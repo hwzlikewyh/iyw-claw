@@ -72,8 +72,12 @@ function findSummaryIndex(parts: AdaptedContentPart[]): number {
   return -1
 }
 
-function isVisibleResultPart(part: AdaptedContentPart): boolean {
-  return part.type === "generated-image" || part.type === "displayed-image"
+function isFinalResultPart(part: AdaptedContentPart): boolean {
+  return part.type === "displayed-image"
+}
+
+function isLiveVisibleResultPart(part: AdaptedContentPart): boolean {
+  return part.type === "generated-image" || isFinalResultPart(part)
 }
 
 function isReasoningPart(part: AdaptedContentPart): boolean {
@@ -188,12 +192,12 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
     [isResponseComplete, parts]
   )
   const summaryParts = summaryIndex >= 0 ? [parts[summaryIndex]] : []
-  const resultParts = parts.filter(isVisibleResultPart)
+  const resultParts = parts.filter(isFinalResultPart)
   const reasoningParts = parts.filter(isReasoningPart)
   const processParts = parts.filter(
     (_, index) =>
       index !== summaryIndex &&
-      !isVisibleResultPart(parts[index]) &&
+      !isFinalResultPart(parts[index]) &&
       !isReasoningPart(parts[index])
   )
   const processCount = useMemo(
@@ -231,7 +235,7 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
       (part) =>
         part.type === "text" ||
         isReasoningPart(part) ||
-        isVisibleResultPart(part)
+        isLiveVisibleResultPart(part)
     )
     return (
       <div className="space-y-2">

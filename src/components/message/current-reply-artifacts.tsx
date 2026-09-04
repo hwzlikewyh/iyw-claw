@@ -15,6 +15,7 @@ import {
 
 interface CurrentReplyArtifactsProps {
   conversationId: number | null
+  messageId: string
   parts: AdaptedContentPart[]
 }
 
@@ -22,6 +23,7 @@ export interface ArtifactRegistration {
   hasCall: boolean
   rejected: boolean
   references: string[]
+  messageId?: string
 }
 
 interface ArtifactToolCall {
@@ -32,10 +34,12 @@ interface ArtifactToolCall {
 
 const PRESENT_TASK_FILES_SUFFIX = /present[_-]task[_-]files$/i
 const INVOKE_IYW_CAPABILITY_SUFFIX = /invoke[_-]iyw[_-]capability$/i
+const IYW_IMAGE_SUFFIX = /generate[_-]iyw[_-]image$/i
 const PRESENT_TASK_FILES_CAPABILITY_ID = "iyw.artifacts.present.v1"
 
 export const CurrentReplyArtifacts = memo(function CurrentReplyArtifacts({
   conversationId,
+  messageId,
   parts,
 }: CurrentReplyArtifactsProps) {
   const registration = useMemo(
@@ -46,6 +50,7 @@ export const CurrentReplyArtifacts = memo(function CurrentReplyArtifacts({
   return (
     <ResolvedReplyArtifacts
       conversationId={conversationId}
+      messageId={messageId}
       registration={registration}
     />
   )
@@ -53,17 +58,20 @@ export const CurrentReplyArtifacts = memo(function CurrentReplyArtifacts({
 
 function ResolvedReplyArtifacts({
   conversationId,
+  messageId,
   registration,
 }: {
   conversationId: number | null
+  messageId: string
   registration: ArtifactRegistration
 }) {
   const { activeFolder } = useActiveFolder()
   const query = useTaskArtifacts({
     conversationId,
+    messageId: registration.messageId ?? messageId,
     folderId: null,
     scope: "current",
-    latestTurnOnly: !registration.hasCall,
+    latestTurnOnly: false,
     loadAll: true,
   })
   const items = useMemo(() => {
@@ -88,12 +96,14 @@ export function extractArtifactRegistration(
   const calls: ArtifactToolCall[] = []
   collectArtifactToolCalls(parts, calls)
   const references: string[] = []
+  let messageId: string | null = null
   let rejected = false
   for (const call of calls) {
     if (call.output && indicatesRejectedArtifactCall(call.output)) {
       rejected = true
       continue
     }
+    messageId ??= extractMessageId(call.output)
     const accepted = extractAcceptedPaths(call.output)
     if (accepted?.length === 0) {
       rejected = true
@@ -105,6 +115,7 @@ export function extractArtifactRegistration(
     hasCall: calls.length > 0,
     rejected,
     references: dedupeStrings(references),
+    ...(messageId ? { messageId } : {}),
   }
 }
 
@@ -119,6 +130,21 @@ function collectArtifactToolCalls(
         input: part.input,
         output: part.output,
       })
+    } else if (
+      part.type === "generated-image" &&
+      part.sourceToolName &&
+      part.sourceToolOutput &&
+      isArtifactToolCall({
+        toolName: part.sourceToolName,
+        input: null,
+        output: part.sourceToolOutput,
+      })
+    ) {
+      calls.push({
+        toolName: part.sourceToolName,
+        input: null,
+        output: part.sourceToolOutput,
+      })
     } else if (part.type === "tool-group") {
       collectArtifactToolCalls(part.items, calls)
     } else if (part.type === "goal-run") {
@@ -131,6 +157,8 @@ function collectArtifactToolCalls(
 function isArtifactToolCall(call: ArtifactToolCall) {
   const toolName = call.toolName.trim()
   if (PRESENT_TASK_FILES_SUFFIX.test(toolName)) return true
+  if (IYW_IMAGE_SUFFIX.test(toolName))
+    return extractDeliveryArtifact(call.output) !== null
   if (!INVOKE_IYW_CAPABILITY_SUFFIX.test(toolName)) return false
   const input = parseRecord(call.input)
   if (input?.capability_id === PRESENT_TASK_FILES_CAPABILITY_ID) return true
@@ -162,12 +190,71 @@ function extractAcceptedPaths(
   const resultStructured = parseNestedRecord(
     result?.structuredContent ?? result?.structured_content
   )
+  const delivery = extractDeliveryArtifact(output)
   const accepted =
     structured?.accepted ??
     parsed.accepted ??
     resultStructured?.accepted ??
-    result?.accepted
+    result?.accepted ??
+    delivery?.accepted
   return Array.isArray(accepted) ? acceptedPaths(accepted) : null
+}
+
+function extractMessageId(output: string | null | undefined): string | null {
+  const parsed = parseRecord(output)
+  if (!parsed) return null
+  const result = parseNestedRecord(parsed.result)
+  const structured = parseNestedRecord(
+    parsed.structuredContent ?? parsed.structured_content
+  )
+  const resultStructured = parseNestedRecord(
+    result?.structuredContent ?? result?.structured_content
+  )
+  const deliveryEnvelope = parseNestedRecord(parsed.delivery)
+  const delivery = extractDeliveryArtifact(output)
+  const candidates = [
+    structured?.message_id,
+    structured?.messageId,
+    parsed.message_id,
+    parsed.messageId,
+    resultStructured?.message_id,
+    resultStructured?.messageId,
+    result?.message_id,
+    result?.messageId,
+    deliveryEnvelope?.message_id,
+    deliveryEnvelope?.messageId,
+    delivery?.message_id,
+    delivery?.messageId,
+  ]
+  return (
+    candidates.find(
+      (value): value is string =>
+        typeof value === "string" && value.trim() !== ""
+    ) ?? null
+  )
+}
+
+function extractDeliveryArtifact(
+  output: string | null | undefined
+): Record<string, unknown> | null {
+  const parsed = parseRecord(output)
+  if (!parsed) return null
+  const result = parseNestedRecord(parsed.result)
+  const structured = parseNestedRecord(
+    parsed.structuredContent ?? parsed.structured_content
+  )
+  const resultStructured = parseNestedRecord(
+    result?.structuredContent ?? result?.structured_content
+  )
+  return (
+    parseNestedRecord(parseNestedRecord(structured?.delivery)?.artifact) ??
+    parseNestedRecord(
+      parseNestedRecord(resultStructured?.delivery)?.artifact
+    ) ??
+    parseNestedRecord(parseNestedRecord(result?.delivery)?.artifact) ??
+    parseNestedRecord(parseNestedRecord(parsed.delivery)?.artifact) ??
+    null
+  )
 }
 
 function indicatesRejectedArtifactCall(output: string): boolean {

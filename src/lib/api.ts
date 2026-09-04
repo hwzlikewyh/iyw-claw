@@ -4263,6 +4263,7 @@ export type TaskArtifactKind = "file" | "directory" | "url"
 export interface TaskArtifactInfo {
   id: number
   conversationId: number
+  messageId: string | null
   folderId: number
   conversationTitle: string | null
   agentType: AgentType
@@ -4283,6 +4284,7 @@ export interface TaskArtifactPage {
 
 export async function listTaskArtifacts(filters: {
   conversationId?: number | null
+  messageId?: string | null
   folderId?: number | null
   latestTurnOnly?: boolean
   search?: string | null
@@ -4295,6 +4297,7 @@ export async function listTaskArtifacts(filters: {
     TaskArtifactPage | TaskArtifactInfo[]
   >("list_task_artifacts", {
     conversationId: filters.conversationId ?? null,
+    messageId: filters.messageId ?? null,
     folderId: filters.folderId ?? null,
     latestTurnOnly: filters.latestTurnOnly ?? false,
     search: filters.search ?? null,
@@ -4307,6 +4310,7 @@ export async function listTaskArtifacts(filters: {
 
 export async function listAllTaskArtifacts(filters: {
   conversationId?: number | null
+  messageId?: string | null
   folderId?: number | null
   latestTurnOnly?: boolean
   search?: string | null

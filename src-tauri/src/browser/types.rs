@@ -4,7 +4,7 @@ use super::types_cdp::{
     BrowserDialogSnapshot, BrowserDownloadSnapshot, BrowserFileChooserSnapshot,
 };
 
-pub const BROWSER_SIDECAR_VERSION: &str = "0.35.2";
+pub const BROWSER_SIDECAR_VERSION: &str = "0.36.0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
