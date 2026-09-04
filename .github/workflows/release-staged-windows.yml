@@ -164,6 +164,10 @@ jobs:
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
+      # The dedicated SafeNet runner routes external downloads through its
+      # local proxy; expose the same proxy to Node-based artifact actions.
+      HTTP_PROXY: http://127.0.0.1:7890
+      HTTPS_PROXY: http://127.0.0.1:7890
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
