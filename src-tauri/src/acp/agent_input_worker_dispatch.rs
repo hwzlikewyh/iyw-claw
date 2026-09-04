@@ -164,6 +164,13 @@ pub(super) async fn dispatch_next(
     {
         return;
     }
+    tracing::info!(
+        connection_id = context.conn_id,
+        conversation_id = snapshot.conversation_id,
+        input_id = %item.id,
+        target_turn_generation = target_generation,
+        "[agent-input] prompt dispatch claimed"
+    );
     emit_current(context.db, context.state, context.emitter, &item.id).await;
     if let Some(mode_id) = item.payload.mode_id.clone() {
         if let Err(error) = context.manager.set_mode(context.conn_id, mode_id).await {
@@ -186,8 +193,26 @@ pub(super) async fn dispatch_next(
         )
         .await;
     if let Err(error) = result {
+        let status = if matches!(
+            &error,
+            crate::acp::error::AcpError::ConnectionNotFound(_)
+                | crate::acp::error::AcpError::ProcessExited
+                | crate::acp::error::AcpError::InitializeTimeout
+        ) {
+            AgentInputStatus::FallbackQueued
+        } else {
+            AgentInputStatus::Failed
+        };
+        tracing::warn!(
+            connection_id = context.conn_id,
+            conversation_id = snapshot.conversation_id,
+            input_id = %item.id,
+            status = status.as_str(),
+            error = %error,
+            "[agent-input] prompt dispatch failed"
+        );
         context
-            .transition_item(&item.id, AgentInputStatus::Failed, error.to_string())
+            .transition_item(&item.id, status, error.to_string())
             .await;
     }
 }

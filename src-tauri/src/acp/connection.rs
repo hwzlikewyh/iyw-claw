@@ -1259,6 +1259,7 @@ pub(crate) async fn spawn_agent_connection(
     working_dir: Option<String>,
     session_id: Option<String>,
     database_conversation_id: Option<i32>,
+    database_folder_id: Option<i32>,
     runtime_env: BTreeMap<String, String>,
     owner_window_label: String,
     emitter: EventEmitter,
@@ -1319,8 +1320,12 @@ pub(crate) async fn spawn_agent_connection(
         agent_type,
         working_dir.clone().map(PathBuf::from),
         owner_window_label.clone(),
-        None, // folder_id 由后续 prompt handler 在首次 send 时绑定 (Phase 2)
+        database_folder_id,
     );
+    // A resumed/persisted conversation is already known and must be bound before
+    // the ACP handshake finishes. This lets the durable Agent Input worker accept
+    // a prompt submitted during cold start without waiting for a second link event.
+    initial_state.conversation_id = database_conversation_id;
     initial_state.requested_external_id = session_id.clone();
     initial_state.current_model = preferred_config_values
         .get("model")

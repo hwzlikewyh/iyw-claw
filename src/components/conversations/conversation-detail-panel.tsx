@@ -89,7 +89,7 @@ import {
   shouldQueueDirectSend,
   shouldRejectDuplicateCreate,
 } from "@/lib/queue-flush"
-import { TurnBusyError } from "@/lib/turn-busy"
+import { isTransientConnectionSendError, TurnBusyError } from "@/lib/turn-busy"
 import {
   getConversationIdByExternalIdFromStore,
   getRuntimeSession,
@@ -889,10 +889,10 @@ const ConversationTabView = memo(function ConversationTabView({
   useEffect(() => {
     isViewerRef.current = conn.isViewer
   }, [conn.isViewer])
-  // The backend command channel buffers prompts while Initialize/session setup
-  // is still running. Accept that fast path only for the connection created for
-  // this exact Agent + cwd; during a switch the old connection can remain visible
-  // for a render and must never receive the new draft's prompt.
+  // A connection id exists before ACP Initialize/session setup finishes, but it
+  // is not a safe direct-send target yet. Keep the composer instant by routing
+  // early submits through the durable/local queue; only a fully attached
+  // session may take the low-latency direct path.
   const connectionReady = canConnectionAcceptPrompt({
     connectionId: conn.connectionId,
     status: connStatus,
@@ -900,14 +900,16 @@ const ConversationTabView = memo(function ConversationTabView({
     intendedAgentType: selectedAgent,
     connectedWorkingDir: conn.connectedWorkingDir,
     intendedWorkingDir: workingDirForConnection,
+    sessionId: conn.sessionId,
+    selectorsReady: conn.selectorsReady,
   })
   const connectionReadyRef = useRef(connectionReady)
   useEffect(() => {
     connectionReadyRef.current = connectionReady
   }, [connectionReady])
-  // Present "connecting" to the composer while connected-but-not-ready. The
-  // composer still accepts submissions and the send handler queues them until
-  // this tab's working directory matches the live connection.
+  // Present "connecting" to the composer while the session or selectors are
+  // still settling. The composer remains usable and the send handler queues
+  // submissions until this tab's connection is fully attached.
   const composerConnStatus = isSilentModelSwitch
     ? "connected"
     : connStatus === "connected" && !connectionReady
@@ -1733,6 +1735,8 @@ const ConversationTabView = memo(function ConversationTabView({
       // turn completes, identical to enqueuing while already prompting. Stamp
       // the bounce so the flush backs off instead of immediately retrying.
       let turnBounced = false
+      let transientConnectionBounced = false
+      let modeRejected = false
       const onTurnInProgress = () => {
         turnBounced = true
         lastFlushBounceAtRef.current = Date.now()
@@ -1754,11 +1758,13 @@ const ConversationTabView = memo(function ConversationTabView({
         toast.error(t("imageAnalysisFailed", { message }))
       }
       const onImageAnalysisRejected = (accepted: boolean) => {
-        if (accepted || turnBounced) return true
+        if (accepted || turnBounced || transientConnectionBounced) return true
         removeOptimisticTurn(effectiveConversationId, optimisticTurn.id)
         setSyncState(effectiveConversationId, "idle")
         if (fromQueueFlush && queuedMessage) {
           mqRequeueItemFront({ ...queuedMessage, blocked: true })
+        } else {
+          mqEnqueue(draft, selectedModeIdArg ?? null, { blocked: true })
         }
         return false
       }
@@ -1766,9 +1772,36 @@ const ConversationTabView = memo(function ConversationTabView({
         error: unknown,
         previousModeId: string | null
       ) => {
+        modeRejected = true
         removeOptimisticTurn(effectiveConversationId, optimisticTurn.id)
         setSyncState(effectiveConversationId, "idle")
         handleModeError(error, previousModeId)
+      }
+      const onSendError = (error: unknown) => {
+        if (modeRejected) return
+        removeOptimisticTurn(effectiveConversationId, optimisticTurn.id)
+        setSyncState(effectiveConversationId, "idle")
+        if (!isTransientConnectionSendError(error)) {
+          if (needsImageFallback) {
+            onImageAnalysisError(error)
+          } else if (fromQueueFlush && queuedMessage) {
+            mqRequeueItemFront({ ...queuedMessage, blocked: true })
+          } else {
+            mqEnqueue(draft, selectedModeIdArg ?? null, { blocked: true })
+          }
+          return
+        }
+        transientConnectionBounced = true
+        if (fromQueueFlush && queuedMessage) {
+          mqRequeueItemFront(queuedMessage)
+        } else {
+          mqEnqueue(draft, selectedModeIdArg ?? null)
+        }
+        void ensureConnected().catch((connectError) => {
+          console.error("[ConversationTabView] reconnect after send failure:", {
+            error: connectError,
+          })
+        })
       }
 
       // Pin the tab if it was a temporary preview (single-click opened)
@@ -1791,12 +1824,14 @@ const ConversationTabView = memo(function ConversationTabView({
           clientMessageId: optimisticTurn.id,
           onTurnInProgress,
           onModeError: onModeRejected,
-          onError: needsImageFallback ? onImageAnalysisError : undefined,
+          onError: onSendError,
         })
         if (needsImageFallback) {
           return sending.then(onImageAnalysisRejected)
         }
-        return sending.then((accepted) => accepted || turnBounced)
+        return sending.then(
+          (accepted) => accepted || turnBounced || transientConnectionBounced
+        )
       }
 
       // New-tab path: create the DB row first, then send with the new id
@@ -1898,11 +1933,11 @@ const ConversationTabView = memo(function ConversationTabView({
             clientMessageId: optimisticTurn.id,
             onTurnInProgress,
             onModeError: onModeRejected,
-            onError: needsImageFallback ? onImageAnalysisError : undefined,
+            onError: onSendError,
           })
           return needsImageFallback
             ? onImageAnalysisRejected(accepted)
-            : accepted || turnBounced
+            : accepted || turnBounced || transientConnectionBounced
         } catch (e) {
           console.error("[ConversationTabView] create conversation:", e)
           // A failed create (chat OR normal) must fully restore the pre-send
