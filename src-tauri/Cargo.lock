@@ -3095,6 +3095,7 @@ dependencies = [
  "insta",
  "junction",
  "keyring",
+ "libloading 0.8.9",
  "kill_tree",
  "libc",
  "mac-notification-sys",
