@@ -19,7 +19,9 @@ import {
 } from "./sign-windows.mjs"
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
-const TIMEOUT_MS = 90_000
+// SafeNet token signing can exceed 90 seconds for NSIS temporary files.
+// Keep the wait bounded so a missing login cannot block on PIN UI forever.
+const TIMEOUT_MS = 180_000
 
 function verifySigned(signtool, file) {
   const result = spawnSync(signtool, ["verify", "/pa", "/all", file], {
