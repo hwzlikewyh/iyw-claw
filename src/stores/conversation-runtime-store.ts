@@ -458,19 +458,28 @@ function cleanAgentOutput(output: string | null): string | null {
  *      `end_image_generation`. Primary path.
  *   2. Case-insensitive title match — defensive for any future codex-acp
  *      casing/whitespace drift.
- *   3. `images.length > 0` — defensive when title is somehow lost but
+ *   3. Built-in `generate_iyw_image` tool identity — the IYW gateway emits
+ *      an ordinary MCP ToolCall, so the name is the only signal before output.
+ *   4. `images.length > 0` — defensive when title is somehow lost but
  *      images are present (e.g. a snapshot replay that drops the title).
  *
  * The function is intentionally NOT a generic `kind === "other"` matcher
  * because many tools surface as ToolKind::Other.
  */
-function isImageGenerationToolCall(info: {
-  title?: string | null
-  images?: { length: number } | null
-}): boolean {
+function isImageGenerationToolCall(
+  info: {
+    title?: string | null
+    images?: { length: number } | null
+  },
+  toolName: string
+): boolean {
+  if (toolName === "generate_iyw_image") return true
   const title = (info.title ?? "").trim()
   if (title === "Image generation") return true
   if (title.toLowerCase() === "image generation") return true
+  if (/(?:^|[^a-z0-9])generate_iyw_image(?:$|[^a-z0-9])/i.test(title)) {
+    return true
+  }
   return (info.images?.length ?? 0) > 0
 }
 
@@ -813,6 +822,7 @@ export function buildStreamingTurnsFromLiveMessage(
         if (hiddenFeedbackToolIds.has(block.info.tool_call_id)) break
         // Skip child tool calls — they are nested inside Agent cards
         if (childToolCallIds.has(block.info.tool_call_id)) break
+        const toolName = getToolName(block.info)
 
         // ACP adapters may expose MCP results either as content text or as
         // SDK raw_output. Keep image recognition aligned with the generic tool
@@ -857,7 +867,7 @@ export function buildStreamingTurnsFromLiveMessage(
         //     a generic tool card sitting above a detached image
         //   - the new card is not folded into `groupConsecutiveToolCalls`
         //     (which only consumes `tool-call` parts)
-        if (isImageGenerationToolCall(block.info)) {
+        if (isImageGenerationToolCall(block.info, toolName)) {
           // codex-acp emits one image per ToolCall (each `call_id` is a
           // single ImageGenerationBegin/End pair). One block per image —
           // multiple images in a turn become multiple consecutive blocks.
@@ -922,7 +932,6 @@ export function buildStreamingTurnsFromLiveMessage(
           break
         }
 
-        const toolName = getToolName(block.info)
         currentBlocks.push({
           type: "tool_use",
           tool_use_id: block.info.tool_call_id,

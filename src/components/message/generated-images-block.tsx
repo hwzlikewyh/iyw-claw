@@ -8,6 +8,7 @@ import {
   ExternalLink,
   ImageIcon,
   ImagePlus,
+  LoaderCircle,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import type { UserImageDisplay } from "@/lib/adapters/ai-elements-adapter"
@@ -291,7 +292,10 @@ export const GeneratedImagesBlock = memo(function GeneratedImagesBlock({
             aria-live="polite"
           >
             <div className="flex flex-col items-center gap-1.5">
-              <ImagePlus className="h-6 w-6 opacity-60" />
+              <div className="relative">
+                <ImagePlus className="h-6 w-6 opacity-60" />
+                <LoaderCircle className="absolute -bottom-1 -right-1 h-3.5 w-3.5 animate-spin text-primary" />
+              </div>
               <span>{t("imageGenerationPending")}</span>
             </div>
           </div>
