@@ -2963,6 +2963,10 @@ pub struct DirectoryEntry {
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn list_directory_entries(path: String) -> Result<Vec<DirectoryEntry>, AppCommandError> {
+    run_file_io(move || list_directory_entries_sync(path)).await
+}
+
+fn list_directory_entries_sync(path: String) -> Result<Vec<DirectoryEntry>, AppCommandError> {
     let root = PathBuf::from(&path);
     if !root.is_dir() {
         return Err(AppCommandError::io_error("Path is not a directory").with_detail(path));
@@ -3050,6 +3054,10 @@ pub struct DirectoryItem {
 pub async fn list_directory_with_files(
     path: String,
 ) -> Result<Vec<DirectoryItem>, AppCommandError> {
+    run_file_io(move || list_directory_with_files_sync(path)).await
+}
+
+fn list_directory_with_files_sync(path: String) -> Result<Vec<DirectoryItem>, AppCommandError> {
     let root = PathBuf::from(&path);
     if !root.is_dir() {
         return Err(AppCommandError::io_error("Path is not a directory").with_detail(path));
@@ -3105,17 +3113,20 @@ pub async fn list_directory_with_files(
     }
 
     // Sort: directories first, then files; each group by name case-insensitive.
-    items.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-    });
+    items.sort_by_cached_key(|item| (!item.is_dir, item.name.to_lowercase(), item.name.clone()));
 
     Ok(items)
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn get_file_tree(
+    path: String,
+    max_depth: Option<usize>,
+) -> Result<Vec<FileTreeNode>, AppCommandError> {
+    run_file_io(move || get_file_tree_sync(path, max_depth)).await
+}
+
+fn get_file_tree_sync(
     path: String,
     max_depth: Option<usize>,
 ) -> Result<Vec<FileTreeNode>, AppCommandError> {
@@ -3129,7 +3140,6 @@ pub async fn get_file_tree(
 
     for entry in WalkDir::new(&root)
         .max_depth(depth)
-        .sort_by_file_name()
         .into_iter()
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
@@ -3197,27 +3207,13 @@ pub async fn get_file_tree(
                 FileTreeNode::File { .. } => files.push(child),
             }
         }
-        dirs.sort_by(|a, b| {
-            let a_name = match a {
-                FileTreeNode::Dir { name, .. } => name,
-                _ => unreachable!(),
-            };
-            let b_name = match b {
-                FileTreeNode::Dir { name, .. } => name,
-                _ => unreachable!(),
-            };
-            a_name.to_lowercase().cmp(&b_name.to_lowercase())
+        dirs.sort_by_cached_key(|node| match node {
+            FileTreeNode::Dir { name, .. } => (name.to_lowercase(), name.clone()),
+            _ => unreachable!(),
         });
-        files.sort_by(|a, b| {
-            let a_name = match a {
-                FileTreeNode::File { name, .. } => name,
-                _ => unreachable!(),
-            };
-            let b_name = match b {
-                FileTreeNode::File { name, .. } => name,
-                _ => unreachable!(),
-            };
-            a_name.to_lowercase().cmp(&b_name.to_lowercase())
+        files.sort_by_cached_key(|node| match node {
+            FileTreeNode::File { name, .. } => (name.to_lowercase(), name.clone()),
+            _ => unreachable!(),
         });
 
         let mut sorted: Vec<FileTreeNode> = Vec::with_capacity(dirs.len() + files.len());
@@ -3396,6 +3392,10 @@ pub async fn workspace_file_exists(
     root_path: String,
     path: String,
 ) -> Result<bool, AppCommandError> {
+    run_file_io(move || workspace_file_exists_sync(root_path, path)).await
+}
+
+fn workspace_file_exists_sync(root_path: String, path: String) -> Result<bool, AppCommandError> {
     let root = PathBuf::from(&root_path);
     if !root.is_dir() {
         return Ok(false);

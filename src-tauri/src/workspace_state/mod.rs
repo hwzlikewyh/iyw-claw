@@ -828,12 +828,8 @@ async fn collect_git_snapshot(path: &str) -> Result<Vec<WorkspaceGitEntry>, AppC
         })
         .collect::<Vec<_>>();
 
-    result.sort_by(|a, b| {
-        a.path
-            .to_lowercase()
-            .cmp(&b.path.to_lowercase())
-            .then(a.path.cmp(&b.path))
-    });
+    // 先缓存每个路径的排序 key，避免比较器在大仓库中反复分配小写字符串。
+    result.sort_by_cached_key(|entry| (entry.path.to_lowercase(), entry.path.clone()));
 
     Ok(result)
 }

@@ -368,6 +368,10 @@ interface StreamingTurnGroup {
 // a WeakMap keyed on the array reference lets repeated renders reuse the
 // joined string without re-running O(n) concatenation.
 const joinedOutputCache = new WeakMap<readonly string[], string>()
+const streamingTurnsCache = new WeakMap<
+  LiveMessage,
+  Map<number, BuiltStreamingTurns>
+>()
 
 function getJoinedChunks(chunks: readonly string[]): string {
   if (chunks.length === 0) return ""
@@ -644,6 +648,9 @@ export function buildStreamingTurnsFromLiveMessage(
   conversationId: number,
   liveMessage: LiveMessage
 ): BuiltStreamingTurns {
+  const cachedByConversation = streamingTurnsCache.get(liveMessage)
+  const cached = cachedByConversation?.get(conversationId)
+  if (cached) return cached
   // Consolidate codex collab capsules first (spawn execution + per-wait result,
   // close folded in) so live matches the history reconstruction. No-op when the
   // message has no collab tool calls. See collab-collapse.ts.
@@ -1051,7 +1058,13 @@ export function buildStreamingTurnsFromLiveMessage(
       timestamp: group.timestamp ?? timestamp,
     }))
 
-  return { turns, inProgressToolCallIds }
+  const result = { turns, inProgressToolCallIds }
+  if (cachedByConversation) {
+    cachedByConversation.set(conversationId, result)
+  } else {
+    streamingTurnsCache.set(liveMessage, new Map([[conversationId, result]]))
+  }
+  return result
 }
 
 function upsertExternalIdIndex(

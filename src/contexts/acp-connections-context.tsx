@@ -1147,6 +1147,7 @@ function applyStreamingAction(
 const OUT_OF_TURN_TOOL_CALL_CAP = 8
 const OVERLAY_FOLD_THRESHOLD = 60
 const OVERLAY_FOLD_MIN_INTERVAL_MS = 30_000
+const STREAM_FLUSH_VISIBLE_MS = 8
 const STREAM_FLUSH_HIDDEN_MS = 250
 const STREAM_BATCH_HIDDEN_CAP = 1_024
 const TOOL_UPDATE_HIDDEN_FLUSH_MS = 250
@@ -3304,13 +3305,35 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     (action: StreamingAction) => {
       const hidden = document.visibilityState !== "visible"
 
-      // Visible conversations should show each upstream delta as soon as the
-      // transport delivers it. Do not wait for requestAnimationFrame or collect
-      // adjacent chunks here; the backend already emits one ACP event at a time.
-      // Hidden tabs keep the bounded timer path below so background windows do
-      // not spend a render on every token.
+      // Publish the first visible delta immediately for low TTFT. A short
+      // bounded window then merges only adjacent UI updates; the original
+      // envelopes have already passed sequence validation and remain ordered.
+      // Boundary events call flushStreamingQueue before their own dispatch.
       if (!hidden) {
-        dispatch(action)
+        const queue = streamingQueueRef.current
+        if (queue.length === 0 && flushTimerRef.current === null) {
+          dispatch(action)
+          flushTimerRef.current = setTimeout(
+            flushStreamingQueue,
+            STREAM_FLUSH_VISIBLE_MS
+          )
+          return
+        }
+        const previous = queue[queue.length - 1]
+        if (
+          previous?.contextKey === action.contextKey &&
+          previous.type === action.type
+        ) {
+          previous.text += action.text
+        } else {
+          queue.push(action)
+        }
+        if (flushTimerRef.current === null) {
+          flushTimerRef.current = setTimeout(
+            flushStreamingQueue,
+            STREAM_FLUSH_VISIBLE_MS
+          )
+        }
         return
       }
 
@@ -4567,12 +4590,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         flushPendingToolCallUpdates()
       } else {
         if (streamingQueueRef.current.length > 0) {
-          if (flushTimerRef.current === null) {
-            flushTimerRef.current = setTimeout(
-              flushStreamingQueue,
-              STREAM_FLUSH_HIDDEN_MS
-            )
+          if (flushTimerRef.current !== null) {
+            clearTimeout(flushTimerRef.current)
+            flushTimerRef.current = null
           }
+          flushTimerRef.current = setTimeout(
+            flushStreamingQueue,
+            STREAM_FLUSH_HIDDEN_MS
+          )
         }
         if (pendingToolCallUpdates.current.length > 0) {
           clearToolCallUpdateSchedule()
