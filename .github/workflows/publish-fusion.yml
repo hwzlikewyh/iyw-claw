@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-22.04
+    runs-on: [self-hosted, Windows, X64, iyw-signing]
     timeout-minutes: 90
     env:
       FUSION_BASE_URL: https://gateway.iyw.cn/iyw-fusion-api
@@ -66,6 +66,29 @@ jobs:
               "${api_headers[@]}" "$@"
           }
 
+          is_ready_artifact() {
+            local target="$1"
+            local arch="$2"
+            local package_kind="$3"
+            local detail_file
+
+            detail_file="$(mktemp)"
+            request --request GET \
+              "$FUSION_BASE_URL/admin/api/app-releases/$FUSION_RELEASE_ID" \
+              > "$detail_file"
+            if jq -e \
+              --arg target "$target" \
+              --arg arch "$arch" \
+              --arg package_kind "$package_kind" \
+              '.code == 1 and any(.data.artifacts[]?; .target == $target and .arch == $arch and .packageKind == $package_kind and .status == "ready")' \
+              "$detail_file" > /dev/null; then
+              rm -f "$detail_file"
+              return 0
+            fi
+            rm -f "$detail_file"
+            return 1
+          }
+
           upload_artifact() {
             local target="$1"
             local arch="$2"
@@ -75,13 +98,16 @@ jobs:
             local size request_file init_file complete_file artifact_id upload_url upload_method
             local -a upload_headers upload_args
 
+            if is_ready_artifact "$target" "$arch" "$package_kind"; then
+              echo "Skipping already verified $target/$arch artifact"
+              return 0
+            fi
             test -s "$package"
             test -s "$signature"
             size="$(stat --format=%s "$package")"
             request_file="$(mktemp)"
             init_file="$(mktemp)"
             complete_file="$(mktemp)"
-            trap 'rm -f "$request_file" "$init_file" "$complete_file"' RETURN
 
             jq -n \
               --arg runtime desktop \
@@ -116,6 +142,7 @@ jobs:
               "$FUSION_BASE_URL/admin/api/app-releases/$FUSION_RELEASE_ID/artifacts/$artifact_id/complete" \
               > "$complete_file"
             jq -e '.code == 1 and .data.artifact.status == "ready"' "$complete_file" > /dev/null
+            rm -f "$request_file" "$init_file" "$complete_file"
             echo "Uploaded $target/$arch ($(basename "$package"), $size bytes)"
           }
 
