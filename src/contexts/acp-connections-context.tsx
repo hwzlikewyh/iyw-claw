@@ -3313,6 +3313,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         const queue = streamingQueueRef.current
         if (queue.length === 0 && flushTimerRef.current === null) {
           dispatch(action)
+          flushTimerRef.current = setTimeout(
+            flushStreamingQueue,
+            STREAM_FLUSH_VISIBLE_MS
+          )
           return
         }
         const previous = queue[queue.length - 1]

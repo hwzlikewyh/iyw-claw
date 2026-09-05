@@ -3113,7 +3113,7 @@ fn list_directory_with_files_sync(path: String) -> Result<Vec<DirectoryItem>, Ap
     }
 
     // Sort: directories first, then files; each group by name case-insensitive.
-    items.sort_by_cached_key(|item| (!item.is_dir, item.name.to_lowercase()));
+    items.sort_by_cached_key(|item| (!item.is_dir, item.name.to_lowercase(), item.name.clone()));
 
     Ok(items)
 }
@@ -3208,11 +3208,11 @@ fn get_file_tree_sync(
             }
         }
         dirs.sort_by_cached_key(|node| match node {
-            FileTreeNode::Dir { name, .. } => name.to_lowercase(),
+            FileTreeNode::Dir { name, .. } => (name.to_lowercase(), name.clone()),
             _ => unreachable!(),
         });
         files.sort_by_cached_key(|node| match node {
-            FileTreeNode::File { name, .. } => name.to_lowercase(),
+            FileTreeNode::File { name, .. } => (name.to_lowercase(), name.clone()),
             _ => unreachable!(),
         });
 
