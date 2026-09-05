@@ -3050,6 +3050,10 @@ pub struct DirectoryItem {
 pub async fn list_directory_with_files(
     path: String,
 ) -> Result<Vec<DirectoryItem>, AppCommandError> {
+    run_file_io(move || list_directory_with_files_sync(path)).await
+}
+
+fn list_directory_with_files_sync(path: String) -> Result<Vec<DirectoryItem>, AppCommandError> {
     let root = PathBuf::from(&path);
     if !root.is_dir() {
         return Err(AppCommandError::io_error("Path is not a directory").with_detail(path));
