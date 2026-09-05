@@ -363,6 +363,7 @@ impl BrowserSessionManager {
                 },
             },
             Err(error) => {
+                runtime.invalidate_dependencies().await;
                 let _ = self
                     .fail_runtime_start(&ticket, format!("{:?}", error.code))
                     .await;

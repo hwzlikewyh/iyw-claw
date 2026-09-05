@@ -1,17 +1,13 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-#[cfg(not(target_os = "windows"))]
 use std::time::Duration;
 
-#[cfg(not(target_os = "windows"))]
 use tokio::process::Command;
 
 use super::error::{BrowserError, BrowserErrorCode};
-#[cfg(not(target_os = "windows"))]
 use super::process::configure_hidden_process;
 use super::types::{BrowserEngineKind, BrowserEngineSummary};
 
-#[cfg(not(target_os = "windows"))]
 const ENGINE_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
@@ -32,15 +28,18 @@ impl BrowserEngine {
 }
 
 pub(super) async fn detect_engine(data_root: &Path) -> Result<BrowserEngine, BrowserError> {
-    if let Some((path, version)) =
+    if let Some((path, marker_version)) =
         crate::acp::version_center::managed_browser_engine_installation(data_root).await
     {
-        return Ok(BrowserEngine {
-            kind: BrowserEngineKind::Chromium,
-            version,
-            path,
-            profile_source: None,
-        });
+        if let Some(engine) = probe_engine(BrowserEngineKind::Chromium, path.clone(), None).await {
+            return Ok(engine);
+        }
+        tracing::warn!(
+            target: "iyw_claw_browser",
+            path = %path.display(),
+            marker_version = %marker_version,
+            "managed browser engine failed its startup probe; trying fallback engines"
+        );
     }
     #[cfg(target_os = "windows")]
     if let Some(engine) = probe_engine(
@@ -104,6 +103,14 @@ fn push_windows_candidates(candidates: &mut Vec<(BrowserEngineKind, PathBuf)>) {
         ),
     ];
     for root in roots.into_iter().flatten().map(PathBuf::from) {
+        for (kind, relative) in browsers {
+            candidates.push((kind, root.join(relative)));
+        }
+    }
+    for root in std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+    {
         for (kind, relative) in browsers {
             candidates.push((kind, root.join(relative)));
         }
@@ -186,12 +193,28 @@ pub(super) async fn probe_engine(
     let version = windows_file_version(&path)?;
     #[cfg(not(target_os = "windows"))]
     let version = executable_version(&path).await?;
+    #[cfg(target_os = "windows")]
+    if !process_starts(&path).await {
+        return None;
+    }
     Some(BrowserEngine {
         kind,
         version,
         path,
         profile_source,
     })
+}
+
+#[cfg(target_os = "windows")]
+async fn process_starts(path: &Path) -> bool {
+    let mut command = Command::new(path);
+    command.arg("--version");
+    configure_hidden_process(&mut command);
+    tokio::time::timeout(ENGINE_PROBE_TIMEOUT, command.output())
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .is_some_and(|output| output.status.success())
 }
 
 #[cfg(not(target_os = "windows"))]

@@ -194,6 +194,10 @@ impl BrowserRuntime {
             .map(RuntimeHandle::context)
     }
 
+    pub(super) async fn invalidate_dependencies(&self) {
+        *self.verified.lock().await = None;
+    }
+
     pub async fn take_exit_watch(&self, generation: u64) -> Option<RuntimeExitWatch> {
         let current = self.current.lock().await;
         let handle = current

@@ -133,6 +133,8 @@ for Testing 作为最后兜底，不依赖安装目录可写或用户当前 Chro
 用户首次打开内置浏览器时，如果后台下载仍在进行，前台请求会等待同一个安装任务，
 不会创建第二个下载。离线或未登录时，后台失败保持内部状态；用户主动重试时才显示
 可操作的错误。运行时会复用已验证的 last-known-good 引擎，并对失败启动做有限重试；
+启动前还会对受管或本机 Chromium 可执行文件执行隐藏启动探针；探针失败时继续尝试
+其他候选引擎，首次启动失败也会清除缓存依赖并重新探测，避免把损坏的 marker 固定住。
 受管引擎使用 iyw-claw 自有 profile，不绑定正在运行的普通浏览器。
 
 OpenCLI 由 Internet Tools bootstrap 安装到托管 Node prefix。当前版本由 `src-tauri/src/commands/internet_tools/types.rs` 的 `OPENCLI_VERSION` 固定。`src-tauri/src/acp/connection.rs` 把托管 bin 目录加入 Agent 和 ACP terminal 的 PATH；`src-tauri/src/commands/internet_tools.rs` 提供 bin 目录和 `MCPORTER_CONFIG`。安装完成后，OpenCLI 自带的 `opencli-*` Skills 会同步到 central Skill 目录。
