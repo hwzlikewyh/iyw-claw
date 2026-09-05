@@ -94,24 +94,24 @@ fn sidecar_filename(base: &str) -> String {
 fn expected_asset_digest() -> (u64, &'static str) {
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("windows", "x86_64") => (
-            13_707_264,
-            "5ffcad90cda06114730e8b202285c45ec0866d1b8d7876b561329e4a8cfbb126",
+            13_837_312,
+            "412ff72737a109e93f5304b0ff76c988fb6f1f451d0fc7e010577922bcc20ff3",
         ),
         ("macos", "x86_64") => (
-            13_378_880,
-            "d76cfc76885d5007f3c119008a80a145b381ec4dfdd202f43e46cd0829751774",
+            13_510_280,
+            "45d9ac061a7d72e61eaff905326e2e19365f4dadb12142ea2f2d76d84689c708",
         ),
         ("macos", "aarch64") => (
-            12_247_424,
-            "e1e08f3b0a1c711750209e6a25b6f3a9dab7ed6e6a24b55a2556050b991fcc97",
+            12_363_200,
+            "b2106ab39db0838e7b1772f7f26f760518de56d09053150c56f9dddf15af997d",
         ),
         ("linux", "x86_64") => (
-            14_021_032,
-            "b699f24eebdb7fde91a34a9d697a1b84c3145f54327b60694b46f06b2972ce4d",
+            14_156_776,
+            "56d15181e51e00213f907fcf39707cfc76bfa804ff20f5a9373661c73f96de5e",
         ),
         ("linux", "aarch64") => (
-            12_332_896,
-            "1599fec4f4e75dc26fc08eecc06ca4b729a0361932b32a6afb99885f0f829ecb",
+            12_442_720,
+            "aeb556addca3903601a433de1acad3ace1c9c61d170084bf58d875884599a990",
         ),
         _ => (0, ""),
     }
