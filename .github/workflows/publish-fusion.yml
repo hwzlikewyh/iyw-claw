@@ -11,13 +11,21 @@ on:
         description: Fusion draft release ID
         required: true
         type: string
+      artifact_set:
+        description: Artifact set to publish
+        required: true
+        default: desktop_all
+        type: choice
+        options:
+          - desktop_all
+          - windows_x64
 
 permissions:
   contents: read
 
 jobs:
   publish:
-    runs-on: [self-hosted, Windows, X64, iyw-signing]
+    runs-on: ubuntu-22.04
     timeout-minutes: 90
     env:
       FUSION_BASE_URL: https://gateway.iyw.cn/iyw-fusion-api
@@ -25,6 +33,7 @@ jobs:
       FUSION_ADMIN_TOKEN: ${{ secrets.FUSION_ADMIN_TOKEN }}
       FUSION_RELEASE_ID: ${{ inputs.release_id }}
       FUSION_VERSION: ${{ inputs.version }}
+      FUSION_ARTIFACT_SET: ${{ inputs.artifact_set }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - name: Validate release credentials
@@ -149,15 +158,17 @@ jobs:
           upload_artifact windows x86_64 nsis \
             "release-assets/_${FUSION_VERSION}_x64-setup.exe" \
             "release-assets/_${FUSION_VERSION}_x64-setup.exe.sig"
-          upload_artifact linux x86_64 appimage \
-            "release-assets/_${FUSION_VERSION}_amd64.AppImage" \
-            "release-assets/_${FUSION_VERSION}_amd64.AppImage.sig"
-          upload_artifact darwin x86_64 app_tar_gz \
-            release-assets/_x64.app.tar.gz \
-            release-assets/_x64.app.tar.gz.sig
-          upload_artifact darwin aarch64 app_tar_gz \
-            release-assets/_aarch64.app.tar.gz \
-            release-assets/_aarch64.app.tar.gz.sig
+          if [[ "$FUSION_ARTIFACT_SET" == "desktop_all" ]]; then
+            upload_artifact linux x86_64 appimage \
+              "release-assets/_${FUSION_VERSION}_amd64.AppImage" \
+              "release-assets/_${FUSION_VERSION}_amd64.AppImage.sig"
+            upload_artifact darwin x86_64 app_tar_gz \
+              release-assets/_x64.app.tar.gz \
+              release-assets/_x64.app.tar.gz.sig
+            upload_artifact darwin aarch64 app_tar_gz \
+              release-assets/_aarch64.app.tar.gz \
+              release-assets/_aarch64.app.tar.gz.sig
+          fi
 
           publish_file="$(mktemp)"
           trap 'rm -f "$publish_file"' EXIT
