@@ -3125,7 +3125,6 @@ pub async fn get_file_tree(
 
     for entry in WalkDir::new(&root)
         .max_depth(depth)
-        .sort_by_file_name()
         .into_iter()
         .filter_entry(|e| {
             let name = e.file_name().to_string_lossy();
