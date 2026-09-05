@@ -12,8 +12,7 @@ use super::agent_tool_cancellation::{ensure_request_active, AgentToolContext};
 use super::agent_tool_support::invalid_argument;
 use super::error::BrowserError;
 use super::manager::BrowserSessionManager;
-use super::opencli::OpencliFailure;
-use super::types::BrowserAgentIdentity;
+use super::opencli::{OpencliFailure, OpencliProvider};
 use crate::commands::internet_tools::allocate_opencli_screenshot_path;
 
 #[derive(Debug, Clone)]
