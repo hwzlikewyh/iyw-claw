@@ -126,11 +126,14 @@ Cookie 和 storage 值，最多导入当前站点的非 HttpOnly Cookie 与 loca
 桌面应用安装包不包含 Chrome for Testing。首次启动完成后，应用在后台从 Fusion
 受管组件服务预下载 `browser-engine`，过程不打开浏览器窗口、不弹窗，也不唤醒系统
 Chrome/Edge。下载、摘要、签名、解压、文件布局和受管 marker 校验全部通过后才会激活
-版本；启动阶段不会执行浏览器程序。失败只保留已有的 last-known-good 版本。
+版本；启动阶段不会执行浏览器程序。若受管组件服务不可用，运行时会先探测本机已有的
+Chromium 系浏览器；Windows 还会在 iyw-claw 数据目录内下载并校验固定版本的 Chrome
+for Testing 作为最后兜底，不依赖安装目录可写或用户当前 Chrome profile。
 
 用户首次打开内置浏览器时，如果后台下载仍在进行，前台请求会等待同一个安装任务，
 不会创建第二个下载。离线或未登录时，后台失败保持内部状态；用户主动重试时才显示
-可操作的错误。受管引擎使用 iyw-claw 自有 profile，不绑定正在运行的普通浏览器。
+可操作的错误。运行时会复用已验证的 last-known-good 引擎，并对失败启动做有限重试；
+受管引擎使用 iyw-claw 自有 profile，不绑定正在运行的普通浏览器。
 
 OpenCLI 由 Internet Tools bootstrap 安装到托管 Node prefix。当前版本由 `src-tauri/src/commands/internet_tools/types.rs` 的 `OPENCLI_VERSION` 固定。`src-tauri/src/acp/connection.rs` 把托管 bin 目录加入 Agent 和 ACP terminal 的 PATH；`src-tauri/src/commands/internet_tools.rs` 提供 bin 目录和 `MCPORTER_CONFIG`。安装完成后，OpenCLI 自带的 `opencli-*` Skills 会同步到 central Skill 目录。
 

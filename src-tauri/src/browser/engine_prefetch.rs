@@ -1,14 +1,15 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use sea_orm::DatabaseConnection;
 use tokio::sync::{watch, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use crate::acp::version_center::{install_managed_tool, managed_browser_engine_executable};
-use crate::app_error::AppCommandError;
-
 use super::error::{BrowserError, BrowserErrorCode};
+use crate::acp::version_center::install_managed_tool;
+#[cfg(not(target_os = "windows"))]
+use crate::app_error::AppCommandError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PrefetchState {
@@ -19,9 +20,21 @@ enum PrefetchState {
 }
 
 #[derive(Debug, Clone)]
+struct PrefetchFailure {
+    occurred_at: Instant,
+    error: BrowserError,
+}
+
+const FAILURE_RETRY_DELAY: Duration = Duration::from_secs(5);
+const MISSING_ENGINE_RETRY_DELAY: Duration = Duration::from_secs(60);
+#[cfg(not(target_os = "windows"))]
+const TOOL_NOT_FOUND: &str = "AGENT_TOOL_NOT_FOUND";
+
+#[derive(Debug, Clone)]
 pub(super) struct BrowserEnginePrefetch {
     state: Arc<Mutex<PrefetchState>>,
     state_change: watch::Sender<PrefetchState>,
+    last_failure: Arc<Mutex<Option<PrefetchFailure>>>,
     database: Arc<RwLock<Option<DatabaseConnection>>>,
     data_root: PathBuf,
 }
@@ -32,6 +45,7 @@ impl BrowserEnginePrefetch {
         Self {
             state: Arc::new(Mutex::new(PrefetchState::Idle)),
             state_change,
+            last_failure: Arc::new(Mutex::new(None)),
             database: Arc::new(RwLock::new(None)),
             data_root,
         }
@@ -58,49 +72,28 @@ impl BrowserEnginePrefetch {
         &self,
         cancellation: CancellationToken,
     ) -> Result<PathBuf, BrowserError> {
-        if let Some(path) = managed_browser_engine_executable(&self.data_root).await {
+        if let Some(path) = self.detect_ready_engine().await {
             self.mark_ready().await;
             return Ok(path);
         }
         let mut state_change = self.state_change.subscribe();
         loop {
-            let current_state = *self.state.lock().await;
-            if current_state == PrefetchState::Ready {
-                if let Some(path) = managed_browser_engine_executable(&self.data_root).await {
-                    return Ok(path);
+            if *self.state.lock().await == PrefetchState::Failed {
+                if let Some(error) = self.cached_failure().await {
+                    return Err(error);
                 }
             }
-            let should_install = if current_state == PrefetchState::Running {
-                false
-            } else {
-                *self.state.lock().await = PrefetchState::Running;
-                self.state_change.send_replace(PrefetchState::Running);
-                true
-            };
-            if should_install {
+            if self.claim_install().await {
                 let result = self.install(cancellation.clone()).await;
-                let state = if result.is_ok() {
-                    PrefetchState::Ready
-                } else {
-                    PrefetchState::Failed
-                };
-                *self.state.lock().await = state;
-                self.state_change.send_replace(state);
+                self.record_install_result(&result).await;
                 return result;
             }
-            tokio::select! {
-                _ = cancellation.cancelled() => return Err(BrowserError::shutting_down()),
-                changed = state_change.changed() => {
-                    if changed.is_err() {
-                        return Err(engine_unavailable());
-                    }
-                }
-            }
-            if let Some(path) = managed_browser_engine_executable(&self.data_root).await {
+            wait_for_install(&mut state_change, &cancellation).await?;
+            if let Some(path) = self.detect_ready_engine().await {
                 return Ok(path);
             }
-            if matches!(*self.state.lock().await, PrefetchState::Failed) {
-                return Err(engine_unavailable());
+            if let Some(error) = self.failed_result().await {
+                return Err(error);
             }
         }
     }
@@ -116,18 +109,8 @@ impl BrowserEnginePrefetch {
             )
             .retryable(true));
         };
-        let channel = crate::update::preferences::load(&conn)
-            .await
-            .map(|prefs| prefs.channel.as_str().to_string())
-            .unwrap_or_else(|error| {
-                tracing::info!(
-                    target: "iyw_claw_browser",
-                    error = %error,
-                    "browser engine prefetch could not read update channel; using stable"
-                );
-                "stable".to_string()
-            });
-        install_managed_tool(
+        let channel = self.install_channel(&conn).await;
+        let managed_result = install_managed_tool(
             &conn,
             &self.data_root,
             "browser-engine",
@@ -137,19 +120,136 @@ impl BrowserEnginePrefetch {
             None,
             None,
         )
-        .await
-        .map_err(map_install_error)?;
-        managed_browser_engine_executable(&self.data_root)
+        .await;
+        if let Err(error) = managed_result {
+            #[cfg(target_os = "windows")]
+            {
+                tracing::warn!(
+                    target: "iyw_claw_browser",
+                    error_code = ?error.code,
+                    "managed browser engine unavailable; trying verified local Chromium fallback"
+                );
+                return super::engine_download::ensure_managed_engine(
+                    &self.data_root,
+                    cancellation,
+                )
+                .await
+                .map(|engine| engine.path);
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                return Err(map_install_error(error));
+            }
+        }
+        self.detect_or_fallback(cancellation).await
+    }
+
+    async fn detect_or_fallback(
+        &self,
+        cancellation: CancellationToken,
+    ) -> Result<PathBuf, BrowserError> {
+        if let Ok(engine) = super::engine::detect_engine(&self.data_root).await {
+            return Ok(engine.path);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            return super::engine_download::ensure_managed_engine(&self.data_root, cancellation)
+                .await
+                .map(|engine| engine.path);
+        }
+        #[cfg(not(target_os = "windows"))]
+        Err(engine_unavailable())
+    }
+
+    async fn detect_ready_engine(&self) -> Option<PathBuf> {
+        super::engine::detect_engine(&self.data_root)
             .await
-            .ok_or_else(engine_unavailable)
+            .ok()
+            .map(|engine| engine.path)
+    }
+
+    async fn claim_install(&self) -> bool {
+        let mut state = self.state.lock().await;
+        if *state == PrefetchState::Running {
+            return false;
+        }
+        *state = PrefetchState::Running;
+        self.state_change.send_replace(PrefetchState::Running);
+        true
+    }
+
+    async fn record_install_result(&self, result: &Result<PathBuf, BrowserError>) {
+        if let Err(error) = result {
+            *self.last_failure.lock().await = Some(PrefetchFailure {
+                occurred_at: Instant::now(),
+                error: error.clone(),
+            });
+        } else {
+            *self.last_failure.lock().await = None;
+        }
+        let state = if result.is_ok() {
+            PrefetchState::Ready
+        } else {
+            PrefetchState::Failed
+        };
+        *self.state.lock().await = state;
+        self.state_change.send_replace(state);
+    }
+
+    async fn failed_result(&self) -> Option<BrowserError> {
+        if !matches!(*self.state.lock().await, PrefetchState::Failed) {
+            return None;
+        }
+        Some(
+            self.last_failure
+                .lock()
+                .await
+                .as_ref()
+                .map(|failure| failure.error.clone())
+                .unwrap_or_else(engine_unavailable),
+        )
+    }
+
+    async fn install_channel(&self, conn: &DatabaseConnection) -> String {
+        crate::update::preferences::load(conn)
+            .await
+            .map(|prefs| prefs.channel.as_str().to_string())
+            .unwrap_or_else(|error| {
+                tracing::info!(
+                    target: "iyw_claw_browser",
+                    error = %error,
+                    "browser engine prefetch could not read update channel; using stable"
+                );
+                "stable".to_string()
+            })
     }
 
     async fn mark_ready(&self) {
         *self.state.lock().await = PrefetchState::Ready;
         self.state_change.send_replace(PrefetchState::Ready);
     }
+
+    async fn cached_failure(&self) -> Option<BrowserError> {
+        let failure = self.last_failure.lock().await.clone()?;
+        let retry_delay = match failure.error.code {
+            BrowserErrorCode::BrowserEngineNotFound => MISSING_ENGINE_RETRY_DELAY,
+            _ => FAILURE_RETRY_DELAY,
+        };
+        (failure.occurred_at.elapsed() < retry_delay).then_some(failure.error)
+    }
 }
 
+async fn wait_for_install(
+    state_change: &mut tokio::sync::watch::Receiver<PrefetchState>,
+    cancellation: &CancellationToken,
+) -> Result<(), BrowserError> {
+    tokio::select! {
+        _ = cancellation.cancelled() => Err(BrowserError::shutting_down()),
+        changed = state_change.changed() => changed.map_err(|_| engine_unavailable()),
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
 fn map_install_error(error: AppCommandError) -> BrowserError {
     tracing::info!(
         target: "iyw_claw_browser",
@@ -157,6 +257,13 @@ fn map_install_error(error: AppCommandError) -> BrowserError {
         detail_present = error.detail.is_some(),
         "managed browser engine installation failed"
     );
+    if error.detail.as_deref() == Some(TOOL_NOT_FOUND) {
+        return BrowserError::new(
+            BrowserErrorCode::BrowserEngineNotFound,
+            "No managed browser engine release is available",
+        )
+        .retryable(true);
+    }
     engine_unavailable()
 }
 

@@ -1,7 +1,11 @@
 use tokio_util::sync::CancellationToken;
 
 use super::super::engine::detect_engine;
+#[cfg(target_os = "windows")]
+use super::super::engine_download;
 use super::super::error::BrowserError;
+#[cfg(target_os = "windows")]
+use super::super::error::BrowserErrorCode;
 use super::super::sidecar;
 use super::{BrowserCapability, BrowserRuntime, VerifiedDependencies};
 
@@ -32,7 +36,18 @@ impl BrowserRuntime {
         &self,
         cancellation: CancellationToken,
     ) -> Result<VerifiedDependencies, BrowserError> {
-        let _ = cancellation;
-        self.resolve_dependencies().await
+        match self.resolve_dependencies().await {
+            Ok(dependencies) => Ok(dependencies),
+            #[cfg(target_os = "windows")]
+            Err(error) if error.code == BrowserErrorCode::BrowserEngineNotFound => {
+                let sidecar = sidecar::verify_sidecar().await?;
+                let engine =
+                    engine_download::ensure_managed_engine(&self.data_root, cancellation).await?;
+                let dependencies = VerifiedDependencies { sidecar, engine };
+                *self.verified.lock().await = Some(dependencies.clone());
+                Ok(dependencies)
+            }
+            Err(error) => Err(error),
+        }
     }
 }

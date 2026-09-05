@@ -5,6 +5,9 @@ use sea_orm::DatabaseConnection;
 
 use crate::acp::agent_storage::{load_config, save_config, AgentStorageConfig, AgentStorageError};
 
+#[path = "desktop_bootstrap_storage.rs"]
+mod desktop_bootstrap_storage;
+
 const APP_DIR_NAME: &str = "app";
 const DATA_DIR_ENV: &str = "IYW_CLAW_DATA_DIR";
 const HOME_DIR_ENV: &str = "IYW_CLAW_HOME";
@@ -146,6 +149,19 @@ pub async fn ensure_initial_agent_storage(
         .await?;
     }
     Ok(())
+}
+
+/// Rebase a persisted Agent storage root onto the current installation root.
+///
+/// Older installs could persist a former installation root after an upgrade.
+/// A custom Agent-only directory remains user-controlled: rebasing requires a
+/// recorded prior install root, a complete legacy install layout, or an active
+/// managed profile path that still names the old root.
+pub async fn reconcile_agent_storage_root(
+    conn: &DatabaseConnection,
+    selected_root: &Path,
+) -> Result<Option<PathBuf>, AgentStorageError> {
+    desktop_bootstrap_storage::reconcile(conn, selected_root).await
 }
 
 fn absolutize(path: PathBuf) -> PathBuf {

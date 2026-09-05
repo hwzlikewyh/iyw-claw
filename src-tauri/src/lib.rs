@@ -501,6 +501,21 @@ mod tauri_app {
                 })
                 .map_err(|error| error.to_string())?;
 
+                if let Some(previous_root) = tauri::async_runtime::block_on(
+                    crate::desktop_bootstrap::reconcile_agent_storage_root(
+                        &database.conn,
+                        &initial_agent_root,
+                    ),
+                )
+                .map_err(|error| error.to_string())?
+                {
+                    tracing::warn!(
+                        previous_root = %previous_root.display(),
+                        new_root = %initial_agent_root.display(),
+                        "[agent-storage] rebased persisted root onto current installation"
+                    );
+                }
+
                 match tauri::async_runtime::block_on(crate::acp::agent_storage::load_config(
                     &database.conn,
                 )) {
