@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useTranslations } from "next-intl"
 
-import type { LiveMessage } from "@/contexts/acp-connections-context"
+import type {
+  LiveContentBlock,
+  LiveMessage,
+} from "@/contexts/acp-connections-context"
 import { formatElapsedLabel } from "@/lib/format-elapsed"
 import type { PlanEntryInfo } from "@/lib/types"
 import { LiveTurnStatusRow } from "@/components/message/live-turn-status-row"
@@ -20,6 +23,20 @@ interface LiveTurnStatsProps {
 }
 
 const EMPTY_PLAN_ENTRIES: PlanEntryInfo[] = []
+const textCharacterCounts = new WeakMap<LiveContentBlock, number>()
+
+function countTextCharacters(block: LiveContentBlock): number {
+  if (block.type !== "text") return 0
+  const cached = textCharacterCounts.get(block)
+  if (cached !== undefined) return cached
+  let count = 0
+  // 按 Unicode 码点计数，保持原有 Array.from 的统计口径。
+  for (const character of block.text) {
+    if (character) count += 1
+  }
+  textCharacterCounts.set(block, count)
+  return count
+}
 
 function getLatestPlanEntries(message: LiveMessage | null): PlanEntryInfo[] {
   if (!message) return EMPTY_PLAN_ENTRIES
@@ -36,11 +53,11 @@ function countToolCalls(message: LiveMessage | null): number {
 }
 
 function countOutputCharacters(message: LiveMessage | null): number {
-  return (message?.content ?? []).reduce(
-    (count, block) =>
-      block.type === "text" ? count + Array.from(block.text).length : count,
-    0
-  )
+  let count = 0
+  for (const block of message?.content ?? []) {
+    count += countTextCharacters(block)
+  }
+  return count
 }
 
 function useElapsed(startedAt: number | null): [number, number] {
@@ -68,8 +85,11 @@ export function LiveTurnStats({
   const t = useTranslations("Folder.chat.liveTurnStats")
   const startedAt = message?.startedAt ?? null
   const [now, elapsed] = useElapsed(startedAt)
+  const outputCharacters = useMemo(
+    () => countOutputCharacters(message),
+    [message]
+  )
   const outputRateLabel = useMemo(() => {
-    const outputCharacters = countOutputCharacters(message)
     if (outputCharacters === 0) return null
     // Older snapshots do not carry firstTextAt; startedAt is a conservative
     // fallback so a refreshed in-progress turn still exposes a useful rate.
@@ -79,7 +99,7 @@ export function LiveTurnStats({
     return t("outputRate", {
       rate: Math.round(outputCharacters / seconds),
     })
-  }, [message, now, startedAt, t])
+  }, [message?.firstTextAt, now, outputCharacters, startedAt, t])
   const resolvedPlanEntries = useMemo(
     () => planEntries ?? getLatestPlanEntries(message),
     [message, planEntries]

@@ -136,9 +136,12 @@ async function ensureLanguage(
 
 async function performHighlight(
   request: HighlightRequest
-): Promise<TokenizedCode> {
+): Promise<TokenizedCode | null> {
   const highlighter = await getHighlighter()
+  if (!subscribers.get(request.cacheKey)?.size) return null
   await ensureLanguage(highlighter, request.language)
+  // 语法包加载期间代码块可能已卸载或更新，跳过无人消费的全文高亮。
+  if (!subscribers.get(request.cacheKey)?.size) return null
   const result = highlighter.codeToTokens(request.code, {
     lang: request.language,
     themes: { dark: "github-dark", light: "github-light" },
@@ -160,8 +163,13 @@ function notifySubscribers(cacheKey: string, tokenized: TokenizedCode): void {
 function startHighlight(request: HighlightRequest): void {
   if (highlightTasks.has(request.cacheKey)) return
   const task = (async () => {
+    let skipped = false
     try {
       const tokenized = await performHighlight(request)
+      if (!tokenized) {
+        skipped = true
+        return
+      }
       writeCache(request, tokenized)
       notifySubscribers(request.cacheKey, tokenized)
     } catch (error) {
@@ -169,6 +177,10 @@ function startHighlight(request: HighlightRequest): void {
       console.error("Failed to highlight code:", error)
     } finally {
       highlightTasks.delete(request.cacheKey)
+      // await 返回前可能出现新订阅，交给新任务处理，避免停留在纯文本。
+      if (skipped && subscribers.get(request.cacheKey)?.size) {
+        startHighlight(request)
+      }
     }
   })()
   highlightTasks.set(request.cacheKey, task)
