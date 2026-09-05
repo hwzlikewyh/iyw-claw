@@ -24,6 +24,7 @@ interface LiveTurnStatsProps {
 
 const EMPTY_PLAN_ENTRIES: PlanEntryInfo[] = []
 const textCharacterCounts = new WeakMap<LiveContentBlock, number>()
+const toolCallCounts = new WeakMap<LiveMessage, number>()
 
 function countTextCharacters(block: LiveContentBlock): number {
   if (block.type !== "text") return 0
@@ -48,10 +49,14 @@ function getLatestPlanEntries(message: LiveMessage | null): PlanEntryInfo[] {
 }
 
 function countToolCalls(message: LiveMessage | null): number {
+  if (!message) return 0
+  const cached = toolCallCounts.get(message)
+  if (cached !== undefined) return cached
   let count = 0
-  for (const block of message?.content ?? []) {
+  for (const block of message.content) {
     if (block.type === "tool_call") count += 1
   }
+  toolCallCounts.set(message, count)
   return count
 }
 
