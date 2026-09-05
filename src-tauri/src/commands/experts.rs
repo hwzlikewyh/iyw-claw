@@ -1260,7 +1260,7 @@ fn retired_experts_need_reconcile() -> bool {
 
 fn retire_bundled_experts(manifest: &mut Manifest, report: &mut InstallReport) {
     for id in retired_bundled_expert_ids(manifest) {
-        let central = expert_central_path(id);
+        let central = expert_central_path(&id);
         // A market installation may intentionally override a bundled Skill
         // under the same slug. Its marker is a stronger, separate ownership
         // record, so retirement of the bundled copy must not delete it.
@@ -1273,17 +1273,17 @@ fn retire_bundled_experts(manifest: &mut Manifest, report: &mut InstallReport) {
             );
             continue;
         }
-        if let Err(error) = remove_retired_expert_links(id, &central) {
+        if let Err(error) = remove_retired_expert_links(&id, &central) {
             report.errors.push(format!("{id}: {error}"));
             continue;
         }
-        if let Err(error) = remove_retired_expert_central(id, &central) {
+        if let Err(error) = remove_retired_expert_central(&id, &central) {
             report.errors.push(format!(
                 "{id}: failed to remove retired central copy: {error}"
             ));
             continue;
         }
-        manifest.experts.remove(id);
+        manifest.experts.remove(&id);
         report.retired.push(id);
     }
 }
