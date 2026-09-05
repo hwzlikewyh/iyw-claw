@@ -48,8 +48,11 @@ function getLatestPlanEntries(message: LiveMessage | null): PlanEntryInfo[] {
 }
 
 function countToolCalls(message: LiveMessage | null): number {
-  return (message?.content ?? []).filter((block) => block.type === "tool_call")
-    .length
+  let count = 0
+  for (const block of message?.content ?? []) {
+    if (block.type === "tool_call") count += 1
+  }
+  return count
 }
 
 function countOutputCharacters(message: LiveMessage | null): number {
