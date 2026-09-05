@@ -1,0 +1,141 @@
+name: Publish Fusion Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without v
+        required: true
+        type: string
+      release_id:
+        description: Fusion draft release ID
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      FUSION_BASE_URL: https://gateway.iyw.cn/iyw-fusion-api
+      FUSION_ACCESS_TOKEN: ${{ secrets.FUSION_ACCESS_TOKEN }}
+      FUSION_ADMIN_TOKEN: ${{ secrets.FUSION_ADMIN_TOKEN }}
+      FUSION_RELEASE_ID: ${{ inputs.release_id }}
+      FUSION_VERSION: ${{ inputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Validate release credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$FUSION_ACCESS_TOKEN"
+          test -n "$FUSION_ADMIN_TOKEN"
+
+      - name: Download signed GitHub release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v${FUSION_VERSION}"
+          mkdir -p release-assets
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir release-assets \
+            --pattern "_${FUSION_VERSION}_x64-setup.exe" \
+            --pattern "_${FUSION_VERSION}_x64-setup.exe.sig" \
+            --pattern "_${FUSION_VERSION}_amd64.AppImage" \
+            --pattern "_${FUSION_VERSION}_amd64.AppImage.sig" \
+            --pattern "_x64.app.tar.gz" \
+            --pattern "_x64.app.tar.gz.sig" \
+            --pattern "_aarch64.app.tar.gz" \
+            --pattern "_aarch64.app.tar.gz.sig"
+
+      - name: Upload artifacts and publish Fusion release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          api_headers=(
+            --header "admin-token: ${FUSION_ADMIN_TOKEN}"
+            --header "token: ${FUSION_ACCESS_TOKEN}"
+            --header "X-IYW-Admin-Actor: github-actions-fusion-release"
+          )
+
+          request() {
+            curl --fail-with-body --silent --show-error \
+              "${api_headers[@]}" "$@"
+          }
+
+          upload_artifact() {
+            local target="$1"
+            local arch="$2"
+            local package_kind="$3"
+            local package="$4"
+            local signature="$5"
+            local size request_file init_file complete_file artifact_id upload_url upload_method
+            local -a upload_headers upload_args
+
+            test -s "$package"
+            test -s "$signature"
+            size="$(stat --format=%s "$package")"
+            request_file="$(mktemp)"
+            init_file="$(mktemp)"
+            complete_file="$(mktemp)"
+            trap 'rm -f "$request_file" "$init_file" "$complete_file"' RETURN
+
+            jq -n \
+              --arg runtime desktop \
+              --arg target "$target" \
+              --arg arch "$arch" \
+              --arg package_kind "$package_kind" \
+              --arg file_name "$(basename "$package")" \
+              --arg content_type application/octet-stream \
+              --argjson size "$size" \
+              --rawfile signature "$signature" \
+              '{runtime: $runtime, target: $target, arch: $arch, packageKind: $package_kind, fileName: $file_name, contentType: $content_type, size: $size, signature: $signature}' \
+              > "$request_file"
+
+            request --request POST \
+              --header 'Content-Type: application/json' \
+              --data-binary "@$request_file" \
+              "$FUSION_BASE_URL/admin/api/app-releases/$FUSION_RELEASE_ID/artifacts/init" \
+              > "$init_file"
+            jq -e '.code == 1 and .data.artifact.id and .data.upload.url and .data.upload.method' "$init_file" > /dev/null
+
+            artifact_id="$(jq -r '.data.artifact.id' "$init_file")"
+            upload_url="$(jq -r '.data.upload.url' "$init_file")"
+            upload_method="$(jq -r '.data.upload.method' "$init_file")"
+            mapfile -t upload_headers < <(jq -r '.data.upload.headers | to_entries[] | [.key, .value] | @tsv' "$init_file")
+            upload_args=(--fail --silent --show-error --request "$upload_method" --upload-file "$package")
+            for header in "${upload_headers[@]}"; do
+              upload_args+=(--header "${header/$'\t'/: }")
+            done
+            curl "${upload_args[@]}" "$upload_url"
+
+            request --request POST \
+              "$FUSION_BASE_URL/admin/api/app-releases/$FUSION_RELEASE_ID/artifacts/$artifact_id/complete" \
+              > "$complete_file"
+            jq -e '.code == 1 and .data.artifact.status == "ready"' "$complete_file" > /dev/null
+            echo "Uploaded $target/$arch ($(basename "$package"), $size bytes)"
+          }
+
+          upload_artifact windows x86_64 nsis \
+            "release-assets/_${FUSION_VERSION}_x64-setup.exe" \
+            "release-assets/_${FUSION_VERSION}_x64-setup.exe.sig"
+          upload_artifact linux x86_64 appimage \
+            "release-assets/_${FUSION_VERSION}_amd64.AppImage" \
+            "release-assets/_${FUSION_VERSION}_amd64.AppImage.sig"
+          upload_artifact darwin x86_64 app_tar_gz \
+            release-assets/_x64.app.tar.gz \
+            release-assets/_x64.app.tar.gz.sig
+          upload_artifact darwin aarch64 app_tar_gz \
+            release-assets/_aarch64.app.tar.gz \
+            release-assets/_aarch64.app.tar.gz.sig
+
+          publish_file="$(mktemp)"
+          trap 'rm -f "$publish_file"' EXIT
+          request --request POST --header 'Content-Type: application/json' --data '{}' \
+            "$FUSION_BASE_URL/admin/api/app-releases/$FUSION_RELEASE_ID/publish" \
+            > "$publish_file"
+          jq -e '.code == 1 and .data.status == "published"' "$publish_file" > /dev/null
+          echo "Published Fusion release $FUSION_VERSION"
