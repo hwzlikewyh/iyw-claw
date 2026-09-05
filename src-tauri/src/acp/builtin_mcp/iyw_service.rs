@@ -87,12 +87,12 @@ impl IywGatewayService {
             .json(&body)
             .send()
             .await
-            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+            .map_err(|error| image_transport_error("Fusion request", &error))?;
         let status = response.status();
         let payload = response
             .json::<Value>()
             .await
-            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+            .map_err(|error| image_transport_error("Fusion response", &error))?;
         if !status.is_success() {
             return Err(rmcp::ErrorData::invalid_params(
                 "IYW Fusion image request failed",
@@ -115,12 +115,12 @@ impl IywGatewayService {
             .multipart(form)
             .send()
             .await
-            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+            .map_err(|error| image_transport_error("Fusion edit request", &error))?;
         let status = response.status();
         let payload = response
             .json::<Value>()
             .await
-            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+            .map_err(|error| image_transport_error("Fusion edit response", &error))?;
         if !status.is_success() {
             return Err(rmcp::ErrorData::invalid_params(
                 "IYW Fusion image edit request failed",
@@ -144,7 +144,7 @@ impl IywGatewayService {
             .get(url)
             .send()
             .await
-            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+            .map_err(|error| image_transport_error("download", &error))?;
         if !response.status().is_success() {
             return Err(rmcp::ErrorData::invalid_params(
                 "image URL could not be downloaded",
@@ -154,7 +154,7 @@ impl IywGatewayService {
         let bytes = response
             .bytes()
             .await
-            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+            .map_err(|error| image_transport_error("download body", &error))?;
         if bytes.len() > crate::acp::delegation::image_loader::MAX_IMAGE_BYTES {
             return Err(rmcp::ErrorData::invalid_params(
                 "image exceeds the 20 MiB limit",
@@ -177,12 +177,12 @@ impl IywGatewayService {
             .header("token", token)
             .send()
             .await
-            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+            .map_err(|error| image_transport_error("Fusion catalog request", &error))?;
         let status = response.status();
         let payload = response
             .json::<Value>()
             .await
-            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+            .map_err(|error| image_transport_error("Fusion catalog response", &error))?;
         if !status.is_success() {
             return Err(rmcp::ErrorData::invalid_params(
                 "IYW Fusion model request failed",
@@ -216,7 +216,7 @@ impl IywGatewayService {
             .body(bytes)
             .send()
             .await
-            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+            .map_err(|error| image_transport_error("upload", &error))?;
         if !response.status().is_success() {
             return Err(rmcp::ErrorData::invalid_params(
                 "IYW image upload was rejected",
@@ -249,12 +249,12 @@ impl IywGatewayService {
             .json(&body)
             .send()
             .await
-            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+            .map_err(|error| image_transport_error("gateway request", &error))?;
         let status = response.status();
         let payload = response
             .json::<Value>()
             .await
-            .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
+            .map_err(|error| image_transport_error("gateway response", &error))?;
         let accepted =
             status.is_success() && payload.get("code").and_then(Value::as_i64) == Some(1);
         if !accepted {
@@ -275,4 +275,15 @@ impl IywGatewayService {
             format!("{GATEWAY_ORIGIN}/{prefix}/{path}")
         }
     }
+}
+
+fn image_transport_error(stage: &'static str, error: &reqwest::Error) -> rmcp::ErrorData {
+    tracing::warn!(
+        stage,
+        timeout = error.is_timeout(),
+        connect = error.is_connect(),
+        status = error.status().map(|status| status.as_u16()),
+        "[iyw-image] image transport failed"
+    );
+    rmcp::ErrorData::internal_error(format!("IYW image {stage} failed"), None)
 }

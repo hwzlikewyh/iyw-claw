@@ -104,10 +104,11 @@ const DATABASE_EXTENSIONS = new Set([
 
 export function artifactVisualKind(item: TaskArtifactInfo): ArtifactVisualKind {
   if (item.kind === "directory") return "folder"
-  if (item.kind === "url") return "link"
 
-  const extension = artifactExtension(item.path)
-  if (isImageFile(item.path)) return "image"
+  const visualPath = artifactVisualPath(item)
+  const extension = artifactExtension(visualPath)
+  if (isImageFile(visualPath)) return "image"
+  if (item.kind === "url") return "link"
   if (VIDEO_EXTENSIONS.has(extension)) return "video"
   if (AUDIO_EXTENSIONS.has(extension)) return "audio"
   if (DATABASE_EXTENSIONS.has(extension)) return "database"
@@ -118,6 +119,16 @@ export function artifactVisualKind(item: TaskArtifactInfo): ArtifactVisualKind {
   if (DATA_EXTENSIONS.has(extension)) return "data"
   if (languageFromPath(item.path) !== "plaintext") return "code"
   return "file"
+}
+
+function artifactVisualPath(item: TaskArtifactInfo): string {
+  if (item.kind !== "url") return item.path
+  try {
+    const pathname = new URL(item.path).pathname
+    return artifactExtension(pathname) ? pathname : item.displayName || pathname
+  } catch {
+    return item.displayName || item.path
+  }
 }
 
 function artifactExtension(path: string): string {

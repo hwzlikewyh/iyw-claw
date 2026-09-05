@@ -3,6 +3,12 @@ export interface DeliveredImage {
   mimeType: string
 }
 
+export type ImageArtifactRegistrationState =
+  | "none"
+  | "succeeded"
+  | "partial"
+  | "failed"
+
 export function extractDeliveredImage(
   output: string | null | undefined
 ): DeliveredImage | null {
@@ -42,6 +48,41 @@ export function extractDeliveredImage(
     }
   }
   return null
+}
+
+export function imageArtifactRegistrationState(
+  output: string | null | undefined
+): ImageArtifactRegistrationState {
+  const parsed = parseRecord(output)
+  if (!parsed) return "none"
+  const roots = outputRoots(parsed)
+  for (const root of roots) {
+    const delivery = parseRecordValue(root?.delivery)
+    const artifact = parseRecordValue(delivery?.artifact)
+    if (!artifact) continue
+    const accepted = Array.isArray(artifact.accepted)
+      ? artifact.accepted.length
+      : 0
+    const rejected = Array.isArray(artifact.rejected)
+      ? artifact.rejected.length
+      : 0
+    const hasError =
+      typeof artifact.error === "string" && artifact.error.trim().length > 0
+    if (accepted > 0) return rejected > 0 || hasError ? "partial" : "succeeded"
+    return "failed"
+  }
+  return "none"
+}
+
+function outputRoots(parsed: Record<string, unknown>) {
+  const result = parseRecordValue(parsed.result)
+  const structured = parseRecordValue(
+    parsed.structuredContent ?? parsed.structured_content
+  )
+  const resultStructured = parseRecordValue(
+    result?.structuredContent ?? result?.structured_content
+  )
+  return [parsed, result, structured, resultStructured]
 }
 
 function parseRecord(value: string | null | undefined) {

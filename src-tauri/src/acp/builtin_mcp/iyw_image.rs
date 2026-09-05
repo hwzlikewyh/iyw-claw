@@ -1,9 +1,10 @@
 use serde::Deserialize;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 
 use super::authority::SessionContext;
 use super::iyw_service::IywGatewayService;
 
+mod batch;
 mod commerce;
 mod fission;
 mod fusion;
@@ -21,6 +22,7 @@ pub(super) const MAX_PROMPT_CHARS: usize = 12_000;
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ImageRequest {
+    pub(super) id: Option<String>,
     #[serde(rename = "type")]
     pub(super) kind: Option<String>,
     pub(super) prompt: Option<String>,
@@ -28,10 +30,31 @@ pub(super) struct ImageRequest {
     images: Vec<ImageSource>,
     #[serde(default)]
     pub(super) parameters: Map<String, Value>,
+    pub(super) count: Option<usize>,
     #[serde(default)]
     pub(super) wait: WaitOptions,
+    pub(super) delivery: Option<DeliveryOptions>,
+}
+
+impl ImageRequest {
+    pub(super) fn count(&self) -> usize {
+        self.count.unwrap_or(1)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct ImageBatchRequest {
+    pub(super) requests: Vec<ImageRequest>,
     #[serde(default)]
     pub(super) delivery: DeliveryOptions,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum ImageToolRequest {
+    Batch(ImageBatchRequest),
+    Single(ImageRequest),
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,7 +75,7 @@ impl Default for WaitOptions {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct DeliveryOptions {
     #[serde(default)]
@@ -78,27 +101,25 @@ pub(super) struct ImageResult {
     pub(super) metadata: Value,
 }
 
+struct ImageExecution<'a> {
+    request: &'a ImageRequest,
+    kind: &'a str,
+    images: &'a [PreparedImage],
+}
+
 pub(super) async fn generate(
     service: &IywGatewayService,
     authority: &SessionContext,
     arguments: Value,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    let request: ImageRequest = serde_json::from_value(arguments)
+    let request: ImageToolRequest = serde_json::from_value(arguments)
         .map_err(|error| rmcp::ErrorData::invalid_params(error.to_string(), None))?;
-    validate_request(&request)?;
-    let images = prepare_images(service, authority.cwd(), &request.images).await?;
-    let kind = select_kind(request.kind.as_deref(), &request.prompt, images.len());
-    let mut result = execute_kind(service, &request, &kind, &images).await?;
-    let delivery = deliver_result(service, authority, &request, &result).await;
-    result.metadata = json!({
-        "operation": result.operation,
-        "status": result.status,
-        "task_id": result.task_id,
-        "images": result.images,
-        "metadata": result.metadata,
-        "delivery": delivery,
-    });
-    Ok(rmcp::model::CallToolResult::structured(result.metadata))
+    match request {
+        ImageToolRequest::Batch(request) => batch::execute_batch(service, authority, request).await,
+        ImageToolRequest::Single(request) => {
+            batch::execute_single(service, authority, request).await
+        }
+    }
 }
 
 fn validate_request(request: &ImageRequest) -> Result<(), rmcp::ErrorData> {
@@ -111,6 +132,16 @@ fn validate_request(request: &ImageRequest) -> Result<(), rmcp::ErrorData> {
     }
     if request.images.len() > 10 {
         return Err(invalid("images accepts at most 10 items"));
+    }
+    if request.count.is_some() && !(1..=4).contains(&request.count()) {
+        return Err(invalid("count must be between 1 and 4"));
+    }
+    if request.count.is_some()
+        && (request.parameters.contains_key("n") || request.parameters.contains_key("batchSize"))
+    {
+        return Err(invalid(
+            "count cannot be combined with parameters.n or parameters.batchSize",
+        ));
     }
     if request.wait.timeout_seconds > 600 {
         return Err(invalid("timeoutSeconds must be between 0 and 600"));
@@ -141,37 +172,34 @@ fn select_kind(kind: Option<&str>, prompt: &Option<String>, image_count: usize) 
     }
 }
 
-async fn execute_kind(
-    service: &IywGatewayService,
+fn preflight_kind(
     request: &ImageRequest,
     kind: &str,
     images: &[PreparedImage],
-) -> Result<ImageResult, rmcp::ErrorData> {
+) -> Result<(), rmcp::ErrorData> {
     match kind {
-        "generate" => fusion::generate(service, request).await,
-        "edit" => fusion::edit(service, request, images).await,
-        "fission" => fission::generate(service, request).await,
-        _ => commerce::generate(service, request, kind, images).await,
+        "generate" => required_prompt(request.prompt.as_deref()).map(|_| ()),
+        "edit" => {
+            required_prompt(request.prompt.as_deref())?;
+            if images.is_empty() {
+                return Err(invalid("edit requires at least one image"));
+            }
+            Ok(())
+        }
+        "fission" => fission::validate_request(request),
+        _ => commerce::validate_request(request, kind, images),
     }
 }
 
-async fn deliver_result(
+async fn execute_kind(
     service: &IywGatewayService,
-    authority: &SessionContext,
-    request: &ImageRequest,
-    result: &ImageResult,
-) -> Value {
-    if result.status == "succeeded" && !result.images.is_empty() {
-        service
-            .deliver(
-                authority,
-                &result.images,
-                request.delivery.display,
-                request.delivery.register_artifact,
-            )
-            .await
-    } else {
-        json!({"displayed": [], "artifact": null})
+    execution: ImageExecution<'_>,
+) -> Result<ImageResult, rmcp::ErrorData> {
+    match execution.kind {
+        "generate" => fusion::generate(service, execution.request).await,
+        "edit" => fusion::edit(service, execution.request, execution.images).await,
+        "fission" => fission::generate(service, execution.request).await,
+        _ => commerce::generate(service, execution).await,
     }
 }
 

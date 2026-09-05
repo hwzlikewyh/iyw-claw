@@ -13,6 +13,12 @@ import {
   processPartHasError,
   splitAssistantTurnParts,
 } from "@/components/message/assistant-turn-model"
+import {
+  completedProcessPart,
+  findImageRegistrationIssue,
+  hasProcessError,
+} from "@/components/message/assistant-turn-process"
+import { ImageArtifactRegistrationNotice } from "@/components/message/assistant-turn-status"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
 import type { AgentType } from "@/lib/types"
@@ -60,29 +66,45 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
     () => splitAssistantTurnParts(parts, isResponseComplete),
     [isResponseComplete, parts]
   )
+  const processParts = useMemo(
+    () =>
+      isResponseComplete
+        ? sections.processParts.flatMap((part) => {
+            const visible = completedProcessPart(part)
+            return visible ? [visible] : []
+          })
+        : sections.processParts,
+    [isResponseComplete, sections.processParts]
+  )
   const processCount = useMemo(
-    () => countProcessItems(sections.processParts),
-    [sections.processParts]
+    () => countProcessItems(processParts),
+    [processParts]
   )
   const reasoningParts = useMemo(
     () =>
-      sections.processParts.filter(
+      processParts.filter(
         (part): part is Extract<AdaptedContentPart, { type: "reasoning" }> =>
           part.type === "reasoning"
       ),
-    [sections.processParts]
+    [processParts]
   )
   const liveTextParts = useMemo(
     () =>
-      sections.processParts.filter(
+      processParts.filter(
         (part): part is Extract<AdaptedContentPart, { type: "text" }> =>
           part.type === "text"
       ),
-    [sections.processParts]
+    [processParts]
   )
   const processHasError = useMemo(
-    () => sections.processParts.some(processPartHasError),
-    [sections.processParts]
+    () =>
+      processParts.some(processPartHasError) ||
+      (isResponseComplete && parts.some(hasProcessError)),
+    [isResponseComplete, parts, processParts]
+  )
+  const registrationIssue = useMemo(
+    () => findImageRegistrationIssue(parts),
+    [parts]
   )
 
   const renderParts = (nextParts: AdaptedContentPart[], key: string) => (
@@ -96,7 +118,7 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
   )
   const processSurface = (
     <AssistantProcessSurface
-      parts={sections.processParts}
+      parts={processParts}
       processCount={processCount}
       processHasError={processHasError}
       entranceKey={entranceKey}
@@ -153,6 +175,9 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
     <div className="space-y-3">
       <AssistantIdentity agentType={agentType} />
       {showProcess ? processSurface : null}
+      {registrationIssue && (
+        <ImageArtifactRegistrationNotice state={registrationIssue} />
+      )}
       {responseContent ? (
         <div className="assistant-turn-summary">{responseContent}</div>
       ) : null}
