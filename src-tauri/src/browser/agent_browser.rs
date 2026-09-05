@@ -6,13 +6,13 @@ use super::agent_browser_input::{
 use super::agent_browser_request::{opencli_request, OpencliRequest};
 use super::agent_browser_route::{
     ensure_provider_matches_input, input_requests_managed, opencli_route_from_input, route_key,
-    session_name, validate_opencli_tab_session,
+    validate_opencli_tab_session,
 };
 use super::agent_tool_cancellation::{ensure_request_active, AgentToolContext};
 use super::agent_tool_support::invalid_argument;
 use super::error::BrowserError;
 use super::manager::BrowserSessionManager;
-use super::opencli::{OpencliFailure, OpencliProvider};
+use super::opencli::OpencliFailure;
 use super::types::BrowserAgentIdentity;
 use crate::commands::internet_tools::allocate_opencli_screenshot_path;
 
@@ -65,7 +65,7 @@ impl BrowserSessionManager {
         }
         let route = match route {
             Some(route) => route,
-            None => self.start_opencli_route(&key, context.identity).await?,
+            None => self.start_managed_route(&key).await,
         };
         self.run_routed_action(context, &key, route, &action, input)
             .await
@@ -107,29 +107,12 @@ impl BrowserSessionManager {
         }
     }
 
-    async fn start_opencli_route(
-        &self,
-        key: &str,
-        identity: &BrowserAgentIdentity,
-    ) -> Result<BrowserRoute, BrowserError> {
-        if let Err(failure) = OpencliProvider::doctor().await {
-            if failure.code == "OPENCLI_NOT_INSTALLED" {
-                let route = BrowserRoute {
-                    provider: BrowserRouteProvider::Managed { reason: None },
-                };
-                self.store_browser_route(key, route.clone()).await;
-                return Ok(route);
-            }
-            return Err(failure.browser_error());
-        }
+    async fn start_managed_route(&self, key: &str) -> BrowserRoute {
         let route = BrowserRoute {
-            provider: BrowserRouteProvider::Opencli {
-                session: session_name(identity),
-                target: None,
-            },
+            provider: BrowserRouteProvider::Managed { reason: None },
         };
         self.store_browser_route(key, route.clone()).await;
-        Ok(route)
+        route
     }
 
     async fn run_opencli_action(
