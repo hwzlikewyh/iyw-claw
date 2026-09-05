@@ -4586,12 +4586,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         flushPendingToolCallUpdates()
       } else {
         if (streamingQueueRef.current.length > 0) {
-          if (flushTimerRef.current === null) {
-            flushTimerRef.current = setTimeout(
-              flushStreamingQueue,
-              STREAM_FLUSH_HIDDEN_MS
-            )
+          if (flushTimerRef.current !== null) {
+            clearTimeout(flushTimerRef.current)
+            flushTimerRef.current = null
           }
+          flushTimerRef.current = setTimeout(
+            flushStreamingQueue,
+            STREAM_FLUSH_HIDDEN_MS
+          )
         }
         if (pendingToolCallUpdates.current.length > 0) {
           clearToolCallUpdateSchedule()
