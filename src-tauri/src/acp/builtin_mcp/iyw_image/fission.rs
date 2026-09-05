@@ -9,6 +9,7 @@ pub(super) async fn generate(
     service: &IywGatewayService,
     request: &ImageRequest,
 ) -> Result<ImageResult, rmcp::ErrorData> {
+    validate_request(request)?;
     let prompt = required_prompt(request.prompt.as_deref())?;
     let models = request
         .parameters
@@ -38,6 +39,16 @@ pub(super) async fn generate(
         return Ok(group_result(task_ids, Vec::new()));
     }
     wait_for_tasks(service, request, task_ids).await
+}
+
+pub(super) fn validate_request(request: &ImageRequest) -> Result<(), rmcp::ErrorData> {
+    required_prompt(request.prompt.as_deref())?;
+    let models = request
+        .parameters
+        .get("models")
+        .cloned()
+        .unwrap_or_else(default_models);
+    validate_models(&models)
 }
 
 async fn wait_for_tasks(
@@ -81,12 +92,27 @@ fn group_result(task_ids: Vec<String>, reports: Vec<Value>) -> ImageResult {
         group_status(&reports)
     };
     let task_id = task_ids.first().cloned();
-    let metadata = json!({"task_ids": task_ids, "tasks": reports});
+    let tasks = reports
+        .iter()
+        .map(|report| {
+            json!({
+                "task_id": find_task_id(report),
+                "status": normalize_status(report),
+            })
+        })
+        .collect::<Vec<_>>();
+    let images = reports
+        .iter()
+        .flat_map(extract_urls)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let metadata = json!({"task_ids": task_ids, "tasks": tasks});
     ImageResult {
         operation: "fission".to_string(),
         status: status.to_string(),
         task_id,
-        images: extract_urls(&metadata),
+        images,
         metadata,
     }
 }
@@ -95,6 +121,11 @@ fn group_status(reports: &[Value]) -> &'static str {
     let statuses = reports.iter().map(normalize_status).collect::<Vec<_>>();
     if statuses.iter().all(|status| status == "succeeded") {
         "succeeded"
+    } else if statuses
+        .iter()
+        .any(|status| matches!(status.as_str(), "succeeded" | "partial"))
+    {
+        "partial"
     } else if statuses
         .iter()
         .any(|status| matches!(status.as_str(), "queued" | "running"))

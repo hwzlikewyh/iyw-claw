@@ -5,19 +5,14 @@ use serde_json::{json, Map, Value};
 use super::input::PreparedImage;
 use super::result::{find_task_id, result_from_value, TERMINAL};
 use super::validation::validate_payload;
-use super::{invalid, ImageRequest, ImageResult, IywGatewayService};
+use super::{invalid, ImageExecution, ImageRequest, ImageResult, IywGatewayService};
 
 pub(super) async fn generate(
     service: &IywGatewayService,
-    request: &ImageRequest,
-    kind: &str,
-    images: &[PreparedImage],
+    execution: ImageExecution<'_>,
 ) -> Result<ImageResult, rmcp::ErrorData> {
-    let operation = operation_for(kind)?;
-    let mut payload = request.parameters.clone();
-    inject_prompt(&mut payload, request.prompt.as_deref());
-    inject_images(&mut payload, kind, images);
-    validate_payload(kind, &mut payload)?;
+    let operation = operation_for(execution.kind)?;
+    let payload = prepare_payload(execution.request, execution.kind, execution.images)?;
     let created = service
         .post_gateway(
             "/ai-application/api/commerce",
@@ -25,7 +20,28 @@ pub(super) async fn generate(
             Value::Object(payload),
         )
         .await?;
-    wait_for_task(service, &operation, created, &request.wait).await
+    wait_for_task(service, &operation, created, &execution.request.wait).await
+}
+
+pub(super) fn validate_request(
+    request: &ImageRequest,
+    kind: &str,
+    images: &[PreparedImage],
+) -> Result<(), rmcp::ErrorData> {
+    prepare_payload(request, kind, images).map(|_| ())
+}
+
+fn prepare_payload(
+    request: &ImageRequest,
+    kind: &str,
+    images: &[PreparedImage],
+) -> Result<Map<String, Value>, rmcp::ErrorData> {
+    operation_for(kind)?;
+    let mut payload = request.parameters.clone();
+    inject_prompt(&mut payload, request.prompt.as_deref());
+    inject_images(&mut payload, kind, images);
+    validate_payload(kind, &mut payload)?;
+    Ok(payload)
 }
 
 fn operation_for(kind: &str) -> Result<String, rmcp::ErrorData> {

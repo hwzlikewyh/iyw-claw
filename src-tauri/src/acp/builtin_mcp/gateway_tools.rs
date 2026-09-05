@@ -69,70 +69,126 @@ fn invoke_tool() -> Value {
 fn image_tool() -> Value {
     json!({
         "name": IMAGE_TOOL,
-        "description": "Generate or edit an IYW image in one call. Use type=auto when the Agent should choose the shortest route: no input image uses ordinary generation, one image uses variation, multiple images use mix, explicit series uses extend, and explicit specialized work uses the named type. HTTPS image URLs are submitted directly; Data URLs, raw base64, and workspace-local files are uploaded by the host without checkImage. The host waits for a terminal result and returns public result URLs. Put every operation-specific parameter under parameters; do not invent endpoint names or retry a charged task.",
+        "description": "Generate or edit IYW images in one call. Use the existing single-task fields for one task, or requests for up to eight tasks with independent types, prompts, images, parameters, waits, and counts. count intentionally starts multiple charged executions and is never an automatic retry. A batch is fully validated before execution, continues after runtime item failures, returns partial results in input order, and registers every successful result URL together. Use type=auto for the shortest route. Put operation-specific parameters under parameters; never combine count with parameters.n or parameters.batchSize.",
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "type": {
-                    "type": "string",
-                    "enum": [
-                        "auto", "generate", "edit", "variation", "extend", "mix",
-                        "fission", "pattern-apply", "free-imitation", "material-product",
-                        "ip-apply", "outpaint", "super-resolution", "split-layers",
-                        "separate-layers", "enhance", "extract-pattern", "repeat-horizontal",
-                        "convert", "line-extraction", "color-transfer", "image-to-3d",
-                        "video", "model-scene", "background"
-                    ],
-                    "default": "auto"
-                },
-                "prompt": {"type": "string", "maxLength": 12000},
-                "images": {
-                    "type": "array",
-                    "minItems": 0,
-                    "maxItems": 10,
-                    "items": {
-                        "oneOf": [
-                            {"type": "string", "minLength": 1},
-                            {
-                                "type": "object",
-                                "properties": {
-                                    "url": {"type": "string", "minLength": 1},
-                                    "path": {"type": "string", "minLength": 1},
-                                    "base64": {"type": "string", "minLength": 1},
-                                    "data": {"type": "string", "minLength": 1},
-                                    "mimeType": {"type": "string", "minLength": 1},
-                                    "role": {"type": "string", "maxLength": 64},
-                                    "name": {"type": "string", "maxLength": 255}
-                                },
-                                "additionalProperties": false
-                            }
-                        ]
-                    }
-                },
-                "parameters": {"type": "object", "additionalProperties": true},
-                "wait": {
+            "oneOf": [single_image_schema(), batch_image_schema()]
+        }
+    })
+}
+
+fn single_image_schema() -> Value {
+    let mut schema = image_request_schema(false);
+    schema["properties"]["delivery"] = delivery_schema();
+    schema
+}
+
+fn batch_image_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["requests"],
+        "properties": {
+            "requests": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 8,
+                "items": image_request_schema(true)
+            },
+            "delivery": delivery_schema()
+        },
+        "additionalProperties": false
+    })
+}
+
+fn image_request_schema(include_id: bool) -> Value {
+    let mut properties = json!({
+        "type": image_type_schema(),
+        "prompt": {"type": "string", "maxLength": 12000},
+        "images": image_sources_schema(),
+        "parameters": {"type": "object", "additionalProperties": true},
+        "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4,
+            "default": 1,
+            "description": "Intentional execution count. Do not combine with parameters.n or parameters.batchSize."
+        },
+        "wait": wait_schema()
+    });
+    if include_id {
+        properties["id"] = json!({"type": "string", "minLength": 1, "maxLength": 64});
+    }
+    json!({
+        "type": "object",
+        "properties": properties,
+        "additionalProperties": false
+    })
+}
+
+fn image_type_schema() -> Value {
+    json!({
+        "type": "string",
+        "enum": [
+            "auto", "generate", "edit", "variation", "extend", "mix",
+            "fission", "pattern-apply", "free-imitation", "material-product",
+            "ip-apply", "outpaint", "super-resolution", "split-layers",
+            "separate-layers", "enhance", "extract-pattern", "repeat-horizontal",
+            "convert", "line-extraction", "color-transfer", "image-to-3d",
+            "video", "model-scene", "background"
+        ],
+        "default": "auto"
+    })
+}
+
+fn image_sources_schema() -> Value {
+    json!({
+        "type": "array",
+        "minItems": 0,
+        "maxItems": 10,
+        "items": {
+            "oneOf": [
+                {"type": "string", "minLength": 1},
+                {
                     "type": "object",
                     "properties": {
-                        "timeoutSeconds": {"type": "integer", "minimum": 0, "maximum": 600, "default": 180},
-                        "pollIntervalSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 30, "default": 2}
-                    },
-                    "additionalProperties": false
-                },
-                "delivery": {
-                    "type": "object",
-                    "properties": {
-                        "display": {
-                            "type": "boolean",
-                            "default": false,
-                            "description": "Compatibility option. Result URLs are registered directly and are never downloaded by the host."
-                        },
-                        "registerArtifact": {"type": "boolean", "default": true}
+                        "url": {"type": "string", "minLength": 1},
+                        "path": {"type": "string", "minLength": 1},
+                        "base64": {"type": "string", "minLength": 1},
+                        "data": {"type": "string", "minLength": 1},
+                        "mimeType": {"type": "string", "minLength": 1},
+                        "role": {"type": "string", "maxLength": 64},
+                        "name": {"type": "string", "maxLength": 255}
                     },
                     "additionalProperties": false
                 }
-            },
-            "additionalProperties": false
+            ]
         }
+    })
+}
+
+fn wait_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "timeoutSeconds": {"type": "integer", "minimum": 0, "maximum": 600, "default": 180},
+            "pollIntervalSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 30, "default": 2}
+        },
+        "additionalProperties": false
+    })
+}
+
+fn delivery_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "display": {
+                "type": "boolean",
+                "default": false,
+                "description": "Compatibility option. Result URLs are registered directly and are never downloaded by the host."
+            },
+            "registerArtifact": {"type": "boolean", "default": true}
+        },
+        "additionalProperties": false
     })
 }
 

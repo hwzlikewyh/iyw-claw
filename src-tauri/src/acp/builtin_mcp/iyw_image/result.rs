@@ -38,12 +38,17 @@ pub(super) fn result_from_value(
     value: Value,
     task_id: Option<String>,
 ) -> ImageResult {
+    let status = normalize_status(&value);
+    let task_id = task_id.or_else(|| find_task_id(&value));
     ImageResult {
         operation: operation.to_string(),
-        status: normalize_status(&value),
-        task_id: task_id.or_else(|| find_task_id(&value)),
+        status: status.clone(),
+        task_id: task_id.clone(),
         images: extract_urls(&value),
-        metadata: value,
+        metadata: serde_json::json!({
+            "status": status,
+            "task_id": task_id,
+        }),
     }
 }
 

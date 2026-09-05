@@ -3261,6 +3261,8 @@
         "processCompletedWithoutDuration": "已完成",
         "processCount": "{count} 项",
         "processHasErrors": "包含错误",
+        "imageArtifactRegistrationFailed": "图片已生成，但成果登记失败",
+        "imageArtifactRegistrationPartial": "部分图片成果登记失败",
         "processSummary": "执行过程 · {count} 项",
         "processWithErrors": "执行过程 · {count} 项 · 包含错误",
         "processDetails": "查看过程",

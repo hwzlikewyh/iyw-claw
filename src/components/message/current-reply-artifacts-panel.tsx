@@ -1,16 +1,19 @@
 "use client"
 
-import { type ReactNode, useState } from "react"
+import { type ReactNode, useMemo, useState } from "react"
 import { AlertCircle, PackageOpen } from "lucide-react"
 import { useTranslations } from "next-intl"
 
-import { TaskArtifactDialog } from "@/components/layout/task-artifact-dialog"
 import { TaskArtifactTypeIcon } from "@/components/layout/task-artifact-type-icon"
 import { artifactVisualKind } from "@/components/layout/task-artifact-type"
 import { Button } from "@/components/ui/button"
 import type { TaskArtifactInfo } from "@/lib/api"
 
-import { CurrentReplyArtifactsDialog } from "./current-reply-artifacts-dialog"
+import { CurrentReplyArtifactDialogs } from "./current-reply-artifact-dialogs"
+import {
+  CompactReplyImageStrip,
+  isRemoteImageArtifact,
+} from "./current-reply-image-artifacts"
 
 const VISIBLE_ARTIFACT_COUNT = 4
 
@@ -19,48 +22,103 @@ export function CurrentReplyArtifactsPanel({
 }: {
   items: TaskArtifactInfo[]
 }) {
-  const [selected, setSelected] = useState<TaskArtifactInfo | null>(null)
-  const [allOpen, setAllOpen] = useState(false)
-  const visibleItems = items.slice(0, VISIBLE_ARTIFACT_COUNT)
-
+  const state = useArtifactPanelState(items)
   return (
     <ArtifactPanelSurface
       items={items}
-      visibleItems={visibleItems}
-      onSelect={setSelected}
-      onViewAll={() => setAllOpen(true)}
+      visibleImages={state.visibleImages}
+      visibleArtifacts={state.visibleArtifacts}
+      imageRemaining={state.imageRemaining}
+      remaining={state.remaining}
+      onSelect={state.select}
+      onViewAll={state.viewAll}
+      onViewAllImages={state.viewAllImages}
     >
-      <TaskArtifactDialog
-        artifact={selected}
-        open={selected !== null}
-        onOpenChange={(open) => !open && setSelected(null)}
+      <CurrentReplyArtifactDialogs
+        items={items}
+        selected={state.selected}
+        selectedImage={state.selectedImage}
+        imageItems={state.imageItems}
+        imageIndex={state.imageIndex}
+        allOpen={state.allOpen}
+        onSelectArtifact={state.setSelected}
+        onSelectImage={state.setSelectedImageId}
+        onOpenAllChange={state.setAllOpen}
       />
-      {allOpen && (
-        <CurrentReplyArtifactsDialog
-          items={items}
-          open
-          onOpenChange={setAllOpen}
-        />
-      )}
     </ArtifactPanelSurface>
   )
 }
 
+function useArtifactPanelState(items: TaskArtifactInfo[]) {
+  const [selected, setSelected] = useState<TaskArtifactInfo | null>(null)
+  const [selectedImageId, setSelectedImageId] = useState<number | null>(null)
+  const [allOpen, setAllOpen] = useState(false)
+  const imageItems = useMemo(() => items.filter(isRemoteImageArtifact), [items])
+  const artifactItems = useMemo(
+    () => items.filter((item) => !isRemoteImageArtifact(item)),
+    [items]
+  )
+  const visibleImages = imageItems.slice(0, VISIBLE_ARTIFACT_COUNT)
+  const visibleArtifacts = artifactItems.slice(0, VISIBLE_ARTIFACT_COUNT)
+  const imageRemaining = imageItems.length - visibleImages.length
+  const remaining =
+    imageRemaining + artifactItems.length - visibleArtifacts.length
+  const imageIndex = imageItems.findIndex((item) => item.id === selectedImageId)
+  const selectedImage = imageIndex >= 0 ? imageItems[imageIndex] : null
+
+  const select = (item: TaskArtifactInfo) => {
+    if (isRemoteImageArtifact(item)) {
+      setSelectedImageId(item.id)
+    } else {
+      setSelected(item)
+    }
+  }
+
+  const viewAllImages = () => {
+    const firstHiddenImage = imageItems[VISIBLE_ARTIFACT_COUNT]
+    if (firstHiddenImage) setSelectedImageId(firstHiddenImage.id)
+  }
+  return {
+    selected,
+    setSelected,
+    setSelectedImageId,
+    allOpen,
+    setAllOpen,
+    visibleImages,
+    visibleArtifacts,
+    imageRemaining,
+    remaining,
+    imageItems,
+    imageIndex,
+    selectedImage,
+    select,
+    viewAll: () => setAllOpen(true),
+    viewAllImages,
+  }
+}
+
 function ArtifactPanelSurface({
   items,
-  visibleItems,
+  visibleImages,
+  visibleArtifacts,
+  imageRemaining,
+  remaining,
   onSelect,
   onViewAll,
+  onViewAllImages,
   children,
 }: {
   items: TaskArtifactInfo[]
-  visibleItems: TaskArtifactInfo[]
+  visibleImages: TaskArtifactInfo[]
+  visibleArtifacts: TaskArtifactInfo[]
+  imageRemaining: number
+  remaining: number
   onSelect: (item: TaskArtifactInfo) => void
   onViewAll: () => void
+  onViewAllImages: () => void
   children: ReactNode
 }) {
   const t = useTranslations("Folder.taskArtifacts")
-  const remaining = items.length - visibleItems.length
 
   return (
     <section
@@ -72,12 +130,26 @@ function ArtifactPanelSurface({
         remaining={remaining}
         onViewAll={onViewAll}
       />
-      <div className="max-w-full overflow-x-auto overscroll-x-contain pb-1">
-        <div className="grid min-w-[49.5rem] grid-cols-4 gap-2">
-          {visibleItems.map((item) => (
-            <ArtifactTile key={item.id} item={item} onSelect={onSelect} />
-          ))}
-        </div>
+      <div className="space-y-2">
+        {visibleImages.length > 0 && (
+          <div className="max-w-full overflow-x-auto overscroll-x-contain pb-1">
+            <CompactReplyImageStrip
+              items={visibleImages}
+              remaining={imageRemaining}
+              onSelect={onSelect}
+              onViewAll={onViewAllImages}
+            />
+          </div>
+        )}
+        {visibleArtifacts.length > 0 && (
+          <div className="max-w-full overflow-x-auto overscroll-x-contain pb-1">
+            <div className="grid min-w-[49.5rem] grid-cols-4 gap-2">
+              {visibleArtifacts.map((item) => (
+                <ArtifactTile key={item.id} item={item} onSelect={onSelect} />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
       {children}
     </section>

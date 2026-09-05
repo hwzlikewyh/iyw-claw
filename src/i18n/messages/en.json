@@ -3261,6 +3261,8 @@
         "processCompletedWithoutDuration": "Completed",
         "processCount": "{count} items",
         "processHasErrors": "Has errors",
+        "imageArtifactRegistrationFailed": "Images were generated, but artifact registration failed",
+        "imageArtifactRegistrationPartial": "Some image artifacts could not be registered",
         "processSummary": "Process · {count} items",
         "processWithErrors": "Process · {count} items · errors included",
         "processDetails": "View process",

@@ -1,10 +1,24 @@
 "use client"
 
 import { memo, useMemo, type ReactNode } from "react"
-import { CheckCircle2, ChevronDown, ListChecks, Loader2 } from "lucide-react"
+import { ChevronDown, ListChecks, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
-import { AgentIcon } from "@/components/agent-icon"
+import {
+  AssistantIdentity,
+  CompletedProcessSummary,
+  ImageArtifactRegistrationNotice,
+} from "@/components/message/assistant-turn-status"
+import {
+  completedProcessPart,
+  countProcessItems,
+  findImageRegistrationIssue,
+  findSummaryIndex,
+  hasProcessError,
+  isFinalResultPart,
+  isLiveVisibleResultPart,
+  isReasoningPart,
+} from "@/components/message/assistant-turn-process"
 import { ContentPartsRenderer } from "@/components/message/content-parts-renderer"
 import {
   Collapsible,
@@ -14,7 +28,6 @@ import {
 import { Badge } from "@/components/ui/badge"
 import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
-import { formatElapsedLabel } from "@/lib/format-elapsed"
 import type { AgentType } from "@/lib/types"
 
 interface AssistantTurnContentProps {
@@ -28,104 +41,6 @@ interface AssistantTurnContentProps {
   autoOpenErrors: boolean
   conversationId: number
   durationMs?: number | null
-}
-
-function hasError(part: AdaptedContentPart): boolean {
-  if (part.type === "tool-call") {
-    return part.state === "output-error" || Boolean(part.errorText?.trim())
-  }
-  if (part.type === "tool-result") {
-    return part.state === "output-error" || Boolean(part.errorText?.trim())
-  }
-  if (part.type === "tool-group") return part.items.some(hasError)
-  if (part.type === "delegation-status-group") return part.polls.some(hasError)
-  if (part.type === "background-task-group") return part.polls.some(hasError)
-  if (part.type === "goal-run") {
-    return (
-      hasError(part.start) ||
-      Boolean(part.end && hasError(part.end)) ||
-      part.items.some(hasError)
-    )
-  }
-  return false
-}
-
-function countProcessItems(parts: AdaptedContentPart[]): number {
-  return parts.reduce((count, part) => {
-    if (part.type === "tool-group") return count + part.items.length
-    if (part.type === "delegation-status-group")
-      return count + part.polls.length
-    if (part.type === "background-task-group") return count + part.polls.length
-    if (part.type === "goal-run") {
-      return count + 1 + countProcessItems(part.items) + (part.end ? 1 : 0)
-    }
-    if (part.type === "text" && part.text.trim().length === 0) return count
-    return count + 1
-  }, 0)
-}
-
-function findSummaryIndex(parts: AdaptedContentPart[]): number {
-  for (let index = parts.length - 1; index >= 0; index -= 1) {
-    const part = parts[index]
-    if (part.type === "text" && part.text.trim().length > 0) return index
-  }
-  return -1
-}
-
-function isFinalResultPart(part: AdaptedContentPart): boolean {
-  return part.type === "displayed-image"
-}
-
-function isLiveVisibleResultPart(part: AdaptedContentPart): boolean {
-  return part.type === "generated-image" || isFinalResultPart(part)
-}
-
-function isReasoningPart(part: AdaptedContentPart): boolean {
-  return part.type === "reasoning"
-}
-
-function AssistantIdentity({ agentType }: { agentType: AgentType }) {
-  const t = useTranslations("Folder.chat.messageList")
-
-  return (
-    <div className="flex items-center gap-2 text-sm font-semibold">
-      <AgentIcon
-        agentType={agentType}
-        className="size-6 rounded-full bg-muted p-0.5"
-      />
-      <span>{t("assistantName")}</span>
-    </div>
-  )
-}
-
-function CompletedProcessSummary({
-  durationMs,
-  processCount,
-}: {
-  durationMs?: number | null
-  processCount: number
-}) {
-  const t = useTranslations("Folder.chat.messageList")
-  const tLive = useTranslations("Folder.chat.liveTurnStats")
-  const duration =
-    typeof durationMs === "number" && durationMs > 0
-      ? formatElapsedLabel(durationMs, tLive)
-      : null
-  const label = duration
-    ? t("processCompleted", { duration })
-    : t("processCompletedWithoutDuration")
-
-  return (
-    <span className="inline-flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-      <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-      <span>{label}</span>
-      {processCount > 0 && (
-        <span className="text-muted-foreground/70">
-          {t("processCount", { count: processCount })}
-        </span>
-      )}
-    </span>
-  )
 }
 
 function ProcessDisclosure({
@@ -194,19 +109,31 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
   const summaryParts = summaryIndex >= 0 ? [parts[summaryIndex]] : []
   const resultParts = parts.filter(isFinalResultPart)
   const reasoningParts = parts.filter(isReasoningPart)
-  const processParts = parts.filter(
-    (_, index) =>
-      index !== summaryIndex &&
-      !isFinalResultPart(parts[index]) &&
-      !isReasoningPart(parts[index])
-  )
+  const processParts = parts.flatMap((part, index) => {
+    if (
+      index === summaryIndex ||
+      isFinalResultPart(part) ||
+      isReasoningPart(part)
+    ) {
+      return []
+    }
+    if (!isResponseComplete) return [part]
+    const visible = completedProcessPart(part)
+    return visible ? [visible] : []
+  })
   const processCount = useMemo(
     () => countProcessItems(processParts),
     [processParts]
   )
   const processHasError = useMemo(
-    () => processParts.some(hasError),
-    [processParts]
+    () =>
+      processParts.some(hasProcessError) ||
+      (isResponseComplete && parts.some(hasProcessError)),
+    [isResponseComplete, parts, processParts]
+  )
+  const registrationIssue = useMemo(
+    () => findImageRegistrationIssue(parts),
+    [parts]
   )
 
   const renderParts = (nextParts: AdaptedContentPart[], key: string) => (
@@ -278,7 +205,11 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
         <CompletedProcessSummary
           durationMs={durationMs}
           processCount={processCount}
+          hasError={processHasError}
         />
+      )}
+      {registrationIssue && (
+        <ImageArtifactRegistrationNotice state={registrationIssue} />
       )}
 
       {reasoningParts.length > 0 &&
