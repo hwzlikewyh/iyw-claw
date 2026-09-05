@@ -3392,6 +3392,10 @@ pub async fn workspace_file_exists(
     root_path: String,
     path: String,
 ) -> Result<bool, AppCommandError> {
+    run_file_io(move || workspace_file_exists_sync(root_path, path)).await
+}
+
+fn workspace_file_exists_sync(root_path: String, path: String) -> Result<bool, AppCommandError> {
     let root = PathBuf::from(&root_path);
     if !root.is_dir() {
         return Ok(false);
