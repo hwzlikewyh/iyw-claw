@@ -2963,6 +2963,10 @@ pub struct DirectoryEntry {
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn list_directory_entries(path: String) -> Result<Vec<DirectoryEntry>, AppCommandError> {
+    run_file_io(move || list_directory_entries_sync(path)).await
+}
+
+fn list_directory_entries_sync(path: String) -> Result<Vec<DirectoryEntry>, AppCommandError> {
     let root = PathBuf::from(&path);
     if !root.is_dir() {
         return Err(AppCommandError::io_error("Path is not a directory").with_detail(path));
