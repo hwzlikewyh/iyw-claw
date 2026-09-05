@@ -1,4 +1,22 @@
 #[cfg(feature = "tauri-runtime")]
+mod agent_browser;
+#[cfg(feature = "tauri-runtime")]
+mod agent_browser_handoff;
+#[cfg(feature = "tauri-runtime")]
+mod agent_browser_handoff_state;
+#[cfg(feature = "tauri-runtime")]
+mod agent_browser_input;
+#[cfg(feature = "tauri-runtime")]
+mod agent_browser_provider_actions;
+#[cfg(feature = "tauri-runtime")]
+mod agent_browser_request;
+#[cfg(feature = "tauri-runtime")]
+mod agent_browser_request_support;
+#[cfg(feature = "tauri-runtime")]
+mod agent_browser_route;
+#[cfg(all(test, feature = "tauri-runtime"))]
+mod agent_browser_tests;
+#[cfg(feature = "tauri-runtime")]
 mod agent_tool_actions;
 #[cfg(feature = "tauri-runtime")]
 mod agent_tool_cancellation;
@@ -54,6 +72,10 @@ mod manager_idle;
 mod manager_recovery;
 #[cfg(feature = "tauri-runtime")]
 mod manager_runtime;
+#[cfg(feature = "tauri-runtime")]
+mod opencli;
+#[cfg(feature = "tauri-runtime")]
+mod opencli_failure;
 #[cfg(feature = "tauri-runtime")]
 mod process;
 #[cfg(feature = "tauri-runtime")]
@@ -131,6 +153,7 @@ pub use types::*;
 pub use types_cdp::*;
 
 pub const BROWSER_AGENT_TOOL_NAMES: &[&str] = &[
+    "browser",
     "browser_list_tabs",
     "browser_open",
     "browser_read",

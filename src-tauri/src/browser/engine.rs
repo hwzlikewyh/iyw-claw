@@ -1,16 +1,13 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-#[cfg(not(target_os = "windows"))]
 use std::time::Duration;
 
-#[cfg(not(target_os = "windows"))]
 use tokio::process::Command;
 
 use super::error::{BrowserError, BrowserErrorCode};
-#[cfg(not(target_os = "windows"))]
 use super::process::configure_hidden_process;
 use super::types::{BrowserEngineKind, BrowserEngineSummary};
 
-#[cfg(not(target_os = "windows"))]
 const ENGINE_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
@@ -31,21 +28,157 @@ impl BrowserEngine {
 }
 
 pub(super) async fn detect_engine(data_root: &Path) -> Result<BrowserEngine, BrowserError> {
-    if let Some((path, version)) =
+    if let Some((path, marker_version)) =
         crate::acp::version_center::managed_browser_engine_installation(data_root).await
     {
-        return Ok(BrowserEngine {
-            kind: BrowserEngineKind::Chromium,
-            version,
-            path,
-            profile_source: None,
-        });
+        if let Some(engine) = probe_engine(BrowserEngineKind::Chromium, path.clone(), None).await {
+            return Ok(engine);
+        }
+        tracing::warn!(
+            target: "iyw_claw_browser",
+            path = %path.display(),
+            marker_version = %marker_version,
+            "managed browser engine failed its startup probe; trying fallback engines"
+        );
     }
     #[cfg(target_os = "windows")]
-    if let Some(engine) = super::engine_download::detect_cached_engine(data_root).await {
+    if let Some(engine) = probe_engine(
+        BrowserEngineKind::Chromium,
+        super::engine_download::managed_engine_path(data_root),
+        None,
+    )
+    .await
+    {
         return Ok(engine);
     }
+    for (kind, path) in system_engine_candidates() {
+        if let Some(engine) = probe_engine(kind, path, None).await {
+            return Ok(engine);
+        }
+    }
     Err(managed_engine_not_found())
+}
+
+fn system_engine_candidates() -> Vec<(BrowserEngineKind, PathBuf)> {
+    let mut candidates = Vec::new();
+    #[cfg(target_os = "windows")]
+    push_windows_candidates(&mut candidates);
+    #[cfg(target_os = "macos")]
+    push_macos_candidates(&mut candidates);
+    #[cfg(target_os = "linux")]
+    push_linux_candidates(&mut candidates);
+    let mut seen = HashSet::new();
+    candidates.retain(|(_, path)| seen.insert(path.to_string_lossy().to_ascii_lowercase()));
+    candidates
+}
+
+#[cfg(target_os = "windows")]
+fn push_windows_candidates(candidates: &mut Vec<(BrowserEngineKind, PathBuf)>) {
+    let roots = [
+        std::env::var_os("PROGRAMFILES"),
+        std::env::var_os("PROGRAMFILES(X86)"),
+        std::env::var_os("LOCALAPPDATA"),
+    ];
+    let browsers = [
+        (
+            BrowserEngineKind::Chrome,
+            "Google/Chrome/Application/chrome.exe",
+        ),
+        (
+            BrowserEngineKind::Edge,
+            "Microsoft/Edge/Application/msedge.exe",
+        ),
+        (
+            BrowserEngineKind::Brave,
+            "BraveSoftware/Brave-Browser/Application/brave.exe",
+        ),
+        (
+            BrowserEngineKind::Vivaldi,
+            "Vivaldi/Application/vivaldi.exe",
+        ),
+        (BrowserEngineKind::Opera, "Opera/launcher.exe"),
+        (
+            BrowserEngineKind::Chromium,
+            "Chromium/Application/chrome.exe",
+        ),
+    ];
+    for root in roots.into_iter().flatten().map(PathBuf::from) {
+        for (kind, relative) in browsers {
+            candidates.push((kind, root.join(relative)));
+        }
+    }
+    for root in std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+    {
+        for (kind, relative) in browsers {
+            candidates.push((kind, root.join(relative)));
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn push_macos_candidates(candidates: &mut Vec<(BrowserEngineKind, PathBuf)>) {
+    let roots = [
+        Some(PathBuf::from("/Applications")),
+        dirs::home_dir().map(|home| home.join("Applications")),
+    ];
+    let browsers = [
+        (
+            BrowserEngineKind::Chrome,
+            "Google Chrome.app/Contents/MacOS/Google Chrome",
+        ),
+        (
+            BrowserEngineKind::Edge,
+            "Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        ),
+        (
+            BrowserEngineKind::Brave,
+            "Brave Browser.app/Contents/MacOS/Brave Browser",
+        ),
+        (
+            BrowserEngineKind::Vivaldi,
+            "Vivaldi.app/Contents/MacOS/Vivaldi",
+        ),
+        (BrowserEngineKind::Opera, "Opera.app/Contents/MacOS/Opera"),
+        (
+            BrowserEngineKind::Chromium,
+            "Chromium.app/Contents/MacOS/Chromium",
+        ),
+    ];
+    for root in roots.into_iter().flatten() {
+        for (kind, relative) in browsers {
+            candidates.push((kind, root.join(relative)));
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn push_linux_candidates(candidates: &mut Vec<(BrowserEngineKind, PathBuf)>) {
+    let browsers = [
+        (BrowserEngineKind::Chrome, "google-chrome"),
+        (BrowserEngineKind::Chrome, "google-chrome-stable"),
+        (BrowserEngineKind::Edge, "microsoft-edge"),
+        (BrowserEngineKind::Edge, "microsoft-edge-stable"),
+        (BrowserEngineKind::Brave, "brave-browser"),
+        (BrowserEngineKind::Vivaldi, "vivaldi"),
+        (BrowserEngineKind::Opera, "opera"),
+        (BrowserEngineKind::Chromium, "chromium"),
+        (BrowserEngineKind::Chromium, "chromium-browser"),
+    ];
+    let mut directories = std::env::var_os("PATH")
+        .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+        .unwrap_or_default();
+    directories.extend([
+        PathBuf::from("/usr/bin"),
+        PathBuf::from("/usr/local/bin"),
+        PathBuf::from("/snap/bin"),
+    ]);
+    for directory in directories {
+        for (kind, name) in browsers {
+            candidates.push((kind, directory.join(name)));
+        }
+    }
 }
 
 pub(super) async fn probe_engine(
@@ -60,12 +193,28 @@ pub(super) async fn probe_engine(
     let version = windows_file_version(&path)?;
     #[cfg(not(target_os = "windows"))]
     let version = executable_version(&path).await?;
+    #[cfg(target_os = "windows")]
+    if !process_starts(&path).await {
+        return None;
+    }
     Some(BrowserEngine {
         kind,
         version,
         path,
         profile_source,
     })
+}
+
+#[cfg(target_os = "windows")]
+async fn process_starts(path: &Path) -> bool {
+    let mut command = Command::new(path);
+    command.arg("--version");
+    configure_hidden_process(&mut command);
+    tokio::time::timeout(ENGINE_PROBE_TIMEOUT, command.output())
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .is_some_and(|output| output.status.success())
 }
 
 #[cfg(not(target_os = "windows"))]

@@ -809,6 +809,7 @@ function getToolIcon(
   if (
     name === "webfetch" ||
     name === "websearch" ||
+    name === "browser" ||
     name === "browser_read" ||
     name === "browser_command"
   )

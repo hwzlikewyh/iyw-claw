@@ -3532,6 +3532,7 @@
           "create_scheduled_task": "Create scheduled task",
           "update_scheduled_task": "Update scheduled task",
           "delete_scheduled_task": "Delete scheduled task",
+          "browser": "Use browser",
           "browser_list_tabs": "List browser tabs",
           "browser_open": "Open browser page",
           "browser_snapshot": "Read browser page",

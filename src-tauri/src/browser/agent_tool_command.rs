@@ -14,7 +14,7 @@ use super::manager::BrowserSessionManager;
 const MAX_ARGUMENTS: usize = 48;
 const MAX_ARGUMENT_CHARS: usize = 8_192;
 const MAX_TOTAL_ARGUMENT_CHARS: usize = 64 * 1_024;
-const MAX_COMMAND_TIMEOUT_MS: u64 = 120_000;
+const MAX_COMMAND_TIMEOUT_MS: u64 = 300_000;
 
 const RESERVED_GLOBAL_ARGUMENTS: &[&str] = &[
     "--action-policy",

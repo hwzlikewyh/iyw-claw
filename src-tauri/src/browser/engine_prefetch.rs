@@ -72,71 +72,28 @@ impl BrowserEnginePrefetch {
         &self,
         cancellation: CancellationToken,
     ) -> Result<PathBuf, BrowserError> {
-        if let Ok(engine) = super::engine::detect_engine(&self.data_root).await {
+        if let Some(path) = self.detect_ready_engine().await {
             self.mark_ready().await;
-            return Ok(engine.path);
+            return Ok(path);
         }
         let mut state_change = self.state_change.subscribe();
         loop {
-            let current_state = *self.state.lock().await;
-            if current_state == PrefetchState::Ready {
-                if let Ok(engine) = super::engine::detect_engine(&self.data_root).await {
-                    return Ok(engine.path);
-                }
-            }
-            if current_state == PrefetchState::Failed {
+            if *self.state.lock().await == PrefetchState::Failed {
                 if let Some(error) = self.cached_failure().await {
                     return Err(error);
                 }
             }
-            let should_install = {
-                let mut state = self.state.lock().await;
-                if *state == PrefetchState::Running {
-                    false
-                } else {
-                    *state = PrefetchState::Running;
-                    self.state_change.send_replace(PrefetchState::Running);
-                    true
-                }
-            };
-            if should_install {
+            if self.claim_install().await {
                 let result = self.install(cancellation.clone()).await;
-                if let Err(error) = &result {
-                    *self.last_failure.lock().await = Some(PrefetchFailure {
-                        occurred_at: Instant::now(),
-                        error: error.clone(),
-                    });
-                } else {
-                    *self.last_failure.lock().await = None;
-                }
-                let state = if result.is_ok() {
-                    PrefetchState::Ready
-                } else {
-                    PrefetchState::Failed
-                };
-                *self.state.lock().await = state;
-                self.state_change.send_replace(state);
+                self.record_install_result(&result).await;
                 return result;
             }
-            tokio::select! {
-                _ = cancellation.cancelled() => return Err(BrowserError::shutting_down()),
-                changed = state_change.changed() => {
-                    if changed.is_err() {
-                        return Err(engine_unavailable());
-                    }
-                }
+            wait_for_install(&mut state_change, &cancellation).await?;
+            if let Some(path) = self.detect_ready_engine().await {
+                return Ok(path);
             }
-            if let Ok(engine) = super::engine::detect_engine(&self.data_root).await {
-                return Ok(engine.path);
-            }
-            if matches!(*self.state.lock().await, PrefetchState::Failed) {
-                return Err(self
-                    .last_failure
-                    .lock()
-                    .await
-                    .as_ref()
-                    .map(|failure| failure.error.clone())
-                    .unwrap_or_else(engine_unavailable));
+            if let Some(error) = self.failed_result().await {
+                return Err(error);
             }
         }
     }
@@ -152,17 +109,7 @@ impl BrowserEnginePrefetch {
             )
             .retryable(true));
         };
-        let channel = crate::update::preferences::load(&conn)
-            .await
-            .map(|prefs| prefs.channel.as_str().to_string())
-            .unwrap_or_else(|error| {
-                tracing::info!(
-                    target: "iyw_claw_browser",
-                    error = %error,
-                    "browser engine prefetch could not read update channel; using stable"
-                );
-                "stable".to_string()
-            });
+        let channel = self.install_channel(&conn).await;
         let managed_result = install_managed_tool(
             &conn,
             &self.data_root,
@@ -194,6 +141,13 @@ impl BrowserEnginePrefetch {
                 return Err(map_install_error(error));
             }
         }
+        self.detect_or_fallback(cancellation).await
+    }
+
+    async fn detect_or_fallback(
+        &self,
+        cancellation: CancellationToken,
+    ) -> Result<PathBuf, BrowserError> {
         if let Ok(engine) = super::engine::detect_engine(&self.data_root).await {
             return Ok(engine.path);
         }
@@ -205,6 +159,69 @@ impl BrowserEnginePrefetch {
         }
         #[cfg(not(target_os = "windows"))]
         Err(engine_unavailable())
+    }
+
+    async fn detect_ready_engine(&self) -> Option<PathBuf> {
+        super::engine::detect_engine(&self.data_root)
+            .await
+            .ok()
+            .map(|engine| engine.path)
+    }
+
+    async fn claim_install(&self) -> bool {
+        let mut state = self.state.lock().await;
+        if *state == PrefetchState::Running {
+            return false;
+        }
+        *state = PrefetchState::Running;
+        self.state_change.send_replace(PrefetchState::Running);
+        true
+    }
+
+    async fn record_install_result(&self, result: &Result<PathBuf, BrowserError>) {
+        if let Err(error) = result {
+            *self.last_failure.lock().await = Some(PrefetchFailure {
+                occurred_at: Instant::now(),
+                error: error.clone(),
+            });
+        } else {
+            *self.last_failure.lock().await = None;
+        }
+        let state = if result.is_ok() {
+            PrefetchState::Ready
+        } else {
+            PrefetchState::Failed
+        };
+        *self.state.lock().await = state;
+        self.state_change.send_replace(state);
+    }
+
+    async fn failed_result(&self) -> Option<BrowserError> {
+        if !matches!(*self.state.lock().await, PrefetchState::Failed) {
+            return None;
+        }
+        Some(
+            self.last_failure
+                .lock()
+                .await
+                .as_ref()
+                .map(|failure| failure.error.clone())
+                .unwrap_or_else(engine_unavailable),
+        )
+    }
+
+    async fn install_channel(&self, conn: &DatabaseConnection) -> String {
+        crate::update::preferences::load(conn)
+            .await
+            .map(|prefs| prefs.channel.as_str().to_string())
+            .unwrap_or_else(|error| {
+                tracing::info!(
+                    target: "iyw_claw_browser",
+                    error = %error,
+                    "browser engine prefetch could not read update channel; using stable"
+                );
+                "stable".to_string()
+            })
     }
 
     async fn mark_ready(&self) {
@@ -219,6 +236,16 @@ impl BrowserEnginePrefetch {
             _ => FAILURE_RETRY_DELAY,
         };
         (failure.occurred_at.elapsed() < retry_delay).then_some(failure.error)
+    }
+}
+
+async fn wait_for_install(
+    state_change: &mut tokio::sync::watch::Receiver<PrefetchState>,
+    cancellation: &CancellationToken,
+) -> Result<(), BrowserError> {
+    tokio::select! {
+        _ = cancellation.cancelled() => Err(BrowserError::shutting_down()),
+        changed = state_change.changed() => changed.map_err(|_| engine_unavailable()),
     }
 }
 

@@ -29,7 +29,19 @@ const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
 /// Node the failure surfaces as a bare `SyntaxError` from
 /// `internal/modules/esm/translators.js` that names neither Node nor its
 /// version, so the floor is checked up front instead.
-const MIN_NODE_MAJOR: u32 = 18;
+const MIN_NODE_MAJOR: u32 = 20;
+
+/// A bounded result from one managed OpenCLI invocation.
+///
+/// Browser MCP code consumes this instead of reaching into the npm layout or
+/// duplicating the private runtime environment setup.
+#[derive(Debug, Clone)]
+pub(crate) struct OpencliExecution {
+    pub success: bool,
+    pub exit_code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
 
 fn bootstrap_marker_content() -> String {
     format!("agent-reach={AGENT_REACH_VERSION}\nopencli={OPENCLI_VERSION}\n")
@@ -77,6 +89,46 @@ fn opencli_command_path(paths: &AgentStoragePaths) -> PathBuf {
         "opencli"
     };
     npm_runtime::npm_prefix_bin_dir(&opencli_prefix(paths)).join(name)
+}
+
+pub(crate) fn opencli_is_installed() -> bool {
+    AgentStoragePaths::active()
+        .map(|paths| opencli_command_path(&paths).is_file())
+        .unwrap_or(false)
+}
+
+pub(crate) fn allocate_opencli_screenshot_path() -> Result<PathBuf, String> {
+    let paths =
+        AgentStoragePaths::active().ok_or_else(|| "Agent storage is not active".to_string())?;
+    let directory = paths.downloads_dir().join("browser-screenshots");
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("failed to prepare OpenCLI screenshot storage: {error}"))?;
+    Ok(directory.join(format!("opencli-{}.png", uuid::Uuid::new_v4().simple())))
+}
+
+pub(crate) async fn run_opencli(
+    args: &[String],
+    timeout: Duration,
+) -> Result<OpencliExecution, String> {
+    let paths =
+        AgentStoragePaths::active().ok_or_else(|| "Agent storage is not active".to_string())?;
+    let path = opencli_command_path(&paths);
+    if !path.is_file() {
+        return Err("OpenCLI is not installed".to_string());
+    }
+    let mut command = crate::process::tokio_command(path);
+    command
+        .args(args)
+        .env("OPENCLI_WINDOW", "background")
+        .envs(private_tool_environment_for(&paths));
+    apply_managed_node_path(&mut command);
+    let output = run_tool_output(command, "OpenCLI browser command", timeout).await?;
+    Ok(OpencliExecution {
+        success: output.status.success(),
+        exit_code: output.status.code(),
+        stdout: bounded_tool_text(&output.stdout),
+        stderr: bounded_tool_text(&output.stderr),
+    })
 }
 
 fn npm_tool_command_path(paths: &AgentStoragePaths, command: &str) -> PathBuf {
@@ -358,6 +410,16 @@ fn output_text(output: &std::process::Output) -> String {
         return stdout;
     }
     String::from_utf8_lossy(&output.stderr).trim().to_string()
+}
+
+fn bounded_tool_text(bytes: &[u8]) -> String {
+    const MAX_TOOL_OUTPUT_CHARS: usize = 64 * 1024;
+    let text = String::from_utf8_lossy(bytes);
+    if text.chars().count() <= MAX_TOOL_OUTPUT_CHARS {
+        return text.into_owned();
+    }
+    let truncated = text.chars().take(MAX_TOOL_OUTPUT_CHARS).collect::<String>();
+    format!("{truncated}\n[output truncated]")
 }
 
 fn parse_version(text: &str) -> Option<String> {

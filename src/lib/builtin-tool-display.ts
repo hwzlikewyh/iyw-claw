@@ -10,6 +10,7 @@ const CAPABILITY_ID_TO_TOOL: Readonly<Record<string, string>> = {
   "iyw.automation.tasks.create.v1": "create_scheduled_task",
   "iyw.automation.tasks.update.v1": "update_scheduled_task",
   "iyw.automation.tasks.delete.v1": "delete_scheduled_task",
+  "iyw.browser.unified.v1": "browser",
   "iyw.browser.tabs.list.v1": "browser_list_tabs",
   "iyw.browser.page.open.v1": "browser_open",
   "iyw.browser.page.snapshot.v1": "browser_snapshot",

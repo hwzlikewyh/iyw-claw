@@ -22,11 +22,11 @@ or public discussions.
 Before a multi-backend platform operation, run the currently installed
 `agent-reach doctor --json` only if that executable is actually available and
 the user asked for that external route. Prefer the current iyw gateway catalog
-and managed browser first. Never claim a doctor result from memory or infer an
+and unified browser capability. Never claim a doctor result from memory or infer an
 `active_backend` that was not observed.
 
-Announce the active route briefly when it matters (for example, “使用 managed
-browser 读取公开页面”); do not expose cookies, headers, keys, or internal
+Announce the active route briefly when it matters (for example, “使用统一浏览器
+路由读取公开页面”); do not expose cookies, headers, keys, or internal
 transport details.
 
 ## Platform routing

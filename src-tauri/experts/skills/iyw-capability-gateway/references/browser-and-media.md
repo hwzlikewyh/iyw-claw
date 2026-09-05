@@ -1,32 +1,33 @@
 # Browser and Media Operations
 
 Load this reference for web pages, public data, website interaction, screenshots,
-audio, transcription, or image understanding. The managed browser is shared by
-iyw-claw Agent sessions and uses the persistent signed-in profile. Use the live
-catalog for the exact stable IDs and schemas; the tool names below are guidance
-for selecting the result.
+audio, transcription, or image understanding. The unified `browser` tool checks
+both the user's connected Chrome/OpenCLI and the iyw-claw managed browser. It
+prefers OpenCLI for existing Chrome sign-in state and switches only for a
+classified human-only action. Use the live catalog for exact stable IDs and
+schemas.
 
-## Managed Browser Workflow
+## Unified Browser Workflow
 
 Use this sequence for ordinary navigation and interaction:
 
-1. **List**: search and read the browser-tab listing capability. Reuse an
-   existing `browserTabId` whenever possible; inspect `activeTabId` for the
-   default tab.
-2. **Open**: open an HTTP/HTTPS URL in the active tab. Set `new_tab: true` only
+1. **List**: call `browser` with `action=list_tabs` to inspect both providers.
+   Reuse an existing opaque tab id whenever possible.
+2. **Open**: call `browser` with `action=open` for an HTTP/HTTPS URL. Set
+   `new_tab: true` only
    when another tab is explicitly needed. Pass an exact tab ID when navigating
    a non-active tab. `about:blank` is the only non-HTTP URL allowed.
-3. **Inspect**: take a fresh accessibility `browser_snapshot` before an
+3. **Inspect**: call `browser` with `action=snapshot` before an
    action. It returns short-lived `@eN` references for interactive elements.
-   Use `browser_read` when agent-readable page text is needed; `outline` is
+   Use `browser` with `action=read` when agent-readable page text is needed; `outline` is
    useful for headings and `filter` narrows large pages. Use `raw` only when
    the response body itself is required.
-4. **Act**: click, fill, press, scroll, or wait using the exact tab ID. Use an
+4. **Act**: call `browser` with the matching action using the exact tab ID. Use an
    `@eN` reference from the latest snapshot or a precise CSS selector. Never
    reuse a reference after navigation, route changes, popups, material DOM
    updates, or a write action.
-5. **Refresh and verify**: after any material page change, take another
-   snapshot before the next action. Verify URL, title, text, element state,
+5. **Refresh and verify**: after any material page change, call another
+   `browser(action=snapshot)` before the next action. Verify URL, title, text, element state,
    downloaded file, or the business result. A successful click alone is not
    evidence that the requested action completed.
 6. **Capture or present**: use screenshot for a local managed-browser image;
@@ -39,16 +40,16 @@ Use this sequence for ordinary navigation and interaction:
 
 | Need | Tool behavior |
 | --- | --- |
-| Find/reuse a page | `browser_list_tabs`; preserve exact tab IDs |
-| Navigate | `browser_open`; active tab by default, new tab only when needed |
-| Inspect controls | `browser_snapshot`; interactive by default, references expire |
-| Extract text | `browser_read`; outline/filter before reading a large page |
-| Click/type/key/scroll/wait | Dedicated browser action; refresh snapshot after change |
-| Screenshot | `browser_screenshot`; returns a managed local path, optionally full-page/annotated |
-| Advanced browser operation | `browser_command` only after reading `agent-browser`; pass allowlisted command tokens as an array |
-| Show a page to the user | `browser_present`; detached window, non-blocking |
-| Ask the user to operate | `browser_request_user_action`; human-only steps only |
-| Clean up | `browser_close_window` preserves tab/profile; `browser_close_tab` closes the shared tab |
+| Find/reuse a page | `browser(action=list_tabs)`; preserve opaque tab IDs |
+| Navigate | `browser(action=open)`; active tab by default, new tab only when needed |
+| Inspect controls | `browser(action=snapshot)`; interactive by default, references expire |
+| Extract text | `browser(action=read)`; outline/filter before reading a large page |
+| Click/type/key/scroll/wait | `browser(action=...)`; refresh snapshot after change |
+| Screenshot | `browser(action=screenshot)` |
+| Advanced browser operation | `browser(action=advanced)` |
+| Show a page to the user | `browser(action=present)` |
+| Ask the user to operate | `browser(action=request_user_action)` |
+| Clean up | `browser(action=close_window|close_tab)` |
 
 ## Advanced Browser Commands
 
@@ -70,11 +71,12 @@ pipes, redirects, command chaining, or guessed command names.
 - For a stale reference or locator failure, take one fresh snapshot and retry
   the same intended action once with one new reference or revised locator. Do
   not cycle selectors.
-- For managed runtime/session/daemon/observer failure or timeout, inspect
-  managed state once. Switch to `opencli-browser` only if that Skill and its
-  command are actually available, after reading its instructions and running
-  its doctor. A missing fallback is an availability limitation, not permission
-  to invent a command.
+- For OpenCLI bridge, Chrome, extension, daemon, CDP, network, timeout,
+  selector, or unknown failure, return the structured failure and stop. Do not
+  switch to the managed browser.
+- Switch only when OpenCLI reports login, MFA, CAPTCHA, device approval,
+  security confirmation, human review, or another explicit user-action
+  requirement. Keep that task pinned to the managed provider afterward.
 - Request browser user action only for credentials held by the user, MFA,
   CAPTCHA, device approval, secure payment confirmation, an unavailable
   managed operation, or explicit human review. Do not request it for ordinary
@@ -93,8 +95,8 @@ also load `research-workflow.md` or `internet-routing.md` as applicable. Search
 snippets are leads, not evidence. Keep canonical URL/title/date/publisher and
 the claim supported; deep-read selected pages and mark login, paywall,
 truncation, translation, user-generated, and single-source limitations. Use the
-managed browser first for dynamic or authenticated pages and verify the final
-business result in a fresh snapshot/read.
+unified browser capability for dynamic or authenticated pages and verify the
+final business result in a fresh snapshot/read.
 
 ## Audio Recognition and Transcription
 

@@ -1,7 +1,5 @@
-use std::ffi::OsStr;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufReader, Read, Write};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use futures_util::StreamExt;
@@ -9,8 +7,8 @@ use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
-use zip::ZipArchive;
-
+#[path = "engine_download_archive.rs"]
+mod archive;
 use super::engine::{probe_engine, BrowserEngine};
 use super::error::{BrowserError, BrowserErrorCode};
 use super::types::BrowserEngineKind;
@@ -21,8 +19,6 @@ const CHROMIUM_ARCHIVE_URL: &str =
 const CHROMIUM_ARCHIVE_SIZE: u64 = 202_713_690;
 const CHROMIUM_ARCHIVE_SHA256: &str =
     "b0db25dea445822429d8ebd36d53344cadcd63127308759456964029bbe18004";
-const MAX_EXTRACTED_BYTES: u64 = 1024 * 1024 * 1024;
-const MAX_ARCHIVE_ENTRIES: usize = 10_000;
 const DOWNLOAD_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DOWNLOAD_READ_TIMEOUT: Duration = Duration::from_secs(120);
 
@@ -88,7 +84,7 @@ async fn install_managed_engine(
     let archive_for_extract = archive.to_path_buf();
     let staging_for_extract = staging.to_path_buf();
     tokio::task::spawn_blocking(move || {
-        extract_archive(&archive_for_extract, &staging_for_extract)
+        archive::extract(&archive_for_extract, &staging_for_extract)
     })
     .await
     .map_err(|error| unavailable(format!("Chromium extraction worker failed: {error}")))?
@@ -98,12 +94,12 @@ async fn install_managed_engine(
     let staged_engine = probe_engine(BrowserEngineKind::Chromium, staged_engine, None)
         .await
         .ok_or_else(|| unavailable("downloaded Chromium failed its startup probe"))?;
-    if staged_engine.version != CHROMIUM_VERSION {
+    if !staged_engine.version.contains(CHROMIUM_VERSION) {
         return Err(unavailable(
             "downloaded Chromium version does not match the pinned release",
         ));
     }
-    replace_cache(root, staging)?;
+    archive::replace_cache(root, staging)?;
     detect_cached_engine(
         root.parent()
             .and_then(Path::parent)
@@ -159,6 +155,29 @@ async fn stream_archive(
     let mut file = tokio::fs::File::create(destination)
         .await
         .map_err(|error| unavailable(format!("failed to create Chromium archive: {error}")))?;
+    let (downloaded, archive_sha256) =
+        stream_archive_chunks(response, &mut file, cancellation).await?;
+    file.flush()
+        .await
+        .map_err(|error| unavailable(format!("failed to flush Chromium archive: {error}")))?;
+    file.sync_all()
+        .await
+        .map_err(|error| unavailable(format!("failed to sync Chromium archive: {error}")))?;
+    validate_archive_digest(downloaded, &archive_sha256)?;
+    tracing::info!(
+        target: "iyw_claw_browser",
+        archive_bytes = downloaded,
+        archive_sha256 = %archive_sha256,
+        "managed Chromium archive downloaded"
+    );
+    Ok(())
+}
+
+async fn stream_archive_chunks(
+    response: reqwest::Response,
+    file: &mut tokio::fs::File,
+    cancellation: &CancellationToken,
+) -> Result<(u64, String), BrowserError> {
     let mut stream = response.bytes_stream();
     let mut downloaded = 0_u64;
     let mut hasher = Sha256::new();
@@ -183,111 +202,19 @@ async fn stream_archive(
             .await
             .map_err(|error| unavailable(format!("failed to write Chromium archive: {error}")))?;
     }
-    file.flush()
-        .await
-        .map_err(|error| unavailable(format!("failed to flush Chromium archive: {error}")))?;
-    file.sync_all()
-        .await
-        .map_err(|error| unavailable(format!("failed to sync Chromium archive: {error}")))?;
+    Ok((downloaded, format!("{:x}", hasher.finalize())))
+}
+
+fn validate_archive_digest(downloaded: u64, archive_sha256: &str) -> Result<(), BrowserError> {
     if downloaded != CHROMIUM_ARCHIVE_SIZE {
         return Err(unavailable(
             "Chromium download ended before the pinned size",
         ));
     }
-    let archive_sha256 = format!("{:x}", hasher.finalize());
     if archive_sha256 != CHROMIUM_ARCHIVE_SHA256 {
         return Err(unavailable(
             "Chromium download digest does not match the pinned package",
         ));
-    }
-    tracing::info!(
-        target: "iyw_claw_browser",
-        archive_bytes = downloaded,
-        archive_sha256 = %archive_sha256,
-        "managed Chromium archive downloaded"
-    );
-    Ok(())
-}
-
-fn extract_archive(archive_path: &Path, destination: &Path) -> Result<(), String> {
-    let file = File::open(archive_path).map_err(|error| error.to_string())?;
-    let mut archive = ZipArchive::new(BufReader::new(file)).map_err(|error| error.to_string())?;
-    if archive.len() > MAX_ARCHIVE_ENTRIES {
-        return Err("Chromium archive contains too many entries".to_string());
-    }
-    let mut extracted = 0_u64;
-    for index in 0..archive.len() {
-        let mut entry = archive.by_index(index).map_err(|error| error.to_string())?;
-        let Some(path) = entry.enclosed_name() else {
-            return Err("Chromium archive contains an unsafe path".to_string());
-        };
-        let mut components = path.components();
-        match components.next() {
-            Some(Component::Normal(root)) if root == OsStr::new("chrome-win64") => {}
-            _ => return Err("Chromium archive has an unexpected root directory".to_string()),
-        }
-        let relative = components.collect::<PathBuf>();
-        if relative.as_os_str().is_empty() {
-            continue;
-        }
-        let output = destination.join(relative);
-        if entry.is_dir() {
-            fs::create_dir_all(&output).map_err(|error| error.to_string())?;
-            continue;
-        }
-        if !entry.is_file() {
-            return Err("Chromium archive contains an unsupported entry".to_string());
-        }
-        if let Some(parent) = output.parent() {
-            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        }
-        let remaining = MAX_EXTRACTED_BYTES.saturating_sub(extracted);
-        let mut writer = File::create(&output).map_err(|error| error.to_string())?;
-        let written = io::copy(
-            &mut entry.by_ref().take(remaining.saturating_add(1)),
-            &mut writer,
-        )
-        .map_err(|error| error.to_string())?;
-        if written > remaining {
-            return Err("Chromium archive exceeds the extraction size limit".to_string());
-        }
-        extracted = extracted.saturating_add(written);
-        writer.flush().map_err(|error| error.to_string())?;
-    }
-    if !destination.join("chrome.exe").is_file() {
-        return Err("Chromium archive does not contain chrome.exe".to_string());
-    }
-    Ok(())
-}
-
-fn replace_cache(root: &Path, staging: &Path) -> Result<(), BrowserError> {
-    let parent = root
-        .parent()
-        .ok_or_else(|| unavailable("managed Chromium path has no parent"))?;
-    let backup = parent.join(".chromium-previous");
-    if backup.exists() {
-        fs::remove_dir_all(&backup).map_err(|error| {
-            unavailable(format!("failed to remove old Chromium backup: {error}"))
-        })?;
-    }
-    if root.exists() {
-        fs::rename(root, &backup)
-            .map_err(|error| unavailable(format!("failed to stage existing Chromium: {error}")))?;
-    }
-    if let Err(error) = fs::rename(staging, root) {
-        if backup.exists() {
-            let _ = fs::rename(&backup, root);
-        }
-        return Err(unavailable(format!("failed to activate Chromium: {error}")));
-    }
-    if backup.exists() {
-        if let Err(error) = fs::remove_dir_all(backup) {
-            tracing::warn!(
-                target: "iyw_claw_browser",
-                error = %error,
-                "old Chromium backup cleanup failed after activation"
-            );
-        }
     }
     Ok(())
 }

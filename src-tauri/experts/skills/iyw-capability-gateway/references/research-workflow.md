@@ -51,11 +51,12 @@ or discussion signals, not as unqualified proof. Keep search snippets as leads,
 not evidence. Aim for breadth first, then select 3–5 strongest sources for deep
 reading; the correct count depends on scope, not a fabricated quota.
 
-Use managed browser first for pages and public web data. Start with existing
-tabs, navigate with a discovered `iyw.browser.*` capability, take a fresh
-snapshot/read after navigation or DOM changes, and verify URL/title/text. For a
-dynamic or authenticated page, use the managed profile; request human action
-only for login/MFA/CAPTCHA/payment or another human-only step.
+Use the unified `iyw.browser.unified.v1` capability for pages and public web
+data when browser interaction is needed. It checks the user's connected
+Chrome/OpenCLI and the managed browser together, preferring OpenCLI for the
+user's existing sign-in state. Take a fresh snapshot/read after navigation or
+DOM changes and verify URL/title/text. It hands off to the managed profile only
+for login/MFA/CAPTCHA/payment or another human-only step.
 
 ## 4. Deep-read and verify
 

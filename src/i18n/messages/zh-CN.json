@@ -3532,6 +3532,7 @@
           "create_scheduled_task": "创建定时任务",
           "update_scheduled_task": "更新定时任务",
           "delete_scheduled_task": "删除定时任务",
+          "browser": "使用浏览器",
           "browser_list_tabs": "查看浏览器标签页",
           "browser_open": "打开浏览器页面",
           "browser_snapshot": "读取浏览器页面",

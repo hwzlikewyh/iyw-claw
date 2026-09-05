@@ -32,6 +32,13 @@ pub enum BrowserErrorCode {
     BrowserCancelled,
     BrowserUploadCancelled,
     BrowserDownloadFailed,
+    OpencliNotInstalled,
+    OpencliBridgeUnavailable,
+    OpencliSelectorFailed,
+    OpencliNetworkFailed,
+    OpencliTimeout,
+    OpencliRuntimeFailed,
+    OpencliUserActionRequired,
     BrowserInternal,
 }
 
