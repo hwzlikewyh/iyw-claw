@@ -3115,6 +3115,13 @@ pub async fn get_file_tree(
     path: String,
     max_depth: Option<usize>,
 ) -> Result<Vec<FileTreeNode>, AppCommandError> {
+    run_file_io(move || get_file_tree_sync(path, max_depth)).await
+}
+
+fn get_file_tree_sync(
+    path: String,
+    max_depth: Option<usize>,
+) -> Result<Vec<FileTreeNode>, AppCommandError> {
     let root = PathBuf::from(&path);
     let depth = max_depth.unwrap_or(usize::MAX);
 
