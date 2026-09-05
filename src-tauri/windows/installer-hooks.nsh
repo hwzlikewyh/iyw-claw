@@ -7,6 +7,8 @@ Var IywClawInstallRegistryKey
 !include "${__FILEDIR__}\installer-process-control.nsh"
 !include "${__FILEDIR__}\installer-app-transaction.nsh"
 !include "${__FILEDIR__}\installer-test-mode.nsh"
+!include "${__FILEDIR__}\installer-install-root.nsh"
+!include "${__FILEDIR__}\installer-desktop-shortcut.nsh"
 
 Function IywClawIsMainProcessRunning
   ; 仅检查当前用户、本安装目录且真实路径匹配的主进程。
@@ -27,6 +29,7 @@ Function IywClawRestoreLogicalInstallRoot
   Quit
 
   iyw_installer_mode_valid:
+  Call IywClawNormalizeLegacyInstallRoot
   ; Older installers persisted root\app as MUI's default directory while the
   ; product-specific InstallRoot value already held the user-selected root.
   ; Correct only the directory-page value; POSTINSTALL persists it after the
@@ -99,6 +102,7 @@ Function IywClawRestoreLogicalInstallRoot
 FunctionEnd
 
 Function IywClawResolveInstallRoot
+  Call IywClawNormalizeLegacyInstallRoot
   ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
   StrCmp $R8 "" iyw_use_selected_root 0
 
@@ -230,6 +234,7 @@ FunctionEnd
   ; Expose the logical root in the directory page while keeping binaries
   ; isolated below root\app.
   WriteRegStr SHCTX "$IywClawInstallRegistryKey" "" "$IywClawRoot"
+  Call IywClawEnsureDesktopShortcut
 
   ${If} $UpdateMode = 1
     DetailPrint "已保留运行环境、受管组件、配置、数据和日志。"
@@ -265,6 +270,7 @@ FunctionEnd
     Abort
 
   iyw_uninstall_processes_stopped:
+  Call un.IywClawRemoveShortcuts
 
   ${If} $UpdateMode = 1
     Goto iyw_uninstall_done

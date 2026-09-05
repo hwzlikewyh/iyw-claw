@@ -40,3 +40,25 @@ The runtime-seed builder records the exact target, file list, byte sizes, and
 SHA-256 digests in `runtime-seed/manifest.json`; the application verifies these
 values before activation. License files shipped by upstream archives and npm
 packages remain in their respective component directories.
+
+## Optional Codex in-process harness
+
+- Project: `openai/codex` (`codex-rs` App Server components)
+- Locked source: `rust-v0.152.1` / `5adb68a49933ae446bf11935662c83dba55a0804`
+- Source: https://github.com/openai/codex
+- License: Apache License 2.0
+
+The optional `harness/codex` integration locks the upstream source revision and
+is not part of the default application runtime. Its repository-local
+`patches/codex-utils-pty` is a copy of upstream `codex-rs/utils/pty` with only
+the documented Windows pointer-cast compatibility adjustments. It remains
+subject to the same Apache License 2.0; the source patch is re-evaluated on
+every upstream update.
+
+The experimental `harness/codex-worker` package links the same locked source as
+a private platform dynamic library (`iyw_codex_worker.dll`,
+`libiyw_codex_worker.dylib`, or `libiyw_codex_worker.so`). It is loaded by the
+single `iyw-claw` executable after a self-reexec and is not a second
+user-facing executable. The library is staged only by
+`src-tauri/scripts/prepare-codex-worker.mjs` and is not included by the normal
+release workflows.

@@ -263,6 +263,10 @@ export type ReasoningContentProps = ComponentProps<
   children: string
 }
 
+export type ReasoningBodyProps = ComponentProps<"div"> & {
+  children: string
+}
+
 const remarkPlugins = [
   ...Object.values(defaultRemarkPlugins),
   remarkRewriteFileUriLinks,
@@ -270,8 +274,8 @@ const remarkPlugins = [
 ]
 const rehypePlugins = rehypePluginsAllowingIywClaw(defaultRehypePlugins)
 
-export const ReasoningContent = memo(
-  ({ className, children, ...props }: ReasoningContentProps) => {
+export const ReasoningBody = memo(
+  ({ className, children, ...props }: ReasoningBodyProps) => {
     const normalized = useMemo(
       () => normalizeMathDelimiters(children),
       [children]
@@ -279,20 +283,14 @@ export const ReasoningContent = memo(
     const plugins = useStreamdownPlugins(normalized)
 
     return (
-      <CollapsibleContent
-        className={cn(
-          "mt-4 max-h-[min(15rem,35vh)] overflow-y-auto overscroll-contain pe-1 text-sm",
-          "iyw-claw-reasoning-content text-muted-foreground outline-none",
-          className
-        )}
+      <div
+        className={cn("text-sm text-muted-foreground outline-none", className)}
         {...props}
       >
         <Streamdown
           plugins={plugins}
           remarkPlugins={remarkPlugins}
           rehypePlugins={rehypePlugins}
-          {...props}
-          // Enforce the link icon + safety override after spreading props.
           components={{
             ...localPathCodeBlockComponents,
             ...markdownLinkComponents,
@@ -300,11 +298,27 @@ export const ReasoningContent = memo(
         >
           {normalized}
         </Streamdown>
-      </CollapsibleContent>
+      </div>
     )
   }
 )
 
+export const ReasoningContent = memo(
+  ({ className, children, ...props }: ReasoningContentProps) => (
+    <CollapsibleContent
+      className={cn(
+        "mt-4 max-h-[min(15rem,35vh)] overflow-y-auto overscroll-contain pe-1",
+        "iyw-claw-reasoning-content outline-none",
+        className
+      )}
+      {...props}
+    >
+      <ReasoningBody>{children}</ReasoningBody>
+    </CollapsibleContent>
+  )
+)
+
 Reasoning.displayName = "Reasoning"
 ReasoningTrigger.displayName = "ReasoningTrigger"
+ReasoningBody.displayName = "ReasoningBody"
 ReasoningContent.displayName = "ReasoningContent"

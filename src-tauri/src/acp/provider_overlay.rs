@@ -1,17 +1,12 @@
 use std::collections::BTreeMap;
-use std::path::Path;
-
 use crate::models::agent::AgentType;
 
+pub(crate) use super::provider_overlay_files::write_if_changed;
 pub use super::provider_overlay_files::{
     enforce_active_provider_overlay, enforce_all_provider_overlays,
     enforce_existing_active_provider_overlays, enforce_existing_provider_overlays,
     enforce_provider_overlay, enforce_resumed_active_provider_overlay,
 };
-
-pub(crate) fn write_if_changed(path: &Path, old: &str, next: &str) -> Result<(), String> {
-    super::provider_overlay_files::write_if_changed(path, old, next)
-}
 
 pub(crate) use super::provider_overlay_formats::{
     is_codebuddy_conflicting_env_key, patch_codex_toml, patch_grok_toml, patch_hermes_yaml,

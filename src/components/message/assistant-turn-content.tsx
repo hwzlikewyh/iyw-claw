@@ -1,33 +1,26 @@
 "use client"
 
-import { memo, useMemo, type ReactNode } from "react"
-import { ChevronDown, ListChecks, Loader2 } from "lucide-react"
+import { memo, useMemo } from "react"
+import { Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
-import {
-  AssistantIdentity,
-  CompletedProcessSummary,
-  ImageArtifactRegistrationNotice,
-} from "@/components/message/assistant-turn-status"
-import {
-  completedProcessPart,
-  countProcessItems,
-  findImageRegistrationIssue,
-  findSummaryIndex,
-  hasProcessError,
-  isFinalResultPart,
-  isLiveVisibleResultPart,
-  isReasoningPart,
-} from "@/components/message/assistant-turn-process"
+import { AgentIcon } from "@/components/agent-icon"
+import { AssistantProcessSurface } from "@/components/message/assistant-process-surface"
+import { AssistantReasoningSurface } from "@/components/message/assistant-reasoning-surface"
 import { ContentPartsRenderer } from "@/components/message/content-parts-renderer"
 import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
-import { Badge } from "@/components/ui/badge"
-import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
+  countProcessItems,
+  processPartHasError,
+  splitAssistantTurnParts,
+} from "@/components/message/assistant-turn-model"
+import {
+  completedProcessPart,
+  findImageRegistrationIssue,
+  hasProcessError,
+} from "@/components/message/assistant-turn-process"
+import { ImageArtifactRegistrationNotice } from "@/components/message/assistant-turn-status"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
+import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
 import type { AgentType } from "@/lib/types"
 
 interface AssistantTurnContentProps {
@@ -43,49 +36,16 @@ interface AssistantTurnContentProps {
   durationMs?: number | null
 }
 
-function ProcessDisclosure({
-  defaultOpen,
-  entranceKey,
-  processCount,
-  processHasError,
-  renderParts,
-  processParts,
-  durationMs,
-}: {
-  defaultOpen: boolean
-  entranceKey: string
-  processCount: number
-  processHasError: boolean
-  renderParts: (parts: AdaptedContentPart[], key: string) => ReactNode
-  processParts: AdaptedContentPart[]
-  durationMs?: number | null
-}) {
+function AssistantIdentity({ agentType }: { agentType: AgentType }) {
   const t = useTranslations("Folder.chat.messageList")
-
   return (
-    <Collapsible
-      defaultOpen={defaultOpen}
-      className="overflow-hidden rounded-md border border-border/70 bg-muted/20"
-    >
-      <CollapsibleTrigger className="group flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=closed]:-rotate-90" />
-        <ListChecks className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1">
-          <CompletedProcessSummary
-            durationMs={durationMs}
-            processCount={processCount}
-          />
-        </span>
-        {processHasError && (
-          <Badge variant="destructive" className="h-5 shrink-0 text-[10px]">
-            {t("processHasErrors")}
-          </Badge>
-        )}
-      </CollapsibleTrigger>
-      <CollapsibleContent className="border-t px-3 py-3 data-[state=closed]:animate-out data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0">
-        {renderParts(processParts, `${entranceKey}:process`)}
-      </CollapsibleContent>
-    </Collapsible>
+    <div className="flex items-center gap-2 text-sm font-semibold">
+      <AgentIcon
+        agentType={agentType}
+        className="size-6 rounded-full bg-muted p-0.5"
+      />
+      <span>{t("assistantName")}</span>
+    </div>
   )
 }
 
@@ -102,32 +62,43 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
   durationMs,
 }: AssistantTurnContentProps) {
   const t = useTranslations("Folder.chat.messageList")
-  const summaryIndex = useMemo(
-    () => (isResponseComplete ? findSummaryIndex(parts) : -1),
+  const sections = useMemo(
+    () => splitAssistantTurnParts(parts, isResponseComplete),
     [isResponseComplete, parts]
   )
-  const summaryParts = summaryIndex >= 0 ? [parts[summaryIndex]] : []
-  const resultParts = parts.filter(isFinalResultPart)
-  const reasoningParts = parts.filter(isReasoningPart)
-  const processParts = parts.flatMap((part, index) => {
-    if (
-      index === summaryIndex ||
-      isFinalResultPart(part) ||
-      isReasoningPart(part)
-    ) {
-      return []
-    }
-    if (!isResponseComplete) return [part]
-    const visible = completedProcessPart(part)
-    return visible ? [visible] : []
-  })
+  const processParts = useMemo(
+    () =>
+      isResponseComplete
+        ? sections.processParts.flatMap((part) => {
+            const visible = completedProcessPart(part)
+            return visible ? [visible] : []
+          })
+        : sections.processParts,
+    [isResponseComplete, sections.processParts]
+  )
   const processCount = useMemo(
     () => countProcessItems(processParts),
     [processParts]
   )
+  const reasoningParts = useMemo(
+    () =>
+      processParts.filter(
+        (part): part is Extract<AdaptedContentPart, { type: "reasoning" }> =>
+          part.type === "reasoning"
+      ),
+    [processParts]
+  )
+  const liveTextParts = useMemo(
+    () =>
+      processParts.filter(
+        (part): part is Extract<AdaptedContentPart, { type: "text" }> =>
+          part.type === "text"
+      ),
+    [processParts]
+  )
   const processHasError = useMemo(
     () =>
-      processParts.some(hasProcessError) ||
+      processParts.some(processPartHasError) ||
       (isResponseComplete && parts.some(hasProcessError)),
     [isResponseComplete, parts, processParts]
   )
@@ -145,84 +116,74 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
       conversationId={conversationId}
     />
   )
+  const processSurface = (
+    <AssistantProcessSurface
+      parts={processParts}
+      processCount={processCount}
+      processHasError={processHasError}
+      entranceKey={entranceKey}
+      animationEnabled={animationEnabled}
+      isResponseComplete={isResponseComplete}
+      displayMode={displayMode}
+      collapseCompletedTurn={collapseCompletedTurn}
+      autoOpenErrors={autoOpenErrors}
+      conversationId={conversationId}
+      durationMs={durationMs}
+    />
+  )
+  const responseContent =
+    sections.responseParts.length > 0
+      ? renderParts(sections.responseParts, `${entranceKey}:response`)
+      : null
 
   if (!isResponseComplete) {
-    if (displayMode !== "minimal") {
-      return (
-        <div className="space-y-3">
-          <AssistantIdentity agentType={agentType} />
-          {reasoningParts.length > 0 &&
-            renderParts(reasoningParts, `${entranceKey}:reasoning`)}
-          {processParts.length > 0 &&
-            renderParts(processParts, `${entranceKey}:process`)}
-        </div>
-      )
-    }
-    const visibleParts = parts.filter(
-      (part) =>
-        part.type === "text" ||
-        isReasoningPart(part) ||
-        isLiveVisibleResultPart(part)
-    )
     return (
-      <div className="space-y-2">
+      <div className="space-y-3">
         <AssistantIdentity agentType={agentType} />
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Loader2 className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />
-          {t("processRunning")}
-        </div>
-        {visibleParts.length > 0
-          ? renderParts(visibleParts, `${entranceKey}:minimal`)
-          : null}
+        {displayMode === "minimal" ? (
+          <>
+            {reasoningParts.length > 0 ? (
+              <AssistantReasoningSurface
+                parts={reasoningParts}
+                isResponseComplete={false}
+              />
+            ) : (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Loader2 className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />
+                {t("processRunning")}
+              </div>
+            )}
+            {liveTextParts.length > 0 &&
+              renderParts(liveTextParts, `${entranceKey}:live-response`)}
+          </>
+        ) : processCount > 0 ? (
+          processSurface
+        ) : null}
+        {sections.resultParts.length > 0 &&
+          renderParts(sections.resultParts, `${entranceKey}:results`)}
       </div>
     )
   }
 
-  const defaultOpen =
-    !collapseCompletedTurn ||
-    displayMode === "full" ||
-    (autoOpenErrors && processHasError)
-  const collapseKey = `${entranceKey}:completed:${displayMode}:${collapseCompletedTurn}:${autoOpenErrors}:${processHasError}`
-  const hasVisibleSummary = summaryParts.length > 0 || resultParts.length > 0
+  const hasVisibleResponse =
+    sections.responseParts.length > 0 || sections.resultParts.length > 0
   const showProcess =
-    displayMode !== "minimal" || processHasError || !hasVisibleSummary
+    processCount > 0 &&
+    (displayMode !== "minimal" || processHasError || !hasVisibleResponse)
 
   return (
     <div className="space-y-3">
       <AssistantIdentity agentType={agentType} />
-      {processCount > 0 && showProcess ? (
-        <ProcessDisclosure
-          key={collapseKey}
-          defaultOpen={defaultOpen}
-          entranceKey={entranceKey}
-          processCount={processCount}
-          processHasError={processHasError}
-          processParts={processParts}
-          renderParts={renderParts}
-          durationMs={durationMs}
-        />
-      ) : (
-        <CompletedProcessSummary
-          durationMs={durationMs}
-          processCount={processCount}
-          hasError={processHasError}
-        />
-      )}
+      {showProcess ? processSurface : null}
       {registrationIssue && (
         <ImageArtifactRegistrationNotice state={registrationIssue} />
       )}
-
-      {reasoningParts.length > 0 &&
-        renderParts(reasoningParts, `${entranceKey}:reasoning`)}
-
-      {summaryParts.length > 0 ? (
-        <div className="assistant-turn-summary">
-          {renderParts(summaryParts, `${entranceKey}:summary`)}
-        </div>
+      {responseContent ? (
+        <div className="assistant-turn-summary">{responseContent}</div>
       ) : null}
-      {resultParts.length > 0 ? (
+      {sections.resultParts.length > 0 ? (
         <div className="assistant-turn-results">
-          {renderParts(resultParts, `${entranceKey}:results`)}
+          {renderParts(sections.resultParts, `${entranceKey}:results`)}
         </div>
       ) : null}
     </div>

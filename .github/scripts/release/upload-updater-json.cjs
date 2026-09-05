@@ -10,13 +10,6 @@ const PLATFORM_PATTERNS = [
   { platform: "darwin-aarch64", pattern: /aarch64\.app\.tar\.gz$/ },
   { platform: "linux-x86_64", pattern: /amd64\.AppImage$/ },
 ]
-const SERVER_ARCHIVES = [
-  "iyw-claw-server-linux-x64.tar.gz",
-  "iyw-claw-server-linux-arm64.tar.gz",
-  "iyw-claw-server-windows-x64.zip",
-  "iyw-claw-server-windows-x86.zip",
-]
-const SERVER_SUFFIXES = ["", ".sig", ".sha256"]
 async function fetchAssetText({ github, owner, repo, assetId }) {
   const response = await github.request(
     "GET /repos/{owner}/{repo}/releases/assets/{asset_id}",
@@ -69,16 +62,6 @@ function findSingleNamedAsset({ assets, name, required, label = name }) {
     throw new Error(`Expected ${expectation} ${label}, found ${matches.length}`)
   }
   return matches[0]
-}
-
-function assertServerAssetsReady(assets) {
-  for (const archive of SERVER_ARCHIVES) {
-    for (const suffix of SERVER_SUFFIXES) {
-      const name = `${archive}${suffix}`
-      const asset = findSingleNamedAsset({ assets, name, required: true })
-      assertAssetReady(asset, name)
-    }
-  }
 }
 
 async function listReleaseAssets({ github, owner, repo, releaseId }) {
@@ -242,7 +225,6 @@ async function assertPublishableReleaseAssets({
   const assets = await listReleaseAssets({ github, owner, repo, releaseId })
   assertNoLegacyMcpAssets(assets)
   replaceReleaseAsset.assertNoReplacementResidue(assets, UPDATER_FILENAME)
-  assertServerAssetsReady(assets)
   await resolveUpdaterPlatforms({ github, owner, repo, assets, core })
   const updater = findSingleNamedAsset({
     assets,

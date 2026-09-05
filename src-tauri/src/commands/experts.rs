@@ -12,6 +12,7 @@
 //! and re-extracts the bundled files.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -64,6 +65,15 @@ const EXPERTS_TOML: &str = "experts.toml";
 const MANAGED_COPY_MARKER_FILE: &str = ".iyw-claw-managed-copy.json";
 const MANAGED_COPY_MARKER_VERSION: u8 = 1;
 pub(crate) const CAPABILITY_GATEWAY_EXPERT_ID: &str = "iyw-capability-gateway";
+pub(crate) const RETIRED_BUNDLED_EXPERT_IDS: [&str; 7] = [
+    "self-improving",
+    "lixiao-workflows",
+    "iyw-copyright-registration",
+    "iyw-crm-workflows",
+    "iyw-sales-assistant-workflows",
+    "iyw-image-workflows",
+    "imagegen",
+];
 /// Directories that hold installed runtime dependencies. They are expensive to
 /// rebuild (network installs, native compilation), so refreshes preserve them
 /// in place and never include them in the replaced Skill content.
@@ -1255,75 +1265,68 @@ pub async fn cleanup_retired_skill_activation_policies(
 
 fn retired_experts_need_reconcile() -> bool {
     let manifest = load_manifest();
-    !retired_bundled_expert_ids(&manifest).is_empty()
+    RETIRED_BUNDLED_EXPERT_IDS.iter().any(|id| {
+        let central = expert_central_path(id);
+        if retired_expert_is_preserved(id, &central, &manifest) {
+            return false;
+        }
+        if manifest.experts.contains_key(*id) {
+            return true;
+        }
+        if fs::symlink_metadata(&central).is_ok() {
+            return true;
+        }
+        supported_agents().into_iter().any(|agent| {
+            managed_expert_link_paths(id, agent)
+                .map(|(_, paths)| {
+                    paths
+                        .iter()
+                        .any(|path| managed_link_is_owned(&central, path))
+                })
+                .unwrap_or(false)
+        })
+    })
 }
 
 fn retire_bundled_experts(manifest: &mut Manifest, report: &mut InstallReport) {
-    for id in retired_bundled_expert_ids(manifest) {
-        let central = expert_central_path(&id);
-        // A market installation may intentionally override a bundled Skill
-        // under the same slug. Its marker is a stronger, separate ownership
-        // record, so retirement of the bundled copy must not delete it.
-        if crate::commands::acp::read_market_skill_marker(&central).is_some() {
-            manifest.experts.remove(&id);
-            tracing::debug!(
-                target: "system_skills",
-                skill_id = %id,
-                "kept market override while retiring bundled Skill"
-            );
+    for id in RETIRED_BUNDLED_EXPERT_IDS {
+        let central = expert_central_path(id);
+        if retired_expert_is_preserved(id, &central, manifest) {
+            report.pending_user_review.push(id.to_string());
             continue;
         }
-        if let Err(error) = remove_retired_expert_links(&id, &central) {
+        if let Err(error) = remove_retired_expert_links(id, &central) {
             report.errors.push(format!("{id}: {error}"));
             continue;
         }
-        if let Err(error) = remove_retired_expert_central(&id, &central) {
-            report.errors.push(format!(
-                "{id}: failed to remove retired central copy: {error}"
-            ));
-            continue;
+        match fs::symlink_metadata(&central) {
+            Ok(_) => match remove_skill_entry(&central) {
+                Ok(()) => tracing::info!(
+                    target: "system_skills",
+                    skill_id = id,
+                    "removed retired bundled Skill central copy"
+                ),
+                Err(error) => report.errors.push(format!(
+                    "{id}: failed to remove retired central copy: {error}"
+                )),
+            },
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => report.errors.push(format!(
+                "{id}: failed to inspect retired central copy: {error}"
+            )),
         }
-        manifest.experts.remove(&id);
-        report.retired.push(id);
+        manifest.experts.remove(id);
+        report.retired.push(id.to_string());
     }
 }
 
-fn retired_bundled_expert_ids(manifest: &Manifest) -> Vec<String> {
-    if bundled_metadata().is_empty() {
-        return Vec::new();
-    }
-    let current = bundled_metadata()
-        .iter()
-        .map(|metadata| metadata.id.as_str())
-        .collect::<BTreeSet<_>>();
+fn retired_expert_is_preserved(id: &str, central: &Path, manifest: &Manifest) -> bool {
     manifest
         .experts
-        .keys()
-        .filter(|id| !current.contains(id.as_str()))
-        .cloned()
-        .collect()
-}
-
-fn remove_retired_expert_central(id: &str, central: &Path) -> Result<(), ExpertsError> {
-    match fs::symlink_metadata(central) {
-        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
-            if retained_runtime_env_dir(central).is_some() {
-                clear_bundled_skill_contents(central, id)?;
-            } else {
-                remove_skill_entry(central)?;
-            }
-        }
-        Ok(_) => remove_skill_entry(central)?,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-    tracing::info!(
-        target: "system_skills",
-        skill_id = id,
-        central_path = %central.display(),
-        "removed retired bundled Skill contents"
-    );
-    Ok(())
+        .get(id)
+        .is_some_and(|entry| entry.pending_user_review)
+        || crate::commands::acp::read_market_skill_marker(central).is_some()
+        || retained_runtime_env_dir(central).is_some()
 }
 
 fn remove_retired_expert_links(id: &str, central: &Path) -> Result<(), ExpertsError> {
@@ -1714,6 +1717,9 @@ fn link_central_skill_locked(
 
     require_private_agent_storage_for_write()?;
     let link_path = agent_link_path(agent_type, &expert_id)?;
+    if is_bundled_expert_id(expert_id) {
+        repair_bundled_skill_collision_at_path(expert_id, agent_type, &link_path)?;
+    }
     let change = reconcile_managed_link_entry(&central, &link_path, true)
         .map_err(|error| experts_error_from_managed(error, &link_path))?;
     let copy_mode = matches!(change, ManagedLinkChange::Linked { copy_mode: true });
@@ -1776,6 +1782,112 @@ fn ensure_builtin_gateway_skill_ready_blocking(
     }
     ensure_gateway_reference_files(&expert_central_path(CAPABILITY_GATEWAY_EXPERT_ID))?;
     link_central_skill_locked(CAPABILITY_GATEWAY_EXPERT_ID, agent_type)
+}
+
+fn repair_bundled_skill_collision_at_path(
+    expert_id: &str,
+    agent_type: AgentType,
+    link_path: &Path,
+) -> Result<(), ExpertsError> {
+    let central = expert_central_path(expert_id);
+    if classify_link(link_path, &central) != ExpertLinkState::BlockedByRealDirectory {
+        return Ok(());
+    }
+    // 内置 Skill 归原助理强制管理，旧安装复制出的目录不能阻断更新。
+    // 替换时必须覆盖其中的脚本和说明文件；唯一例外是 .venv 与
+    // node_modules 等运行环境，它们需要迁入中央目录并额外保留备份。
+    preserve_runtime_envs_for_bundled_link(link_path, &central)?;
+    tracing::warn!(
+        target: "system_skills",
+        agent = %agent_type,
+        skill_id = expert_id,
+        path = %link_path.display(),
+        "replacing a copied built-in Skill with the managed link"
+    );
+    let backup = bundled_skill_repair_backup(expert_id, agent_type)?;
+    fs::rename(link_path, &backup)?;
+    if let Err(error) = create_link_raw(&central, link_path) {
+        let _ = fs::rename(&backup, link_path);
+        return Err(ExpertsError::Io(error.to_string()));
+    }
+    if let Err(error) = clear_bundled_skill_contents(&backup, expert_id) {
+        tracing::warn!(
+            target: "system_skills",
+            skill_id = expert_id,
+            path = %backup.display(),
+            error = %error,
+            "managed link repaired but copied built-in Skill cleanup failed"
+        );
+    } else if retained_runtime_env_dir(&backup).is_none() {
+        let _ = remove_skill_entry(&backup);
+    }
+    Ok(())
+}
+
+fn bundled_skill_repair_backup(
+    expert_id: &str,
+    agent_type: AgentType,
+) -> Result<PathBuf, ExpertsError> {
+    let paths = crate::acp::agent_storage::AgentStoragePaths::active()
+        .ok_or(ExpertsError::AgentStorageNotInitialized)?;
+    let root = paths
+        .trash_dir()
+        .join("bundled-skill-link-repair")
+        .join(crate::acp::registry::registry_id_for(agent_type));
+    fs::create_dir_all(&root)?;
+    Ok(root.join(format!(
+        "{expert_id}-{}-{}",
+        Utc::now().timestamp_millis(),
+        uuid::Uuid::new_v4().simple()
+    )))
+}
+
+fn preserve_runtime_envs_for_bundled_link(
+    source: &Path,
+    central: &Path,
+) -> Result<(), ExpertsError> {
+    for name in RUNTIME_ENV_DIR_NAMES {
+        let source_env = source.join(name);
+        let central_env = central.join(name);
+        if !source_env.is_dir() {
+            continue;
+        }
+        if central_env.exists() {
+            tracing::info!(
+                target: "system_skills",
+                skill_id = central.file_name().and_then(OsStr::to_str).unwrap_or_default(),
+                runtime = name,
+                "kept the central bundled Skill runtime; preserved the profile copy in trash"
+            );
+            continue;
+        }
+        copy_runtime_env_atomically(&source_env, &central_env)?;
+        tracing::info!(
+            target: "system_skills",
+            skill_id = central.file_name().and_then(OsStr::to_str).unwrap_or_default(),
+            runtime = name,
+            "preserved bundled Skill runtime environment in central store"
+        );
+    }
+    Ok(())
+}
+
+fn copy_runtime_env_atomically(source: &Path, target: &Path) -> Result<(), ExpertsError> {
+    let name = target
+        .file_name()
+        .and_then(OsStr::to_str)
+        .unwrap_or("runtime");
+    let staging = target.with_file_name(format!(
+        ".{name}.iyw-link-repair-{}-{}.tmp",
+        std::process::id(),
+        uuid::Uuid::new_v4().simple()
+    ));
+    let result = copy_dir_recursive(source, &staging).and_then(|_| fs::rename(&staging, target));
+    if let Err(error) = result {
+        let _ = remove_skill_entry(&staging);
+        return Err(error.into());
+    }
+    Ok(())
 }
 
 fn ensure_gateway_reference_files(central: &Path) -> Result<(), ExpertsError> {
@@ -1928,6 +2040,14 @@ fn managed_expert_pair_result(
         Ok(paths) => paths,
         Err(error) => return Some(link_failure(expert_id, agent_type, error.to_string())),
     };
+    if enable && is_bundled_expert_id(expert_id) {
+        for path in &paths {
+            if let Err(error) = repair_bundled_skill_collision_at_path(expert_id, agent_type, path)
+            {
+                return Some(link_failure(expert_id, agent_type, error.to_string()));
+            }
+        }
+    }
     let owned = paths
         .iter()
         .find(|path| managed_link_is_owned(&central, path));

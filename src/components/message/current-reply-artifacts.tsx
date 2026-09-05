@@ -210,7 +210,6 @@ function extractMessageId(output: string | null | undefined): string | null {
   const resultStructured = parseNestedRecord(
     result?.structuredContent ?? result?.structured_content
   )
-  const deliveryEnvelope = parseNestedRecord(parsed.delivery)
   const delivery = extractDeliveryArtifact(output)
   const candidates = [
     structured?.message_id,
@@ -221,8 +220,6 @@ function extractMessageId(output: string | null | undefined): string | null {
     resultStructured?.messageId,
     result?.message_id,
     result?.messageId,
-    deliveryEnvelope?.message_id,
-    deliveryEnvelope?.messageId,
     delivery?.message_id,
     delivery?.messageId,
   ]

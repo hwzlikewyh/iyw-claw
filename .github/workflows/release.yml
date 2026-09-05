@@ -248,24 +248,11 @@ jobs:
       prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
     secrets: inherit
 
-  build-server:
-    needs:
-      - create-draft-release
-      - prepare-frontend
-    permissions:
-      contents: write
-    uses: ./.github/workflows/release-server.yml
-    with:
-      release_tag: ${{ needs.create-draft-release.outputs.release_tag }}
-      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
-    secrets: inherit
-
   publish-release:
     needs:
       - create-draft-release
       - build-tauri
-      - build-server
-    if: ${{ needs.build-tauri.result == 'success' && needs.build-server.result == 'success' }}
+    if: ${{ needs.build-tauri.result == 'success' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: write

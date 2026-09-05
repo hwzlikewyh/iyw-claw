@@ -30,6 +30,16 @@ pub(super) fn managed_engine_path(data_root: &Path) -> PathBuf {
     managed_engine_root(data_root).join("chrome.exe")
 }
 
+pub(super) async fn detect_cached_engine(data_root: &Path) -> Option<BrowserEngine> {
+    let engine = probe_engine(
+        BrowserEngineKind::Chromium,
+        managed_engine_path(data_root),
+        None,
+    )
+    .await?;
+    (engine.version == CHROMIUM_VERSION).then_some(engine)
+}
+
 pub(super) async fn ensure_managed_engine(
     data_root: &Path,
     cancellation: CancellationToken,
@@ -43,13 +53,7 @@ pub(super) async fn ensure_managed_engine(
         .map_err(|error| unavailable(format!("failed to create Chromium directory: {error}")))?;
     let lock = acquire_lock(&parent.join("chromium.lock"))?;
 
-    if let Some(engine) = probe_engine(
-        BrowserEngineKind::Chromium,
-        managed_engine_path(data_root),
-        None,
-    )
-    .await
-    {
+    if let Some(engine) = detect_cached_engine(data_root).await {
         drop(lock);
         return Ok(engine);
     }
@@ -96,9 +100,13 @@ async fn install_managed_engine(
         ));
     }
     archive::replace_cache(root, staging)?;
-    probe_engine(BrowserEngineKind::Chromium, root.join("chrome.exe"), None)
-        .await
-        .ok_or_else(|| unavailable("installed Chromium failed its startup probe"))
+    detect_cached_engine(
+        root.parent()
+            .and_then(Path::parent)
+            .ok_or_else(|| unavailable("installed Chromium path has no data root"))?,
+    )
+    .await
+    .ok_or_else(|| unavailable("installed Chromium failed its startup probe"))
 }
 
 async fn download_archive(

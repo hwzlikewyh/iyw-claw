@@ -4160,7 +4160,7 @@ export function AcpAgentSettings({
     () =>
       presentAgentSdkAgents(agents, (name) =>
         t("agentAliasDescription", { name })
-      ),
+      ).filter((agent) => agent.agent_type !== "codex"),
     [agents, t]
   )
   const canReorderAgents = visibleAgents.length > 1
@@ -4996,14 +4996,38 @@ export function AcpAgentSettings({
     [refreshAgents, t]
   )
 
-  const handleReorder = useCallback((next: AcpAgentInfo[]) => {
-    const reordered = next.map((agent, index) => ({
-      ...agent,
-      sort_order: index,
-    }))
-    setAgents(reordered)
-    pendingOrderRef.current = reordered.map((agent) => agent.agent_type)
-  }, [])
+  const handleReorder = useCallback(
+    (nextVisible: AcpAgentInfo[]) => {
+      // 仅重排展示项，隐藏项（星河）仍保留在原来的排序槽位。
+      const visibleTypes = new Set(
+        visibleAgents.map((agent) => agent.agent_type)
+      )
+      const nextVisibleTypes = nextVisible.map((agent) => agent.agent_type)
+      const agentsByType = new Map(
+        agents.map((agent) => [agent.agent_type, agent] as const)
+      )
+      let nextVisibleIndex = 0
+      const reordered = [...agents]
+        .filter((agent) => isAgentType(agent.agent_type))
+        .sort(
+          (left, right) =>
+            left.sort_order - right.sort_order ||
+            left.name.localeCompare(right.name)
+        )
+        .map((agent, index) => {
+          if (!visibleTypes.has(agent.agent_type)) {
+            return { ...agent, sort_order: index }
+          }
+          const nextType =
+            nextVisibleTypes[nextVisibleIndex++] ?? agent.agent_type
+          const replacement = agentsByType.get(nextType) ?? agent
+          return { ...replacement, sort_order: index }
+        })
+      setAgents(reordered)
+      pendingOrderRef.current = reordered.map((agent) => agent.agent_type)
+    },
+    [agents, visibleAgents]
+  )
 
   const selectedCurrent = selectedAgent
     ? checkState[selectedAgent.agent_type]
