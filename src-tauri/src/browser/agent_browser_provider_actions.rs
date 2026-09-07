@@ -85,7 +85,7 @@ impl BrowserSessionManager {
         &self,
         context: AgentToolContext<'_>,
         input: &Value,
-        opencli_ready: bool,
+        _opencli_ready: bool,
     ) -> &'static str {
         match self
             .browser_routes
@@ -96,7 +96,6 @@ impl BrowserSessionManager {
         {
             Some(BrowserRouteProvider::Opencli { .. }) => "opencli",
             Some(BrowserRouteProvider::Managed { .. }) => "managed",
-            None if opencli_ready => "opencli",
             None => "managed",
         }
     }
