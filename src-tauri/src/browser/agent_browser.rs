@@ -47,7 +47,7 @@ impl BrowserSessionManager {
         let key = route_key(context.identity, input);
         validate_opencli_tab_session(context.identity, input)?;
         let stored_route = self.browser_routes.lock().await.get(&key).cloned();
-        let closes_presented_managed_tab = match (&stored_route, action) {
+        let closes_presented_managed_tab = match (&stored_route, action.as_str()) {
             (
                 Some(BrowserRoute {
                     provider:
