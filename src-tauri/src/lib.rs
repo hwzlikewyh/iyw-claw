@@ -1,3 +1,6 @@
+// ACP 的类型化处理器链在 release 布局计算中超过默认 128 层，按编译器诊断设定上限。
+#![recursion_limit = "256"]
+
 pub mod acp;
 pub use acp::{
     agent_auto_update_task, idle_sweep_task, idle_timeout_from_env, lifecycle_subscriber_task,
