@@ -11,6 +11,8 @@ mod acp_agent;
 mod contracts;
 #[cfg(feature = "upstream")]
 mod helper_dispatch;
+#[cfg(feature = "upstream")]
+mod launch_config;
 mod method_routes;
 mod runtime;
 mod server_requests;
@@ -18,6 +20,8 @@ mod sessions;
 mod upstream;
 #[cfg(feature = "upstream")]
 mod upstream_backend;
+#[cfg(feature = "upstream")]
+mod upstream_mcp;
 #[cfg(feature = "upstream")]
 mod upstream_start;
 

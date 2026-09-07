@@ -123,6 +123,15 @@ impl<'a> PermissionRuntime<'a> {
         self.drain_locked(&mut queue, reason, false).await;
     }
 
+    pub(crate) async fn cancel_key(&self, key: &str) {
+        let mut queue = self.permissions.lock().await;
+        let Some((request_id, resolution)) = queue.cancel_key(key) else { return; };
+        let depth = queue.waiting_len() as u32;
+        if let Some(card) = resolution.next { self.emit_card(card, depth).await; }
+        emit_with_state(self.state, self.emitter, AcpEvent::PermissionResolved { request_id }).await;
+        emit_with_state(self.state, self.emitter, AcpEvent::PermissionQueueDepth { depth }).await;
+    }
+
     pub(crate) async fn close_and_drain(&self, reason: &'static str) {
         let mut queue = self.permissions.lock().await;
         self.drain_locked(&mut queue, reason, true).await;

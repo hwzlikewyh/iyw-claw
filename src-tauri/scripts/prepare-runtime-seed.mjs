@@ -199,7 +199,7 @@ async function prepareComponent(id, info, target, seedRoot, cacheDir) {
 }
 
 async function prepareComponents(info, target, staging, cacheDir) {
-  const ids = ["node", "git", "uv", "codex-acp"]
+  const ids = ["node", "git", "uv"]
   return Promise.all(
     ids.map(async (id) => {
       console.log(`[runtime-seed] preparing component: ${id}`)

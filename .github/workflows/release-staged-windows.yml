@@ -82,6 +82,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "frontend build failed" }
           pnpm tauri:prepare-sidecars --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { throw "sidecar preparation failed" }
+          pnpm tauri:prepare-codex-worker --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "worker preparation failed" }
           node src-tauri/scripts/verify-sidecar-bundle.mjs --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { throw "sidecar verification failed" }
 
@@ -115,6 +117,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path (Join-Path $staging 'src-tauri') | Out-Null
           Copy-Item -LiteralPath src-tauri\binaries -Destination (Join-Path $staging 'src-tauri\binaries') -Recurse -Force
           Copy-Item -LiteralPath src-tauri\resources\runtime-seed -Destination (Join-Path $staging 'src-tauri\resources\runtime-seed') -Recurse -Force
+          Copy-Item -LiteralPath src-tauri\resources\codex-worker -Destination (Join-Path $staging 'src-tauri\resources\codex-worker') -Recurse -Force
           Copy-Item -LiteralPath src-tauri\tauri.runtime-seed.conf.json -Destination (Join-Path $staging 'src-tauri\tauri.runtime-seed.conf.json') -Force
           $targetRoot = 'src-tauri\target\x86_64-pc-windows-msvc\release'
           New-Item -ItemType Directory -Force -Path (Join-Path $staging $targetRoot) | Out-Null

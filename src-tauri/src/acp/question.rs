@@ -33,6 +33,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{oneshot, RwLock};
 
+#[path = "question_input.rs"]
+mod input;
+pub use input::QuestionInputSpec;
+pub(crate) use input::validate_answers as validate_input_answers;
+
 /// Max questions per `ask_user_question` call. Matches Claude Code's
 /// `AskUserQuestion` contract; the JSON schema advertises the same `maxItems`.
 pub const MAX_QUESTIONS: usize = 4;
@@ -40,6 +45,8 @@ pub const MAX_QUESTIONS: usize = 4;
 /// meaningful choice; more than four overwhelms the card. Matches Claude Code.
 pub const MIN_OPTIONS: usize = 2;
 pub const MAX_OPTIONS: usize = 4;
+/// ACP 表单由宿主分页显示；单字段可保留较长的枚举选项。
+pub const MAX_ELICITATION_OPTIONS: usize = 128;
 /// Max characters for a question's short `header` chip.
 pub const MAX_HEADER_CHARS: usize = 12;
 /// Per-field sanity bound (characters) for every agent/user-supplied free-text
@@ -64,6 +71,13 @@ pub struct QuestionOption {
 /// A single multiple-choice question.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuestionSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<QuestionInputSpec>,
+    /// 秘密输入仅用于当前交互，不进入普通结果卡片。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub secret: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub optional: bool,
     /// Backend-minted stable id. Used as the answer correlation key instead of
     /// the question text (which Claude Code keys on) so duplicate question
     /// strings or reordering can't collide.
@@ -271,6 +285,9 @@ pub fn parse_questions(arguments: &Value) -> Result<Vec<QuestionSpec>, String> {
             }
         }
         out.push(QuestionSpec {
+            input: None,
+            secret: false,
+            optional: false,
             id: uuid::Uuid::new_v4().to_string(),
             question: question.to_string(),
             header: header.to_string(),
@@ -327,9 +344,9 @@ pub fn validate_specs(specs: &[QuestionSpec]) -> Result<(), String> {
         // `parse_questions`. Typed ACP elicitation forms may instead contain a
         // plain string/number field, represented by an empty option list so
         // the card renders only its built-in free-text input.
-        if q.options.len() > MAX_OPTIONS {
+        if q.options.len() > MAX_ELICITATION_OPTIONS {
             return Err(format!(
-                "questions[{qi}] must have at most {MAX_OPTIONS} options"
+                "questions[{qi}] must have at most {MAX_ELICITATION_OPTIONS} options"
             ));
         }
         let mut seen_labels = std::collections::HashSet::new();
@@ -389,7 +406,8 @@ pub fn build_outcome(questions: &[QuestionSpec], answer: &QuestionAnswer) -> Que
     let answers = questions
         .iter()
         .filter_map(|spec| {
-            let a = answer.answers.iter().find(|a| a.question_id == spec.id)?;
+            let a = answer.answers.iter().find(|a| a.question_id == spec.id);
+            if a.is_none() && spec.input.is_none() { return None; }
             // Cap selections to the question's own size: single-select → 1;
             // multi-select → every real option plus one "Other". Enforce the cap
             // DURING iteration (early break, allocate only kept labels) so a
@@ -400,17 +418,17 @@ pub fn build_outcome(questions: &[QuestionSpec], answer: &QuestionAnswer) -> Que
                 1
             };
             let mut labels: Vec<String> = Vec::with_capacity(cap);
-            for l in &a.labels {
+            for l in a.into_iter().flat_map(|answer| &answer.labels) {
                 if labels.len() == cap {
                     break;
                 }
-                let trimmed = l.trim();
-                if trimmed.is_empty() {
+                let trimmed = if spec.secret || spec.input.is_some() { l.as_str() } else { l.trim() };
+                if trimmed.is_empty() && spec.input.is_none() {
                     continue;
                 }
                 labels.push(trimmed.chars().take(MAX_QUESTION_TEXT_CHARS).collect());
             }
-            if labels.is_empty() {
+            if labels.is_empty() && !spec.optional && spec.input.is_none() {
                 return None;
             }
             Some(QuestionAnsweredItem {
@@ -425,6 +443,21 @@ pub fn build_outcome(questions: &[QuestionSpec], answer: &QuestionAnswer) -> Que
         answers,
         declined: false,
     }
+}
+
+pub(crate) fn validate_secret_answers(questions: &[QuestionSpec], answer: &QuestionAnswer) -> Result<(), String> {
+    if answer.declined { return Ok(()); }
+    for question in questions.iter().filter(|question| question.secret) {
+        let values = answer.answers.iter().find(|item| item.question_id == question.id)
+            .map(|item| item.labels.as_slice()).unwrap_or_default();
+        if !question.optional && (values.len() != 1 || values[0].is_empty()) {
+            return Err("请填写秘密输入后再提交".into());
+        }
+        if values.iter().any(|value| value.chars().count() > MAX_QUESTION_TEXT_CHARS) {
+            return Err(format!("秘密输入不能超过 {MAX_QUESTION_TEXT_CHARS} 个字符"));
+        }
+    }
+    Ok(())
 }
 
 /// The hot-swappable feature config read at MCP injection time. Kept tiny and

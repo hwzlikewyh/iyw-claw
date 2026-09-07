@@ -18,13 +18,15 @@ use sacp_tokio::AcpAgent;
 use tokio_util::sync::CancellationToken;
 
 use crate::acp::capability_policy::Capability;
-use crate::acp::deepseek_elicitation::ElicitationCreateRequest;
+use crate::acp::deepseek_elicitation::{ElicitationCancelNotification, ElicitationCreateRequest};
 use crate::acp::error::AcpError;
 use crate::acp::runtime_host::{HostReady, INIT_TIMEOUT_SENTINEL};
 use crate::acp::runtime_host_policy::RuntimeHostCapabilities;
 use crate::acp::runtime_host_registry::startup::RuntimeHostDriverOutcome;
 use crate::acp::runtime_host_router::SessionRequestRouter;
 use crate::models::agent::AgentType;
+
+use crate::acp::runtime_host_worker_turn as worker_turn;
 
 const DEFAULT_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(60);
 const CODEX_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -84,6 +86,34 @@ fn build_client(
     Client
         .builder()
         .name("iyw-claw-runtime-host")
+        .on_receive_request(
+            {
+                let router = router.clone();
+                async move |request: crate::acp::worker_content_recovery::ContentBarrierRequest, responder: Responder<serde_json::Value>, connection: ConnectionTo<Agent>| {
+                    router.content_barrier(request, responder, connection)
+                }
+            },
+            on_receive_request!(),
+        )
+        .on_receive_request(
+            {
+                let router = router.clone();
+                async move |request: worker_turn::WorkerTurnStartedRequest, responder: Responder<serde_json::Value>, connection: ConnectionTo<Agent>| {
+                    router.worker_turn_started(request, responder, connection).await
+                }
+            },
+            on_receive_request!(),
+        )
+        .on_receive_notification(
+            {
+                let router = router.clone();
+                async move |notification: ElicitationCancelNotification, _connection: ConnectionTo<Agent>| {
+                    router.cancel_elicitation(notification).await;
+                    Ok(())
+                }
+            },
+            sacp::on_receive_notification!(),
+        )
         .on_receive_request(
             {
                 let router = router.clone();
@@ -227,7 +257,7 @@ async fn initialize_agent(
             .fs(FileSystemCapabilities::new()
                 .read_text_file(read_enabled)
                 .write_text_file(write_enabled));
-    if agent_type == AgentType::DeepSeek {
+    if matches!(agent_type, AgentType::DeepSeek | AgentType::Codex) {
         client_capabilities = client_capabilities
             .elicitation(ElicitationCapabilities::new().form(ElicitationFormCapabilities::new()));
         tracing::info!(

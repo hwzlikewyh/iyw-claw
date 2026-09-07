@@ -36,6 +36,7 @@ import {
   resumeAgentInputs,
 } from "@/lib/api"
 import { denormalizeSnapshot } from "@/lib/snapshot-denormalize"
+import { recoverWorkerContent } from "@/lib/worker-content-recovery"
 import { buildDelegationSeedEnvelopes } from "@/lib/delegation-seed"
 import type {
   AgentType,
@@ -355,6 +356,11 @@ function sameConnectTarget(a: ConnectRequest, b: ConnectRequest) {
 // ── Reducer actions ──
 
 type Action =
+  | {
+      type: "CONTENT_RECOVERED"
+      contextKey: string
+      content: import("@/lib/types").LiveContentBlock[]
+    }
   | {
       type: "CONNECTION_CREATED"
       contextKey: string
@@ -1578,6 +1584,20 @@ function connectionsReducer(
       return next
     }
 
+    case "CONTENT_RECOVERED": {
+      const conn = state.get(action.contextKey)
+      if (!conn) return state
+      const live = conn.liveMessage ?? ensureLiveMessage(null)
+      const next = new Map(state)
+      next.set(action.contextKey, {
+        ...conn,
+        liveMessage: {
+          ...live,
+          content: recoverWorkerContent(action.content, live.content),
+        },
+      })
+      return next
+    }
     case "STATUS_CHANGED": {
       const conn = state.get(action.contextKey)
       if (!conn) return state
@@ -3483,6 +3503,15 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             balanceRefreshConnectionsRef.current.delete(e.connection_id)
           }
           dispatch({ type: "STATUS_CHANGED", contextKey, status: e.status })
+          break
+        case "content_recovered":
+          flushStreamingQueue()
+          flushPendingToolCallUpdates()
+          dispatch({
+            type: "CONTENT_RECOVERED",
+            contextKey,
+            content: e.content,
+          })
           break
         case "content_delta":
           settleRetryIncidentsOnProgress(contextKey)

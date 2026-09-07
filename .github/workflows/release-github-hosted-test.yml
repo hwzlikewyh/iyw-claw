@@ -141,6 +141,7 @@ jobs:
           IYW_CLAW_BROWSER_SIDECAR_EXCLUDED: ${{ matrix.target == 'i686-pc-windows-msvc' && '1' || '' }}
         run: |
           pnpm tauri:prepare-sidecars --target "${{ matrix.target }}"
+          pnpm tauri:prepare-codex-worker --target "${{ matrix.target }}"
           node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
 
       - name: Cache runtime seed archives

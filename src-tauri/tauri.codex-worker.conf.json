@@ -1,7 +1,7 @@
 {
   "bundle": {
     "resources": {
-      "resources/codex-worker": "resources/codex-worker"
+      "resources/codex-worker": "codex-resources"
     }
   }
 }

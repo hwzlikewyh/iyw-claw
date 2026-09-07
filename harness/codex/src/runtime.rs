@@ -206,6 +206,33 @@ impl CodexHarness {
             .map_err(Into::into)
     }
 
+    pub(crate) fn retire_session(&mut self, access: SessionAccess<'_>) -> Result<(), HarnessError> {
+        self.validate_session(access)?;
+        self.server_requests.remove_session(access);
+        self.sessions.remove(access)?;
+        Ok(())
+    }
+
+    pub(crate) fn has_server_request(&self, token: ServerRequestToken) -> bool {
+        self.server_requests.contains(token)
+    }
+
+    pub(crate) fn session_capabilities(&self, thread_id: &str) -> Option<CapabilitySet> {
+        self.sessions.capabilities(thread_id)
+    }
+
+    pub(crate) fn turn_is_retired(&self, thread_id: &str, turn_id: &str) -> bool {
+        self.sessions.turn_is_retired(thread_id, turn_id)
+    }
+
+    pub(crate) fn latest_retired_turn(&self, thread_id: &str) -> Option<String> {
+        self.sessions.latest_retired_turn(thread_id)
+    }
+
+    pub(crate) fn server_request_resolved(&mut self, request_id: &str) {
+        self.server_requests.resolved(request_id);
+    }
+
     pub fn validate_turn(
         &self,
         access: SessionAccess<'_>,

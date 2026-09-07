@@ -3847,7 +3847,14 @@ impl ConnectionManager {
         answer: QuestionAnswer,
     ) -> Result<(), AcpError> {
         let _ = conn_id;
-        let entry = self.pending_questions.lock().await.remove(question_id);
+        let entry = {
+            let mut questions = self.pending_questions.lock().await;
+            if let Some(entry) = questions.get(question_id) {
+                crate::acp::question::validate_secret_answers(&entry.questions, &answer).map_err(AcpError::protocol)?;
+                crate::acp::question::validate_input_answers(&entry.questions, &answer).map_err(AcpError::protocol)?;
+            }
+            questions.remove(question_id)
+        };
         let Some(entry) = entry else {
             // Already answered / canceled / gone elsewhere — idempotent success.
             return Ok(());

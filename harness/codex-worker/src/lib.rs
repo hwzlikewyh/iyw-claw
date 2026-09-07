@@ -1,6 +1,7 @@
 //! C ABI boundary for the private Codex worker library.
 
 mod config;
+mod identity;
 mod worker;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};

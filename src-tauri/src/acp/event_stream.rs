@@ -382,6 +382,9 @@ fn estimate_envelope_size(envelope: &EventEnvelope) -> usize {
     let base = ENVELOPE_OVERHEAD + json_str_len(&envelope.connection_id);
     let payload = match &envelope.payload {
         AcpEvent::ContentDelta { text } | AcpEvent::Thinking { text } => json_str_len(text),
+        AcpEvent::ContentRecovered { content } => {
+            content.iter().map(live_content_size).sum::<usize>() + content.len() + 2
+        }
         AcpEvent::ClaudeSdkMessage {
             session_id,
             message,
@@ -483,6 +486,17 @@ fn estimate_envelope_size(envelope: &EventEnvelope) -> usize {
         other => serde_json::to_vec(other).map_or(256, |v| v.len()),
     };
     base + payload
+}
+
+fn live_content_size(block: &crate::acp::session_state::LiveContentBlock) -> usize {
+    use crate::acp::session_state::LiveContentBlock as Block;
+    match block {
+        Block::Text { text } | Block::Thinking { text } => 32 + json_str_len(text),
+        Block::ToolCallRef { tool_call_id } => 48 + json_str_len(tool_call_id),
+        Block::Plan { entries } => 32 + json_value_size(entries),
+        Block::UserInput { message_id, blocks, .. } => 128 + json_str_len(message_id)
+            + blocks.iter().map(user_block_size).sum::<usize>() + blocks.len(),
+    }
 }
 
 fn message_turn_size(turn: &crate::models::message::MessageTurn) -> usize {

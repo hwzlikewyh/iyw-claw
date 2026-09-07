@@ -17,6 +17,13 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { splitRecommended } from "@/lib/ask-question"
+import {
+  inputDefaults,
+  allowsEmptyInput,
+  inputHint,
+  preservesEmptyText,
+  answerError,
+} from "@/lib/question-input"
 import type {
   PendingQuestionState,
   QuestionAnswer,
@@ -69,15 +76,16 @@ function initialState(
           otherActive: s.otherText.trim().length > 0,
           otherText: s.otherText,
         }
-      : { chosen: [], otherActive: false, otherText: "" }
+      : inputDefaults(q)
   }
   return out
 }
 
 /** A question is answered once it has a real option or non-empty "Other" text. */
-function isAnswered(s: QState | undefined): boolean {
+function isAnswered(s: QState | undefined, secret = false): boolean {
   if (!s) return false
-  const hasOther = s.otherActive && s.otherText.trim().length > 0
+  const hasOther =
+    s.otherActive && (secret ? s.otherText : s.otherText.trim()).length > 0
   return s.chosen.length > 0 || hasOther
 }
 
@@ -97,7 +105,7 @@ export function AskQuestionCard({
   // Active tab in the multi-question layout.
   const [activeId, setActiveId] = useState(() => questions[0]?.id ?? "")
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   // Synchronous guard against a double-submit before `submitting` re-renders.
   const inFlight = useRef(false)
   // Tracks which question set the above state belongs to. If the card is reused
@@ -109,7 +117,13 @@ export function AskQuestionCard({
   // How many questions are answered — drives the progress bar, the counter, and
   // the submit gate (every question must be answered).
   const answeredCount = useMemo(
-    () => questions.filter((q) => isAnswered(state[q.id])).length,
+    () =>
+      questions.filter(
+        (q) =>
+          q.optional ||
+          allowsEmptyInput(q) ||
+          isAnswered(state[q.id], q.secret || !!q.input)
+      ).length,
     [questions, state]
   )
   const complete = answeredCount === questions.length
@@ -129,7 +143,7 @@ export function AskQuestionCard({
     setState(initialState(questions, initialSelections))
     setActiveId(questions[0]?.id ?? "")
     setSubmitting(false)
-    setError(false)
+    setError(null)
     // `inFlight` is intentionally not reset here — refs must not be written
     // during render. `run` clears it whenever the round-trip resolves (both the
     // success and failure paths), so it is already idle by the time a replacement
@@ -220,7 +234,7 @@ export function AskQuestionCard({
     if (inFlight.current) return
     inFlight.current = true
     setSubmitting(true)
-    setError(false)
+    setError(null)
     try {
       await onAnswer(question.question_id, answer)
       // Clear the re-entrancy guard on success too (symmetric with the catch).
@@ -228,8 +242,12 @@ export function AskQuestionCard({
       // next question the guard must not stay latched. `submitting` stays true so
       // the controls don't flash back on before the unmount/replacement.
       inFlight.current = false
-    } catch {
-      setError(true)
+    } catch (error) {
+      setError(
+        questions.some((question) => question.input)
+          ? answerError(error, t("submitError"))
+          : t("submitError")
+      )
       setSubmitting(false)
       inFlight.current = false
     }
@@ -239,7 +257,13 @@ export function AskQuestionCard({
     const answers = questions.map((q) => {
       const s = state[q.id]
       const labels = [...(s?.chosen ?? [])]
-      if (s?.otherActive && s.otherText.trim()) labels.push(s.otherText.trim())
+      const other = q.secret || q.input ? s?.otherText : s?.otherText.trim()
+      if (
+        s?.otherActive &&
+        other !== undefined &&
+        (other.length > 0 || preservesEmptyText(q))
+      )
+        labels.push(other)
       return { questionId: q.id, labels }
     })
     void run({ answers, declined: false })
@@ -305,9 +329,10 @@ export function AskQuestionCard({
     const otherInput = s?.otherActive ? (
       <input
         id={otherId}
-        type="text"
+        type={q.secret ? "password" : "text"}
+        autoComplete={q.secret ? "off" : undefined}
         autoFocus
-        aria-label={t("other")}
+        aria-label={q.options.length === 0 ? q.question : t("other")}
         disabled={locked}
         value={s.otherText}
         onChange={(e) => setOtherText(q, e.target.value)}
@@ -315,6 +340,8 @@ export function AskQuestionCard({
         className="w-full rounded-md border border-border/60 bg-background px-2.5 py-1.5 text-sm outline-none focus:border-ring disabled:cursor-not-allowed disabled:opacity-60"
       />
     ) : null
+
+    if (q.options.length === 0) return otherInput
 
     if (q.multi_select) {
       return (
@@ -334,15 +361,17 @@ export function AskQuestionCard({
               </Label>
             )
           })}
-          <Label className={cardClass(s?.otherActive ?? false)}>
-            <Checkbox
-              checked={s?.otherActive ?? false}
-              disabled={locked}
-              onCheckedChange={() => toggleOther(q)}
-              className="mt-0.5"
-            />
-            <span className="text-sm font-medium">{t("other")}</span>
-          </Label>
+          {q.input?.allow_other !== false && (
+            <Label className={cardClass(s?.otherActive ?? false)}>
+              <Checkbox
+                checked={s?.otherActive ?? false}
+                disabled={locked}
+                onCheckedChange={() => toggleOther(q)}
+                className="mt-0.5"
+              />
+              <span className="text-sm font-medium">{t("other")}</span>
+            </Label>
+          )}
           {otherInput}
         </div>
       )
@@ -380,16 +409,18 @@ export function AskQuestionCard({
               </Label>
             )
           })}
-          <Label className={cardClass(s?.otherActive ?? false)}>
-            <RadioGroupItem
-              value={OTHER_VALUE}
-              onClick={() => {
-                if (s?.otherActive) toggleOther(q)
-              }}
-              className="mt-0.5 data-[state=checked]:border-primary data-[state=checked]:bg-primary"
-            />
-            <span className="text-sm font-medium">{t("other")}</span>
-          </Label>
+          {q.input?.allow_other !== false && (
+            <Label className={cardClass(s?.otherActive ?? false)}>
+              <RadioGroupItem
+                value={OTHER_VALUE}
+                onClick={() => {
+                  if (s?.otherActive) toggleOther(q)
+                }}
+                className="mt-0.5 data-[state=checked]:border-primary data-[state=checked]:bg-primary"
+              />
+              <span className="text-sm font-medium">{t("other")}</span>
+            </Label>
+          )}
         </RadioGroup>
         {otherInput}
       </div>
@@ -401,7 +432,12 @@ export function AskQuestionCard({
       <Badge variant="outline" className="shrink-0 text-[10px]">
         {q.multi_select ? t("multiSelect") : t("singleSelect")}
       </Badge>
-      <p className="text-sm text-foreground/90">{q.question}</p>
+      <div className="space-y-1">
+        <p className="text-sm text-foreground/90">{q.question}</p>
+        {inputHint(q) && (
+          <p className="text-xs text-muted-foreground">{inputHint(q)}</p>
+        )}
+      </div>
     </div>
   )
 
@@ -523,7 +559,7 @@ export function AskQuestionCard({
             <div className="ml-auto flex items-center gap-2">
               {error && (
                 <span role="alert" className="text-xs text-destructive">
-                  {t("submitError")}
+                  {error}
                 </span>
               )}
               {isMulti && nextId && (

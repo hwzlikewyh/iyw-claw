@@ -250,6 +250,9 @@ jobs:
       - name: Verify staged sidecars
         run: node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
 
+      - name: Build built-in worker
+        run: pnpm tauri:prepare-codex-worker --target "${{ matrix.target }}"
+
       - name: Run managed browser smoke
         if: inputs.browser_engine_fixture != '' && matrix.target != 'i686-pc-windows-msvc'
         shell: bash

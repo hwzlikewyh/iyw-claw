@@ -74,6 +74,7 @@ fn update_candidate_from(
     agent: crate::acp::types::AcpAgentInfo,
     settings: &std::collections::HashMap<AgentType, crate::db::entities::agent_setting::Model>,
 ) -> Option<AutoUpdateCandidate> {
+    if crate::internal_codex_worker::is_desktop_agent(agent.agent_type) { return None; }
     let pinned = settings
         .get(&agent.agent_type)
         .and_then(|setting| setting.pinned_version.as_deref())

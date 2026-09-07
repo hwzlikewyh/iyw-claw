@@ -34,12 +34,13 @@ pub struct UpstreamStartArgs {
 impl UpstreamStartArgs {
     pub(crate) async fn build_client(self) -> Result<InProcessAppServerClient, UpstreamError> {
         let workspace_roots = validate_paths(&self)?;
+        let launch_overrides = crate::launch_config::environment_overrides()?;
         let arg0_paths = Arg0DispatchPaths {
             codex_self_exe: Some(self.helper_executable.clone()),
             codex_linux_sandbox_exe: self.linux_sandbox_executable.clone(),
             main_execve_wrapper_exe: self.main_execve_wrapper_executable.clone(),
         };
-        let config = build_config(&self, &arg0_paths, workspace_roots).await?;
+        let config = build_config(&self, &arg0_paths, (workspace_roots, &launch_overrides)).await?;
         let runtime_paths = ExecServerRuntimePaths::from_optional_paths(
             arg0_paths.codex_self_exe.clone(),
             arg0_paths.codex_linux_sandbox_exe.clone(),
@@ -66,7 +67,8 @@ impl UpstreamStartArgs {
         InProcessAppServerClient::start(InProcessClientStartArgs {
             arg0_paths,
             config: Arc::new(config),
-            cli_overrides: Vec::new(),
+            cli_overrides: serde_json::from_value(launch_overrides)
+                .map_err(|_| crate::launch_config::invalid("CODEX_CONFIG has unsupported TOML values"))?,
             loader_overrides: LoaderOverrides::default(),
             strict_config: true,
             cloud_config_bundle: CloudConfigBundleLoader::default(),
@@ -92,8 +94,9 @@ impl UpstreamStartArgs {
 async fn build_config(
     args: &UpstreamStartArgs,
     arg0_paths: &Arg0DispatchPaths,
-    workspace_roots: Vec<AbsolutePathBuf>,
+    launch: (Vec<AbsolutePathBuf>, &serde_json::Value),
 ) -> Result<codex_core::config::Config, UpstreamError> {
+    let (workspace_roots, overrides_json) = launch;
     let overrides = ConfigOverrides {
         cwd: Some(canonical_cwd(args)?),
         codex_self_exe: arg0_paths.codex_self_exe.clone(),
@@ -103,6 +106,8 @@ async fn build_config(
         ..Default::default()
     };
     ConfigBuilder::default()
+        .cli_overrides(serde_json::from_value(overrides_json.clone())
+            .map_err(|_| crate::launch_config::invalid("CODEX_CONFIG has unsupported TOML values"))?)
         .codex_home(args.codex_home.clone())
         .fallback_cwd(Some(args.cwd.clone()))
         .harness_overrides(overrides)

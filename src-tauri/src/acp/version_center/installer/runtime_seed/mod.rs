@@ -39,7 +39,10 @@ pub(crate) async fn import_runtime_seed(
     }
     let manifest = RuntimeSeedManifest::read(&seed_root)?;
     let mut failures = tools::import(&request, &seed_root, &manifest).await;
-    failures.extend(codex::import(&request, &seed_root, &manifest).await);
+    if !crate::internal_codex_worker::is_desktop_agent(crate::models::agent::AgentType::Codex)
+        && manifest.component("codex-acp").is_some() {
+        failures.extend(codex::import(&request, &seed_root, &manifest).await);
+    }
     if failures.is_empty() {
         return Ok(());
     }

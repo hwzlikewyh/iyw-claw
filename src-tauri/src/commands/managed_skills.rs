@@ -568,7 +568,7 @@ async fn agent_eligibility(
         .into_iter()
         .map(|agent_type| {
             let eligible = settings.get(&agent_type).is_some_and(|setting| {
-                setting.installed_version.is_some()
+                crate::internal_codex_worker::installation_available(agent_type, setting.installed_version.as_deref())
                     && is_enable_target(agent_type, setting.enabled, setting.env_json.as_deref())
             });
             (agent_type, eligible)
@@ -948,7 +948,7 @@ pub async fn reconcile_agent_core(
         .await
         .map_err(AppCommandError::from)?;
     let eligible = setting.as_ref().is_some_and(|setting| {
-        setting.installed_version.is_some()
+        crate::internal_codex_worker::installation_available(agent_type, setting.installed_version.as_deref())
             && is_enable_target(agent_type, agent_enabled, setting.env_json.as_deref())
     });
     let supported = skill_storage_spec(agent_type).is_some();

@@ -10,9 +10,10 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import { parseTarget, targetInfo } from "./runtime-seed-config.mjs"
+import { verifyWorkerBundle } from "./verify-codex-worker-bundle.mjs"
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
-const COMPONENT_IDS = new Set(["node", "git", "uv", "codex-acp"])
+const COMPONENT_IDS = new Set(["node", "git", "uv"])
 const execFileAsync = promisify(execFile)
 
 function fail(message) {
@@ -85,6 +86,8 @@ async function requireArchive(seedRoot, component) {
 }
 
 async function verifyApp(appDirectory, target, info) {
+  // macOS 会对动态库签名，签名后的字节与准备阶段不同，只验证存在和版本一致性。
+  verifyWorkerBundle(join(appDirectory, "Contents", "Resources"), target, false)
   const seedRoot = join(appDirectory, "Contents", "Resources", "runtime-seed")
   const manifestPath = join(seedRoot, "manifest.json")
   let manifest

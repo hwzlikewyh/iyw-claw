@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::{json, Value};
 
@@ -10,17 +10,34 @@ const TRUNCATED_OUTPUT_PREFIX: &str = "[earlier output omitted]\n";
 
 #[derive(Default)]
 pub(super) struct ItemProjection {
+    turn: Option<String>,
+    seen: HashSet<String>,
     outputs: HashMap<String, String>,
+    recovered: HashSet<String>,
 }
 
 impl ItemProjection {
+    pub(super) fn was_started(&self, id: &str) -> bool { self.seen.contains(id) }
     pub(super) fn map(&mut self, method: &str, params: &Value) -> Option<Update> {
+        if let Some(turn) = params.get("turnId").or_else(|| params.pointer("/turn/id")).and_then(Value::as_str) {
+            if self.turn.as_deref() != Some(turn) {
+                self.turn = Some(turn.into()); self.seen.clear(); self.outputs.clear(); self.recovered.clear();
+            }
+        }
+        if params["_iywRecovered"] == true {
+            if let Some(id) = item_id(params) { self.recovered.insert(id.to_string()); }
+        }
         match method {
-            "item/started" => item_update(params, false),
+            "item/started" => {
+                let update = item_update(params, false)?;
+                if let Some(id) = item_id(params) { self.seen.insert(id.into()); }
+                Some(update)
+            }
             "item/completed" => {
                 let update = item_update(params, true);
                 if let Some(id) = item_id(params) {
                     self.outputs.remove(id);
+                    if params["_iywRecovered"] != true { self.recovered.remove(id); }
                 }
                 update
             }
@@ -34,6 +51,7 @@ impl ItemProjection {
 
     fn output_delta(&mut self, params: &Value) -> Option<Update> {
         let id = required_str(params, "itemId", "item_id")?;
+        if self.recovered.contains(id) { return None; }
         let delta = params.get("delta")?.as_str()?;
         let delta = bounded_delta(delta);
         if !self.outputs.contains_key(id) && self.outputs.len() >= MAX_TOOL_OUTPUTS {
@@ -44,23 +62,30 @@ impl ItemProjection {
         let output = self.outputs.entry(id.to_string()).or_default();
         output.push_str(&delta);
         truncate_output(output);
-        Some(tool_delta(id, &delta))
+        // ACP 宿主将 rawOutput 作为完整快照，再统一转换为前端追加事件。
+        Some(tool_update(id, None, Some(Value::String(output.clone()))))
     }
 }
 
 fn item_update(params: &Value, completed: bool) -> Option<Update> {
     let item = params.get("item")?;
     let kind = item.get("type")?.as_str()?;
+    if matches!(kind, "collabAgentToolCall" | "subAgentActivity") {
+        return super::subagent_items::map(item, completed);
+    }
+
     if matches!(kind, "userMessage" | "agentMessage" | "reasoning" | "plan") {
         return None;
     }
     let id = item.get("id")?.as_str()?;
     if completed {
         let status = completed_status(item);
-        return Some(tool_update(id, Some(status), completed_output(item)));
+        let mut update = tool_update(id, Some(status), completed_output(item));
+        super::tool_content::enrich(item, &mut update.params);
+        return Some(update);
     }
     let (title, tool_kind) = tool_identity(kind, item)?;
-    Some(Update {
+    let mut update = Update {
         method: "tool_call",
         params: json!({
             "toolCallId": id,
@@ -69,7 +94,13 @@ fn item_update(params: &Value, completed: bool) -> Option<Update> {
             "status": started_status(item),
             "rawInput": item,
         }),
-    })
+    };
+    super::tool_content::enrich(item, &mut update.params);
+    Some(update)
+}
+
+pub(super) fn is_tool_item(item: &Value) -> bool {
+    item["type"].as_str().is_some_and(|kind| tool_identity(kind, item).is_some())
 }
 
 fn tool_identity(kind: &str, item: &Value) -> Option<(String, &'static str)> {
@@ -120,17 +151,6 @@ fn tool_update(id: &str, status: Option<&str>, raw_output: Option<Value>) -> Upd
     Update {
         method: "tool_call_update",
         params,
-    }
-}
-
-fn tool_delta(id: &str, delta: &str) -> Update {
-    Update {
-        method: "tool_call_update",
-        params: json!({
-            "toolCallId": id,
-            "rawOutput": delta,
-            "rawOutputAppend": true,
-        }),
     }
 }
 

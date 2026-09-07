@@ -17,6 +17,8 @@ pub(super) fn run() -> Result<(), WorkerError> {
 async fn serve(config: WorkerConfig) -> Result<(), WorkerError> {
     let agent = CodexAcpAgent::new(config.start_args())
         .map_err(|_| WorkerError::Startup)?
+        .with_owner(config.connection_id(), None, 0)
+        .map_err(|_| WorkerError::Configuration(ConfigError::Connection))?
         .with_expected_session_id(config.expected_session_id());
     ConnectTo::<Agent>::connect_to(sacp_tokio::Stdio::new(), agent)
         .await
@@ -42,6 +44,9 @@ impl fmt::Display for WorkerError {
             }
             Self::Configuration(ConfigError::Fingerprint) => {
                 formatter.write_str("worker configuration has no runtime fingerprint")
+            }
+            Self::Configuration(ConfigError::Connection) => {
+                formatter.write_str("worker configuration has no owning connection")
             }
             Self::Runtime => formatter.write_str("worker runtime initialization failed"),
             Self::Startup => formatter.write_str("worker Codex runtime initialization failed"),
