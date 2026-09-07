@@ -98,7 +98,7 @@ fn library_candidates() -> Vec<PathBuf> {
             );
             candidates.push(
                 directory
-                    .join("../Resources/codex-worker")
+                    .join("../Resources/resources/codex-worker")
                     .join(worker_library_filename()),
             );
         }

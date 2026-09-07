@@ -25,6 +25,7 @@ iyw-claw 是一个多智能体编码工作台，用于在同一个工作区内�
 - pnpm 11 或更高版本
 - Rust stable
 - 桌面模式需要安装对应系统的 Tauri 构建依赖
+- macOS 桌面端要求 13.5 或更高版本（与内置 Node.js 24 运行时一致），支持 Intel 和 Apple Silicon
 
 ## 安装依赖
 
@@ -65,6 +66,17 @@ pnpm build
 ```bash
 pnpm tauri build
 ```
+
+macOS 默认生成 `.app` 和 `.dmg`。构建包含内置 Node/npm、Git、uv 和 Codex 的完整安装包：
+
+```bash
+pnpm tauri:build:prod
+```
+
+该入口会准备并验证运行时、构建前端和应用，再检查 app/DMG 内的运行时能否启动。
+本地无签名环境使用 `pnpm tauri:build:fast` 需要已有 `out/`；完整重新构建可使用
+`pnpm tauri:build:prod --no-sign`。在 Apple Silicon 上构建并验证 Intel 包需要 Rosetta 2，
+通过 `TAURI_TARGET_TRIPLE=x86_64-apple-darwin` 选择 Intel 目标，并预先安装对应 Rust target。
 
 构建独立服务端：
 

@@ -373,6 +373,10 @@ jobs:
           IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}/iyw-runtime-seed-cache
         run: node src-tauri/scripts/prepare-runtime-seed.mjs --target ${{ matrix.target }}
 
+      - name: Verify runtime seed
+        shell: bash
+        run: node src-tauri/scripts/verify-runtime-seed.mjs --target ${{ matrix.target }}
+
       - name: Build unsigned bundle
         shell: bash
         run: >-
