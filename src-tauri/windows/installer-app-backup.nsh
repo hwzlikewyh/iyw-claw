@@ -5,12 +5,16 @@
 !define IYW_CLAW_RECOVERY_TARGET_ATTEMPTS 10
 !define IYW_CLAW_RECOVERY_RENAME_ATTEMPTS 3
 
+Var IywClawAppRenameError
+
 Function IywClawBackupCurrentAppWithRetry
   StrCpy $R2 1
   backup_current_app_retry:
     ClearErrors
-    Rename "$IywClawAppDir" "$IywClawBackupDir"
-    IfErrors backup_current_app_retry_failed 0
+    ; 直接保留 MoveFileW 的错误码，避免 NSIS Rename 只留下通用失败标记。
+    System::Call 'kernel32::MoveFileW(w "$IywClawAppDir", w "$IywClawBackupDir") i.R0 ?e'
+    Pop $IywClawAppRenameError
+    StrCmp $R0 "0" backup_current_app_retry_failed 0
     Push "1"
     Return
 
@@ -18,19 +22,19 @@ Function IywClawBackupCurrentAppWithRetry
     IfFileExists "$IywClawBackupDir" backup_current_app_target_exists 0
     IntCmp $R2 ${IYW_CLAW_APP_RENAME_ATTEMPTS} backup_current_app_failed backup_current_app_wait backup_current_app_failed
   backup_current_app_wait:
-    DetailPrint "旧 app 原子备份失败，等待后重试（$R2/${IYW_CLAW_APP_RENAME_ATTEMPTS}）：$IywClawAppDir -> $IywClawBackupDir"
+    DetailPrint "旧 app 原子备份失败，等待后重试（$R2/${IYW_CLAW_APP_RENAME_ATTEMPTS}）：$IywClawAppDir -> $IywClawBackupDir; win32_error=$IywClawAppRenameError"
     IntOp $R2 $R2 + 1
     Sleep ${IYW_CLAW_APP_RENAME_WAIT_MS}
     Goto backup_current_app_retry
 
   backup_current_app_target_exists:
-    DetailPrint "旧 app 原子备份失败：source=$IywClawAppDir; target=$IywClawBackupDir; target_exists=1; attempts=$R2"
+    DetailPrint "旧 app 原子备份失败：source=$IywClawAppDir; target=$IywClawBackupDir; target_exists=1; attempts=$R2; win32_error=$IywClawAppRenameError"
     StrCpy $IywClawTransactionError "无法原子备份旧 app：backup 目标已存在"
     Push "0"
     Return
   backup_current_app_failed:
-    DetailPrint "旧 app 原子备份失败：source=$IywClawAppDir; target=$IywClawBackupDir; target_exists=0; attempts=$R2"
-    StrCpy $IywClawTransactionError "无法原子备份旧 app：目录可能被占用、权限不足或文件系统拒绝"
+    DetailPrint "旧 app 原子备份失败：source=$IywClawAppDir; target=$IywClawBackupDir; target_exists=0; attempts=$R2; win32_error=$IywClawAppRenameError"
+    StrCpy $IywClawTransactionError "无法原子备份旧 app：Windows 错误 $IywClawAppRenameError（32=文件或目录被占用，5=拒绝访问）"
     Push "0"
 FunctionEnd
 
