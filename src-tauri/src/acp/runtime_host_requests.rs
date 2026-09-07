@@ -267,12 +267,8 @@ fn monitor_terminal_policy(watch: TerminalPolicyWatch) {
                     return;
                 }
                 _ = tokio::time::sleep(TERMINAL_MONITOR_INTERVAL) => {
-                    let request = TerminalOutputRequest::new(
-                        session_id.clone(),
-                        terminal_id.clone(),
-                    );
-                    match terminal.terminal_output(request).await {
-                        Ok(response) if response.exit_status.is_some() => return,
+                    match terminal.terminal_has_exited(&session_id, &terminal_id).await {
+                        Ok(true) => return,
                         Err(_) => return,
                         _ => {}
                     }

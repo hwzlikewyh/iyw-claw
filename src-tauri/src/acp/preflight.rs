@@ -15,6 +15,9 @@ use crate::models::agent::AgentType;
 /// stays `None` if checks failed so they are retried next time.
 static NPM_ENV_CACHE: Mutex<Option<Vec<CheckItem>>> = Mutex::new(None);
 
+#[path = "node_version_cache.rs"]
+mod node_version_cache;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FixActionKind {
@@ -57,6 +60,7 @@ pub struct PreflightResult {
 
 pub fn clear_npm_env_cache() {
     *NPM_ENV_CACHE.lock().unwrap() = None;
+    node_version_cache::clear();
 }
 
 pub async fn run_preflight(agent_type: AgentType) -> PreflightResult {
@@ -350,16 +354,7 @@ pub(crate) async fn enforce_node_binary_version(
     environment: &BTreeMap<String, String>,
     required: &str,
 ) -> Result<(), String> {
-    let output = crate::process::tokio_command(&node_path)
-        .envs(environment)
-        .arg("--version")
-        .output()
-        .await
-        .map_err(|error| format!("failed to execute Node.js for version check: {error}"))?;
-    if !output.status.success() {
-        return Err("Node.js version check failed".to_string());
-    }
-    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let version = node_version_cache::version(node_path, environment).await?;
     let check = build_node_version_check(Some(&version), required);
     match check.status {
         CheckStatus::Pass => Ok(()),

@@ -21,6 +21,8 @@ struct StartupTraceInner {
     connection_id: Mutex<Option<String>>,
     host_key: Mutex<Option<String>>,
     first_prompt_logged: AtomicBool,
+    first_content_logged: AtomicBool,
+    prompt_dispatched_at: Mutex<Option<Instant>>,
 }
 
 pub(crate) struct StartupStage {
@@ -42,6 +44,8 @@ impl StartupTrace {
                 connection_id: Mutex::new(None),
                 host_key: Mutex::new(None),
                 first_prompt_logged: AtomicBool::new(false),
+                first_content_logged: AtomicBool::new(false),
+                prompt_dispatched_at: Mutex::new(None),
             }),
         };
         trace.log("request_accepted", "started", Duration::ZERO);
@@ -71,14 +75,27 @@ impl StartupTrace {
     }
 
     pub(crate) fn first_prompt_dispatched(&self) {
+        let mut dispatched = lock(&self.inner.prompt_dispatched_at);
         if self.inner.first_prompt_logged.swap(true, Ordering::AcqRel) {
             return;
         }
+        *dispatched = Some(Instant::now());
+        drop(dispatched);
         self.log(
             "first_prompt_dispatch",
             "dispatched",
             self.inner.accepted_at.elapsed(),
         );
+    }
+
+    pub(crate) fn first_content_received(&self) {
+        if !self.inner.first_prompt_logged.load(Ordering::Acquire)
+            || self.inner.first_content_logged.load(Ordering::Acquire)
+            || self.inner.first_content_logged.swap(true, Ordering::AcqRel)
+        { return; }
+        let elapsed = lock(&self.inner.prompt_dispatched_at).map(|at| at.elapsed()).unwrap_or_default();
+        // duration 是发送后等待，since_accepted 包含本地启动；不记录内容。
+        self.log("first_content", "received", elapsed);
     }
 
     fn log(&self, stage: &'static str, outcome: &'static str, elapsed: Duration) {

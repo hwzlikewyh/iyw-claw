@@ -347,6 +347,9 @@ where
         if !gate(&s) {
             return false;
         }
+        if matches!(&payload, AcpEvent::ContentDelta { text } if !text.is_empty()) {
+            if let Some(trace) = &s.startup_trace { trace.first_content_received(); }
+        }
         s.apply_event(&payload);
         s.event_seq += 1;
         let envelope = Arc::new(EventEnvelope {

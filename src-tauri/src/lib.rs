@@ -1227,24 +1227,10 @@ mod tauri_app {
                     tracing::info!(
                         wait_outcome,
                         wait_ms = wait_started.elapsed().as_millis(),
-                        "[ACP][startup] Codex runtime prewarm gate released"
+                        "[ACP][startup] 星河与远山运行时预热门已释放"
                     );
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    let prewarm_started = std::time::Instant::now();
-                    match runtime_prewarm_manager.prewarm_codex_runtime().await {
-                        Ok(true) => tracing::info!(
-                            elapsed_ms = prewarm_started.elapsed().as_millis(),
-                            "[ACP][startup] Codex runtime Host prewarmed"
-                        ),
-                        Ok(false) => tracing::info!(
-                            "[ACP][startup] Codex runtime Host prewarm disabled"
-                        ),
-                        Err(error) => tracing::info!(
-                            elapsed_ms = prewarm_started.elapsed().as_millis(),
-                            error = %error,
-                            "[ACP][startup] Codex runtime Host prewarm deferred"
-                        ),
-                    }
+                    runtime_prewarm_manager.prewarm_primary_agents().await;
                 });
                 setup_stage.complete();
                 crate::logging::emergency::set_process_stage("runtime");

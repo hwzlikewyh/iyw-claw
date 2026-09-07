@@ -5701,6 +5701,7 @@ dependencies = [
  "shell-words",
  "tokio",
  "tokio-util",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
