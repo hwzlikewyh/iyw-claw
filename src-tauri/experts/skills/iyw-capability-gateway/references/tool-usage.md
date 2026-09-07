@@ -16,11 +16,13 @@ detailed reference before acting when the task matches one:
 
 ## Five-Step Sequence
 
-1. Inspect the actual callable surface and choose one complete trio. The roles
-   are `search_iyw_capabilities`, `read_iyw_capability`, and
-   `invoke_iyw_capability`; prefer the unique visible
-   `iyw-claw-builtin-*` trio. If a role is missing or multiple trios are
-   ambiguous, stop using the gateway for this turn.
+1. Inspect the actual callable surface and choose one complete trio when the
+   current host sub-goal requires gateway discovery. The roles are
+   `search_iyw_capabilities`, `read_iyw_capability`, and
+   `invoke_iyw_capability`; prefer the unique visible `iyw-claw-builtin-*`
+   trio. If a role is missing or multiple trios are ambiguous, stop this
+   gateway attempt and return to the owning direct tool, domain Skill, or
+   read-only browser workflow.
 2. Search with 2-5 discriminating action/object terms in Chinese or English,
    such as `读取 网页`, `会议 音频 转写`, `提交 成果`, or `send channel message`.
    Do not search greetings, trivial self-contained requests, current-turn-only
@@ -42,12 +44,16 @@ question (or one call with a few related questions), wait for the answer, and
 continue with the selected requirements. Never guess through ambiguity. Do not
 use this capability for secrets, ordinary progress confirmation, or selector
 failures; if it is not advertised, ask the necessary question plainly in chat
-and report the concrete gateway limitation.
+and report the concrete gateway limitation to the caller, while allowing an
+applicable direct or domain route to continue the task.
 
 An empty result, unknown ID, malformed output, timeout, unavailable capability,
-schema rejection, or two non-matching reads ends gateway use for the turn. One
-search retry is allowed only after an exhausted result set and only with a close
-synonym. Do not switch namespaces, promote nested tools, or cycle guessed names.
+schema rejection, or two non-matching reads ends the current gateway attempt.
+It does not by itself end the user's task. One search retry is allowed only
+after an exhausted result set and only with a close synonym. Do not switch
+namespaces, promote nested tools, or cycle guessed names; hand off to another
+already-authorized route instead. Allow one bounded recovery for a stale or
+transient failure, not repeated cosmetic parameter variations.
 
 ## Memory Card
 

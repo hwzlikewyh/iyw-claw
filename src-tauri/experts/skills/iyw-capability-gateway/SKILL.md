@@ -7,16 +7,17 @@ description: >-
   browser or public web evidence, audio transcription, image understanding or
   display, channels and messages, scheduled automation, user interaction, or
   delegated work. First load the matching gateway reference, then use one
-  complete search/read/invoke trio against the current catalog. Prefer a direct
-  tool or domain Skill when it fully owns the task; when a required input or
-  user decision is unclear, ask through the interaction capability before
-  acting; never guess IDs, arguments, paths, URLs, or schemas.
+  complete search/read/invoke trio when the host catalog is needed for the
+  current sub-goal. Prefer a direct tool or domain Skill when it fully owns the
+  task. A gateway failure ends that route, not the user's task; hand off to an
+  applicable direct tool, domain Skill, or read-only browser workflow without
+  guessing IDs, arguments, paths, URLs, or schemas.
 routing:
   capability: iyw-claw host routing through live capabilities
   coreTriggers: [host action, memory, self-learning, session, profile, history, artifact, browser, web, internet, audio, transcription, image understanding, channel, message, automation, scheduled task, feedback, question, clarification, ambiguous requirement, needs decision, 需求不清, 需要选择, delegation]
   exclusions: [trivial request, self-contained explanation, direct tool fully covers the task, incomplete gateway trio]
   aliases: [iyw gateway, host capability, capability catalog, 主机能力, 能力网关]
-  invocation: Load the matching reference, search the live catalog, read one best match, and invoke its exact current schema.
+  invocation: Load the matching reference, search the live catalog, read one best match, and invoke its exact current schema when the gateway owns the sub-goal.
 ---
 
 # IYW Capability Gateway
@@ -65,9 +66,10 @@ follow its workflow**. Do not treat the reference as optional background reading
    interaction, delegation, or a live plugin capability.
 3. Inspect the actual callable surface and select one complete trio of
    `search_iyw_capabilities`, `read_iyw_capability`, and
-   `invoke_iyw_capability`. Prefer the unique visible
-   `iyw-claw-builtin-*` trio; if the trio is incomplete or ambiguous, stop and
-   use an actually visible direct route.
+   `invoke_iyw_capability` when the current host sub-goal requires it. Prefer
+   the unique visible `iyw-claw-builtin-*` trio. If the trio is incomplete or
+   ambiguous, stop this gateway attempt and use an actually visible direct
+   route, owning domain Skill, or read-only browser workflow.
 
 ## Mandatory Gateway Sequence
 
@@ -83,8 +85,30 @@ follow its workflow**. Do not treat the reference as optional background reading
    invocation.
 
 An empty result, unavailable capability, malformed output, timeout, unknown ID,
-schema rejection, or two non-matching reads ends gateway use for this turn. Do
-not switch namespaces, invent names, cycle locators, or replay stale arguments.
+schema rejection, or two non-matching reads ends the current gateway attempt.
+It does not by itself end the user's task. Do not switch namespaces, invent
+names, cycle locators, or replay stale arguments.
+
+## Route Handoff
+
+Treat capability failures as route-local evidence:
+
+```text
+gateway mismatch or failure
+  -> stop the current gateway attempt
+  -> return to the owning direct tool or domain Skill
+  -> for an authenticated web app, use normal browser UI for read-only discovery
+  -> reuse only requests actually triggered and verified by that UI
+  -> report a blocker only when no safe applicable route remains
+```
+
+Normal UI navigation may inspect dynamic menus, fields, and result pages. A
+request observed from that UI is reusable only when the page actually triggered
+it and the request fields, session context, and business result are verified.
+Allow one bounded recovery for a stale or transient failure, then hand off
+instead of enumerating cosmetic parameter variations or repeating the same
+failed route. This permits discovery without authorizing guessed endpoints or
+side effects.
 
 ## Direct Image, Knowledge, and Memory Tools
 

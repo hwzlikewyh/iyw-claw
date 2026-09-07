@@ -72,8 +72,10 @@ pipes, redirects, command chaining, or guessed command names.
   the same intended action once with one new reference or revised locator. Do
   not cycle selectors.
 - For OpenCLI bridge, Chrome, extension, daemon, CDP, network, timeout,
-  selector, or unknown failure, return the structured failure and stop. Do not
-  switch to the managed browser.
+  selector, or unknown failure, return the structured failure and stop the
+  current browser/provider attempt. Do not switch providers from this Skill;
+  the caller may choose another already-authorized route, but must not treat
+  this failure alone as proof that the business task is impossible.
 - Switch only when OpenCLI reports login, MFA, CAPTCHA, device approval,
   security confirmation, human review, or another explicit user-action
   requirement. Keep that task pinned to the managed provider afterward.
@@ -87,6 +89,11 @@ pipes, redirects, command chaining, or guessed command names.
   `titleContains`, `textContains`, `selector`, or `downloadCompleted`. All
   supplied conditions are required. A timeout or closed window is not proof of
   completion; inspect fresh state afterward.
+
+Browser failure is route-local. When a domain Skill's direct data source is
+incomplete or the page is dynamically rendered, normal UI navigation remains a
+valid read-only discovery path. Only reuse a request after the page actually
+triggered it and its fields, session context, and business result are verified.
 
 ## Public Web and Research
 

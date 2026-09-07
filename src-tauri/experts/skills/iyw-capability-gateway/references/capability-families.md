@@ -75,7 +75,8 @@ and partial registration handling, load [artifact-delivery.md](artifact-delivery
   question capability for passwords, tokens, cookies, credentials, ordinary
   progress confirmation, or a selector failure that has a documented recovery.
   If the capability is not advertised, ask the necessary question plainly in
-  chat and report the gateway limitation instead of inventing a tool or schema.
+  chat and report the gateway limitation instead of inventing a tool or schema;
+  if another authorized direct or domain route remains, continue through it.
 
 ## Delegation
 
