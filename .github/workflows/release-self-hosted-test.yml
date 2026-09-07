@@ -239,6 +239,10 @@ jobs:
             throw 'Unable to prepare the Authenticode signing config.'
           }
           "IYW_CLAW_SIGN_CONFIG=$config" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $testConfig = Join-Path $env:RUNNER_TEMP 'iyw-test-bundle-config.json'
+          @{ bundle = @{ createUpdaterArtifacts = $false } } | ConvertTo-Json -Depth 3 |
+            Set-Content -LiteralPath $testConfig -Encoding utf8
+          "IYW_CLAW_TEST_BUNDLE_CONFIG=$testConfig" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Build Authenticode-signed bundle
         shell: pwsh
@@ -250,7 +254,7 @@ jobs:
           --config src-tauri/tauri.ci.conf.json
           ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
           --config "$env:IYW_CLAW_SIGN_CONFIG"
-          --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          --config "$env:IYW_CLAW_TEST_BUNDLE_CONFIG"
 
       - name: Verify Authenticode signatures
         shell: pwsh
