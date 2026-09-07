@@ -1,13 +1,17 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "windows"))]
 use std::time::Duration;
 
+#[cfg(not(target_os = "windows"))]
 use tokio::process::Command;
 
 use super::error::{BrowserError, BrowserErrorCode};
+#[cfg(not(target_os = "windows"))]
 use super::process::configure_hidden_process;
 use super::types::{BrowserEngineKind, BrowserEngineSummary};
 
+#[cfg(not(target_os = "windows"))]
 const ENGINE_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
@@ -38,7 +42,7 @@ pub(super) async fn detect_engine(data_root: &Path) -> Result<BrowserEngine, Bro
             target: "iyw_claw_browser",
             path = %path.display(),
             marker_version = %marker_version,
-            "managed browser engine failed its startup probe; trying fallback engines"
+            "managed browser engine metadata unavailable; trying fallback engines"
         );
     }
     #[cfg(target_os = "windows")]
@@ -190,31 +194,17 @@ pub(super) async fn probe_engine(
         return None;
     }
     #[cfg(target_os = "windows")]
+    // Windows Chrome 的 --version 可能创建窗口或唤醒已有实例。
+    // 启动检查、后台预下载及能力刷新只能读取文件，不能执行浏览器。
     let version = windows_file_version(&path)?;
     #[cfg(not(target_os = "windows"))]
     let version = executable_version(&path).await?;
-    #[cfg(target_os = "windows")]
-    if !process_starts(&path).await {
-        return None;
-    }
     Some(BrowserEngine {
         kind,
         version,
         path,
         profile_source,
     })
-}
-
-#[cfg(target_os = "windows")]
-async fn process_starts(path: &Path) -> bool {
-    let mut command = Command::new(path);
-    command.arg("--version");
-    configure_hidden_process(&mut command);
-    tokio::time::timeout(ENGINE_PROBE_TIMEOUT, command.output())
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .is_some_and(|output| output.status.success())
 }
 
 #[cfg(not(target_os = "windows"))]

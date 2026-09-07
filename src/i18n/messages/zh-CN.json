@@ -1710,7 +1710,11 @@
     "autostartDescription": "选择登录电脑后是否自动启动原助理。",
     "autostartLabel": "开机自启动",
     "autostartHint": "在后台启动原助理，并可从系统托盘中唤回。",
-    "autostartSaveFailed": "更新启动设置失败：{message}"
+    "autostartSaveFailed": "更新启动设置失败：{message}",
+    "browserTitle": "内置浏览器",
+    "browserVisible": "显示内置浏览器",
+    "browserDescription": "默认关闭。开启后显示浏览器入口，关闭后隐藏面板及独立窗口。设置立即生效，重启后保留。",
+    "browserSaveFailed": "浏览器设置保存失败：{message}"
   },
   "MainCloseDialog": {
     "title": "关闭原助理",
