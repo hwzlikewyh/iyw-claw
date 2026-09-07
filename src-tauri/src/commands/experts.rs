@@ -1267,31 +1267,36 @@ fn retired_experts_need_reconcile() -> bool {
     let manifest = load_manifest();
     RETIRED_BUNDLED_EXPERT_IDS.iter().any(|id| {
         let central = expert_central_path(id);
-        if retired_expert_is_preserved(id, &central, &manifest) {
-            return false;
-        }
-        if manifest.experts.contains_key(*id) {
-            return true;
-        }
-        if fs::symlink_metadata(&central).is_ok() {
-            return true;
-        }
-        supported_agents().into_iter().any(|agent| {
-            managed_expert_link_paths(id, agent)
-                .map(|(_, paths)| {
-                    paths
-                        .iter()
-                        .any(|path| managed_link_is_owned(&central, path))
-                })
-                .unwrap_or(false)
-        })
+        let central_needs_cleanup = !retired_expert_is_preserved(id, &central, &manifest)
+            && (manifest.experts.contains_key(*id)
+                || retired_skill_has_non_runtime_content(&central).unwrap_or(true)
+                || supported_agents().into_iter().any(|agent| {
+                    managed_expert_link_paths(id, agent)
+                        .map(|(_, paths)| {
+                            paths
+                                .iter()
+                                .any(|path| managed_link_is_owned(&central, path))
+                        })
+                        .unwrap_or(false)
+                }));
+        central_needs_cleanup
+            || retired_skill_has_non_runtime_content(
+                &crate::system_skills::repository_dir().join(id),
+            )
+            .unwrap_or(true)
     })
 }
 
 fn retire_bundled_experts(manifest: &mut Manifest, report: &mut InstallReport) {
     for id in RETIRED_BUNDLED_EXPERT_IDS {
         let central = expert_central_path(id);
+        let repository_copy = crate::system_skills::repository_dir().join(id);
         if retired_expert_is_preserved(id, &central, manifest) {
+            if let Err(error) = remove_retired_expert_copy(id, &repository_copy) {
+                report.errors.push(format!(
+                    "{id}: failed to remove retired system repository copy: {error}"
+                ));
+            }
             report.pending_user_review.push(id.to_string());
             continue;
         }
@@ -1299,24 +1304,28 @@ fn retire_bundled_experts(manifest: &mut Manifest, report: &mut InstallReport) {
             report.errors.push(format!("{id}: {error}"));
             continue;
         }
-        match fs::symlink_metadata(&central) {
-            Ok(_) => match remove_skill_entry(&central) {
-                Ok(()) => tracing::info!(
-                    target: "system_skills",
-                    skill_id = id,
-                    "removed retired bundled Skill central copy"
-                ),
-                Err(error) => report.errors.push(format!(
+        let central_ok = match remove_retired_expert_copy(id, &central) {
+            Ok(()) => true,
+            Err(error) => {
+                report.errors.push(format!(
                     "{id}: failed to remove retired central copy: {error}"
-                )),
-            },
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => report.errors.push(format!(
-                "{id}: failed to inspect retired central copy: {error}"
-            )),
+                ));
+                false
+            }
+        };
+        let repository_ok = match remove_retired_expert_copy(id, &repository_copy) {
+            Ok(()) => true,
+            Err(error) => {
+                report.errors.push(format!(
+                    "{id}: failed to remove retired system repository copy: {error}"
+                ));
+                false
+            }
+        };
+        if central_ok && repository_ok {
+            manifest.experts.remove(id);
+            report.retired.push(id.to_string());
         }
-        manifest.experts.remove(id);
-        report.retired.push(id.to_string());
     }
 }
 
@@ -1326,7 +1335,38 @@ fn retired_expert_is_preserved(id: &str, central: &Path, manifest: &Manifest) ->
         .get(id)
         .is_some_and(|entry| entry.pending_user_review)
         || crate::commands::acp::read_market_skill_marker(central).is_some()
-        || retained_runtime_env_dir(central).is_some()
+}
+
+fn retired_skill_has_non_runtime_content(path: &Path) -> io::Result<bool> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error),
+    };
+    if !metadata.is_dir() || metadata.file_type().is_symlink() || path_is_reparse_point(path) {
+        return Ok(true);
+    }
+    for entry in fs::read_dir(path)? {
+        if !is_runtime_env_dir(&entry?.path()) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn remove_retired_expert_copy(id: &str, path: &Path) -> Result<(), ExpertsError> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata.is_dir() && !metadata.file_type().is_symlink() && !path_is_reparse_point(path) {
+        if retained_runtime_env_dir(path).is_some() {
+            clear_bundled_skill_contents(path, id)?;
+            return Ok(());
+        }
+    }
+    remove_skill_entry(path).map_err(|error| superseded_skill_dir_error(id, path, error))
 }
 
 fn remove_retired_expert_links(id: &str, central: &Path) -> Result<(), ExpertsError> {
@@ -2571,6 +2611,37 @@ mod tests {
                 "{name} must survive the refusal"
             );
         }
+    }
+
+    #[test]
+    fn remove_retired_expert_copy_keeps_runtime_and_removes_old_content() {
+        for name in RUNTIME_ENV_DIR_NAMES {
+            let temp = tempfile::tempdir().expect("tempdir");
+            let target = temp.path().join("iyw-image-workflows");
+            write_file(&target.join("SKILL.md"), "# retired");
+            write_file(&target.join("scripts").join("old.py"), "print()");
+            write_file(&target.join("work").join("output.png"), "artifact");
+            write_file(&target.join(name).join("marker"), "installed");
+
+            remove_retired_expert_copy("iyw-image-workflows", &target).expect("remove");
+
+            assert!(target.join(name).join("marker").is_file());
+            assert!(!target.join("SKILL.md").exists());
+            assert!(!target.join("scripts").exists());
+            assert!(!target.join("work").exists());
+            assert!(target.is_dir());
+        }
+    }
+
+    #[test]
+    fn remove_retired_expert_copy_removes_directory_without_runtime() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let target = temp.path().join("iyw-image-workflows");
+        write_file(&target.join("SKILL.md"), "# retired");
+
+        remove_retired_expert_copy("iyw-image-workflows", &target).expect("remove");
+
+        assert!(!target.exists());
     }
 
     #[test]
