@@ -26,6 +26,7 @@
  * own DB writes, surfaced via `useConversationDetail`.
  */
 
+import { InteractiveHtmlPages } from "@/components/chat/interactive-html-card"
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react"
 import { useTranslations } from "next-intl"
 
@@ -384,6 +385,10 @@ function SubAgentSessionBody({
           />
         </div>
       )}
+      <InteractiveHtmlPages
+        pages={childConn?.interactiveHtml ?? []}
+        connectionId={childConnectionId ?? null}
+      />
       {childConnectionId && childChannelConfirmation && (
         <div className="border-b border-border px-4 py-3">
           <ChannelConfirmationCard

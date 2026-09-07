@@ -86,6 +86,7 @@ pub mod provider_overlay;
 mod provider_overlay_files;
 mod provider_overlay_formats;
 pub mod question;
+pub mod interactive_html;
 pub mod registry;
 pub(crate) mod resource_governor;
 pub mod runtime_context;

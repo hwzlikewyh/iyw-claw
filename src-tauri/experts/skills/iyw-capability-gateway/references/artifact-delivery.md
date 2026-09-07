@@ -2,10 +2,16 @@
 
 Load this reference whenever a task creates a final file, directory, or public
 URL. Artifact delivery is a required completion sub-goal, not an optional
-presentation step. The current conversation's live gateway catalog and the
-`present_task_files` read schema override this guide.
+presentation step. Call the directly advertised `present_task_files` using its
+current input schema; no capability search/read/invoke is needed. Only fall back
+to the live catalog when the direct tool is unavailable. The current schema
+overrides this guide.
 
 ## What to Register
+
+This places saved deliverables in the conversation's Artifacts area. Use
+`show_interactive_html` for a freely designed page that opens inside the chat;
+displaying an interactive page does not register a saved file or URL as an artifact.
 
 Register every final user-facing item together through `present_task_files`
 before the final response whenever possible:

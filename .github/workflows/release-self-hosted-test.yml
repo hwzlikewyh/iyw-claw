@@ -19,6 +19,7 @@ on:
         type: choice
         options:
           - x64
+          - x86
           - both
       run_macos:
         description: "Also run the self-hosted macOS matrix"
@@ -111,7 +112,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJSON(inputs.windows_arches == 'both' && '["x86_64-pc-windows-msvc","i686-pc-windows-msvc"]' || '["x86_64-pc-windows-msvc"]') }}
+        target: ${{ fromJSON(inputs.windows_arches == 'both' && '["x86_64-pc-windows-msvc","i686-pc-windows-msvc"]' || inputs.windows_arches == 'x86' && '["i686-pc-windows-msvc"]' || '["x86_64-pc-windows-msvc"]') }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -214,6 +215,8 @@ jobs:
 
       - name: Prepare sidecars
         shell: pwsh
+        env:
+          IYW_CLAW_BROWSER_SIDECAR_EXCLUDED: ${{ matrix.target == 'i686-pc-windows-msvc' && '1' || '' }}
         run: |
           node src-tauri/scripts/prepare-sidecars.mjs --target ${{ matrix.target }}
           if ($LASTEXITCODE -ne 0) { throw "sidecar preparation failed" }
@@ -243,6 +246,10 @@ jobs:
             throw 'Unable to prepare the Authenticode signing config.'
           }
           "IYW_CLAW_SIGN_CONFIG=$config" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $testConfig = Join-Path $env:RUNNER_TEMP 'iyw-test-bundle-config.json'
+          @{ bundle = @{ createUpdaterArtifacts = $false } } | ConvertTo-Json -Depth 3 |
+            Set-Content -LiteralPath $testConfig -Encoding utf8
+          "IYW_CLAW_TEST_BUNDLE_CONFIG=$testConfig" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Build Authenticode-signed bundle
         shell: pwsh
@@ -252,9 +259,10 @@ jobs:
           --features tauri-runtime
           --bundles nsis
           --config src-tauri/tauri.ci.conf.json
+          ${{ matrix.target == 'i686-pc-windows-msvc' && '--config src-tauri/tauri.windows-x86.conf.json' || '' }}
           ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
           --config "$env:IYW_CLAW_SIGN_CONFIG"
-          --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          --config "$env:IYW_CLAW_TEST_BUNDLE_CONFIG"
 
       - name: Verify Authenticode signatures
         shell: pwsh
@@ -378,6 +386,10 @@ jobs:
         env:
           IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}/iyw-runtime-seed-cache
         run: node src-tauri/scripts/prepare-runtime-seed.mjs --target ${{ matrix.target }}
+
+      - name: Verify runtime seed
+        shell: bash
+        run: node src-tauri/scripts/verify-runtime-seed.mjs --target ${{ matrix.target }}
 
       - name: Build unsigned bundle
         shell: bash

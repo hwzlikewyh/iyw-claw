@@ -8645,20 +8645,8 @@ async fn reconcile_agent_skills_before_launch(db: &AppDatabase, agent_type: Agen
             "[skills] failed to initialize Agent profile before launch"
         );
     }
-    // The capability gateway is an internal routing contract, not an optional
-    // user skill. Make its central bundle and Agent link ready before the
-    // general (and potentially slower) family reconcile. This closes the
-    // startup race where the Agent could start with an older or missing
-    // `references/memory-and-learning.md` copy.
-    if let Err(error) =
-        crate::commands::experts::ensure_builtin_gateway_skill_ready(agent_type).await
-    {
-        tracing::error!(
-            agent_type = %agent_type,
-            error = %error,
-            "[skills] capability gateway readiness before Agent launch failed"
-        );
-    }
+    // 网关就绪校验统一在 manager 和预热的最终启动门执行；这里不再
+    // 提前重复扫描。下面仍完整对账系统/市场 Skill，不跳过配置变化。
     let install_report = crate::commands::experts::ensure_central_experts_installed().await;
     if !install_report.errors.is_empty() {
         tracing::warn!(
@@ -8821,16 +8809,6 @@ pub(crate) async fn build_session_runtime_env(
             );
         }
     }
-    if let Some(required) = crate::acp::trusted_agents::minimum_node_version(agent_type)
-        .filter(|_| !crate::internal_codex_worker::is_desktop_agent(agent_type)) {
-        crate::acp::preflight::enforce_minimum_node_version(&runtime_env, required)
-            .await
-            .map_err(|error| {
-                AcpError::protocol(format!(
-                    "{agent_type} launch blocked: {error}; requires Node.js >={required}"
-                ))
-            })?;
-    }
     runtime_env.remove(MANAGED_AGENT_VERSION_ENV);
     runtime_env.insert(
         MANAGED_AGENT_VERSION_ENV.to_string(),
@@ -8881,6 +8859,18 @@ pub(crate) async fn build_session_runtime_env(
             crate::commands::agent_concurrency::CLAUDE_CONCURRENCY_ENV.into(),
             limit.to_string(),
         );
+    }
+
+    // 所有环境投影完成后再探测，后续相同启动环境才可复用校验结果。
+    if let Some(required) = crate::acp::trusted_agents::minimum_node_version(agent_type)
+        .filter(|_| !crate::internal_codex_worker::is_desktop_agent(agent_type)) {
+        crate::acp::preflight::enforce_minimum_node_version(&runtime_env, required)
+            .await
+            .map_err(|error| {
+                AcpError::protocol(format!(
+                    "{agent_type} launch blocked: {error}; requires Node.js >={required}"
+                ))
+            })?;
     }
 
     Ok(runtime_env)
@@ -9376,6 +9366,16 @@ pub async fn acp_answer_question(
     manager
         .answer_question(&connection_id, &question_id, answer)
         .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn acp_respond_html(
+    connection_id: String,
+    response: crate::acp::interactive_html::HtmlResponse,
+    manager: State<'_, ConnectionManager>,
+) -> Result<(), AcpError> {
+    manager.respond_html(&connection_id, response).await
 }
 
 #[cfg(feature = "tauri-runtime")]

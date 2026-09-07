@@ -2,6 +2,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use super::capability_registry::tool_name_for_capability_id;
+use super::interaction_tools::{ASK_TOOL, HTML_TOOL};
 
 pub(super) const SEARCH_TOOL: &str = "search_iyw_capabilities";
 pub(super) const READ_TOOL: &str = "read_iyw_capability";
@@ -9,12 +10,16 @@ pub(super) const INVOKE_TOOL: &str = "invoke_iyw_capability";
 pub(super) const IMAGE_TOOL: &str = "generate_iyw_image";
 pub(super) const KNOWLEDGE_TOOL: &str = "search_iyw_knowledge";
 pub(super) const MEMORY_TOOL: &str = "manage_iyw_memory";
+pub(super) const ARTIFACTS_TOOL: &str = "present_task_files";
 pub(super) const CAPABILITY_ID_MAX_CHARS: usize = 128;
 
 const MAX_GATEWAY_WRAPPER_DEPTH: u8 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum GatewayTool {
+    Ask,
+    Html,
+    Artifacts,
     Search,
     Read,
     Invoke,
@@ -26,6 +31,9 @@ pub(super) enum GatewayTool {
 impl GatewayTool {
     pub(super) fn name(self) -> &'static str {
         match self {
+            Self::Ask => ASK_TOOL,
+            Self::Html => HTML_TOOL,
+            Self::Artifacts => ARTIFACTS_TOOL,
             Self::Search => SEARCH_TOOL,
             Self::Read => READ_TOOL,
             Self::Invoke => INVOKE_TOOL,
@@ -147,6 +155,9 @@ fn normalize_server_name(server_name: &str) -> String {
 
 fn bare_gateway_tool(name: &str) -> Option<GatewayTool> {
     match name {
+        ASK_TOOL => Some(GatewayTool::Ask),
+        HTML_TOOL => Some(GatewayTool::Html),
+        ARTIFACTS_TOOL => Some(GatewayTool::Artifacts),
         SEARCH_TOOL => Some(GatewayTool::Search),
         READ_TOOL => Some(GatewayTool::Read),
         INVOKE_TOOL => Some(GatewayTool::Invoke),

@@ -3,6 +3,7 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -22,6 +23,7 @@ const BINARIES_DIR = join(SRC_TAURI, "binaries")
 const VERSION = "0.36.0"
 const DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000
 const DOWNLOAD_RETRIES = 5
+const EXECUTABLE_MODE = 0o755
 const ASSETS = {
   "x86_64-pc-windows-msvc": [
     "agent-browser-win32-x64.exe",
@@ -146,8 +148,12 @@ function hasVendorDigest(path, expectedSize, expectedHash) {
   return sha256(readFileSync(path)) === expectedHash
 }
 
-function verifyVersion(path) {
-  if (process.platform !== "win32" || process.arch !== "x64") return
+function verifyVersion(path, target) {
+  const windowsHost = process.platform === "win32" && process.arch === "x64"
+  const macTarget =
+    process.platform === "darwin" && target.includes("apple-darwin")
+  if (!(windowsHost && target === "x86_64-pc-windows-msvc") && !macTarget)
+    return
   const output = execFileSync(path, ["--version"], {
     encoding: "utf8",
     timeout: 10_000,
@@ -163,7 +169,6 @@ function assertStaged(path, expectedSize, expectedHash) {
     throw new Error(`agent-browser sidecar is missing or empty: ${path}`)
   }
   verifyVendorBytes(readFileSync(path), expectedSize, expectedHash)
-  verifyVersion(path)
 }
 
 function unsupportedWindowsTarget(target, env) {
@@ -201,7 +206,8 @@ export async function prepareAgentBrowserSidecar(target, env = process.env) {
     log(`verified vendor binary unchanged at ${destination}`)
   }
 
-  verifyVersion(destination)
+  if (process.platform !== "win32") chmodSync(destination, EXECUTABLE_MODE)
+  verifyVersion(destination, target)
   assertStaged(destination, expectedSize, expectedHash)
   return destination
 }

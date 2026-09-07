@@ -33,7 +33,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{oneshot, RwLock};
 
-#[path = "question_input.rs"]
+#[path = "question_field_input.rs"]
 mod input;
 pub use input::QuestionInputSpec;
 pub(crate) use input::validate_answers as validate_input_answers;
@@ -41,9 +41,8 @@ pub(crate) use input::validate_answers as validate_input_answers;
 /// Max questions per `ask_user_question` call. Matches Claude Code's
 /// `AskUserQuestion` contract; the JSON schema advertises the same `maxItems`.
 pub const MAX_QUESTIONS: usize = 4;
-/// Min / max selectable options per question. Fewer than two options is not a
-/// meaningful choice; more than four overwhelms the card. Matches Claude Code.
-pub const MIN_OPTIONS: usize = 2;
+/// 无选项表示自由文字问题，最多展示四个可选项。
+pub const MIN_OPTIONS: usize = 0;
 pub const MAX_OPTIONS: usize = 4;
 /// ACP 表单由宿主分页显示；单字段可保留较长的枚举选项。
 pub const MAX_ELICITATION_OPTIONS: usize = 128;
@@ -159,6 +158,16 @@ pub struct RegisteredQuestion {
 /// `crate::acp::delegation::listener::ParentSessionLookup`.
 #[async_trait]
 pub trait SessionQuestionAccess: Send + Sync {
+    async fn present_html(
+        &self,
+        _connection_id: &str,
+        _request: crate::acp::interactive_html::InteractiveHtmlRequest,
+    ) -> Result<crate::acp::interactive_html::RegisteredHtml, String> {
+        Err("HTML interaction is unavailable".to_string())
+    }
+
+    async fn cancel_html(&self, _connection_id: &str, _interaction_id: &str) {}
+
     /// Register a question set on the parent connection (resolved from the
     /// per-launch token), broadcast it to every attached client, and return a
     /// receiver that resolves when the user answers (or the question is
@@ -183,119 +192,12 @@ pub trait SessionQuestionAccess: Send + Sync {
     async fn cancel_questions_by_parent(&self, parent_connection_id: &str);
 }
 
-/// Validate + parse the MCP `ask_user_question` arguments into typed
-/// [`QuestionSpec`]s, minting a stable id per question. Enforces the contract
-/// (1..=[`MAX_QUESTIONS`] questions, each with a non-empty question + header
-/// ≤ [`MAX_HEADER_CHARS`] and [`MIN_OPTIONS`]..=[`MAX_OPTIONS`] labeled options)
-/// so a malformed call is rejected synchronously with a helpful message the LLM
-/// can fix, rather than round-tripping bad data. `multiSelect` defaults to
-/// false; an option `description` defaults to empty (lenient).
+#[path = "question_input.rs"]
+mod question_input;
+
+/// 解析可选选项与自由文字问题，复用 typed specs 的边界校验。
 pub fn parse_questions(arguments: &Value) -> Result<Vec<QuestionSpec>, String> {
-    let arr = arguments
-        .get("questions")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| "ask_user_question requires a `questions` array".to_string())?;
-    if arr.is_empty() {
-        return Err("ask_user_question requires at least one question".to_string());
-    }
-    if arr.len() > MAX_QUESTIONS {
-        return Err(format!(
-            "ask_user_question supports at most {MAX_QUESTIONS} questions per call"
-        ));
-    }
-    let mut out = Vec::with_capacity(arr.len());
-    for (qi, q) in arr.iter().enumerate() {
-        let question = q
-            .get("question")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| format!("questions[{qi}] is missing a non-empty `question`"))?;
-        if question.chars().count() > MAX_QUESTION_TEXT_CHARS {
-            return Err(format!(
-                "questions[{qi}] `question` exceeds {MAX_QUESTION_TEXT_CHARS} characters"
-            ));
-        }
-        let header = q
-            .get("header")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| format!("questions[{qi}] is missing a non-empty `header`"))?;
-        if header.chars().count() > MAX_HEADER_CHARS {
-            return Err(format!(
-                "questions[{qi}] `header` exceeds {MAX_HEADER_CHARS} characters"
-            ));
-        }
-        let multi_select = q
-            .get("multiSelect")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let opts = q
-            .get("options")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| format!("questions[{qi}] is missing an `options` array"))?;
-        if opts.len() < MIN_OPTIONS || opts.len() > MAX_OPTIONS {
-            return Err(format!(
-                "questions[{qi}] must have between {MIN_OPTIONS} and {MAX_OPTIONS} options"
-            ));
-        }
-        let mut options = Vec::with_capacity(opts.len());
-        for (oi, o) in opts.iter().enumerate() {
-            let label = o
-                .get("label")
-                .and_then(|v| v.as_str())
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| {
-                    format!("questions[{qi}].options[{oi}] is missing a non-empty `label`")
-                })?;
-            if label.chars().count() > MAX_QUESTION_TEXT_CHARS {
-                return Err(format!(
-                    "questions[{qi}].options[{oi}] `label` exceeds {MAX_QUESTION_TEXT_CHARS} characters"
-                ));
-            }
-            let description = o
-                .get("description")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if description.chars().count() > MAX_QUESTION_TEXT_CHARS {
-                return Err(format!(
-                    "questions[{qi}].options[{oi}] `description` exceeds {MAX_QUESTION_TEXT_CHARS} characters"
-                ));
-            }
-            options.push(QuestionOption {
-                label: label.to_string(),
-                description,
-            });
-        }
-        // Reject duplicate option labels within a question: the UI uses the
-        // label as both the React key and the selection identity, and the
-        // answer is submitted by label — duplicates would be ambiguous (select
-        // one, select both) and collide on the key.
-        let mut seen_labels = std::collections::HashSet::new();
-        for o in &options {
-            if !seen_labels.insert(o.label.as_str()) {
-                return Err(format!(
-                    "questions[{qi}] has duplicate option label {:?}",
-                    o.label
-                ));
-            }
-        }
-        out.push(QuestionSpec {
-            input: None,
-            secret: false,
-            optional: false,
-            id: uuid::Uuid::new_v4().to_string(),
-            question: question.to_string(),
-            header: header.to_string(),
-            multi_select,
-            options,
-        });
-    }
-    Ok(out)
+    question_input::parse(arguments)
 }
 
 /// Re-assert the [`parse_questions`] count + size bounds on already-typed specs.
@@ -340,13 +242,11 @@ pub fn validate_specs(specs: &[QuestionSpec]) -> Result<(), String> {
                 "questions[{qi}] `header` exceeds {MAX_HEADER_CHARS} characters"
             ));
         }
-        // MCP `ask_user_question` still enforces MIN_OPTIONS in
-        // `parse_questions`. Typed ACP elicitation forms may instead contain a
-        // plain string/number field, represented by an empty option list so
-        // the card renders only its built-in free-text input.
-        if q.options.len() > MAX_ELICITATION_OPTIONS {
+        // MCP 允许自由文字，ACP 字段可携带较长的枚举列表。
+        let max_options = if q.input.is_some() { MAX_ELICITATION_OPTIONS } else { MAX_OPTIONS };
+        if q.options.len() > max_options {
             return Err(format!(
-                "questions[{qi}] must have at most {MAX_ELICITATION_OPTIONS} options"
+                "questions[{qi}] must have at most {max_options} options"
             ));
         }
         let mut seen_labels = std::collections::HashSet::new();

@@ -36,16 +36,18 @@ detailed reference before acting when the task matches one:
 5. Verify the result state and business effect. Distinguish success from
    queued, preview, blocked, canceled, failed, unavailable, and effect-unknown.
 
-If you do not know how to proceed safely, or a required input, acceptance
-criterion, scope boundary, or user-owned choice is unclear or has multiple
-reasonable interpretations, pause the task and proactively discover
-`ask_user_question` through the same trio. Ask one concise multiple-choice
-question (or one call with a few related questions), wait for the answer, and
-continue with the selected requirements. Never guess through ambiguity. Do not
-use this capability for secrets, ordinary progress confirmation, or selector
-failures; if it is not advertised, ask the necessary question plainly in chat
-and report the concrete gateway limitation to the caller, while allowing an
-applicable direct or domain route to continue the task.
+When progress needs a concrete user-owned input, preference or decision, call
+an advertised `ask_user_question` directly. Use concise options or free text for
+requirements, scope, missing information and short feedback; wait for the answer.
+Only fall back to search/read/invoke when the direct question tool is unavailable.
+Do not ask routine progress confirmations or questions you can resolve yourself.
+
+When seeing, manipulating or experimenting improves understanding or feedback,
+proactively call `show_interactive_html`. Design the page and JSON result freely;
+examples are not restrictions. It loads automatically, returns immediately by
+default, and waits for `iyw.submit(data)` only with `wait_for_response: true`.
+See [interaction-tools.md](interaction-tools.md). A direct interaction tool does
+not need capability search/read/invoke or installation of a page framework.
 
 An empty result, unknown ID, malformed output, timeout, unavailable capability,
 schema rejection, or two non-matching reads ends the current gateway attempt.

@@ -820,6 +820,10 @@ pub fn build_router(
             post(handlers::acp::acp_respond_permission),
         )
         .route(
+            "/acp_respond_html",
+            post(handlers::acp::acp_respond_html),
+        )
+        .route(
             "/acp_answer_question",
             post(handlers::acp::acp_answer_question),
         )

@@ -1083,6 +1083,13 @@ export interface QuestionInputSpec {
 }
 
 /** Awaiting-answer question set on the session (mirror of `PendingQuestionState`). */
+export interface InteractiveHtmlState {
+  interaction_id: string
+  title: string
+  html: string
+  wait_for_response: boolean
+}
+
 export interface PendingQuestionState {
   question_id: string
   questions: QuestionSpec[]
@@ -1586,6 +1593,8 @@ export type AcpEvent =
       type: "question_resolved"
       question_id: string
     }
+  | { type: "interactive_html_presented"; interaction: InteractiveHtmlState }
+  | { type: "interactive_html_closed"; interaction_id: string }
   | {
       type: "channel_confirmation_requested"
       confirmation: PendingChannelConfirmationState
@@ -1826,6 +1835,7 @@ export interface LiveSessionSnapshot {
   pending_permission: PendingPermissionState | null
   /** Awaiting-answer `ask_user_question`, recoverable on mid-turn attach.
    *  Absent (omitted) when no question is pending. */
+  interactive_html?: InteractiveHtmlState[]
   pending_question?: PendingQuestionState | null
   pending_channel_confirmation?: PendingChannelConfirmationState | null
   /** In-flight user prompt for the current turn — lets a client attaching

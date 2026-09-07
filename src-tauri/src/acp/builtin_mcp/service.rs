@@ -187,10 +187,10 @@ fn gateway_tool_names() -> io::Result<Arc<[String]>> {
         .into_iter()
         .map(|tool| tool.name.to_string())
         .collect::<Vec<_>>();
-    if names.len() != 6 {
+    if names.len() != super::gateway_tools::values().len() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            "HTTP MCP gateway must advertise exactly six tools",
+            "HTTP MCP gateway tool identities are inconsistent",
         ));
     }
     Ok(names.into())

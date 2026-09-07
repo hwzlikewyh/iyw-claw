@@ -1092,6 +1092,9 @@ function updateSessionInState(
     state.byConversationId.get(conversationId) ??
     createEmptySession(conversationId)
   const nextSession = updater(current)
+  if (nextSession === current && state.byConversationId.has(conversationId)) {
+    return state
+  }
   const nextByConversationId = new Map(state.byConversationId)
   nextByConversationId.set(conversationId, nextSession)
   return { ...state, byConversationId: nextByConversationId }
@@ -1898,6 +1901,28 @@ let timelineCache = new WeakMap<
   ConversationTimelineTurn[]
 >()
 
+const persistedTimelineCache = new WeakMap<
+  MessageTurn[],
+  Map<number, ConversationTimelineTurn[]>
+>()
+
+function persistedTimeline(
+  turns: MessageTurn[],
+  conversationId: number
+): ConversationTimelineTurn[] {
+  const byConversation = persistedTimelineCache.get(turns)
+  const cached = byConversation?.get(conversationId)
+  if (cached) return cached
+  const entries = turns.map((turn, index) => ({
+    key: `persisted-${conversationId}-${turn.id}-${index}`,
+    turn,
+    phase: "persisted" as const,
+  }))
+  if (byConversation) byConversation.set(conversationId, entries)
+  else persistedTimelineCache.set(turns, new Map([[conversationId, entries]]))
+  return entries
+}
+
 // Per-conversation fetch-generation counter. Each fetchDetail / refetchDetail /
 // removeConversation bumps the counter for that conversationId; an outstanding
 // fetch captures the value it was issued with and refuses to dispatch its
@@ -2030,13 +2055,11 @@ function computeTimeline(
           (t, i) => i <= inFlightPromptIdx || t.role !== "assistant"
         )
 
-  const persisted: ConversationTimelineTurn[] = visiblePersistedTurns.map(
-    (turn, index) => ({
-      key: `persisted-${conversationId}-${turn.id}-${index}`,
-      turn,
-      phase: "persisted" as const,
-    })
-  )
+  // 稳定历史前缀只构造一次；每次流式更新复用相同条目。
+  // 后面的 kickoff 会修改数组，因此保留独立数组，不修改缓存。
+  const persisted = [
+    ...persistedTimeline(visiblePersistedTurns, conversationId),
+  ]
 
   // Synthetic delegation kickoff. The child agent CLI writes its JSONL
   // transcript asynchronously, so the persisted detail can lag the live

@@ -44,6 +44,9 @@ use crate::db::entities::conversation::{self, ConversationKind, ConversationStat
 use crate::db::service::conversation_service;
 use crate::db::AppDatabase;
 
+#[path = "manager_prewarm.rs"]
+mod prewarm;
+
 const MAX_EMERGENCY_RECLAIMS_PER_TICK: usize = 4;
 
 fn combine_prompt_context(launch: Option<Arc<str>>, private: Option<Arc<str>>) -> Option<Arc<str>> {
@@ -396,6 +399,7 @@ pub struct ConnectionManager {
     /// no cap, no cumulative growth; entries are removed on answer / cancel /
     /// connection teardown.
     pending_questions: Arc<Mutex<HashMap<String, PendingQuestionEntry>>>,
+    interactive_html: Arc<Mutex<HashMap<String, interactive_html_manager::HtmlEntry>>>,
     pub(crate) pending_channel_confirmations:
         Arc<Mutex<HashMap<String, PendingChannelConfirmationEntry>>>,
     pub(crate) agent_input_runtime: Arc<crate::acp::agent_input_dispatch::AgentInputRuntime>,
@@ -409,6 +413,9 @@ struct PendingQuestionEntry {
     questions: Vec<QuestionSpec>,
     sender: tokio::sync::oneshot::Sender<QuestionOutcome>,
 }
+
+#[path = "interactive_html_manager.rs"]
+mod interactive_html_manager;
 
 type StalledPromptObservation = (String, i64, Option<u32>, PromptStallAssessment);
 
@@ -466,6 +473,7 @@ impl ConnectionManager {
             agent_activation_locks: Arc::new(Mutex::new(HashMap::new())),
             probe_locks: Arc::new(Mutex::new(HashMap::new())),
             pending_questions: Arc::new(Mutex::new(HashMap::new())),
+            interactive_html: Arc::new(Mutex::new(HashMap::new())),
             pending_channel_confirmations: Arc::new(Mutex::new(HashMap::new())),
             agent_input_runtime: Arc::new(Default::default()),
         }
@@ -492,6 +500,7 @@ impl ConnectionManager {
             agent_activation_locks: self.agent_activation_locks.clone(),
             probe_locks: self.probe_locks.clone(),
             pending_questions: self.pending_questions.clone(),
+            interactive_html: self.interactive_html.clone(),
             pending_channel_confirmations: self.pending_channel_confirmations.clone(),
             agent_input_runtime: self.agent_input_runtime.clone(),
         }
@@ -665,62 +674,6 @@ impl ConnectionManager {
         self.delegation_injection
             .get()
             .is_some_and(|injection| injection.tokens.listener_ready())
-    }
-
-    pub async fn prewarm_codex_runtime(&self) -> Result<bool, AcpError> {
-        let _operation_guard = self.acquire_operation_read().await?;
-        if crate::acp::agent_storage_work::has_active_agent_storage_work() {
-            tracing::info!("[ACP] skipping Codex runtime prewarm during Agent storage work");
-            return Ok(false);
-        }
-        let _storage_read_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
-        let resources = crate::acp::resource_governor::ResourceSnapshot::capture();
-        if matches!(
-            resources.memory.pressure,
-            crate::acp::resource_governor::MemoryPressure::Shrinking
-                | crate::acp::resource_governor::MemoryPressure::Emergency
-        ) {
-            tracing::info!(
-                pressure = resources.memory.pressure.as_str(),
-                available_bytes = resources.memory.available_bytes,
-                total_bytes = resources.memory.total_bytes,
-                "[ACP] skipping runtime prewarm under memory pressure"
-            );
-            return Ok(false);
-        }
-        let version_center_db = self
-            .version_center_db
-            .get()
-            .ok_or_else(|| AcpError::protocol("Agent platform authorization is not initialized"))?;
-        let data_dir = self.version_center_data_dir.get().ok_or_else(|| {
-            AcpError::protocol("Agent platform data directory is not initialized")
-        })?;
-        let agent_type = AgentType::Codex;
-        let runtime_env = match crate::commands::acp::build_session_runtime_env(
-            &AppDatabase {
-                conn: version_center_db.clone(),
-            },
-            agent_type,
-            None,
-            data_dir,
-        )
-        .await
-        {
-            Ok(environment) => environment,
-            Err(AcpError::SdkNotInstalled(_)) => {
-                tracing::info!("[ACP] skipping Codex runtime prewarm because it is not installed");
-                return Ok(false);
-            }
-            Err(error) => return Err(error),
-        };
-        crate::commands::acp::verify_agent_installed(agent_type, &runtime_env)?;
-        self.require_agent_launch_policy(agent_type, true).await?;
-        crate::acp::connection::prewarm_agent_runtime(
-            agent_type,
-            runtime_env,
-            self.runtime_hosts.clone(),
-        )
-        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3740,10 +3693,8 @@ impl ConnectionManager {
     /// overwrite the first's card/snapshot and orphan the first (still-parked)
     /// tool call with no way to answer it. A single agent is blocked in its
     /// `ask_user_question` call and cannot issue a second, so this only guards a
-    /// parallel / misbehaving MCP client; the refused second call resolves as
-    /// `declined` (the listener's None path) so its agent proceeds with its own
-    /// judgment instead of hanging. The check + insert are atomic under the
-    /// registry lock.
+    /// parallel MCP client。第二个请求返回交互不可用错误，不能误称用户已跳过。
+    /// 检查和插入在注册表锁内原子执行，与 HTML 收集请求共享待回答位置。
     pub async fn register_question(
         &self,
         conn_id: &str,
@@ -3759,6 +3710,12 @@ impl ConnectionManager {
         let question_id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = tokio::sync::oneshot::channel();
         {
+            let pages = self.interactive_html.lock().await;
+            if pages.values().any(|entry| {
+                entry.parent_connection_id == conn_id && entry.waiting
+            }) {
+                return None;
+            }
             let mut reg = self.pending_questions.lock().await;
             if reg.values().any(|e| e.parent_connection_id == conn_id) {
                 return None;
@@ -3838,28 +3795,31 @@ impl ConnectionManager {
     /// already-resolved id is an idempotent no-op), sends the self-describing
     /// outcome to the blocked listener, and broadcasts `QuestionResolved` so the
     /// card clears on every client. Routing uses the entry's stored parent
-    /// connection (the `question_id` is the authoritative key), so a stale
-    /// `conn_id` from the caller can't misroute.
+    /// connection，同时校验调用方 conn_id；答案不完整时保留请求，允许重新提交。
     pub async fn answer_question(
         &self,
         conn_id: &str,
         question_id: &str,
         answer: QuestionAnswer,
     ) -> Result<(), AcpError> {
-        let _ = conn_id;
-        let entry = {
-            let mut questions = self.pending_questions.lock().await;
-            if let Some(entry) = questions.get(question_id) {
-                crate::acp::question::validate_secret_answers(&entry.questions, &answer).map_err(AcpError::protocol)?;
-                crate::acp::question::validate_input_answers(&entry.questions, &answer).map_err(AcpError::protocol)?;
-            }
-            questions.remove(question_id)
-        };
-        let Some(entry) = entry else {
+        let mut pending = self.pending_questions.lock().await;
+        let Some(entry) = pending.get(question_id) else {
             // Already answered / canceled / gone elsewhere — idempotent success.
             return Ok(());
         };
+        if entry.parent_connection_id != conn_id {
+            return Err(AcpError::protocol("Question belongs to another session"));
+        }
+        crate::acp::question::validate_secret_answers(&entry.questions, &answer).map_err(AcpError::protocol)?;
+        crate::acp::question::validate_input_answers(&entry.questions, &answer).map_err(AcpError::protocol)?;
         let outcome = build_outcome(&entry.questions, &answer);
+        if !outcome.declined && outcome.answers.len() != entry.questions.len() {
+            return Err(AcpError::protocol("An answer is required for every question"));
+        }
+        let entry = pending
+            .remove(question_id)
+            .expect("question checked under lock");
+        drop(pending);
         // Ignore a dropped receiver: the listener may have abandoned the wait
         // (peer-close) at the same instant; the resolved-event below still clears
         // the card.
@@ -3915,6 +3875,7 @@ impl ConnectionManager {
     /// listener with a declined outcome; the `QuestionResolved` broadcast clears
     /// the card on every client. No-op when nothing is pending for this parent.
     pub async fn cancel_questions_by_parent(&self, conn_id: &str) {
+        self.cancel_html_by_parent(conn_id).await;
         // Remove every entry for this parent under the lock (dropping their
         // senders unblocks the parked listeners), then emit outside the lock —
         // the registry mutex is never held across an await.
@@ -4356,6 +4317,18 @@ pub struct ConnectionManagerQuestionLookup {
 
 #[async_trait::async_trait]
 impl SessionQuestionAccess for ConnectionManagerQuestionLookup {
+    async fn present_html(
+        &self,
+        connection_id: &str,
+        request: crate::acp::interactive_html::InteractiveHtmlRequest,
+    ) -> Result<crate::acp::interactive_html::RegisteredHtml, String> {
+        self.manager.present_html(connection_id, request).await
+    }
+
+    async fn cancel_html(&self, connection_id: &str, interaction_id: &str) {
+        self.manager.cancel_html(connection_id, interaction_id).await;
+    }
+
     async fn register_question(
         &self,
         parent_connection_id: &str,

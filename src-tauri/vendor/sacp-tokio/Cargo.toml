@@ -71,6 +71,10 @@ features = ["compat"]
 [dev-dependencies.expect-test]
 version = "1.5"
 
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.59"
+features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"]
+
 [dev-dependencies.tokio]
 version = "1.48"
 features = [

@@ -2446,9 +2446,19 @@ pub fn render_feedback_result(outcome: &Value) -> Value {
 /// The human-readable `content` text reports the user's selections per question
 /// so the agent can act on them; a declined / empty answer tells the agent to
 /// proceed with its own judgment. The raw envelope rides along in
-/// `structuredContent`. `isError` is always `false` — a declined question is a
-/// valid result, not an error.
+/// `structuredContent` 保留原始结果。用户跳过是正常结果，注册失败则明确返回工具错误。
 pub fn render_ask_result(outcome: &Value) -> Value {
+    if let Some(message) = outcome
+        .get("message")
+        .and_then(Value::as_str)
+        .filter(|_| outcome.get("error").is_some())
+    {
+        return json!({
+            "content": [{"type": "text", "text": message}],
+            "isError": true,
+            "structuredContent": outcome,
+        });
+    }
     let declined = outcome
         .get("declined")
         .and_then(|v| v.as_bool())

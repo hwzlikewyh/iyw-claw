@@ -1368,7 +1368,8 @@ fn internal_worker_environment(
     );
     environment.insert(
         WORKER_FINGERPRINT_ENV.to_string(),
-        launch.runtime_fingerprint.to_string(),
+        // 预热池使用稳定配置键；运行器内部的会话权限仍使用每实例唯一的代际。
+        format!("{}:instance:{}", launch.runtime_fingerprint, uuid::Uuid::new_v4().simple()),
     );
     environment.insert(WORKER_CONNECTION_ENV.to_string(), launch.connection_id.to_string());
     if let Some(session_id) = launch.expected_session_id {
@@ -1570,15 +1571,18 @@ pub(crate) async fn spawn_agent_connection(
             process_fingerprint.push_str(":forced:");
             process_fingerprint.push_str(&uuid::Uuid::new_v4().simple().to_string());
         }
-        if dedicated_worker {
-            process_fingerprint.push_str(":internal-worker:");
-            process_fingerprint.push_str(&connection_id);
-        }
         let process_cwd = if dedicated_worker {
             launch_cwd.clone()
         } else {
             runtime_host_process_cwd(agent_type, &storage, &launch_cwd).to_path_buf()
         };
+        if dedicated_worker || !shared_runtime_host_enabled(agent_type) {
+            process_fingerprint = prewarm::owned_fingerprint(
+                process_fingerprint, prewarm::OwnedRuntimeScope {
+                    cwd: &process_cwd, session_id: session_id.as_deref(), environment: &prepared.environment,
+                },
+            );
+        }
         let agent = build_agent(AgentLaunchSpec {
             agent_type,
             internal_worker: dedicated_worker.then_some(InternalWorkerLaunch {
@@ -1891,61 +1895,9 @@ pub(crate) async fn spawn_agent_connection(
     Ok(session_started_rx)
 }
 
-pub(crate) async fn prewarm_agent_runtime(
-    agent_type: AgentType,
-    runtime_env: BTreeMap<String, String>,
-    runtime_hosts: Arc<crate::acp::runtime_host::RuntimeHostRegistry>,
-) -> Result<bool, AcpError> {
-    if !shared_runtime_host_enabled(agent_type)
-        || internal_codex_worker_requested(agent_type, &runtime_env)
-    {
-        return Ok(false);
-    }
-    crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
-        .map_err(AcpError::protocol)?;
-    let storage = AgentStoragePaths::active().ok_or_else(|| {
-        AcpError::SdkNotInstalled(
-            "Agent storage is not initialized. Choose a private storage directory in Agent Settings."
-                .to_string(),
-        )
-    })?;
-    crate::commands::experts::ensure_builtin_gateway_skill_ready(agent_type)
-        .await
-        .map_err(|error| {
-            AcpError::protocol(format!(
-                "Capability gateway Skill is not ready for {agent_type}: {error}"
-            ))
-        })?;
-    let prepared = crate::acp::builtin_prompt_injection::prepare(
-        crate::acp::builtin_prompt_injection::PrepareRequest {
-            agent_type,
-            connection_id: "runtime-host-prewarm",
-            session_id: None,
-            environment: &runtime_env,
-            storage: &storage,
-            // Keep the default prewarmed Codex Host aligned with the default
-            // settings-page style so the first concise session can reuse it.
-            response_style: Some("concise"),
-            is_delegation_child: false,
-        },
-    )
-    .await?;
-    let fingerprint = crate::commands::acp::fingerprint_config(agent_type, &prepared.environment);
-    let stderr_tail = stderr_tail_for_runtime_host(agent_type, true);
-    let agent = build_agent(AgentLaunchSpec {
-        agent_type,
-        internal_worker: None,
-        runtime_env: &prepared.environment,
-        cwd: runtime_host_process_cwd(agent_type, &storage, storage.root()),
-        builtin_prompt: &prepared.prompt.text,
-        stderr_tail: &stderr_tail,
-    })
-    .await?;
-    let host_key = runtime_host_key(agent_type, fingerprint, false).await?;
-    let reservation = runtime_hosts.acquire(host_key, agent, stderr_tail).await?;
-    reservation.keep_warm();
-    Ok(true)
-}
+#[path = "connection_prewarm.rs"]
+mod prewarm;
+pub(crate) use prewarm::{prewarm_agent_runtime, RuntimePrewarmRequest, RuntimePrewarmTarget};
 
 async fn runtime_host_key(
     agent_type: AgentType,
@@ -3473,6 +3425,15 @@ async fn run_connection(
         let reconnect_host_health = Arc::clone(&host_health);
         let connection = async move {
             let state = state_outer;
+            if dedicated_worker {
+                let request = UntypedMessage::new("_iyw/worker/bind_owner", serde_json::json!({
+                    "connectionId": state.read().await.connection_id,
+                }))?;
+                let response = cx.send_request_to(Agent, request).block_task().await?;
+                if response.get("bound").and_then(serde_json::Value::as_bool) != Some(true) {
+                    return Err(ConnectionAttemptError::Protocol(sacp::util::internal_error("worker owner binding failed")));
+                }
+            }
             let managed_agent_version = state.read().await.managed_agent_version.clone();
             let native_steering_available =
                 matches!(agent_type, AgentType::Codex | AgentType::ClaudeCode)

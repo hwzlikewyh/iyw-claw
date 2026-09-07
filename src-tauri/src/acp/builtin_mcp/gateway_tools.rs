@@ -1,12 +1,15 @@
 use serde_json::{json, Value};
 
 use super::tool_identity::{
-    CAPABILITY_ID_MAX_CHARS, IMAGE_TOOL, INVOKE_TOOL, KNOWLEDGE_TOOL, MEMORY_TOOL, READ_TOOL,
+    ARTIFACTS_TOOL, CAPABILITY_ID_MAX_CHARS, IMAGE_TOOL, INVOKE_TOOL, KNOWLEDGE_TOOL, MEMORY_TOOL, READ_TOOL,
     SEARCH_TOOL,
 };
 
-pub(super) fn values() -> [Value; 6] {
+pub(super) fn values() -> [Value; 9] {
     [
+        super::interaction_tools::embedded_tool(super::interaction_tools::ASK_TOOL),
+        super::interaction_tools::html_tool(),
+        super::interaction_tools::embedded_tool(ARTIFACTS_TOOL),
         search_tool(),
         read_tool(),
         invoke_tool(),

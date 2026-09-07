@@ -398,6 +398,12 @@ pub enum AcpEvent {
     QuestionResolved {
         question_id: String,
     },
+    InteractiveHtmlPresented {
+        interaction: crate::acp::interactive_html::InteractiveHtmlState,
+    },
+    InteractiveHtmlClosed {
+        interaction_id: String,
+    },
     ChannelConfirmationRequested {
         confirmation: crate::acp::channel_tools::confirmation::PendingChannelConfirmationState,
     },

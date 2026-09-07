@@ -501,6 +501,15 @@ async fn handle_request(
                 &params, authority.capabilities, authority.expected_session_id.is_some(),
             ))
         }
+        "_iyw/worker/bind_owner" => {
+            if session_id.is_some() { return Err(UpstreamError::InvalidRequest("cannot change the owner of a live worker session".into())); }
+            let owner = params["connectionId"].as_str().ok_or_else(|| UpstreamError::InvalidRequest("worker owner is missing".into()))?;
+            if authority.owner.connection_id != owner && authority.owner.connection_id != "runtime-host-prewarm" {
+                return Err(UpstreamError::InvalidRequest("worker is bound to a different connection".into()));
+            }
+            authority.owner = SessionOwner::new(owner, None, 0).map_err(|error| UpstreamError::InvalidRequest(error.to_string()))?;
+            Ok(json!({ "bound": true }))
+        }
         "session/new" => {
             validate_cwd(&params, &authority.expected_cwd)?;
             if authority.expected_session_id.is_some() {

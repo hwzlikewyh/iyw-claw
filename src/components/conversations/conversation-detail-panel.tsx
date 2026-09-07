@@ -1,5 +1,6 @@
 "use client"
 
+import { InteractiveHtmlPages } from "@/components/chat/interactive-html-card"
 import {
   memo,
   useCallback,
@@ -2691,6 +2692,12 @@ const ConversationTabView = memo(function ConversationTabView({
       pendingPermission={conn.pendingPermission}
       pendingQuestion={conn.pendingQuestion}
       pendingAskQuestion={conn.pendingAskQuestion}
+      interactiveHtml={
+        <InteractiveHtmlPages
+          pages={conn.interactiveHtml}
+          connectionId={conn.connectionId}
+        />
+      }
       pendingChannelConfirmation={conn.pendingChannelConfirmation}
       autoContinuation={visibleAutoContinuation}
       onAutoContinuationContinue={handleAutoContinuationContinue}
