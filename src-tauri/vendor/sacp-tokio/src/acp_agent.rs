@@ -16,6 +16,10 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const MAX_STDERR_CAPTURE_BYTES: usize = 1024 * 1024;
 
+#[path = "connection_child.rs"]
+mod connection_child;
+use connection_child::ConnectionChild;
+
 /// Direction of a line being sent or received.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineDirection {
@@ -241,10 +245,26 @@ impl AcpAgent {
         ),
         sacp::Error,
     > {
+        let (stdin, stdout, stderr, child) = self.spawn_connection_process()?;
+        Ok((stdin, stdout, stderr, child.into_child()))
+    }
+
+    fn spawn_connection_process(
+        &self,
+    ) -> Result<
+        (
+            tokio::process::ChildStdin,
+            tokio::process::ChildStdout,
+            tokio::process::ChildStderr,
+            ConnectionChild,
+        ),
+        sacp::Error,
+    > {
         match &self.server {
             sacp::schema::McpServer::Stdio(stdio) => {
                 let mut cmd = self.command_for_stdio(stdio);
-                let mut child = cmd.spawn().map_err(sacp::Error::into_internal_error)?;
+                let mut owned = ConnectionChild::spawn(&mut cmd).map_err(sacp::Error::into_internal_error)?;
+                let child = owned.child();
                 if let (Some(callback), Some(pid)) = (&self.spawned_pid_callback, child.id()) {
                     callback(pid);
                 }
@@ -262,7 +282,7 @@ impl AcpAgent {
                     .take()
                     .ok_or_else(|| sacp::util::internal_error("Failed to open stderr"))?;
 
-                Ok((child_stdin, child_stdout, child_stderr, child))
+                Ok((child_stdin, child_stdout, child_stderr, owned))
             }
             sacp::schema::McpServer::Http(_) => Err(sacp::util::internal_error(
                 "HTTP transport not yet supported by AcpAgent",
@@ -277,22 +297,13 @@ impl AcpAgent {
     }
 }
 
-/// A wrapper around Child that kills the process when dropped.
-struct ChildGuard(Child);
+// stderr 属于连接生命周期。连接取消后即使后代仍持有管道，也不能遗留
+// 一个持有调试回调与输出缓冲区的独立 reader task。
+struct StderrTaskGuard(tokio::task::AbortHandle);
 
-impl ChildGuard {
-    async fn wait(&mut self) -> std::io::Result<std::process::ExitStatus> {
-        self.0.wait().await
-    }
-}
-
-impl Drop for ChildGuard {
+impl Drop for StderrTaskGuard {
     fn drop(&mut self) {
-        if let Some(pid) = self.0.id() {
-            let _ = kill_tree::blocking::kill_tree(pid);
-        } else {
-            let _ = self.0.start_kill();
-        }
+        self.0.abort();
     }
 }
 
@@ -316,11 +327,9 @@ fn append_limited_utf8(output: &mut String, chunk: &str, limit: usize) -> bool {
 /// The error message includes any stderr output collected by the background task.
 /// When dropped, the child process is killed.
 async fn monitor_child(
-    child: Child,
+    mut guard: ConnectionChild,
     stderr_rx: tokio::sync::oneshot::Receiver<String>,
 ) -> Result<(), sacp::Error> {
-    let mut guard = ChildGuard(child);
-
     // Wait for the child to exit
     let status = guard
         .wait()
@@ -328,7 +337,13 @@ async fn monitor_child(
         .map_err(|e| sacp::util::internal_error(format!("Failed to wait for process: {}", e)))?;
 
     if status.success() {
-        Ok(())
+        // A successful launcher exit does not prove its descendants or the
+        // protocol output have finished. Keep the ownership guard until the
+        // protocol reaches EOF or its owner explicitly cancels the connection.
+        #[cfg(windows)]
+        { futures::future::pending().await }
+        #[cfg(not(windows))]
+        { Ok(()) }
     } else {
         // Get stderr content if available
         let stderr = stderr_rx.await.unwrap_or_default();
@@ -360,14 +375,14 @@ impl<Counterpart: AcpAgentCounterpartRole> sacp::ConnectTo<Counterpart> for AcpA
         use futures::AsyncWriteExt;
         use futures::StreamExt;
 
-        let (child_stdin, child_stdout, child_stderr, child) = self.spawn_process()?;
+        let (child_stdin, child_stdout, child_stderr, child) = self.spawn_connection_process()?;
 
         // Create a channel to collect stderr for error reporting
         let (stderr_tx, stderr_rx) = tokio::sync::oneshot::channel::<String>();
 
         // Spawn a task to read stderr, optionally calling the debug callback
         let debug_callback = self.debug_callback.clone();
-        tokio::spawn(async move {
+        let stderr_task = tokio::spawn(async move {
             let stderr_reader = BufReader::new(child_stderr.compat());
             let mut stderr_lines = stderr_reader.lines();
             let mut collected = String::new();
@@ -396,6 +411,7 @@ impl<Counterpart: AcpAgentCounterpartRole> sacp::ConnectTo<Counterpart> for AcpA
             }
             let _ = stderr_tx.send(collected);
         });
+        let _stderr_guard = StderrTaskGuard(stderr_task.abort_handle());
 
         // Create a future that monitors the child process for early exit
         let child_monitor = monitor_child(child, stderr_rx);

@@ -2198,15 +2198,21 @@ export interface MessageTurnAdapter {
 export function createMessageTurnAdapter(): MessageTurnAdapter {
   const cache = new Map<string, TurnCacheEntry>()
   const goalObjectiveHints = new Map<string, string[]>()
+  const previousTurnIds: string[] = []
 
   return {
     adapt(turns, text, streamingIndices, inProgressToolCallIdsByIndex) {
       const seen = new Set<string>()
       const out: AdaptedMessage[] = new Array(turns.length)
+      let membershipChanged = previousTurnIds.length !== turns.length
 
       for (let i = 0; i < turns.length; i += 1) {
         const turn = turns[i]
         seen.add(turn.id)
+        if (previousTurnIds[i] !== turn.id) {
+          membershipChanged = true
+          previousTurnIds[i] = turn.id
+        }
         const isStreaming = streamingIndices?.has(i) ?? false
         const inProgress = inProgressToolCallIdsByIndex?.get(i)
         const cacheable = !isStreaming && !inProgress
@@ -2266,12 +2272,13 @@ export function createMessageTurnAdapter(): MessageTurnAdapter {
         }
       }
 
-      if (cache.size > seen.size) {
+      previousTurnIds.length = turns.length
+      if (membershipChanged) {
         for (const id of cache.keys()) {
           if (!seen.has(id)) cache.delete(id)
         }
       }
-      if (goalObjectiveHints.size > seen.size) {
+      if (membershipChanged) {
         for (const id of goalObjectiveHints.keys()) {
           if (!seen.has(id)) goalObjectiveHints.delete(id)
         }
@@ -2282,6 +2289,7 @@ export function createMessageTurnAdapter(): MessageTurnAdapter {
     clear() {
       cache.clear()
       goalObjectiveHints.clear()
+      previousTurnIds.length = 0
     },
   }
 }

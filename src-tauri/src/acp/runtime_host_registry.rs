@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
-    Arc,
+    Arc, Weak,
 };
 use std::time::{Duration, Instant};
 
@@ -16,6 +16,7 @@ use crate::acp::stderr_tail::StderrTail;
 use crate::models::agent::AgentType;
 
 mod retirement;
+mod owned;
 pub(crate) mod startup;
 
 use retirement::HostRetirements;
@@ -66,6 +67,7 @@ impl RuntimeHostKey {
 #[derive(Default)]
 pub(crate) struct RuntimeHostRegistry {
     hosts: Mutex<HashMap<RuntimeHostKey, Arc<AgentRuntimeHost>>>,
+    owned_hosts: Mutex<HashMap<RuntimeHostKey, Vec<Weak<AgentRuntimeHost>>>>,
     spawn_locks: Mutex<HashMap<RuntimeHostKey, Arc<SpawnLockEntry>>>,
     lifecycle: RwLock<()>,
     closed: AtomicBool,
@@ -148,35 +150,6 @@ impl RuntimeHostRegistry {
     ) -> Result<RuntimeHostReservation, AcpError> {
         self.start_owned_inner(key, agent, stderr_tail, Some(trace))
             .await
-    }
-
-    async fn start_owned_inner(
-        &self,
-        key: RuntimeHostKey,
-        agent: AcpAgent,
-        stderr_tail: Arc<StderrTail>,
-        trace: Option<crate::acp::startup_trace::StartupTrace>,
-    ) -> Result<RuntimeHostReservation, AcpError> {
-        if self.closed.load(Ordering::Acquire) {
-            return Err(registry_closed_error());
-        }
-        let _lifecycle = self.lifecycle.read().await;
-        if self.closed.load(Ordering::Acquire) {
-            return Err(registry_closed_error());
-        }
-        if let Some(trace) = trace.as_ref() {
-            trace.bind_host_key(key.fingerprint_prefix());
-        }
-        let host = AgentRuntimeHost::start(
-            key,
-            agent,
-            stderr_tail,
-            self.shutdown.child_token(),
-            trace,
-            &self.startups,
-        )
-        .await?;
-        Ok(RuntimeHostReservation::new(host))
     }
 
     async fn acquire_inner(

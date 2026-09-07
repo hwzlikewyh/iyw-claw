@@ -1,9 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
-use std::time::Duration;
 
 use sacp::schema::{
     CreateTerminalRequest, CreateTerminalResponse, KillTerminalRequest, KillTerminalResponse,
@@ -12,17 +11,9 @@ use sacp::schema::{
 };
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
 
 type TerminalMap = HashMap<String, Arc<TerminalInstance>>;
 const DEFAULT_OUTPUT_BYTE_LIMIT: u64 = 1_000_000;
-/// After the child process exits, wait up to this long for the stdout/stderr
-/// reader tasks to drain naturally before aborting them. Needed because a
-/// grandchild process (e.g. Node spawned from a `.cmd` shim on Windows) can
-/// inherit the pipe handle and keep it open long after the direct child
-/// exits, turning `wait_for_exit` into a silent hang.
-const READER_DRAIN_GRACE: Duration = Duration::from_millis(200);
-
 #[derive(Debug)]
 pub enum TerminalRuntimeError {
     InvalidParams(String),
@@ -38,205 +29,13 @@ impl TerminalRuntimeError {
     }
 }
 
-#[derive(Debug, Default, Clone)]
-struct TerminalSnapshot {
-    output: String,
-    output_base_offset: u64,
-    truncated: bool,
-    exit_status: Option<TerminalExitStatus>,
-}
+#[path = "terminal_instance.rs"]
+mod instance;
+#[path = "terminal_process.rs"]
+mod process;
 
-struct TerminalInstance {
-    session_id: String,
-    output_limit: Option<usize>,
-    child: Mutex<Option<tokio::process::Child>>,
-    snapshot: Mutex<TerminalSnapshot>,
-    reader_handles: Mutex<Vec<JoinHandle<()>>>,
-    active_count: Arc<AtomicUsize>,
-    counted_as_active: AtomicBool,
-}
-
-impl TerminalInstance {
-    fn new(
-        session_id: String,
-        output_limit: Option<u64>,
-        child: tokio::process::Child,
-        active_count: Arc<AtomicUsize>,
-    ) -> Self {
-        active_count.fetch_add(1, Ordering::AcqRel);
-        Self {
-            session_id,
-            output_limit: output_limit.and_then(|v| usize::try_from(v).ok()),
-            child: Mutex::new(Some(child)),
-            snapshot: Mutex::new(TerminalSnapshot::default()),
-            reader_handles: Mutex::new(Vec::new()),
-            active_count,
-            counted_as_active: AtomicBool::new(true),
-        }
-    }
-
-    fn mark_exited(&self) {
-        if self.counted_as_active.swap(false, Ordering::AcqRel) {
-            self.active_count.fetch_sub(1, Ordering::AcqRel);
-        }
-    }
-
-    /// Wait briefly for stdout/stderr reader tasks to finish; abort any that
-    /// remain. Must be called after the direct child has already exited —
-    /// otherwise we would abort readers that are still making progress.
-    async fn drain_readers(&self) {
-        let handles: Vec<JoinHandle<()>> = std::mem::take(&mut *self.reader_handles.lock().await);
-        for handle in handles {
-            let abort = handle.abort_handle();
-            if tokio::time::timeout(READER_DRAIN_GRACE, handle)
-                .await
-                .is_err()
-            {
-                abort.abort();
-            }
-        }
-    }
-
-    async fn append_output(&self, text: &str) {
-        let mut snapshot = self.snapshot.lock().await;
-        snapshot.output.push_str(text);
-        if let Some(limit) = self.output_limit {
-            let removed = enforce_output_limit(&mut snapshot.output, limit);
-            if removed > 0 {
-                snapshot.truncated = true;
-                snapshot.output_base_offset = snapshot
-                    .output_base_offset
-                    .saturating_add(u64::try_from(removed).unwrap_or(u64::MAX));
-            }
-        }
-    }
-
-    async fn refresh_exit_status(&self) -> Result<(), TerminalRuntimeError> {
-        {
-            let snapshot = self.snapshot.lock().await;
-            if snapshot.exit_status.is_some() {
-                return Ok(());
-            }
-        }
-
-        let maybe_status = {
-            let mut child_guard = self.child.lock().await;
-            if let Some(child) = child_guard.as_mut() {
-                match child.try_wait() {
-                    Ok(Some(status)) => {
-                        *child_guard = None;
-                        Some(status)
-                    }
-                    Ok(None) => None,
-                    Err(err) => {
-                        return Err(TerminalRuntimeError::Internal(format!(
-                            "failed to query terminal exit status: {err}"
-                        )))
-                    }
-                }
-            } else {
-                None
-            }
-        };
-
-        if let Some(status) = maybe_status {
-            // Drain readers BEFORE exposing exit_status. Otherwise a caller
-            // polling `terminal/output` can see `exit_status = Some(...)` while
-            // a grandchild process (e.g. Node spawned from a `.cmd` shim on
-            // Windows) still holds the stdout/stderr pipe and is flushing
-            // tail output. If the agent treats exit_status as "terminal done",
-            // the trailing bytes never reach the UI. Draining here upholds the
-            // invariant: whenever an external observer sees exit_status, the
-            // snapshot already contains (or has explicitly given up on) all
-            // reader output.
-            self.drain_readers().await;
-            let mut snapshot = self.snapshot.lock().await;
-            snapshot.exit_status = Some(map_exit_status(status));
-            self.mark_exited();
-        }
-
-        Ok(())
-    }
-
-    async fn wait_for_exit(&self) -> Result<TerminalExitStatus, TerminalRuntimeError> {
-        self.refresh_exit_status().await?;
-        let cached_exit = self.snapshot.lock().await.exit_status.clone();
-        if let Some(exit_status) = cached_exit {
-            self.drain_readers().await;
-            return Ok(exit_status);
-        }
-
-        let exit_status = {
-            let mut child_guard = self.child.lock().await;
-            let Some(child) = child_guard.as_mut() else {
-                return Err(TerminalRuntimeError::Internal(
-                    "terminal process missing while waiting for exit".to_string(),
-                ));
-            };
-            let status = child.wait().await.map_err(|err| {
-                TerminalRuntimeError::Internal(format!(
-                    "failed waiting for terminal process to exit: {err}"
-                ))
-            })?;
-            *child_guard = None;
-            map_exit_status(status)
-        };
-
-        self.drain_readers().await;
-
-        let mut snapshot = self.snapshot.lock().await;
-        snapshot.exit_status = Some(exit_status.clone());
-        self.mark_exited();
-        Ok(exit_status)
-    }
-
-    async fn kill_command(&self) -> Result<(), TerminalRuntimeError> {
-        self.refresh_exit_status().await?;
-        let already_exited = self.snapshot.lock().await.exit_status.is_some();
-        if already_exited {
-            self.drain_readers().await;
-            return Ok(());
-        }
-
-        let exit_status = {
-            let mut child_guard = self.child.lock().await;
-            let Some(child) = child_guard.as_mut() else {
-                return Ok(());
-            };
-
-            if let Some(pid) = child.id() {
-                if let Err(err) = kill_tree::tokio::kill_tree(pid).await {
-                    tracing::error!("[ACP] kill_tree failed for pid {pid}: {err}");
-                }
-            }
-
-            let status = child.wait().await.map_err(|err| {
-                TerminalRuntimeError::Internal(format!(
-                    "failed to wait for killed terminal process: {err}"
-                ))
-            })?;
-            *child_guard = None;
-            map_exit_status(status)
-        };
-
-        self.drain_readers().await;
-
-        let mut snapshot = self.snapshot.lock().await;
-        snapshot.exit_status = Some(exit_status);
-        self.mark_exited();
-        Ok(())
-    }
-
-    async fn snapshot(&self) -> TerminalSnapshot {
-        self.snapshot.lock().await.clone()
-    }
-}
-
-impl Drop for TerminalInstance {
-    fn drop(&mut self) {
-        self.mark_exited();
-    }
-}
+use instance::{TerminalInstance, TerminalReaders};
+use process::TerminalProcess;
 
 pub struct TerminalRuntime {
     terminals: Mutex<TerminalMap>,
@@ -375,14 +174,9 @@ impl TerminalRuntime {
         direct.args(&request.args);
         self.configure_command(&mut direct, &request);
 
-        // Unix can reject a newly written executable with ETXTBSY while a
-        // short-lived writer still has it open. Keep non-Unix spawn unchanged.
-        #[cfg(unix)]
-        let spawned = crate::process::spawn_retrying_exec_busy(|| direct.spawn()).await;
-        #[cfg(not(unix))]
-        let spawned = direct.spawn();
+        let spawned = TerminalProcess::spawn(&mut direct).await;
 
-        let mut child = match spawned {
+        let mut process = match spawned {
             Ok(child) => child,
             Err(err)
                 if err.kind() == std::io::ErrorKind::NotFound
@@ -391,7 +185,7 @@ impl TerminalRuntime {
             {
                 let mut shell = shell_wrapped_command(&request.command);
                 self.configure_command(&mut shell, &request);
-                shell.spawn().map_err(|err| {
+                TerminalProcess::spawn(&mut shell).await.map_err(|err| {
                     TerminalRuntimeError::Internal(format!(
                         "failed to spawn terminal command {}: {err}",
                         request.command
@@ -406,41 +200,36 @@ impl TerminalRuntime {
             }
         };
 
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
+        let stdout = process.child.stdout.take();
+        let stderr = process.child.stderr.take();
 
         let terminal_id = format!("term_{}", uuid::Uuid::new_v4().simple());
         let terminal = Arc::new(TerminalInstance::new(
             request.session_id.to_string(),
-            Some(output_byte_limit),
-            child,
+            output_byte_limit,
             Arc::clone(&self.active_count),
         ));
 
-        let mut handles: Vec<JoinHandle<()>> = Vec::new();
+        let mut handles = TerminalReaders::default();
         if let Some(reader) = stdout {
             let terminal_ref = terminal.clone();
-            handles.push(tokio::spawn(async move {
+            handles.0.push(tokio::spawn(async move {
                 read_stream(reader, terminal_ref).await;
             }));
         }
 
         if let Some(reader) = stderr {
             let terminal_ref = terminal.clone();
-            handles.push(tokio::spawn(async move {
+            handles.0.push(tokio::spawn(async move {
                 read_stream(reader, terminal_ref).await;
             }));
-        }
-
-        if !handles.is_empty() {
-            terminal.reader_handles.lock().await.extend(handles);
         }
 
         self.terminals
             .lock()
             .await
             .insert(terminal_id.clone(), Arc::clone(&terminal));
-        tokio::spawn(monitor_terminal_exit(terminal));
+        tokio::spawn(terminal.monitor(process, handles));
 
         Ok(CreateTerminalResponse::new(terminal_id))
     }
@@ -473,7 +262,8 @@ impl TerminalRuntime {
     ) -> Result<TerminalOutputDelta, TerminalRuntimeError> {
         let terminal = self.find_terminal(terminal_id, session_id).await?;
         terminal.refresh_exit_status().await?;
-        let snapshot = terminal.snapshot().await;
+        // 只复制调用方尚未读取的后缀，不先克隆整段终端输出。
+        let snapshot = terminal.snapshot.lock().await;
 
         let output_len = u64::try_from(snapshot.output.len()).unwrap_or(u64::MAX);
         let base_offset = snapshot.output_base_offset;
@@ -483,7 +273,10 @@ impl TerminalRuntime {
             .map(|offset| offset < base_offset)
             .unwrap_or(false);
         let start_offset = requested_offset.clamp(base_offset, end_offset);
-        let start_index = usize::try_from(start_offset.saturating_sub(base_offset)).unwrap_or(0);
+        let mut start_index = usize::try_from(start_offset.saturating_sub(base_offset)).unwrap_or(0);
+        while !snapshot.output.is_char_boundary(start_index) {
+            start_index = start_index.saturating_sub(1);
+        }
         let output = snapshot.output[start_index..].to_string();
 
         Ok(TerminalOutputDelta {
@@ -491,8 +284,19 @@ impl TerminalRuntime {
             next_offset: end_offset,
             had_gap,
             truncated: snapshot.truncated,
-            exit_status: snapshot.exit_status,
+            exit_status: snapshot.exit_status.clone(),
         })
+    }
+
+    pub(crate) async fn terminal_has_exited(
+        &self,
+        session_id: &str,
+        terminal_id: &str,
+    ) -> Result<bool, TerminalRuntimeError> {
+        let terminal = self.find_terminal(terminal_id, session_id).await?;
+        terminal.refresh_exit_status().await?;
+        let exited = !terminal.is_active();
+        Ok(exited)
     }
 
     pub async fn wait_for_terminal_exit(
@@ -529,46 +333,28 @@ impl TerminalRuntime {
     ) -> Result<ReleaseTerminalResponse, TerminalRuntimeError> {
         let terminal_id = request.terminal_id.to_string();
         let session_id = request.session_id.to_string();
-        let terminal = {
-            let mut terminals = self.terminals.lock().await;
-            let Some(existing) = terminals.get(&terminal_id) else {
-                return Err(TerminalRuntimeError::InvalidParams(format!(
-                    "terminal {terminal_id} not found"
-                )));
-            };
-            if existing.session_id != session_id {
-                return Err(TerminalRuntimeError::InvalidParams(format!(
-                    "terminal {terminal_id} does not belong to session {session_id}"
-                )));
-            }
-            terminals.remove(&terminal_id).expect("terminal exists")
-        };
-
+        let terminal = self.find_terminal(&terminal_id, &session_id).await?;
+        // 先完成停止和输出收尾；失败时保留所有权，后续仍能查询和重试。
         terminal.kill_command().await?;
+        self.terminals.lock().await.remove(&terminal_id);
         Ok(ReleaseTerminalResponse::new())
     }
 
     pub async fn release_all_for_session(&self, session_id: &str) {
-        let removed = {
-            let mut terminals = self.terminals.lock().await;
-            let ids: Vec<String> = terminals
+        let owned: Vec<_> = {
+            let terminals = self.terminals.lock().await;
+            terminals
                 .iter()
                 .filter(|(_, term)| term.session_id == session_id)
-                .map(|(id, _)| id.clone())
-                .collect();
-
-            let mut removed = Vec::with_capacity(ids.len());
-            for id in ids {
-                if let Some(term) = terminals.remove(&id) {
-                    removed.push(term);
-                }
-            }
-            removed
+                .map(|(id, terminal)| (id.clone(), Arc::clone(terminal)))
+                .collect()
         };
-
-        for terminal in removed {
+        for (_, terminal) in &owned { terminal.request_stop(); }
+        for (id, terminal) in owned {
             if let Err(err) = terminal.kill_command().await {
                 tracing::error!("[ACP] Failed to release terminal during cleanup: {err:?}");
+            } else {
+                self.terminals.lock().await.remove(&id);
             }
         }
     }
@@ -596,16 +382,10 @@ impl TerminalRuntime {
     }
 }
 
-async fn monitor_terminal_exit(terminal: Arc<TerminalInstance>) {
-    const EXIT_POLL_INTERVAL: Duration = Duration::from_secs(1);
-    loop {
-        tokio::time::sleep(EXIT_POLL_INTERVAL).await;
-        if let Err(error) = terminal.refresh_exit_status().await {
-            tracing::warn!(error = ?error, "[ACP] terminal exit monitor failed");
-            return;
-        }
-        if terminal.snapshot().await.exit_status.is_some() {
-            return;
+impl Drop for TerminalRuntime {
+    fn drop(&mut self) {
+        for terminal in self.terminals.get_mut().values() {
+            terminal.request_stop();
         }
     }
 }
@@ -633,7 +413,10 @@ where
                     terminal.append_output(&decoded).await;
                 }
             }
-            Err(_) => break,
+            Err(error) => {
+                terminal.record_read_error(error).await;
+                break;
+            }
         }
     }
 }
