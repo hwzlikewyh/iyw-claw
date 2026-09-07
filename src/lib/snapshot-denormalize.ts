@@ -1,3 +1,4 @@
+import type { InteractiveHtmlState } from "@/lib/types"
 import type {
   ActiveDelegationState,
   AutoContinuationInfo,
@@ -56,6 +57,7 @@ export interface SnapshotPatch {
    *  no question is pending. (Distinct from the frontend-only free-text
    *  `pendingQuestion`, which is NOT in the snapshot.) */
   pendingAskQuestion: PendingQuestionState | null
+  interactiveHtml: InteractiveHtmlState[]
   pendingChannelConfirmation: PendingChannelConfirmationState | null
   /** In-flight user prompt carried by the snapshot, so a client attaching
    *  mid-turn can synthesize the user turn (Bug-2 / cross-client viewing).
@@ -128,6 +130,7 @@ export function denormalizeSnapshot(wire: LiveSessionSnapshot): SnapshotPatch {
       : null,
     // The snapshot shape already matches PendingQuestionState; pass through.
     pendingAskQuestion: wire.pending_question ?? null,
+    interactiveHtml: wire.interactive_html ?? [],
     pendingChannelConfirmation: wire.pending_channel_confirmation ?? null,
     pendingUserMessage: wire.pending_user_message
       ? {

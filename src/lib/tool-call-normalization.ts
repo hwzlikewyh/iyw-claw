@@ -77,6 +77,7 @@ const EXACT_TOOL_NAME_ALIASES: Record<string, string> = {
   "mcp__iyw-claw__check_user_feedback": "check_user_feedback",
   // Built-in IYW image generation (server prefix varies by host).
   generate_iyw_image: "generate_iyw_image",
+  show_interactive_html: "show_interactive_html",
   // OpenCode
   delegate_task: "task",
   call_omo_agent: "agent",
@@ -238,6 +239,9 @@ function inferFromInput(
   const parsed = tryParseInputObject(rawInput)
   if (!parsed) return null
 
+  if (typeof parsed.html === "string" && typeof parsed.title === "string")
+    return "show_interactive_html"
+
   if (
     hasAnyKey(parsed, [
       "command",
@@ -343,6 +347,8 @@ export function normalizeToolName(toolName: string): string {
   // catches the unprefixed form, so collapse every separator here. Note the
   // freeform matcher below intentionally does NOT catch the underscore form.
   if (/[^a-z0-9]ask_user_question$/.test(canonical)) return "question"
+  if (/[^a-z0-9]show_interactive_html$/.test(canonical))
+    return "show_interactive_html"
 
   // iyw-claw-mcp live-feedback poll. Same host-prefix story as the delegation tools
   // (`mcp__<server>__check_user_feedback`, `<server>/check_user_feedback`, …) —

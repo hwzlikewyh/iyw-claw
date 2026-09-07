@@ -1,3 +1,4 @@
+import { InteractiveHtmlResult } from "./interactive-html-result"
 import { memo, useMemo, useState, type ReactNode } from "react"
 import Image from "next/image"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
@@ -2335,6 +2336,18 @@ const ToolCallPart = memo(function ToolCallPart({
   // selection as a dedicated read-only card instead of the generic tool shell.
   // The live interactive answering is handled separately by the pinned
   // AskQuestionCard; this is the in-stream record (historical + in-flight).
+  if (toolNameLower === "show_interactive_html") {
+    return (
+      <InteractiveHtmlResult
+        input={part.input}
+        output={part.output}
+        errorText={part.errorText}
+        running={
+          part.state === "input-available" || part.state === "input-streaming"
+        }
+      />
+    )
+  }
   if (toolNameLower === "question") {
     return (
       <AskQuestionResultCard

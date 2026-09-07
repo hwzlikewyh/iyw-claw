@@ -47,7 +47,8 @@ preferences, and reusable Agent experience.
 ## Artifacts and User-Facing Delivery
 
 If the task produces a final file, directory, or public HTTP/HTTPS URL, register
-all final items with the artifact capability before the final response. Use
+all final items directly with `present_task_files` before the final response.
+Only discover the artifact capability if the direct tool is unavailable. Use
 working-directory-relative or absolute paths exactly as produced. Register only
 user-facing deliverables: never source files, configuration, tests, migrations,
 build output, caches, logs, temporary files, or internal notes unless explicitly
@@ -61,16 +62,19 @@ and partial registration handling, load [artifact-delivery.md](artifact-delivery
 - Use feedback checks before implementation, before a significant architecture
   choice, after a meaningful subtask, and when pausing on a long task. An empty
   result means no new steering was observed; continue without inventing input.
-- When a required input, acceptance criterion, scope boundary, or user-owned
-  choice is unclear, has multiple reasonable interpretations, or cannot be
-  safely inferred, proactively search/read/invoke the `ask_user_question`
-  capability before acting. Do not guess through ambiguity. Ask one concise
-  multiple-choice question, or one call containing a few directly related
-  questions, then wait for the answer and continue with the chosen requirements.
-- The question schema accepts 1-4 questions per call and 2-4 options per
-  question. Set `multiSelect` only when more than one option can be selected
-  independently; otherwise use single choice. The call blocks until the user
-  submits or dismisses the card, so do not start side effects while waiting.
+- Use an advertised `ask_user_question` directly when requirements, scope,
+  missing inputs or preferences require a concrete user answer. One to four
+  questions are supported; header and options are optional, with up to four
+  options when useful. Free text is always available. The call waits for a
+  submission or dismissal. Discover the existing capability only when the
+  direct tool is unavailable; do not reconfirm existing authorization.
+- Use `show_interactive_html` proactively when visual exploration or hands-on
+  interaction helps the user understand, compare, express or decide. Freely
+  design HTML/CSS/JS, SVG, Canvas, layout, interactions and feedback JSON.
+  Simulations, previews, annotations and configurable charts are examples, not
+  limits. Presentation returns immediately by default; use
+  `wait_for_response: true` when the next step needs user feedback. See
+  [interaction-tools.md](interaction-tools.md) for the page bridge.
 - Keep question options concrete and mutually understandable. Do not use the
   question capability for passwords, tokens, cookies, credentials, ordinary
   progress confirmation, or a selector failure that has a documented recovery.

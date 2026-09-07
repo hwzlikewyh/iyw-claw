@@ -9377,6 +9377,16 @@ pub async fn acp_answer_question(
 }
 
 #[cfg(feature = "tauri-runtime")]
+#[tauri::command]
+pub async fn acp_respond_html(
+    connection_id: String,
+    response: crate::acp::interactive_html::HtmlResponse,
+    manager: State<'_, ConnectionManager>,
+) -> Result<(), AcpError> {
+    manager.respond_html(&connection_id, response).await
+}
+
+#[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn acp_respond_channel_confirmation(
     connection_id: String,

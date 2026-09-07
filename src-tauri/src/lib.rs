@@ -1652,6 +1652,7 @@ mod tauri_app {
                 acp_commands::acp_fork,
                 acp_commands::acp_respond_permission,
                 acp_commands::acp_answer_question,
+                acp_commands::acp_respond_html,
                 acp_commands::acp_respond_channel_confirmation,
                 acp_commands::acp_disconnect,
                 acp_commands::acp_disconnect_for_replacement,

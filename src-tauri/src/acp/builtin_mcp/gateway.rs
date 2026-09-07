@@ -19,6 +19,7 @@ use super::plugin_control::{self, PluginControlRequest};
 use super::tool_identity::{GatewayTool, CAPABILITY_ID_MAX_CHARS};
 
 pub(super) enum GatewayAction {
+    Html(crate::acp::interactive_html::InteractiveHtmlRequest),
     Return(CallToolResult),
     Invoke(ResolvedCapability),
     PluginInvoke(PluginToolCall),
@@ -71,6 +72,31 @@ pub(super) fn dispatch(
 ) -> Result<GatewayAction, ErrorData> {
     let catalog = load_catalog()?;
     match tool {
+        GatewayTool::Ask => catalog
+            .resolve(
+                session.features,
+                "iyw.interaction.question.ask.v1",
+                Value::Object(arguments.unwrap_or_default()),
+            )
+            .map(GatewayAction::Invoke)
+            .map_err(resolve_error),
+        GatewayTool::Artifacts => catalog
+            .resolve(
+                session.features,
+                "iyw.artifacts.present.v1",
+                Value::Object(arguments.unwrap_or_default()),
+            )
+            .map(GatewayAction::Invoke)
+            .map_err(resolve_error),
+        GatewayTool::Html => {
+            session.features
+                .authorize_call(super::interaction_tools::ASK_TOOL)
+                .map_err(|error| ErrorData::invalid_request(error.to_string(), None))?;
+            let request = parse::<crate::acp::interactive_html::InteractiveHtmlRequest>(arguments)?;
+            request.validate()
+                .map_err(|error| ErrorData::invalid_params(error, None))?;
+            Ok(GatewayAction::Html(request))
+        }
         GatewayTool::Search => search(arguments, &catalog, &session),
         GatewayTool::Read => read(arguments, &catalog, &session),
         GatewayTool::Invoke => invoke(arguments, &catalog, session),

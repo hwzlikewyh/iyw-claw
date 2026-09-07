@@ -50,6 +50,7 @@ interface ConversationShellProps {
   pendingQuestion: PendingQuestion | null
   /** Awaiting-answer multiple-choice `ask_user_question`. */
   pendingAskQuestion: PendingQuestionState | null
+  interactiveHtml?: ReactNode
   pendingChannelConfirmation: PendingChannelConfirmationState | null
   autoContinuation?: AutoContinuationInfo | null
   onAutoContinuationContinue?: () => void
@@ -141,6 +142,7 @@ export function ConversationShell({
   pendingPermission,
   pendingQuestion,
   pendingAskQuestion,
+  interactiveHtml,
   pendingChannelConfirmation,
   autoContinuation = null,
   onAutoContinuationContinue,
@@ -259,6 +261,7 @@ export function ConversationShell({
       />
 
       <QuestionDialog question={pendingQuestion} onAnswer={onAnswerQuestion} />
+      {interactiveHtml}
 
       {/* Composer dock. The ask-question card sits in normal flow just above the
           feedback list and input — like the permission/question dialogs — so it

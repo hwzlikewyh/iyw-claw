@@ -321,6 +321,7 @@ pub struct SessionState {
     /// At most one is pending at a time (the agent is blocked in the tool call);
     /// the backend's `pending_questions` registry keys the answer one-shot.
     pub pending_question: Option<PendingQuestionState>,
+    pub interactive_html: Vec<crate::acp::interactive_html::InteractiveHtmlState>,
     pub pending_channel_confirmation:
         Option<crate::acp::channel_tools::confirmation::PendingChannelConfirmationState>,
 
@@ -662,6 +663,7 @@ impl SessionState {
             pending_permission: None,
             session_failures: SessionFailureTable::default(),
             pending_question: None,
+            interactive_html: Vec::new(),
             pending_channel_confirmation: None,
             active_delegations: BTreeMap::new(),
             feedback: Vec::new(),
@@ -831,6 +833,10 @@ impl SessionState {
                         ConnectionStatus::Disconnected => "connection_disconnected",
                         _ => "connection_error",
                     };
+                    for page in &self.interactive_html {
+                        page.cancellation.cancel();
+                    }
+                    self.interactive_html.clear();
                     self.finish_context_plan_receipt(reason);
                     self.agent_input_notify.notify_one();
                 }
@@ -1019,6 +1025,17 @@ impl SessionState {
                     self.pending_question = None;
                 }
             }
+            AcpEvent::InteractiveHtmlPresented { interaction } => {
+                if !self.interactive_html.iter().any(|page| {
+                    page.interaction_id == interaction.interaction_id
+                }) {
+                    self.interactive_html.push(interaction.clone());
+                }
+            }
+            AcpEvent::InteractiveHtmlClosed { interaction_id } => {
+                self.interactive_html
+                    .retain(|page| page.interaction_id != *interaction_id);
+            }
             AcpEvent::ChannelConfirmationRequested { confirmation } => {
                 self.pending_channel_confirmation = Some(confirmation.clone());
             }
@@ -1141,6 +1158,12 @@ impl SessionState {
                 // answer one-shot is cleaned via the listener's peer-close race;
                 // this just keeps the snapshot honest.
                 self.pending_question = None;
+                self.interactive_html.retain(|page| {
+                    if page.wait_for_response {
+                        page.cancellation.cancel();
+                    }
+                    !page.wait_for_response
+                });
                 self.pending_channel_confirmation = None;
                 self.status = ConnectionStatus::Connected;
                 self.agent_input_notify.notify_one();
@@ -1199,6 +1222,12 @@ impl SessionState {
                 self.feedback.clear();
                 // A new user turn supersedes any stale pending question.
                 self.pending_question = None;
+                self.interactive_html.retain(|page| {
+                    if page.wait_for_response {
+                        page.cancellation.cancel();
+                    }
+                    !page.wait_for_response
+                });
                 self.pending_channel_confirmation = None;
                 self.agent_input_notify.notify_one();
             }
@@ -1692,6 +1721,7 @@ impl SessionState {
             active_tool_calls: self.active_tool_calls.values().cloned().collect(),
             pending_permission: self.pending_permission.clone(),
             pending_question: self.pending_question.clone(),
+            interactive_html: self.interactive_html.clone(),
             pending_channel_confirmation: self.pending_channel_confirmation.clone(),
             pending_user_message: self.pending_user_message.clone(),
             active_delegations: self.active_delegations.values().cloned().collect(),
@@ -1862,6 +1892,8 @@ pub struct LiveSessionSnapshot {
     /// the wire so every snapshot stays byte-identical with the pre-feature shape.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_question: Option<PendingQuestionState>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub interactive_html: Vec<crate::acp::interactive_html::InteractiveHtmlState>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_channel_confirmation:
         Option<crate::acp::channel_tools::confirmation::PendingChannelConfirmationState>,
