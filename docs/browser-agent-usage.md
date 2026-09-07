@@ -1,11 +1,12 @@
-# Agent 浏览器调用与 OpenCLI 优先
+# Agent 浏览器调用与 OpenCLI 操作、受管展示
 
 ## 浏览器优先级
 
 对于网页和公开数据任务，已有可靠专用 API 或直接数据源且能完整满足请求时可以先用。
-用户明确要求“用浏览器”或任务需要网页交互时，统一调用 `browser` MCP 工具；它会同时
-检查用户已连接的 Chrome/OpenCLI 和 iyw-claw 内置浏览器，默认优先 OpenCLI，以复用
-用户已有 Chrome 登录态。旧的 `browser_*` 工具仍可用，但只是兼容别名。
+用户明确要求“用浏览器”或任务需要网页交互时，统一调用 `browser` MCP 工具；网页操作
+默认使用 OpenCLI，复用用户的 Chrome 登录态。`browser_present` 展示结果时切到 iyw-claw
+受管浏览器，避免把 OpenCLI 操作窗口直接交给用户。旧的 `browser_*` 工具仍可用，但只是
+兼容别名。
 
 Agent 按统一工具选中的 provider 读取对应 Skill：OpenCLI 路径读取
 `opencli-browser`，内置浏览器路径读取 `agent-browser`。后者基于
@@ -27,14 +28,12 @@ browser(action=list_tabs)
 
 MCP 工具由 `src-tauri/src/acp/delegation/tool_schema.json` 广告，经内置 HTTP MCP gateway 和
 delegation listener 分发到 `BrowserSessionManager::execute_agent_tool`。统一入口先运行
-OpenCLI 的 doctor 和真实 Chrome Browser Bridge；若 OpenCLI 不可用，返回具体错误，不会
-因为 Chrome、扩展、CDP、网络、超时、selector 或未知错误自动启动内置浏览器。
+OpenCLI 的 doctor 和 Browser Bridge；普通操作固定在 OpenCLI session 内。`present` 只把当前
+页面 URL 复制到受管浏览器展示，不改变后续操作路由；`request_user_action` 才是明确的人工接管，
+接管完成后按工具返回的 provider 继续。
 
-OpenCLI 成功后，一个任务会锁定同一个 OpenCLI session。只有 OpenCLI 明确报告登录、MFA/OTP、
-CAPTCHA、设备批准、安全确认、人工复核或确实需要用户接管的交互，才会切到内置浏览器；
-切换后任务固定使用内置浏览器，不会再切回 OpenCLI。
-普通 OpenCLI 自动化使用 background window，避免抢占用户当前前台窗口；需要人工处理时才
-创建并展示 iyw-claw 内置浏览器页签。
+一个任务会锁定同一个 OpenCLI session，并使用 background window；需要展示或人工处理时，
+工具会把当前页面交给 iyw-claw 受管浏览器。展示完成后，后续网页操作仍使用 OpenCLI。
 
 `browser(action=read)` 是网页数据读取入口；`browser(action=advanced)` 是高级受管入口。后者把
 `command` 和逐项 `arguments` 直接作为进程参数传给固定页签控制器，不经过 shell，
@@ -84,10 +83,10 @@ cookies、storage、state、headers、credentials、clipboard
 
 `BROWSER_RUNTIME_UNAVAILABLE` 是内置浏览器兼容性错误码；OpenCLI 失败使用 `OPENCLI_*` 错误码。排查时结合 `browser(action=list_tabs)`、runtime 日志和页签状态判断。
 
-## OpenCLI 流程
+## OpenCLI 操作流程
 
-OpenCLI 是用户真实 Chrome 的优先浏览器方案。统一 `browser` 工具负责检查和调用它，
-Agent 不需要自行拼接 shell 命令或在内置浏览器与 OpenCLI 之间来回切换。
+OpenCLI 是网页操作的默认通道，使用 background window 避免抢占用户前台窗口。内置浏览器
+只负责 `present` 展示和明确的人工作业接管。
 
 1. 读取当前安装的 `opencli-browser` Skill；以实际 Skill 文档为准，不猜参数。
 2. 统一工具内部执行：

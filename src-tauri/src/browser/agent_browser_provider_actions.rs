@@ -3,6 +3,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use super::agent_browser::{BrowserRoute, BrowserRouteProvider};
+use super::agent_browser_presentation::opencli_browser_tab_id;
 use super::agent_browser_route::{route_key, session_name};
 use super::agent_tool_cancellation::AgentToolContext;
 use super::error::BrowserError;
@@ -48,7 +49,12 @@ impl BrowserSessionManager {
         input: &Value,
     ) -> Result<Value, BrowserError> {
         if let Some(BrowserRoute {
-            provider: BrowserRouteProvider::Opencli { session, target },
+            provider:
+                BrowserRouteProvider::Opencli {
+                    session,
+                    target,
+                    display_tab,
+                },
         }) = route
         {
             if action == "request_user_action" {
@@ -69,7 +75,38 @@ impl BrowserSessionManager {
                     )
                     .await;
             }
-            return Ok(opencli_window_response(action, &session, target.as_deref()));
+            if action == "present" {
+                return self
+                    .present_opencli_page(
+                        context,
+                        key,
+                        &session,
+                        target.as_deref(),
+                        display_tab.as_deref(),
+                        input,
+                    )
+                    .await;
+            }
+            if action == "close_window"
+                && input
+                    .get("tab_id")
+                    .or_else(|| input.get("tabId"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|tab_id| display_tab.as_deref() == Some(tab_id))
+            {
+                let result = self
+                    .run_managed_action(context, action, input, Some("opencli_present"))
+                    .await?;
+                tracing::info!(
+                    target: "iyw_claw_browser",
+                    operation_provider = "opencli",
+                    display_provider = "managed",
+                    display_tab_id = %display_tab.as_deref().unwrap_or_default(),
+                    "Managed presentation window close requested"
+                );
+                return Ok(result);
+            }
+            return Ok(opencli_window_response(&session, target.as_deref()));
         }
         self.store_browser_route(
             key,
@@ -162,19 +199,13 @@ fn project_opencli_tabs(session: &str, value: Value) -> Value {
     )
 }
 
-fn opencli_window_response(action: &str, session: &str, target: Option<&str>) -> Value {
+fn opencli_window_response(session: &str, target: Option<&str>) -> Value {
     json!({
         "ok": true,
         "provider": "opencli",
-        "browserTabId": target
-            .map(|target| format!("opencli:{session}:{target}"))
-            .unwrap_or_else(|| format!("opencli:{session}")),
+        "browserTabId": opencli_browser_tab_id(session, target),
         "output": {
-            "status": if action == "present" {
-                "already_user_visible"
-            } else {
-                "user_window_not_managed"
-            },
+            "status": "user_window_not_managed",
             "preservesTab": true,
         },
     })
