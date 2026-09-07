@@ -82,8 +82,8 @@ fn build_client(
     healthy: Arc<AtomicBool>,
     ready: tokio::sync::oneshot::Sender<Result<HostReady, AcpError>>,
     startup_trace: Option<crate::acp::startup_trace::StartupTrace>,
-) -> impl ConnectTo<Agent> {
-    Client
+) -> sacp::DynConnectTo<Agent> {
+    let client = Client
         .builder()
         .name("iyw-claw-runtime-host")
         .on_receive_request(
@@ -239,7 +239,9 @@ fn build_client(
             }
             shutdown.cancelled().await;
             Ok(())
-        })
+        });
+    // 用 SDK 的类型擦除边界收敛处理器链，避免父任务布局递归展开整条异步类型。
+    sacp::DynConnectTo::new(client)
 }
 
 async fn initialize_agent(
