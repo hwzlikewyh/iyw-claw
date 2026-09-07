@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import { parseTarget, targetInfo } from "./runtime-seed-config.mjs"
+import { verifyRuntimeSeedLaunch } from "./runtime-seed-launch-verification.mjs"
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 const COMPONENT_IDS = new Set(["node", "git", "uv", "codex-acp"])
@@ -84,7 +85,27 @@ async function requireArchive(seedRoot, component) {
     fail(`runtime seed archive SHA-256 mismatch: ${component.id}`)
 }
 
+async function verifyMacMinimumVersion(appDirectory) {
+  const config = JSON.parse(
+    await readFile(join(ROOT, "src-tauri/tauri.macos.conf.json"), "utf8")
+  )
+  const expected = config.bundle?.macOS?.minimumSystemVersion
+  const { stdout } = await execFileAsync("plutil", [
+    "-extract",
+    "LSMinimumSystemVersion",
+    "raw",
+    "-o",
+    "-",
+    join(appDirectory, "Contents/Info.plist"),
+  ])
+  if (!expected || stdout.trim() !== expected)
+    fail(
+      `macOS minimum system version does not match ${expected}: ${appDirectory}`
+    )
+}
+
 async function verifyApp(appDirectory, target, info) {
+  await verifyMacMinimumVersion(appDirectory)
   const seedRoot = join(appDirectory, "Contents", "Resources", "runtime-seed")
   const manifestPath = join(seedRoot, "manifest.json")
   let manifest
@@ -117,6 +138,7 @@ async function verifyApp(appDirectory, target, info) {
   }
   for (const component of manifest.components)
     await requireArchive(seedRoot, component)
+  await verifyRuntimeSeedLaunch(seedRoot, manifest.components, target)
   console.log(`[runtime-seed-bundle] verified ${target}: ${appDirectory}`)
 }
 
@@ -139,9 +161,7 @@ async function verifyDmg(dmgPath, target, info) {
     console.log(`[runtime-seed-bundle] verified DMG: ${dmgPath}`)
   } finally {
     if (mounted) {
-      await execFileAsync("hdiutil", ["detach", mountPoint, "-force"]).catch(
-        () => undefined
-      )
+      await execFileAsync("hdiutil", ["detach", mountPoint, "-force"])
     }
     await rm(mountPoint, { recursive: true, force: true })
   }
