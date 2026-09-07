@@ -69,8 +69,8 @@ en = "IYW Capability Gateway"
 "zh-CN" = "爱原物能力网关"
 
 [expert.description]
-en = "Highest-priority route for concrete iyw-claw host state or actions when its complete gateway trio is visible; explicit direct tools still win."
-"zh-CN" = "完整网关三件套可见时，优先路由具体的爱原物宿主状态与动作；用户明确指定的直接工具仍优先。"
+en = "Primary router for concrete iyw-claw host state or actions; complete gateway discovery is authoritative, while explicit direct tools and owning domain Skills remain valid routes."
+"zh-CN" = "具体爱原物宿主状态与动作的主路由；网关发现结果是权威依据，但明确的直接工具和业务 Skill 仍可作为有效路径。"
 
 [[expert]]
 id = "agent-browser"

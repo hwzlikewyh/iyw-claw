@@ -19,3 +19,4 @@ developer_instructions = """
 
 [features]
 image_generation = true
+context_management.experimental_mode = true
