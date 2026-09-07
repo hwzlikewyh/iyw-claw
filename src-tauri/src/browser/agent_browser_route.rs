@@ -43,6 +43,7 @@ pub(super) fn opencli_route_from_input(
         provider: BrowserRouteProvider::Opencli {
             session: session_name(identity),
             target,
+            display_tab: None,
         },
     })
 }

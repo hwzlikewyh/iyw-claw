@@ -7,6 +7,8 @@ mod agent_browser_handoff_state;
 #[cfg(feature = "tauri-runtime")]
 mod agent_browser_input;
 #[cfg(feature = "tauri-runtime")]
+mod agent_browser_presentation;
+#[cfg(feature = "tauri-runtime")]
 mod agent_browser_provider_actions;
 #[cfg(feature = "tauri-runtime")]
 mod agent_browser_request;

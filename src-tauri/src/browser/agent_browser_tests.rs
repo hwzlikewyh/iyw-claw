@@ -141,6 +141,7 @@ fn provider_lock_rejects_cross_provider_tab_ids() {
         provider: BrowserRouteProvider::Opencli {
             session: "iyw-test".to_string(),
             target: None,
+            display_tab: None,
         },
     };
     assert!(

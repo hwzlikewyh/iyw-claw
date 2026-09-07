@@ -104,7 +104,16 @@ impl OpencliProvider {
     ) -> Result<OpencliResult, OpencliFailure> {
         let session = validate_session(session)?;
         let command = validate_command(command)?;
-        let mut cli_args = vec!["browser".to_string(), session, command.to_string()];
+        // OpenCLI's browser commands default to a foreground container. Keep
+        // explicit OpenCLI routes backgrounded as a second line of defense;
+        // ordinary browser requests use the managed route above.
+        let mut cli_args = vec![
+            "browser".to_string(),
+            session,
+            command.to_string(),
+            "--window".to_string(),
+            "background".to_string(),
+        ];
         if let Some(target) = target {
             cli_args.extend(["--tab".to_string(), target.to_string()]);
         }

@@ -215,9 +215,10 @@ permission to start a second browser or alter the managed runtime.
 - `BROWSER_OPERATION_TIMEOUT`: inspect state once; do not repeat blindly.
 - `BROWSER_CONTROL_CHANGED`: handle the visible obstruction, then refresh state.
 - `BROWSER_RUNTIME_UNAVAILABLE`: inspect managed state once and report the
-  failure. The unified broker does not switch providers for managed runtime or
-  selector errors; it selects the managed provider only for an OpenCLI
-  human-action requirement.
+  failure. The managed provider is the display and human-takeover surface;
+  ordinary page operations remain on the OpenCLI route selected by the unified
+  broker unless the Agent explicitly requests human takeover. A presented page
+  may be copied into the managed browser for viewing.
 
 An error is not evidence that a click succeeded or failed to have an effect.
 For write operations with `effectMayHaveOccurred`, inspect the page before
