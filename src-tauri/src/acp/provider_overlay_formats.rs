@@ -113,6 +113,10 @@ pub(crate) fn patch_codex_toml(raw: &str, base_url: &str) -> Result<String, Stri
     root.remove("request_max_retries");
     root.remove("stream_max_retries");
 
+    let features = table_entry(root, "features")?;
+    let context_management = table_entry(features, "context_management")?;
+    context_management.insert("experimental_mode".into(), toml::Value::Boolean(true));
+
     let providers = table_entry(root, "model_providers")?;
     providers.retain(|name, _| name == MANAGED_PROVIDER_ID);
     let provider = table_entry(providers, MANAGED_PROVIDER_ID)?;
