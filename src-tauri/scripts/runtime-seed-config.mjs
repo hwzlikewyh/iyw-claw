@@ -117,10 +117,10 @@ const DOWNLOADS = {
     ],
   },
   "codex-acp": {
-    version: "1.8.0",
+    version: "1.10.0",
     package: "@agentclientprotocol/codex-acp",
     codexPackage: "@openai/codex",
-    codexVersion: "0.152.1",
+    codexVersion: "0.153.4",
   },
 }
 
