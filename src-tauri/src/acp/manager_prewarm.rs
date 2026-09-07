@@ -158,7 +158,7 @@ async fn target_from_tab(
         Some(id) => conversation_service::get_by_id(db, id)
             .await
             .ok()
-            .filter(|row| row.folder_id == tab.folder_id && row.agent_type == agent.to_string())
+            .filter(|row| row.folder_id == tab.folder_id && row.agent_type == agent)
             .and_then(|row| row.external_id),
         None => None,
     };
