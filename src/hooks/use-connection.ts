@@ -1,5 +1,6 @@
 "use client"
 
+import type { InteractiveHtmlState } from "@/lib/types"
 import { useCallback, useMemo, useRef, useSyncExternalStore } from "react"
 import {
   useAcpActions,
@@ -38,6 +39,8 @@ const DEFAULT_PROMPT_CAPABILITIES: PromptCapabilitiesInfo = {
 const EMPTY_SESSION_FAILURES: SessionFailureRecord[] = []
 const EMPTY_AGENT_INPUTS: AgentInputItem[] = []
 
+const EMPTY_HTML_PAGES: InteractiveHtmlState[] = []
+
 export interface UseConnectionReturn {
   connectionId: string | null
   /** Agent actually owned by the current connection. During an Agent switch,
@@ -70,6 +73,7 @@ export interface UseConnectionReturn {
   pendingUserMessage: PendingUserMessage | null
   pendingQuestion: PendingQuestion | null
   pendingAskQuestion: PendingQuestionState | null
+  interactiveHtml: InteractiveHtmlState[]
   pendingChannelConfirmation: PendingChannelConfirmationState | null
   claudeApiRetry: ClaudeApiRetryState | null
   sessionFailures: SessionFailureRecord[]
@@ -224,6 +228,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
   const pendingUserMessage = connection?.pendingUserMessage ?? null
   const pendingQuestion = connection?.pendingQuestion ?? null
   const pendingAskQuestion = connection?.pendingAskQuestion ?? null
+  const interactiveHtml = connection?.interactiveHtml ?? EMPTY_HTML_PAGES
   const pendingChannelConfirmation =
     connection?.pendingChannelConfirmation ?? null
   const claudeApiRetry = connection?.claudeApiRetry ?? null
@@ -336,6 +341,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       pendingUserMessage,
       pendingQuestion,
       pendingAskQuestion,
+      interactiveHtml,
       pendingChannelConfirmation,
       claudeApiRetry,
       sessionFailures,
@@ -380,6 +386,7 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       pendingUserMessage,
       pendingQuestion,
       pendingAskQuestion,
+      interactiveHtml,
       pendingChannelConfirmation,
       claudeApiRetry,
       sessionFailures,

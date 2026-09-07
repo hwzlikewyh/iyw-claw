@@ -119,7 +119,9 @@ export function parseAskQuestionInput(
     if (!question && options.length === 0) continue
     out.push({
       question,
-      header: asString(obj.header),
+      header:
+        asString(obj.header).trim() ||
+        Array.from(question.trim()).slice(0, 12).join(""),
       multiSelect: obj.multiSelect === true || obj.multi_select === true,
       options,
     })

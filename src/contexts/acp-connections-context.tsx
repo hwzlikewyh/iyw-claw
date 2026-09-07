@@ -1,5 +1,6 @@
 "use client"
 
+import type { InteractiveHtmlState } from "@/lib/types"
 import {
   createContext,
   useCallback,
@@ -216,6 +217,7 @@ export interface ConnectionState {
    *  `pending_question`; cleared on `question_resolved` or turn end. Distinct
    *  from the free-text `pendingQuestion` above. */
   pendingAskQuestion: PendingQuestionState | null
+  interactiveHtml: InteractiveHtmlState[]
   pendingChannelConfirmation: PendingChannelConfirmationState | null
   claudeApiRetry: ClaudeApiRetryState | null
   /** AIR failure table retained with per-id revision watermarks. */
@@ -502,6 +504,12 @@ type Action =
       pendingQuestion: PendingQuestion
     }
   | { type: "CLEAR_PENDING_QUESTION"; contextKey: string }
+  | {
+      type: "HTML_PRESENTED"
+      contextKey: string
+      interaction: InteractiveHtmlState
+    }
+  | { type: "HTML_CLOSED"; contextKey: string; interactionId: string }
   | {
       type: "SET_ASK_QUESTION"
       contextKey: string
@@ -1215,6 +1223,7 @@ function connectionsReducer(
         pendingUserMessage: null,
         pendingQuestion: null,
         pendingAskQuestion: null,
+        interactiveHtml: [],
         pendingChannelConfirmation: null,
         claudeApiRetry: null,
         sessionFailures: [],
@@ -1279,6 +1288,7 @@ function connectionsReducer(
         pendingUserMessage: null,
         pendingQuestion: null,
         pendingAskQuestion: null,
+        interactiveHtml: [],
         pendingChannelConfirmation: null,
         claudeApiRetry: null,
         sessionFailures: [],
@@ -1411,6 +1421,7 @@ function connectionsReducer(
         agentInputs: action.patch.agentInputs,
         sessionFailures: mergedSessionFailures,
         pendingAskQuestion: action.patch.pendingAskQuestion,
+        interactiveHtml: action.patch.interactiveHtml,
         pendingChannelConfirmation: action.patch.pendingChannelConfirmation,
         pendingUserMessage: action.patch.pendingUserMessage,
         autoContinuation: action.patch.autoContinuation,
@@ -1605,7 +1616,13 @@ function connectionsReducer(
         // clears it via `question_resolved`; this is the safety net for a turn
         // that ended without one (agent error / abandoned block).
         updated.pendingAskQuestion = null
+        updated.interactiveHtml = conn.interactiveHtml.filter(
+          (page) => !page.wait_for_response
+        )
         updated.pendingChannelConfirmation = null
+      }
+      if (action.status === "disconnected" || action.status === "error") {
+        updated.interactiveHtml = []
       }
       next.set(action.contextKey, updated)
       return next
@@ -2090,6 +2107,35 @@ function connectionsReducer(
       next.set(action.contextKey, {
         ...conn,
         pendingQuestion: null,
+      })
+      return next
+    }
+
+    case "HTML_PRESENTED": {
+      const conn = state.get(action.contextKey)
+      if (
+        !conn ||
+        conn.interactiveHtml.some(
+          (page) => page.interaction_id === action.interaction.interaction_id
+        )
+      )
+        return state
+      const next = new Map(state)
+      next.set(action.contextKey, {
+        ...conn,
+        interactiveHtml: [...conn.interactiveHtml, action.interaction],
+      })
+      return next
+    }
+    case "HTML_CLOSED": {
+      const conn = state.get(action.contextKey)
+      if (!conn) return state
+      const next = new Map(state)
+      next.set(action.contextKey, {
+        ...conn,
+        interactiveHtml: conn.interactiveHtml.filter(
+          (page) => page.interaction_id !== action.interactionId
+        ),
       })
       return next
     }
@@ -3577,6 +3623,21 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             type: "PERMISSION_QUEUE_DEPTH",
             contextKey,
             depth: e.depth,
+          })
+          break
+        case "interactive_html_presented":
+          flushStreamingQueue()
+          dispatch({
+            type: "HTML_PRESENTED",
+            contextKey,
+            interaction: e.interaction,
+          })
+          break
+        case "interactive_html_closed":
+          dispatch({
+            type: "HTML_CLOSED",
+            contextKey,
+            interactionId: e.interaction_id,
           })
           break
         case "question_request":

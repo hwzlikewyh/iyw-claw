@@ -16,6 +16,8 @@ mod gateway_tools;
 mod handler;
 mod http;
 mod invocation;
+mod interaction_tools;
+mod interactive_html;
 mod iyw_delivery;
 mod iyw_image;
 mod iyw_knowledge;

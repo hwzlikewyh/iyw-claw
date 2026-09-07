@@ -1034,12 +1034,22 @@ impl DelegationListener {
         None
     }
 
+    /// 仅供已认证的进程内 MCP handler 使用，共用现有会话交互服务。
+    pub(crate) fn html_access(&self) -> Arc<dyn SessionQuestionAccess> {
+        self.questions.clone()
+    }
+
     async fn serve_ask<C>(&self, conn: &mut C, req: BrokerAskRequest) -> std::io::Result<()>
     where
         C: AsyncReadExt + AsyncWriteExt + Unpin + Send,
     {
         let Some((parent, registered)) = self.register_ask(req).await else {
-            return write_frame(conn, &ask_declined_response()?).await;
+            return write_frame(conn, &BrokerResponse {
+                outcome: serde_json::json!({
+                    "error": "interaction_unavailable",
+                    "message": "The session already has a pending interaction or is unavailable. This is not a user dismissal; do not assume an answer."
+                }),
+            }).await;
         };
         self.wait_for_ask(conn, parent, registered).await
     }

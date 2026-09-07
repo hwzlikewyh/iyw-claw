@@ -105,6 +105,13 @@ impl BuiltinMcpHandler {
             error
         })?;
         match action {
+            GatewayAction::Html(request) => {
+                let result = self
+                    .show_interactive_html(authority, request, context.ct)
+                    .await;
+                log_direct_result(&trace, &result);
+                result
+            }
             GatewayAction::Return(result) => {
                 trace.log_result(&result);
                 Ok(result)
@@ -270,7 +277,17 @@ impl ServerHandler for BuiltinMcpHandler {
         async move {
             let (authority, _) = Self::authenticated(&context.extensions)?;
             ensure_active(&authority, &context.ct)?;
-            let tools = gateway::tools().map_err(catalog_error)?;
+            let tools = gateway::tools()
+                .map_err(catalog_error)?
+                .into_iter()
+                .filter(|tool| match tool.name.as_ref() {
+                    "ask_user_question" | "show_interactive_html" => {
+                        authority.features().should_list("ask_user_question")
+                    }
+                    "present_task_files" => authority.features().should_list("present_task_files"),
+                    _ => true,
+                })
+                .collect::<Vec<_>>();
             log_tools_list(&authority, tools.len());
             Ok(ListToolsResult::with_all_items(tools))
         }

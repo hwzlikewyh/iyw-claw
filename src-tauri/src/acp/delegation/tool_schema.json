@@ -852,7 +852,7 @@
   },
   {
     "name": "present_task_files",
-    "description": "Before the final response, add every final user-facing file, directory, or HTTP/HTTPS URL produced by this task to the current conversation Artifacts. This does not write directly to the workspace-wide All Artifacts aggregate. Do not register source, configuration, tests, migrations, build output, caches, logs, temporary files, or internal work unless the user explicitly requested that exact item as the final deliverable. Accepts working-directory-relative paths, absolute paths, and web URLs.",
+    "description": "Call this directly to deliver final reports, documents, designs, exports or other user-facing files, directories and HTTP/HTTPS URLs in the current conversation Artifacts area before the final response. No capability search/read/invoke is needed when this tool is advertised. Inspect accepted and rejected entries; registering a path is successful only when the host accepts it. This does not write directly to the workspace-wide All Artifacts aggregate. Do not register source, configuration, tests, migrations, build output, caches, logs, temporary files, or internal work unless the user explicitly requested that exact item as the final deliverable. Accepts working-directory-relative paths, absolute paths, and web URLs.",
     "inputSchema": {
       "type": "object",
       "required": ["files"],
@@ -952,10 +952,12 @@
   },
   {
     "name": "ask_user_question",
-    "description": "Ask the user one or more multiple-choice questions and BLOCK until they answer. The questions render as interactive cards above the user's input box; this call returns only once the user submits their choices (or dismisses the card). Use ONLY when you are blocked on a decision that is genuinely the user's to make — one you cannot resolve from the request, the code, or sensible defaults (e.g. which approach, which format, which library, which of several files). Do NOT use it for passwords, tokens, cookies, private keys, or other secrets; its options and answers are ordinary non-secret interaction data. Do NOT use it to ask 'should I proceed?' or to confirm an obvious default, and do NOT use it for open-ended questions that aren't a small set of discrete choices. The user can always pick 'Other' and type a custom answer, so don't add your own 'Other' option. If you want to recommend a choice, put it first and append ' (Recommended)' to its label. Prefer ONE call with a few related questions over many sequential calls.",
+    "description": "Ask the user for a specific input, preference or decision that is needed to continue and cannot be reliably obtained from the request, available context or reasonable implementation judgment. Use for clarifying requirements, choosing an approach or target, setting scope, supplying missing information and collecting concise feedback. Render one or a few related questions as interactive cards and wait for the user to submit options or free text. Omit options for an open-ended question. Prefer one focused question; batch closely related questions when useful. Do not ask routine should-I-proceed questions or ask the user to look up information you can obtain yourself. For visual comparisons, experimentation, interactive explanations, design feedback or richer user expression, use show_interactive_html instead. Do not collect secrets. Free text is always available: do not add an Other option. Put a recommended option first and append (Recommended); recommendations are not user consent.",
     "inputSchema": {
       "type": "object",
-      "required": ["questions"],
+      "required": [
+        "questions"
+      ],
       "properties": {
         "questions": {
           "type": "array",
@@ -964,7 +966,9 @@
           "description": "1-4 questions to ask in this single call.",
           "items": {
             "type": "object",
-            "required": ["question", "header", "multiSelect", "options"],
+            "required": [
+              "question"
+            ],
             "properties": {
               "question": {
                 "type": "string",
@@ -973,20 +977,23 @@
               "header": {
                 "type": "string",
                 "maxLength": 12,
-                "description": "Short category label (≤ 12 chars) shown as a chip, e.g. 'Approach', 'Format'."
+                "description": "Optional short category label (up to 12 characters); the host derives one when omitted."
               },
               "multiSelect": {
                 "type": "boolean",
-                "description": "If true, the user may select multiple options; otherwise it's a single choice."
+                "description": "If true, the user may select multiple options; otherwise it's a single choice.",
+                "default": false
               },
               "options": {
                 "type": "array",
-                "minItems": 2,
+                "minItems": 0,
                 "maxItems": 4,
-                "description": "2-4 selectable choices.",
+                "description": "Optional choices, up to four. Omit or use [] for a free-text question. Free text is always provided by the host.",
                 "items": {
                   "type": "object",
-                  "required": ["label", "description"],
+                  "required": [
+                    "label"
+                  ],
                   "properties": {
                     "label": {
                       "type": "string",

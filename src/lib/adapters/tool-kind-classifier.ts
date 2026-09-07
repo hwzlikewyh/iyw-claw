@@ -66,6 +66,7 @@ export function isAgentLikeToolName(toolName: string): boolean {
     // forms, since this runs pre-normalize.
     name === "question" ||
     name === "ask_user_question" ||
+    name === "show_interactive_html" ||
     // iyw-claw-mcp check_user_feedback — owns the FeedbackCheckResultCard capsule,
     // so the (visible) ones must break the run and render standalone rather than
     // fold into a tool-group. The no-op polls are dropped upstream by
@@ -79,6 +80,7 @@ export function isAgentLikeToolName(toolName: string): boolean {
   if (CREATE_GOAL_SUFFIX_RE.test(name)) return true
   if (UPDATE_GOAL_SUFFIX_RE.test(name)) return true
   if (ASK_USER_QUESTION_SUFFIX_RE.test(name)) return true
+  if (/[^a-z0-9]show_interactive_html$/.test(name)) return true
   if (CHECK_USER_FEEDBACK_SUFFIX_RE.test(name)) return true
   return false
 }

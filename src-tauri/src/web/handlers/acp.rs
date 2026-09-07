@@ -602,6 +602,22 @@ pub async fn acp_answer_question(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AcpRespondHtmlParams {
+    pub connection_id: String,
+    pub response: crate::acp::interactive_html::HtmlResponse,
+}
+
+pub async fn acp_respond_html(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<AcpRespondHtmlParams>,
+) -> Result<Json<()>, AppCommandError> {
+    state.connection_manager.respond_html(&params.connection_id, params.response)
+        .await.map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?;
+    Ok(Json(()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AcpRespondChannelConfirmationParams {
     pub connection_id: String,
     pub confirmation_id: String,

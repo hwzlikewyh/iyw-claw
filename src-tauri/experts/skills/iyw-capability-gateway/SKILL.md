@@ -110,10 +110,40 @@ instead of enumerating cosmetic parameter variations or repeating the same
 failed route. This permits discovery without authorizing guessed endpoints or
 side effects.
 
+## Direct Interaction Tools
+
+`present_task_files` is also directly advertised for final user-facing files,
+directories and public URLs. Register final deliverables in the current
+conversation's Artifacts area with one call, then inspect accepted/rejected
+results. Do not search/read/invoke first when this direct tool is available.
+Read [artifact-delivery.md](references/artifact-delivery.md) for delivery scope.
+
+Use the directly advertised `ask_user_question` for a concrete user-owned input,
+preference or decision: clarify requirements and scope, supply missing information,
+choose an approach, or give concise feedback. Options and header are optional;
+free text is always available. Ask only necessary questions and wait for the answer.
+Do not use it for routine progress confirmation or information you can find yourself.
+
+Proactively use `show_interactive_html` when seeing or manipulating something helps
+the user understand, explore, compare, express or decide. Freely design the HTML,
+CSS, JavaScript, SVG, Canvas, layout, visual style, interactions and returned JSON.
+Interactive explanations, simulations, design previews, annotations, configurable
+charts and custom mini-tools are examples, not restrictions. The page loads
+automatically; no local server or preview click is needed. Use a complete document
+with inline code and embedded assets. Default presentation returns immediately;
+set `wait_for_response: true` when the next step needs the user's result, and call
+`await iyw.submit(data)` from an explicit page action. Handle errors and preserve
+the user's draft. Use `ask_user_question` when a short question or options suffice.
+
+Call both tools directly when advertised; do not search/read/invoke first. See
+[interaction-tools.md](references/interaction-tools.md) for the page bridge and
+examples. If a direct tool is unavailable, use ordinary conversation or discover
+the existing question capability through the live catalog; never invent an alias.
+
 ## Direct Image, Knowledge, and Memory Tools
 
-The HTTP MCP surface exposes three shortest-path tools in addition to the
-capability trio:
+The HTTP MCP surface also exposes these shortest-path tools alongside interaction
+tools and the capability trio:
 
 - `generate_iyw_image`: one-call image generation/editing and all confirmed IYW
   image operations. `type` is optional and defaults to `auto`; put complete
