@@ -12,7 +12,7 @@ use super::conversation_history_cache_prune::{prune, remove_old_generations};
 
 pub const HISTORY_PAGE_TURNS: usize = 120;
 const HISTORY_CACHE_DIR: &str = "conversation-history";
-const HISTORY_CACHE_PARSER_REVISION: u8 = 3;
+const HISTORY_CACHE_PARSER_REVISION: u8 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PageMeta {
