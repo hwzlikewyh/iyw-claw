@@ -17,6 +17,12 @@ The lock records both the annotated tag object and its peeled source commit.
 Cargo dependencies use the peeled commit; synchronization verifies both values
 so a rewritten release tag cannot silently change the compiled source.
 
+The current pin is `rust-v0.153.4`. It recognizes the managed
+`features.context_management.experimental_mode` configuration that
+`rust-v0.152.1` rejected during session creation and recovery. The feature still
+requires an eligible upstream provider and account; parsing this configuration
+does not grant experimental context-management availability.
+
 The upstream `in_process` API provides bounded request/event queues and
 graceful shutdown. The harness will translate that protocol into the existing
 ACP-facing behavior. Upstream types must not be re-exported from application

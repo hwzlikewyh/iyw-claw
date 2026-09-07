@@ -1,8 +1,8 @@
 {
   "repository": "https://github.com/openai/codex.git",
-  "ref": "rust-v0.152.1",
-  "tagObject": "3c6cfbab81e44218c729dc8c6b304cb760d1b8a1",
-  "commit": "5adb68a49933ae446bf11935662c83dba55a0804",
+  "ref": "rust-v0.153.4",
+  "tagObject": "042fb41b7c813ac7999105e886b2b7aa715b5081",
+  "commit": "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a",
   "license": "Apache-2.0",
   "components": [
     "codex-rs/app-server",
@@ -27,10 +27,13 @@
     {
       "crate": "codex-utils-pty",
       "basePath": "codex-rs/utils/pty",
-      "reason": "Windows HANDLE pointer casts required by the locked upstream graph",
+      "reason": "Windows HANDLE pointer casts and hidden child-process windows",
       "files": [
+        "src/pipe.rs",
         "src/win/conpty.rs",
-        "src/win/procthreadattr.rs"
+        "src/win/mod.rs",
+        "src/win/procthreadattr.rs",
+        "src/win/psuedocon.rs"
       ]
     }
   ],
