@@ -39,6 +39,7 @@ import { SearchCommandDialog } from "@/components/conversations/search-command-d
 import { DirectoryBrowserDialog } from "@/components/shared/directory-browser-dialog"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useBrowser } from "@/contexts/browser-context"
+import { useBrowserVisibility } from "@/hooks/use-browser-visibility"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -65,6 +66,7 @@ export function FolderTitleBar() {
   // title bar owns the trigger, dialog, and the ⌘K shortcut.
   const { open: searchOpen, setOpen: setSearchOpen } = useSearchDialog()
   const [directoryBrowserOpen, setDirectoryBrowserOpen] = useState(false)
+  const browserVisible = useBrowserVisibility()
   const {
     isOpen: sharedBrowserOpen,
     state: browserState,
@@ -194,7 +196,9 @@ export function FolderTitleBar() {
           isMobile ? (
             <div className="flex items-center gap-1">
               <TitleBarUpdateControl mobile />
-              {isLocalDesktop() && browserState?.capability.supported ? (
+              {browserVisible &&
+              isLocalDesktop() &&
+              browserState?.capability.supported ? (
                 <BrowserTitleButton
                   active={sharedBrowserOpen}
                   status={browserState?.runtime.status}
@@ -266,7 +270,9 @@ export function FolderTitleBar() {
                 </Button>
               )}
               <TitleBarUpdateControl />
-              {isLocalDesktop() && browserState?.capability.supported ? (
+              {browserVisible &&
+              isLocalDesktop() &&
+              browserState?.capability.supported ? (
                 <BrowserTitleButton
                   active={sharedBrowserOpen}
                   status={browserState?.runtime.status}

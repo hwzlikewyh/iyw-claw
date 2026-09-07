@@ -1710,7 +1710,11 @@
     "autostartDescription": "Choose whether 原助理 starts automatically when you sign in to your computer.",
     "autostartLabel": "Launch at startup",
     "autostartHint": "Start 原助理 in the background and keep it available from the system tray.",
-    "autostartSaveFailed": "Failed to update startup setting: {message}"
+    "autostartSaveFailed": "Failed to update startup setting: {message}",
+    "browserTitle": "Built-in browser",
+    "browserVisible": "Show built-in browser",
+    "browserDescription": "Off by default. Enable to show the browser entry; disable to hide its panel and windows. Changes apply immediately and persist after restart.",
+    "browserSaveFailed": "Failed to save browser setting: {message}"
   },
   "MainCloseDialog": {
     "title": "Close 原助理",

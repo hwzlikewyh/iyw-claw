@@ -15,6 +15,7 @@ import { usePlatform } from "@/hooks/use-platform"
 import { relaunchApp } from "@/lib/updater"
 import { toErrorMessage } from "@/lib/app-error"
 import { AutostartSettingsSection } from "@/components/settings/autostart-settings-section"
+import { BrowserSettingsSection } from "@/components/settings/browser-settings-section"
 import { DelegationSettingsSection } from "@/components/settings/delegation-settings"
 import {
   SettingsPageLayout,
@@ -137,6 +138,7 @@ export function GeneralSettings() {
       )}
 
       {localDesktop && <AutostartSettingsSection />}
+      {localDesktop && <BrowserSettingsSection />}
 
       {renderingSectionVisible && (
         <section className="overflow-hidden rounded-xl border bg-card">
