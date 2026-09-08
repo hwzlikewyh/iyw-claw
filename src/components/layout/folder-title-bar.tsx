@@ -58,7 +58,7 @@ export function FolderTitleBar() {
   const { toggle } = useSidebarContext()
   const { isOpen: auxPanelOpen, toggle: toggleAuxPanel } = useAuxPanelContext()
   const { toggle: toggleTerminal } = useTerminalContext()
-  const { openNewConversationTab } = useTabActions()
+  const { openChatModeTab } = useTabActions()
   const { openConversations } = useWorkbenchRoute()
   const isMac = useIsMac()
   const { shortcuts } = useShortcutSettings()
@@ -127,12 +127,11 @@ export function FolderTitleBar() {
         return
       }
       if (matchShortcutEvent(e, shortcuts.new_conversation)) {
-        if (!activeFolder) return
         e.preventDefault()
         // Return to the conversation workspace if a route (e.g. Automations)
         // was covering the content region, else the new tab opens unseen.
         openConversations()
-        openNewConversationTab(activeFolder.id, activeFolder.path)
+        openChatModeTab()
         return
       }
       if (matchShortcutEvent(e, shortcuts.open_folder)) {
@@ -148,11 +147,10 @@ export function FolderTitleBar() {
     document.addEventListener("keydown", handleKeyDown)
     return () => document.removeEventListener("keydown", handleKeyDown)
   }, [
-    activeFolder,
     handleOpenFolder,
     handleOpenSettings,
     openConversations,
-    openNewConversationTab,
+    openChatModeTab,
     setSearchOpen,
     shortcuts,
     toggle,

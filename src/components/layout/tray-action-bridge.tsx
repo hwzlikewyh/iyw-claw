@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
-import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useTabActions, useTabStore } from "@/contexts/tab-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { useAppUpdate } from "@/components/providers/update-provider"
@@ -44,7 +43,6 @@ function isTrayActionPayload(value: unknown): value is TrayActionPayload {
 
 export function TrayActionBridge() {
   const t = useTranslations("SystemSettings")
-  const { activeFolder } = useActiveFolder()
   const { openNewConversationTab, openChatModeTab, switchTab } = useTabActions()
   const { openConversations } = useWorkbenchRoute()
   const update = useAppUpdate()
@@ -70,11 +68,7 @@ export function TrayActionBridge() {
 
       if (payload.action === "new") {
         openConversations()
-        if (activeFolder) {
-          openNewConversationTab(activeFolder.id, activeFolder.path)
-        } else {
-          openChatModeTab()
-        }
+        openChatModeTab()
         return
       }
 
@@ -118,7 +112,6 @@ export function TrayActionBridge() {
       }
     },
     [
-      activeFolder,
       addFolderToWorkspaceById,
       openChatModeTab,
       openConversations,

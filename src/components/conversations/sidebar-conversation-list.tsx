@@ -31,7 +31,6 @@ import {
   SquarePen,
   XCircle,
 } from "lucide-react"
-import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useTabActions, useTabStore } from "@/contexts/tab-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
@@ -556,8 +555,8 @@ export interface SidebarConversationListProps {
 export function SidebarConversationList({
   ref,
   showCompleted = true,
-  sortMode = "created",
-  sectionOrder = "folders-first",
+  sortMode = "updated",
+  sectionOrder = "chats-first",
 }: SidebarConversationListProps & {
   ref?: Ref<SidebarConversationListHandle>
 }) {
@@ -587,7 +586,6 @@ export function SidebarConversationList({
   const openFolder = useAppWorkspaceStore((s) => s.openFolder)
   const refreshFolder = useAppWorkspaceStore((s) => s.refreshFolder)
   const refreshing = loading
-  const { activeFolder } = useActiveFolder()
 
   const activeTabId = useTabStore((s) => s.activeTabId)
   const tabs = useTabStore((s) => s.tabs)
@@ -1461,12 +1459,11 @@ export function SidebarConversationList({
   )
 
   const handleNewConversation = useCallback(() => {
-    if (!activeFolder) return
     // Starting a conversation returns to the conversation workspace if a
     // workbench route (e.g. Automations) was taking over the content region.
     openConversations()
-    openNewConversationTab(activeFolder.id, activeFolder.path)
-  }, [activeFolder, openNewConversationTab, openConversations])
+    openChatModeTab()
+  }, [openChatModeTab, openConversations])
 
   const handleNewConversationForFolder = useCallback(
     (folderId: number) => {
@@ -2127,10 +2124,7 @@ export function SidebarConversationList({
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
-            <ContextMenuItem
-              onSelect={handleNewConversation}
-              disabled={!activeFolder}
-            >
+            <ContextMenuItem onSelect={handleNewConversation}>
               <SquarePen className="h-4 w-4" />
               {t("newConversation")}
             </ContextMenuItem>
