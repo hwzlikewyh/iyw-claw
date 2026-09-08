@@ -123,6 +123,13 @@ fn main() -> ExitCode {
     // abort. Hold the guard for the whole process so buffered file lines flush
     // on a graceful exit.
     let _log_guard = iyw_claw_lib::logging::init::init_server();
+    if let Err(error) = tokio::runtime::Builder::new_current_thread().enable_all().build()
+        .expect("shared runtime migration executor")
+        .block_on(iyw_claw_lib::acp::version_center::prepare_shared_runtime(&resolved_data_dir))
+    {
+        tracing::error!(error = %error, "[shared-runtime] initialization failed");
+        std::process::exit(1);
+    }
     if let Err(error) =
         iyw_claw_lib::acp::provider_overlay::enforce_existing_active_provider_overlays()
     {

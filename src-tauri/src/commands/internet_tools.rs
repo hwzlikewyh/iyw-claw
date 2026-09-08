@@ -71,15 +71,40 @@ fn mcporter_package_spec() -> String {
 }
 
 fn uv_tool_bin_dir(paths: &AgentStoragePaths) -> PathBuf {
-    paths.uv_runtime_dir().join("bin")
+    if legacy_agent_reach_installed(paths) {
+        paths.uv_runtime_dir().join("bin")
+    } else {
+        crate::shared_runtime::uv_bin_dir()
+    }
+}
+
+fn legacy_agent_reach_installed(paths: &AgentStoragePaths) -> bool {
+    !crate::shared_runtime::uv_tools_dir().join("agent-reach").is_dir()
+        && paths.uv_runtime_dir().join("tools/agent-reach").is_dir()
+}
+
+fn uv_tools_dir(paths: &AgentStoragePaths) -> PathBuf {
+    if legacy_agent_reach_installed(paths) {
+        paths.uv_runtime_dir().join("tools")
+    } else {
+        crate::shared_runtime::uv_tools_dir()
+    }
 }
 
 fn opencli_prefix(paths: &AgentStoragePaths) -> PathBuf {
-    paths
+    let legacy = paths
         .npm_runtime_dir()
         .join("internet-tools")
         .join("opencli")
-        .join(OPENCLI_VERSION)
+        .join(OPENCLI_VERSION);
+    let shared = crate::shared_runtime::envs_dir()
+        .join("opencli")
+        .join(OPENCLI_VERSION);
+    if !shared.exists() && legacy.exists() {
+        legacy
+    } else {
+        shared
+    }
 }
 
 fn opencli_command_path(paths: &AgentStoragePaths) -> PathBuf {
@@ -276,7 +301,7 @@ async fn install_agent_reach(paths: &AgentStoragePaths) -> Result<(), String> {
         );
         let mut command = crate::process::tokio_command(uv.clone());
         command
-            .envs(binary_cache::uv_runtime_env(paths))
+            .envs(private_tool_environment_for(paths))
             .env("UV_TOOL_BIN_DIR", uv_tool_bin_dir(paths))
             .args(["tool", "install", "--force", candidate.as_str()]);
         match run_install_command(command, "Agent Reach").await {
@@ -304,13 +329,14 @@ async fn install_opencli(paths: &AgentStoragePaths) -> Result<(), String> {
     ensure_node_supported().await?;
     let prefix = opencli_prefix(paths);
     fs::create_dir_all(&prefix).map_err(|error| error.to_string())?;
-    fs::create_dir_all(paths.npm_cache_dir()).map_err(|error| error.to_string())?;
+    let cache = crate::shared_runtime::root().join("cache/npm");
+    fs::create_dir_all(&cache).map_err(|error| error.to_string())?;
     let mut command = crate::process::tokio_command(npm_program());
     command.args(["install", "--global", "--include=optional", "--prefix"]);
     command
         .arg(&prefix)
         .arg("--cache")
-        .arg(paths.npm_cache_dir())
+        .arg(&cache)
         // Route through the same registry as every other managed install
         // (npmmirror by default) instead of npm's built-in registry.npmjs.org.
         .arg(npm_runtime::npm_registry_arg().map_err(|error| error.to_string())?)
@@ -500,13 +526,15 @@ pub(crate) fn private_tool_environment() -> Vec<(&'static str, PathBuf)> {
     let Some(paths) = AgentStoragePaths::active() else {
         return Vec::new();
     };
-    private_tool_environment_for(&paths)
+    let mut environment = crate::shared_runtime::environment();
+    environment.insert("MCPORTER_CONFIG", mcporter_config_path(&paths));
+    environment.into_iter().collect()
 }
 
 fn private_tool_environment_for(paths: &AgentStoragePaths) -> Vec<(&'static str, PathBuf)> {
-    let mut environment = binary_cache::uv_runtime_env(paths)
-        .into_iter()
-        .collect::<Vec<_>>();
-    environment.push(("MCPORTER_CONFIG", mcporter_config_path(paths)));
-    environment
+    let mut environment = crate::shared_runtime::environment();
+    environment.insert("UV_TOOL_DIR", uv_tools_dir(paths));
+    environment.insert("UV_TOOL_BIN_DIR", uv_tool_bin_dir(paths));
+    environment.insert("MCPORTER_CONFIG", mcporter_config_path(paths));
+    environment.into_iter().collect()
 }

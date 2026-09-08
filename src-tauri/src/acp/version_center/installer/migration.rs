@@ -108,6 +108,11 @@ pub async fn run_legacy_migration(
             let Some(platform_dir) = legacy_platform_dir(&version_dir, tool).await else {
                 continue;
             };
+            if super::manifest::read_marker(&platform_dir).await.is_some_and(|marker| {
+                crate::acp::version_center::inventory::is_verified_origin(&marker.origin)
+            }) {
+                continue;
+            }
             let (verified, note) = verify_legacy_layout(tool, &platform_dir);
             if !verified {
                 continue; // 布局不合格的旧目录不导入。

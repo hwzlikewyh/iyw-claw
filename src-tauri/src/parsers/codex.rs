@@ -13,6 +13,10 @@ use crate::parsers::{
     folder_name_from_path, title_from_user_text, truncate_str, AgentParser, ParseError,
 };
 
+mod paginated_messages;
+
+use paginated_messages::PaginatedMessages;
+
 pub struct CodexParser {
     base_dir: PathBuf,
 }
@@ -103,6 +107,7 @@ impl CodexParser {
         let mut goal_objective: Option<String> = None;
         let mut goal_opens_session = false;
         let mut saw_final_answer_in_turn = false;
+        let mut paginated_messages = PaginatedMessages::default();
 
         for line in reader.lines() {
             let line = match line {
@@ -113,10 +118,13 @@ impl CodexParser {
                 continue;
             }
 
-            let value: serde_json::Value = match serde_json::from_str(&line) {
+            let mut value: serde_json::Value = match serde_json::from_str(&line) {
                 Ok(v) => v,
                 Err(_) => continue,
             };
+            if !paginated_messages.normalize(&mut value) {
+                continue;
+            }
 
             let msg_type = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
             if msg_type == "turn_context" {
@@ -993,6 +1001,7 @@ impl CodexParser {
         let mut pending_reasoning_ts: Option<DateTime<Utc>> = None;
         // 同一 API 回合可能写入多次最终答案，只保留最后一次。
         let mut final_answer_index: Option<usize> = None;
+        let mut paginated_messages = PaginatedMessages::default();
 
         for line in reader.lines() {
             let line = match line {
@@ -1003,10 +1012,13 @@ impl CodexParser {
                 continue;
             }
 
-            let value: serde_json::Value = match serde_json::from_str(&line) {
+            let mut value: serde_json::Value = match serde_json::from_str(&line) {
                 Ok(v) => v,
                 Err(_) => continue,
             };
+            if !paginated_messages.normalize(&mut value) {
+                continue;
+            }
 
             let msg_type = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
@@ -1120,7 +1132,10 @@ impl CodexParser {
                                     title = extract_codex_title_candidate(&text, true);
                                 }
 
-                                if should_skip_duplicate_user_message(&messages, &blocks, timestamp)
+                                if payload.get("history_item_id").is_none()
+                                    && should_skip_duplicate_user_message(
+                                        &messages, &blocks, timestamp,
+                                    )
                                 {
                                     continue;
                                 }

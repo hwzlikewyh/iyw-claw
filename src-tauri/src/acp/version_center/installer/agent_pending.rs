@@ -13,6 +13,9 @@ pub async fn consume_pending_activations_at_startup(
     conn: &DatabaseConnection,
     data_dir: &Path,
 ) -> Result<(), AppCommandError> {
+    let _writer = super::state::acquire_writer_lock(data_dir).await?.ok_or_else(|| {
+        AppCommandError::task_execution_failed("Shared runtime is being updated; retry shortly")
+    })?;
     let _guard = lock_pending_activations().await;
     let pending = read_pending_activations(data_dir).await?;
     if pending.is_empty() {

@@ -136,13 +136,12 @@ Function IywClawResolveInstallRoot
     FileClose $R0
     Delete "$IywClawRoot\.iyw-claw-install-probe"
 
-    ; 持久区布局：app 是唯一会被应用更新替换的区域；runtime/agents/skills/
-    ; inventory/staging 为受管内容（由版本中心初始化与激活）；config/data/logs
-    ; 为现有持久区。更新永不清理这些目录。
+    ; app 是应用更新替换的区域；runtime/agents/inventory/staging 保留给
+    ; 其余受管组件，config/data/logs 为现有持久区。用户 Skill 与共享的
+    ; Node/Git/uv 由首次启动写入用户目录 .iyw-claw，安装器不另建 Skill 库。
     CreateDirectory "$IywClawRoot\app"
     CreateDirectory "$IywClawRoot\runtime"
     CreateDirectory "$IywClawRoot\agents"
-    CreateDirectory "$IywClawRoot\skills"
     CreateDirectory "$IywClawRoot\inventory"
     CreateDirectory "$IywClawRoot\staging"
     CreateDirectory "$IywClawRoot\config"

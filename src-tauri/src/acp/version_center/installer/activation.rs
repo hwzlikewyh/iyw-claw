@@ -20,21 +20,22 @@ pub async fn quarantine_component(
     data_dir: &Path,
     component_dir: &Path,
 ) -> Result<PathBuf, AppCommandError> {
-    let managed_root = data_dir.canonicalize().map_err(|error| {
-        AppCommandError::configuration_invalid("Managed root is not readable")
-            .with_detail(error.to_string())
-    })?;
     let source = component_dir.canonicalize().map_err(|error| {
         AppCommandError::invalid_input("Component directory is not readable")
             .with_detail(error.to_string())
     })?;
-    if !source.starts_with(&managed_root) {
+    let target_root = component_quarantine_root(data_dir, &source)?;
+    let parent = target_root
+        .parent()
+        .ok_or_else(|| AppCommandError::invalid_input("Quarantine root has no parent"))?
+        .to_path_buf();
+    std::fs::create_dir_all(&target_root).map_err(AppCommandError::io)?;
+    let target_root = target_root.canonicalize().map_err(AppCommandError::io)?;
+    if !target_root.starts_with(parent.canonicalize().map_err(AppCommandError::io)?) {
         return Err(AppCommandError::invalid_input(
-            "Component directory is outside the managed root",
+            "Quarantine root escapes its parent",
         ));
     }
-    let target_root = quarantine_root(data_dir);
-    std::fs::create_dir_all(&target_root).map_err(AppCommandError::io)?;
     let name = source
         .file_name()
         .map(|value| value.to_string_lossy().into_owned())
@@ -47,14 +48,26 @@ pub async fn quarantine_component(
             .next()
             .unwrap_or("0")
     ));
-    let absolute_target = target.canonicalize().unwrap_or(target.clone());
-    if !absolute_target.starts_with(target_root) {
-        return Err(AppCommandError::invalid_input(
-            "Quarantine target is outside the quarantine root",
-        ));
-    }
     tokio::fs::rename(&source, &target).await.map_err(|error| {
         AppCommandError::io(error).with_detail(source.to_string_lossy().into_owned())
     })?;
     Ok(target)
+}
+
+fn component_quarantine_root(data_dir: &Path, source: &Path) -> Result<PathBuf, AppCommandError> {
+    for tool in crate::shared_runtime::SHARED_TOOLS {
+        let root = crate::shared_runtime::tool_root(data_dir, tool);
+        if let Ok(canonical) = root.canonicalize() {
+            if source.starts_with(&canonical) && source != canonical {
+                return Ok(canonical.join(".quarantine"));
+            }
+        }
+    }
+    let root = data_dir.canonicalize().map_err(AppCommandError::io)?;
+    if source.starts_with(&root) && source != root {
+        return Ok(quarantine_root(data_dir));
+    }
+    Err(AppCommandError::invalid_input(
+        "Component directory is outside the managed root",
+    ))
 }

@@ -149,7 +149,7 @@ pub(super) async fn install_tool_component(
     // 磁盘预检：归档 + 展开 + staging + 保留旧版本余量。
     emit_init_event(emitter, task_id, "downloading", Some(tool_id), "");
     ensure_disk_headroom(
-        data_dir,
+        &final_dir,
         &InstallEstimate {
             archive_bytes: ticket.size.max(0) as u64,
             expanded_bytes: (ticket.size.max(0) as u64).saturating_mul(6),

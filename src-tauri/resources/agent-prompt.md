@@ -48,3 +48,15 @@ iyw-claw resolved these command paths for this launch:
 {tools}
 
 Prefer these absolute paths when discovery is ambiguous. Use an available alternative or repair missing commands within authorization.
+
+## Shared skill dependencies
+
+{skill_runtime}
+
+Use the shared uv, Node/npm, and Git commands above. If an Agent's own launcher sets different uv or npm directories, explicitly pass the shared values above to skill installation/execution commands; retain the launcher's environment for the Agent program itself. Skills published through links write directly to the central skill source; do not create per-Agent copies when linking fails.
+
+Keep new dependency environments outside skill directories. For Python command-line tools, use `uv tool install` or `uvx` with a pinned version; the host provides shared tool and cache directories. For Python libraries, create a named environment under the shared dependency environments directory, install using `uv pip install --python <environment-python>`, and execute the skill script with that interpreter. Reuse an existing environment only when its Python and dependency versions satisfy the skill; use a separate named environment for incompatible requirements.
+
+For Node command-line tools, `npm install --global <package>@<version>` uses the shared npm prefix. Library dependencies must be installed in a named project under the shared dependency environments directory. Use an entrypoint that resolves libraries from that dependency project (for example, a `createRequire` rooted at its package.json). Importing an original script by absolute path does not change where that script resolves its own imports; adapt its resolution before relocating dependencies. Preserve an existing skill-local environment if its scripts depend on that path until it is explicitly adapted. Do not redirect an ordinary project's `.venv`, `node_modules`, or lockfile into shared skill environments.
+
+Final deliverables use the workspace or user-specified output directory. Temporary and state files may be written to the central skill when the skill requires it; remember the same files are visible to other Agents.

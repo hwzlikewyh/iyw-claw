@@ -729,9 +729,7 @@ fn enable_managed_link_entry(
     link_path: &Path,
 ) -> Result<ManagedLinkChange, ManagedLinkEntryError> {
     if managed_copy_is_owned(expected_target, link_path) {
-        remove_skill_entry(link_path)
-            .map_err(|error| ManagedLinkEntryError::Io(error.to_string()))?;
-        return create_link_raw(expected_target, link_path)
+        return replace_managed_copy_with_link(expected_target, link_path)
             .map(|copy_mode| ManagedLinkChange::Linked { copy_mode })
             .map_err(|error| ManagedLinkEntryError::Io(error.to_string()));
     }
@@ -751,6 +749,30 @@ fn enable_managed_link_entry(
     create_link_raw(expected_target, link_path)
         .map(|copy_mode| ManagedLinkChange::Linked { copy_mode })
         .map_err(|error| ManagedLinkEntryError::Io(error.to_string()))
+}
+
+fn replace_managed_copy_with_link(source: &Path, target: &Path) -> io::Result<bool> {
+    let parent = target.parent().ok_or_else(|| io::Error::other("Skill link has no parent"))?;
+    let backup = parent.join(format!(".iyw-claw-link-backup-{}", uuid::Uuid::new_v4()));
+    fs::rename(target, &backup)?;
+    match create_link_raw(source, target) {
+        Ok(copy_mode) => {
+            if let Err(error) = remove_skill_entry(&backup) {
+                tracing::warn!(path = %backup.display(), error = %error,
+                    "[skills] linked central skill but could not remove legacy backup");
+            }
+            Ok(copy_mode)
+        }
+        Err(error) => {
+            if fs::symlink_metadata(target).is_ok() {
+                remove_skill_entry(target)?;
+            }
+            fs::rename(&backup, target).map_err(|restore| io::Error::other(format!(
+                "Skill link failed: {error}; restoring legacy copy failed: {restore}"
+            )))?;
+            Err(error)
+        }
+    }
 }
 
 fn raw_link_targets(link_path: &Path, expected_target: &Path) -> bool {
@@ -793,16 +815,6 @@ pub(crate) fn managed_copy_is_owned(expected_target: &Path, copy_path: &Path) ->
     };
     marker.version == MANAGED_COPY_MARKER_VERSION
         && paths_equivalent(&marker.expected_target, expected_target)
-}
-
-#[cfg(any(windows, test))]
-fn write_managed_copy_marker(copy_path: &Path, expected_target: &Path) -> io::Result<()> {
-    let marker = ManagedCopyMarker {
-        version: MANAGED_COPY_MARKER_VERSION,
-        expected_target: expected_target.to_path_buf(),
-    };
-    let bytes = serde_json::to_vec(&marker).map_err(io::Error::other)?;
-    fs::write(copy_path.join(MANAGED_COPY_MARKER_FILE), bytes)
 }
 
 pub(crate) fn reconcile_managed_link_entry(
@@ -881,21 +893,8 @@ pub(crate) fn create_link_raw(src: &Path, dst: &Path) -> io::Result<bool> {
 
 #[cfg(windows)]
 pub(crate) fn create_link_raw(src: &Path, dst: &Path) -> io::Result<bool> {
-    match junction::create(src, dst) {
-        Ok(_) => Ok(false),
-        Err(err) if err.kind() == io::ErrorKind::AlreadyExists => Err(err),
-        Err(junction_err) => {
-            let copy_result =
-                copy_dir_recursive(src, dst).and_then(|_| write_managed_copy_marker(dst, src));
-            copy_result.map_err(|copy_err| {
-                let _ = fs::remove_dir_all(dst);
-                io::Error::other(format!(
-                    "junction failed ({junction_err}); copy fallback failed ({copy_err})"
-                ))
-            })?;
-            Ok(true)
-        }
-    }
+    // 链接失败直接返回，避免产生偏离中央来源的技能副本。
+    junction::create(src, dst).map(|_| false)
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
