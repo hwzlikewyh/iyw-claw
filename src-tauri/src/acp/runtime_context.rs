@@ -7,11 +7,17 @@ pub fn prepend_tool_dirs(
     paths: Option<&AgentStoragePaths>,
     environment: &mut BTreeMap<String, String>,
 ) {
+    for (key, value) in crate::shared_runtime::environment() {
+        environment
+            .entry(key.to_string())
+            .or_insert_with(|| value.to_string_lossy().into_owned());
+    }
     let mut directories = crate::acp::builtin_agent_prompt::discover_tools(paths)
         .into_iter()
         .filter_map(|(_, path)| path)
         .filter_map(|path| path.parent().map(Path::to_path_buf))
         .collect::<Vec<_>>();
+    directories.extend(crate::shared_runtime::bin_dirs());
     if directories.is_empty() {
         return;
     }

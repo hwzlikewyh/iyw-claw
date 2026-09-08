@@ -20,6 +20,8 @@ mod migration;
 mod preflight;
 mod resumable;
 mod runtime;
+mod runtime_migration;
+mod runtime_migration_transaction;
 mod runtime_bundle;
 mod runtime_seed;
 mod runtime_seed_files;
@@ -45,3 +47,5 @@ pub(crate) use runtime_bundle::{
 };
 pub(crate) use runtime_seed::{import_runtime_seed_exclusive, RuntimeSeedImport};
 pub use tools::{install_managed_tool, ManagedToolInstallResult};
+pub use runtime_migration::prepare_shared_runtime;
+pub(crate) use state::acquire_writer_lock;

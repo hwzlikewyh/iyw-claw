@@ -394,6 +394,7 @@ fn prepend_internet_tools_path(env: &mut BTreeMap<String, String>) {
     for (key, value) in crate::commands::internet_tools::private_tool_environment() {
         env.insert(key.to_string(), value.to_string_lossy().to_string());
     }
+    crate::acp::runtime_context::prepend_tool_dirs(AgentStoragePaths::active().as_ref(), env);
 }
 
 /// Commands sent from Tauri command handlers to the ACP connection loop.
@@ -3297,9 +3298,13 @@ async fn run_connection(
                 .with_default_cwd(Some(cwd.clone())),
         );
         let cwd_string = cwd.to_string_lossy().to_string();
+        let mut file_system_roots = agent_rebuild.additional_file_system_roots.clone();
+        file_system_roots.extend([
+            crate::paths::iyw_claw_user_dir().join("skills"),
+            crate::shared_runtime::envs_dir(),
+        ]);
         let file_system_runtime = Arc::new(FileSystemRuntime::with_additional_roots(
-            cwd.clone(),
-            agent_rebuild.additional_file_system_roots.clone(),
+            cwd.clone(), file_system_roots,
         ));
 
         let conn_id = connection_id.clone();

@@ -17,6 +17,8 @@ pub(super) async fn install_component(
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<PathBuf, String> {
+    let _writer = crate::acp::version_center::acquire_writer_lock(data_dir)
+        .await.map_err(command_error)?.ok_or_else(|| "Shared runtime is being updated; retry shortly".to_string())?;
     let started = Instant::now();
     tracing::info!(
         task_id,
@@ -102,7 +104,7 @@ async fn install_inner(
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<PathBuf, String> {
-    let downloads = data_dir.join("runtime").join("downloads");
+    let downloads = crate::shared_runtime::root().join("cache").join("downloads");
     tokio::fs::create_dir_all(&downloads)
         .await
         .map_err(|error| format!("failed to create {}: {error}", downloads.display()))?;
@@ -233,7 +235,7 @@ async fn activate_payload(
     final_dir: &Path,
     spec: &ComponentSpec,
 ) -> Result<(), String> {
-    let component_root = data_dir.join("runtime").join(spec.kind.tool_id());
+    let component_root = crate::shared_runtime::tool_root(data_dir, spec.kind.tool_id());
     if !final_dir.starts_with(&component_root) {
         return Err("fallback activation path escaped the managed runtime root".to_string());
     }
@@ -257,9 +259,7 @@ async fn activate_payload(
 }
 
 fn staging_dir(data_dir: &Path, spec: &ComponentSpec) -> PathBuf {
-    data_dir
-        .join("runtime")
-        .join(spec.kind.tool_id())
+    crate::shared_runtime::tool_root(data_dir, spec.kind.tool_id())
         .join(".fallback-staging")
         .join(uuid::Uuid::new_v4().to_string())
 }

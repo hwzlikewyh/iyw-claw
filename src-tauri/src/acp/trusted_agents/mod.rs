@@ -94,6 +94,7 @@ pub(crate) fn restrict_configured_runtime_env(
 
 fn is_host_owned_runtime_env(key: &str) -> bool {
     key.eq_ignore_ascii_case("PATH")
+        || crate::shared_runtime::environment().keys().any(|name| key.eq_ignore_ascii_case(name))
         || key == "IYW_CLAW_MANAGED_AGENT_VERSION"
         || key == crate::wecom_ai::CONFIG_DIR_ENV
         || key == crate::wecom_ai::MANAGED_COMMAND_ENV

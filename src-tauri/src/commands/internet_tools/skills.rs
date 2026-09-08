@@ -7,7 +7,7 @@ use crate::commands::experts::central_experts_dir;
 use super::*;
 
 pub(super) fn find_agent_reach_skill(paths: &AgentStoragePaths) -> Option<PathBuf> {
-    walkdir::WalkDir::new(paths.uv_runtime_dir().join("tools"))
+    walkdir::WalkDir::new(uv_tools_dir(paths))
         .max_depth(8)
         .into_iter()
         .filter_map(Result::ok)
@@ -122,7 +122,7 @@ pub(super) fn uninstall_targets(
     agent_reach_config: &Path,
 ) -> Vec<PathBuf> {
     let mut targets = match tool {
-        InternetToolId::AgentReach => vec![paths.uv_runtime_dir().join("tools/agent-reach")],
+        InternetToolId::AgentReach => vec![uv_tools_dir(paths).join("agent-reach")],
         InternetToolId::Opencli => vec![opencli_prefix(paths)],
     };
     if tool == InternetToolId::AgentReach && remove_config {

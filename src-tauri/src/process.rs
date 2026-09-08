@@ -68,11 +68,12 @@ fn set_utf8_env<C: SetEnv>(command: &mut C) {
 }
 
 fn set_managed_path_env<C: SetEnv>(command: &mut C) {
-    let mut paths = ["node", "git"]
-        .into_iter()
-        .filter_map(crate::acp::version_center::managed_tool_executable)
-        .filter_map(|path| path.parent().map(ToOwned::to_owned))
-        .collect::<Vec<_>>();
+    for (key, value) in crate::shared_runtime::environment() {
+        if std::env::var_os(key).is_none() {
+            command.env_os(key, value.as_os_str());
+        }
+    }
+    let mut paths = crate::shared_runtime::bin_dirs();
     if paths.is_empty() {
         return;
     }
@@ -143,6 +144,16 @@ pub fn normalized_program<S>(program: S) -> OsString
 where
     S: AsRef<OsStr>,
 {
+    if let Some(name) = program.as_ref().to_str() {
+        #[cfg(windows)]
+        let name = name
+            .strip_suffix(".exe")
+            .or_else(|| name.strip_suffix(".cmd"))
+            .unwrap_or(name);
+        if let Some(path) = crate::acp::version_center::managed_tool_executable(name) {
+            return path.into_os_string();
+        }
+    }
     #[cfg(windows)]
     {
         if let Some(resolved) = resolve_windows_program(program.as_ref()) {

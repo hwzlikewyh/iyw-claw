@@ -61,6 +61,9 @@ pub async fn install_managed_tool(
     emitter: Option<&crate::web::event_bridge::EventEmitter>,
 ) -> Result<ManagedToolInstallResult, AppCommandError> {
     let _guard = install_lock().lock().await;
+    let _writer = super::state::acquire_writer_lock(data_dir).await?.ok_or_else(|| {
+        AppCommandError::task_execution_failed("Shared runtime is being updated; retry shortly")
+    })?;
     validate_request(tool_id, requested_version, channel)?;
     let settings = inventory::list_tool_settings(conn)
         .await
@@ -265,7 +268,7 @@ async fn install_offer_inner(
 
     // 磁盘预检：归档 + 展开 + staging + 保留旧版本余量。
     ensure_disk_headroom(
-        data_dir,
+        stage,
         &InstallEstimate {
             archive_bytes: ticket.size.max(0) as u64,
             expanded_bytes: (ticket.size.max(0) as u64).saturating_mul(6),

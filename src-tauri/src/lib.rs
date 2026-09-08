@@ -36,6 +36,7 @@ pub mod plugin_runtime;
 #[cfg(feature = "tauri-runtime")]
 pub mod preferences;
 pub mod process;
+pub mod shared_runtime;
 pub mod remote_image;
 #[cfg(not(feature = "tauri-runtime"))]
 mod server_channel_target_crypto;
@@ -399,6 +400,10 @@ mod tauri_app {
                 unsafe {
                     std::env::set_var("IYW_CLAW_DATA_DIR", &effective_data_dir);
                 }
+                tauri::async_runtime::block_on(
+                    crate::acp::version_center::prepare_shared_runtime(&effective_data_dir),
+                )
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
                 app.manage(crate::browser::BrowserSessionManager::new_desktop(
                     effective_data_dir.clone(),
                     app.state::<ConnectionManager>().clone_ref(),
