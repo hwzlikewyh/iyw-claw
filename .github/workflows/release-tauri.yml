@@ -26,7 +26,7 @@ on:
       build_matrix:
         required: false
         type: string
-        default: '{"include":[{"name":"macOS x64","runner":"macos-26-intel","target":"x86_64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows x64","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"x86_64-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows 32-bit","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"i686-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false}]}'
+        default: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows x64","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"x86_64-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows 32-bit","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"i686-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false}]}'
       release_draft:
         required: false
         type: boolean
@@ -315,6 +315,29 @@ jobs:
       - name: Verify staged sidecars
         run: node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
 
+      - id: runtime-cache
+        name: Restore runtime seed archives
+        if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') && matrix.target != 'i686-pc-windows-msvc' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/iyw-runtime-seed-cache
+          key: runtime-seed-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('src-tauri/scripts/*runtime-seed*.mjs', 'src-tauri/runtime-seed/codex/package-lock.json') }}
+
+      - name: Prepare runtime seed
+        shell: bash
+        run: pnpm tauri:prepare-runtime-seed --target ${{ matrix.target }}
+
+      - name: Verify runtime seed
+        shell: bash
+        run: pnpm tauri:verify-runtime-seed --target ${{ matrix.target }}
+
+      - name: Save runtime seed archives
+        if: ${{ steps.runtime-cache.outputs.cache-hit != 'true' && !contains(toJSON(matrix.runner), 'self-hosted') && matrix.target != 'i686-pc-windows-msvc' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/iyw-runtime-seed-cache
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
+
       - name: Build built-in worker
         if: steps.worker-cache.outputs.cache-hit != 'true'
         run: pnpm tauri:prepare-xinghe-worker --target "${{ matrix.target }}"
@@ -339,21 +362,6 @@ jobs:
           sidecar="src-tauri/binaries/agent-browser-${{ matrix.target }}"
           if [[ "${{ matrix.target }}" == *windows* ]]; then sidecar+=".exe"; fi
           pnpm tauri:browser-smoke -- --sidecar "$sidecar" --engine "$IYW_CLAW_BROWSER_ENGINE"
-
-      - name: Cache runtime seed archives
-        if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') && matrix.target != 'i686-pc-windows-msvc' }}
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/iyw-runtime-seed-cache
-          key: runtime-seed-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('src-tauri/scripts/*runtime-seed*.mjs', 'src-tauri/runtime-seed/codex/package-lock.json') }}
-
-      - name: Prepare runtime seed
-        shell: bash
-        run: pnpm tauri:prepare-runtime-seed --target ${{ matrix.target }}
-
-      - name: Verify runtime seed
-        shell: bash
-        run: pnpm tauri:verify-runtime-seed --target ${{ matrix.target }}
 
       - name: Build and upload Linux arm64
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -439,6 +447,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer-verification-${{ matrix.target }}
+          overwrite: true
           path: |
             src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
             src-tauri/resources/xinghe-worker/*
@@ -506,8 +515,21 @@ jobs:
         shell: bash
         run: pnpm tauri:verify-bundle-size --target "${{ matrix.target }}"
 
+      - name: Upload macOS x64 verification input
+        if: matrix.target == 'x86_64-apple-darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-x64-installer-verification
+          overwrite: true
+          path: |
+            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Verify macOS runtime seed in app bundle
-        if: contains(matrix.target, 'apple-darwin')
+        if: matrix.target == 'aarch64-apple-darwin'
         shell: bash
         run: pnpm tauri:verify-runtime-seed-bundle --target "${{ matrix.target }}"
 

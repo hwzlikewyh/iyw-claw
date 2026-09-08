@@ -271,12 +271,24 @@ jobs:
     with:
       source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
 
+  verify-macos-x64-installer:
+    needs:
+      - create-draft-release
+      - build-tauri
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/release-macos-verification.yml
+    with:
+      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
+
   publish-release:
     needs:
       - create-draft-release
       - build-tauri
       - verify-windows-installers
-    if: ${{ needs.build-tauri.result == 'success' && needs.verify-windows-installers.result == 'success' }}
+      - verify-macos-x64-installer
+    if: ${{ needs.build-tauri.result == 'success' && needs.verify-windows-installers.result == 'success' && needs.verify-macos-x64-installer.result == 'success' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: write
