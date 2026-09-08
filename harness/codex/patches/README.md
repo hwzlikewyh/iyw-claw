@@ -72,6 +72,20 @@ inherited pipes. Bundle verification rejects console-subsystem helpers. This
 also covers helper launches outside the patched factories. See
 `WINDOWS_PROCESS_AUDIT.md` for call paths, exclusions and verification limits.
 
+The sandbox's three non-PTY execution paths explicitly use
+`ConsoleMode::NoWindow`: legacy captured execution, legacy unified execution,
+and the elevated command runner. Their parent is a GUI process with no console
+to inherit; pipes must not cause Windows to allocate a new visible console.
+PTY branches, restricted tokens, desktops and pipe handling are unchanged.
+
+`aws-config` copies production sources and the Apache license from locked
+crates.io version 1.11.0. Its sole runtime delta sets `CREATE_NO_WINDOW` on the
+Windows `credential_process` shell. The archive SHA-256 is
+`a767267da9e2c2e189b2f9df8b5657e850ecf5352644734ba130d4a57095cf1b`.
+All 29 production dependency declarations and all feature definitions match the
+published manifest; test items and fixtures are omitted. This is independent of
+the upstream model provider's explicit AWS refresh command.
+
 Before updating `upstream.lock`, compare this directory with the new upstream
 crate. Drop the local override when the new release compiles without it; do not
 carry it forward by default.
