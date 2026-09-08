@@ -372,6 +372,7 @@ fn run_setup_refresh_payload(b64: &str, codex_home: &Path) -> Result<()> {
     };
     // Refresh should never request elevation; ensure verb isn't set and we don't trigger UAC.
     let mut cmd = Command::new(&exe);
+    cmd.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
     cmd.arg(b64)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

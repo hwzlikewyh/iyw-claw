@@ -120,8 +120,8 @@ pub fn try_find_powershell_executable_blocking() -> Option<AbsolutePathBuf> {
 /// has installed pwsh.exe, it may not be available in the system PATH, in which
 /// case we attempt to locate it via other means.
 pub fn try_find_pwsh_executable_blocking() -> Option<AbsolutePathBuf> {
-    if let Some(ps_home) = probe_command("cmd")
-        .args(["/C", "pwsh", "-NoProfile", "-Command", "$PSHOME"])
+    if let Some(ps_home) = probe_command("pwsh")
+        .args(["-NoProfile", "-Command", "$PSHOME"])
         .output()
         .ok()
         .and_then(|out| {

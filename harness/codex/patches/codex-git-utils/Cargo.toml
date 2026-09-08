@@ -1,0 +1,35 @@
+[package]
+name = "codex-git-utils"
+version = "0.153.4"
+edition = "2024"
+license = "Apache-2.0"
+readme = "README.md"
+
+
+[dependencies]
+anyhow = { version = "1" }
+chrono = { version = "0.4.43" }
+codex-file-system = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
+codex-protocol = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
+codex-utils-absolute-path = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
+codex-utils-path-uri = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
+codex-utils-pty = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
+futures = { version = "0.3", default-features = false, features = ["alloc"] }
+gix = { version = "0.81.0", default-features = false, features = ["sha1"] }
+once_cell = { version = "1.20.2" }
+regex = "1"
+schemars = { version = "0.8.22" }
+serde = { version = "1", features = ["derive"] }
+similar = { version = "2.7.0" }
+tempfile = { version = "3.23.0" }
+thiserror = { version = "2.0.17" }
+tokio = { version = "1", features = ["macros", "process", "rt", "time"] }
+ts-rs = { version = "11", features = [
+    "uuid-impl",
+    "serde-json-impl",
+    "no-serde-warnings",
+] }
+walkdir = { version = "2.5.0" }
+
+[lib]
+doctest = false

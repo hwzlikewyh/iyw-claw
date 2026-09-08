@@ -70,3 +70,4 @@ tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev 
 codex-utils-pty = { path = "patches/codex-utils-pty" }
 codex-shell-command = { path = "patches/codex-shell-command" }
 codex-windows-sandbox = { path = "patches/codex-windows-sandbox" }
+codex-git-utils = { path = "patches/codex-git-utils" }

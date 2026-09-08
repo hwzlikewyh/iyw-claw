@@ -101,6 +101,7 @@ pub fn create_cwd_junction(requested_cwd: &Path, log_dir: Option<&Path>) -> Opti
         log_dir,
     );
     let output = match std::process::Command::new("cmd")
+        .creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW)
         .raw_arg("/c")
         .raw_arg("mklink")
         .raw_arg("/J")

@@ -2755,7 +2755,6 @@ dependencies = [
 [[package]]
 name = "codex-git-utils"
 version = "0.153.4"
-source = "git+https://github.com/openai/codex.git?rev=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a#3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
 dependencies = [
  "anyhow",
  "chrono",

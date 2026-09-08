@@ -43,7 +43,7 @@ packages remain in their respective component directories.
 - License: Apache License 2.0
 
 The `harness/codex` integration locks the upstream source revision. Its local
-patches for `codex-utils-pty`, `codex-shell-command` and
+patches for `codex-utils-pty`, `codex-shell-command`, `codex-git-utils` and
 `codex-windows-sandbox` retain the Apache License 2.0 and make the documented
 Windows pointer, hidden-window and package-name compatibility adjustments.
 The patches are re-evaluated on every upstream update.

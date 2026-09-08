@@ -16,7 +16,8 @@ must not undo the hidden-window setting.
 
 `codex-shell-command` contains the production sources from the same locked
 `rust-v0.153.4` commit. Its only runtime change is setting `CREATE_NO_WINDOW`
-on the two PowerShell detection commands in `src/powershell.rs`. The standalone
+on the two PowerShell detection commands in `src/powershell.rs`. Detection calls
+`pwsh` directly instead of adding an intermediate `cmd /C` process. The standalone
 manifest resolves the original workspace dependencies at the same pin. Upstream
 test modules, test-only PowerShell parser, and fixtures are omitted from this
 runtime patch; no new tests are added. Review both overrides on each upgrade.
@@ -26,9 +27,17 @@ helper targets. Package lookup uses `xinghe-resources`,
 `xinghe-command-runner.exe` and `xinghe-windows-sandbox-setup.exe` so the runtime
 resolves the renamed bundle. Cargo target names and the setup manifest name
 match those files. Existing sandbox account, service, config and protocol
-identifiers are retained for compatibility. Runtime behavior otherwise matches
-upstream. Test modules, files and fixtures are omitted; the standalone manifest
+identifiers are retained for compatibility. Hidden-window flags also cover
+non-elevated setup refresh, the working-directory junction helper and the
+read-deny ripgrep probe. Test modules, files and fixtures are omitted; the standalone manifest
 keeps the upstream dependency versions and commit pin.
+
+`codex-git-utils` contains the pinned production sources with hidden-window
+flags on synchronous Git commands and on the asynchronous Job Object fallback.
+The fallback clears `CREATE_SUSPENDED` while retaining `CREATE_NO_WINDOW`.
+Timeouts, process-tree termination and Git arguments remain unchanged. Its
+manifest resolves the original workspace dependencies at the same versions and
+commit; upstream test modules and fixtures are omitted.
 
 The `0.153.4` upgrade compared both patched Windows files and the upstream
 crate manifest with `0.152.1`; they are unchanged. The pointer casts remain
