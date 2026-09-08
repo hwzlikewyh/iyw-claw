@@ -251,13 +251,6 @@ jobs:
         shell: pwsh
         run: node scripts/set-version.mjs "$env:TEST_VERSION"
 
-      - name: Rebuild frontend for legacy staging only
-        if: inputs.staging_run_id != ''
-        shell: pwsh
-        run: |
-          pnpm build
-          if ($LASTEXITCODE -ne 0) { throw "frontend rebuild failed" }
-
       - name: Download unsigned staging artifact
         shell: pwsh
         env:
@@ -284,7 +277,7 @@ jobs:
           $env:HTTPS_PROXY = 'http://127.0.0.1:7890'
           $env:NO_PROXY = 'localhost,127.0.0.1'
           $maxAttempts = 3
-          $attemptTimeoutMs = 300_000
+          $attemptTimeoutMs = 300000
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             $attemptDir = Join-Path $env:STAGING_DOWNLOAD_DIR "attempt-$attempt"
             $startInfo = [Diagnostics.ProcessStartInfo]::new((Get-Command gh -ErrorAction Stop).Source)
@@ -325,6 +318,21 @@ jobs:
           Remove-Item -LiteralPath $env:IYW_CLAW_STAGING_DIR -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $env:IYW_CLAW_STAGING_DIR | Out-Null
           Expand-Archive -LiteralPath $archive -DestinationPath $env:IYW_CLAW_STAGING_DIR -Force
+
+      - name: Rebuild frontend for legacy staging only
+        if: inputs.staging_run_id != ''
+        shell: pwsh
+        env:
+          IYW_CLAW_STAGING_DIR: ${{ runner.temp }}\iyw-windows-staging
+        run: |
+          $manifestPath = Join-Path $env:IYW_CLAW_STAGING_DIR 'staging-manifest.json'
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if (@($manifest.files | Where-Object { $_.path -like 'out/*' }).Count -gt 0) {
+            Write-Host 'Reusing the staged frontend; manifest validation follows.'
+            exit 0
+          }
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { throw "frontend rebuild failed" }
 
       - name: Finalize, sign, and verify installer
         shell: pwsh
