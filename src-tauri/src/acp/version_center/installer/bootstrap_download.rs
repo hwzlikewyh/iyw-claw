@@ -70,7 +70,7 @@ pub(super) async fn prepare_fresh(
 #[allow(clippy::too_many_arguments)]
 async fn prepare_fresh_inner(
     conn: &DatabaseConnection,
-    data_dir: &Path,
+    _data_dir: &Path,
     tool_id: &str,
     channel: &str,
     task_id: &str,
@@ -83,7 +83,7 @@ async fn prepare_fresh_inner(
         .await
         .map_err(AppCommandError::io)?;
     let ticket = request_ticket(conn, offer, current_version, channel).await?;
-    ensure_disk_space(data_dir, &ticket)?;
+    ensure_disk_space(stage, &ticket)?;
     let archive = stage.join("artifact.zip");
     let ticket = download_archive(
         conn,

@@ -53,7 +53,7 @@ pub struct InventoryEntry {
     pub artifact_id: Option<String>,
     #[serde(default)]
     pub sha256: Option<String>,
-    /// 相对 `<root>` 的路径。
+    /// 相对数据根的逻辑路径；runtime_tool 的实际位置由 shared_runtime 解析。
     pub path: String,
     pub active: bool,
 }
@@ -207,9 +207,14 @@ pub async fn digest_managed_root(data_dir: &Path) -> Result<String, AppCommandEr
         if !entry.active {
             continue;
         }
-        let pointer = data_dir.join(&entry.path).join("current.json");
+        let pointer = if entry.component_kind == "runtime_tool" {
+            crate::shared_runtime::tool_root(data_dir, &entry.component_id).join("current.json")
+        } else {
+            data_dir.join(&entry.path).join("current.json")
+        };
         if let Ok(raw) = tokio::fs::read(&pointer).await {
-            hasher.update(&pointer.to_string_lossy().as_bytes());
+            let logical_pointer = data_dir.join(&entry.path).join("current.json");
+            hasher.update(logical_pointer.to_string_lossy().as_bytes());
             hasher.update(&raw);
         }
     }

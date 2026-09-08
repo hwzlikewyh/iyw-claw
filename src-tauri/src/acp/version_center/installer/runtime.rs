@@ -15,7 +15,9 @@ struct CurrentPointer {
 }
 
 pub fn managed_tool_executable(name: &str) -> Option<PathBuf> {
-    let data_dir = std::env::var_os("IYW_CLAW_DATA_DIR")?;
+    let data_dir = std::env::var_os("IYW_CLAW_DATA_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(crate::paths::iyw_claw_user_dir);
     managed_tool_executable_at(Path::new(&data_dir), name, None)
 }
 
@@ -58,7 +60,7 @@ fn managed_tool_executable_at(
         "browser-engine" => ("browser-engine", browser_engine_relative_path()),
         _ => return None,
     };
-    let root = data_dir.join("runtime").join(tool_id);
+    let root = crate::shared_runtime::tool_root(data_dir, tool_id);
     let raw = std::fs::read_to_string(root.join("current.json")).ok()?;
     let pointer = serde_json::from_str::<CurrentPointer>(&raw).ok()?;
     if semver::Version::parse(&pointer.version).is_err() || pointer.platform != platform_dir_name()
@@ -106,9 +108,10 @@ pub fn runtime_dir(
 ) -> Result<PathBuf, AppCommandError> {
     let version = semver::Version::parse(version)
         .map_err(|_| AppCommandError::invalid_input("Managed tool version is invalid"))?;
-    Ok(data_dir
-        .join("runtime")
-        .join(tool_id)
+    if !capability::known_tool(tool_id) {
+        return Err(AppCommandError::invalid_input("Unknown managed tool"));
+    }
+    Ok(crate::shared_runtime::tool_root(data_dir, tool_id)
         .join(version.to_string())
         .join(platform_dir_name()))
 }
@@ -117,9 +120,7 @@ pub fn staging_dir(data_dir: &Path, tool_id: &str) -> Result<PathBuf, AppCommand
     if !capability::known_tool(tool_id) {
         return Err(AppCommandError::invalid_input("Unknown managed tool"));
     }
-    Ok(data_dir
-        .join("runtime")
-        .join(tool_id)
+    Ok(crate::shared_runtime::tool_root(data_dir, tool_id)
         .join(".staging")
         .join(uuid::Uuid::new_v4().to_string()))
 }
@@ -184,7 +185,7 @@ fn pointer_path(data_dir: &Path, tool_id: &str) -> Result<PathBuf, AppCommandErr
     if !capability::known_tool(tool_id) {
         return Err(AppCommandError::invalid_input("Unknown managed tool"));
     }
-    Ok(data_dir.join("runtime").join(tool_id).join("current.json"))
+    Ok(crate::shared_runtime::tool_root(data_dir, tool_id).join("current.json"))
 }
 
 pub(super) fn platform_dir_name() -> &'static str {
