@@ -34,8 +34,16 @@ changes.
 
 ### Turn gate and context loading
 
+- Before each operation's first use, read its complete capability description
+  and input schema with `read_iyw_capability`. `manage_iyw_memory` advertises
+  exact capability IDs for every operation; read that ID without guessing or
+  searching, then put the schema fields under `parameters`. Reuse instructions
+  already read in this conversation without another read, including after
+  parameter errors. This is an Agent rule; the host does not track or enforce
+  instruction reads. The direct memory tool still executes the turn policy
+  preflight automatically.
 - Every accepted turn has a memory-turn nonce. `read_memory_policy` loads the
-  current policy revision/digest for that nonce; direct memory calls before it
+  current policy revision/digest for that nonce; gateway memory calls before it
   are rejected with `isError: true`, `retryable: true`, and code
   `memory_policy_required`. Retry by performing the policy preflight first; do
   not treat this expected guard as missing memory or switch namespaces.

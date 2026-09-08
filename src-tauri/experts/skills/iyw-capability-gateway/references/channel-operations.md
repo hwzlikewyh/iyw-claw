@@ -106,5 +106,8 @@ host controls local related-record cleanup and retention.
 For any operation, distinguish `available`, `disabled`, `queued`, `sent`,
 `failed`, `canceled`, `rejected`, and effect-unknown states as returned. An
 unknown channel, target, authorization ID, or request result is a concrete
-limitation. Stop on schema rejection or unavailable capability; do not switch
-namespaces or expose a raw provider fallback.
+limitation. A gateway schema rejection with `execution_status=not_started`
+permits the one correction defined in `tool-usage.md`. Stop on other schema
+rejections, a failed correction, or unavailable capability; do not switch
+namespaces or expose a raw provider fallback. Never retry a send when its
+delivery effect is unknown.

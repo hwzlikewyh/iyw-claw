@@ -51,6 +51,24 @@ Use this sequence for ordinary navigation and interaction:
 | Ask the user to operate | `browser(action=request_user_action)` |
 | Clean up | `browser(action=close_window|close_tab)` |
 
+### Wait arguments
+
+After discovering and reading `iyw.browser.unified.v1`, use `wait` as an
+`action` value. For a bounded delay on the current task tab:
+
+```json
+{
+  "capability_id": "iyw.browser.unified.v1",
+  "arguments": { "action": "wait", "milliseconds": 1000 }
+}
+```
+
+Prefer `action=wait` with an observed `selector` and bounded `timeout_ms` when
+waiting for an element. Pass the exact returned `tab_id` to target a specific
+tab. Opening a page and explicitly waiting are separate calls on that same tab;
+do not add a `wait` property to `action=open`. `timeout_ms` limits execution time
+and is not a delay. Follow the current schema's field names and examples.
+
 ## Advanced Browser Commands
 
 Use `browser_command` only when a dedicated tool cannot express the operation.
@@ -68,6 +86,10 @@ pipes, redirects, command chaining, or guessed command names.
 
 ## Recovery, Fallback, and Human Action
 
+- A gateway schema rejection with `execution_status=not_started` follows the
+  one-correction rule in `tool-usage.md`: use the schema already read, preserve the
+  intended operation, and retry once. It is not a browser/provider failure and
+  does not authorize a provider switch. Stop if the corrected call fails.
 - For a stale reference or locator failure, take one fresh snapshot and retry
   the same intended action once with one new reference or revised locator. Do
   not cycle selectors.

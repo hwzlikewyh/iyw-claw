@@ -24,7 +24,7 @@ mod tasks;
 
 use tasks::spawn_tasks;
 
-pub(super) const SERVER_INSTRUCTIONS: &str = "Use only tool identities and schemas currently advertised by this MCP server on the host's actual callable surface. Gateway names in documentation are roles, not proof of top-level functions. If tools are exposed through a namespace or programmatic registry, call the exact registered identity through that surface. After an unknown, unsupported, or not-found routing error, stop using this server for the turn; do not retry under bare, prefixed, or alternate names.";
+pub(super) const SERVER_INSTRUCTIONS: &str = "You must read each tool's complete usage description and input schema, including nested fields, required inputs, constraints and examples, before first use. For invoke_iyw_capability and each manage_iyw_memory operation, call read_iyw_capability for the exact capability and read the full result once; search summaries are insufficient. If already read in this conversation, reuse the instructions without another read, including on later turns or after a parameter error. This is an Agent instruction; the host does not record reads or reject calls for missing read history. Direct tools carry their usage instructions in their advertised definitions. Use only tool identities and schemas currently advertised by this MCP server on the host's actual callable surface. Gateway names in documentation are roles, not proof of top-level functions. If tools are exposed through a namespace or programmatic registry, call the exact registered identity through that surface. After an unknown, unsupported, or not-found routing error, stop using this server for the turn; do not retry under bare, prefixed, or alternate names.";
 
 #[derive(Clone)]
 pub struct BuiltinMcpClient {

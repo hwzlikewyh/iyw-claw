@@ -26,6 +26,19 @@ This Skill is an active routing gate, not a static tool list. The host catalog i
 authoritative for current capability IDs, schemas, required inputs, availability,
 permissions, and schema digests.
 
+Before first using a tool, you must read its full usage description
+and input schema, including nested fields, required inputs, constraints, and
+examples. For a capability behind `invoke_iyw_capability`, call
+`read_iyw_capability` first and read the full result. Each `manage_iyw_memory`
+operation also requires this read; use its advertised operation-to-capability
+mapping. Direct tools expose their instructions in their own definitions.
+
+If already read in this conversation, reuse the instructions without another
+read, including on later turns and after ordinary parameter errors. Search
+summaries alone do not replace the full instructions. Reading before first use
+is an Agent rule; the host does not record reads or reject calls based on read
+history. The same reuse rule applies to references listed below.
+
 ## Load References Actively
 
 When a trigger below is present, **load the named reference before searching and
@@ -76,18 +89,30 @@ follow its workflow**. Do not treat the reference as optional background reading
 1. Search with 2-5 action/object terms in Chinese or English, such as
    `查询 历史 记忆`, `读取 网页`, `会议 音频 转写`, or `send channel message`.
 2. Treat results as current session evidence. Read the best plausible stable
-   `capability_id`; read at most one same-result alternative if needed.
+   `capability_id` and its full description/schema; read at most one same-result
+   alternative if needed. Reuse a previous full read for the same capability.
 3. Invoke only the ID returned by the current search and only with the schema
    returned by the current read. Ask for a missing primary object instead of
-   guessing it.
+   guessing it. Construct arguments from declared fields and examples; omit
+   unnecessary optional fields and never borrow parameters from another tool.
 4. Verify the business result, status, and any required follow-up. Preserve an
    `iyw_delivery_receipt` exactly as top-level `delivery_ack` on the next real
    invocation.
 
+A `capability_schema_mismatch` with `execution_status=not_started` permits one
+correction of the failed operation: use the schema already read and the error's
+field hints, preserve the intended behavior, and retry once with corrected
+arguments. The same rule applies when only the error text reports schema rejection and
+`execution_status=not_started`. Read only if the capability has not been read
+before; the error itself does not require another read. Never replay unchanged
+arguments or silently drop intended behavior. Stop this recovery if the corrected
+call fails.
+
 An empty result, unavailable capability, malformed output, timeout, unknown ID,
-schema rejection, or two non-matching reads ends the current gateway attempt.
-It does not by itself end the user's task. Do not switch namespaces, invent
-names, cycle locators, or replay stale arguments.
+schema rejection without that evidence, or two non-matching reads ends the
+current gateway attempt. It does not by itself end the user's task. Permission
+and effect-unknown errors do not permit this correction. Do not switch
+namespaces, invent names, cycle locators, or replay stale arguments.
 
 ## Route Handoff
 
@@ -105,10 +130,10 @@ gateway mismatch or failure
 Normal UI navigation may inspect dynamic menus, fields, and result pages. A
 request observed from that UI is reusable only when the page actually triggered
 it and the request fields, session context, and business result are verified.
-Allow one bounded recovery for a stale or transient failure, then hand off
-instead of enumerating cosmetic parameter variations or repeating the same
-failed route. This permits discovery without authorizing guessed endpoints or
-side effects.
+For other failures, follow the owning reference's bounded recovery, then hand
+off instead of enumerating cosmetic parameter variations or repeating the same
+failed route. Do not chain another recovery after a failed schema correction.
+This permits discovery without authorizing guessed endpoints or side effects.
 
 ## Direct Interaction Tools
 
@@ -156,7 +181,8 @@ tools and the capability trio:
   an image task.
 - `manage_iyw_memory`: memory policy, recall, documents, candidate, harvest,
   settings, append, propose, update, and correction operations grouped under
-  one `operation` field. The host performs policy preflight automatically.
+  one `operation` field. Read each selected operation's capability instructions
+  first; the host performs policy execution preflight automatically.
 
 ### Image shortest paths
 
@@ -220,6 +246,10 @@ decoded input limit is 20 MiB and HTTP image URLs are rejected.
 
 ### Memory shortest path
 
+First call `read_iyw_capability` with the ID advertised for `recall`,
+`iyw.memory.recall.search.v1`, and read its full description and input schema.
+Then call the direct memory tool with:
+
 ```json
 {"operation":"recall","parameters":{"query":"图片生成默认路径"}}
 ```
@@ -230,11 +260,13 @@ preview are rejected by the host.
 
 ## Memory Gate
 
-For `manage_iyw_memory`, call the direct tool with the requested `operation`.
-It performs the current-turn policy preflight internally, so do not first call
-`read_memory_policy`, load another image or memory Skill, or run capability
-discovery. The host continues to enforce scope, revision/eTag, candidate
-lifecycle, preview, authorization, and error rules. Use the returned
+For `manage_iyw_memory`, read the requested operation's instructions using its
+advertised capability ID, then call the direct tool with `operation` and its
+schema fields under `parameters`. No catalog search is needed for the advertised
+mapping. The tool performs current-turn policy execution internally; reading the
+operation instructions does not replace or require manually invoking that policy.
+The host continues to enforce scope, revision/eTag, candidate lifecycle, preview,
+authorization, and error rules. Use the returned
 `matched`, `no_evidence`, or `unavailable` state honestly; do not claim that no
 history exists from a timeout.
 

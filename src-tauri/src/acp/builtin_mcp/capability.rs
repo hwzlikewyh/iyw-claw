@@ -213,8 +213,9 @@ impl CapabilityCatalog {
         features
             .authorize_call(&entry.tool.name)
             .map_err(|_| ResolveError::Unavailable)?;
-        capability_schema::validate(&entry.tool.input_schema, &arguments)
-            .map_err(|error| ResolveError::InvalidArguments(format!("{}: {error}", entry.id)))?;
+        capability_schema::validate(&entry.tool.input_schema, &arguments).map_err(|error| {
+            super::capability_recovery::invalid_arguments(entry.id, &entry.schema_digest, error)
+        })?;
         Ok(ResolvedCapability {
             tool_name: entry.tool.name.clone(),
             arguments,
@@ -294,8 +295,8 @@ pub(super) enum ResolveError {
     Unknown,
     #[error("capability is unavailable for this session")]
     Unavailable,
-    #[error("arguments do not match the capability schema: {0}")]
-    InvalidArguments(String),
+    #[error("arguments do not match the capability schema: {message}")]
+    InvalidArguments { message: String, data: Value },
 }
 
 #[derive(Debug, thiserror::Error)]
