@@ -119,8 +119,12 @@ export function createBuildPlan(tauriCli, options, signingConfigPath = null) {
     label: "sidecar preparation",
     args: [join(REPO_ROOT, "src-tauri", "scripts", "prepare-sidecars.mjs")],
   }
+  const prepareWorker = {
+    label: "built-in worker preparation",
+    args: [join(REPO_ROOT, "src-tauri", "scripts", "prepare-xinghe-worker.mjs")],
+  }
   if (options.bundleOnly) {
-    return { env, steps: [prepareSidecars, bundle] }
+    return { env, steps: [prepareSidecars, prepareWorker, bundle] }
   }
 
   const buildArgs = [tauriCli, "build"]
@@ -142,7 +146,7 @@ export function createBuildPlan(tauriCli, options, signingConfigPath = null) {
   return {
     env,
     steps: [
-      ...(options.reuseAssets ? [prepareSidecars] : []),
+      ...(options.reuseAssets ? [prepareSidecars, prepareWorker] : []),
       { label: "release build and bundle", args: buildArgs },
     ],
   }

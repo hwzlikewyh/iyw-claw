@@ -12,9 +12,18 @@ on:
         required: true
         default: main
         type: string
+      staging_run_id:
+        description: "Reuse staging from this run; version and source commit must match"
+        required: false
+        type: string
+      staging_archive_sha256:
+        description: "Optional verified staging ZIP SHA-256 for signer cache reuse"
+        required: false
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: staged-windows-signing-${{ inputs.version }}
@@ -27,6 +36,7 @@ env:
 
 jobs:
   build-staging:
+    if: ${{ inputs.staging_run_id == '' }}
     name: Build unsigned Windows staging input
     runs-on: windows-2022
     timeout-minutes: 120
@@ -65,6 +75,31 @@ jobs:
 
       - uses: mozilla-actions/sccache-action@v0.0.9
 
+      - id: toolchain
+        name: Identify Rust build cache
+        shell: pwsh
+        run: |
+          $identity = (rustc --version --verbose) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw 'rustc identity failed' }
+          $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($identity))).ToLowerInvariant()
+          "hash=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+            harness/xinghe-worker -> target
+          shared-key: staged-windows-x64-v1
+          cache-bin: "false"
+
+      - id: worker-cache
+        name: Restore exact worker resources
+        uses: actions/cache/restore@v4
+        with:
+          path: src-tauri/resources/xinghe-worker
+          key: xinghe-win-x64-release-v1-${{ steps.toolchain.outputs.hash }}-${{ env.CARGO_PROFILE_RELEASE_CODEGEN_UNITS }}-${{ env.CARGO_PROFILE_RELEASE_LTO }}-${{ hashFiles('harness/xinghe-worker/Cargo.toml', 'harness/xinghe-worker/Cargo.lock', 'harness/xinghe-worker/src/**', 'harness/codex/Cargo.toml', 'harness/codex/upstream.lock', 'harness/codex/src/**', 'harness/codex/patches/**', 'src-tauri/vendor/sacp-tokio/**', 'src-tauri/scripts/prepare-xinghe-worker.mjs', 'src-tauri/scripts/verify-xinghe-worker-bundle.mjs', 'src-tauri/scripts/xinghe-worker-binary.mjs', '.cargo/config.toml') }}
+
       - name: Install dependencies and set version
         shell: pwsh
         run: |
@@ -84,6 +119,26 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "sidecar preparation failed" }
           node src-tauri/scripts/verify-sidecar-bundle.mjs --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { throw "sidecar verification failed" }
+
+      - name: Build worker resources on cache miss
+        if: steps.worker-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          pnpm tauri:prepare-xinghe-worker --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'worker preparation failed' }
+
+      - name: Verify worker resources
+        shell: pwsh
+        run: |
+          node src-tauri/scripts/verify-xinghe-worker-bundle.mjs --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'worker verification failed' }
+
+      - name: Save exact worker resources
+        if: steps.worker-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: src-tauri/resources/xinghe-worker
+          key: ${{ steps.worker-cache.outputs.cache-primary-key }}
 
       - name: Prepare runtime seed
         shell: pwsh
@@ -113,8 +168,10 @@ jobs:
           Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $staging | Out-Null
           New-Item -ItemType Directory -Force -Path (Join-Path $staging 'src-tauri') | Out-Null
+          Copy-Item -LiteralPath out -Destination (Join-Path $staging 'out') -Recurse -Force
           Copy-Item -LiteralPath src-tauri\binaries -Destination (Join-Path $staging 'src-tauri\binaries') -Recurse -Force
           Copy-Item -LiteralPath src-tauri\resources\runtime-seed -Destination (Join-Path $staging 'src-tauri\resources\runtime-seed') -Recurse -Force
+          Copy-Item -LiteralPath src-tauri\resources\xinghe-worker -Destination (Join-Path $staging 'src-tauri\resources\xinghe-worker') -Recurse -Force
           Copy-Item -LiteralPath src-tauri\tauri.runtime-seed.conf.json -Destination (Join-Path $staging 'src-tauri\tauri.runtime-seed.conf.json') -Force
           $targetRoot = 'src-tauri\target\x86_64-pc-windows-msvc\release'
           New-Item -ItemType Directory -Force -Path (Join-Path $staging $targetRoot) | Out-Null
@@ -143,6 +200,7 @@ jobs:
           path: ${{ runner.temp }}/iyw-windows-staging.zip
           if-no-files-found: error
           retention-days: 2
+          compression-level: 0
 
       - name: Show sccache statistics
         if: always()
@@ -158,21 +216,22 @@ jobs:
   finalize-signing:
     name: Sign staged Windows bundle with SafeNet
     needs: build-staging
+    if: ${{ !cancelled() && (needs.build-staging.result == 'success' || (needs.build-staging.result == 'skipped' && inputs.staging_run_id != '')) }}
     runs-on: [self-hosted, Windows, X64, iyw-signing]
     timeout-minutes: 120
     env:
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
-      # The dedicated SafeNet runner routes external downloads through its
-      # local proxy; expose the same proxy to Node-based artifact actions.
+      # 签名机下载显式走本地代理；只对本机地址绕过代理。
       HTTP_PROXY: http://127.0.0.1:7890
       HTTPS_PROXY: http://127.0.0.1:7890
+      NO_PROXY: localhost,127.0.0.1
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.build-staging.outputs.source_sha }}
+          ref: ${{ needs.build-staging.outputs.source_sha || inputs.source_ref }}
           clean: false
           fetch-depth: 1
 
@@ -192,28 +251,117 @@ jobs:
         shell: pwsh
         run: node scripts/set-version.mjs "$env:TEST_VERSION"
 
-      - name: Rebuild frontend assets
-        shell: pwsh
-        run: |
-          pnpm build
-          if ($LASTEXITCODE -ne 0) { throw "frontend rebuild failed" }
-
       - name: Download unsigned staging artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: staged-windows-x86_64-${{ inputs.version }}
-          path: ${{ runner.temp }}/iyw-windows-staging-download
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          STAGING_RUN_ID: ${{ inputs.staging_run_id || github.run_id }}
+          STAGING_ARCHIVE_SHA256: ${{ inputs.staging_archive_sha256 }}
+          STAGING_DOWNLOAD_DIR: ${{ runner.temp }}/iyw-windows-staging-download-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          if ($env:STAGING_RUN_ID -notmatch '^\d+$') { throw 'staging run ID must be numeric' }
+          $expectedHash = $env:STAGING_ARCHIVE_SHA256
+          if ($expectedHash -and $expectedHash -notmatch '^[a-fA-F0-9]{64}$') { throw 'invalid staging ZIP SHA-256' }
+          $archiveName = 'iyw-windows-staging.zip'
+          $cachedArchive = Join-Path $env:RUNNER_TOOL_CACHE "iyw-staging-cache\$env:STAGING_RUN_ID\$archiveName"
+          New-Item -ItemType Directory -Force -Path $env:STAGING_DOWNLOAD_DIR | Out-Null
+          $destination = Join-Path $env:STAGING_DOWNLOAD_DIR $archiveName
+          if ($expectedHash -and (Test-Path -LiteralPath $cachedArchive -PathType Leaf)) {
+            Copy-Item -LiteralPath $cachedArchive -Destination $destination
+            if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $expectedHash) { throw 'cached staging ZIP SHA-256 mismatch' }
+            Write-Host 'Reused staging ZIP after matching the supplied SHA-256; manifest validation follows.'
+            exit 0
+          }
+          $env:HTTP_PROXY = 'http://127.0.0.1:7890'
+          $env:HTTPS_PROXY = 'http://127.0.0.1:7890'
+          $env:NO_PROXY = 'localhost,127.0.0.1'
+          $artifacts = gh api "repos/$env:GH_REPO/actions/runs/$env:STAGING_RUN_ID/artifacts" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'staging artifact lookup failed' }
+          $matchingArtifacts = @($artifacts.artifacts | Where-Object { $_.name -eq "staged-windows-x86_64-$env:TEST_VERSION" -and !$_.expired })
+          if ($matchingArtifacts.Count -ne 1) { throw 'expected exactly one unexpired staging artifact' }
+          $artifact = $matchingArtifacts[0]
+          $outerArchive = Join-Path $env:STAGING_DOWNLOAD_DIR 'github-artifact.zip'
+          $maxAttempts = 3
+          $attemptTimeoutMs = 900000
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            $attemptDir = Join-Path $env:STAGING_DOWNLOAD_DIR "attempt-$attempt"
+            $handler = [Net.Http.HttpClientHandler]::new()
+            $handler.Proxy = [Net.WebProxy]::new($env:HTTPS_PROXY)
+            $handler.AllowAutoRedirect = $false
+            $client = [Net.Http.HttpClient]::new($handler)
+            $client.Timeout = [TimeSpan]::FromSeconds(30)
+            $client.DefaultRequestHeaders.UserAgent.ParseAdd('iyw-claw-staging')
+            $client.DefaultRequestHeaders.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer', $env:GH_TOKEN)
+            try {
+              $response = $client.GetAsync("https://api.github.com/repos/$env:GH_REPO/actions/artifacts/$($artifact.id)/zip", [Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+              try {
+                if ([int]$response.StatusCode -ne 302) { throw "artifact redirect returned $([int]$response.StatusCode)" }
+                $downloadUrl = $response.Headers.Location
+                if (!$downloadUrl.IsAbsoluteUri -or $downloadUrl.Scheme -ne 'https') { throw 'invalid artifact download location' }
+              } finally { $response.Dispose() }
+            } finally { $client.Dispose() }
+            $startInfo = [Diagnostics.ProcessStartInfo]::new((Get-Command curl.exe -ErrorAction Stop).Source)
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            $startInfo.RedirectStandardInput = $true
+            foreach ($argument in @('--config', '-', '--proxy', $env:HTTPS_PROXY, '--fail', '--silent', '--show-error', '--continue-at', '-', '--connect-timeout', '30', '--max-time', '900', '--speed-limit', '1024', '--speed-time', '60', '--output', $outerArchive)) {
+              $startInfo.ArgumentList.Add($argument)
+            }
+            $download = [Diagnostics.Process]::Start($startInfo)
+            $downloadSucceeded = $false
+            try {
+              $escapedUrl = $downloadUrl.AbsoluteUri.Replace('\', '\\').Replace('"', '\"')
+              $download.StandardInput.WriteLine('url = "' + $escapedUrl + '"')
+              $download.StandardInput.Close()
+              if ($download.WaitForExit($attemptTimeoutMs)) {
+                $downloadSucceeded = $download.ExitCode -eq 0
+              } else {
+                Write-Warning 'Proxy download exceeded fifteen minutes; retaining partial data for retry.'
+                if (!$download.HasExited) { $download.Kill($true) }
+                $download.WaitForExit()
+              }
+            } finally { $download.Dispose() }
+            if ($downloadSucceeded) {
+              if ($artifact.digest -match '^sha256:([a-fA-F0-9]{64})$') {
+                if ((Get-FileHash -LiteralPath $outerArchive -Algorithm SHA256).Hash -ne $Matches[1]) { throw 'GitHub artifact ZIP SHA-256 mismatch' }
+              }
+              Expand-Archive -LiteralPath $outerArchive -DestinationPath $attemptDir -Force
+              Copy-Item -LiteralPath (Join-Path $attemptDir $archiveName) -Destination $destination
+              if ($expectedHash -and (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $expectedHash) { throw 'downloaded staging ZIP SHA-256 mismatch' }
+              exit 0
+            }
+            Write-Warning "Proxy download attempt $attempt/$maxAttempts failed."
+            if ($attempt -lt $maxAttempts) { Start-Sleep -Seconds 5 }
+          }
+          throw 'staging artifact download through local proxy failed after retries'
 
       - name: Extract unsigned staging artifact
         shell: pwsh
         env:
           IYW_CLAW_STAGING_DIR: ${{ runner.temp }}\iyw-windows-staging
+          STAGING_DOWNLOAD_DIR: ${{ runner.temp }}/iyw-windows-staging-download-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
-          $archive = Join-Path $env:RUNNER_TEMP 'iyw-windows-staging-download\iyw-windows-staging.zip'
+          $archive = Join-Path $env:STAGING_DOWNLOAD_DIR 'iyw-windows-staging.zip'
           if (!(Test-Path -LiteralPath $archive -PathType Leaf)) { throw "staging archive is missing: $archive" }
           Remove-Item -LiteralPath $env:IYW_CLAW_STAGING_DIR -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $env:IYW_CLAW_STAGING_DIR | Out-Null
           Expand-Archive -LiteralPath $archive -DestinationPath $env:IYW_CLAW_STAGING_DIR -Force
+
+      - name: Rebuild frontend for legacy staging only
+        if: inputs.staging_run_id != ''
+        shell: pwsh
+        env:
+          IYW_CLAW_STAGING_DIR: ${{ runner.temp }}\iyw-windows-staging
+        run: |
+          $manifestPath = Join-Path $env:IYW_CLAW_STAGING_DIR 'staging-manifest.json'
+          $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if (@($manifest.files | Where-Object { $_.path -like 'out/*' }).Count -gt 0) {
+            Write-Host 'Reusing the staged frontend; manifest validation follows.'
+            exit 0
+          }
+          pnpm build
+          if ($LASTEXITCODE -ne 0) { throw "frontend rebuild failed" }
 
       - name: Finalize, sign, and verify installer
         shell: pwsh
@@ -230,3 +378,4 @@ jobs:
           path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
           retention-days: 2
+          compression-level: 0

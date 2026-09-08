@@ -255,9 +255,9 @@ async function readAndValidateManifest(target, info) {
     throw new Error("runtime seed components are invalid")
   const ids = components.map((component) => component.id)
   if (
-    components.length !== 4 ||
-    new Set(ids).size !== 4 ||
-    ids.some((id) => !COMPONENT_KINDS[id])
+    components.length !== 3 ||
+    new Set(ids).size !== 3 ||
+    ids.some((id) => !["node", "git", "uv"].includes(id))
   )
     throw new Error("runtime seed component set is incomplete")
   return components
@@ -272,7 +272,7 @@ async function verifyRuntimeSeed(target = parseTarget()) {
   const components = await readAndValidateManifest(target, info)
   for (const component of components)
     await verifyComponent(SEED_ROOT, component, info.platform)
-  await verifyCodexLaunch(SEED_ROOT, components, target)
+  // 星河已由应用私有动态库提供，种子只验证基础工具。
   console.log(
     `[runtime-seed] verified ${target}: ${components.map((component) => component.id).join(", ")}`
   )

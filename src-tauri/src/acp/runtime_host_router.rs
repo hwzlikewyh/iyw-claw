@@ -14,6 +14,7 @@ use crate::acp::terminal_runtime::TerminalRuntime;
 use crate::web::event_bridge::EventEmitter;
 
 pub(crate) struct RuntimeSessionRoute {
+    pub(crate) worker_database: Option<sea_orm::DatabaseConnection>,
     pub(crate) state: Arc<tokio::sync::RwLock<SessionState>>,
     pub(crate) emitter: EventEmitter,
     pub(crate) permissions: PendingPermissions,

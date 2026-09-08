@@ -217,7 +217,11 @@ jobs:
         shell: pwsh
         env:
           IYW_CLAW_BROWSER_SIDECAR_EXCLUDED: ${{ matrix.target == 'i686-pc-windows-msvc' && '1' || '' }}
-        run: node src-tauri/scripts/prepare-sidecars.mjs --target ${{ matrix.target }}
+        run: |
+          node src-tauri/scripts/prepare-sidecars.mjs --target ${{ matrix.target }}
+          if ($LASTEXITCODE -ne 0) { throw "sidecar preparation failed" }
+          node src-tauri/scripts/prepare-xinghe-worker.mjs --target ${{ matrix.target }}
+          if ($LASTEXITCODE -ne 0) { throw "worker preparation failed" }
 
       - name: Run managed browser smoke
         if: inputs.browser_engine_fixture != '' && matrix.target != 'i686-pc-windows-msvc'
@@ -365,7 +369,9 @@ jobs:
 
       - name: Prepare sidecars
         shell: bash
-        run: node src-tauri/scripts/prepare-sidecars.mjs --target ${{ matrix.target }}
+        run: |
+          node src-tauri/scripts/prepare-sidecars.mjs --target ${{ matrix.target }}
+          node src-tauri/scripts/prepare-xinghe-worker.mjs --target ${{ matrix.target }}
 
       - name: Run managed browser smoke
         if: inputs.browser_engine_fixture != ''

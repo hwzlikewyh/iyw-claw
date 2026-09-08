@@ -112,6 +112,15 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - id: worker-toolchain
+        name: Identify worker build toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          identity="$(rustc --version --verbose)"
+          hash="$(printf '%s' "$identity" | sha256sum | cut -d' ' -f1)"
+          echo "hash=$hash" >> "$GITHUB_OUTPUT"
+
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
 
@@ -119,8 +128,22 @@ jobs:
         if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') }}
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: "./src-tauri -> target"
+          workspaces: |
+            ./src-tauri -> target
+            ./harness/xinghe-worker -> target
           shared-key: ${{ matrix.target }}
+
+      - id: worker-cache
+        name: Restore exact worker resources
+        uses: actions/cache/restore@v4
+        with:
+          path: src-tauri/resources/xinghe-worker
+          key: xinghe-${{ runner.os }}-${{ matrix.target }}-${{ steps.worker-toolchain.outputs.hash }}-${{ hashFiles('harness/xinghe-worker/Cargo.toml', 'harness/xinghe-worker/Cargo.lock', 'harness/xinghe-worker/src/**', 'harness/codex/Cargo.toml', 'harness/codex/upstream.lock', 'harness/codex/src/**', 'harness/codex/patches/**', 'src-tauri/vendor/sacp-tokio/**', 'src-tauri/scripts/prepare-xinghe-worker.mjs', 'src-tauri/scripts/verify-xinghe-worker-bundle.mjs', 'src-tauri/scripts/xinghe-worker-binary.mjs', '.cargo/config.toml') }}
+
+      - name: Clear stale worker resources
+        if: steps.worker-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: rm -rf src-tauri/resources/xinghe-worker
 
       - name: Install Linux x64 dependencies
         if: matrix.target == 'x86_64-unknown-linux-gnu'
@@ -249,6 +272,20 @@ jobs:
 
       - name: Verify staged sidecars
         run: node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
+
+      - name: Build built-in worker
+        if: steps.worker-cache.outputs.cache-hit != 'true'
+        run: pnpm tauri:prepare-xinghe-worker --target "${{ matrix.target }}"
+
+      - name: Verify built-in worker resources
+        run: node src-tauri/scripts/verify-xinghe-worker-bundle.mjs --target "${{ matrix.target }}"
+
+      - name: Save exact worker resources
+        if: steps.worker-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: src-tauri/resources/xinghe-worker
+          key: ${{ steps.worker-cache.outputs.cache-primary-key }}
 
       - name: Run managed browser smoke
         if: inputs.browser_engine_fixture != '' && matrix.target != 'i686-pc-windows-msvc'

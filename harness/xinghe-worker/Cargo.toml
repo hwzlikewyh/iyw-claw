@@ -1,0 +1,42 @@
+[package]
+name = "iyw-xinghe-worker"
+version = "0.1.0"
+description = "Private dynamic worker for the iyw-claw 星河 runtime"
+license = "Apache-2.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "iyw_xinghe_worker"
+crate-type = ["cdylib"]
+
+[dependencies]
+iyw-codex-harness = { path = "../codex", default-features = false, features = ["upstream-acp"] }
+sacp = "11.0.0"
+sacp-tokio = { path = "../../src-tauri/vendor/sacp-tokio" }
+tokio = { version = "1", features = ["rt-multi-thread", "io-std", "sync", "time", "macros"] }
+libloading = "0.8.9"
+
+[patch.crates-io]
+aws-config = { path = "../codex/patches/aws-config" }
+crossterm = { git = "https://github.com/openai-oss-forks/crossterm", rev = "45fecb9508105988f42fe6ff0441783ed3717f92", version = "0.29.0" }
+tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186" }
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "4fffad30fe373adbdcffab9545e9e9bf4f2fc19f" }
+
+[patch."ssh://git@github.com/openai-oss-forks/tungstenite-rs.git"]
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "4fffad30fe373adbdcffab9545e9e9bf4f2fc19f" }
+
+[patch."https://github.com/openai/codex.git"]
+codex-utils-pty = { path = "../codex/patches/codex-utils-pty" }
+codex-shell-command = { path = "../codex/patches/codex-shell-command" }
+codex-windows-sandbox = { path = "../codex/patches/codex-windows-sandbox" }
+codex-git-utils = { path = "../codex/patches/codex-git-utils" }
+codex-core-plugins = { path = "../codex/patches/codex-core-plugins" }
+codex-core = { path = "../codex/patches/codex-core" }
+codex-exec-server = { path = "../codex/patches/codex-exec-server" }
+codex-hooks = { path = "../codex/patches/codex-hooks" }
+codex-rmcp-client = { path = "../codex/patches/codex-rmcp-client" }
+codex-rollout = { path = "../codex/patches/codex-rollout" }
+codex-login = { path = "../codex/patches/codex-login" }
+codex-model-provider = { path = "../codex/patches/codex-model-provider" }
+codex-code-mode = { path = "../codex/patches/codex-code-mode" }

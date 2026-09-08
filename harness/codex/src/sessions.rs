@@ -1,6 +1,6 @@
 //! Generation-safe session and turn ownership for the harness boundary.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 
 use crate::contracts::{
@@ -74,6 +74,8 @@ pub struct SessionRegistry {
     ownership: SessionOwnership,
     capabilities: HashMap<String, CapabilitySet>,
     active_turns: HashMap<String, ActiveTurn>,
+    retired_turns: HashSet<(String, String)>,
+    retirement_order: VecDeque<(String, String)>,
 }
 
 impl SessionRegistry {
@@ -124,6 +126,9 @@ impl SessionRegistry {
         access: SessionAccess<'_>,
         binding: TurnBinding,
     ) -> Result<(), SessionError> {
+        if self.turn_is_retired(access.external_id, &binding.turn_id) {
+            return Err(SessionError::StaleTurn(access.external_id.to_string()));
+        }
         self.ensure_no_active_turn(access)?;
         if binding.thread_id != access.external_id {
             return Err(SessionError::StaleTurn(access.external_id.to_string()));
@@ -205,6 +210,10 @@ impl SessionRegistry {
         if turn.generation != access.generation || turn.turn_id != turn_id {
             return Err(SessionError::StaleTurn(access.external_id.to_string()));
         }
+        let retired = (access.external_id.to_string(), turn_id.to_string());
+        self.retired_turns.insert(retired.clone());
+        self.retirement_order.push_back(retired);
+        self.prune_retired_turns();
         self.active_turns
             .remove(access.external_id)
             .ok_or_else(|| SessionError::UnknownTurn(access.external_id.to_string()))
@@ -250,6 +259,23 @@ impl SessionRegistry {
         self.active_turns.clear();
         self.capabilities.clear();
         self.ownership.clear();
+        self.retired_turns.clear();
+        self.retirement_order.clear();
+    }
+
+    pub(crate) fn turn_is_retired(&self, thread_id: &str, turn_id: &str) -> bool {
+        self.retired_turns.contains(&(thread_id.to_string(), turn_id.to_string()))
+    }
+
+    pub(crate) fn latest_retired_turn(&self, thread_id: &str) -> Option<String> {
+        self.retirement_order.iter().rev().find(|(thread, _)| thread == thread_id).map(|(_, turn)| turn.clone())
+    }
+
+    fn prune_retired_turns(&mut self) {
+        const MAX_RETIRED_TURNS: usize = 1024;
+        while self.retirement_order.len() > MAX_RETIRED_TURNS {
+            if let Some(turn) = self.retirement_order.pop_front() { self.retired_turns.remove(&turn); }
+        }
     }
 
     pub fn len(&self) -> usize {

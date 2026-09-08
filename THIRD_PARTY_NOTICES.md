@@ -29,36 +29,31 @@ contain this seed and keeps the online Version Center installation path.
 - GitHub Desktop dugite-native `2.53.0-4` -
   https://github.com/desktop/dugite-native/releases/tag/v2.53.0-4 - GNU
   General Public License v2.0 and the licenses of its bundled dependencies.
-- `@agentclientprotocol/codex-acp@1.8.0` -
-  https://www.npmjs.com/package/@agentclientprotocol/codex-acp - Apache License
-  2.0. The npm package includes its license file.
-- `@openai/codex@0.152.1` and its target-specific optional package -
-  https://www.npmjs.com/package/@openai/codex - Apache License 2.0. The npm
-  packages include their license files.
 
 The runtime-seed builder records the exact target, file list, byte sizes, and
 SHA-256 digests in `runtime-seed/manifest.json`; the application verifies these
 values before activation. License files shipped by upstream archives and npm
 packages remain in their respective component directories.
 
-## Optional Codex in-process harness
+## 内置星河运行时
 
 - Project: `openai/codex` (`codex-rs` App Server components)
-- Locked source: `rust-v0.152.1` / `5adb68a49933ae446bf11935662c83dba55a0804`
+- Locked source: `rust-v0.153.4` / `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`
 - Source: https://github.com/openai/codex
 - License: Apache License 2.0
 
-The optional `harness/codex` integration locks the upstream source revision and
-is not part of the default application runtime. Its repository-local
-`patches/codex-utils-pty` is a copy of upstream `codex-rs/utils/pty` with only
-the documented Windows pointer-cast compatibility adjustments. It remains
-subject to the same Apache License 2.0; the source patch is re-evaluated on
-every upstream update.
+The `harness/codex` integration locks the upstream source revision. Its local
+patches for `codex-utils-pty`, `codex-shell-command`, `codex-git-utils` and
+`codex-windows-sandbox` retain the Apache License 2.0 and make the documented
+Windows pointer, hidden-window and package-name compatibility adjustments.
+The patches are re-evaluated on every upstream update.
 
-The experimental `harness/codex-worker` package links the same locked source as
-a private platform dynamic library (`iyw_codex_worker.dll`,
-`libiyw_codex_worker.dylib`, or `libiyw_codex_worker.so`). It is loaded by the
+The `harness/xinghe-worker` package links the same locked source as
+a private platform dynamic library (`iyw_xinghe_worker.dll`,
+`libiyw_xinghe_worker.dylib`, or `libiyw_xinghe_worker.so`). It is loaded by the
 single `iyw-claw` executable after a self-reexec and is not a second
-user-facing executable. The library is staged only by
-`src-tauri/scripts/prepare-codex-worker.mjs` and is not included by the normal
-release workflows.
+user-facing executable. Desktop build and release workflows run
+`src-tauri/scripts/prepare-xinghe-worker.mjs` to stage the library under
+`xinghe-resources`, with `iyw-xinghe-helper` and the Windows-only
+`xinghe-command-runner.exe` and `xinghe-windows-sandbox-setup.exe` helpers.
+The runtime seed no longer contains the former npm agent packages.

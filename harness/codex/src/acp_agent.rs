@@ -1,7 +1,6 @@
 //! ACP-compatible agent facade over the in-process Codex App Server.
 
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use sacp::{
     on_receive_dispatch, Agent, Client, ConnectTo, ConnectionTo, Dispatch, Handled, Responder,
@@ -12,13 +11,31 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::{
     CapabilitySet, ServerRequestTarget, SessionOwner, UpstreamClient, UpstreamError, UpstreamEvent,
-    UpstreamEventPoll, UpstreamStartArgs,
+    UpstreamStartArgs,
 };
 
 mod acp_mapping;
+mod approval_mapping;
+mod automatic_turn;
+mod child_events;
+mod commands;
+mod completed_snapshot;
+mod fast_mode;
+mod event_recovery;
+mod message_projection;
+mod interaction;
+mod interaction_mapping;
+mod interaction_registry;
 mod item_mapping;
+mod model_settings;
+mod permission_profile;
 mod prompt_mapping;
+mod session_options;
 mod settings_mapping;
+mod steering;
+mod subagent_items;
+mod tool_content;
+mod thinking_projection;
 
 #[derive(Debug, Clone)]
 pub struct CodexAcpAgent {
@@ -69,7 +86,7 @@ impl ConnectTo<Client> for CodexAcpAgent {
         let bridge_command_tx = state.command_tx.clone();
         Agent
             .builder()
-            .name("iyw-claw-codex-inprocess")
+            .name("iyw-claw-xinghe-inprocess")
             .on_receive_dispatch(
                 move |dispatch: Dispatch<UntypedMessage, UntypedMessage>, cx| {
                     let state = state.clone();
@@ -83,6 +100,10 @@ impl ConnectTo<Client> for CodexAcpAgent {
                     capabilities,
                     expected_cwd,
                     expected_session_id,
+                    client_form_supported: false,
+                    session_launch: None,
+                    interactions: Default::default(),
+                    automatic: Default::default(),
                 };
                 run_bridge(upstream, command_rx, cx, bridge_command_tx, authority).await
             })
@@ -96,6 +117,7 @@ struct BridgeState {
 }
 
 enum BridgeCommand {
+    PublishCommands { session_id: String },
     Request {
         method: String,
         params: Value,
@@ -113,6 +135,7 @@ enum BridgeCommand {
         token: crate::ServerRequestToken,
         target: ServerRequestTarget,
         method: String,
+        turn_id: Option<String>,
         response: Result<Value, String>,
     },
 }
@@ -128,6 +151,10 @@ struct BridgeAuthority {
     capabilities: CapabilitySet,
     expected_cwd: PathBuf,
     expected_session_id: Option<String>,
+    client_form_supported: bool,
+    session_launch: Option<crate::upstream_mcp::ThreadLaunchOptions>,
+    interactions: interaction_registry::InteractionRegistry,
+    automatic: automatic_turn::AutomaticTurnState,
 }
 
 async fn dispatch_message(
@@ -149,6 +176,7 @@ async fn dispatch_message(
                 return Ok(Handled::Yes);
             }
             let (response_tx, response_rx) = oneshot::channel();
+            let publish_commands = matches!(request.method.as_str(), "session/new" | "session/load" | "session/resume" | "session/fork");
             state
                 .command_tx
                 .send(BridgeCommand::Request {
@@ -160,7 +188,14 @@ async fn dispatch_message(
                 .map_err(|_| to_sacp_error("Codex bridge command channel closed"))?;
             cx.spawn(async move {
                 match response_rx.await {
-                    Ok(Ok(value)) => responder.respond(value),
+                    Ok(Ok(value)) => {
+                        let session_id = value["sessionId"].as_str().map(str::to_string);
+                        responder.respond(value)?;
+                        if let Some(session_id) = session_id.filter(|_| publish_commands) {
+                            let _ = state.command_tx.send(BridgeCommand::PublishCommands { session_id }).await;
+                        }
+                        Ok(())
+                    }
                     Ok(Err(error)) => responder.respond_with_error(to_sacp_error(error)),
                     Err(_) => {
                         responder.respond_with_error(to_sacp_error("Codex bridge response lost"))
@@ -189,45 +224,91 @@ async fn dispatch_message(
 
 async fn run_bridge(
     mut upstream: UpstreamClient,
-    mut commands: mpsc::Receiver<BridgeCommand>,
+    commands: mpsc::Receiver<BridgeCommand>,
     cx: ConnectionTo<Client>,
     command_tx: mpsc::Sender<BridgeCommand>,
     authority: BridgeAuthority,
+) -> Result<(), sacp::Error> {
+    let result = run_bridge_loop(&mut upstream, commands, cx, command_tx, authority).await;
+    let shutdown = upstream.shutdown().await.map_err(to_sacp_error);
+    result.and(shutdown)
+}
+
+async fn run_bridge_loop(
+    upstream: &mut UpstreamClient,
+    mut commands: mpsc::Receiver<BridgeCommand>,
+    cx: ConnectionTo<Client>,
+    command_tx: mpsc::Sender<BridgeCommand>,
+    mut authority: BridgeAuthority,
 ) -> Result<(), sacp::Error> {
     let mut session_id = None;
     let mut pending_prompt = None;
     let mut item_projection = item_mapping::ItemProjection::default();
     let mut session_settings = settings_mapping::SessionSettings::default();
+    let mut messages = message_projection::MessageProjection::default();
+    let mut thinking = thinking_projection::ThinkingProjection::default();
     loop {
+        if authority.automatic.awaiting_prompt.is_none() {
+            if let Some(command) = authority.automatic.deferred_prompt.take() {
+                handle_command(upstream, command, &mut session_id, &mut pending_prompt, &mut authority, &mut session_settings, &cx).await?;
+            }
+        }
         tokio::select! {
             command = commands.recv() => match command {
                 Some(command) => {
-                    if let Err(error) = handle_command(&mut upstream, command, &mut session_id, &mut pending_prompt, &authority, &mut session_settings).await {
+                    if let Err(error) = handle_command(upstream, command, &mut session_id, &mut pending_prompt, &mut authority, &mut session_settings, &cx).await {
                         reject_pending_prompt(&mut pending_prompt, &error);
                         return Err(error);
                     }
                 }
                 None => {
                     reject_pending_prompt(&mut pending_prompt, "Codex ACP client disconnected");
-                    return upstream.shutdown().await.map_err(to_sacp_error);
+                    return Ok(());
                 }
             },
-            event = upstream.poll_event(Duration::from_millis(50)) => match event {
-                Ok(UpstreamEventPoll::Event(event)) => {
-                    if let Err(error) = handle_event(&upstream, *event, &cx, &command_tx, &session_id, &mut pending_prompt, &mut item_projection).await {
+            event = upstream.receive_event() => {
+                let Some(event) = event else {
+                    reject_pending_prompt(&mut pending_prompt, "Codex App Server closed before completing the turn");
+                    return Ok(());
+                };
+                let event = match upstream.convert_event(event).await {
+                    Ok(Some(event)) => event,
+                    Ok(None) => continue,
+                    Err(error) => {
+                        let error = to_sacp_error(error);
                         reject_pending_prompt(&mut pending_prompt, &error);
                         return Err(error);
                     }
-                }
-                Ok(UpstreamEventPoll::Timeout) => {}
-                Ok(UpstreamEventPoll::Closed) => {
-                    reject_pending_prompt(&mut pending_prompt, "Codex App Server closed before completing the turn");
-                    return Ok(());
-                }
-                Err(error) => {
-                    let error = to_sacp_error(error);
-                    reject_pending_prompt(&mut pending_prompt, &error);
-                    return Err(error);
+                };
+                    let events = match event {
+                        UpstreamEvent::Lagged { skipped } => {
+                            eprintln!("[星河][worker] recovering {skipped} missed runtime events");
+                            match session_id.as_deref() {
+                                Some(id) => event_recovery::recover(&upstream, id).await.map_err(to_sacp_error)?,
+                                None => Vec::new(),
+                            }
+                        }
+                        event => vec![event],
+                    };
+                    for event in events {
+                    let context = BridgeEventContext {
+                        upstream: &upstream,
+                        cx: &cx,
+                        command_tx: &command_tx,
+                        session_id: &session_id,
+                        pending_prompt: &mut pending_prompt,
+                        item_projection: &mut item_projection,
+                        settings: &mut session_settings,
+                        client_form_supported: authority.client_form_supported,
+                        interactions: &authority.interactions,
+                        messages: &mut messages,
+                        thinking: &mut thinking,
+                        automatic: &mut authority.automatic,
+                    };
+                    if let Err(error) = handle_event(event, context).await {
+                        reject_pending_prompt(&mut pending_prompt, &error);
+                        return Err(error);
+                    }
                 }
             },
         }
@@ -245,21 +326,55 @@ async fn handle_command(
     command: BridgeCommand,
     session_id: &mut Option<String>,
     pending_prompt: &mut Option<PendingPrompt>,
-    authority: &BridgeAuthority,
+    authority: &mut BridgeAuthority,
     session_settings: &mut settings_mapping::SessionSettings,
+    cx: &ConnectionTo<Client>,
 ) -> Result<(), sacp::Error> {
     match command {
+        BridgeCommand::PublishCommands { session_id: id } => {
+            if session_id.as_deref() == Some(id.as_str()) {
+                if commands::publish(upstream, cx, (&id, &authority.expected_cwd)).await.is_err() {
+                    eprintln!("[星河][worker] available command publication failed");
+                }
+            }
+        }
         BridgeCommand::Prompt { params, responder } => {
+            authority.automatic.observe_prompt(&params, session_id.as_deref());
+            if authority.automatic.awaiting_prompt.is_some() && commands::command(&params).is_some() {
+                if authority.automatic.deferred_prompt.is_some() {
+                    let _ = responder.respond_with_error(to_sacp_error("another user prompt is already waiting"));
+                    return Ok(());
+                }
+                let thread = session_id.as_deref().ok_or_else(|| to_sacp_error("prompt has no session"))?;
+                if let Err(error) = upstream.interrupt_turn_for_thread(thread).await {
+                    if !matches!(&error, UpstreamError::Rpc { code: -32600, message } if message == "no active turn to interrupt") {
+                        let _ = responder.respond_with_error(to_sacp_error(error));
+                        return Ok(());
+                    }
+                }
+                authority.automatic.deferred_prompt = Some(BridgeCommand::Prompt { params, responder });
+                return Ok(());
+            }
+            let command = commands::handle(&params, commands::CommandContext {
+                upstream, cx, session: session_id.as_deref(), settings: session_settings, cwd: &authority.expected_cwd,
+            }).await;
+            match command {
+                Ok(true) => { let _ = responder.respond(json!({ "stopReason": "end_turn" })); return Ok(()); }
+                Err(error) => { let _ = responder.respond_with_error(to_sacp_error(error)); return Ok(()); }
+                Ok(false) => {}
+            }
             match start_prompt(
                 &mut *upstream,
                 params,
                 session_id,
                 pending_prompt,
-                authority.capabilities,
+                session_settings.prompt_capabilities(authority.capabilities),
+                authority.automatic.awaiting_prompt.is_some(),
             )
             .await
             {
                 Ok(turn_id) => {
+                    authority.automatic.awaiting_prompt = None;
                     *pending_prompt = Some(PendingPrompt {
                         thread_id: session_id.clone().unwrap_or_default(),
                         turn_id,
@@ -298,16 +413,13 @@ async fn handle_command(
             if session_id.as_deref() != Some(thread_id) {
                 return Ok(());
             }
-            // Completion and cancellation can cross at the protocol boundary.
-            // A cancel after completion is already settled is a no-op, not a
-            // bridge failure that would tear down the connection.
-            let has_active_turn = upstream.active_turn_for(thread_id).await.is_some();
-            if has_active_turn {
-                upstream
-                    .interrupt_turn_for_thread(thread_id)
-                    .await
-                    .map_err(to_sacp_error)?;
+            let automatic = pending_prompt.is_none() && authority.automatic.awaiting_prompt.is_none();
+            if let Some(BridgeCommand::Prompt { responder, .. }) = authority.automatic.deferred_prompt.take() {
+                let _ = responder.respond(json!({ "stopReason": "cancelled" }));
             }
+            let has_active_turn = upstream.active_turn_for(thread_id).await.is_some();
+            authority.interactions.cancel_session(cx, thread_id)?;
+            upstream.cancel_owned_tree(thread_id).await.map_err(to_sacp_error)?;
             if let Some(pending) = pending_prompt.take() {
                 if pending.thread_id == thread_id {
                     let _ = pending
@@ -317,23 +429,20 @@ async fn handle_command(
                     *pending_prompt = Some(pending);
                 }
             }
-            if has_active_turn {
-                let Some(turn) = upstream.active_turn_for(thread_id).await else {
-                    return Ok(());
-                };
-                let _ = upstream
-                    .complete_turn_for_thread(thread_id, &turn.turn_id)
-                    .await;
+            if has_active_turn && automatic {
+                send_update(cx, session_id, "session_info_update", automatic_turn::completed(&json!({ "turn": { "status": "interrupted" } })))?;
             }
+            authority.automatic.awaiting_prompt = None;
         }
         BridgeCommand::Notification { .. } => {}
         BridgeCommand::ServerResponse {
             token,
             target,
             method,
+            turn_id,
             response,
         } => {
-            resolve_server_response(upstream, token, target, &method, response).await?;
+            resolve_server_response(upstream, token, target, &method, turn_id, response).await?;
         }
     }
     Ok(())
@@ -345,6 +454,7 @@ async fn start_prompt(
     session_id: &mut Option<String>,
     pending_prompt: &mut Option<PendingPrompt>,
     capabilities: CapabilitySet,
+    adopt_automatic: bool,
 ) -> Result<String, UpstreamError> {
     let id = params
         .get("sessionId")
@@ -361,7 +471,9 @@ async fn start_prompt(
         ));
     }
     let request = prompt_mapping::turn_start_request(&params, capabilities)?;
-    let response = upstream.start_turn_for_thread(id, request).await?;
+    let response = if adopt_automatic {
+        upstream.submit_queued_prompt(id, request).await?
+    } else { upstream.start_turn_for_thread(id, request).await? };
     let turn_id = response
         .pointer("/turn/id")
         .or_else(|| response.pointer("/turnId"))
@@ -378,15 +490,26 @@ async fn handle_request(
     method: &str,
     params: Value,
     session_id: &mut Option<String>,
-    authority: &BridgeAuthority,
+    authority: &mut BridgeAuthority,
     session_settings: &mut settings_mapping::SessionSettings,
 ) -> Result<Value, UpstreamError> {
     match method {
-        "initialize" => Ok(acp_mapping::initialize_response(
-            &params,
-            authority.capabilities,
-            authority.expected_session_id.is_some(),
-        )),
+        "initialize" => {
+            authority.client_form_supported = params.pointer("/clientCapabilities/elicitation/form")
+                .is_some_and(Value::is_object);
+            Ok(acp_mapping::initialize_response(
+                &params, authority.capabilities, authority.expected_session_id.is_some(),
+            ))
+        }
+        "_iyw/worker/bind_owner" => {
+            if session_id.is_some() { return Err(UpstreamError::InvalidRequest("cannot change the owner of a live worker session".into())); }
+            let owner = params["connectionId"].as_str().ok_or_else(|| UpstreamError::InvalidRequest("worker owner is missing".into()))?;
+            if authority.owner.connection_id != owner && authority.owner.connection_id != "runtime-host-prewarm" {
+                return Err(UpstreamError::InvalidRequest("worker is bound to a different connection".into()));
+            }
+            authority.owner = SessionOwner::new(owner, None, 0).map_err(|error| UpstreamError::InvalidRequest(error.to_string()))?;
+            Ok(json!({ "bound": true }))
+        }
         "session/new" => {
             validate_cwd(&params, &authority.expected_cwd)?;
             if authority.expected_session_id.is_some() {
@@ -396,9 +519,12 @@ async fn handle_request(
             }
             ensure_session_slot(session_id, None)?;
             let request = acp_mapping::thread_start_request(&params)?;
+            let options = crate::upstream_mcp::ThreadLaunchOptions::from_acp(&params, authority.capabilities)?;
+            session_settings.load_models(upstream).await?;
             let response = upstream
-                .start_thread(authority.owner.clone(), request, authority.capabilities)
+                .start_configured_thread(authority.owner.clone(), request, options.clone())
                 .await?;
+            authority.session_launch = Some(options);
             let id = crate::upstream_backend::thread_id_from_response_for_bridge(&response)?;
             session_settings.capture(&response);
             *session_id = Some(id.clone());
@@ -407,27 +533,51 @@ async fn handle_request(
                 session_settings,
             ))
         }
-        "session/load" => {
+        "session/load" | "session/resume" => {
             validate_cwd(&params, &authority.expected_cwd)?;
             let id = params
                 .get("sessionId")
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
-                    UpstreamError::InvalidRequest("session/load has no sessionId".into())
+                    UpstreamError::InvalidRequest("session recovery has no sessionId".into())
                 })?;
             if authority.expected_session_id.as_deref() != Some(id) {
                 return Err(UpstreamError::InvalidRequest(
-                    "session/load id does not match the owning persisted session".into(),
+                    "session recovery id does not match the owning persisted session".into(),
                 ));
             }
             ensure_session_slot(session_id, Some(id))?;
             let request = acp_mapping::thread_resume_request(&params)?;
+            let options = crate::upstream_mcp::ThreadLaunchOptions::from_acp(&params, authority.capabilities)?;
+            session_settings.load_models(upstream).await?;
             let response = upstream
-                .resume_thread(authority.owner.clone(), request, authority.capabilities)
+                .resume_configured_thread(authority.owner.clone(), request, options.clone())
                 .await?;
+            authority.session_launch = Some(options);
             session_settings.capture(&response);
             *session_id = Some(id.to_string());
             Ok(settings_mapping::new_session_response(id, session_settings))
+        }
+        "session/fork" => {
+            validate_cwd(&params, &authority.expected_cwd)?;
+            let source = params.get("sessionId").and_then(Value::as_str)
+                .filter(|id| session_id.as_deref() == Some(*id))
+                .ok_or_else(|| UpstreamError::InvalidRequest("fork source does not match the bound session".into()))?;
+            let options = authority.session_launch.clone()
+                .ok_or_else(|| UpstreamError::InvalidRequest("fork has no owning launch configuration".into()))?
+                .with_fork_settings(session_settings.fork_values())?;
+            let request = json!({ "method": "thread/fork", "params": {
+                "threadId": source, "excludeTurns": true, "deferGoalContinuation": true,
+            } });
+            let response = upstream.fork_configured_thread(request, options).await?;
+            let id = crate::upstream_backend::thread_id_from_response_for_bridge(&response)?;
+            session_settings.capture(&response);
+            authority.expected_session_id = Some(id.clone());
+            *session_id = Some(id.clone());
+            Ok(settings_mapping::new_session_response(&id, session_settings))
+        }
+        "_session/steering" => {
+            steering::handle(upstream, &params, (session_id.as_deref(), session_settings.prompt_capabilities(authority.capabilities))).await
         }
         "thread/goal/set" | "thread/goal/get" | "thread/goal/clear" => {
             let id = params
@@ -440,7 +590,7 @@ async fn handle_request(
                 .request_json_for_thread(id, acp_mapping::goal_request(method, &params)?)
                 .await
         }
-        "session/set_mode" | "session/set_config_option" => {
+        "session/set_mode" | "session/set_config_option" | "session/set_model" => {
             let id = params
                 .get("sessionId")
                 .and_then(Value::as_str)
@@ -471,15 +621,23 @@ fn ensure_session_slot(
     }
 }
 
-async fn handle_event(
-    upstream: &UpstreamClient,
-    event: UpstreamEvent,
-    cx: &ConnectionTo<Client>,
-    command_tx: &mpsc::Sender<BridgeCommand>,
-    session_id: &Option<String>,
-    pending_prompt: &mut Option<PendingPrompt>,
-    item_projection: &mut item_mapping::ItemProjection,
-) -> Result<(), sacp::Error> {
+struct BridgeEventContext<'a> {
+    upstream: &'a UpstreamClient,
+    cx: &'a ConnectionTo<Client>,
+    command_tx: &'a mpsc::Sender<BridgeCommand>,
+    session_id: &'a Option<String>,
+    pending_prompt: &'a mut Option<PendingPrompt>,
+    item_projection: &'a mut item_mapping::ItemProjection,
+    settings: &'a mut settings_mapping::SessionSettings,
+    client_form_supported: bool,
+    interactions: &'a interaction_registry::InteractionRegistry,
+    messages: &'a mut message_projection::MessageProjection,
+    thinking: &'a mut thinking_projection::ThinkingProjection,
+    automatic: &'a mut automatic_turn::AutomaticTurnState,
+}
+
+async fn handle_event(event: UpstreamEvent, context: BridgeEventContext<'_>) -> Result<(), sacp::Error> {
+    let BridgeEventContext { upstream, cx, command_tx, session_id, pending_prompt, item_projection, settings, client_form_supported, interactions, messages, thinking, automatic } = context;
     match event {
         UpstreamEvent::Lagged { skipped } => {
             if session_id.is_some() {
@@ -494,12 +652,30 @@ async fn handle_event(
             }
         }
         UpstreamEvent::ServerRequest {
+            id,
             admission,
             method,
-            params,
+            mut params,
             ..
         } => {
-            if acp_mapping::is_permission_method(&method) {
+            if let ServerRequestTarget::Session(binding) = &admission.target {
+                let root = session_id.as_deref().ok_or_else(|| to_sacp_error("server request has no root session"))?;
+                if binding.external_id != root {
+                    if !upstream.descendant_of(&binding.external_id, root).await {
+                        return reject_server_request(upstream, admission, method).await;
+                    }
+                    params["threadId"] = json!(root);
+                }
+            }
+            if interaction::is_method(&method) {
+                if let Err(error) = interaction::forward(cx, command_tx, interaction::InteractionRequest {
+                    admission: admission.clone(), params, form_supported: client_form_supported,
+                    request_id: id.to_string(), registry: interactions.clone(),
+                }) {
+                    reject_server_request(upstream, admission, method).await?;
+                    let _ = error;
+                }
+            } else if acp_mapping::is_permission_method(&method) {
                 match forward_permission_request(
                     cx,
                     command_tx,
@@ -518,6 +694,23 @@ async fn handle_event(
             }
         }
         UpstreamEvent::ServerNotification { method, params } => {
+            if method == "turn/completed" {
+                // 完成通知必达；即使单独的 resolved 通知丢失，也撤回本轮残留交互。
+                interactions.complete_turn(cx, &params)?;
+            }
+            if method == "serverRequest/resolved" {
+                if let Some(id) = params.get("requestId") { interactions.resolved(cx, &id.to_string())?; }
+                return Ok(());
+            }
+            if upstream.discover_subagents(&method, &params).await.is_err() {
+                eprintln!("[星河][worker] subagent discovery failed; unverified child requests remain blocked");
+            }
+            if matches!(method.as_str(), "turn/started" | "turn/completed") {
+                if let Some(thread) = params.get("threadId").and_then(Value::as_str) {
+                    if upstream.bind_descendant(thread).await.is_err() { return Ok(()); }
+                }
+            }
+            if !upstream.accepts_turn_event(&method, &params).await.map_err(to_sacp_error)? { return Ok(()); }
             let thread_id = params
                 .get("threadId")
                 .and_then(Value::as_str)
@@ -527,8 +720,49 @@ async fn handle_event(
             }
             if let Some(thread_id) = thread_id {
                 if session_id.as_deref() != Some(thread_id) {
+                    if let Some(root) = session_id.as_deref() {
+                        if upstream.descendant_of(thread_id, root).await {
+                            child_events::handle(upstream, &method, &params).await.map_err(to_sacp_error)?;
+                        }
+                    }
                     return Ok(());
                 }
+            }
+            if matches!(method.as_str(), "turn/started" | "turn/completed") && pending_prompt.is_none() {
+                let thread = params.get("threadId").and_then(Value::as_str).ok_or_else(|| to_sacp_error("automatic turn has no thread"))?;
+                let turn = params.pointer("/turn/id").and_then(Value::as_str).ok_or_else(|| to_sacp_error("automatic turn has no id"))?;
+                if !automatic.owns_turn(turn) { automatic.begin(cx, upstream, (thread, turn)).await?; }
+            }
+            if let Some(waiting) = automatic.awaiting_prompt.as_deref() {
+                if method == "turn/completed" && params.pointer("/turn/id").and_then(Value::as_str) == Some(waiting) {
+                    upstream.complete_turn_for_thread(session_id.as_deref().unwrap_or_default(), waiting).await.map_err(to_sacp_error)?;
+                    automatic.awaiting_prompt = None;
+                }
+                // 等待已接受的用户 Prompt 接管输出，不将自动回合记成该用户输入的完成。
+                return Ok(());
+            }
+            if method == "turn/completed" {
+                if !completed_snapshot::reconcile(upstream, cx, (&params, item_projection, automatic.generation())).await? {
+                    if let Some(update) = messages.map(&method, &params).map_err(to_sacp_error)? {
+                        send_update(cx, session_id, update.method, update.params)?;
+                    }
+                }
+            } else if let Some(update) = messages.map(&method, &params).map_err(to_sacp_error)? {
+                send_update(cx, session_id, update.method, update.params)?;
+            }
+            if method == "item/agentMessage/delta" { return Ok(()); }
+            if let Some(update) = thinking.map(&method, &params).map_err(to_sacp_error)? {
+                send_update(cx, session_id, update.method, update.params)?;
+            }
+            if thinking_projection::is_delta(&method) { return Ok(()); }
+            if method == "thread/settings/updated" {
+                let snapshot = params.get("threadSettings").ok_or_else(|| {
+                    to_sacp_error("thread/settings/updated has no settings")
+                })?;
+                settings.capture(snapshot);
+                return send_update(cx, session_id, "config_option_update", json!({
+                    "configOptions": settings_mapping::config_options(settings),
+                }));
             }
             if method == "turn/completed" {
                 let thread_id = params
@@ -563,6 +797,8 @@ async fn handle_event(
                             .responder
                             .respond(acp_mapping::prompt_response(&params));
                     }
+                } else {
+                    send_update(cx, session_id, "session_info_update", automatic_turn::completed(&params))?;
                 }
             } else if let Some(update) = acp_mapping::notification_to_update(&method, &params) {
                 send_update(cx, session_id, update.method, update.params)?;
@@ -582,6 +818,7 @@ fn notification_requires_thread(method: &str) -> bool {
     matches!(
         method,
         "item/agentMessage/delta"
+            | "thread/settings/updated"
             | "thread/name/updated"
             | "thread/goal/updated"
             | "thread/goal/cleared"
@@ -626,6 +863,7 @@ fn forward_permission_request(
 ) -> Result<(), sacp::Error> {
     let request = acp_mapping::permission_request(&method, &params).map_err(to_sacp_error)?;
     let token = admission.token;
+    let turn_id = admission.turn_id;
     let target = admission.target;
     let command_tx = command_tx.clone();
     let sent = cx.send_request_to(Client, request);
@@ -639,6 +877,7 @@ fn forward_permission_request(
                 token,
                 target,
                 method,
+                turn_id,
                 response,
             })
             .await;
@@ -651,10 +890,21 @@ async fn resolve_server_response(
     token: crate::ServerRequestToken,
     target: ServerRequestTarget,
     method: &str,
+    turn_id: Option<String>,
     response: Result<Value, String>,
 ) -> Result<(), sacp::Error> {
+    if !upstream.has_server_request(token).await {
+        return Ok(());
+    }
+    if let (ServerRequestTarget::Session(binding), Some(expected)) = (&target, turn_id.as_deref()) {
+        let current = upstream.active_turn_for(&binding.external_id).await;
+        if !current.is_some_and(|turn| turn.turn_id == expected && !turn.cancelling) {
+            reject_admitted_request(upstream, token, target, method, "interaction turn is no longer active".into()).await?;
+            return Ok(());
+        }
+    }
     let response = match response {
-        Ok(value) => match acp_mapping::permission_decision(method, &value) {
+        Ok(value) => match if interaction::is_method(method) { Ok(value) } else { acp_mapping::permission_decision(method, &value) } {
             Ok(response) => response,
             Err(error) => {
                 reject_admitted_request(upstream, token, target, method, error.to_string()).await?;
@@ -667,7 +917,7 @@ async fn resolve_server_response(
                 token,
                 target,
                 method,
-                format!("ACP permission request failed: {error}"),
+                format!("ACP interaction request failed: {error}"),
             )
             .await?;
             return Ok(());

@@ -106,6 +106,7 @@ function FreeTextAnswer({
   onText,
 }: OptionsProps) {
   const t = useTranslations("Folder.chat.askQuestion")
+  if (question.input?.allow_other === false) return null
   return (
     <>
       {" "}
@@ -114,15 +115,28 @@ function FreeTextAnswer({
           <span>
             {t(question.options.length ? "customAnswer" : "freeText")}
           </span>
-          <textarea
-            value={value.otherText}
-            disabled={locked}
-            maxLength={MAX_ANSWER_CHARS}
-            rows={3}
-            onChange={(event) => onText(event.target.value)}
-            placeholder={t("otherPlaceholder")}
-            className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-ring disabled:opacity-70"
-          />
+          {question.secret ? (
+            <input
+              type="password"
+              autoComplete="off"
+              value={value.otherText}
+              disabled={locked}
+              maxLength={MAX_ANSWER_CHARS}
+              onChange={(event) => onText(event.target.value)}
+              placeholder={t("otherPlaceholder")}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-ring disabled:opacity-70"
+            />
+          ) : (
+            <textarea
+              value={value.otherText}
+              disabled={locked}
+              maxLength={MAX_ANSWER_CHARS}
+              rows={3}
+              onChange={(event) => onText(event.target.value)}
+              placeholder={t("otherPlaceholder")}
+              className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-ring disabled:opacity-70"
+            />
+          )}
         </label>
       )}
     </>

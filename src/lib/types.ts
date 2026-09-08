@@ -1055,11 +1055,31 @@ export interface QuestionOption {
 /** A single multiple-choice question (mirror of Rust `QuestionSpec`). `id` is
  *  the backend-minted correlation key the answer is submitted against. */
 export interface QuestionSpec {
+  input?: QuestionInputSpec
+  secret?: boolean
+  optional?: boolean
   id: string
   question: string
   header: string
   multi_select: boolean
   options: QuestionOption[]
+}
+
+export interface QuestionInputSpec {
+  schema: {
+    type: "string" | "number" | "integer" | "boolean" | "array"
+    minLength?: number
+    maxLength?: number
+    minimum?: number
+    maximum?: number
+    minItems?: number
+    maxItems?: number
+    pattern?: string
+    format?: "email" | "uri" | "date" | "date-time"
+  }
+  values: Record<string, string>
+  default_values: string[]
+  allow_other: boolean
 }
 
 /** Awaiting-answer question set on the session (mirror of `PendingQuestionState`). */
@@ -1318,6 +1338,7 @@ export interface ToolCallImageWire {
 
 // ACP events pushed from Rust backend (discriminated by "type" field)
 export type AcpEvent =
+  | { type: "content_recovered"; content: LiveContentBlock[] }
   | { type: "content_delta"; text: string }
   | { type: "thinking"; text: string }
   | {

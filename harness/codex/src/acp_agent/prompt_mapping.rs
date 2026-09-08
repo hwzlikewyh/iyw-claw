@@ -22,6 +22,9 @@ pub(super) fn turn_start_request(
         .ok_or_else(|| {
             UpstreamError::InvalidRequest("session/prompt has no prompt blocks".into())
         })?;
+    if prompt.is_empty() {
+        return Err(UpstreamError::InvalidRequest("prompt must contain input blocks".into()));
+    }
     let mut budget = PromptBudget::default();
     let input = prompt
         .iter()

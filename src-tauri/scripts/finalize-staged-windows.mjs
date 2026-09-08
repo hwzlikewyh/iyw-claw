@@ -31,10 +31,16 @@ const MANIFEST_PATH = join(STAGING_ROOT, "staging-manifest.json")
 const CLI = join(ROOT, "node_modules", "@tauri-apps", "cli", "tauri.js")
 const TARGET_RELEASE = join("src-tauri", "target", TARGET, "release")
 const ALLOWED_PREFIXES = [
+  "out/",
   "src-tauri/binaries/",
   "src-tauri/resources/runtime-seed/",
+  "src-tauri/resources/xinghe-worker/",
 ]
 const ALLOWED_FILES = new Set([
+  "src-tauri/resources/xinghe-worker/iyw_xinghe_worker.dll",
+  "src-tauri/resources/xinghe-worker/iyw-xinghe-helper.exe",
+  "src-tauri/resources/xinghe-worker/xinghe-windows-sandbox-setup.exe",
+  "src-tauri/resources/xinghe-worker/xinghe-command-runner.exe",
   "src-tauri/tauri.runtime-seed.conf.json",
   `${TARGET_RELEASE.replaceAll("\\", "/")}/iyw-claw.exe`,
 ])
@@ -80,6 +86,12 @@ function verifyManifest() {
     fail("staging manifest has no files")
   }
   const stagedPaths = new Set(manifest.files.map((entry) => entry?.path))
+  const includesFrontend = manifest.files.some((entry) =>
+    entry?.path?.startsWith("out/")
+  )
+  if (includesFrontend && !stagedPaths.has("out/index.html")) {
+    fail("staged frontend is missing out/index.html")
+  }
   for (const required of ALLOWED_FILES) {
     if (!stagedPaths.has(required))
       fail(`staging manifest is missing ${required}`)
@@ -109,14 +121,16 @@ function verifyManifest() {
     }
   }
   console.log(`[staged-signing] verified ${manifest.files.length} staged files`)
-  return manifest.version
+  return { version: manifest.version, includesFrontend }
 }
 
-function restoreStaging() {
+function restoreStaging(includesFrontend) {
   const directories = [
     join("src-tauri", "binaries"),
     join("src-tauri", "resources", "runtime-seed"),
+    join("src-tauri", "resources", "xinghe-worker"),
   ]
+  if (includesFrontend) directories.push("out")
   for (const directory of directories) {
     const destination = join(ROOT, directory)
     rmSync(destination, { recursive: true, force: true })
@@ -246,8 +260,8 @@ function verify(installer) {
 function main() {
   if (process.platform !== "win32")
     fail("staged Windows signing requires Windows")
-  const version = verifyManifest()
-  restoreStaging()
+  const { version, includesFrontend } = verifyManifest()
+  restoreStaging(includesFrontend)
   preflightToken()
   verify(bundle(version))
 }

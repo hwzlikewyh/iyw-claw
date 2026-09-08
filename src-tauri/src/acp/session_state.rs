@@ -235,6 +235,7 @@ pub struct PendingUserMessage {
 /// after the old generation's ordered lifecycle settlement has completed.
 #[derive(Debug, Clone)]
 pub(crate) struct NativeBackgroundTurn {
+    pub automatic: bool,
     pub message_id: String,
     pub blocks: Vec<UserMessageBlock>,
     pub source_generation: i64,
@@ -504,6 +505,7 @@ pub struct SessionState {
     /// Runtime-only: reconnect cannot prove the result of an interrupted RPC.
     pub(crate) native_background_turn: Option<NativeBackgroundTurn>,
     pub(crate) native_background_notify: Arc<tokio::sync::Notify>,
+    pub(crate) worker_content_recovered: Option<(i64, String)>,
 
     /// Concatenated text content of the just-completed turn's assistant
     /// message. Captured at TurnComplete (just before live_message is
@@ -717,6 +719,7 @@ impl SessionState {
             native_steering_available: false,
             native_background_turn: None,
             native_background_notify: Arc::new(tokio::sync::Notify::new()),
+            worker_content_recovered: None,
             last_assistant_text: None,
             last_completed_turn_harvest: None,
             last_completed_turn_title_input: None,
@@ -896,6 +899,9 @@ impl SessionState {
                 });
                 self.compaction_at_tokens = *compaction_at_tokens;
                 self.compaction_pending = *compaction_pending;
+            }
+            AcpEvent::ContentRecovered { content } => {
+                self.ensure_live_message().content = content.clone();
             }
             AcpEvent::ContentDelta { text } => {
                 self.session_failures.settle_retry_incidents();
@@ -1137,6 +1143,7 @@ impl SessionState {
                 // cancel, stop-reason — emit TurnComplete; disconnect/error
                 // discard the state entirely, so no stale flag can outlive them.)
                 self.turn_in_flight = false;
+                self.native_background_notify.notify_waiters();
                 if self
                     .native_background_turn
                     .as_ref()

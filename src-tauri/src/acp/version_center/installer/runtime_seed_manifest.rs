@@ -11,11 +11,10 @@ use crate::app_error::AppCommandError;
 const SCHEMA_VERSION: u32 = 2;
 const CREATED_BY: &str = "iyw-runtime-seed-builder";
 const MAX_MANIFEST_BYTES: u64 = 32 * 1024 * 1024;
-const REQUIRED_COMPONENTS: [(&str, &str); 4] = [
+const REQUIRED_COMPONENTS: [(&str, &str); 3] = [
     ("node", "runtime_tool"),
     ("git", "runtime_tool"),
     ("uv", "runtime_tool"),
-    ("codex-acp", "npm_agent"),
 ];
 
 #[derive(Clone, Debug, Deserialize)]

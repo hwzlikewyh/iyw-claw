@@ -1,3 +1,6 @@
+// ACP 的类型化处理器链在 release 布局计算中超过默认 128 层，按编译器诊断设定上限。
+#![recursion_limit = "256"]
+
 pub mod acp;
 pub use acp::{
     agent_auto_update_task, idle_sweep_task, idle_timeout_from_env, lifecycle_subscriber_task,
@@ -21,7 +24,7 @@ pub mod display_assets;
 pub mod git_credential;
 pub mod git_repo;
 pub mod github_mirror;
-pub mod internal_codex_worker;
+pub mod internal_xinghe_worker;
 pub mod keyring_store;
 pub mod logging;
 pub mod models;
@@ -400,10 +403,12 @@ mod tauri_app {
                 unsafe {
                     std::env::set_var("IYW_CLAW_DATA_DIR", &effective_data_dir);
                 }
-                tauri::async_runtime::block_on(
-                    crate::acp::version_center::prepare_shared_runtime(&effective_data_dir),
-                )
-                .map_err(|error| std::io::Error::other(error.to_string()))?;
+                crate::logging::emergency::run_stage("prepare-shared-runtime", || {
+                    tauri::async_runtime::block_on(
+                        crate::acp::version_center::prepare_shared_runtime(&effective_data_dir),
+                    )
+                    .map_err(|error| std::io::Error::other(error.to_string()))
+                })?;
                 app.manage(crate::browser::BrowserSessionManager::new_desktop(
                     effective_data_dir.clone(),
                     app.state::<ConnectionManager>().clone_ref(),

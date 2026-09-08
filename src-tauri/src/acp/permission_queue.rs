@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use sacp::schema::{
     RequestPermissionOutcome, RequestPermissionResponse, SelectedPermissionOutcome,
@@ -56,6 +56,8 @@ pub(crate) struct PermissionQueue<R> {
     visible_request_id: Option<String>,
     waiting: VecDeque<QueuedPermission>,
     closed: bool,
+    request_keys: HashMap<String, String>,
+    cancelled_keys: HashSet<String>,
 }
 
 impl<R> Default for PermissionQueue<R> {
@@ -65,6 +67,8 @@ impl<R> Default for PermissionQueue<R> {
             visible_request_id: None,
             waiting: VecDeque::new(),
             closed: false,
+            request_keys: HashMap::new(),
+            cancelled_keys: HashSet::new(),
         }
     }
 }
@@ -77,6 +81,10 @@ impl<R: PermissionResponder> PermissionQueue<R> {
             };
         }
         let request_id = card.request_id.clone();
+        if let Some(key) = card.tool_call.pointer("/_meta/iyw/requestKey").and_then(serde_json::Value::as_str) {
+            if self.cancelled_keys.remove(key) { return PermissionAdmission::Closed { delivery_failed: responder.respond_cancelled() }; }
+            self.request_keys.insert(key.to_string(), request_id.clone());
+        }
         debug_assert!(!self.responders.contains_key(&request_id));
         self.responders.insert(request_id.clone(), responder);
         if self.visible_request_id.is_none() {
@@ -104,6 +112,7 @@ impl<R: PermissionResponder> PermissionQueue<R> {
             };
         };
         let delivery_failed = responder.respond_selected(option_id);
+        self.request_keys.retain(|_, id| id != request_id);
         let next = self.waiting.pop_front();
         self.visible_request_id = next.as_ref().map(|card| card.request_id.clone());
         PermissionResolution {
@@ -121,6 +130,8 @@ impl<R: PermissionResponder> PermissionQueue<R> {
             .map(|(_, responder)| usize::from(responder.respond_cancelled()))
             .sum();
         self.waiting.clear();
+        self.request_keys.clear();
+        self.cancelled_keys.clear();
         PermissionDrain {
             visible_request_id: self.visible_request_id.take(),
             count,
@@ -131,6 +142,23 @@ impl<R: PermissionResponder> PermissionQueue<R> {
     pub(crate) fn close_and_drain(&mut self) -> PermissionDrain {
         self.closed = true;
         self.drain()
+    }
+
+    pub(crate) fn cancel_key(&mut self, key: &str) -> Option<(String, PermissionResolution)> {
+        let Some(id) = self.request_keys.remove(key) else {
+            const MAX_EARLY_CANCELLATIONS: usize = 1024;
+            if self.cancelled_keys.len() < MAX_EARLY_CANCELLATIONS { self.cancelled_keys.insert(key.to_string()); }
+            return None;
+        };
+        let responder = self.responders.remove(&id)?;
+        let delivery_failed = responder.respond_cancelled();
+        self.waiting.retain(|card| card.request_id != id);
+        let next = if self.visible_request_id.as_deref() == Some(id.as_str()) {
+            let next = self.waiting.pop_front();
+            self.visible_request_id = next.as_ref().map(|card| card.request_id.clone());
+            next
+        } else { None };
+        Some((id, PermissionResolution { answered: true, delivery_failed, next }))
     }
 
     pub(crate) fn waiting_len(&self) -> usize {

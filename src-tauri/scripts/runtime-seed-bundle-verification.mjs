@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readFileSync } from "node:fs"
 import { createHash } from "node:crypto"
 import { join, resolve } from "node:path"
 import { PINNED_NODE_VERSION } from "./runtime-seed-config.mjs"
+import { verifyWorkerBundle } from "./verify-xinghe-worker-bundle.mjs"
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex")
@@ -17,6 +18,7 @@ function requireFile(path, label) {
 }
 
 export function verifyInstalledRuntimeSeed(appDirectory, target, die) {
+  verifyWorkerBundle(appDirectory, target)
   const seedRoot = join(appDirectory, "runtime-seed")
   if (target === "i686-pc-windows-msvc") {
     if (existsSync(seedRoot))
@@ -30,7 +32,8 @@ export function verifyInstalledRuntimeSeed(appDirectory, target, die) {
   if (
     manifest.schemaVersion !== 2 ||
     manifest.target !== target ||
-    manifest.components?.length !== 4 ||
+    manifest.components?.length !== 3 ||
+    manifest.components.some((component) => !["node", "git", "uv"].includes(component.id)) ||
     node?.version !== PINNED_NODE_VERSION
   ) {
     die(`installed runtime seed does not match ${target}: ${manifestPath}`)

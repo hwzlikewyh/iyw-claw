@@ -1,8 +1,13 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
-import ig from "ignore"
-import { getFileTree, readFilePreview } from "@/lib/api"
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useCallback,
+} from "react"
+import { loadReferenceFiles } from "@/lib/reference-file-loader"
 import type { FileTreeNode } from "@/lib/types"
 
 export interface FlatFileEntry {
@@ -54,113 +59,104 @@ export function hasIgnoredAncestor(
 interface UseFileTreeOptions {
   folderPath: string | undefined
   enabled: boolean
+  /** 文件引用菜单只在首次搜索时加载，普通文件搜索仍按 enabled 自动加载。 */
+  automatic?: boolean
 }
 
 interface UseFileTreeResult {
   allFiles: FlatFileEntry[]
   loading: boolean
   loaded: boolean
-  /** Clear cached data so the next `enabled=true` triggers a fresh load. */
+  load: () => Promise<FlatFileEntry[]>
   reset: () => void
 }
+
+interface FileLoad {
+  path: string
+  controller: AbortController
+  promise: Promise<FlatFileEntry[]>
+}
+
+const useCommitEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect
 
 export function useFileTree({
   folderPath,
   enabled,
+  automatic = true,
 }: UseFileTreeOptions): UseFileTreeResult {
   const [allFiles, setAllFiles] = useState<FlatFileEntry[]>([])
   const [loading, setLoading] = useState(false)
-  const loadedForPathRef = useRef<string | null>(null)
+  const [loadedPath, setLoadedPath] = useState<string | null>(null)
+  const current = useRef<FileLoad | null>(null)
+
+  const reset = useCallback(() => {
+    current.current?.controller.abort()
+    current.current = null
+    setAllFiles([])
+    setLoadedPath(null)
+    setLoading(false)
+  }, [])
+
+  useCommitEffect(() => {
+    reset()
+    return () => {
+      current.current?.controller.abort()
+      current.current = null
+    }
+  }, [folderPath, enabled, reset])
+
+  const load = useCallback((): Promise<FlatFileEntry[]> => {
+    if (!enabled || !folderPath) return Promise.resolve([])
+    if (current.current?.path === folderPath) return current.current.promise
+    const controller = new AbortController()
+    const request: FileLoad = {
+      path: folderPath,
+      controller,
+      promise: Promise.resolve([]),
+    }
+    current.current = request
+    setLoading(true)
+    request.promise = loadReferenceFiles(folderPath, controller.signal)
+      .then((files) => {
+        if (current.current !== request) return []
+        setLoadedPath(folderPath)
+        setAllFiles(files)
+        return files
+      })
+      .catch(() => {
+        controller.abort()
+        if (current.current === request) {
+          current.current = null
+          setLoading(false)
+        }
+        return []
+      })
+      .finally(() => {
+        if (current.current === request) {
+          setLoading(false)
+        }
+      })
+    return request.promise
+  }, [enabled, folderPath])
 
   useEffect(() => {
-    if (!enabled || !folderPath) return
-    if (loadedForPathRef.current === folderPath) return
-
     let canceled = false
-    setLoading(true)
-
-    async function load() {
-      try {
-        const tree = await getFileTree(folderPath!, 10)
-        const flat = flattenTree(tree)
-
-        // Collect all .gitignore files from the tree
-        const gitignoreEntries = flat.filter(
-          (f) => f.kind === "file" && f.name === ".gitignore"
-        )
-
-        // Build matchers keyed by directory prefix
-        const matchers: {
-          prefix: string
-          matcher: ReturnType<typeof ig>
-        }[] = []
-        await Promise.all(
-          gitignoreEntries.map(async (entry) => {
-            try {
-              const result = await readFilePreview(
-                folderPath!,
-                entry.relativePath
-              )
-              const lastSlash = entry.relativePath.lastIndexOf("/")
-              const dir =
-                lastSlash === -1 ? "" : entry.relativePath.slice(0, lastSlash)
-              matchers.push({
-                prefix: dir ? dir + "/" : "",
-                matcher: ig().add(result.content),
-              })
-            } catch {
-              // skip unreadable .gitignore
-            }
-          })
-        )
-
-        // Sort matchers by prefix length (shortest/root first)
-        matchers.sort((a, b) => a.prefix.length - b.prefix.length)
-
-        // Filter: check each entry against all applicable .gitignore matchers
-        const ignoredDirs = new Set<string>()
-        const filtered = flat.filter((f) => {
-          if (f.name === ".gitignore") return false
-          if (hasIgnoredAncestor(f.relativePath, ignoredDirs)) return false
-          for (const { prefix, matcher } of matchers) {
-            if (!f.relativePath.startsWith(prefix)) continue
-            const relPath = f.relativePath.slice(prefix.length)
-            if (!relPath) continue
-            const testPath = f.kind === "dir" ? `${relPath}/` : relPath
-            if (matcher.ignores(testPath)) {
-              if (f.kind === "dir") ignoredDirs.add(f.relativePath)
-              return false
-            }
-          }
-          return true
-        })
-
-        if (!canceled) {
-          setAllFiles(filtered)
-          loadedForPathRef.current = folderPath!
-        }
-      } catch {
-        if (!canceled) setAllFiles([])
-      } finally {
-        if (!canceled) setLoading(false)
-      }
+    if (automatic && enabled) {
+      queueMicrotask(() => {
+        if (!canceled) void load()
+      })
     }
-
-    void load()
     return () => {
       canceled = true
     }
-  }, [enabled, folderPath])
-
-  const reset = useCallback(() => {
-    loadedForPathRef.current = null
-    setAllFiles([])
-  }, [])
+  }, [automatic, enabled, load])
 
   return {
     allFiles,
     loading,
-    loaded: loadedForPathRef.current === folderPath,
+    loaded: loadedPath !== null && loadedPath === folderPath,
+    load,
     reset,
   }
 }

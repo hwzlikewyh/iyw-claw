@@ -3810,6 +3810,8 @@ impl ConnectionManager {
         if entry.parent_connection_id != conn_id {
             return Err(AcpError::protocol("Question belongs to another session"));
         }
+        crate::acp::question::validate_secret_answers(&entry.questions, &answer).map_err(AcpError::protocol)?;
+        crate::acp::question::validate_input_answers(&entry.questions, &answer).map_err(AcpError::protocol)?;
         let outcome = build_outcome(&entry.questions, &answer);
         if !outcome.declined && outcome.answers.len() != entry.questions.len() {
             return Err(AcpError::protocol("An answer is required for every question"));

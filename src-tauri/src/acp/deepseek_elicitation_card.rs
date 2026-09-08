@@ -43,6 +43,9 @@ pub(super) fn approval_spec(message: &str) -> QuestionSpec {
         limit(message)
     };
     QuestionSpec {
+        input: None,
+        secret: false,
+        optional: false,
         id: format!("deepseek-approval-{}", Uuid::new_v4()),
         question,
         header: "Confirm".to_string(),

@@ -163,6 +163,14 @@ async fn handle_acp_envelope(
             }
         }
 
+        AcpEvent::ContentRecovered { content } => {
+            if let Some(session) = bridge.lock().await.get_mut(connection_id) {
+                session.content_buffer = content.iter().filter_map(|block| match block {
+                    crate::acp::session_state::LiveContentBlock::Text { text } => Some(text.as_str()),
+                    _ => None,
+                }).collect::<Vec<_>>().join("");
+            }
+        }
         AcpEvent::ContentDelta { text } => {
             let mut guard = bridge.lock().await;
             if let Some(session) = guard.get_mut(connection_id) {

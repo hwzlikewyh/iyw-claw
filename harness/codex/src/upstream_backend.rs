@@ -4,6 +4,16 @@ use std::fmt;
 use std::io;
 use std::sync::atomic::{AtomicI64, Ordering};
 
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+mod thread_lifecycle;
+mod subagents;
+mod event_fence;
+mod child_snapshot;
+mod queued_prompt;
+mod history;
+mod cancel_tree;
+
 use codex_app_server_client::{InProcessAppServerClient, InProcessAppServerRequestHandle};
 use codex_app_server_protocol::{ClientRequest, RequestId};
 use serde_json::{json, Value};
@@ -11,6 +21,7 @@ use serde_json::{json, Value};
 use crate::contracts::{CapabilitySet, SessionAccess, SessionBinding, SessionOwner};
 use crate::runtime::{CodexHarness, HarnessError};
 use crate::sessions::{ActiveTurn, SessionError, TurnBinding};
+use crate::upstream_mcp::ThreadLaunchOptions;
 use crate::{
     client_method_policy, AdmittedServerRequest, MethodScope, ServerRequestAdmissionError,
     ServerRequestDescriptor, ServerRequestToken, TurnScope,
@@ -22,6 +33,7 @@ pub struct UpstreamClient {
     harness: tokio::sync::Mutex<CodexHarness>,
     runtime_fingerprint: String,
     next_request_id: AtomicI64,
+    child_parents: tokio::sync::Mutex<std::collections::HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -55,6 +67,7 @@ pub enum UpstreamError {
     Start(String),
     Harness(HarnessError),
     Io(String),
+    Rpc { code: i64, message: String },
 }
 
 impl fmt::Display for UpstreamError {
@@ -67,6 +80,7 @@ impl fmt::Display for UpstreamError {
             Self::Start(message) => write!(formatter, "Codex runtime start failed: {message}"),
             Self::Harness(error) => error.fmt(formatter),
             Self::Io(message) => formatter.write_str(message),
+            Self::Rpc { code, message } => write!(formatter, "星河 RPC error ({code}): {message}"),
         }
     }
 }
@@ -116,6 +130,7 @@ impl UpstreamClient {
             harness: tokio::sync::Mutex::new(harness),
             runtime_fingerprint,
             next_request_id: AtomicI64::new(1),
+            child_parents: Default::default(),
         })
     }
 
@@ -125,8 +140,18 @@ impl UpstreamClient {
         request: Value,
         capabilities: CapabilitySet,
     ) -> Result<Value, UpstreamError> {
+        self.start_configured_thread(owner, request, ThreadLaunchOptions::new(capabilities)).await
+    }
+
+    pub(crate) async fn start_configured_thread(
+        &self,
+        owner: SessionOwner,
+        mut request: Value,
+        options: ThreadLaunchOptions,
+    ) -> Result<Value, UpstreamError> {
         ensure_method(&request, "thread/start")?;
         reject_unmanaged_thread_overrides(&request)?;
+        let capabilities = options.capabilities;
         owner
             .validate()
             .map_err(|error| UpstreamError::InvalidRequest(error.to_string()))?;
@@ -134,6 +159,7 @@ impl UpstreamClient {
             .lock()
             .await
             .validate_session_capabilities(capabilities)?;
+        options.apply(&mut request);
         let response = self.send(request).await?;
         let thread_id = thread_id_from_response(&response)?;
         self.harness.lock().await.bind_session(
@@ -150,8 +176,18 @@ impl UpstreamClient {
         request: Value,
         capabilities: CapabilitySet,
     ) -> Result<Value, UpstreamError> {
+        self.resume_configured_thread(owner, request, ThreadLaunchOptions::new(capabilities)).await
+    }
+
+    pub(crate) async fn resume_configured_thread(
+        &self,
+        owner: SessionOwner,
+        mut request: Value,
+        options: ThreadLaunchOptions,
+    ) -> Result<Value, UpstreamError> {
         ensure_method(&request, "thread/resume")?;
         reject_unmanaged_thread_overrides(&request)?;
+        let capabilities = options.capabilities;
         owner
             .validate()
             .map_err(|error| UpstreamError::InvalidRequest(error.to_string()))?;
@@ -167,6 +203,7 @@ impl UpstreamClient {
             .lock()
             .await
             .validate_session_binding(&binding, capabilities)?;
+        options.apply(&mut request);
         let response = self.send(request).await?;
         let response_thread_id = thread_id_from_response(&response)?;
         if response_thread_id != thread_id {
@@ -281,10 +318,7 @@ impl UpstreamClient {
         &self,
         wait: std::time::Duration,
     ) -> Result<UpstreamEventPoll, UpstreamError> {
-        let event = match tokio::time::timeout(wait, async {
-            let mut event_client = self.event_client.lock().await;
-            event_client.next_event().await
-        })
+        let event = match tokio::time::timeout(wait, self.receive_event())
         .await
         {
             Ok(event) => event,
@@ -299,7 +333,14 @@ impl UpstreamClient {
         })
     }
 
-    async fn convert_event(
+    /// 只等待队列，允许 select 取消；取出后的归属校验必须在分支内完成。
+    pub(crate) async fn receive_event(
+        &self,
+    ) -> Option<codex_app_server_client::InProcessServerEvent> {
+        self.event_client.lock().await.next_event().await
+    }
+
+    pub(crate) async fn convert_event(
         &self,
         event: codex_app_server_client::InProcessServerEvent,
     ) -> Result<Option<UpstreamEvent>, UpstreamError> {
@@ -325,6 +366,18 @@ impl UpstreamClient {
                     server_request_descriptor(&id, &method, &params).ok_or_else(|| {
                         UpstreamError::InvalidResponse("server request id is invalid".into())
                     })?;
+                if let Some(thread_id) = descriptor.thread_id.as_deref() {
+                    if self.bind_descendant(thread_id).await.is_err() {
+                        self.reject_raw_server_request(id, -32602, "server request thread is not owned").await?;
+                        return Ok(None);
+                    }
+                    if let Some(turn_id) = descriptor.turn_id.as_deref() {
+                        if self.validate_child_request_turn(thread_id, turn_id).await.is_err() {
+                            self.reject_raw_server_request(id, -32602, "server request turn is not active").await?;
+                            return Ok(None);
+                        }
+                    }
+                }
                 let admission = match self.harness.lock().await.admit_server_request(descriptor) {
                     Ok(admission) => admission,
                     Err(error) => {
@@ -346,6 +399,11 @@ impl UpstreamClient {
                     .map_err(|error| UpstreamError::InvalidResponse(error.to_string()))?
             }
         };
+        if value.get("method").and_then(Value::as_str) == Some("serverRequest/resolved") {
+            if let Some(id) = value.pointer("/params/requestId") {
+                self.harness.lock().await.server_request_resolved(&id.to_string());
+            }
+        }
         Ok(event_from_json(value))
     }
 
@@ -491,8 +549,17 @@ impl UpstreamClient {
         self.harness.lock().await.binding(external_id)
     }
 
+    pub(crate) async fn has_server_request(&self, token: ServerRequestToken) -> bool {
+        self.harness.lock().await.has_server_request(token)
+    }
+
     pub async fn active_turn_for(&self, external_id: &str) -> Option<ActiveTurn> {
         self.harness.lock().await.active_turn_for(external_id)
+    }
+
+    pub(crate) async fn recovery_anchor(&self, thread_id: &str) -> Option<String> {
+        let harness = self.harness.lock().await;
+        harness.active_turn_for(thread_id).map(|turn| turn.turn_id).or_else(|| harness.latest_retired_turn(thread_id))
     }
 
     pub async fn start_turn_for_thread(
@@ -646,12 +713,11 @@ impl UpstreamClient {
         );
         let request: ClientRequest = serde_json::from_value(request)
             .map_err(|error| UpstreamError::InvalidRequest(error.to_string()))?;
-        let result = self
-            .request_handle
-            .request(request)
+        let result = tokio::time::timeout(REQUEST_TIMEOUT, self.request_handle.request(request))
             .await
+            .map_err(|_| UpstreamError::Io("星河 runtime request timed out; delivery may have occurred".into()))?
             .map_err(io_error)?;
-        result.map_err(|error| UpstreamError::Io(error.message))
+        result.map_err(|error| UpstreamError::Rpc { code: error.code, message: error.message })
     }
 }
 

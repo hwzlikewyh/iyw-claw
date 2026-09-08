@@ -2780,6 +2780,7 @@
           "networkError": "Network connection failed. Check your connection and try again.",
           "serviceUnavailable": "The service is temporarily unavailable. Try again later.",
           "requestFailed": "The request failed. Try again later.",
+          "workerContentRecoveryFailed": "This turn has ended, but the complete output could not be verified. Open the conversation history to check the result.",
           "currentModel": "The current model",
           "initializeTimeout": "{agent} local initialization timed out. Open Settings to check the Agent configuration and startup logs.",
           "processExited": "{agent} process exited unexpectedly.",

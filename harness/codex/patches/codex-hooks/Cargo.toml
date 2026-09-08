@@ -1,0 +1,87 @@
+[package]
+name = "codex-hooks"
+version = "0.153.4"
+edition = "2024"
+license = "Apache-2.0"
+autobins = false
+autotests = false
+autobenches = false
+
+[lib]
+doctest = false
+name = "codex_hooks"
+path = "src/lib.rs"
+
+[dependencies."anyhow"]
+version = "^1"
+
+[dependencies."async-channel"]
+version = "^2.3.1"
+
+[dependencies."chrono"]
+version = "^0.4.43"
+features = ["serde"]
+
+[dependencies."codex-config"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies."codex-plugin"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies."codex-protocol"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies."codex-utils-absolute-path"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies."codex-utils-output-truncation"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies."codex-utils-path-uri"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies."futures"]
+version = "^0.3"
+default-features = false
+features = ["alloc"]
+
+[dependencies."regex"]
+version = "^1.12.3"
+
+[dependencies."schemars"]
+version = "^0.8.22"
+
+[dependencies."serde"]
+version = "^1"
+features = ["rc","derive"]
+
+[dependencies."serde_json"]
+version = "^1"
+
+[dependencies."tokio"]
+version = "^1"
+features = ["fs","io-util","process","sync","time"]
+
+[dependencies."tracing"]
+version = "^0.1.44"
+
+[dependencies."uuid"]
+version = "^1"
+features = ["v4"]
+
+[target."cfg(any(unix, windows))".dependencies."codex-utils-pty"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"

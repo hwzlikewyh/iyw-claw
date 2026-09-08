@@ -30,7 +30,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../out": "resources/bundle/"
+      "../out": "resources/bundle/",
+      "resources/xinghe-worker": "xinghe-resources"
     },
     "windows": {
       "webviewInstallMode": {

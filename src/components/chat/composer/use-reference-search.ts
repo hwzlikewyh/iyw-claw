@@ -167,10 +167,9 @@ export interface UseReferenceSearchOptions {
  * on window focus) updates the refs but leaves `search` identity untouched — the
  * open panel keeps its results and the user's selection (R7).
  *
- * Files and agents are hook-loaded (and pre-warmed via `enabled`). Sessions are
- * fetched lazily on the first `@`, key-cached in a ref, and awaited by `search`
- * so the first open is populated without an extra keystroke; window focus busts
- * the cache so it stays fresh.
+ * 文件和会话在首次 `@` 搜索时加载，并等待结果后填充菜单。
+ * 文件请求在当前输入框内复用；停用或切换目录时取消并释放。
+ * 会话列表缓存仍在窗口重新聚焦时失效。
  */
 export function useReferenceSearch({
   defaultPath,
@@ -179,9 +178,10 @@ export function useReferenceSearch({
 }: UseReferenceSearchOptions): ReferenceSearch {
   const path = defaultPath || null
 
-  const { allFiles, loaded } = useFileTree({
+  const { load: loadFiles } = useFileTree({
     folderPath: path ?? undefined,
     enabled,
+    automatic: false,
   })
   const { agents } = useAcpAgents()
   const tAgentSdk = useAgentSdkTranslations()
@@ -196,10 +196,7 @@ export function useReferenceSearch({
   // Mirror every changing source into a ref so `search` can stay identity-stable
   // (see the doc comment). Initialized from the first render so the refs are
   // sane even before the sync effect below runs.
-  const filesRef = useRef<{ root: string | null; files: FlatFileEntry[] }>({
-    root: null,
-    files: [],
-  })
+  const loadFilesRef = useRef(loadFiles)
   const agentsRef = useRef(presentedAgents)
   const pathRef = useRef(path)
   const enabledRef = useRef(enabled)
@@ -214,19 +211,13 @@ export function useReferenceSearch({
   useIsomorphicLayoutEffect(() => {
     pathRef.current = path
     enabledRef.current = enabled
-  }, [path, enabled])
+    loadFilesRef.current = loadFiles
+  }, [path, enabled, loadFiles])
 
   useEffect(() => {
-    // Only expose files once the tree has loaded for the *current* path, so the
-    // search never joins the current workspace root onto a previous folder's
-    // relative paths during a folder switch.
-    filesRef.current =
-      loaded && path
-        ? { root: path, files: allFiles }
-        : { root: null, files: [] }
     agentsRef.current = presentedAgents
     labelsRef.current = labels
-  }, [allFiles, loaded, path, presentedAgents, labels])
+  }, [presentedAgents, labels])
 
   // Lazy network source, key-cached so repeat searches reuse the in-flight or
   // resolved promise.
@@ -246,7 +237,7 @@ export function useReferenceSearch({
   }, [])
 
   return useCallback<ReferenceSearch>(async (query, signal) => {
-    if (!enabledRef.current) return []
+    if (signal?.aborted || !enabledRef.current) return []
 
     const path = pathRef.current
 
@@ -266,7 +257,11 @@ export function useReferenceSearch({
       sessionsEntry = created
     }
 
-    const sessions = await sessionsEntry.promise
+    // 打开引用菜单后才读取文件；连续输入复用当前请求，首次结果也包含文件。
+    const [sessions, files] = await Promise.all([
+      sessionsEntry.promise,
+      loadFilesRef.current(),
+    ])
     // Discard this result if it can no longer be trusted for the live panel: a
     // newer query aborted us, the composer was disabled, or the workspace folder
     // changed while the network fetch was in flight (the popup only aborts on a
@@ -277,12 +272,11 @@ export function useReferenceSearch({
       return []
     }
 
-    const fileState = filesRef.current
     return buildReferenceGroups(
       query,
       {
-        files: fileState.files,
-        workspaceRoot: fileState.root,
+        files,
+        workspaceRoot: path,
         agents: agentsRef.current,
         sessions,
       },

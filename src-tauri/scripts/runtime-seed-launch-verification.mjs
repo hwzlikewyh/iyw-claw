@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { basename, delimiter, dirname, join } from "node:path"
 import { promisify } from "node:util"
@@ -9,7 +9,7 @@ import { archiveTar, safeRelativePath } from "./runtime-seed-files.mjs"
 const execFileAsync = promisify(execFile)
 const PROBE_TIMEOUT_MS = 15_000
 const PROBE_OUTPUT_LIMIT = 1024 * 1024
-const COMPONENT_IDS = ["node", "git", "uv", "codex-acp"]
+const COMPONENT_IDS = ["node", "git", "uv"]
 
 function canExecuteTarget(target) {
   const info = targetInfo(target)
@@ -107,33 +107,6 @@ async function probeNode(component, env, target) {
   }
 }
 
-async function probeCodex(component, { node, env, target }) {
-  const packageRoot = join(
-    component.root,
-    "node_modules/@agentclientprotocol/codex-acp"
-  )
-  const manifest = JSON.parse(
-    await readFile(join(packageRoot, "package.json"), "utf8")
-  )
-  const entry = manifest.bin?.["codex-acp"]
-  if (!safeRelativePath(entry ?? ""))
-    throw new Error("Codex launch probe entrypoint is invalid")
-  await probe({
-    label: "Codex ACP",
-    command: node,
-    args: [join(packageRoot, entry), "--version"],
-    env,
-    expected: component.version,
-  })
-  if (targetInfo(target).os !== "windows")
-    await probe({
-      label: "Codex ACP launcher",
-      command: executable(component, "codex-acp"),
-      env,
-      expected: component.version,
-    })
-}
-
 export async function verifyRuntimeSeedLaunch(seedRoot, components, target) {
   if (!canExecuteTarget(target)) return
   const destination = await mkdtemp(join(tmpdir(), "iyw-seed-launch-"))
@@ -160,7 +133,6 @@ export async function verifyRuntimeSeedLaunch(seedRoot, components, target) {
       expected: staged.uv.version,
     })
     await probe({ label: "uvx", command: executable(staged.uv, "uvx"), env })
-    await probeCodex(staged["codex-acp"], { node, env, target })
   } finally {
     await rm(destination, { recursive: true, force: true })
   }

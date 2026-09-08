@@ -1,0 +1,513 @@
+use std::fmt;
+use std::future::Future;
+use std::path::PathBuf;
+use std::pin::Pin;
+use std::sync::Arc;
+
+use codex_api::ApiError;
+use codex_api::Provider;
+use codex_api::SharedAuthProvider;
+use codex_api::TransportError;
+use codex_api::is_azure_responses_provider;
+use codex_login::AuthManager;
+use codex_login::CodexAuth;
+use codex_login::default_client::RESIDENCY_HEADER_NAME;
+use codex_login::default_client::ResidencyRequirement;
+use codex_login::default_client::read_default_client_residency_requirement;
+use codex_model_provider_info::ModelProviderInfo;
+use codex_models_manager::cache::ModelsCache;
+use codex_models_manager::manager::OpenAiModelsManager;
+use codex_models_manager::manager::SharedModelsManager;
+use codex_models_manager::manager::StaticModelsManager;
+use codex_protocol::account::ProviderAccount;
+use codex_protocol::error::CodexErr;
+use codex_protocol::openai_models::ModelsResponse;
+use http::HeaderValue;
+
+use crate::amazon_bedrock::AmazonBedrockModelProvider;
+use crate::auth::ProviderAuthScope;
+use crate::auth::ResolvedProviderAuth;
+use crate::auth::auth_manager_for_provider;
+use crate::auth::resolve_provider_auth;
+use crate::auth::resolve_provider_auth_for_scope;
+use crate::models_endpoint::OpenAiModelsEndpoint;
+
+pub(crate) fn enforce_managed_residency(provider: &mut Provider) {
+    if let Some(requirement) = read_default_client_residency_requirement() {
+        let value = match requirement {
+            ResidencyRequirement::Us => HeaderValue::from_static("us"),
+        };
+        provider.headers.insert(RESIDENCY_HEADER_NAME, value);
+    }
+}
+
+/// Remote context-compaction protocols supported by a model provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteCompactionSupport {
+    /// The provider does not support remote compaction.
+    Unsupported,
+    /// The provider supports `compaction_trigger` items over the Responses endpoint.
+    V2,
+}
+
+/// Optional provider-backed features that Codex may expose at runtime.
+///
+/// These capabilities are a provider-owned upper bound. Callers can disable
+/// more functionality through normal config, but should not expose a feature
+/// that the active provider marks unsupported here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderCapabilities {
+    pub namespace_tools: bool,
+    pub image_generation: bool,
+    pub web_search: bool,
+    pub external_web_access: bool,
+    pub remote_compaction: RemoteCompactionSupport,
+}
+
+impl Default for ProviderCapabilities {
+    fn default() -> Self {
+        Self {
+            namespace_tools: true,
+            image_generation: true,
+            web_search: true,
+            external_web_access: true,
+            remote_compaction: RemoteCompactionSupport::Unsupported,
+        }
+    }
+}
+
+/// Current app-visible account state for a model provider.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderAccountState {
+    pub account: Option<ProviderAccount>,
+    pub requires_openai_auth: bool,
+}
+
+/// Outcome of a provider-owned attempt to recover from an authentication failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderUnauthorizedRecovery {
+    /// The provider has no provider-specific authentication recovery configured.
+    NotConfigured,
+    /// The provider recovered its authentication state and the request can be retried.
+    Recovered,
+}
+
+/// User-facing lifecycle messages for provider-owned authentication recovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderAuthRecoveryMessages {
+    pub started: &'static str,
+    pub succeeded: &'static str,
+}
+
+/// Error returned when a provider cannot construct its app-visible account state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderAccountError {
+    MissingChatgptAccountDetails,
+    UnsupportedBedrockApiKeyAuth,
+}
+
+impl fmt::Display for ProviderAccountError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingChatgptAccountDetails => {
+                write!(f, "plan type is required for chatgpt authentication")
+            }
+            Self::UnsupportedBedrockApiKeyAuth => {
+                write!(
+                    f,
+                    "Bedrock API key auth is only supported by the Amazon Bedrock model provider"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for ProviderAccountError {}
+
+pub type ProviderAccountResult = std::result::Result<ProviderAccountState, ProviderAccountError>;
+
+/// Default model used for automatic approval review when a provider does not
+/// require a backend-specific model ID.
+pub const DEFAULT_APPROVAL_REVIEW_PREFERRED_MODEL: &str = "codex-auto-review";
+
+const API_KEY_APPROVAL_REVIEW_PREFERRED_MODEL: &str = "gpt-5.6-luna";
+
+/// Default model used for memory extraction when a provider does not require a
+/// backend-specific model ID.
+pub const DEFAULT_MEMORY_EXTRACTION_PREFERRED_MODEL: &str = "gpt-5.6-luna";
+
+/// Default model used for memory consolidation when a provider does not require
+/// a backend-specific model ID.
+pub const DEFAULT_MEMORY_CONSOLIDATION_PREFERRED_MODEL: &str = "gpt-5.6-terra";
+
+/// Runtime provider abstraction used by model execution.
+///
+/// Implementations own provider-specific behavior for a model backend. The
+/// `ModelProviderInfo` returned by `info` is the serialized/configured provider
+/// metadata used by the default OpenAI-compatible implementation.
+pub trait ModelProvider: fmt::Debug + Send + Sync {
+    /// Returns the configured provider metadata.
+    fn info(&self) -> &ModelProviderInfo;
+
+    /// Returns the provider-owned capability upper bounds.
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::default()
+    }
+
+    /// Returns the preferred model used for automatic approval review.
+    ///
+    /// Providers that require backend-specific model IDs should override this.
+    fn approval_review_preferred_model(&self) -> &'static str {
+        DEFAULT_APPROVAL_REVIEW_PREFERRED_MODEL
+    }
+
+    /// Returns the preferred model used for memory extraction.
+    ///
+    /// Providers that require backend-specific model IDs should override this.
+    fn memory_extraction_preferred_model(&self) -> &'static str {
+        DEFAULT_MEMORY_EXTRACTION_PREFERRED_MODEL
+    }
+
+    /// Returns the preferred model used for memory consolidation.
+    ///
+    /// Providers that require backend-specific model IDs should override this.
+    fn memory_consolidation_preferred_model(&self) -> &'static str {
+        DEFAULT_MEMORY_CONSOLIDATION_PREFERRED_MODEL
+    }
+
+    /// Returns whether requests made through this provider should include attestation.
+    fn supports_attestation(&self) -> bool {
+        false
+    }
+
+    /// Returns the provider-scoped auth manager, when this provider uses one.
+    ///
+    /// TODO(celia-oai): Make auth manager access internal to this crate so callers
+    /// resolve provider-specific auth only through `ModelProvider`. We first need
+    /// to think through whether Codex should have a unified provider-specific auth
+    /// manager throughout the codebase; that is a larger refactor than this change.
+    fn auth_manager(&self) -> Option<Arc<AuthManager>>;
+
+    /// Returns whether this transport failure can be recovered by provider-scoped authentication.
+    ///
+    /// The default preserves existing unauthorized-response handling. Providers with other
+    /// authentication failure shapes may recognize additional response or request-signing errors.
+    fn is_recoverable_auth_error(&self, error: &TransportError) -> bool {
+        matches!(
+            error,
+            TransportError::Http { status, .. } if *status == http::StatusCode::UNAUTHORIZED
+        )
+    }
+
+    /// Returns lifecycle messages when provider-owned authentication recovery is active.
+    fn auth_recovery_messages(&self) -> Option<ProviderAuthRecoveryMessages> {
+        None
+    }
+
+    /// Attempts provider-owned authentication recovery before using the auth manager.
+    fn recover_from_unauthorized(
+        &self,
+    ) -> ModelProviderFuture<'_, codex_protocol::error::Result<ProviderUnauthorizedRecovery>> {
+        Box::pin(async { Ok(ProviderUnauthorizedRecovery::NotConfigured) })
+    }
+
+    /// Returns the current provider-scoped auth value, if one is configured.
+    fn auth(&self) -> ModelProviderFuture<'_, Option<CodexAuth>>;
+
+    /// Returns the current app-visible account state for this provider.
+    fn account_state(&self) -> ProviderAccountResult;
+
+    /// Maps an API client error into the provider's user-facing error representation.
+    fn map_api_error(&self, error: ApiError) -> CodexErr {
+        codex_api::map_api_error(error)
+    }
+
+    /// Returns provider configuration adapted for the API client.
+    fn api_provider(&self) -> ModelProviderFuture<'_, codex_protocol::error::Result<Provider>> {
+        Box::pin(async move {
+            let auth = self.auth().await;
+            let mut provider = self
+                .info()
+                .to_api_provider(auth.as_ref().map(CodexAuth::auth_mode))?;
+            enforce_managed_residency(&mut provider);
+            Ok(provider)
+        })
+    }
+
+    /// Returns the provider base URL that will be used at request time.
+    fn runtime_base_url(
+        &self,
+    ) -> ModelProviderFuture<'_, codex_protocol::error::Result<Option<String>>> {
+        Box::pin(async { Ok(self.info().base_url.clone()) })
+    }
+
+    /// Returns the auth provider used to attach request credentials.
+    fn api_auth(
+        &self,
+    ) -> ModelProviderFuture<'_, codex_protocol::error::Result<SharedAuthProvider>> {
+        Box::pin(async move {
+            let auth = self.auth().await;
+            resolve_provider_auth(auth.as_ref(), self.info())
+        })
+    }
+
+    /// Returns request credentials, optionally scoped to a Codex session task.
+    fn api_auth_for_scope(
+        &self,
+        scope: ProviderAuthScope,
+    ) -> ModelProviderFuture<'_, codex_protocol::error::Result<ResolvedProviderAuth>> {
+        Box::pin(async move {
+            if !provider_uses_first_party_auth_path(self.info()) {
+                return self.api_auth().await.map(ResolvedProviderAuth::new);
+            }
+            let auth = self.auth().await;
+            resolve_provider_auth_for_scope(self.auth_manager(), auth.as_ref(), self.info(), scope)
+                .await
+        })
+    }
+
+    /// Creates the model manager implementation appropriate for this provider.
+    fn models_manager(
+        &self,
+        codex_home: PathBuf,
+        config_model_catalog: Option<ModelsResponse>,
+    ) -> SharedModelsManager;
+
+    /// Creates a model manager with caching disabled.
+    ///
+    /// Providers that fetch model catalogs should override this method. The default uses an
+    /// authoritative in-memory catalog so hosted callers cannot accidentally write to disk.
+    fn models_manager_without_cache(
+        &self,
+        config_model_catalog: Option<ModelsResponse>,
+    ) -> SharedModelsManager {
+        let model_catalog = config_model_catalog
+            .or_else(|| codex_models_manager::bundled_models_response().ok())
+            .unwrap_or_default();
+        Arc::new(StaticModelsManager::new(self.auth_manager(), model_catalog))
+    }
+
+    /// Creates a model manager that can use a caller-provided cache for remote catalogs.
+    ///
+    /// Providers with remote catalogs should override this method. The default preserves the
+    /// authoritative catalog returned by [`ModelProvider::models_manager_without_cache`] and does
+    /// not consult `cache`. Implementations should likewise ignore the cache when
+    /// `config_model_catalog` supplies an authoritative static catalog.
+    fn models_manager_with_cache(
+        &self,
+        config_model_catalog: Option<ModelsResponse>,
+        cache: Arc<dyn ModelsCache>,
+    ) -> SharedModelsManager {
+        drop(cache);
+        self.models_manager_without_cache(config_model_catalog)
+    }
+}
+
+pub type ModelProviderFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// Shared runtime model provider handle.
+pub type SharedModelProvider = Arc<dyn ModelProvider>;
+
+fn provider_uses_first_party_auth_path(provider: &ModelProviderInfo) -> bool {
+    provider.requires_openai_auth
+        && provider.env_key.is_none()
+        && provider.experimental_bearer_token.is_none()
+        && provider.auth.is_none()
+        && provider.aws.is_none()
+}
+
+/// Creates the default runtime model provider for configured provider metadata.
+pub fn create_model_provider(
+    provider_info: ModelProviderInfo,
+    auth_manager: Option<Arc<AuthManager>>,
+) -> SharedModelProvider {
+    if provider_info.is_amazon_bedrock() {
+        Arc::new(AmazonBedrockModelProvider::new(provider_info, auth_manager))
+    } else {
+        Arc::new(ConfiguredModelProvider::new(provider_info, auth_manager))
+    }
+}
+
+/// Runtime model provider backed by configured `ModelProviderInfo`.
+#[derive(Clone, Debug)]
+struct ConfiguredModelProvider {
+    info: ModelProviderInfo,
+    auth_manager: Option<Arc<AuthManager>>,
+}
+
+impl ConfiguredModelProvider {
+    fn new(provider_info: ModelProviderInfo, auth_manager: Option<Arc<AuthManager>>) -> Self {
+        let auth_manager = auth_manager_for_provider(auth_manager, &provider_info);
+        Self {
+            info: provider_info,
+            auth_manager,
+        }
+    }
+}
+
+impl ModelProvider for ConfiguredModelProvider {
+    fn info(&self) -> &ModelProviderInfo {
+        &self.info
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        let remote_compaction = if self.info.is_openai()
+            || is_azure_responses_provider(&self.info.name, self.info.base_url.as_deref())
+        {
+            RemoteCompactionSupport::V2
+        } else {
+            RemoteCompactionSupport::Unsupported
+        };
+
+        ProviderCapabilities {
+            remote_compaction,
+            ..ProviderCapabilities::default()
+        }
+    }
+
+    fn approval_review_preferred_model(&self) -> &'static str {
+        if self
+            .auth_manager
+            .as_ref()
+            .and_then(|auth_manager| auth_manager.auth_cached())
+            .is_some_and(|auth| auth.is_api_key_auth())
+        {
+            API_KEY_APPROVAL_REVIEW_PREFERRED_MODEL
+        } else {
+            DEFAULT_APPROVAL_REVIEW_PREFERRED_MODEL
+        }
+    }
+
+    fn auth_manager(&self) -> Option<Arc<AuthManager>> {
+        self.auth_manager.clone()
+    }
+
+    fn supports_attestation(&self) -> bool {
+        self.auth_manager
+            .as_ref()
+            .and_then(|auth_manager| auth_manager.auth_cached())
+            .is_some_and(|auth| auth.is_chatgpt_auth())
+    }
+
+    fn auth(&self) -> ModelProviderFuture<'_, Option<CodexAuth>> {
+        Box::pin(async move {
+            match self.auth_manager.as_ref() {
+                Some(auth_manager) => auth_manager.auth().await,
+                None => None,
+            }
+        })
+    }
+
+    fn account_state(&self) -> ProviderAccountResult {
+        let account = if self.info.requires_openai_auth {
+            self.auth_manager
+                .as_ref()
+                .and_then(|auth_manager| {
+                    let auth = auth_manager.auth_cached()?;
+                    if auth_manager.refresh_failure_for_auth(&auth).is_some() {
+                        return None;
+                    }
+                    if matches!(auth, CodexAuth::Headers(_)) {
+                        return None;
+                    }
+                    Some(auth)
+                })
+                .map(|auth| match &auth {
+                    CodexAuth::ApiKey(_) => Ok(ProviderAccount::ApiKey),
+                    CodexAuth::BedrockApiKey(_) | CodexAuth::BedrockAccessKeys(_) => {
+                        Err(ProviderAccountError::UnsupportedBedrockApiKeyAuth)
+                    }
+                    CodexAuth::Chatgpt(_)
+                    | CodexAuth::ChatgptAuthTokens(_)
+                    | CodexAuth::Headers(_)
+                    | CodexAuth::AgentIdentity(_)
+                    | CodexAuth::PersonalAccessToken(_) => {
+                        let email = auth.get_account_email();
+                        let plan_type = auth.account_plan_type();
+
+                        plan_type
+                            .map(|plan_type| ProviderAccount::Chatgpt { email, plan_type })
+                            .ok_or(ProviderAccountError::MissingChatgptAccountDetails)
+                    }
+                })
+                .transpose()?
+        } else {
+            None
+        };
+
+        Ok(ProviderAccountState {
+            account,
+            requires_openai_auth: self.info.requires_openai_auth,
+        })
+    }
+
+    fn models_manager(
+        &self,
+        codex_home: PathBuf,
+        config_model_catalog: Option<ModelsResponse>,
+    ) -> SharedModelsManager {
+        match config_model_catalog {
+            Some(model_catalog) => Arc::new(StaticModelsManager::new(
+                self.auth_manager.clone(),
+                model_catalog,
+            )),
+            None => {
+                let endpoint = Arc::new(OpenAiModelsEndpoint::new(
+                    self.info.clone(),
+                    self.auth_manager.clone(),
+                ));
+                Arc::new(OpenAiModelsManager::new(
+                    codex_home,
+                    endpoint,
+                    self.auth_manager.clone(),
+                ))
+            }
+        }
+    }
+
+    fn models_manager_without_cache(
+        &self,
+        config_model_catalog: Option<ModelsResponse>,
+    ) -> SharedModelsManager {
+        match config_model_catalog {
+            Some(model_catalog) => Arc::new(StaticModelsManager::new(
+                self.auth_manager.clone(),
+                model_catalog,
+            )),
+            None => {
+                let endpoint = Arc::new(OpenAiModelsEndpoint::new(
+                    self.info.clone(),
+                    self.auth_manager.clone(),
+                ));
+                Arc::new(OpenAiModelsManager::new_without_cache(
+                    endpoint,
+                    self.auth_manager.clone(),
+                ))
+            }
+        }
+    }
+
+    fn models_manager_with_cache(
+        &self,
+        config_model_catalog: Option<ModelsResponse>,
+        cache: Arc<dyn ModelsCache>,
+    ) -> SharedModelsManager {
+        match config_model_catalog {
+            Some(model_catalog) => Arc::new(StaticModelsManager::new(
+                self.auth_manager.clone(),
+                model_catalog,
+            )),
+            None => {
+                let endpoint = Arc::new(OpenAiModelsEndpoint::new(
+                    self.info.clone(),
+                    self.auth_manager.clone(),
+                ));
+                Arc::new(OpenAiModelsManager::new_with_cache(
+                    cache,
+                    endpoint,
+                    self.auth_manager.clone(),
+                ))
+            }
+        }
+    }
+}

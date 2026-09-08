@@ -1,4 +1,10 @@
 import { useRef, useState } from "react"
+import {
+  inputDefaults,
+  allowsEmptyInput,
+  preservesEmptyText,
+  answerError,
+} from "@/lib/question-input"
 import type {
   PendingQuestionState,
   QuestionAnswer,
@@ -25,7 +31,7 @@ function initialState(
   return Object.fromEntries(
     questions.map((question) => [
       question.id,
-      seed?.[question.id] ?? { chosen: [], otherText: "" },
+      seed?.[question.id] ?? inputDefaults(question),
     ])
   )
 }
@@ -40,7 +46,14 @@ export function useAskQuestion(props: QuestionCardProps) {
   const answered = props.question.questions.filter((question) => {
     const value = state[question.id]
     return (
-      value && (value.chosen.length > 0 || value.otherText.trim().length > 0)
+      question.optional ||
+      allowsEmptyInput(question) ||
+      (value &&
+        (value.chosen.length > 0 ||
+          (question.secret || question.input
+            ? value.otherText
+            : value.otherText.trim()
+          ).length > 0))
     )
   }).length
   const select = (question: QuestionSpec, label: string) => {
@@ -56,7 +69,8 @@ export function useAskQuestion(props: QuestionCardProps) {
       ...state,
       [question.id]: {
         chosen:
-          question.multi_select || !text.trim()
+          question.multi_select ||
+          !(question.secret || question.input ? text : text.trim())
             ? state[question.id].chosen
             : [],
         otherText: text,
@@ -94,27 +108,38 @@ function useQuestionSubmission(
   state: SeedSelections
 ) {
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const inFlight = useRef(false)
   const locked = submitting || !!props.readOnly
   const run = async (declined: boolean) => {
     if (inFlight.current || locked) return
     inFlight.current = true
     setSubmitting(true)
-    setError(false)
+    setError(null)
     try {
       const answers = declined
         ? []
-        : props.question.questions.map(({ id }) => ({
-            questionId: id,
-            labels: [
-              ...state[id].chosen,
-              ...[state[id].otherText.trim()].filter(Boolean),
-            ],
-          }))
+        : props.question.questions.map((question) => {
+            const value = state[question.id]
+            const text =
+              question.secret || question.input
+                ? value.otherText
+                : value.otherText.trim()
+            const includeText =
+              text.length > 0 ||
+              (value.chosen.length === 0 && preservesEmptyText(question))
+            return {
+              questionId: question.id,
+              labels: [...value.chosen, ...(includeText ? [text] : [])],
+            }
+          })
       await props.onAnswer(props.question.question_id, { answers, declined })
-    } catch {
-      setError(true)
+    } catch (error) {
+      setError(
+        props.question.questions.some((question) => question.input)
+          ? answerError(error, "submitError")
+          : "submitError"
+      )
       setSubmitting(false)
     } finally {
       inFlight.current = false

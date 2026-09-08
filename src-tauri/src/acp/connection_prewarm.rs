@@ -5,7 +5,7 @@ use std::sync::Arc;
 use sha2::{Digest, Sha256};
 
 use super::{
-    build_agent, internal_codex_worker_requested, runtime_host_key, runtime_host_process_cwd,
+    build_agent, internal_xinghe_worker_requested, runtime_host_key, runtime_host_process_cwd,
     shared_runtime_host_enabled, stderr_tail_for_runtime_host, AcpError, AgentLaunchSpec,
     AgentStoragePaths, AgentType, InternalWorkerLaunch,
 };
@@ -108,7 +108,7 @@ async fn prepare_host(
     storage: &AgentStoragePaths,
 ) -> Result<PreparedHost, AcpError> {
     let agent_type = request.agent_type;
-    let dedicated = internal_codex_worker_requested(agent_type, &prepared.environment);
+    let dedicated = internal_xinghe_worker_requested(agent_type, &prepared.environment);
     let shared = shared_runtime_host_enabled(agent_type) && !dedicated;
     let cwd = if dedicated {
         request.target.cwd.as_path()
@@ -132,6 +132,7 @@ async fn prepare_host(
     let agent = build_agent(AgentLaunchSpec {
         agent_type,
         internal_worker: dedicated.then_some(InternalWorkerLaunch {
+            connection_id: "runtime-host-prewarm",
             expected_session_id: request.target.session_id.as_deref(),
             runtime_fingerprint: &fingerprint,
         }),
