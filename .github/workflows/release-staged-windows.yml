@@ -284,10 +284,27 @@ jobs:
           $env:HTTPS_PROXY = 'http://127.0.0.1:7890'
           $env:NO_PROXY = 'localhost,127.0.0.1'
           $maxAttempts = 3
+          $attemptTimeoutMs = 300_000
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             $attemptDir = Join-Path $env:STAGING_DOWNLOAD_DIR "attempt-$attempt"
-            gh run download $env:STAGING_RUN_ID --repo $env:GH_REPO --name "staged-windows-x86_64-$env:TEST_VERSION" --dir $attemptDir
-            if ($LASTEXITCODE -eq 0) {
+            $startInfo = [Diagnostics.ProcessStartInfo]::new((Get-Command gh -ErrorAction Stop).Source)
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            foreach ($argument in @('run', 'download', $env:STAGING_RUN_ID, '--repo', $env:GH_REPO, '--name', "staged-windows-x86_64-$env:TEST_VERSION", '--dir', $attemptDir)) {
+              $startInfo.ArgumentList.Add($argument)
+            }
+            $download = [Diagnostics.Process]::Start($startInfo)
+            $downloadSucceeded = $false
+            try {
+              if ($download.WaitForExit($attemptTimeoutMs)) {
+                $downloadSucceeded = $download.ExitCode -eq 0
+              } else {
+                Write-Warning 'Proxy download exceeded five minutes; stopping this attempt.'
+                if (!$download.HasExited) { $download.Kill($true) }
+                $download.WaitForExit()
+              }
+            } finally { $download.Dispose() }
+            if ($downloadSucceeded) {
               Copy-Item -LiteralPath (Join-Path $attemptDir $archiveName) -Destination $destination
               if ($expectedHash -and (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $expectedHash) { throw 'downloaded staging ZIP SHA-256 mismatch' }
               exit 0
