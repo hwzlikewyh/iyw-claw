@@ -16,6 +16,10 @@ on:
         description: "Reuse staging from this run; version and source commit must match"
         required: false
         type: string
+      staging_archive_sha256:
+        description: "Optional verified staging ZIP SHA-256 for signer cache reuse"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -214,14 +218,38 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           STAGING_RUN_ID: ${{ inputs.staging_run_id || github.run_id }}
+          STAGING_ARCHIVE_SHA256: ${{ inputs.staging_archive_sha256 }}
           STAGING_DOWNLOAD_DIR: ${{ runner.temp }}/iyw-windows-staging-download-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           if ($env:STAGING_RUN_ID -notmatch '^\d+$') { throw 'staging run ID must be numeric' }
+          $expectedHash = $env:STAGING_ARCHIVE_SHA256
+          if ($expectedHash -and $expectedHash -notmatch '^[a-fA-F0-9]{64}$') { throw 'invalid staging ZIP SHA-256' }
+          $archiveName = 'iyw-windows-staging.zip'
+          $cachedArchive = Join-Path $env:RUNNER_TOOL_CACHE "iyw-staging-cache\$env:STAGING_RUN_ID\$archiveName"
+          New-Item -ItemType Directory -Force -Path $env:STAGING_DOWNLOAD_DIR | Out-Null
+          $destination = Join-Path $env:STAGING_DOWNLOAD_DIR $archiveName
+          if ($expectedHash -and (Test-Path -LiteralPath $cachedArchive -PathType Leaf)) {
+            Copy-Item -LiteralPath $cachedArchive -Destination $destination
+            if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $expectedHash) { throw 'cached staging ZIP SHA-256 mismatch' }
+            Write-Host 'Reused staging ZIP after matching the supplied SHA-256; manifest validation follows.'
+            exit 0
+          }
           $env:HTTP_PROXY = 'http://127.0.0.1:7890'
           $env:HTTPS_PROXY = 'http://127.0.0.1:7890'
           $env:NO_PROXY = 'localhost,127.0.0.1'
-          gh run download $env:STAGING_RUN_ID --repo $env:GH_REPO --name "staged-windows-x86_64-$env:TEST_VERSION" --dir $env:STAGING_DOWNLOAD_DIR
-          if ($LASTEXITCODE -ne 0) { throw 'staging artifact download through local proxy failed' }
+          $maxAttempts = 3
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            $attemptDir = Join-Path $env:STAGING_DOWNLOAD_DIR "attempt-$attempt"
+            gh run download $env:STAGING_RUN_ID --repo $env:GH_REPO --name "staged-windows-x86_64-$env:TEST_VERSION" --dir $attemptDir
+            if ($LASTEXITCODE -eq 0) {
+              Copy-Item -LiteralPath (Join-Path $attemptDir $archiveName) -Destination $destination
+              if ($expectedHash -and (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $expectedHash) { throw 'downloaded staging ZIP SHA-256 mismatch' }
+              exit 0
+            }
+            Write-Warning "Proxy download attempt $attempt/$maxAttempts failed."
+            if ($attempt -lt $maxAttempts) { Start-Sleep -Seconds 5 }
+          }
+          throw 'staging artifact download through local proxy failed after retries'
 
       - name: Extract unsigned staging artifact
         shell: pwsh
