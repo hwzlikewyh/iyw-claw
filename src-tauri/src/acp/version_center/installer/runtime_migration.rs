@@ -31,12 +31,16 @@ pub async fn prepare_shared_runtime(data_dir: &Path) -> Result<(), AppCommandErr
 fn prepare_roots(sources: &[PathBuf]) -> io::Result<()> {
     for source in sources {
         for tool in crate::shared_runtime::SHARED_TOOLS {
+            let started = std::time::Instant::now();
             if let Err(error) = migrate_tool(source, tool) {
                 tracing::error!(tool, source = %source.display(),
                     destination = %crate::shared_runtime::tool_root(source, tool).display(),
+                    duration_ms = started.elapsed().as_millis() as u64,
                     error = %error, "[shared-runtime] migration failed; retained recoverable state");
                 return Err(error);
             }
+            tracing::info!(tool, duration_ms = started.elapsed().as_millis() as u64,
+                "[shared-runtime] tool preparation completed");
         }
     }
     for path in crate::shared_runtime::environment().values() {

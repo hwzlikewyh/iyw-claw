@@ -66,6 +66,19 @@ export function verifyWindowsHelper(bytes, target) {
     throw new Error(
       "Windows sandbox helper is not an executable for the expected target"
     )
+  const optional = pe + 24
+  const optionalSize = bytes.readUInt16LE(pe + 20)
+  const subsystemOffset = 68
+  const windowsGui = 2
+  const expectedMagic = expected[1] === 0x014c ? 0x10b : 0x20b
+  if (
+    optionalSize < subsystemOffset + 2 ||
+    optional + optionalSize > bytes.length ||
+    bytes.readUInt16LE(optional) !== expectedMagic
+  )
+    throw new Error("invalid Windows helper optional header")
+  if (bytes.readUInt16LE(optional + subsystemOffset) !== windowsGui)
+    throw new Error("Windows helper must use the non-console subsystem")
 }
 
 export function verifyWorkerBinary(bytes, target, pin) {

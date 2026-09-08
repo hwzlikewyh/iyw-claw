@@ -403,10 +403,12 @@ mod tauri_app {
                 unsafe {
                     std::env::set_var("IYW_CLAW_DATA_DIR", &effective_data_dir);
                 }
-                tauri::async_runtime::block_on(
-                    crate::acp::version_center::prepare_shared_runtime(&effective_data_dir),
-                )
-                .map_err(|error| std::io::Error::other(error.to_string()))?;
+                crate::logging::emergency::run_stage("prepare-shared-runtime", || {
+                    tauri::async_runtime::block_on(
+                        crate::acp::version_center::prepare_shared_runtime(&effective_data_dir),
+                    )
+                    .map_err(|error| std::io::Error::other(error.to_string()))
+                })?;
                 app.manage(crate::browser::BrowserSessionManager::new_desktop(
                     effective_data_dir.clone(),
                     app.state::<ConnectionManager>().clone_ref(),

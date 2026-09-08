@@ -44,6 +44,34 @@ crate manifest with `0.152.1`; they are unchanged. The pointer casts remain
 necessary. The upgrade also adopts upstream's `AsRef<OsStr>` pipe-spawn API
 while preserving the existing hidden-window flags, and updates the package version.
 
+`codex-core-plugins` contains the pinned production sources. Plugin startup sync
+creates its own synchronous Git commands, bypassing `codex-git-utils`.
+`PluginGitMode::command` now sets `CREATE_NO_WINDOW` on Windows; marketplace
+installation uses the same factory in Manual mode with unchanged Git arguments
+and environment. This covers remote HEAD lookup, local rev-parse, clone, fetch,
+checkout and submodule operations without changing plugin configuration.
+The separate npm package materialization command receives the same Windows flag.
+Upstream test modules and fixtures are omitted; dependencies retain the pinned
+workspace versions. Review this override together with `codex-git-utils` on upgrade.
+
+The Windows process audit also requires pinned production copies of `codex-core`,
+`codex-exec-server`, `codex-hooks`, `codex-rmcp-client`, `codex-rollout`,
+`codex-login`, `codex-model-provider`, and `codex-code-mode`. Their runtime deltas
+set `CREATE_NO_WINDOW` at background command creation, hook Job fallback and
+taskkill cleanup. The original arguments, environment, timeout, cancellation and
+sandbox policy are retained. Standalone manifests preserve every production
+dependency's version, features, optional flag, target and default-feature setting.
+Bundled production assets are copied byte-for-byte. Test modules and fixtures
+are omitted; small routing/instruction helpers still referenced by library
+constructors retain their upstream module aliases. The upstream internal sync
+handler remains compiled under its original identifiers using `internal_sync*`
+source files, without its test module.
+
+All three private Windows helper targets use the Windows GUI subsystem with
+inherited pipes. Bundle verification rejects console-subsystem helpers. This
+also covers helper launches outside the patched factories. See
+`WINDOWS_PROCESS_AUDIT.md` for call paths, exclusions and verification limits.
+
 Before updating `upstream.lock`, compare this directory with the new upstream
 crate. Drop the local override when the new release compiles without it; do not
 carry it forward by default.

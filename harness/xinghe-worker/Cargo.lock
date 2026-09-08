@@ -2221,7 +2221,6 @@ dependencies = [
 [[package]]
 name = "codex-code-mode"
 version = "0.153.4"
-source = "git+https://github.com/openai/codex.git?rev=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a#3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
 dependencies = [
  "codex-code-mode-protocol",
  "codex-http-client",
@@ -2359,7 +2358,6 @@ dependencies = [
 [[package]]
 name = "codex-core"
 version = "0.153.4"
-source = "git+https://github.com/openai/codex.git?rev=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a#3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2468,7 +2466,6 @@ dependencies = [
 [[package]]
 name = "codex-core-plugins"
 version = "0.153.4"
-source = "git+https://github.com/openai/codex.git?rev=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a#3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2527,7 +2524,6 @@ dependencies = [
 [[package]]
 name = "codex-exec-server"
 version = "0.153.4"
-source = "git+https://github.com/openai/codex.git?rev=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a#3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
 dependencies = [
  "arc-swap",
  "axum",
@@ -2874,7 +2870,6 @@ dependencies = [
 [[package]]
 name = "codex-hooks"
 version = "0.153.4"
-source = "git+https://github.com/openai/codex.git?rev=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a#3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2996,7 +2991,6 @@ dependencies = [
 [[package]]
 name = "codex-login"
 version = "0.153.4"
-source = "git+https://github.com/openai/codex.git?rev=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a#3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3152,7 +3146,6 @@ dependencies = [
 [[package]]
 name = "codex-model-provider"
 version = "0.153.4"
-source = "git+https://github.com/openai/codex.git?rev=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a#3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
 dependencies = [
  "codex-agent-identity",
  "codex-api",
@@ -3377,7 +3370,6 @@ dependencies = [
 [[package]]
 name = "codex-rmcp-client"
 version = "0.153.4"
-source = "git+https://github.com/openai/codex.git?rev=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a#3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
 dependencies = [
  "anyhow",
  "axum",
@@ -3419,7 +3411,6 @@ dependencies = [
 [[package]]
 name = "codex-rollout"
 version = "0.153.4"
-source = "git+https://github.com/openai/codex.git?rev=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a#3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
 dependencies = [
  "anyhow",
  "chrono",
