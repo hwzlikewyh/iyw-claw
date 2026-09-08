@@ -86,6 +86,15 @@ All 29 production dependency declarations and all feature definitions match the
 published manifest; test items and fixtures are omitted. This is independent of
 the upstream model provider's explicit AWS refresh command.
 
+`appcontainer-common` copies the production sources and MIT license of
+Microsoft's `appcontainer_common` 0.8.0 at
+`6cd3d58f05d3447e67109cfb75e042803b843ca4`. On Windows x86,
+`SHELLEXECUTEINFOW` is packed: calling a method directly on `hProcess` creates
+an unaligned reference. `proxy_coordinator` copies that field to a local value
+before checking it and transferring it to the existing owned-handle wrapper.
+All dependency and feature declarations are retained; test modules and their
+orphaned documentation are omitted. Review this override when updating MXC.
+
 Before updating `upstream.lock`, compare this directory with the new upstream
 crate. Drop the local override when the new release compiles without it; do not
 carry it forward by default.

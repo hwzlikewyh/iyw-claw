@@ -81,3 +81,6 @@ codex-rollout = { path = "patches/codex-rollout" }
 codex-login = { path = "patches/codex-login" }
 codex-model-provider = { path = "patches/codex-model-provider" }
 codex-code-mode = { path = "patches/codex-code-mode" }
+
+[patch."https://github.com/microsoft/mxc"]
+appcontainer_common = { path = "patches/appcontainer-common" }

@@ -1,0 +1,722 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! BaseContainer-fallback tier dispatcher.
+//!
+//! Wires Phases 0–3 (telemetry, fallback detector, AppContainer modes,
+//! DACL manager) into a single entrypoint. Given an [`ExecutionRequest`], the
+//! dispatcher consults [`crate::fallback_detector::detect`] to choose
+//! between Tier 1 (BaseContainer), Tier 2 (AppContainer + BFS), or Tier 3
+//! (AppContainer + DACL), constructs the appropriate runner, and applies
+//! [`DaclManager`] augmentation when the chosen tier requires it.
+//!
+//! Filesystem-policy enforcement under T1 is delegated entirely to
+//! BaseContainer's own `Experimental_CreateProcessInSandbox` API
+//! (`deniedPaths` via the SandboxSpec `fs_deny` field); the dispatcher
+//! does **not** apply host DACLs in T1. When the OS advertises native
+//! deny support the OS enforces `deniedPaths` itself; when it does not,
+//! a denied-paths policy never reaches T1 (the detector falls through to
+//! the AppContainer tiers, which stamp the deny DACLs). So T1 has no
+//! deny ACEs to apply either way.
+//!
+//! # Why T2 (BFS) also gets DACL deny augmentation
+//!
+//! `bfscfg.exe`'s BFS model expresses read-write / read-only allow lists,
+//! but does **not** model a deny semantic for paths *outside* its allow
+//! list (those are implicitly inaccessible, but a path that lives inside
+//! an allowed parent cannot be selectively denied via BFS). To honor
+//! `policy.denied_paths` on T2 we therefore add deny ACEs targeting the
+//! AppContainer SID alongside the BFS configuration.
+//!
+//! # Drop ordering
+//!
+//! Callers must keep the [`DaclManager`] returned by
+//! [`Dispatched::into_runner_and_guard`] alive for the entire duration of
+//! the run — its [`Drop`] removes the ACEs we added to the host
+//! filesystem. Dropping it before the runner finishes would yank
+//! filesystem access mid-execution.
+//!
+//! # Performance
+//!
+//! Tier 1 has the lowest per-invocation cost: a single
+//! `BaseContainerRunner::new()`. Tier 2 with empty `denied_paths` is also
+//! near-free. The heavy paths are Tier 2 with deny-only and Tier 3, both
+//! of which stamp host-DACL ACEs via [`DaclManager`].
+//!
+//! The DACL cost is roughly O(N) Win32 syscalls plus one state-file
+//! write per path in (Tier 3: `readwrite_paths` ∪ `readonly_paths` ∪
+//! `denied_paths`; Tier 2: `denied_paths`). The same number of syscalls
+//! is replayed in reverse on `Drop`. At the typical N (6–12 paths) this
+//! adds tens of milliseconds to both dispatch and shutdown; at larger N
+//! it scales linearly and can add hundreds of milliseconds on each side.
+//! SDK callers that spawn `wxc-exec` per task pay this cost on every
+//! invocation. Parent-directory ACE rollup and session-scoped
+//! [`DaclManager`] caching are tracked as follow-ups.
+//!
+//! # Known limitation
+//!
+//! Two concurrent runs with the *same* `container_id` derive the same
+//! AppContainer SID and therefore share the same target principal for
+//! ACE bookkeeping. When the second run finishes it issues
+//! `REVOKE_ACCESS` for that SID, which wipes the first run's still-live
+//! grants. This is out of scope for the dispatcher; callers that need
+//! parallel-safe isolation must use distinct `container_id` values.
+//!
+//! Windows-only by virtue of `lib.rs` gating the module behind
+//! `#[cfg(target_os = "windows")]`; no inner attribute is needed.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use crate::appcontainer_runner::{derive_sid_string, AppContainerScriptRunner, FilesystemMode};
+use crate::base_container_runner::BaseContainerRunner;
+use crate::fallback_detector::{self, FallbackError, IsolationTier};
+use crate::guarded_capture::GuardedCaptureFactory;
+use wxc_common::error::WxcError;
+use wxc_common::filesystem_dacl::{DaclError, DaclManager, RO_MASK, RW_MASK};
+use wxc_common::logger::Logger;
+use wxc_common::models::{ExecutionRequest, ScriptResponse};
+use wxc_common::sandbox_process::{Runner, SandboxBackend, SandboxProcess, StdioMode};
+use wxc_common::script_runner::ScriptRunner;
+use wxc_common::validator::NetworkPolicySupport;
+
+/// Result of a successful dispatch decision: a phased handle holding a
+/// runner and (optionally) a `DaclManager`, with **private fields** so
+/// callers cannot reorder their drops.
+///
+/// This is *not* a compile-time typestate — there are no
+/// `PhantomData<State>` markers and `Dispatched<Ready>` /
+/// `Dispatched<Spawned>` do not exist. The safety property
+/// ("`DaclManager`'s `Drop` runs AFTER the runner has finished, or the
+/// ACEs we applied would be revoked mid-execution") is enforced
+/// dynamically by the single extraction point
+/// [`Dispatched::into_runner_and_guard`]: it returns a tuple whose
+/// binding order dictates drop order, and callers cannot `.take()`
+/// either half independently because the fields are private.
+///
+/// If you need stronger guarantees (e.g. statically rejecting
+/// `runner.drop()` before `dacl_manager` is taken at the FFI boundary),
+/// promote the struct to a real typestate machine. Today, the
+/// surface area we expose to wxc-exec / SDK doesn't need that.
+pub struct Dispatched {
+    runner: Box<dyn ScriptRunner>,
+    dacl_manager: Option<DaclManager>,
+    /// The selected tier, for telemetry.
+    pub tier: IsolationTier,
+    /// Operator-visible warnings collected during tier selection.
+    pub warnings: Vec<String>,
+}
+
+impl Dispatched {
+    /// Consume `self` and return `(runner, dacl_manager)`. Bind these
+    /// in a single `let` such that the runner is dropped before the
+    /// DACL guard — Rust drops local bindings in reverse declaration
+    /// order, so the standard idiom is:
+    ///
+    /// ```ignore
+    /// let (mut runner, _dacl_guard) = dispatched.into_runner_and_guard();
+    /// // ... use runner ...
+    /// // at end of scope: runner drops first, then _dacl_guard restores ACEs.
+    /// ```
+    pub fn into_runner_and_guard(self) -> (Box<dyn ScriptRunner>, Option<DaclManager>) {
+        (self.runner, self.dacl_manager)
+    }
+
+}
+
+/// Errors that can abort dispatch before the runner executes.
+#[derive(Debug)]
+pub enum DispatchError {
+    /// Fallback detection refused the request.
+    Fallback(FallbackError),
+    /// `DaclManager` failed to apply ACEs. `warnings` carries any
+    /// retained-entry messages drained from the manager before the
+    /// failed apply was rolled back via `restore()`. Entries that
+    /// `restore()` itself could not clean up are persisted to disk and
+    /// will be reaped on the next wxc-exec startup by
+    /// `recover_orphaned_state`.
+    Dacl {
+        error: DaclError,
+        warnings: Vec<String>,
+    },
+    /// AppContainer SID derivation failed.
+    Sid(WxcError),
+    /// captureDenials requires the native BaseContainer tier and cannot
+    /// proceed through an AppContainer fallback.
+    CaptureDenialsUnsupported { tier: IsolationTier },
+}
+
+impl std::fmt::Display for DispatchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DispatchError::Fallback(FallbackError::DaclFallbackDisabled) => write!(
+                f,
+                "BaseContainer is unavailable on this system and DACL fallback is disabled \
+                 (fallback.allowDaclMutation=false). Run on a system with the BaseContainer \
+                 API or bfscfg.exe, or set fallback.allowDaclMutation=true in your config."
+            ),
+            DispatchError::Fallback(FallbackError::WriteDacUnavailable { path, reason }) => {
+                write!(
+                    f,
+                    "BaseContainer is unavailable; DACL fallback requires write-DAC permission \
+                     on '{}', which the current user lacks ({reason}).",
+                    path.display()
+                )
+            }
+            DispatchError::Fallback(FallbackError::SystemRootUnresolved { reason }) => write!(
+                f,
+                "Could not resolve the Windows system directory while probing for bfscfg.exe \
+                 ({reason}). This indicates a corrupted or unsupported OS configuration."
+            ),
+            DispatchError::Dacl { error, .. } => write!(f, "Failed to apply DACL ACEs: {error}"),
+            DispatchError::Sid(e) => write!(f, "Failed to derive AppContainer SID: {e}"),
+            DispatchError::CaptureDenialsUnsupported { tier } => write!(
+                f,
+                "captureDenials requires the native BaseContainer backend; \
+                 the selected fallback tier '{}' does not support denial capture.",
+                tier.as_str()
+            ),
+        }
+    }
+}
+
+impl std::error::Error for DispatchError {}
+
+impl From<FallbackError> for DispatchError {
+    fn from(e: FallbackError) -> Self {
+        DispatchError::Fallback(e)
+    }
+}
+
+/// The container-id → AppContainer-name mapping used by the runners. Empty
+/// container_id maps to `"CLI"` (matches both AppContainerScriptRunner and
+/// BaseContainerRunner internals).
+fn container_name(request: &ExecutionRequest) -> String {
+    if request.container_id.is_empty() {
+        "CLI".to_string()
+    } else {
+        request.container_id.clone()
+    }
+}
+
+fn paths_to_pathbufs(paths: &[String]) -> Vec<PathBuf> {
+    paths.iter().map(PathBuf::from).collect()
+}
+
+/// Drop paths that already grant `needed_mask` to the well-known
+/// AppContainer SIDs (`ALL APPLICATION PACKAGES`,
+/// `ALL RESTRICTED APPLICATION PACKAGES`, `Everyone`). Mirrors the
+/// same effective-access check that
+/// [`fallback_detector::appcontainer_already_grants`] performs for
+/// the `WRITE_DAC` precheck.
+fn filter_paths_needing_grant(paths: Vec<PathBuf>, needed_mask: u32) -> Vec<PathBuf> {
+    paths
+        .into_iter()
+        .filter(|p| !fallback_detector::appcontainer_already_grants(p, needed_mask))
+        .collect()
+}
+
+/// Wrap a `DaclError` together with any retained-entry warnings from the
+/// manager whose apply failed. Called immediately before `mgr` goes out
+/// of scope (which triggers `restore()` via Drop) so we capture the
+/// apply-time warnings, not whatever `restore()` itself accumulates
+/// while unwinding.
+fn dacl_err(mgr: &DaclManager, error: DaclError) -> DispatchError {
+    DispatchError::Dacl {
+        error,
+        warnings: mgr.warnings().to_vec(),
+    }
+}
+
+/// Build the deny-only DACL manager used by T1 and T2 when
+/// `denied_paths` is non-empty. Returns `Ok(None)` when no DACL work is
+/// required.
+fn build_deny_only_dacl(
+    sid: &str,
+    denied: &[PathBuf],
+) -> Result<Option<DaclManager>, DispatchError> {
+    if denied.is_empty() {
+        return Ok(None);
+    }
+    let mut mgr = DaclManager::new().map_err(|e| DispatchError::Dacl {
+        error: e,
+        warnings: Vec::new(),
+    })?;
+    if let Err(e) = mgr.add_deny_aces(sid, denied) {
+        return Err(dacl_err(&mgr, e));
+    }
+    Ok(Some(mgr))
+}
+
+/// Build the grant + (optional) deny DACL manager used by T3. T3 always
+/// returns a `DaclManager` because grants are mandatory; if grants
+/// succeed and deny fails, the manager's `Drop` rolls back the grants.
+fn build_t3_dacl(
+    sid: &str,
+    readwrite: &[PathBuf],
+    readonly: &[PathBuf],
+    denied: &[PathBuf],
+) -> Result<DaclManager, DispatchError> {
+    let mut mgr = DaclManager::new().map_err(|e| DispatchError::Dacl {
+        error: e,
+        warnings: Vec::new(),
+    })?;
+    if let Err(e) = mgr.grant_appcontainer_access(sid, readwrite, readonly) {
+        return Err(dacl_err(&mgr, e));
+    }
+    if !denied.is_empty() {
+        if let Err(e) = mgr.add_deny_aces(sid, denied) {
+            return Err(dacl_err(&mgr, e));
+        }
+    }
+    Ok(mgr)
+}
+
+/// The concrete Windows backend chosen by the fallback dispatcher, before it is
+/// adapted to either the run-to-completion surface (wrapped in [`Runner`] →
+/// [`ScriptRunner`], via [`dispatch_with_fallback`]) or the streaming surface
+/// ([`SandboxBackend::spawn`], via [`spawn_with_fallback`]).
+///
+/// Keeping tier selection in one place ([`select_backend_with_fallback`]) is
+/// what guarantees the two surfaces can't drift — the streaming path previously
+/// reimplemented a two-tier subset and so never reached the AppContainer + DACL
+/// fallback (issue #643).
+enum SelectedBackend {
+    BaseContainer(BaseContainerRunner),
+    AppContainer(AppContainerScriptRunner),
+}
+
+impl SandboxBackend for SelectedBackend {
+    fn network_policy_support(&self) -> NetworkPolicySupport {
+        match self {
+            SelectedBackend::BaseContainer(b) => b.network_policy_support(),
+            SelectedBackend::AppContainer(a) => a.network_policy_support(),
+        }
+    }
+
+    fn validate(&self, request: &ExecutionRequest) -> Result<(), ScriptResponse> {
+        match self {
+            SelectedBackend::BaseContainer(b) => b.validate(request),
+            SelectedBackend::AppContainer(a) => a.validate(request),
+        }
+    }
+
+    fn spawn(
+        &mut self,
+        request: &ExecutionRequest,
+        logger: &mut Logger,
+        stdio: StdioMode,
+    ) -> Result<Box<dyn SandboxProcess>, ScriptResponse> {
+        match self {
+            SelectedBackend::BaseContainer(b) => b.spawn(request, logger, stdio),
+            SelectedBackend::AppContainer(a) => a.spawn(request, logger, stdio),
+        }
+    }
+
+    fn diagnose_exit(&self, request: &ExecutionRequest, exit_code: i32) -> Option<String> {
+        match self {
+            SelectedBackend::BaseContainer(b) => b.diagnose_exit(request, exit_code),
+            SelectedBackend::AppContainer(a) => a.diagnose_exit(request, exit_code),
+        }
+    }
+}
+
+/// Run tier selection and construct the backend + (optional) DACL guard for
+/// `request`. This is the single source of truth for the tier → (backend, DACL)
+/// mapping, shared by the run-to-completion ([`dispatch_with_fallback`]) and
+/// streaming ([`spawn_with_fallback`]) surfaces (and their capture-aware
+/// counterparts, [`dispatch_with_fallback_and_capture`] /
+/// [`spawn_with_fallback_and_capture`]).
+///
+/// `capture_factory` is the optional guarded-WPR-capture DI boundary (see
+/// [`crate::guarded_capture`]). When `request.policy.capture_denials` is set
+/// and the selected tier is not the native BaseContainer backend:
+/// - `capture_factory` present → the factory is threaded onto the chosen
+///   AppContainer runner via `with_guarded_capture_factory`, so the runner
+///   itself performs the guarded WPR fallback capture (see
+///   `appcontainer_runner`'s `validate`/`spawn`).
+/// - `capture_factory` absent → dispatch fails closed with
+///   [`DispatchError::CaptureDenialsUnsupported`], preserving the legacy
+///   behavior for callers that haven't opted into the fallback (e.g. callers
+///   without a Windows-only `plm` dependency available).
+///
+/// On success the returned [`DaclManager`], when present, has **already applied
+/// its ACEs** and MUST outlive the run (its `Drop` restores the host ACEs). The
+/// selected [`IsolationTier`] and any tier-selection warnings are returned for
+/// telemetry.
+fn select_backend_with_fallback(
+    request: &ExecutionRequest,
+    capture_factory: Option<&Arc<dyn GuardedCaptureFactory>>,
+) -> Result<
+    (
+        SelectedBackend,
+        Option<DaclManager>,
+        IsolationTier,
+        Vec<String>,
+    ),
+    DispatchError,
+> {
+    // Keep the established tier fallback behavior for every schema version.
+    // BaseContainerRunner prefers PSEC whenever it is available and compatible,
+    // otherwise uses the transitional SBOX contract. If neither BaseContainer
+    // contract is usable, detection continues to the AppContainer tiers.
+    let prefer_base_container = BaseContainerRunner::is_usable_for_request(request);
+    let uses_native_capture = BaseContainerRunner::uses_native_capture_for_request(request);
+    let supports_deny_paths = BaseContainerRunner::supports_deny_paths_for_request(request);
+    let decision = fallback_detector::detect_with_base_container_capabilities(
+        &request.policy,
+        prefer_base_container,
+        prefer_base_container,
+        supports_deny_paths,
+    )?;
+    let guarded_capture_required = request.policy.capture_denials.is_some()
+        && (decision.tier != IsolationTier::BaseContainer || !uses_native_capture);
+    if guarded_capture_required && capture_factory.is_none() {
+        return Err(DispatchError::CaptureDenialsUnsupported {
+            tier: decision.tier,
+        });
+    }
+    // Only thread the factory into the runner when it will actually be used —
+    // an AppContainer tier honoring `captureDenials`. Reuse the already-derived
+    // `guarded_capture_required` rather than re-deriving the condition from
+    // `capture_denials`: for every AppContainer tier the two are equivalent
+    // (those arms only run when `tier != BaseContainer`), and in the
+    // BaseContainer arm this value is unused. This keeps
+    // T1/T2-without-capture/T3-without-capture identical to their pre-fallback
+    // construction.
+    let capture_factory_for_appcontainer = if guarded_capture_required {
+        capture_factory
+    } else {
+        None
+    };
+    let (backend, dacl_manager): (SelectedBackend, Option<DaclManager>) = match decision.tier {
+        IsolationTier::BaseContainer => {
+            // Tier 1 delegates filesystem-policy enforcement to
+            // BaseContainer's native API. We stamp no host-DACL deny ACEs
+            // here: the detector only routes a denied-paths policy to T1
+            // when the OS enforces `fs_deny` natively, so there is nothing
+            // for a host DACL to add.
+            let runner = if guarded_capture_required {
+                BaseContainerRunner::new().with_guarded_capture_factory(Arc::clone(
+                    capture_factory.expect("guarded capture factory checked above"),
+                ))
+            } else {
+                BaseContainerRunner::new()
+            };
+            (SelectedBackend::BaseContainer(runner), None)
+        }
+        IsolationTier::AppContainerBfs => {
+            // T2 only needs deny ACEs (BFS handles the rest in-runner)
+            // and only when `deniedPaths` is non-empty. Allocate the
+            // path Vec and derive the SID inside that branch so the
+            // common no-deny case skips both costs.
+            let denied = paths_to_pathbufs(&request.policy.denied_paths);
+            if denied.is_empty() {
+                let runner = with_capture_factory(
+                    AppContainerScriptRunner::with_filesystem_mode(FilesystemMode::Bfs),
+                    capture_factory_for_appcontainer,
+                );
+                (SelectedBackend::AppContainer(runner), None)
+            } else {
+                let sid =
+                    derive_sid_string(&container_name(request)).map_err(DispatchError::Sid)?;
+                let mgr = build_deny_only_dacl(&sid, &denied)?;
+                // Hand the derived SID string to the runner so it does
+                // not re-run `ConvertSidToStringSidW` for the firewall
+                // principal-id lookup.
+                //
+                // BFS cannot enforce `deniedPaths` itself. Marking them
+                // "externally enforced" — so the runner's `validate` accepts
+                // them and relies on the host deny-only DACL built above — is a
+                // capture-fallback affordance, gated to `captureDenials`
+                // requests. For non-capture requests we leave the runner
+                // unmarked, so `deniedPaths` on the BFS tier stay unsupported
+                // exactly as before this fallback existed (the runner's
+                // `validate` rejects them) rather than silently broadening BFS
+                // to honor `deniedPaths` via host DACLs.
+                let base_runner = AppContainerScriptRunner::with_filesystem_mode_and_sid_string(
+                    FilesystemMode::Bfs,
+                    sid,
+                );
+                let base_runner = if guarded_capture_required {
+                    base_runner.with_external_denied_paths()
+                } else {
+                    base_runner
+                };
+                let runner = with_capture_factory(base_runner, capture_factory_for_appcontainer);
+                (SelectedBackend::AppContainer(runner), mgr)
+            }
+        }
+        IsolationTier::AppContainerDacl => {
+            // T3 always stamps grant ACEs (for readwrite/readonly paths)
+            // and optionally deny ACEs. Allocate per-arm so T1/T2 don't
+            // pay the cost.
+            //
+            // Skip per-run grant ACEs on paths where the well-known
+            // AppContainer SIDs already grant the equivalent access.
+            // `fallback_detector::detect` performs the same effective-
+            // access check up front so it can skip the `WRITE_DAC`
+            // requirement; this filter is the matching application
+            // side so we don't try (and fail) to stamp a redundant
+            // ACE on a system path the user doesn't own. Denied paths
+            // are not filtered — DENY ACEs are about subtracting
+            // access, which well-known group grants can't do.
+            let readwrite = filter_paths_needing_grant(
+                paths_to_pathbufs(&request.policy.readwrite_paths),
+                RW_MASK,
+            );
+            let readonly = filter_paths_needing_grant(
+                paths_to_pathbufs(&request.policy.readonly_paths),
+                RO_MASK,
+            );
+            let denied = paths_to_pathbufs(&request.policy.denied_paths);
+            let sid = derive_sid_string(&container_name(request)).map_err(DispatchError::Sid)?;
+            let mgr = build_t3_dacl(&sid, &readwrite, &readonly, &denied)?;
+            let runner = with_capture_factory(
+                AppContainerScriptRunner::with_filesystem_mode_and_sid_string(
+                    FilesystemMode::Dacl,
+                    sid,
+                ),
+                capture_factory_for_appcontainer,
+            );
+            (SelectedBackend::AppContainer(runner), Some(mgr))
+        }
+    };
+
+    Ok((backend, dacl_manager, decision.tier, decision.warnings))
+}
+
+/// Chain [`AppContainerScriptRunner::with_guarded_capture_factory`] onto
+/// `runner` when `capture_factory` is present, otherwise return `runner`
+/// unchanged. Small helper to keep the three tier-selection arms above
+/// symmetric regardless of whether `captureDenials` is in play.
+fn with_capture_factory(
+    runner: AppContainerScriptRunner,
+    capture_factory: Option<&Arc<dyn GuardedCaptureFactory>>,
+) -> AppContainerScriptRunner {
+    match capture_factory {
+        Some(factory) => runner.with_guarded_capture_factory(Arc::clone(factory)),
+        None => runner,
+    }
+}
+
+/// Build a runner with appropriate DACL augmentation for the
+/// BaseContainer-preferred path. The caller is responsible for the explicit
+/// (no-fallback) AppContainer path.
+///
+/// On success the returned [`Dispatched`] contains a runner ready to
+/// execute and (when applicable) a [`DaclManager`] that has already
+/// applied its ACEs. Use [`Dispatched::into_runner_and_guard`] to
+/// extract both; the manager MUST stay alive through the run.
+///
+/// This is the legacy, capture-unaware entrypoint: `captureDenials` on a
+/// non-BaseContainer tier always fails closed. Use
+/// [`dispatch_with_fallback_and_capture`] to additionally opt into the
+/// guarded-WPR fallback.
+pub fn dispatch_with_fallback(request: &ExecutionRequest) -> Result<Dispatched, DispatchError> {
+    dispatch_with_fallback_and_capture(request, None)
+}
+
+/// Capture-aware counterpart of [`dispatch_with_fallback`]: identical tier
+/// selection, but when `request.policy.capture_denials` is set and the
+/// selected tier is an AppContainer fallback (not the native BaseContainer
+/// backend), `capture_factory` — when present — is threaded onto the chosen
+/// runner via `with_guarded_capture_factory` so the runner performs a guarded
+/// WPR fallback capture instead of failing closed.
+///
+/// Passing `None` is equivalent to [`dispatch_with_fallback`].
+pub fn dispatch_with_fallback_and_capture(
+    request: &ExecutionRequest,
+    capture_factory: Option<Arc<dyn GuardedCaptureFactory>>,
+) -> Result<Dispatched, DispatchError> {
+    let (backend, dacl_manager, tier, warnings) =
+        select_backend_with_fallback(request, capture_factory.as_ref())?;
+    let runner: Box<dyn ScriptRunner> = Box::new(Runner::new(backend));
+    Ok(Dispatched {
+        runner,
+        dacl_manager,
+        tier,
+        warnings,
+    })
+}
+
+/// A successful streaming dispatch: a [`SandboxProcess`] handle plus the tier
+/// and warnings for telemetry. The handle already owns any [`DaclManager`]
+/// guard (via [`DaclGuardedProcess`]), so ACE restore outlives the child — the
+/// caller only has to keep the handle alive until the run is done.
+pub struct DispatchedProcess {
+    /// The spawned sandboxed process, streaming stdio over pipes.
+    pub process: Box<dyn SandboxProcess>,
+    /// The selected tier, for telemetry.
+    pub tier: IsolationTier,
+    /// Operator-visible warnings collected during tier selection.
+    pub warnings: Vec<String>,
+}
+
+/// Error from the streaming [`spawn_with_fallback`] path. Kept distinct from a
+/// flat error so the caller can preserve fallback semantics: tier-selection /
+/// DACL failures map to `backend_unavailable` (as the run-to-completion path
+/// does), while a backend spawn failure preserves the backend's
+/// [`FailurePhase`](wxc_common::models::FailurePhase).
+pub enum SpawnDispatchError {
+    /// Tier selection or DACL application failed before the process spawned.
+    /// Mirrors [`dispatch_with_fallback`]'s [`DispatchError`].
+    Dispatch(DispatchError),
+    /// The selected backend's `spawn` failed *after* a tier was already chosen
+    /// (and any DACL ACEs applied then rolled back). Carries the backend's
+    /// [`ScriptResponse`] so the caller can preserve its `failure_phase`, plus
+    /// the selected `tier` and tier-selection `warnings` so the caller can log
+    /// them on the failure path too — matching the run-to-completion path, which
+    /// logs both at resolve time before the (separate, later) spawn attempt.
+    ///
+    /// `response` is boxed to keep this cold-path error variant small (it would
+    /// otherwise trip `clippy::result_large_err` on every `spawn_with_fallback`
+    /// return).
+    Spawn {
+        response: Box<ScriptResponse>,
+        tier: IsolationTier,
+        warnings: Vec<String>,
+    },
+}
+
+/// Streaming counterpart of [`dispatch_with_fallback`]: select the tier, apply
+/// any DACL augmentation, spawn the sandboxed process with `stdio`, and return a
+/// [`SandboxProcess`] handle that owns the DACL guard so ACE restore outlives
+/// the child.
+///
+/// This exists so the streaming (`mxc-sdk`) path gets the **same** three-tier
+/// fallback as the executor binaries' run-to-completion path — including the
+/// AppContainer + DACL (Tier 3) tier used when neither BaseContainer nor
+/// `bfscfg.exe` (Tier 2 BFS) is available. See issue #643.
+///
+/// # Drop ordering
+///
+/// When a DACL guard is attached, the returned handle is a [`DaclGuardedProcess`]
+/// whose field order drops the inner process (killing the child tree and
+/// tearing down firewall / BFS enforcement) **before** the [`DaclManager`]
+/// (restoring host ACEs) — the same order the run-to-completion path enforces
+/// via [`Dispatched::into_runner_and_guard`].
+///
+/// This is the legacy, capture-unaware entrypoint: `captureDenials` on a
+/// non-BaseContainer tier always fails closed. Use
+/// [`spawn_with_fallback_and_capture`] to additionally opt into the
+/// guarded-WPR fallback.
+pub fn spawn_with_fallback(
+    request: &ExecutionRequest,
+    logger: &mut Logger,
+    stdio: StdioMode,
+) -> Result<DispatchedProcess, SpawnDispatchError> {
+    spawn_with_fallback_and_capture(request, logger, stdio, None)
+}
+
+/// Capture-aware counterpart of [`spawn_with_fallback`]: identical tier
+/// selection and spawn behavior, but threads `capture_factory` through to
+/// [`select_backend_with_fallback`] so an AppContainer fallback tier can
+/// perform a guarded WPR capture instead of failing closed when
+/// `request.policy.capture_denials` is set. Passing `None` is equivalent to
+/// [`spawn_with_fallback`].
+pub fn spawn_with_fallback_and_capture(
+    request: &ExecutionRequest,
+    logger: &mut Logger,
+    stdio: StdioMode,
+    capture_factory: Option<Arc<dyn GuardedCaptureFactory>>,
+) -> Result<DispatchedProcess, SpawnDispatchError> {
+    let (mut backend, dacl_manager, tier, warnings) =
+        select_backend_with_fallback(request, capture_factory.as_ref())
+            .map_err(SpawnDispatchError::Dispatch)?;
+
+    // Spawn with the DACL ACEs (if any) already applied. On a spawn failure the
+    // `dacl_manager` local drops here, restoring any ACEs that were stamped; we
+    // hand the already-selected `tier`/`warnings` to the error so the caller can
+    // still log them (the run-to-completion path logs them at resolve time,
+    // before its separate spawn attempt).
+    let inner = match backend.spawn(request, logger, stdio) {
+        Ok(inner) => inner,
+        Err(response) => {
+            return Err(SpawnDispatchError::Spawn {
+                response: Box::new(response),
+                tier,
+                warnings,
+            })
+        }
+    };
+
+    // Attach the guard to the handle only when there is one — T1 and T2-without-
+    // deny need no DACL work, so their handle is returned unwrapped.
+    let process: Box<dyn SandboxProcess> = match dacl_manager {
+        Some(dacl_manager) => Box::new(DaclGuardedProcess {
+            inner,
+            _dacl_manager: dacl_manager,
+        }),
+        None => inner,
+    };
+
+    Ok(DispatchedProcess {
+        process,
+        tier,
+        warnings,
+    })
+}
+
+/// A streaming [`SandboxProcess`] paired with the [`DaclManager`] guard whose
+/// `Drop` restores the host ACEs the DACL tier applied.
+///
+/// **Field order is load-bearing.** Rust drops struct fields in declaration
+/// order, so `inner` (which kills the child tree and tears down the per-run
+/// firewall / BFS enforcement) drops **before** `_dacl_manager` (which restores
+/// host ACEs). This matches the run-to-completion path's `(runner, dacl_manager)`
+/// drop order (see [`Dispatched::into_runner_and_guard`]): the host ACEs must
+/// not be revoked until the child and its descendants are gone.
+///
+/// Every [`SandboxProcess`] method delegates to `inner`; the guard is otherwise
+/// inert until drop.
+struct DaclGuardedProcess {
+    inner: Box<dyn SandboxProcess>,
+    _dacl_manager: DaclManager,
+}
+
+impl SandboxProcess for DaclGuardedProcess {
+    fn warnings(&self) -> &[String] {
+        self.inner.warnings()
+    }
+
+    fn take_stdin(&mut self) -> Option<Box<dyn std::io::Write + Send>> {
+        self.inner.take_stdin()
+    }
+
+    fn take_stdout(&mut self) -> Option<Box<dyn std::io::Read + Send>> {
+        self.inner.take_stdout()
+    }
+
+    fn take_stderr(&mut self) -> Option<Box<dyn std::io::Read + Send>> {
+        self.inner.take_stderr()
+    }
+
+    fn try_wait(&mut self) -> std::io::Result<Option<i32>> {
+        self.inner.try_wait()
+    }
+
+    fn id(&self) -> u32 {
+        self.inner.id()
+    }
+
+    fn kill(&mut self) -> std::io::Result<()> {
+        self.inner.kill()
+    }
+
+    fn wait(&mut self) -> std::io::Result<i32> {
+        self.inner.wait()
+    }
+
+    fn output_metadata(&self) -> Option<&wxc_common::models::SandboxOutputMetadata> {
+        self.inner.output_metadata()
+    }
+
+    fn stdout_closer(&self) -> Option<Box<dyn wxc_common::sandbox_process::StreamCloser>> {
+        self.inner.stdout_closer()
+    }
+
+    fn stderr_closer(&self) -> Option<Box<dyn wxc_common::sandbox_process::StreamCloser>> {
+        self.inner.stderr_closer()
+    }
+}
