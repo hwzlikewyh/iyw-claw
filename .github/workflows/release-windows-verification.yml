@@ -1,0 +1,47 @@
+name: Verify Signed Windows Installers
+
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        required: true
+        type: string
+
+jobs:
+  verify:
+    name: Verify installed ${{ matrix.target }}
+    runs-on: windows-2022
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-pc-windows-msvc
+          - i686-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Download signed installer and staged resources
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-installer-verification-${{ matrix.target }}
+          path: src-tauri
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+
+      - name: Verify installed NSIS sidecars
+        env:
+          IYW_CLAW_VERIFY_NSIS: "1"
+          IYW_CLAW_SIGN_MODE: signtool
+        run: node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"

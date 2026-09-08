@@ -260,11 +260,23 @@ jobs:
       prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
     secrets: inherit
 
+  verify-windows-installers:
+    needs:
+      - create-draft-release
+      - build-tauri
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/release-windows-verification.yml
+    with:
+      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
+
   publish-release:
     needs:
       - create-draft-release
       - build-tauri
-    if: ${{ needs.build-tauri.result == 'success' }}
+      - verify-windows-installers
+    if: ${{ needs.build-tauri.result == 'success' && needs.verify-windows-installers.result == 'success' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: write

@@ -431,17 +431,18 @@ jobs:
             node src-tauri/scripts/verify-signatures.mjs "$bundle_root"/*-setup.exe
           fi
 
-      # externalBin staging can succeed while the NSIS template accidentally
-      # omits a sidecar. Install into a CI-only temporary root and verify every
-      # supported bundled sidecar is present and byte-identical to its source.
-      - name: Verify installed NSIS sidecars
+      # 签名机可能安装着正式应用，实际安装校验交给干净的 hosted runner。
+      - name: Upload signed Windows verification input
         if: contains(matrix.target, 'windows')
-        shell: bash
-        env:
-          IYW_CLAW_VERIFY_NSIS: "1"
-        run: |
-          node src-tauri/scripts/verify-sidecar-bundle.mjs \
-            --target "${{ matrix.target }}"
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-verification-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
+            src-tauri/resources/xinghe-worker/*
+            src-tauri/binaries/agent-browser-${{ matrix.target }}.exe
+          if-no-files-found: error
+          retention-days: 1
 
       # Runs even on failure: the decrypted .pfx holds the private key and must
       # not outlive the job on a self-hosted runner. Paths must stay in sync with
