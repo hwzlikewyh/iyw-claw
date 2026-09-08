@@ -12,9 +12,14 @@ on:
         required: true
         default: main
         type: string
+      staging_run_id:
+        description: "Reuse staging from this run; version and source commit must match"
+        required: false
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: staged-windows-signing-${{ inputs.version }}
@@ -27,6 +32,7 @@ env:
 
 jobs:
   build-staging:
+    if: ${{ inputs.staging_run_id == '' }}
     name: Build unsigned Windows staging input
     runs-on: windows-2022
     timeout-minutes: 120
@@ -161,21 +167,23 @@ jobs:
   finalize-signing:
     name: Sign staged Windows bundle with SafeNet
     needs: build-staging
+    if: ${{ !cancelled() && (needs.build-staging.result == 'success' || (needs.build-staging.result == 'skipped' && inputs.staging_run_id != '')) }}
     runs-on: [self-hosted, Windows, X64, iyw-signing]
     timeout-minutes: 120
     env:
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
-      # The dedicated SafeNet runner routes external downloads through its
-      # local proxy; expose the same proxy to Node-based artifact actions.
+      # 签名机下载显式走本地代理；只对本机地址绕过代理。
       HTTP_PROXY: http://127.0.0.1:7890
       HTTPS_PROXY: http://127.0.0.1:7890
+      NO_PROXY: localhost,127.0.0.1
+      STAGING_DOWNLOAD_DIR: ${{ runner.temp }}/iyw-windows-staging-download-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.build-staging.outputs.source_sha }}
+          ref: ${{ needs.build-staging.outputs.source_sha || inputs.source_ref }}
           clean: false
           fetch-depth: 1
 
@@ -202,17 +210,25 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "frontend rebuild failed" }
 
       - name: Download unsigned staging artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: staged-windows-x86_64-${{ inputs.version }}
-          path: ${{ runner.temp }}/iyw-windows-staging-download
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          STAGING_RUN_ID: ${{ inputs.staging_run_id || github.run_id }}
+        run: |
+          if ($env:STAGING_RUN_ID -notmatch '^\d+$') { throw 'staging run ID must be numeric' }
+          $env:HTTP_PROXY = 'http://127.0.0.1:7890'
+          $env:HTTPS_PROXY = 'http://127.0.0.1:7890'
+          $env:NO_PROXY = 'localhost,127.0.0.1'
+          gh run download $env:STAGING_RUN_ID --repo $env:GH_REPO --name "staged-windows-x86_64-$env:TEST_VERSION" --dir $env:STAGING_DOWNLOAD_DIR
+          if ($LASTEXITCODE -ne 0) { throw 'staging artifact download through local proxy failed' }
 
       - name: Extract unsigned staging artifact
         shell: pwsh
         env:
           IYW_CLAW_STAGING_DIR: ${{ runner.temp }}\iyw-windows-staging
         run: |
-          $archive = Join-Path $env:RUNNER_TEMP 'iyw-windows-staging-download\iyw-windows-staging.zip'
+          $archive = Join-Path $env:STAGING_DOWNLOAD_DIR 'iyw-windows-staging.zip'
           if (!(Test-Path -LiteralPath $archive -PathType Leaf)) { throw "staging archive is missing: $archive" }
           Remove-Item -LiteralPath $env:IYW_CLAW_STAGING_DIR -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $env:IYW_CLAW_STAGING_DIR | Out-Null
