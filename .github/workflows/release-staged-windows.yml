@@ -276,28 +276,57 @@ jobs:
           $env:HTTP_PROXY = 'http://127.0.0.1:7890'
           $env:HTTPS_PROXY = 'http://127.0.0.1:7890'
           $env:NO_PROXY = 'localhost,127.0.0.1'
+          $artifacts = gh api "repos/$env:GH_REPO/actions/runs/$env:STAGING_RUN_ID/artifacts" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'staging artifact lookup failed' }
+          $matchingArtifacts = @($artifacts.artifacts | Where-Object { $_.name -eq "staged-windows-x86_64-$env:TEST_VERSION" -and !$_.expired })
+          if ($matchingArtifacts.Count -ne 1) { throw 'expected exactly one unexpired staging artifact' }
+          $artifact = $matchingArtifacts[0]
+          $outerArchive = Join-Path $env:STAGING_DOWNLOAD_DIR 'github-artifact.zip'
           $maxAttempts = 3
-          $attemptTimeoutMs = 300000
+          $attemptTimeoutMs = 900000
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
             $attemptDir = Join-Path $env:STAGING_DOWNLOAD_DIR "attempt-$attempt"
-            $startInfo = [Diagnostics.ProcessStartInfo]::new((Get-Command gh -ErrorAction Stop).Source)
+            $handler = [Net.Http.HttpClientHandler]::new()
+            $handler.Proxy = [Net.WebProxy]::new($env:HTTPS_PROXY)
+            $handler.AllowAutoRedirect = $false
+            $client = [Net.Http.HttpClient]::new($handler)
+            $client.Timeout = [TimeSpan]::FromSeconds(30)
+            $client.DefaultRequestHeaders.UserAgent.ParseAdd('iyw-claw-staging')
+            $client.DefaultRequestHeaders.Authorization = [Net.Http.Headers.AuthenticationHeaderValue]::new('Bearer', $env:GH_TOKEN)
+            try {
+              $response = $client.GetAsync("https://api.github.com/repos/$env:GH_REPO/actions/artifacts/$($artifact.id)/zip", [Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+              try {
+                if ([int]$response.StatusCode -ne 302) { throw "artifact redirect returned $([int]$response.StatusCode)" }
+                $downloadUrl = $response.Headers.Location
+                if (!$downloadUrl.IsAbsoluteUri -or $downloadUrl.Scheme -ne 'https') { throw 'invalid artifact download location' }
+              } finally { $response.Dispose() }
+            } finally { $client.Dispose() }
+            $startInfo = [Diagnostics.ProcessStartInfo]::new((Get-Command curl.exe -ErrorAction Stop).Source)
             $startInfo.UseShellExecute = $false
             $startInfo.CreateNoWindow = $true
-            foreach ($argument in @('run', 'download', $env:STAGING_RUN_ID, '--repo', $env:GH_REPO, '--name', "staged-windows-x86_64-$env:TEST_VERSION", '--dir', $attemptDir)) {
+            $startInfo.RedirectStandardInput = $true
+            foreach ($argument in @('--config', '-', '--proxy', $env:HTTPS_PROXY, '--fail', '--silent', '--show-error', '--continue-at', '-', '--connect-timeout', '30', '--max-time', '900', '--speed-limit', '1024', '--speed-time', '60', '--output', $outerArchive)) {
               $startInfo.ArgumentList.Add($argument)
             }
             $download = [Diagnostics.Process]::Start($startInfo)
             $downloadSucceeded = $false
             try {
+              $escapedUrl = $downloadUrl.AbsoluteUri.Replace('\', '\\').Replace('"', '\"')
+              $download.StandardInput.WriteLine('url = "' + $escapedUrl + '"')
+              $download.StandardInput.Close()
               if ($download.WaitForExit($attemptTimeoutMs)) {
                 $downloadSucceeded = $download.ExitCode -eq 0
               } else {
-                Write-Warning 'Proxy download exceeded five minutes; stopping this attempt.'
+                Write-Warning 'Proxy download exceeded fifteen minutes; retaining partial data for retry.'
                 if (!$download.HasExited) { $download.Kill($true) }
                 $download.WaitForExit()
               }
             } finally { $download.Dispose() }
             if ($downloadSucceeded) {
+              if ($artifact.digest -match '^sha256:([a-fA-F0-9]{64})$') {
+                if ((Get-FileHash -LiteralPath $outerArchive -Algorithm SHA256).Hash -ne $Matches[1]) { throw 'GitHub artifact ZIP SHA-256 mismatch' }
+              }
+              Expand-Archive -LiteralPath $outerArchive -DestinationPath $attemptDir -Force
               Copy-Item -LiteralPath (Join-Path $attemptDir $archiveName) -Destination $destination
               if ($expectedHash -and (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $expectedHash) { throw 'downloaded staging ZIP SHA-256 mismatch' }
               exit 0
