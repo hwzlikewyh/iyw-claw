@@ -47,6 +47,7 @@ jobs:
     continue-on-error: ${{ matrix.optional }}
     permissions:
       contents: write
+      actions: read
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(inputs.build_matrix) }}
@@ -197,6 +198,8 @@ jobs:
         with:
           name: ${{ inputs.frontend_artifact }}
           path: out
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
 
       # Must run BEFORE sidecar staging so the optional third-party browser
       # controller and the Tauri build inherit the same signing configuration.

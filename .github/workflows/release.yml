@@ -250,6 +250,7 @@ jobs:
       - prepare-frontend
     permissions:
       contents: write
+      actions: read
     uses: ./.github/workflows/release-tauri.yml
     with:
       release_id: ${{ needs.create-draft-release.outputs.release_id }}
@@ -333,6 +334,7 @@ jobs:
       - publish-release
     permissions:
       contents: write
+      actions: read
     uses: ./.github/workflows/release-tauri.yml
     with:
       release_id: ${{ needs.create-draft-release.outputs.release_id }}
