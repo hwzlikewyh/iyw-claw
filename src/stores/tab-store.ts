@@ -509,25 +509,6 @@ function resolveAgentForFolder(
 }
 
 function makeReplacementDraftTab(preferred?: TabItemInternal): TabItemInternal {
-  const { folders, allFolders } = useAppWorkspaceStore.getState()
-  // A closing chat-mode tab (its hidden chat folder, or the in-memory draft
-  // flag) must not seed the replacement draft — that folder is hidden from
-  // folder lists and has no real project cwd. Fall back to a real folder.
-  // Detection reads `allFolders` (the in-memory draft flag is dropped on reload,
-  // and `folders` excludes chat folders after refetch), while the fallback pool
-  // reads the user-facing `folders`.
-  const preferredIsChat =
-    preferred?.isChat === true ||
-    allFolders.find((f) => f.id === preferred?.folderId)?.kind === "chat"
-  const nonChatFallbackId = folders.find((f) => f.kind !== "chat")?.id ?? 0
-  const folderId = preferredIsChat
-    ? nonChatFallbackId
-    : (preferred?.folderId ?? nonChatFallbackId)
-  const workingDir = preferredIsChat
-    ? (folders.find((f) => f.id === folderId)?.path ?? "")
-    : (preferred?.workingDir ??
-      folders.find((f) => f.id === folderId)?.path ??
-      "")
   // If we have a preferred (closing) tab, inherit BOTH its agent and its
   // provisional flag — never silently launder a system best-guess into a
   // confirmed value just because the source tab was closed.
@@ -536,16 +517,16 @@ function makeReplacementDraftTab(preferred?: TabItemInternal): TabItemInternal {
         agentType: preferred.agentType,
         provisional: preferred.agentTypeProvisional ?? false,
       }
-    : resolveAgentForFolder(folderId, null)
+    : resolveAgentForFolder(0, null, null)
   return {
     id: makeNewConversationTabId(),
     kind: "conversation",
-    folderId,
+    folderId: 0,
     conversationId: null,
     agentType,
     title: runtime.labels.newConversation,
     isPinned: true,
-    workingDir,
+    isChat: true,
     agentTypeProvisional: provisional,
   }
 }
@@ -1790,11 +1771,6 @@ export const useTabStore = create<TabStoreState>()((set, get) => ({
         get().openNewConversationTab(f.id, f.path)
         return
       }
-    }
-    const first = folders[0]
-    if (first) {
-      get().openNewConversationTab(first.id, first.path)
-      return
     }
     get().openChatModeTab()
   },

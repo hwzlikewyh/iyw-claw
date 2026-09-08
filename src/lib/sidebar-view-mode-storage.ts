@@ -11,7 +11,7 @@ export type SidebarSortMode = "created" | "updated"
 
 /** Vertical order of the Folders and Chat sections in the sidebar list. The
  *  Pinned section (when present) always stays on top and is not reordered.
- *  Default `folders-first` preserves the historical layout. */
+ *  默认 `chats-first`，聊天区域位于文件夹区域上方。 */
 export type SidebarSectionOrder = "folders-first" | "chats-first"
 
 /** Collapsed state of the two top-level sidebar sections. Absent key = expanded
@@ -102,14 +102,14 @@ export function saveShowCompleted(value: boolean): void {
 }
 
 export function loadSortMode(): SidebarSortMode {
-  if (typeof window === "undefined") return "created"
+  if (typeof window === "undefined") return "updated"
   try {
     const raw = localStorage.getItem(SORT_MODE_KEY)
     if (raw === "updated" || raw === "created") return raw
   } catch {
     /* ignore */
   }
-  return "created"
+  return "updated"
 }
 
 export function saveSortMode(value: SidebarSortMode): void {
@@ -122,14 +122,14 @@ export function saveSortMode(value: SidebarSortMode): void {
 }
 
 export function loadSectionOrder(): SidebarSectionOrder {
-  if (typeof window === "undefined") return "folders-first"
+  if (typeof window === "undefined") return "chats-first"
   try {
     const raw = localStorage.getItem(SECTION_ORDER_KEY)
     if (raw === "folders-first" || raw === "chats-first") return raw
   } catch {
     /* ignore */
   }
-  return "folders-first"
+  return "chats-first"
 }
 
 export function saveSectionOrder(value: SidebarSectionOrder): void {

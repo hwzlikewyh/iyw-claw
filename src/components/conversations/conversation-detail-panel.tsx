@@ -3064,7 +3064,7 @@ export function ConversationDetailPanel() {
   const tileByGroup = useTabStore((s) => s.tileByGroup)
   const dragOverGroupId = useTabStore((s) => s.tabDrag?.overGroupId ?? null)
   const {
-    openNewConversationTab,
+    openChatModeTab,
     closeTab,
     switchTab,
     onPreviewTabReplaced,
@@ -3073,13 +3073,6 @@ export function ConversationDetailPanel() {
   } = useTabActions()
   const isMobile = useIsMobile()
   const { isConversations } = useWorkbenchRoute()
-  const newConversation = useMemo(() => {
-    const activeTab = tabs.find((tab) => tab.id === activeTabId)
-    if (!activeTab || activeTab.conversationId != null) return null
-    const workingDir = activeTab.workingDir ?? folder?.path
-    if (!workingDir) return null
-    return { workingDir, folderId: activeTab.folderId }
-  }, [tabs, activeTabId, folder?.path])
   const { disconnect: disconnectByKey } = useAcpActions()
   const { addTask, updateTask } = useTaskContext()
   const [reloadByTabId, setReloadByTabId] = useState<Record<string, number>>({})
@@ -3262,11 +3255,8 @@ export function ConversationDetailPanel() {
   }, [contextMenuSelectedText, t])
 
   const handleNewConversation = useCallback(() => {
-    if (!folder) return
-    // Right-click "new conversation" inside a conversation tab: keep the
-    // active agent when the target folder has no pinned default.
-    openNewConversationTab(folder.id, folder.path, { inheritFromActive: true })
-  }, [folder, openNewConversationTab])
+    openChatModeTab()
+  }, [openChatModeTab])
 
   const handleCloseActiveTab = useCallback(() => {
     if (!activeTabId) return
@@ -3378,12 +3368,9 @@ export function ConversationDetailPanel() {
     if (!folder) return
 
     if (hasNoTabs) {
-      openNewConversationTab(
-        folder.id,
-        newConversation?.workingDir ?? folder.path
-      )
+      openChatModeTab()
     }
-  }, [folder, hasNoTabs, newConversation?.workingDir, openNewConversationTab])
+  }, [folder, hasNoTabs, openChatModeTab])
 
   const { groups: groupRects, handles: groupHandles } = useMemo(
     () => computeRects(groupLayout),
@@ -3501,10 +3488,7 @@ export function ConversationDetailPanel() {
             {t("copyText")}
           </ContextMenuItem>
           <ContextMenuSeparator />
-          <ContextMenuItem
-            disabled={!folder?.path}
-            onSelect={handleNewConversation}
-          >
+          <ContextMenuItem onSelect={handleNewConversation}>
             <SquarePen className="h-4 w-4" />
             {t("newConversation")}
           </ContextMenuItem>

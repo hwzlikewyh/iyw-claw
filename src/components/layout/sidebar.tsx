@@ -17,7 +17,6 @@ import {
   CalendarClock,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useSidebarContext } from "@/contexts/sidebar-context"
 import { useSidebarViewOptions } from "@/contexts/sidebar-view-options-context"
 import { useTabActions } from "@/contexts/tab-context"
@@ -60,8 +59,7 @@ export function Sidebar() {
   const t = useTranslations("Folder.sidebar")
   const tTitleBar = useTranslations("Folder.folderTitleBar")
   const { isOpen, toggle, width } = useSidebarContext()
-  const { activeFolder } = useActiveFolder()
-  const { openNewConversationTab, openChatModeTab } = useTabActions()
+  const { openChatModeTab } = useTabActions()
   const { unseenFailures } = useAutomationsView()
   const { routeId, setRoute, openConversations } = useWorkbenchRoute()
   const isMac = useIsMac()
@@ -110,13 +108,8 @@ export function Sidebar() {
   const handleNewConversation = useCallback(() => {
     // A new conversation always returns to the conversation workspace.
     openConversations()
-    // Keep this entry point useful when no folder is active.
-    if (!activeFolder) {
-      openChatModeTab()
-      return
-    }
-    openNewConversationTab(activeFolder.id, activeFolder.path)
-  }, [activeFolder, openChatModeTab, openNewConversationTab, openConversations])
+    openChatModeTab()
+  }, [openChatModeTab, openConversations])
 
   const handleOpenSettings = useCallback(() => {
     openSettingsWindow("appearance").catch((error) => {
