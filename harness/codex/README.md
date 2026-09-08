@@ -1,7 +1,7 @@
 # Codex Harness
 
 `iyw-codex-harness` is the ACP integration boundary for the desktop's private
-星河 worker. The upstream graph is compiled into `harness/codex-worker` and
+星河 worker. The upstream graph is compiled into `harness/xinghe-worker` and
 loaded by an application child process. The standalone server retains its
 external ACP distribution.
 

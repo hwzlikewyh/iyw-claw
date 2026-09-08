@@ -91,7 +91,7 @@ pub struct HarnessConfig {
 impl Default for HarnessConfig {
     fn default() -> Self {
         Self {
-            client_name: "iyw-claw-codex-harness".to_string(),
+            client_name: "iyw-claw-xinghe-harness".to_string(),
             client_version: env!("CARGO_PKG_VERSION").to_string(),
             experimental_api: false,
             channel_capacity: 128,

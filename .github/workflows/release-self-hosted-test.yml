@@ -220,7 +220,7 @@ jobs:
         run: |
           node src-tauri/scripts/prepare-sidecars.mjs --target ${{ matrix.target }}
           if ($LASTEXITCODE -ne 0) { throw "sidecar preparation failed" }
-          node src-tauri/scripts/prepare-codex-worker.mjs --target ${{ matrix.target }}
+          node src-tauri/scripts/prepare-xinghe-worker.mjs --target ${{ matrix.target }}
           if ($LASTEXITCODE -ne 0) { throw "worker preparation failed" }
 
       - name: Run managed browser smoke
@@ -371,7 +371,7 @@ jobs:
         shell: bash
         run: |
           node src-tauri/scripts/prepare-sidecars.mjs --target ${{ matrix.target }}
-          node src-tauri/scripts/prepare-codex-worker.mjs --target ${{ matrix.target }}
+          node src-tauri/scripts/prepare-xinghe-worker.mjs --target ${{ matrix.target }}
 
       - name: Run managed browser smoke
         if: inputs.browser_engine_fixture != ''

@@ -21,6 +21,15 @@ manifest resolves the original workspace dependencies at the same pin. Upstream
 test modules, test-only PowerShell parser, and fixtures are omitted from this
 runtime patch; no new tests are added. Review both overrides on each upgrade.
 
+`codex-windows-sandbox` contains the pinned production library and its two
+helper targets. Package lookup uses `xinghe-resources`,
+`xinghe-command-runner.exe` and `xinghe-windows-sandbox-setup.exe` so the runtime
+resolves the renamed bundle. Cargo target names and the setup manifest name
+match those files. Existing sandbox account, service, config and protocol
+identifiers are retained for compatibility. Runtime behavior otherwise matches
+upstream. Test modules, files and fixtures are omitted; the standalone manifest
+keeps the upstream dependency versions and commit pin.
+
 The `0.153.4` upgrade compared both patched Windows files and the upstream
 crate manifest with `0.152.1`; they are unchanged. The pointer casts remain
 necessary. The upgrade also adopts upstream's `AsRef<OsStr>` pipe-spawn API

@@ -86,7 +86,7 @@ impl ConnectTo<Client> for CodexAcpAgent {
         let bridge_command_tx = state.command_tx.clone();
         Agent
             .builder()
-            .name("iyw-claw-codex-inprocess")
+            .name("iyw-claw-xinghe-inprocess")
             .on_receive_dispatch(
                 move |dispatch: Dispatch<UntypedMessage, UntypedMessage>, cx| {
                     let state = state.clone();

@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
 import { parseTarget, targetInfo } from "./runtime-seed-config.mjs"
-import { verifyWorkerBundle } from "./verify-codex-worker-bundle.mjs"
+import { verifyWorkerBundle } from "./verify-xinghe-worker-bundle.mjs"
 import { verifyRuntimeSeedLaunch } from "./runtime-seed-launch-verification.mjs"
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))

@@ -72,12 +72,12 @@ const MAX_INLINE_RESOURCE_WIRE_BYTES: usize = 256 * 1024;
 const MAX_PROMPT_RESOURCE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_RESOURCE_URI_DISPLAY_BYTES: usize = 1024;
 const CODEX_BACKEND_ENV: &str = "IYW_CLAW_CODEX_BACKEND";
-const INTERNAL_CODEX_WORKER_BACKEND: &str = "internal-worker";
-const WORKER_CWD_ENV: &str = "IYW_CLAW_CODEX_WORKER_CWD";
-const WORKER_FINGERPRINT_ENV: &str = "IYW_CLAW_CODEX_WORKER_FINGERPRINT";
-const WORKER_HOME_ENV: &str = "IYW_CLAW_CODEX_WORKER_HOME";
-const WORKER_SESSION_ENV: &str = "IYW_CLAW_CODEX_WORKER_EXPECTED_SESSION_ID";
-const WORKER_CONNECTION_ENV: &str = "IYW_CLAW_CODEX_WORKER_CONNECTION_ID";
+const INTERNAL_XINGHE_WORKER_BACKEND: &str = "internal-worker";
+const WORKER_CWD_ENV: &str = "IYW_CLAW_XINGHE_WORKER_CWD";
+const WORKER_FINGERPRINT_ENV: &str = "IYW_CLAW_XINGHE_WORKER_FINGERPRINT";
+const WORKER_HOME_ENV: &str = "IYW_CLAW_XINGHE_WORKER_HOME";
+const WORKER_SESSION_ENV: &str = "IYW_CLAW_XINGHE_WORKER_EXPECTED_SESSION_ID";
+const WORKER_CONNECTION_ENV: &str = "IYW_CLAW_XINGHE_WORKER_CONNECTION_ID";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -834,7 +834,7 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
         stderr_tail,
     } = spec;
     if let Some(worker) = internal_worker {
-        return build_internal_codex_worker_agent(
+        return build_internal_xinghe_worker_agent(
             runtime_env,
             cwd,
             builtin_prompt,
@@ -1279,27 +1279,27 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
     })
 }
 
-fn internal_codex_worker_requested(
+fn internal_xinghe_worker_requested(
     agent_type: AgentType,
     runtime_env: &BTreeMap<String, String>,
 ) -> bool {
-    if crate::internal_codex_worker::is_desktop_agent(agent_type) { return true; }
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) { return true; }
     agent_type == AgentType::Codex
         && runtime_env.get(CODEX_BACKEND_ENV).is_some_and(|value| {
             value
                 .trim()
-                .eq_ignore_ascii_case(INTERNAL_CODEX_WORKER_BACKEND)
+                .eq_ignore_ascii_case(INTERNAL_XINGHE_WORKER_BACKEND)
         })
 }
 
-fn build_internal_codex_worker_agent(
+fn build_internal_xinghe_worker_agent(
     runtime_env: &BTreeMap<String, String>,
     cwd: &Path,
     builtin_prompt: &str,
     stderr_tail: &Arc<StderrTail>,
     launch: InternalWorkerLaunch<'_>,
 ) -> Result<AcpAgent, AcpError> {
-    ensure_internal_codex_worker_ready()?;
+    ensure_internal_xinghe_worker_ready()?;
     let storage = AgentStoragePaths::active().ok_or_else(|| {
         AcpError::SdkNotInstalled("星河 is not installed: storage is unavailable".to_string())
     })?;
@@ -1310,16 +1310,16 @@ fn build_internal_codex_worker_agent(
         ));
     }
     let mut environment = internal_worker_environment(runtime_env, cwd, &storage, launch);
-    let library = crate::internal_codex_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
-    let helper = library.with_file_name(crate::internal_codex_worker::helper_filename());
-    environment.insert("IYW_CLAW_CODEX_WORKER_HELPER".into(), helper.to_string_lossy().into_owned());
+    let library = crate::internal_xinghe_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
+    let helper = library.with_file_name(crate::internal_xinghe_worker::helper_filename());
+    environment.insert("IYW_CLAW_XINGHE_WORKER_HELPER".into(), helper.to_string_lossy().into_owned());
     let env_vars = environment
         .iter()
         .map(|(name, value)| sacp::schema::EnvVariable::new(name, value))
         .collect();
     let executable = executable.to_string_lossy().into_owned();
     let server = McpServerStdio::new("星河内部运行器", &executable)
-        .args(vec![crate::internal_codex_worker::WORKER_FLAG.to_string()])
+        .args(vec![crate::internal_xinghe_worker::WORKER_FLAG.to_string()])
         .env(env_vars);
     let prompt_for_log = builtin_prompt.to_string();
     let tail = Arc::clone(stderr_tail);
@@ -1327,7 +1327,7 @@ fn build_internal_codex_worker_agent(
         agent = "星河",
         launch_kind = "self_reexec_worker",
         environment_key_count = environment.len(),
-        "[ACP] selected internal Codex worker"
+        "[ACP] selected internal 星河 worker"
     );
     let agent = AcpAgent::new(McpServer::Stdio(server)).with_debug(move |line, direction| {
         if direction == sacp_tokio::LineDirection::Stderr {
@@ -1351,7 +1351,7 @@ fn internal_worker_environment(
         .into_iter()
         .collect::<BTreeMap<_, _>>();
     environment.insert(
-        crate::internal_codex_worker::ACTIVE_ENV.to_string(),
+        crate::internal_xinghe_worker::ACTIVE_ENV.to_string(),
         "1".to_string(),
     );
     environment.insert(
@@ -1378,8 +1378,8 @@ fn internal_worker_environment(
     environment
 }
 
-fn ensure_internal_codex_worker_ready() -> Result<(), AcpError> {
-    crate::internal_codex_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
+fn ensure_internal_xinghe_worker_ready() -> Result<(), AcpError> {
+    crate::internal_xinghe_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
     if crate::update::runtime::self_exe().is_file() {
         Ok(())
     } else {
@@ -1552,9 +1552,9 @@ pub(crate) async fn spawn_agent_connection(
             },
         )
         .await?;
-        let dedicated_worker = if internal_codex_worker_requested(agent_type, &prepared.environment)
+        let dedicated_worker = if internal_xinghe_worker_requested(agent_type, &prepared.environment)
         {
-            ensure_internal_codex_worker_ready()?;
+            ensure_internal_xinghe_worker_ready()?;
             true
         } else {
             false
@@ -1915,7 +1915,7 @@ async fn runtime_host_key(
         process_fingerprint,
         crate::acp::runtime_host::RuntimeHostIdentity {
             definition_fingerprint: identity.definition_fingerprint,
-            runtime_version: if dedicated_worker { crate::internal_codex_worker::RUNTIME_VERSION.to_string() } else { identity.runtime_version },
+            runtime_version: if dedicated_worker { crate::internal_xinghe_worker::RUNTIME_VERSION.to_string() } else { identity.runtime_version },
             policy,
         },
     ))
@@ -3053,7 +3053,7 @@ async fn prepare_companion_launch(
             connection_id = context.connection_id,
             agent = %context.agent_type,
             transport = "unavailable",
-            reason = "internal_codex_worker_isolated",
+            reason = "internal_xinghe_worker_isolated",
             "[ACP] built-in MCP is disabled for the isolated internal Codex worker"
         );
         return Ok(unavailable_companion_launch());
@@ -8525,7 +8525,7 @@ async fn emit_conversation_update(
             .await;
         }
         SessionUpdate::SessionInfoUpdate(info) => {
-            if crate::internal_codex_worker::is_desktop_agent(agent_type) {
+            if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
                 if let Some(message) = info.meta.as_ref().and_then(|meta| meta.get("iyw"))
                     .and_then(|meta| meta.get("recoveryError")).and_then(serde_json::Value::as_str) {
                     let snapshot = state.read().await;

@@ -64,7 +64,7 @@ export function createMacBuildPlan(tauriCli, options, target) {
     env,
     steps: [
       scriptStep("prepare-sidecars", target),
-      scriptStep("prepare-codex-worker", target),
+      scriptStep("prepare-xinghe-worker", target),
       scriptStep("prepare-runtime-seed", target),
       scriptStep("verify-runtime-seed", target),
       {

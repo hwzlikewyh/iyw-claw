@@ -58,7 +58,7 @@ pub async fn snapshot_core(
         let Ok(agent_type) = serde_json::from_str::<AgentType>(&setting.agent_type) else {
             continue;
         };
-        if crate::internal_codex_worker::is_desktop_agent(agent_type) { continue; }
+        if crate::internal_xinghe_worker::is_desktop_agent(agent_type) { continue; }
         let installations = list_agent_installations(conn, agent_type)
             .await
             .map_err(acp_error)?;
@@ -104,7 +104,7 @@ pub async fn agent_history_core(
     agent_type: AgentType,
     channel: Option<String>,
 ) -> Result<crate::acp::version_center::VersionHistory, AppCommandError> {
-    crate::internal_codex_worker::require_external_agent(agent_type).map_err(acp_error)?;
+    crate::internal_xinghe_worker::require_external_agent(agent_type).map_err(acp_error)?;
     let channel = normalize_channel(channel)?;
     AgentPlatformClient::agent_history(conn, registry::registry_id_for(agent_type), &channel).await
 }
@@ -126,7 +126,7 @@ pub async fn set_agent_pin_core(
     version: Option<String>,
     channel: Option<String>,
 ) -> Result<(), AppCommandError> {
-    crate::internal_codex_worker::require_external_agent(agent_type).map_err(acp_error)?;
+    crate::internal_xinghe_worker::require_external_agent(agent_type).map_err(acp_error)?;
     let version = validate_agent_pin(conn, agent_type, version, channel).await?;
     set_agent_pin(conn, agent_type, version)
         .await

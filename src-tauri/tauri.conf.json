@@ -31,7 +31,7 @@
     ],
     "resources": {
       "../out": "resources/bundle/",
-      "resources/codex-worker": "codex-resources"
+      "resources/xinghe-worker": "xinghe-resources"
     },
     "windows": {
       "webviewInstallMode": {

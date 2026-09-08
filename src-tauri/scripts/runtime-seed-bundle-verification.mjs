@@ -2,7 +2,7 @@ import { existsSync, lstatSync, readFileSync } from "node:fs"
 import { createHash } from "node:crypto"
 import { join, resolve } from "node:path"
 import { PINNED_NODE_VERSION } from "./runtime-seed-config.mjs"
-import { verifyWorkerBundle } from "./verify-codex-worker-bundle.mjs"
+import { verifyWorkerBundle } from "./verify-xinghe-worker-bundle.mjs"
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex")

@@ -36,7 +36,7 @@ pub(crate) fn initialize_response(
             "mcpCapabilities": { "http": capabilities.contains(Capability::Mcp), "sse": false },
             "sessionCapabilities": { "resume": load_session.then(|| json!({})), "fork": {} }
         },
-        "agentInfo": { "name": "iyw-claw-codex-inprocess", "title": "星河", "version": env!("CARGO_PKG_VERSION") },
+        "agentInfo": { "name": "iyw-claw-xinghe-inprocess", "title": "星河", "version": env!("CARGO_PKG_VERSION") },
         "_meta": { "steering": { "supported": capabilities.contains(Capability::Steering) } }
     })
 }

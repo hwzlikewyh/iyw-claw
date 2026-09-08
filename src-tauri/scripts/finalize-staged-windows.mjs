@@ -33,13 +33,13 @@ const TARGET_RELEASE = join("src-tauri", "target", TARGET, "release")
 const ALLOWED_PREFIXES = [
   "src-tauri/binaries/",
   "src-tauri/resources/runtime-seed/",
-  "src-tauri/resources/codex-worker/",
+  "src-tauri/resources/xinghe-worker/",
 ]
 const ALLOWED_FILES = new Set([
-  "src-tauri/resources/codex-worker/iyw_codex_worker.dll",
-  "src-tauri/resources/codex-worker/iyw-codex-helper.exe",
-  "src-tauri/resources/codex-worker/codex-windows-sandbox-setup.exe",
-  "src-tauri/resources/codex-worker/codex-command-runner.exe",
+  "src-tauri/resources/xinghe-worker/iyw_xinghe_worker.dll",
+  "src-tauri/resources/xinghe-worker/iyw-xinghe-helper.exe",
+  "src-tauri/resources/xinghe-worker/xinghe-windows-sandbox-setup.exe",
+  "src-tauri/resources/xinghe-worker/xinghe-command-runner.exe",
   "src-tauri/tauri.runtime-seed.conf.json",
   `${TARGET_RELEASE.replaceAll("\\", "/")}/iyw-claw.exe`,
 ])
@@ -121,7 +121,7 @@ function restoreStaging() {
   const directories = [
     join("src-tauri", "binaries"),
     join("src-tauri", "resources", "runtime-seed"),
-    join("src-tauri", "resources", "codex-worker"),
+    join("src-tauri", "resources", "xinghe-worker"),
   ]
   for (const directory of directories) {
     const destination = join(ROOT, directory)

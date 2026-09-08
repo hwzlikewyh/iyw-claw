@@ -137,7 +137,7 @@ pub(crate) async fn prompt_request(
     mut request: sacp::schema::PromptRequest,
 ) -> sacp::schema::PromptRequest {
     let snapshot = state.read().await;
-    if crate::internal_codex_worker::is_desktop_agent(snapshot.agent_type) {
+    if crate::internal_xinghe_worker::is_desktop_agent(snapshot.agent_type) {
         request.meta.get_or_insert_with(Default::default).insert(
             "iyw".into(),
             serde_json::json!({ "turnGeneration": snapshot.turn_generation }),

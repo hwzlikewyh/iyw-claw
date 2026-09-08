@@ -121,7 +121,7 @@ export function createBuildPlan(tauriCli, options, signingConfigPath = null) {
   }
   const prepareWorker = {
     label: "built-in worker preparation",
-    args: [join(REPO_ROOT, "src-tauri", "scripts", "prepare-codex-worker.mjs")],
+    args: [join(REPO_ROOT, "src-tauri", "scripts", "prepare-xinghe-worker.mjs")],
   }
   if (options.bundleOnly) {
     return { env, steps: [prepareSidecars, prepareWorker, bundle] }
