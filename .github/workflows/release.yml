@@ -78,9 +78,24 @@ jobs:
                 echo "::error::Release tag $tag already exists and is not a draft."
                 exit 1
               fi
+              git fetch origin "refs/tags/$tag:refs/tags/$tag"
+              tag_ref="$(git rev-parse "$tag^{commit}")"
+              if ! git merge-base --is-ancestor "$tag_ref" HEAD; then
+                echo "::error::Draft tag $tag is not an ancestor of $DEFAULT_BRANCH."
+                exit 1
+              fi
+              # 只允许发布工具变化时重试同一 draft，应用源码仍固定在原 tag。
+              if ! git diff --quiet "$tag_ref" HEAD -- . \
+                  ':(exclude).github/workflows' ':(exclude).github/scripts/release'; then
+                echo "::error::Application source changed since $tag; use a new release version."
+                exit 1
+              fi
+              git checkout --detach "$tag_ref"
             fi
 
-            node scripts/set-version.mjs "$version"
+            if [[ "$tag_exists" == false ]]; then
+              node scripts/set-version.mjs "$version"
+            fi
             cargo_version="$(
               cargo metadata \
                 --manifest-path src-tauri/Cargo.toml \
@@ -108,8 +123,6 @@ jobs:
             fi
             source_ref="$(git rev-parse HEAD)"
             if [[ "$tag_exists" == true ]]; then
-              git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
-              tag_ref="$(git rev-list -n 1 "$tag^{commit}")"
               if [[ "$tag_ref" != "$source_ref" ]]; then
                 echo "::error::Draft tag $tag points to $tag_ref, but this release source is $source_ref. Refusing to mix assets from different commits."
                 exit 1
@@ -117,9 +130,7 @@ jobs:
               echo "Reusing existing draft tag $tag at source commit $source_ref."
             else
               git tag -a "$tag" -m "Release $tag"
-            fi
-            git push origin "HEAD:refs/heads/$DEFAULT_BRANCH"
-            if [[ "$tag_exists" == false ]]; then
+              git push origin "HEAD:refs/heads/$DEFAULT_BRANCH"
               git push origin "refs/tags/$tag"
             fi
           else

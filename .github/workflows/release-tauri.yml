@@ -138,12 +138,30 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: src-tauri/resources/xinghe-worker
-          key: xinghe-${{ runner.os }}-${{ matrix.target }}-${{ steps.worker-toolchain.outputs.hash }}-${{ hashFiles('harness/xinghe-worker/Cargo.toml', 'harness/xinghe-worker/Cargo.lock', 'harness/xinghe-worker/src/**', 'harness/codex/Cargo.toml', 'harness/codex/upstream.lock', 'harness/codex/src/**', 'harness/codex/patches/**', 'src-tauri/vendor/sacp-tokio/**', 'src-tauri/scripts/prepare-xinghe-worker.mjs', 'src-tauri/scripts/verify-xinghe-worker-bundle.mjs', 'src-tauri/scripts/xinghe-worker-binary.mjs', '.cargo/config.toml') }}
+          key: xinghe-${{ runner.os }}-${{ matrix.target }}-${{ steps.worker-toolchain.outputs.hash }}-${{ matrix.codegen_units }}-${{ matrix.lto }}-${{ hashFiles('harness/xinghe-worker/Cargo.toml', 'harness/xinghe-worker/Cargo.lock', 'harness/xinghe-worker/src/**', 'harness/codex/Cargo.toml', 'harness/codex/upstream.lock', 'harness/codex/src/**', 'harness/codex/patches/**', 'src-tauri/vendor/sacp-tokio/**', 'src-tauri/scripts/prepare-xinghe-worker.mjs', 'src-tauri/scripts/verify-xinghe-worker-bundle.mjs', 'src-tauri/scripts/xinghe-worker-binary.mjs', '.cargo/config.toml') }}
 
       - name: Clear stale worker resources
         if: steps.worker-cache.outputs.cache-hit != 'true'
         shell: bash
         run: rm -rf src-tauri/resources/xinghe-worker
+
+      - name: Install Windows x86 assembler
+        if: matrix.target == 'i686-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          $nasm = Get-Command nasm -ErrorAction SilentlyContinue
+          if ($nasm) {
+            & $nasm.Source -v
+          } else {
+            choco install nasm --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'NASM installation failed' }
+            $nasmDirectory = Join-Path $env:ProgramFiles 'NASM'
+            $nasmPath = Join-Path $nasmDirectory 'nasm.exe'
+            if (!(Test-Path -LiteralPath $nasmPath -PathType Leaf)) { throw 'NASM executable is missing after installation' }
+            $nasmDirectory | Out-File -FilePath $env:GITHUB_PATH -Append
+            & $nasmPath -v
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'NASM version check failed' }
 
       - name: Install Linux x64 dependencies
         if: matrix.target == 'x86_64-unknown-linux-gnu'
