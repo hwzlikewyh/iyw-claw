@@ -2545,7 +2545,7 @@ const ToolGroupPart = memo(function ToolGroupPart({
   const t = useTranslations("Folder.chat.contentParts.toolGroup")
   const [open, setOpen] = useState(false)
 
-  const { phrases, errorPhrase } = useMemo(() => {
+  const phrases = useMemo(() => {
     const counts = TOOL_KIND_ORDER.reduce(
       (acc, kind) => {
         acc[kind] = 0
@@ -2553,10 +2553,8 @@ const ToolGroupPart = memo(function ToolGroupPart({
       },
       {} as Record<ToolKindLabel, number>
     )
-    let errors = 0
     for (const item of part.items) {
       counts[classifyToolKind(item.toolName)] += 1
-      if (item.state === "output-error" || item.errorText) errors += 1
     }
     const built: string[] = []
     for (const kind of TOOL_KIND_ORDER) {
@@ -2567,10 +2565,7 @@ const ToolGroupPart = memo(function ToolGroupPart({
     if (built.length === 0) {
       built.push(t("other", { count: part.items.length }))
     }
-    return {
-      phrases: built,
-      errorPhrase: errors > 0 ? t("errorSuffix", { count: errors }) : null,
-    }
+    return built
   }, [part, t])
 
   if (part.items.length === 0) return null
@@ -2599,12 +2594,6 @@ const ToolGroupPart = memo(function ToolGroupPart({
             </Shimmer>
           ) : (
             titleText
-          )}
-          {errorPhrase && (
-            <span className="text-destructive">
-              {joiner}
-              {errorPhrase}
-            </span>
           )}
         </span>
       </CollapsibleTrigger>
