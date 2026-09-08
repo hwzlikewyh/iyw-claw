@@ -62,7 +62,7 @@ jobs:
       SCCACHE_GHA_ENABLED: ${{ contains(toJSON(matrix.runner), 'self-hosted') && 'false' || 'true' }}
       HTTP_PROXY: ${{ contains(toJSON(matrix.runner), 'iyw-signing') && 'http://127.0.0.1:7890' || '' }}
       HTTPS_PROXY: ${{ contains(toJSON(matrix.runner), 'iyw-signing') && 'http://127.0.0.1:7890' || '' }}
-      NO_PROXY: ${{ contains(toJSON(matrix.runner), 'iyw-signing') && 'localhost,127.0.0.1' || (contains(matrix.target, 'windows') && '.actions.githubusercontent.com,.blob.core.windows.net' || '') }}
+      NO_PROXY: ${{ contains(toJSON(matrix.runner), 'iyw-signing') && 'localhost,127.0.0.1,api.github.com,uploads.github.com' || (contains(matrix.target, 'windows') && '.actions.githubusercontent.com,.blob.core.windows.net' || '') }}
     steps:
       - uses: actions/checkout@v4
         with:
