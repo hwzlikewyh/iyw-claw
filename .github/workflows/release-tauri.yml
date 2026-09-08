@@ -26,7 +26,7 @@ on:
       build_matrix:
         required: false
         type: string
-        default: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows x64","runner":"windows-2022","target":"x86_64-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows 32-bit","runner":"windows-2022","target":"i686-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false}]}'
+        default: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows x64","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"x86_64-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows 32-bit","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"i686-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false}]}'
       release_draft:
         required: false
         type: boolean
@@ -60,7 +60,9 @@ jobs:
       CARGO_PROFILE_RELEASE_LTO: ${{ matrix.lto }}
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: ${{ contains(toJSON(matrix.runner), 'self-hosted') && 'false' || 'true' }}
-      NO_PROXY: ${{ contains(matrix.target, 'windows') && '.actions.githubusercontent.com,.blob.core.windows.net' || '' }}
+      HTTP_PROXY: ${{ contains(toJSON(matrix.runner), 'iyw-signing') && 'http://127.0.0.1:7890' || '' }}
+      HTTPS_PROXY: ${{ contains(toJSON(matrix.runner), 'iyw-signing') && 'http://127.0.0.1:7890' || '' }}
+      NO_PROXY: ${{ contains(toJSON(matrix.runner), 'iyw-signing') && 'localhost,127.0.0.1' || (contains(matrix.target, 'windows') && '.actions.githubusercontent.com,.blob.core.windows.net' || '') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -101,6 +103,9 @@ jobs:
             echo "IYW_CLAW_RUNTIME_SEED_CACHE=$cache_root/runtime-seed/${{ matrix.target }}"
           } >> "$GITHUB_ENV"
           pnpm config set store-dir "$cache_root/pnpm-store"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo "CARGO_BUILD_JOBS=4" >> "$GITHUB_ENV"
+          fi
           echo "[cache] persistent root: $cache_root"
 
       - name: Configure hosted runtime seed cache
@@ -148,20 +153,16 @@ jobs:
 
       - name: Install Windows x86 assembler
         if: matrix.target == 'i686-pc-windows-msvc'
+        uses: ilammy/setup-nasm@72793074d3c8cdda771dba85f6deafe00623038b
+        with:
+          version: 2.16.03
+          platform: win64
+
+      - name: Verify Windows x86 assembler
+        if: matrix.target == 'i686-pc-windows-msvc'
         shell: pwsh
         run: |
-          $nasm = Get-Command nasm -ErrorAction SilentlyContinue
-          if ($nasm) {
-            & $nasm.Source -v
-          } else {
-            choco install nasm --yes --no-progress
-            if ($LASTEXITCODE -ne 0) { throw 'NASM installation failed' }
-            $nasmDirectory = Join-Path $env:ProgramFiles 'NASM'
-            $nasmPath = Join-Path $nasmDirectory 'nasm.exe'
-            if (!(Test-Path -LiteralPath $nasmPath -PathType Leaf)) { throw 'NASM executable is missing after installation' }
-            $nasmDirectory | Out-File -FilePath $env:GITHUB_PATH -Append
-            & $nasmPath -v
-          }
+          nasm -v
           if ($LASTEXITCODE -ne 0) { throw 'NASM version check failed' }
 
       - name: Install Linux x64 dependencies
@@ -192,6 +193,14 @@ jobs:
         shell: bash
         run: |
           node -e "require('node:fs').rmSync('out', { recursive: true, force: true })"
+
+      - name: Clear previous Windows bundles on signing runner
+        if: contains(toJSON(matrix.runner), 'iyw-signing')
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          node -e 'const fs=require("node:fs"),path=require("node:path");const root=path.resolve("src-tauri/target");const target=process.env.BUILD_TARGET;if(!/^[a-z0-9_-]+$/.test(target))throw new Error("invalid target");const output=path.resolve(root,target,"release/bundle");if(!output.startsWith(root+path.sep))throw new Error("bundle path escapes target directory");fs.rmSync(output,{recursive:true,force:true});'
 
       - name: Download frontend build contents
         uses: actions/download-artifact@v4
@@ -284,6 +293,18 @@ jobs:
             echo "mode=${mode}"
             echo "config_arg=--config ${config}"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Preflight hardware signing
+        if: contains(toJSON(matrix.runner), 'iyw-signing')
+        shell: pwsh
+        run: |
+          if ($env:IYW_CLAW_SIGN_MODE -ne 'signtool') { throw 'Hardware signing was not configured' }
+          $probe = Join-Path $env:RUNNER_TEMP ("iyw-release-signing-" + [guid]::NewGuid().ToString('N') + '.exe')
+          try {
+            Copy-Item -LiteralPath (Get-Command node).Source -Destination $probe
+            node src-tauri/scripts/sign-staged-windows.mjs $probe
+            if ($LASTEXITCODE -ne 0) { throw 'Hardware signing preflight failed' }
+          } finally { Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue }
 
       - name: Stage desktop sidecars
         shell: bash
@@ -403,10 +424,11 @@ jobs:
         if: contains(matrix.target, 'windows')
         shell: bash
         run: |
+          bundle_root="src-tauri/target/${{ matrix.target }}/release/bundle/nsis"
           if [ "${{ steps.signing.outputs.mode }}" = "none" ]; then
-            node src-tauri/scripts/verify-signatures.mjs --warn
+            node src-tauri/scripts/verify-signatures.mjs --warn "$bundle_root"/*-setup.exe
           else
-            node src-tauri/scripts/verify-signatures.mjs
+            node src-tauri/scripts/verify-signatures.mjs "$bundle_root"/*-setup.exe
           fi
 
       # externalBin staging can succeed while the NSIS template accidentally
