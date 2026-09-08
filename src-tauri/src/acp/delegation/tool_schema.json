@@ -249,9 +249,14 @@
     "inputSchema": {
       "type": "object",
       "required": ["action"],
+      "examples": [
+        { "action": "list_tabs" },
+        { "action": "wait", "milliseconds": 1000 }
+      ],
       "properties": {
         "action": {
           "type": "string",
+          "description": "Choose one operation. wait is an action value, not a separate property. For a bounded delay use {\"action\":\"wait\",\"milliseconds\":1000}; for an observed selector use action=wait with selector and timeout_ms. Open and wait are separate calls on the same returned tab_id. timeout_ms limits execution time; it does not request a delay.",
           "enum": [
             "list_tabs",
             "open",

@@ -14,6 +14,12 @@ detailed reference before acting when the task matches one:
 | Memory, self-learning, corrections, candidates, harvest, index, document maintenance | [memory-and-learning.md](memory-and-learning.md) |
 | Research or platform evidence | [research-workflow.md](research-workflow.md) and, when web access is needed, [internet-routing.md](internet-routing.md) |
 
+You must read the full tool description and input schema before first use.
+Reuse a previous read in this conversation without another read. Direct tools
+include these instructions in their definitions. Capabilities
+behind the gateway require an explicit `read_iyw_capability`; each direct memory
+operation also requires that read using its advertised capability mapping.
+
 ## Five-Step Sequence
 
 1. Inspect the actual callable surface and choose one complete trio when the
@@ -29,10 +35,13 @@ detailed reference before acting when the task matches one:
    context, or merely to enumerate tools.
 3. Treat results as the current catalog index. Compare the returned summary,
    aliases, `when_to_use`, status, required inputs, and schema digest. Read the
-   best matching stable ID; read at most one same-result alternative.
+   best matching stable ID and its full description/schema; read at most one
+   same-result alternative.
 4. Invoke only an available ID returned by that search. Supply arguments exactly
-   as the current read schema requires. Ask for a missing primary object; never
-   guess IDs, paths, URLs, field names, or permissions.
+   as the current read schema requires, using its examples and declared fields.
+   Omit unnecessary optional fields; never borrow parameters from another tool.
+   Ask for a missing primary object; never guess IDs, paths, URLs, field names,
+   or permissions.
 5. Verify the result state and business effect. Distinguish success from
    queued, preview, blocked, canceled, failed, unavailable, and effect-unknown.
 
@@ -49,15 +58,35 @@ default, and waits for `iyw.submit(data)` only with `wait_for_response: true`.
 See [interaction-tools.md](interaction-tools.md). A direct interaction tool does
 not need capability search/read/invoke or installation of a page framework.
 
+Reading before first use is mandatory Agent behavior. The host does not record
+reads or reject calls based on read history. Reuse full instructions already
+read in this conversation, including on later turns; do not issue another read
+for every call. Search summaries alone do not replace the full instructions.
+
+A `capability_schema_mismatch` with `execution_status=not_started` permits one
+correction using the schema already read and the error's field hints. Retry the
+same intended operation once with corrected arguments. A text-only error must also
+explicitly report schema rejection and `execution_status=not_started`. A parameter
+error does not require another read; read only if not previously read. Use the
+error's field path, allowed properties, and hint; never replay unchanged arguments or silently
+drop intended behavior. Stop this recovery if the corrected call fails.
+
 An empty result, unknown ID, malformed output, timeout, unavailable capability,
-schema rejection, or two non-matching reads ends the current gateway attempt.
-It does not by itself end the user's task. One search retry is allowed only
-after an exhausted result set and only with a close synonym. Do not switch
-namespaces, promote nested tools, or cycle guessed names; hand off to another
-already-authorized route instead. Allow one bounded recovery for a stale or
-transient failure, not repeated cosmetic parameter variations.
+schema rejection without that evidence, or two non-matching reads ends the
+current gateway attempt. It does not by itself end the user's task. Permission
+and effect-unknown errors do not permit this correction. One search retry is
+allowed only after an exhausted result set and only with a close synonym. Do
+not switch namespaces, promote nested tools, or cycle guessed names; hand off
+to another already-authorized route instead. Follow the owning reference for
+other bounded recoveries; do not chain recoveries after a failed correction.
 
 ## Memory Card
+
+For `manage_iyw_memory`, first read the selected operation's full instructions
+using the capability ID advertised in `operation.description`. Then pass its
+schema fields under `parameters`. This direct tool executes policy preflight
+automatically; reading instructions does not execute the policy. The following
+explicit policy sequence applies when invoking memory through the gateway.
 
 When memory is relevant, load `memory-and-learning.md`. Before the first direct
 memory operation in each accepted turn, invoke `read_memory_policy` exactly as

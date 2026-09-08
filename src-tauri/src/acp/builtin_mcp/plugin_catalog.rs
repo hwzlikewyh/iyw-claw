@@ -117,6 +117,7 @@ fn capabilities(plugin: &PluginDescriptor, cwd: &Path, agent_type: AgentType) ->
             Some(json!({
                 "capability_id": id,
                 "summary": description,
+                "description": description,
                 "category": "plugin",
                 "aliases": [plugin.slug],
                 "intent_terms": intent_terms,

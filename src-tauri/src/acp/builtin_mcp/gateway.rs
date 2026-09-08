@@ -144,23 +144,9 @@ fn memory_group(
 }
 
 fn memory_capability_id(operation: &str) -> Option<&'static str> {
-    Some(match operation {
-        "policy.read" => "iyw.memory.policy.read.v1",
-        "recall" => "iyw.memory.recall.search.v1",
-        "documents.read" => "iyw.memory.documents.read.v1",
-        "append" => "iyw.memory.confirmed.append.v1",
-        "propose" => "iyw.memory.candidate.propose.v1",
-        "candidates.list" => "iyw.memory.candidates.list.v1",
-        "candidate.resolve" => "iyw.memory.candidate.resolve.v1",
-        "candidate.delete" => "iyw.memory.candidate.delete.v1",
-        "harvest.status" => "iyw.memory.harvest.status.v1",
-        "harvest.rescan" => "iyw.memory.harvest.rescan.v1",
-        "candidate.index.rebuild" => "iyw.memory.candidate.index.rebuild.v1",
-        "settings.read" => "iyw.memory.settings.read.v1",
-        "documents.update" => "iyw.memory.documents.update.v1",
-        "documents.correct" => "iyw.memory.documents.correct.v1",
-        _ => return None,
-    })
+    gateway_tools::MEMORY_CAPABILITIES
+        .iter()
+        .find_map(|(name, id)| (*name == operation).then_some(*id))
 }
 
 fn search(
@@ -417,7 +403,12 @@ fn unknown_capability() -> ErrorData {
 }
 
 fn resolve_error(error: ResolveError) -> ErrorData {
-    ErrorData::invalid_params(error.to_string(), None)
+    let message = error.to_string();
+    let data = match error {
+        ResolveError::InvalidArguments { data, .. } => Some(data),
+        _ => None,
+    };
+    ErrorData::invalid_params(message, data)
 }
 
 #[derive(Deserialize)]

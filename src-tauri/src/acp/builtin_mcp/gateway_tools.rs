@@ -5,6 +5,26 @@ use super::tool_identity::{
     SEARCH_TOOL,
 };
 
+pub(super) const MEMORY_CAPABILITIES: [(&str, &str); 14] = [
+    ("policy.read", "iyw.memory.policy.read.v1"),
+    ("recall", "iyw.memory.recall.search.v1"),
+    ("documents.read", "iyw.memory.documents.read.v1"),
+    ("append", "iyw.memory.confirmed.append.v1"),
+    ("propose", "iyw.memory.candidate.propose.v1"),
+    ("candidates.list", "iyw.memory.candidates.list.v1"),
+    ("candidate.resolve", "iyw.memory.candidate.resolve.v1"),
+    ("candidate.delete", "iyw.memory.candidate.delete.v1"),
+    ("harvest.status", "iyw.memory.harvest.status.v1"),
+    ("harvest.rescan", "iyw.memory.harvest.rescan.v1"),
+    (
+        "candidate.index.rebuild",
+        "iyw.memory.candidate.index.rebuild.v1",
+    ),
+    ("settings.read", "iyw.memory.settings.read.v1"),
+    ("documents.update", "iyw.memory.documents.update.v1"),
+    ("documents.correct", "iyw.memory.documents.correct.v1"),
+];
+
 pub(super) fn values() -> [Value; 9] {
     [
         super::interaction_tools::embedded_tool(super::interaction_tools::ASK_TOOL),
@@ -17,6 +37,15 @@ pub(super) fn values() -> [Value; 9] {
         knowledge_tool(),
         memory_tool(),
     ]
+    .map(with_usage_instruction)
+}
+
+fn with_usage_instruction(mut tool: Value) -> Value {
+    let description = tool["description"].as_str().unwrap_or_default();
+    tool["description"] = json!(format!(
+        "You must read this tool's full usage description and input schema, including nested fields, constraints and examples, before first use. If already read in this conversation, reuse it without another read. {description}"
+    ));
+    tool
 }
 
 fn search_tool() -> Value {
@@ -38,7 +67,7 @@ fn search_tool() -> Value {
 fn read_tool() -> Value {
     json!({
         "name": READ_TOOL,
-        "description": "Call this gateway role only through the exact current callable identity and surface that advertised it. On an unknown, unsupported, or not-found routing error, stop this gateway for the turn and never retry through another name or surface. Read the full description and current input schema for one exact stable capability id returned by this session's search. This is metadata/schema only: it does not execute the capability or load the current-turn memory policy. For a memory operation, read the policy capability schema, then invoke iyw.memory.policy.read.v1 through invoke_iyw_capability with empty arguments before invoking any other memory capability. Read before invoking and obey the returned schema. Ask for missing referenced objects or required inputs; never guess ids, paths, URLs, field names, or arguments.",
+        "description": "Call this gateway role only through the exact current callable identity and surface that advertised it. On an unknown, unsupported, or not-found routing error, stop this gateway for the turn and never retry through another name or surface. Before first using a capability, read the full usage description and input schema for its exact stable id returned by this session's search or manage_iyw_memory operation mapping. Read the entire result before constructing arguments; search summaries are insufficient. If already read in this conversation, reuse that result without another read, including after an ordinary parameter error. This is an Agent instruction, not a server read gate. This tool reads metadata only and does not execute a capability. For memory through invoke_iyw_capability, separately invoke iyw.memory.policy.read.v1 before other memory capabilities, reading its instructions once before first use. manage_iyw_memory performs that policy execution automatically. Ask for missing referenced objects or required inputs; never guess ids, paths, URLs, field names, or arguments.",
         "inputSchema": {
             "type": "object",
             "required": ["capability_id"],
@@ -54,7 +83,7 @@ fn read_tool() -> Value {
 fn invoke_tool() -> Value {
     json!({
         "name": INVOKE_TOOL,
-        "description": "Call this gateway role only through the exact current callable identity and surface that advertised it. On an unknown, unsupported, or not-found routing error, stop this gateway for the turn and never retry through another name or surface. Invoke an available IYW capability using an exact stable id returned by this session's search. Supply arguments exactly as described by read_iyw_capability. If the id becomes unavailable or routing fails, do not retry under a guessed id or namespace. If a prior response returned iyw_delivery_receipt and a later real invocation is needed, echo it only as top-level delivery_ack; never put it in arguments or fabricate an invocation just to acknowledge it.",
+        "description": "Call this gateway role only through the exact current callable identity and surface that advertised it. On an unknown, unsupported, or not-found routing error, stop this gateway for the turn and never retry through another name or surface. Invoke an available IYW capability using an exact stable id returned by this session's search. You must call read_iyw_capability and read its full usage description and input schema before first using that capability. If already read in this conversation, reuse the instructions without another read; the host does not track or block calls based on read history. Use only declared fields and enum values; omit unnecessary optional fields and never borrow parameters from another tool. A capability_schema_mismatch with execution_status=not_started permits one correction using the instructions already read and the error's field hints, then retry the same intended operation once. This also applies to text-only schema errors explicitly reporting execution_status=not_started. A parameter error does not require rereading. Stop if that correction fails; never replay unchanged arguments or apply this recovery to unavailable, routing, timeout, permission, or effect-unknown errors. If a prior response returned iyw_delivery_receipt and a later real invocation is needed, echo it only as top-level delivery_ack; never put it in arguments or fabricate an invocation just to acknowledge it.",
         "inputSchema": {
             "type": "object",
             "required": ["capability_id", "arguments"],
@@ -216,21 +245,23 @@ fn knowledge_tool() -> Value {
 }
 
 fn memory_tool() -> Value {
+    let operations = MEMORY_CAPABILITIES.map(|(operation, _)| operation);
+    let read_targets = MEMORY_CAPABILITIES
+        .iter()
+        .map(|(operation, id)| format!("{operation}={id}"))
+        .collect::<Vec<_>>()
+        .join("; ");
     json!({
         "name": MEMORY_TOOL,
-        "description": "Operate the host-owned IYW memory group in one stable tool. The host performs the current-turn policy preflight automatically for operations other than policy.read. Use only the listed operation and pass its complete operation-specific fields under parameters; permissions, scopes, revisions, eTags, candidate lifecycle and preview gates remain host-owned.",
+        "description": "Operate the host-owned IYW memory group in one stable tool. You must read each operation's full description and input_schema with read_iyw_capability before first use; use the exact id in operation.description. If already read in this conversation, reuse it without another read. Put that schema's fields under parameters, then call this tool. Reading instructions is an Agent rule, not a server read gate. The host performs the current-turn memory policy preflight automatically for operations other than policy.read; reading operation instructions does not execute that policy. Permissions, scopes, revisions, eTags, candidate lifecycle and preview gates remain host-owned.",
         "inputSchema": {
             "type": "object",
             "required": ["operation"],
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": [
-                        "policy.read", "recall", "documents.read", "append", "propose",
-                        "candidates.list", "candidate.resolve", "candidate.delete",
-                        "harvest.status", "harvest.rescan", "candidate.index.rebuild",
-                        "settings.read", "documents.update", "documents.correct"
-                    ]
+                    "enum": operations,
+                    "description": format!("Before first use, read the matching capability_id with read_iyw_capability; reuse a prior read in this conversation: {read_targets}")
                 },
                 "parameters": {"type": "object", "additionalProperties": true}
             },

@@ -84,10 +84,7 @@ fn validate_object(
             .keys()
             .find(|field| properties.is_none_or(|properties| !properties.contains_key(*field)))
         {
-            return Err(error(
-                &child_path(path, field),
-                "is not an allowed property",
-            ));
+            return Err(unknown_property(schema, path, field));
         }
     }
     if let Some(properties) = properties {
@@ -221,16 +218,41 @@ fn child_path(parent: &str, field: &str) -> String {
     format!("{parent}.{field}")
 }
 
+fn unknown_property(schema: &Value, path: &str, field: &str) -> SchemaValidationError {
+    let mut failure = error(&child_path(path, field), "is not an allowed property");
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        failure.allowed_properties = Some(Vec::new());
+        return failure;
+    };
+    failure.allowed_properties = Some(properties.keys().cloned().collect());
+    // 从当前 schema 提取枚举归属，避免维护另一份字段映射。
+    failure.hint = properties.iter().find_map(|(name, property)| {
+        let values = property.get("enum")?.as_array()?;
+        values.iter().any(|value| value.as_str() == Some(field)).then(|| {
+            format!(
+                "{field:?} is a value of {name:?}, not a property. Use the schema to express the intended operation."
+            )
+        })
+    });
+    failure
+}
+
 fn error(path: &str, message: impl Into<String>) -> SchemaValidationError {
     SchemaValidationError {
         path: path.to_string(),
         message: message.into(),
+        allowed_properties: None,
+        hint: None,
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, serde::Serialize, thiserror::Error)]
 #[error("{path} {message}")]
 pub(super) struct SchemaValidationError {
     path: String,
-    message: String,
+    pub(super) message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) allowed_properties: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) hint: Option<String>,
 }
