@@ -75,6 +75,31 @@ jobs:
 
       - uses: mozilla-actions/sccache-action@v0.0.9
 
+      - id: toolchain
+        name: Identify Rust build cache
+        shell: pwsh
+        run: |
+          $identity = (rustc --version --verbose) -join "`n"
+          if ($LASTEXITCODE -ne 0) { throw 'rustc identity failed' }
+          $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($identity))).ToLowerInvariant()
+          "hash=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+            harness/xinghe-worker -> target
+          shared-key: staged-windows-x64-v1
+          cache-bin: "false"
+
+      - id: worker-cache
+        name: Restore exact worker resources
+        uses: actions/cache/restore@v4
+        with:
+          path: src-tauri/resources/xinghe-worker
+          key: xinghe-win-x64-release-v1-${{ steps.toolchain.outputs.hash }}-${{ env.CARGO_PROFILE_RELEASE_CODEGEN_UNITS }}-${{ env.CARGO_PROFILE_RELEASE_LTO }}-${{ hashFiles('harness/xinghe-worker/Cargo.toml', 'harness/xinghe-worker/Cargo.lock', 'harness/xinghe-worker/src/**', 'harness/codex/Cargo.toml', 'harness/codex/upstream.lock', 'harness/codex/src/**', 'harness/codex/patches/**', 'src-tauri/vendor/sacp-tokio/**', 'src-tauri/scripts/prepare-xinghe-worker.mjs', 'src-tauri/scripts/verify-xinghe-worker-bundle.mjs', 'src-tauri/scripts/xinghe-worker-binary.mjs', '.cargo/config.toml') }}
+
       - name: Install dependencies and set version
         shell: pwsh
         run: |
@@ -92,10 +117,28 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "frontend build failed" }
           pnpm tauri:prepare-sidecars --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { throw "sidecar preparation failed" }
-          pnpm tauri:prepare-xinghe-worker --target x86_64-pc-windows-msvc
-          if ($LASTEXITCODE -ne 0) { throw "worker preparation failed" }
           node src-tauri/scripts/verify-sidecar-bundle.mjs --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { throw "sidecar verification failed" }
+
+      - name: Build worker resources on cache miss
+        if: steps.worker-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          pnpm tauri:prepare-xinghe-worker --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'worker preparation failed' }
+
+      - name: Verify worker resources
+        shell: pwsh
+        run: |
+          node src-tauri/scripts/verify-xinghe-worker-bundle.mjs --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'worker verification failed' }
+
+      - name: Save exact worker resources
+        if: steps.worker-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: src-tauri/resources/xinghe-worker
+          key: ${{ steps.worker-cache.outputs.cache-primary-key }}
 
       - name: Prepare runtime seed
         shell: pwsh
@@ -125,6 +168,7 @@ jobs:
           Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $staging | Out-Null
           New-Item -ItemType Directory -Force -Path (Join-Path $staging 'src-tauri') | Out-Null
+          Copy-Item -LiteralPath out -Destination (Join-Path $staging 'out') -Recurse -Force
           Copy-Item -LiteralPath src-tauri\binaries -Destination (Join-Path $staging 'src-tauri\binaries') -Recurse -Force
           Copy-Item -LiteralPath src-tauri\resources\runtime-seed -Destination (Join-Path $staging 'src-tauri\resources\runtime-seed') -Recurse -Force
           Copy-Item -LiteralPath src-tauri\resources\xinghe-worker -Destination (Join-Path $staging 'src-tauri\resources\xinghe-worker') -Recurse -Force
@@ -156,6 +200,7 @@ jobs:
           path: ${{ runner.temp }}/iyw-windows-staging.zip
           if-no-files-found: error
           retention-days: 2
+          compression-level: 0
 
       - name: Show sccache statistics
         if: always()
@@ -206,7 +251,8 @@ jobs:
         shell: pwsh
         run: node scripts/set-version.mjs "$env:TEST_VERSION"
 
-      - name: Rebuild frontend assets
+      - name: Rebuild frontend for legacy staging only
+        if: inputs.staging_run_id != ''
         shell: pwsh
         run: |
           pnpm build
@@ -278,3 +324,4 @@ jobs:
           path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
           retention-days: 2
+          compression-level: 0
