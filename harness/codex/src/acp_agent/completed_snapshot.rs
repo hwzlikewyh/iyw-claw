@@ -51,6 +51,11 @@ async fn load_items(
     {
         Ok(Ok(items)) if includes_final_message(&items, params) => Ok(Some(items)),
         result => {
+            let reason = match &result {
+                Ok(Err(_)) => "history_read_failed",
+                Ok(Ok(_)) => "final_message_mismatch",
+                Err(_) => "history_read_timeout",
+            };
             eprintln!(
                 "[星河][worker] completed content recovery failed: {}",
                 match result {
@@ -65,6 +70,7 @@ async fn load_items(
                 "session_info_update",
                 json!({ "_meta": { "iyw": {
                 "recoveryError": "本轮已结束，但未能核对完整输出，请从历史记录检查结果。",
+                "recoveryReason": reason,
                 "turnId": turn, "generation": generation,
             } } }),
             )?;
@@ -127,9 +133,13 @@ fn includes_final_message(items: &[Value], params: &Value) -> bool {
         .flatten()
         .filter(|item| item["type"] == "agentMessage")
         .all(|last| {
+            // 同一回合的旧格式历史会重建 item-N ID，不能与实时消息 UUID 比较。
+            // 核对最后一条回答的完整内容及阶段，避免把完整输出误判为丢失。
             items
                 .iter()
-                .any(|item| item["id"] == last["id"] && item["text"] == last["text"])
+                .rev()
+                .find(|item| item["type"] == "agentMessage")
+                .is_some_and(|item| item["text"] == last["text"] && item["phase"] == last["phase"])
         })
 }
 

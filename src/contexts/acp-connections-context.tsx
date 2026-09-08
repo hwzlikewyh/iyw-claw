@@ -4105,6 +4105,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                 return t("backendErrors.compactionNotApplied", {
                   agent: agentLabel,
                 })
+              case "worker_content_recovery_failed":
+                return t("backendErrors.workerContentRecoveryFailed")
               case "prompt_stall_timeout":
                 return t("backendErrors.promptStallTimeout", {
                   agent: agentLabel,

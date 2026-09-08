@@ -8528,6 +8528,19 @@ async fn emit_conversation_update(
             if crate::internal_codex_worker::is_desktop_agent(agent_type) {
                 if let Some(message) = info.meta.as_ref().and_then(|meta| meta.get("iyw"))
                     .and_then(|meta| meta.get("recoveryError")).and_then(serde_json::Value::as_str) {
+                    let snapshot = state.read().await;
+                    let reason = info.meta.as_ref().and_then(|meta| meta.get("iyw"))
+                        .and_then(|meta| meta.get("recoveryReason")).and_then(serde_json::Value::as_str);
+                    let reason = match reason {
+                        Some("history_read_failed") => "history_read_failed",
+                        Some("final_message_mismatch") => "final_message_mismatch",
+                        Some("history_read_timeout") => "history_read_timeout",
+                        _ => "unknown",
+                    };
+                    tracing::warn!(connection_id = %snapshot.connection_id,
+                        generation = snapshot.turn_generation, reason,
+                        "[星河][worker] completed output verification failed");
+                    drop(snapshot);
                     emit_with_state(state, emitter, AcpEvent::Error {
                         message: message.into(), agent_type: agent_type.to_string(),
                         code: Some("worker_content_recovery_failed".into()), details: None, terminal: false,

@@ -68,3 +68,4 @@ tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev 
 # subsequent locked Codex release incorporates an equivalent fix.
 [patch."https://github.com/openai/codex.git"]
 codex-utils-pty = { path = "patches/codex-utils-pty" }
+codex-shell-command = { path = "patches/codex-shell-command" }

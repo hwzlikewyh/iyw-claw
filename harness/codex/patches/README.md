@@ -10,6 +10,17 @@ source deltas retain explicit pointer casts in `src/win/conpty.rs` and
 `src/win/mod.rs`, and `src/win/psuedocon.rs`. Its `Cargo.toml` is standalone
 because Cargo path patches cannot inherit upstream workspace manifest values.
 
+`src/win/job.rs` also retains `CREATE_NO_WINDOW` alongside `CREATE_SUSPENDED`
+when starting internal Git and MCP subprocesses. Assigning the process to a job
+must not undo the hidden-window setting.
+
+`codex-shell-command` contains the production sources from the same locked
+`rust-v0.153.4` commit. Its only runtime change is setting `CREATE_NO_WINDOW`
+on the two PowerShell detection commands in `src/powershell.rs`. The standalone
+manifest resolves the original workspace dependencies at the same pin. Upstream
+test modules, test-only PowerShell parser, and fixtures are omitted from this
+runtime patch; no new tests are added. Review both overrides on each upgrade.
+
 The `0.153.4` upgrade compared both patched Windows files and the upstream
 crate manifest with `0.152.1`; they are unchanged. The pointer casts remain
 necessary. The upgrade also adopts upstream's `AsRef<OsStr>` pipe-spawn API
