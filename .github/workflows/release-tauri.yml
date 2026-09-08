@@ -373,6 +373,7 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
+          assetNamePattern: iyw-claw_[version]_arm64[ext]
           tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} --config src-tauri/tauri.linux-arm64-ci.conf.json
           includeUpdaterJson: false
@@ -402,6 +403,7 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
+          assetNamePattern: iyw-claw_[version]_${{ matrix.target == 'i686-pc-windows-msvc' && 'x86' || 'x64' }}[setup][ext]
           tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
           # steps.signing.outputs.config_arg is either empty (unsigned) or
           # `--config <abs path to generated overlay>`.
@@ -468,6 +470,7 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
+          assetNamePattern: iyw-claw_[version]_amd64[ext]
           tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles appimage --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
           includeUpdaterJson: false
@@ -492,6 +495,7 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
+          assetNamePattern: iyw-claw_[version]_${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || 'aarch64' }}[ext]
           tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles app,dmg --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
           includeUpdaterJson: false
