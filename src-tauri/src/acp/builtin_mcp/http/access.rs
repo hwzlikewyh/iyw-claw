@@ -46,9 +46,10 @@ pub(super) async fn authenticate_access(
             "MCP request capacity reached",
         ));
     };
-    let Some(context) = state.registry.lookup(&metadata.bearer).await else {
+    let Some(mut context) = state.registry.lookup(&metadata.bearer).await else {
         return Err(unauthorized());
     };
+    context.capture_tools_generation();
     let session_permit = if stream_request {
         context.try_acquire_stream()
     } else {

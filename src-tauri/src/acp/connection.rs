@@ -2671,14 +2671,17 @@ fn companion_features_arg(
 
 /// Outcome of injecting the in-process HTTP companion, plus whether the
 /// `check_user_feedback` tool was exposed to this agent.
+#[derive(Clone)]
 struct CompanionInjection {
     feedback_available: bool,
     memory_tools_expected: bool,
 }
 
+#[derive(Clone)]
 struct PreparedCompanion {
     server: McpServer,
     injection: CompanionInjection,
+    tools_ready: crate::acp::builtin_mcp::ToolReadiness,
 }
 
 struct CompanionLaunchPreparation {
@@ -2686,6 +2689,9 @@ struct CompanionLaunchPreparation {
     companion: Option<PreparedCompanion>,
     policy_monitor: Option<CapabilityRevocationMonitor>,
 }
+
+#[path = "connection_mcp_recovery.rs"]
+mod mcp_recovery;
 
 struct MemoryLaunchAccess {
     confirmed_append: bool,
@@ -2942,6 +2948,7 @@ async fn prepare_http_companion(
         resolve_companion_features(injection, client.capability_tools(), &memory_access).await;
     let server_name = builtin_mcp_server_name(context.database_conversation_id, context.agent_type);
     let authority = http_session_authority(context, &resolved, &memory_access, &server_name);
+    let tools_ready = authority.tools_ready();
     let bearer = client
         .issue(authority, Arc::clone(&memory_access.turn_tracker))
         .await?;
@@ -2964,6 +2971,7 @@ async fn prepare_http_companion(
         health,
         companion: Some(PreparedCompanion {
             server: McpServer::Http(server),
+            tools_ready,
             injection: CompanionInjection {
                 feedback_available: resolved.feedback_available,
                 memory_tools_expected: resolved.memory_tools_expected,
@@ -3325,8 +3333,18 @@ async fn run_connection(
 ) -> Result<(), AcpError> {
     let mut attempt_agent = Some(agent);
     let mut reconnect_attempts = 0usize;
+    let mut companion_launch = None;
     let attempt_stderr_tail = stderr_tail;
     loop {
+        if reconnect_attempts > 0 {
+            disconnect_command_ready.store(false, Ordering::Release);
+            mcp_recovery::reset_transport(
+                companion_launch.as_ref(),
+                builtin_mcp.as_ref(),
+                &connection_id,
+            )
+            .await?;
+        }
         let agent = attempt_agent
             .take()
             .ok_or_else(|| AcpError::protocol("ACP connection attempt lost its Agent builder"))?;
@@ -3418,6 +3436,7 @@ async fn run_connection(
                 return Err(error);
             }
         };
+        let shared_host = host.is_shared();
         let stderr_tail = host.stderr_tail();
         let host_health = host.health_flag();
         if let Some(pid) = host.pid() {
@@ -3433,7 +3452,7 @@ async fn run_connection(
         drop(storage_read_guard.take());
         let host_capabilities = host.capabilities();
         let runtime_verified = host.runtime_verified();
-        let _route_lease = host.register_route(
+        let register_route = host.register_route(
             connection_id.clone(),
             session_id.clone(),
             crate::acp::runtime_host::RuntimeSessionRoute {
@@ -3456,7 +3475,20 @@ async fn run_connection(
                 host_capabilities,
                 runtime_verified,
             },
-        )?;
+        );
+        let _route_lease = tokio::select! {
+            result = register_route => result?,
+            _ = cancellation.cancelled() => return Ok(()),
+        };
+        // close 有界等待到确认后才处理取消，避免迟到的退订关闭刚恢复的同名会话。
+        if shared_host {
+            if let Some(session_id) = session_id.as_deref() {
+                host.close_session(session_id).await?;
+            }
+        }
+        if cancellation.is_cancelled() {
+            return Ok(());
+        }
         let route_binding = _route_lease.binding();
         let terminal_cleanup = Arc::clone(&terminal_runtime);
         let cx = host.connection();
@@ -3477,6 +3509,8 @@ async fn run_connection(
         let authority_parent_cancellation = attempt_cancellation.clone();
         let reconnect_session_id = session_id.clone();
         let reconnect_host_health = Arc::clone(&host_health);
+        let companion_launch = &mut companion_launch;
+        let tools_cancellation = cancellation.clone();
         let connection = async move {
             let state = state_outer;
             let managed_agent_version = state.read().await.managed_agent_version.clone();
@@ -3580,31 +3614,33 @@ async fn run_connection(
                 Vec::new()
             };
 
-            // Issue the built-in HTTP MCP lease per logical session. Shared Agent
-            // hosts must not inherit another session's token or cwd.
-            let CompanionLaunchPreparation {
-                health: companion_health,
-                companion,
-                policy_monitor: _companion_policy_monitor,
-            } = prepare_companion_launch(CompanionLaunchContext {
-                injection: delegation_injection.as_ref(),
-                builtin_mcp: builtin_mcp.as_ref(),
-                http_lease_issued: http_lease_issued.as_ref(),
-                connection_id: &conn_id,
-                database_conversation_id,
-                working_dir: &cwd,
-                agent_type,
-                backend_allows_builtin_mcp: !dedicated_worker,
-                state: &state,
-                agent_http_capable: builtin_http_capability_available(
+            // 同一 connection 的 Host 重试复用 authority；新的 connection 独立签发。
+            let (companion_health, companion) = mcp_recovery::prepare(
+                companion_launch,
+                CompanionLaunchContext {
+                    injection: delegation_injection.as_ref(),
+                    builtin_mcp: builtin_mcp.as_ref(),
+                    http_lease_issued: http_lease_issued.as_ref(),
+                    connection_id: &conn_id,
+                    database_conversation_id,
+                    working_dir: &cwd,
                     agent_type,
-                    managed_agent_version.as_deref(),
-                    &init_resp,
-                ),
-                parent_cancellation: &authority_parent_cancellation,
-            })
+                    backend_allows_builtin_mcp: !dedicated_worker,
+                    state: &state,
+                    agent_http_capable: builtin_http_capability_available(
+                        agent_type,
+                        managed_agent_version.as_deref(),
+                        &init_resp,
+                    ),
+                    parent_cancellation: &authority_parent_cancellation,
+                },
+            )
             .await
             .map_err(ConnectionAttemptError::from)?;
+            // 星河在会话启动时建立 MCP；其他 Agent 可能延迟到首轮才初始化。
+            let tools_ready = companion.as_ref()
+                .filter(|_| agent_type == AgentType::Codex)
+                .map(|prepared| prepared.tools_ready.clone());
             let delegate_injection = companion.map(|prepared| {
                 mcp_servers.push(prepared.server);
                 prepared.injection
@@ -3684,6 +3720,11 @@ async fn run_connection(
                                 crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref())
                             });
                             let mut session = cx.attach_session(new_resp, Default::default())?;
+                            mcp_recovery::wait_ready(
+                                tools_ready.as_ref(), &conn_id, &tools_cancellation,
+                            )
+                            .await
+                            .map_err(ConnectionAttemptError::from)?;
                             recovery_in_progress.finish();
                             state.write().await.mark_recovery_succeeded();
                             tracing::info!(
@@ -3876,18 +3917,11 @@ async fn run_connection(
                             .then(|| new_resp.meta.clone())
                             .flatten();
                         let mut session = cx.attach_session(new_resp, Default::default())?;
-                        finalize_user_memory_launch(
-                            &state,
-                            &emitter_clone,
-                            UserMemoryLaunchFinalization {
-                                injection: delegation_injection.as_ref(),
-                                companion: delegate_injection.as_ref(),
-                                health: &companion_health,
-                                resumed: true,
-                            },
-                            version_center_db.as_ref(),
+                        mcp_recovery::wait_ready(
+                            tools_ready.as_ref(), &conn_id, &tools_cancellation,
                         )
-                        .await;
+                        .await
+                        .map_err(ConnectionAttemptError::from)?;
 
                         // Drain historical replay notifications from session/load,
                         // but forward AvailableCommandsUpdate to the frontend
@@ -3980,6 +4014,19 @@ async fn run_connection(
                                 "[ACP] Drained {drained} historical replay notifications"
                             );
                         }
+
+                        finalize_user_memory_launch(
+                            &state,
+                            &emitter_clone,
+                            UserMemoryLaunchFinalization {
+                                injection: delegation_injection.as_ref(),
+                                companion: delegate_injection.as_ref(),
+                                health: &companion_health,
+                                resumed: true,
+                            },
+                            version_center_db.as_ref(),
+                        )
+                        .await;
 
                         recovery_in_progress.finish();
                         state.write().await.mark_recovery_succeeded();
@@ -4118,6 +4165,9 @@ async fn run_connection(
                 let grok_effort_specs = (agent_type == AgentType::Grok)
                     .then(|| crate::acp::grok::parse_effort_specs(grok_models_raw.as_ref()));
                 let mut session = cx.attach_session(new_resp, Default::default())?;
+                mcp_recovery::wait_ready(tools_ready.as_ref(), &conn_id, &tools_cancellation)
+                    .await
+                    .map_err(ConnectionAttemptError::from)?;
                 finalize_user_memory_launch(
                     &state,
                     &emitter_clone,
@@ -4223,6 +4273,14 @@ async fn run_connection(
             .close_and_drain("connection_teardown")
             .await;
         for session_id in _route_lease.session_ids() {
+            if shared_host && host.is_healthy() {
+                if let Err(error) = host.close_session(&session_id).await {
+                    tracing::warn!(
+                        connection_id, session_id, error = %error,
+                        "[ACP][host] remote session cleanup did not complete"
+                    );
+                }
+            }
             terminal_cleanup.release_all_for_session(&session_id).await;
         }
         drop(_route_lease);

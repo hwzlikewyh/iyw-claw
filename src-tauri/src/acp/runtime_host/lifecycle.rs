@@ -44,17 +44,34 @@ impl RuntimeHostReservation {
         }
     }
 
-    pub(crate) fn register_route(
+    pub(crate) fn is_shared(&self) -> bool {
+        self.shared
+    }
+
+    pub(crate) async fn register_route(
         &mut self,
         connection_id: String,
         session_id: Option<String>,
         route: super::RuntimeSessionRoute,
     ) -> Result<super::RuntimeHostRouteLease, crate::acp::error::AcpError> {
-        let lease =
-            self.host
-                .register_reserved_route(connection_id, session_id, route, self.shared)?;
-        self.armed = false;
-        Ok(lease)
+        let route = Arc::new(route);
+        let changed = self.host.router.change_notifier();
+        let wait = async {
+            loop {
+                let notified = changed.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if let Some(lease) = self.host.register_reserved_route(
+                    connection_id.clone(), session_id.clone(), Arc::clone(&route), self.shared,
+                )? {
+                    self.armed = false;
+                    return Ok(lease);
+                }
+                notified.await;
+            }
+        };
+        tokio::time::timeout(super::session::SESSION_HANDOFF_TIMEOUT, wait).await
+            .map_err(|_| crate::acp::error::AcpError::protocol("Previous ACP session is still closing"))?
     }
 }
 

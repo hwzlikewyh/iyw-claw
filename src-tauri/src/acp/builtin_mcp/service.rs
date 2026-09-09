@@ -70,6 +70,10 @@ impl BuiltinMcpClient {
         self.leases.revoke_parent(connection_id).await
     }
 
+    pub(crate) async fn reset_transport(&self, connection_id: &str) -> Result<(), String> {
+        self.leases.reset_transport(connection_id).await
+    }
+
     async fn revoke_all(&self) -> LeaseShutdownReport {
         self.leases.revoke_all().await
     }
