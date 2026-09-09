@@ -12,12 +12,14 @@ use super::authority::SessionContext;
 const GATEWAY_ORIGIN: &str = "https://gateway.iyw.cn";
 const IMAGE_PREFIX: &str = "/ai-application/api/microModel";
 const FUSION_PREFIX: &str = "/iyw-fusion-api/v1";
-const HTTP_TIMEOUT: Duration = Duration::from_secs(300);
+const HTTP_TIMEOUT: Duration = Duration::from_secs(super::iyw_image::FUSION_TIMEOUT_SECONDS);
 
+#[derive(Clone)]
 pub(super) struct IywGatewayService {
     conn: DatabaseConnection,
     listener: Arc<DelegationListener>,
     client: reqwest::Client,
+    pub(super) image_timeout: Option<Duration>,
 }
 
 impl IywGatewayService {
@@ -34,6 +36,7 @@ impl IywGatewayService {
             conn,
             listener,
             client,
+            image_timeout: None,
         }))
     }
 
@@ -87,6 +90,7 @@ impl IywGatewayService {
         let response = self
             .client
             .post(self.url(FUSION_PREFIX, path))
+            .timeout(self.image_timeout.unwrap_or(HTTP_TIMEOUT))
             .header("token", token)
             .json(&body)
             .send()
@@ -115,6 +119,7 @@ impl IywGatewayService {
         let response = self
             .client
             .post(self.url(FUSION_PREFIX, path))
+            .timeout(self.image_timeout.unwrap_or(HTTP_TIMEOUT))
             .header("token", token)
             .multipart(form)
             .send()
@@ -249,6 +254,7 @@ impl IywGatewayService {
         let response = self
             .client
             .post(self.url("", url_path))
+            .timeout(self.image_timeout.unwrap_or(HTTP_TIMEOUT))
             .header("token", token)
             .json(&body)
             .send()

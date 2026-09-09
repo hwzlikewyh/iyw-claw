@@ -31,7 +31,7 @@ state, returned revisions, and availability when the task requires them.
 | Work | Input shape |
 | --- | --- |
 | Fusion image models | Call `list_iyw_image_models` with `{}`; choose a returned model supporting generation or editing as needed |
-| Image generation/editing | For `generate`/`edit` (also `auto` without images), first select a model from `list_iyw_image_models`, then call `generate_iyw_image` with its exact ID in `parameters.model`; specialized operations need no Fusion lookup and no generation capability ID exists |
+| Image generation/editing | Prefer IYW platform `fission`/`variation`/`extend`/`mix` or specialized operations; only fall back to `generate`/`edit` after confirmed platform failure, selecting a model from `list_iyw_image_models` and passing its exact ID in `parameters.model`. Default timeout: platform 600s, Fusion 300s; override with `wait.timeoutSeconds`, including values above 600. No generation capability ID exists |
 | Document knowledge | `search_iyw_knowledge`: `query`, optional known filters; `folderId` is an integer and `fileId` is a string |
 | Known IYW website API | `fetch_iyw_url`: HTTPS `iyw.cn` and all subdomains; GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS; JSON/form/text bodies and ordinary header overrides; current login token supplied by the host; fixed output envelope |
 | Memory recall | Read the mapped capability once, then `manage_iyw_memory` with `operation` and `parameters`; policy preflight is automatic |

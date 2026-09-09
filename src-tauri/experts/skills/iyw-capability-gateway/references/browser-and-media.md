@@ -167,12 +167,25 @@ IYW product/material/commerce and ordinary raster creation. Attach SVG, BMP,
 ICO, and other unsupported model-image formats as ordinary files rather than
 forcing an image-analysis route.
 
-Before `type=generate` or `type=edit` (also `auto` without images), call
+IYW platform image operations have highest priority: use `fission` for text-only
+creation, or `variation`, `extend`, `mix`, and specialized platform tools for source
+images. `auto` without images also uses `fission`. Only after an explicit terminal
+platform failure or confirmed rejection before task creation may the agent fall
+back to `generate` (`images/generations`) or `edit` (`images/edits`). A timeout,
+transport error, or running task does not authorize fallback; query its task ID.
+
+Before that `type=generate` or `type=edit` fallback, call
 `list_iyw_image_models` with `{}`. Choose a returned model for the user's task
 with `image_generation` or `image_editing` enabled, respectively, then pass its
 exact `id` in `parameters.model`. Reuse the catalog for the same task or batch.
 Specialized IYW operations such as `variation`, `extend`, and `mix` do not need
 this Fusion model lookup.
+
+Default timeouts are 600 seconds for platform HTTP requests and task polling,
+and 300 seconds for Fusion generation/editing. The agent may override either with
+`wait.timeoutSeconds`, including values above 600; each batch item can set its own
+wait. Prefer the defaults or longer for slow image tasks. `0` explicitly submits
+platform tasks without polling; Fusion retains its default timeout.
 
 After `generate_iyw_image`, choose verification from the user's task. Ordinary
 generation/editing can deliver successful results directly using returned status,

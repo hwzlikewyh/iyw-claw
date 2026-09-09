@@ -124,6 +124,9 @@ fn is_active_tool(tool: &&ToolCallState) -> bool {
 }
 
 fn tool_timeout_window(tool: &ToolCallState) -> (Duration, PromptStallTimeoutSource) {
+    if let Some(timeout) = tool.input.as_ref().and_then(image_wait_timeout) {
+        return (timeout, PromptStallTimeoutSource::Declared);
+    }
     let Some(timeout_ms) = tool
         .input
         .as_ref()
@@ -144,4 +147,45 @@ fn tool_timeout_window(tool: &ToolCallState) -> (Duration, PromptStallTimeoutSou
         Duration::from_secs(timeout_secs),
         PromptStallTimeoutSource::Declared,
     )
+}
+
+fn image_wait_timeout(input: &serde_json::Value) -> Option<Duration> {
+    let input = input.get("arguments").unwrap_or(input);
+    let seconds = if let Some(requests) =
+        input.get("requests").and_then(serde_json::Value::as_array)
+    {
+        if !requests
+            .iter()
+            .any(|request| image_wait_seconds(request).is_some())
+        {
+            return None;
+        }
+        requests.iter().fold(0_u64, |total, request| {
+            let seconds = image_wait_seconds(request).unwrap_or(FALLBACK_TOOL_TIMEOUT.as_secs());
+            let count = request
+                .get("count")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(1);
+            total.saturating_add(seconds.saturating_mul(count))
+        })
+    } else {
+        let count = input
+            .get("count")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(1);
+        image_wait_seconds(input)?.saturating_mul(count)
+    };
+    // 平台提交与轮询各有等待预算，另留准备及交付时间，避免外层先截断长任务。
+    let timeout = Duration::from_secs(seconds)
+        .saturating_mul(2)
+        .saturating_add(FALLBACK_TOOL_TIMEOUT);
+    Some(timeout)
+}
+
+fn image_wait_seconds(input: &serde_json::Value) -> Option<u64> {
+    input
+        .get("wait")?
+        .get("timeoutSeconds")?
+        .as_u64()
+        .filter(|seconds| *seconds > 0)
 }

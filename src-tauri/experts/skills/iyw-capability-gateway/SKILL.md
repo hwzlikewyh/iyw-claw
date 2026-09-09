@@ -194,13 +194,20 @@ tools and the capability trio:
 
 ### Image shortest paths
 
-For `generate` or `edit`, first call `list_iyw_image_models` with `{}`. Choose
+**IYW platform image operations have highest priority.** Use `fission` for
+text-only creation, and `variation`, `extend`, `mix`, or a matching specialized
+platform operation for source images. Only fall back to `generate`
+(`images/generations`) or `edit` (`images/edits`) after an explicit terminal
+platform failure or a confirmed rejection before task creation. A timeout,
+transport error, or running task is not proof of failure and does not permit fallback.
+
+For that `generate` or `edit` fallback, first call `list_iyw_image_models` with `{}`. Choose
 from the returned descriptions, capabilities, prices, and user requirements;
 `generate` requires `capabilities.image_generation=true`, while `edit` requires
 `capabilities.image_editing=true`. Pass the selected `id` as `parameters.model`;
 never guess a model or leave this choice to the host's compatibility fallback.
 Reuse the catalog for the same task or batch and select a model for every
-`generate`/`edit` item. This also applies to `auto` without images. Refresh when
+`generate`/`edit` item. Platform operations and `auto` need no Fusion lookup. Refresh when
 model availability changes; an empty or failed lookup does not supply a model.
 
 Then call `generate_iyw_image` and wait for its result. In the examples below,
@@ -210,13 +217,12 @@ operations still use one call without a Fusion model lookup.
 With source images, choose the applicable IYW tool first: one-image redesign
 uses `variation`; same-series or trend/theme extension uses `extend`; combining
 2-10 references uses `mix`. A matching specialized operation such as background,
-outpaint, or super-resolution takes priority for that task. Use `edit` for an
-explicit need for free-form redraw, masks, complex composition, or constraints
-these tools cannot express. Keep all needed reference images. With no images,
-use `generate` (`images/generations`); `fission` is an explicitly chosen alternative.
+outpaint, or super-resolution takes priority for that task. After a confirmed
+platform failure, `edit` can handle redraw, masks, or complex composition;
+keep all needed reference images. With no images, use `fission` first.
 Do not use a generation-only type with source images.
 
-`auto` is only a basic fallback: no images -> `generate`; one image -> `variation`
+`auto` is only a basic fallback: no images -> `fission`; one image -> `variation`
 or `extend` for series/extension wording; multiple images -> `mix`. It does not
 infer specialized operations or creative freedom. Do not switch routes or
 recreate a task after a timeout/uncertain submission; query the original task ID
@@ -225,8 +231,14 @@ returned status, URLs, and delivery metadata. Review visuals for requested quali
 comparison, visual acceptance, or integration into a composed deliverable. A detailed prompt
 alone is not a review request; report partial/failure states and do not regenerate beyond scope.
 
+**Timeouts:** omit `wait.timeoutSeconds` for 600 seconds on platform requests and
+polling, or 300 seconds on `generate`/`edit`. The agent can explicitly override
+either, including values above 600; prefer the defaults or longer for slow tasks.
+Do not shorten waits merely to return sooner. Each batch item has its own wait.
+`0` means submit without polling on the platform; Fusion keeps its default timeout.
+
 ```json
-{"type":"generate","prompt":"白底陶瓷茶壶，现代东方风，产品摄影","parameters":{"model":"MODEL_ID_FROM_CATALOG"}}
+{"type":"fission","prompt":"白底陶瓷茶壶，现代东方风，产品摄影","wait":{"timeoutSeconds":900}}
 ```
 
 ```json
@@ -240,6 +252,8 @@ alone is not a review request; report partial/failure states and do not regenera
 ```json
 {"type":"mix","prompt":"以第1张产品结构、第2张趋势配色融合成一件可生产餐盘","images":[{"url":"https://example.com/product.png","role":"structure"},{"url":"https://example.com/trend.png","role":"style"}]}
 ```
+
+After a confirmed platform failure, an editing fallback can use:
 
 ```json
 {"type":"edit","prompt":"以原图为参考自由重绘为超现实拼贴海报，重新设计透视和构图，保留主体标识，右侧留出标题区域","images":[{"base64":"...","mimeType":"image/png","role":"source"}],"parameters":{"model":"MODEL_ID_FROM_CATALOG"}}
