@@ -47,6 +47,7 @@ pub struct SessionAuthority {
     cancellation: CancellationToken,
     memory_turn_tracker: Arc<MemoryTurnTracker>,
     memory_policy_loaded_nonce: Arc<AtomicU64>,
+    tools_ready: super::readiness::ToolReadiness,
 }
 
 impl SessionAuthority {
@@ -63,6 +64,7 @@ impl SessionAuthority {
             cancellation: CancellationToken::new(),
             memory_turn_tracker,
             memory_policy_loaded_nonce: Arc::new(AtomicU64::new(MEMORY_POLICY_UNLOADED)),
+            tools_ready: super::readiness::ToolReadiness::default(),
         }
     }
 
@@ -73,6 +75,10 @@ impl SessionAuthority {
 
     pub fn connection_id(&self) -> &str {
         &self.identity.connection_id
+    }
+
+    pub(crate) fn tools_ready(&self) -> super::readiness::ToolReadiness {
+        self.tools_ready.clone()
     }
 
     pub fn cwd(&self) -> &Path {
@@ -115,6 +121,7 @@ impl SessionAuthority {
 #[derive(Debug, Clone)]
 pub(super) struct SessionContext {
     authority: Arc<SessionAuthority>,
+    tools_generation: u64,
     request_capacity: Arc<Semaphore>,
     stream_capacity: Arc<Semaphore>,
 }
@@ -123,6 +130,7 @@ impl SessionContext {
     pub(super) fn new(authority: SessionAuthority) -> Self {
         Self {
             authority: Arc::new(authority),
+            tools_generation: 0,
             request_capacity: Arc::new(Semaphore::new(MAX_ACTIVE_REQUESTS_PER_TOKEN)),
             stream_capacity: Arc::new(Semaphore::new(MAX_ACTIVE_STREAMS_PER_TOKEN)),
         }
@@ -130,6 +138,15 @@ impl SessionContext {
 
     pub(super) fn cancel(&self) {
         self.authority.cancel();
+    }
+
+    // 在 HTTP 鉴权时捕获代际，迟到的旧 tools/list 响应不能使新连接就绪。
+    pub(super) fn capture_tools_generation(&mut self) {
+        self.tools_generation = self.authority.tools_ready.generation();
+    }
+
+    pub(super) fn tools_generation(&self) -> u64 {
+        self.tools_generation
     }
 
     pub(super) fn try_acquire_request(&self) -> Option<OwnedSemaphorePermit> {

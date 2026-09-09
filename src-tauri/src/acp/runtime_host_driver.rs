@@ -28,6 +28,9 @@ use crate::models::agent::AgentType;
 
 use crate::acp::runtime_host_worker_turn as worker_turn;
 
+#[path = "runtime_host_initialize.rs"]
+mod initialize;
+
 const DEFAULT_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(60);
 const CODEX_INITIALIZE_TIMEOUT: Duration = Duration::from_secs(120);
 const fn initialize_timeout(agent_type: AgentType) -> Duration {
@@ -219,11 +222,12 @@ fn build_client(
             )
             .await
             {
-                Ok(initialize_response) => {
+                Ok((initialize_response, supports_session_close)) => {
                     healthy.store(true, Ordering::Release);
                     let _ = ready.send(Ok(HostReady {
                         connection: connection.clone(),
                         initialize_response,
+                        supports_session_close,
                     }));
                 }
                 Err(error) => {
@@ -247,7 +251,7 @@ async fn initialize_agent(
     agent_type: AgentType,
     capabilities: RuntimeHostCapabilities,
     startup_trace: Option<&crate::acp::startup_trace::StartupTrace>,
-) -> Result<InitializeResponse, sacp::Error> {
+) -> Result<(InitializeResponse, bool), sacp::Error> {
     let terminal_enabled = capabilities.contains(Capability::Terminal);
     let read_enabled = capabilities.contains(Capability::HostRead);
     let write_enabled = capabilities.contains(Capability::HostWrite);
@@ -296,7 +300,7 @@ async fn initialize_agent(
     );
     match tokio::time::timeout(
         timeout,
-        connection.send_request_to(Agent, request).block_task(),
+        initialize::send(connection, request),
     )
     .await
     {

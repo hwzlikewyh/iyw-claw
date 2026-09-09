@@ -17,6 +17,7 @@ use super::session::{SessionIssueError, SessionRegistry};
 mod cleanup;
 mod tasks;
 mod teardown;
+mod transport;
 
 use cleanup::PendingCleanupRegistry;
 use tasks::{CleanupTasks, ParentRevocationTasks};

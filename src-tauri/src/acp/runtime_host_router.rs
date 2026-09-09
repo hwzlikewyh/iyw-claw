@@ -29,6 +29,7 @@ pub(crate) struct RuntimeSessionRoute {
 #[derive(Clone, Default)]
 pub(super) struct SessionRequestRouter {
     routes: Arc<Mutex<RouteTables>>,
+    changed: Arc<tokio::sync::Notify>,
 }
 
 #[derive(Default)]
@@ -83,6 +84,7 @@ impl Drop for RuntimeHostRouteLease {
         if let Some(on_drop) = self.on_drop.take() {
             on_drop();
         }
+        self.binding.router.changed.notify_waiters();
     }
 }
 
@@ -116,6 +118,11 @@ impl RuntimeHostRouteBinding {
         else {
             return false;
         };
+        if routes.sessions.get(&session_id).is_some_and(|entry| {
+            entry.connection_id != self.connection_id || entry.generation != self.generation
+        }) {
+            return false;
+        }
         routes.sessions.retain(|_, entry| {
             entry.connection_id != self.connection_id || entry.generation != self.generation
         });
@@ -127,6 +134,8 @@ impl RuntimeHostRouteBinding {
                 route,
             },
         );
+        drop(routes);
+        self.router.changed.notify_waiters();
         true
     }
 
@@ -148,6 +157,10 @@ impl RuntimeHostRouteBinding {
 }
 
 impl SessionRequestRouter {
+    pub(super) fn change_notifier(&self) -> Arc<tokio::sync::Notify> {
+        Arc::clone(&self.changed)
+    }
+
     pub(super) fn route_count(&self) -> usize {
         self.routes
             .lock()
@@ -160,14 +173,16 @@ impl SessionRequestRouter {
         &self,
         connection_id: String,
         session_id: Option<String>,
-        route: RuntimeSessionRoute,
-    ) -> RuntimeHostRouteLease {
+        route: Arc<RuntimeSessionRoute>,
+    ) -> Option<RuntimeHostRouteLease> {
         let generation = next_route_generation();
-        let route = Arc::new(route);
         let mut routes = self
             .routes
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if session_id.as_ref().is_some_and(|id| routes.sessions.contains_key(id)) {
+            return None;
+        }
         routes.connections.insert(
             connection_id.clone(),
             RouteEntry {
@@ -185,14 +200,14 @@ impl SessionRequestRouter {
                 },
             );
         }
-        RuntimeHostRouteLease {
+        Some(RuntimeHostRouteLease {
             binding: RuntimeHostRouteBinding {
                 connection_id,
                 generation,
                 router: self.clone(),
             },
             on_drop: None,
-        }
+        })
     }
 
     pub(super) fn resolve(&self, session_id: &SessionId) -> Option<Arc<RuntimeSessionRoute>> {

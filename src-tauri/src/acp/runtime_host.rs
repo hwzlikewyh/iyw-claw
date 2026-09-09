@@ -24,6 +24,7 @@ pub(crate) use crate::acp::runtime_host_router::{
 use crate::acp::stderr_tail::StderrTail;
 
 mod lifecycle;
+mod session;
 mod startup;
 
 pub(crate) use lifecycle::RuntimeHostReservation;
@@ -46,6 +47,8 @@ pub(crate) struct AgentRuntimeHost {
     key: RuntimeHostKey,
     connection: ConnectionTo<Agent>,
     initialize_response: InitializeResponse,
+    supports_session_close: bool,
+    closing_sessions: StdMutex<std::collections::HashSet<String>>,
     stderr_tail: Arc<StderrTail>,
     router: SessionRequestRouter,
     shutdown: CancellationToken,
@@ -121,6 +124,8 @@ impl AgentRuntimeHost {
             key,
             connection: ready.connection,
             initialize_response: ready.initialize_response,
+            supports_session_close: ready.supports_session_close,
+            closing_sessions: StdMutex::new(std::collections::HashSet::new()),
             stderr_tail,
             router,
             shutdown,
@@ -168,9 +173,9 @@ impl AgentRuntimeHost {
         self: &Arc<Self>,
         connection_id: String,
         session_id: Option<String>,
-        route: RuntimeSessionRoute,
+        route: Arc<RuntimeSessionRoute>,
         schedule_idle: bool,
-    ) -> Result<RuntimeHostRouteLease, AcpError> {
+    ) -> Result<Option<RuntimeHostRouteLease>, AcpError> {
         let _guard = self
             .route_guard
             .lock()
@@ -180,25 +185,22 @@ impl AgentRuntimeHost {
                 "ACP runtime Host retired before route registration",
             ));
         }
-        let reservation_was_available = self
-            .reservations
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-                count.checked_sub(1)
-            })
-            .is_ok();
-        if !reservation_was_available {
+        if self.reservations.load(Ordering::Acquire) == 0 {
             return Err(AcpError::protocol(
                 "ACP runtime Host route reservation was already consumed",
             ));
         }
+        let Some(lease) = self.router.register(connection_id, session_id, route) else {
+            return Ok(None);
+        };
+        self.reservations.fetch_sub(1, Ordering::AcqRel);
         self.cancel_idle_retirement();
         self.active_routes.fetch_add(1, Ordering::AcqRel);
         self.route_epoch.fetch_add(1, Ordering::AcqRel);
         let weak = Arc::downgrade(self);
-        Ok(self
-            .router
-            .register(connection_id, session_id, route)
-            .with_on_drop(move || Self::route_released(weak, schedule_idle)))
+        Ok(Some(lease.with_on_drop(move || {
+            Self::route_released(weak, schedule_idle)
+        })))
     }
 
     pub(crate) fn is_healthy(&self) -> bool {
@@ -308,4 +310,5 @@ impl Drop for AgentRuntimeHost {
 pub(super) struct HostReady {
     pub(super) connection: ConnectionTo<Agent>,
     pub(super) initialize_response: InitializeResponse,
+    pub(super) supports_session_close: bool,
 }

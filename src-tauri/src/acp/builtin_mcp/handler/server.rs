@@ -26,7 +26,7 @@ impl ServerHandler for BuiltinMcpHandler {
         context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> + MaybeSendFuture + '_ {
         async move {
-            let (authority, _) = Self::authenticated(&context.extensions)?;
+            let (authority, delivery) = Self::authenticated(&context.extensions)?;
             ensure_active(&authority, &context.ct)?;
             let tools = gateway::tools()
                 .map_err(catalog_error)?
@@ -40,6 +40,18 @@ impl ServerHandler for BuiltinMcpHandler {
                 })
                 .collect::<Vec<_>>();
             log_tools_list(&authority, tools.len());
+            if let Some(delivery) = delivery {
+                let ready = authority.tools_ready();
+                let generation = authority.tools_generation();
+                delivery.register(
+                    Box::new(move || {
+                        if !authority.cancellation().is_cancelled() {
+                            ready.delivered(generation);
+                        }
+                    }),
+                    Box::new(|| {}),
+                );
+            }
             Ok(ListToolsResult::with_all_items(tools))
         }
     }
