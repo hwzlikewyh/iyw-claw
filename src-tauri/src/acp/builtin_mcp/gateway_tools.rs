@@ -218,7 +218,7 @@ fn delivery_schema() -> Value {
             "display": {
                 "type": "boolean",
                 "default": false,
-                "description": "Compatibility option. Result URLs are registered directly and are never downloaded by the host."
+                "description": "Compatibility option. Image results are delivered to Artifacts; the delivery host downloads and deduplicates image URLs automatically. No separate agent download is needed."
             },
             "registerArtifact": {"type": "boolean", "default": true}
         },

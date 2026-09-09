@@ -857,7 +857,7 @@
   },
   {
     "name": "present_task_files",
-    "description": "Call this directly to deliver final reports, documents, designs, exports or other user-facing files, directories and HTTP/HTTPS URLs in the current conversation Artifacts area before the final response. No capability search/read/invoke is needed when this tool is advertised. Inspect accepted and rejected entries; registering a path is successful only when the host accepts it. This does not write directly to the workspace-wide All Artifacts aggregate. Do not register source, configuration, tests, migrations, build output, caches, logs, temporary files, or internal work unless the user explicitly requested that exact item as the final deliverable. Accepts working-directory-relative paths, absolute paths, and web URLs.",
+    "description": "Call this directly to deliver final reports, documents, designs, exports or other user-facing files, directories and HTTP/HTTPS URLs in the current conversation Artifacts area before the final response. Submit image URLs directly: the host downloads them into managed artifact storage and deduplicates identical image content against submitted local images in the same turn. Do not download a URL with a separate tool just for delivery, or submit both its URL and local copy. No capability search/read/invoke is needed when this tool is advertised. Inspect accepted and rejected entries; registering a path is successful only when the host accepts it. This does not write directly to the workspace-wide All Artifacts aggregate. Do not register source, configuration, tests, migrations, build output, caches, logs, temporary files, or internal work unless the user explicitly requested that exact item as the final deliverable. Accepts working-directory-relative paths, absolute paths, and web URLs.",
     "inputSchema": {
       "type": "object",
       "required": ["files"],
@@ -871,7 +871,7 @@
             "minLength": 1,
             "maxLength": 4096
           },
-          "description": "Final user-facing files, directories, or HTTP/HTTPS URLs to add to the current conversation Artifacts. Relative paths resolve from the current working directory; absolute paths and web URLs are accepted."
+          "description": "Final user-facing files, directories, or HTTP/HTTPS URLs to add to the current conversation Artifacts. Submit image URLs without downloading them first; the host downloads and deduplicates them by content. Relative paths resolve from the current working directory; absolute paths and web URLs are accepted."
         }
       },
       "additionalProperties": false
