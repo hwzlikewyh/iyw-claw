@@ -2,6 +2,9 @@ use crate::acp::types::PromptInputBlock;
 use crate::acp::AgentInputPayload;
 use crate::models::AgentType;
 
+pub(super) const NATIVE_PROMPT_REQUIRED_REASON: &str =
+    "native steering requires a follow-up prompt";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AgentInputBlockKind {
     Text,
@@ -37,6 +40,7 @@ pub(crate) enum NativeSteerOutcome {
 #[derive(Debug, Clone)]
 pub(crate) struct AgentInputCapabilities {
     native_steer_kind: Option<NativeSteerKind>,
+    current_mode: Option<String>,
     accepted_block_kinds: &'static [AgentInputBlockKind],
     has_consumption_ack: bool,
     supports_cooperative_feedback: bool,
@@ -54,14 +58,11 @@ impl AgentInputCapabilities {
             agent_type,
             AgentType::ClaudeCode | AgentType::Gemini | AgentType::Pi | AgentType::Grok
         );
-        let standard_native = native_steering_available
-            && matches!(agent_type, AgentType::Codex | AgentType::ClaudeCode);
+        let standard_native = native_steering_available;
         Self {
-            // Codex and Claude ACP wrappers both advertise the standard
-            // `_session/steering` extension and return a consumption outcome.
-            // Other Agents remain on their existing fallback until an adapter
-            // exposes an equally attributable acknowledgement.
+            // 按连接协商的协议能力路由，避免把其他兼容适配器排除在外。
             native_steer_kind: standard_native.then_some(NativeSteerKind::AcpSessionSteer),
+            current_mode: None,
             accepted_block_kinds: if standard_native {
                 &[
                     AgentInputBlockKind::Text,
@@ -73,7 +74,7 @@ impl AgentInputCapabilities {
                 &[]
             },
             has_consumption_ack: standard_native,
-            supports_cooperative_feedback: feedback_tool_available && !deferred_interrupt,
+            supports_cooperative_feedback: feedback_tool_available,
             deferred_interrupt,
             // Claude sessions can remain poisoned after a post-tool cancel and
             // reject the next prompt with a tool-use concurrency 400.
@@ -81,9 +82,22 @@ impl AgentInputCapabilities {
         }
     }
 
+    pub(crate) fn with_current_mode(mut self, current_mode: Option<String>) -> Self {
+        self.current_mode = current_mode;
+        self
+    }
+
+    fn requires_mode_change(&self, payload: &AgentInputPayload) -> bool {
+        // 输入框始终附带选中模式；仅真正切换模式时才需要等待下一轮。
+        payload
+            .mode_id
+            .as_ref()
+            .is_some_and(|mode| Some(mode) != self.current_mode.as_ref())
+    }
+
     pub(crate) fn native_steer_for(&self, payload: &AgentInputPayload) -> Option<NativeSteerKind> {
         let kind = self.native_steer_kind?;
-        if payload.mode_id.is_some()
+        if self.requires_mode_change(payload)
             || !self.has_consumption_ack
             || !payload
                 .blocks
@@ -103,10 +117,12 @@ impl AgentInputCapabilities {
         let has_text = payload.blocks.iter().any(
             |block| matches!(block, PromptInputBlock::Text { text } if !text.trim().is_empty()),
         );
-        let text_matches_display =
-            feedback_text(payload).is_some_and(|text| text == payload.display_text.trim());
+        let text_matches_display = feedback_text(payload).is_some_and(|text| {
+            text == payload.display_text.trim()
+                && text.chars().count() <= crate::acp::feedback::MAX_FEEDBACK_CHARS
+        });
         self.supports_cooperative_feedback
-            && payload.mode_id.is_none()
+            && !self.requires_mode_change(payload)
             && text_only
             && has_text
             && text_matches_display

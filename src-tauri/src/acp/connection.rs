@@ -119,7 +119,7 @@ async fn send_native_steer(
         SessionSteerRequest {
             session_id: session_id.clone(),
             prompt,
-            meta: (agent_type == AgentType::ClaudeCode).then_some(SessionSteerMeta {
+            meta: (agent_type != AgentType::Codex).then_some(SessionSteerMeta {
                 steering: SessionSteerOptions {
                     idle_behavior: "promptRequired",
                 },
@@ -140,7 +140,7 @@ async fn send_native_steer(
                 NativeSteerOutcome::StartedNewTurn
             }
             "startedNewTurn" => NativeSteerOutcome::Failed(
-                "Claude steering unexpectedly started a detached turn".into(),
+                "agent steering unexpectedly started an unsupported detached turn".into(),
             ),
             "promptRequired" => NativeSteerOutcome::PromptRequired,
             "failed" => NativeSteerOutcome::Failed("agent rejected native steering".into()),
@@ -3514,16 +3514,14 @@ async fn run_connection(
         let connection = async move {
             let state = state_outer;
             let managed_agent_version = state.read().await.managed_agent_version.clone();
-            let native_steering_available =
-                matches!(agent_type, AgentType::Codex | AgentType::ClaudeCode)
-                    && init_resp
-                        .meta
-                        .as_ref()
-                        .and_then(|meta| meta.get("steering"))
-                        .and_then(serde_json::Value::as_object)
-                        .and_then(|steering| steering.get("supported"))
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(false);
+            let native_steering_available = init_resp
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.get("steering"))
+                .and_then(serde_json::Value::as_object)
+                .and_then(|steering| steering.get("supported"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
             state.write().await.native_steering_available = native_steering_available;
             tracing::info!(
                 agent_type = %agent_type,

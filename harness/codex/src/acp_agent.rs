@@ -19,6 +19,7 @@ mod acp_mapping;
 mod item_mapping;
 mod prompt_mapping;
 mod settings_mapping;
+mod steering;
 
 #[derive(Debug, Clone)]
 pub struct CodexAcpAgent {
@@ -387,6 +388,16 @@ async fn handle_request(
             authority.capabilities,
             authority.expected_session_id.is_some(),
         )),
+        "_session/steering" => {
+            if session_id.is_none()
+                || params.get("sessionId").and_then(Value::as_str) != session_id.as_deref()
+            {
+                return Err(UpstreamError::InvalidRequest(
+                    "steering session does not match the bound session".into(),
+                ));
+            }
+            steering::steer(upstream, &params, authority.capabilities).await
+        }
         "session/new" => {
             validate_cwd(&params, &authority.expected_cwd)?;
             if authority.expected_session_id.is_some() {
