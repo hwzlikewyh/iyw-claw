@@ -1138,6 +1138,7 @@ export interface SessionConfigSelectOptionInfo {
   name: string
   description?: string | null
   iconUrl?: string | null
+  priceMultiplier?: number | null
   /** Model-only metadata used by the model picker to preview per-model
    * reasoning and response-mode capabilities before selecting the model. */
   modelBehavior?: {
