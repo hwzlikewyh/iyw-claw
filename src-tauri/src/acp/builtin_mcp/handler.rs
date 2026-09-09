@@ -1,13 +1,9 @@
-use std::future::Future;
 use std::sync::Arc;
 
 use axum::http::request::Parts;
-use rmcp::model::{
-    CallToolRequestParams, CallToolResult, Implementation, ListToolsResult, PaginatedRequestParams,
-    ServerCapabilities, ServerInfo,
-};
-use rmcp::service::{MaybeSendFuture, RequestContext};
-use rmcp::{ErrorData, RoleServer, ServerHandler};
+use rmcp::model::{CallToolRequestParams, CallToolResult};
+use rmcp::service::RequestContext;
+use rmcp::{ErrorData, RoleServer};
 use serde_json::json;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -15,10 +11,9 @@ use tokio_util::sync::CancellationToken;
 use crate::acp::delegation::listener::DelegationListener;
 
 use super::authority::SessionContext;
+use super::capability_recovery::{annotate_lookup_error, direct_tool_hint};
 use super::delivery::RelayDelivery;
-use super::diagnostics::{
-    gateway_error_stage, invocation_error_stage, log_tools_list, GatewayCallTrace,
-};
+use super::diagnostics::{gateway_error_stage, invocation_error_stage, GatewayCallTrace};
 use super::gateway::{self, GatewayAction};
 use super::http::AuthenticatedRequest;
 use super::invocation::{
@@ -26,9 +21,10 @@ use super::invocation::{
 };
 use super::iyw_service::IywGatewayService;
 use super::receipt::DeliveryReceiptRegistry;
-use super::result::catalog_error;
 use super::runtime::RuntimeRegistry;
 use super::tool_identity::resolve_gateway_route;
+
+mod server;
 
 #[derive(Clone)]
 pub(super) struct BuiltinMcpHandler {
@@ -86,6 +82,7 @@ impl BuiltinMcpHandler {
             trace.log_error("gateway_route", &error);
             return Err(error);
         };
+        let direct_tool = direct_tool_hint(&request, authority.gateway_server_name());
         let action = gateway::dispatch(
             route.tool(),
             request.arguments,
@@ -102,7 +99,7 @@ impl BuiltinMcpHandler {
         )
         .map_err(|error| {
             trace.log_error(gateway_error_stage(&error), &error);
-            error
+            annotate_lookup_error(error, direct_tool)
         })?;
         match action {
             GatewayAction::Html(request) => {
@@ -260,44 +257,4 @@ async fn authorize_request(
             trace.log_error("policy", &error);
             error
         })
-}
-
-impl ServerHandler for BuiltinMcpHandler {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::new("iyw-claw", env!("CARGO_PKG_VERSION")))
-            .with_instructions(super::service::SERVER_INSTRUCTIONS)
-    }
-
-    fn list_tools(
-        &self,
-        _: Option<PaginatedRequestParams>,
-        context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> + MaybeSendFuture + '_ {
-        async move {
-            let (authority, _) = Self::authenticated(&context.extensions)?;
-            ensure_active(&authority, &context.ct)?;
-            let tools = gateway::tools()
-                .map_err(catalog_error)?
-                .into_iter()
-                .filter(|tool| match tool.name.as_ref() {
-                    "ask_user_question" | "show_interactive_html" => {
-                        authority.features().should_list("ask_user_question")
-                    }
-                    "present_task_files" => authority.features().should_list("present_task_files"),
-                    _ => true,
-                })
-                .collect::<Vec<_>>();
-            log_tools_list(&authority, tools.len());
-            Ok(ListToolsResult::with_all_items(tools))
-        }
-    }
-
-    fn call_tool(
-        &self,
-        request: CallToolRequestParams,
-        context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<CallToolResult, ErrorData>> + MaybeSendFuture + '_ {
-        self.call(request, context)
-    }
 }

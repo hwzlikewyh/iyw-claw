@@ -67,14 +67,14 @@ fn search_tool() -> Value {
 fn read_tool() -> Value {
     json!({
         "name": READ_TOOL,
-        "description": "Call this gateway role only through the exact current callable identity and surface that advertised it. On an unknown, unsupported, or not-found routing error, stop this gateway for the turn and never retry through another name or surface. Before first using a capability, read the full usage description and input schema for its exact stable id returned by this session's search or manage_iyw_memory operation mapping. Read the entire result before constructing arguments; search summaries are insufficient. If already read in this conversation, reuse that result without another read, including after an ordinary parameter error. This is an Agent instruction, not a server read gate. This tool reads metadata only and does not execute a capability. For memory through invoke_iyw_capability, separately invoke iyw.memory.policy.read.v1 before other memory capabilities, reading its instructions once before first use. manage_iyw_memory performs that policy execution automatically. Ask for missing referenced objects or required inputs; never guess ids, paths, URLs, field names, or arguments.",
+        "description": "Read metadata only for a catalog capability. Copy the exact capability_id from this session's search result or the advertised manage_iyw_memory operation mapping; treat it as opaque, not a name to invent or derive from a tool. Direct tools such as generate_iyw_image, search_iyw_knowledge, and show_interactive_html carry their schemas in their advertised definitions and do not need this read. There is no registered image-generation capability_id. Read the full returned description and nested input_schema before constructing arguments, then reuse it throughout the conversation. Search summaries are insufficient. Reading metadata does not execute an operation, repair a backend rejection, or authorize replaying an earlier request. For memory via invoke_iyw_capability, execute the current-turn policy preflight; manage_iyw_memory handles it automatically. On capability_not_found, use the returned guidance to identify the correct surface and stop guessed-ID retries. If this gateway's callable identity itself is unknown, stop this server route without trying alternate names.",
         "inputSchema": {
             "type": "object",
             "required": ["capability_id"],
             "properties": {"capability_id": {
                 "type": "string", "minLength": 1,
                 "maxLength": CAPABILITY_ID_MAX_CHARS,
-                "description": "Exact capability_id from this session's search or the advertised memory operation mapping; not a tool name or guessed alias."
+                "description": "Copy an opaque capability_id exactly from this session's search result or advertised memory operation mapping. Never derive an ID from a tool name, add .v1, or put a direct tool's name here."
             }},
             "additionalProperties": false
         }
@@ -90,7 +90,8 @@ fn invoke_tool() -> Value {
             "required": ["capability_id", "arguments"],
             "properties": {
                 "capability_id": {"type": "string", "minLength": 1,
-                    "maxLength": CAPABILITY_ID_MAX_CHARS},
+                    "maxLength": CAPABILITY_ID_MAX_CHARS,
+                    "description": "Exact opaque ID from this session's catalog search, whose full schema you have read. A direct tool name or an ID inferred from naming conventions is invalid."},
                 "arguments": {"type": "object", "description": "JSON object matching the capability's input_schema exactly. Put its business fields directly here; do not send a JSON string, copy the schema, or add an extra parameters/arguments wrapper unless that schema declares one."},
                 "delivery_ack": {"type": "string", "minLength": 1, "maxLength": 128}
             },
@@ -102,7 +103,7 @@ fn invoke_tool() -> Value {
 fn image_tool() -> Value {
     json!({
         "name": IMAGE_TOOL,
-        "description": "Generate or edit IYW images in one call. With source images, prefer IYW image tools: variation, extend, mix, or the matching specialized operation. Choose an explicit type from the task intent; use edit for high-freedom image work the tools cannot express, and generate for text-only creation. No capability search, separate upload, or extra image Skill is needed. Use single-task fields for one task, or requests for up to eight independent tasks. count intentionally starts multiple charged executions; never combine it with parameters.n or parameters.batchSize. A batch is fully validated before execution, continues after runtime item failures, and returns partial results in input order with successful URLs registered together. Choose verification from the user's requested outcome: ordinary image generation/editing delivers successful images directly using returned status, URLs, and delivery metadata. Inspect quality or visuals when review, comparison, visual acceptance, or integration into a composed deliverable is part of the requested task. A detailed generation prompt alone does not require a separate quality-review call. Keep any review focused on the requested criteria; do not automatically regenerate beyond the requested scope. Report partial or failed status honestly. A timeout or non-terminal result does not authorize another creation: query the original task_id when available; never blindly retry or switch to edit/generate after an uncertain submission.",
+        "description": "Generate or edit IYW images in one direct call. This tool has no image-generation capability_id; use its advertised definition, never read_iyw_capability or invoke_iyw_capability for image production. With source images, prefer IYW image tools: variation, extend, mix, or the matching specialized operation. Choose an explicit type from the task intent; use edit for high-freedom image work the tools cannot express, and generate for text-only creation. No capability search, separate upload, or extra image Skill is needed. Use single-task fields for one task, or requests for up to eight independent tasks. count intentionally starts multiple charged executions; never combine it with parameters.n or parameters.batchSize. A batch is fully validated before execution, continues after runtime item failures, and returns partial results in input order with successful URLs registered together. Choose verification from the user's requested outcome: ordinary image generation/editing delivers successful images directly using returned status, URLs, and delivery metadata. Inspect quality or visuals when review, comparison, visual acceptance, or integration into a composed deliverable is part of the requested task. A detailed generation prompt alone does not require a separate quality-review call. Keep any review focused on the requested criteria; do not automatically regenerate beyond the requested scope. Report partial or failed status honestly. A backend rejection does not mean the tool identity is wrong; preserve the returned error and do not invent a capability ID to retry. A timeout or non-terminal result does not authorize another creation: query the original task_id when available; never blindly retry or switch to edit/generate after an uncertain submission.",
         "inputSchema": {
             "type": "object",
             "oneOf": [single_image_schema(), batch_image_schema()]
@@ -218,7 +219,7 @@ fn delivery_schema() -> Value {
             "display": {
                 "type": "boolean",
                 "default": false,
-                "description": "Compatibility option. Result URLs are registered directly and are never downloaded by the host."
+                "description": "Compatibility option. Image results are delivered to Artifacts; the delivery host downloads and deduplicates image URLs automatically. No separate agent download is needed."
             },
             "registerArtifact": {"type": "boolean", "default": true}
         },
