@@ -99,21 +99,17 @@ async fn select_model(
     parameters: &Map<String, Value>,
     editing: bool,
 ) -> Result<(String, String), rmcp::ErrorData> {
+    let requested = requested_model(parameters)?;
     let models = load_catalog(service).await?;
-    let requested = parameters.get("model").and_then(Value::as_str);
-    let model = if let Some(requested) = requested {
-        models
-            .iter()
-            .find(|item| matches_model(item, requested, editing))
-            .ok_or_else(|| {
-                invalid("requested Fusion model does not support this image operation")
-            })?
-    } else {
-        models
-            .iter()
-            .find(|item| supports_operation(item, editing))
-            .ok_or_else(|| invalid("no available Fusion image model"))?
-    };
+    let model = models
+        .iter()
+        .find(|item| {
+            supports_operation(item, editing)
+                && item.get("id").and_then(Value::as_str) == Some(requested)
+        })
+        .ok_or_else(|| {
+            invalid("parameters.model must be an exact ID from list_iyw_image_models supporting this image operation")
+        })?;
     let id = model
         .get("id")
         .and_then(Value::as_str)
@@ -128,14 +124,22 @@ async fn select_model(
         target: "builtin_mcp",
         model_id = id,
         editing,
-        agent_selected = requested.is_some(),
+        agent_selected = true,
         "selected Fusion image model"
     );
     Ok((id.to_string(), name.to_string()))
 }
 
-fn matches_model(item: &Value, requested: &str, editing: bool) -> bool {
-    supports_operation(item, editing)
-        && (item.get("id").and_then(Value::as_str) == Some(requested)
-            || item.get("display_name").and_then(Value::as_str) == Some(requested))
+pub(super) fn requested_model(parameters: &Map<String, Value>) -> Result<&str, rmcp::ErrorData> {
+    parameters
+        .get("model")
+        .and_then(Value::as_str)
+        .filter(|id| !id.trim().is_empty())
+        .ok_or_else(|| {
+            tracing::warn!(
+                target: "builtin_mcp",
+                "[iyw-image] Fusion request rejected before execution: explicit model ID required"
+            );
+            invalid("generate/edit are Fusion fallback operations, not IYW platform operations. Use fission, variation, extend, mix, or a specialized platform type first. Only after a confirmed platform failure for this task, call list_iyw_image_models and pass an exact supported ID in parameters.model; no default model is selected")
+        })
 }

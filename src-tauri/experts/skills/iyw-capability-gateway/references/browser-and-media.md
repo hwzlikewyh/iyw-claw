@@ -173,6 +173,9 @@ images. `auto` without images also uses `fission`. Only after an explicit termin
 platform failure or confirmed rejection before task creation may the agent fall
 back to `generate` (`images/generations`) or `edit` (`images/edits`). A timeout,
 transport error, or running task does not authorize fallback; query its task ID.
+Local path/parameter errors and complex prompts do not authorize fallback either.
+The direct tool wraps both backends: `type=edit` is Fusion, while a one-image
+redesign uses platform `type=variation`.
 
 Before that `type=generate` or `type=edit` fallback, call
 `list_iyw_image_models` with `{}`. Choose a returned model for the user's task

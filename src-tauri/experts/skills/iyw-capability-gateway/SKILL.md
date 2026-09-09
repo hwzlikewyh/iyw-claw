@@ -68,10 +68,11 @@ follow its workflow**. Do not treat the reference as optional background reading
    `writing-plans`, or `executing-plans`.
    For any image production or editing request, call the directly advertised
    `generate_iyw_image` tool. It replaces the old `iyw-image-workflows` and
-   `imagegen` routing split. With images, prioritize `variation`, `extend`,
-   `mix`, or the matching specialized image tool. Choose an explicit `type`
-   from the task intent; reserve `edit` for free-form work the tools cannot
-   express and `generate` for text-only creation. Before `generate` or `edit`,
+   `imagegen` routing split. Prioritize IYW platform operations: `fission` for
+   text-only creation, or `variation`, `extend`, `mix`, and matching specialized
+   tools for source images. `generate`/`edit` call Fusion and require an explicit
+   platform failure for this task or confirmed rejection before task creation;
+   a free-form prompt alone does not permit fallback. Before an eligible fallback,
    call `list_iyw_image_models`, choose a model with the required capability,
    and pass its exact ID in `parameters.model`. Do not read another image
    Skill or search/read a capability ID for generation; none is registered. Use
@@ -200,12 +201,15 @@ platform operation for source images. Only fall back to `generate`
 (`images/generations`) or `edit` (`images/edits`) after an explicit terminal
 platform failure or a confirmed rejection before task creation. A timeout,
 transport error, or running task is not proof of failure and does not permit fallback.
+Local path/parameter errors and complex prompts do not permit fallback either.
+Using the direct tool alone does not prove platform routing: inspect its selected
+type and operation. For a one-image backpack redesign, use `variation`, not `edit`.
 
 For that `generate` or `edit` fallback, first call `list_iyw_image_models` with `{}`. Choose
 from the returned descriptions, capabilities, prices, and user requirements;
 `generate` requires `capabilities.image_generation=true`, while `edit` requires
 `capabilities.image_editing=true`. Pass the selected `id` as `parameters.model`;
-never guess a model or leave this choice to the host's compatibility fallback.
+the host rejects missing IDs and display names instead of choosing a default model.
 Reuse the catalog for the same task or batch and select a model for every
 `generate`/`edit` item. Platform operations and `auto` need no Fusion lookup. Refresh when
 model availability changes; an empty or failed lookup does not supply a model.

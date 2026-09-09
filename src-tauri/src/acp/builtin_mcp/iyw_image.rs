@@ -204,21 +204,21 @@ fn preflight_kind(
 ) -> Result<(), rmcp::ErrorData> {
     if matches!(kind, "generate" | "fission") && !images.is_empty() {
         return Err(invalid(
-            "generate and fission do not accept source images; choose variation, extend, mix, a specialized image tool, or edit",
+            "generate and fission do not accept source images; choose variation, extend, mix, or a specialized IYW platform image tool",
         ));
     }
     if matches!(kind, "variation" | "extend") && images.len() > 1 {
         return Err(invalid(
-            "variation and extend accept one source image; use mix to combine references, or edit for free-form composition",
+            "variation and extend accept one source image; use mix to combine references",
         ));
     }
     match kind {
-        "generate" => required_prompt(request.prompt.as_deref()).map(|_| ()),
-        "edit" => {
+        "generate" | "edit" => {
             required_prompt(request.prompt.as_deref())?;
-            if images.is_empty() {
+            if kind == "edit" && images.is_empty() {
                 return Err(invalid("edit requires at least one image"));
             }
+            fusion::requested_model(&request.parameters)?;
             Ok(())
         }
         "fission" => fission::validate_request(request),

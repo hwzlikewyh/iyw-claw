@@ -39,11 +39,16 @@ approach; domain skills then carry out the work.
 - A user-requested visible Skill or direct tool that fully satisfies a subgoal -> use it first.
 - "Generate or edit an image, create IYW product/material/pattern imagery, or
   call an IYW image tool" -> use the directly advertised `generate_iyw_image`
-  tool. Before `generate` or `edit` (including `auto` without source images),
-  call `list_iyw_image_models` with `{}`, choose a returned model supporting the
-  intended operation, and pass its exact ID in `parameters.model`. Reuse the
-  catalog for the same task or batch. Specialized IYW operations do not need
-  this lookup. Use
+  tool with IYW platform priority: `fission` for text-only creation, `variation`
+  for one-image redesign, `extend` for series extension, `mix` for multiple
+  references, or the matching specialized platform operation. `auto` also
+  selects platform operations and needs no Fusion model lookup. `generate`
+  and `edit` call Fusion `images/generations` and `images/edits`; they require
+  an explicit platform failure for the same task or confirmed rejection before
+  task creation. Local input errors, complex prompts, timeouts, transport errors,
+  and running tasks do not permit fallback. Before an eligible fallback, call
+  `list_iyw_image_models` with `{}` and pass a suitable model's exact ID in
+  `parameters.model`. Reuse the catalog for the same task or batch. Use
   `search_iyw_knowledge` separately when knowledge-base evidence is requested;
   do not start search, research, memory, browser, document, or scenario planning
   before a self-contained image request.
