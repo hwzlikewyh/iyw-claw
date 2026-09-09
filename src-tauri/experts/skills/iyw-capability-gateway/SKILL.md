@@ -204,7 +204,10 @@ Do not use a generation-only type with source images.
 or `extend` for series/extension wording; multiple images -> `mix`. It does not
 infer specialized operations or creative freedom. Do not switch routes or
 recreate a task after a timeout/uncertain submission; query the original task ID
-when available. Inspect successful images against the user's requirements.
+when available. Ordinary generation/editing delivers successful images directly using
+returned status, URLs, and delivery metadata. Review visuals for requested quality review,
+comparison, visual acceptance, or integration into a composed deliverable. A detailed prompt
+alone is not a review request; report partial/failure states and do not regenerate beyond scope.
 
 ```json
 {"type":"generate","prompt":"白底陶瓷茶壶，现代东方风，产品摄影"}
