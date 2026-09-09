@@ -71,6 +71,7 @@ function buildModelOption(
       current_value: selected.id,
       options: models.map((model) => ({
         ...selectOption(model.id, model.name, model.description, model.iconUrl),
+        priceMultiplier: model.priceMultiplier,
         modelBehavior: {
           reasoningOptions: buildReasoningOptions(model),
           defaultReasoningEffort: model.defaultEffort,

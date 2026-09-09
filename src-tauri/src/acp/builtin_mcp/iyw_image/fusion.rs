@@ -1,6 +1,7 @@
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Map, Value};
 
+use super::super::iyw_image_models::{load_catalog, supports_operation};
 use super::input::PreparedImage;
 use super::result::{materialize_fusion_images, value_to_form_text};
 use super::{invalid, required_prompt, ImageRequest, ImageResult, IywGatewayService};
@@ -98,15 +99,7 @@ async fn select_model(
     parameters: &Map<String, Value>,
     editing: bool,
 ) -> Result<(String, String), rmcp::ErrorData> {
-    let catalog = service
-        .get_fusion("models", &[("model_type", "image")])
-        .await?;
-    let models = catalog
-        .get("data")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            rmcp::ErrorData::internal_error("Fusion image model catalog is invalid", None)
-        })?;
+    let models = load_catalog(service).await?;
     let requested = parameters.get("model").and_then(Value::as_str);
     let model = if let Some(requested) = requested {
         models
@@ -131,6 +124,13 @@ async fn select_model(
         .get("display_name")
         .and_then(Value::as_str)
         .unwrap_or("selected image model");
+    tracing::info!(
+        target: "builtin_mcp",
+        model_id = id,
+        editing,
+        agent_selected = requested.is_some(),
+        "selected Fusion image model"
+    );
     Ok((id.to_string(), name.to_string()))
 }
 
@@ -138,17 +138,4 @@ fn matches_model(item: &Value, requested: &str, editing: bool) -> bool {
     supports_operation(item, editing)
         && (item.get("id").and_then(Value::as_str) == Some(requested)
             || item.get("display_name").and_then(Value::as_str) == Some(requested))
-}
-
-fn supports_operation(item: &Value, editing: bool) -> bool {
-    let capability = if editing {
-        "image_editing"
-    } else {
-        "image_generation"
-    };
-    item.get("capabilities")
-        .and_then(Value::as_object)
-        .and_then(|caps| caps.get(capability))
-        .and_then(Value::as_bool)
-        == Some(true)
 }

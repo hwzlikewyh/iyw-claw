@@ -29,7 +29,8 @@ state, returned revisions, and availability when the task requires them.
 
 | Work | Input shape |
 | --- | --- |
-| Image generation/editing | Call `generate_iyw_image` directly with `type`, `prompt`, `images`, and supported `parameters`; no generation capability ID exists |
+| Fusion image models | Call `list_iyw_image_models` with `{}`; choose a returned model supporting generation or editing as needed |
+| Image generation/editing | For `generate`/`edit` (also `auto` without images), first select a model from `list_iyw_image_models`, then call `generate_iyw_image` with its exact ID in `parameters.model`; specialized operations need no Fusion lookup and no generation capability ID exists |
 | Document knowledge | `search_iyw_knowledge`: `query`, optional known filters; `folderId` is an integer and `fileId` is a string |
 | Memory recall | Read the mapped capability once, then `manage_iyw_memory` with `operation` and `parameters`; policy preflight is automatic |
 | Other host capabilities | Search/read once, then `invoke_iyw_capability` with `capability_id` and an `arguments` object |

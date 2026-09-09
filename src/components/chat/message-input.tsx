@@ -3969,6 +3969,7 @@ export function MessageInput({
                 name: item.name,
                 description: item.description,
                 iconUrl: item.iconUrl,
+                priceMultiplier: item.priceMultiplier,
                 modelBehavior: item.modelBehavior,
               })),
             }))
@@ -3981,6 +3982,7 @@ export function MessageInput({
                   name: item.name,
                   description: item.description,
                   iconUrl: item.iconUrl,
+                  priceMultiplier: item.priceMultiplier,
                   modelBehavior: item.modelBehavior,
                 })),
               }))
@@ -3993,6 +3995,7 @@ export function MessageInput({
                     name: item.name,
                     description: item.description,
                     iconUrl: item.iconUrl,
+                    priceMultiplier: item.priceMultiplier,
                     modelBehavior: item.modelBehavior,
                   })),
                 },
@@ -4011,6 +4014,7 @@ export function MessageInput({
           title: option.name,
           currentValue: kind.current_value,
           currentLabel: current?.name ?? kind.current_value,
+          priceMultiplier: current?.priceMultiplier,
           groups,
           onSelect: (value) => onConfigOptionChange?.(option.id, value),
           ...(isModelConfigOption(option) && {

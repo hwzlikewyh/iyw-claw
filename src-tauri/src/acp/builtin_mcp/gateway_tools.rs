@@ -25,7 +25,7 @@ pub(super) const MEMORY_CAPABILITIES: [(&str, &str); 14] = [
     ("documents.correct", "iyw.memory.documents.correct.v1"),
 ];
 
-pub(super) fn values() -> [Value; 9] {
+pub(super) fn values() -> [Value; 10] {
     [
         super::interaction_tools::embedded_tool(super::interaction_tools::ASK_TOOL),
         super::interaction_tools::html_tool(),
@@ -34,6 +34,7 @@ pub(super) fn values() -> [Value; 9] {
         read_tool(),
         invoke_tool(),
         image_tool(),
+        super::iyw_image_models::tool(),
         knowledge_tool(),
         memory_tool(),
     ]
@@ -43,7 +44,7 @@ pub(super) fn values() -> [Value; 9] {
 fn with_usage_instruction(mut tool: Value) -> Value {
     let description = tool["description"].as_str().unwrap_or_default();
     tool["description"] = json!(format!(
-        "Read this advertised definition, including nested schema fields and examples, before first use; reuse it throughout the conversation. For a direct tool, reading this definition requires no extra discovery or metadata call unless its instructions require an operation-specific capability read. {description}"
+        "Read this advertised definition, including nested schema fields and examples, before first use; reuse it throughout the conversation. For a direct tool, reading this definition requires no extra discovery or metadata call unless its instructions require a model lookup or operation-specific capability read. {description}"
     ));
     tool
 }
@@ -103,7 +104,7 @@ fn invoke_tool() -> Value {
 fn image_tool() -> Value {
     json!({
         "name": IMAGE_TOOL,
-        "description": "Generate or edit IYW images in one direct call. This tool has no image-generation capability_id; use its advertised definition, never read_iyw_capability or invoke_iyw_capability for image production. With source images, prefer IYW image tools: variation, extend, mix, or the matching specialized operation. Choose an explicit type from the task intent; use edit for high-freedom image work the tools cannot express, and generate for text-only creation. No capability search, separate upload, or extra image Skill is needed. Use single-task fields for one task, or requests for up to eight independent tasks. count intentionally starts multiple charged executions; never combine it with parameters.n or parameters.batchSize. A batch is fully validated before execution, continues after runtime item failures, and returns partial results in input order with successful URLs registered together. Choose verification from the user's requested outcome: ordinary image generation/editing delivers successful images directly using returned status, URLs, and delivery metadata. Inspect quality or visuals when review, comparison, visual acceptance, or integration into a composed deliverable is part of the requested task. A detailed generation prompt alone does not require a separate quality-review call. Keep any review focused on the requested criteria; do not automatically regenerate beyond the requested scope. Report partial or failed status honestly. A backend rejection does not mean the tool identity is wrong; preserve the returned error and do not invent a capability ID to retry. A timeout or non-terminal result does not authorize another creation: query the original task_id when available; never blindly retry or switch to edit/generate after an uncertain submission.",
+        "description": "Generate or edit IYW images directly. Before type=generate or type=edit (including auto without images), call list_iyw_image_models, choose a model yourself for the user's task with the required generation/editing capability, and pass its exact id in parameters.model. Reuse the catalog for the same task or batch, selecting a model for each generate/edit item. This tool has no image-generation capability_id; use its advertised definition, never read_iyw_capability or invoke_iyw_capability for image production. With source images, prefer IYW image tools: variation, extend, mix, or the matching specialized operation. Choose an explicit type from the task intent; use edit for high-freedom image work the tools cannot express, and generate for text-only creation. No capability search, separate upload, or extra image Skill is needed. Use single-task fields for one task, or requests for up to eight independent tasks. count intentionally starts multiple charged executions; never combine it with parameters.n or parameters.batchSize. A batch is fully validated before execution, continues after runtime item failures, and returns partial results in input order with successful URLs registered together. Choose verification from the user's requested outcome: ordinary image generation/editing delivers successful images directly using returned status, URLs, and delivery metadata. Inspect quality or visuals when review, comparison, visual acceptance, or integration into a composed deliverable is part of the requested task. A detailed generation prompt alone does not require a separate quality-review call. Keep any review focused on the requested criteria; do not automatically regenerate beyond the requested scope. Report partial or failed status honestly. A backend rejection does not mean the tool identity is wrong; preserve the returned error and do not invent a capability ID to retry. A timeout or non-terminal result does not authorize another creation: query the original task_id when available; never blindly retry or switch to edit/generate after an uncertain submission.",
         "inputSchema": {
             "type": "object",
             "oneOf": [single_image_schema(), batch_image_schema()]
@@ -139,7 +140,7 @@ fn image_request_schema(include_id: bool) -> Value {
         "type": image_type_schema(),
         "prompt": {"type": "string", "maxLength": 12000, "description": "State what to preserve and change, the intended layout, and each reference image's role in input order. Select the operation with type; the prompt alone does not select specialized tools."},
         "images": image_sources_schema(),
-        "parameters": {"type": "object", "additionalProperties": true, "description": "Only fields supported by the selected operation. variation, extend, and mix need only prompt and images for a default result. The host sets their toolName and modelChannel; do not guess them or copy parameters across operations. generate/edit accept Fusion image options; omit model for automatic capability-based selection."},
+        "parameters": {"type": "object", "additionalProperties": true, "description": "Only fields supported by the selected operation. variation, extend, and mix need only prompt and images for a default result. The host sets their toolName and modelChannel; do not guess them or copy parameters across operations. For generate/edit, first call list_iyw_image_models and set model to the exact id you select: generate requires capabilities.image_generation=true, edit requires capabilities.image_editing=true. Choose from returned descriptions, capabilities, prices, and user requirements. Do not omit model or guess it. Other Fusion options must be supported by the selected model."},
         "count": {
             "type": "integer",
             "minimum": 1,

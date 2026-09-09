@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::acp::agent_input_capabilities::feedback_text;
+use crate::acp::agent_input_capabilities::{feedback_text, NATIVE_PROMPT_REQUIRED_REASON};
 use crate::acp::agent_input_capabilities::{NativeSteerKind, NativeSteerOutcome};
 use crate::acp::agent_input_dispatch::emit_current;
 use crate::acp::agent_input_worker::{WorkerContext, WorkerSnapshot};
@@ -125,7 +125,7 @@ async fn settle_native_outcome(
                 .transition_item(
                     &item.id,
                     AgentInputStatus::FallbackQueued,
-                    "native steering requires a follow-up prompt".into(),
+                    NATIVE_PROMPT_REQUIRED_REASON.into(),
                 )
                 .await;
         }

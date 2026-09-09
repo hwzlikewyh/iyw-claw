@@ -10,6 +10,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { ModelOptionList } from "@/components/chat/model-option-list"
+import { ModelPriceMultiplier } from "@/components/chat/model-price-multiplier"
 import { useScrollbarSafeDismiss } from "@/hooks/use-scrollbar-safe-dismiss"
 import { cn } from "@/lib/utils"
 import type { ModelOptionGroup } from "@/lib/model-config-groups"
@@ -40,14 +41,15 @@ export function ModelOptionPicker({
     useScrollbarSafeDismiss()
   const kind = option.kind.type === "select" ? option.kind : null
   const currentValue = kind?.current_value ?? ""
-  const currentLabel = useMemo(() => {
+  const currentOption = useMemo(() => {
     for (const group of groups) {
       for (const opt of group.options) {
-        if (opt.value === currentValue) return opt.name
+        if (opt.value === currentValue) return opt
       }
     }
-    return currentValue
+    return null
   }, [groups, currentValue])
+  const currentLabel = currentOption?.name ?? currentValue
 
   if (!kind) return null
 
@@ -69,6 +71,7 @@ export function ModelOptionPicker({
           className="min-w-0 gap-0.5 px-1 text-muted-foreground"
         >
           <span className="max-w-[10rem] truncate">{currentLabel}</span>
+          <ModelPriceMultiplier value={currentOption?.priceMultiplier} />
           <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
         </Button>
       </PopoverTrigger>

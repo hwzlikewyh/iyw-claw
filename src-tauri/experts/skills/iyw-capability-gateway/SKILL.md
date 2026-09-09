@@ -71,7 +71,9 @@ follow its workflow**. Do not treat the reference as optional background reading
    `imagegen` routing split. With images, prioritize `variation`, `extend`,
    `mix`, or the matching specialized image tool. Choose an explicit `type`
    from the task intent; reserve `edit` for free-form work the tools cannot
-   express and `generate` for text-only creation. Do not read another image
+   express and `generate` for text-only creation. Before `generate` or `edit`,
+   call `list_iyw_image_models`, choose a model with the required capability,
+   and pass its exact ID in `parameters.model`. Do not read another image
    Skill or search/read a capability ID for generation; none is registered. Use
    `search_iyw_knowledge` only when the user asks for knowledge-base evidence;
    it is independent and never runs automatically before a normal image task.
@@ -172,7 +174,11 @@ the existing question capability through the live catalog; never invent an alias
 The HTTP MCP surface also exposes these shortest-path tools alongside interaction
 tools and the capability trio:
 
-- `generate_iyw_image`: one-call image generation/editing and all confirmed IYW
+- `list_iyw_image_models`: read-only Fusion image model catalog; call with `{}`.
+  Returns IDs, names, descriptions, generation/editing capabilities, and prices.
+  The agent selects the model for `generate`/`edit` and passes its exact ID in
+  `parameters.model`. Specialized IYW operations do not use this catalog.
+- `generate_iyw_image`: image generation/editing and all confirmed IYW
   image operations. Prefer an explicit `type`; put supported operation-specific
   fields under `parameters`. The host waits up to the requested timeout and
   returns status, task IDs when available, and public result URLs. Specialized
@@ -188,8 +194,18 @@ tools and the capability trio:
 
 ### Image shortest paths
 
-Use one call and wait for its result. These examples show the minimum input;
-add the complete `parameters` object when the task needs precision.
+For `generate` or `edit`, first call `list_iyw_image_models` with `{}`. Choose
+from the returned descriptions, capabilities, prices, and user requirements;
+`generate` requires `capabilities.image_generation=true`, while `edit` requires
+`capabilities.image_editing=true`. Pass the selected `id` as `parameters.model`;
+never guess a model or leave this choice to the host's compatibility fallback.
+Reuse the catalog for the same task or batch and select a model for every
+`generate`/`edit` item. This also applies to `auto` without images. Refresh when
+model availability changes; an empty or failed lookup does not supply a model.
+
+Then call `generate_iyw_image` and wait for its result. In the examples below,
+replace `MODEL_ID_FROM_CATALOG` with the selected ID before calling. Specialized
+operations still use one call without a Fusion model lookup.
 
 With source images, choose the applicable IYW tool first: one-image redesign
 uses `variation`; same-series or trend/theme extension uses `extend`; combining
@@ -210,7 +226,7 @@ comparison, visual acceptance, or integration into a composed deliverable. A det
 alone is not a review request; report partial/failure states and do not regenerate beyond scope.
 
 ```json
-{"type":"generate","prompt":"白底陶瓷茶壶，现代东方风，产品摄影"}
+{"type":"generate","prompt":"白底陶瓷茶壶，现代东方风，产品摄影","parameters":{"model":"MODEL_ID_FROM_CATALOG"}}
 ```
 
 ```json
@@ -226,7 +242,7 @@ alone is not a review request; report partial/failure states and do not regenera
 ```
 
 ```json
-{"type":"edit","prompt":"以原图为参考自由重绘为超现实拼贴海报，重新设计透视和构图，保留主体标识，右侧留出标题区域","images":[{"base64":"...","mimeType":"image/png","role":"source"}],"parameters":{"quality":"high","background":"opaque"}}
+{"type":"edit","prompt":"以原图为参考自由重绘为超现实拼贴海报，重新设计透视和构图，保留主体标识，右侧留出标题区域","images":[{"base64":"...","mimeType":"image/png","role":"source"}],"parameters":{"model":"MODEL_ID_FROM_CATALOG"}}
 ```
 
 ```json

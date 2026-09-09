@@ -1,7 +1,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::acp::agent_input_capabilities::{feedback_text, AgentInputCapabilities};
+use crate::acp::agent_input_capabilities::{
+    feedback_text, AgentInputCapabilities, NATIVE_PROMPT_REQUIRED_REASON,
+};
 use crate::acp::agent_input_dispatch::AgentInputRuntime;
 use crate::acp::agent_input_worker_dispatch::{dispatch_feedback, dispatch_native, dispatch_next};
 use crate::acp::agent_input_worker_force::dispatch_force_batch;
@@ -154,7 +156,8 @@ async fn worker_snapshot(state: &Arc<tokio::sync::RwLock<SessionState>>) -> Opti
             snapshot.agent_type,
             snapshot.feedback_tool_available,
             snapshot.native_steering_available,
-        ),
+        )
+        .with_current_mode(snapshot.current_mode.clone()),
         has_tools,
         has_running_tools,
         wake,
@@ -190,6 +193,8 @@ impl WorkerTracking {
             // would cancel the turn a second time before normal delivery.
             if item.status == AgentInputStatus::FallbackQueued
                 && item.strategy == Some(crate::acp::AgentInputStrategy::NativeSteer)
+                && (item.last_error.as_deref() == Some(NATIVE_PROMPT_REQUIRED_REASON)
+                    || !snapshot.capabilities.supports_feedback(&item.payload))
             {
                 snapshot.wake.await;
                 return;
