@@ -1,0 +1,17 @@
+name: Upload Cargo build timings
+description: Preserve worker and application timing reports without large build outputs
+inputs:
+  target:
+    required: true
+    description: Target used in the artifact name
+runs:
+  using: composite
+  steps:
+    - uses: actions/upload-artifact@v4
+      with:
+        name: cargo-timings-${{ github.job }}-${{ inputs.target }}-${{ github.run_attempt }}
+        path: |
+          src-tauri/target/cargo-timings/*.html
+          harness/xinghe-worker/target/cargo-timings/*.html
+        if-no-files-found: ignore
+        retention-days: 7

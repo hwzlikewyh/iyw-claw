@@ -61,7 +61,11 @@ jobs:
           pnpm install --frozen-lockfile
           node scripts/set-version.mjs "$TEST_VERSION"
 
-      - name: Build frontend
+      - name: Restore frontend compiler cache
+        if: hashFiles('.github/actions/frontend-cache/action.yml') != ''
+        uses: ./.github/actions/frontend-cache
+
+      - name: Compile frontend
         run: pnpm build
 
       - name: Upload frontend input
@@ -111,7 +115,9 @@ jobs:
           workspaces: |
             ./src-tauri -> target
             ./harness/xinghe-worker -> target
-          shared-key: github-hosted-${{ matrix.target }}
+          shared-key: desktop-${{ matrix.target }}
+          cache-bin: "false"
+          cache-workspace-crates: "true"
 
       - name: Install Windows x86 assembler
         if: matrix.target == 'i686-pc-windows-msvc'
@@ -144,15 +150,26 @@ jobs:
           IYW_CLAW_BROWSER_SIDECAR_EXCLUDED: ${{ matrix.target == 'i686-pc-windows-msvc' && '1' || '' }}
         run: |
           pnpm tauri:prepare-sidecars --target "${{ matrix.target }}"
-          pnpm tauri:prepare-xinghe-worker --target "${{ matrix.target }}"
           node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
+
+      - name: Prepare cached worker resources
+        if: hashFiles('.github/actions/prepare-worker/action.yml') != ''
+        uses: ./.github/actions/prepare-worker
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Prepare worker for legacy source
+        if: hashFiles('.github/actions/prepare-worker/action.yml') == ''
+        run: pnpm tauri:prepare-xinghe-worker --target "${{ matrix.target }}"
 
       - name: Cache runtime seed archives
         if: matrix.target != 'i686-pc-windows-msvc'
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/iyw-runtime-seed-cache
-          key: github-hosted-runtime-seed-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('src-tauri/scripts/*runtime-seed*.mjs', 'src-tauri/runtime-seed/codex/package-lock.json') }}
+          key: runtime-downloads-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('src-tauri/scripts/runtime-seed-config.mjs') }}
+          restore-keys: |
+            runtime-downloads-${{ runner.os }}-${{ matrix.target }}-
 
       - name: Prepare and verify runtime seed
         if: matrix.target != 'i686-pc-windows-msvc'
@@ -176,7 +193,7 @@ jobs:
           --config src-tauri/tauri.ci.conf.json
           ${{ matrix.target == 'i686-pc-windows-msvc' && '--config src-tauri/tauri.windows-x86.conf.json' || '' }}
           ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
-          --no-sign
+          --no-sign -- --timings
 
       - name: Verify desktop bundle size
         shell: bash
@@ -194,6 +211,7 @@ jobs:
           path: src-tauri/target/${{ matrix.target }}/release/bundle/**
           if-no-files-found: error
           retention-days: 2
+          compression-level: 0
 
       - name: Upload Windows signing input
         if: contains(matrix.target, 'windows')
@@ -211,7 +229,13 @@ jobs:
           retention-days: 2
           compression-level: 1
 
-      - name: Show sccache statistics
+      - name: Archive Cargo build timings
+        if: always() && hashFiles('.github/actions/build-timings/action.yml') != ''
+        uses: ./.github/actions/build-timings
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Show compiler cache statistics
         if: always()
         shell: bash
         run: sccache --show-stats

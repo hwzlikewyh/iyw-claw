@@ -37,6 +37,9 @@ coverage/
 *.snap.new
 .vitest-cache/
 
+# Downloaded signed desktop releases and Fusion publication records.
+artifacts/release-*/
+
 # macOS signing material. Keep certificates and exported private keys out of git.
 *.cer
 *.csr

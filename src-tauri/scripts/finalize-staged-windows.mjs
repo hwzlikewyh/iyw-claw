@@ -5,64 +5,37 @@
  * The caller must provide an already authenticated SafeNet session.
  */
 
-import { createHash } from "node:crypto"
 import {
   copyFileSync,
   cpSync,
-  existsSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs"
 import { execFileSync, spawnSync } from "node:child_process"
-import { dirname, isAbsolute, join, relative, resolve } from "node:path"
+import { dirname, join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
+import { windowsLayout, verifyWindowsStaging } from "./windows-staging.mjs"
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..")
-const TARGET = "x86_64-pc-windows-msvc"
+const TOOL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..")
+const ROOT = resolve(process.env.IYW_CLAW_BUILD_ROOT ?? TOOL_ROOT)
+const TARGET = process.env.TAURI_TARGET_TRIPLE || "x86_64-pc-windows-msvc"
+const LAYOUT = windowsLayout(TARGET)
 const STAGING_ROOT = resolve(
   process.env.IYW_CLAW_STAGING_DIR ?? join(ROOT, ".staged-windows")
 )
-const MANIFEST_PATH = join(STAGING_ROOT, "staging-manifest.json")
 const CLI = join(ROOT, "node_modules", "@tauri-apps", "cli", "tauri.js")
 const TARGET_RELEASE = join("src-tauri", "target", TARGET, "release")
-const ALLOWED_PREFIXES = [
-  "out/",
-  "src-tauri/binaries/",
-  "src-tauri/resources/runtime-seed/",
-  "src-tauri/resources/xinghe-worker/",
-]
-const ALLOWED_FILES = new Set([
-  "src-tauri/resources/xinghe-worker/iyw_xinghe_worker.dll",
-  "src-tauri/resources/xinghe-worker/iyw-xinghe-helper.exe",
-  "src-tauri/resources/xinghe-worker/xinghe-windows-sandbox-setup.exe",
-  "src-tauri/resources/xinghe-worker/xinghe-command-runner.exe",
-  "src-tauri/tauri.runtime-seed.conf.json",
-  `${TARGET_RELEASE.replaceAll("\\", "/")}/iyw-claw.exe`,
-])
 
 function fail(message) {
   throw new Error(message)
 }
 
-function sha256(path) {
-  return createHash("sha256").update(readFileSync(path)).digest("hex")
-}
-
-function allowedStagingPath(path) {
-  return (
-    ALLOWED_FILES.has(path) ||
-    ALLOWED_PREFIXES.some((prefix) => path.startsWith(prefix))
-  )
-}
-
 function verifyManifest() {
-  if (!existsSync(MANIFEST_PATH)) fail(`missing ${MANIFEST_PATH}`)
-  const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"))
   const expectedVersion = JSON.parse(
     readFileSync(join(ROOT, "package.json"), "utf8")
   ).version
@@ -70,78 +43,26 @@ function verifyManifest() {
     cwd: ROOT,
     encoding: "utf8",
   }).trim()
-  if (manifest.schemaVersion !== 1) fail("unsupported staging manifest schema")
-  if (manifest.version !== expectedVersion) {
-    fail(
-      `staging version ${manifest.version} does not match ${expectedVersion}`
-    )
-  }
-  if (manifest.sourceCommit !== sourceCommit) {
-    fail(
-      `staging commit ${manifest.sourceCommit} does not match ${sourceCommit}`
-    )
-  }
-  if (manifest.target !== TARGET) fail(`staging target must be ${TARGET}`)
-  if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
-    fail("staging manifest has no files")
-  }
-  const stagedPaths = new Set(manifest.files.map((entry) => entry?.path))
-  const includesFrontend = manifest.files.some((entry) =>
-    entry?.path?.startsWith("out/")
-  )
-  if (includesFrontend && !stagedPaths.has("out/index.html")) {
-    fail("staged frontend is missing out/index.html")
-  }
-  for (const required of ALLOWED_FILES) {
-    if (!stagedPaths.has(required))
-      fail(`staging manifest is missing ${required}`)
-  }
-  for (const entry of manifest.files) {
-    if (
-      !entry ||
-      typeof entry.path !== "string" ||
-      isAbsolute(entry.path) ||
-      entry.path.split("/").includes("..")
-    ) {
-      fail("staging manifest contains an unsafe path")
-    }
-    if (!allowedStagingPath(entry.path))
-      fail(`unexpected staged file: ${entry.path}`)
-    const path = resolve(STAGING_ROOT, entry.path)
-    if (relative(STAGING_ROOT, path).startsWith("..")) {
-      fail(`file escapes staging root: ${entry.path}`)
-    }
-    if (!existsSync(path) || !statSync(path).isFile()) {
-      fail(`missing staged file: ${entry.path}`)
-    }
-    const actualSize = statSync(path).size
-    const actualHash = sha256(path)
-    if (actualSize !== entry.size || actualHash !== entry.sha256) {
-      fail(`staged file changed: ${entry.path}`)
-    }
-  }
-  console.log(`[staged-signing] verified ${manifest.files.length} staged files`)
-  return { version: manifest.version, includesFrontend }
+  return verifyWindowsStaging(STAGING_ROOT, {
+    version: expectedVersion,
+    sourceCommit,
+    target: TARGET,
+  })
 }
 
 function restoreStaging(includesFrontend) {
-  const directories = [
-    join("src-tauri", "binaries"),
-    join("src-tauri", "resources", "runtime-seed"),
-    join("src-tauri", "resources", "xinghe-worker"),
-  ]
-  if (includesFrontend) directories.push("out")
+  const directories = LAYOUT.directories.filter(
+    (path) => path !== "out" || includesFrontend
+  )
   for (const directory of directories) {
     const destination = join(ROOT, directory)
     rmSync(destination, { recursive: true, force: true })
     cpSync(join(STAGING_ROOT, directory), destination, { recursive: true })
   }
-  const files = [
-    join("src-tauri", "tauri.runtime-seed.conf.json"),
-    join(TARGET_RELEASE, "iyw-claw.exe"),
-  ]
+  const files = LAYOUT.files
   for (const file of files) {
     const destination = join(ROOT, file)
+    mkdirSync(dirname(destination), { recursive: true })
     rmSync(destination, { force: true })
     cpSync(join(STAGING_ROOT, file), destination)
   }
@@ -154,7 +75,10 @@ function preflightToken() {
   try {
     const result = spawnSync(
       process.execPath,
-      [join(ROOT, "src-tauri", "scripts", "sign-staged-windows.mjs"), probe],
+      [
+        join(TOOL_ROOT, "src-tauri", "scripts", "sign-staged-windows.mjs"),
+        probe,
+      ],
       { cwd: ROOT, stdio: "inherit", windowsHide: false }
     )
     if (result.error) throw result.error
@@ -173,7 +97,12 @@ function prepareBundleConfig() {
 
 function prepareSigningConfig() {
   const config = join(tmpdir(), `iyw-staged-signing-${process.pid}.json`)
-  const signer = join(ROOT, "src-tauri", "scripts", "sign-staged-windows.mjs")
+  const signer = join(
+    TOOL_ROOT,
+    "src-tauri",
+    "scripts",
+    "sign-staged-windows.mjs"
+  )
   writeFileSync(
     config,
     `${JSON.stringify(
@@ -192,30 +121,34 @@ function prepareSigningConfig() {
   return config
 }
 
+function bundleArgs(signingConfig, bundleConfig) {
+  return [
+    CLI,
+    "bundle",
+    "--target",
+    TARGET,
+    "--features",
+    "tauri-runtime",
+    "--bundles",
+    "nsis",
+    "--config",
+    "src-tauri/tauri.ci.conf.json",
+    "--config",
+    LAYOUT.overlay,
+    "--config",
+    signingConfig,
+    "--config",
+    bundleConfig,
+  ]
+}
+
 function bundle(version) {
   const output = join(ROOT, TARGET_RELEASE, "bundle", "nsis")
   rmSync(output, { recursive: true, force: true })
   const signingConfig = prepareSigningConfig()
   const bundleConfig = prepareBundleConfig()
   try {
-    const args = [
-      CLI,
-      "bundle",
-      "--target",
-      TARGET,
-      "--features",
-      "tauri-runtime",
-      "--bundles",
-      "nsis",
-      "--config",
-      "src-tauri/tauri.ci.conf.json",
-      "--config",
-      "src-tauri/tauri.runtime-seed.conf.json",
-      "--config",
-      signingConfig,
-      "--config",
-      bundleConfig,
-    ]
+    const args = bundleArgs(signingConfig, bundleConfig)
     const result = spawnSync(process.execPath, args, {
       cwd: ROOT,
       encoding: "utf8",

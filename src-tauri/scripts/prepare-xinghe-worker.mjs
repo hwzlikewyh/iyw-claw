@@ -17,9 +17,11 @@ import { fileURLToPath } from "node:url"
 import { verifyWorkerBinary } from "./xinghe-worker-binary.mjs"
 import { verifyHelperBinary, helperNames } from "./xinghe-worker-binary.mjs"
 import { stageWindowsRuntime } from "./xinghe-worker-msvc.mjs"
+import { buildWorker } from "./xinghe-worker-build.mjs"
+import { workerCacheKey } from "./xinghe-worker-cache-key.mjs"
+import { restoreWorkerCache, saveWorkerCache } from "./xinghe-worker-cache.mjs"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
-const WORKER_MANIFEST = join(ROOT, "harness", "xinghe-worker", "Cargo.toml")
 const WORKER_TARGET_ROOT = join(ROOT, "harness", "xinghe-worker", "target")
 const RESOURCE_ROOT = join(ROOT, "src-tauri", "resources", "xinghe-worker")
 
@@ -50,29 +52,6 @@ function libraryName(target) {
   return "libiyw_xinghe_worker.so"
 }
 
-function cargoArgs(target) {
-  return [
-    "build",
-    "--manifest-path",
-    WORKER_MANIFEST,
-    "--target-dir",
-    WORKER_TARGET_ROOT,
-    "--release",
-    "--locked",
-    "--target",
-    target,
-  ]
-}
-
-function builtLibrary(target, name) {
-  const targetDir = join(WORKER_TARGET_ROOT, target, "release")
-  const path = join(targetDir, name)
-  if (!existsSync(path)) {
-    throw new Error(`星河 worker build did not produce ${name}`)
-  }
-  return path
-}
-
 function stageLibrary(source, name) {
   mkdirSync(dirname(RESOURCE_ROOT), { recursive: true })
   const stagingRoot = mkdtempSync(
@@ -91,40 +70,50 @@ function stageLibrary(source, name) {
   return destination
 }
 
-function main() {
-  const target = parseTarget(process.argv.slice(2))
+function verifyBinaries(directory, target) {
   const name = libraryName(target)
-  console.log(`[xinghe-worker] building ${target}`)
-  const outputs = ["--lib", "--bin", "iyw-xinghe-helper"]
-  execFileSync("cargo", [...cargoArgs(target), ...outputs], {
-    cwd: ROOT,
-    stdio: "inherit",
-    windowsHide: true,
-  })
-  const source = builtLibrary(target, name)
   const pin = JSON.parse(
     readFileSync(join(ROOT, "harness", "codex", "upstream.lock"), "utf8")
   )
-  verifyWorkerBinary(readFileSync(source), target, pin)
-  const destination = stageLibrary(source, name)
-  if (target.includes("windows")) {
-    execFileSync(
-      "cargo",
-      [...cargoArgs(target), "-p", "codex-windows-sandbox", "--bins"],
-      {
-        cwd: ROOT,
-        stdio: "inherit",
-        windowsHide: true,
-      }
-    )
-  }
+  verifyWorkerBinary(readFileSync(join(directory, name)), target, pin)
   for (const helper of helperNames(target)) {
-    const binary = builtLibrary(target, helper)
-    verifyHelperBinary(readFileSync(binary), target)
-    stageLibrary(binary, helper)
+    verifyHelperBinary(readFileSync(join(directory, helper)), target)
+  }
+}
+
+function prepareBinaries(target) {
+  const source = join(WORKER_TARGET_ROOT, target, "release")
+  if (!existsSync(join(ROOT, ".git"))) {
+    console.log("[xinghe-worker] source archive: building without compiler cache")
+    buildWorker(ROOT, target)
+    verifyBinaries(source, target)
+    return source
+  }
+  const directory = join(WORKER_TARGET_ROOT, "bundle-cache", target)
+  const names = [libraryName(target), ...helperNames(target)]
+  const key = workerCacheKey(target)
+  if (restoreWorkerCache({ directory, key, names })) {
+    verifyBinaries(directory, target)
+    console.log(`[xinghe-worker] compiler cache hit: ${key}`)
+    return directory
+  }
+  console.log(`[xinghe-worker] compiler cache miss: ${key}`)
+  buildWorker(ROOT, target)
+  verifyBinaries(source, target)
+  saveWorkerCache({ directory, key, names, source })
+  return directory
+}
+
+function main() {
+  const started = performance.now()
+  const target = parseTarget(process.argv.slice(2))
+  const source = prepareBinaries(target)
+  // 复用签名机时，资源目录可能仍有上一架构的 DLL；只清理生成目录。
+  rmSync(RESOURCE_ROOT, { recursive: true, force: true })
+  for (const name of [libraryName(target), ...helperNames(target)]) {
+    stageLibrary(join(source, name), name)
   }
   stageWindowsRuntime({ target, resourceRoot: RESOURCE_ROOT, stageLibrary })
-  console.log(`[xinghe-worker] staged ${destination}`)
   execFileSync(
     process.execPath,
     [
@@ -138,7 +127,9 @@ function main() {
       windowsHide: true,
     }
   )
-  console.log(`[xinghe-worker] ready for the desktop resource bundle`)
+  console.log(
+    `[xinghe-worker] ready in ${Math.round(performance.now() - started)} ms`
+  )
 }
 
 if (

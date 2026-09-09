@@ -75,30 +75,15 @@ jobs:
 
       - uses: mozilla-actions/sccache-action@v0.0.9
 
-      - id: toolchain
-        name: Identify Rust build cache
-        shell: pwsh
-        run: |
-          $identity = (rustc --version --verbose) -join "`n"
-          if ($LASTEXITCODE -ne 0) { throw 'rustc identity failed' }
-          $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($identity))).ToLowerInvariant()
-          "hash=$hash" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
             src-tauri -> target
             harness/xinghe-worker -> target
-          shared-key: staged-windows-x64-v1
+          shared-key: desktop-x86_64-pc-windows-msvc
           cache-bin: "false"
-
-      - id: worker-cache
-        name: Restore exact worker resources
-        uses: actions/cache/restore@v4
-        with:
-          path: src-tauri/resources/xinghe-worker
-          key: xinghe-win-x64-release-v1-${{ steps.toolchain.outputs.hash }}-${{ env.CARGO_PROFILE_RELEASE_CODEGEN_UNITS }}-${{ env.CARGO_PROFILE_RELEASE_LTO }}-${{ hashFiles('harness/xinghe-worker/Cargo.toml', 'harness/xinghe-worker/Cargo.lock', 'harness/xinghe-worker/src/**', 'harness/codex/Cargo.toml', 'harness/codex/upstream.lock', 'harness/codex/src/**', 'harness/codex/patches/**', 'src-tauri/vendor/sacp-tokio/**', 'src-tauri/scripts/prepare-xinghe-worker.mjs', 'src-tauri/scripts/verify-xinghe-worker-bundle.mjs', 'src-tauri/scripts/xinghe-worker-binary.mjs', 'src-tauri/scripts/xinghe-worker-msvc.mjs', '.cargo/config.toml') }}
+          cache-workspace-crates: "true"
 
       - name: Install dependencies and set version
         shell: pwsh
@@ -107,6 +92,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "pnpm install failed" }
           node scripts/set-version.mjs "$env:TEST_VERSION"
           if ($LASTEXITCODE -ne 0) { throw "version update failed" }
+
+      - uses: ./.github/actions/frontend-cache
+        if: hashFiles('.github/actions/frontend-cache/action.yml') != ''
 
       - name: Build frontend and stage sidecars
         shell: pwsh
@@ -120,25 +108,23 @@ jobs:
           node src-tauri/scripts/verify-sidecar-bundle.mjs --target x86_64-pc-windows-msvc
           if ($LASTEXITCODE -ne 0) { throw "sidecar verification failed" }
 
-      - name: Build worker resources on cache miss
-        if: steps.worker-cache.outputs.cache-hit != 'true'
-        shell: pwsh
-        run: |
-          pnpm tauri:prepare-xinghe-worker --target x86_64-pc-windows-msvc
-          if ($LASTEXITCODE -ne 0) { throw 'worker preparation failed' }
-
-      - name: Verify worker resources
-        shell: pwsh
-        run: |
-          node src-tauri/scripts/verify-xinghe-worker-bundle.mjs --target x86_64-pc-windows-msvc
-          if ($LASTEXITCODE -ne 0) { throw 'worker verification failed' }
-
-      - name: Save exact worker resources
-        if: steps.worker-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+      - name: Prepare cached worker resources
+        if: hashFiles('.github/actions/prepare-worker/action.yml') != ''
+        uses: ./.github/actions/prepare-worker
         with:
-          path: src-tauri/resources/xinghe-worker
-          key: ${{ steps.worker-cache.outputs.cache-primary-key }}
+          target: x86_64-pc-windows-msvc
+
+      - name: Prepare worker for legacy source
+        if: hashFiles('.github/actions/prepare-worker/action.yml') == ''
+        run: pnpm tauri:prepare-xinghe-worker --target x86_64-pc-windows-msvc
+
+      - name: Cache runtime seed downloads
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/iyw-runtime-seed-cache
+          key: runtime-downloads-${{ runner.os }}-x86_64-pc-windows-msvc-${{ hashFiles('src-tauri/scripts/runtime-seed-config.mjs') }}
+          restore-keys: |
+            runtime-downloads-${{ runner.os }}-x86_64-pc-windows-msvc-
 
       - name: Prepare runtime seed
         shell: pwsh
@@ -156,7 +142,7 @@ jobs:
           IYW_CLAW_SKIP_SIDECAR: "1"
           TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
         run: |
-          pnpm exec tauri build --target x86_64-pc-windows-msvc --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.runtime-seed.conf.json --no-bundle --no-sign
+          pnpm exec tauri build --target x86_64-pc-windows-msvc --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.runtime-seed.conf.json --no-bundle --no-sign -- --timings
           if ($LASTEXITCODE -ne 0) { throw "unsigned staging binary build failed" }
           $status = (Get-AuthenticodeSignature -LiteralPath src-tauri\target\x86_64-pc-windows-msvc\release\iyw-claw.exe).Status
           if ($status -ne 'NotSigned') { throw "staging binary must be unsigned, found $status" }
@@ -202,7 +188,13 @@ jobs:
           retention-days: 2
           compression-level: 0
 
-      - name: Show sccache statistics
+      - name: Archive Cargo build timings
+        if: always() && hashFiles('.github/actions/build-timings/action.yml') != ''
+        uses: ./.github/actions/build-timings
+        with:
+          target: x86_64-pc-windows-msvc
+
+      - name: Show compiler cache statistics
         if: always()
         shell: pwsh
         run: |
