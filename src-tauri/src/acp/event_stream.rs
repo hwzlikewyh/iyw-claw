@@ -379,7 +379,10 @@ fn estimate_envelope_size(envelope: &EventEnvelope) -> usize {
     // `connection_id` is sized escape-aware like every other string so the
     // `estimate >= serialized` invariant holds for ANY id, not just the
     // UUID-shaped ones production emits. (`ENVELOPE_OVERHEAD` covers its key.)
-    let base = ENVELOPE_OVERHEAD + json_str_len(&envelope.connection_id);
+    let activity_bytes = envelope.activity.as_ref().map_or(0, |activity| {
+        serde_json::to_vec(activity).map_or(0, |bytes| bytes.len()) + 16
+    });
+    let base = ENVELOPE_OVERHEAD + json_str_len(&envelope.connection_id) + activity_bytes;
     let payload = match &envelope.payload {
         AcpEvent::ContentDelta { text } | AcpEvent::Thinking { text } => json_str_len(text),
         AcpEvent::ClaudeSdkMessage {

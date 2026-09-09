@@ -4960,7 +4960,7 @@ fn track_terminal_tool_calls(
                 return false;
             }
 
-            let status = format!("{:?}", tc.status).to_lowercase();
+            let status = tool_status_name(&tc.status);
             let entry = tracked.entry(tc.tool_call_id.to_string()).or_default();
             let changed = merge_terminal_ids(&mut entry.terminal_ids, terminal_ids);
             entry.status = Some(status);
@@ -4994,7 +4994,7 @@ fn track_terminal_tool_calls(
             }
 
             if let Some(status) = tcu.fields.status {
-                let status_str = format!("{:?}", status).to_lowercase();
+                let status_str = tool_status_name(&status);
                 if entry.status.as_deref() != Some(status_str.as_str()) {
                     changed = true;
                 }
@@ -5005,6 +5005,13 @@ fn track_terminal_tool_calls(
         }
         _ => false,
     }
+}
+
+fn tool_status_name(status: &sacp::schema::ToolCallStatus) -> String {
+    serde_json::to_value(status)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "pending".to_string())
 }
 
 fn format_terminal_exit_status(exit_status: &TerminalExitStatus) -> String {
@@ -8318,7 +8325,7 @@ async fn emit_conversation_update(
                 },
             )
             .await;
-            let status = format!("{:?}", tc.status).to_lowercase();
+            let status = tool_status_name(&tc.status);
             raw_output_cache.remove_if_final(&tool_call_id, Some(status.as_str()));
             // Avoid logging titles/payloads below — they can be model-generated
             // user task descriptions (PII-adjacent) and would create noise in
@@ -8458,7 +8465,7 @@ async fn emit_conversation_update(
                 },
             )
             .await;
-            let status = tcu.fields.status.map(|s| format!("{:?}", s).to_lowercase());
+            let status = tcu.fields.status.as_ref().map(tool_status_name);
             raw_output_cache.remove_if_final(&tool_call_id, status.as_deref());
             if let Some((name, _)) = &grok_use_tool {
                 cb_state
@@ -8592,6 +8599,18 @@ async fn emit_conversation_update(
             .await;
         }
         SessionUpdate::SessionInfoUpdate(info) => {
+            if agent_type == AgentType::Codex {
+                if let Some(observation) =
+                    crate::acp::runtime_observation::RuntimeObservation::from_meta(info.meta.as_ref())
+                {
+                    emit_with_state(
+                        state,
+                        emitter,
+                        AcpEvent::RuntimeObservation { observation },
+                    )
+                    .await;
+                }
+            }
             if let Some(title) = info
                 .title
                 .value()

@@ -16,6 +16,7 @@ use crate::{
 };
 
 mod acp_mapping;
+mod activity_mapping;
 mod item_mapping;
 mod prompt_mapping;
 mod settings_mapping;
@@ -574,6 +575,13 @@ async fn handle_event(
                             .responder
                             .respond(acp_mapping::prompt_response(&params));
                     }
+                }
+            } else if let Some(update) = activity_mapping::observation(&method, &params) {
+                let active = upstream.active_turn_for(thread_id.unwrap_or_default()).await;
+                if active.as_ref().is_some_and(|turn| {
+                    params.get("turnId").and_then(Value::as_str) == Some(turn.turn_id.as_str())
+                }) {
+                    send_update(cx, session_id, update.method, update.params)?;
                 }
             } else if let Some(update) = acp_mapping::notification_to_update(&method, &params) {
                 send_update(cx, session_id, update.method, update.params)?;

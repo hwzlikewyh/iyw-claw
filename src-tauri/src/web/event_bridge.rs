@@ -352,6 +352,7 @@ where
         let envelope = Arc::new(EventEnvelope {
             seq: s.event_seq,
             connection_id: s.connection_id.clone(),
+            activity: s.activity.take_update(),
             payload,
         });
         let evicted = s.push_recent_event(Arc::clone(&envelope));

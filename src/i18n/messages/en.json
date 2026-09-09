@@ -3376,7 +3376,16 @@
         "elapsedMinutes": "{value}m",
         "elapsedSeconds": "{value}s",
         "toolUseCount": "{count} tool {count, plural, one {use} other {uses}}",
-        "outputRate": "{rate} chars/s"
+        "outputRate": "{rate} chars/s",
+        "runtimeRetrying": "Runtime is retrying",
+        "waitingProcess": "Waiting for background command",
+        "waitingOutput": "Waiting for new output",
+        "activityUnknown": "Waiting for response; activity time unknown",
+        "noOutputWarning": "The task has not produced new output for an extended period",
+        "toolSilence": "No new tool output for {elapsed}",
+        "outputSilence": "No new output for {elapsed}",
+        "processObserved": "Process last observed running {elapsed} ago",
+        "backgroundUnconfirmed": "{count} background {count, plural, one {command has} other {commands have}} no confirmed end"
       },
       "tool": {
         "parameters": "Parameters",

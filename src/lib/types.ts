@@ -1318,6 +1318,7 @@ export interface ToolCallImageWire {
 
 // ACP events pushed from Rust backend (discriminated by "type" field)
 export type AcpEvent =
+  | { type: "runtime_observation"; observation: unknown }
   | { type: "content_delta"; text: string }
   | { type: "thinking"; text: string }
   | {
@@ -1641,7 +1642,29 @@ export type DelegationResultSummary =
 export type EventEnvelope = {
   seq: number
   connection_id: string
+  activity?: SessionActivitySnapshot | null
 } & AcpEvent
+
+export interface ProcessObservation {
+  turn_generation: number
+  item_id: string
+  process_id: string
+  checked_at: string
+  output_at: string | null
+  status: "running" | "completed" | "failed" | "unknown"
+}
+
+export interface SessionActivitySnapshot {
+  turn_generation: number
+  started_at: string | null
+  text_at: string | null
+  thinking_at: string | null
+  tool_output_at: string | null
+  tool_started_at: string | null
+  retrying_since: string | null
+  processes: ProcessObservation[]
+  sampled_at: string
+}
 
 // --- LiveSessionSnapshot wire types (mirror src-tauri/src/acp/session_state.rs) ---
 
@@ -1804,6 +1827,7 @@ export interface UserMemoryCapabilities {
 }
 
 export interface LiveSessionSnapshot {
+  activity?: SessionActivitySnapshot | null
   connection_id: string
   conversation_id: number | null
   folder_id: number | null

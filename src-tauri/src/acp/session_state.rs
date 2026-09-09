@@ -427,12 +427,9 @@ pub struct SessionState {
     // 事件锚点
     pub event_seq: u64,
     pub last_activity_at: DateTime<Utc>,
-    /// Last time an event was actually applied to this session. Unlike
-    /// `last_activity_at`, this is NOT refreshed by frontend keepalive
-    /// touches, so it is the signal the prompt-stall watchdog uses to detect
-    /// a hung generation (upstream stream stalled → no events → the UI would
-    /// spin "生成中" forever without intervention).
+    /// 最近运行时活动；宿主输入队列和界面保活不刷新静默恢复时钟。
     pub last_agent_event_at: DateTime<Utc>,
+    pub activity: crate::acp::session_activity::SessionActivity,
 
     /// Launcher PID for this connection's ACP process tree. Runtime-only;
     /// process inspection uses it to calculate private memory without guessing
@@ -697,6 +694,7 @@ impl SessionState {
             event_seq: 0,
             last_activity_at: Utc::now(),
             last_agent_event_at: Utc::now(),
+            activity: Default::default(),
             agent_pid: None,
             recoverable_session: false,
             recovery_failed: false,
@@ -784,7 +782,16 @@ impl SessionState {
     /// 单一分发器：把一个 AcpEvent 应用到 self。注意此方法**不**自增 event_seq——
     /// seq 由 emit_with_state 在外层管理（这样 apply_event 可独立单元测试）。
     pub fn apply_event(&mut self, payload: &AcpEvent) {
+        let runtime_activity = self.activity.observe(
+            payload,
+            crate::acp::session_activity::ActivityContext {
+                generation: self.turn_generation,
+                prompting: self.status == ConnectionStatus::Prompting,
+                tools: &self.active_tool_calls,
+            },
+        );
         match payload {
+            AcpEvent::RuntimeObservation { .. } => {}
             AcpEvent::SessionStarted { session_id } => {
                 let expected_external_id = self
                     .external_id
@@ -1411,7 +1418,9 @@ impl SessionState {
             }
         }
         self.last_activity_at = Utc::now();
-        self.last_agent_event_at = Utc::now();
+        if runtime_activity {
+            self.last_agent_event_at = Utc::now();
+        }
     }
 
     pub fn has_active_background_work(&self, now: DateTime<Utc>) -> bool {
@@ -1712,6 +1721,7 @@ impl SessionState {
     /// 拷贝出对外可见的 wire-friendly snapshot。Phase 2 snapshot 端点直接调用此方法。
     pub fn to_snapshot(&self) -> LiveSessionSnapshot {
         LiveSessionSnapshot {
+            activity: Some(self.activity.snapshot()),
             connection_id: self.connection_id.clone(),
             conversation_id: self.conversation_id,
             folder_id: self.folder_id,
@@ -1878,6 +1888,8 @@ pub(crate) fn background_keepalive_max_age() -> chrono::Duration {
 /// `to_snapshot()` 的输出——前端可消费的 wire shape。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveSessionSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activity: Option<crate::acp::session_activity::SessionActivitySnapshot>,
     pub connection_id: String,
     pub conversation_id: Option<i32>,
     pub folder_id: Option<i32>,

@@ -3376,7 +3376,16 @@
         "elapsedMinutes": "{value} 分钟",
         "elapsedSeconds": "{value} 秒",
         "toolUseCount": "{count} 次工具调用",
-        "outputRate": "输出 {rate} 字/秒"
+        "outputRate": "输出 {rate} 字/秒",
+        "runtimeRetrying": "运行时正在重试",
+        "waitingProcess": "等待后台命令结果",
+        "waitingOutput": "等待新的输出",
+        "activityUnknown": "等待响应，活动时间未知",
+        "noOutputWarning": "任务长时间没有新的输出",
+        "toolSilence": "工具已 {elapsed} 无新输出",
+        "outputSilence": "已 {elapsed} 无新输出",
+        "processObserved": "上次确认进程运行：{elapsed}前",
+        "backgroundUnconfirmed": "{count} 个后台命令尚未确认结束"
       },
       "tool": {
         "parameters": "参数",
