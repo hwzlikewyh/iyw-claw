@@ -10,8 +10,12 @@ import type {
 import { formatElapsedLabel } from "@/lib/format-elapsed"
 import type { PlanEntryInfo } from "@/lib/types"
 import { LiveTurnStatusRow } from "@/components/message/live-turn-status-row"
+import { useRecentOutputRate } from "@/hooks/use-recent-output-rate"
+import { useSessionActivity } from "@/hooks/use-session-activity"
+import { useTurnActivity } from "./live-turn-activity"
 
 interface LiveTurnStatsProps {
+  contextKey?: string
   message: LiveMessage | null
   modelName?: string | null
   isStreaming?: boolean
@@ -71,7 +75,6 @@ function countOutputCharacters(message: LiveMessage | null): number {
 function useElapsed(startedAt: number | null): [number, number] {
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
-    if (startedAt === null) return
     const timer = setInterval(() => {
       setNow(Date.now())
     }, 1_000)
@@ -81,6 +84,7 @@ function useElapsed(startedAt: number | null): [number, number] {
 }
 
 export function LiveTurnStats({
+  contextKey,
   message,
   modelName,
   isStreaming = true,
@@ -97,17 +101,18 @@ export function LiveTurnStats({
     () => countOutputCharacters(message),
     [message]
   )
-  const outputRateLabel = useMemo(() => {
-    if (outputCharacters === 0) return null
-    // Older snapshots do not carry firstTextAt; startedAt is a conservative
-    // fallback so a refreshed in-progress turn still exposes a useful rate.
-    const firstTextAt = message?.firstTextAt ?? startedAt
-    if (firstTextAt === null) return null
-    const seconds = Math.max(1, (now - firstTextAt) / 1_000)
-    return t("outputRate", {
-      rate: Math.round(outputCharacters / seconds),
-    })
-  }, [message?.firstTextAt, now, outputCharacters, startedAt, t])
+  const observed = useSessionActivity(contextKey)
+  const rateKey = message
+    ? `${message.id}:${message.recoveredVersion ?? 0}:${observed?.restored ?? false}`
+    : null
+  const rate = useRecentOutputRate(rateKey, outputCharacters)
+  const outputRateLabel = rate === null ? null : t("outputRate", { rate })
+  const activity = useTurnActivity(contextKey, {
+    message,
+    now,
+    awaitingUser: isAwaitingUserInput,
+    recentRate: rate,
+  })
   const resolvedPlanEntries = useMemo(
     () => planEntries ?? getLatestPlanEntries(message),
     [message, planEntries]
@@ -129,6 +134,11 @@ export function LiveTurnStats({
       completedPlanCount={completedPlanCount}
       elapsedLabel={elapsedLabel}
       outputRateLabel={outputRateLabel}
+      activityPhase={activity.phase}
+      activityNotice={activity.notice}
+      processNotice={activity.processNotice}
+      isWaiting={activity.waiting}
+      activityWarning={activity.warning}
       toolCallCount={countToolCalls(message)}
       subAgentControl={subAgentControl}
       trailingStatus={trailingStatus}

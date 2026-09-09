@@ -94,6 +94,7 @@ import {
 } from "@/components/message/message-entrance"
 
 interface MessageListViewProps {
+  activityContextKey?: string
   conversationId: number
   /** Persisted DB ID used only for task-artifact queries. */
   artifactConversationId?: number | null
@@ -652,6 +653,7 @@ const AutoScrollOnSend = memo(function AutoScrollOnSend({
 })
 
 export function MessageListView({
+  activityContextKey,
   conversationId,
   artifactConversationId,
   agentType,
@@ -1162,6 +1164,7 @@ export function MessageListView({
       </MessageThread>
       {connStatus === "prompting" && (
         <LiveTurnStats
+          contextKey={activityContextKey}
           message={liveMessage}
           modelName={modelName}
           subAgentControl={

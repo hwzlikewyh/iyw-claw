@@ -31,6 +31,11 @@ import {
 import { PlanEntriesList } from "@/components/message/plan-card"
 
 interface LiveTurnStatusRowProps {
+  activityPhase?: string | null
+  activityNotice?: string | null
+  processNotice?: string | null
+  isWaiting?: boolean
+  activityWarning?: boolean
   message: LiveMessage | null
   modelName?: string | null
   isStreaming: boolean
@@ -240,11 +245,12 @@ export function LiveTurnStatusRow(props: LiveTurnStatusRowProps) {
   const t = useTranslations("Folder.chat.liveTurnStats")
   const phase = props.isAwaitingUserInput
     ? t("awaitingUser")
-    : phaseLabel(props.message, props.planEntries, {
+    : (props.activityPhase ??
+      phaseLabel(props.message, props.planEntries, {
         working: t("working"),
         thinking: t("thinking", { model: "原助理" }),
         streaming: t("streaming", { model: "原助理" }),
-      })
+      }))
 
   return (
     <div className="@container/turnstats shrink-0">
@@ -261,15 +267,29 @@ export function LiveTurnStatusRow(props: LiveTurnStatusRowProps) {
           </>
         )}
         <span className="inline-flex min-w-0 max-w-[min(24rem,55vw)] items-center gap-1.5">
-          {props.isAwaitingUserInput ? (
+          {props.isAwaitingUserInput || props.isWaiting ? (
             <CircleDashed className="size-3 shrink-0" />
           ) : (
             <Loader2 className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />
           )}
-          <span className="truncate">{phase}</span>
+          <span className="truncate" title={phase}>
+            {phase}
+          </span>
         </span>
         <TurnFacts {...props} />
       </div>
+      {!props.isAwaitingUserInput &&
+        (props.activityNotice || props.processNotice) && (
+          <div
+            className={`flex flex-wrap justify-center gap-x-3 gap-y-1 px-4 pb-1 text-xs ${props.activityWarning ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground"}`}
+          >
+            {props.activityNotice && <span>{props.activityNotice}</span>}
+            {props.processNotice && <span>{props.processNotice}</span>}
+          </div>
+        )}
+      <span className="sr-only" role="status">
+        {props.activityWarning ? t("noOutputWarning") : ""}
+      </span>
     </div>
   )
 }
