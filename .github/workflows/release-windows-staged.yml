@@ -14,6 +14,10 @@ on:
       release_tag:
         required: true
         type: string
+      frontend_artifact:
+        required: false
+        default: release-frontend-out
+        type: string
 env:
   TAURI_TARGET_TRIPLE: ${{ inputs.target }}
   SOURCE_REF: ${{ inputs.source_ref }}
@@ -78,7 +82,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       - uses: actions/download-artifact@v4
         with:
-          name: release-frontend-out
+          name: ${{ inputs.frontend_artifact }}
           path: out
       - name: Stage sidecars
         env:

@@ -22,6 +22,11 @@ on:
         description: "Reuse release-frontend-out from this run of the same source"
         required: false
         type: string
+      signed_candidate:
+        description: Build signed five-platform candidate and keep it as a draft
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -41,11 +46,16 @@ jobs:
     if: inputs.frontend_run_id == ''
     name: Prepare frontend input
     runs-on: ubuntu-22.04
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_ref }}
           fetch-depth: 1
+
+      - id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: pnpm/action-setup@v4
         with:
@@ -79,7 +89,7 @@ jobs:
   build-desktop:
     name: Build ${{ matrix.name }} on GitHub hosted
     needs: prepare-frontend
-    if: ${{ !cancelled() && (needs.prepare-frontend.result == 'success' || (needs.prepare-frontend.result == 'skipped' && inputs.frontend_run_id != '')) }}
+    if: ${{ !inputs.signed_candidate && !cancelled() && (needs.prepare-frontend.result == 'success' || (needs.prepare-frontend.result == 'skipped' && inputs.frontend_run_id != '')) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -239,3 +249,16 @@ jobs:
         if: always()
         shell: bash
         run: sccache --show-stats
+
+  signed-candidate:
+    if: inputs.signed_candidate
+    needs: prepare-frontend
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release-candidate.yml
+    with:
+      version: ${{ inputs.version }}
+      source_ref: ${{ needs.prepare-frontend.outputs.source_sha }}
+      frontend_artifact: github-hosted-test-frontend-${{ inputs.version }}
+    secrets: inherit
