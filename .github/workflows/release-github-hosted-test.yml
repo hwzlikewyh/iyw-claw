@@ -12,9 +12,20 @@ on:
         required: true
         default: main
         type: string
+      platforms:
+        description: "Platforms to build"
+        required: false
+        default: all
+        type: choice
+        options: [all, windows_x86]
+      frontend_run_id:
+        description: "Reuse release-frontend-out from this run of the same source"
+        required: false
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: github-hosted-packaging-test-${{ inputs.version }}
@@ -27,6 +38,7 @@ env:
 
 jobs:
   prepare-frontend:
+    if: inputs.frontend_run_id == ''
     name: Prepare frontend input
     runs-on: ubuntu-22.04
     steps:
@@ -63,32 +75,12 @@ jobs:
   build-desktop:
     name: Build ${{ matrix.name }} on GitHub hosted
     needs: prepare-frontend
+    if: ${{ !cancelled() && (needs.prepare-frontend.result == 'success' || (needs.prepare-frontend.result == 'skipped' && inputs.frontend_run_id != '')) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: Windows x64
-            runner: windows-2022
-            target: x86_64-pc-windows-msvc
-            bundles: nsis
-          - name: Windows x86
-            runner: windows-2022
-            target: i686-pc-windows-msvc
-            bundles: nsis
-          - name: macOS x64
-            runner: macos-latest
-            target: x86_64-apple-darwin
-            bundles: app,dmg
-          - name: macOS arm64
-            runner: macos-latest
-            target: aarch64-apple-darwin
-            bundles: app,dmg
-          - name: Linux x64
-            runner: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            bundles: appimage
+      matrix: ${{ fromJSON(inputs.platforms == 'windows_x86' && '{"include":[{"name":"Windows x86","runner":"windows-2022","target":"i686-pc-windows-msvc","bundles":"nsis"}]}' || '{"include":[{"name":"Windows x64","runner":"windows-2022","target":"x86_64-pc-windows-msvc","bundles":"nsis"},{"name":"Windows x86","runner":"windows-2022","target":"i686-pc-windows-msvc","bundles":"nsis"},{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","bundles":"app,dmg"},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","bundles":"app,dmg"},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"appimage"}]}') }}
     env:
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
       CARGO_PROFILE_RELEASE_LTO: thin
@@ -116,8 +108,17 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: "./src-tauri -> target"
+          workspaces: |
+            ./src-tauri -> target
+            ./harness/xinghe-worker -> target
           shared-key: github-hosted-${{ matrix.target }}
+
+      - name: Install Windows x86 assembler
+        if: matrix.target == 'i686-pc-windows-msvc'
+        uses: ilammy/setup-nasm@72793074d3c8cdda771dba85f6deafe00623038b
+        with:
+          version: 2.16.03
+          platform: win64
 
       - name: Install Linux dependencies
         if: matrix.target == 'x86_64-unknown-linux-gnu'
@@ -128,8 +129,10 @@ jobs:
       - name: Download frontend input
         uses: actions/download-artifact@v4
         with:
-          name: github-hosted-test-frontend-${{ inputs.version }}
+          name: ${{ inputs.frontend_run_id != '' && 'release-frontend-out' || format('github-hosted-test-frontend-{0}', inputs.version) }}
           path: out
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.frontend_run_id || github.run_id }}
 
       - name: Set test version
         shell: bash
@@ -152,6 +155,7 @@ jobs:
           key: github-hosted-runtime-seed-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('src-tauri/scripts/*runtime-seed*.mjs', 'src-tauri/runtime-seed/codex/package-lock.json') }}
 
       - name: Prepare and verify runtime seed
+        if: matrix.target != 'i686-pc-windows-msvc'
         shell: bash
         env:
           IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}/iyw-runtime-seed-cache
@@ -190,6 +194,22 @@ jobs:
           path: src-tauri/target/${{ matrix.target }}/release/bundle/**
           if-no-files-found: error
           retention-days: 2
+
+      - name: Upload Windows signing input
+        if: contains(matrix.target, 'windows')
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-hosted-signing-${{ matrix.target }}-${{ inputs.version }}
+          path: |
+            out/**
+            src-tauri/target/${{ matrix.target }}/release/iyw-claw.exe
+            src-tauri/binaries/**
+            src-tauri/resources/xinghe-worker/**
+            src-tauri/resources/runtime-seed/**
+            src-tauri/tauri.runtime-seed.conf.json
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 1
 
       - name: Show sccache statistics
         if: always()
