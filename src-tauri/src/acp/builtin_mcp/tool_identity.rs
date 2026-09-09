@@ -8,6 +8,7 @@ pub(super) const SEARCH_TOOL: &str = "search_iyw_capabilities";
 pub(super) const READ_TOOL: &str = "read_iyw_capability";
 pub(super) const INVOKE_TOOL: &str = "invoke_iyw_capability";
 pub(super) const IMAGE_TOOL: &str = "generate_iyw_image";
+pub(super) const IMAGE_MODELS_TOOL: &str = "list_iyw_image_models";
 pub(super) const KNOWLEDGE_TOOL: &str = "search_iyw_knowledge";
 pub(super) const MEMORY_TOOL: &str = "manage_iyw_memory";
 pub(super) const ARTIFACTS_TOOL: &str = "present_task_files";
@@ -24,6 +25,7 @@ pub(super) enum GatewayTool {
     Read,
     Invoke,
     Image,
+    ImageModels,
     Knowledge,
     Memory,
 }
@@ -38,6 +40,7 @@ impl GatewayTool {
             Self::Read => READ_TOOL,
             Self::Invoke => INVOKE_TOOL,
             Self::Image => IMAGE_TOOL,
+            Self::ImageModels => IMAGE_MODELS_TOOL,
             Self::Knowledge => KNOWLEDGE_TOOL,
             Self::Memory => MEMORY_TOOL,
         }
@@ -162,6 +165,7 @@ fn bare_gateway_tool(name: &str) -> Option<GatewayTool> {
         READ_TOOL => Some(GatewayTool::Read),
         INVOKE_TOOL => Some(GatewayTool::Invoke),
         IMAGE_TOOL => Some(GatewayTool::Image),
+        IMAGE_MODELS_TOOL => Some(GatewayTool::ImageModels),
         KNOWLEDGE_TOOL => Some(GatewayTool::Knowledge),
         MEMORY_TOOL => Some(GatewayTool::Memory),
         _ => None,

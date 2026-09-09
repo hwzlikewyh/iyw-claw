@@ -25,6 +25,7 @@ pub(super) enum GatewayAction {
     PluginInvoke(PluginToolCall),
     PluginControl(PluginControlRequest),
     Image(Value),
+    ImageModels(Value),
     Knowledge(Value),
     MemoryGroup(MemoryGroupRequest),
 }
@@ -101,6 +102,7 @@ pub(super) fn dispatch(
         GatewayTool::Read => read(arguments, &catalog, &session),
         GatewayTool::Invoke => invoke(arguments, &catalog, session),
         GatewayTool::Image => direct_request(arguments, GatewayDirectRequest::Image),
+        GatewayTool::ImageModels => direct_request(arguments, GatewayDirectRequest::ImageModels),
         GatewayTool::Knowledge => direct_request(arguments, GatewayDirectRequest::Knowledge),
         GatewayTool::Memory => memory_group(arguments, &catalog, session),
     }
@@ -108,6 +110,7 @@ pub(super) fn dispatch(
 
 enum GatewayDirectRequest {
     Image,
+    ImageModels,
     Knowledge,
 }
 
@@ -118,6 +121,7 @@ fn direct_request(
     let value = Value::Object(arguments.unwrap_or_default());
     match request {
         GatewayDirectRequest::Image => Ok(GatewayAction::Image(value)),
+        GatewayDirectRequest::ImageModels => Ok(GatewayAction::ImageModels(value)),
         GatewayDirectRequest::Knowledge => Ok(GatewayAction::Knowledge(value)),
     }
 }

@@ -167,6 +167,13 @@ IYW product/material/commerce and ordinary raster creation. Attach SVG, BMP,
 ICO, and other unsupported model-image formats as ordinary files rather than
 forcing an image-analysis route.
 
+Before `type=generate` or `type=edit` (also `auto` without images), call
+`list_iyw_image_models` with `{}`. Choose a returned model for the user's task
+with `image_generation` or `image_editing` enabled, respectively, then pass its
+exact `id` in `parameters.model`. Reuse the catalog for the same task or batch.
+Specialized IYW operations such as `variation`, `extend`, and `mix` do not need
+this Fusion model lookup.
+
 After `generate_iyw_image`, choose verification from the user's task. Ordinary
 generation/editing can deliver successful results directly using returned status,
 URLs, and delivery metadata. Use visual analysis when the task includes quality
