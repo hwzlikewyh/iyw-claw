@@ -38,6 +38,7 @@ enum BodyType {
 #[serde(deny_unknown_fields)]
 struct FetchRequest {
     url: String,
+    description: Option<String>,
     #[serde(default = "default_method")]
     method: String,
     #[serde(default)]
@@ -61,6 +62,7 @@ fn present_body<'de, D: Deserializer<'de>>(value: D) -> Result<Option<Value>, D:
 pub(super) fn prepare(client: &Client, arguments: Value) -> Result<Request, ErrorData> {
     let params: FetchRequest = serde_json::from_value(arguments)
         .map_err(|_| invalid("Invalid request fields; follow the fetch_iyw_url input schema"))?;
+    super::super::iyw_progress::validate(params.description.as_deref())?;
     let url = Url::parse(&params.url).map_err(|_| invalid("url must be an absolute HTTPS URL"))?;
     if !http::allowed_url(&url) {
         return Err(invalid(

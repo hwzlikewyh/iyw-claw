@@ -4,6 +4,7 @@ import { useState } from "react"
 import { ChevronRight, ChevronDown, Wrench, AlertCircle } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { cn } from "@/lib/utils"
+import { getIywToolDescription } from "@/lib/builtin-tool-display"
 
 interface ToolCallBlockProps {
   type: "tool_use" | "tool_result"
@@ -20,6 +21,7 @@ export function ToolCallBlock({
 }: ToolCallBlockProps) {
   const t = useTranslations("Folder.chat.toolCallBlock")
   const [expanded, setExpanded] = useState(false)
+  const description = getIywToolDescription(toolName ?? "", content)
 
   return (
     <div
@@ -42,7 +44,9 @@ export function ToolCallBlock({
         {type === "tool_use" ? (
           <>
             <Wrench className="h-3 w-3 shrink-0 text-muted-foreground" />
-            <span className="font-medium">{toolName || t("tool")}</span>
+            <span className="min-w-0 break-words font-medium">
+              {description || toolName || t("tool")}
+            </span>
           </>
         ) : (
           <>

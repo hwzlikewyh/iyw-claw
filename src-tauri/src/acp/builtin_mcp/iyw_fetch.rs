@@ -13,11 +13,12 @@ mod response;
 pub(super) fn tool() -> Value {
     json!({
         "name": FETCH_URL_TOOL,
-        "description": "Call a known IYW website API using the current iyw-claw login. Supports HTTPS iyw.cn and all subdomain levels, with any API path. Use endpoints and parameters from the user, official documentation, or observed requests. Supports GET, POST (default), PUT, PATCH, DELETE, HEAD, and OPTIONS; method names are case-insensitive. GET/HEAD cannot carry bodies. body_type selects json (default), form (URL-encoded fields), or text (raw string, including XML); override content-type in headers when needed. query and form fields accept scalars or scalar arrays (repeated keys), with null omitted. The host supplies the current token and browser defaults (Origin https://tu.iyw.cn, Referer https://tu.iyw.cn/trendPop?from=portal). Additional headers may override defaults but cannot replace credentials, Host, or transport headers. Never supply tokens or cookies. Every tool execution returns the outputSchema envelope: ok, status, content_type, body_type, body, error. ok means HTTP 2xx and a complete response, not business success; inspect body business codes/messages. body_type is json, text, base64, or empty. Failures preserve HTTP status/body when available; status is null before any response. HTTP non-2xx and tool failures set the MCP error flag. The HTTP timeout is 60 seconds; encoded request and raw response bodies are limited to 2 MiB. Follow at most five redirects within the allowed HTTPS domains; rejected redirects return 3xx. No automatic retries: a timeout/cancellation or incomplete response may follow an executed operation. Only perform user-authorized operations and never blindly resubmit writes. Prefer dedicated tools when available, such as generate_iyw_image for image production. No capability search/read is required.",
+        "description": "Call a known IYW website API using the current iyw-claw login. Provide description naming the current action; it is displayed as progress, never sent to the API. The iyw-capability-gateway Skill indexes business APIs by domain; load only the matching reference. Remaining business operations use this tool, while image generation/processing and upload use dedicated tools. Supports HTTPS iyw.cn and all subdomain levels, with any API path. Use endpoints and parameters from the user, official documentation, or observed requests. Supports GET, POST (default), PUT, PATCH, DELETE, HEAD, and OPTIONS; method names are case-insensitive. GET/HEAD cannot carry bodies. body_type selects json (default), form (URL-encoded fields), or text (raw string, including XML); override content-type in headers when needed. query and form fields accept scalars or scalar arrays (repeated keys), with null omitted. The host supplies the current token and browser defaults (Origin https://tu.iyw.cn, Referer https://tu.iyw.cn/trendPop?from=portal). Additional headers may override defaults but cannot replace credentials, Host, or transport headers. For www.iyw.cn/gateway/ and /msgapi/ the host also supplies the iyuanwu_token Cookie and portal Origin/Referer. Never supply tokens or cookies. Every tool execution returns the outputSchema envelope: ok, status, content_type, body_type, body, error. ok means HTTP 2xx and a complete response, not business success; inspect body business codes/messages. body_type is json, text, base64, or empty. Failures preserve HTTP status/body when available; status is null before any response. HTTP non-2xx and tool failures set the MCP error flag. The HTTP timeout is 60 seconds; encoded request and raw response bodies are limited to 2 MiB. Follow at most five redirects within the allowed HTTPS domains; rejected redirects return 3xx. No automatic retries: a timeout/cancellation or incomplete response may follow an executed operation. Only perform user-authorized operations and never blindly resubmit writes. Prefer dedicated tools when available, such as generate_iyw_image for image production and upload_iyw_file for arbitrary local files up to 50 MiB. No capability search/read is required.",
         "inputSchema": {
             "type": "object",
-            "required": ["url"],
+            "required": ["url", "description"],
             "properties": {
+                "description": super::iyw_progress::schema(),
                 "url": {"type": "string", "minLength": 1, "description": "Absolute HTTPS URL on iyw.cn or any subdomain. No URL credentials or fragments."},
                 "method": {"type": "string", "default": "POST", "description": "GET, POST, PUT, PATCH, DELETE, HEAD, or OPTIONS (case-insensitive)."},
                 "query": request::fields_schema(),
@@ -55,9 +56,42 @@ pub(super) async fn fetch(
         .map_err(|_| invalid("IYW login token is not a valid HTTP header"))?;
     token_header.set_sensitive(true);
     request.headers_mut().insert("token", token_header);
+    add_portal_cookie(&mut request, &token)?;
     tracing::info!(target: "builtin_mcp", host = request.url().host_str(),
         method = request.method().as_str(), "[iyw-fetch] request started");
     response::execute(&client, request, &token).await
+}
+
+fn add_portal_cookie(request: &mut reqwest::Request, token: &str) -> Result<(), ErrorData> {
+    let url = request.url();
+    let portal = url.host_str() == Some("www.iyw.cn")
+        && ["/gateway/", "/msgapi/"]
+            .iter()
+            .any(|prefix| url.path().starts_with(prefix));
+    if !portal {
+        return Ok(());
+    }
+    if !token
+        .bytes()
+        .all(|byte| matches!(byte, 0x21 | 0x23..=0x2b | 0x2d..=0x3a | 0x3c..=0x5b | 0x5d..=0x7e))
+    {
+        return Err(invalid("IYW login token is not a valid cookie value"));
+    }
+    let mut cookie = HeaderValue::from_str(&format!("iyuanwu_token={token}"))
+        .map_err(|_| invalid("IYW login token is not a valid cookie value"))?;
+    cookie.set_sensitive(true);
+    request
+        .headers_mut()
+        .insert(reqwest::header::COOKIE, cookie);
+    request
+        .headers_mut()
+        .entry(reqwest::header::ORIGIN)
+        .or_insert(HeaderValue::from_static("https://www.iyw.cn"));
+    request
+        .headers_mut()
+        .entry(reqwest::header::REFERER)
+        .or_insert(HeaderValue::from_static("https://www.iyw.cn/"));
+    Ok(())
 }
 
 fn invalid(message: &'static str) -> ErrorData {

@@ -11,6 +11,7 @@ mod commerce;
 mod fission;
 mod fusion;
 mod input;
+mod native;
 mod result;
 mod validation;
 mod validation_special;
@@ -213,6 +214,7 @@ fn preflight_kind(
         ));
     }
     match kind {
+        _ if native::operation(kind).is_some() => native::validate_request(request, kind, images),
         "generate" | "edit" => {
             required_prompt(request.prompt.as_deref())?;
             if kind == "edit" && images.is_empty() {
@@ -240,6 +242,7 @@ async fn execute_kind(
         "[iyw-image] image execution timeout selected"
     );
     match execution.kind {
+        kind if native::operation(kind).is_some() => native::generate(&service, execution).await,
         "generate" => fusion::generate(&service, execution.request).await,
         "edit" => fusion::edit(&service, execution.request, execution.images).await,
         "fission" => fission::generate(&service, execution.request).await,

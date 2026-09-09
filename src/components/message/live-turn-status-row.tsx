@@ -29,6 +29,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { PlanEntriesList } from "@/components/message/plan-card"
+import { getIywToolDescription } from "@/lib/builtin-tool-display"
 
 interface LiveTurnStatusRowProps {
   activityPhase?: string | null
@@ -243,9 +244,12 @@ function TurnFacts(props: LiveTurnStatusRowProps) {
 
 export function LiveTurnStatusRow(props: LiveTurnStatusRowProps) {
   const t = useTranslations("Folder.chat.liveTurnStats")
+  const tool = latestActiveTool(props.message)
+  const description = getIywToolDescription(tool?.title ?? "", tool?.raw_input)
   const phase = props.isAwaitingUserInput
     ? t("awaitingUser")
-    : (props.activityPhase ??
+    : (description ??
+      props.activityPhase ??
       phaseLabel(props.message, props.planEntries, {
         working: t("working"),
         thinking: t("thinking", { model: "原助理" }),

@@ -58,6 +58,11 @@ fn run_value(run: &RunOutcome) -> Value {
 
 fn safe_metadata(result: &super::ImageResult) -> Value {
     let mut metadata = Map::new();
+    for key in ["result", "query", "poll_error"] {
+        if let Some(value) = result.metadata.get(key) {
+            metadata.insert(key.to_string(), value.clone());
+        }
+    }
     if let Some(model_name) = result
         .metadata
         .get("model_name")

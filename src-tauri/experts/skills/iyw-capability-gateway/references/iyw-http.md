@@ -1,5 +1,8 @@
 # IYW Website API Requests
 
+业务端点从 [爱原物接口索引](iyw-api-index.md) 按需查找。除图片生成/处理和通用上传，
+其余业务接口统一使用本工具。不要新增对应 MCP，也不走 capability search/read/invoke。
+
 Call `fetch_iyw_url` directly through its advertised identity. It does not need
 capability search/read. Use an endpoint and parameter contract supplied by the
 user, official documentation, or an observed request. Existing dedicated tools
@@ -7,6 +10,7 @@ remain the preferred route when they cover the task.
 
 ## Request
 
+- `description`: 1-120 字符，说明当前具体动作，如“查询产品列表”。由界面显示，不进入 HTTP 请求。
 - `url`: absolute HTTPS URL on `iyw.cn` or any subdomain level, with any API path.
   URL credentials and fragments are rejected. All HTTPS ports are supported.
 - `method`: `GET`, `POST` (default), `PUT`, `PATCH`, `DELETE`, `HEAD`, or
@@ -27,6 +31,9 @@ The host reads the current iyw-claw login token for each call. Do not ask the
 user for a token or provide tokens/cookies as tool arguments or header overrides.
 An absent login returns `authentication_error` before sending the API request.
 
+对于 `https://www.iyw.cn/gateway/` 和 `/msgapi/`，主机同时注入 `iyuanwu_token`
+Cookie，并默认使用门户 Origin/Referer。仍禁止代理提供 Cookie 或访问主机凭证。
+
 Default headers follow the supplied website request: JSON content type,
 `application/json, text/plain, */*` accept, `zh-CN,zh;q=0.9` language,
 Origin `https://tu.iyw.cn`, Referer `https://tu.iyw.cn/trendPop?from=portal`,
@@ -34,11 +41,13 @@ and the supplied Chrome 152 Windows browser/client-hint headers. Body encoding
 sets the appropriate content type; an explicit `headers.content-type` wins.
 For XML use `body_type: "text"` and `content-type: application/xml`.
 Multipart/file upload bodies are not supported by this tool.
+上传任意文件用 [upload_iyw_file](iyw-upload.md)，不能把二进制塞入 fetch 的 body。
 
 The user-provided trend query is represented as:
 
 ```json
 {
+  "description": "查询趋势主题列表",
   "url": "https://gateway.iyw.cn/theme-activity/api/Trend/GetTrendList",
   "method": "POST",
   "body": {
@@ -100,5 +109,7 @@ occur before the tool executes and retain their protocol error format.
 - The HTTP timeout is 60 seconds. Request and response bodies are limited to
   2 MiB before response Base64 encoding. HEAD ignores the advertised resource
   content length since it has no response body.
+- 流式聊天会等到响应结束才返回文本，不能显示逐 token 流。超出超时或大小限制时返回失败信封，
+  已发起的会话/任务可能仍在运行，应查原始 ID，不能自动重新提交。
 - Timeout, cancellation, transport errors, or oversized/incomplete responses can
   occur after execution. Do not blindly resubmit writes or paid actions.
