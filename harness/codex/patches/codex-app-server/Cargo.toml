@@ -1,0 +1,314 @@
+[package]
+name = "codex-app-server"
+version = "0.153.4"
+edition = "2024"
+license = "Apache-2.0"
+autobins = false
+autotests = false
+autobenches = false
+
+[lib]
+name = "codex_app_server"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies.anyhow]
+version = "1"
+
+[dependencies.base64]
+version = "0.22.1"
+
+[dependencies.axum]
+version = "0.8"
+default-features = false
+features = ["http1", "json", "tokio", "ws"]
+
+[dependencies.codex-analytics]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-agent-extension]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-arg0]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-aws-auth]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-cloud-config]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-code-mode]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-config]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-connectors]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-core]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-core-plugins]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-diagnostics]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-home]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-exec-server]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-extension-api]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-external-agent-migration]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-features]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-goal-extension]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-git-attribution]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-guardian-v2]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-git-utils]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-file-watcher]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-hooks]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-history-notes-extension]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-http-client]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-otel]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-plugin]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-shell-command]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-skills]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-skills-extension]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-utils-cli]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-utils-pty]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-backend-client]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-file-search]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-chatgpt]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-login]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-image-generation-extension]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-memories-extension]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-web-search-extension]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-memories-write]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-mcp]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-mcp-extension]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-model-provider]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-models-manager]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-protocol]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-queue-extension]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-app-server-protocol]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-app-server-transport]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-feedback]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-rmcp-client]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-rollout]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-sandboxing]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-state]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-thread-store]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-tools]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-utils-absolute-path]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-utils-json-to-toml]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-utils-path-uri]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.chrono]
+version = "0.4.43"
+
+[dependencies.clap]
+version = "4"
+features = ["derive"]
+
+[dependencies.futures]
+version = "0.3"
+default-features = false
+
+[dependencies.serde]
+version = "1"
+features = ["rc", "derive"]
+
+[dependencies.serde_json]
+version = "1"
+
+[dependencies.sha2]
+version = "0.10"
+
+[dependencies.tempfile]
+version = "3.23.0"
+
+[dependencies.thiserror]
+version = "2.0.17"
+
+[dependencies.time]
+version = "0.3.47"
+
+[dependencies.toml]
+version = "0.9.5"
+
+[dependencies.toml_edit]
+version = "0.24.0"
+
+[dependencies.tokio]
+version = "1"
+features = ["io-std", "macros", "process", "rt-multi-thread", "signal"]
+
+[dependencies.tokio-util]
+version = "0.7.18"
+
+[dependencies.tracing]
+version = "0.1.44"
+features = ["log"]
+
+[dependencies.tracing-subscriber]
+version = "0.3.22"
+features = ["env-filter", "fmt", "json"]
+
+[dependencies.url]
+version = "2"
+
+[dependencies.uuid]
+version = "1"
+features = ["serde", "v7"]
+
+[target."cfg(windows)".dependencies.codex-windows-sandbox]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"

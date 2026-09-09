@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 /// 按官方 protocol/legacy_events.rs 映射到现有解析分支，摘要与详情共用。
 #[derive(Default)]
 pub(super) struct PaginatedMessages {
+    command_descriptions: super::command_descriptions::DescribedCommands,
     enabled: bool,
     seen_items: HashSet<(String, String)>,
     pending_images: Vec<String>,
@@ -16,6 +17,7 @@ impl PaginatedMessages {
         if !self.prepare_record(record) {
             return false;
         }
+        self.command_descriptions.normalize(record);
         if !self.enabled
             || record.get("type").and_then(Value::as_str) != Some("event_msg")
             || record.pointer("/payload/type").and_then(Value::as_str) != Some("item_completed")

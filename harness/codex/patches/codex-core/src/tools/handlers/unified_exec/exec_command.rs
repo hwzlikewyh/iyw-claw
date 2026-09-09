@@ -232,6 +232,7 @@ impl ExecCommandHandler {
         };
         let sandbox_permissions =
             resolve_sandbox_permissions(args.sandbox_permissions, args.justification.as_deref())?;
+        turn.record_command_description(&call_id, args.description.as_deref());
         let hook_command = args.cmd.clone();
         maybe_emit_implicit_skill_invocation(
             session.as_ref(),

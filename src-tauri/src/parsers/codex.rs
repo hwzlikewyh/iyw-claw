@@ -14,8 +14,10 @@ use crate::parsers::{
 };
 
 mod paginated_messages;
+mod command_descriptions;
 
 use paginated_messages::PaginatedMessages;
+use command_descriptions::command_input_preview;
 
 pub struct CodexParser {
     base_dir: PathBuf,
@@ -816,7 +818,7 @@ fn parse_codex_subagent_stats(
 
                 let input_preview = if tool_name == "exec_command" {
                     parse_codex_json_arg(payload)
-                        .and_then(|a| a.get("cmd").and_then(|v| v.as_str()).map(|s| s.to_string()))
+                        .and_then(command_input_preview)
                         .or_else(|| {
                             value_to_preview(
                                 payload.get("arguments").or_else(|| payload.get("input")),
@@ -1561,11 +1563,7 @@ impl CodexParser {
                                         }
                                         let input_preview = if raw_tool_name == "exec_command" {
                                             parse_codex_json_arg(payload)
-                                                .and_then(|a| {
-                                                    a.get("cmd")
-                                                        .and_then(|v| v.as_str())
-                                                        .map(|s| s.to_string())
-                                                })
+                                                .and_then(command_input_preview)
                                                 .or_else(|| {
                                                     value_to_preview(
                                                         payload
@@ -1595,6 +1593,7 @@ impl CodexParser {
                                             model: None,
                                             completed_at: Some(timestamp),
                                         });
+                                        command_descriptions::append_completed_command(payload, &mut messages, timestamp);
                                     }
                                 }
                             }
