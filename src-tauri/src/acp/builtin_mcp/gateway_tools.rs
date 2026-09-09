@@ -25,7 +25,7 @@ pub(super) const MEMORY_CAPABILITIES: [(&str, &str); 14] = [
     ("documents.correct", "iyw.memory.documents.correct.v1"),
 ];
 
-pub(super) fn values() -> [Value; 10] {
+pub(super) fn values() -> [Value; 11] {
     [
         super::interaction_tools::embedded_tool(super::interaction_tools::ASK_TOOL),
         super::interaction_tools::html_tool(),
@@ -35,6 +35,7 @@ pub(super) fn values() -> [Value; 10] {
         invoke_tool(),
         image_tool(),
         super::iyw_image_models::tool(),
+        super::iyw_fetch::tool(),
         knowledge_tool(),
         memory_tool(),
     ]

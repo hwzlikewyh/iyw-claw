@@ -20,6 +20,7 @@ mod invocation;
 mod interaction_tools;
 mod interactive_html;
 mod iyw_delivery;
+mod iyw_fetch;
 mod iyw_image;
 mod iyw_image_models;
 mod iyw_knowledge;
