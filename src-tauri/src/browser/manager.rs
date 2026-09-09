@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use std::collections::{BTreeMap, HashSet};
 #[cfg(feature = "tauri-runtime")]
 use std::path::PathBuf;
+#[cfg(feature = "tauri-runtime")]
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -39,6 +41,10 @@ use super::user_control_lease::UserControlLease;
 
 #[derive(Debug, Clone)]
 pub struct BrowserSessionManager {
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) managed_browser_enabled: Arc<AtomicBool>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) browser_visibility_lock: Arc<Mutex<()>>,
     pub(super) state: Arc<RwLock<BrowserState>>,
     pub(super) controls: Arc<Mutex<HashMap<String, ControlGate>>>,
     #[cfg(feature = "tauri-runtime")]
@@ -85,6 +91,14 @@ pub struct BrowserSessionManager {
 impl BrowserSessionManager {
     pub fn new(capability: BrowserCapability) -> Self {
         Self {
+            #[cfg(feature = "tauri-runtime")]
+            managed_browser_enabled: Arc::new(AtomicBool::new(
+                crate::preferences::load()
+                    .builtin_browser_enabled
+                    .unwrap_or(false),
+            )),
+            #[cfg(feature = "tauri-runtime")]
+            browser_visibility_lock: Arc::new(Mutex::new(())),
             state: Arc::new(RwLock::new(BrowserState::new(capability))),
             controls: Arc::new(Mutex::new(HashMap::new())),
             #[cfg(feature = "tauri-runtime")]

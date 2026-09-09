@@ -7,6 +7,14 @@ prefers OpenCLI for existing Chrome sign-in state and switches only for a
 classified human-only action. Use the live catalog for exact stable IDs and
 schemas.
 
+The built-in browser setting is enforced by the host. When off, all operations,
+presentation, and user action stay in external Chrome/OpenCLI. Never re-enable
+or enter the managed browser to recover an external failure. An old managed tab
+requires a new external open and snapshot; do not replay its references.
+`OPENCLI_USER_ACTION_REQUIRED` means the human step is still pending, even when
+the external tab was successfully presented. Verify fresh state after the user
+finishes. A timeout with `effectMayHaveOccurred=true` must not be blindly retried.
+
 ## Unified Browser Workflow
 
 Use this sequence for ordinary navigation and interaction:
@@ -98,7 +106,7 @@ pipes, redirects, command chaining, or guessed command names.
   current browser/provider attempt. Do not switch providers from this Skill;
   the caller may choose another already-authorized route, but must not treat
   this failure alone as proof that the business task is impossible.
-- Switch only when OpenCLI reports login, MFA, CAPTCHA, device approval,
+- Switch only when the built-in browser is enabled and OpenCLI reports login, MFA, CAPTCHA, device approval,
   security confirmation, human review, or another explicit user-action
   requirement. Keep that task pinned to the managed provider afterward.
 - Request browser user action only for credentials held by the user, MFA,

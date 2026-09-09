@@ -6,14 +6,13 @@ use super::agent_browser_input::{
 use super::agent_browser_request::{opencli_request, OpencliRequest};
 use super::agent_browser_route::{
     ensure_provider_matches_input, input_requests_managed, opencli_route_from_input, route_key,
-    session_name, validate_opencli_tab_session,
+    validate_opencli_tab_session,
 };
 use super::agent_tool_cancellation::{ensure_request_active, AgentToolContext};
 use super::agent_tool_support::invalid_argument;
 use super::error::BrowserError;
 use super::manager::BrowserSessionManager;
 use super::opencli::{OpencliFailure, OpencliProvider};
-use super::types::BrowserAgentIdentity;
 use crate::commands::internet_tools::allocate_opencli_screenshot_path;
 
 #[derive(Debug, Clone)]
@@ -46,7 +45,9 @@ impl BrowserSessionManager {
         }
         let key = route_key(context.identity, input);
         validate_opencli_tab_session(context.identity, input)?;
-        let stored_route = self.browser_routes.lock().await.get(&key).cloned();
+        let stored_route = self
+            .browser_route_for_input(context.identity, input)
+            .await?;
         let closes_presented_managed_tab = match (&stored_route, action.as_str()) {
             (
                 Some(BrowserRoute {
@@ -67,7 +68,7 @@ impl BrowserSessionManager {
         if !closes_presented_managed_tab {
             ensure_provider_matches_input(stored_route.as_ref(), input)?;
         }
-        let route = stored_route.or_else(|| opencli_route_from_input(context.identity, input));
+        let mut route = stored_route.or_else(|| opencli_route_from_input(context.identity, input));
         if route.is_none() && input_requests_managed(input) {
             self.store_browser_route(
                 &key,
@@ -79,6 +80,9 @@ impl BrowserSessionManager {
             return self.run_managed_action(context, &action, input, None).await;
         }
         if requires_managed(&action) {
+            if route.is_none() && !self.managed_browser_enabled() {
+                route = Some(self.start_opencli_route(&key, context.identity).await?);
+            }
             return self
                 .run_provider_specific_action(context, &key, route, &action, input)
                 .await;
@@ -138,33 +142,7 @@ impl BrowserSessionManager {
         }
     }
 
-    async fn start_opencli_route(
-        &self,
-        key: &str,
-        identity: &BrowserAgentIdentity,
-    ) -> Result<BrowserRoute, BrowserError> {
-        if let Err(failure) = OpencliProvider::doctor().await {
-            if failure.code == "OPENCLI_NOT_INSTALLED" {
-                let route = BrowserRoute {
-                    provider: BrowserRouteProvider::Managed { reason: None },
-                };
-                self.store_browser_route(key, route.clone()).await;
-                return Ok(route);
-            }
-            return Err(failure.browser_error());
-        }
-        let route = BrowserRoute {
-            provider: BrowserRouteProvider::Opencli {
-                session: session_name(identity),
-                target: None,
-                display_tab: None,
-            },
-        };
-        self.store_browser_route(key, route.clone()).await;
-        Ok(route)
-    }
-
-    async fn run_opencli_action(
+    pub(super) async fn run_opencli_action(
         &self,
         key: &str,
         session: &str,
@@ -215,6 +193,7 @@ impl BrowserSessionManager {
         input: &Value,
         fallback_reason: Option<&str>,
     ) -> Result<Value, BrowserError> {
+        self.ensure_managed_browser_enabled()?;
         let managed_input = managed_input(action, input)?;
         let semantic_input = managed_semantic_command(action, &managed_input)?;
         let value = match action {

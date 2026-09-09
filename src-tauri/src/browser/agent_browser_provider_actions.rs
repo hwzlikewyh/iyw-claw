@@ -16,9 +16,13 @@ impl BrowserSessionManager {
         context: AgentToolContext<'_>,
         input: &Value,
     ) -> Result<Value, BrowserError> {
-        let managed = managed_state(self, context).await;
         let session = session_name(context.identity);
         let opencli = opencli_state(&session).await;
+        let managed = if self.managed_browser_enabled() {
+            managed_state(self, context).await
+        } else {
+            json!({ "provider": "managed", "status": "disabled", "tabs": [] })
+        };
         let active_provider = self
             .active_browser_provider(context, input, opencli.0)
             .await;
@@ -57,6 +61,17 @@ impl BrowserSessionManager {
                 },
         }) = route
         {
+            self.store_browser_route(
+                key,
+                BrowserRoute {
+                    provider: BrowserRouteProvider::Opencli {
+                        session: session.clone(),
+                        target: target.clone(),
+                        display_tab: display_tab.clone(),
+                    },
+                },
+            )
+            .await;
             if action == "request_user_action" {
                 let failure = OpencliFailure::user_action(
                     input
@@ -76,6 +91,9 @@ impl BrowserSessionManager {
                     .await;
             }
             if action == "present" {
+                if !self.managed_browser_enabled() {
+                    return self.present_external_page(context.identity, input).await;
+                }
                 return self
                     .present_opencli_page(
                         context,
@@ -88,6 +106,7 @@ impl BrowserSessionManager {
                     .await;
             }
             if action == "close_window"
+                && self.managed_browser_enabled()
                 && input
                     .get("tab_id")
                     .or_else(|| input.get("tabId"))
@@ -124,6 +143,9 @@ impl BrowserSessionManager {
         input: &Value,
         _opencli_ready: bool,
     ) -> &'static str {
+        if !self.managed_browser_enabled() {
+            return "opencli";
+        }
         match self
             .browser_routes
             .lock()

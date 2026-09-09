@@ -19,6 +19,11 @@ impl BrowserSessionManager {
         input: &Value,
         failure: &OpencliFailure,
     ) -> Result<Value, BrowserError> {
+        if !self.managed_browser_enabled() {
+            return self
+                .request_external_user_action(context.identity, input)
+                .await;
+        }
         self.store_browser_route(
             key,
             BrowserRoute {

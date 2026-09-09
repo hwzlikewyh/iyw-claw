@@ -1713,7 +1713,7 @@
     "autostartSaveFailed": "更新启动设置失败：{message}",
     "browserTitle": "内置浏览器",
     "browserVisible": "显示内置浏览器",
-    "browserDescription": "默认关闭。开启后显示浏览器入口，关闭后隐藏面板及独立窗口。设置立即生效，重启后保留。",
+    "browserDescription": "默认关闭。关闭时 Agent 使用外部浏览器；开启后允许内置浏览器展示和人工接管。设置立即生效，重启后保留。",
     "browserSaveFailed": "浏览器设置保存失败：{message}"
   },
   "MainCloseDialog": {

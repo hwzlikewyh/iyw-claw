@@ -1,5 +1,7 @@
 use serde_json::Value;
 
+use super::agent_timeout::requested_timeout;
+
 use super::agent_tool_actions::AgentCliRequest;
 use super::agent_tool_cancellation::AgentToolContext;
 use super::agent_tool_support::{
@@ -39,7 +41,7 @@ impl BrowserSessionManager {
                 context,
                 tab_id,
                 args,
-                timeout: SNAPSHOT_TIMEOUT,
+                timeout: requested_timeout(input, SNAPSHOT_TIMEOUT)?,
             })
             .await?;
         self.agent_state(context, Some(tab_id), Some(output)).await
@@ -63,7 +65,7 @@ impl BrowserSessionManager {
                 context,
                 tab_id,
                 args,
-                timeout: COMMAND_TIMEOUT,
+                timeout: requested_timeout(input, COMMAND_TIMEOUT)?,
             })
             .await?;
         self.enforce_agent_screenshot_quota().await?;
