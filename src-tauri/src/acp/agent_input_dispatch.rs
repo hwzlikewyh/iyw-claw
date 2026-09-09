@@ -4,6 +4,7 @@ use std::sync::{Arc, OnceLock};
 use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 
+use crate::acp::agent_input_capabilities::AgentInputCapabilities;
 use crate::acp::error::AcpError;
 use crate::acp::manager::ConnectionManager;
 use crate::acp::session_state::SessionState;
@@ -112,12 +113,24 @@ pub(super) async fn emit_input(
     emitter: &EventEmitter,
     item: AgentInputItem,
 ) {
+    let capabilities = {
+        let snapshot = state.read().await;
+        AgentInputCapabilities::for_connection(
+            snapshot.agent_type,
+            snapshot.feedback_tool_available,
+            snapshot.native_steering_available,
+        )
+        .with_current_mode(snapshot.current_mode.clone())
+    };
     tracing::info!(
         input_id = %item.id,
         conversation_id = item.conversation_id,
+        agent_type = %item.agent_type,
         status = item.status.as_str(),
         strategy = item.strategy.map(AgentInputStrategy::as_str),
         payload_blocks = item.payload.blocks.len(),
+        native_steer_eligible = capabilities.native_steer_for(&item.payload).is_some(),
+        feedback_eligible = capabilities.supports_feedback(&item.payload),
         "[agent-input] state changed"
     );
     emit_with_state(
