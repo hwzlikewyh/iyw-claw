@@ -1,6 +1,16 @@
 name: Verify Intel macOS Installer
 
 on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Source commit used to build the archives
+        required: true
+        type: string
+      artifact_run_id:
+        description: Run containing macos-x64-installer-verification
+        required: true
+        type: string
   workflow_call:
     inputs:
       source_ref:
