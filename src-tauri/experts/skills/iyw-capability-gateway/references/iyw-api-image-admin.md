@@ -1,5 +1,7 @@
 # 图片任务管理、素材、收藏与 PDF
 
+新增 [套图版本](iyw-api-product-kits.md)、[批量中心](iyw-api-batch-center.md)、[PDF 全流程](iyw-api-pdf-workflows.md) 按需读取。补充给出了蒙版服务域，但区域参数仍不完整；不能继续把旧文档的“域未知”当当前事实。
+
 调用入口统一为 `fetch_iyw_url`，先读 [HTTP 约定](iyw-http.md)。生成或处理图片使用 [图片工具](iyw-image-tools.md)，不通过 fetch 重复提交。其他业务见 [索引](iyw-api-index.md)。
 
 检索词：生成记录、任务详情、taskId、回收站、删除图片、收藏、素材、提示词案例、PDF 购物车、PDF 导出、桌面授权、文档解析。
@@ -57,6 +59,6 @@ Commerce 任务查 `commerce/getCommerceTaskDetail`；分身和 microModel 任�
 | POST | `/api/generate_pdf/query-image-edit` / `query-pdf-export` | PDF 编辑/导出查询 | `taskId` |
 
 
-`ai-application/faddish/generate` 由图片工具 `type=faddish` 执行。`/api/generate_mask` 属图片处理，但来源没有给出可确认的服务域/请求契约，当前不暴露猜测执行；蒙版可使用已有文件并上传。桌面授权由主机账号流程处理。PDF 查询与购物车、申请等剩余业务均用 fetch。文件/表单不能自动推断成 multipart；fetch 支持 JSON、URL-encoded form、text，不支持 multipart 二进制。
+`ai-application/faddish/generate` 由图片工具 `type=faddish` 执行。补充已确认蒙版地址为 `https://ai.iyw.cn/agent/api/generate_mask`，但区域参数结构未完整给出，当前不猜测执行；蒙版可使用已有文件并上传。桌面授权由主机账号流程处理。PDF 查询与购物车、申请等剩余业务均用 fetch。文件/表单不能自动推断成 multipart；fetch 支持 JSON、URL-encoded form、text，不支持 multipart 二进制。
 
 来源：2026-09-09 用户接口文档；实测标记和字段不完整的限制见 [索引](iyw-api-index.md)。

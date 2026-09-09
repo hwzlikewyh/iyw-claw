@@ -1,5 +1,7 @@
 # 知识库、自动报告与提示词
 
+新版管理流程优先读 [知识库全套](iyw-api-knowledge-full.md) 和 [趋势推送新版](iyw-api-trend-push-full.md)。下方旧表保留历史证据；新版 folders/list 用 category+parentId 字符串，reset 分享只传 run_id，列表筛选见新版详细表。
+
 资料来源：用户提供的 2026-09-09 接口详细版（线上前端包 + 部分登录态实测）。表中的“实测”是原资料的证据标记，不表示本次已调用。未明确的必填字段、类型、枚举、完整表单仍须结合实际页面请求确认。
 
 调用入口：`fetch_iyw_url`。先读 [HTTP 约定](iyw-http.md)，每次提供 `description`；检查 HTTP 信封及业务 `body.code`。这里只提供接口资料，不创建 capability_id，不走 search/read/invoke。检索其他业务见 [接口索引](iyw-api-index.md)。

@@ -4,7 +4,8 @@ short-description: 爱原物业务接口、图片、上传与 iyw-claw 主机能
 description: >-
   Use for 爱原物/IYW 设计云、AI工作台、图案网的业务接口：产品与标签、客户需求、
   趋势报告、知识库目录、原助理会话、IP/图案/授权、瓶型瓶盖、Temu、会员点数钱包、
-  组织员工、需求比稿、版权合同、店铺展厅、素材收藏、任务进度和PDF；也用于图片处理、
+  组织员工、需求比稿、版权合同、店铺展厅、素材收藏、任务进度和PDF；包含商品套图/A+、
+  批量中心、知识库切片/附件、资产库、工厂订单/物流、权益分层；也用于图片处理、
   任意文件上传(50MiB)、fetch_iyw_url。按关键词索引逐层读取参数，剩余业务统一用
   fetch_iyw_url，图片用generate_iyw_image，上传用upload_iyw_file。
   Also route iyw-claw memory/learning, session/profile/history, artifacts,
@@ -50,6 +51,7 @@ follow its workflow**. Do not treat the reference as optional background reading
 
 | Task signal | Load first |
 | --- | --- |
+| 商品套图/A+、批量图片、新版 Agent、知识库全套、资产库、订单物流、权限分层 | [接口索引新版任务表](references/iyw-api-index.md)，仅加载对应补充资料 |
 | 爱原物产品/标签、客户需求、趋势/IP/图案、会员点数、组织、版权、设计云或具体 API | [业务接口索引](references/iyw-api-index.md)，再读匹配领域与 [HTTP 约定](references/iyw-http.md) |
 | 上传任意文件、压缩包、文档、音视频、50M 文件链接 | [通用上传](references/iyw-upload.md) |
 | 图片生成/处理、扩图、放大、抠图、消除、色号、矢量、3D、视频 | [图片工具参数](references/iyw-image-tools.md) |

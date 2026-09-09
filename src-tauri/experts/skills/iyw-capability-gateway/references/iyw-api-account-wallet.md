@@ -1,5 +1,7 @@
 # 会员、点数、钱包、组织与账号
 
+新增成员/部门/角色详情和方法修正见 [组织业务补充](iyw-api-org-operations.md)，权益与权限见 [L0-L3](iyw-api-access-levels.md)。下方旧方法与字段不自动覆盖新版具体表；merchant/getCurrentOrg 的新资料本身仍有方法冲突。
+
 资料来源：用户提供的 2026-09-09 接口详细版（线上前端包 + 部分登录态实测）。表中的“实测”是原资料的证据标记，不表示本次已调用。未明确的必填字段、类型、枚举、完整表单仍须结合实际页面请求确认。
 
 调用入口：`fetch_iyw_url`。先读 [HTTP 约定](iyw-http.md)，每次提供 `description`；检查 HTTP 信封及业务 `body.code`。这里只提供接口资料，不创建 capability_id，不走 search/read/invoke。检索其他业务见 [接口索引](iyw-api-index.md)。

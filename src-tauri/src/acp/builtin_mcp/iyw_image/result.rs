@@ -5,6 +5,34 @@ use super::{ImageResult, IywGatewayService};
 
 pub(super) const TERMINAL: [&str; 3] = ["succeeded", "failed", "canceled"];
 
+pub(super) fn redact_credentials(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            object.retain(|key, _| {
+                !matches!(
+                    key.to_ascii_lowercase().as_str(),
+                    "token"
+                        | "tokeninfo"
+                        | "authorization"
+                        | "cookie"
+                        | "refreshtoken"
+                        | "accesstoken"
+                        | "access_token"
+                        | "securitytoken"
+                        | "accesskeyid"
+                        | "accesskeysecret"
+                        | "ststoken"
+                        | "secret"
+                        | "password"
+                )
+            });
+            object.values_mut().for_each(redact_credentials);
+        }
+        Value::Array(items) => items.iter_mut().for_each(redact_credentials),
+        _ => {}
+    }
+}
+
 pub(super) async fn materialize_fusion_images(
     service: &IywGatewayService,
     response: &Value,
@@ -64,12 +92,12 @@ fn collect_result_urls(value: &Value, urls: &mut Vec<String>) {
     let Some(object) = value.as_object() else {
         return;
     };
-    for key in ["images", "imageUrls"] {
+    for key in ["images", "imageUrls", "resultImages"] {
         if let Some(images) = object.get(key) {
             collect_image_values(images, urls);
         }
     }
-    for key in ["data", "result", "runs", "tasks"] {
+    for key in ["data", "result", "runs", "tasks", "modules"] {
         if let Some(nested) = object.get(key) {
             collect_nested_results(nested, urls);
         }
@@ -93,7 +121,7 @@ fn collect_image_values(value: &Value, urls: &mut Vec<String>) {
             .iter()
             .for_each(|item| collect_image_values(item, urls)),
         Value::Object(value) => {
-            for key in ["url", "image"] {
+            for key in ["url", "image", "imageUrl"] {
                 if let Some(url) = value.get(key).and_then(Value::as_str) {
                     push_url(url, urls);
                 }

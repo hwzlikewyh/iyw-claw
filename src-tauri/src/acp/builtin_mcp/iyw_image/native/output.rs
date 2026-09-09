@@ -10,7 +10,7 @@ pub(super) fn native_result(
     mut value: Value,
     task_id: Option<String>,
 ) -> ImageResult {
-    sanitize(&mut value);
+    result::redact_credentials(&mut value);
     let task_id = task_id.or_else(|| find_id(&value));
     let mut output = result::result_from_value(op.path, value.clone(), task_id);
     collect_urls(&value, &mut output.images);
@@ -106,30 +106,6 @@ fn collect_urls(value: &Value, urls: &mut Vec<String>) {
                 }
             }
         }
-        _ => {}
-    }
-}
-
-fn sanitize(value: &mut Value) {
-    match value {
-        Value::Object(object) => {
-            object.retain(|key, _| {
-                !matches!(
-                    key.to_ascii_lowercase().as_str(),
-                    "token"
-                        | "authorization"
-                        | "cookie"
-                        | "refreshtoken"
-                        | "accesstoken"
-                        | "access_token"
-                        | "securitytoken"
-                        | "secret"
-                        | "password"
-                )
-            });
-            object.values_mut().for_each(sanitize);
-        }
-        Value::Array(items) => items.iter_mut().for_each(sanitize),
         _ => {}
     }
 }

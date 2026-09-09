@@ -6,6 +6,25 @@
 
 ## 按任务检索
 
+已纳入 2026-09-10 分层补充篇。涉及新版会话、知识库、套图、批量、资产库时优先读取下列新版资料；
+同一接口存在多版摘要时按 [调用约定与冲突表](iyw-api-access-contracts.md) 选择，不按日期直接覆盖已确认契约。
+
+| 新版任务关键词 | 按需读取 |
+| --- | --- |
+| L0/L1/L2/L3、会员权益、企业权限、authCode、容量、签名 | [权限分层](iyw-api-access-levels.md)、[调用约定](iyw-api-access-contracts.md) |
+| 商品套图、电商套图、A+、Listing、卖点、图片版本 | [商品套图与 A+](iyw-api-product-kits.md) |
+| 批量生图、水印、形状填充、批量放大、样机、批次、ZIP | [批量中心](iyw-api-batch-center.md) |
+| 新版本体/电商 Agent、会话、轮次、候选回答、SSE | [新版 Agent](iyw-api-agent-v2.md) |
+| 知识库文件夹/文件/切片/附件/配额、删除预检、批量移动 | [知识库全套](iyw-api-knowledge-full.md) |
+| 智配报告筛选、分享密码、已读状态 | [趋势推送新版](iyw-api-trend-push-full.md) |
+| commerce_type、toolName、modelChannel、批次状态 | [图片枚举](iyw-image-enums.md)、[图片接口摘要差异](iyw-api-image-contract-updates.md) |
+| 图片转 PDF、PDF 模板、导出进度、聊天导出 | [PDF 工作流](iyw-api-pdf-workflows.md) |
+| 工厂订单、发货、物流、图案订单 | [订单与物流](iyw-api-orders-logistics.md) |
+| 会员订单、支付、版权补充 | [会员版权](iyw-api-membership-copyright.md) |
+| 资产库、作品、证书、存储回执、saas-assets | [资产库](iyw-api-assets.md) |
+| 员工部门角色详情、权限菜单、额度、企业空间 | [组织业务补充](iyw-api-org-operations.md) |
+| 消息、字典、展会、设计服务、其他新增接口 | [其他补充](iyw-api-misc-supplement.md) |
+
 | 关键词 / 用户意图 | 读取资料 | 服务 / 典型接口 |
 | --- | --- | --- |
 | 原助理、本体、智能体会话、历史、继续、停止、重命名、收藏 | [会话](iyw-api-conversations.md) | `ai-agent`、`conversation/list`、`chat_continue` |
@@ -41,8 +60,8 @@ rg -n -i -F -e '提现' -e 'Withdrawal' references -g 'iyw-api-*.md'
 ## 请求与结果
 
 - `description` 写具体动作，例如“查询基础款产品”或“更新产品标签”；不能写成接口名，不能包含凭证或个人信息。界面显示该动作，主机不向业务 API 发送它。
-- API host 默认 `https://gateway.iyw.cn`。门户业务使用 `https://www.iyw.cn/gateway`；`/msgapi` 只依据实际页面已确认请求选用，不能在写操作失败后换代理重放。
-- 本资料中的业务方法使用 GET/POST。GET 参数放 `query`；POST 参数放 `body`。方法、大小写、拼写、数组与分页字段逐接口保留。
+- API host 默认 `https://gateway.iyw.cn`。旧门户业务使用 `https://www.iyw.cn/gateway`；资产库使用 `https://www.iyw.cn/api/saas-assets`；`/msgapi` 按已确认请求选用。不能在写失败后换代理重放。
+- 使用第三方实际契约的 GET/POST/DELETE 等方法。GET 参数放 `query`；POST 参数放 `body`；DELETE 保留路径 ID 和 query。某些 GET 会删除成员/部门或改点数类型，方法名不代表只读。
 - `code=1` 是原资料的常见业务成功码；`0` 参数错误、`2` 业务拒绝、`403` 未登录。先检查工具 `ok/status`，再检查 `body` 的业务状态。HTTP 200 不是业务成功。
 - 原始列表通常是 `data.list` + `totalCount/total`，也可能为数组；根据实际返回解释，不能把当前页数量当总数。ID 从用户或前一步真实记录取得。
 - 先用小分页并保留筛选；需要全部时逐页读取，直到总数已满足或返回空页，避免一次拉取超过 2 MiB。不要把 `page/page_size`、`page/pageSize`、`pageNum/pageSize`、`pageIndex/pageSize` 混用。
@@ -56,4 +75,5 @@ rg -n -i -F -e '提现' -e 'Withdrawal' references -g 'iyw-api-*.md'
 
 登录、刷新、退出、STS、OSS 签名等凭证步骤由主机账号/上传功能处理。资料保留这些端点以便检索和解释归属；代理不通过 fetch 读取或传递登录凭证。
 
-流式聊天、超过 2 MiB 的响应、multipart 文件接口及未确定服务域的 `/api/*` 路径可能超出 fetch 的当前传输能力。必须说明具体限制，不能报告已执行；原资料不能证明这些接口已完全可用。
+`timeout_seconds` 默认 60，可设 1-900 秒；文案/规划常用 90，知识库重操作和 ZIP 打包按文档设 600。
+流式聊天仍聚合返回；超过 2 MiB 的响应、multipart、WS 及未确定服务域的 `/api/*` 仍有传输限制。必须说明具体限制，不能报告已执行；来源表不代表已实测所有接口。

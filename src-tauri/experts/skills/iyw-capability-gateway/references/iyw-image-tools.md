@@ -4,10 +4,15 @@
 
 ## 类型与参数
 
+商品套图/A+ 的完整输入与版本流程见 [套图](iyw-api-product-kits.md)，批量图像任务见 [批量中心](iyw-api-batch-center.md)，枚举按需读 [通道与类型](iyw-image-enums.md)。
+
 `images` 接受 HTTPS URL、工作区本地路径、Data URL，或 `{path|url|base64|data,mimeType,role,name}` 对象；原始 Base64 需 MIME。主机上传本地图片，单图上限 20 MiB，最多 10 张。`prompt` 描述目标，`parameters` 放所选操作的业务字段。新原生操作不同时接受顶层 images 和同名 parameters 图片字段。
 
 | type | 后端操作 | 参数与区别 |
 | --- | --- | --- |
+| `product-kit` / `a-plus` | `product-kit/generate-kit` / `generate-a-plus` | images；platform/market/language/contentType/resolution/productInfo/modules；A+ 另传 plan-a-plus 返回的 selectedPlan，默认 HTTP 650 秒 |
+| `a-plus-edit` | `commerce/g_tools_generate_image` | 单图 + prompt，固定 A+ 12 类型与变款通道，默认 16:9；生成后按用户要求用 fetch 保存/激活版本 |
+| `batch-*` | 10 个平台批量通道的 submit | 具体 type/字段见批量中心；默认 HTTP 120 秒、等待 600 秒；batchId 与普通 taskId 分开 |
 | `fission` | `microModel/v2/batch` | 文生图；prompt 必填，按现有 `models/jsonData` 契约，非摘要 items[] |
 | `variation` / `extend` | `commerce/g_tools_generate_image` | 单图 + prompt；主机设置 toolName/modelChannel/batchSize |
 | `mix` | `commerce/g_tools_generate_image` | 2-10 图 + prompt；按输入顺序说明角色 |
@@ -27,15 +32,15 @@
 | `modify` | `commerce/imageModification` | 图片 + prompt；可传非负 strength |
 | `seed-edit` | `commerce/SeedEdit` | 图片 + prompt，融合创款/指令编辑 |
 | `blend` | `commerce/blend` | 2-10 图；prompt 可选，原生融合而非 mix 通道 |
-| `erase` / `watermark-erase` | `commerce/erase` / `watermarkEraser` | 图片 + parameters.mask（HTTPS 蒙版）；erase 可带 prompt/payOrderNo；不猜订单号 |
+| `erase` / `watermark-erase` | `commerce/erase` / `watermarkEraser` | erase 需 HTTPS mask；watermark-erase 可传 target=text/watermark/text_watermark 或旧 mask；不猜 payOrderNo |
 | `extract` / `lineart` | `commerce/extraction` / `lineart` | 图片；lineart 可传 style，区别于旧 line-extraction |
 | `vectorize` / `three-views` | `commerce/vectorizeImage` / `threeVisions` | 图片，矢量化/三视图 |
-| `bleed-line` | `commerce/bleedLine` | 图片 + size；size 的单位/结构须来自实际页面，不能猜毫米/像素 |
+| `bleed-line` | `commerce/bleedLine` | 图片 + size 或补充版 bleed；单位/结构来自实际页面，不能猜毫米/像素 |
 | `upscale` / `super-upscale` | `commerce/upscaleImage` / `SuperUpscale` | 图片；可传非负 upscale 和已确认 op，不能提供 token |
 | `video-auto-director` / `video-remake-director` | `commerce/videoAutoDirector` / `videoRemakeDirector` | 图片 + prompt；ratio/duration/mode 按实际页面配置 |
 | `extract-color` / `save-color` | `commerce/extractColor` / `saveColor` | 前者图片；后者非空 colors 数组，结构来自提色结果 |
 | `detect-grid` / `build-extract-prompts` | `commerce/detectImageGrid` / `buildExtractPrompts` | 图片，返回网格信息或提取提示词 |
-| `classify-intent` | `commerce/classifyCanvasIntent` | 非空 keys 数组，不要求图片；键取自已知画布上下文 |
+| `classify-intent` | `commerce/classifyCanvasIntent` | parameters.text 或旧非空 keys 数组，不要求图片 |
 | `background-remove` | `microModel/GetImageSegment` | 单图；主机映射为 imageUrl |
 | `check-image` | `microModel/checkImage` | 单图，沿用已确认 image 字段；仅用户要求检查时调用，不自动前置到其他图片操作 |
 | `micro-upscale` / `micro-upscale-image` | `microModel/upscale` / `upscaleImage` | 单图映射 imageUrl；amount/device/payMethod/typeId 从实际页面确定 |
@@ -45,7 +50,7 @@
 | `faddish` | `ai-application/faddish/generate` | prompt，可选图片 |
 | `generate` / `edit` | Fusion | 仅满足下述回退条件后使用，不是默认平台调用 |
 
-新增原生类型仅验证文档已明确的图片、提示词和基础类型；未提供枚举的字段不硬编码猜测。输入仍以官网当前契约为准；上游明确拒绝要保留原错误，未知状态先查任务。`/api/generate_mask` 的域名不明，尚不能通过工具直接生成蒙版。
+新增原生类型仅验证文档已明确的图片、提示词和基础类型；未提供枚举的字段不硬编码猜测。上游明确拒绝要保留原错误，未知状态先查任务。蒙版服务域已由补充篇明确，但区域字段/坐标结构仍不完整，当前工具不猜测该请求。
 
 ## 结果与恢复
 
@@ -105,8 +110,9 @@ returned status, URLs, and delivery metadata. Review visuals for requested quali
 comparison, visual acceptance, or integration into a composed deliverable. A detailed prompt
 alone is not a review request; report partial/failure states and do not regenerate beyond scope.
 
-**Timeouts:** omit `wait.timeoutSeconds` for 600 seconds on platform requests and
-polling, or 300 seconds on `generate`/`edit`. The agent can explicitly override
+**Timeouts:** omit `wait.timeoutSeconds` for 600 seconds on ordinary platform requests and
+polling, 650 seconds for product-kit/a-plus HTTP, 120 seconds for batch-center HTTP (polling 600),
+or 300 seconds on `generate`/`edit`. The agent can explicitly override
 either, including values above 600; prefer the defaults or longer for slow tasks.
 Do not shorten waits merely to return sooner. Each batch item has its own wait.
 `0` means submit without polling on the platform; Fusion keeps its default timeout.
@@ -153,7 +159,7 @@ After a confirmed platform failure, an editing fallback can use:
 {"type":"video","prompt":"镜头从正面缓慢环绕，展示材质高光","images":["https://example.com/product.png"],"parameters":{"ratio":"16:9","duration":8,"mode":"normal"}}
 ```
 
-商品套图与 AI 试衣缺少完整提交契约；不得猜 endpoint。出血线、色号提取已根据新资料增加显式类型，见上表；其参数与旧页面本地处理设置不能混用。
+商品套图已按补充契约接入；AI 试衣仍缺完整提交契约。出血线、色号提取见上表，其参数与旧页面本地处理设置不能混用。
 
 For a local path use `"images":["assets/product.png"]`; for raw base64 use an
 object with `base64` and `mimeType`; for a Data URL pass it as the string source.

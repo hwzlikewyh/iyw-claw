@@ -58,7 +58,7 @@ fn run_value(run: &RunOutcome) -> Value {
 
 fn safe_metadata(result: &super::ImageResult) -> Value {
     let mut metadata = Map::new();
-    for key in ["result", "query", "poll_error"] {
+    for key in ["result", "query", "poll_error", "batch_id"] {
         if let Some(value) = result.metadata.get(key) {
             metadata.insert(key.to_string(), value.clone());
         }

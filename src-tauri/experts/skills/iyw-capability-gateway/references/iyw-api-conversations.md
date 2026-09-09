@@ -8,7 +8,7 @@
 
 检索词：原助理、本体、agent、conversation、session、聊天、历史、继续生成、停止、重命名、收藏。
 
-流程：先按 `agent_id` 列表定位真实 `session_id`，再读详情；更新/删除使用返回的 ID。`MessageID`、`conversation_id` 与 `session_id` 不是可互换字段。`chat` 为流式接口，fetch 只在流结束后返回完整文本，60 秒/2 MiB 限制仍有效；超时不能当作未发起对话。优先查已有会话/运行结果，不自动再次发送。
+流程：先按 `agent_id` 列表定位真实 `session_id`，再读详情；更新/删除使用返回的 ID。`MessageID`、`conversation_id` 与 `session_id` 不是可互换字段。`chat` 为流式接口，fetch 只在流结束后返回完整文本，默认 60 秒，可用 timeout_seconds 设置至 900 秒，2 MiB 限制仍有效；超时不能当作未发起对话。优先查已有会话/运行结果，不自动再次发送。
 
 ```json
 {"description":"查询原助理会话列表","url":"https://gateway.iyw.cn/ai-agent/api/conversation/list","body":{"agent_id":1,"page":1,"page_size":20}}

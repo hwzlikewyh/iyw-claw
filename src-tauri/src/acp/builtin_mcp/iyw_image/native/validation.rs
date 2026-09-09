@@ -25,12 +25,18 @@ pub(super) fn validate(kind: &str, payload: &Map<String, Value>) -> Result<(), r
     ) {
         required_string(payload, "prompt")?;
     }
-    if matches!(kind, "erase" | "watermark-erase") {
+    if kind == "erase" {
         image_field(payload, "mask")?;
     }
-    if kind == "bleed-line" && !payload.contains_key("size") {
+    if kind == "watermark-erase" {
+        watermark(payload)?;
+    }
+    if kind == "bleed-line"
+        && payload.get("size").is_none_or(Value::is_null)
+        && payload.get("bleed").is_none_or(Value::is_null)
+    {
         return Err(invalid(
-            "bleed-line requires the size from the documented page request",
+            "bleed-line requires size or bleed from the documented page request",
         ));
     }
     optional_types(payload)
@@ -64,13 +70,34 @@ fn validate_input(kind: &str, payload: &Map<String, Value>) -> Result<(), rmcp::
 
 fn validate_data(kind: &str, payload: &Map<String, Value>) -> Result<(), rmcp::ErrorData> {
     match kind {
+        "classify-intent" if payload.contains_key("text") => {
+            required_string(payload, "text").map(|_| ())
+        }
         "classify-intent" => required_array(payload, "keys"),
         "save-color" => required_array(payload, "colors"),
-        _ if payload.get("content").is_none_or(Value::is_null) => Err(invalid(
-            "f-tools requires content from the documented page request",
-        )),
+        _ if payload.get("content").is_none_or(Value::is_null) => {
+            required_string(payload, "toolName")?;
+            image_urls(payload, 1, 10).map(|_| ())
+        }
         _ => Ok(()),
     }
+}
+
+fn watermark(payload: &Map<String, Value>) -> Result<(), rmcp::ErrorData> {
+    if payload.contains_key("target") {
+        if !matches!(
+            required_string(payload, "target")?,
+            "text" | "watermark" | "text_watermark"
+        ) {
+            return Err(invalid("target must be text, watermark, or text_watermark"));
+        }
+    } else {
+        image_field(payload, "mask")?;
+    }
+    if payload.contains_key("mask") {
+        image_field(payload, "mask")?;
+    }
+    Ok(())
 }
 
 fn validate_g_tools(payload: &Map<String, Value>) -> Result<(), rmcp::ErrorData> {
@@ -112,7 +139,7 @@ fn required_id(payload: &Map<String, Value>, key: &str) -> Result<(), rmcp::Erro
 }
 
 fn optional_types(payload: &Map<String, Value>) -> Result<(), rmcp::ErrorData> {
-    for key in ["upscale", "strength", "duration"] {
+    for key in ["upscale", "scale", "strength", "duration"] {
         if payload
             .get(key)
             .is_some_and(|value| !value.as_f64().is_some_and(|number| number >= 0.0))

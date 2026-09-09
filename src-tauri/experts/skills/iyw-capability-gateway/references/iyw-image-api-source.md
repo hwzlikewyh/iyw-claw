@@ -13,7 +13,7 @@
 - `ImageTo3D` 旧工具用 `image/stats.format/stats.MultiViewImages`；`lineExtraction` 用 `reference/model/batch_size/stats.reference`；保留。
 - `g_tools_generate_image` 现有 `variation/extend/mix` 由主机设置 toolName/modelChannel；不与 `g_tools` 通道混用。
 - 出血线和提取色号的旧页面可在本地计算；新文档给出 `bleedLine/extractColor` 服务路径，新增 type 显式走该路径，不暗示所有页面已改用接口。
-- `/api/generate_mask` 没有明确服务域，商品套图和 AI 试衣没有完整提交契约，均不能猜 endpoint/payload。
+- 补充已确认商品套图契约并接入工具；蒙版域为 `https://ai.iyw.cn/agent/api/generate_mask`，但区域结构未完整给出。AI 试衣仍缺完整提交契约。详见 [图片补充](iyw-api-image-contract-updates.md)。
 
 ## Commerce
 
