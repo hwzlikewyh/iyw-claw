@@ -154,6 +154,11 @@ fn map_cli_error(code: &str, message: &str) -> BrowserError {
             "A browser dialog is blocking the operation",
             true,
         ),
+        _ if lower.starts_with("no tab with target id ") => (
+            BrowserErrorCode::BrowserTabGone,
+            "The pinned browser tab is gone; list tabs again before continuing",
+            true,
+        ),
         "stale_ref" => stale_reference_error(),
         "invalid_selector" | "selector_not_found" | "selector_ambiguous" => selector_error(),
         "operation_timeout" | "timeout" | "timed_out" => timeout_error(),

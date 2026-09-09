@@ -4,8 +4,9 @@
 
 对于网页和公开数据任务，已有可靠专用 API 或直接数据源且能完整满足请求时可以先用。
 用户明确要求“用浏览器”或任务需要网页交互时，统一调用 `browser` MCP 工具；网页操作
-默认使用 OpenCLI，复用用户的 Chrome 登录态。`browser_present` 展示结果时切到 iyw-claw
-受管浏览器，避免把 OpenCLI 操作窗口直接交给用户。旧的 `browser_*` 工具仍可用，但只是
+默认使用 OpenCLI，复用用户的 Chrome 登录态。关闭内置浏览器时，操作、展示和人工接管
+均留在外部 Chrome；开启后，`browser_present` 展示结果时切到 iyw-claw
+受管浏览器。旧的 `browser_*` 工具仍可用，但只是
 兼容别名。
 
 Agent 按统一工具选中的 provider 读取对应 Skill：OpenCLI 路径读取
@@ -28,11 +29,11 @@ browser(action=list_tabs)
 
 MCP 工具由 `src-tauri/src/acp/delegation/tool_schema.json` 广告，经内置 HTTP MCP gateway 和
 delegation listener 分发到 `BrowserSessionManager::execute_agent_tool`。统一入口先运行
-OpenCLI 的 doctor 和 Browser Bridge；普通操作固定在 OpenCLI session 内。`present` 只把当前
+OpenCLI 的 doctor 和 Browser Bridge；普通操作固定在 OpenCLI session 内。内置浏览器开启时，`present` 只把当前
 页面 URL 复制到受管浏览器展示，不改变后续操作路由；`request_user_action` 才是明确的人工接管，
 接管完成后按工具返回的 provider 继续。
 
-一个任务会锁定同一个 OpenCLI session，并使用 background window；需要展示或人工处理时，
+一个任务会锁定同一个 OpenCLI session，并使用 background window；内置浏览器开启且需要展示或人工处理时，
 工具会把当前页面交给 iyw-claw 受管浏览器。展示完成后，后续网页操作仍使用 OpenCLI。
 
 `browser(action=read)` 是网页数据读取入口；`browser(action=advanced)` 是高级受管入口。后者把
@@ -76,16 +77,36 @@ cookies、storage、state、headers、credentials、clipboard
 | --- | --- | --- |
 | `BROWSER_SNAPSHOT_STALE` | `@eN` 或页面代际已过期 | 重新 snapshot，换新引用 |
 | `BROWSER_INVALID_ARGUMENT` | selector 无效、找不到或不唯一 | 用 snapshot/find 改进定位，不归因于 runtime |
-| `BROWSER_TAB_GONE` | pinned tab 已关闭或目标丢失 | 重新列出页签，必要时新建页签 |
+| `BROWSER_TAB_GONE` | pinned tab 已关闭或目标丢失，包括控制器的 `No tab with target id` | 重新列出页签，必要时新建页签 |
 | `BROWSER_OPERATION_TIMEOUT` | 控制器动作超时 | 检查页面状态一次，默认停止；只有用户明确授权时才切换外部浏览器 |
 | `BROWSER_CONTROL_CHANGED` | 点击点被弹窗、横幅或其他元素遮挡 | 先处理遮挡元素或刷新状态，不要归因于 runtime |
 | `BROWSER_RUNTIME_UNAVAILABLE` | daemon/session/runtime/observer 可能不可用，或控制器返回未知错误 | 不要把它解释成“点击功能被禁用”；完成一次状态检查后默认停止，禁止自动回退 |
 
 `BROWSER_RUNTIME_UNAVAILABLE` 是内置浏览器兼容性错误码；OpenCLI 失败使用 `OPENCLI_*` 错误码。排查时结合 `browser(action=list_tabs)`、runtime 日志和页签状态判断。
 
+宿主等待控制器超时时，错误会包含实际动作及等待时长；固定页签操作日志记录动作名，
+不再记成 `--cdp`。Agent 页签命令错误包含页签 ID 和运行时代际。可能改变页面的操作
+超时或取消后返回 `effectMayHaveOccurred=true`，超时不直接重试，先检查页面结果。
+纯定时 `wait` 的宿主预算包含额外 5 秒用于启动和结果返回，避免 30 秒等待与 30 秒
+宿主截止时间冲突；该修正不意味着所有页面加载或控制器卡顿都已消除。
+
+内置快照、读取、截图、点击、填写、按键、滚动和等待使用调用方提供的有效
+`timeout_ms` 作为宿主等待预算；范围为 1 到 300000 毫秒，未提供时保持各动作默认值。
+控制器自身的等待条件仍以其命令语义为准。
+
+## 内置故障恢复
+
+- 崩溃或丢失页签的刷新直接进入恢复流程，不申请已经关闭的旧控制权。
+- 原页签重新绑定失败时，只有明确 `BROWSER_TAB_GONE` 才创建替代页签；连接、超时和未知
+  错误保留原页签，避免丢失表单和登录状态。
+- 自动恢复、等待锁后的恢复和实际启动均检查内置开关；关闭时不启动新的恢复操作。
+- CDP 与画面控制请求的排队和响应使用同一截止时间，过期请求不会继续排队执行。
+  CDP 停止和画面 socket 写入都有截止时间；画面写入失败会结束失效连接，避免复用半写入状态。
+- 导航成功后只补查缺失的 URL 或标题；后续元数据读取失败仍标记导航可能已经发生。
+
 ## OpenCLI 操作流程
 
-OpenCLI 是网页操作的默认通道，使用 background window 避免抢占用户前台窗口。内置浏览器
+OpenCLI 是网页操作的默认通道，使用 background window 避免抢占用户前台窗口。开启时，内置浏览器
 只负责 `present` 展示和明确的人工作业接管。
 
 1. 读取当前安装的 `opencli-browser` Skill；以实际 Skill 文档为准，不猜参数。
@@ -95,7 +116,7 @@ OpenCLI 是网页操作的默认通道，使用 background window 避免抢占�
    opencli doctor
    ```
 
-   doctor 失败时，统一工具返回 `OPENCLI_*` 错误；除人工操作类错误外，不切换内置浏览器。
+   doctor 失败时，统一工具返回 `OPENCLI_*` 错误；只有内置浏览器已开启且 OpenCLI 未安装时，允许使用内置运行时。
 
 3. 为一条连续任务使用稳定 session：
 
@@ -113,7 +134,7 @@ OpenCLI 是网页操作的默认通道，使用 background window 避免抢占�
 
 OpenCLI 的 session/page identity 与内置浏览器的 `browserTabId` 不同，不要交叉传递。
 统一工具会把 OpenCLI target 包装成不透明 `browserTabId`；Agent 只需回传上一次工具结果
-中的值。遇到登录墙、验证码或人工接管时，工具会创建一次性内置页签并尝试同源 auth
+中的值。内置浏览器开启时，遇到登录墙、验证码或人工接管，工具会创建一次性内置页签并尝试同源 auth
 handoff，然后等待用户操作；handoff 使用 120 秒短期预算，导入完成后立即丢弃中转
 Cookie 和 storage 值，最多导入当前站点的非 HttpOnly Cookie 与 local/session storage，
 不复制密码、完整 Chrome profile、扩展或跨站凭据。
@@ -141,10 +162,15 @@ Windows 的引擎发现、后台预下载和能力刷新只读取可执行文件
 ### 内置浏览器显示设置
 
 “设置 → 常规 → 内置浏览器 → 显示内置浏览器”默认关闭；旧用户没有该偏好时同样关闭。
-开关按本机界面偏好持久化，在设置窗口、工作区和浏览器独立窗口间同步，立即生效。
-关闭时隐藏入口、面板及独立窗口，并停止前端浏览器轮询和自动展示请求；后台网页工具
-仍可按任务使用受管运行时。开启只显示入口，不主动启动浏览器。应用挂载只读取状态，
-运行时准备留到用户打开浏览器或 Agent 明确调用网页工具时执行。
+开关持久化到本机 preferences.json，由后端管理，在设置窗口、工作区和浏览器独立窗口间
+同步。首次迁移读取旧 localStorage 显示偏好；已有后端设置时，旧窗口不能覆盖它。
+关闭时隐藏入口、面板及独立窗口，停止前端浏览器轮询，并取消待处理的内置展示和人工
+接管请求。后续 Agent 操作只使用 OpenCLI；未安装、未连接或执行失败时返回对应错误，
+不回退到内置浏览器。`list_tabs` 不再暴露内置页签。旧内置页签或引用不能交给外部浏览器
+执行，Agent 必须重新 `open` 并获取新 snapshot；已发出的操作不自动重放。
+关闭时 `present` 使用 OpenCLI 的 `tab select --window foreground` 展示原外部页签；
+人工接管返回 `OPENCLI_USER_ACTION_REQUIRED`，用户完成后重新读取页面验证，不把展示成功
+当作人工步骤完成。开启只允许内置入口、展示、接管和原有可用性回退，不主动启动浏览器。
 
 OpenCLI 由 Internet Tools bootstrap 安装到托管 Node prefix。当前版本由 `src-tauri/src/commands/internet_tools/types.rs` 的 `OPENCLI_VERSION` 固定。`src-tauri/src/acp/connection.rs` 把托管 bin 目录加入 Agent 和 ACP terminal 的 PATH；`src-tauri/src/commands/internet_tools.rs` 提供 bin 目录和 `MCPORTER_CONFIG`。安装完成后，OpenCLI 自带的 `opencli-*` Skills 会同步到 central Skill 目录。
 

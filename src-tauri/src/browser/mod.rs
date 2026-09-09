@@ -1,6 +1,8 @@
 #[cfg(feature = "tauri-runtime")]
 mod agent_browser;
 #[cfg(feature = "tauri-runtime")]
+mod agent_browser_external;
+#[cfg(feature = "tauri-runtime")]
 mod agent_browser_handoff;
 #[cfg(feature = "tauri-runtime")]
 mod agent_browser_handoff_state;
@@ -18,6 +20,8 @@ mod agent_browser_request_support;
 mod agent_browser_route;
 #[cfg(all(test, feature = "tauri-runtime"))]
 mod agent_browser_tests;
+#[cfg(feature = "tauri-runtime")]
+mod agent_timeout;
 #[cfg(feature = "tauri-runtime")]
 mod agent_tool_actions;
 #[cfg(feature = "tauri-runtime")]
@@ -49,6 +53,8 @@ mod cdp_popups;
 mod cdp_records;
 #[cfg(feature = "tauri-runtime")]
 mod command_bootstrap;
+#[cfg(feature = "tauri-runtime")]
+mod command_diagnostics;
 #[cfg(feature = "tauri-runtime")]
 mod command_output;
 #[cfg(feature = "tauri-runtime")]
@@ -148,11 +154,15 @@ pub use control_lease::AgentControlLease;
 pub use error::{BrowserError, BrowserErrorCode, BrowserErrorContext};
 pub use manager::BrowserSessionManager;
 #[cfg(feature = "tauri-runtime")]
+mod visibility;
+#[cfg(feature = "tauri-runtime")]
 pub(crate) use runtime::ManagedBrowserProcessSnapshot;
 #[cfg(feature = "tauri-runtime")]
 pub use stream_input::*;
 pub use types::*;
 pub use types_cdp::*;
+#[cfg(feature = "tauri-runtime")]
+pub use visibility::BrowserVisibilityUpdate;
 
 pub const BROWSER_AGENT_TOOL_NAMES: &[&str] = &[
     "browser",

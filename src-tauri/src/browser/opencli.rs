@@ -75,6 +75,27 @@ const OPENCLI_ADVANCED_COMMANDS: &[&str] = &[
 pub(super) struct OpencliProvider;
 
 impl OpencliProvider {
+    pub async fn present(session: &str, target: &str) -> Result<OpencliResult, OpencliFailure> {
+        let session = validate_session(session)?;
+        let args = vec![
+            "browser".to_string(),
+            session,
+            "tab".to_string(),
+            "select".to_string(),
+            target.to_string(),
+            "--window".to_string(),
+            "foreground".to_string(),
+        ];
+        let execution = run_opencli(&args, DOCTOR_TIMEOUT)
+            .await
+            .map_err(|message| classify_failure("OPENCLI_RUNTIME_FAILED", message))?;
+        let output = parse_execution(&execution)?;
+        Ok(OpencliResult {
+            output,
+            target_id: Some(target.to_string()),
+        })
+    }
+
     pub async fn doctor() -> Result<Value, OpencliFailure> {
         let execution = run_opencli(&["doctor".to_string()], DOCTOR_TIMEOUT)
             .await
@@ -104,9 +125,7 @@ impl OpencliProvider {
     ) -> Result<OpencliResult, OpencliFailure> {
         let session = validate_session(session)?;
         let command = validate_command(command)?;
-        // OpenCLI's browser commands default to a foreground container. Keep
-        // explicit OpenCLI routes backgrounded as a second line of defense;
-        // ordinary browser requests use the managed route above.
+        // 普通操作保持后台，仅展示或人工接管时显式切到前台。
         let mut cli_args = vec![
             "browser".to_string(),
             session,

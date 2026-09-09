@@ -1811,6 +1811,7 @@ mod tauri_app {
                 remote_image_commands::fetch_remote_image,
                 display_asset_commands::read_display_asset,
                 browser_commands::browser_get_state,
+                browser_commands::browser_set_visibility,
                 browser_commands::browser_refresh_capability,
                 browser_commands::browser_start_runtime,
                 browser_commands::browser_stop_runtime,

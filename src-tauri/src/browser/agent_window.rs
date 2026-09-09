@@ -24,6 +24,7 @@ impl BrowserSessionManager {
         context: AgentToolContext<'_>,
         input: &Value,
     ) -> Result<Value, BrowserError> {
+        self.ensure_managed_browser_enabled()?;
         ensure_request_active(context)?;
         let has_url = input.get("url").is_some();
         if !has_url && optional_bool(input, "new_tab")?.unwrap_or(false) {
@@ -49,7 +50,8 @@ impl BrowserSessionManager {
             return Err(BrowserError::tab_not_found(&tab_id));
         }
         self.agent_turn_leases.keep_tab_open(&tab_id).await;
-        let request_id = self.request_window_open(&tab_id).await;
+        self.ensure_managed_browser_enabled()?;
+        let request_id = self.request_window_open(&tab_id).await?;
         Ok(project_agent_state(
             self.agent_snapshot_for(context.identity).await,
             Some(&tab_id),
@@ -144,19 +146,18 @@ impl BrowserSessionManager {
         request_id
     }
 
-    async fn request_window_open(&self, tab_id: &str) -> String {
-        if let Some(request_id) = self
-            .window_open_requests
-            .lock()
-            .await
+    async fn request_window_open(&self, tab_id: &str) -> Result<String, BrowserError> {
+        let mut requests = self.window_open_requests.lock().await;
+        self.ensure_managed_browser_enabled()?;
+        if let Some(request_id) = requests
             .values()
             .find(|request| request.snapshot.browser_tab_id == tab_id)
             .map(|request| request.snapshot.request_id.clone())
         {
-            return request_id;
+            return Ok(request_id);
         }
         let request_id = uuid::Uuid::new_v4().to_string();
-        self.window_open_requests.lock().await.insert(
+        requests.insert(
             request_id.clone(),
             PendingWindowOpen {
                 snapshot: BrowserWindowOpenRequestSnapshot {
@@ -165,7 +166,7 @@ impl BrowserSessionManager {
                 },
             },
         );
-        request_id
+        Ok(request_id)
     }
 
     pub(super) async fn cancel_window_close_requests(&self, tab_ids: Vec<String>) {

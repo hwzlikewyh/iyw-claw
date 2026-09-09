@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 
 use serde_json::Value;
 use tauri::ipc::{Channel, InvokeResponseBody};
@@ -19,7 +18,8 @@ use super::types::{
 };
 
 const MAX_STREAMS_PER_TAB: usize = 2;
-const CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
+
+mod control;
 
 #[derive(Debug, Default)]
 pub(super) struct BrowserStreamRegistry {
@@ -100,36 +100,6 @@ impl BrowserStreamRegistry {
             generations,
             status: BrowserFrameSubscriptionStatus::Connecting,
         })
-    }
-
-    pub async fn acknowledge(
-        &self,
-        subscription_id: &str,
-        generations: &BrowserGenerations,
-        seq: u64,
-    ) -> Result<(), BrowserError> {
-        let control = self.control_for(subscription_id, generations).await?;
-        let (response, result) = oneshot::channel();
-        control
-            .send(StreamControl::Ack { seq, response })
-            .await
-            .map_err(|_| disconnected())?;
-        await_control(result).await
-    }
-
-    pub async fn input(
-        &self,
-        subscription_id: &str,
-        generations: &BrowserGenerations,
-        messages: Vec<Value>,
-    ) -> Result<(), BrowserError> {
-        let control = self.control_for(subscription_id, generations).await?;
-        let (response, result) = oneshot::channel();
-        control
-            .send(StreamControl::Input { messages, response })
-            .await
-            .map_err(|_| disconnected())?;
-        await_control(result).await
     }
 
     pub async fn tab_id(
@@ -274,13 +244,4 @@ fn validate_subscription<'a>(
     let entry = inner.get(id).ok_or_else(disconnected)?;
     ensure_frame_generations(&entry.generations, generations)?;
     Ok(entry)
-}
-
-async fn await_control(
-    response: oneshot::Receiver<Result<(), BrowserError>>,
-) -> Result<(), BrowserError> {
-    tokio::time::timeout(CONTROL_TIMEOUT, response)
-        .await
-        .map_err(|_| disconnected())?
-        .map_err(|_| disconnected())?
 }

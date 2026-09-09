@@ -1713,7 +1713,7 @@
     "autostartSaveFailed": "Failed to update startup setting: {message}",
     "browserTitle": "Built-in browser",
     "browserVisible": "Show built-in browser",
-    "browserDescription": "Off by default. Enable to show the browser entry; disable to hide its panel and windows. Changes apply immediately and persist after restart.",
+    "browserDescription": "Off by default. When off, agents use the external browser. Enable to allow built-in presentation and user handoff. Changes apply immediately and persist after restart.",
     "browserSaveFailed": "Failed to save browser setting: {message}"
   },
   "MainCloseDialog": {

@@ -10,16 +10,16 @@ use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
-use super::cdp_errors::{command_rejected, timeout, unavailable};
+use super::cdp_errors::{command_rejected, unavailable};
 use super::cdp_maps::update_protocol_maps;
 use super::error::BrowserError;
 use super::manager::BrowserSessionManager;
 
+mod commands;
 mod write;
 use write::send_with_timeout;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const OBSERVER_CLOSE_TIMEOUT: Duration = Duration::from_secs(2);
 const SOCKET_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
@@ -83,35 +83,6 @@ impl CdpObserverHandle {
         Ok(handle)
     }
 
-    pub async fn call(
-        &self,
-        method: &str,
-        params: Value,
-        session_id: Option<String>,
-    ) -> Result<Value, BrowserError> {
-        let (response, result) = oneshot::channel();
-        self.commands
-            .send(CdpRequest {
-                method: method.to_string(),
-                params,
-                session_id,
-                response,
-            })
-            .await
-            .map_err(|_| unavailable())?;
-        tokio::time::timeout(COMMAND_TIMEOUT, result)
-            .await
-            .map_err(|_| timeout())?
-            .map_err(|_| unavailable())?
-    }
-
-    pub async fn stop(&self) {
-        self.cancellation.cancel();
-        if let Some(task) = self.task.lock().await.take() {
-            let _ = task.await;
-        }
-    }
-
     pub async fn cancel_without_wait(&self) {
         self.cancellation.cancel();
         if let Some(task) = self.task.lock().await.take() {
@@ -156,12 +127,13 @@ async fn run_observer<S>(
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
     let (mut sink, mut source) = socket.split();
-    let mut pending = HashMap::new();
+    let mut pending: HashMap<u64, oneshot::Sender<Result<Value, BrowserError>>> = HashMap::new();
     let mut sessions = HashMap::new();
     let mut frames = HashMap::new();
     let mut next_id = 1_u64;
     let mut disconnect_reason = None;
     loop {
+        pending.retain(|_, response| !response.is_closed());
         tokio::select! {
             _ = cancellation.cancelled() => {
                 let _ = send_with_timeout(
@@ -171,6 +143,9 @@ async fn run_observer<S>(
             }
             request = commands.recv() => {
                 let Some(request) = request else { break; };
+                if request.response.is_closed() {
+                    continue;
+                }
                 let id = next_id;
                 next_id = next_id.saturating_add(1);
                 let message = command_message(id, &request);
@@ -179,7 +154,9 @@ async fn run_observer<S>(
                     Message::Text(message.to_string().into()),
                     SOCKET_WRITE_TIMEOUT,
                 ).await.is_err() {
-                    let _ = request.response.send(Err(unavailable()));
+                    let _ = request.response.send(Err(
+                        unavailable().effect_may_have_occurred(true).retryable(false),
+                    ));
                     disconnect_reason = Some("socket_write_failed".to_string());
                     break;
                 }
@@ -207,7 +184,9 @@ async fn run_observer<S>(
         }
     }
     for (_, response) in pending {
-        let _ = response.send(Err(unavailable()));
+        let _ = response.send(Err(unavailable()
+            .effect_may_have_occurred(true)
+            .retryable(false)));
     }
     if let Some(reason) = disconnect_reason.filter(|_| !cancellation.is_cancelled()) {
         manager.handle_cdp_disconnect(generation, reason).await;

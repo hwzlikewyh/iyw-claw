@@ -45,14 +45,20 @@ impl BrowserSessionManager {
         context: AgentToolContext<'_>,
         tab_id: &str,
     ) -> Result<AgentControlLease, BrowserError> {
+        self.ensure_managed_browser_enabled()?;
         ensure_request_active(context)?;
         self.agent_turn_leases
             .register(context.identity, tab_id)
             .await?;
-        tokio::select! {
+        let lease = tokio::select! {
             _ = context.cancellation.cancelled() => Err(cancelled_error()),
             result = self.acquire_agent_control(tab_id) => result,
+        }?;
+        if let Err(error) = self.ensure_managed_browser_enabled() {
+            lease.finish().await;
+            return Err(error);
         }
+        Ok(lease)
     }
 }
 

@@ -28,6 +28,7 @@ pub enum CloseBehavior {
 pub struct AppPreferences {
     pub disable_hardware_acceleration: bool,
     pub close_behavior: Option<CloseBehavior>,
+    pub builtin_browser_enabled: Option<bool>,
 }
 
 pub fn preferences_file_path() -> Option<PathBuf> {

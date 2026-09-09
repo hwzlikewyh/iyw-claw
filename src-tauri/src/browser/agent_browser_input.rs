@@ -91,11 +91,15 @@ pub(super) fn managed_semantic_command(
             arguments.extend(["--name".to_string(), name.to_string()]);
         }
     }
-    Ok(Some(json!({
+    let mut command = json!({
         "tab_id": input.get("tab_id"),
         "command": "find",
         "arguments": arguments,
-    })))
+    });
+    if let Some(timeout) = input.get("timeout_ms") {
+        command["timeout_ms"] = timeout.clone();
+    }
+    Ok(Some(command))
 }
 
 pub(super) fn add_fallback(value: Value, reason: Option<&str>) -> Value {

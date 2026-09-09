@@ -58,6 +58,9 @@ impl BrowserSessionManager {
     }
 
     pub(super) fn schedule_recovery(&self, runtime: Arc<BrowserRuntime>, failed_generation: u64) {
+        if !self.managed_browser_enabled() {
+            return;
+        }
         let manager = self.clone();
         tokio::spawn(async move {
             {
@@ -134,6 +137,7 @@ impl BrowserSessionManager {
         let epoch = self.current_shutdown_epoch();
         let _tab_guard = self.tab_open_lock.lock().await;
         let _start_guard = self.runtime_start_lock.lock().await;
+        self.ensure_managed_browser_enabled().ok()?;
         self.ensure_shutdown_epoch(epoch).ok()?;
         let cancellation = self.shutdown_cancellation().await;
         let plan = self
@@ -154,6 +158,12 @@ impl BrowserSessionManager {
         let epoch = self.current_shutdown_epoch();
         let _tab_guard = self.tab_open_lock.lock().await;
         if self.ensure_shutdown_epoch(epoch).is_err() {
+            return 0;
+        }
+        if !self.managed_browser_enabled() {
+            for tab in &plan.tabs {
+                self.fail_recovery_tab(tab).await;
+            }
             return 0;
         }
         let cancellation = self.shutdown_cancellation().await;
