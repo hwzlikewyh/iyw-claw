@@ -19,6 +19,7 @@ import {
   getBuiltinToolDisplay,
   getIywToolDescription,
 } from "@/lib/builtin-tool-display"
+import { getToolDisplayName } from "@/lib/tool-display"
 import { parseBackgroundLaunch } from "@/lib/background-task"
 import { normalizePriority, normalizeStatus } from "@/lib/plan-parse"
 import { isDelegateToAgentToolName } from "@/lib/delegation-card"
@@ -2147,11 +2148,21 @@ const ToolCallPart = memo(function ToolCallPart({
       isCommandTool && rawTitle
         ? sanitizeCommandDisplayText(rawTitle)
         : rawTitle
-    return localizeDerivedToolTitle(displayTitle, ((key, values) =>
-      t(key as never, values as never)) as (
+    const localizedTitle = localizeDerivedToolTitle(displayTitle, ((
+      key,
+      values
+    ) => t(key as never, values as never)) as (
       key: string,
       values?: Record<string, unknown>
     ) => string)
+    return getToolDisplayName(
+      {
+        toolName: part.toolName,
+        input: part.input,
+        displayTitle: part.displayTitle ?? localizedTitle,
+      },
+      (key) => (t.has(key as never) ? t(key as never) : null)
+    )
   }, [
     normalizedToolName,
     part.toolName,

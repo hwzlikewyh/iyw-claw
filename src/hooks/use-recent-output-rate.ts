@@ -10,6 +10,29 @@ interface Sample {
   count: number
 }
 
+function createSampler(
+  readCount: () => number,
+  publish: (value: number) => void
+) {
+  let samples: Sample[] = []
+  return () => {
+    const now = Date.now()
+    const count = readCount()
+    const last = samples[samples.length - 1]
+    if (!last || count < last.count || now - last.at > OUTPUT_RATE_WINDOW_MS) {
+      samples = [{ at: now, count }]
+      publish(0)
+      return
+    }
+    samples.push({ at: now, count })
+    while (samples.length > 2 && samples[1].at <= now - OUTPUT_RATE_WINDOW_MS)
+      samples.shift()
+    const first = samples[0]
+    const seconds = Math.max(1, (now - first.at) / SAMPLE_INTERVAL_MS)
+    publish(Math.round((count - first.count) / seconds))
+  }
+}
+
 export function useRecentOutputRate(key: string | null, count: number) {
   const source = useRef({ key, count })
   const [rate, setRate] = useState<{
@@ -21,29 +44,28 @@ export function useRecentOutputRate(key: string | null, count: number) {
   }, [key, count])
   useEffect(() => {
     if (key === null) return
-    let samples: Sample[] = [{ at: Date.now(), count: source.current.count }]
-    const timer = setInterval(() => {
+    let timer: ReturnType<typeof setInterval> | undefined
+    const publish = (value: number) => {
       if (source.current.key !== key) return
-      const now = Date.now()
-      const current = source.current.count
-      const last = samples[samples.length - 1]
-      if (current < last.count || now - last.at > OUTPUT_RATE_WINDOW_MS) {
-        samples = [{ at: now, count: current }]
-        setRate({ key, value: 0 })
-        return
-      }
-      samples.push({ at: now, count: current })
-      while (
-        samples.length > 2 &&
-        samples[1].at <= now - OUTPUT_RATE_WINDOW_MS
-      ) {
-        samples.shift()
-      }
-      const first = samples[0]
-      const seconds = Math.max(1, (now - first.at) / SAMPLE_INTERVAL_MS)
-      setRate({ key, value: Math.round((current - first.count) / seconds) })
-    }, SAMPLE_INTERVAL_MS)
-    return () => clearInterval(timer)
+      setRate((previous) =>
+        previous?.key === key && previous.value === value
+          ? previous
+          : { key, value }
+      )
+    }
+    const sync = () => {
+      clearInterval(timer)
+      if (document.hidden) return
+      const sample = createSampler(() => source.current.count, publish)
+      sample()
+      timer = setInterval(sample, SAMPLE_INTERVAL_MS)
+    }
+    sync()
+    document.addEventListener("visibilitychange", sync)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener("visibilitychange", sync)
+    }
   }, [key])
-  return rate?.key === key ? rate.value : null
+  return key !== null && rate?.key === key ? rate.value : null
 }

@@ -10,6 +10,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import { cn } from "@/lib/utils"
+import { getToolDisplayName } from "@/lib/tool-display"
 import {
   CheckCircleIcon,
   ChevronDownIcon,
@@ -78,8 +79,12 @@ export const ToolHeader = ({
   ...props
 }: ToolHeaderProps) => {
   const t = useTranslations("Folder.chat.tool")
+  const toolT = useTranslations("Folder.chat.contentParts")
   const derivedName =
     type === "dynamic-tool" ? toolName : type.split("-").slice(1).join("-")
+  const displayName = getToolDisplayName({ toolName: derivedName }, (key) =>
+    toolT.has(key as never) ? toolT(key as never) : null
+  )
   const statusLabel =
     state === "approval-requested"
       ? t("status.approvalRequested")
@@ -108,7 +113,7 @@ export const ToolHeader = ({
           {icon ?? <WrenchIcon className="size-4 text-muted-foreground" />}
         </span>
         <span className="min-w-0 flex-1 truncate whitespace-nowrap font-medium text-sm">
-          {title ?? derivedName}
+          {title ?? displayName}
         </span>
         {titleSuffix ? <span className="shrink-0">{titleSuffix}</span> : null}
         <span className="shrink-0">{getStatusBadge(state, statusLabel)}</span>
