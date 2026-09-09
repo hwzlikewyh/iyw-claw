@@ -183,7 +183,9 @@ jobs:
           Copy-Item -LiteralPath (Join-Path $env:STAGING_INPUT "$targetRoot/iyw-claw.exe") -Destination (Join-Path $targetRoot 'iyw-claw.exe') -Force
           $configuration = (node src-tauri/scripts/prepare-signing-config.mjs).Trim()
           if ($LASTEXITCODE -ne 0) { throw 'Signing configuration failed' }
-          pnpm exec tauri bundle --target $env:BUILD_TARGET --features tauri-runtime --bundles nsis --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.windows-x86.conf.json --config $configuration --no-sign
+          $updaterConfig = Join-Path $env:RUNNER_TEMP 'finish-no-updater.json'
+          @{bundle=@{createUpdaterArtifacts=$false}} | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $updaterConfig
+          pnpm exec tauri bundle --target $env:BUILD_TARGET --features tauri-runtime --bundles nsis --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.windows-x86.conf.json --config $configuration --config $updaterConfig
           if ($LASTEXITCODE -ne 0) { throw 'Signed x86 bundle failed' }
 
       - name: Verify installer and create updater signature
@@ -201,8 +203,17 @@ jobs:
           node src-tauri/scripts/verify-xinghe-worker-bundle.mjs --target $env:BUILD_TARGET
           if ($LASTEXITCODE -ne 0) { throw 'Worker runtime verification failed' }
           $before = (Get-FileHash -LiteralPath $installers[0].FullName -Algorithm SHA256).Hash
-          pnpm exec tauri signer sign $installers[0].FullName
-          if ($LASTEXITCODE -ne 0) { throw 'Updater signature failed' }
+          $existing = gh api "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Release lookup failed' }
+          $assetName = "iyw-claw_$env:RELEASE_VERSION`_$env:BUILD_ARCH-setup.exe"
+          if (@($existing.assets | Where-Object name -eq "$assetName.sig").Count -eq 1) {
+            gh release download "v$env:RELEASE_VERSION" --repo $env:GITHUB_REPOSITORY --pattern "$assetName.sig" --dir $directory --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Existing updater signature download failed' }
+            if ($installers[0].Name -ne $assetName) { Copy-Item -LiteralPath (Join-Path $directory "$assetName.sig") -Destination "$($installers[0].FullName).sig" -Force }
+          } else {
+            pnpm exec tauri signer sign $installers[0].FullName
+            if ($LASTEXITCODE -ne 0) { throw 'Updater signature failed' }
+          }
           if ((Get-FileHash -LiteralPath $installers[0].FullName -Algorithm SHA256).Hash -ne $before) { throw 'Installer changed after verification' }
           $releaseDirectory = Join-Path $env:RUNNER_TEMP "finish-${{ github.run_id }}/release-$env:BUILD_ARCH"
           New-Item -ItemType Directory -Force -Path $releaseDirectory | Out-Null
