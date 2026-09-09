@@ -33,19 +33,37 @@ pub(super) struct PreparedImage {
 }
 
 pub(super) async fn prepare_images(
-    service: &IywGatewayService,
     cwd: &Path,
     sources: &[ImageSource],
 ) -> Result<Vec<PreparedImage>, rmcp::ErrorData> {
     let mut prepared = Vec::with_capacity(sources.len());
     for (index, source) in sources.iter().enumerate() {
-        prepared.push(prepare_image(service, cwd, source, index).await?);
+        prepared.push(prepare_image(cwd, source, index).await?);
     }
     Ok(prepared)
 }
 
-async fn prepare_image(
+pub(super) async fn upload_images(
     service: &IywGatewayService,
+    images: &mut [PreparedImage],
+) -> Result<(), rmcp::ErrorData> {
+    for image in images.iter_mut().filter(|image| image.url.is_empty()) {
+        let bytes = image
+            .bytes
+            .as_ref()
+            .ok_or_else(|| invalid("image data is missing"))?;
+        let mime = image
+            .mime_type
+            .as_deref()
+            .ok_or_else(|| invalid("image MIME type is missing"))?;
+        image.url = service
+            .upload_bytes(bytes.clone(), mime, extension_for_mime(mime)?)
+            .await?;
+    }
+    Ok(())
+}
+
+async fn prepare_image(
     cwd: &Path,
     source: &ImageSource,
     index: usize,
@@ -73,18 +91,11 @@ async fn prepare_image(
     )
     .await
     .map_err(|error| invalid(error.safe_message()))?;
-    let url = service
-        .upload_bytes(
-            loaded.bytes.clone(),
-            loaded.mime_type,
-            extension_for_mime(loaded.mime_type)?,
-        )
-        .await?;
     if role.is_empty() {
         role = name.unwrap_or_else(|| "source".to_string());
     }
     Ok(PreparedImage {
-        url,
+        url: String::new(),
         role,
         bytes: Some(loaded.bytes),
         mime_type: Some(loaded.mime_type.to_string()),

@@ -1,9 +1,10 @@
 use std::collections::HashSet;
+use std::time::Instant;
 
 use super::{ExecutionContext, PreparedTask};
 use crate::acp::builtin_mcp::iyw_image::{
-    preflight_kind, prepare_images, select_kind, validate_request, ImageBatchRequest, ImageRequest,
-    PreparedImage,
+    preflight_kind, prepare_images, select_kind, upload_images, validate_request,
+    ImageBatchRequest, ImageRequest, PreparedImage,
 };
 
 const MAX_BATCH_ITEMS: usize = 8;
@@ -92,6 +93,7 @@ async fn prepare_task(
     context: ExecutionContext<'_>,
     seed: TaskSeed,
 ) -> Result<PreparedTask, rmcp::ErrorData> {
+    let started = Instant::now();
     let kind = select_kind(
         seed.request.kind.as_deref(),
         &seed.request.prompt,
@@ -102,13 +104,19 @@ async fn prepare_task(
         &kind,
         &placeholder_images(seed.request.images.len()),
     )?;
-    let images = prepare_images(
-        context.service,
-        context.authority.cwd(),
-        &seed.request.images,
-    )
-    .await?;
+    let mut images = prepare_images(context.authority.cwd(), &seed.request.images).await?;
+    if kind != "edit" {
+        upload_images(context.service, &mut images).await?;
+    }
     preflight_kind(&seed.request, &kind, &images)?;
+    tracing::info!(
+        requested_type = seed.request.kind.as_deref().unwrap_or("auto"),
+        selected_type = %kind,
+        image_count = images.len(),
+        batch_index = seed.index,
+        preparation_ms = started.elapsed().as_millis(),
+        "[iyw-image] image route prepared"
+    );
     Ok(PreparedTask {
         index: seed.index,
         id: seed.id,
