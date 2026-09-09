@@ -57,3 +57,13 @@ user-facing executable. Desktop build and release workflows run
 `xinghe-resources`, with `iyw-xinghe-helper` and the Windows-only
 `xinghe-command-runner.exe` and `xinghe-windows-sandbox-setup.exe` helpers.
 The runtime seed no longer contains the former npm agent packages.
+
+## Microsoft Visual C++ Runtime
+
+Windows packages include the unmodified Microsoft `vcruntime140.dll` and,
+when required by the selected target, `vcruntime140_1.dll`. These files come
+from the matching architecture's Visual Studio release redistributable directory
+and are distributed under the applicable Microsoft Visual Studio license terms.
+They are installed beside the built-in worker and copied with sandbox helpers.
+Redistribution reference:
+https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files

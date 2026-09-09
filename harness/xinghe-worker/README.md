@@ -37,6 +37,15 @@ the Windows verifier also reads the export table and checks each helper's
 architecture. Installed helpers must match the staged bytes. The application validates
 the identity before launch and the ABI before invoking either entry point.
 
+Windows preparation reads the worker and helper PE imports and bundles the
+required `vcruntime140.dll` / `vcruntime140_1.dll` from Visual Studio's matching
+architecture release CRT directory. `VCToolsRedistDir` takes precedence; otherwise
+the build discovers Visual Studio with `vswhere`. Missing or unsupported runtime
+dependencies stop packaging. Installed runtime files must match staging.
+The worker loads dependencies from its own directory and System32, and sandbox
+helper copies include the bundled CRT. Loader failures retain the native error.
+Microsoft runtime files remain covered by the Visual Studio redistribution terms.
+
 The implementation branch has passed Windows worker `cargo check`. That does
 not prove desktop compilation, signed package contents, or authenticated
 end-to-end behavior. Release acceptance must cover the compatibility matrix

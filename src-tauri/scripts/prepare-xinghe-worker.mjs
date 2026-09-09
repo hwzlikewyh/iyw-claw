@@ -16,6 +16,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { verifyWorkerBinary } from "./xinghe-worker-binary.mjs"
 import { verifyHelperBinary, helperNames } from "./xinghe-worker-binary.mjs"
+import { stageWindowsRuntime } from "./xinghe-worker-msvc.mjs"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const WORKER_MANIFEST = join(ROOT, "harness", "xinghe-worker", "Cargo.toml")
@@ -122,6 +123,7 @@ function main() {
     verifyHelperBinary(readFileSync(binary), target)
     stageLibrary(binary, helper)
   }
+  stageWindowsRuntime({ target, resourceRoot: RESOURCE_ROOT, stageLibrary })
   console.log(`[xinghe-worker] staged ${destination}`)
   execFileSync(
     process.execPath,

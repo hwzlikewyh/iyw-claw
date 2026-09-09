@@ -5,7 +5,7 @@
 //! the application database initialize.
 
 use std::ffi::OsStr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use libloading::Library;
 
@@ -101,8 +101,8 @@ fn load_and_run(symbol: &[u8]) -> Result<i32, String> {
     let path = resolve_library()?;
     unsafe {
         // The library remains live until its C ABI entry point returns.
-        let library = Library::new(&path)
-            .map_err(|_| "failed to load internal 星河 worker library".to_string())?;
+        let library = load_library(&path)
+            .map_err(|error| format!("failed to load internal 星河 worker library: {error}"))?;
         let abi = library.get::<unsafe extern "C" fn() -> u64>(ABI_ENTRY)
             .map_err(|_| "内置星河运行时缺少版本接口，请修复安装".to_string())?;
         let core_version = library.get::<unsafe extern "C" fn() -> u64>(CORE_VERSION_ENTRY)
@@ -119,6 +119,24 @@ fn load_and_run(symbol: &[u8]) -> Result<i32, String> {
             .map_err(|_| "internal 星河 worker entry point is unavailable".to_string())?;
         Ok(entry())
     }
+}
+
+unsafe fn load_library(path: &Path) -> Result<Library, libloading::Error> {
+    #[cfg(windows)]
+    {
+        use libloading::os::windows::{
+            Library as WindowsLibrary, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR,
+            LOAD_LIBRARY_SEARCH_SYSTEM32,
+        };
+        // 随包运行库在星河目录中；不从会话目录或 PATH 查找依赖。
+        WindowsLibrary::load_with_flags(
+            path,
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32,
+        )
+        .map(Into::into)
+    }
+    #[cfg(not(windows))]
+    Library::new(path)
 }
 
 fn is_active_worker() -> bool {

@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { libraryName, parseTarget } from "./prepare-xinghe-worker.mjs"
+import { verifyWindowsRuntime } from "./xinghe-worker-msvc.mjs"
 import {
   verifyWorkerBinary,
   verifyHelperBinary,
@@ -41,6 +42,14 @@ export function verifyWorkerBundle(resourceRoot, target, compareStaged = true) {
   if (expected.ref !== `rust-v${version}`)
     throw new Error("worker and desktop runtime versions disagree")
   verifyWorkerBinary(value, target, expected)
+  for (const runtime of verifyWindowsRuntime(installedRoot, target)) {
+    if (
+      compareStaged &&
+      digest(bytes(join(installedRoot, runtime))) !==
+        digest(bytes(join(sourceRoot, runtime)))
+    )
+      throw new Error(`installed MSVC runtime differs from staging: ${runtime}`)
+  }
   for (const helper of helperNames(target)) {
     const binary = bytes(join(installedRoot, helper))
     verifyHelperBinary(binary, target)

@@ -154,6 +154,54 @@ function verifyPe(bytes, machine) {
   }
 }
 
+export function windowsRuntimeImports(bytes, target) {
+  const DIRECTORY_BYTES = 8
+  const IMPORT_BYTES = 20
+  const MAX_DLL_NAME = 256
+  if (bytes.length < 64 || bytes.toString("ascii", 0, 2) !== "MZ")
+    throw new Error("invalid Windows runtime DOS header")
+  const pe = bytes.readUInt32LE(0x3c)
+  if (
+    pe + 24 > bytes.length ||
+    bytes.readUInt32LE(pe) !== 0x4550 ||
+    bytes.readUInt16LE(pe + 4) !== MACHINE[target]?.[1]
+  )
+    throw new Error("invalid Windows runtime architecture")
+  const optional = pe + 24
+  if (optional + 2 > bytes.length)
+    throw new Error("truncated Windows runtime optional header")
+  const magic = bytes.readUInt16LE(optional)
+  const directories =
+    optional + (magic === 0x20b ? 112 : magic === 0x10b ? 96 : 0)
+  const optionalEnd = optional + bytes.readUInt16LE(pe + 20)
+  if (
+    directories === optional ||
+    directories + 2 * DIRECTORY_BYTES > optionalEnd ||
+    optionalEnd > bytes.length
+  )
+    throw new Error("invalid Windows runtime import header")
+  const rva = bytes.readUInt32LE(directories + DIRECTORY_BYTES)
+  const size = bytes.readUInt32LE(directories + DIRECTORY_BYTES + 4)
+  if (rva === 0 && size === 0) return []
+  const sections = bytes.readUInt16LE(pe + 6)
+  const atRva = (address, length = 1) =>
+    peOffset(bytes, optionalEnd, sections, address, length)
+  const table = atRva(rva, size)
+  const imports = []
+  for (let offset = 0; offset + IMPORT_BYTES <= size; offset += IMPORT_BYTES) {
+    const nameRva = bytes.readUInt32LE(table + offset + 12)
+    if (nameRva === 0) return imports
+    const start = atRva(nameRva)
+    const end = bytes.indexOf(0, start)
+    if (end < 0 || end - start > MAX_DLL_NAME)
+      throw new Error("invalid Windows runtime import name")
+    const name = bytes.toString("ascii", start, end)
+    if (/^(?:vcruntime|msvcp|concrt|vcomp)\d[^\\/]*\.dll$/i.test(name))
+      imports.push(name.toLowerCase())
+  }
+  throw new Error("unterminated Windows runtime import table")
+}
+
 function peOffset(bytes, table, count, rva, size) {
   const SECTION_BYTES = 40
   if (table + count * SECTION_BYTES > bytes.length)

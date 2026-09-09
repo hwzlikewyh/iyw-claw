@@ -104,7 +104,7 @@ pub fn resolve_exe_for_launch(source: &Path, codex_home: &Path) -> PathBuf {
         return source.to_path_buf();
     };
     let destination = helper_bin_dir(codex_home).join(file_name);
-    match copy_from_source_if_needed(source, &destination) {
+    match copy_with_runtime_if_needed(source, &destination) {
         Ok(_) => destination,
         Err(err) => {
             let sandbox_log_dir = crate::sandbox_dir(codex_home);
@@ -149,7 +149,7 @@ pub(crate) fn copy_helper_if_needed(
         ),
         log_dir,
     );
-    let outcome = copy_from_source_if_needed(&source, &destination)?;
+    let outcome = copy_with_runtime_if_needed(&source, &destination)?;
     let action = match outcome {
         CopyOutcome::Reused => "reused",
         CopyOutcome::ReCopied => "recopied",
@@ -260,6 +260,18 @@ fn dev_build_suffix(source: &Path) -> Result<String> {
         .duration_since(UNIX_EPOCH)
         .with_context(|| format!("convert helper source mtime {}", source.display()))?;
     Ok(format!("{}-{:x}", metadata.len(), duration.as_secs(),))
+}
+
+fn copy_with_runtime_if_needed(source: &Path, destination: &Path) -> Result<CopyOutcome> {
+    // 辅助程序移入沙箱后，Windows 仍需在可执行文件旁找到随包 VC 运行库。
+    for name in ["vcruntime140.dll", "vcruntime140_1.dll"] {
+        let runtime = source.with_file_name(name);
+        if runtime.is_file() {
+            copy_from_source_if_needed(&runtime, &destination.with_file_name(name))
+                .with_context(|| format!("copy bundled helper runtime {name}"))?;
+        }
+    }
+    copy_from_source_if_needed(source, destination)
 }
 
 fn copy_from_source_if_needed(source: &Path, destination: &Path) -> Result<CopyOutcome> {
