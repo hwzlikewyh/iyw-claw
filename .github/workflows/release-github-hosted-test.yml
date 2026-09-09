@@ -40,7 +40,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: github-hosted-packaging-test-${{ inputs.version }}
+  group: github-hosted-packaging-test-${{ inputs.version }}-${{ inputs.candidate_repair_run || 'primary' }}
   cancel-in-progress: false
 
 env:
