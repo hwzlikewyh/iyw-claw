@@ -24,7 +24,7 @@ function Get-UnsignedPayload([string]$Path) {
     } finally { $reader.Dispose(); $stream.Dispose() }
 }
 
-foreach ($name in @('iyw-xinghe-helper.exe','xinghe-command-runner.exe','xinghe-windows-sandbox-setup.exe')) {
+foreach ($name in @('iyw-xinghe-helper.exe','xinghe-command-runner.exe','xinghe-windows-sandbox-setup.exe','iyw_xinghe_worker.dll')) {
     $expected = Join-Path $ExpectedRoot $name
     $signed = Join-Path $SignedRoot $name
     $signature = Get-AuthenticodeSignature -LiteralPath $signed
