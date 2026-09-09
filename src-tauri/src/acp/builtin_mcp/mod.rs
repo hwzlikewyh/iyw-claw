@@ -21,6 +21,7 @@ mod interaction_tools;
 mod interactive_html;
 mod iyw_delivery;
 mod iyw_image;
+mod iyw_image_models;
 mod iyw_knowledge;
 mod iyw_memory;
 mod iyw_service;

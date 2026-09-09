@@ -45,6 +45,13 @@ impl IywGatewayService {
         super::iyw_image::generate(self, authority, arguments).await
     }
 
+    pub(super) async fn list_image_models(
+        &self,
+        arguments: Value,
+    ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
+        super::iyw_image_models::list(self, arguments).await
+    }
+
     pub(super) async fn search_knowledge(
         &self,
         arguments: Value,

@@ -39,11 +39,14 @@ approach; domain skills then carry out the work.
 - A user-requested visible Skill or direct tool that fully satisfies a subgoal -> use it first.
 - "Generate or edit an image, create IYW product/material/pattern imagery, or
   call an IYW image tool" -> use the directly advertised `generate_iyw_image`
-  tool. Omit `type` for the shortest auto route; use an explicit type and full
-  `parameters` only when the task needs precision. Use
+  tool. Before `generate` or `edit` (including `auto` without source images),
+  call `list_iyw_image_models` with `{}`, choose a returned model supporting the
+  intended operation, and pass its exact ID in `parameters.model`. Reuse the
+  catalog for the same task or batch. Specialized IYW operations do not need
+  this lookup. Use
   `search_iyw_knowledge` separately when knowledge-base evidence is requested;
   do not start search, research, memory, browser, document, or scenario planning
-  before a self-contained one-call image request.
+  before a self-contained image request.
 - "Read a web page, obtain public web data, or automate a website" -> `agent-browser`; a reliable direct data source may run first, but missing, incomplete, dynamic, or authenticated data must fall back to the managed browser before another browser or user hand-off.
 - "Perform a remaining concrete iyw-claw host state or action" -> use the complete unique `iyw-capability-gateway` trio first.
 - "Create or update a skill" -> `writing-skills` or `skill-creator`.

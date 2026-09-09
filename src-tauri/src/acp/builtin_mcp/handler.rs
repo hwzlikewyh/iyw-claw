@@ -180,6 +180,11 @@ impl BuiltinMcpHandler {
                 log_direct_result(&trace, &result);
                 result
             }
+            GatewayAction::ImageModels(arguments) => {
+                let result = self.iyw.list_image_models(arguments).await;
+                log_direct_result(&trace, &result);
+                result
+            }
             GatewayAction::Knowledge(arguments) => {
                 let result = self.iyw.search_knowledge(arguments).await;
                 log_direct_result(&trace, &result);
