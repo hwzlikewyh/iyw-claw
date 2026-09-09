@@ -34,7 +34,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  await-windows:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          X64_RUN_ID: ${{ inputs.x64_run_id }}
+          X86_RUN_ID: ${{ inputs.x86_run_id }}
+        with:
+          script: |
+            const ids = [process.env.X64_RUN_ID, process.env.X86_RUN_ID].map(Number);
+            if (ids.some(id => !Number.isSafeInteger(id) || id <= 0)) throw new Error('Invalid source run');
+            while (true) {
+              const runs = await Promise.all(ids.map(run_id => github.rest.actions.getWorkflowRun({...context.repo,run_id})));
+              for (const {data: run} of runs) if (run.status === 'completed' && run.conclusion !== 'success') throw new Error(`Source run ${run.id}: ${run.conclusion}`);
+              if (runs.every(({data: run}) => run.conclusion === 'success')) break;
+              core.info('Waiting for hosted Windows build and staged x64 signing inputs');
+              await new Promise(resolve => setTimeout(resolve, 30000));
+            }
+  await-desktop:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          DESKTOP_RUN_ID: ${{ inputs.desktop_run_id }}
+        with:
+          script: |
+            const run_id = Number(process.env.DESKTOP_RUN_ID);
+            const names = ['macOS x64', 'macOS arm64', 'Linux x64'].map(name => `build-tauri / Build ${name}`);
+            while (true) {
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,{...context.repo,run_id,per_page:100});
+              const selected = names.map(name => jobs.find(job => job.name === name));
+              for (const job of selected) if (job?.status === 'completed' && job.conclusion !== 'success') throw new Error(`${job.name}: ${job.conclusion}`);
+              if (selected.every(job => job?.conclusion === 'success')) break;
+              core.info('Waiting for macOS and Linux artifacts');
+              await new Promise(resolve => setTimeout(resolve, 30000));
+            }
   finalize-windows:
+    needs: await-windows
     runs-on: [self-hosted, Windows, X64, iyw-signing]
     timeout-minutes: 60
     strategy:
@@ -199,6 +238,7 @@ jobs:
       source_ref: ${{ inputs.source_ref }}
 
   verify-macos:
+    needs: await-desktop
     runs-on: macos-26-intel
     timeout-minutes: 30
     steps:
