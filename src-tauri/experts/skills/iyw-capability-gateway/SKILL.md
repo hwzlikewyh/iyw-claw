@@ -1,23 +1,23 @@
 ---
 name: iyw-capability-gateway
-short-description: Route concrete iyw-claw host work through the live capability catalog.
+short-description: 爱原物业务接口、图片、上传与 iyw-claw 主机能力的分层调用指南。
 description: >-
-  Use proactively when a concrete task needs iyw-claw host state or action:
-  memory or self-learning, session/profile/history, final artifacts, managed
-  browser or public web evidence, audio transcription, image understanding or
-  display, channels and messages, scheduled automation, user interaction, or
-  delegated work. First load the matching gateway reference, then use one
-  complete search/read/invoke trio when the host catalog is needed for the
-  current sub-goal. Prefer a direct tool or domain Skill when it fully owns the
-  task. A gateway failure ends that route, not the user's task; hand off to an
-  applicable direct tool, domain Skill, or read-only browser workflow without
-  guessing IDs, arguments, paths, URLs, or schemas.
+  Use for 爱原物/IYW 设计云、AI工作台、图案网的业务接口：产品与标签、客户需求、
+  趋势报告、知识库目录、原助理会话、IP/图案/授权、瓶型瓶盖、Temu、会员点数钱包、
+  组织员工、需求比稿、版权合同、店铺展厅、素材收藏、任务进度和PDF；包含商品套图/A+、
+  批量中心、知识库切片/附件、资产库、工厂订单/物流、权益分层；也用于图片处理、
+  任意文件上传(50MiB)、fetch_iyw_url。按关键词索引逐层读取参数，剩余业务统一用
+  fetch_iyw_url，图片用generate_iyw_image，上传用upload_iyw_file。
+  Also route iyw-claw memory/learning, session/profile/history, artifacts,
+  browser/web evidence, audio, image understanding, channels/messages,
+  automation, interaction and delegation through the matching reference and
+  live host catalog. Read only relevant references; never guess IDs or schemas.
 routing:
-  capability: iyw-claw host routing through live capabilities
-  coreTriggers: [host action, memory, self-learning, session, profile, history, artifact, browser, web, internet, audio, transcription, image understanding, channel, message, automation, scheduled task, feedback, question, clarification, ambiguous requirement, needs decision, 需求不清, 需要选择, delegation]
-  exclusions: [trivial request, self-contained explanation, direct tool fully covers the task, incomplete gateway trio]
-  aliases: [iyw gateway, host capability, capability catalog, 主机能力, 能力网关]
-  invocation: Load the matching reference, search the live catalog, read one best match, and invoke its exact current schema when the gateway owns the sub-goal.
+  capability: IYW business APIs through fetch_iyw_url and iyw-claw host capabilities
+  coreTriggers: [host action, memory, self-learning, session, profile, history, artifact, browser, web, internet, audio, transcription, image understanding, channel, message, automation, scheduled task, feedback, question, clarification, ambiguous requirement, needs decision, 需求不清, 需要选择, delegation, 爱原物, 设计云, 产品, 标签, 客户需求, 趋势报告, 图案, IP授权, 版权, 点数, 钱包, 组织, 店铺, 瓶型, Temu, 上传文件, fetch_iyw_url, upload_iyw_file]
+  exclusions: [trivial request, self-contained explanation]
+  aliases: [iyw gateway, host capability, capability catalog, 主机能力, 能力网关, 爱原物接口, 设计云, AI工作台, 图案网, 产品库, 版权登记, 文件上传]
+  invocation: For IYW business tasks load iyw-api-index and the matching domain reference, then call fetch_iyw_url. Images and uploads use their direct tools. Search/read/invoke only for host catalog capabilities.
 ---
 
 # IYW Capability Gateway
@@ -25,6 +25,10 @@ routing:
 This Skill is an active routing gate, not a static tool list. The host catalog is
 authoritative for current capability IDs, schemas, required inputs, availability,
 permissions, and schema digests.
+
+爱原物业务先读 [接口索引](references/iyw-api-index.md)，按关键词仅加载对应领域。
+除图片生成/处理与通用上传外，本资料的业务接口全部通过 `fetch_iyw_url` 执行。
+业务 API 路由不依赖能力三件套；主机能力才使用下文 catalog 流程。
 
 Before first using a tool, read its advertised description and input schema,
 including nested fields, required inputs, constraints, and examples. For a
@@ -47,6 +51,10 @@ follow its workflow**. Do not treat the reference as optional background reading
 
 | Task signal | Load first |
 | --- | --- |
+| 商品套图/A+、批量图片、新版 Agent、知识库全套、资产库、订单物流、权限分层 | [接口索引新版任务表](references/iyw-api-index.md)，仅加载对应补充资料 |
+| 爱原物产品/标签、客户需求、趋势/IP/图案、会员点数、组织、版权、设计云或具体 API | [业务接口索引](references/iyw-api-index.md)，再读匹配领域与 [HTTP 约定](references/iyw-http.md) |
+| 上传任意文件、压缩包、文档、音视频、50M 文件链接 | [通用上传](references/iyw-upload.md) |
+| 图片生成/处理、扩图、放大、抠图、消除、色号、矢量、3D、视频 | [图片工具参数](references/iyw-image-tools.md) |
 | Session, profile, history, interaction, or plugin capability | [capability-families.md](references/capability-families.md) |
 | Unclear requirement, missing decision, or multiple reasonable interpretations | [capability-families.md](references/capability-families.md) |
 | Final file, directory, URL, HTML/Markdown delivery, or image references in a document | [artifact-delivery.md](references/artifact-delivery.md) |
@@ -68,10 +76,11 @@ follow its workflow**. Do not treat the reference as optional background reading
    `writing-plans`, or `executing-plans`.
    For any image production or editing request, call the directly advertised
    `generate_iyw_image` tool. It replaces the old `iyw-image-workflows` and
-   `imagegen` routing split. With images, prioritize `variation`, `extend`,
-   `mix`, or the matching specialized image tool. Choose an explicit `type`
-   from the task intent; reserve `edit` for free-form work the tools cannot
-   express and `generate` for text-only creation. Before `generate` or `edit`,
+   `imagegen` routing split. Prioritize IYW platform operations: `fission` for
+   text-only creation, or `variation`, `extend`, `mix`, and matching specialized
+   tools for source images. `generate`/`edit` call Fusion and require an explicit
+   platform failure for this task or confirmed rejection before task creation;
+   a free-form prompt alone does not permit fallback. Before an eligible fallback,
    call `list_iyw_image_models`, choose a model with the required capability,
    and pass its exact ID in `parameters.model`. Do not read another image
    Skill or search/read a capability ID for generation; none is registered. Use
@@ -178,6 +187,10 @@ tools and the capability trio:
   Returns IDs, names, descriptions, generation/editing capabilities, and prices.
   The agent selects the model for `generate`/`edit` and passes its exact ID in
   `parameters.model`. Specialized IYW operations do not use this catalog.
+- `fetch_iyw_url`: 所有已记录的剩余爱原物业务接口入口；传入 description、url、method、query/body。
+  先查 [接口索引](references/iyw-api-index.md)，不搜索 capability_id。
+- `upload_iyw_file`: 任意类型工作区文件，最多 50 MiB；description + path，可选 name/mime_type。
+  取得公开 URL 后按用户任务用 fetch 保存业务记录或交付文件。
 - `generate_iyw_image`: image generation/editing and all confirmed IYW
   image operations. Prefer an explicit `type`; put supported operation-specific
   fields under `parameters`. The host waits up to the requested timeout and
@@ -192,88 +205,13 @@ tools and the capability trio:
   one `operation` field. Read each selected operation's capability instructions
   first; the host performs policy execution preflight automatically.
 
-### Image shortest paths
+### 图片参数按需读取
 
-For `generate` or `edit`, first call `list_iyw_image_models` with `{}`. Choose
-from the returned descriptions, capabilities, prices, and user requirements;
-`generate` requires `capabilities.image_generation=true`, while `edit` requires
-`capabilities.image_editing=true`. Pass the selected `id` as `parameters.model`;
-never guess a model or leave this choice to the host's compatibility fallback.
-Reuse the catalog for the same task or batch and select a model for every
-`generate`/`edit` item. This also applies to `auto` without images. Refresh when
-model availability changes; an empty or failed lookup does not supply a model.
-
-Then call `generate_iyw_image` and wait for its result. In the examples below,
-replace `MODEL_ID_FROM_CATALOG` with the selected ID before calling. Specialized
-operations still use one call without a Fusion model lookup.
-
-With source images, choose the applicable IYW tool first: one-image redesign
-uses `variation`; same-series or trend/theme extension uses `extend`; combining
-2-10 references uses `mix`. A matching specialized operation such as background,
-outpaint, or super-resolution takes priority for that task. Use `edit` for an
-explicit need for free-form redraw, masks, complex composition, or constraints
-these tools cannot express. Keep all needed reference images. With no images,
-use `generate` (`images/generations`); `fission` is an explicitly chosen alternative.
-Do not use a generation-only type with source images.
-
-`auto` is only a basic fallback: no images -> `generate`; one image -> `variation`
-or `extend` for series/extension wording; multiple images -> `mix`. It does not
-infer specialized operations or creative freedom. Do not switch routes or
-recreate a task after a timeout/uncertain submission; query the original task ID
-when available. Ordinary generation/editing delivers successful images directly using
-returned status, URLs, and delivery metadata. Review visuals for requested quality review,
-comparison, visual acceptance, or integration into a composed deliverable. A detailed prompt
-alone is not a review request; report partial/failure states and do not regenerate beyond scope.
-
-```json
-{"type":"generate","prompt":"白底陶瓷茶壶，现代东方风，产品摄影","parameters":{"model":"MODEL_ID_FROM_CATALOG"}}
-```
-
-```json
-{"type":"variation","prompt":"只把包身改成深绿色防水尼龙，保留版型、拉链、提手和视角","images":["https://example.com/bag.png"]}
-```
-
-```json
-{"type":"extend","prompt":"保持原图结构和材质语言，延展同系列花瓶","images":[{"url":"https://example.com/vase.png","role":"primary"}],"parameters":{"ratio":"4:3","batchSize":1}}
-```
-
-```json
-{"type":"mix","prompt":"以第1张产品结构、第2张趋势配色融合成一件可生产餐盘","images":[{"url":"https://example.com/product.png","role":"structure"},{"url":"https://example.com/trend.png","role":"style"}]}
-```
-
-```json
-{"type":"edit","prompt":"以原图为参考自由重绘为超现实拼贴海报，重新设计透视和构图，保留主体标识，右侧留出标题区域","images":[{"base64":"...","mimeType":"image/png","role":"source"}],"parameters":{"model":"MODEL_ID_FROM_CATALOG"}}
-```
-
-```json
-{"type":"background","prompt":"浅木桌面和自然接触阴影，主体边缘完整","images":["https://example.com/product.png"],"parameters":{"size":"1:1","resolution":"standard"}}
-```
-
-```json
-{"type":"super-resolution","images":["https://example.com/low-res.png"],"parameters":{"upscale":4}}
-```
-
-```json
-{"type":"line-extraction","images":["https://example.com/product.png"],"parameters":{"model":"canny","batch_size":1,"stats":{"reference":"https://example.com/product.png"}}}
-```
-
-```json
-{"type":"image-to-3d","images":["https://example.com/product.png"],"parameters":{"stats":{"format":1,"MultiViewImages":[]}}}
-```
-
-```json
-{"type":"video","prompt":"镜头从正面缓慢环绕，展示材质高光","images":["https://example.com/product.png"],"parameters":{"ratio":"16:9","duration":8,"mode":"normal"}}
-```
-
-商品套图、AI 试衣、出血线和色号提取只可在其页面当前服务给出完整、已确认的
-请求契约后接入；网关不会按页面名称猜 endpoint 或 payload。其他专用操作必须显式
-传 `type`，并将全部细节传到 `parameters`。
-
-For a local path use `"images":["assets/product.png"]`; for raw base64 use an
-object with `base64` and `mimeType`; for a Data URL pass it as the string source.
-For IYW image tools, non-URL sources become public HTTPS before execution;
-`edit` uses their validated bytes directly. The decoded input limit is 20 MiB
-and HTTP image URLs are rejected.
+常用默认路径：无图用 `fission`，单图改款用 `variation`，同系列延伸用 `extend`，多图用 `mix`。
+专用处理、批量、蒙版、色号、矢量、3D、视频和回退条件见
+[图片工具参数](references/iyw-image-tools.md)；只读本次操作相关部分。
+原始图片 API、旧/新参数差异和历史点数见
+[图片接口证据](references/iyw-image-api-source.md)，不默认加载。
 
 ### Knowledge shortest path
 

@@ -1,6 +1,6 @@
-use std::time::Duration;
-
 use serde_json::Value;
+
+use super::agent_timeout::requested_timeout;
 
 use super::agent_tool_actions::AgentCliRequest;
 use super::agent_tool_cancellation::AgentToolContext;
@@ -14,7 +14,6 @@ use super::manager::BrowserSessionManager;
 const MAX_ARGUMENTS: usize = 48;
 const MAX_ARGUMENT_CHARS: usize = 8_192;
 const MAX_TOTAL_ARGUMENT_CHARS: usize = 64 * 1_024;
-const MAX_COMMAND_TIMEOUT_MS: u64 = 300_000;
 
 const RESERVED_GLOBAL_ARGUMENTS: &[&str] = &[
     "--action-policy",
@@ -138,7 +137,7 @@ impl BrowserSessionManager {
             context,
             tab_id,
             args,
-            timeout: COMMAND_TIMEOUT,
+            timeout: requested_timeout(input, COMMAND_TIMEOUT)?,
         })
         .await
     }
@@ -155,7 +154,7 @@ impl BrowserSessionManager {
         }
         let mut args = vec![command];
         args.extend(parse_arguments(input)?);
-        let timeout = command_timeout(input)?;
+        let timeout = requested_timeout(input, COMMAND_TIMEOUT)?;
         self.run_command(AgentCliRequest {
             context,
             tab_id,
@@ -211,14 +210,4 @@ fn reserved_global_argument(value: &str) -> bool {
                 .get(..reserved.len().saturating_add(1))
                 .is_some_and(|prefix| prefix.eq_ignore_ascii_case(&format!("{reserved}=")))
     })
-}
-
-fn command_timeout(input: &Value) -> Result<Duration, BrowserError> {
-    let timeout_ms = input
-        .get("timeout_ms")
-        .map(|value| value.as_u64())
-        .unwrap_or(Some(COMMAND_TIMEOUT.as_millis() as u64))
-        .filter(|value| (1..=MAX_COMMAND_TIMEOUT_MS).contains(value))
-        .ok_or_else(|| invalid_argument("Invalid browser command timeout"))?;
-    Ok(Duration::from_millis(timeout_ms))
 }

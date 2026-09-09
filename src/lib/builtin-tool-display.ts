@@ -2,6 +2,8 @@ const GATEWAY_TOOL_NAMES = [
   "search_iyw_capabilities",
   "read_iyw_capability",
   "invoke_iyw_capability",
+  "fetch_iyw_url",
+  "upload_iyw_file",
 ] as const
 
 const CAPABILITY_ID_TO_TOOL: Readonly<Record<string, string>> = {
@@ -137,6 +139,17 @@ function matchKnownToolName(toolName: string): string | null {
 
   const known = [...CAPABILITY_TOOL_NAMES, ...GATEWAY_TOOL_NAMES]
   return known.find((name) => canonical.endsWith(`_${name}`)) ?? null
+}
+
+export function getIywToolDescription(
+  toolName: string,
+  input: string | null | undefined
+): string | null {
+  const name = matchKnownToolName(toolName)
+  if (name !== "fetch_iyw_url" && name !== "upload_iyw_file") return null
+  const description = input ? findStringField(input, "description") : null
+  if (!description || Array.from(description).length > 120) return null
+  return description.replace(/\s+/g, " ").replace(/^正在\s*/, "") || null
 }
 
 /**

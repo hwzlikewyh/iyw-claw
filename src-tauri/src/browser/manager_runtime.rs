@@ -97,6 +97,7 @@ impl BrowserSessionManager {
         cancellation: CancellationToken,
     ) -> Result<BrowserRuntimeContext, BrowserError> {
         let _start_guard = self.runtime_start_lock.lock().await;
+        self.ensure_managed_browser_enabled()?;
         let runtime = self.desktop_runtime()?;
         let status = self.state.read().await.runtime.status;
         if status == BrowserRuntimeStatus::Running {
@@ -276,6 +277,12 @@ impl BrowserSessionManager {
         runtime: Option<Arc<BrowserRuntime>>,
     ) -> Self {
         Self {
+            managed_browser_enabled: Arc::new(std::sync::atomic::AtomicBool::new(
+                crate::preferences::load()
+                    .builtin_browser_enabled
+                    .unwrap_or(false),
+            )),
+            browser_visibility_lock: Arc::new(tokio::sync::Mutex::new(())),
             state: Arc::new(tokio::sync::RwLock::new(BrowserState::new(capability))),
             controls: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
             user_action_requests: Arc::new(tokio::sync::Mutex::new(
@@ -328,6 +335,11 @@ impl BrowserSessionManager {
         ticket: RuntimeTicket,
         cancellation: CancellationToken,
     ) -> Result<BrowserRuntimeContext, BrowserError> {
+        if let Err(error) = self.ensure_managed_browser_enabled() {
+            self.fail_runtime_start(&ticket, "BROWSER_DISABLED".to_string())
+                .await?;
+            return Err(error);
+        }
         match runtime.start(ticket.generation, cancellation.clone()).await {
             Ok(context) => match self
                 .start_cdp_observer(&context, cancellation.clone())

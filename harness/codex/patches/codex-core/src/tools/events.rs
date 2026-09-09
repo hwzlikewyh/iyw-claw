@@ -158,6 +158,7 @@ async fn emit_exec_command_begin(ctx: ToolEventCtx<'_>, exec_input: &ExecCommand
             ctx.turn,
             &TurnItem::CommandExecution(CommandExecutionItem {
                 id: ctx.call_id.to_string(),
+                description: ctx.turn.command_description(ctx.call_id),
                 plugin_id,
                 script_path,
                 process_id: exec_input.process_id.map(str::to_owned),
@@ -571,6 +572,7 @@ async fn emit_exec_end(
             ctx.turn,
             TurnItem::CommandExecution(CommandExecutionItem {
                 id: ctx.call_id.to_string(),
+                description: ctx.turn.command_description(ctx.call_id),
                 plugin_id,
                 script_path,
                 process_id: exec_input.process_id.map(str::to_owned),

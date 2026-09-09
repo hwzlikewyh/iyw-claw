@@ -12,6 +12,10 @@ import type {
 const shell = () => getShellTransport()
 
 export const browserApi = {
+  syncVisibility: (visible: boolean, initializeOnly = false) =>
+    shell().call<boolean>("browser_set_visibility", {
+      request: { visible, initializeOnly },
+    }),
   state: () => shell().call<BrowserStateSnapshot>("browser_get_state"),
   refreshCapability: () =>
     shell().call<BrowserStateSnapshot>("browser_refresh_capability"),

@@ -96,6 +96,10 @@ pub fn should_persist_event_msg(ev: &EventMsg, history_mode: ThreadHistoryMode) 
             // equivalent.
             matches!(history_mode, ThreadHistoryMode::Paginated)
                 || matches!(
+                    &event.item,
+                    TurnItem::CommandExecution(item) if item.description.is_some()
+                )
+                || matches!(
                     event.item,
                     TurnItem::FunctionCallOutput(_)
                         | TurnItem::Plan(_)

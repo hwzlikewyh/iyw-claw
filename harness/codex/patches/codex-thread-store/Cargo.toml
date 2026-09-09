@@ -1,0 +1,93 @@
+[package]
+edition = "2024"
+license = "Apache-2.0"
+name = "codex-thread-store"
+version = "0.153.4"
+autobins = false
+autotests = false
+autobenches = false
+
+[lib]
+name = "codex_thread_store"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies.chrono]
+version = "0.4.43"
+features = ["serde"]
+
+[dependencies.codex-app-server-protocol]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-extension-items]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-git-utils]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-install-context]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-otel]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-protocol]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-rollout]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-state]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-utils-absolute-path]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-utils-path]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-utils-path-uri]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.futures]
+version = "0.3"
+default-features = false
+
+[dependencies.pulldown-cmark]
+version = "0.10"
+default-features = false
+
+[dependencies.serde]
+version = "1"
+features = ["rc", "derive"]
+
+[dependencies.serde_json]
+version = "1"
+
+[dependencies.sqlx]
+version = "0.9.0"
+default-features = false
+features = ["chrono", "json", "macros", "migrate", "runtime-tokio", "tls-rustls", "sqlite-bundled", "time", "uuid"]
+
+[dependencies.thiserror]
+version = "2.0.17"
+
+[dependencies.tokio]
+version = "1"
+
+[dependencies.tracing]
+version = "0.1.44"
+
+[dependencies.zstd]
+version = "0.13"

@@ -185,8 +185,30 @@ impl BuiltinMcpHandler {
                 log_direct_result(&trace, &result);
                 result
             }
+            GatewayAction::FetchUrl(arguments) => {
+                let result = tokio::select! {
+                    biased;
+                    _ = context.ct.cancelled() => Err(super::iyw_fetch::cancelled()),
+                    _ = authority.cancellation().cancelled() => Err(super::iyw_fetch::cancelled()),
+                    result = super::iyw_fetch::fetch(&self.iyw, arguments) => result,
+                };
+                let result = Ok(result.unwrap_or_else(super::iyw_fetch::failure));
+                log_direct_result(&trace, &result);
+                result
+            }
             GatewayAction::Knowledge(arguments) => {
                 let result = self.iyw.search_knowledge(arguments).await;
+                log_direct_result(&trace, &result);
+                result
+            }
+            GatewayAction::Upload(arguments) => {
+                let result = tokio::select! {
+                    biased;
+                    _ = context.ct.cancelled() => Err(super::iyw_upload::cancelled()),
+                    _ = authority.cancellation().cancelled() => Err(super::iyw_upload::cancelled()),
+                    result = super::iyw_upload::upload(&self.iyw, &authority, arguments) => result,
+                };
+                let result = Ok(result.unwrap_or_else(super::iyw_upload::failure));
                 log_direct_result(&trace, &result);
                 result
             }

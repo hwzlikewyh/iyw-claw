@@ -7,6 +7,14 @@ prefers OpenCLI for existing Chrome sign-in state and switches only for a
 classified human-only action. Use the live catalog for exact stable IDs and
 schemas.
 
+The built-in browser setting is enforced by the host. When off, all operations,
+presentation, and user action stay in external Chrome/OpenCLI. Never re-enable
+or enter the managed browser to recover an external failure. An old managed tab
+requires a new external open and snapshot; do not replay its references.
+`OPENCLI_USER_ACTION_REQUIRED` means the human step is still pending, even when
+the external tab was successfully presented. Verify fresh state after the user
+finishes. A timeout with `effectMayHaveOccurred=true` must not be blindly retried.
+
 ## Unified Browser Workflow
 
 Use this sequence for ordinary navigation and interaction:
@@ -98,7 +106,7 @@ pipes, redirects, command chaining, or guessed command names.
   current browser/provider attempt. Do not switch providers from this Skill;
   the caller may choose another already-authorized route, but must not treat
   this failure alone as proof that the business task is impossible.
-- Switch only when OpenCLI reports login, MFA, CAPTCHA, device approval,
+- Switch only when the built-in browser is enabled and OpenCLI reports login, MFA, CAPTCHA, device approval,
   security confirmation, human review, or another explicit user-action
   requirement. Keep that task pinned to the managed provider afterward.
 - Request browser user action only for credentials held by the user, MFA,
@@ -167,12 +175,28 @@ IYW product/material/commerce and ordinary raster creation. Attach SVG, BMP,
 ICO, and other unsupported model-image formats as ordinary files rather than
 forcing an image-analysis route.
 
-Before `type=generate` or `type=edit` (also `auto` without images), call
+IYW platform image operations have highest priority: use `fission` for text-only
+creation, or `variation`, `extend`, `mix`, and specialized platform tools for source
+images. `auto` without images also uses `fission`. Only after an explicit terminal
+platform failure or confirmed rejection before task creation may the agent fall
+back to `generate` (`images/generations`) or `edit` (`images/edits`). A timeout,
+transport error, or running task does not authorize fallback; query its task ID.
+Local path/parameter errors and complex prompts do not authorize fallback either.
+The direct tool wraps both backends: `type=edit` is Fusion, while a one-image
+redesign uses platform `type=variation`.
+
+Before that `type=generate` or `type=edit` fallback, call
 `list_iyw_image_models` with `{}`. Choose a returned model for the user's task
 with `image_generation` or `image_editing` enabled, respectively, then pass its
 exact `id` in `parameters.model`. Reuse the catalog for the same task or batch.
 Specialized IYW operations such as `variation`, `extend`, and `mix` do not need
 this Fusion model lookup.
+
+Default timeouts are 600 seconds for platform HTTP requests and task polling,
+and 300 seconds for Fusion generation/editing. The agent may override either with
+`wait.timeoutSeconds`, including values above 600; each batch item can set its own
+wait. Prefer the defaults or longer for slow image tasks. `0` explicitly submits
+platform tasks without polling; Fusion retains its default timeout.
 
 After `generate_iyw_image`, choose verification from the user's task. Ordinary
 generation/editing can deliver successful results directly using returned status,

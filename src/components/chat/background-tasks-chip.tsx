@@ -5,6 +5,7 @@ import { CircleAlert, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { useConnection } from "@/hooks/use-connection"
+import { RuntimeBackgroundStatus } from "./runtime-background-status"
 
 const SETTLE_SYNC_DISPLAY_MS = 30_000
 
@@ -43,7 +44,7 @@ export function BackgroundTasksChip({
     expiredFor !== backgroundSettleSyncingSince
 
   if (backgroundOutstanding <= 0 && !backgroundUncertain && !showSyncing)
-    return null
+    return <RuntimeBackgroundStatus contextKey={contextKey} inline={inline} />
 
   const status = (
     <span className="inline-flex min-w-0 items-center gap-1 leading-none text-sky-700 dark:text-sky-300">

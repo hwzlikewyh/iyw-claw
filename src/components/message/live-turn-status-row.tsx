@@ -1,275 +1,174 @@
 "use client"
 
-import type { ReactNode } from "react"
+import { memo, type ReactNode } from "react"
 import { useTranslations } from "next-intl"
 import {
+  Brain,
   CircleDashed,
-  Gauge,
-  ListTodoIcon,
-  Loader2,
+  FileText,
+  Globe,
+  Image,
+  ListTodo,
+  MessageCircle,
+  RotateCcw,
+  Search,
   Square,
-  Timer,
+  Terminal,
   Wrench,
 } from "lucide-react"
-import type {
-  LiveMessage,
-  ToolCallInfo,
-} from "@/contexts/acp-connections-context"
 import type { PlanEntryInfo } from "@/lib/types"
-import { Badge } from "@/components/ui/badge"
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
+import { cn } from "@/lib/utils"
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { PlanEntriesList } from "@/components/message/plan-card"
+import type { ActivityIcon } from "./live-turn-activity"
+import { LiveTurnElapsed } from "./live-turn-elapsed"
+import { LiveTurnPlan } from "./live-turn-plan"
 
 interface LiveTurnStatusRowProps {
-  message: LiveMessage | null
-  modelName?: string | null
+  phase: string
+  detail: string
+  icon: ActivityIcon
+  waiting: boolean
+  attention: boolean
+  startedAt: number | null
   isStreaming: boolean
   planEntries: PlanEntryInfo[]
-  completedPlanCount: number
-  elapsedLabel: string | null
-  outputRateLabel: string | null
-  toolCallCount: number
-  isAwaitingUserInput?: boolean
   subAgentControl?: ReactNode
   trailingStatus?: ReactNode
   onCancel?: () => void
 }
 
-function latestToolWithStatus(
-  message: LiveMessage | null,
-  status: string
-): ToolCallInfo | null {
-  if (!message) return null
-  for (let index = message.content.length - 1; index >= 0; index -= 1) {
-    const block = message.content[index]
-    if (block.type === "tool_call" && block.info.status === status) {
-      return block.info
-    }
-  }
-  return null
+const ACTIVITY_ICONS = {
+  image: Image,
+  command: Terminal,
+  search: Search,
+  file: FileText,
+  memory: Brain,
+  browser: Globe,
+  task: ListTodo,
+  tool: Wrench,
+  thinking: Brain,
+  reply: MessageCircle,
+  wait: CircleDashed,
+  retry: RotateCcw,
+  input: MessageCircle,
 }
 
-function latestActiveTool(message: LiveMessage | null): ToolCallInfo | null {
-  return (
-    latestToolWithStatus(message, "in_progress") ??
-    latestToolWithStatus(message, "pending")
-  )
-}
-
-function currentPlanStep(entries: PlanEntryInfo[]): string | null {
-  return (
-    entries.find((entry) => entry.status === "in_progress")?.content.trim() ||
-    null
-  )
-}
-
-function phaseLabel(
-  message: LiveMessage | null,
-  planEntries: PlanEntryInfo[],
-  labels: { working: string; thinking: string; streaming: string }
-): string {
-  const toolTitle = latestActiveTool(message)?.title.trim()
-  if (toolTitle) return toolTitle
-
-  const planStep = currentPlanStep(planEntries)
-  if (planStep) return planStep
-
-  for (let index = (message?.content.length ?? 0) - 1; index >= 0; index -= 1) {
-    const block = message?.content[index]
-    if (block?.type === "text" && block.text.trim()) return labels.streaming
-    if (block?.type === "thinking") return labels.thinking
-  }
-  return labels.working
-}
-
-function PlanProgress({
-  entries,
-  completedCount,
-  isStreaming,
-}: {
-  entries: PlanEntryInfo[]
-  completedCount: number
-  isStreaming: boolean
-}) {
-  const t = useTranslations("Folder.chat.agentPlanOverlay")
-  if (entries.length === 0) return null
-
-  return (
-    <>
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="inline-flex h-5 items-center gap-1 rounded-full px-1.5 leading-none text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <ListTodoIcon className="size-3 shrink-0" />
-            <span>{t("title")}</span>
-            <Badge variant="secondary" className="h-4 px-1 text-[10px]">
-              {completedCount}/{entries.length}
-            </Badge>
-          </button>
-        </PopoverTrigger>
-        <PlanProgressContent
-          entries={entries}
-          completedCount={completedCount}
-          isStreaming={isStreaming}
-        />
-      </Popover>
-      <Separator />
-    </>
-  )
-}
-
-function PlanProgressContent({
-  entries,
-  completedCount,
-  isStreaming,
-}: {
-  entries: PlanEntryInfo[]
-  completedCount: number
-  isStreaming: boolean
-}) {
-  const t = useTranslations("Folder.chat.agentPlanOverlay")
-  return (
-    <PopoverContent
-      side="top"
-      align="center"
-      className="w-80 max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0"
-    >
-      <div className="flex items-center gap-2 border-b px-3 py-2">
-        <ListTodoIcon className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">
-          {t("title")}
-        </span>
-        <Badge variant="secondary" className="h-5 shrink-0">
-          {completedCount}/{entries.length}
-        </Badge>
-      </div>
-      <div className="max-h-72 overflow-y-auto p-2">
-        <PlanEntriesList entries={entries} isStreaming={isStreaming} />
-      </div>
-    </PopoverContent>
-  )
-}
-
-function Separator({ responsive = false }: { responsive?: boolean }) {
+function ActivityGlyph({
+  icon,
+  waiting,
+  attention,
+}: Pick<LiveTurnStatusRowProps, "icon" | "waiting" | "attention">) {
+  const Icon = ACTIVITY_ICONS[icon]
   return (
     <span
-      className={
-        responsive
-          ? "hidden text-border @[30rem]/turnstats:inline"
-          : "text-border"
-      }
+      aria-hidden="true"
+      className={cn(
+        "relative mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg @[28rem]/turnstats:size-9",
+        waiting
+          ? "bg-muted text-muted-foreground"
+          : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+        attention && "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+      )}
     >
-      |
+      <Icon className="size-[18px]" />
+      {!waiting && (
+        <span className="absolute -end-0.5 -bottom-0.5 size-2.5 animate-pulse rounded-full border-2 border-background bg-current motion-reduce:animate-none" />
+      )}
     </span>
   )
 }
 
-function StopTurnButton({ onCancel }: { onCancel?: () => void }) {
-  const t = useTranslations("Folder.chat.liveTurnStats")
-  if (!onCancel) return null
-
+const TurnActivity = memo(function TurnActivity({
+  phase,
+  detail,
+  icon,
+  waiting,
+  attention,
+}: Pick<
+  LiveTurnStatusRowProps,
+  "phase" | "detail" | "icon" | "waiting" | "attention"
+>) {
   return (
-    <TooltipProvider delayDuration={150}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={onCancel}
-            aria-label={t("stop")}
-            className="inline-flex size-6 items-center justify-center rounded-full text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
-          >
-            <Square className="size-3 fill-current" />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="top">{t("stop")}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
-  )
-}
-
-function TurnFacts(props: LiveTurnStatusRowProps) {
-  const t = useTranslations("Folder.chat.liveTurnStats")
-  return (
-    <>
-      {props.elapsedLabel && (
-        <>
-          <Separator />
-          <span className="inline-flex items-center gap-1">
-            <Timer className="size-3 shrink-0" />
-            {props.elapsedLabel}
-          </span>
-        </>
-      )}
-      {props.outputRateLabel && (
-        <>
-          <Separator responsive />
-          <span className="inline-flex items-center gap-1">
-            <Gauge className="size-3 shrink-0" />
-            {props.outputRateLabel}
-          </span>
-        </>
-      )}
-      {props.toolCallCount > 0 && (
-        <>
-          <Separator responsive />
-          <span className="hidden items-center gap-1 @[30rem]/turnstats:inline-flex">
-            <Wrench className="size-3 shrink-0" />
-            {t("toolUseCount", { count: props.toolCallCount })}
-          </span>
-        </>
-      )}
-      {props.trailingStatus}
-      <StopTurnButton onCancel={props.onCancel} />
-    </>
-  )
-}
-
-export function LiveTurnStatusRow(props: LiveTurnStatusRowProps) {
-  const t = useTranslations("Folder.chat.liveTurnStats")
-  const phase = props.isAwaitingUserInput
-    ? t("awaitingUser")
-    : phaseLabel(props.message, props.planEntries, {
-        working: t("working"),
-        thinking: t("thinking", { model: "原助理" }),
-        streaming: t("streaming", { model: "原助理" }),
-      })
-
-  return (
-    <div className="@container/turnstats shrink-0">
-      <div className="flex min-h-8 flex-wrap items-center justify-center gap-x-3 gap-y-1 px-4 py-1 text-xs leading-none text-muted-foreground">
-        <PlanProgress
-          entries={props.planEntries}
-          completedCount={props.completedPlanCount}
-          isStreaming={props.isStreaming}
-        />
-        {props.subAgentControl && (
-          <>
-            {props.subAgentControl}
-            <Separator />
-          </>
-        )}
-        <span className="inline-flex min-w-0 max-w-[min(24rem,55vw)] items-center gap-1.5">
-          {props.isAwaitingUserInput ? (
-            <CircleDashed className="size-3 shrink-0" />
-          ) : (
-            <Loader2 className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />
-          )}
-          <span className="truncate">{phase}</span>
-        </span>
-        <TurnFacts {...props} />
+    <div className="flex min-w-0 flex-1 items-start gap-2.5 @[28rem]/turnstats:gap-[13px]">
+      <ActivityGlyph icon={icon} waiting={waiting} attention={attention} />
+      <div
+        className="min-w-0 pt-px"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <div className="break-words text-sm leading-6 font-semibold text-foreground @[28rem]/turnstats:text-[15px]">
+          {phase}
+        </div>
+        <p
+          className="mt-0.5 line-clamp-2 min-h-5 break-words text-xs leading-5 text-muted-foreground"
+          title={detail}
+        >
+          {detail}
+        </p>
       </div>
     </div>
   )
+})
+
+function StopTurnButton({ onCancel }: { onCancel?: () => void }) {
+  const t = useTranslations("Folder.chat.liveTurnStats")
+  if (!onCancel) return null
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onCancel}
+          aria-label={t("stop")}
+          className="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
+        >
+          <Square aria-hidden="true" className="size-3 fill-current" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{t("stop")}</TooltipContent>
+    </Tooltip>
+  )
 }
+
+export const LiveTurnStatusRow = memo(function LiveTurnStatusRow(
+  props: LiveTurnStatusRowProps
+) {
+  return (
+    <div className="@container/turnstats shrink-0 px-4 pt-3 pb-2">
+      <div className="flex min-h-14 items-start gap-2 @[28rem]/turnstats:gap-3">
+        <TurnActivity
+          phase={props.phase}
+          detail={props.detail}
+          icon={props.icon}
+          waiting={props.waiting}
+          attention={props.attention}
+        />
+        <TooltipProvider delayDuration={150}>
+          <div className="flex shrink-0 items-center gap-2 pt-0.5 @[28rem]/turnstats:gap-3.5">
+            <LiveTurnElapsed
+              key={props.startedAt}
+              startedAt={props.startedAt}
+            />
+            <StopTurnButton onCancel={props.onCancel} />
+          </div>
+        </TooltipProvider>
+      </div>
+      <LiveTurnPlan
+        entries={props.planEntries}
+        isStreaming={props.isStreaming}
+      />
+      {(props.subAgentControl || props.trailingStatus) && (
+        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground @[28rem]/turnstats:ms-[49px]">
+          {props.subAgentControl}
+          {props.trailingStatus}
+        </div>
+      )}
+    </div>
+  )
+})

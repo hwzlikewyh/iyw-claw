@@ -8,10 +8,13 @@ use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
 use super::command_bootstrap;
+use super::command_diagnostics::{
+    annotate_timeout, may_change_page, operation_name, timeout_error,
+};
 use super::command_output::{
     cancelled_error, collect_output, parse_output, unavailable_error, CollectedOutput,
 };
-use super::error::{BrowserError, BrowserErrorCode};
+use super::error::BrowserError;
 use super::process::{
     capture_process, configure_hidden_process, find_processes_by_executable_arg, kill_tree_checked,
     ProcessRecord,
@@ -62,7 +65,7 @@ impl AgentBrowserCli {
             .id()
             .and_then(|pid| capture_process(pid, "agent-browser-client"));
         let started = std::time::Instant::now();
-        let operation = args.first().copied().unwrap_or_default();
+        let operation = operation_name(args);
         log_command_started(session, operation, process.as_ref());
         let output = collect_output(child);
         tokio::pin!(output);
@@ -71,15 +74,12 @@ impl AgentBrowserCli {
             _ = cancellation.cancelled() => {
                 kill_client(process.as_ref()).await;
                 log_command_interrupted(session, operation, started, "cancelled");
-                return Err(cancelled_error());
+                return Err(cancelled_error().effect_may_have_occurred(may_change_page(args)));
             }
             _ = tokio::time::sleep(timeout) => {
                 kill_client(process.as_ref()).await;
                 log_command_interrupted(session, operation, started, "timed_out");
-                return Err(BrowserError::new(
-                    BrowserErrorCode::BrowserOperationTimeout,
-                    "The browser operation timed out",
-                ).retryable(true));
+                return Err(timeout_error(args, timeout));
             }
         }?;
         log_command_completed(session, operation, started, &result);
@@ -90,6 +90,7 @@ impl AgentBrowserCli {
             session,
             operation,
         )
+        .map_err(|error| annotate_timeout(error, args))
     }
 
     pub async fn bootstrap(

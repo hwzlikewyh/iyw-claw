@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
 use super::tool_identity::{
-    ARTIFACTS_TOOL, CAPABILITY_ID_MAX_CHARS, IMAGE_TOOL, INVOKE_TOOL, KNOWLEDGE_TOOL, MEMORY_TOOL, READ_TOOL,
+    ARTIFACTS_TOOL, CAPABILITY_ID_MAX_CHARS, INVOKE_TOOL, KNOWLEDGE_TOOL, MEMORY_TOOL, READ_TOOL,
     SEARCH_TOOL,
 };
 
@@ -25,7 +25,7 @@ pub(super) const MEMORY_CAPABILITIES: [(&str, &str); 14] = [
     ("documents.correct", "iyw.memory.documents.correct.v1"),
 ];
 
-pub(super) fn values() -> [Value; 10] {
+pub(super) fn values() -> [Value; 12] {
     [
         super::interaction_tools::embedded_tool(super::interaction_tools::ASK_TOOL),
         super::interaction_tools::html_tool(),
@@ -33,8 +33,10 @@ pub(super) fn values() -> [Value; 10] {
         search_tool(),
         read_tool(),
         invoke_tool(),
-        image_tool(),
+        super::iyw_image_schema::tool(),
         super::iyw_image_models::tool(),
+        super::iyw_fetch::tool(),
+        super::iyw_upload::tool(),
         knowledge_tool(),
         memory_tool(),
     ]
@@ -101,132 +103,6 @@ fn invoke_tool() -> Value {
     })
 }
 
-fn image_tool() -> Value {
-    json!({
-        "name": IMAGE_TOOL,
-        "description": "Generate or edit IYW images directly. Before type=generate or type=edit (including auto without images), call list_iyw_image_models, choose a model yourself for the user's task with the required generation/editing capability, and pass its exact id in parameters.model. Reuse the catalog for the same task or batch, selecting a model for each generate/edit item. This tool has no image-generation capability_id; use its advertised definition, never read_iyw_capability or invoke_iyw_capability for image production. With source images, prefer IYW image tools: variation, extend, mix, or the matching specialized operation. Choose an explicit type from the task intent; use edit for high-freedom image work the tools cannot express, and generate for text-only creation. No capability search, separate upload, or extra image Skill is needed. Use single-task fields for one task, or requests for up to eight independent tasks. count intentionally starts multiple charged executions; never combine it with parameters.n or parameters.batchSize. A batch is fully validated before execution, continues after runtime item failures, and returns partial results in input order with successful URLs registered together. Choose verification from the user's requested outcome: ordinary image generation/editing delivers successful images directly using returned status, URLs, and delivery metadata. Inspect quality or visuals when review, comparison, visual acceptance, or integration into a composed deliverable is part of the requested task. A detailed generation prompt alone does not require a separate quality-review call. Keep any review focused on the requested criteria; do not automatically regenerate beyond the requested scope. Report partial or failed status honestly. A backend rejection does not mean the tool identity is wrong; preserve the returned error and do not invent a capability ID to retry. A timeout or non-terminal result does not authorize another creation: query the original task_id when available; never blindly retry or switch to edit/generate after an uncertain submission.",
-        "inputSchema": {
-            "type": "object",
-            "oneOf": [single_image_schema(), batch_image_schema()]
-        }
-    })
-}
-
-fn single_image_schema() -> Value {
-    let mut schema = image_request_schema(false);
-    schema["properties"]["delivery"] = delivery_schema();
-    schema
-}
-
-fn batch_image_schema() -> Value {
-    json!({
-        "type": "object",
-        "required": ["requests"],
-        "properties": {
-            "requests": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 8,
-                "items": image_request_schema(true)
-            },
-            "delivery": delivery_schema()
-        },
-        "additionalProperties": false
-    })
-}
-
-fn image_request_schema(include_id: bool) -> Value {
-    let mut properties = json!({
-        "type": image_type_schema(),
-        "prompt": {"type": "string", "maxLength": 12000, "description": "State what to preserve and change, the intended layout, and each reference image's role in input order. Select the operation with type; the prompt alone does not select specialized tools."},
-        "images": image_sources_schema(),
-        "parameters": {"type": "object", "additionalProperties": true, "description": "Only fields supported by the selected operation. variation, extend, and mix need only prompt and images for a default result. The host sets their toolName and modelChannel; do not guess them or copy parameters across operations. For generate/edit, first call list_iyw_image_models and set model to the exact id you select: generate requires capabilities.image_generation=true, edit requires capabilities.image_editing=true. Choose from returned descriptions, capabilities, prices, and user requirements. Do not omit model or guess it. Other Fusion options must be supported by the selected model."},
-        "count": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 4,
-            "default": 1,
-            "description": "Intentional execution count. Do not combine with parameters.n or parameters.batchSize."
-        },
-        "wait": wait_schema()
-    });
-    if include_id {
-        properties["id"] = json!({"type": "string", "minLength": 1, "maxLength": 64});
-    }
-    json!({
-        "type": "object",
-        "properties": properties,
-        "additionalProperties": false
-    })
-}
-
-fn image_type_schema() -> Value {
-    json!({
-        "type": "string",
-        "enum": [
-            "auto", "generate", "edit", "variation", "extend", "mix",
-            "fission", "pattern-apply", "free-imitation", "material-product",
-            "ip-apply", "outpaint", "super-resolution", "split-layers",
-            "separate-layers", "enhance", "extract-pattern", "repeat-horizontal",
-            "convert", "line-extraction", "color-transfer", "image-to-3d",
-            "video", "model-scene", "background"
-        ],
-        "default": "auto",
-        "description": "Prefer an explicit type. With one source image, use variation for ordinary redesign or changes to color/material/details; use extend for same-series designs or a trend/theme extension of a base product. With 2-10 references to combine, use mix and preserve input order. Explicit background, outpaint, super-resolution, pattern, layer, color, format, 3D, or video tasks use the matching specialized type when it covers the request. Use edit only for explicit free-form editing, masks, complex composition, or constraints these tools cannot express; keep all needed source images. Use generate without images for text-only creation (images/generations); edit uses images/edits. fission is an explicit alternative, not the text-only default. auto is only a basic fallback: no images -> generate; one image -> variation, or extend for series/extension wording; multiple images -> mix. auto does not infer specialized operations or creative freedom."
-    })
-}
-
-fn image_sources_schema() -> Value {
-    json!({
-        "type": "array",
-        "minItems": 0,
-        "maxItems": 10,
-        "items": {
-            "oneOf": [
-                {"type": "string", "minLength": 1},
-                {
-                    "type": "object",
-                    "properties": {
-                        "url": {"type": "string", "minLength": 1},
-                        "path": {"type": "string", "minLength": 1},
-                        "base64": {"type": "string", "minLength": 1},
-                        "data": {"type": "string", "minLength": 1},
-                        "mimeType": {"type": "string", "minLength": 1},
-                        "role": {"type": "string", "maxLength": 64},
-                        "name": {"type": "string", "maxLength": 255}
-                    },
-                    "additionalProperties": false
-                }
-            ]
-        }
-    })
-}
-
-fn wait_schema() -> Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "timeoutSeconds": {"type": "integer", "minimum": 0, "maximum": 600, "default": 180},
-            "pollIntervalSeconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 30, "default": 2}
-        },
-        "additionalProperties": false
-    })
-}
-
-fn delivery_schema() -> Value {
-    json!({
-        "type": "object",
-        "properties": {
-            "display": {
-                "type": "boolean",
-                "default": false,
-                "description": "Compatibility option. Image results are delivered to Artifacts; the delivery host downloads and deduplicates image URLs automatically. No separate agent download is needed."
-            },
-            "registerArtifact": {"type": "boolean", "default": true}
-        },
-        "additionalProperties": false
-    })
-}
 
 fn knowledge_tool() -> Value {
     json!({

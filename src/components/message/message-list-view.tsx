@@ -32,6 +32,8 @@ import {
 } from "@/lib/adapters/ai-elements-adapter"
 import { isContextCompactionMeta } from "@/lib/context-compaction"
 import { TurnStats } from "./turn-stats"
+import { MessageOutputStats } from "./message-output-stats"
+import { getMessageOutputMetrics } from "./message-output-metrics"
 import { LiveTurnStats } from "./live-turn-stats"
 import { UserResourceLinks } from "./user-resource-links"
 import { MessageTimestamp } from "./message-timestamp"
@@ -94,6 +96,7 @@ import {
 } from "@/components/message/message-entrance"
 
 interface MessageListViewProps {
+  activityContextKey?: string
   conversationId: number
   /** Persisted DB ID used only for task-artifact queries. */
   artifactConversationId?: number | null
@@ -142,6 +145,8 @@ interface ResolvedMessageGroup {
   parts: AdaptedContentPart[]
   resources: UserResourceDisplay[]
   images: UserImageDisplay[]
+  outputCharacters: number
+  toolCallCount: number
   usage?: import("@/lib/types").TurnUsage | null
   duration_ms?: number | null
   model?: string | null
@@ -396,6 +401,14 @@ function mergeConsecutiveAssistantTurns(
           ...last.group,
           id: first.group.id,
           parts: mergedParts,
+          outputCharacters: buffer.reduce(
+            (sum, item) => sum + item.group.outputCharacters,
+            0
+          ),
+          toolCallCount: buffer.reduce(
+            (sum, item) => sum + item.group.toolCallCount,
+            0
+          ),
           usage: mergedUsage,
           duration_ms: mergedDuration,
           model: mergedModels[0] ?? last.group.model,
@@ -497,7 +510,10 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   showStats = true,
   previousUserIndex = null,
   isResponseComplete = true,
+  isStreaming = false,
+  activityContextKey,
   showCurrentReplyArtifacts = false,
+  recoveredVersion = 0,
   animationEnabled = false,
   conversationDisplayMode,
   collapseCompletedTurn,
@@ -513,7 +529,10 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   showStats?: boolean
   previousUserIndex?: number | null
   isResponseComplete?: boolean
+  isStreaming?: boolean
+  activityContextKey?: string
   showCurrentReplyArtifacts?: boolean
+  recoveredVersion?: number
   animationEnabled?: boolean
   conversationDisplayMode: ConversationDisplayMode
   collapseCompletedTurn: boolean
@@ -594,6 +613,16 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
               />
             )}
             {showStats && (
+              <MessageOutputStats
+                messageKey={`${conversationId}:${group.id}`}
+                contextKey={activityContextKey}
+                characters={group.outputCharacters}
+                toolCallCount={group.toolCallCount}
+                isStreaming={isStreaming}
+                recoveredVersion={recoveredVersion}
+              />
+            )}
+            {showStats && (
               <TurnStats
                 usage={group.usage}
                 duration_ms={group.duration_ms}
@@ -652,6 +681,7 @@ const AutoScrollOnSend = memo(function AutoScrollOnSend({
 })
 
 export function MessageListView({
+  activityContextKey,
   conversationId,
   artifactConversationId,
   agentType,
@@ -705,6 +735,7 @@ export function MessageListView({
   }, [conversationId])
   const animationEnabled = animationScope === conversationId && isActive
   const liveMessage = session?.liveMessage ?? null
+  const recoveredVersion = liveMessage?.recoveredVersion ?? 0
   const { loadEarlierHistory } = useConversationRuntimeActions()
   const timelineTurns = useConversationRuntimeStore((s) =>
     selectTimelineTurns(s, conversationId)
@@ -787,6 +818,7 @@ export function MessageListView({
       const role = msg.role === "tool" ? "assistant" : msg.role
       let group = groupCache.get(msg)
       if (!group) {
+        const metrics = getMessageOutputMetrics(timelineTurns[i].turn)
         group = {
           id: msg.id,
           role,
@@ -794,6 +826,8 @@ export function MessageListView({
           parts: msg.content,
           resources: msg.userResources ?? [],
           images: msg.userImages ?? [],
+          outputCharacters: metrics.characters,
+          toolCallCount: metrics.tools,
           usage: msg.usage,
           duration_ms: msg.duration_ms,
           model: msg.model,
@@ -916,6 +950,13 @@ export function MessageListView({
                   showStats={item.showStats}
                   previousUserIndex={item.previousUserIndex}
                   isResponseComplete={item.phase === "persisted"}
+                  isStreaming={
+                    item.phase === "streaming" && connStatus === "prompting"
+                  }
+                  activityContextKey={activityContextKey}
+                  recoveredVersion={
+                    item.phase === "streaming" ? recoveredVersion : 0
+                  }
                   showCurrentReplyArtifacts={item.phase !== "optimistic"}
                   animationEnabled={animationEnabled}
                   conversationDisplayMode={conversationDisplayMode}
@@ -968,6 +1009,9 @@ export function MessageListView({
     },
     [
       agentType,
+      activityContextKey,
+      connStatus,
+      recoveredVersion,
       animationEnabled,
       conversationId,
       resolvedArtifactConversationId,
@@ -1162,6 +1206,7 @@ export function MessageListView({
       </MessageThread>
       {connStatus === "prompting" && (
         <LiveTurnStats
+          contextKey={activityContextKey}
           message={liveMessage}
           modelName={modelName}
           subAgentControl={

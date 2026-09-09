@@ -6,6 +6,8 @@ use super::command_output::unavailable_error;
 use super::command_runner::AgentBrowserCli;
 use super::error::BrowserError;
 #[cfg(target_os = "windows")]
+use super::error::BrowserErrorCode;
+#[cfg(target_os = "windows")]
 use super::process::capture_process;
 #[cfg(target_os = "windows")]
 use super::windows_process::{launch_mode, spawn_unelevated, UnelevatedLaunchMode};
@@ -80,5 +82,12 @@ fn log_error(session: &str, stage: &str, error: std::io::Error) -> BrowserError 
         error = %error,
         "standard-user browser controller bootstrap failed"
     );
+    if error.kind() == std::io::ErrorKind::TimedOut {
+        return BrowserError::new(
+            BrowserErrorCode::BrowserRuntimeStartTimeout,
+            "The built-in browser controller timed out during startup",
+        )
+        .retryable(true);
+    }
     unavailable_error()
 }

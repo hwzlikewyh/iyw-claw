@@ -5,6 +5,10 @@ detailed reference before acting when the task matches one:
 
 | Task | Required reference |
 | --- | --- |
+| Known IYW website API request | [iyw-http.md](iyw-http.md) |
+| 爱原物业务、产品/趋势/版权等接口检索 | [iyw-api-index.md](iyw-api-index.md)，按需读取领域资料后用 fetch |
+| 上传任意类型文件，最多 50 MiB | [iyw-upload.md](iyw-upload.md) |
+| 图片生成/处理的具体 type 与参数 | [iyw-image-tools.md](iyw-image-tools.md) |
 | Session/profile/history, interaction, or plugin capability | [capability-families.md](capability-families.md) |
 | Final files/directories/URLs, current-reply delivery, HTML/Markdown image hosting | [artifact-delivery.md](artifact-delivery.md) |
 | Channels, targets, message history/sending, credentials, QR authorization, diagnostics | [channel-operations.md](channel-operations.md) |
@@ -29,9 +33,12 @@ state, returned revisions, and availability when the task requires them.
 
 | Work | Input shape |
 | --- | --- |
+| Business API progress | Every new fetch_iyw_url call supplies description naming the current action, plus the exact documented URL and query/body; descriptions never enter the HTTP payload |
+| Upload files | upload_iyw_file with description + workspace path; optional name/mime_type; <=50 MiB, returns a public URL |
 | Fusion image models | Call `list_iyw_image_models` with `{}`; choose a returned model supporting generation or editing as needed |
-| Image generation/editing | For `generate`/`edit` (also `auto` without images), first select a model from `list_iyw_image_models`, then call `generate_iyw_image` with its exact ID in `parameters.model`; specialized operations need no Fusion lookup and no generation capability ID exists |
+| Image generation/editing | Prefer IYW platform `fission`/`variation`/`extend`/`mix` or specialized operations; only fall back to `generate`/`edit` after confirmed platform failure, selecting a model from `list_iyw_image_models` and passing its exact ID in `parameters.model`. Default timeout: platform 600s, Fusion 300s; override with `wait.timeoutSeconds`, including values above 600. No generation capability ID exists |
 | Document knowledge | `search_iyw_knowledge`: `query`, optional known filters; `folderId` is an integer and `fileId` is a string |
+| Known IYW website API | `fetch_iyw_url`: HTTPS `iyw.cn` and all subdomains; GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS; JSON/form/text bodies and ordinary header overrides; current login token supplied by the host; fixed output envelope |
 | Memory recall | Read the mapped capability once, then `manage_iyw_memory` with `operation` and `parameters`; policy preflight is automatic |
 | Other host capabilities | Search/read once, then `invoke_iyw_capability` with `capability_id` and an `arguments` object |
 | Questions | `ask_user_question` with `questions`; group related questions in one call |

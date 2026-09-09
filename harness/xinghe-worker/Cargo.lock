@@ -1890,7 +1890,6 @@ dependencies = [
 [[package]]
 name = "codex-app-server"
 version = "0.153.4"
-source = "git+https://github.com/openai/codex.git?rev=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a#3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
 dependencies = [
  "anyhow",
  "axum",
@@ -2001,7 +2000,6 @@ dependencies = [
 [[package]]
 name = "codex-app-server-protocol"
 version = "0.153.4"
-source = "git+https://github.com/openai/codex.git?rev=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a#3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
 dependencies = [
  "anyhow",
  "codex-app-server-protocol-noop-macros",
@@ -3298,7 +3296,6 @@ dependencies = [
 [[package]]
 name = "codex-protocol"
 version = "0.153.4"
-source = "git+https://github.com/openai/codex.git?rev=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a#3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
 dependencies = [
  "chardetng",
  "chrono",
@@ -3610,7 +3607,6 @@ dependencies = [
 [[package]]
 name = "codex-thread-store"
 version = "0.153.4"
-source = "git+https://github.com/openai/codex.git?rev=3d2ee51ca2d5db578f328aa75e20aa22c0197c9a#3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
 dependencies = [
  "chrono",
  "codex-app-server-protocol",

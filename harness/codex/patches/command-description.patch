@@ -1,0 +1,276 @@
+--- a/harness/codex/patches/codex-protocol/src/items.rs
++++ b/harness/codex/patches/codex-protocol/src/items.rs
+@@ -237,6 +237,9 @@
+     pub id: String,
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     #[ts(optional)]
++    pub description: Option<String>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    #[ts(optional)]
+     pub plugin_id: Option<String>,
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     #[ts(optional)]
+--- a/harness/codex/patches/codex-app-server-protocol/src/protocol/item_builders.rs
++++ b/harness/codex/patches/codex-app-server-protocol/src/protocol/item_builders.rs
+@@ -98,6 +98,7 @@
+         CommandExecutionPresentation::from_raw(&payload.command, &payload.parsed_cmd, &payload.cwd);
+     ThreadItem::CommandExecution {
+         id: payload.call_id.clone(),
++        description: None,
+         plugin_id: payload.plugin_id.clone(),
+         script_path: payload.script_path.clone(),
+         command: presentation.command,
+@@ -124,6 +125,7 @@
+ 
+     ThreadItem::CommandExecution {
+         id: payload.call_id.clone(),
++        description: None,
+         plugin_id: payload.plugin_id.clone(),
+         script_path: payload.script_path.clone(),
+         command: presentation.command,
+@@ -199,6 +201,7 @@
+             }];
+             Some(ThreadItem::CommandExecution {
+                 id: id.clone(),
++                description: None,
+                 plugin_id: assessment.plugin_id.clone(),
+                 script_path: assessment.script_path.clone(),
+                 command,
+@@ -237,6 +240,7 @@
+             };
+             Some(ThreadItem::CommandExecution {
+                 id: id.clone(),
++                description: None,
+                 plugin_id: assessment.plugin_id.clone(),
+                 script_path: assessment.script_path.clone(),
+                 command,
+--- a/harness/codex/patches/codex-app-server-protocol/src/protocol/v2/item.rs
++++ b/harness/codex/patches/codex-app-server-protocol/src/protocol/v2/item.rs
+@@ -288,6 +288,9 @@
+     #[ts(rename_all = "camelCase")]
+     CommandExecution {
+         id: String,
++        #[serde(default, skip_serializing_if = "Option::is_none")]
++        #[ts(optional)]
++        description: Option<String>,
+         /// Trusted first-party plugin id when this command resolves to one plugin script.
+         #[serde(default)]
+         plugin_id: Option<String>,
+@@ -910,6 +913,7 @@
+                 );
+                 ThreadItem::CommandExecution {
+                     id: command.id,
++                    description: command.description,
+                     plugin_id: command.plugin_id,
+                     script_path: command.script_path,
+                     command: presentation.command,
+--- a/harness/codex/patches/codex-app-server/src/bespoke_event_handling.rs
++++ b/harness/codex/patches/codex-app-server/src/bespoke_event_handling.rs
+@@ -1083,12 +1083,15 @@
+             let should_emit = match &event.item {
+                 // Approval and guardian flows can emit the command start notification before core
+                 // emits the canonical item. Reuse the same set to suppress that duplicate.
+-                CoreTurnItem::CommandExecution(item) => thread_state
+-                    .lock()
+-                    .await
+-                    .turn_summary
+-                    .command_execution_started
+-                    .insert(item.id.clone()),
++                CoreTurnItem::CommandExecution(item) => {
++                    let first = thread_state
++                        .lock()
++                        .await
++                        .turn_summary
++                        .command_execution_started
++                        .insert(item.id.clone());
++                    first || item.description.is_some()
++                }
+                 _ => true,
+             };
+             let dynamic_tool_call_params = match &event.item {
+@@ -1491,6 +1494,7 @@
+             started_at_ms: now_unix_timestamp_ms(),
+             item: ThreadItem::CommandExecution {
+                 id: item_id,
++                description: None,
+                 plugin_id,
+                 script_path,
+                 command,
+@@ -1535,6 +1539,7 @@
+ 
+     let item = ThreadItem::CommandExecution {
+         id: item_id,
++        description: None,
+         plugin_id: completion_item.plugin_id,
+         script_path: completion_item.script_path,
+         command: completion_item.command,
+--- a/harness/codex/patches/codex-thread-store/src/local/rollout_migration/legacy_event.rs
++++ b/harness/codex/patches/codex-thread-store/src/local/rollout_migration/legacy_event.rs
+@@ -213,6 +213,7 @@
+         EventMsg::ExecCommandEnd(event) => Some((
+             TurnItem::CommandExecution(CommandExecutionItem {
+                 id: event.call_id.clone(),
++                description: None,
+                 plugin_id: event.plugin_id.clone(),
+                 script_path: event.script_path.clone(),
+                 process_id: event.process_id.clone(),
+--- a/harness/codex/patches/codex-core/src/tasks/user_shell.rs
++++ b/harness/codex/patches/codex-core/src/tasks/user_shell.rs
+@@ -188,6 +188,7 @@
+             turn_context.as_ref(),
+             &TurnItem::CommandExecution(CommandExecutionItem {
+                 id: call_id.clone(),
++                description: None,
+                 plugin_id: None,
+                 script_path: None,
+                 process_id: None,
+@@ -271,6 +272,7 @@
+                     turn_context.as_ref(),
+                     TurnItem::CommandExecution(CommandExecutionItem {
+                         id: call_id,
++                        description: None,
+                         plugin_id: None,
+                         script_path: None,
+                         process_id: None,
+@@ -296,6 +298,7 @@
+                     turn_context.as_ref(),
+                     TurnItem::CommandExecution(CommandExecutionItem {
+                         id: call_id.clone(),
++                        description: None,
+                         plugin_id: None,
+                         script_path: None,
+                         process_id: None,
+@@ -341,6 +344,7 @@
+                     turn_context.as_ref(),
+                     TurnItem::CommandExecution(CommandExecutionItem {
+                         id: call_id,
++                        description: None,
+                         plugin_id: None,
+                         script_path: None,
+                         process_id: None,
+--- a/harness/codex/patches/codex-core/src/tools/events.rs
++++ b/harness/codex/patches/codex-core/src/tools/events.rs
+@@ -158,6 +158,7 @@
+             ctx.turn,
+             &TurnItem::CommandExecution(CommandExecutionItem {
+                 id: ctx.call_id.to_string(),
++                description: ctx.turn.command_description(ctx.call_id),
+                 plugin_id,
+                 script_path,
+                 process_id: exec_input.process_id.map(str::to_owned),
+@@ -571,6 +572,7 @@
+             ctx.turn,
+             TurnItem::CommandExecution(CommandExecutionItem {
+                 id: ctx.call_id.to_string(),
++                description: ctx.turn.command_description(ctx.call_id),
+                 plugin_id,
+                 script_path,
+                 process_id: exec_input.process_id.map(str::to_owned),
+--- a/harness/codex/patches/codex-core/src/tools/handlers/shell_spec.rs
++++ b/harness/codex/patches/codex-core/src/tools/handlers/shell_spec.rs
+@@ -27,6 +27,12 @@
+         (
+             "cmd".to_string(),
+             JsonSchema::string(Some("Shell command to execute.".to_string())),
++        ),
++        (
++            "description".to_string(),
++            JsonSchema::string(Some(
++                "Brief user-facing purpose of this command in the user's language (at most 120 characters). Include it for each command when possible. Display metadata only; do not include secrets, command text, or approval requests.".to_string(),
++            )),
+         ),
+         (
+             "workdir".to_string(),
+--- a/harness/codex/patches/codex-core/src/tools/handlers/unified_exec.rs
++++ b/harness/codex/patches/codex-core/src/tools/handlers/unified_exec.rs
+@@ -25,6 +25,8 @@
+ #[derive(Debug, Deserialize)]
+ pub(crate) struct ExecCommandArgs {
+     pub(crate) cmd: String,
++    #[serde(default)]
++    description: Option<String>,
+     #[serde(default)]
+     shell: Option<String>,
+     #[serde(default)]
+--- a/harness/codex/patches/codex-core/src/tools/handlers/unified_exec/exec_command.rs
++++ b/harness/codex/patches/codex-core/src/tools/handlers/unified_exec/exec_command.rs
+@@ -232,6 +232,7 @@
+         };
+         let sandbox_permissions =
+             resolve_sandbox_permissions(args.sandbox_permissions, args.justification.as_deref())?;
++        turn.record_command_description(&call_id, args.description.as_deref());
+         let hook_command = args.cmd.clone();
+         maybe_emit_implicit_skill_invocation(
+             session.as_ref(),
+--- a/harness/codex/patches/codex-core/src/tools/mod.rs
++++ b/harness/codex/patches/codex-core/src/tools/mod.rs
+@@ -1,4 +1,5 @@
+ mod approvals;
++mod command_description;
+ pub(crate) mod code_mode;
+ pub(crate) mod context;
+ mod control_tool_analytics;
+--- a/harness/codex/patches/codex-rollout/src/policy.rs
++++ b/harness/codex/patches/codex-rollout/src/policy.rs
+@@ -95,6 +95,10 @@
+             // Legacy rollouts keep only items with no lossless raw ResponseItem or legacy
+             // equivalent.
+             matches!(history_mode, ThreadHistoryMode::Paginated)
++                || matches!(
++                    &event.item,
++                    TurnItem::CommandExecution(item) if item.description.is_some()
++                )
+                 || matches!(
+                     event.item,
+                     TurnItem::FunctionCallOutput(_)
+--- /dev/null
++++ b/harness/codex/patches/codex-core/src/tools/command_description.rs
+@@ -0,0 +1,48 @@
++use std::collections::HashMap;
++use std::sync::Mutex;
++
++use crate::session::turn_context::TurnContext;
++
++const MAX_DESCRIPTION_CHARS: usize = 120;
++
++#[derive(Default)]
++struct CommandDescriptions(Mutex<HashMap<String, String>>);
++
++impl TurnContext {
++    pub(crate) fn record_command_description(&self, call_id: &str, description: Option<&str>) {
++        let Some(description) = description else {
++            return;
++        };
++        let description: String = description
++            .split_whitespace()
++            .collect::<Vec<_>>()
++            .join(" ")
++            .chars()
++            .filter(|character| !character.is_control())
++            .take(MAX_DESCRIPTION_CHARS)
++            .collect();
++        if description.is_empty() {
++            return;
++        }
++        // 使用回合已有的扩展状态，异步完成事件仍按原始调用 ID 读取。
++        let descriptions = self
++            .extension_data
++            .get_or_init(CommandDescriptions::default);
++        descriptions
++            .0
++            .lock()
++            .unwrap_or_else(std::sync::PoisonError::into_inner)
++            .insert(call_id.to_string(), description);
++    }
++
++    pub(crate) fn command_description(&self, call_id: &str) -> Option<String> {
++        let descriptions = self.extension_data.get::<CommandDescriptions>()?;
++        let result = descriptions
++            .0
++            .lock()
++            .unwrap_or_else(std::sync::PoisonError::into_inner)
++            .get(call_id)
++            .cloned();
++        result
++    }
++}
