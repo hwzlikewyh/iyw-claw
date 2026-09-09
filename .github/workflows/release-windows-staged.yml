@@ -39,11 +39,13 @@ jobs:
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: "true"
       TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
-      IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}/iyw-runtime-seed-cache
-      IYW_CLAW_STAGING_DIR: ${{ runner.temp }}/staging-${{ inputs.target }}
-      STAGING_ARCHIVE: ${{ runner.temp }}/iyw-staging-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.target }}.zip
       GH_TOKEN: ${{ github.token }}
     steps:
+      - name: Initialize build paths
+        run: |
+          "IYW_CLAW_RUNTIME_SEED_CACHE=$env:RUNNER_TEMP/iyw-runtime-seed-cache" >> $env:GITHUB_ENV
+          "IYW_CLAW_STAGING_DIR=$env:RUNNER_TEMP/staging-$env:TAURI_TARGET_TRIPLE" >> $env:GITHUB_ENV
+          "STAGING_ARCHIVE=$env:RUNNER_TEMP/iyw-staging-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$env:TAURI_TARGET_TRIPLE.zip" >> $env:GITHUB_ENV
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_ref }}
@@ -139,7 +141,6 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       STAGING_ASSET_ID: ${{ needs.build.outputs.asset_id }}
       STAGING_SHA256: ${{ needs.build.outputs.sha256 }}
-      IYW_CLAW_STAGING_DIR: ${{ runner.temp }}/sign-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.target }}
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
@@ -149,6 +150,9 @@ jobs:
       TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
       IYW_CLAW_SKIP_SIDECAR: "1"
     steps:
+      - name: Initialize signing paths
+        run: |
+          "IYW_CLAW_STAGING_DIR=$env:RUNNER_TEMP/sign-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$env:TAURI_TARGET_TRIPLE" >> $env:GITHUB_ENV
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_ref }}
