@@ -3,6 +3,7 @@ export interface GatewayModel {
   name: string
   description: string | null
   iconUrl?: string | null
+  priceMultiplier?: number | null
   efforts: string[]
   defaultEffort: string | null
   fastModeSupported: boolean
@@ -125,6 +126,12 @@ function parseGatewayModel(value: unknown): GatewayModel | null {
         ? raw.description.trim()
         : null,
     ...(iconUrl ? { iconUrl } : {}),
+    priceMultiplier:
+      typeof raw.price_multiplier === "number" &&
+      Number.isFinite(raw.price_multiplier) &&
+      raw.price_multiplier >= 0
+        ? raw.price_multiplier
+        : null,
     efforts,
     defaultEffort,
     fastModeSupported: fastMode.supported === true,

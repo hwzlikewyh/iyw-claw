@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { DropdownRadioItemContent } from "@/components/chat/dropdown-radio-item-content"
 import { ModelIcon } from "@/components/chat/model-icon"
+import { ModelPriceMultiplier } from "@/components/chat/model-price-multiplier"
 import { ModelBehaviorPreviewPanel } from "@/components/chat/model-behavior-preview-panel"
 import { useModelOptionKeyboard } from "@/components/chat/use-model-option-keyboard"
 import {
@@ -87,11 +88,7 @@ export function ModelOptionList({
     behaviorOptionsForModel,
     activeBehaviorOptions,
     behaviorSummary,
-  } = useModelBehaviorPreview(
-    modelOptions,
-    currentValue,
-    behaviorOptions
-  )
+  } = useModelBehaviorPreview(modelOptions, currentValue, behaviorOptions)
   const optionIndexByRow = useMemo(() => {
     const map = new Map<number, number>()
     optionRowIndices.forEach((rowIndex, optionIndex) =>
@@ -252,6 +249,9 @@ export function ModelOptionList({
                                 ? behaviorSummary
                                 : row.option.description
                             }
+                          />
+                          <ModelPriceMultiplier
+                            value={row.option.priceMultiplier}
                           />
                         </button>
                       )

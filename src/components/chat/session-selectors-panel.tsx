@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { DropdownRadioItemContent } from "@/components/chat/dropdown-radio-item-content"
 import { ModelOptionList } from "@/components/chat/model-option-list"
 import { ModelIcon } from "@/components/chat/model-icon"
+import { ModelPriceMultiplier } from "@/components/chat/model-price-multiplier"
 import type {
   SessionConfigOptionInfo,
   SessionConfigSelectOptionInfo,
@@ -21,6 +22,7 @@ export interface SessionSelectorOption {
   name: string
   description?: string | null
   iconUrl?: string | null
+  priceMultiplier?: number | null
   modelBehavior?: SessionConfigSelectOptionInfo["modelBehavior"]
 }
 
@@ -46,6 +48,7 @@ export interface SessionSelectorSetting {
   title: string
   currentValue: string
   currentLabel: string
+  priceMultiplier?: number | null
   groups: SessionSelectorGroup[]
   onSelect: (value: string) => void
   /** When set, the detail pane renders a searchable + virtualized list instead
@@ -122,6 +125,7 @@ export function SessionSelectorsPanel({
               >
                 {setting.currentLabel}
               </span>
+              <ModelPriceMultiplier value={setting.priceMultiplier} />
             </button>
           )
         })}
