@@ -11,6 +11,11 @@ on:
       tag:
         required: true
         type: string
+      archive_name:
+        description: ZIP filename for raw signing input
+        required: false
+        default: iyw-windows-staging.zip
+        type: string
 permissions:
   contents: write
   actions: read
@@ -31,9 +36,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.tag }}
+          ARCHIVE_NAME: ${{ inputs.archive_name }}
         run: |
           set -euo pipefail
           test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = true
-          test -s staging/iyw-windows-staging.zip
-          sha256sum staging/iyw-windows-staging.zip
-          gh release upload "$RELEASE_TAG" staging/iyw-windows-staging.zip
+          [[ "$ARCHIVE_NAME" =~ ^iyw-windows(-x86)?-staging\.zip$ ]]
+          if [[ ! -f "staging/$ARCHIVE_NAME" ]]; then
+            (cd staging && zip -q -1 -r "../$ARCHIVE_NAME" .)
+            mv "$ARCHIVE_NAME" "staging/$ARCHIVE_NAME"
+          fi
+          test -s "staging/$ARCHIVE_NAME"
+          sha256sum "staging/$ARCHIVE_NAME"
+          gh release upload "$RELEASE_TAG" "staging/$ARCHIVE_NAME"
