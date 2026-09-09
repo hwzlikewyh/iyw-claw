@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -15,7 +17,8 @@ mod validation_special;
 
 use input::{prepare_images, upload_images, ImageSource, PreparedImage};
 
-pub(super) const DEFAULT_TIMEOUT_SECONDS: u64 = 180;
+pub(super) const DEFAULT_TIMEOUT_SECONDS: u64 = 600;
+pub(super) const FUSION_TIMEOUT_SECONDS: u64 = 300;
 pub(super) const DEFAULT_POLL_SECONDS: f64 = 2.0;
 pub(super) const MAX_PROMPT_CHARS: usize = 12_000;
 
@@ -60,16 +63,34 @@ enum ImageToolRequest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct WaitOptions {
-    #[serde(default = "default_timeout")]
-    pub(super) timeout_seconds: u64,
+    pub(super) timeout_seconds: Option<u64>,
     #[serde(default = "default_poll")]
     pub(super) poll_interval_seconds: f64,
+}
+
+impl WaitOptions {
+    pub(super) fn platform_timeout(&self) -> Duration {
+        Duration::from_secs(self.timeout_seconds.unwrap_or(DEFAULT_TIMEOUT_SECONDS))
+    }
+
+    fn http_timeout(&self, kind: &str) -> Duration {
+        let default = if matches!(kind, "generate" | "edit") {
+            FUSION_TIMEOUT_SECONDS
+        } else {
+            DEFAULT_TIMEOUT_SECONDS
+        };
+        Duration::from_secs(
+            self.timeout_seconds
+                .filter(|seconds| *seconds > 0)
+                .unwrap_or(default),
+        )
+    }
 }
 
 impl Default for WaitOptions {
     fn default() -> Self {
         Self {
-            timeout_seconds: DEFAULT_TIMEOUT_SECONDS,
+            timeout_seconds: None,
             poll_interval_seconds: DEFAULT_POLL_SECONDS,
         }
     }
@@ -143,8 +164,12 @@ fn validate_request(request: &ImageRequest) -> Result<(), rmcp::ErrorData> {
             "count cannot be combined with parameters.n or parameters.batchSize",
         ));
     }
-    if request.wait.timeout_seconds > 600 {
-        return Err(invalid("timeoutSeconds must be between 0 and 600"));
+    if request.wait.timeout_seconds.is_some_and(|seconds| {
+        Instant::now()
+            .checked_add(Duration::from_secs(seconds))
+            .is_none()
+    }) {
+        return Err(invalid("timeoutSeconds exceeds the supported timer range"));
     }
     if !(0.0 < request.wait.poll_interval_seconds && request.wait.poll_interval_seconds <= 30.0) {
         return Err(invalid("pollIntervalSeconds must be between 0 and 30"));
@@ -158,7 +183,7 @@ fn select_kind(kind: Option<&str>, prompt: &Option<String>, image_count: usize) 
     }
     let text = prompt.as_deref().unwrap_or_default().to_ascii_lowercase();
     if image_count == 0 {
-        "generate".to_string()
+        "fission".to_string()
     } else if image_count == 1
         && ["系列", "延展", "延伸", "延申", "extend", "series"]
             .iter()
@@ -205,16 +230,21 @@ async fn execute_kind(
     service: &IywGatewayService,
     execution: ImageExecution<'_>,
 ) -> Result<ImageResult, rmcp::ErrorData> {
+    let mut service = service.clone();
+    let timeout = execution.request.wait.http_timeout(execution.kind);
+    service.image_timeout = Some(timeout);
+    tracing::info!(
+        image_type = execution.kind,
+        timeout_seconds = timeout.as_secs(),
+        custom_timeout_seconds = execution.request.wait.timeout_seconds,
+        "[iyw-image] image execution timeout selected"
+    );
     match execution.kind {
-        "generate" => fusion::generate(service, execution.request).await,
-        "edit" => fusion::edit(service, execution.request, execution.images).await,
-        "fission" => fission::generate(service, execution.request).await,
-        _ => commerce::generate(service, execution).await,
+        "generate" => fusion::generate(&service, execution.request).await,
+        "edit" => fusion::edit(&service, execution.request, execution.images).await,
+        "fission" => fission::generate(&service, execution.request).await,
+        _ => commerce::generate(&service, execution).await,
     }
-}
-
-pub(super) const fn default_timeout() -> u64 {
-    DEFAULT_TIMEOUT_SECONDS
 }
 
 pub(super) const fn default_poll() -> f64 {

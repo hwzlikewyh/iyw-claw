@@ -35,7 +35,7 @@ pub(super) async fn generate(
             None,
         ));
     }
-    if request.wait.timeout_seconds == 0 {
+    if request.wait.timeout_seconds == Some(0) {
         return Ok(group_result(task_ids, Vec::new()));
     }
     wait_for_tasks(service, request, task_ids).await
@@ -56,7 +56,7 @@ async fn wait_for_tasks(
     request: &ImageRequest,
     task_ids: Vec<String>,
 ) -> Result<ImageResult, rmcp::ErrorData> {
-    let deadline = Instant::now() + Duration::from_secs(request.wait.timeout_seconds);
+    let deadline = Instant::now() + request.wait.platform_timeout();
     loop {
         let reports = load_reports(service, &task_ids).await?;
         if group_status(&reports) != "running" || Instant::now() >= deadline {

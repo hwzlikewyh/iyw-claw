@@ -116,11 +116,11 @@ async fn wait_for_task(
     wait: &super::WaitOptions,
 ) -> Result<ImageResult, rmcp::ErrorData> {
     let task_id = find_task_id(&created);
-    if task_id.is_none() || wait.timeout_seconds == 0 {
+    if task_id.is_none() || wait.timeout_seconds == Some(0) {
         return Ok(result_from_value(operation, created, task_id));
     }
     let task_id = task_id.expect("checked above");
-    let deadline = Instant::now() + Duration::from_secs(wait.timeout_seconds);
+    let deadline = Instant::now() + wait.platform_timeout();
     loop {
         let task = service
             .post_gateway(
