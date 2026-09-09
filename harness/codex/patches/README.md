@@ -1,5 +1,8 @@
 # Local Upstream Patches
 
+The command-purpose display extension and its upgrade checklist are documented
+in [COMMAND_DESCRIPTION.md](COMMAND_DESCRIPTION.md).
+
 This directory contains minimal source-level compatibility patches required to
 compile the locked Codex release. It is part of the harness source and must not
 depend on a developer-machine path.

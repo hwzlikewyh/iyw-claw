@@ -1,0 +1,138 @@
+[package]
+edition = "2024"
+license = "Apache-2.0"
+name = "codex-protocol"
+version = "0.153.4"
+autobins = false
+autotests = false
+autobenches = false
+
+[package.metadata.cargo-shear]
+ignored = ["icu_provider", "strum"]
+
+[lib]
+name = "codex_protocol"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies.chardetng]
+version = "0.1.17"
+
+[dependencies.chrono]
+version = "0.4.43"
+features = ["serde"]
+
+[dependencies.codex-async-utils]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-execpolicy]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-extension-items]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-http-client]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-network-proxy]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-utils-absolute-path]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-utils-image]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-utils-path-uri]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-utils-redacted-string]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.codex-utils-string]
+git = "https://github.com/openai/codex.git"
+rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+
+[dependencies.encoding_rs]
+version = "0.8.35"
+
+[dependencies.gix-url]
+version = "0.35.2"
+
+[dependencies.globset]
+version = "0.4"
+
+[dependencies.http]
+version = "1.3.1"
+
+[dependencies.icu_decimal]
+version = "2.1"
+
+[dependencies.icu_locale_core]
+version = "2.1"
+
+[dependencies.icu_provider]
+version = "2.1"
+features = ["sync"]
+
+[dependencies.quick-xml]
+version = "0.41.0"
+features = ["serialize"]
+
+[dependencies.schemars]
+version = "0.8.22"
+
+[dependencies.serde]
+version = "1"
+features = ["rc", "derive"]
+
+[dependencies.serde_json]
+version = "1"
+
+[dependencies.serde_with]
+version = "3.17"
+features = ["macros", "base64"]
+
+[dependencies.strum]
+version = "0.27.2"
+
+[dependencies.strum_macros]
+version = "0.28.0"
+
+[dependencies.sys-locale]
+version = "0.3.2"
+
+[dependencies.thiserror]
+version = "2.0.17"
+
+[dependencies.tokio]
+version = "1"
+
+[dependencies.tracing]
+version = "0.1.44"
+
+[dependencies.ts-rs]
+version = "11"
+features = ["uuid-impl", "serde-json-impl", "no-serde-warnings"]
+
+[dependencies.uuid]
+version = "1"
+features = ["serde", "v7", "v4"]
+
+[dependencies.wildmatch]
+version = "2.6.1"
+
+[target."cfg(target_os = \"linux\")".dependencies.landlock]
+version = "0.4.4"
+
+[target."cfg(target_os = \"linux\")".dependencies.seccompiler]
+version = "0.5.0"

@@ -29,7 +29,12 @@ impl ItemProjection {
         }
         match method {
             "item/started" => {
-                let update = item_update(params, false)?;
+                let mut update = item_update(params, false)?;
+                if let Some(id) = item_id(params) {
+                    if self.seen.contains(id) && params.pointer("/item/description").and_then(Value::as_str).is_some() {
+                        update.method = "tool_call_update";
+                    }
+                }
                 if let Some(id) = item_id(params) { self.seen.insert(id.into()); }
                 Some(update)
             }
@@ -81,6 +86,9 @@ fn item_update(params: &Value, completed: bool) -> Option<Update> {
     if completed {
         let status = completed_status(item);
         let mut update = tool_update(id, Some(status), completed_output(item));
+        if kind == "commandExecution" && item.get("description").and_then(Value::as_str).is_some() {
+            update.params["rawInput"] = item.clone();
+        }
         super::tool_content::enrich(item, &mut update.params);
         return Some(update);
     }
@@ -105,7 +113,12 @@ pub(super) fn is_tool_item(item: &Value) -> bool {
 
 fn tool_identity(kind: &str, item: &Value) -> Option<(String, &'static str)> {
     let identity = match kind {
-        "commandExecution" => (item.get("command")?.as_str()?.to_string(), "execute"),
+        "commandExecution" => (
+            item.get("description").and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .or_else(|| item.get("command").and_then(Value::as_str))?.to_string(),
+            "execute",
+        ),
         "fileChange" => ("File changes".to_string(), "edit"),
         "mcpToolCall" => (
             format!(

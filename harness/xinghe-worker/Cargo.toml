@@ -27,6 +27,10 @@ tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev 
 tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "4fffad30fe373adbdcffab9545e9e9bf4f2fc19f" }
 
 [patch."https://github.com/openai/codex.git"]
+codex-protocol = { path = "../codex/patches/codex-protocol" }
+codex-app-server-protocol = { path = "../codex/patches/codex-app-server-protocol" }
+codex-app-server = { path = "../codex/patches/codex-app-server" }
+codex-thread-store = { path = "../codex/patches/codex-thread-store" }
 codex-utils-pty = { path = "../codex/patches/codex-utils-pty" }
 codex-shell-command = { path = "../codex/patches/codex-shell-command" }
 codex-windows-sandbox = { path = "../codex/patches/codex-windows-sandbox" }
