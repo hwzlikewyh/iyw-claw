@@ -65,10 +65,7 @@ impl IywGatewayService {
             .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?
             .map(|token| token.expose().to_string())
             .ok_or_else(|| {
-                rmcp::ErrorData::invalid_request(
-                    "Sign in to iyw-claw before using IYW image tools",
-                    None,
-                )
+                rmcp::ErrorData::invalid_request("Sign in to iyw-claw before using IYW tools", None)
             })
     }
 
