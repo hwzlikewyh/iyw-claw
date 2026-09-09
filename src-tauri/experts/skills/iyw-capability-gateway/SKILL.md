@@ -26,12 +26,13 @@ This Skill is an active routing gate, not a static tool list. The host catalog i
 authoritative for current capability IDs, schemas, required inputs, availability,
 permissions, and schema digests.
 
-Before first using a tool, you must read its full usage description
-and input schema, including nested fields, required inputs, constraints, and
-examples. For a capability behind `invoke_iyw_capability`, call
+Before first using a tool, read its advertised description and input schema,
+including nested fields, required inputs, constraints, and examples. For a
+direct tool, this definition is the read; no discovery call is needed. For
+capabilities behind `invoke_iyw_capability`, call
 `read_iyw_capability` first and read the full result. Each `manage_iyw_memory`
-operation also requires this read; use its advertised operation-to-capability
-mapping. Direct tools expose their instructions in their own definitions.
+operation uses its advertised capability mapping. IDs are opaque: copy them from
+current search/mapping results; never derive them from direct tool names or append versions.
 
 If already read in this conversation, reuse the instructions without another
 read, including on later turns and after ordinary parameter errors. Search
@@ -67,10 +68,11 @@ follow its workflow**. Do not treat the reference as optional background reading
    `writing-plans`, or `executing-plans`.
    For any image production or editing request, call the directly advertised
    `generate_iyw_image` tool. It replaces the old `iyw-image-workflows` and
-   `imagegen` routing split. Use `type: "auto"` or omit `type` for the shortest
-   path; the host chooses ordinary generation, edit, variation, mix, extend,
-   fission, or a specialized image operation from the prompt, images, and
-   parameters. Do not read another image Skill before this call. Use
+   `imagegen` routing split. With images, prioritize `variation`, `extend`,
+   `mix`, or the matching specialized image tool. Choose an explicit `type`
+   from the task intent; reserve `edit` for free-form work the tools cannot
+   express and `generate` for text-only creation. Do not read another image
+   Skill or search/read a capability ID for generation; none is registered. Use
    `search_iyw_knowledge` only when the user asks for knowledge-base evidence;
    it is independent and never runs automatically before a normal image task.
 2. Use this gateway for the remaining iyw-claw host sub-goal: current session
@@ -112,7 +114,7 @@ An empty result, unavailable capability, malformed output, timeout, unknown ID,
 schema rejection without that evidence, or two non-matching reads ends the
 current gateway attempt. It does not by itself end the user's task. Permission
 and effect-unknown errors do not permit this correction. Do not switch
-namespaces, invent names, cycle locators, or replay stale arguments.
+namespaces, invent names, or replay stale arguments. Backend failures do not justify a new ID.
 
 ## Route Handoff
 
@@ -171,11 +173,11 @@ The HTTP MCP surface also exposes these shortest-path tools alongside interactio
 tools and the capability trio:
 
 - `generate_iyw_image`: one-call image generation/editing and all confirmed IYW
-  image operations. `type` is optional and defaults to `auto`; put complete
-  operation-specific fields under `parameters`. The host waits for terminal
-  status and returns public result URLs. HTTPS inputs are submitted directly;
-  Data URLs, raw base64, and workspace-local paths are uploaded to TOS without
-  `checkImage`.
+  image operations. Prefer an explicit `type`; put supported operation-specific
+  fields under `parameters`. The host waits up to the requested timeout and
+  returns status, task IDs when available, and public result URLs. Specialized
+  tools reuse HTTPS inputs and upload local/base64 inputs to TOS without
+  `checkImage`. `edit` submits local/base64 bytes directly to Fusion.
 - `search_iyw_knowledge`: standalone knowledge search with `query`, optional
   `category`, `folderId`, `fileId`, `limit`, and `denseWeight`. It never starts
   an image task.
@@ -189,8 +191,26 @@ tools and the capability trio:
 Use one call and wait for its result. These examples show the minimum input;
 add the complete `parameters` object when the task needs precision.
 
+With source images, choose the applicable IYW tool first: one-image redesign
+uses `variation`; same-series or trend/theme extension uses `extend`; combining
+2-10 references uses `mix`. A matching specialized operation such as background,
+outpaint, or super-resolution takes priority for that task. Use `edit` for an
+explicit need for free-form redraw, masks, complex composition, or constraints
+these tools cannot express. Keep all needed reference images. With no images,
+use `generate` (`images/generations`); `fission` is an explicitly chosen alternative.
+Do not use a generation-only type with source images.
+
+`auto` is only a basic fallback: no images -> `generate`; one image -> `variation`
+or `extend` for series/extension wording; multiple images -> `mix`. It does not
+infer specialized operations or creative freedom. Do not switch routes or
+recreate a task after a timeout/uncertain submission; query the original task ID
+when available. Ordinary generation/editing delivers successful images directly using
+returned status, URLs, and delivery metadata. Review visuals for requested quality review,
+comparison, visual acceptance, or integration into a composed deliverable. A detailed prompt
+alone is not a review request; report partial/failure states and do not regenerate beyond scope.
+
 ```json
-{"prompt":"白底陶瓷茶壶，现代东方风，产品摄影"}
+{"type":"generate","prompt":"白底陶瓷茶壶，现代东方风，产品摄影"}
 ```
 
 ```json
@@ -202,15 +222,15 @@ add the complete `parameters` object when the task needs precision.
 ```
 
 ```json
-{"prompt":"以第1张产品结构、第2张趋势配色融合成一件可生产餐盘","images":[{"url":"https://example.com/product.png","role":"structure"},{"url":"https://example.com/trend.png","role":"style"}]}
+{"type":"mix","prompt":"以第1张产品结构、第2张趋势配色融合成一件可生产餐盘","images":[{"url":"https://example.com/product.png","role":"structure"},{"url":"https://example.com/trend.png","role":"style"}]}
 ```
 
 ```json
-{"type":"edit","prompt":"只替换背景为春日窗边自然光，主体大小、边缘和阴影保持不变","images":[{"base64":"...","mimeType":"image/png","role":"source"}],"parameters":{"quality":"high","background":"opaque"}}
+{"type":"edit","prompt":"以原图为参考自由重绘为超现实拼贴海报，重新设计透视和构图，保留主体标识，右侧留出标题区域","images":[{"base64":"...","mimeType":"image/png","role":"source"}],"parameters":{"quality":"high","background":"opaque"}}
 ```
 
 ```json
-{"type":"background","prompt":"浅木桌面和自然接触阴影，主体边缘完整","images":["https://example.com/product.png"],"parameters":{"ratio":"1:1","resolution":"standard"}}
+{"type":"background","prompt":"浅木桌面和自然接触阴影，主体边缘完整","images":["https://example.com/product.png"],"parameters":{"size":"1:1","resolution":"standard"}}
 ```
 
 ```json
@@ -235,8 +255,9 @@ add the complete `parameters` object when the task needs precision.
 
 For a local path use `"images":["assets/product.png"]`; for raw base64 use an
 object with `base64` and `mimeType`; for a Data URL pass it as the string source.
-Non-URL sources are converted to public HTTPS before the image operation. The
-decoded input limit is 20 MiB and HTTP image URLs are rejected.
+For IYW image tools, non-URL sources become public HTTPS before execution;
+`edit` uses their validated bytes directly. The decoded input limit is 20 MiB
+and HTTP image URLs are rejected.
 
 ### Knowledge shortest path
 

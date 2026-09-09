@@ -13,7 +13,7 @@ mod result;
 mod validation;
 mod validation_special;
 
-use input::{prepare_images, ImageSource, PreparedImage};
+use input::{prepare_images, upload_images, ImageSource, PreparedImage};
 
 pub(super) const DEFAULT_TIMEOUT_SECONDS: u64 = 180;
 pub(super) const DEFAULT_POLL_SECONDS: f64 = 2.0;
@@ -160,7 +160,7 @@ fn select_kind(kind: Option<&str>, prompt: &Option<String>, image_count: usize) 
     if image_count == 0 {
         "generate".to_string()
     } else if image_count == 1
-        && ["系列", "延展", "同系列", "extend", "series"]
+        && ["系列", "延展", "延伸", "延申", "extend", "series"]
             .iter()
             .any(|term| text.contains(term))
     {
@@ -177,6 +177,16 @@ fn preflight_kind(
     kind: &str,
     images: &[PreparedImage],
 ) -> Result<(), rmcp::ErrorData> {
+    if matches!(kind, "generate" | "fission") && !images.is_empty() {
+        return Err(invalid(
+            "generate and fission do not accept source images; choose variation, extend, mix, a specialized image tool, or edit",
+        ));
+    }
+    if matches!(kind, "variation" | "extend") && images.len() > 1 {
+        return Err(invalid(
+            "variation and extend accept one source image; use mix to combine references, or edit for free-form composition",
+        ));
+    }
     match kind {
         "generate" => required_prompt(request.prompt.as_deref()).map(|_| ()),
         "edit" => {

@@ -2716,17 +2716,6 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
       return <PlanPart key={`plan-${keyId}`} part={part} />
     }
 
-    if (part.type === "generated-image") {
-      return (
-        <GeneratedImagesBlock
-          key={`gimg-${keyId}`}
-          revisedPrompt={part.revisedPrompt}
-          image={part.image}
-          status={part.status}
-        />
-      )
-    }
-
     if (part.type === "displayed-image") {
       return (
         <GeneratedImagesBlock

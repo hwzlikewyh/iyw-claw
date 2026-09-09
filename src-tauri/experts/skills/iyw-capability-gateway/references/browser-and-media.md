@@ -167,6 +167,13 @@ IYW product/material/commerce and ordinary raster creation. Attach SVG, BMP,
 ICO, and other unsupported model-image formats as ordinary files rather than
 forcing an image-analysis route.
 
+After `generate_iyw_image`, choose verification from the user's task. Ordinary
+generation/editing can deliver successful results directly using returned status,
+URLs, and delivery metadata. Use visual analysis when the task includes quality
+review, comparison, or visual acceptance; verify placement/rendering in a requested
+page or composed deliverable. A detailed generation prompt alone is not a review
+request. Keep checks focused and do not regenerate beyond the requested scope.
+
 For an HTML or Markdown deliverable that embeds newly generated or local
 images, use the public HTTPS URL returned by `generate_iyw_image`. Already
 verified public HTTPS image URLs may be reused. Never embed a presigned PUT URL,

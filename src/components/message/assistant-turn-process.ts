@@ -63,15 +63,24 @@ export function isFinalResultPart(part: AdaptedContentPart): boolean {
   return part.type === "displayed-image"
 }
 
-export function isLiveVisibleResultPart(part: AdaptedContentPart): boolean {
-  return part.type === "generated-image" || isFinalResultPart(part)
+export function hasPendingImageGeneration(
+  parts: AdaptedContentPart[]
+): boolean {
+  return parts.some((part) => {
+    if (part.type === "goal-run") return hasPendingImageGeneration(part.items)
+    return (
+      part.type === "generated-image" &&
+      part.image === null &&
+      (part.status === "pending" || part.status === "in_progress")
+    )
+  })
 }
 
 export function isReasoningPart(part: AdaptedContentPart): boolean {
   return part.type === "reasoning"
 }
 
-export function completedProcessPart(
+export function visibleProcessPart(
   part: AdaptedContentPart
 ): AdaptedContentPart | null {
   if (part.type === "generated-image") return null
@@ -79,7 +88,7 @@ export function completedProcessPart(
   return {
     ...part,
     items: part.items.flatMap((item) => {
-      const visible = completedProcessPart(item)
+      const visible = visibleProcessPart(item)
       return visible ? [visible] : []
     }),
   }

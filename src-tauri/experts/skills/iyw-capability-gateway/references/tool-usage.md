@@ -20,6 +20,41 @@ include these instructions in their definitions. Capabilities
 behind the gateway require an explicit `read_iyw_capability`; each direct memory
 operation also requires that read using its advertised capability mapping.
 
+## Shortest Valid Call
+
+Use a direct tool when it covers the current subgoal, even when the user did not
+name it. This avoids unnecessary search/read/invoke calls. Reuse already-read
+capability instructions in the same session; continue checking current business
+state, returned revisions, and availability when the task requires them.
+
+| Work | Input shape |
+| --- | --- |
+| Image generation/editing | Call `generate_iyw_image` directly with `type`, `prompt`, `images`, and supported `parameters`; no generation capability ID exists |
+| Document knowledge | `search_iyw_knowledge`: `query`, optional known filters; `folderId` is an integer and `fileId` is a string |
+| Memory recall | Read the mapped capability once, then `manage_iyw_memory` with `operation` and `parameters`; policy preflight is automatic |
+| Other host capabilities | Search/read once, then `invoke_iyw_capability` with `capability_id` and an `arguments` object |
+| Questions | `ask_user_question` with `questions`; group related questions in one call |
+| Final files | `present_task_files` with one `files` array for the ready deliverables |
+| Interactive HTML | `show_interactive_html` with `title` and `html`; wait only when its response blocks the next step |
+
+Business fields go directly inside the specified JSON object. Do not stringify
+it or add an extra `arguments`/`parameters` layer. Preserve the schema's spelling,
+ID types, enums, and mutually exclusive fields. Omit unknown optional fields.
+Existing returned IDs and prior schema reads can be reused; never fabricate IDs
+or cache a business-state answer as if it were a fresh execution.
+
+Tool identities and capability IDs are different fields. Copy a capability ID
+exactly from current search results or the advertised memory mapping; do not
+construct one from a tool name or add a version suffix. Reading a directly
+advertised tool's definition is not a `read_iyw_capability` invocation.
+
+When `capability_not_found` returns a direct-tool hint, inspect that tool's actual
+advertised definition and stop guessed-ID attempts. The hint is guidance, not an
+automatic execution or permission to resubmit earlier work. Its `not_started`
+status applies only to that lookup. A backend rejection, timeout, or uncertain
+creation must retain its original error/task identity; do not turn it into
+discovery or repeat the operation under another name.
+
 ## Five-Step Sequence
 
 1. Inspect the actual callable surface and choose one complete trio when the
@@ -68,7 +103,7 @@ correction using the schema already read and the error's field hints. Retry the
 same intended operation once with corrected arguments. A text-only error must also
 explicitly report schema rejection and `execution_status=not_started`. A parameter
 error does not require another read; read only if not previously read. Use the
-error's field path, allowed properties, and hint; never replay unchanged arguments or silently
+error's field path, allowed properties, enum choices, bounds, and hint; never replay unchanged arguments or silently
 drop intended behavior. Stop this recovery if the corrected call fails.
 
 An empty result, unknown ID, malformed output, timeout, unavailable capability,

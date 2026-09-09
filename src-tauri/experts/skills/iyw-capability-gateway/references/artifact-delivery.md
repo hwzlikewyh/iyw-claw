@@ -28,6 +28,16 @@ non-HTTP URL sources are rejected. A URL artifact must use `http` or `https`
 without embedded username or password. Preserve the original reference and
 inspect accepted/rejected entries in the returned result.
 
+Submit image URLs directly without a separate shell, browser, or download tool
+call just to prepare delivery. The host downloads image URLs into the managed
+turn directory and registers the downloaded file. Images with identical bytes
+share one artifact path in the same turn, even when supplied through different
+URLs or local file names. Submit one reference per image; do not deliver both a
+URL and its local copy. Use the accepted path returned by the tool, which may
+differ from the submitted URL. Download or storage failures are rejected entries.
+Image downloads use the host's existing 20 MiB limit and public-network checks;
+non-image web pages remain URL artifacts.
+
 Do not register source files, configuration, tests, migrations, build output,
 caches, logs, temporary files, scratch notes, private gateway data, or internal
 working files unless the user explicitly requests that exact item. A dirty Git
@@ -75,6 +85,14 @@ For image production, call `generate_iyw_image`; it owns input preparation,
 generation/editing, result waiting, display, and public URL delivery. Keep
 knowledge retrieval separate through `search_iyw_knowledge`. `analyze_image`
 and `show_image` do not upload or generate images.
+
+Choose image verification from the user's requested outcome. Ordinary generation
+or editing delivers successful images directly from returned status, URLs, and
+delivery metadata. Inspect quality for a requested review, comparison, or visual
+acceptance task; verify placement/rendering when integrating images into a requested
+page or composed deliverable. A detailed generation prompt alone does not require
+a separate quality review. Keep task-status and artifact-registration checks, and
+do not automatically regenerate beyond the requested scope.
 
 ## Preview and Browser Presentation
 

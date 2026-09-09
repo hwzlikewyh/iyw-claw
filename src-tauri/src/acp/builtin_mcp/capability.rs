@@ -1,15 +1,13 @@
 use serde::Deserialize;
 use serde_json::Value;
+use std::sync::{Arc, OnceLock};
 
-use super::capability_intents::intent_metadata;
-use super::capability_metadata::{
-    capability_aliases, capability_category, digest, first_sentence, intent_terms, negative_terms,
-    public_text, public_value, required_inputs, search_score, validate_intent_metadata,
-    when_to_use,
-};
-use super::capability_registry::{stable_capability_id, validate_bindings, RegistryError};
+use super::capability_metadata::{first_sentence, public_text, search_score};
+use super::capability_registry::RegistryError;
 use super::capability_schema;
 use super::features::FeatureSnapshot;
+
+mod build;
 
 const DEFAULT_SEARCH_LIMIT: usize = 8;
 const MAX_SEARCH_LIMIT: usize = 20;
@@ -83,59 +81,20 @@ struct CatalogEntry {
     schema_digest: String,
 }
 
+#[derive(Clone)]
 pub(super) struct CapabilityCatalog {
-    entries: Vec<CatalogEntry>,
+    entries: Arc<[CatalogEntry]>,
     catalog_digest: String,
 }
 
 impl CapabilityCatalog {
     pub(super) fn load() -> Result<Self, CatalogError> {
-        let tools = serde_json::from_str::<Vec<EmbeddedTool>>(
-            crate::acp::delegation::companion::TOOL_SCHEMA_JSON,
-        )?;
-        validate_bindings(tools.iter().map(|tool| tool.name.as_str()))?;
-        validate_intent_metadata(tools.iter().map(|tool| tool.name.as_str()))
-            .map_err(CatalogError::IntentMetadata)?;
-        let entries = tools
-            .into_iter()
-            .map(|mut tool| {
-                let id = stable_capability_id(&tool.name)
-                    .ok_or_else(|| CatalogError::MissingStableId(tool.name.clone()))?;
-                let metadata = intent_metadata(&tool.name)
-                    .ok_or_else(|| CatalogError::MissingIntentMetadata(tool.name.clone()))?;
-                tool.input_schema = public_value(tool.input_schema);
-                let schema_digest = digest(&tool.input_schema)?;
-                Ok(CatalogEntry {
-                    id,
-                    category: capability_category(id),
-                    aliases: capability_aliases(id, &tool.name),
-                    intent_terms: intent_terms(metadata),
-                    negative_terms: negative_terms(metadata),
-                    when_to_use: when_to_use(metadata),
-                    required_inputs: required_inputs(&tool.input_schema),
-                    schema_digest,
-                    tool,
-                })
-            })
-            .collect::<Result<Vec<_>, CatalogError>>()?;
-        let catalog_digest = digest(
-            &entries
-                .iter()
-                .map(|entry| {
-                    (
-                        &entry.id,
-                        &entry.schema_digest,
-                        &entry.aliases,
-                        &entry.intent_terms,
-                        &entry.when_to_use,
-                    )
-                })
-                .collect::<Vec<_>>(),
-        )?;
-        Ok(Self {
-            entries,
-            catalog_digest,
-        })
+        static EMBEDDED_CATALOG: OnceLock<Result<CapabilityCatalog, String>> = OnceLock::new();
+        EMBEDDED_CATALOG
+            .get_or_init(|| build::load().map_err(|error| error.to_string()))
+            .as_ref()
+            .cloned()
+            .map_err(|message| CatalogError::Initialization(message.clone()))
     }
 
     pub(super) fn digest(&self) -> &str {
@@ -186,7 +145,7 @@ impl CapabilityCatalog {
         Some(CapabilityDetail {
             capability_id: entry.id,
             description: public_text(&entry.tool.description),
-            input_schema: public_value(entry.tool.input_schema.clone()),
+            input_schema: entry.tool.input_schema.clone(),
             category: entry.category.clone(),
             aliases: entry.aliases.clone(),
             intent_terms: entry.intent_terms.clone(),
@@ -277,6 +236,8 @@ fn search_match(entry: &CatalogEntry, query: &str) -> Option<(usize, CapabilityS
 
 #[derive(Debug, thiserror::Error)]
 pub(super) enum CatalogError {
+    #[error("{0}")]
+    Initialization(String),
     #[error("invalid embedded companion schema: {0}")]
     Decode(#[from] serde_json::Error),
     #[error("companion tool `{0}` has no stable capability id")]

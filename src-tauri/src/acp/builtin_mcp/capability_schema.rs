@@ -54,7 +54,9 @@ fn validate_enum(
     if values.contains(instance) {
         Ok(())
     } else {
-        Err(error(path, "must be one of the declared enum values"))
+        let mut failure = error(path, "must be one of the declared enum values");
+        failure.hint = Some(format!("Allowed values: {}.", Value::Array(values.clone())));
+        Err(failure)
     }
 }
 
@@ -74,7 +76,7 @@ fn validate_object(
     if let Some(required) = schema.get("required").and_then(Value::as_array) {
         for field in required.iter().filter_map(Value::as_str) {
             if !object.contains_key(field) {
-                return Err(error(&child_path(path, field), "is required"));
+                return Err(required_property(schema, path, field));
             }
         }
     }
@@ -167,19 +169,25 @@ fn validate_number(
     let Some(value) = number.as_f64() else {
         return Ok(());
     };
-    if schema
+    if let Some(minimum) = schema
         .get("minimum")
         .and_then(Value::as_f64)
-        .is_some_and(|minimum| value < minimum)
+        .filter(|minimum| value < *minimum)
     {
-        return Err(error(path, "is below the declared minimum"));
+        return Err(error(
+            path,
+            format!("is below the declared minimum {minimum}"),
+        ));
     }
-    if schema
+    if let Some(maximum) = schema
         .get("maximum")
         .and_then(Value::as_f64)
-        .is_some_and(|maximum| value > maximum)
+        .filter(|maximum| value > *maximum)
     {
-        return Err(error(path, "is above the declared maximum"));
+        return Err(error(
+            path,
+            format!("is above the declared maximum {maximum}"),
+        ));
     }
     Ok(())
 }
@@ -189,7 +197,11 @@ fn validate_not(schema: &Value, instance: &Value, path: &str) -> Result<(), Sche
         return Ok(());
     };
     if validate_at(not_schema, instance, path).is_ok() {
-        Err(error(path, "matches a forbidden field combination"))
+        let mut failure = error(path, "matches a forbidden field combination");
+        failure.hint = not_schema
+            .get("required")
+            .map(|fields| format!("Do not supply these fields together: {fields}."));
+        Err(failure)
     } else {
         Ok(())
     }
@@ -216,6 +228,17 @@ fn validate_one_of(
 
 fn child_path(parent: &str, field: &str) -> String {
     format!("{parent}.{field}")
+}
+
+fn required_property(schema: &Value, path: &str, field: &str) -> SchemaValidationError {
+    let mut failure = error(&child_path(path, field), "is required");
+    failure.hint = schema
+        .get("properties")
+        .and_then(|properties| properties.get(field))
+        .and_then(|property| property.get("description"))
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+    failure
 }
 
 fn unknown_property(schema: &Value, path: &str, field: &str) -> SchemaValidationError {

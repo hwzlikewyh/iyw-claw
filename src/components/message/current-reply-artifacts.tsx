@@ -4,6 +4,7 @@ import { memo, useMemo } from "react"
 
 import { useTaskArtifacts } from "@/components/layout/use-task-artifacts"
 import { CurrentReplyArtifactsPanel } from "@/components/message/current-reply-artifacts-panel"
+import { hasPendingImageGeneration } from "./assistant-turn-process"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import type { TaskArtifactInfo } from "@/lib/api"
@@ -17,6 +18,7 @@ interface CurrentReplyArtifactsProps {
   conversationId: number | null
   messageId: string
   parts: AdaptedContentPart[]
+  isResponseComplete?: boolean
 }
 
 export interface ArtifactRegistration {
@@ -41,10 +43,15 @@ export const CurrentReplyArtifacts = memo(function CurrentReplyArtifacts({
   conversationId,
   messageId,
   parts,
+  isResponseComplete = true,
 }: CurrentReplyArtifactsProps) {
   const registration = useMemo(
     () => extractArtifactRegistration(parts),
     [parts]
+  )
+  const generatingImages = useMemo(
+    () => !isResponseComplete && hasPendingImageGeneration(parts),
+    [isResponseComplete, parts]
   )
 
   return (
@@ -52,6 +59,7 @@ export const CurrentReplyArtifacts = memo(function CurrentReplyArtifacts({
       conversationId={conversationId}
       messageId={messageId}
       registration={registration}
+      generatingImages={generatingImages}
     />
   )
 })
@@ -60,10 +68,12 @@ function ResolvedReplyArtifacts({
   conversationId,
   messageId,
   registration,
+  generatingImages,
 }: {
   conversationId: number | null
   messageId: string
   registration: ArtifactRegistration
+  generatingImages: boolean
 }) {
   const { activeFolder } = useActiveFolder()
   const query = useTaskArtifacts({
@@ -85,9 +95,14 @@ function ResolvedReplyArtifacts({
     )
   }, [activeFolder?.path, query.items, registration])
 
-  if (items.length === 0) return null
+  if (items.length === 0 && !generatingImages) return null
 
-  return <CurrentReplyArtifactsPanel items={items} />
+  return (
+    <CurrentReplyArtifactsPanel
+      items={items}
+      generatingImages={generatingImages}
+    />
+  )
 }
 
 export function extractArtifactRegistration(

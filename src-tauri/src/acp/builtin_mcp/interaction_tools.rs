@@ -1,4 +1,5 @@
 use serde_json::{json, Value};
+use std::sync::OnceLock;
 
 use crate::acp::interactive_html::{MAX_HTML_BYTES, MAX_TITLE_CHARS};
 
@@ -6,8 +7,11 @@ pub(super) const ASK_TOOL: &str = "ask_user_question";
 pub(super) const HTML_TOOL: &str = "show_interactive_html";
 
 pub(super) fn embedded_tool(name: &str) -> Value {
-    let tools: Value = serde_json::from_str(crate::acp::delegation::companion::TOOL_SCHEMA_JSON)
-        .expect("embedded tool schema must be valid JSON");
+    static EMBEDDED_TOOLS: OnceLock<Value> = OnceLock::new();
+    let tools = EMBEDDED_TOOLS.get_or_init(|| {
+        serde_json::from_str(crate::acp::delegation::companion::TOOL_SCHEMA_JSON)
+            .expect("embedded tool schema must be valid JSON")
+    });
     tools
         .as_array()
         .and_then(|items| items.iter().find(|tool| tool["name"] == name))

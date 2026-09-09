@@ -590,6 +590,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
                 conversationId={artifactConversationId}
                 messageId={group.id}
                 parts={group.parts}
+                isResponseComplete={isResponseComplete}
               />
             )}
             {showStats && (
@@ -915,7 +916,7 @@ export function MessageListView({
                   showStats={item.showStats}
                   previousUserIndex={item.previousUserIndex}
                   isResponseComplete={item.phase === "persisted"}
-                  showCurrentReplyArtifacts={item.phase === "persisted"}
+                  showCurrentReplyArtifacts={item.phase !== "optimistic"}
                   animationEnabled={animationEnabled}
                   conversationDisplayMode={conversationDisplayMode}
                   collapseCompletedTurn={collapseCompletedTurn}
