@@ -31,8 +31,8 @@ including nested fields, required inputs, constraints, and examples. For a
 direct tool, this definition is the read; no discovery call is needed. For
 capabilities behind `invoke_iyw_capability`, call
 `read_iyw_capability` first and read the full result. Each `manage_iyw_memory`
-operation also requires this read; use its advertised operation-to-capability
-mapping. Direct tools expose their instructions in their own definitions.
+operation uses its advertised capability mapping. IDs are opaque: copy them from
+current search/mapping results; never derive them from direct tool names or append versions.
 
 If already read in this conversation, reuse the instructions without another
 read, including on later turns and after ordinary parameter errors. Search
@@ -72,7 +72,7 @@ follow its workflow**. Do not treat the reference as optional background reading
    `mix`, or the matching specialized image tool. Choose an explicit `type`
    from the task intent; reserve `edit` for free-form work the tools cannot
    express and `generate` for text-only creation. Do not read another image
-   Skill or search the catalog before this call. Use
+   Skill or search/read a capability ID for generation; none is registered. Use
    `search_iyw_knowledge` only when the user asks for knowledge-base evidence;
    it is independent and never runs automatically before a normal image task.
 2. Use this gateway for the remaining iyw-claw host sub-goal: current session
@@ -114,7 +114,7 @@ An empty result, unavailable capability, malformed output, timeout, unknown ID,
 schema rejection without that evidence, or two non-matching reads ends the
 current gateway attempt. It does not by itself end the user's task. Permission
 and effect-unknown errors do not permit this correction. Do not switch
-namespaces, invent names, cycle locators, or replay stale arguments.
+namespaces, invent names, or replay stale arguments. Backend failures do not justify a new ID.
 
 ## Route Handoff
 

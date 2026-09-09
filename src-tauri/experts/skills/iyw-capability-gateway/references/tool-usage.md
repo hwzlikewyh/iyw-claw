@@ -29,6 +29,7 @@ state, returned revisions, and availability when the task requires them.
 
 | Work | Input shape |
 | --- | --- |
+| Image generation/editing | Call `generate_iyw_image` directly with `type`, `prompt`, `images`, and supported `parameters`; no generation capability ID exists |
 | Document knowledge | `search_iyw_knowledge`: `query`, optional known filters; `folderId` is an integer and `fileId` is a string |
 | Memory recall | Read the mapped capability once, then `manage_iyw_memory` with `operation` and `parameters`; policy preflight is automatic |
 | Other host capabilities | Search/read once, then `invoke_iyw_capability` with `capability_id` and an `arguments` object |
@@ -41,6 +42,18 @@ it or add an extra `arguments`/`parameters` layer. Preserve the schema's spellin
 ID types, enums, and mutually exclusive fields. Omit unknown optional fields.
 Existing returned IDs and prior schema reads can be reused; never fabricate IDs
 or cache a business-state answer as if it were a fresh execution.
+
+Tool identities and capability IDs are different fields. Copy a capability ID
+exactly from current search results or the advertised memory mapping; do not
+construct one from a tool name or add a version suffix. Reading a directly
+advertised tool's definition is not a `read_iyw_capability` invocation.
+
+When `capability_not_found` returns a direct-tool hint, inspect that tool's actual
+advertised definition and stop guessed-ID attempts. The hint is guidance, not an
+automatic execution or permission to resubmit earlier work. Its `not_started`
+status applies only to that lookup. A backend rejection, timeout, or uncertain
+creation must retain its original error/task identity; do not turn it into
+discovery or repeat the operation under another name.
 
 ## Five-Step Sequence
 
