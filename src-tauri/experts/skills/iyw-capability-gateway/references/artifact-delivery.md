@@ -76,6 +76,14 @@ generation/editing, result waiting, display, and public URL delivery. Keep
 knowledge retrieval separate through `search_iyw_knowledge`. `analyze_image`
 and `show_image` do not upload or generate images.
 
+Choose image verification from the user's requested outcome. Ordinary generation
+or editing delivers successful images directly from returned status, URLs, and
+delivery metadata. Inspect quality for a requested review, comparison, or visual
+acceptance task; verify placement/rendering when integrating images into a requested
+page or composed deliverable. A detailed generation prompt alone does not require
+a separate quality review. Keep task-status and artifact-registration checks, and
+do not automatically regenerate beyond the requested scope.
+
 ## Preview and Browser Presentation
 
 The artifact UI supports the host's existing file, directory, Markdown, HTML,
