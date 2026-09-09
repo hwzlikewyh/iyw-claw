@@ -20,6 +20,10 @@ on:
         description: Successful staged Windows x64 signing run
         required: true
         type: string
+      x64_staging_run_id:
+        description: Original x64 build run when signing is retried separately
+        required: false
+        type: string
       x86_run_id:
         description: Successful hosted Windows x86 build run
         required: true
@@ -128,7 +132,7 @@ jobs:
         with:
           name: staged-windows-x86_64-${{ inputs.version }}
           path: ${{ runner.temp }}/finish-${{ github.run_id }}/x64-input
-          run-id: ${{ inputs.x64_run_id }}
+          run-id: ${{ inputs.x64_staging_run_id || inputs.x64_run_id }}
           github-token: ${{ github.token }}
       - name: Restore x64 staging resources
         if: matrix.arch == 'x64'
