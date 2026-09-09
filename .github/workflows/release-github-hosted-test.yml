@@ -27,6 +27,13 @@ on:
         required: false
         default: false
         type: boolean
+      candidate_repair_run:
+        description: Repair only Linux for a prior signed candidate run
+        required: false
+        type: string
+      candidate_release_id:
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -43,7 +50,7 @@ env:
 
 jobs:
   prepare-frontend:
-    if: inputs.frontend_run_id == ''
+    if: inputs.frontend_run_id == '' && inputs.candidate_repair_run == ''
     name: Prepare frontend input
     runs-on: ubuntu-22.04
     outputs:
@@ -89,7 +96,7 @@ jobs:
   build-desktop:
     name: Build ${{ matrix.name }} on GitHub hosted
     needs: prepare-frontend
-    if: ${{ !inputs.signed_candidate && !cancelled() && (needs.prepare-frontend.result == 'success' || (needs.prepare-frontend.result == 'skipped' && inputs.frontend_run_id != '')) }}
+    if: ${{ inputs.candidate_repair_run == '' && !inputs.signed_candidate && !cancelled() && (needs.prepare-frontend.result == 'success' || (needs.prepare-frontend.result == 'skipped' && inputs.frontend_run_id != '')) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -251,7 +258,7 @@ jobs:
         run: sccache --show-stats
 
   signed-candidate:
-    if: inputs.signed_candidate
+    if: inputs.signed_candidate && inputs.candidate_repair_run == ''
     needs: prepare-frontend
     permissions:
       contents: write
@@ -261,4 +268,17 @@ jobs:
       version: ${{ inputs.version }}
       source_ref: ${{ needs.prepare-frontend.outputs.source_sha }}
       frontend_artifact: github-hosted-test-frontend-${{ inputs.version }}
+    secrets: inherit
+
+  repair-candidate:
+    if: inputs.candidate_repair_run != ''
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release-candidate-repair.yml
+    with:
+      version: ${{ inputs.version }}
+      source_ref: ${{ inputs.source_ref }}
+      prior_run: ${{ inputs.candidate_repair_run }}
+      release_id: ${{ inputs.candidate_release_id }}
     secrets: inherit
