@@ -101,11 +101,18 @@ jobs:
       HTTPS_PROXY: http://127.0.0.1:7890
       NO_PROXY: localhost,127.0.0.1,api.github.com,uploads.github.com
       GH_TOKEN: ${{ github.token }}
+      SOURCE_STAGING_RUN_ID: ${{ matrix.arch == 'x64' && inputs.x64_staging_run_id || inputs.x86_run_id }}
+      SOURCE_SIGNING_RUN_ID: ${{ inputs.x64_run_id }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_ref }}
           clean: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tools
+          sparse-checkout: .github/scripts/release
       - uses: pnpm/action-setup@v4
         with:
           run_install: false
@@ -128,12 +135,8 @@ jobs:
 
       - name: Download x64 staging resources
         if: matrix.arch == 'x64'
-        uses: actions/download-artifact@v4
-        with:
-          name: staged-windows-x86_64-${{ inputs.version }}
-          path: ${{ runner.temp }}/finish-${{ github.run_id }}/x64-input
-          run-id: ${{ inputs.x64_staging_run_id || inputs.x64_run_id }}
-          github-token: ${{ github.token }}
+        shell: pwsh
+        run: ./.release-tools/.github/scripts/release/staging-cache.ps1 resources
       - name: Restore x64 staging resources
         if: matrix.arch == 'x64'
         shell: pwsh
@@ -152,21 +155,13 @@ jobs:
           }
       - name: Download signed x64 installer
         if: matrix.arch == 'x64'
-        uses: actions/download-artifact@v4
-        with:
-          name: final-windows-x86_64-${{ inputs.version }}
-          path: src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis
-          run-id: ${{ inputs.x64_run_id }}
-          github-token: ${{ github.token }}
+        shell: pwsh
+        run: ./.release-tools/.github/scripts/release/staging-cache.ps1 installer
 
       - name: Download hosted x86 signing input
         if: matrix.arch == 'x86'
-        uses: actions/download-artifact@v4
-        with:
-          name: github-hosted-signing-i686-pc-windows-msvc-${{ inputs.version }}
-          path: ${{ runner.temp }}/finish-${{ github.run_id }}/x86-input
-          run-id: ${{ inputs.x86_run_id }}
-          github-token: ${{ github.token }}
+        shell: pwsh
+        run: ./.release-tools/.github/scripts/release/staging-cache.ps1 resources
       - name: Restore and bundle x86 with hardware signing
         if: matrix.arch == 'x86'
         shell: pwsh
@@ -219,10 +214,7 @@ jobs:
         shell: pwsh
         env:
           GH_REPO: ${{ github.repository }}
-        run: |
-          $files = @(Get-ChildItem -LiteralPath $env:RELEASE_DIRECTORY -File | ForEach-Object FullName)
-          gh release upload "v$env:RELEASE_VERSION" --repo $env:GH_REPO @files
-          if ($LASTEXITCODE -ne 0) { throw 'Draft asset upload failed' }
+        run: ./.release-tools/.github/scripts/release/staging-cache.ps1 upload
       - name: Upload Windows installation verification input
         uses: actions/upload-artifact@v4
         with:
