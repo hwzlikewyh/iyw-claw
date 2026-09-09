@@ -10,10 +10,6 @@ function isFinalResultPart(part: AdaptedContentPart): boolean {
   return part.type === "displayed-image"
 }
 
-function isLiveResultPart(part: AdaptedContentPart): boolean {
-  return part.type === "generated-image" || isFinalResultPart(part)
-}
-
 export function splitAssistantTurnParts(
   parts: AdaptedContentPart[],
   complete: boolean
@@ -46,9 +42,7 @@ export function splitAssistantTurnParts(
 
   return {
     processParts,
-    resultParts: parts.filter((part) =>
-      complete ? isFinalResultPart(part) : isLiveResultPart(part)
-    ),
+    resultParts: parts.filter(isFinalResultPart),
     responseParts,
   }
 }

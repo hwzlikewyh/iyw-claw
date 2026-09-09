@@ -1,7 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { ImageIcon } from "lucide-react"
+import { ImageIcon, LoaderCircle } from "lucide-react"
+import { useTranslations } from "next-intl"
 
 import { artifactVisualKind } from "@/components/layout/task-artifact-type"
 import type { TaskArtifactInfo } from "@/lib/api"
@@ -9,11 +10,13 @@ import { buildArtifactThumbnailUrl } from "@/lib/artifact-image-thumbnail"
 
 export function CompactReplyImageStrip({
   items,
+  generatingImages = false,
   remaining,
   onSelect,
   onViewAll,
 }: {
   items: TaskArtifactInfo[]
+  generatingImages?: boolean
   remaining: number
   onSelect: (item: TaskArtifactInfo) => void
   onViewAll: () => void
@@ -32,6 +35,7 @@ export function CompactReplyImageStrip({
           <ArtifactImageThumbnail item={item} />
         </button>
       ))}
+      {generatingImages && <PendingReplyImage />}
       {remaining > 0 && (
         <button
           type="button"
@@ -41,6 +45,22 @@ export function CompactReplyImageStrip({
           +{remaining}
         </button>
       )}
+    </div>
+  )
+}
+
+function PendingReplyImage() {
+  const t = useTranslations("Folder.chat.messageList")
+  return (
+    <div
+      role="status"
+      className="flex size-20 shrink-0 items-center justify-center rounded-md border border-dashed bg-muted/25 sm:size-24"
+    >
+      <LoaderCircle
+        aria-hidden="true"
+        className="size-6 animate-spin text-muted-foreground motion-reduce:animate-none"
+      />
+      <span className="sr-only">{t("imageGenerationPending")}</span>
     </div>
   )
 }
