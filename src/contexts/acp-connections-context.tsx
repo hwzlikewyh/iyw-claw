@@ -38,6 +38,10 @@ import {
 } from "@/lib/api"
 import { denormalizeSnapshot } from "@/lib/snapshot-denormalize"
 import { recoverWorkerContent } from "@/lib/worker-content-recovery"
+import {
+  observeSessionActivity,
+  type ObservedSessionActivity,
+} from "@/lib/session-activity"
 import { buildDelegationSeedEnvelopes } from "@/lib/delegation-seed"
 import type {
   AgentType,
@@ -182,11 +186,13 @@ export interface LiveMessage {
   content: LiveContentBlock[]
   startedAt: number
   firstTextAt?: number | null
+  recoveredVersion?: number
 }
 
 // ── Per-connection state ──
 
 export interface ConnectionState {
+  activity?: ObservedSessionActivity | null
   connectionId: string
   contextKey: string
   agentType: AgentType
@@ -608,6 +614,7 @@ type Action =
       type: "EVENT_APPLIED"
       contextKey: string
       seq: number
+      activity?: EventEnvelope["activity"]
     }
   | {
       /**
@@ -1423,6 +1430,7 @@ function connectionsReducer(
         compactionAtTokens: action.patch.compactionAtTokens,
         compactionPending: action.patch.compactionPending,
         liveMessage: hydratedLiveMessage,
+        activity: action.patch.activity ?? null,
         pendingPermission: hydratedPendingPermission,
         agentInputs: action.patch.agentInputs,
         sessionFailures: mergedSessionFailures,
@@ -1571,6 +1579,10 @@ function connectionsReducer(
       next.set(action.contextKey, {
         ...current,
         lastAppliedSeq: action.seq,
+        activity:
+          action.activity === undefined
+            ? current.activity
+            : observeSessionActivity(action.activity),
       })
       return next
     }
@@ -1605,6 +1617,7 @@ function connectionsReducer(
         liveMessage: {
           ...live,
           content: recoverWorkerContent(action.content, live.content),
+          recoveredVersion: (live.recoveredVersion ?? 0) + 1,
         },
       })
       return next
@@ -3543,6 +3556,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   const handleMappedEvent = useCallback(
     (contextKey: string, e: EventEnvelope) => {
       switch (e.type) {
+        case "runtime_observation":
+          break
         case "status_changed":
           flushStreamingQueue()
           if (e.status === "disconnected") {
@@ -3596,7 +3611,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             tool_call_id: e.tool_call_id,
             title: e.title,
             kind: e.kind,
-            status: e.status,
+            status: e.status === "inprogress" ? "in_progress" : e.status,
             content: e.content,
             raw_input: e.raw_input,
             raw_output: e.raw_output,
@@ -3613,7 +3628,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             title: e.title,
             fallback_title: t("toolFallbackTitle"),
             fallback_kind: "tool",
-            status: e.status,
+            status: e.status === "inprogress" ? "in_progress" : e.status,
             content: e.content,
             raw_input: e.raw_input,
             raw_output: e.raw_output,
@@ -4250,7 +4265,12 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       if (conn && envelope.seq <= conn.lastAppliedSeq) return
       lastActivityRef.current.set(contextKey, Date.now())
       handleMappedEvent(contextKey, envelope)
-      dispatch({ type: "EVENT_APPLIED", contextKey, seq: envelope.seq })
+      dispatch({
+        type: "EVENT_APPLIED",
+        contextKey,
+        seq: envelope.seq,
+        activity: envelope.activity,
+      })
       for (const ref of eventSubscribersRef.current) {
         try {
           ref.current(envelope)
@@ -4623,7 +4643,12 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           continue
         }
 
-        dispatch({ type: "EVENT_APPLIED", contextKey, seq: envelope.seq })
+        dispatch({
+          type: "EVENT_APPLIED",
+          contextKey,
+          seq: envelope.seq,
+          activity: envelope.activity,
+        })
         delivered = true
       }
       if (!delivered) return

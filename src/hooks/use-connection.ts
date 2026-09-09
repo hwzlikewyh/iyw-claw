@@ -138,6 +138,7 @@ function derive(conn: ConnectionState | undefined) {
 //     EVERY accepted envelope — so without excluding it a `content_delta` token
 //     would still churn the snapshot and re-render the keep-alive panel per event.
 const CONN_NON_RENDER_KEYS = new Set<keyof ConnectionState>([
+  "activity",
   "liveMessage",
   "lastAppliedSeq",
 ])

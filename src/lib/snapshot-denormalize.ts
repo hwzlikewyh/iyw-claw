@@ -1,4 +1,8 @@
 import type { InteractiveHtmlState } from "@/lib/types"
+import {
+  observeSessionActivity,
+  type ObservedSessionActivity,
+} from "@/lib/session-activity"
 import type {
   ActiveDelegationState,
   AutoContinuationInfo,
@@ -34,6 +38,7 @@ import type {
  * by HYDRATE_FROM_SNAPSHOT.
  */
 export interface SnapshotPatch {
+  activity?: ObservedSessionActivity | null
   // Carries the snapshot's source connection_id so the reducer can reject
   // applying it when the connection at the target contextKey was
   // disconnected and replaced (different connectionId) between the
@@ -100,6 +105,7 @@ export function denormalizeSnapshot(wire: LiveSessionSnapshot): SnapshotPatch {
 
   return {
     connectionId: wire.connection_id,
+    activity: observeSessionActivity(wire.activity, true),
     status: wire.status,
     sessionId: wire.external_id,
     modes: wire.modes,
