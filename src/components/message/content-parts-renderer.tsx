@@ -15,7 +15,10 @@ import {
   sanitizeCommandDisplayPayload,
   sanitizeCommandDisplayText,
 } from "@/lib/command-display"
-import { getBuiltinToolDisplay } from "@/lib/builtin-tool-display"
+import {
+  getBuiltinToolDisplay,
+  getIywToolDescription,
+} from "@/lib/builtin-tool-display"
 import { getToolDisplayName } from "@/lib/tool-display"
 import { parseBackgroundLaunch } from "@/lib/background-task"
 import { normalizePriority, normalizeStatus } from "@/lib/plan-parse"
@@ -2128,6 +2131,8 @@ const ToolCallPart = memo(function ToolCallPart({
     [isCommandTool, part.output, part.errorText]
   )
   const title = useMemo(() => {
+    const description = getIywToolDescription(part.toolName, part.input)
+    if (description) return description
     if (builtinTool && t.has(`builtinTool.${builtinTool.toolName}` as never)) {
       return t(`builtinTool.${builtinTool.toolName}` as never)
     }

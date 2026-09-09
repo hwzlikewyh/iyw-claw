@@ -1,4 +1,7 @@
-import { getBuiltinToolDisplay } from "@/lib/builtin-tool-display"
+import {
+  getBuiltinToolDisplay,
+  getIywToolDescription,
+} from "@/lib/builtin-tool-display"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
 
 const TOOL_ACTIONS: Readonly<Record<string, string>> = {
@@ -101,6 +104,8 @@ export function getToolDisplayName(
   tool: ToolDisplayInput,
   translate: TranslateToolLabel
 ): string {
+  const description = getIywToolDescription(tool.toolName, tool.input)
+  if (description) return description
   const builtin = getBuiltinToolDisplay(tool.toolName, tool.input)
   const builtinLabel = builtin && translate(`builtinTool.${builtin.toolName}`)
   if (builtinLabel) return builtinLabel

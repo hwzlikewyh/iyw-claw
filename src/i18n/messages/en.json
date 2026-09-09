@@ -3550,6 +3550,8 @@
           "libraryId": "Library ID"
         },
         "builtinTool": {
+          "fetch_iyw_url": "Call an IYW API",
+          "upload_iyw_file": "Upload a file",
           "search_iyw_capabilities": "Find available tools",
           "read_iyw_capability": "Read tool instructions",
           "invoke_iyw_capability": "Call a tool",

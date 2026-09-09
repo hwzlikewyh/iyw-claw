@@ -201,6 +201,17 @@ impl BuiltinMcpHandler {
                 log_direct_result(&trace, &result);
                 result
             }
+            GatewayAction::Upload(arguments) => {
+                let result = tokio::select! {
+                    biased;
+                    _ = context.ct.cancelled() => Err(super::iyw_upload::cancelled()),
+                    _ = authority.cancellation().cancelled() => Err(super::iyw_upload::cancelled()),
+                    result = super::iyw_upload::upload(&self.iyw, &authority, arguments) => result,
+                };
+                let result = Ok(result.unwrap_or_else(super::iyw_upload::failure));
+                log_direct_result(&trace, &result);
+                result
+            }
             GatewayAction::MemoryGroup(request) => {
                 let request_id = serde_json::to_value(&context.id)
                     .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;

@@ -3550,6 +3550,8 @@
           "libraryId": "库 ID"
         },
         "builtinTool": {
+          "fetch_iyw_url": "调用爱原物接口",
+          "upload_iyw_file": "上传文件",
           "search_iyw_capabilities": "查找可用工具",
           "read_iyw_capability": "查看工具用法",
           "invoke_iyw_capability": "调用工具",

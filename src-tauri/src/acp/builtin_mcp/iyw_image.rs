@@ -11,7 +11,9 @@ mod commerce;
 mod fission;
 mod fusion;
 mod input;
+mod native;
 mod result;
+mod studio;
 mod validation;
 mod validation_special;
 
@@ -77,7 +79,7 @@ impl WaitOptions {
         let default = if matches!(kind, "generate" | "edit") {
             FUSION_TIMEOUT_SECONDS
         } else {
-            DEFAULT_TIMEOUT_SECONDS
+            studio::http_timeout(kind).unwrap_or(DEFAULT_TIMEOUT_SECONDS)
         };
         Duration::from_secs(
             self.timeout_seconds
@@ -213,6 +215,8 @@ fn preflight_kind(
         ));
     }
     match kind {
+        _ if studio::supports(kind) => studio::validate_request(request, kind, images),
+        _ if native::operation(kind).is_some() => native::validate_request(request, kind, images),
         "generate" | "edit" => {
             required_prompt(request.prompt.as_deref())?;
             if kind == "edit" && images.is_empty() {
@@ -240,6 +244,8 @@ async fn execute_kind(
         "[iyw-image] image execution timeout selected"
     );
     match execution.kind {
+        kind if studio::supports(kind) => studio::generate(&service, execution).await,
+        kind if native::operation(kind).is_some() => native::generate(&service, execution).await,
         "generate" => fusion::generate(&service, execution.request).await,
         "edit" => fusion::edit(&service, execution.request, execution.images).await,
         "fission" => fission::generate(&service, execution.request).await,
