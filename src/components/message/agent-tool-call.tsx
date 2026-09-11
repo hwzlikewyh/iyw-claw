@@ -1,5 +1,9 @@
 import { memo, useMemo, useState, type ReactNode } from "react"
-import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
+import {
+  dropFailedToolParts,
+  type AdaptedContentPart,
+  type AdaptedToolCallPart,
+} from "@/lib/adapters/ai-elements-adapter"
 import type { AgentToolCall } from "@/lib/types"
 import { tryParseJson, extractJsonField } from "./content-parts-renderer"
 import { shortAgentId } from "@/lib/collab-tool"
@@ -27,11 +31,11 @@ function formatDuration(ms: number): string {
   return `${(sec / 60).toFixed(1)}m`
 }
 
-/** Convert AgentToolCall[] to AdaptedContentPart[] for reuse with ToolCallPart */
+/** Convert AgentToolCall[] to display parts for reuse with ToolCallPart. */
 function adaptToolCalls(
   calls: AgentToolCall[],
   parentId: string
-): AdaptedContentPart[] {
+): AdaptedToolCallPart[] {
   return calls.map(
     (call, i): Extract<AdaptedContentPart, { type: "tool-call" }> => {
       const normalizedResult = normalizeToolResultError(
@@ -178,7 +182,10 @@ export const AgentToolCallPart = memo(function AgentToolCallPart({
 
   const agentStats = part.agentStats ?? null
   const adaptedToolCalls = useMemo(
-    () => adaptToolCalls(agentStats?.tool_calls ?? [], part.toolCallId),
+    () =>
+      dropFailedToolParts(
+        adaptToolCalls(agentStats?.tool_calls ?? [], part.toolCallId)
+      ),
     [agentStats?.tool_calls, part.toolCallId]
   )
 
@@ -230,11 +237,8 @@ export const AgentToolCallPart = memo(function AgentToolCallPart({
       as the outer conversation for consistent appearance */}
       {adaptedToolCalls.length > 0 && (
         <div className="space-y-2">
-          {adaptedToolCalls.map((tc, i) =>
-            renderToolCall(
-              tc as Extract<AdaptedContentPart, { type: "tool-call" }>,
-              `subagent-tc-${i}`
-            )
+          {adaptedToolCalls.map((tc) =>
+            renderToolCall(tc, `subagent-tc-${tc.toolCallId}`)
           )}
         </div>
       )}
