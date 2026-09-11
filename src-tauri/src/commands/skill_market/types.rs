@@ -193,6 +193,7 @@ pub struct SkillMarketMetadataRequest {
     pub icon_url: Option<String>,
     pub tags: Vec<String>,
     pub visibility: String,
+    pub audience: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
