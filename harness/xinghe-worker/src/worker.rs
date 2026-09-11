@@ -1,7 +1,7 @@
 use std::fmt;
 
 use iyw_codex_harness::CodexAcpAgent;
-use sacp::{Agent, ConnectTo};
+use sacp::{Client, ConnectTo};
 
 use crate::config::{ConfigError, WorkerConfig};
 use crate::diagnostics::{safe_detail, StartupStage};
@@ -27,7 +27,8 @@ async fn serve(config: WorkerConfig) -> Result<(), WorkerError> {
         .with_owner(config.connection_id(), None, 0)
         .map_err(|_| WorkerError::Configuration(ConfigError::Connection))?
         .with_expected_session_id(config.expected_session_id());
-    ConnectTo::<Agent>::connect_to(sacp_tokio::Stdio::new(), agent)
+    // 先加载运行器配置，避免启动失败后 Runtime 析构等待阻塞的 stdin 读取。
+    ConnectTo::<Client>::connect_to(agent, sacp_tokio::Stdio::new())
         .await
         .map_err(|error| WorkerError::Protocol(safe_detail(&error.to_string())))
 }
