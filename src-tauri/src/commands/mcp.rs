@@ -1571,7 +1571,7 @@ fn canonical_to_codex_entry(spec: &Value) -> Result<toml::Value, AppCommandError
     let typ = obj.get("type").and_then(Value::as_str).unwrap_or("stdio");
 
     let mut table = toml::map::Map::new();
-    table.insert("type".to_string(), toml::Value::String(typ.to_string()));
+    // Codex 根据 command/url 判断传输方式，严格配置校验不接受通用 type 字段。
 
     match typ {
         "stdio" => {
