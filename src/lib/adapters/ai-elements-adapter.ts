@@ -1310,11 +1310,29 @@ export function groupConsecutiveToolCalls(
 }
 
 /**
+ * Hide failed tool/command records from the transcript before grouping, so
+ * they leave neither empty cards nor misleading process counts. This only
+ * filters display parts; the original blocks and execution errors stay intact.
+ * In-flight output is not a terminal failure and must remain visible.
+ */
+export function dropFailedToolParts<T extends AdaptedContentPart>(
+  parts: T[]
+): T[] {
+  return parts.filter((part) => {
+    if (part.type !== "tool-call" && part.type !== "tool-result") return true
+    return !(
+      part.state === "output-error" ||
+      (part.state === "output-available" && Boolean(part.errorText?.trim()))
+    )
+  })
+}
+
+/**
  * Drop `check_user_feedback` tool-call parts that have nothing to surface — the
  * no-op polls (count: 0), in-flight checks, and unparseable results. Only checks
- * that actually received steering notes (or errored) survive, so a turn full of
- * routine "no new feedback" polls stays clean and the survivors don't fragment
- * a neighbouring tool run into separate groups. Runs before
+ * that actually received steering notes survive the display filters, so routine
+ * "no new feedback" polls stay clean and the survivors don't fragment a
+ * neighbouring tool run into separate groups. Runs before
  * `groupConsecutiveToolCalls` so the dropped parts never reach grouping.
  */
 export function dropHiddenFeedbackChecks(
@@ -1323,7 +1341,7 @@ export function dropHiddenFeedbackChecks(
   return parts.filter((part) => {
     if (part.type !== "tool-call") return true
     if (normalizeToolName(part.toolName) !== "check_user_feedback") return true
-    // Surface errors (rare) so a failed check isn't silently swallowed.
+    // Terminal errors are handled by the shared failed-tool display filter.
     if (part.state === "output-error" || part.errorText?.trim()) return true
     return feedbackCheckHasContent(part.output ?? null)
   })
@@ -2082,19 +2100,20 @@ export function adaptMessageTurn(
     }
   }
 
+  const visibleContent = dropFailedToolParts(adaptedContent)
   const groupedContent =
     turn.role === "assistant"
       ? groupGoalRuns(
           groupConsecutiveBackgroundTasks(
             groupConsecutiveDelegationStatus(
               groupConsecutiveToolCalls(
-                dropHiddenMemoryCalls(dropHiddenFeedbackChecks(adaptedContent))
+                dropHiddenMemoryCalls(dropHiddenFeedbackChecks(visibleContent))
               )
             )
           ),
           isStreaming
         )
-      : adaptedContent
+      : visibleContent
 
   // Keep the legacy image list for copy/accessibility and old callers. New
   // user-image parts are rendered in their original block positions.
