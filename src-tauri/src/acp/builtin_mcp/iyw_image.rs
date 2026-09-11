@@ -268,7 +268,22 @@ pub(super) fn invalid(message: impl Into<String>) -> rmcp::ErrorData {
 pub(super) fn required_prompt(prompt: Option<&str>) -> Result<String, rmcp::ErrorData> {
     let prompt = prompt.unwrap_or_default().trim();
     if prompt.is_empty() {
-        return Err(invalid("prompt is required"));
+        return Err(missing_prompt());
     }
     Ok(prompt.to_string())
+}
+
+pub(super) fn missing_prompt() -> rmcp::ErrorData {
+    tracing::warn!(
+        field = "prompt",
+        execution_status = "not_started",
+        "[iyw-image] prompt validation rejected the request before generation"
+    );
+    rmcp::ErrorData::invalid_params(
+        "prompt is required; supply non-blank prompt in the tool arguments or each requests item",
+        Some(serde_json::json!({
+            "code": "image_prompt_required", "field": "prompt", "execution_status": "not_started",
+            "guidance": "Put the user's image description in prompt directly, without an extra arguments wrapper. Assistant text is not a tool argument. Correct the same operation once; do not replay empty arguments or switch tools/types. Stop if the correction fails."
+        })),
+    )
 }

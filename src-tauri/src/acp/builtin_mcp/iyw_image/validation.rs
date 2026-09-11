@@ -146,7 +146,13 @@ pub(super) fn required_string<'a>(
         .get(key)
         .and_then(Value::as_str)
         .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| invalid(format!("{key} must be a non-empty string")))
+        .ok_or_else(|| {
+            if key == "prompt" {
+                super::missing_prompt()
+            } else {
+                invalid(format!("{key} must be a non-empty string"))
+            }
+        })
 }
 
 pub(super) fn require_object<'a>(
