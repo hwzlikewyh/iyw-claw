@@ -38,6 +38,7 @@ codex-windows-sandbox = { path = "../codex/patches/codex-windows-sandbox" }
 codex-git-utils = { path = "../codex/patches/codex-git-utils" }
 codex-core-plugins = { path = "../codex/patches/codex-core-plugins" }
 codex-core = { path = "../codex/patches/codex-core" }
+codex-mcp = { path = "../codex/patches/codex-mcp" }
 codex-exec-server = { path = "../codex/patches/codex-exec-server" }
 codex-hooks = { path = "../codex/patches/codex-hooks" }
 codex-rmcp-client = { path = "../codex/patches/codex-rmcp-client" }

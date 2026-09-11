@@ -3047,7 +3047,6 @@ dependencies = [
 [[package]]
 name = "codex-mcp"
 version = "0.154.0"
-source = "git+https://github.com/openai/codex.git?rev=6b9826e3aa83b1a5947db50f4332cb9c65f1b340#6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
 dependencies = [
  "anyhow",
  "arc-swap",
