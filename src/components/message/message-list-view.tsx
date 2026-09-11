@@ -1206,6 +1206,7 @@ export function MessageListView({
       </MessageThread>
       {connStatus === "prompting" && (
         <LiveTurnStats
+          agentType={agentType}
           contextKey={activityContextKey}
           message={liveMessage}
           modelName={modelName}

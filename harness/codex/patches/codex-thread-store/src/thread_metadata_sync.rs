@@ -67,6 +67,7 @@ impl ThreadMetadataSync {
             created_at: Some(created_at),
             updated_at: Some(created_at),
             source: Some(params.source.clone()),
+            originator: (!params.originator.is_empty()).then(|| params.originator.clone()),
             thread_source: Some(params.thread_source.clone()),
             agent_nickname: Some(params.source.get_nickname()),
             agent_role: Some(params.source.get_agent_role()),
@@ -228,6 +229,9 @@ impl ThreadMetadataSync {
                 RolloutItem::SessionMeta(meta_line) if meta_line.meta.id == self.thread_id => {
                     update.created_at = parse_session_timestamp(meta_line.meta.timestamp.as_str());
                     update.source = Some(meta_line.meta.source.clone());
+                    if !meta_line.meta.originator.is_empty() {
+                        update.originator = Some(meta_line.meta.originator.clone());
+                    }
                     update.thread_source = Some(meta_line.meta.thread_source.clone());
                     update.agent_nickname = Some(meta_line.meta.agent_nickname.clone());
                     update.agent_role = Some(meta_line.meta.agent_role.clone());
@@ -306,6 +310,7 @@ impl ThreadMetadataSync {
                 | RolloutItem::Compacted(_)
                 | RolloutItem::RealtimeItem(_)
                 | RolloutItem::TokenUsageRecord(_)
+                | RolloutItem::RetainedContext(_)
                 | RolloutItem::SecurityRiskScore(_)
                 | RolloutItem::WorldState(_) => {}
             }
@@ -380,6 +385,7 @@ fn update_has_metadata_facts(update: &ThreadMetadataPatch) -> bool {
         || update.created_at.is_some()
         || update.advance_recency_at.is_some()
         || update.source.is_some()
+        || update.originator.is_some()
         || update.thread_source.is_some()
         || update.agent_nickname.is_some()
         || update.agent_role.is_some()

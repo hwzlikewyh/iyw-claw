@@ -16,7 +16,8 @@ import {
   Terminal,
   Wrench,
 } from "lucide-react"
-import type { PlanEntryInfo } from "@/lib/types"
+import type { AgentType, PlanEntryInfo } from "@/lib/types"
+import { AgentIcon } from "@/components/agent-icon"
 import { cn } from "@/lib/utils"
 import {
   Tooltip,
@@ -29,6 +30,7 @@ import { LiveTurnElapsed } from "./live-turn-elapsed"
 import { LiveTurnPlan } from "./live-turn-plan"
 
 interface LiveTurnStatusRowProps {
+  agentType: AgentType
   phase: string
   detail: string
   icon: ActivityIcon
@@ -59,31 +61,45 @@ const ACTIVITY_ICONS = {
 }
 
 function ActivityGlyph({
+  agentType,
   icon,
   waiting,
   attention,
-}: Pick<LiveTurnStatusRowProps, "icon" | "waiting" | "attention">) {
+}: Pick<
+  LiveTurnStatusRowProps,
+  "agentType" | "icon" | "waiting" | "attention"
+>) {
   const Icon = ACTIVITY_ICONS[icon]
   return (
     <span
       aria-hidden="true"
-      className={cn(
-        "relative mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg @[28rem]/turnstats:size-9",
-        waiting
-          ? "bg-muted text-muted-foreground"
-          : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-        attention && "bg-amber-500/10 text-amber-700 dark:text-amber-300"
-      )}
+      className="relative mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted/30 @[28rem]/turnstats:size-9"
     >
-      <Icon className="size-[18px]" />
-      {!waiting && (
-        <span className="absolute -end-0.5 -bottom-0.5 size-2.5 animate-pulse rounded-full border-2 border-background bg-current motion-reduce:animate-none" />
-      )}
+      <AgentIcon
+        agentType={agentType}
+        className={cn(
+          "size-6 @[28rem]/turnstats:size-7",
+          waiting && "opacity-60"
+        )}
+      />
+      <span
+        className={cn(
+          "absolute -end-1 -bottom-1 flex size-4 items-center justify-center rounded-full ring-2 ring-background",
+          attention
+            ? "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200"
+            : waiting
+              ? "bg-muted text-muted-foreground"
+              : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+        )}
+      >
+        <Icon className="size-2.5" strokeWidth={2.5} />
+      </span>
     </span>
   )
 }
 
 const TurnActivity = memo(function TurnActivity({
+  agentType,
   phase,
   detail,
   icon,
@@ -91,11 +107,16 @@ const TurnActivity = memo(function TurnActivity({
   attention,
 }: Pick<
   LiveTurnStatusRowProps,
-  "phase" | "detail" | "icon" | "waiting" | "attention"
+  "agentType" | "phase" | "detail" | "icon" | "waiting" | "attention"
 >) {
   return (
     <div className="flex min-w-0 flex-1 items-start gap-2.5 @[28rem]/turnstats:gap-[13px]">
-      <ActivityGlyph icon={icon} waiting={waiting} attention={attention} />
+      <ActivityGlyph
+        agentType={agentType}
+        icon={icon}
+        waiting={waiting}
+        attention={attention}
+      />
       <div
         className="min-w-0 pt-px"
         role="status"
@@ -143,6 +164,7 @@ export const LiveTurnStatusRow = memo(function LiveTurnStatusRow(
     <div className="@container/turnstats mx-auto w-full max-w-4xl shrink-0 px-4 pt-3 pb-2">
       <div className="flex min-h-14 items-start gap-2 @[28rem]/turnstats:gap-3">
         <TurnActivity
+          agentType={props.agentType}
           phase={props.phase}
           detail={props.detail}
           icon={props.icon}

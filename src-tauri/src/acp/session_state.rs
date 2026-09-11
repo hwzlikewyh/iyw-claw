@@ -261,12 +261,6 @@ pub struct TurnHarvestCapture {
     pub stop_reason: String,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct CompletedTurnTitleInput {
-    pub user_text: String,
-    pub assistant_text: String,
-    pub preferred_model: Option<String>,
-}
 
 /// CAS 基线随 ACP `SessionStarted` 转换滚动保存。
 ///
@@ -511,7 +505,6 @@ pub struct SessionState {
     pub last_assistant_text: Option<String>,
     /// Completed-turn harvest capture consumed by the lifecycle worker (Task 13).
     pub last_completed_turn_harvest: Option<TurnHarvestCapture>,
-    pub(crate) last_completed_turn_title_input: Option<CompletedTurnTitleInput>,
 
     /// The in-flight user prompt for the current turn, captured from
     /// `AcpEvent::UserMessage` and cleared on `TurnComplete` (alongside
@@ -720,7 +713,6 @@ impl SessionState {
             worker_content_recovered: None,
             last_assistant_text: None,
             last_completed_turn_harvest: None,
-            last_completed_turn_title_input: None,
             pending_user_message: None,
             pending_user_message_started_at: None,
             turn_in_flight: false,
@@ -1132,11 +1124,6 @@ impl SessionState {
                             crate::user_memory::harvest_reference(&assembled);
                     }
                 }
-                self.last_completed_turn_title_input = completed_turn_title_input(
-                    self.pending_user_message.as_ref(),
-                    self.last_assistant_text.as_deref(),
-                    self.current_model.as_deref(),
-                );
                 self.live_message = None;
                 self.active_tool_calls.clear();
                 // The turn's user prompt is no longer "in flight" — the
@@ -1850,31 +1837,6 @@ fn substantive_prompt_requires_recall(message: &PendingUserMessage) -> bool {
         .any(|term| normalized.contains(term) || lower.contains(term))
 }
 
-fn completed_turn_title_input(
-    pending: Option<&PendingUserMessage>,
-    assistant_text: Option<&str>,
-    current_model: Option<&str>,
-) -> Option<CompletedTurnTitleInput> {
-    let user_text = pending?
-        .blocks
-        .iter()
-        .filter_map(|block| match block {
-            UserMessageBlock::Text { text } => Some(text.trim()),
-            _ => None,
-        })
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let assistant_text = assistant_text?.trim();
-    if user_text.is_empty() || assistant_text.is_empty() {
-        return None;
-    }
-    Some(CompletedTurnTitleInput {
-        user_text,
-        assistant_text: assistant_text.to_string(),
-        preferred_model: current_model.map(str::to_string),
-    })
-}
 
 pub(crate) fn background_keepalive_max_age() -> chrono::Duration {
     static SECS: std::sync::OnceLock<i64> = std::sync::OnceLock::new();

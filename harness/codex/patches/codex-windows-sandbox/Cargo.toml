@@ -3,7 +3,7 @@ build = "build.rs"
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-windows-sandbox"
-version = "0.153.4"
+version = "0.154.0"
 
 [lib]
 name = "codex_windows_sandbox"
@@ -26,10 +26,10 @@ chrono = { version = "0.4.42", default-features = false, features = [
     "clock",
     "std",
 ] }
-codex-utils-pty = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-utils-absolute-path = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-utils-string = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-otel = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
+codex-utils-pty = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-utils-absolute-path = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-utils-string = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-otel = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
 dunce = "1.0"
 glob = { version = "0.3" }
 serde = { version = "1.0", features = ["derive"] }
@@ -47,7 +47,7 @@ windows = { version = "0.58", features = [
 [dependencies.codex-protocol]
 package = "codex-protocol"
 git = "https://github.com/openai/codex.git"
-rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
 
 [dependencies.rand]
 default-features = false
@@ -57,7 +57,8 @@ version = "0.8"
 [dependencies.dirs-next]
 version = "2.0"
 
-[target.'cfg(windows)'.dependencies.windows-sys]
+
+[target."cfg(windows)".dependencies.windows-sys]
 features = [
     "Win32_Foundation",
     "Win32_System_Diagnostics_Debug",
@@ -73,6 +74,7 @@ features = [
     "Win32_System_Memory",
     "Win32_System_Kernel",
     "Win32_System_Console",
+    "Win32_System_RemoteDesktop",
     "Win32_Storage_FileSystem",
     "Win32_System_Diagnostics_ToolHelp",
     "Win32_NetworkManagement_NetManagement",
@@ -88,5 +90,6 @@ features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_UI_Shell",
     "Win32_System_Registry",
+    "Win32_System_Services",
 ]
 version = "0.52"

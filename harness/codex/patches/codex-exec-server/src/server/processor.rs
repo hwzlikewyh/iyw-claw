@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use codex_build_info::BuildInfo;
 use codex_exec_server_protocol::JSONRPCMessage;
 use tokio::sync::mpsc;
 use tracing::debug;
@@ -23,6 +24,7 @@ use crate::server::request_dispatcher::RequestTaskResult;
 use crate::server::session_registry::SessionRegistry;
 use crate::telemetry::ConnectionTransport;
 use crate::telemetry::ExecServerTelemetry;
+use crate::telemetry::ExecutorRegistration;
 use codex_http_client::HttpClientFactory;
 
 #[derive(Clone)]
@@ -42,6 +44,8 @@ impl ConnectionProcessor {
         http_client_factory: HttpClientFactory,
         request_dispatch_mode: RequestDispatchMode,
     ) -> Self {
+        // Library callers may bypass CLI startup. Capture the version before serving clients.
+        let _ = BuildInfo::get();
         Self {
             session_registry: SessionRegistry::new(telemetry.clone()),
             runtime_paths,
@@ -58,12 +62,23 @@ impl ConnectionProcessor {
     ) {
         run_connection(
             connection,
-            Arc::clone(&self.session_registry),
-            self.runtime_paths.clone(),
-            self.telemetry.clone(),
-            self.http_client_factory.clone(),
+            self.clone(),
             transport,
-            self.request_dispatch_mode,
+            /*executor_registration*/ None,
+        )
+        .await;
+    }
+
+    pub(crate) async fn run_registered_connection(
+        &self,
+        connection: JsonRpcConnection,
+        executor_registration: Option<Arc<ExecutorRegistration>>,
+    ) {
+        run_connection(
+            connection,
+            self.clone(),
+            ConnectionTransport::Relay,
+            executor_registration,
         )
         .await;
     }
@@ -75,13 +90,17 @@ impl ConnectionProcessor {
 
 async fn run_connection(
     connection: JsonRpcConnection,
-    session_registry: Arc<SessionRegistry>,
-    runtime_paths: ExecServerRuntimePaths,
-    telemetry: ExecServerTelemetry,
-    http_client_factory: HttpClientFactory,
+    processor: ConnectionProcessor,
     transport: ConnectionTransport,
-    request_dispatch_mode: RequestDispatchMode,
+    executor_registration: Option<Arc<ExecutorRegistration>>,
 ) {
+    let ConnectionProcessor {
+        session_registry,
+        runtime_paths,
+        telemetry,
+        http_client_factory,
+        request_dispatch_mode,
+    } = processor;
     let _connection_metrics = telemetry.connection_started(transport);
     let JsonRpcConnection {
         outgoing_tx: json_outgoing_tx,
@@ -94,12 +113,14 @@ async fn run_connection(
         mpsc::channel::<RpcServerOutboundMessage>(CHANNEL_CAPACITY);
     let notifications = RpcNotificationSender::new(outgoing_tx.clone());
     let requests = notifications.request_sender();
-    let handler = Arc::new(ExecServerHandler::new(
+    let mut handler = ExecServerHandler::new(
         session_registry,
         notifications,
         runtime_paths,
         http_client_factory,
-    ));
+    );
+    handler.executor_registration = executor_registration;
+    let handler = Arc::new(handler);
 
     let outbound_task = tokio::spawn(async move {
         while let Some(message) = outgoing_rx.recv().await {

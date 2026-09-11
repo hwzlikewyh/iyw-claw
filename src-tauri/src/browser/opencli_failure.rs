@@ -146,16 +146,20 @@ pub(super) fn classify_failure(code: &str, message: String) -> OpencliFailure {
 fn failure_kind(code: &str, message: &str) -> OpencliFailureKind {
     if contains_any(code, AUTH_CODE_TERMS) {
         OpencliFailureKind::UserAction
-    } else if contains_any(message, BRIDGE_TERMS) {
-        OpencliFailureKind::BridgeUnavailable
+    } else if contains_any(code, TIMEOUT_TERMS) {
+        OpencliFailureKind::Timeout
+    } else if contains_any(code, SELECTOR_TERMS) {
+        OpencliFailureKind::Selector
+    } else if contains_any(message, USER_ACTION_TERMS) {
+        OpencliFailureKind::UserAction
     } else if contains_any(message, TIMEOUT_TERMS) {
         OpencliFailureKind::Timeout
+    } else if contains_any(message, BRIDGE_TERMS) {
+        OpencliFailureKind::BridgeUnavailable
     } else if contains_any(message, SELECTOR_TERMS) {
         OpencliFailureKind::Selector
     } else if contains_any(message, NETWORK_TERMS) {
         OpencliFailureKind::Network
-    } else if contains_any(message, USER_ACTION_TERMS) {
-        OpencliFailureKind::UserAction
     } else {
         OpencliFailureKind::Runtime
     }

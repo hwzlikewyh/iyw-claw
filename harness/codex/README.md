@@ -17,11 +17,22 @@ The lock records both the annotated tag object and its peeled source commit.
 Cargo dependencies use the peeled commit; synchronization verifies both values
 so a rewritten release tag cannot silently change the compiled source.
 
-The current pin is `rust-v0.153.4`. It recognizes the managed
+The current pin is `rust-v0.154.0`. It recognizes the managed
 `features.context_management.experimental_mode` configuration that
 `rust-v0.152.1` rejected during session creation and recovery. The feature still
 requires an eligible upstream provider and account; parsing this configuration
 does not grant experimental context-management availability.
+
+The 0.154.0 upgrade retains the current worker, native commands, automatic-turn
+ownership, Windows process patches, and command-description protocol extension.
+Session MCP configuration is required and checked against the thread's tool
+catalog before readiness. Tool names retain their saved namespace across resume.
+
+Unnamed threads use Codex's isolated structured-thread title flow. Generated
+names are persisted through `thread/name/set` and existing title notifications;
+manual names keep precedence. The previous separate Chat Completions summary
+request is no longer scheduled. Startup diagnostics and turn failures retain
+bounded, redacted causes.
 
 The upstream `in_process` API provides bounded request/event queues and
 graceful shutdown. The harness will translate that protocol into the existing

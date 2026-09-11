@@ -13,7 +13,7 @@ use sacp::schema::{
     TerminalOutputResponse, WaitForTerminalExitRequest, WaitForTerminalExitResponse,
     WriteTextFileRequest, WriteTextFileResponse,
 };
-use sacp::{on_receive_request, Agent, Client, ConnectTo, ConnectionTo, Responder};
+use sacp::{on_receive_request, Agent, Builder, Client, ConnectionTo, HandleDispatchFrom, Responder, RunWithConnectionTo};
 use sacp_tokio::AcpAgent;
 use tokio_util::sync::CancellationToken;
 
@@ -57,12 +57,15 @@ pub(super) fn spawn(
             router.clone(),
             agent_type,
             capabilities,
-            shutdown.clone(),
             Arc::clone(&healthy),
             ready,
             startup_trace,
         );
-        let result = client.connect_to(agent).await;
+        let connection_shutdown = shutdown.clone();
+        let result = client.connect_with(agent, async move |_connection| {
+            connection_shutdown.cancelled().await;
+            Ok(())
+        }).await;
         healthy.store(false, Ordering::Release);
         let outcome = RuntimeHostDriverOutcome::from_clean(result.is_ok());
         log_exit(
@@ -81,11 +84,10 @@ fn build_client(
     router: SessionRequestRouter,
     agent_type: AgentType,
     capabilities: RuntimeHostCapabilities,
-    shutdown: CancellationToken,
     healthy: Arc<AtomicBool>,
     ready: tokio::sync::oneshot::Sender<Result<HostReady, AcpError>>,
     startup_trace: Option<crate::acp::startup_trace::StartupTrace>,
-) -> impl ConnectTo<Agent> {
+) -> Builder<Client, impl HandleDispatchFrom<Agent>, impl RunWithConnectionTo<Agent>> {
     Client
         .builder()
         .name("iyw-claw-runtime-host")
@@ -241,7 +243,6 @@ fn build_client(
                     return Err(error);
                 }
             }
-            shutdown.cancelled().await;
             Ok(())
         })
 }

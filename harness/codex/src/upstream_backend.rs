@@ -109,6 +109,9 @@ impl From<ServerRequestAdmissionError> for UpstreamError {
 }
 
 impl UpstreamClient {
+    pub(crate) fn native_title_handle(&self) -> InProcessAppServerRequestHandle {
+        self.request_handle.clone()
+    }
     pub async fn start(args: crate::UpstreamStartArgs) -> Result<Self, UpstreamError> {
         if args.runtime_fingerprint.trim().is_empty() {
             return Err(UpstreamError::Start(

@@ -28,29 +28,31 @@ upstream = [
     "dep:rama-macros",
     "dep:rama-utils",
     "dep:serde_json",
+    "dep:regex",
     "dep:tokio",
 ]
 upstream-acp = ["upstream", "dep:sacp"]
 
 [dependencies]
-codex-app-server-client = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a", package = "codex-app-server-client", optional = true }
-codex-app-server-protocol = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a", package = "codex-app-server-protocol", optional = true }
-codex-apply-patch = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a", package = "codex-apply-patch", optional = true }
-codex-arg0 = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a", package = "codex-arg0", optional = true }
-codex-config = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a", package = "codex-config", optional = true }
-codex-core = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a", package = "codex-core", optional = true }
-codex-exec-server = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a", package = "codex-exec-server", optional = true }
-codex-feedback = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a", package = "codex-feedback", optional = true }
-codex-protocol = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a", package = "codex-protocol", optional = true }
-codex-linux-sandbox = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a", package = "codex-linux-sandbox", optional = true }
-codex-sandboxing = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a", package = "codex-sandboxing", optional = true }
-codex-utils-absolute-path = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a", package = "codex-utils-absolute-path", optional = true }
-codex-utils-path-uri = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a", package = "codex-utils-path-uri", optional = true }
-codex-windows-sandbox = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a", package = "codex-windows-sandbox", optional = true }
+codex-app-server-client = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-app-server-client", optional = true }
+codex-app-server-protocol = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-app-server-protocol", optional = true }
+codex-apply-patch = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-apply-patch", optional = true }
+codex-arg0 = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-arg0", optional = true }
+codex-config = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-config", optional = true }
+codex-core = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-core", optional = true }
+codex-exec-server = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-exec-server", optional = true }
+codex-feedback = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-feedback", optional = true }
+codex-protocol = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-protocol", optional = true }
+codex-linux-sandbox = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-linux-sandbox", optional = true }
+codex-sandboxing = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-sandboxing", optional = true }
+codex-utils-absolute-path = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-utils-absolute-path", optional = true }
+codex-utils-path-uri = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-utils-path-uri", optional = true }
+codex-windows-sandbox = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-windows-sandbox", optional = true }
 rama-error = { version = "=0.3.0-alpha.4", optional = true }
 rama-macros = { version = "=0.3.0-alpha.4", optional = true }
 rama-utils = { version = "=0.3.0-alpha.4", optional = true }
 serde_json = { version = "1", optional = true }
+regex = { version = "1", optional = true }
 tokio = { version = "1", features = ["rt", "io-std", "macros"], optional = true }
 sacp = { version = "11.0.0", optional = true }
 

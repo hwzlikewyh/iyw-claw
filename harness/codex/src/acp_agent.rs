@@ -29,6 +29,7 @@ mod interaction_mapping;
 mod interaction_registry;
 mod item_mapping;
 mod model_settings;
+mod native_title;
 mod permission_profile;
 mod prompt_mapping;
 mod session_options;
@@ -248,6 +249,7 @@ async fn run_bridge_loop(
     let mut session_settings = settings_mapping::SessionSettings::default();
     let mut messages = message_projection::MessageProjection::default();
     let mut thinking = thinking_projection::ThinkingProjection::default();
+    let mut native_title = native_title::NativeTitle::default();
     loop {
         if authority.automatic.awaiting_prompt.is_none() {
             if let Some(command) = authority.automatic.deferred_prompt.take() {
@@ -257,9 +259,26 @@ async fn run_bridge_loop(
         tokio::select! {
             command = commands.recv() => match command {
                 Some(command) => {
+                    let session_request = matches!(&command, BridgeCommand::Request { method, .. }
+                        if matches!(method.as_str(), "session/new" | "session/load" | "session/resume" | "session/fork"));
+                    let title_prompt = match &command {
+                        BridgeCommand::Prompt { params, .. } => native_title::prompt_text(params),
+                        _ => None,
+                    };
                     if let Err(error) = handle_command(upstream, command, &mut session_id, &mut pending_prompt, &mut authority, &mut session_settings, &cx).await {
                         reject_pending_prompt(&mut pending_prompt, &error);
                         return Err(error);
+                    }
+                    if session_request {
+                        if let Some(title) = session_settings.native_title() {
+                            send_update(&cx, &session_id, "session_info_update", json!({"title": title}))?;
+                        }
+                    }
+                    if let (Some(prompt), Some(id), Some(_)) = (title_prompt, &session_id, &pending_prompt) {
+                        native_title.start(upstream.native_title_handle(), native_title::TitleInput {
+                            source_thread: id.clone(), prompt, model: session_settings.title_model(),
+                            cwd: authority.expected_cwd.to_string_lossy().into_owned(),
+                        });
                     }
                 }
                 None => {
@@ -292,6 +311,7 @@ async fn run_bridge_loop(
                         event => vec![event],
                     };
                     for event in events {
+                    if native_title.route(&event) { continue; }
                     let context = BridgeEventContext {
                         upstream: &upstream,
                         cx: &cx,
@@ -312,6 +332,7 @@ async fn run_bridge_loop(
                     }
                 }
             },
+            _ = native_title.finished() => {},
         }
     }
 }
@@ -525,8 +546,9 @@ async fn handle_request(
             let response = upstream
                 .start_configured_thread(authority.owner.clone(), request, options.clone())
                 .await?;
-            authority.session_launch = Some(options);
             let id = crate::upstream_backend::thread_id_from_response_for_bridge(&response)?;
+            crate::mcp_readiness::verify(upstream, &id, &options.mcp_names()).await?;
+            authority.session_launch = Some(options);
             session_settings.capture(&response);
             *session_id = Some(id.clone());
             Ok(settings_mapping::new_session_response(
@@ -554,6 +576,7 @@ async fn handle_request(
             let response = upstream
                 .resume_configured_thread(authority.owner.clone(), request, options.clone())
                 .await?;
+            crate::mcp_readiness::verify(upstream, id, &options.mcp_names()).await?;
             authority.session_launch = Some(options);
             session_settings.capture(&response);
             *session_id = Some(id.to_string());
@@ -794,9 +817,11 @@ async fn handle_event(event: UpstreamEvent, context: BridgeEventContext<'_>) -> 
                     .map_err(to_sacp_error)?;
                 if pending_matches {
                     if let Some(pending) = pending_prompt.take() {
-                        let _ = pending
-                            .responder
-                            .respond(acp_mapping::prompt_response(&params));
+                        let response = match acp_mapping::prompt_failure(&params) {
+                            Some(error) => Err(to_sacp_error(error)),
+                            None => Ok(acp_mapping::prompt_response(&params)),
+                        };
+                        let _ = pending.responder.respond_with_result(response);
                     }
                 } else {
                     send_update(cx, session_id, "session_info_update", automatic_turn::completed(&params))?;
@@ -986,7 +1011,7 @@ fn send_update(
 }
 
 fn to_sacp_error(error: impl ToString) -> sacp::Error {
-    sacp::util::internal_error(error.to_string())
+    sacp::util::internal_error(crate::diagnostics::safe_detail(&error.to_string()))
 }
 
 fn validate_cwd(params: &Value, expected: &Path) -> Result<(), UpstreamError> {

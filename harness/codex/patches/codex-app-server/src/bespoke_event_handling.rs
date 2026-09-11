@@ -3,7 +3,7 @@ use crate::error_code::invalid_request;
 use crate::notification_media::without_notification_media;
 use crate::outgoing_message::ClientRequestResult;
 use crate::outgoing_message::ThreadScopedOutgoingMessageSender;
-use crate::request_processors::apply_live_model_settings;
+use crate::request_processors::apply_live_thread_settings;
 use crate::request_processors::populate_thread_turns_from_history;
 use crate::request_processors::thread_from_stored_thread;
 use crate::request_processors::thread_settings_from_config_snapshot;
@@ -97,7 +97,6 @@ use codex_app_server_protocol::item_event_to_server_notification;
 use codex_core::CodexThread;
 use codex_core::ThreadManager;
 use codex_features::Feature;
-use codex_guardian_v2::StrictReviewReason;
 use codex_protocol::ThreadId;
 use codex_protocol::items::CollabAgentTool as CoreCollabAgentTool;
 use codex_protocol::items::TurnItem as CoreTurnItem;
@@ -355,10 +354,16 @@ pub(crate) async fn apply_bespoke_event_handling(
             );
             outgoing.send_server_notification(notification).await;
             if assessment.status == codex_protocol::protocol::GuardianAssessmentStatus::InProgress
-                && conversation
-                    .thread_extension_data()
-                    .remove::<StrictReviewReason>()
-                    .is_some()
+                && matches!(
+                    assessment.review_reason,
+                    Some(
+                        codex_protocol::approvals::GuardianReviewReason::ElevatedRisk
+                            | codex_protocol::approvals::GuardianReviewReason::StaleScore
+                            | codex_protocol::approvals::GuardianReviewReason::IncompatibleCompaction
+                            | codex_protocol::approvals::GuardianReviewReason::ScoringFailure
+                            | codex_protocol::approvals::GuardianReviewReason::AuthorizationChanged
+                    )
+                )
             {
                 outgoing
                     .send_server_notification(ServerNotification::StrictReviewRequired(
@@ -869,6 +874,10 @@ pub(crate) async fn apply_bespoke_event_handling(
             });
         }
         EventMsg::ElicitationRequest(request) => {
+            let user_verification = matches!(
+                &request.request,
+                codex_protocol::approvals::ElicitationRequest::UserVerification { .. }
+            );
             let permission_guard = thread_watch_manager
                 .note_permission_requested(&conversation_id.to_string())
                 .await;
@@ -918,7 +927,10 @@ pub(crate) async fn apply_bespoke_event_handling(
                     request.server_name,
                     request.id,
                     pending_request_id,
-                    rx,
+                    PendingMcpElicitationResponse {
+                        receiver: rx,
+                        user_verification,
+                    },
                     conversation,
                     thread_state,
                     permission_guard,
@@ -932,7 +944,9 @@ pub(crate) async fn apply_bespoke_event_handling(
                 .await;
             let request_cwd = match request.cwd {
                 Some(cwd) => cwd,
-                None => conversation.config_snapshot().await.cwd().clone(),
+                None => {
+                    LegacyAppPathString::from_abs_path(conversation.config_snapshot().await.cwd())
+                }
             };
             let params = PermissionsRequestApprovalParams {
                 thread_id: conversation_id.to_string(),
@@ -1288,7 +1302,7 @@ pub(crate) async fn apply_bespoke_event_handling(
                     }
                 };
 
-                apply_live_model_settings(&mut response.thread, &config_snapshot);
+                apply_live_thread_settings(&mut response.thread, &config_snapshot);
                 outgoing.send_response(request_id, response).await;
             }
         }
@@ -1814,19 +1828,28 @@ async fn on_request_user_input_response(
     }
 }
 
+struct PendingMcpElicitationResponse {
+    receiver: oneshot::Receiver<ClientRequestResult>,
+    user_verification: bool,
+}
+
 async fn on_mcp_server_elicitation_response(
     server_name: String,
     request_id: codex_protocol::mcp::RequestId,
     pending_request_id: RequestId,
-    receiver: oneshot::Receiver<ClientRequestResult>,
+    pending: PendingMcpElicitationResponse,
     conversation: Arc<CodexThread>,
     thread_state: Arc<Mutex<ThreadState>>,
     permission_guard: ThreadWatchActiveGuard,
 ) {
-    let response = receiver.await;
+    let response = pending.receiver.await;
     resolve_server_request_on_thread_listener(&thread_state, pending_request_id).await;
     drop(permission_guard);
-    let response = mcp_server_elicitation_response_from_client_result(response);
+    let response = if pending.user_verification {
+        crate::user_verification_response::from_client_result(response)
+    } else {
+        mcp_server_elicitation_response_from_client_result(response)
+    };
 
     if let Err(err) = conversation
         .submit(Op::ResolveElicitation {

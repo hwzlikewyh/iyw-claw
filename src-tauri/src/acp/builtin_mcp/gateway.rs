@@ -407,7 +407,9 @@ fn load_catalog() -> Result<CapabilityCatalog, ErrorData> {
 
 fn parse<T: DeserializeOwned>(arguments: Option<JsonObject>) -> Result<T, ErrorData> {
     serde_json::from_value(Value::Object(arguments.unwrap_or_default()))
-        .map_err(|error| ErrorData::invalid_params(error.to_string(), None))
+        .map_err(|error| ErrorData::invalid_params(error.to_string(), Some(json!({
+            "code": "capability_schema_mismatch", "execution_status": "not_started"
+        }))))
 }
 
 fn unknown_capability() -> ErrorData {

@@ -10,6 +10,7 @@ pub(super) struct SessionSettings {
     permission_mode: String,
     collaboration_mode: String,
     model: ModelSettings,
+    native_title: Option<String>,
 }
 
 impl Default for SessionSettings {
@@ -18,11 +19,14 @@ impl Default for SessionSettings {
             permission_mode: "agent".to_string(),
             collaboration_mode: "default".to_string(),
             model: ModelSettings::default(),
+            native_title: None,
         }
     }
 }
 
 impl SessionSettings {
+    pub(super) fn title_model(&self) -> Option<String> { self.model.current.clone() }
+    pub(super) fn native_title(&self) -> Option<&str> { self.native_title.as_deref() }
     pub(super) fn fork_values(&self) -> Value {
         let mut values = self.model.current_values();
         values["collaborationMode"] = json!({ "mode": self.collaboration_mode, "settings": {
@@ -31,6 +35,10 @@ impl SessionSettings {
         values
     }
     pub(super) fn capture(&mut self, response: &Value) {
+        if let Some(thread) = response.get("thread") {
+            self.native_title = thread.get("name").and_then(Value::as_str)
+                .filter(|name| !name.trim().is_empty()).map(str::to_string);
+        }
         self.permission_mode = permission_mode_from_response(response).to_string();
         self.model.capture(response);
         if let Some(mode) = response

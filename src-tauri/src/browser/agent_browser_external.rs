@@ -52,10 +52,10 @@ impl BrowserSessionManager {
                 display_tab: None,
             },
             Err(failure)
-                if failure.code == "OPENCLI_NOT_INSTALLED" && self.managed_browser_enabled() =>
+                if matches!(failure.code.as_str(), "OPENCLI_NOT_INSTALLED" | "OPENCLI_BRIDGE_UNAVAILABLE") && self.managed_browser_enabled() =>
             {
                 tracing::info!(target: "iyw_claw_browser",
-                    "OpenCLI is not installed; using the enabled built-in browser");
+                    reason = %failure.code, "OpenCLI preflight unavailable; using the enabled built-in browser");
                 BrowserRouteProvider::Managed {
                     reason: Some(failure.code),
                 }

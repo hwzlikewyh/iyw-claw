@@ -4,33 +4,40 @@ use iyw_codex_harness::CodexAcpAgent;
 use sacp::{Agent, ConnectTo};
 
 use crate::config::{ConfigError, WorkerConfig};
+use crate::diagnostics::{safe_detail, StartupStage};
 
 pub(super) fn run() -> Result<(), WorkerError> {
-    let config = WorkerConfig::from_environment().map_err(WorkerError::Configuration)?;
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|_| WorkerError::Runtime)?;
+    let config = StartupStage::new("worker_config")
+        .finish(WorkerConfig::from_environment().map_err(WorkerError::Configuration))
+        .map_err(WorkerError::Startup)?;
+    let runtime = StartupStage::new("async_runtime")
+        .finish(
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build(),
+        )
+        .map_err(WorkerError::Runtime)?;
     runtime.block_on(serve(config))
 }
 
 async fn serve(config: WorkerConfig) -> Result<(), WorkerError> {
-    let agent = CodexAcpAgent::new(config.start_args())
-        .map_err(|_| WorkerError::Startup)?
+    let agent = StartupStage::new("acp_facade")
+        .finish(CodexAcpAgent::new(config.start_args()))
+        .map_err(WorkerError::Startup)?
         .with_owner(config.connection_id(), None, 0)
         .map_err(|_| WorkerError::Configuration(ConfigError::Connection))?
         .with_expected_session_id(config.expected_session_id());
     ConnectTo::<Agent>::connect_to(sacp_tokio::Stdio::new(), agent)
         .await
-        .map_err(|_| WorkerError::Protocol)
+        .map_err(|error| WorkerError::Protocol(safe_detail(&error.to_string())))
 }
 
 #[derive(Debug)]
 pub(super) enum WorkerError {
     Configuration(ConfigError),
-    Runtime,
-    Startup,
-    Protocol,
+    Runtime(String),
+    Startup(String),
+    Protocol(String),
 }
 
 impl fmt::Display for WorkerError {
@@ -48,9 +55,11 @@ impl fmt::Display for WorkerError {
             Self::Configuration(ConfigError::Connection) => {
                 formatter.write_str("worker configuration has no owning connection")
             }
-            Self::Runtime => formatter.write_str("worker runtime initialization failed"),
-            Self::Startup => formatter.write_str("内置星河运行时初始化失败"),
-            Self::Protocol => formatter.write_str("worker ACP connection failed"),
+            Self::Runtime(detail) => {
+                write!(formatter, "worker runtime initialization failed: {detail}")
+            }
+            Self::Startup(detail) => write!(formatter, "内置星河运行时初始化失败: {detail}"),
+            Self::Protocol(detail) => write!(formatter, "worker ACP connection failed: {detail}"),
         }
     }
 }

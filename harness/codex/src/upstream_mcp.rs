@@ -11,6 +11,9 @@ pub(crate) struct ThreadLaunchOptions {
 }
 
 impl ThreadLaunchOptions {
+    pub(crate) fn mcp_names(&self) -> Vec<String> {
+        self.mcp.as_ref().map(|servers| servers.keys().cloned().collect()).unwrap_or_default()
+    }
     pub(crate) fn new(capabilities: CapabilitySet) -> Self {
         Self {
             capabilities,
@@ -88,7 +91,7 @@ impl ThreadLaunchOptions {
 }
 
 fn server_config(server: &Value) -> Result<Value, UpstreamError> {
-    let config = match server.get("type").and_then(Value::as_str) {
+    let mut config = match server.get("type").and_then(Value::as_str) {
         Some("http") => json!({
             "url": required_string(server, "url")?,
             "http_headers": named_values(server, "headers")?,
@@ -104,6 +107,8 @@ fn server_config(server: &Value) -> Result<Value, UpstreamError> {
             ))
         }
     };
+    config["enabled"] = json!(true);
+    config["required"] = json!(true);
     // 上游校验的错误只返回类型说明，避免输出命令、参数或认证头。
     serde_json::from_value::<codex_config::McpServerConfig>(config.clone())
         .map_err(|_| invalid("MCP configuration failed runtime validation"))?;

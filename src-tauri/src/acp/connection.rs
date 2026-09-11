@@ -2848,11 +2848,11 @@ fn in_process_companion_health(
 }
 
 struct CompanionLaunchContext<'a> {
+    namespace: &'a str,
     injection: Option<&'a DelegationInjection>,
     builtin_mcp: Option<&'a crate::acp::builtin_mcp::BuiltinMcpClient>,
     http_lease_issued: &'a AtomicBool,
     connection_id: &'a str,
-    database_conversation_id: Option<i32>,
     working_dir: &'a Path,
     agent_type: AgentType,
     backend_allows_builtin_mcp: bool,
@@ -2896,7 +2896,7 @@ async fn prepare_http_companion(
     let memory_access = project_memory_launch_access(context.state, &health, true).await;
     let resolved =
         resolve_companion_features(injection, client.capability_tools(), &memory_access).await;
-    let server_name = builtin_mcp_server_name(context.database_conversation_id, context.agent_type);
+    let server_name = context.namespace.to_string();
     let authority = http_session_authority(context, &resolved, &memory_access, &server_name);
     let tools_ready = authority.tools_ready();
     let bearer = client
@@ -3571,15 +3571,24 @@ async fn run_connection(
                 Vec::new()
             };
 
-            // 同一 connection 的 Host 重试复用 authority；新的 connection 独立签发。
+            let requested_session = {
+                let state = state.read().await;
+                state.external_id.clone().or_else(|| state.requested_external_id.clone())
+            };
+            let mcp_namespace = crate::acp::mcp_namespace::resolve(
+                version_center_db.as_ref(),
+                (agent_type, requested_session.as_deref()),
+                builtin_mcp_server_name(database_conversation_id, agent_type),
+            ).await.map_err(ConnectionAttemptError::from)?;
+            // 命名空间在持久化会话中固定；每次连接仅更新 authority 和凭证。
             let (companion_health, companion) = mcp_recovery::prepare(
                 companion_launch,
                 CompanionLaunchContext {
+                    namespace: &mcp_namespace,
                     injection: delegation_injection.as_ref(),
                     builtin_mcp: builtin_mcp.as_ref(),
                     http_lease_issued: http_lease_issued.as_ref(),
                     connection_id: &conn_id,
-                    database_conversation_id,
                     working_dir: &cwd,
                     agent_type,
                     backend_allows_builtin_mcp: true,
@@ -4109,6 +4118,9 @@ async fn run_connection(
                         }
                     };
                 let sid = new_resp.session_id.0.to_string();
+                crate::acp::mcp_namespace::resolve(
+                    version_center_db.as_ref(), (agent_type, Some(&sid)), mcp_namespace.clone(),
+                ).await.map_err(ConnectionAttemptError::from)?;
                 if !route_binding.bind_session(sid.clone()) {
                     return Err(sacp::util::internal_error(
                         "ACP runtime route expired before new session binding",
