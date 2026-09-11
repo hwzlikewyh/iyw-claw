@@ -1,3 +1,8 @@
+// The worker statically links the Codex 0.154 harness, whose app-server call
+// path pushes rustc's query stack past the default depth limit. Raise it here
+// instead of relying on a compiler flag, which the release script does not pass.
+#![recursion_limit = "512"]
+
 //! C ABI boundary for the private 星河 worker library.
 
 mod config;
