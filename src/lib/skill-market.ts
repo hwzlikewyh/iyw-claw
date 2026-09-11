@@ -181,6 +181,8 @@ export interface SkillMarketMetadataRequest {
   iconUrl: string | null
   tags: string[]
   visibility: SkillMarketVisibility
+  /** Distribution range. Sent alongside visibility so the pair cannot drift. */
+  audience: SkillMarketAudience
 }
 
 export interface SkillMarketAddVersionRequest {

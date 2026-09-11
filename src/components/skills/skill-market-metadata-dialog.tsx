@@ -63,6 +63,9 @@ function useMetadataForm(props: MetadataFormProps) {
         .map((tag) => tag.trim())
         .filter(Boolean),
       visibility,
+      // This dialog only edits visibility; the backend keeps the distribution
+      // range consistent with it.
+      audience: visibility === "public" ? "organization" : "owner_private",
     })
     props.onCancel()
   }

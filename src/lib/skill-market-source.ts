@@ -448,6 +448,11 @@ class TransportSkillMarketSource implements SkillMarketSource {
   async updateMetadata(
     request: SkillMarketMetadataRequestV2
   ): Promise<SkillMarketV2Item> {
+    const raw = request as unknown as { audience?: SkillMarketAudience }
+    // The request type has no visibility field: the UI edits the audience, and
+    // the backend keeps the pair consistent. Send both so a skill taken off the
+    // global market also stops being marked public.
+    const audience = raw.audience
     const detail = await skillMarketUpdateMetadata({
       id: request.id,
       displayName: request.displayName,
@@ -456,11 +461,12 @@ class TransportSkillMarketSource implements SkillMarketSource {
       iconUrl: request.iconUrl,
       tags: request.tags,
       visibility:
-        request.audience === "global_market"
+        audience === "global_market"
           ? "public"
-          : request.audience === "organization"
+          : audience === "organization"
             ? "public"
             : "private",
+      audience: audience ?? "owner_private",
     })
     return mapItemV1ToV2(detail as unknown as SkillMarketItem)
   }

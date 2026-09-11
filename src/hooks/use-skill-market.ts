@@ -622,6 +622,11 @@ export function useSkillMarket(targetSkillId?: string | null) {
   const updateMetadata = useCallback(
     async (request: SkillMarketMetadataRequestV2) => {
       const item = await source.updateMetadata(request)
+      // Audience changes move a skill in and out of the current list scope, so
+      // drop the cached detail and re-read the catalog instead of trusting the
+      // optimistic patch.
+      detailCache.current.clear()
+      refresh()
       applyItemPatch(item.id, {
         displayName: item.displayName,
         summary: item.summary,
@@ -633,7 +638,7 @@ export function useSkillMarket(targetSkillId?: string | null) {
       })
       return item
     },
-    [applyItemPatch, source]
+    [applyItemPatch, refresh, source]
   )
 
   const deleteSkill = useCallback(

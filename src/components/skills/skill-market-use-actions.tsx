@@ -76,7 +76,18 @@ function createRemoteActions(
   const updateMetadata = (request: SkillMarketMetadataRequest) =>
     run(
       "metadata",
-      async () => void (await skillMarketUpdateMetadata(request)),
+      async () =>
+        void (await skillMarketUpdateMetadata({
+          ...request,
+          // The legacy dialog only edits visibility; keep the distribution range
+          // consistent with it so the backend never stores a public skill that
+          // stops being distributed (or the reverse).
+          audience:
+            request.audience ??
+            (request.visibility === "public"
+              ? "organization"
+              : "owner_private"),
+        })),
       t("toasts.metadataUpdated")
     )
   const addVersion = (request: SkillMarketAddVersionRequest) =>
