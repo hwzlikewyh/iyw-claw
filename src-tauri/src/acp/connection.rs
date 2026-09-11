@@ -428,6 +428,10 @@ pub enum ConnectionCommand {
         reply: tokio::sync::oneshot::Sender<Result<(), String>>,
     },
     Cancel,
+    SideQuestion {
+        request: crate::acp::side_question::SideQuestionRequest,
+        reply: tokio::sync::oneshot::Sender<Result<serde_json::Value, AcpError>>,
+    },
     /// Cancel only at a scheduler-proven safe boundary. Unlike manual Cancel,
     /// this preserves terminal runtimes and waits for the real prompt response
     /// or stop reason before the connection returns to idle.
@@ -952,7 +956,7 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
                     extension.eq_ignore_ascii_case("cmd")
                         || extension.eq_ignore_ascii_case("bat")
                 });
-            if windows_shim {
+            if windows_shim || agent_type == AgentType::ClaudeCode {
                 let package_name = npm_runtime::npm_package_name_from_spec(package).ok_or_else(|| {
                     AcpError::SpawnFailed(format!("{} npm package identity is invalid", meta.name))
                 })?;
@@ -974,6 +978,13 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
                         },
                     )?;
                 parts.push(node.to_string_lossy().into_owned());
+                if agent_type == AgentType::ClaudeCode {
+                    parts.push(
+                        crate::acp::side_question::claude_bootstrap(&storage)?
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
+                }
                 parts.push(entrypoint.to_string_lossy().into_owned());
                 tracing::info!(
                     agent = meta.name,
@@ -6055,6 +6066,7 @@ async fn run_conversation_loop<'a>(
     // Session-scoped cache for diffing cumulative `raw_output` snapshots
     // into incremental deltas. Shared across the idle loop and the active
     // turn loop so tool calls that span turns stay consistent.
+    let side_lane = crate::acp::side_question::SideQuestionLane::default();
     let mut raw_output_cache = ToolCallOutputCache::default();
     // Session-scoped CodeBuddy live state: authoritative title rewrites
     // (tool_call_id → "agent" / inner `mcp__…` name) so a later status-only
@@ -6892,6 +6904,9 @@ async fn run_conversation_loop<'a>(
                         }
                         cmd = cmd_rx.recv() => {
                             match cmd {
+                                Some(ConnectionCommand::SideQuestion { request, reply }) => {
+                                    side_lane.dispatch(cx.clone(), sid.0.as_ref(), request, reply);
+                                }
                                 Some(ConnectionCommand::RespondPermission {
                                     request_id,
                                     option_id,
@@ -7250,6 +7265,9 @@ async fn run_conversation_loop<'a>(
                     )
                     .await;
                 }
+            }
+            Some(ConnectionCommand::SideQuestion { request, reply }) => {
+                side_lane.dispatch(session.connection(), session.session_id().0.as_ref(), request, reply);
             }
             Some(ConnectionCommand::RespondPermission {
                 request_id,

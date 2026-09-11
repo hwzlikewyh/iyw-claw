@@ -1646,6 +1646,7 @@ mod tauri_app {
                 acp_commands::acp_describe_agent_options,
                 acp_commands::acp_cancel,
                 acp_commands::acp_fork,
+                acp_commands::acp_side_question,
                 acp_commands::acp_respond_permission,
                 acp_commands::acp_answer_question,
                 acp_commands::acp_respond_html,

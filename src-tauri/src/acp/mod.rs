@@ -107,6 +107,7 @@ pub mod session_info;
 pub mod session_activity;
 mod session_recovery;
 pub mod session_state;
+pub mod side_question;
 pub mod skill_package;
 pub mod skill_routing;
 pub(crate) mod skill_tree_hash;

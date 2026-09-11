@@ -109,6 +109,10 @@ impl From<ServerRequestAdmissionError> for UpstreamError {
 }
 
 impl UpstreamClient {
+    /// Only the ACP side lane may use this after validating its bound parent.
+    pub(crate) fn native_side_question_handle(&self) -> InProcessAppServerRequestHandle {
+        self.request_handle.clone()
+    }
     pub(crate) fn native_title_handle(&self) -> InProcessAppServerRequestHandle {
         self.request_handle.clone()
     }

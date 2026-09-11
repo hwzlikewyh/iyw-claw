@@ -64,6 +64,7 @@ interface ChatInputProps {
   onSaveQueueEdit?: (draft: PromptDraft) => void
   onCancelQueueEdit?: () => void
   onForkSend?: (draft: PromptDraft, modeId?: string | null) => boolean | void
+  onSideQuestion?: (question: string) => boolean
   onAddFeedback?: () => void
   feedbackAddDisabled?: boolean
   /** Keep the composer usable while the selected Agent connects silently. */
@@ -117,6 +118,7 @@ export const ChatInput = memo(function ChatInput({
   onSaveQueueEdit,
   onCancelQueueEdit,
   onForkSend,
+  onSideQuestion,
   onAddFeedback,
   feedbackAddDisabled,
   allowOfflineCompose = true,
@@ -188,6 +190,7 @@ export const ChatInput = memo(function ChatInput({
         onSaveQueueEdit={onSaveQueueEdit}
         onCancelQueueEdit={onCancelQueueEdit}
         onForkSend={onForkSend}
+        onSideQuestion={onSideQuestion}
         onAddFeedback={onAddFeedback}
         feedbackAddDisabled={feedbackAddDisabled}
         injectContent={injectContent}

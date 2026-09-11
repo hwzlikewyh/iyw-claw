@@ -815,6 +815,7 @@ pub fn build_router(
         )
         .route("/acp_cancel", post(handlers::acp::acp_cancel))
         .route("/acp_fork", post(handlers::acp::acp_fork))
+        .route("/acp_side_question", post(handlers::acp::acp_side_question))
         .route(
             "/acp_respond_permission",
             post(handlers::acp::acp_respond_permission),

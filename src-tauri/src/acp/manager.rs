@@ -2418,6 +2418,38 @@ impl ConnectionManager {
         Ok(())
     }
 
+    pub async fn side_question(
+        &self,
+        conn_id: &str,
+        request: crate::acp::side_question::SideQuestionRequest,
+    ) -> Result<serde_json::Value, AcpError> {
+        request.validate()?;
+        let (tx, state) = {
+            let connections = self.connections.lock().await;
+            let conn = connections
+                .get(conn_id)
+                .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.to_string()))?;
+            if !matches!(conn.agent_type, AgentType::ClaudeCode | AgentType::Codex) {
+                return Ok(serde_json::json!({"supported": false}));
+            }
+            (conn.cmd_tx.clone(), Arc::clone(&conn.state))
+        };
+        if state.read().await.external_id.as_deref() != Some(request.session_id.as_str()) {
+            return Err(AcpError::protocol(
+                "Side-question session does not match connection",
+            ));
+        }
+        let (reply, result) = tokio::sync::oneshot::channel();
+        // Intentionally outside prompt_lock: side requests run alongside prompts.
+        tx.send(ConnectionCommand::SideQuestion { request, reply })
+            .await
+            .map_err(|_| AcpError::ProcessExited)?;
+        tokio::time::timeout(Duration::from_secs(200), result)
+            .await
+            .map_err(|_| AcpError::protocol("Side-question connection request timed out"))?
+            .map_err(|_| AcpError::ProcessExited)?
+    }
+
     pub async fn set_mode(&self, conn_id: &str, mode_id: String) -> Result<(), AcpError> {
         let cmd_tx = {
             let connections = self.connections.lock().await;

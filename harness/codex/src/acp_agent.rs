@@ -34,6 +34,7 @@ mod permission_profile;
 mod prompt_mapping;
 mod session_options;
 mod settings_mapping;
+mod side_question;
 mod steering;
 mod subagent_items;
 mod tool_content;
@@ -250,6 +251,7 @@ async fn run_bridge_loop(
     let mut messages = message_projection::MessageProjection::default();
     let mut thinking = thinking_projection::ThinkingProjection::default();
     let mut native_title = native_title::NativeTitle::default();
+    let mut side_questions = side_question::SideQuestions::default();
     loop {
         if authority.automatic.awaiting_prompt.is_none() {
             if let Some(command) = authority.automatic.deferred_prompt.take() {
@@ -259,6 +261,28 @@ async fn run_bridge_loop(
         tokio::select! {
             command = commands.recv() => match command {
                 Some(command) => {
+                    let command = match command {
+                        BridgeCommand::Request { method, params, response } if method == "_iyw/side_question" => {
+                            let Some(parent) = session_id.clone() else {
+                                let _ = response.send(Err("Native side question requires an active session".into()));
+                                continue;
+                            };
+                            side_questions.dispatch(
+                                upstream.native_side_question_handle(),
+                                side_question::SideInput {
+                                    parent,
+                                    question: params["question"].as_str().unwrap_or_default().to_string(),
+                                    model: session_settings.title_model(),
+                                    model_settings: session_settings.fork_values(),
+                                    cwd: authority.expected_cwd.to_string_lossy().into_owned(),
+                                },
+                                &params,
+                                response,
+                            );
+                            continue;
+                        }
+                        command => command,
+                    };
                     let session_request = matches!(&command, BridgeCommand::Request { method, .. }
                         if matches!(method.as_str(), "session/new" | "session/load" | "session/resume" | "session/fork"));
                     let title_prompt = match &command {
@@ -311,6 +335,7 @@ async fn run_bridge_loop(
                         event => vec![event],
                     };
                     for event in events {
+                    if side_questions.route(&event) { continue; }
                     if native_title.route(&event) { continue; }
                     let context = BridgeEventContext {
                         upstream: &upstream,

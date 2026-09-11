@@ -61,6 +61,9 @@ import {
   type ConversationPointsBlockReason,
 } from "@/components/conversations/conversation-points-gate"
 import type { ComposerInjectContent } from "@/components/chat/message-input"
+import { useSideQuestion } from "@/hooks/use-side-question"
+import { SideQuestionPanel } from "@/components/chat/side-question-panel"
+import { parseSideQuestion } from "@/lib/side-question"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   acpFork,
@@ -803,6 +806,28 @@ const ConversationTabView = memo(function ConversationTabView({
     silentReconnect: modelReapplyAttempt !== null,
   })
   const { status: connStatus, sessionId: connSessionId } = conn
+  const sideScope = `${conn.connectionId ?? ""}:${connSessionId ?? ""}`
+  const [pendingSideInject, setPendingSideInject] = useState<{
+    scope: string
+    content: ComposerInjectContent
+  } | null>(null)
+  const sideInject =
+    pendingSideInject?.scope === sideScope ? pendingSideInject.content : null
+  const consumeSideInject = useCallback(() => setPendingSideInject(null), [])
+  const sideEligible =
+    !conn.isViewer &&
+    (selectedAgent === "claude_code" || selectedAgent === "codex")
+  const sideQuestion = useSideQuestion(
+    conn.connectionId,
+    connSessionId,
+    sideEligible
+  )
+  const setSideOpen = sideQuestion.setOpen
+  useEffect(() => {
+    setPendingSideInject((pending) =>
+      pending?.scope === sideScope ? pending : null
+    )
+  }, [sideScope])
   const isSilentModelSwitch = modelReapplyAttempt !== null
   const visibleConnStatus = isSilentModelSwitch ? "connected" : connStatus
   const visibleConnError = isSilentModelSwitch ? null : conn.error
@@ -1557,6 +1582,14 @@ const ConversationTabView = memo(function ConversationTabView({
       }
     ) => {
       const fromQueueFlush = opts?.fromQueueFlush ?? false
+      // Defense in depth for restored queue items or callers bypassing the composer.
+      if (parseSideQuestion(draft.displayText) !== null) {
+        if (fromQueueFlush && opts?.queuedMessage) {
+          mqRequeueItemFront({ ...opts.queuedMessage, blocked: true })
+        }
+        setSideOpen(true)
+        return false
+      }
       if (!ensureConversationPointsAvailable()) {
         if (fromQueueFlush && opts?.queuedMessage) {
           mqRequeueItemFront({ ...opts.queuedMessage, blocked: true })
@@ -2020,6 +2053,7 @@ const ConversationTabView = memo(function ConversationTabView({
       conn.promptCapabilities.image,
       ensureConversationPointsAvailable,
       workingDirForConnection,
+      setSideOpen,
       t,
     ]
   )
@@ -2672,6 +2706,22 @@ const ConversationTabView = memo(function ConversationTabView({
 
   return (
     <ConversationShell
+      onSideQuestion={sideEligible ? sideQuestion.ask : undefined}
+      sideInject={sideInject}
+      onSideInjectConsumed={consumeSideInject}
+      sidePanel={
+        <SideQuestionPanel
+          key={sideScope}
+          side={sideQuestion}
+          promoteDisabled={mqEditingItemId != null}
+          onPromote={(text) =>
+            setPendingSideInject({
+              scope: sideScope,
+              content: { text, append: true },
+            })
+          }
+        />
+      }
       topBanner={
         isSilentModelSwitch ? null : (
           <SessionConfigStaleBanner contextKey={tabId} />
@@ -2827,12 +2877,15 @@ const ConversationTabView = memo(function ConversationTabView({
               isEditingQueueItem={mqEditingItemId != null}
               onSaveQueueEdit={handleSaveQueueEdit}
               onCancelQueueEdit={handleQueueCancelEdit}
+              onSideQuestion={sideEligible ? sideQuestion.ask : undefined}
               onAddFeedback={
                 feedback.featureEnabled ? feedback.openDialog : undefined
               }
               feedbackAddDisabled={!feedback.canSubmit}
-              injectContent={quickActionInject}
-              onInjectConsumed={handleQuickActionConsumed}
+              injectContent={quickActionInject ?? sideInject}
+              onInjectConsumed={
+                quickActionInject ? handleQuickActionConsumed : consumeSideInject
+              }
               flush
               tall
             />
