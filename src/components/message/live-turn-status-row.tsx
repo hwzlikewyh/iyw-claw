@@ -140,7 +140,7 @@ export const LiveTurnStatusRow = memo(function LiveTurnStatusRow(
   props: LiveTurnStatusRowProps
 ) {
   return (
-    <div className="@container/turnstats shrink-0 px-4 pt-3 pb-2">
+    <div className="@container/turnstats mx-auto w-full max-w-4xl shrink-0 px-4 pt-3 pb-2">
       <div className="flex min-h-14 items-start gap-2 @[28rem]/turnstats:gap-3">
         <TurnActivity
           phase={props.phase}
