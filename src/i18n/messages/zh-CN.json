@@ -1,4 +1,26 @@
 {
+  "SideQuestion": {
+    "title": "顺便问",
+    "independent": "主任务独立继续运行",
+    "close": "收起侧栏",
+    "context": "原生会话上下文 · 单次回答 · 不写入主历史",
+    "unavailable": "当前连接暂不支持原生侧问。请先开始会话或使用支持的运行时。",
+    "running": "正在回答侧问…",
+    "cancelled": "侧问已取消，主任务不受影响。",
+    "failed": "原生侧问未返回回答。",
+    "promote": "追加到主草稿",
+    "promoteEditing": "请先结束队列消息编辑，再追加到主草稿。",
+    "quote": "侧问参考：\n问题：{question}\n回答：{answer}",
+    "question": "你的侧问",
+    "placeholder": "顺便问一句，不打断主任务…",
+    "temporary": "临时保留最近 20 条",
+    "stop": "停止侧问",
+    "ask": "提问",
+    "command": "使用原生上下文侧问，不打断主任务",
+    "textOnly": "顺便问仅支持文字；原草稿和附件已保留。",
+    "queueUnsupported": "侧问不能保存到主消息队列，请通过顺便问侧栏提问。",
+    "busy": "已有侧问正在运行或连接尚未就绪；原草稿已保留。"
+  },
   "Language": {
     "followSystem": "跟随系统",
     "english": "英语",

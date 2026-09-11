@@ -9323,6 +9323,16 @@ pub async fn acp_cancel(
 
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn acp_side_question(
+    connection_id: String,
+    request: crate::acp::side_question::SideQuestionRequest,
+    manager: State<'_, ConnectionManager>,
+) -> Result<serde_json::Value, AcpError> {
+    manager.side_question(&connection_id, request).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn acp_fork(
     connection_id: String,
     conversation_id: Option<i32>,

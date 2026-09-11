@@ -531,6 +531,25 @@ pub async fn acp_cancel(
     Ok(Json(()))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcpSideQuestionParams {
+    pub connection_id: String,
+    pub request: crate::acp::side_question::SideQuestionRequest,
+}
+
+pub async fn acp_side_question(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<AcpSideQuestionParams>,
+) -> Result<Json<serde_json::Value>, AppCommandError> {
+    state
+        .connection_manager
+        .side_question(&params.connection_id, params.request)
+        .await
+        .map(Json)
+        .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))
+}
+
 pub async fn acp_fork(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<AcpForkParams>,

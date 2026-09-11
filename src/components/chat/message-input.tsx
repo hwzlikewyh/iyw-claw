@@ -1,5 +1,7 @@
 "use client"
 
+import { parseSideQuestion } from "@/lib/side-question"
+
 import {
   useCallback,
   useEffect,
@@ -238,6 +240,7 @@ import {
  */
 export interface ComposerInjectContent {
   text: string
+  append?: boolean
   skill?: { id: string; label: string; package?: PromptSkillPackage }
   scenario?: { variables: ScenarioVariable[] }
 }
@@ -355,6 +358,7 @@ interface MessageInputProps {
   /** Fork the session and send `draft`. A synchronous false keeps the draft;
    *  accepted attempts clear immediately and the parent re-queues async failures. */
   onForkSend?: (draft: PromptDraft, modeId?: string | null) => boolean | void
+  onSideQuestion?: (question: string) => boolean
   /** Open the live-feedback dialog (from the "+" menu). When omitted the entry
    *  is hidden (feature off). */
   onAddFeedback?: () => void
@@ -840,10 +844,13 @@ export function MessageInput({
   onSaveQueueEdit,
   onCancelQueueEdit,
   onForkSend,
+  onSideQuestion,
   injectContent,
   onInjectConsumed,
 }: MessageInputProps) {
   const t = useTranslations("Folder.chat.messageInput")
+  const tSide = useTranslations("SideQuestion")
+  const [hasSideCommand, setHasSideCommand] = useState(false)
   const { openSkillMarket } = useWorkbenchRoute()
   const tSessionConfig = t as unknown as SessionConfigTranslator
   const tQueue = useTranslations("Folder.chat.messageQueue")
@@ -1347,6 +1354,8 @@ export function MessageInput({
 
   useEffect(() => {
     if (!injectContent || !composerReady) return
+    // Appending a side answer targets the main draft, never a queue-item edit.
+    if (injectContent.append && isEditingQueueItem) return
     const payload = injectContent
     // Defer the editor mutation to the next frame. Inserting the skill badge
     // creates a React NodeView, which @tiptap/react renders with a synchronous
@@ -1359,7 +1368,9 @@ export function MessageInput({
     const raf = requestAnimationFrame(() => {
       const handle = editorRef.current
       if (handle) {
-        if (payload.scenario) {
+        if (payload.append) {
+          handle.appendText(`\n\n${payload.text}`)
+        } else if (payload.scenario) {
           handle.setScenarioTemplate(payload.text, payload.scenario.variables)
         } else {
           handle.setText(payload.text)
@@ -1390,7 +1401,13 @@ export function MessageInput({
       onInjectConsumed?.()
     })
     return () => cancelAnimationFrame(raf)
-  }, [injectContent, composerReady, skillPrefix, onInjectConsumed])
+  }, [
+    injectContent,
+    composerReady,
+    skillPrefix,
+    onInjectConsumed,
+    isEditingQueueItem,
+  ])
 
   // Skill and expert badges capture the selected agent's invocation prefix at
   // insert time. Keep existing badges aligned when the user switches agents.
@@ -1412,6 +1429,11 @@ export function MessageInput({
   const syncComposerEmpty = useCallback(() => {
     const ed = editorRef.current?.getEditor()
     setComposerEmpty(ed ? isComposerEmpty(ed) : true)
+    setHasSideCommand(
+      ed
+        ? parseSideQuestion(serializeDocToDisplayText(ed.state.doc)) !== null
+        : false
+    )
   }, [])
 
   const handleComposerChange = useCallback(() => {
@@ -1546,10 +1568,23 @@ export function MessageInput({
   const [slashFilter, setSlashFilter] = useState("")
   const slashCommands = useMemo(
     () =>
-      (availableCommands ?? []).filter((command) =>
+      [
+        ...(onSideQuestion
+          ? [{
+              name: "btw",
+              description: tSide("command"),
+              input_hint: tSide("question"),
+            }]
+          : []),
+        ...(availableCommands ?? []).filter(
+          (command) =>
+            !onSideQuestion ||
+            command.name.replace(/^\/+/, "").toLowerCase() !== "btw"
+        ),
+      ].filter((command) =>
         isVisibleExpertId(command.name.replace(/^\/+/, "").toLowerCase())
       ),
-    [availableCommands]
+    [availableCommands, onSideQuestion, tSide]
   )
   const filteredSlashCommands = useMemo(() => {
     if (!slashMenuOpen || slashCommands.length === 0) return []
@@ -3486,6 +3521,7 @@ export function MessageInput({
       programmaticResetRef.current = false
     }
     setComposerEmpty(true)
+    setHasSideCommand(false)
     setDraftTask(null)
     embeddedPayloadsRef.current.clear()
     closeSlashMenu()
@@ -3574,6 +3610,27 @@ export function MessageInput({
     if (!draft) return
     const editor = editorRef.current?.getEditor()
     const sentTask = editor ? getTaskReference(editor) : null
+    // Product control command: never enqueue, steer or send as a main prompt.
+    const sideQuestion = parseSideQuestion(draft.displayText)
+    if (sideQuestion !== null) {
+      if (isEditingQueueItem) {
+        toast.error(tSide("queueUnsupported"))
+        return
+      }
+      if (
+        draft.blocks.some((block) => block.type !== "text") ||
+        attachments.length > 0
+      ) {
+        toast.error(tSide("textOnly"))
+      } else if (!onSideQuestion) {
+        toast.error(tSide("unavailable"))
+      } else if (onSideQuestion(sideQuestion)) {
+        resetComposer()
+      } else {
+        toast.error(tSide("busy"))
+      }
+      return
+    }
 
     // Edit mode: save back to queue item
     if (isEditingQueueItem && onSaveQueueEdit) {
@@ -3680,6 +3737,9 @@ export function MessageInput({
     rejectPendingSend,
     promptCapabilities.image,
     hasQueuedMessages,
+    onSideQuestion,
+    attachments.length,
+    tSide,
   ])
 
   const handleVoiceFinal = useCallback((text: string) => {
@@ -3711,6 +3771,10 @@ export function MessageInput({
     if (!onForkSend) return
     const draft = buildDraft()
     if (!draft) return
+    if (parseSideQuestion(draft.displayText) !== null) {
+      sendCurrentDraft()
+      return
+    }
     // Fork-send consumes the draft synchronously, exactly like a normal send:
     // fire-and-forget and clear the input immediately, so there is no in-flight
     // editable window. If the fork can't run (queue non-empty / disconnected /
@@ -3728,6 +3792,7 @@ export function MessageInput({
     showModeSelector,
     resetComposer,
     voice.status,
+    sendCurrentDraft,
   ])
 
   // Navigation/confirm/escape keys for the `/` (commands) and `$` (Codex skills)
@@ -4067,6 +4132,17 @@ export function MessageInput({
         <Check className="size-4" />
       </Button>
     </div>
+  ) : hasSideCommand ? (
+    <Button
+      onClick={handleSend}
+      size="icon"
+      className="iyw-claw-send-button h-8 w-8"
+      title={tSide("ask")}
+      aria-label={tSide("ask")}
+      disabled={voice.status !== "idle"}
+    >
+      <Send className="size-4" />
+    </Button>
   ) : isPrompting ? (
     <Button
       onClick={onCancel}

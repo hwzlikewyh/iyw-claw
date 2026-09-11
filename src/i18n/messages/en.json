@@ -1,4 +1,26 @@
 {
+  "SideQuestion": {
+    "title": "Side question",
+    "independent": "Main task continues independently",
+    "close": "Hide side panel",
+    "context": "Native conversation context · one answer · no main-history changes",
+    "unavailable": "Native side questions are unavailable on this connection. Start a conversation or use a supported runtime.",
+    "running": "Answering the side question…",
+    "cancelled": "Side question cancelled. Main task is unchanged.",
+    "failed": "The native side question returned no answer.",
+    "promote": "Append to main draft",
+    "promoteEditing": "Finish editing the queued message before appending to the main draft.",
+    "quote": "Side-question reference:\nQuestion: {question}\nAnswer: {answer}",
+    "question": "Your side question",
+    "placeholder": "Ask without interrupting the main task…",
+    "temporary": "Temporary · last 20 questions",
+    "stop": "Stop side question",
+    "ask": "Ask",
+    "command": "Ask a native side question without interrupting the main task",
+    "textOnly": "Side questions accept text only. Your draft and attachments have been kept.",
+    "queueUnsupported": "Side questions cannot be saved in the main message queue. Use the side panel instead.",
+    "busy": "A side question is already running or the connection is not ready. Your draft has been kept."
+  },
   "Language": {
     "followSystem": "Follow System",
     "english": "English",

@@ -413,6 +413,17 @@ export async function acpCancel(connectionId: string): Promise<void> {
   return getTransport().call("acp_cancel", { connectionId })
 }
 
+export async function acpSideQuestion(
+  connectionId: string,
+  request: import("./side-question").SideQuestionRequest
+): Promise<import("./side-question").SideQuestionResult> {
+  return getTransport().call(
+    "acp_side_question",
+    { connectionId, request },
+    { timeoutMs: request.action === "ask" ? 210_000 : 20_000 }
+  )
+}
+
 export interface ForkResult {
   forkedSessionId: string
   originalSessionId: string
