@@ -6,10 +6,7 @@ pub(super) fn tool() -> Value {
     json!({
         "name": IMAGE_TOOL,
         "description": "Create images with IYW platform operations first: fission for text-only creation, variation for one-image redesign or color/material/detail changes, extend for series extension, mix for multiple references, or the matching specialized platform operation. This direct tool wraps both platform and Fusion backends: type=generate calls Fusion images/generations and type=edit calls Fusion images/edits. Direct-tool priority does not authorize these fallback types. Both fallback conditions must hold: an IYW platform attempt for the same task explicitly failed or was rejected before task creation, and list_iyw_image_models returned a suitable model whose exact id you pass in parameters.model. Missing IDs and display names are rejected; the host never chooses a default model. Local path/parameter errors and complex prompts do not permit fallback. Reuse the catalog for the same task or batch. Platform operations and auto need no Fusion lookup. Default timeouts: standard platform requests/polling 600 seconds, product-kit/a-plus HTTP 650 seconds, batch-center submit HTTP 120 seconds (polling wait 600), Fusion 300 seconds; wait.timeoutSeconds can override either, including above 600. Prefer the defaults or longer for slow tasks. This tool has no image-generation capability_id; use its advertised definition without capability search/read/invoke, separate upload, or another image Skill. Use single-task fields for one task, or requests for up to eight independent tasks. count starts multiple charged executions; never combine it with parameters.n or parameters.batchSize. A batch is validated before execution, continues after runtime item failures, and returns partial results in input order with successful URLs registered together. Deliver ordinary successful images using returned status, URLs, and delivery metadata. Inspect visuals for requested review, comparison, visual acceptance, or integration into a composed deliverable; a detailed prompt alone does not require review. Report partial or failed status honestly and do not regenerate beyond scope. Explain the selected operation/backend when asked about routing; the tool name or successful output alone does not prove platform execution. A backend rejection is not a tool-identity error; preserve it without inventing capability IDs. A timeout, transport error, or non-terminal result is not confirmed generation failure: query the original task_id when available; never blindly retry or switch to edit/generate after uncertain submission.",
-        "inputSchema": {
-            "type": "object",
-            "oneOf": [single_image_schema(), batch_image_schema()]
-        }
+        "inputSchema": tool_input_schema()
     })
 }
 
@@ -34,33 +31,48 @@ fn parameters_schema() -> Value {
     })
 }
 
-fn single_image_schema() -> Value {
+fn tool_input_schema() -> Value {
     let mut schema = image_request_schema(false);
     schema["properties"]["delivery"] = delivery_schema();
-    schema
-}
-
-fn batch_image_schema() -> Value {
-    json!({
-        "type": "object",
-        "required": ["requests"],
-        "properties": {
-            "requests": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 8,
-                "items": image_request_schema(true)
-            },
-            "delivery": delivery_schema()
+    let single_properties = schema["properties"]
+        .as_object()
+        .expect("image request properties")
+        .keys()
+        .map(|name| {
+            (
+                name.clone(),
+                json!({"$ref": format!("#/properties/{name}")}),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    schema["properties"]["requests"] = json!({
+        "type": "array", "minItems": 1, "maxItems": 8,
+        "description": "Batch only. Each item is a complete image request. Do not mix requests with root type, prompt, images, parameters, count, or wait.",
+        "items": image_request_schema(true)
+    });
+    schema["oneOf"] = json!([
+        {
+            "$ref": "#/$defs/promptRequirements",
+            "properties": single_properties,
+            "additionalProperties": false
         },
-        "additionalProperties": false
-    })
+        {
+            "required": ["requests"],
+            "properties": {
+                "requests": {"$ref": "#/properties/requests"},
+                "delivery": {"$ref": "#/properties/delivery"}
+            },
+            "additionalProperties": false
+        }
+    ]);
+    schema["$defs"]["promptRequirements"] = json!({"anyOf": prompt_requirements()});
+    schema
 }
 
 fn image_request_schema(include_id: bool) -> Value {
     let mut properties = json!({
         "type": image_type_schema(),
-        "prompt": {"type": "string", "maxLength": 12000, "description": "State what to preserve and change, the intended layout, and each reference image's role in input order. Select the operation with type; the prompt alone does not select specialized tools."},
+        "prompt": {"type": "string", "maxLength": 12000, "description": "Required non-blank text for creation and prompt-driven edits, including auto, fission, generate, edit, variation, extend, and mix. Put prompt directly in this tool's arguments (or each requests item), not only in assistant text or an extra arguments wrapper. State what to preserve/change and each reference image's role. Select specialized tools with type. Omit only for operations that do not require a prompt."},
         "images": image_sources_schema(),
         "parameters": parameters_schema(),
         "count": {
@@ -73,13 +85,57 @@ fn image_request_schema(include_id: bool) -> Value {
         "wait": wait_schema()
     });
     if include_id {
+        // 批量项复用顶层字段，避免重复 schema 触发运行时有损压缩。
+        for (name, value) in properties
+            .as_object_mut()
+            .expect("image request properties")
+        {
+            *value = json!({"$ref": format!("#/properties/{name}")});
+        }
         properties["id"] = json!({"type": "string", "minLength": 1, "maxLength": 64});
     }
-    json!({
+    let mut schema = json!({
         "type": "object",
         "properties": properties,
         "additionalProperties": false
-    })
+    });
+    if include_id {
+        schema["$ref"] = json!("#/$defs/promptRequirements");
+    }
+    schema
+}
+
+fn prompt_requirements() -> Value {
+    let prompt = json!({"type": "string", "minLength": 1, "pattern": "\\S"});
+    json!([
+        {"required": ["prompt"], "properties": {"prompt": prompt}},
+        {"required": ["type"], "properties": {"type": {"enum": [
+            "free-imitation", "outpaint", "super-resolution", "split-layers", "separate-layers",
+            "enhance", "repeat-horizontal", "convert", "line-extraction", "color-transfer",
+            "image-to-3d", "blend", "erase", "watermark-erase", "extract", "lineart", "vectorize",
+            "three-views", "bleed-line", "upscale", "super-upscale", "extract-color", "save-color",
+            "detect-grid", "classify-intent", "build-extract-prompts", "background-remove",
+            "f-tools", "check-image", "micro-upscale", "micro-upscale-image", "product-kit",
+            "a-plus", "batch-shape-fill", "batch-watermark", "batch-enhance", "batch-upscale",
+            "batch-background-remove", "batch-extract-pattern", "batch-replace-scene", "batch-mockup"
+        ]}}},
+        {
+            "allOf": [
+                {"required": ["parameters"], "properties": {
+                    "parameters": {"required": ["prompt"], "properties": {"prompt": prompt}}
+                }},
+                {"anyOf": [
+                {"required": ["type"], "properties": {"type": {"enum": [
+                    "variation", "extend", "mix", "pattern-apply", "material-product", "ip-apply",
+                    "extract-pattern", "video", "model-scene", "background", "modify", "seed-edit",
+                    "video-auto-director", "video-remake-director", "micro-generate", "micro-variation",
+                    "scheme-generate", "faddish", "g-tools", "a-plus-edit", "batch-generate", "batch-series-extend"
+                ]}}},
+                {"required": ["images"], "properties": {"images": {"type": "array", "items": {}, "minItems": 1}, "type": {"enum": ["auto"]}}}
+                ]}
+            ]
+        }
+    ])
 }
 
 fn image_type_schema() -> Value {
