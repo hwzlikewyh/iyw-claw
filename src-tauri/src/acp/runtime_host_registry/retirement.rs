@@ -232,6 +232,9 @@ impl RuntimeHostRegistry {
         self.closed.store(true, Ordering::Release);
         self.shutdown.cancel();
         let _lifecycle = self.lifecycle.write().await;
+        let owned = self.owned_host_snapshots().await;
+        let owned_results = join_all(owned.iter().map(|host| host.shutdown())).await;
+        self.owned_hosts.lock().await.clear();
         let startup_report = self.startups.reap_all().await;
         // Retain Hosts until their driver handle is reaped. Cancellation keeps
         // the handle retryable; an unclean terminal outcome must not retain it.
@@ -259,8 +262,10 @@ impl RuntimeHostRegistry {
         drop(registered);
         let retirement_report = self.retirements.reap_all().await;
         self.spawn_locks.lock().await.clear();
-        let reaped = startup_report.reaped && hosts_reaped && retirement_report.reaped;
-        let clean = startup_report.clean && hosts_clean && retirement_report.clean;
+        let reaped = startup_report.reaped && hosts_reaped && retirement_report.reaped
+            && owned_results.iter().all(|report| report.reaped);
+        let clean = startup_report.clean && hosts_clean && retirement_report.clean
+            && owned_results.iter().all(|report| report.clean);
         let completed = reaped && clean;
         tracing::info!(
             count,
@@ -272,7 +277,7 @@ impl RuntimeHostRegistry {
             "[ACP][host] shared runtime hosts stopped"
         );
         RuntimeHostShutdownReport {
-            stopped_hosts: count,
+            stopped_hosts: count + owned.len(),
             startup_tasks_reaped: startup_report.tracked,
             completed,
         }

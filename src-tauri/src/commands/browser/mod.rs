@@ -9,6 +9,7 @@ mod runtime;
 mod streams;
 mod tabs;
 mod views;
+mod visibility;
 mod window_close;
 
 pub(super) type BrowserCommandFuture<T> =
@@ -26,3 +27,4 @@ pub use runtime::*;
 pub use streams::*;
 pub use tabs::*;
 pub use views::*;
+pub use visibility::*;

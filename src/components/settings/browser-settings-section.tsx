@@ -1,6 +1,7 @@
 "use client"
 
 import { Globe2 } from "lucide-react"
+import { useState } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { Switch } from "@/components/ui/switch"
@@ -14,13 +15,17 @@ import { SettingRow, SettingSection } from "./settings-ui"
 export function BrowserSettingsSection() {
   const t = useTranslations("GeneralSettings")
   const visible = useBrowserVisibility()
+  const [saving, setSaving] = useState(false)
 
-  const saveVisibility = (next: boolean) => {
+  const saveVisibility = async (next: boolean) => {
+    setSaving(true)
     try {
-      writeBrowserVisibility(next)
+      await writeBrowserVisibility(next)
     } catch (error) {
       console.error("[Browser] failed to save visibility preference", error)
       toast.error(t("browserSaveFailed", { message: toErrorMessage(error) }))
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -32,7 +37,8 @@ export function BrowserSettingsSection() {
       >
         <Switch
           checked={visible}
-          onCheckedChange={saveVisibility}
+          disabled={saving}
+          onCheckedChange={(next) => void saveVisibility(next)}
           aria-label={t("browserVisible")}
         />
       </SettingRow>

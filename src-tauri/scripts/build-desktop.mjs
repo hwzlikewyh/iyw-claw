@@ -5,6 +5,7 @@ import { copyFileSync, existsSync, readFileSync, readdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
+import { createMacBuildPlan, resolveMacTarget } from "./build-desktop-macos.mjs"
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url)
 const REPO_ROOT = resolve(dirname(SCRIPT_PATH), "..", "..")
@@ -97,6 +98,8 @@ export function parseBuildOptions(argv) {
  *        (see prepare-signing-config.mjs), or null for an unsigned build.
  */
 export function createBuildPlan(tauriCli, options, signingConfigPath = null) {
+  if (process.platform === "darwin")
+    return createMacBuildPlan(tauriCli, options, resolveMacTarget())
   const env = { ...process.env }
   if (options.jobs) {
     env.CARGO_BUILD_JOBS = String(options.jobs)
@@ -116,8 +119,12 @@ export function createBuildPlan(tauriCli, options, signingConfigPath = null) {
     label: "sidecar preparation",
     args: [join(REPO_ROOT, "src-tauri", "scripts", "prepare-sidecars.mjs")],
   }
+  const prepareWorker = {
+    label: "built-in worker preparation",
+    args: [join(REPO_ROOT, "src-tauri", "scripts", "prepare-xinghe-worker.mjs")],
+  }
   if (options.bundleOnly) {
-    return { env, steps: [prepareSidecars, bundle] }
+    return { env, steps: [prepareSidecars, prepareWorker, bundle] }
   }
 
   const buildArgs = [tauriCli, "build"]
@@ -139,7 +146,7 @@ export function createBuildPlan(tauriCli, options, signingConfigPath = null) {
   return {
     env,
     steps: [
-      ...(options.reuseAssets ? [prepareSidecars] : []),
+      ...(options.reuseAssets ? [prepareSidecars, prepareWorker] : []),
       { label: "release build and bundle", args: buildArgs },
     ],
   }
@@ -193,8 +200,21 @@ function prepareSigningOverlay() {
   return overlay
 }
 
+function finalizeWindowsBuild(env) {
+  runStep(
+    {
+      label: "staged sidecar verification",
+      args: [join(REPO_ROOT, "src-tauri/scripts/verify-sidecar-bundle.mjs")],
+    },
+    env
+  )
+  stageBrandedInstallerArtifacts()
+}
+
 function main() {
   const options = parseBuildOptions(process.argv.slice(2))
+  if (process.platform === "darwin" && options.authenticode)
+    throw new Error("--authenticode is only supported for Windows builds")
   if (options.reuseAssets) {
     console.log(
       "[desktop-build] reusing existing out/ assets; sidecars will be rebuilt"
@@ -217,16 +237,7 @@ function main() {
   for (const step of plan.steps) {
     runStep(step, plan.env)
   }
-  runStep(
-    {
-      label: "staged sidecar verification",
-      args: [
-        join(REPO_ROOT, "src-tauri", "scripts", "verify-sidecar-bundle.mjs"),
-      ],
-    },
-    plan.env
-  )
-  stageBrandedInstallerArtifacts()
+  if (process.platform !== "darwin") finalizeWindowsBuild(plan.env)
   if (!options.bundleOnly) {
     console.log(
       "[desktop-build] Cargo timing report: src-tauri/target/cargo-timings/cargo-timing.html"

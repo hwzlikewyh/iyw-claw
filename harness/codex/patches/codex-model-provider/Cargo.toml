@@ -1,0 +1,79 @@
+[package]
+name = "codex-model-provider"
+version = "0.154.0"
+edition = "2024"
+license = "Apache-2.0"
+autobins = false
+autotests = false
+autobenches = false
+
+[lib]
+doctest = false
+name = "codex_model_provider"
+path = "src/lib.rs"
+
+[dependencies."codex-agent-identity"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-api"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-aws-auth"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-feedback"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-http-client"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-login"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-model-provider-info"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-models-manager"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-otel"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-protocol"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-response-debug-context"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."http"]
+version = "^1.3.1"
+
+[dependencies."tokio"]
+version = "^1"
+features = ["process","sync","time"]
+
+[dependencies."tracing"]
+version = "^0.1.44"
+features = ["log"]

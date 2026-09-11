@@ -28,6 +28,16 @@ non-HTTP URL sources are rejected. A URL artifact must use `http` or `https`
 without embedded username or password. Preserve the original reference and
 inspect accepted/rejected entries in the returned result.
 
+Submit image URLs directly without a separate shell, browser, or download tool
+call just to prepare delivery. The host downloads image URLs into the managed
+turn directory and registers the downloaded file. Images with identical bytes
+share one artifact path in the same turn, even when supplied through different
+URLs or local file names. Submit one reference per image; do not deliver both a
+URL and its local copy. Use the accepted path returned by the tool, which may
+differ from the submitted URL. Download or storage failures are rejected entries.
+Image downloads use the host's existing 20 MiB limit and public-network checks;
+non-image web pages remain URL artifacts.
+
 Do not register source files, configuration, tests, migrations, build output,
 caches, logs, temporary files, scratch notes, private gateway data, or internal
 working files unless the user explicitly requests that exact item. A dirty Git

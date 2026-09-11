@@ -91,29 +91,30 @@ pub fn page(detail: &DbConversationDetail, before: Option<usize>) -> DbConversat
     let total = detail.turns.len();
     let end = before.unwrap_or(total).min(total);
     let start = end.saturating_sub(HISTORY_PAGE_TURNS);
-    page_detail(detail, start, end, total)
+    let assistants_before = count_assistants(&detail.turns[..start]);
+    page_detail(detail, start..end, assistants_before)
 }
 
 fn page_detail(
     detail: &DbConversationDetail,
-    start: usize,
-    end: usize,
-    total: usize,
+    range: std::ops::Range<usize>,
+    assistants_before: usize,
 ) -> DbConversationDetail {
     DbConversationDetail {
         summary: detail.summary.clone(),
-        turns: detail.turns[start..end].to_vec(),
+        turns: detail.turns[range.clone()].to_vec(),
         session_stats: detail.session_stats.clone(),
         transcript_watermark: detail.transcript_watermark,
         in_flight_user_turn_id: detail.in_flight_user_turn_id.clone(),
-        history_total_turns: total,
-        history_start: start,
-        history_assistant_turns_before: detail.turns[..start]
-            .iter()
-            .filter(|turn| matches!(turn.role, crate::models::TurnRole::Assistant))
-            .count(),
+        history_total_turns: detail.turns.len(),
+        history_start: range.start,
+        history_assistant_turns_before: assistants_before,
         history_stale: false,
     }
+}
+
+fn count_assistants(turns: &[crate::models::MessageTurn]) -> usize {
+    turns.iter().filter(|turn| matches!(turn.role, crate::models::TurnRole::Assistant)).count()
 }
 
 pub fn store(conversation_id: i32, cache_revision: String, detail: DbConversationDetail) {
@@ -237,9 +238,11 @@ fn write_pages(
     let total = detail.turns.len();
     let mut pages = Vec::new();
     let mut end = total;
+    let mut assistants_before = count_assistants(&detail.turns);
     loop {
         let start = end.saturating_sub(HISTORY_PAGE_TURNS);
-        let page = page_detail(detail, start, end, total);
+        assistants_before -= count_assistants(&detail.turns[start..end]);
+        let page = page_detail(detail, start..end, assistants_before);
         let bytes = serde_json::to_vec(&page)
             .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?;
         fs::write(generation_dir.join(format!("{start}.json")), bytes)

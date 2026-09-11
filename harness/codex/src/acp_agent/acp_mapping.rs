@@ -33,10 +33,10 @@ pub(crate) fn initialize_response(
                 "audio": false,
                 "embeddedContext": true
             },
-            "mcpCapabilities": { "http": false, "sse": false },
-            "sessionCapabilities": {}
+            "mcpCapabilities": { "http": capabilities.contains(Capability::Mcp), "sse": false },
+            "sessionCapabilities": { "resume": load_session.then(|| json!({})), "fork": {} }
         },
-        "agentInfo": { "name": "iyw-claw-codex-inprocess", "title": "星河", "version": env!("CARGO_PKG_VERSION") },
+        "agentInfo": { "name": "iyw-claw-xinghe-inprocess", "title": "星河", "version": env!("CARGO_PKG_VERSION") },
         "_meta": { "steering": { "supported": capabilities.contains(Capability::Steering) } }
     })
 }
@@ -262,6 +262,16 @@ fn default_permission_options() -> Vec<PermissionOption> {
         ),
         PermissionOption::new("reject_once", "Reject", PermissionOptionKind::RejectOnce),
     ]
+}
+
+pub(crate) fn prompt_failure(params: &Value) -> Option<String> {
+    if params.pointer("/turn/status").and_then(Value::as_str) != Some("failed") {
+        return None;
+    }
+    let message = params.pointer("/turn/error/message").and_then(Value::as_str)
+        .filter(|message| !message.trim().is_empty())
+        .unwrap_or("Codex turn failed without error details");
+    Some(crate::diagnostics::safe_detail(message))
 }
 
 pub(crate) fn prompt_response(params: &Value) -> Value {

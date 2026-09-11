@@ -37,6 +37,9 @@ coverage/
 *.snap.new
 .vitest-cache/
 
+# Downloaded signed desktop releases and Fusion publication records.
+artifacts/release-*/
+
 # macOS signing material. Keep certificates and exported private keys out of git.
 *.cer
 *.csr
@@ -68,7 +71,7 @@ src-tauri/resources/runtime-seed-staging-*/
 src-tauri/tauri.runtime-seed.conf.json
 
 # Experimental Codex worker library staged only by the opt-in preparation script.
-src-tauri/resources/codex-worker/
+src-tauri/resources/xinghe-worker/
 
 # pnpm local store (pnpm 11+)
 .pnpm-store/

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE};
 use reqwest::{Client, Method, Request, RequestBuilder, Url};
@@ -9,9 +10,12 @@ use serde_json::{json, Map, Value};
 use super::{http, invalid};
 
 const MAX_REQUEST_BYTES: usize = 2 * 1024 * 1024;
+pub(super) const DEFAULT_TIMEOUT_SECONDS: u64 = 60;
+pub(super) const MAX_TIMEOUT_SECONDS: u64 = 900;
 const METHODS: [&str; 7] = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
-const RESERVED_HEADERS: [&str; 12] = [
+const RESERVED_HEADERS: [&str; 13] = [
     "token",
+    "tokeninfo",
     "authorization",
     "cookie",
     "cookie2",
@@ -38,6 +42,8 @@ enum BodyType {
 #[serde(deny_unknown_fields)]
 struct FetchRequest {
     url: String,
+    description: Option<String>,
+    timeout_seconds: Option<u64>,
     #[serde(default = "default_method")]
     method: String,
     #[serde(default)]
@@ -61,6 +67,11 @@ fn present_body<'de, D: Deserializer<'de>>(value: D) -> Result<Option<Value>, D:
 pub(super) fn prepare(client: &Client, arguments: Value) -> Result<Request, ErrorData> {
     let params: FetchRequest = serde_json::from_value(arguments)
         .map_err(|_| invalid("Invalid request fields; follow the fetch_iyw_url input schema"))?;
+    super::super::iyw_progress::validate(params.description.as_deref())?;
+    let timeout = params.timeout_seconds.unwrap_or(DEFAULT_TIMEOUT_SECONDS);
+    if !(1..=MAX_TIMEOUT_SECONDS).contains(&timeout) {
+        return Err(invalid("timeout_seconds must be between 1 and 900"));
+    }
     let url = Url::parse(&params.url).map_err(|_| invalid("url must be an absolute HTTPS URL"))?;
     if !http::allowed_url(&url) {
         return Err(invalid(
@@ -75,6 +86,7 @@ pub(super) fn prepare(client: &Client, arguments: Value) -> Result<Request, Erro
     }
     let request = client
         .request(method, url)
+        .timeout(Duration::from_secs(timeout))
         .query(&field_pairs(&params.query)?);
     let request = with_body(request, &params)?
         .headers(request_headers(&params.headers)?)

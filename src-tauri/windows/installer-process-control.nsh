@@ -1,5 +1,6 @@
 !define IYW_CLAW_PROCESS_WAIT_ATTEMPTS 10
 !define IYW_CLAW_PROCESS_WAIT_MS 500
+!define IYW_CLAW_PROCESS_EXIT_WAIT_MS 15000
 
 Var IywClawProcessError
 
@@ -166,7 +167,7 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `      if ($$null -eq $$liveProcess) { continue }$\r$\n`
   FileWriteUTF16LE $R0 `      $$snapshotPid = [int]$$snapshot.ProcessId$\r$\n`
   FileWriteUTF16LE $R0 `      Write-Output ('Stopping installer-scoped process: name={0}; pid={1}' -f $$snapshot.Name, $$snapshotPid)$\r$\n`
-  FileWriteUTF16LE $R0 `      try { Stop-Process -InputObject $$liveProcess -Force -ErrorAction Stop } catch { $$stillThere = @(Get-CimInstance Win32_Process -Filter "ProcessId = $$snapshotPid" -ErrorAction Stop); if ($$stillThere.Count -gt 0) { throw } }$\r$\n`
+  FileWriteUTF16LE $R0 `      try { Stop-Process -InputObject $$liveProcess -Force -ErrorAction Stop; if (-not $$liveProcess.WaitForExit(${IYW_CLAW_PROCESS_EXIT_WAIT_MS})) { throw "Process did not exit after stop: PID $$snapshotPid" }; Start-Sleep -Milliseconds 100 } catch { $$stillThere = @(Get-CimInstance Win32_Process -Filter "ProcessId = $$snapshotPid" -ErrorAction Stop); if ($$stillThere.Count -gt 0) { throw } }$\r$\n`
   FileWriteUTF16LE $R0 `    }$\r$\n`
   FileWriteUTF16LE $R0 `    exit 0$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`

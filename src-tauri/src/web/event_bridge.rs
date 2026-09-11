@@ -347,11 +347,15 @@ where
         if !gate(&s) {
             return false;
         }
+        if matches!(&payload, AcpEvent::ContentDelta { text } if !text.is_empty()) {
+            if let Some(trace) = &s.startup_trace { trace.first_content_received(); }
+        }
         s.apply_event(&payload);
         s.event_seq += 1;
         let envelope = Arc::new(EventEnvelope {
             seq: s.event_seq,
             connection_id: s.connection_id.clone(),
+            activity: s.activity.take_update(),
             payload,
         });
         let evicted = s.push_recent_event(Arc::clone(&envelope));

@@ -75,6 +75,27 @@ const OPENCLI_ADVANCED_COMMANDS: &[&str] = &[
 pub(super) struct OpencliProvider;
 
 impl OpencliProvider {
+    pub async fn present(session: &str, target: &str) -> Result<OpencliResult, OpencliFailure> {
+        let session = validate_session(session)?;
+        let args = vec![
+            "browser".to_string(),
+            session,
+            "tab".to_string(),
+            "select".to_string(),
+            target.to_string(),
+            "--window".to_string(),
+            "foreground".to_string(),
+        ];
+        let execution = run_opencli(&args, DOCTOR_TIMEOUT)
+            .await
+            .map_err(|message| classify_failure("OPENCLI_RUNTIME_FAILED", message))?;
+        let output = parse_execution(&execution)?;
+        Ok(OpencliResult {
+            output,
+            target_id: Some(target.to_string()),
+        })
+    }
+
     pub async fn doctor() -> Result<Value, OpencliFailure> {
         let execution = run_opencli(&["doctor".to_string()], DOCTOR_TIMEOUT)
             .await
@@ -87,6 +108,7 @@ impl OpencliProvider {
                 classify_failure(code, message)
             })?;
         let value = parse_execution(&execution)?;
+        validate_doctor_report(&value)?;
         Ok(json!({
             "provider": "opencli",
             "status": "ready",
@@ -104,9 +126,7 @@ impl OpencliProvider {
     ) -> Result<OpencliResult, OpencliFailure> {
         let session = validate_session(session)?;
         let command = validate_command(command)?;
-        // OpenCLI's browser commands default to a foreground container. Keep
-        // explicit OpenCLI routes backgrounded as a second line of defense;
-        // ordinary browser requests use the managed route above.
+        // 普通操作保持后台，仅展示或人工接管时显式切到前台。
         let mut cli_args = vec![
             "browser".to_string(),
             session,
@@ -146,6 +166,20 @@ fn validate_session(session: &str) -> Result<String, OpencliFailure> {
         ));
     }
     Ok(session.to_string())
+}
+
+fn validate_doctor_report(value: &Value) -> Result<(), OpencliFailure> {
+    let healthy = match value {
+        Value::Object(_) => value.pointer("/connectivity/ok").and_then(Value::as_bool) == Some(true)
+            && value.get("daemonRunning").and_then(Value::as_bool) == Some(true)
+            && value.get("extensionConnected").and_then(Value::as_bool) == Some(true),
+        Value::String(report) => report.lines().any(|line| line.starts_with("[OK] Connectivity:"))
+            && !report.lines().any(|line| line.starts_with("[FAIL]") || line.starts_with("[MISSING]")),
+        _ => false,
+    };
+    if healthy { return Ok(()); }
+    Err(classify_failure("OPENCLI_BRIDGE_UNAVAILABLE",
+        "OpenCLI browser bridge is unavailable. Open the intended Chrome profile, enable its OpenCLI extension, and run doctor again.".to_string()))
 }
 
 fn validate_command(command: &str) -> Result<&str, OpencliFailure> {

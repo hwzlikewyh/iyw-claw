@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { AskQuestionOptions } from "./ask-question-options"
 import { useAskQuestion, type QuestionCardProps } from "./use-ask-question"
+import { inputHint, allowsEmptyInput } from "@/lib/question-input"
 
 export function AskQuestionCard(props: QuestionCardProps) {
   return <QuestionCard key={props.question.question_id} {...props} />
@@ -39,6 +40,9 @@ function QuestionCard(props: QuestionCardProps) {
       <QuestionNavigation questions={questions} state={state} />
       <div className="min-h-0 space-y-3 overflow-auto px-3 pb-3">
         <p className="whitespace-pre-wrap text-sm">{current.question}</p>
+        {inputHint(current) && (
+          <p className="text-xs text-muted-foreground">{inputHint(current)}</p>
+        )}
         <AskQuestionOptions
           question={current}
           value={state.state[current.id]}
@@ -78,7 +82,12 @@ function QuestionNavigation({
             aria-current={index === state.active ? "step" : undefined}
             onClick={() => state.setActive(index)}
           >
-            {value.chosen.length > 0 || value.otherText.trim() ? (
+            {question.optional ||
+            allowsEmptyInput(question) ||
+            value.chosen.length > 0 ||
+            (question.secret || question.input
+              ? value.otherText
+              : value.otherText.trim()) ? (
               <Check className="size-3.5" />
             ) : (
               index + 1
@@ -105,7 +114,7 @@ function QuestionFooter({ count, state }: { count: number; state: CardState }) {
       </Button>
       {state.error && (
         <span role="alert" className="text-xs text-destructive">
-          {t("submitError")}
+          {state.error === "submitError" ? t("submitError") : state.error}
         </span>
       )}
       <div className="ml-auto flex items-center gap-2">

@@ -78,7 +78,10 @@ impl BuiltinMcpHandler {
         trace.log_received();
         authorize_request(&authority, &context.ct, &trace).await?;
         let Some(route) = route else {
-            let error = ErrorData::invalid_params("unknown MCP gateway tool", None);
+            let error = ErrorData::invalid_params("unknown MCP gateway tool", Some(json!({
+                "code": "tool_not_found", "execution_status": "not_started",
+                "guidance": "Use only the exact tool identity advertised by this session's tools/list. Backend failures do not imply a missing tool."
+            })));
             trace.log_error("gateway_route", &error);
             return Err(error);
         };
@@ -198,6 +201,17 @@ impl BuiltinMcpHandler {
             }
             GatewayAction::Knowledge(arguments) => {
                 let result = self.iyw.search_knowledge(arguments).await;
+                log_direct_result(&trace, &result);
+                result
+            }
+            GatewayAction::Upload(arguments) => {
+                let result = tokio::select! {
+                    biased;
+                    _ = context.ct.cancelled() => Err(super::iyw_upload::cancelled()),
+                    _ = authority.cancellation().cancelled() => Err(super::iyw_upload::cancelled()),
+                    result = super::iyw_upload::upload(&self.iyw, &authority, arguments) => result,
+                };
+                let result = Ok(result.unwrap_or_else(super::iyw_upload::failure));
                 log_direct_result(&trace, &result);
                 result
             }

@@ -1055,8 +1055,7 @@ export function MessageInput({
     [t]
   )
 
-  // Live data sources for the unified `@` mention panel. Pre-warmed only while
-  // this composer is the active one (`enabled`). Referentially stable.
+  // 引用菜单按需读取文件；激活输入框只开放搜索，不预读整个工作区。
   const referenceSearch = useReferenceSearch({
     defaultPath: defaultPath ?? null,
     enabled: isActive,
@@ -3970,6 +3969,7 @@ export function MessageInput({
                 name: item.name,
                 description: item.description,
                 iconUrl: item.iconUrl,
+                priceMultiplier: item.priceMultiplier,
                 modelBehavior: item.modelBehavior,
               })),
             }))
@@ -3982,6 +3982,7 @@ export function MessageInput({
                   name: item.name,
                   description: item.description,
                   iconUrl: item.iconUrl,
+                  priceMultiplier: item.priceMultiplier,
                   modelBehavior: item.modelBehavior,
                 })),
               }))
@@ -3994,6 +3995,7 @@ export function MessageInput({
                     name: item.name,
                     description: item.description,
                     iconUrl: item.iconUrl,
+                    priceMultiplier: item.priceMultiplier,
                     modelBehavior: item.modelBehavior,
                   })),
                 },
@@ -4012,6 +4014,7 @@ export function MessageInput({
           title: option.name,
           currentValue: kind.current_value,
           currentLabel: current?.name ?? kind.current_value,
+          priceMultiplier: current?.priceMultiplier,
           groups,
           onSelect: (value) => onConfigOptionChange?.(option.id, value),
           ...(isModelConfigOption(option) && {

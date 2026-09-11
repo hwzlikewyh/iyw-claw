@@ -1,9 +1,9 @@
 # Codex Harness
 
-`iyw-codex-harness` is the integration boundary for the optional in-process
-Codex runtime. It is intentionally separate from `src-tauri/src/acp` so the
-existing external ACP path remains the default while the new adapter is built
-and validated.
+`iyw-codex-harness` is the ACP integration boundary for the desktop's private
+星河 worker. The upstream graph is compiled into `harness/xinghe-worker` and
+loaded by an application child process. The standalone server retains its
+external ACP distribution.
 
 ## Upstream boundary
 
@@ -17,11 +17,22 @@ The lock records both the annotated tag object and its peeled source commit.
 Cargo dependencies use the peeled commit; synchronization verifies both values
 so a rewritten release tag cannot silently change the compiled source.
 
-The current pin is `rust-v0.153.4`. It recognizes the managed
+The current pin is `rust-v0.154.0`. It recognizes the managed
 `features.context_management.experimental_mode` configuration that
 `rust-v0.152.1` rejected during session creation and recovery. The feature still
 requires an eligible upstream provider and account; parsing this configuration
 does not grant experimental context-management availability.
+
+The 0.154.0 upgrade retains the current worker, native commands, automatic-turn
+ownership, Windows process patches, and command-description protocol extension.
+Session MCP configuration is required and checked against the thread's tool
+catalog before readiness. Tool names retain their saved namespace across resume.
+
+Unnamed threads use Codex's isolated structured-thread title flow. Generated
+names are persisted through `thread/name/set` and existing title notifications;
+manual names keep precedence. The previous separate Chat Completions summary
+request is no longer scheduled. Startup diagnostics and turn failures retain
+bounded, redacted causes.
 
 The upstream `in_process` API provides bounded request/event queues and
 graceful shutdown. The harness will translate that protocol into the existing
@@ -30,16 +41,15 @@ modules.
 
 ## Current status
 
-The parent crate is dependency-free by default. Its optional `upstream-acp`
-feature and the separate `upstream-probe` compile the locked Codex graph only
-when explicitly requested from this directory. `src-tauri` deliberately has no
-dependency or feature for this crate yet, so the existing npm/runtime-seed ACP
-implementation remains the only application backend.
+The parent crate is dependency-free by default. The `upstream-acp` feature is
+enabled by the separate worker crate. `src-tauri` loads the worker through a
+versioned C ABI so its SeaORM/SQLite graph remains separate. Desktop launches
+check the bundled library; its absence does not select an older npm runtime.
 
-The facade's command-execution and file-change permission mapping is harness
-code only. It accepts ordinary allow-once, allow-for-session, and reject
-decisions; policy amendments and unsupported responses are rejected rather
-than implicitly allowed. It is not wired to the application permission queue.
+The facade routes approvals and MCP interactions through the owning application
+session. Offered command and network policy decisions retain their original
+values, and late replies are checked against the originating turn. MCP headers
+are carried in per-thread configuration and never written to a shared profile.
 
 The ACP initialize response advertises image input only when the runtime grants
 `Images`, and session loading only for a bridge with a validated persisted
@@ -48,8 +58,7 @@ cannot bypass capability negotiation by sending an image block directly.
 
 ## Existing feature compatibility
 
-The adapter must preserve the following ownership boundaries before it can
-replace the current path:
+The adapter must preserve the following ownership boundaries:
 
 | Capability | Codex App Server | Harness responsibility |
 | --- | --- | --- |

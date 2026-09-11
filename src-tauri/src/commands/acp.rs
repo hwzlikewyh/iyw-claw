@@ -498,6 +498,9 @@ pub(crate) fn verify_agent_installed(
     agent_type: AgentType,
     runtime_env: &BTreeMap<String, String>,
 ) -> Result<(), AcpError> {
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        return crate::internal_xinghe_worker::resolve_library().map(|_| ()).map_err(AcpError::SdkNotInstalled);
+    }
     let meta = registry::get_agent_meta(agent_type);
     match meta.distribution {
         registry::AgentDistribution::Npx { cmd, .. } => {
@@ -7067,10 +7070,7 @@ async fn installed_enabled_skill_agent_types(
         .filter(|agent_type| {
             settings.get(agent_type).is_some_and(|setting| {
                 setting.enabled
-                    && setting
-                        .installed_version
-                        .as_deref()
-                        .is_some_and(|version| !version.is_empty())
+                    && crate::internal_xinghe_worker::installation_available(*agent_type, setting.installed_version.as_deref())
             })
         })
         .collect::<Vec<_>>();
@@ -7349,10 +7349,7 @@ pub async fn reconcile_shared_market_skills(
         .map(|agent_type| {
             let enabled = settings.get(&agent_type).is_some_and(|setting| {
                 setting.enabled
-                    && setting
-                        .installed_version
-                        .as_deref()
-                        .is_some_and(|value| !value.is_empty())
+                    && crate::internal_xinghe_worker::installation_available(agent_type, setting.installed_version.as_deref())
             });
             (agent_type, enabled)
         })
@@ -8648,20 +8645,8 @@ async fn reconcile_agent_skills_before_launch(db: &AppDatabase, agent_type: Agen
             "[skills] failed to initialize Agent profile before launch"
         );
     }
-    // The capability gateway is an internal routing contract, not an optional
-    // user skill. Make its central bundle and Agent link ready before the
-    // general (and potentially slower) family reconcile. This closes the
-    // startup race where the Agent could start with an older or missing
-    // `references/memory-and-learning.md` copy.
-    if let Err(error) =
-        crate::commands::experts::ensure_builtin_gateway_skill_ready(agent_type).await
-    {
-        tracing::error!(
-            agent_type = %agent_type,
-            error = %error,
-            "[skills] capability gateway readiness before Agent launch failed"
-        );
-    }
+    // 网关就绪校验统一在 manager 和预热的最终启动门执行；这里不再
+    // 提前重复扫描。下面仍完整对账系统/市场 Skill，不跳过配置变化。
     let install_report = crate::commands::experts::ensure_central_experts_installed().await;
     if !install_report.errors.is_empty() {
         tracing::warn!(
@@ -8739,11 +8724,15 @@ pub(crate) async fn build_session_runtime_env(
     let setting = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
-    let installed_version = setting
+    let worker_version = if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        crate::internal_xinghe_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
+        Some(crate::internal_xinghe_worker::RUNTIME_VERSION)
+    } else { None };
+    let installed_version = worker_version.or_else(|| setting
         .as_ref()
         .and_then(|model| model.installed_version.as_deref())
         .map(str::trim)
-        .filter(|version| !version.is_empty())
+        .filter(|version| !version.is_empty()))
         .ok_or_else(|| AcpError::SdkNotInstalled(format!("{agent_type} is not installed")))?;
     crate::acp::deepseek_config::validate_tool_version(agent_type, installed_version)
         .map_err(AcpError::protocol)?;
@@ -8820,15 +8809,6 @@ pub(crate) async fn build_session_runtime_env(
             );
         }
     }
-    if let Some(required) = crate::acp::trusted_agents::minimum_node_version(agent_type) {
-        crate::acp::preflight::enforce_minimum_node_version(&runtime_env, required)
-            .await
-            .map_err(|error| {
-                AcpError::protocol(format!(
-                    "{agent_type} launch blocked: {error}; requires Node.js >={required}"
-                ))
-            })?;
-    }
     runtime_env.remove(MANAGED_AGENT_VERSION_ENV);
     runtime_env.insert(
         MANAGED_AGENT_VERSION_ENV.to_string(),
@@ -8879,6 +8859,18 @@ pub(crate) async fn build_session_runtime_env(
             crate::commands::agent_concurrency::CLAUDE_CONCURRENCY_ENV.into(),
             limit.to_string(),
         );
+    }
+
+    // 所有环境投影完成后再探测，后续相同启动环境才可复用校验结果。
+    if let Some(required) = crate::acp::trusted_agents::minimum_node_version(agent_type)
+        .filter(|_| !crate::internal_xinghe_worker::is_desktop_agent(agent_type)) {
+        crate::acp::preflight::enforce_minimum_node_version(&runtime_env, required)
+            .await
+            .map_err(|error| {
+                AcpError::protocol(format!(
+                    "{agent_type} launch blocked: {error}; requires Node.js >={required}"
+                ))
+            })?;
     }
 
     Ok(runtime_env)
@@ -9621,6 +9613,10 @@ pub(crate) async fn acp_get_agent_status_core(
         ),
     };
 
+    let installed_version = if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        crate::internal_xinghe_worker::installed_version()
+    } else { installed_version };
+
     Ok(crate::acp::types::AcpAgentStatus {
         agent_type,
         available,
@@ -9736,6 +9732,9 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
                     .and_then(|paths| binary_cache::uvx_prepared_version(paths, agent_type)),
             ),
         };
+        let (dist_type, local_installed_version) = if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+            ("builtin", crate::internal_xinghe_worker::installed_version())
+        } else { (dist_type, local_installed_version) };
         let platform = crate::acp::version_center::platform_projection(&db.conn, agent_type).await;
         if !platform.clone().visible(local_installed_version.is_some()) {
             continue;
@@ -9829,7 +9828,9 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
         agents.push(AcpAgentInfo {
             agent_type,
             registry_id: registry::registry_id_for(agent_type).to_string(),
-            registry_version: platform.recommended_version,
+            registry_version: if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+                Some(crate::internal_xinghe_worker::RUNTIME_VERSION.to_string())
+            } else { platform.recommended_version },
             name: meta.name.to_string(),
             description: meta.description.to_string(),
             available,
@@ -10845,6 +10846,7 @@ pub(crate) async fn acp_download_agent_binary_core(
     defer_while_active: bool,
     reason: &str,
 ) -> Result<(), AcpError> {
+    crate::internal_xinghe_worker::require_external_agent(agent_type)?;
     let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     emit_agent_install_event(emitter, &task_id, AgentInstallEventKind::Started, "");
     let paths = active_agent_storage_paths()?;
@@ -11034,6 +11036,9 @@ pub(crate) async fn acp_detect_agent_local_version_core(
     agent_type: AgentType,
     conn: &sea_orm::DatabaseConnection,
 ) -> Result<Option<String>, AcpError> {
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        return Ok(crate::internal_xinghe_worker::installed_version());
+    }
     let recorded = agent_setting_service::get_by_agent_type(conn, agent_type)
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?
@@ -11069,6 +11074,7 @@ pub(crate) async fn acp_prepare_npx_agent_core(
     emitter: &EventEmitter,
     defer_while_active: bool,
 ) -> Result<String, AcpError> {
+    crate::internal_xinghe_worker::require_external_agent(agent_type)?;
     let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     emit_agent_install_event(emitter, &task_id, AgentInstallEventKind::Started, "");
     let paths = active_agent_storage_paths()?;
@@ -11438,6 +11444,7 @@ pub(crate) async fn acp_uninstall_agent_core(
     db: &AppDatabase,
     emitter: &EventEmitter,
 ) -> Result<(), AcpError> {
+    crate::internal_xinghe_worker::require_external_agent(agent_type)?;
     let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     emit_agent_install_event(emitter, &task_id, AgentInstallEventKind::Started, "");
     let paths = active_agent_storage_paths()?;

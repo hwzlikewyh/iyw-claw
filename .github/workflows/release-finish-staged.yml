@@ -1,0 +1,298 @@
+name: Finish Staged Desktop Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+        type: string
+      source_ref:
+        required: true
+        type: string
+      release_id:
+        required: true
+        type: string
+      desktop_run_id:
+        description: Existing macOS and Linux release build run
+        required: true
+        type: string
+      x64_run_id:
+        description: Successful staged Windows x64 signing run
+        required: true
+        type: string
+      x64_staging_run_id:
+        description: Original x64 build run when signing is retried separately
+        required: false
+        type: string
+      x86_run_id:
+        description: Successful hosted Windows x86 build run
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: finish-staged-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  await-windows:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          X64_RUN_ID: ${{ inputs.x64_run_id }}
+          X86_RUN_ID: ${{ inputs.x86_run_id }}
+        with:
+          script: |
+            const ids = [process.env.X64_RUN_ID, process.env.X86_RUN_ID].map(Number);
+            if (ids.some(id => !Number.isSafeInteger(id) || id <= 0)) throw new Error('Invalid source run');
+            while (true) {
+              const runs = await Promise.all(ids.map(run_id => github.rest.actions.getWorkflowRun({...context.repo,run_id})));
+              for (const {data: run} of runs) if (run.status === 'completed' && run.conclusion !== 'success') throw new Error(`Source run ${run.id}: ${run.conclusion}`);
+              if (runs.every(({data: run}) => run.conclusion === 'success')) break;
+              core.info('Waiting for hosted Windows build and staged x64 signing inputs');
+              await new Promise(resolve => setTimeout(resolve, 30000));
+            }
+  await-desktop:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/github-script@v7
+        env:
+          DESKTOP_RUN_ID: ${{ inputs.desktop_run_id }}
+        with:
+          script: |
+            const run_id = Number(process.env.DESKTOP_RUN_ID);
+            const names = ['macOS x64', 'macOS arm64', 'Linux x64'].map(name => `build-tauri / Build ${name}`);
+            while (true) {
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,{...context.repo,run_id,per_page:100});
+              const selected = names.map(name => jobs.find(job => job.name === name));
+              for (const job of selected) if (job?.status === 'completed' && job.conclusion !== 'success') throw new Error(`${job.name}: ${job.conclusion}`);
+              if (selected.every(job => job?.conclusion === 'success')) break;
+              core.info('Waiting for macOS and Linux artifacts');
+              await new Promise(resolve => setTimeout(resolve, 30000));
+            }
+  finalize-windows:
+    needs: await-windows
+    runs-on: [self-hosted, Windows, X64, iyw-signing]
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - arch: x64
+            target: x86_64-pc-windows-msvc
+          - arch: x86
+            target: i686-pc-windows-msvc
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_ID: ${{ inputs.release_id }}
+      BUILD_TARGET: ${{ matrix.target }}
+      BUILD_ARCH: ${{ matrix.arch }}
+      IYW_CLAW_SIGN_MODE: signtool
+      IYW_CLAW_SIGN_REQUIRED: "1"
+      IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
+      HTTP_PROXY: http://127.0.0.1:7890
+      HTTPS_PROXY: http://127.0.0.1:7890
+      NO_PROXY: localhost,127.0.0.1,api.github.com,uploads.github.com
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_STAGING_RUN_ID: ${{ matrix.arch == 'x64' && inputs.x64_staging_run_id || inputs.x86_run_id }}
+      SOURCE_SIGNING_RUN_ID: ${{ inputs.x64_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          clean: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tools
+          sparse-checkout: .github/scripts/release
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Validate fixed source and draft
+        shell: pwsh
+        env:
+          EXPECTED_SOURCE: ${{ inputs.source_ref }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ((git rev-parse HEAD).Trim() -ne $env:EXPECTED_SOURCE) { throw 'Source mismatch' }
+          if ((Get-Content package.json -Raw | ConvertFrom-Json).version -ne $env:RELEASE_VERSION) { throw 'Version mismatch' }
+          $release = gh api "repos/$env:GH_REPO/releases/$env:RELEASE_ID" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or !$release.draft -or $release.tag_name -ne "v$env:RELEASE_VERSION") { throw 'Expected matching draft release' }
+          pnpm install --frozen-lockfile --prefer-offline
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency preparation failed' }
+
+      - name: Download x64 staging resources
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: ./.release-tools/.github/scripts/release/staging-cache.ps1 resources
+      - name: Restore x64 staging resources
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        env:
+          STAGING_INPUT: ${{ runner.temp }}/finish-${{ github.run_id }}/x64-input
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $expanded = Join-Path $env:STAGING_INPUT 'expanded'
+          Expand-Archive -LiteralPath (Join-Path $env:STAGING_INPUT 'iyw-windows-staging.zip') -DestinationPath $expanded
+          $manifest = Get-Content -LiteralPath (Join-Path $expanded 'staging-manifest.json') -Raw | ConvertFrom-Json
+          if ($manifest.sourceCommit -ne (git rev-parse HEAD).Trim() -or $manifest.version -ne $env:RELEASE_VERSION) { throw 'Staging source mismatch' }
+          foreach ($directory in @('src-tauri/resources/xinghe-worker', 'src-tauri/binaries')) {
+            if (Test-Path -LiteralPath $directory) { Remove-Item -LiteralPath $directory -Recurse -Force }
+            New-Item -ItemType Directory -Force -Path $directory | Out-Null
+            Copy-Item -Path (Join-Path $expanded "$directory/*") -Destination $directory -Recurse -Force
+          }
+      - name: Download signed x64 installer
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: ./.release-tools/.github/scripts/release/staging-cache.ps1 installer
+
+      - name: Download hosted x86 signing input
+        if: matrix.arch == 'x86'
+        shell: pwsh
+        run: ./.release-tools/.github/scripts/release/staging-cache.ps1 resources
+      - name: Restore and bundle x86 with hardware signing
+        if: matrix.arch == 'x86'
+        shell: pwsh
+        env:
+          STAGING_INPUT: ${{ runner.temp }}/finish-${{ github.run_id }}/x86-input
+          IYW_CLAW_SKIP_SIDECAR: "1"
+          TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($directory in @('out', 'src-tauri/resources/xinghe-worker')) {
+            if (Test-Path -LiteralPath $directory) { Remove-Item -LiteralPath $directory -Recurse -Force }
+            New-Item -ItemType Directory -Force -Path $directory | Out-Null
+          }
+          Copy-Item -Path (Join-Path $env:STAGING_INPUT 'out/*') -Destination out -Recurse -Force
+          New-Item -ItemType Directory -Force -Path src-tauri/resources/xinghe-worker | Out-Null
+          Copy-Item -Path (Join-Path $env:STAGING_INPUT 'src-tauri/resources/xinghe-worker/*') -Destination src-tauri/resources/xinghe-worker -Force
+          $targetRoot = "src-tauri/target/$env:BUILD_TARGET/release"
+          New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
+          Copy-Item -LiteralPath (Join-Path $env:STAGING_INPUT "$targetRoot/iyw-claw.exe") -Destination (Join-Path $targetRoot 'iyw-claw.exe') -Force
+          $configuration = (node src-tauri/scripts/prepare-signing-config.mjs).Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Signing configuration failed' }
+          $updaterConfig = Join-Path $env:RUNNER_TEMP 'finish-no-updater.json'
+          @{bundle=@{createUpdaterArtifacts=$false}} | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $updaterConfig
+          pnpm exec tauri bundle --target $env:BUILD_TARGET --features tauri-runtime --bundles nsis --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.windows-x86.conf.json --config $configuration --config $updaterConfig
+          if ($LASTEXITCODE -ne 0) { throw 'Signed x86 bundle failed' }
+
+      - name: Verify installer and create updater signature
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $directory = "src-tauri/target/$env:BUILD_TARGET/release/bundle/nsis"
+          $installers = @(Get-ChildItem -LiteralPath $directory -Filter "*_$env:RELEASE_VERSION`_$env:BUILD_ARCH-setup.exe")
+          if ($installers.Count -ne 1) { throw 'Expected one installer' }
+          node src-tauri/scripts/verify-signatures.mjs $installers[0].FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Authenticode verification failed' }
+          node src-tauri/scripts/verify-xinghe-worker-bundle.mjs --target $env:BUILD_TARGET
+          if ($LASTEXITCODE -ne 0) { throw 'Worker runtime verification failed' }
+          $before = (Get-FileHash -LiteralPath $installers[0].FullName -Algorithm SHA256).Hash
+          $existing = gh api "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Release lookup failed' }
+          $assetName = "iyw-claw_$env:RELEASE_VERSION`_$env:BUILD_ARCH-setup.exe"
+          if (@($existing.assets | Where-Object name -eq "$assetName.sig").Count -eq 1) {
+            gh release download "v$env:RELEASE_VERSION" --repo $env:GITHUB_REPOSITORY --pattern "$assetName.sig" --dir $directory --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Existing updater signature download failed' }
+            if ($installers[0].Name -ne $assetName) { Copy-Item -LiteralPath (Join-Path $directory "$assetName.sig") -Destination "$($installers[0].FullName).sig" -Force }
+          } else {
+            pnpm exec tauri signer sign $installers[0].FullName
+            if ($LASTEXITCODE -ne 0) { throw 'Updater signature failed' }
+          }
+          if ((Get-FileHash -LiteralPath $installers[0].FullName -Algorithm SHA256).Hash -ne $before) { throw 'Installer changed after verification' }
+          $releaseDirectory = Join-Path $env:RUNNER_TEMP "finish-${{ github.run_id }}/release-$env:BUILD_ARCH"
+          New-Item -ItemType Directory -Force -Path $releaseDirectory | Out-Null
+          $name = "iyw-claw_$env:RELEASE_VERSION`_$env:BUILD_ARCH-setup.exe"
+          Copy-Item -LiteralPath $installers[0].FullName -Destination (Join-Path $releaseDirectory $name)
+          Copy-Item -LiteralPath "$($installers[0].FullName).sig" -Destination (Join-Path $releaseDirectory "$name.sig")
+          "RELEASE_DIRECTORY=$releaseDirectory" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Upload signed GitHub draft assets
+        shell: pwsh
+        env:
+          GH_REPO: ${{ github.repository }}
+        run: ./.release-tools/.github/scripts/release/staging-cache.ps1 upload
+      - name: Upload Windows installation verification input
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-verification-${{ matrix.target }}
+          overwrite: true
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*_${{ matrix.arch }}-setup.exe
+            src-tauri/resources/xinghe-worker/*
+            src-tauri/binaries/agent-browser-${{ matrix.target }}.exe
+          if-no-files-found: error
+          retention-days: 2
+
+  verify-windows:
+    needs: finalize-windows
+    uses: ./.github/workflows/release-windows-verification.yml
+    with:
+      source_ref: ${{ inputs.source_ref }}
+
+  verify-macos:
+    needs: await-desktop
+    runs-on: macos-26-intel
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-x64-installer-verification
+          path: src-tauri/target/x86_64-apple-darwin/release/bundle
+          run-id: ${{ inputs.desktop_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify macOS x64 archives on Intel
+        run: |
+          set -euo pipefail
+          bundle=src-tauri/target/x86_64-apple-darwin/release/bundle/macos
+          archives=("$bundle"/*.app.tar.gz)
+          test "${#archives[@]}" -eq 1
+          tar -xzf "${archives[0]}" -C "$bundle"
+          node --input-type=module -e 'import {verifyRuntimeSeedBundle} from "./src-tauri/scripts/verify-runtime-seed-bundle.mjs"; await verifyRuntimeSeedBundle("x86_64-apple-darwin");'
+
+  publish:
+    needs: [verify-windows, verify-macos]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          DESKTOP_RUN_ID: ${{ inputs.desktop_run_id }}
+        with:
+          script: |
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {...context.repo, run_id: Number(process.env.DESKTOP_RUN_ID), per_page: 100});
+            for (const name of ['macOS x64', 'macOS arm64', 'Linux x64']) {
+              const job = jobs.find(value => value.name === `build-tauri / Build ${name}`);
+              if (job?.conclusion !== 'success') throw new Error(`${name} build is not successful`);
+            }
+            const releaseId = Number(process.env.RELEASE_ID);
+            const tag = `v${process.env.RELEASE_VERSION}`;
+            const release = (await github.rest.repos.getRelease({...context.repo, release_id: releaseId})).data;
+            if (!release.draft || release.tag_name !== tag) throw new Error('Expected matching draft release');
+            const assets = require('./.github/scripts/release/upload-updater-json.cjs');
+            const notes = '- 修复部分 Windows 电脑因缺少运行库而无法发送消息的问题。\n- 安装包自带所需运行组件，完善星河及辅助程序的启动兼容性。\n- 改进图片成果展示与下载体验。';
+            await assets({github,context,core,tag,releaseId,notes});
+            await assets.assertPublishableReleaseAssets({github,context,core,releaseId});
+            await github.rest.repos.updateRelease({...context.repo,release_id:releaseId,draft:false,prerelease:false,body:notes});

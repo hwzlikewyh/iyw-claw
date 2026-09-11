@@ -20,6 +20,7 @@ const STATUS_TIMEOUT: Duration = Duration::from_secs(5);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_MESSAGE_SIZE: usize = 13 * 1024 * 1024;
 const MAX_CONSECUTIVE_FRAME_FAILURES: usize = 5;
+const SOCKET_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub(super) struct StreamTaskContext {
     pub session: String,
@@ -54,12 +55,12 @@ pub(super) async fn run(mut context: StreamTaskContext) -> Result<(), BrowserErr
     loop {
         tokio::select! {
             _ = context.cancellation.cancelled() => {
-                let _ = sink.send(Message::Close(None)).await;
+                let _ = send_message(&mut sink, Message::Close(None)).await;
                 return Ok(());
             }
             control = context.control.recv() => {
                 let Some(control) = control else { return Ok(()); };
-                handle_control(control, &mut sink, &mut pending_seq).await;
+                handle_control(control, &mut sink, &mut pending_seq).await?;
             }
             incoming = source.next() => {
                 let Some(incoming) = incoming else { return Err(disconnected()); };
@@ -70,7 +71,7 @@ pub(super) async fn run(mut context: StreamTaskContext) -> Result<(), BrowserErr
                             Ok(Some((seq, bytes))) => {
                                 frame_failures = 0;
                                 if last_seq.is_some_and(|last| seq <= last) || pending_seq.is_some() {
-                                    tracing::warn!(
+                                    tracing::debug!(
                                         target: "iyw_claw_browser",
                                         session = %context.session,
                                         seq,
@@ -108,7 +109,7 @@ pub(super) async fn run(mut context: StreamTaskContext) -> Result<(), BrowserErr
                             }
                         }
                     }
-                    Message::Ping(data) => sink.send(Message::Pong(data)).await.map_err(|_| disconnected())?,
+                    Message::Ping(data) => send_message(&mut sink, Message::Pong(data)).await?,
                     Message::Close(_) => return Err(disconnected()),
                     _ => {}
                 }
@@ -117,20 +118,32 @@ pub(super) async fn run(mut context: StreamTaskContext) -> Result<(), BrowserErr
     }
 }
 
-async fn handle_control<S>(control: StreamControl, sink: &mut S, pending_seq: &mut Option<u64>)
+async fn handle_control<S>(
+    control: StreamControl,
+    sink: &mut S,
+    pending_seq: &mut Option<u64>,
+) -> Result<(), BrowserError>
 where
     S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
-    match control {
+    let failure = match control {
         StreamControl::Ack { seq, response } => {
             let result = send_ack(sink, pending_seq, seq).await;
+            let failure = result.as_ref().err().cloned();
             let _ = response.send(result);
+            failure.filter(|error| error.code == BrowserErrorCode::BrowserStreamDisconnected)
         }
         StreamControl::Input { messages, response } => {
-            let result = send_input(sink, messages).await;
+            if response.is_closed() {
+                return Ok(());
+            }
+            let result = send_input(sink, messages, &response).await;
+            let failure = result.as_ref().err().cloned();
             let _ = response.send(result);
+            failure
         }
-    }
+    };
+    failure.map_or(Ok(()), Err)
 }
 
 async fn send_ack<S>(
@@ -156,21 +169,27 @@ async fn send_consumed_ack<S>(sink: &mut S, seq: u64) -> Result<(), BrowserError
 where
     S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
-    sink.send(Message::Text(
-        json!({ "type": "ack", "seq": seq }).to_string().into(),
-    ))
+    send_message(
+        sink,
+        Message::Text(json!({ "type": "ack", "seq": seq }).to_string().into()),
+    )
     .await
-    .map_err(|_| disconnected())
 }
 
-async fn send_input<S>(sink: &mut S, messages: Vec<Value>) -> Result<(), BrowserError>
+async fn send_input<S>(
+    sink: &mut S,
+    messages: Vec<Value>,
+    response: &tokio::sync::oneshot::Sender<Result<(), BrowserError>>,
+) -> Result<(), BrowserError>
 where
     S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
 {
     let mut sent = 0_usize;
     for message in messages {
-        if sink
-            .send(Message::Text(message.to_string().into()))
+        if response.is_closed() {
+            return Err(disconnected().effect_may_have_occurred(sent > 0));
+        }
+        if send_message(sink, Message::Text(message.to_string().into()))
             .await
             .is_err()
         {
@@ -179,6 +198,16 @@ where
         sent += 1;
     }
     Ok(())
+}
+
+async fn send_message<S>(sink: &mut S, message: Message) -> Result<(), BrowserError>
+where
+    S: futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    tokio::time::timeout(SOCKET_WRITE_TIMEOUT, sink.send(message))
+        .await
+        .map_err(|_| disconnected())?
+        .map_err(|_| disconnected())
 }
 
 async fn stream_url(context: &StreamTaskContext) -> Result<String, BrowserError> {

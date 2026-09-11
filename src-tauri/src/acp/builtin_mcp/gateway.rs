@@ -27,6 +27,7 @@ pub(super) enum GatewayAction {
     Image(Value),
     ImageModels(Value),
     FetchUrl(Value),
+    Upload(Value),
     Knowledge(Value),
     MemoryGroup(MemoryGroupRequest),
 }
@@ -105,6 +106,7 @@ pub(super) fn dispatch(
         GatewayTool::Image => direct_request(arguments, GatewayDirectRequest::Image),
         GatewayTool::ImageModels => direct_request(arguments, GatewayDirectRequest::ImageModels),
         GatewayTool::FetchUrl => direct_request(arguments, GatewayDirectRequest::FetchUrl),
+        GatewayTool::Upload => direct_request(arguments, GatewayDirectRequest::Upload),
         GatewayTool::Knowledge => direct_request(arguments, GatewayDirectRequest::Knowledge),
         GatewayTool::Memory => memory_group(arguments, &catalog, session),
     }
@@ -114,6 +116,7 @@ enum GatewayDirectRequest {
     Image,
     ImageModels,
     FetchUrl,
+    Upload,
     Knowledge,
 }
 
@@ -126,6 +129,7 @@ fn direct_request(
         GatewayDirectRequest::Image => Ok(GatewayAction::Image(value)),
         GatewayDirectRequest::ImageModels => Ok(GatewayAction::ImageModels(value)),
         GatewayDirectRequest::FetchUrl => Ok(GatewayAction::FetchUrl(value)),
+        GatewayDirectRequest::Upload => Ok(GatewayAction::Upload(value)),
         GatewayDirectRequest::Knowledge => Ok(GatewayAction::Knowledge(value)),
     }
 }
@@ -403,7 +407,9 @@ fn load_catalog() -> Result<CapabilityCatalog, ErrorData> {
 
 fn parse<T: DeserializeOwned>(arguments: Option<JsonObject>) -> Result<T, ErrorData> {
     serde_json::from_value(Value::Object(arguments.unwrap_or_default()))
-        .map_err(|error| ErrorData::invalid_params(error.to_string(), None))
+        .map_err(|error| ErrorData::invalid_params(error.to_string(), Some(json!({
+            "code": "capability_schema_mismatch", "execution_status": "not_started"
+        }))))
 }
 
 fn unknown_capability() -> ErrorData {

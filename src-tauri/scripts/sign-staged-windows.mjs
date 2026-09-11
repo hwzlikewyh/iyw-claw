@@ -23,13 +23,43 @@ const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 // Keep the wait bounded so a missing login cannot block on PIN UI forever.
 const TIMEOUT_MS = 180_000
 
-function verifySigned(signtool, file) {
+function verifySigned(signtool, file, env) {
+  const thumbprint = (env.IYW_CLAW_SIGN_THUMBPRINT || "")
+    .replace(/\s/g, "")
+    .toUpperCase()
+  if (!/^[A-F0-9]{40}$/.test(thumbprint)) return false
   const result = spawnSync(signtool, ["verify", "/pa", "/all", file], {
     cwd: ROOT,
     stdio: "ignore",
     windowsHide: false,
   })
-  return result.status === 0
+  if (result.status !== 0) return false
+  // 探针源文件本身可能带厂商签名，必须确认已换成预期证书且有时间戳。
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "$signature = Get-AuthenticodeSignature -LiteralPath $env:IYW_SIGN_VERIFY_PATH",
+    "if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $env:IYW_SIGN_VERIFY_THUMBPRINT -or $null -eq $signature.TimeStamperCertificate) { exit 1 }",
+  ].join("; ")
+  return (
+    spawnSync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", script],
+      {
+        env: {
+          ...Object.fromEntries(
+            Object.entries(env).filter(
+              ([name]) => name.toUpperCase() !== "PSMODULEPATH"
+            )
+          ),
+          IYW_SIGN_VERIFY_PATH: file,
+          IYW_SIGN_VERIFY_THUMBPRINT: thumbprint,
+        },
+        timeout: 30_000,
+        stdio: "ignore",
+        windowsHide: true,
+      }
+    ).status === 0
+  )
 }
 
 function sign(file, env = process.env) {
@@ -49,7 +79,7 @@ function sign(file, env = process.env) {
     killSignal: "SIGTERM",
   })
   if (result.error?.code === "ETIMEDOUT") {
-    if (verifySigned(signtool, file)) {
+    if (verifySigned(signtool, file, env)) {
       console.warn(
         `[sign-staged-windows][WARN] timeout after completed signature: ${file}`
       )

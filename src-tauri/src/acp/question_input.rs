@@ -46,6 +46,9 @@ fn parse_item(value: &Value) -> Result<QuestionSpec, String> {
         .filter(|header| !header.is_empty())
         .unwrap_or_else(|| question.chars().take(MAX_HEADER_CHARS).collect());
     Ok(QuestionSpec {
+        input: None,
+        secret: false,
+        optional: false,
         id: uuid::Uuid::new_v4().to_string(),
         question,
         header,

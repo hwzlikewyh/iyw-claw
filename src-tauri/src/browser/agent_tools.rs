@@ -77,6 +77,7 @@ impl BrowserSessionManager {
         context: AgentToolContext<'_>,
         input: &Value,
     ) -> Result<Value, BrowserError> {
+        self.ensure_managed_browser_enabled()?;
         ensure_request_active(context)?;
         let url = required_string(input, "url", 8_192)?;
         let tab_id = optional_string(input, "tab_id", 128)?;
@@ -102,6 +103,7 @@ impl BrowserSessionManager {
             guard = self.tab_open_lock.lock() => guard,
         };
         ensure_request_active(context)?;
+        self.ensure_managed_browser_enabled()?;
         self.ensure_shutdown_epoch(epoch)?;
         let state = self.agent_snapshot_for(context.identity).await;
         if !new_tab {

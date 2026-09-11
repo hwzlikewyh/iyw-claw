@@ -235,6 +235,7 @@ pub struct PendingUserMessage {
 /// after the old generation's ordered lifecycle settlement has completed.
 #[derive(Debug, Clone)]
 pub(crate) struct NativeBackgroundTurn {
+    pub automatic: bool,
     pub message_id: String,
     pub blocks: Vec<UserMessageBlock>,
     pub source_generation: i64,
@@ -260,12 +261,6 @@ pub struct TurnHarvestCapture {
     pub stop_reason: String,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct CompletedTurnTitleInput {
-    pub user_text: String,
-    pub assistant_text: String,
-    pub preferred_model: Option<String>,
-}
 
 /// CAS 基线随 ACP `SessionStarted` 转换滚动保存。
 ///
@@ -427,12 +422,9 @@ pub struct SessionState {
     // 事件锚点
     pub event_seq: u64,
     pub last_activity_at: DateTime<Utc>,
-    /// Last time an event was actually applied to this session. Unlike
-    /// `last_activity_at`, this is NOT refreshed by frontend keepalive
-    /// touches, so it is the signal the prompt-stall watchdog uses to detect
-    /// a hung generation (upstream stream stalled → no events → the UI would
-    /// spin "生成中" forever without intervention).
+    /// 最近运行时活动；宿主输入队列和界面保活不刷新静默恢复时钟。
     pub last_agent_event_at: DateTime<Utc>,
+    pub activity: crate::acp::session_activity::SessionActivity,
 
     /// Launcher PID for this connection's ACP process tree. Runtime-only;
     /// process inspection uses it to calculate private memory without guessing
@@ -504,6 +496,7 @@ pub struct SessionState {
     /// Runtime-only: reconnect cannot prove the result of an interrupted RPC.
     pub(crate) native_background_turn: Option<NativeBackgroundTurn>,
     pub(crate) native_background_notify: Arc<tokio::sync::Notify>,
+    pub(crate) worker_content_recovered: Option<(i64, String)>,
 
     /// Concatenated text content of the just-completed turn's assistant
     /// message. Captured at TurnComplete (just before live_message is
@@ -512,7 +505,6 @@ pub struct SessionState {
     pub last_assistant_text: Option<String>,
     /// Completed-turn harvest capture consumed by the lifecycle worker (Task 13).
     pub last_completed_turn_harvest: Option<TurnHarvestCapture>,
-    pub(crate) last_completed_turn_title_input: Option<CompletedTurnTitleInput>,
 
     /// The in-flight user prompt for the current turn, captured from
     /// `AcpEvent::UserMessage` and cleared on `TurnComplete` (alongside
@@ -697,6 +689,7 @@ impl SessionState {
             event_seq: 0,
             last_activity_at: Utc::now(),
             last_agent_event_at: Utc::now(),
+            activity: Default::default(),
             agent_pid: None,
             recoverable_session: false,
             recovery_failed: false,
@@ -717,9 +710,9 @@ impl SessionState {
             native_steering_available: false,
             native_background_turn: None,
             native_background_notify: Arc::new(tokio::sync::Notify::new()),
+            worker_content_recovered: None,
             last_assistant_text: None,
             last_completed_turn_harvest: None,
-            last_completed_turn_title_input: None,
             pending_user_message: None,
             pending_user_message_started_at: None,
             turn_in_flight: false,
@@ -784,7 +777,16 @@ impl SessionState {
     /// 单一分发器：把一个 AcpEvent 应用到 self。注意此方法**不**自增 event_seq——
     /// seq 由 emit_with_state 在外层管理（这样 apply_event 可独立单元测试）。
     pub fn apply_event(&mut self, payload: &AcpEvent) {
+        let runtime_activity = self.activity.observe(
+            payload,
+            crate::acp::session_activity::ActivityContext {
+                generation: self.turn_generation,
+                prompting: self.status == ConnectionStatus::Prompting,
+                tools: &self.active_tool_calls,
+            },
+        );
         match payload {
+            AcpEvent::RuntimeObservation { .. } => {}
             AcpEvent::SessionStarted { session_id } => {
                 let expected_external_id = self
                     .external_id
@@ -896,6 +898,9 @@ impl SessionState {
                 });
                 self.compaction_at_tokens = *compaction_at_tokens;
                 self.compaction_pending = *compaction_pending;
+            }
+            AcpEvent::ContentRecovered { content } => {
+                self.ensure_live_message().content = content.clone();
             }
             AcpEvent::ContentDelta { text } => {
                 self.session_failures.settle_retry_incidents();
@@ -1119,11 +1124,6 @@ impl SessionState {
                             crate::user_memory::harvest_reference(&assembled);
                     }
                 }
-                self.last_completed_turn_title_input = completed_turn_title_input(
-                    self.pending_user_message.as_ref(),
-                    self.last_assistant_text.as_deref(),
-                    self.current_model.as_deref(),
-                );
                 self.live_message = None;
                 self.active_tool_calls.clear();
                 // The turn's user prompt is no longer "in flight" — the
@@ -1137,6 +1137,7 @@ impl SessionState {
                 // cancel, stop-reason — emit TurnComplete; disconnect/error
                 // discard the state entirely, so no stale flag can outlive them.)
                 self.turn_in_flight = false;
+                self.native_background_notify.notify_waiters();
                 if self
                     .native_background_turn
                     .as_ref()
@@ -1411,7 +1412,9 @@ impl SessionState {
             }
         }
         self.last_activity_at = Utc::now();
-        self.last_agent_event_at = Utc::now();
+        if runtime_activity {
+            self.last_agent_event_at = Utc::now();
+        }
     }
 
     pub fn has_active_background_work(&self, now: DateTime<Utc>) -> bool {
@@ -1712,6 +1715,7 @@ impl SessionState {
     /// 拷贝出对外可见的 wire-friendly snapshot。Phase 2 snapshot 端点直接调用此方法。
     pub fn to_snapshot(&self) -> LiveSessionSnapshot {
         LiveSessionSnapshot {
+            activity: Some(self.activity.snapshot()),
             connection_id: self.connection_id.clone(),
             conversation_id: self.conversation_id,
             folder_id: self.folder_id,
@@ -1833,31 +1837,6 @@ fn substantive_prompt_requires_recall(message: &PendingUserMessage) -> bool {
         .any(|term| normalized.contains(term) || lower.contains(term))
 }
 
-fn completed_turn_title_input(
-    pending: Option<&PendingUserMessage>,
-    assistant_text: Option<&str>,
-    current_model: Option<&str>,
-) -> Option<CompletedTurnTitleInput> {
-    let user_text = pending?
-        .blocks
-        .iter()
-        .filter_map(|block| match block {
-            UserMessageBlock::Text { text } => Some(text.trim()),
-            _ => None,
-        })
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
-    let assistant_text = assistant_text?.trim();
-    if user_text.is_empty() || assistant_text.is_empty() {
-        return None;
-    }
-    Some(CompletedTurnTitleInput {
-        user_text,
-        assistant_text: assistant_text.to_string(),
-        preferred_model: current_model.map(str::to_string),
-    })
-}
 
 pub(crate) fn background_keepalive_max_age() -> chrono::Duration {
     static SECS: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
@@ -1878,6 +1857,8 @@ pub(crate) fn background_keepalive_max_age() -> chrono::Duration {
 /// `to_snapshot()` 的输出——前端可消费的 wire shape。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveSessionSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activity: Option<crate::acp::session_activity::SessionActivitySnapshot>,
     pub connection_id: String,
     pub conversation_id: Option<i32>,
     pub folder_id: Option<i32>,

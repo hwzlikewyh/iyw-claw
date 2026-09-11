@@ -942,15 +942,20 @@ pub async fn get_folder_conversation_page_core(
         summary.updated_at,
     );
     let started_at = std::time::Instant::now();
-    let cached = (!force_refresh)
-        .then(|| {
+    let cached = if force_refresh {
+        None
+    } else {
+        let revision = cache_revision.clone();
+        tokio::task::spawn_blocking(move || {
             crate::commands::conversation_history_cache::load(
                 conversation_id,
-                &cache_revision,
+                &revision,
                 before,
             )
         })
-        .flatten();
+        .await
+        .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?
+    };
     let mut detail = if let Some((cached, fresh)) = cached {
         tracing::info!(
             conversation_id,

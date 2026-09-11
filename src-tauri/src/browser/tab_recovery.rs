@@ -42,6 +42,9 @@ impl BrowserSessionManager {
     }
 
     pub(super) fn schedule_tab_recovery(&self, tab_id: String, runtime_generation: u64) {
+        if !self.managed_browser_enabled() {
+            return;
+        }
         let manager = self.clone();
         tokio::spawn(async move {
             for attempt in 0..RECOVERY_ATTEMPTS {
@@ -120,6 +123,7 @@ impl BrowserSessionManager {
     ) -> Result<(), BrowserError> {
         let epoch = self.current_shutdown_epoch();
         let _tab_guard = self.tab_open_lock.lock().await;
+        self.ensure_managed_browser_enabled()?;
         self.ensure_shutdown_epoch(epoch)?;
         let cancellation = self.shutdown_cancellation().await;
         let runtime = self.current_runtime(runtime_generation).await?;
@@ -157,7 +161,7 @@ impl BrowserSessionManager {
         cancellation: CancellationToken,
     ) -> Result<RecoveryLaunch, BrowserError> {
         if let Some(target_id) = &tab.target_id {
-            if let Ok(launched) = bind_existing_tab_preserving_target(
+            match bind_existing_tab_preserving_target(
                 &self.tab_cleanups,
                 runtime,
                 &tab.ticket,
@@ -166,11 +170,16 @@ impl BrowserSessionManager {
             )
             .await
             {
-                return Ok(RecoveryLaunch {
-                    launched,
-                    stale_target_id: None,
-                });
+                Ok(launched) => {
+                    return Ok(RecoveryLaunch {
+                        launched,
+                        stale_target_id: None,
+                    })
+                }
+                Err(error) if error.code == BrowserErrorCode::BrowserTabGone => {}
+                Err(error) => return Err(error),
             }
+            self.ensure_managed_browser_enabled()?;
             let launched = launch_tab(
                 &self.tab_cleanups,
                 runtime,
@@ -184,6 +193,7 @@ impl BrowserSessionManager {
                 stale_target_id: Some(target_id.clone()),
             });
         }
+        self.ensure_managed_browser_enabled()?;
         Ok(RecoveryLaunch {
             launched: launch_tab(
                 &self.tab_cleanups,

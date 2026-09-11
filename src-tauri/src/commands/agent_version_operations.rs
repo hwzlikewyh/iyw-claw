@@ -30,6 +30,7 @@ pub async fn install_agent_version_core(
     agent_type: AgentType,
     version: String,
 ) -> Result<AgentVersionOperationResult, AppCommandError> {
+    crate::internal_xinghe_worker::require_external_agent(agent_type).map_err(acp_error)?;
     let _activation_guard = connection_manager.begin_agent_activation(agent_type).await;
     let version = normalized_version(version)?;
     connection_manager
@@ -78,6 +79,7 @@ pub async fn switch_agent_version_core(
     agent_type: AgentType,
     version: String,
 ) -> Result<AgentVersionOperationResult, AppCommandError> {
+    crate::internal_xinghe_worker::require_external_agent(agent_type).map_err(acp_error)?;
     let _activation_guard = connection_manager.begin_agent_activation(agent_type).await;
     let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     let version = normalized_version(version)?;
@@ -107,6 +109,7 @@ pub async fn rollback_agent_version_core(
     emitter: &EventEmitter,
     agent_type: AgentType,
 ) -> Result<AgentVersionOperationResult, AppCommandError> {
+    crate::internal_xinghe_worker::require_external_agent(agent_type).map_err(acp_error)?;
     let _activation_guard = connection_manager.begin_agent_activation(agent_type).await;
     let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     connection_manager

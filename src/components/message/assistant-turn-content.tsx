@@ -14,9 +14,9 @@ import {
   splitAssistantTurnParts,
 } from "@/components/message/assistant-turn-model"
 import {
-  completedProcessPart,
   findImageRegistrationIssue,
   hasProcessError,
+  visibleProcessPart,
 } from "@/components/message/assistant-turn-process"
 import { ImageArtifactRegistrationNotice } from "@/components/message/assistant-turn-status"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
@@ -68,13 +68,11 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
   )
   const processParts = useMemo(
     () =>
-      isResponseComplete
-        ? sections.processParts.flatMap((part) => {
-            const visible = completedProcessPart(part)
-            return visible ? [visible] : []
-          })
-        : sections.processParts,
-    [isResponseComplete, sections.processParts]
+      sections.processParts.flatMap((part) => {
+        const visible = visibleProcessPart(part)
+        return visible ? [visible] : []
+      }),
+    [sections.processParts]
   )
   const processCount = useMemo(
     () => countProcessItems(processParts),

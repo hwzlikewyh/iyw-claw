@@ -30,6 +30,10 @@ import {
   sha256File,
   stageArchiveComponent,
 } from "./runtime-seed-files.mjs"
+import {
+  writeCodexLauncher,
+  writeNodeLaunchers,
+} from "./runtime-seed-launchers.mjs"
 
 const execFileAsync = promisify(execFile)
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
@@ -112,6 +116,7 @@ async function prepareCodex(componentRoot, info, cacheDir) {
     })
     await validateCodexPrefix(staging, info, spec)
     await copyTreeMaterialized(staging, componentRoot, staging)
+    if (info.os !== "windows") await writeCodexLauncher(componentRoot)
   } finally {
     await rm(staging, { recursive: true, force: true })
   }
@@ -146,18 +151,19 @@ function sourceMarker(id, info) {
   return info.os === "windows" ? "cmd/git.exe" : "bin/git"
 }
 
-async function prepareDownloadedComponent(id, info, root, cacheDir) {
+async function prepareDownloadedComponent(id, info, { root, cacheDir }) {
   const spec = DOWNLOADS[id]
   const [name, expected] = spec[info.platform]
   const base =
     id === "git" && info.os !== "windows" ? spec.nonWindowsBase : spec.base
   const archive = await downloadArchive({ name, expected, base }, cacheDir)
   await stageArchiveComponent(root, archive, sourceMarker(id, info))
+  if (id === "node" && info.os !== "windows") await writeNodeLaunchers(root)
   if (expected !== (await sha256File(archive)))
     throw new Error(`archive checksum changed during staging: ${name}`)
 }
 
-async function prepareComponent(id, info, target, seedRoot, cacheDir) {
+async function prepareComponent(id, info, { target, seedRoot, cacheDir }) {
   const spec = DOWNLOADS[id]
   const version =
     id === "git" && info.os !== "windows"
@@ -166,7 +172,11 @@ async function prepareComponent(id, info, target, seedRoot, cacheDir) {
   const componentRoot = join(seedRoot, ".component-staging", id)
   await mkdir(componentRoot, { recursive: true })
   if (id === "codex-acp") await prepareCodex(componentRoot, info, cacheDir)
-  else await prepareDownloadedComponent(id, info, componentRoot, cacheDir)
+  else
+    await prepareDownloadedComponent(id, info, {
+      root: componentRoot,
+      cacheDir,
+    })
   const files = await buildFileManifest(componentRoot)
   const entries = componentEntrypoints(id, info)
   for (const [, path] of entries) {
@@ -198,25 +208,23 @@ async function prepareComponent(id, info, target, seedRoot, cacheDir) {
   }
 }
 
-async function prepareComponents(info, target, staging, cacheDir) {
-  const ids = ["node", "git", "uv", "codex-acp"]
+async function prepareComponents(info, { target, staging, cacheDir }) {
+  const ids = ["node", "git", "uv"]
   return Promise.all(
     ids.map(async (id) => {
       console.log(`[runtime-seed] preparing component: ${id}`)
-      const component = await prepareComponent(
-        id,
-        info,
+      const component = await prepareComponent(id, info, {
         target,
-        staging,
-        cacheDir
-      )
+        seedRoot: staging,
+        cacheDir,
+      })
       console.log(`[runtime-seed] component ready: ${id}`)
       return component
     })
   )
 }
 
-async function writeSeedManifest(staging, target, info, components) {
+async function writeSeedManifest(staging, info, { target, components }) {
   const manifest = {
     schemaVersion: 2,
     createdBy: "iyw-runtime-seed-builder",
@@ -262,12 +270,16 @@ export async function prepareRuntimeSeed(target = parseTarget()) {
     join(dirname(SEED_ROOT), "runtime-seed-staging-")
   )
   try {
-    const components = await prepareComponents(info, target, staging, cacheDir)
+    const components = await prepareComponents(info, {
+      target,
+      staging,
+      cacheDir,
+    })
     await rm(join(staging, ".component-staging"), {
       recursive: true,
       force: true,
     })
-    await writeSeedManifest(staging, target, info, components)
+    await writeSeedManifest(staging, info, { target, components })
     await rename(staging, SEED_ROOT)
     console.log(
       `[runtime-seed] prepared ${target}: ${components.map((component) => component.id).join(", ")}`

@@ -2,13 +2,17 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+use super::agent_timeout::requested_timeout;
+
 use super::agent_tool_cancellation::{AgentOperationCancellation, AgentToolContext};
 use super::agent_tool_support::{
     invalid_argument, optional_string, required_string, COMMAND_TIMEOUT, MAX_KEY_CHARS,
     MAX_SELECTOR_CHARS, MAX_TEXT_CHARS, MAX_WAIT_MS,
 };
-use super::error::BrowserError;
+use super::error::{BrowserError, BrowserErrorContext};
 use super::manager::BrowserSessionManager;
+
+const WAIT_COMPLETION_MARGIN: Duration = Duration::from_secs(5);
 
 pub(super) struct AgentCliRequest<'a> {
     pub context: AgentToolContext<'a>,
@@ -23,9 +27,8 @@ impl BrowserSessionManager {
         context: AgentToolContext<'_>,
         input: &Value,
     ) -> Result<Value, BrowserError> {
-        let tab_id = required_string(input, "tab_id", 128)?;
         let selector = required_string(input, "selector", MAX_SELECTOR_CHARS)?;
-        self.run_and_project(context, tab_id, vec!["click", selector])
+        self.run_and_project(context, input, vec!["click", selector])
             .await
     }
 
@@ -34,11 +37,10 @@ impl BrowserSessionManager {
         context: AgentToolContext<'_>,
         input: &Value,
     ) -> Result<Value, BrowserError> {
-        let tab_id = required_string(input, "tab_id", 128)?;
         let selector = required_string(input, "selector", MAX_SELECTOR_CHARS)?;
         let text = optional_string(input, "text", MAX_TEXT_CHARS)?
             .ok_or_else(|| invalid_argument("Missing browser argument: text"))?;
-        self.run_and_project(context, tab_id, vec!["fill", selector, text])
+        self.run_and_project(context, input, vec!["fill", selector, text])
             .await
     }
 
@@ -47,9 +49,8 @@ impl BrowserSessionManager {
         context: AgentToolContext<'_>,
         input: &Value,
     ) -> Result<Value, BrowserError> {
-        let tab_id = required_string(input, "tab_id", 128)?;
         let key = required_string(input, "key", MAX_KEY_CHARS)?;
-        self.run_and_project(context, tab_id, vec!["press", key])
+        self.run_and_project(context, input, vec!["press", key])
             .await
     }
 
@@ -58,7 +59,6 @@ impl BrowserSessionManager {
         context: AgentToolContext<'_>,
         input: &Value,
     ) -> Result<Value, BrowserError> {
-        let tab_id = required_string(input, "tab_id", 128)?;
         let direction = required_string(input, "direction", 8)?;
         if !matches!(direction, "up" | "down" | "left" | "right") {
             return Err(invalid_argument("Invalid scroll direction"));
@@ -69,7 +69,7 @@ impl BrowserSessionManager {
             .unwrap_or(600)
             .clamp(1, 10_000)
             .to_string();
-        self.run_and_project(context, tab_id, vec!["scroll", direction, &pixels])
+        self.run_and_project(context, input, vec!["scroll", direction, &pixels])
             .await
     }
 
@@ -79,25 +79,41 @@ impl BrowserSessionManager {
         input: &Value,
     ) -> Result<Value, BrowserError> {
         let tab_id = required_string(input, "tab_id", 128)?;
-        let target = optional_string(input, "selector", MAX_SELECTOR_CHARS)?
+        let selector = optional_string(input, "selector", MAX_SELECTOR_CHARS)?;
+        let milliseconds = wait_milliseconds(input);
+        let timeout = if selector.is_some() {
+            COMMAND_TIMEOUT
+        } else {
+            COMMAND_TIMEOUT.max(Duration::from_millis(milliseconds) + WAIT_COMPLETION_MARGIN)
+        };
+        let timeout = requested_timeout(input, timeout)?;
+        let target = selector
             .map(str::to_string)
-            .unwrap_or_else(|| wait_milliseconds(input));
-        self.run_and_project(context, tab_id, vec!["wait", &target])
-            .await
+            .unwrap_or_else(|| milliseconds.to_string());
+        let output = self
+            .run_agent_cli(AgentCliRequest {
+                context,
+                tab_id,
+                args: vec!["wait".to_string(), target],
+                timeout,
+            })
+            .await?;
+        self.agent_state(context, Some(tab_id), Some(output)).await
     }
 
     async fn run_and_project(
         &self,
         context: AgentToolContext<'_>,
-        tab_id: &str,
+        input: &Value,
         args: Vec<&str>,
     ) -> Result<Value, BrowserError> {
+        let tab_id = required_string(input, "tab_id", 128)?;
         let output = self
             .run_agent_cli(AgentCliRequest {
                 context,
                 tab_id,
                 args: args.into_iter().map(str::to_string).collect(),
-                timeout: COMMAND_TIMEOUT,
+                timeout: requested_timeout(input, COMMAND_TIMEOUT)?,
             })
             .await?;
         self.agent_state(context, Some(tab_id), Some(output)).await
@@ -131,15 +147,20 @@ impl BrowserSessionManager {
         if cancellation.token().is_cancelled() {
             return Err(changed.effect_may_have_occurred(true));
         }
-        result
+        result.map_err(|error| {
+            error.with_context(BrowserErrorContext {
+                browser_tab_id: Some(request.tab_id.to_string()),
+                runtime_generation: Some(action.runtime_generation),
+                ..BrowserErrorContext::default()
+            })
+        })
     }
 }
 
-fn wait_milliseconds(input: &Value) -> String {
+fn wait_milliseconds(input: &Value) -> u64 {
     input
         .get("milliseconds")
         .and_then(Value::as_u64)
         .unwrap_or(1_000)
         .clamp(1, MAX_WAIT_MS)
-        .to_string()
 }

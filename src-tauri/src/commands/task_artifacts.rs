@@ -1,3 +1,6 @@
+mod images;
+
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -92,6 +95,10 @@ impl TaskArtifactAccess for DbTaskArtifactAccess {
                     .get("accepted")
                     .and_then(Value::as_array)
                     .map_or(0, Vec::len);
+                let rejected = result
+                    .get("rejected")
+                    .and_then(Value::as_array)
+                    .map_or(0, Vec::len);
                 if accepted > 0 {
                     emit_task_artifacts_changed(&self.emitter, conversation_id);
                 }
@@ -100,7 +107,8 @@ impl TaskArtifactAccess for DbTaskArtifactAccess {
                     turn_generation,
                     requested,
                     accepted,
-                    rejected = requested.saturating_sub(accepted),
+                    rejected,
+                    deduplicated = requested.saturating_sub(accepted + rejected),
                     "[task-artifacts] MCP registration processed"
                 );
                 result
@@ -144,6 +152,12 @@ struct MaterializationRejection {
     reason: &'static str,
 }
 
+struct MaterializationContext<'a> {
+    directory: &'a Path,
+    working_dir: &'a Path,
+    message_id: &'a str,
+}
+
 async fn materialize_files(
     connection_id: &str,
     conversation_id: i32,
@@ -152,14 +166,8 @@ async fn materialize_files(
     working_dir: &Path,
     files: Vec<String>,
 ) -> MaterializedArtifacts {
-    if !files.iter().any(|value| !is_url_source(value)) {
-        return MaterializedArtifacts {
-            files,
-            rejected: Vec::new(),
-        };
-    }
     let Some(generation) = turn_generation.filter(|value| *value > 0) else {
-        return reject_unmanaged_local_sources(files, "managed_directory_unavailable");
+        return reject_sources(files, "managed_directory_unavailable");
     };
     let Ok(directory) = crate::acp::task_artifact_delivery::ensure_managed_turn_directory(
         connection_id,
@@ -168,98 +176,107 @@ async fn materialize_files(
     )
     .await
     else {
-        return reject_unmanaged_local_sources(files, "managed_directory_unavailable");
+        return reject_sources(files, "managed_directory_unavailable");
     };
-    let mut result = MaterializedArtifacts {
-        files: Vec::with_capacity(files.len()),
-        rejected: Vec::new(),
+    let context = MaterializationContext {
+        directory: &directory,
+        working_dir,
+        message_id,
     };
-    for (index, source) in files.into_iter().enumerate() {
-        if is_url_source(&source) {
-            result.files.push(source);
-            continue;
-        }
-        if source.trim().is_empty() {
-            result.rejected.push(MaterializationRejection {
-                path: source,
-                reason: "empty_source",
-            });
-            continue;
-        }
-        materialize_local_source(
-            &mut result,
-            &directory,
-            working_dir,
-            source,
-            index,
-            message_id,
-        )
-        .await;
-    }
-    result
+    materialize_sources(&context, files).await
 }
 
-fn reject_unmanaged_local_sources(
+async fn materialize_sources(
+    context: &MaterializationContext<'_>,
     files: Vec<String>,
-    reason: &'static str,
 ) -> MaterializedArtifacts {
     let mut result = MaterializedArtifacts {
         files: Vec::with_capacity(files.len()),
         rejected: Vec::new(),
     };
-    for source in files {
-        if is_url_source(&source) {
-            result.files.push(source);
-        } else {
-            result.rejected.push(MaterializationRejection {
+    let mut seen = HashSet::new();
+    for (index, source) in files.into_iter().enumerate() {
+        if !seen.insert(source.trim().to_owned()) {
+            continue;
+        }
+        match materialize_source(context, &source, index).await {
+            Ok(path) => result.files.push(path),
+            Err(reason) => result.rejected.push(MaterializationRejection {
                 path: source,
                 reason,
-            });
+            }),
         }
+    }
+    let mut paths = HashSet::new();
+    result.files.retain(|path| paths.insert(path.clone()));
+    result
+}
+
+async fn materialize_source(
+    context: &MaterializationContext<'_>,
+    source: &str,
+    index: usize,
+) -> Result<String, &'static str> {
+    const MAX_ARTIFACTS: usize = 100;
+    const MAX_SOURCE_CHARS: usize = 4096;
+    let source = source.trim();
+    if index >= MAX_ARTIFACTS {
+        return Err("too_many_artifacts");
+    }
+    if source.is_empty() {
+        return Err("empty_source");
+    }
+    if source.chars().count() > MAX_SOURCE_CHARS || source.contains('\0') {
+        return Err("invalid_source");
+    }
+    if is_url_source(source) {
+        return images::materialize_url(context.directory, source)
+            .await
+            .map(|path| {
+                path.map(|value| value.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| source.into())
+            });
+    }
+    materialize_local_source(context, source, index)
+        .await
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+fn reject_sources(files: Vec<String>, reason: &'static str) -> MaterializedArtifacts {
+    let mut result = MaterializedArtifacts {
+        files: Vec::with_capacity(files.len()),
+        rejected: Vec::new(),
+    };
+    for source in files {
+        result.rejected.push(MaterializationRejection {
+            path: source,
+            reason,
+        });
     }
     result
 }
 
 async fn materialize_local_source(
-    result: &mut MaterializedArtifacts,
-    directory: &Path,
-    working_dir: &Path,
-    source: String,
+    context: &MaterializationContext<'_>,
+    source: &str,
     index: usize,
-    message_id: &str,
-) {
-    let source_path = match resolve_managed_source_path(working_dir, &source) {
-        Ok(path) => path,
-        Err(reason) => {
-            result.rejected.push(MaterializationRejection {
-                path: source,
-                reason,
-            });
-            return;
-        }
-    };
-    let Some(name) = source_path.file_name().and_then(|value| value.to_str()) else {
-        result.rejected.push(MaterializationRejection {
-            path: source,
-            reason: "invalid_path",
-        });
-        return;
-    };
-    let target = directory.join(unique_name(name, index, message_id, &source_path));
-    match copy_path(&source_path, &target).await {
-        Ok(()) => result.files.push(target.to_string_lossy().into_owned()),
-        Err(error) => {
-            tracing::warn!(
-                source = %source,
-                error = %error,
-                "[task-artifacts] MCP artifact materialization failed"
-            );
-            result.rejected.push(MaterializationRejection {
-                path: source,
-                reason: "materialize_failed",
-            });
-        }
+) -> Result<PathBuf, &'static str> {
+    let source_path = resolve_managed_source_path(context.working_dir, source)?;
+    if let Some(path) = images::materialize_local(context.directory, &source_path).await? {
+        return Ok(path);
     }
+    let name = source_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or("invalid_path")?;
+    let target = context
+        .directory
+        .join(unique_name(name, index, context.message_id, &source_path));
+    copy_path(&source_path, &target).await.map_err(|error| {
+        tracing::warn!(error = %error, "[task-artifacts] MCP artifact materialization failed");
+        "materialize_failed"
+    })?;
+    Ok(target)
 }
 
 fn is_url_source(value: &str) -> bool {

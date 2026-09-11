@@ -1,0 +1,19 @@
+name: Cache Next.js compilation
+description: Reuse compiler cache while rebuilding frontend output for the current source
+runs:
+  using: composite
+  steps:
+    - id: runtime
+      shell: bash
+      run: |
+        set -euo pipefail
+        node_version="$(node --version)"
+        source_sha="$(git rev-parse HEAD)"
+        echo "node=$node_version" >> "$GITHUB_OUTPUT"
+        echo "source=$source_sha" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v4
+      with:
+        path: .next/cache
+        key: next-${{ runner.os }}-${{ runner.arch }}-${{ steps.runtime.outputs.node }}-${{ hashFiles('pnpm-lock.yaml', 'next.config.*') }}-${{ steps.runtime.outputs.source }}
+        restore-keys: |
+          next-${{ runner.os }}-${{ runner.arch }}-${{ steps.runtime.outputs.node }}-${{ hashFiles('pnpm-lock.yaml', 'next.config.*') }}-

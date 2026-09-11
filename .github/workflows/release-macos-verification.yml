@@ -1,0 +1,64 @@
+name: Verify Intel macOS Installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Source commit used to build the archives
+        required: true
+        type: string
+      artifact_run_id:
+        description: Run containing macos-x64-installer-verification
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      source_ref:
+        required: true
+        type: string
+      artifact_run_id:
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  verify:
+    runs-on: macos-26-intel
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Download macOS x64 archives
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-x64-installer-verification
+          path: src-tauri/target/x86_64-apple-darwin/release/bundle
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+
+      - name: Restore app bundle permissions and verify runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle="src-tauri/target/x86_64-apple-darwin/release/bundle/macos"
+          archives=("$bundle"/*.app.tar.gz)
+          if [[ "${#archives[@]}" -ne 1 || ! -f "${archives[0]}" ]]; then
+            echo "::error::Expected one macOS x64 updater archive."
+            exit 1
+          fi
+          tar -xzf "${archives[0]}" -C "$bundle"
+          node --input-type=module -e '
+            import { verifyRuntimeSeedBundle } from "./src-tauri/scripts/verify-runtime-seed-bundle.mjs";
+            await verifyRuntimeSeedBundle("x86_64-apple-darwin");
+          '

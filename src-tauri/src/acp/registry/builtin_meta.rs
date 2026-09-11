@@ -31,8 +31,8 @@ pub(super) fn get(agent_type: AgentType) -> AcpAgentMeta {
             // as structured `session_info_update` values (`_meta.codex.goal`)
             // rather than live agent text; see `crate::acp::codex_goal`.
             distribution: AgentDistribution::Npx {
-                version: "1.8.0",
-                package: "@agentclientprotocol/codex-acp@1.8.0",
+                version: "1.10.0",
+                package: "@agentclientprotocol/codex-acp@1.10.0",
                 cmd: "codex-acp",
                 args: &[],
                 env: &[],

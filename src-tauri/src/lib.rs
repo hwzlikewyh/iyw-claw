@@ -1,3 +1,6 @@
+// ACP 的类型化处理器链在 release 布局计算中超过默认 128 层，按编译器诊断设定上限。
+#![recursion_limit = "256"]
+
 pub mod acp;
 pub use acp::{
     agent_auto_update_task, idle_sweep_task, idle_timeout_from_env, lifecycle_subscriber_task,
@@ -21,7 +24,7 @@ pub mod display_assets;
 pub mod git_credential;
 pub mod git_repo;
 pub mod github_mirror;
-pub mod internal_codex_worker;
+pub mod internal_xinghe_worker;
 pub mod keyring_store;
 pub mod logging;
 pub mod models;
@@ -400,10 +403,12 @@ mod tauri_app {
                 unsafe {
                     std::env::set_var("IYW_CLAW_DATA_DIR", &effective_data_dir);
                 }
-                tauri::async_runtime::block_on(
-                    crate::acp::version_center::prepare_shared_runtime(&effective_data_dir),
-                )
-                .map_err(|error| std::io::Error::other(error.to_string()))?;
+                crate::logging::emergency::run_stage("prepare-shared-runtime", || {
+                    tauri::async_runtime::block_on(
+                        crate::acp::version_center::prepare_shared_runtime(&effective_data_dir),
+                    )
+                    .map_err(|error| std::io::Error::other(error.to_string()))
+                })?;
                 app.manage(crate::browser::BrowserSessionManager::new_desktop(
                     effective_data_dir.clone(),
                     app.state::<ConnectionManager>().clone_ref(),
@@ -1232,24 +1237,10 @@ mod tauri_app {
                     tracing::info!(
                         wait_outcome,
                         wait_ms = wait_started.elapsed().as_millis(),
-                        "[ACP][startup] Codex runtime prewarm gate released"
+                        "[ACP][startup] 星河与远山运行时预热门已释放"
                     );
                     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    let prewarm_started = std::time::Instant::now();
-                    match runtime_prewarm_manager.prewarm_codex_runtime().await {
-                        Ok(true) => tracing::info!(
-                            elapsed_ms = prewarm_started.elapsed().as_millis(),
-                            "[ACP][startup] Codex runtime Host prewarmed"
-                        ),
-                        Ok(false) => tracing::info!(
-                            "[ACP][startup] Codex runtime Host prewarm disabled"
-                        ),
-                        Err(error) => tracing::info!(
-                            elapsed_ms = prewarm_started.elapsed().as_millis(),
-                            error = %error,
-                            "[ACP][startup] Codex runtime Host prewarm deferred"
-                        ),
-                    }
+                    runtime_prewarm_manager.prewarm_primary_agents().await;
                 });
                 setup_stage.complete();
                 crate::logging::emergency::set_process_stage("runtime");
@@ -1811,6 +1802,7 @@ mod tauri_app {
                 remote_image_commands::fetch_remote_image,
                 display_asset_commands::read_display_asset,
                 browser_commands::browser_get_state,
+                browser_commands::browser_set_visibility,
                 browser_commands::browser_refresh_capability,
                 browser_commands::browser_start_runtime,
                 browser_commands::browser_stop_runtime,

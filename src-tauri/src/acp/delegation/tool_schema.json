@@ -245,7 +245,7 @@
   },
   {
     "name": "browser",
-    "description": "Unified browser entry for web navigation, reading, interaction, screenshots, waits, and advanced commands. When the user asks to use a browser, inspect both the user's connected Chrome and iyw-claw's managed browser, then prefer OpenCLI so existing Chrome sign-in state is reused. Keep page operations on OpenCLI; browser(action=present) copies the current page URL into a detached iyw-claw display window without changing the operation provider. Switch to the managed browser for a human-only requirement such as login, MFA/OTP, CAPTCHA, device approval, security confirmation, or explicit human review; bridge, Chrome, extension, daemon, CDP, network, timeout, selector, and unknown failures are returned directly and never trigger a browser switch. The legacy browser_* tools remain compatible aliases.",
+    "description": "Unified browser entry for web navigation, reading, interaction, screenshots, waits, and advanced commands. Prefer OpenCLI to reuse the user's connected Chrome sign-in state. The host enforces the built-in browser setting: when disabled, operations, presentation, and user action stay in external Chrome; do not enable or enter the managed browser to recover a failure. Old managed tabs require a new external open and snapshot, never replay their references. When enabled, present may copy the page URL to a detached managed window without changing the operation provider, and login, MFA/OTP, CAPTCHA, device approval, security confirmation, or explicit human review may hand off to the managed browser. External presentation does not complete a human step: OPENCLI_USER_ACTION_REQUIRED requires the user to act, followed by fresh state verification. Provider failures are returned directly; do not blindly retry timeouts with effectMayHaveOccurred=true. The legacy browser_* tools remain compatible aliases.",
     "inputSchema": {
       "type": "object",
       "required": ["action"],
@@ -430,7 +430,7 @@
   },
   {
     "name": "browser_list_tabs",
-    "description": "Compatibility alias for browser(action=list_tabs). It checks both the user's connected Chrome/OpenCLI tabs and iyw-claw managed tabs, reports provider health, and returns opaque browserTabId values for later calls.",
+    "description": "Compatibility alias for browser(action=list_tabs). It checks Chrome/OpenCLI and, when enabled, managed tabs; disabled managed tabs are not exposed. Reports provider health and opaque browserTabId values for later calls.",
     "inputSchema": {
       "type": "object",
       "properties": {},
@@ -685,7 +685,7 @@
   },
   {
     "name": "browser_request_user_action",
-    "description": "Compatibility alias for browser(action=request_user_action). Use only for login credentials held by the user, MFA/OTP, CAPTCHA, device approval, security/payment confirmation, or explicit human review. An OpenCLI task performs a restricted same-origin handoff to the managed browser and remains managed afterward. Never use this for selector/runtime errors or include secrets in completion conditions.",
+    "description": "Compatibility alias for browser(action=request_user_action). Use only for login credentials held by the user, MFA/OTP, CAPTCHA, device approval, security/payment confirmation, or explicit human review. When the built-in browser is disabled, present the external Chrome tab and return OPENCLI_USER_ACTION_REQUIRED; verify fresh state after the user acts. When enabled, an OpenCLI task may perform a restricted same-origin handoff to the managed browser and remain managed afterward. Never use this for selector/runtime errors or include secrets in completion conditions.",
     "inputSchema": {
       "type": "object",
       "required": ["reason"],
@@ -814,7 +814,7 @@
   },
   {
     "name": "browser_present",
-    "description": "Compatibility alias for browser(action=present). A managed task opens a detached iyw-claw window; an OpenCLI task copies the current page URL into a detached iyw-claw display window while preserving the OpenCLI route for later operations. This call does not wait for user input.",
+    "description": "Compatibility alias for browser(action=present). When the built-in browser is disabled, present the external Chrome tab. When enabled, a managed task opens a detached iyw-claw window and an OpenCLI task may copy the current page URL into a detached display window while preserving the OpenCLI operation route. This call does not wait for or confirm user input.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -857,7 +857,7 @@
   },
   {
     "name": "present_task_files",
-    "description": "Call this directly to deliver final reports, documents, designs, exports or other user-facing files, directories and HTTP/HTTPS URLs in the current conversation Artifacts area before the final response. No capability search/read/invoke is needed when this tool is advertised. Inspect accepted and rejected entries; registering a path is successful only when the host accepts it. This does not write directly to the workspace-wide All Artifacts aggregate. Do not register source, configuration, tests, migrations, build output, caches, logs, temporary files, or internal work unless the user explicitly requested that exact item as the final deliverable. Accepts working-directory-relative paths, absolute paths, and web URLs.",
+    "description": "Call this directly to deliver final reports, documents, designs, exports or other user-facing files, directories and HTTP/HTTPS URLs in the current conversation Artifacts area before the final response. Submit image URLs directly: the host downloads them into managed artifact storage and deduplicates identical image content against submitted local images in the same turn. Do not download a URL with a separate tool just for delivery, or submit both its URL and local copy. No capability search/read/invoke is needed when this tool is advertised. Inspect accepted and rejected entries; registering a path is successful only when the host accepts it. This does not write directly to the workspace-wide All Artifacts aggregate. Do not register source, configuration, tests, migrations, build output, caches, logs, temporary files, or internal work unless the user explicitly requested that exact item as the final deliverable. Accepts working-directory-relative paths, absolute paths, and web URLs.",
     "inputSchema": {
       "type": "object",
       "required": ["files"],
@@ -871,7 +871,7 @@
             "minLength": 1,
             "maxLength": 4096
           },
-          "description": "Final user-facing files, directories, or HTTP/HTTPS URLs to add to the current conversation Artifacts. Relative paths resolve from the current working directory; absolute paths and web URLs are accepted."
+          "description": "Final user-facing files, directories, or HTTP/HTTPS URLs to add to the current conversation Artifacts. Submit image URLs without downloading them first; the host downloads and deduplicates them by content. Relative paths resolve from the current working directory; absolute paths and web URLs are accepted."
         }
       },
       "additionalProperties": false

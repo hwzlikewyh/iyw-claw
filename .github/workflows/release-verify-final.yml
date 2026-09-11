@@ -1,0 +1,82 @@
+name: Verify Final Desktop Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+        type: string
+      source_ref:
+        required: true
+        type: string
+      release_id:
+        required: true
+        type: string
+      verification_run_id:
+        required: true
+        type: string
+permissions:
+  contents: write
+  actions: read
+jobs:
+  verify-x64:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tools
+          sparse-checkout: .github/scripts/release
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer-verification-x86_64-pc-windows-msvc
+          path: src-tauri
+          run-id: ${{ inputs.verification_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify signed helper payloads against build input
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          SIGNER: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/iyw-claw_$env:RELEASE_VERSION`_x64-setup.exe"
+          $extracted = Join-Path $env:RUNNER_TEMP 'signed-x64-resources'
+          & 7z x $installer "-o$extracted" 'xinghe-resources/*'
+          if ($LASTEXITCODE -ne 0) { throw 'Installer resource extraction failed' }
+          ./.release-tools/.github/scripts/release/verify-signed-pe.ps1 -ExpectedRoot src-tauri/resources/xinghe-worker -SignedRoot (Join-Path $extracted 'xinghe-resources') -Thumbprint $env:SIGNER
+      - name: Verify actual x64 installation
+        env:
+          IYW_CLAW_VERIFY_NSIS: "1"
+          IYW_CLAW_SIGN_MODE: signtool
+        run: node src-tauri/scripts/verify-sidecar-bundle.mjs --target x86_64-pc-windows-msvc
+  publish:
+    needs: verify-x64
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          VERSION: ${{ inputs.version }}
+          VERIFICATION_RUN: ${{ inputs.verification_run_id }}
+        with:
+          script: |
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,{...context.repo,run_id:Number(process.env.VERIFICATION_RUN),per_page:100});
+            for(const name of ['verify-macos','finalize-windows (x64, x86_64-pc-windows-msvc)','finalize-windows (x86, i686-pc-windows-msvc)','verify-windows / Verify installed i686-pc-windows-msvc']) {
+              if(jobs.find(job=>job.name===name)?.conclusion!=='success') throw new Error(`${name} has not passed`);
+            }
+            const releaseId=Number(process.env.RELEASE_ID), tag=`v${process.env.VERSION}`;
+            const release=(await github.rest.repos.getRelease({...context.repo,release_id:releaseId})).data;
+            if(!release.draft || release.tag_name!==tag || release.assets.some(asset=>asset.name.includes('staging.zip'))) throw new Error('Release is not ready');
+            const updater=require('./.github/scripts/release/upload-updater-json.cjs');
+            const notes='- 修复部分 Windows 电脑因缺少运行库而无法发送消息的问题。\n- 安装包自带所需运行组件，完善星河及辅助程序的启动兼容性。\n- 改进图片成果展示与下载体验。';
+            await updater({github,context,core,tag,releaseId,notes});
+            await updater.assertPublishableReleaseAssets({github,context,core,releaseId});
+            await github.rest.repos.updateRelease({...context.repo,release_id:releaseId,draft:false,prerelease:false,body:notes});

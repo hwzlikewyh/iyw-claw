@@ -128,6 +128,23 @@ impl PendingServerRequests {
         self.pending.clear();
     }
 
+    pub(crate) fn contains(&self, token: ServerRequestToken) -> bool {
+        self.pending.contains_key(&token)
+    }
+
+    pub(crate) fn resolved(&mut self, request_id: &str) {
+        self.pending.retain(|_, request| request.request_id != request_id);
+        self.request_ids.remove(request_id);
+    }
+
+    pub(crate) fn remove_session(&mut self, access: SessionAccess<'_>) {
+        self.pending.retain(|_, request| {
+            let remove = matches!(&request.target, ServerRequestTarget::Session(binding) if binding_matches(binding, access));
+            if remove { self.request_ids.remove(&request.request_id); }
+            !remove
+        });
+    }
+
     fn take_if(
         &mut self,
         token: ServerRequestToken,

@@ -109,7 +109,7 @@ fn first_image_field(kind: &str) -> Option<&'static str> {
     }
 }
 
-async fn wait_for_task(
+pub(super) async fn wait_for_task(
     service: &IywGatewayService,
     operation: &str,
     created: Value,

@@ -39,7 +39,7 @@ impl RuntimeHostReservation {
 
     pub(crate) fn keep_warm(mut self) {
         if self.armed {
-            self.host.release_route_reservation(false);
+            self.host.release_route_reservation(true);
             self.armed = false;
         }
     }
@@ -122,6 +122,10 @@ impl AgentRuntimeHost {
         };
         if schedule_idle {
             self.schedule_idle_retirement(epoch);
+        } else {
+            // 独占预留在绑定会话前被取消，立即释放它自己的未使用 Host。
+            // 此处已在锁内确认没有活动 route 或其他 reservation。
+            self.retire_unreserved(epoch);
         }
     }
 
@@ -150,6 +154,15 @@ impl AgentRuntimeHost {
         };
         if schedule_idle {
             host.schedule_idle_retirement(epoch);
+        } else {
+            // 连接任务被取消/恐慌时，显式 host.shutdown 可能来不及执行。
+            host.retire_unreserved(epoch);
+        }
+    }
+
+    fn retire_unreserved(&self, epoch: u64) {
+        if self.shutdown_if_idle_without_runtime(epoch) {
+            self.driver.shutdown_in_background(HOST_SHUTDOWN_TIMEOUT);
         }
     }
 
@@ -181,7 +194,7 @@ impl AgentRuntimeHost {
         }
     }
 
-    fn shutdown_if_idle_without_runtime(&self, epoch: u64) {
+    fn shutdown_if_idle_without_runtime(&self, epoch: u64) -> bool {
         let _guard = self
             .route_guard
             .lock()
@@ -189,7 +202,9 @@ impl AgentRuntimeHost {
         if self.is_idle_epoch(epoch) {
             self.healthy.store(false, Ordering::Release);
             self.shutdown.cancel();
+            return true;
         }
+        false
     }
 
     fn is_idle_epoch(&self, epoch: u64) -> bool {

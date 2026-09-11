@@ -123,7 +123,9 @@ impl JobObject {
 
     /// Prevents a child from running before it can be assigned to this job.
     pub fn prepare_suspended_spawn(&self, command: &mut Command) {
-        command.creation_flags(CREATE_SUSPENDED).kill_on_drop(true);
+        command
+            .creation_flags(CREATE_SUSPENDED | super::CREATE_NO_WINDOW)
+            .kill_on_drop(true);
     }
 
     /// Assigns and resumes a suspended child, returning whether assignment succeeded.

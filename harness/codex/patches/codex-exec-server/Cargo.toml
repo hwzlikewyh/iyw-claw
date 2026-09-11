@@ -1,0 +1,178 @@
+[package]
+name = "codex-exec-server"
+version = "0.154.0"
+edition = "2024"
+license = "Apache-2.0"
+autobins = false
+autotests = false
+autobenches = false
+
+[lib]
+doctest = false
+name = "codex_exec_server"
+path = "src/lib.rs"
+
+[dependencies."arc-swap"]
+version = "^1.9.0"
+
+[dependencies."axum"]
+version = "^0.8"
+default-features = false
+features = ["http1","tokio","ws"]
+
+[dependencies."base64"]
+version = "^0.22.1"
+
+[dependencies."bytes"]
+version = "^1.10.1"
+
+[dependencies."clatter"]
+version = "^2.2.0"
+default-features = false
+features = ["alloc","getrandom","use-25519","use-aes-gcm","use-rust-crypto-ml-kem","use-sha"]
+
+[dependencies."codex-api"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-config"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-exec-server-protocol"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-file-system"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-http-client"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-network-proxy"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-otel"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-protocol"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-sandboxing"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-shell-command"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-utils-absolute-path"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-utils-home-dir"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-utils-path-uri"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-utils-pty"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-utils-rustls-provider"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-websocket-client"]
+version = "*"
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."dirs"]
+version = "^6"
+
+[dependencies."futures"]
+version = "^0.3"
+default-features = false
+
+[dependencies."http"]
+version = "^1.3.1"
+
+[dependencies."prost"]
+version = "^0.14.3"
+
+[dependencies."serde"]
+version = "^1"
+features = ["rc","derive"]
+
+[dependencies."serde_json"]
+version = "^1"
+
+[dependencies."thiserror"]
+version = "^2.0.17"
+
+[dependencies."tokio"]
+version = "^1"
+features = ["fs","io-std","io-util","macros","net","process","rt-multi-thread","sync","time"]
+
+[dependencies."tokio-tungstenite"]
+version = "^0.28.0"
+features = ["proxy","rustls-tls-native-roots"]
+
+[dependencies."tokio-util"]
+version = "^0.7.18"
+features = ["io","rt"]
+
+[dependencies."toml"]
+version = "^0.9.5"
+
+[dependencies."tracing"]
+version = "^0.1.44"
+
+[dependencies."url"]
+version = "^2"
+
+[dependencies."uuid"]
+version = "^1"
+features = ["v4"]
+
+[target."cfg(unix)".dependencies."libc"]
+version = "^0.2.182"
+
+[target."cfg(unix)".dependencies."rustix"]
+version = "^1.1.4"
+features = ["net","fs"]
+
+[target."cfg(windows)".dependencies."windows-sys"]
+version = "^0.52"
+features = ["Win32_Foundation","Win32_Security","Win32_Storage_FileSystem","Win32_System_IO","Win32_System_Kernel","Win32_System_Pipes","Win32_System_Threading"]
+
+[dependencies.codex-build-info]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies.opentelemetry]
+version = "0.31.0"

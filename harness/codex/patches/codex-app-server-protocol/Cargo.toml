@@ -1,0 +1,98 @@
+[package]
+name = "codex-app-server-protocol"
+version = "0.154.0"
+edition = "2024"
+license = "Apache-2.0"
+autobins = false
+autotests = false
+autobenches = false
+
+[lib]
+name = "codex_app_server_protocol"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies.anyhow]
+version = "1"
+
+[dependencies.codex-experimental-api-macros]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies.codex-app-server-protocol-noop-macros]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies.codex-extension-items]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies.codex-history]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies.codex-protocol]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies.codex-rollout]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies.codex-secrets]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies.codex-shell-command]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies.codex-utils-absolute-path]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies.codex-utils-path-uri]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies.codex-utils-redacted-string]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies.serde]
+version = "1"
+features = ["rc", "derive"]
+
+[dependencies.serde_json]
+version = "1"
+
+[dependencies.serde_with]
+version = "3.17"
+
+[dependencies.strum_macros]
+version = "0.28.0"
+
+[dependencies.thiserror]
+version = "2.0.17"
+
+[dependencies.rmcp]
+version = "=3.2.0"
+default-features = false
+features = [
+    "base64",
+    "macros",
+    "server",
+]
+
+[dependencies.inventory]
+version = "0.3.19"
+
+[dependencies.tracing]
+version = "0.1.44"
+
+[dependencies.uuid]
+version = "1"
+features = ["serde", "v7"]
+
+[dependencies.zstd]
+version = "0.13"

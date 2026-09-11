@@ -24,6 +24,13 @@ pub async fn consume_pending_activations_at_startup(
     let mut remaining = Vec::new();
     let mut changed = false;
     for item in pending {
+        let retired = item.component_kind == "agent" && serde_json::from_str::<AgentType>(&item.component_id)
+            .is_ok_and(crate::internal_xinghe_worker::is_desktop_agent);
+        if retired {
+            changed = true;
+            tracing::info!(agent = "星河", "[agent-version-center] retired pending external activation for built-in worker");
+            continue;
+        }
         match activate_pending_component(conn, data_dir, &item).await {
             Ok(()) => {
                 changed = true;
@@ -53,6 +60,7 @@ pub async fn consume_pending_activations_at_startup(
 pub(crate) async fn pending_agent_activation_version(
     agent_type: AgentType,
 ) -> Result<Option<String>, AppCommandError> {
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) { return Ok(None); }
     let _guard = lock_pending_activations().await;
     let component_id = serialize_agent_type(agent_type)?;
     Ok(

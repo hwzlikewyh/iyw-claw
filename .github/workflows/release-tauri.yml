@@ -23,10 +23,14 @@ on:
         required: false
         type: string
         default: release-frontend-out
+      frontend_run_id:
+        required: false
+        type: string
+        default: ""
       build_matrix:
         required: false
         type: string
-        default: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows x64","runner":"windows-2022","target":"x86_64-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows 32-bit","runner":"windows-2022","target":"i686-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false}]}'
+        default: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows x64","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"x86_64-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows 32-bit","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"i686-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false}]}'
       release_draft:
         required: false
         type: boolean
@@ -47,6 +51,7 @@ jobs:
     continue-on-error: ${{ matrix.optional }}
     permissions:
       contents: write
+      actions: read
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(inputs.build_matrix) }}
@@ -59,7 +64,9 @@ jobs:
       CARGO_PROFILE_RELEASE_LTO: ${{ matrix.lto }}
       RUSTC_WRAPPER: sccache
       SCCACHE_GHA_ENABLED: ${{ contains(toJSON(matrix.runner), 'self-hosted') && 'false' || 'true' }}
-      NO_PROXY: ${{ contains(matrix.target, 'windows') && '.actions.githubusercontent.com,.blob.core.windows.net' || '' }}
+      HTTP_PROXY: ${{ contains(toJSON(matrix.runner), 'iyw-signing') && 'http://127.0.0.1:7890' || '' }}
+      HTTPS_PROXY: ${{ contains(toJSON(matrix.runner), 'iyw-signing') && 'http://127.0.0.1:7890' || '' }}
+      NO_PROXY: ${{ contains(toJSON(matrix.runner), 'iyw-signing') && 'localhost,127.0.0.1,api.github.com,uploads.github.com' || (contains(matrix.target, 'windows') && '.actions.githubusercontent.com,.blob.core.windows.net' || '') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -100,6 +107,9 @@ jobs:
             echo "IYW_CLAW_RUNTIME_SEED_CACHE=$cache_root/runtime-seed/${{ matrix.target }}"
           } >> "$GITHUB_ENV"
           pnpm config set store-dir "$cache_root/pnpm-store"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            echo "CARGO_BUILD_JOBS=4" >> "$GITHUB_ENV"
+          fi
           echo "[cache] persistent root: $cache_root"
 
       - name: Configure hosted runtime seed cache
@@ -119,13 +129,31 @@ jobs:
         if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') }}
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: "./src-tauri -> target"
-          shared-key: ${{ matrix.target }}
+          workspaces: |
+            ./src-tauri -> target
+            ./harness/xinghe-worker -> target
+          shared-key: desktop-${{ matrix.target }}
+          cache-bin: "false"
+          cache-workspace-crates: "true"
+
+      - name: Install Windows x86 assembler
+        if: matrix.target == 'i686-pc-windows-msvc'
+        uses: ilammy/setup-nasm@72793074d3c8cdda771dba85f6deafe00623038b
+        with:
+          version: 2.16.03
+          platform: win64
+
+      - name: Verify Windows x86 assembler
+        if: matrix.target == 'i686-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          nasm -v
+          if ($LASTEXITCODE -ne 0) { throw 'NASM version check failed' }
 
       - name: Install Linux x64 dependencies
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
-          sudo apt-get update
+          sudo apt-get -o Dir::Etc::sourceparts=- update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
@@ -151,11 +179,21 @@ jobs:
         run: |
           node -e "require('node:fs').rmSync('out', { recursive: true, force: true })"
 
+      - name: Clear previous Windows bundles on signing runner
+        if: contains(toJSON(matrix.runner), 'iyw-signing')
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          node -e 'const fs=require("node:fs"),path=require("node:path");const root=path.resolve("src-tauri/target");const target=process.env.BUILD_TARGET;if(!/^[a-z0-9_-]+$/.test(target))throw new Error("invalid target");const output=path.resolve(root,target,"release/bundle");if(!output.startsWith(root+path.sep))throw new Error("bundle path escapes target directory");fs.rmSync(output,{recursive:true,force:true});'
+
       - name: Download frontend build contents
         uses: actions/download-artifact@v4
         with:
           name: ${{ inputs.frontend_artifact }}
           path: out
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.frontend_run_id || github.run_id }}
 
       # Must run BEFORE sidecar staging so the optional third-party browser
       # controller and the Tauri build inherit the same signing configuration.
@@ -241,6 +279,18 @@ jobs:
             echo "config_arg=--config ${config}"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Preflight hardware signing
+        if: contains(toJSON(matrix.runner), 'iyw-signing')
+        shell: pwsh
+        run: |
+          if ($env:IYW_CLAW_SIGN_MODE -ne 'signtool') { throw 'Hardware signing was not configured' }
+          $probe = Join-Path $env:RUNNER_TEMP ("iyw-release-signing-" + [guid]::NewGuid().ToString('N') + '.exe')
+          try {
+            Copy-Item -LiteralPath (Get-Command node).Source -Destination $probe
+            node src-tauri/scripts/sign-staged-windows.mjs $probe
+            if ($LASTEXITCODE -ne 0) { throw 'Hardware signing preflight failed' }
+          } finally { Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue }
+
       - name: Stage desktop sidecars
         shell: bash
         env:
@@ -249,6 +299,41 @@ jobs:
 
       - name: Verify staged sidecars
         run: node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
+
+      - id: runtime-cache
+        name: Restore runtime seed archives
+        if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') && matrix.target != 'i686-pc-windows-msvc' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/iyw-runtime-seed-cache
+          key: runtime-downloads-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('src-tauri/scripts/runtime-seed-config.mjs') }}
+          restore-keys: |
+            runtime-downloads-${{ runner.os }}-${{ matrix.target }}-
+
+      - name: Prepare runtime seed
+        shell: bash
+        run: pnpm tauri:prepare-runtime-seed --target ${{ matrix.target }}
+
+      - name: Verify runtime seed
+        shell: bash
+        run: pnpm tauri:verify-runtime-seed --target ${{ matrix.target }}
+
+      - name: Save runtime seed archives
+        if: ${{ steps.runtime-cache.outputs.cache-hit != 'true' && !contains(toJSON(matrix.runner), 'self-hosted') && matrix.target != 'i686-pc-windows-msvc' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/iyw-runtime-seed-cache
+          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
+
+      - name: Build built-in worker
+        if: hashFiles('.github/actions/prepare-worker/action.yml') != ''
+        uses: ./.github/actions/prepare-worker
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Prepare worker for legacy source
+        if: hashFiles('.github/actions/prepare-worker/action.yml') == ''
+        run: pnpm tauri:prepare-xinghe-worker --target "${{ matrix.target }}"
 
       - name: Run managed browser smoke
         if: inputs.browser_engine_fixture != '' && matrix.target != 'i686-pc-windows-msvc'
@@ -260,21 +345,6 @@ jobs:
           sidecar="src-tauri/binaries/agent-browser-${{ matrix.target }}"
           if [[ "${{ matrix.target }}" == *windows* ]]; then sidecar+=".exe"; fi
           pnpm tauri:browser-smoke -- --sidecar "$sidecar" --engine "$IYW_CLAW_BROWSER_ENGINE"
-
-      - name: Cache runtime seed archives
-        if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') && matrix.target != 'i686-pc-windows-msvc' }}
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/iyw-runtime-seed-cache
-          key: runtime-seed-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('src-tauri/scripts/*runtime-seed*.mjs', 'src-tauri/runtime-seed/codex/package-lock.json') }}
-
-      - name: Prepare runtime seed
-        shell: bash
-        run: pnpm tauri:prepare-runtime-seed --target ${{ matrix.target }}
-
-      - name: Verify runtime seed
-        shell: bash
-        run: pnpm tauri:verify-runtime-seed --target ${{ matrix.target }}
 
       - name: Build and upload Linux arm64
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -294,8 +364,9 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
+          assetNamePattern: iyw-claw_[version]_arm64[ext]
           tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
-          args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} --config src-tauri/tauri.linux-arm64-ci.conf.json
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} --config src-tauri/tauri.linux-arm64-ci.conf.json -- --timings
           includeUpdaterJson: false
           retryAttempts: 2
 
@@ -323,10 +394,11 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
+          assetNamePattern: iyw-claw_[version]_${{ matrix.target == 'i686-pc-windows-msvc' && 'x86' || 'x64' }}[setup][ext]
           tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
           # steps.signing.outputs.config_arg is either empty (unsigned) or
           # `--config <abs path to generated overlay>`.
-          args: --target ${{ matrix.target }} --features tauri-runtime --bundles nsis --config src-tauri/tauri.ci.conf.json ${{ matrix.target == 'i686-pc-windows-msvc' && '--config src-tauri/tauri.windows-x86.conf.json' || '' }} ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} ${{ steps.signing.outputs.config_arg }}
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles nsis --config src-tauri/tauri.ci.conf.json ${{ matrix.target == 'i686-pc-windows-msvc' && '--config src-tauri/tauri.windows-x86.conf.json' || '' }} ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} ${{ steps.signing.outputs.config_arg }} -- --timings
           # latest.json is generated by the publish-release job in release.yml
           # from the actual release assets (tauri-action's name matching breaks
           # on the non-ASCII productName).
@@ -345,23 +417,26 @@ jobs:
         if: contains(matrix.target, 'windows')
         shell: bash
         run: |
+          bundle_root="src-tauri/target/${{ matrix.target }}/release/bundle/nsis"
           if [ "${{ steps.signing.outputs.mode }}" = "none" ]; then
-            node src-tauri/scripts/verify-signatures.mjs --warn
+            node src-tauri/scripts/verify-signatures.mjs --warn "$bundle_root"/*-setup.exe
           else
-            node src-tauri/scripts/verify-signatures.mjs
+            node src-tauri/scripts/verify-signatures.mjs "$bundle_root"/*-setup.exe
           fi
 
-      # externalBin staging can succeed while the NSIS template accidentally
-      # omits a sidecar. Install into a CI-only temporary root and verify every
-      # supported bundled sidecar is present and byte-identical to its source.
-      - name: Verify installed NSIS sidecars
+      # 签名机可能安装着正式应用，实际安装校验交给干净的 hosted runner。
+      - name: Upload signed Windows verification input
         if: contains(matrix.target, 'windows')
-        shell: bash
-        env:
-          IYW_CLAW_VERIFY_NSIS: "1"
-        run: |
-          node src-tauri/scripts/verify-sidecar-bundle.mjs \
-            --target "${{ matrix.target }}"
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-verification-${{ matrix.target }}
+          overwrite: true
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
+            src-tauri/resources/xinghe-worker/*
+            src-tauri/binaries/agent-browser-${{ matrix.target }}.exe
+          if-no-files-found: error
+          retention-days: 1
 
       # Runs even on failure: the decrypted .pfx holds the private key and must
       # not outlive the job on a self-hosted runner. Paths must stay in sync with
@@ -387,8 +462,9 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
+          assetNamePattern: iyw-claw_[version]_amd64[ext]
           tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
-          args: --target ${{ matrix.target }} --features tauri-runtime --bundles appimage --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles appimage --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} -- --timings
           includeUpdaterJson: false
           retryAttempts: 2
 
@@ -411,8 +487,9 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
+          assetNamePattern: iyw-claw_[version]_${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || 'aarch64' }}[ext]
           tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
-          args: --target ${{ matrix.target }} --features tauri-runtime --bundles app,dmg --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles app,dmg --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} -- --timings
           includeUpdaterJson: false
           retryAttempts: 2
 
@@ -421,12 +498,31 @@ jobs:
         shell: bash
         run: pnpm tauri:verify-bundle-size --target "${{ matrix.target }}"
 
+      - name: Upload macOS x64 verification input
+        if: matrix.target == 'x86_64-apple-darwin'
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-x64-installer-verification
+          overwrite: true
+          path: |
+            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz
+            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Verify macOS runtime seed in app bundle
-        if: contains(matrix.target, 'apple-darwin')
+        if: matrix.target == 'aarch64-apple-darwin'
         shell: bash
         run: pnpm tauri:verify-runtime-seed-bundle --target "${{ matrix.target }}"
 
-      - name: Show sccache statistics
+      - name: Archive Cargo build timings
+        if: always() && hashFiles('.github/actions/build-timings/action.yml') != ''
+        uses: ./.github/actions/build-timings
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Show compiler cache statistics
         if: always()
         shell: bash
         run: sccache --show-stats

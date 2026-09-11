@@ -1055,11 +1055,31 @@ export interface QuestionOption {
 /** A single multiple-choice question (mirror of Rust `QuestionSpec`). `id` is
  *  the backend-minted correlation key the answer is submitted against. */
 export interface QuestionSpec {
+  input?: QuestionInputSpec
+  secret?: boolean
+  optional?: boolean
   id: string
   question: string
   header: string
   multi_select: boolean
   options: QuestionOption[]
+}
+
+export interface QuestionInputSpec {
+  schema: {
+    type: "string" | "number" | "integer" | "boolean" | "array"
+    minLength?: number
+    maxLength?: number
+    minimum?: number
+    maximum?: number
+    minItems?: number
+    maxItems?: number
+    pattern?: string
+    format?: "email" | "uri" | "date" | "date-time"
+  }
+  values: Record<string, string>
+  default_values: string[]
+  allow_other: boolean
 }
 
 /** Awaiting-answer question set on the session (mirror of `PendingQuestionState`). */
@@ -1118,6 +1138,7 @@ export interface SessionConfigSelectOptionInfo {
   name: string
   description?: string | null
   iconUrl?: string | null
+  priceMultiplier?: number | null
   /** Model-only metadata used by the model picker to preview per-model
    * reasoning and response-mode capabilities before selecting the model. */
   modelBehavior?: {
@@ -1318,6 +1339,8 @@ export interface ToolCallImageWire {
 
 // ACP events pushed from Rust backend (discriminated by "type" field)
 export type AcpEvent =
+  | { type: "content_recovered"; content: LiveContentBlock[] }
+  | { type: "runtime_observation"; observation: unknown }
   | { type: "content_delta"; text: string }
   | { type: "thinking"; text: string }
   | {
@@ -1641,7 +1664,29 @@ export type DelegationResultSummary =
 export type EventEnvelope = {
   seq: number
   connection_id: string
+  activity?: SessionActivitySnapshot | null
 } & AcpEvent
+
+export interface ProcessObservation {
+  turn_generation: number
+  item_id: string
+  process_id: string
+  checked_at: string
+  output_at: string | null
+  status: "running" | "completed" | "failed" | "unknown"
+}
+
+export interface SessionActivitySnapshot {
+  turn_generation: number
+  started_at: string | null
+  text_at: string | null
+  thinking_at: string | null
+  tool_output_at: string | null
+  tool_started_at: string | null
+  retrying_since: string | null
+  processes: ProcessObservation[]
+  sampled_at: string
+}
 
 // --- LiveSessionSnapshot wire types (mirror src-tauri/src/acp/session_state.rs) ---
 
@@ -1804,6 +1849,7 @@ export interface UserMemoryCapabilities {
 }
 
 export interface LiveSessionSnapshot {
+  activity?: SessionActivitySnapshot | null
   connection_id: string
   conversation_id: number | null
   folder_id: number | null

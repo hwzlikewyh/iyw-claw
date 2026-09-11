@@ -12,12 +12,35 @@ on:
         required: true
         default: main
         type: string
+      platforms:
+        description: "Platforms to build"
+        required: false
+        default: all
+        type: choice
+        options: [all, windows_x86]
+      frontend_run_id:
+        description: "Reuse release-frontend-out from this run of the same source"
+        required: false
+        type: string
+      signed_candidate:
+        description: Build signed five-platform candidate and keep it as a draft
+        required: false
+        default: false
+        type: boolean
+      candidate_repair_run:
+        description: Repair only Linux for a prior signed candidate run
+        required: false
+        type: string
+      candidate_release_id:
+        required: false
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: github-hosted-packaging-test-${{ inputs.version }}
+  group: github-hosted-packaging-test-${{ inputs.version }}-${{ inputs.candidate_repair_run || 'primary' }}
   cancel-in-progress: false
 
 env:
@@ -27,13 +50,19 @@ env:
 
 jobs:
   prepare-frontend:
+    if: inputs.frontend_run_id == '' && inputs.candidate_repair_run == ''
     name: Prepare frontend input
     runs-on: ubuntu-22.04
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_ref }}
           fetch-depth: 1
+
+      - id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: pnpm/action-setup@v4
         with:
@@ -49,7 +78,11 @@ jobs:
           pnpm install --frozen-lockfile
           node scripts/set-version.mjs "$TEST_VERSION"
 
-      - name: Build frontend
+      - name: Restore frontend compiler cache
+        if: hashFiles('.github/actions/frontend-cache/action.yml') != ''
+        uses: ./.github/actions/frontend-cache
+
+      - name: Compile frontend
         run: pnpm build
 
       - name: Upload frontend input
@@ -63,32 +96,12 @@ jobs:
   build-desktop:
     name: Build ${{ matrix.name }} on GitHub hosted
     needs: prepare-frontend
+    if: ${{ inputs.candidate_repair_run == '' && !inputs.signed_candidate && !cancelled() && (needs.prepare-frontend.result == 'success' || (needs.prepare-frontend.result == 'skipped' && inputs.frontend_run_id != '')) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: Windows x64
-            runner: windows-2022
-            target: x86_64-pc-windows-msvc
-            bundles: nsis
-          - name: Windows x86
-            runner: windows-2022
-            target: i686-pc-windows-msvc
-            bundles: nsis
-          - name: macOS x64
-            runner: macos-latest
-            target: x86_64-apple-darwin
-            bundles: app,dmg
-          - name: macOS arm64
-            runner: macos-latest
-            target: aarch64-apple-darwin
-            bundles: app,dmg
-          - name: Linux x64
-            runner: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            bundles: appimage
+      matrix: ${{ fromJSON(inputs.platforms == 'windows_x86' && '{"include":[{"name":"Windows x86","runner":"windows-2022","target":"i686-pc-windows-msvc","bundles":"nsis"}]}' || '{"include":[{"name":"Windows x64","runner":"windows-2022","target":"x86_64-pc-windows-msvc","bundles":"nsis"},{"name":"Windows x86","runner":"windows-2022","target":"i686-pc-windows-msvc","bundles":"nsis"},{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","bundles":"app,dmg"},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","bundles":"app,dmg"},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"appimage"}]}') }}
     env:
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
       CARGO_PROFILE_RELEASE_LTO: thin
@@ -116,8 +129,19 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: "./src-tauri -> target"
-          shared-key: github-hosted-${{ matrix.target }}
+          workspaces: |
+            ./src-tauri -> target
+            ./harness/xinghe-worker -> target
+          shared-key: desktop-${{ matrix.target }}
+          cache-bin: "false"
+          cache-workspace-crates: "true"
+
+      - name: Install Windows x86 assembler
+        if: matrix.target == 'i686-pc-windows-msvc'
+        uses: ilammy/setup-nasm@72793074d3c8cdda771dba85f6deafe00623038b
+        with:
+          version: 2.16.03
+          platform: win64
 
       - name: Install Linux dependencies
         if: matrix.target == 'x86_64-unknown-linux-gnu'
@@ -128,8 +152,10 @@ jobs:
       - name: Download frontend input
         uses: actions/download-artifact@v4
         with:
-          name: github-hosted-test-frontend-${{ inputs.version }}
+          name: ${{ inputs.frontend_run_id != '' && 'release-frontend-out' || format('github-hosted-test-frontend-{0}', inputs.version) }}
           path: out
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.frontend_run_id || github.run_id }}
 
       - name: Set test version
         shell: bash
@@ -143,14 +169,27 @@ jobs:
           pnpm tauri:prepare-sidecars --target "${{ matrix.target }}"
           node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
 
+      - name: Prepare cached worker resources
+        if: hashFiles('.github/actions/prepare-worker/action.yml') != ''
+        uses: ./.github/actions/prepare-worker
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Prepare worker for legacy source
+        if: hashFiles('.github/actions/prepare-worker/action.yml') == ''
+        run: pnpm tauri:prepare-xinghe-worker --target "${{ matrix.target }}"
+
       - name: Cache runtime seed archives
         if: matrix.target != 'i686-pc-windows-msvc'
         uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/iyw-runtime-seed-cache
-          key: github-hosted-runtime-seed-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('src-tauri/scripts/*runtime-seed*.mjs', 'src-tauri/runtime-seed/codex/package-lock.json') }}
+          key: runtime-downloads-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('src-tauri/scripts/runtime-seed-config.mjs') }}
+          restore-keys: |
+            runtime-downloads-${{ runner.os }}-${{ matrix.target }}-
 
       - name: Prepare and verify runtime seed
+        if: matrix.target != 'i686-pc-windows-msvc'
         shell: bash
         env:
           IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}/iyw-runtime-seed-cache
@@ -171,11 +210,16 @@ jobs:
           --config src-tauri/tauri.ci.conf.json
           ${{ matrix.target == 'i686-pc-windows-msvc' && '--config src-tauri/tauri.windows-x86.conf.json' || '' }}
           ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
-          --no-sign
+          --no-sign -- --timings
 
       - name: Verify desktop bundle size
         shell: bash
         run: pnpm tauri:verify-bundle-size --target "${{ matrix.target }}"
+
+      - name: Verify macOS runtime seed in app bundle
+        if: contains(matrix.target, 'apple-darwin')
+        shell: bash
+        run: pnpm tauri:verify-runtime-seed-bundle --target "${{ matrix.target }}"
 
       - name: Upload desktop test bundle
         uses: actions/upload-artifact@v4
@@ -184,8 +228,57 @@ jobs:
           path: src-tauri/target/${{ matrix.target }}/release/bundle/**
           if-no-files-found: error
           retention-days: 2
+          compression-level: 0
 
-      - name: Show sccache statistics
+      - name: Upload Windows signing input
+        if: contains(matrix.target, 'windows')
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-hosted-signing-${{ matrix.target }}-${{ inputs.version }}
+          path: |
+            out/**
+            src-tauri/target/${{ matrix.target }}/release/iyw-claw.exe
+            src-tauri/binaries/**
+            src-tauri/resources/xinghe-worker/**
+            src-tauri/resources/runtime-seed/**
+            src-tauri/tauri.runtime-seed.conf.json
+          if-no-files-found: error
+          retention-days: 2
+          compression-level: 1
+
+      - name: Archive Cargo build timings
+        if: always() && hashFiles('.github/actions/build-timings/action.yml') != ''
+        uses: ./.github/actions/build-timings
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Show compiler cache statistics
         if: always()
         shell: bash
         run: sccache --show-stats
+
+  signed-candidate:
+    if: inputs.signed_candidate && inputs.candidate_repair_run == ''
+    needs: prepare-frontend
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release-candidate.yml
+    with:
+      version: ${{ inputs.version }}
+      source_ref: ${{ needs.prepare-frontend.outputs.source_sha }}
+      frontend_artifact: github-hosted-test-frontend-${{ inputs.version }}
+    secrets: inherit
+
+  repair-candidate:
+    if: inputs.candidate_repair_run != ''
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release-candidate-repair.yml
+    with:
+      version: ${{ inputs.version }}
+      source_ref: ${{ inputs.source_ref }}
+      prior_run: ${{ inputs.candidate_repair_run }}
+      release_id: ${{ inputs.candidate_release_id }}
+    secrets: inherit

@@ -78,7 +78,7 @@ export function SearchCommandDialog({
     reset: resetFileTree,
   } = useFileTree({
     folderPath: folderPath || undefined,
-    enabled: activeTab === "files",
+    enabled: open && activeTab === "files",
   })
 
   // Compute which agent types exist in current folder

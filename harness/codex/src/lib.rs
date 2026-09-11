@@ -10,7 +10,13 @@ use std::fmt;
 mod acp_agent;
 mod contracts;
 #[cfg(feature = "upstream")]
+mod diagnostics;
+#[cfg(feature = "upstream")]
+mod mcp_readiness;
+#[cfg(feature = "upstream")]
 mod helper_dispatch;
+#[cfg(feature = "upstream")]
+mod launch_config;
 mod method_routes;
 mod runtime;
 mod server_requests;
@@ -18,6 +24,8 @@ mod sessions;
 mod upstream;
 #[cfg(feature = "upstream")]
 mod upstream_backend;
+#[cfg(feature = "upstream")]
+mod upstream_mcp;
 #[cfg(feature = "upstream")]
 mod upstream_start;
 
@@ -87,7 +95,7 @@ pub struct HarnessConfig {
 impl Default for HarnessConfig {
     fn default() -> Self {
         Self {
-            client_name: "iyw-claw-codex-harness".to_string(),
+            client_name: "iyw-claw-xinghe-harness".to_string(),
             client_version: env!("CARGO_PKG_VERSION").to_string(),
             experimental_api: false,
             channel_capacity: 128,

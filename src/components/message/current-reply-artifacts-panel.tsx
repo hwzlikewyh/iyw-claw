@@ -19,13 +19,16 @@ const VISIBLE_ARTIFACT_COUNT = 4
 
 export function CurrentReplyArtifactsPanel({
   items,
+  generatingImages = false,
 }: {
   items: TaskArtifactInfo[]
+  generatingImages?: boolean
 }) {
   const state = useArtifactPanelState(items)
   return (
     <ArtifactPanelSurface
       items={items}
+      generatingImages={generatingImages}
       visibleImages={state.visibleImages}
       visibleArtifacts={state.visibleArtifacts}
       imageRemaining={state.imageRemaining}
@@ -99,6 +102,7 @@ function useArtifactPanelState(items: TaskArtifactInfo[]) {
 
 function ArtifactPanelSurface({
   items,
+  generatingImages,
   visibleImages,
   visibleArtifacts,
   imageRemaining,
@@ -109,6 +113,7 @@ function ArtifactPanelSurface({
   children,
 }: {
   items: TaskArtifactInfo[]
+  generatingImages: boolean
   visibleImages: TaskArtifactInfo[]
   visibleArtifacts: TaskArtifactInfo[]
   imageRemaining: number
@@ -131,10 +136,11 @@ function ArtifactPanelSurface({
         onViewAll={onViewAll}
       />
       <div className="space-y-2">
-        {visibleImages.length > 0 && (
+        {(visibleImages.length > 0 || generatingImages) && (
           <div className="max-w-full overflow-x-auto overscroll-x-contain pb-1">
             <CompactReplyImageStrip
               items={visibleImages}
+              generatingImages={generatingImages}
               remaining={imageRemaining}
               onSelect={onSelect}
               onViewAll={onViewAllImages}

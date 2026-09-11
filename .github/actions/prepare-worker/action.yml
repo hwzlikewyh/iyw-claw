@@ -1,0 +1,31 @@
+name: Prepare cached Xinghe worker
+description: Reuse compiled binaries and always reassemble and verify runtime resources
+inputs:
+  target:
+    required: true
+    description: Rust target triple
+runs:
+  using: composite
+  steps:
+    - id: identity
+      shell: bash
+      env:
+        WORKER_TARGET: ${{ inputs.target }}
+      run: |
+        set -euo pipefail
+        key="$(node src-tauri/scripts/xinghe-worker-cache-key.mjs "$WORKER_TARGET")"
+        echo "key=$key" >> "$GITHUB_OUTPUT"
+    - id: cache
+      uses: actions/cache/restore@v4
+      with:
+        path: harness/xinghe-worker/target/bundle-cache/${{ inputs.target }}
+        key: ${{ steps.identity.outputs.key }}
+    - shell: bash
+      env:
+        WORKER_TARGET: ${{ inputs.target }}
+      run: node src-tauri/scripts/prepare-xinghe-worker.mjs --target "$WORKER_TARGET"
+    - uses: actions/cache/save@v4
+      if: steps.cache.outputs.cache-hit != 'true'
+      with:
+        path: harness/xinghe-worker/target/bundle-cache/${{ inputs.target }}
+        key: ${{ steps.identity.outputs.key }}

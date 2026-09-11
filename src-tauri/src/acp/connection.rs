@@ -72,11 +72,12 @@ const MAX_INLINE_RESOURCE_WIRE_BYTES: usize = 256 * 1024;
 const MAX_PROMPT_RESOURCE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_RESOURCE_URI_DISPLAY_BYTES: usize = 1024;
 const CODEX_BACKEND_ENV: &str = "IYW_CLAW_CODEX_BACKEND";
-const INTERNAL_CODEX_WORKER_BACKEND: &str = "internal-worker";
-const WORKER_CWD_ENV: &str = "IYW_CLAW_CODEX_WORKER_CWD";
-const WORKER_FINGERPRINT_ENV: &str = "IYW_CLAW_CODEX_WORKER_FINGERPRINT";
-const WORKER_HOME_ENV: &str = "IYW_CLAW_CODEX_WORKER_HOME";
-const WORKER_SESSION_ENV: &str = "IYW_CLAW_CODEX_WORKER_EXPECTED_SESSION_ID";
+const INTERNAL_XINGHE_WORKER_BACKEND: &str = "internal-worker";
+const WORKER_CWD_ENV: &str = "IYW_CLAW_XINGHE_WORKER_CWD";
+const WORKER_FINGERPRINT_ENV: &str = "IYW_CLAW_XINGHE_WORKER_FINGERPRINT";
+const WORKER_HOME_ENV: &str = "IYW_CLAW_XINGHE_WORKER_HOME";
+const WORKER_SESSION_ENV: &str = "IYW_CLAW_XINGHE_WORKER_EXPECTED_SESSION_ID";
+const WORKER_CONNECTION_ENV: &str = "IYW_CLAW_XINGHE_WORKER_CONNECTION_ID";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -751,11 +752,13 @@ struct AgentLaunchSpec<'a> {
 
 #[derive(Clone, Copy)]
 struct InternalWorkerLaunch<'a> {
+    connection_id: &'a str,
     expected_session_id: Option<&'a str>,
     runtime_fingerprint: &'a str,
 }
 
 struct AgentRebuildSpec {
+    connection_id: String,
     agent_type: AgentType,
     dedicated_worker: bool,
     expected_session_id: Option<String>,
@@ -773,6 +776,7 @@ async fn rebuild_agent(
     build_agent(AgentLaunchSpec {
         agent_type: spec.agent_type,
         internal_worker: spec.dedicated_worker.then_some(InternalWorkerLaunch {
+            connection_id: &spec.connection_id,
             expected_session_id: spec.expected_session_id.as_deref(),
             runtime_fingerprint: &spec.runtime_fingerprint,
         }),
@@ -831,7 +835,7 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
         stderr_tail,
     } = spec;
     if let Some(worker) = internal_worker {
-        return build_internal_codex_worker_agent(
+        return build_internal_xinghe_worker_agent(
             runtime_env,
             cwd,
             builtin_prompt,
@@ -1276,26 +1280,27 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
     })
 }
 
-fn internal_codex_worker_requested(
+fn internal_xinghe_worker_requested(
     agent_type: AgentType,
     runtime_env: &BTreeMap<String, String>,
 ) -> bool {
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) { return true; }
     agent_type == AgentType::Codex
         && runtime_env.get(CODEX_BACKEND_ENV).is_some_and(|value| {
             value
                 .trim()
-                .eq_ignore_ascii_case(INTERNAL_CODEX_WORKER_BACKEND)
+                .eq_ignore_ascii_case(INTERNAL_XINGHE_WORKER_BACKEND)
         })
 }
 
-fn build_internal_codex_worker_agent(
+fn build_internal_xinghe_worker_agent(
     runtime_env: &BTreeMap<String, String>,
     cwd: &Path,
     builtin_prompt: &str,
     stderr_tail: &Arc<StderrTail>,
     launch: InternalWorkerLaunch<'_>,
 ) -> Result<AcpAgent, AcpError> {
-    ensure_internal_codex_worker_ready()?;
+    ensure_internal_xinghe_worker_ready()?;
     let storage = AgentStoragePaths::active().ok_or_else(|| {
         AcpError::SdkNotInstalled("星河 is not installed: storage is unavailable".to_string())
     })?;
@@ -1305,14 +1310,17 @@ fn build_internal_codex_worker_agent(
             "星河 is not installed: application executable is unavailable".to_string(),
         ));
     }
-    let environment = internal_worker_environment(runtime_env, cwd, &storage, launch);
+    let mut environment = internal_worker_environment(runtime_env, cwd, &storage, launch);
+    let library = crate::internal_xinghe_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
+    let helper = library.with_file_name(crate::internal_xinghe_worker::helper_filename());
+    environment.insert("IYW_CLAW_XINGHE_WORKER_HELPER".into(), helper.to_string_lossy().into_owned());
     let env_vars = environment
         .iter()
         .map(|(name, value)| sacp::schema::EnvVariable::new(name, value))
         .collect();
     let executable = executable.to_string_lossy().into_owned();
     let server = McpServerStdio::new("星河内部运行器", &executable)
-        .args(vec![crate::internal_codex_worker::WORKER_FLAG.to_string()])
+        .args(vec![crate::internal_xinghe_worker::WORKER_FLAG.to_string()])
         .env(env_vars);
     let prompt_for_log = builtin_prompt.to_string();
     let tail = Arc::clone(stderr_tail);
@@ -1320,7 +1328,7 @@ fn build_internal_codex_worker_agent(
         agent = "星河",
         launch_kind = "self_reexec_worker",
         environment_key_count = environment.len(),
-        "[ACP] selected internal Codex worker"
+        "[ACP] selected internal 星河 worker"
     );
     let agent = AcpAgent::new(McpServer::Stdio(server)).with_debug(move |line, direction| {
         if direction == sacp_tokio::LineDirection::Stderr {
@@ -1344,7 +1352,7 @@ fn internal_worker_environment(
         .into_iter()
         .collect::<BTreeMap<_, _>>();
     environment.insert(
-        crate::internal_codex_worker::ACTIVE_ENV.to_string(),
+        crate::internal_xinghe_worker::ACTIVE_ENV.to_string(),
         "1".to_string(),
     );
     environment.insert(
@@ -1361,16 +1369,18 @@ fn internal_worker_environment(
     );
     environment.insert(
         WORKER_FINGERPRINT_ENV.to_string(),
-        launch.runtime_fingerprint.to_string(),
+        // 预热池使用稳定配置键；运行器内部的会话权限仍使用每实例唯一的代际。
+        format!("{}:instance:{}", launch.runtime_fingerprint, uuid::Uuid::new_v4().simple()),
     );
+    environment.insert(WORKER_CONNECTION_ENV.to_string(), launch.connection_id.to_string());
     if let Some(session_id) = launch.expected_session_id {
         environment.insert(WORKER_SESSION_ENV.to_string(), session_id.to_string());
     }
     environment
 }
 
-fn ensure_internal_codex_worker_ready() -> Result<(), AcpError> {
-    crate::internal_codex_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
+fn ensure_internal_xinghe_worker_ready() -> Result<(), AcpError> {
+    crate::internal_xinghe_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
     if crate::update::runtime::self_exe().is_file() {
         Ok(())
     } else {
@@ -1543,19 +1553,10 @@ pub(crate) async fn spawn_agent_connection(
             },
         )
         .await?;
-        let dedicated_worker = if internal_codex_worker_requested(agent_type, &prepared.environment)
+        let dedicated_worker = if internal_xinghe_worker_requested(agent_type, &prepared.environment)
         {
-            match ensure_internal_codex_worker_ready() {
-                Ok(_) => true,
-                Err(error) => {
-                    tracing::warn!(
-                        agent = "星河",
-                        error_code = ?error.code(),
-                        "[ACP] internal Codex worker unavailable; using external ACP fallback"
-                    );
-                    false
-                }
-            }
+            ensure_internal_xinghe_worker_ready()?;
+            true
         } else {
             false
         };
@@ -1571,18 +1572,22 @@ pub(crate) async fn spawn_agent_connection(
             process_fingerprint.push_str(":forced:");
             process_fingerprint.push_str(&uuid::Uuid::new_v4().simple().to_string());
         }
-        if dedicated_worker {
-            process_fingerprint.push_str(":internal-worker:");
-            process_fingerprint.push_str(&connection_id);
-        }
         let process_cwd = if dedicated_worker {
             launch_cwd.clone()
         } else {
             runtime_host_process_cwd(agent_type, &storage, &launch_cwd).to_path_buf()
         };
+        if dedicated_worker || !shared_runtime_host_enabled(agent_type) {
+            process_fingerprint = prewarm::owned_fingerprint(
+                process_fingerprint, prewarm::OwnedRuntimeScope {
+                    cwd: &process_cwd, session_id: session_id.as_deref(), environment: &prepared.environment,
+                },
+            );
+        }
         let agent = build_agent(AgentLaunchSpec {
             agent_type,
             internal_worker: dedicated_worker.then_some(InternalWorkerLaunch {
+                connection_id: &connection_id,
                 expected_session_id: session_id.as_deref(),
                 runtime_fingerprint: &process_fingerprint,
             }),
@@ -1654,6 +1659,7 @@ pub(crate) async fn spawn_agent_connection(
         openclaw,
     } = prepared_prompt;
     let agent_rebuild = AgentRebuildSpec {
+        connection_id: connection_id.clone(),
         agent_type,
         dedicated_worker,
         expected_session_id: session_id.clone(),
@@ -1890,61 +1896,9 @@ pub(crate) async fn spawn_agent_connection(
     Ok(session_started_rx)
 }
 
-pub(crate) async fn prewarm_agent_runtime(
-    agent_type: AgentType,
-    runtime_env: BTreeMap<String, String>,
-    runtime_hosts: Arc<crate::acp::runtime_host::RuntimeHostRegistry>,
-) -> Result<bool, AcpError> {
-    if !shared_runtime_host_enabled(agent_type)
-        || internal_codex_worker_requested(agent_type, &runtime_env)
-    {
-        return Ok(false);
-    }
-    crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
-        .map_err(AcpError::protocol)?;
-    let storage = AgentStoragePaths::active().ok_or_else(|| {
-        AcpError::SdkNotInstalled(
-            "Agent storage is not initialized. Choose a private storage directory in Agent Settings."
-                .to_string(),
-        )
-    })?;
-    crate::commands::experts::ensure_builtin_gateway_skill_ready(agent_type)
-        .await
-        .map_err(|error| {
-            AcpError::protocol(format!(
-                "Capability gateway Skill is not ready for {agent_type}: {error}"
-            ))
-        })?;
-    let prepared = crate::acp::builtin_prompt_injection::prepare(
-        crate::acp::builtin_prompt_injection::PrepareRequest {
-            agent_type,
-            connection_id: "runtime-host-prewarm",
-            session_id: None,
-            environment: &runtime_env,
-            storage: &storage,
-            // Keep the default prewarmed Codex Host aligned with the default
-            // settings-page style so the first concise session can reuse it.
-            response_style: Some("concise"),
-            is_delegation_child: false,
-        },
-    )
-    .await?;
-    let fingerprint = crate::commands::acp::fingerprint_config(agent_type, &prepared.environment);
-    let stderr_tail = stderr_tail_for_runtime_host(agent_type, true);
-    let agent = build_agent(AgentLaunchSpec {
-        agent_type,
-        internal_worker: None,
-        runtime_env: &prepared.environment,
-        cwd: runtime_host_process_cwd(agent_type, &storage, storage.root()),
-        builtin_prompt: &prepared.prompt.text,
-        stderr_tail: &stderr_tail,
-    })
-    .await?;
-    let host_key = runtime_host_key(agent_type, fingerprint, false).await?;
-    let reservation = runtime_hosts.acquire(host_key, agent, stderr_tail).await?;
-    reservation.keep_warm();
-    Ok(true)
-}
+#[path = "connection_prewarm.rs"]
+mod prewarm;
+pub(crate) use prewarm::{prewarm_agent_runtime, RuntimePrewarmRequest, RuntimePrewarmTarget};
 
 async fn runtime_host_key(
     agent_type: AgentType,
@@ -1956,17 +1910,13 @@ async fn runtime_host_key(
             "ACP runtime Host identity is not trusted for {agent_type}"
         ))
     })?;
-    let policy = if dedicated_worker {
-        crate::acp::runtime_host_policy::RuntimeHostPolicy::deny_all()
-    } else {
-        crate::acp::runtime_host_policy::resolve(agent_type).await
-    };
+    let policy = crate::acp::runtime_host_policy::resolve(agent_type).await;
     Ok(crate::acp::runtime_host::RuntimeHostKey::new(
         agent_type,
         process_fingerprint,
         crate::acp::runtime_host::RuntimeHostIdentity {
             definition_fingerprint: identity.definition_fingerprint,
-            runtime_version: identity.runtime_version,
+            runtime_version: if dedicated_worker { crate::internal_xinghe_worker::RUNTIME_VERSION.to_string() } else { identity.runtime_version },
             policy,
         },
     ))
@@ -2898,11 +2848,11 @@ fn in_process_companion_health(
 }
 
 struct CompanionLaunchContext<'a> {
+    namespace: &'a str,
     injection: Option<&'a DelegationInjection>,
     builtin_mcp: Option<&'a crate::acp::builtin_mcp::BuiltinMcpClient>,
     http_lease_issued: &'a AtomicBool,
     connection_id: &'a str,
-    database_conversation_id: Option<i32>,
     working_dir: &'a Path,
     agent_type: AgentType,
     backend_allows_builtin_mcp: bool,
@@ -2946,7 +2896,7 @@ async fn prepare_http_companion(
     let memory_access = project_memory_launch_access(context.state, &health, true).await;
     let resolved =
         resolve_companion_features(injection, client.capability_tools(), &memory_access).await;
-    let server_name = builtin_mcp_server_name(context.database_conversation_id, context.agent_type);
+    let server_name = context.namespace.to_string();
     let authority = http_session_authority(context, &resolved, &memory_access, &server_name);
     let tools_ready = authority.tools_ready();
     let bearer = client
@@ -3112,7 +3062,7 @@ async fn prepare_companion_launch(
             connection_id = context.connection_id,
             agent = %context.agent_type,
             transport = "unavailable",
-            reason = "internal_codex_worker_isolated",
+            reason = "internal_xinghe_worker_isolated",
             "[ACP] built-in MCP is disabled for the isolated internal Codex worker"
         );
         return Ok(unavailable_companion_launch());
@@ -3456,13 +3406,14 @@ async fn run_connection(
             connection_id.clone(),
             session_id.clone(),
             crate::acp::runtime_host::RuntimeSessionRoute {
+                worker_database: dedicated_worker.then(|| version_center_db.clone()).flatten(),
                 state: Arc::clone(&state),
                 emitter: emitter.clone(),
                 permissions: pending_perms.clone(),
                 cwd: cwd_string.clone(),
                 file_system: Arc::clone(&file_system_runtime),
                 terminal: Arc::clone(&terminal_runtime),
-                elicitation: if agent_type == AgentType::DeepSeek {
+                elicitation: if matches!(agent_type, AgentType::DeepSeek | AgentType::Codex) {
                     delegation_injection.as_ref().map(|injection| {
                         crate::acp::deepseek_elicitation::ElicitationAccess::new(
                             Arc::clone(&injection.questions),
@@ -3513,6 +3464,15 @@ async fn run_connection(
         let tools_cancellation = cancellation.clone();
         let connection = async move {
             let state = state_outer;
+            if dedicated_worker {
+                let request = UntypedMessage::new("_iyw/worker/bind_owner", serde_json::json!({
+                    "connectionId": state.read().await.connection_id,
+                }))?;
+                let response = cx.send_request_to(Agent, request).block_task().await?;
+                if response.get("bound").and_then(serde_json::Value::as_bool) != Some(true) {
+                    return Err(ConnectionAttemptError::Protocol(sacp::util::internal_error("worker owner binding failed")));
+                }
+            }
             let managed_agent_version = state.read().await.managed_agent_version.clone();
             let native_steering_available = init_resp
                 .meta
@@ -3566,8 +3526,7 @@ async fn run_connection(
             // OpenClaw rejects non-empty MCP lists and Pi's ACP adapter drops them,
             // so neither may receive user-configured or built-in wire MCP entries.
             // This chokepoint feeds new/load/resume and the load-to-new fallback.
-            let agent_supports_mcp = !dedicated_worker
-                && registry::get_agent_meta(agent_type).supports_mcp
+            let agent_supports_mcp = registry::get_agent_meta(agent_type).supports_mcp
                 && agent_delivers_wire_mcp(agent_type);
 
             // Load MCP servers configured for this agent and filter by the
@@ -3612,18 +3571,27 @@ async fn run_connection(
                 Vec::new()
             };
 
-            // 同一 connection 的 Host 重试复用 authority；新的 connection 独立签发。
+            let requested_session = {
+                let state = state.read().await;
+                state.external_id.clone().or_else(|| state.requested_external_id.clone())
+            };
+            let mcp_namespace = crate::acp::mcp_namespace::resolve(
+                version_center_db.as_ref(),
+                (agent_type, requested_session.as_deref()),
+                builtin_mcp_server_name(database_conversation_id, agent_type),
+            ).await.map_err(ConnectionAttemptError::from)?;
+            // 命名空间在持久化会话中固定；每次连接仅更新 authority 和凭证。
             let (companion_health, companion) = mcp_recovery::prepare(
                 companion_launch,
                 CompanionLaunchContext {
+                    namespace: &mcp_namespace,
                     injection: delegation_injection.as_ref(),
                     builtin_mcp: builtin_mcp.as_ref(),
                     http_lease_issued: http_lease_issued.as_ref(),
                     connection_id: &conn_id,
-                    database_conversation_id,
                     working_dir: &cwd,
                     agent_type,
-                    backend_allows_builtin_mcp: !dedicated_worker,
+                    backend_allows_builtin_mcp: true,
                     state: &state,
                     agent_http_capable: builtin_http_capability_available(
                         agent_type,
@@ -4150,6 +4118,9 @@ async fn run_connection(
                         }
                     };
                 let sid = new_resp.session_id.0.to_string();
+                crate::acp::mcp_namespace::resolve(
+                    version_center_db.as_ref(), (agent_type, Some(&sid)), mcp_namespace.clone(),
+                ).await.map_err(ConnectionAttemptError::from)?;
                 if !route_binding.bind_session(sid.clone()) {
                     return Err(sacp::util::internal_error(
                         "ACP runtime route expired before new session binding",
@@ -4351,6 +4322,11 @@ pub(crate) async fn handle_permission_request(
         .collect();
 
     let mut tool_call_value = serde_json::to_value(&req.tool_call).unwrap_or_default();
+    if let Some(key) = req.meta.as_ref().and_then(|meta| meta.get("iyw"))
+        .and_then(|meta| meta.get("requestKey")).and_then(serde_json::Value::as_str) {
+        if !tool_call_value["_meta"].is_object() { tool_call_value["_meta"] = serde_json::json!({}); }
+        tool_call_value["_meta"]["iyw"] = serde_json::json!({ "requestKey": key });
+    }
 
     // Resolve line numbers in rawInput for edit tool permission requests
     if let Some(obj) = tool_call_value.as_object_mut() {
@@ -4960,7 +4936,7 @@ fn track_terminal_tool_calls(
                 return false;
             }
 
-            let status = format!("{:?}", tc.status).to_lowercase();
+            let status = tool_status_name(&tc.status);
             let entry = tracked.entry(tc.tool_call_id.to_string()).or_default();
             let changed = merge_terminal_ids(&mut entry.terminal_ids, terminal_ids);
             entry.status = Some(status);
@@ -4994,7 +4970,7 @@ fn track_terminal_tool_calls(
             }
 
             if let Some(status) = tcu.fields.status {
-                let status_str = format!("{:?}", status).to_lowercase();
+                let status_str = tool_status_name(&status);
                 if entry.status.as_deref() != Some(status_str.as_str()) {
                     changed = true;
                 }
@@ -5005,6 +4981,13 @@ fn track_terminal_tool_calls(
         }
         _ => false,
     }
+}
+
+fn tool_status_name(status: &sacp::schema::ToolCallStatus) -> String {
+    serde_json::to_value(status)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "pending".to_string())
 }
 
 fn format_terminal_exit_status(exit_status: &TerminalExitStatus) -> String {
@@ -6012,6 +5995,7 @@ async fn finish_native_background_turn(
 ) {
     let stop_reason = match thread_status {
         "idle" => "end_turn",
+        "interrupted" => "cancelled",
         "systemError" => "unknown",
         _ => return,
     };
@@ -6264,7 +6248,9 @@ async fn run_conversation_loop<'a>(
                 // select loop so we can send CancelNotification without
                 // conflicting with session.read_update()'s mutable borrow.
                 let cx = session.connection();
-                let prompt_request = PromptRequest::new(sid.clone(), prompt_blocks);
+                let prompt_request = crate::acp::runtime_host_worker_turn::prompt_request(
+                    state, PromptRequest::new(sid.clone(), prompt_blocks),
+                ).await;
                 // Use Box::pin (heap) instead of tokio::pin! (stack) so the
                 // future can be moved into a background task on cancel.
                 let mut prompt_response = Box::pin(
@@ -6493,14 +6479,14 @@ async fn run_conversation_loop<'a>(
                                                     cx.clone()
                                                         .send_request_to(
                                                             Agent,
-                                                            PromptRequest::new(
+                                                            crate::acp::runtime_host_worker_turn::prompt_request(state, PromptRequest::new(
                                                                 sid.clone(),
                                                                 vec![ContentBlock::Text(
                                                                     TextContent::new(
                                                                         auto_continuation::AUTO_CONTINUATION_PROMPT,
                                                                     ),
                                                                 )],
-                                                            ),
+                                                            )).await,
                                                         )
                                                         .block_task(),
                                                 );
@@ -6797,12 +6783,12 @@ async fn run_conversation_loop<'a>(
                                             cx.clone()
                                                 .send_request_to(
                                                     Agent,
-                                                    PromptRequest::new(
+                                                    crate::acp::runtime_host_worker_turn::prompt_request(state, PromptRequest::new(
                                                         sid.clone(),
                                                         vec![ContentBlock::Text(TextContent::new(
                                                             auto_continuation::AUTO_CONTINUATION_PROMPT,
                                                         ))],
-                                                    ),
+                                                    )).await,
                                                 )
                                                 .block_task(),
                                         );
@@ -7150,6 +7136,7 @@ async fn run_conversation_loop<'a>(
                                         {
                                             snapshot.native_background_turn = Some(
                                                 crate::acp::session_state::NativeBackgroundTurn {
+                                                    automatic: false,
                                                     message_id,
                                                     blocks: user_blocks,
                                                     source_generation: expected_turn_generation,
@@ -7350,14 +7337,40 @@ async fn run_conversation_loop<'a>(
             Some(ConnectionCommand::SafeCancel {
                 expected_turn_generation,
             }) => {
+                let automatic = {
+                    let snapshot = state.read().await;
+                    snapshot.turn_generation == expected_turn_generation && snapshot.turn_in_flight
+                        && snapshot.native_background_turn.as_ref().is_some_and(|turn| turn.automatic)
+                };
+                if automatic {
+                    let _ = session.connection().send_notification_to(Agent, CancelNotification::new(session.session_id().clone()));
+                    PermissionRuntime::new(state, emitter, perms).drain("automatic_turn_cancelled").await;
+                    continue;
+                }
                 tracing::debug!(
                     connection_id = conn_id,
                     expected_turn_generation,
                     "[agent-input] ignoring safe cancellation while connection is idle"
                 );
             }
-            Some(ConnectionCommand::NativeSteer { reply, .. }) => {
-                let _ = reply.send(NativeSteerOutcome::Unsupported);
+            Some(ConnectionCommand::NativeSteer { blocks, codex_image_validation, expected_turn_generation, reply, settled, .. }) => {
+                let available = {
+                    let snapshot = state.read().await;
+                    snapshot.turn_generation == expected_turn_generation && snapshot.turn_in_flight
+                        && snapshot.native_background_turn.as_ref().is_some_and(|turn| turn.automatic)
+                        && snapshot.native_steering_available
+                };
+                let validation = match codex_image_validation {
+                    Some((data_dir, scope)) => crate::acp::agent_image_input::validate_codex_image_inputs(&data_dir, scope, &blocks).await,
+                    None => Ok(()),
+                };
+                let outcome = match validation {
+                    Err(error) => NativeSteerOutcome::Failed(error.to_string()),
+                    Ok(()) if available => send_native_steer(&session.connection(), session.session_id(), agent_type, blocks).await,
+                    Ok(()) => NativeSteerOutcome::PromptRequired,
+                };
+                let _ = reply.send(outcome);
+                let _ = settled.await;
             }
             Some(ConnectionCommand::Fork { reply }) => {
                 if !supports_fork {
@@ -8318,7 +8331,7 @@ async fn emit_conversation_update(
                 },
             )
             .await;
-            let status = format!("{:?}", tc.status).to_lowercase();
+            let status = tool_status_name(&tc.status);
             raw_output_cache.remove_if_final(&tool_call_id, Some(status.as_str()));
             // Avoid logging titles/payloads below — they can be model-generated
             // user task descriptions (PII-adjacent) and would create noise in
@@ -8458,7 +8471,7 @@ async fn emit_conversation_update(
                 },
             )
             .await;
-            let status = tcu.fields.status.map(|s| format!("{:?}", s).to_lowercase());
+            let status = tcu.fields.status.as_ref().map(tool_status_name);
             raw_output_cache.remove_if_final(&tool_call_id, status.as_deref());
             if let Some((name, _)) = &grok_use_tool {
                 cb_state
@@ -8592,6 +8605,47 @@ async fn emit_conversation_update(
             .await;
         }
         SessionUpdate::SessionInfoUpdate(info) => {
+            if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+                if let Some(message) = info.meta.as_ref().and_then(|meta| meta.get("iyw"))
+                    .and_then(|meta| meta.get("recoveryError")).and_then(serde_json::Value::as_str) {
+                    let snapshot = state.read().await;
+                    let reason = info.meta.as_ref().and_then(|meta| meta.get("iyw"))
+                        .and_then(|meta| meta.get("recoveryReason")).and_then(serde_json::Value::as_str);
+                    let reason = match reason {
+                        Some("history_read_failed") => "history_read_failed",
+                        Some("final_message_mismatch") => "final_message_mismatch",
+                        Some("history_read_timeout") => "history_read_timeout",
+                        _ => "unknown",
+                    };
+                    tracing::warn!(connection_id = %snapshot.connection_id,
+                        generation = snapshot.turn_generation, reason,
+                        "[星河][worker] completed output verification failed");
+                    drop(snapshot);
+                    emit_with_state(state, emitter, AcpEvent::Error {
+                        message: message.into(), agent_type: agent_type.to_string(),
+                        code: Some("worker_content_recovery_failed".into()), details: None, terminal: false,
+                    }).await;
+                    if let Some(meta) = info.meta.as_ref().and_then(|meta| meta.get("iyw")) {
+                        crate::acp::worker_content_recovery::acknowledge(state, meta).await;
+                    }
+                }
+                if let Some(meta) = info.meta.as_ref().and_then(|meta| meta.get("iyw"))
+                    .filter(|meta| meta.get("completedContent").is_some()) {
+                    crate::acp::worker_content_recovery::apply(state, emitter, meta).await;
+                }
+            }
+            if agent_type == AgentType::Codex {
+                if let Some(observation) =
+                    crate::acp::runtime_observation::RuntimeObservation::from_meta(info.meta.as_ref())
+                {
+                    emit_with_state(
+                        state,
+                        emitter,
+                        AcpEvent::RuntimeObservation { observation },
+                    )
+                    .await;
+                }
+            }
             if let Some(title) = info
                 .title
                 .value()

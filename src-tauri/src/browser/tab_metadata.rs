@@ -18,36 +18,43 @@ pub(super) async fn page_metadata(
     let data = response_data(response);
     let title = data.get("title").and_then(Value::as_str);
     let url = data.get("url").and_then(Value::as_str);
-    if let (Some(title), Some(url)) = (title, url) {
-        return Ok((bounded_title(title), url.to_string()));
-    }
-    let url_response = cli
-        .run_pinned(
-            session,
-            cdp_url,
-            &["get", "url"],
-            COMMAND_TIMEOUT,
-            cancellation.clone(),
-        )
-        .await?;
-    let title_response = cli
-        .run_pinned(
-            session,
-            cdp_url,
-            &["get", "title"],
-            COMMAND_TIMEOUT,
-            cancellation,
-        )
-        .await?;
-    let url = response_data(&url_response)
-        .get("url")
-        .and_then(Value::as_str)
-        .ok_or_else(unavailable_error)?;
-    let title = response_data(&title_response)
-        .get("title")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    Ok((bounded_title(title), url.to_string()))
+    let fetch = |field| {
+        let cancellation = cancellation.clone();
+        async move {
+            cli.run_pinned(
+                session,
+                cdp_url,
+                &["get", field],
+                COMMAND_TIMEOUT,
+                cancellation,
+            )
+            .await
+        }
+    };
+    let url = match url {
+        Some(url) => url.to_string(),
+        None => {
+            let response = fetch("url").await?;
+            response_data(&response)
+                .get("url")
+                .and_then(Value::as_str)
+                .ok_or_else(unavailable_error)?
+                .to_string()
+        }
+    };
+    let title = match title {
+        Some(title) => bounded_title(title),
+        None => {
+            let response = fetch("title").await?;
+            bounded_title(
+                response_data(&response)
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default(),
+            )
+        }
+    };
+    Ok((title, url))
 }
 
 fn ensure_not_cancelled(cancellation: &CancellationToken) -> Result<(), BrowserError> {

@@ -91,7 +91,8 @@ const DOWNLOADS = {
   },
   git: {
     version: "2.55.0+windows.5",
-    nonWindowsVersion: "2.53.0-4",
+    // dugite 的发布修订不是 Git 本体版本，健康检查只匹配 + 之前的版本。
+    nonWindowsVersion: "2.53.0+dugite.4",
     base: "https://github.com/git-for-windows/git/releases/download/v2.55.0.windows.5/",
     nonWindowsBase:
       "https://github.com/desktop/dugite-native/releases/download/v2.53.0-4/",
@@ -117,10 +118,10 @@ const DOWNLOADS = {
     ],
   },
   "codex-acp": {
-    version: "1.8.0",
+    version: "1.10.0",
     package: "@agentclientprotocol/codex-acp",
     codexPackage: "@openai/codex",
-    codexVersion: "0.152.1",
+    codexVersion: "0.153.4",
   },
 }
 

@@ -1,0 +1,87 @@
+name: Signed Desktop Candidate
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      source_ref:
+        required: true
+        type: string
+      frontend_artifact:
+        required: true
+        type: string
+jobs:
+  draft:
+    runs-on: ubuntu-22.04
+    outputs:
+      release_id: ${{ steps.draft.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+      - id: draft
+        uses: actions/github-script@v7
+        env:
+          VERSION: ${{ inputs.version }}
+          SOURCE: ${{ inputs.source_ref }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const version = process.env.VERSION;
+            if (JSON.parse(fs.readFileSync('package.json')).version !== version) throw new Error('Source version mismatch');
+            if (!/^\d+\.\d+\.\d+-[a-zA-Z0-9.-]+$/.test(version)) throw new Error('Candidate must have a prerelease version');
+            const tag = `v${version}`;
+            const releases = await github.paginate(github.rest.repos.listReleases, {...context.repo, per_page:100});
+            const matches = releases.filter(release => release.tag_name === tag);
+            if (matches.length > 1 || matches.some(release => !release.draft || release.target_commitish !== process.env.SOURCE)) throw new Error('Existing candidate has a different source or is published');
+            const release = matches[0] || (await github.rest.repos.createRelease({...context.repo,tag_name:tag,target_commitish:process.env.SOURCE,name:`iyw-claw ${tag}`,draft:true,prerelease:true,body:`Signed build candidate from ${process.env.SOURCE}. Not published to Fusion.`})).data;
+            core.setOutput('id', String(release.id));
+  desktop:
+    needs: draft
+    uses: ./.github/workflows/release-tauri.yml
+    with:
+      release_id: ${{ needs.draft.outputs.release_id }}
+      release_tag: v${{ inputs.version }}
+      source_ref: ${{ inputs.source_ref }}
+      release_body: Signed build candidate
+      prerelease: true
+      frontend_artifact: ${{ inputs.frontend_artifact }}
+      build_matrix: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false}]}'
+    secrets: inherit
+  windows:
+    needs: draft
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-pc-windows-msvc, i686-pc-windows-msvc]
+    uses: ./.github/workflows/release-windows-staged.yml
+    with:
+      target: ${{ matrix.target }}
+      source_ref: ${{ inputs.source_ref }}
+      release_id: ${{ needs.draft.outputs.release_id }}
+      release_tag: v${{ inputs.version }}
+      frontend_artifact: ${{ inputs.frontend_artifact }}
+    secrets: inherit
+  verify-windows:
+    needs: windows
+    uses: ./.github/workflows/release-windows-verification.yml
+    with:
+      source_ref: ${{ inputs.source_ref }}
+  verify-macos:
+    needs: desktop
+    uses: ./.github/workflows/release-macos-verification.yml
+    with:
+      source_ref: ${{ inputs.source_ref }}
+  finish:
+    needs: [draft, verify-windows, verify-macos]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove temporary signing inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.draft.outputs.release_id }}
+          RELEASE_TAG: v${{ inputs.version }}
+        run: |
+          node --input-type=module -e 'import {cleanupStaging} from "./.github/scripts/release/github-assets.mjs"; cleanupStaging({repo:process.env.GITHUB_REPOSITORY,releaseId:process.env.RELEASE_ID,tag:process.env.RELEASE_TAG});'

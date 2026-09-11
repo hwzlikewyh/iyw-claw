@@ -205,6 +205,7 @@ impl BrowserSessionManager {
             .await
             .ok_or_else(|| BrowserError::tab_not_found(tab_id))?;
         let mut requests = self.user_action_requests.lock().await;
+        self.ensure_managed_browser_enabled()?;
         if requests
             .values()
             .any(|request| request.snapshot.browser_tab_id == tab_id)

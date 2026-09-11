@@ -15,6 +15,9 @@ use crate::models::agent::AgentType;
 /// stays `None` if checks failed so they are retried next time.
 static NPM_ENV_CACHE: Mutex<Option<Vec<CheckItem>>> = Mutex::new(None);
 
+#[path = "node_version_cache.rs"]
+mod node_version_cache;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FixActionKind {
@@ -57,9 +60,21 @@ pub struct PreflightResult {
 
 pub fn clear_npm_env_cache() {
     *NPM_ENV_CACHE.lock().unwrap() = None;
+    node_version_cache::clear();
 }
 
 pub async fn run_preflight(agent_type: AgentType) -> PreflightResult {
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        let result = crate::internal_xinghe_worker::resolve_library();
+        let passed = result.is_ok();
+        return PreflightResult { agent_type, agent_name: "星河".into(), passed, checks: vec![CheckItem {
+            check_id: "builtin-worker".into(), label: "内置星河运行时".into(),
+            status: if passed { CheckStatus::Pass } else { CheckStatus::Fail },
+            message: result.map(|_| format!("内置运行时 {} 已就绪", crate::internal_xinghe_worker::RUNTIME_VERSION))
+                .unwrap_or_else(|error| format!("{error}；请修复或重新安装应用")),
+            fixes: Vec::new(),
+        }] };
+    }
     let meta = registry::get_agent_meta(agent_type);
     let storage = AgentStoragePaths::active();
     debug_assert_eq!(meta.agent_type, agent_type);
@@ -350,16 +365,7 @@ pub(crate) async fn enforce_node_binary_version(
     environment: &BTreeMap<String, String>,
     required: &str,
 ) -> Result<(), String> {
-    let output = crate::process::tokio_command(&node_path)
-        .envs(environment)
-        .arg("--version")
-        .output()
-        .await
-        .map_err(|error| format!("failed to execute Node.js for version check: {error}"))?;
-    if !output.status.success() {
-        return Err("Node.js version check failed".to_string());
-    }
-    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let version = node_version_cache::version(node_path, environment).await?;
     let check = build_node_version_check(Some(&version), required);
     match check.status {
         CheckStatus::Pass => Ok(()),

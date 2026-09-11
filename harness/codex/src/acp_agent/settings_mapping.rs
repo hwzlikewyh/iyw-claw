@@ -2,12 +2,15 @@ use serde_json::{json, Value};
 
 use crate::UpstreamError;
 
+use super::model_settings::{ModelSelection, ModelSettings};
+use super::session_options;
+
 #[derive(Debug, Clone)]
 pub(super) struct SessionSettings {
     permission_mode: String,
     collaboration_mode: String,
-    model: Option<String>,
-    reasoning_effort: Option<Value>,
+    model: ModelSettings,
+    native_title: Option<String>,
 }
 
 impl Default for SessionSettings {
@@ -15,30 +18,60 @@ impl Default for SessionSettings {
         Self {
             permission_mode: "agent".to_string(),
             collaboration_mode: "default".to_string(),
-            model: None,
-            reasoning_effort: None,
+            model: ModelSettings::default(),
+            native_title: None,
         }
     }
 }
 
 impl SessionSettings {
+    pub(super) fn title_model(&self) -> Option<String> { self.model.current.clone() }
+    pub(super) fn native_title(&self) -> Option<&str> { self.native_title.as_deref() }
+    pub(super) fn fork_values(&self) -> Value {
+        let mut values = self.model.current_values();
+        values["collaborationMode"] = json!({ "mode": self.collaboration_mode, "settings": {
+            "model": self.model.current, "reasoning_effort": self.model.effort, "developer_instructions": null,
+        } });
+        values
+    }
     pub(super) fn capture(&mut self, response: &Value) {
+        if let Some(thread) = response.get("thread") {
+            self.native_title = thread.get("name").and_then(Value::as_str)
+                .filter(|name| !name.trim().is_empty()).map(str::to_string);
+        }
         self.permission_mode = permission_mode_from_response(response).to_string();
-        self.model = response
-            .get("model")
+        self.model.capture(response);
+        if let Some(mode) = response
+            .pointer("/collaborationMode/mode")
             .and_then(Value::as_str)
-            .filter(|value| !value.trim().is_empty())
-            .map(str::to_string);
-        self.reasoning_effort = response
-            .get("reasoningEffort")
-            .filter(|value| !value.is_null())
-            .cloned();
+        {
+            self.collaboration_mode = mode.to_string();
+        }
+    }
+
+    pub(super) async fn load_models(
+        &mut self,
+        upstream: &crate::UpstreamClient,
+    ) -> Result<(), UpstreamError> {
+        self.model.load(upstream).await
+    }
+
+    pub(super) fn prompt_capabilities(
+        &self,
+        capabilities: crate::CapabilitySet,
+    ) -> crate::CapabilitySet {
+        if self.model.accepts_images() {
+            capabilities
+        } else {
+            capabilities.without(crate::Capability::Images)
+        }
     }
 
     pub(super) fn apply(&mut self, change: SettingsChange) {
         match change {
             SettingsChange::Permission(mode) => self.permission_mode = mode,
             SettingsChange::Collaboration(mode) => self.collaboration_mode = mode,
+            SettingsChange::Model(selection) => self.model.apply(selection),
         }
     }
 }
@@ -46,12 +79,13 @@ impl SessionSettings {
 pub(super) enum SettingsChange {
     Permission(String),
     Collaboration(String),
+    Model(ModelSelection),
 }
 
 pub(super) fn new_session_response(id: &str, settings: &SessionSettings) -> Value {
     json!({
         "sessionId": id,
-        "modes": mode_state(&settings.permission_mode),
+        "modes": session_options::mode_state(&settings.permission_mode),
         "configOptions": config_options(settings),
     })
 }
@@ -66,6 +100,13 @@ pub(super) fn request(
         let mode = required_string(params, "modeId")?;
         return permission_request(thread_id, mode);
     }
+    if method == "session/set_model" {
+        let model = required_string(params, "modelId")?;
+        return settings
+            .model
+            .request(&thread_id, ("model", &model))
+            .map(|(request, selection)| (request, SettingsChange::Model(selection)));
+    }
     if method != "session/set_config_option" {
         return Err(UpstreamError::InvalidRequest(format!(
             "unsupported ACP settings method: {method}"
@@ -76,6 +117,10 @@ pub(super) fn request(
     match config_id.as_str() {
         "mode" => permission_request(thread_id, value),
         "collaboration_mode" => collaboration_request(thread_id, value, settings),
+        "model" | "reasoning_effort" | "fast-mode" => settings
+            .model
+            .request(&thread_id, (&config_id, &value))
+            .map(|(request, selection)| (request, SettingsChange::Model(selection))),
         _ => Err(UpstreamError::InvalidRequest(format!(
             "unsupported Codex config option: {config_id}"
         ))),
@@ -83,7 +128,7 @@ pub(super) fn request(
 }
 
 pub(super) fn response(method: &str, settings: &SessionSettings) -> Value {
-    if method == "session/set_mode" {
+    if matches!(method, "session/set_mode" | "session/set_model") {
         json!({})
     } else {
         json!({ "configOptions": config_options(settings) })
@@ -127,13 +172,13 @@ fn collaboration_request(
             "unsupported Codex collaboration mode: {mode}"
         )));
     }
-    let model = settings.model.clone().ok_or_else(|| {
+    let model = settings.model.current.clone().ok_or_else(|| {
         UpstreamError::InvalidResponse("Codex session response has no active model".into())
     })?;
     let effort = if mode == "plan" {
         Some(Value::String("medium".to_string()))
     } else {
-        settings.reasoning_effort.clone()
+        settings.model.effort.clone()
     };
     Ok((
         json!({
@@ -162,7 +207,12 @@ fn permission_mode_from_response(response: &Value) -> &'static str {
         Some(":read-only") => "read-only",
         Some(":danger-full-access") => "agent-full-access",
         Some(":workspace") => "agent",
-        _ => match response.get("sandbox").and_then(Value::as_str) {
+        _ => match response
+            .pointer("/sandboxPolicy/type")
+            .or_else(|| response.pointer("/sandbox/type"))
+            .or_else(|| response.get("sandbox"))
+            .and_then(Value::as_str)
+        {
             Some("readOnly" | "read-only") => "read-only",
             Some("dangerFullAccess" | "danger-full-access") => "agent-full-access",
             _ => "agent",
@@ -170,51 +220,12 @@ fn permission_mode_from_response(response: &Value) -> &'static str {
     }
 }
 
-fn config_options(settings: &SessionSettings) -> Vec<Value> {
-    vec![
-        json!({
-            "id": "mode",
-            "name": "Approval Preset",
-            "category": "mode",
-            "type": "select",
-            "currentValue": settings.permission_mode,
-            "options": [
-                select_option("read-only", "Read-only"),
-                select_option("agent", "Agent"),
-                select_option("agent-full-access", "Full access"),
-            ],
-        }),
-        json!({
-            "id": "collaboration_mode",
-            "name": "Work mode",
-            "category": "collaboration_mode",
-            "type": "select",
-            "currentValue": settings.collaboration_mode,
-            "options": [
-                select_option("default", "Default"),
-                select_option("plan", "Plan"),
-            ],
-        }),
-    ]
-}
-
-fn mode_state(mode: &str) -> Value {
-    json!({
-        "currentModeId": mode,
-        "availableModes": [
-            mode_option("read-only", "Read-only"),
-            mode_option("agent", "Agent"),
-            mode_option("agent-full-access", "Full access"),
-        ]
-    })
-}
-
-fn mode_option(id: &str, name: &str) -> Value {
-    json!({ "id": id, "name": name })
-}
-
-fn select_option(value: &str, name: &str) -> Value {
-    json!({ "value": value, "name": name })
+pub(super) fn config_options(settings: &SessionSettings) -> Vec<Value> {
+    session_options::config_options(
+        &settings.permission_mode,
+        &settings.collaboration_mode,
+        settings.model.options(),
+    )
 }
 
 fn required_string(params: &Value, field: &str) -> Result<String, UpstreamError> {

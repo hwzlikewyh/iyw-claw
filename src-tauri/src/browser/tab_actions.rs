@@ -7,8 +7,11 @@ use super::tab_launch::launch_tab;
 use super::tab_metadata::page_metadata;
 use super::types::{BrowserGenerations, BrowserStateSnapshot};
 
+mod navigation;
 mod tab_close;
 mod tab_shutdown;
+
+use navigation::navigation_error;
 
 const NAVIGATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -132,16 +135,16 @@ impl BrowserSessionManager {
             .find(|tab| tab.browser_tab_id == tab_id)
             .ok_or_else(|| BrowserError::tab_not_found(tab_id))?
             .status;
-        let lease = self.acquire_user_control(tab_id).await?;
-        let result = if matches!(
+        if matches!(
             status,
             super::types::BrowserTabStatus::Crashed | super::types::BrowserTabStatus::Gone
         ) {
-            self.restore_browser_tab(tab_id).await
-        } else {
-            self.run_navigation(tab_id, &["reload"], CancellationToken::new())
-                .await
-        };
+            return self.restore_browser_tab(tab_id).await;
+        }
+        let lease = self.acquire_user_control(tab_id).await?;
+        let result = self
+            .run_navigation(tab_id, &["reload"], CancellationToken::new())
+            .await;
         lease.finish().await;
         result
     }
@@ -208,7 +211,7 @@ impl BrowserSessionManager {
             Ok(response) => response,
             Err(error) => {
                 self.finish_failed_navigation(&ticket, &error).await;
-                return Err(error);
+                return Err(navigation_error(error, &ticket));
             }
         };
         let (title, url) = match page_metadata(
@@ -223,7 +226,9 @@ impl BrowserSessionManager {
             Ok(metadata) => metadata,
             Err(error) => {
                 self.finish_failed_navigation(&ticket, &error).await;
-                return Err(error);
+                return Err(navigation_error(error, &ticket)
+                    .effect_may_have_occurred(true)
+                    .retryable(false));
             }
         };
         self.state

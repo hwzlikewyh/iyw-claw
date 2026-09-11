@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    if iyw_claw_lib::internal_codex_worker::dispatch_early() {
+    if iyw_claw_lib::internal_xinghe_worker::dispatch_early() {
         return;
     }
     iyw_claw_lib::logging::emergency::install_panic_hook();

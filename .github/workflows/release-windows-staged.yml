@@ -1,0 +1,198 @@
+name: Build and Sign Windows Release
+on:
+  workflow_call:
+    inputs:
+      target:
+        required: true
+        type: string
+      source_ref:
+        required: true
+        type: string
+      release_id:
+        required: true
+        type: string
+      release_tag:
+        required: true
+        type: string
+      frontend_artifact:
+        required: false
+        default: release-frontend-out
+        type: string
+env:
+  TAURI_TARGET_TRIPLE: ${{ inputs.target }}
+  SOURCE_REF: ${{ inputs.source_ref }}
+  RELEASE_ID: ${{ inputs.release_id }}
+  RELEASE_TAG: ${{ inputs.release_tag }}
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 150
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      asset_id: ${{ steps.upload.outputs.asset_id }}
+      sha256: ${{ steps.upload.outputs.sha256 }}
+    env:
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "8"
+      CARGO_PROFILE_RELEASE_LTO: thin
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: "true"
+      TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Initialize build paths
+        run: |
+          "IYW_CLAW_RUNTIME_SEED_CACHE=$env:RUNNER_TEMP/iyw-runtime-seed-cache" >> $env:GITHUB_ENV
+          "IYW_CLAW_STAGING_DIR=$env:RUNNER_TEMP/staging-$env:TAURI_TARGET_TRIPLE" >> $env:GITHUB_ENV
+          "STAGING_ARCHIVE=$env:RUNNER_TEMP/iyw-staging-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$env:TAURI_TARGET_TRIPLE.zip" >> $env:GITHUB_ENV
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tools
+          sparse-checkout: |
+            .github/scripts/release
+            src-tauri/scripts
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ inputs.target }}
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+            harness/xinghe-worker -> target
+          shared-key: desktop-${{ inputs.target }}
+          cache-bin: "false"
+          cache-workspace-crates: "true"
+      - uses: ilammy/setup-nasm@72793074d3c8cdda771dba85f6deafe00623038b
+        if: inputs.target == 'i686-pc-windows-msvc'
+        with:
+          version: 2.16.03
+          platform: win64
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.frontend_artifact }}
+          path: out
+      - name: Stage sidecars
+        env:
+          IYW_CLAW_BROWSER_SIDECAR_EXCLUDED: ${{ inputs.target == 'i686-pc-windows-msvc' && '1' || '' }}
+        run: pnpm tauri:prepare-sidecars --target $env:TAURI_TARGET_TRIPLE
+      - uses: actions/cache@v4
+        if: inputs.target != 'i686-pc-windows-msvc'
+        with:
+          path: ${{ runner.temp }}/iyw-runtime-seed-cache
+          key: runtime-downloads-${{ runner.os }}-${{ inputs.target }}-${{ hashFiles('src-tauri/scripts/runtime-seed-config.mjs') }}
+          restore-keys: runtime-downloads-${{ runner.os }}-${{ inputs.target }}-
+      - name: Prepare runtime seed
+        if: inputs.target != 'i686-pc-windows-msvc'
+        run: |
+          pnpm tauri:prepare-runtime-seed --target $env:TAURI_TARGET_TRIPLE
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime preparation failed' }
+          pnpm tauri:verify-runtime-seed --target $env:TAURI_TARGET_TRIPLE
+          if ($LASTEXITCODE -ne 0) { throw 'Runtime verification failed' }
+      - uses: ./.github/actions/prepare-worker
+        if: hashFiles('.github/actions/prepare-worker/action.yml') != ''
+        with:
+          target: ${{ inputs.target }}
+      - name: Prepare legacy worker
+        if: hashFiles('.github/actions/prepare-worker/action.yml') == ''
+        run: pnpm tauri:prepare-xinghe-worker --target $env:TAURI_TARGET_TRIPLE
+      - name: Compile unsigned application only
+        env:
+          IYW_CLAW_SKIP_SIDECAR: "1"
+        run: |
+          $overlay = if ($env:TAURI_TARGET_TRIPLE -eq 'i686-pc-windows-msvc') { 'src-tauri/tauri.windows-x86.conf.json' } else { 'src-tauri/tauri.runtime-seed.conf.json' }
+          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config $overlay --no-bundle --no-sign -- --timings
+          if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
+      - name: Package verified signing input
+        run: |
+          node .release-tools/.github/scripts/release/windows-release.mjs prepare
+          if ($LASTEXITCODE -ne 0) { throw 'Staging manifest failed' }
+          Compress-Archive -Path (Join-Path $env:IYW_CLAW_STAGING_DIR '*') -DestinationPath $env:STAGING_ARCHIVE -CompressionLevel Fastest
+      - id: upload
+        name: Transfer staging through draft release
+        run: node .release-tools/.github/scripts/release/windows-release.mjs upload
+      - uses: ./.github/actions/build-timings
+        if: always() && hashFiles('.github/actions/build-timings/action.yml') != ''
+        with:
+          target: ${{ inputs.target }}
+
+  sign:
+    needs: build
+    runs-on: [self-hosted, Windows, X64, iyw-signing]
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      STAGING_ASSET_ID: ${{ needs.build.outputs.asset_id }}
+      STAGING_SHA256: ${{ needs.build.outputs.sha256 }}
+      IYW_CLAW_SIGN_MODE: signtool
+      IYW_CLAW_SIGN_REQUIRED: "1"
+      IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
+      HTTP_PROXY: http://127.0.0.1:7890
+      HTTPS_PROXY: http://127.0.0.1:7890
+      NO_PROXY: localhost,127.0.0.1,api.github.com,uploads.github.com
+      TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
+      IYW_CLAW_SKIP_SIDECAR: "1"
+    steps:
+      - name: Initialize signing paths
+        run: |
+          "IYW_CLAW_STAGING_DIR=$env:RUNNER_TEMP/sign-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$env:TAURI_TARGET_TRIPLE" >> $env:GITHUB_ENV
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          clean: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: .release-tools
+          sparse-checkout: |
+            .github/scripts/release
+            src-tauri/scripts
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Prepare local bundler
+        run: pnpm install --frozen-lockfile --prefer-offline
+      - id: download
+        name: Download or reuse verified staging
+        run: node .release-tools/.github/scripts/release/windows-release.mjs download
+      - name: Extract signing input
+        env:
+          ARCHIVE: ${{ steps.download.outputs.archive }}
+        run: Expand-Archive -LiteralPath $env:ARCHIVE -DestinationPath $env:IYW_CLAW_STAGING_DIR
+      - name: Sign, bundle, verify and upload
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node .release-tools/.github/scripts/release/windows-release.mjs finalize
+      - name: Upload signed installation verification input
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-verification-${{ inputs.target }}
+          overwrite: true
+          path: |
+            src-tauri/target/${{ inputs.target }}/release/bundle/nsis/*-setup.exe
+            src-tauri/resources/xinghe-worker/*
+            src-tauri/binaries/agent-browser-${{ inputs.target }}.exe
+          compression-level: 1
+          if-no-files-found: error
+          retention-days: 2

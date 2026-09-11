@@ -44,6 +44,9 @@ use crate::db::entities::conversation::{self, ConversationKind, ConversationStat
 use crate::db::service::conversation_service;
 use crate::db::AppDatabase;
 
+#[path = "manager_prewarm.rs"]
+mod prewarm;
+
 const MAX_EMERGENCY_RECLAIMS_PER_TICK: usize = 4;
 
 fn combine_prompt_context(launch: Option<Arc<str>>, private: Option<Arc<str>>) -> Option<Arc<str>> {
@@ -671,62 +674,6 @@ impl ConnectionManager {
         self.delegation_injection
             .get()
             .is_some_and(|injection| injection.tokens.listener_ready())
-    }
-
-    pub async fn prewarm_codex_runtime(&self) -> Result<bool, AcpError> {
-        let _operation_guard = self.acquire_operation_read().await?;
-        if crate::acp::agent_storage_work::has_active_agent_storage_work() {
-            tracing::info!("[ACP] skipping Codex runtime prewarm during Agent storage work");
-            return Ok(false);
-        }
-        let _storage_read_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
-        let resources = crate::acp::resource_governor::ResourceSnapshot::capture();
-        if matches!(
-            resources.memory.pressure,
-            crate::acp::resource_governor::MemoryPressure::Shrinking
-                | crate::acp::resource_governor::MemoryPressure::Emergency
-        ) {
-            tracing::info!(
-                pressure = resources.memory.pressure.as_str(),
-                available_bytes = resources.memory.available_bytes,
-                total_bytes = resources.memory.total_bytes,
-                "[ACP] skipping runtime prewarm under memory pressure"
-            );
-            return Ok(false);
-        }
-        let version_center_db = self
-            .version_center_db
-            .get()
-            .ok_or_else(|| AcpError::protocol("Agent platform authorization is not initialized"))?;
-        let data_dir = self.version_center_data_dir.get().ok_or_else(|| {
-            AcpError::protocol("Agent platform data directory is not initialized")
-        })?;
-        let agent_type = AgentType::Codex;
-        let runtime_env = match crate::commands::acp::build_session_runtime_env(
-            &AppDatabase {
-                conn: version_center_db.clone(),
-            },
-            agent_type,
-            None,
-            data_dir,
-        )
-        .await
-        {
-            Ok(environment) => environment,
-            Err(AcpError::SdkNotInstalled(_)) => {
-                tracing::info!("[ACP] skipping Codex runtime prewarm because it is not installed");
-                return Ok(false);
-            }
-            Err(error) => return Err(error),
-        };
-        crate::commands::acp::verify_agent_installed(agent_type, &runtime_env)?;
-        self.require_agent_launch_policy(agent_type, true).await?;
-        crate::acp::connection::prewarm_agent_runtime(
-            agent_type,
-            runtime_env,
-            self.runtime_hosts.clone(),
-        )
-        .await
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3863,6 +3810,8 @@ impl ConnectionManager {
         if entry.parent_connection_id != conn_id {
             return Err(AcpError::protocol("Question belongs to another session"));
         }
+        crate::acp::question::validate_secret_answers(&entry.questions, &answer).map_err(AcpError::protocol)?;
+        crate::acp::question::validate_input_answers(&entry.questions, &answer).map_err(AcpError::protocol)?;
         let outcome = build_outcome(&entry.questions, &answer);
         if !outcome.declined && outcome.answers.len() != entry.questions.len() {
             return Err(AcpError::protocol("An answer is required for every question"));

@@ -1,4 +1,5 @@
 name: Release
+run-name: Release ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || github.ref_name }}
 
 on:
   push:
@@ -78,9 +79,24 @@ jobs:
                 echo "::error::Release tag $tag already exists and is not a draft."
                 exit 1
               fi
+              git fetch origin "refs/tags/$tag:refs/tags/$tag"
+              tag_ref="$(git rev-parse "$tag^{commit}")"
+              if ! git merge-base --is-ancestor "$tag_ref" HEAD; then
+                echo "::error::Draft tag $tag is not an ancestor of $DEFAULT_BRANCH."
+                exit 1
+              fi
+              # 只允许发布工具变化时重试同一 draft，应用源码仍固定在原 tag。
+              if ! git diff --quiet "$tag_ref" HEAD -- . \
+                  ':(exclude).github/workflows' ':(exclude).github/scripts/release'; then
+                echo "::error::Application source changed since $tag; use a new release version."
+                exit 1
+              fi
+              git checkout --detach "$tag_ref"
             fi
 
-            node scripts/set-version.mjs "$version"
+            if [[ "$tag_exists" == false ]]; then
+              node scripts/set-version.mjs "$version"
+            fi
             cargo_version="$(
               cargo metadata \
                 --manifest-path src-tauri/Cargo.toml \
@@ -108,8 +124,6 @@ jobs:
             fi
             source_ref="$(git rev-parse HEAD)"
             if [[ "$tag_exists" == true ]]; then
-              git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
-              tag_ref="$(git rev-list -n 1 "$tag^{commit}")"
               if [[ "$tag_ref" != "$source_ref" ]]; then
                 echo "::error::Draft tag $tag points to $tag_ref, but this release source is $source_ref. Refusing to mix assets from different commits."
                 exit 1
@@ -117,9 +131,7 @@ jobs:
               echo "Reusing existing draft tag $tag at source commit $source_ref."
             else
               git tag -a "$tag" -m "Release $tag"
-            fi
-            git push origin "HEAD:refs/heads/$DEFAULT_BRANCH"
-            if [[ "$tag_exists" == false ]]; then
+              git push origin "HEAD:refs/heads/$DEFAULT_BRANCH"
               git push origin "refs/tags/$tag"
             fi
           else
@@ -222,7 +234,11 @@ jobs:
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build frontend
+      - name: Restore frontend compiler cache
+        if: hashFiles('.github/actions/frontend-cache/action.yml') != ''
+        uses: ./.github/actions/frontend-cache
+
+      - name: Compile frontend
         run: pnpm build
 
       - name: Upload frontend build
@@ -239,6 +255,7 @@ jobs:
       - prepare-frontend
     permissions:
       contents: write
+      actions: read
     uses: ./.github/workflows/release-tauri.yml
     with:
       release_id: ${{ needs.create-draft-release.outputs.release_id }}
@@ -246,13 +263,56 @@ jobs:
       release_body: ${{ needs.create-draft-release.outputs.release_body }}
       source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
       prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
+      build_matrix: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false}]}'
     secrets: inherit
+
+  build-windows:
+    needs: [create-draft-release, prepare-frontend]
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64-pc-windows-msvc, i686-pc-windows-msvc]
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release-windows-staged.yml
+    with:
+      target: ${{ matrix.target }}
+      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
+      release_id: ${{ needs.create-draft-release.outputs.release_id }}
+      release_tag: ${{ needs.create-draft-release.outputs.release_tag }}
+    secrets: inherit
+
+  verify-windows-installers:
+    needs:
+      - create-draft-release
+      - build-windows
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/release-windows-verification.yml
+    with:
+      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
+
+  verify-macos-x64-installer:
+    needs:
+      - create-draft-release
+      - build-tauri
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/release-macos-verification.yml
+    with:
+      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
 
   publish-release:
     needs:
       - create-draft-release
       - build-tauri
-    if: ${{ needs.build-tauri.result == 'success' }}
+      - build-windows
+      - verify-windows-installers
+      - verify-macos-x64-installer
+    if: ${{ needs.build-tauri.result == 'success' && needs.build-windows.result == 'success' && needs.verify-windows-installers.result == 'success' && needs.verify-macos-x64-installer.result == 'success' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -264,6 +324,14 @@ jobs:
           path: .release-workflow
           sparse-checkout: .github/scripts/release
           sparse-checkout-cone-mode: false
+
+      - name: Remove temporary Windows staging assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.create-draft-release.outputs.release_id }}
+          RELEASE_TAG: ${{ needs.create-draft-release.outputs.release_tag }}
+        run: |
+          node --input-type=module -e 'import {cleanupStaging} from "./.release-workflow/.github/scripts/release/github-assets.mjs"; cleanupStaging({repo:process.env.GITHUB_REPOSITORY,releaseId:process.env.RELEASE_ID,tag:process.env.RELEASE_TAG});'
 
       - name: Upload updater manifest (latest.json)
         uses: actions/github-script@v7
@@ -322,6 +390,7 @@ jobs:
       - publish-release
     permissions:
       contents: write
+      actions: read
     uses: ./.github/workflows/release-tauri.yml
     with:
       release_id: ${{ needs.create-draft-release.outputs.release_id }}

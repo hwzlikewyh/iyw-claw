@@ -4,6 +4,7 @@ import { useState } from "react"
 import { ChevronRight, ChevronDown, Wrench, AlertCircle } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { cn } from "@/lib/utils"
+import { getToolDisplayName } from "@/lib/tool-display"
 
 interface ToolCallBlockProps {
   type: "tool_use" | "tool_result"
@@ -19,7 +20,12 @@ export function ToolCallBlock({
   isError = false,
 }: ToolCallBlockProps) {
   const t = useTranslations("Folder.chat.toolCallBlock")
+  const toolT = useTranslations("Folder.chat.contentParts")
   const [expanded, setExpanded] = useState(false)
+  const displayName = getToolDisplayName(
+    { toolName: toolName ?? "tool", input: content },
+    (key) => (toolT.has(key as never) ? toolT(key as never) : null)
+  )
 
   return (
     <div
@@ -42,7 +48,9 @@ export function ToolCallBlock({
         {type === "tool_use" ? (
           <>
             <Wrench className="h-3 w-3 shrink-0 text-muted-foreground" />
-            <span className="font-medium">{toolName || t("tool")}</span>
+            <span className="min-w-0 break-words font-medium">
+              {displayName}
+            </span>
           </>
         ) : (
           <>

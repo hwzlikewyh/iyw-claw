@@ -1126,8 +1126,23 @@ fn cache_successful_central_reconcile() -> Result<(), ExpertsError> {
 }
 
 pub async fn ensure_central_experts_installed() -> InstallReport {
+    let guard = mutation_lock().lock().await;
+    // 指纹检查也递归访问磁盘；与写入和缓存更新一起交给阻塞线程。
+    // guard 随闭包移动，调用者取消时不会提前释放仍在写文件的锁。
+    tokio::task::spawn_blocking(move || {
+        let _guard = guard;
+        ensure_central_experts_cached_blocking()
+    })
+    .await
+    .unwrap_or_else(|error| {
+        let mut report = InstallReport::default();
+        report.errors.push(format!("join error: {error}"));
+        report
+    })
+}
+
+fn ensure_central_experts_cached_blocking() -> InstallReport {
     let started_at = Instant::now();
-    let _guard = mutation_lock().lock().await;
     match central_experts_cache_is_current() {
         Ok(true) => {
             tracing::info!(
@@ -1150,13 +1165,20 @@ pub async fn ensure_central_experts_installed() -> InstallReport {
             "central Skill cache fingerprint failed; reconciling from disk"
         ),
     }
-    let report = tokio::task::spawn_blocking(ensure_central_experts_installed_blocking)
-        .await
-        .unwrap_or_else(|e| {
-            let mut r = InstallReport::default();
-            r.errors.push(format!("join error: {e}"));
-            r
-        });
+    let report = ensure_central_experts_installed_blocking();
+    record_central_reconcile(&report);
+    tracing::info!(
+        target: "system_skills",
+        elapsed_ms = started_at.elapsed().as_millis(),
+        installed = report.installed_count,
+        updated = report.updated_count,
+        errors = report.errors.len(),
+        "central Skill reconcile finished"
+    );
+    report
+}
+
+fn record_central_reconcile(report: &InstallReport) {
     if report.errors.is_empty() {
         if let Err(error) = cache_successful_central_reconcile() {
             tracing::warn!(
@@ -1168,15 +1190,6 @@ pub async fn ensure_central_experts_installed() -> InstallReport {
     } else {
         invalidate_central_experts_cache("reconcile_failed");
     }
-    tracing::info!(
-        target: "system_skills",
-        elapsed_ms = started_at.elapsed().as_millis(),
-        installed = report.installed_count,
-        updated = report.updated_count,
-        errors = report.errors.len(),
-        "central Skill reconcile finished"
-    );
-    report
 }
 
 fn ensure_central_experts_installed_blocking() -> InstallReport {
@@ -1783,8 +1796,9 @@ pub(crate) async fn ensure_builtin_gateway_skill_ready(
     agent_type: AgentType,
 ) -> Result<ExpertInstallStatus, ExpertsError> {
     let started_at = Instant::now();
-    let _guard = mutation_lock().lock().await;
+    let guard = mutation_lock().lock().await;
     let status = tokio::task::spawn_blocking(move || {
+        let _guard = guard;
         ensure_builtin_gateway_skill_ready_blocking(agent_type)
     })
     .await

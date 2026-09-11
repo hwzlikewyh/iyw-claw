@@ -10,7 +10,6 @@ use crate::acp::delegation::listener::DelegationListener;
 use super::authority::SessionContext;
 
 const GATEWAY_ORIGIN: &str = "https://gateway.iyw.cn";
-const IMAGE_PREFIX: &str = "/ai-application/api/microModel";
 const FUSION_PREFIX: &str = "/iyw-fusion-api/v1";
 const HTTP_TIMEOUT: Duration = Duration::from_secs(super::iyw_image::FUSION_TIMEOUT_SECONDS);
 
@@ -207,32 +206,7 @@ impl IywGatewayService {
         mime_type: &str,
         extension: &str,
     ) -> Result<String, rmcp::ErrorData> {
-        let key = format!(
-            "AI/img/{}/{}.{}",
-            chrono::Local::now().format("%y%m%d"),
-            uuid::Uuid::new_v4().simple(),
-            extension
-        );
-        let presigned = self
-            .post_gateway(IMAGE_PREFIX, "PreSignedUrl", json!({"objectKey": key}))
-            .await?;
-        let signed = super::iyw_upload::extract_url(&presigned)?;
-        let public = super::iyw_upload::public_url(&signed);
-        let response = self
-            .client
-            .put(signed)
-            .header(reqwest::header::CONTENT_TYPE, mime_type)
-            .body(bytes)
-            .send()
-            .await
-            .map_err(|error| image_transport_error("upload", &error))?;
-        if !response.status().is_success() {
-            return Err(rmcp::ErrorData::invalid_params(
-                "IYW image upload was rejected",
-                Some(json!({"status": response.status().as_u16()})),
-            ));
-        }
-        Ok(public)
+        super::iyw_upload::upload_image_bytes(self, bytes, (mime_type, extension)).await
     }
 
     pub(super) async fn deliver(

@@ -67,6 +67,8 @@ pub type ToolCallImageInfo = crate::models::message::ImageData;
 pub struct EventEnvelope {
     pub seq: u64,
     pub connection_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activity: Option<crate::acp::session_activity::SessionActivitySnapshot>,
     #[serde(flatten)]
     pub payload: AcpEvent,
 }
@@ -75,6 +77,11 @@ pub struct EventEnvelope {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AcpEvent {
+    /// 上游权威回合内容，修复队列丢失导致的文本缺口和工具顺序。
+    ContentRecovered { content: Vec<crate::acp::session_state::LiveContentBlock> },
+    RuntimeObservation {
+        observation: crate::acp::runtime_observation::RuntimeObservation,
+    },
     /// Agent returned text content (streaming delta)
     ContentDelta {
         text: String,
