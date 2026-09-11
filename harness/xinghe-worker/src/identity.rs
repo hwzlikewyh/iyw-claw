@@ -1,6 +1,6 @@
 /// 纯 C ABI 身份接口不创建运行时；加载器在执行 worker 前核对。
 const ABI_VERSION: u64 = 1;
-const CORE_VERSION: u64 = 153 * 1_000 + 4;
+const CORE_VERSION: u64 = 154 * 1_000;
 
 #[no_mangle]
 pub extern "C" fn iyw_xinghe_worker_abi_version() -> u64 {
@@ -15,4 +15,4 @@ pub extern "C" fn iyw_xinghe_worker_core_version() -> u64 {
 #[used]
 #[no_mangle]
 pub static IYW_XINGHE_WORKER_IDENTITY_V1: [u8; 83] =
-    *b"IYW_XINGHE_WORKER|1|0.153.4|3d2ee51ca2d5db578f328aa75e20aa22c0197c9a|END_WORKER_ID\0";
+    *b"IYW_XINGHE_WORKER|1|0.154.0|6b9826e3aa83b1a5947db50f4332cb9c65f1b340|END_WORKER_ID\0";

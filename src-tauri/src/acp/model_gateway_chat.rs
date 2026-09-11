@@ -1,11 +1,9 @@
 use std::time::Duration;
 
-use reqwest::{StatusCode, Url};
-use sea_orm::DatabaseConnection;
+use reqwest::StatusCode;
 use serde_json::{json, Value};
 
 use crate::app_error::AppCommandError;
-use crate::models::agent::AgentType;
 
 const MAX_ERROR_DETAIL_CHARS: usize = 500;
 
@@ -23,26 +21,6 @@ pub(crate) struct StructuredChatRequest<'a> {
     pub json_schema: Value,
     pub max_tokens: u32,
     pub operation: &'static str,
-}
-
-pub(crate) async fn runtime_config(
-    db: &DatabaseConnection,
-    model: String,
-    timeout: Duration,
-) -> Result<Option<ModelGatewayChatConfig>, AppCommandError> {
-    let api_key = crate::commands::iyw_account::iyw_account_access_token_core(db)
-        .await?
-        .map(|token| token.expose().to_string());
-    let Some(api_key) = api_key else {
-        return Ok(None);
-    };
-    let base = crate::acp::provider_overlay::model_gateway_base_url_for(AgentType::Codex);
-    Ok(Some(ModelGatewayChatConfig {
-        api_url: normalize_chat_completions_url(&base)?,
-        api_key,
-        model,
-        timeout,
-    }))
 }
 
 pub(crate) async fn call_structured(
@@ -79,28 +57,6 @@ pub(crate) async fn call_structured(
         return Err(status_error(operation, status, &body));
     }
     response_content(operation, &body)
-}
-
-fn normalize_chat_completions_url(raw: &str) -> Result<String, AppCommandError> {
-    let trimmed = raw.trim().trim_end_matches('/');
-    let parsed = Url::parse(trimmed).map_err(|error| {
-        AppCommandError::configuration_invalid("Model gateway URL is invalid")
-            .with_detail(error.to_string())
-    })?;
-    if !matches!(parsed.scheme(), "http" | "https") || parsed.query().is_some() {
-        return Err(AppCommandError::configuration_invalid(
-            "Model gateway URL must be HTTP(S) without a query",
-        ));
-    }
-    if parsed.path().ends_with("/chat/completions") {
-        return Ok(trimmed.to_string());
-    }
-    let suffix = if parsed.path().trim_end_matches('/').ends_with("/v1") {
-        "/chat/completions"
-    } else {
-        "/v1/chat/completions"
-    };
-    Ok(format!("{trimmed}{suffix}"))
 }
 
 fn response_content(operation: &str, body: &str) -> Result<String, AppCommandError> {

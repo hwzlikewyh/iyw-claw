@@ -18,7 +18,7 @@ mod resources;
 
 pub const WORKER_FLAG: &str = "--internal-xinghe-worker";
 pub const ACTIVE_ENV: &str = "IYW_CLAW_XINGHE_WORKER_ACTIVE";
-pub const RUNTIME_VERSION: &str = "0.153.4";
+pub const RUNTIME_VERSION: &str = "0.154.0";
 
 pub(crate) fn is_desktop_agent(agent: crate::models::agent::AgentType) -> bool {
     cfg!(feature = "tauri-runtime") && agent == crate::models::agent::AgentType::Codex
@@ -44,7 +44,7 @@ const HELPER_ENTRY: &[u8] = b"iyw_xinghe_worker_dispatch_helper_v1\0";
 const ABI_ENTRY: &[u8] = b"iyw_xinghe_worker_abi_version\0";
 const CORE_VERSION_ENTRY: &[u8] = b"iyw_xinghe_worker_core_version\0";
 const REQUIRED_ABI: u64 = 1;
-const REQUIRED_CORE_VERSION: u64 = 153 * 1_000 + 4;
+const REQUIRED_CORE_VERSION: u64 = 154 * 1_000;
 
 /// Handles a worker process or an upstream helper reexec before app startup.
 ///
@@ -98,11 +98,13 @@ fn exit_worker(symbol: &[u8]) -> ! {
 }
 
 fn load_and_run(symbol: &[u8]) -> Result<i32, String> {
+    let started = std::time::Instant::now();
+    if symbol == WORKER_ENTRY { eprintln!("[internal-xinghe-worker] stage=load_library status=begin"); }
     let path = resolve_library()?;
     unsafe {
         // The library remains live until its C ABI entry point returns.
         let library = load_library(&path)
-            .map_err(|error| format!("failed to load internal 星河 worker library: {error}"))?;
+            .map_err(|error| library_error("load_library", error))?;
         let abi = library.get::<unsafe extern "C" fn() -> u64>(ABI_ENTRY)
             .map_err(|_| "内置星河运行时缺少版本接口，请修复安装".to_string())?;
         let core_version = library.get::<unsafe extern "C" fn() -> u64>(CORE_VERSION_ENTRY)
@@ -116,7 +118,8 @@ fn load_and_run(symbol: &[u8]) -> Result<i32, String> {
         }
         let entry = library
             .get::<unsafe extern "C" fn() -> i32>(symbol)
-            .map_err(|_| "internal 星河 worker entry point is unavailable".to_string())?;
+            .map_err(|error| library_error("resolve_entry", error))?;
+        if symbol == WORKER_ENTRY { eprintln!("[internal-xinghe-worker] stage=load_library status=ok elapsed_ms={}", started.elapsed().as_millis()); }
         Ok(entry())
     }
 }
@@ -137,6 +140,13 @@ unsafe fn load_library(path: &Path) -> Result<Library, libloading::Error> {
     }
     #[cfg(not(windows))]
     Library::new(path)
+}
+
+fn library_error(stage: &str, error: libloading::Error) -> String {
+    const MAX_DETAIL_CHARS: usize = 512;
+    let detail = crate::acp::stderr_tail::sanitize_diagnostic(&error.to_string())
+        .chars().take(MAX_DETAIL_CHARS).collect::<String>();
+    format!("stage={stage} status=error detail={detail}")
 }
 
 fn is_active_worker() -> bool {

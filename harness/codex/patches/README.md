@@ -101,3 +101,18 @@ orphaned documentation are omitted. Review this override when updating MXC.
 Before updating `upstream.lock`, compare this directory with the new upstream
 crate. Drop the local override when the new release compiles without it; do not
 carry it forward by default.
+
+The 0.154.0 upgrade refreshes all vendored Codex production crates from commit
+`6b9826e3aa83b1a5947db50f4332cb9c65f1b340`. Three-way source migration preserves
+the Windows launch flags, renamed helper paths, command descriptions, and
+legacy thread-history adapter. Production dependency changes and precomputed
+protocol exports are synchronized; test-only source additions are omitted.
+The unchanged PTY source still needs the existing pointer-cast patch.
+## MCP Tool Identity Diagnostics
+
+The Codex 0.154.0 registry patch classifies a namespace-only invocation, a
+missing namespace, and an unregistered identity before execution. It preserves
+the official structured tool routing and does not add alias guessing. This
+allows the host to distinguish a provider/relay namespace compatibility error
+from an unavailable business capability. See `docs/runtime-repairs-20260911.md`
+at the repository root for the observed production routing configuration.

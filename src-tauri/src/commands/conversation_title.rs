@@ -93,22 +93,6 @@ pub(crate) async fn refresh_fallback(
     .await
 }
 
-pub(crate) async fn refresh_summary(
-    context: &ConversationTitleContext<'_>,
-    conversation_id: i32,
-    title: &str,
-) -> Result<bool, DbError> {
-    refresh_with_source(
-        context,
-        TitleRefresh {
-            conversation_id,
-            title,
-            source: ConversationTitleSource::CodexSummary,
-        },
-    )
-    .await
-}
-
 struct TitleRefresh<'a> {
     conversation_id: i32,
     title: &'a str,

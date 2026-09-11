@@ -3,6 +3,8 @@
 mod config;
 mod identity;
 mod worker;
+#[path = "../../codex/src/diagnostics.rs"]
+mod diagnostics;
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 

@@ -2,7 +2,7 @@
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-core-plugins"
-version = "0.153.4"
+version = "0.154.0"
 
 [lib]
 doctest = false
@@ -12,27 +12,27 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1"
-codex-analytics = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-app-server-protocol = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-config = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-connectors = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-exec-server = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-git-utils = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-hooks = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-http-client = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-login = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-mcp = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-model-provider = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-otel = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-plugin = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-protocol = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-skills = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-shell-command = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-tools = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-utils-absolute-path = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-utils-path = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-utils-path-uri = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-utils-plugins = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
+codex-analytics = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-app-server-protocol = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-config = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-connectors = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-exec-server = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-git-utils = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-hooks = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-http-client = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-login = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-mcp = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-model-provider = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-otel = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-plugin = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-protocol = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-skills = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-shell-command = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-tools = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-utils-absolute-path = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-utils-path = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-utils-path-uri = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-utils-plugins = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
 chrono = "0.4.43"
 dirs = "6"
 flate2 = "1.1.8"

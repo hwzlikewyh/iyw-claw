@@ -5,7 +5,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 
 const IDENTITY: &[u8] =
-    b"IYW_XINGHE_WORKER|1|0.153.4|3d2ee51ca2d5db578f328aa75e20aa22c0197c9a|END_WORKER_ID\0";
+    b"IYW_XINGHE_WORKER|1|0.154.0|6b9826e3aa83b1a5947db50f4332cb9c65f1b340|END_WORKER_ID\0";
 const READ_BYTES: usize = 64 * 1024;
 type CachedIdentity = (u64, Option<SystemTime>, bool);
 static CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedIdentity>>> = OnceLock::new();

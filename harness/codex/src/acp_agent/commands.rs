@@ -118,6 +118,10 @@ pub(super) async fn publish(
 
 pub(super) fn command(params: &Value) -> Option<(&str, &str)> {
     let prompt = params["prompt"].as_array()?;
+    let prompt = if prompt.first().and_then(|block| block["text"].as_str()).is_some_and(|text| {
+        text.starts_with("<!-- IYW_CLAW_USER_CONTEXT_V1_START -->")
+            && text.trim_end().ends_with("<!-- IYW_CLAW_USER_CONTEXT_V1_END -->")
+    }) { &prompt[1..] } else { prompt.as_slice() };
     if prompt.len() != 1 || prompt[0]["type"] != "text" {
         return None;
     }
@@ -146,14 +150,24 @@ pub(super) async fn execute(
         "goal" => {
             let method = if args == "clear" {
                 "thread/goal/clear"
-            } else if args.is_empty() {
+            } else if args.is_empty() || args == "status" {
                 "thread/goal/get"
             } else {
                 "thread/goal/set"
             };
             let mut params = json!({ "threadId": thread });
             if method == "thread/goal/set" {
-                params["objective"] = json!(args);
+                match args {
+                    "pause" => params["status"] = json!("paused"),
+                    "resume" => params["status"] = json!("active"),
+                    "set" | "edit" => return Err(UpstreamError::InvalidRequest("Goal objective is required".into())),
+                    objective => {
+                        let objective = objective.strip_prefix("set ").or_else(|| objective.strip_prefix("edit ")).unwrap_or(objective).trim();
+                        if objective.is_empty() { return Err(UpstreamError::InvalidRequest("Goal objective is required".into())); }
+                        params["objective"] = json!(objective);
+                        params["status"] = json!("active");
+                    }
+                }
             }
             let result = upstream
                 .request_json_for_thread(thread, json!({ "method": method, "params": params }))

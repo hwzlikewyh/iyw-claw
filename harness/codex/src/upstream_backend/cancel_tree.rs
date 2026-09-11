@@ -10,6 +10,7 @@ const CANCEL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6);
 impl UpstreamClient {
     pub(crate) async fn cancel_owned_tree(&self, root: &str) -> Result<(), UpstreamError> {
         tokio::time::timeout(CANCEL_TIMEOUT, async {
+            self.pause_active_goal(root).await?;
             self.interrupt_if_running(root).await?;
             loop {
                 let mut interrupted = false;
@@ -48,6 +49,21 @@ impl UpstreamClient {
         // 有 ID 的 interrupt 仅在 TurnAborted 后回复；此时可退役迟到事件。
         self.complete_turn_for_thread(thread, &turn.turn_id).await?;
         Ok(true)
+    }
+
+    async fn pause_active_goal(&self, thread: &str) -> Result<(), UpstreamError> {
+        let response = match self.request_json_for_thread(thread, json!({
+            "method": "thread/goal/get", "params": {"threadId": thread}
+        })).await {
+            Err(UpstreamError::Rpc {message, ..}) if message == "goals feature is disabled" => return Ok(()),
+            result => result?,
+        };
+        if response.pointer("/goal/status").and_then(Value::as_str) == Some("active") {
+            self.request_json_for_thread(thread, json!({
+                "method": "thread/goal/set", "params": {"threadId": thread, "status": "paused"}
+            })).await?;
+        }
+        Ok(())
     }
 
     async fn bind_loaded_descendant(&self, thread: &str) -> Result<bool, UpstreamError> {

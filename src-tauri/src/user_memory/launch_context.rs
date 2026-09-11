@@ -109,10 +109,7 @@ impl UserMemoryService {
                     readable_documents.insert(id);
                     documents.insert(id, content);
                 }
-                Err(error) => tracing::warn!(
-                    "[user-memory] omitting unreadable {} from launch context: {error}",
-                    id.file_name()
-                ),
+                Err(error) => log_document_error(id, &error),
             }
             if super::fs::is_document_readonly(self.resolved_root().unwrap(), id) {
                 readonly_documents.insert(id);
@@ -129,6 +126,22 @@ impl UserMemoryService {
             documents,
         )
     }
+}
+
+fn log_document_error(id: UserMemoryDocumentId, error: &crate::app_error::AppCommandError) {
+    const MAX_DETAIL_CHARS: usize = 512;
+    let detail =
+        crate::acp::stderr_tail::sanitize_diagnostic(error.detail.as_deref().unwrap_or_default())
+            .chars()
+            .take(MAX_DETAIL_CHARS)
+            .collect::<String>();
+    tracing::warn!(
+        document = id.file_name(),
+        error_code = ?error.code,
+        error = %error,
+        detail,
+        "[user-memory] omitting unreadable document from launch context"
+    );
 }
 
 fn build_context(

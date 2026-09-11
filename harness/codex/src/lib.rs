@@ -10,6 +10,10 @@ use std::fmt;
 mod acp_agent;
 mod contracts;
 #[cfg(feature = "upstream")]
+mod diagnostics;
+#[cfg(feature = "upstream")]
+mod mcp_readiness;
+#[cfg(feature = "upstream")]
 mod helper_dispatch;
 #[cfg(feature = "upstream")]
 mod launch_config;

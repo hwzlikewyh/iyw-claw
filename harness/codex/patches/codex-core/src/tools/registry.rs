@@ -483,7 +483,7 @@ impl ToolRegistry {
         let tool = match self.tool(&tool_name) {
             Some(tool) => tool,
             None => {
-                let message = unsupported_tool_call_message(&invocation.payload, &tool_name);
+                let message = unsupported_tool_call_message(&invocation.payload, &tool_name, self);
                 let log_payload = tool_log_payload(&invocation.payload, &invocation.source);
                 let mut tool_result_tags = Vec::with_capacity(2);
                 sandbox_tags.append_metric_tags(&mut tool_result_tags);
@@ -782,9 +782,49 @@ fn function_hook_tool_input(arguments: &str) -> Value {
     serde_json::from_str(arguments).unwrap_or_else(|_| Value::String(arguments.to_string()))
 }
 
-fn unsupported_tool_call_message(payload: &ToolPayload, tool_name: &ToolName) -> String {
-    match payload {
+fn unsupported_tool_call_message(
+    payload: &ToolPayload,
+    tool_name: &ToolName,
+    registry: &ToolRegistry,
+) -> String {
+    let (code, detail) = missing_tool_identity(tool_name, registry);
+    tracing::warn!(
+        error_code = code,
+        execution_status = "not_started",
+        "Model tool call did not match the current tool registry"
+    );
+    let message = match payload {
         ToolPayload::Custom { .. } => format!("unsupported custom tool call: {tool_name}"),
         _ => format!("unsupported call: {tool_name}"),
+    };
+    format!("{message}; code={code}; execution_status=not_started. {detail}")
+}
+
+fn missing_tool_identity(tool_name: &ToolName, registry: &ToolRegistry) -> (&'static str, &'static str) {
+    if tool_name.is_default_namespace() {
+        let namespace_only = registry.entries().any(|entry| {
+            let registered = entry.runtime.tool_name();
+            registered.namespace.as_deref() == Some(tool_name.name.as_str())
+        });
+        if namespace_only {
+            return (
+                "tool_namespace_not_callable",
+                "A namespace is a tool group, not a callable function. The provider or relay must preserve its child tool names and schemas. Stop using this route for this turn; do not guess names or replay calls.",
+            );
+        }
+        let namespace_missing = registry.entries().any(|entry| {
+            let registered = entry.runtime.tool_name();
+            !registered.is_default_namespace() && registered.name == tool_name.name
+        });
+        if namespace_missing {
+            return (
+                "tool_namespace_missing",
+                "The returned call omitted its registered namespace. The provider or relay must preserve the structured tool identity. Do not guess a namespace or replay this call.",
+            );
+        }
     }
+    (
+        "tool_not_registered",
+        "This identity is absent from the current tool registry. Use only the currently advertised definitions; do not rename or retry this call.",
+    )
 }

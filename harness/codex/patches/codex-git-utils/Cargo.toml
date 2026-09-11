@@ -1,6 +1,6 @@
 [package]
 name = "codex-git-utils"
-version = "0.153.4"
+version = "0.154.0"
 edition = "2024"
 license = "Apache-2.0"
 readme = "README.md"
@@ -9,11 +9,11 @@ readme = "README.md"
 [dependencies]
 anyhow = { version = "1" }
 chrono = { version = "0.4.43" }
-codex-file-system = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-protocol = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-utils-absolute-path = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-utils-path-uri = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
-codex-utils-pty = { git = "https://github.com/openai/codex.git", rev = "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a" }
+codex-file-system = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-protocol = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-utils-absolute-path = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-utils-path-uri = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
+codex-utils-pty = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340" }
 futures = { version = "0.3", default-features = false, features = ["alloc"] }
 gix = { version = "0.81.0", default-features = false, features = ["sha1"] }
 once_cell = { version = "1.20.2" }

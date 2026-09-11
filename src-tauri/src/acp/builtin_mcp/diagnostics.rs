@@ -138,13 +138,14 @@ pub(super) fn invocation_error_stage(error: &ErrorData) -> &'static str {
     "backend"
 }
 
-pub(super) fn log_tools_list(authority: &SessionContext, tool_count: usize) {
+pub(super) fn log_tools_list(authority: &SessionContext, tool_names: &[&str]) {
     tracing::info!(
         target: "builtin_mcp",
         connection_id = authority.connection_id(),
         agent = %authority.agent_type(),
         server_fingerprint = fingerprint(authority.gateway_server_name()),
-        tool_count,
+        tool_count = tool_names.len(),
+        tool_names = ?tool_names,
         "[MCP][gateway] tools listed"
     );
 }

@@ -13,6 +13,7 @@ use codex_feedback::CodexFeedback;
 use codex_protocol::protocol::SessionSource;
 use codex_utils_absolute_path::AbsolutePathBuf;
 
+use crate::diagnostics::StartupStage;
 use crate::{CapabilitySet, HarnessConfig, UpstreamError};
 
 #[derive(Debug, Clone)]
@@ -33,27 +34,40 @@ pub struct UpstreamStartArgs {
 
 impl UpstreamStartArgs {
     pub(crate) async fn build_client(self) -> Result<InProcessAppServerClient, UpstreamError> {
-        let workspace_roots = validate_paths(&self)?;
-        let launch_overrides = crate::launch_config::environment_overrides()?;
+        let stage = StartupStage::new("validate_paths");
+        let workspace_roots = stage.finish(validate_paths(&self)).map_err(start_error)?;
         let arg0_paths = Arg0DispatchPaths {
             codex_self_exe: Some(self.helper_executable.clone()),
             codex_linux_sandbox_exe: self.linux_sandbox_executable.clone(),
             main_execve_wrapper_exe: self.main_execve_wrapper_executable.clone(),
         };
-        let config = build_config(&self, &arg0_paths, (workspace_roots, &launch_overrides)).await?;
-        let runtime_paths = ExecServerRuntimePaths::from_optional_paths(
-            arg0_paths.codex_self_exe.clone(),
-            arg0_paths.codex_linux_sandbox_exe.clone(),
-        )
-        .map_err(start_error)?;
-        let environment_manager = EnvironmentManager::from_codex_home(
-            config.codex_home.clone(),
-            Some(runtime_paths),
-            config.http_client_factory(),
-        )
-        .await
-        .map_err(start_error)?;
+        let launch_overrides = crate::launch_config::environment_overrides()?;
+        let stage = StartupStage::new("load_config");
+        let config = stage
+            .finish(build_config(&self, &arg0_paths, (workspace_roots, &launch_overrides)).await)
+            .map_err(start_error)?;
+        let args = self
+            .client_start_args(config, (arg0_paths, launch_overrides))
+            .await?;
+        StartupStage::new("app_server")
+            .finish(InProcessAppServerClient::start(args).await)
+            .map_err(start_error)
+    }
+
+    async fn client_start_args(
+        &self,
+        config: codex_core::config::Config,
+        launch: (Arg0DispatchPaths, serde_json::Value),
+    ) -> Result<InProcessClientStartArgs, UpstreamError> {
+        let (arg0_paths, launch_overrides) = launch;
+        let environment_manager = build_environment(&config, &arg0_paths).await?;
+        let stage = StartupStage::new("state_db");
         let state_db = codex_core::init_state_db(&config).await;
+        stage.complete();
+        eprintln!(
+            "[internal-codex-worker] stage=state_db available={}",
+            state_db.is_some()
+        );
         let config_warnings = config
             .startup_warnings
             .iter()
@@ -64,11 +78,12 @@ impl UpstreamStartArgs {
                 range: None,
             })
             .collect();
-        InProcessAppServerClient::start(InProcessClientStartArgs {
+        Ok(InProcessClientStartArgs {
             arg0_paths,
             config: Arc::new(config),
-            cli_overrides: serde_json::from_value(launch_overrides)
-                .map_err(|_| crate::launch_config::invalid("CODEX_CONFIG has unsupported TOML values"))?,
+            cli_overrides: serde_json::from_value(launch_overrides).map_err(|_| {
+                crate::launch_config::invalid("CODEX_CONFIG has unsupported TOML values")
+            })?,
             loader_overrides: LoaderOverrides::default(),
             strict_config: true,
             cloud_config_bundle: CloudConfigBundleLoader::default(),
@@ -86,9 +101,32 @@ impl UpstreamStartArgs {
             opt_out_notification_methods: self.opt_out_notification_methods.clone(),
             channel_capacity: self.harness.channel_capacity,
         })
-        .await
-        .map_err(start_error)
     }
+}
+
+async fn build_environment(
+    config: &codex_core::config::Config,
+    arg0_paths: &Arg0DispatchPaths,
+) -> Result<EnvironmentManager, UpstreamError> {
+    StartupStage::new("environment_manager")
+        .finish(
+            async {
+                let runtime_paths = ExecServerRuntimePaths::from_optional_paths(
+                    arg0_paths.codex_self_exe.clone(),
+                    arg0_paths.codex_linux_sandbox_exe.clone(),
+                )
+                .map_err(start_error)?;
+                EnvironmentManager::from_codex_home(
+                    config.codex_home.clone(),
+                    Some(runtime_paths),
+                    config.http_client_factory(),
+                )
+                .await
+                .map_err(start_error)
+            }
+            .await,
+        )
+        .map_err(start_error)
 }
 
 async fn build_config(
@@ -106,8 +144,9 @@ async fn build_config(
         ..Default::default()
     };
     ConfigBuilder::default()
-        .cli_overrides(serde_json::from_value(overrides_json.clone())
-            .map_err(|_| crate::launch_config::invalid("CODEX_CONFIG has unsupported TOML values"))?)
+        .cli_overrides(serde_json::from_value(overrides_json.clone()).map_err(|_| {
+            crate::launch_config::invalid("CODEX_CONFIG has unsupported TOML values")
+        })?)
         .codex_home(args.codex_home.clone())
         .fallback_cwd(Some(args.cwd.clone()))
         .harness_overrides(overrides)
@@ -199,5 +238,5 @@ fn canonical_cwd(args: &UpstreamStartArgs) -> Result<PathBuf, UpstreamError> {
 }
 
 fn start_error(error: impl std::fmt::Display) -> UpstreamError {
-    UpstreamError::Start(error.to_string())
+    UpstreamError::Start(crate::diagnostics::safe_detail(&error.to_string()))
 }

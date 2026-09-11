@@ -264,6 +264,16 @@ fn default_permission_options() -> Vec<PermissionOption> {
     ]
 }
 
+pub(crate) fn prompt_failure(params: &Value) -> Option<String> {
+    if params.pointer("/turn/status").and_then(Value::as_str) != Some("failed") {
+        return None;
+    }
+    let message = params.pointer("/turn/error/message").and_then(Value::as_str)
+        .filter(|message| !message.trim().is_empty())
+        .unwrap_or("Codex turn failed without error details");
+    Some(crate::diagnostics::safe_detail(message))
+}
+
 pub(crate) fn prompt_response(params: &Value) -> Value {
     let stop_reason = params
         .pointer("/turn/status")

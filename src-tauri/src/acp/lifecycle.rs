@@ -400,6 +400,7 @@ pub(crate) async fn handle_event(
                 | "max_turn_requests"
                 | "unknown"
                 | "empty"
+                | "prompt_error"
                 | "stream_disconnected" => Some(ConversationStatus::Cancelled),
                 // `cancelled` and any future reason: don't write here.
                 _ => None,
@@ -409,14 +410,13 @@ pub(crate) async fn handle_event(
             else {
                 return Ok(());
             };
-            let (conversation_id, last_text, current_model, turn_generation, title_input) = {
-                let mut snap = state_arc.write().await;
+            let (conversation_id, last_text, current_model, turn_generation) = {
+                let snap = state_arc.read().await;
                 (
                     snap.conversation_id,
                     snap.last_assistant_text.clone(),
                     snap.current_model.clone(),
                     snap.turn_generation,
-                    snap.last_completed_turn_title_input.take(),
                 )
             };
             // No conversation row bound (defensive — should never happen in
@@ -481,27 +481,6 @@ pub(crate) async fn handle_event(
                         error = %error,
                         "[lifecycle] failed to persist completed turn generation"
                     ),
-                }
-                if let Some(input) = title_input {
-                    let title_context = ConversationTitleContext {
-                        conn: db_conn,
-                        emitter: &emitter,
-                        chat_channel_manager,
-                    };
-                    if let Err(error) =
-                        crate::acp::conversation_title_summary::schedule_first_turn_summary(
-                            &title_context,
-                            cid,
-                            input,
-                        )
-                        .await
-                    {
-                        tracing::warn!(
-                            conversation_id = cid,
-                            error = %error,
-                            "[conversation-title] summary scheduling failed"
-                        );
-                    }
                 }
             } else if let Err(error) =
                 conversation_service::mark_completed_turn_generation(db_conn, cid, turn_generation)

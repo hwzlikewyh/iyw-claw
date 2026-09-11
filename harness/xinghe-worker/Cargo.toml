@@ -16,6 +16,7 @@ sacp = "11.0.0"
 sacp-tokio = { path = "../../src-tauri/vendor/sacp-tokio" }
 tokio = { version = "1", features = ["rt-multi-thread", "io-std", "sync", "time", "macros"] }
 libloading = "0.8.9"
+regex = "1"
 
 [patch.crates-io]
 aws-config = { path = "../codex/patches/aws-config" }
