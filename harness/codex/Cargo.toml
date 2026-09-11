@@ -80,6 +80,7 @@ codex-windows-sandbox = { path = "patches/codex-windows-sandbox" }
 codex-git-utils = { path = "patches/codex-git-utils" }
 codex-core-plugins = { path = "patches/codex-core-plugins" }
 codex-core = { path = "patches/codex-core" }
+codex-mcp = { path = "patches/codex-mcp" }
 codex-exec-server = { path = "patches/codex-exec-server" }
 codex-hooks = { path = "patches/codex-hooks" }
 codex-rmcp-client = { path = "patches/codex-rmcp-client" }

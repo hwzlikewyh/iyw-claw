@@ -1,0 +1,113 @@
+[package]
+name = "codex-mcp"
+version = "0.154.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+autotests = false
+
+[lib]
+doctest = false
+
+[dependencies."anyhow"]
+version = "^1"
+
+[dependencies."arc-swap"]
+version = "^1.9.0"
+
+[dependencies."async-channel"]
+version = "^2.3.1"
+
+[dependencies."codex-api"]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-async-utils"]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-config"]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-connectors"]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-diagnostics"]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-exec-server"]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-login"]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-model-provider"]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-otel"]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-protocol"]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-rmcp-client"]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-utils-path-uri"]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."codex-utils-plugins"]
+git = "https://github.com/openai/codex.git"
+rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+
+[dependencies."futures"]
+version = "^0.3"
+default-features = false
+
+[dependencies."lru"]
+version = "^0.18.2"
+
+[dependencies."regex-lite"]
+version = "^0.1.8"
+
+[dependencies."rmcp"]
+version = "=3.2.0"
+default-features = false
+features = ["base64","macros","schemars","server"]
+
+[dependencies."serde"]
+version = "^1"
+features = ["rc","derive"]
+
+[dependencies."serde_json"]
+version = "^1"
+
+[dependencies."sha1"]
+version = "^0.10.6"
+
+[dependencies."thiserror"]
+version = "^2.0.17"
+
+[dependencies."tokio"]
+version = "^1"
+features = ["io-util","macros","rt-multi-thread"]
+
+[dependencies."tokio-util"]
+version = "^0.7.18"
+features = ["rt"]
+
+[dependencies."tracing"]
+version = "^0.1.44"
+
+[dependencies."url"]
+version = "^2"

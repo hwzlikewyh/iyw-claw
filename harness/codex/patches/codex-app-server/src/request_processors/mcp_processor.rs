@@ -325,20 +325,25 @@ impl McpRequestProcessor {
             McpServerStatusDetail::ToolsAndAuthOnly => McpSnapshotDetail::ToolsAndAuthOnly,
         };
 
-        let snapshot = collect_mcp_server_status_snapshot_with_detail(
-            &mcp_config,
-            auth.as_ref(),
-            request_id,
-            runtime_context,
-            mcp_manager.codex_apps_tools_cache(),
-            mcp_manager.tool_catalog_cache(),
-            detail,
-        )
-        .await;
-
-        let runtime_statuses = match thread {
-            Some(thread) => thread.mcp_connection_statuses(&mcp_config).await,
-            None => HashMap::new(),
+        let (snapshot, runtime_statuses) = match thread {
+            Some(thread) => {
+                thread
+                    .mcp_status_snapshot(&mcp_config, &runtime_context, detail)
+                    .await
+            }
+            None => (
+                collect_mcp_server_status_snapshot_with_detail(
+                    &mcp_config,
+                    auth.as_ref(),
+                    request_id,
+                    runtime_context,
+                    mcp_manager.codex_apps_tools_cache(),
+                    mcp_manager.tool_catalog_cache(),
+                    detail,
+                )
+                .await,
+                HashMap::new(),
+            ),
         };
         let McpServerStatusSnapshot {
             server_infos,

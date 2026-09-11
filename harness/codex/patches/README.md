@@ -3,6 +3,15 @@
 The command-purpose display extension and its upgrade checklist are documented
 in [COMMAND_DESCRIPTION.md](COMMAND_DESCRIPTION.md).
 
+`codex-mcp` retains the production sources of pinned 0.154.0 (`6b9826e`), with
+test-only modules omitted and standalone dependency metadata. Its status inspection
+reads one published runtime generation without starting/reconnecting clients.
+Thread-scoped `mcpServerStatus/list` uses that view through `codex-core`; global
+status requests retain upstream discovery. Resource lists still use ready clients,
+and tool filters, schemas, startup errors, authentication and pagination remain intact.
+Review this patch on upstream upgrades: status probes must not create a second
+initialize request against the host's single-principal MCP session binding.
+
 This directory contains minimal source-level compatibility patches required to
 compile the locked Codex release. It is part of the harness source and must not
 depend on a developer-machine path.

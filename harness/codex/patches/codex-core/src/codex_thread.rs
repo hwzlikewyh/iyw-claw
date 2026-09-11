@@ -784,6 +784,23 @@ impl CodexThread {
             .await
     }
 
+    /// Observes the published thread MCP runtime without creating discovery connections.
+    pub async fn mcp_status_snapshot(
+        &self,
+        config: &codex_mcp::McpConfig,
+        context: &codex_mcp::McpRuntimeContext,
+        detail: codex_mcp::McpSnapshotDetail,
+    ) -> (
+        codex_mcp::McpServerStatusSnapshot,
+        std::collections::HashMap<String, codex_protocol::mcp::McpServerConnectionStatus>,
+    ) {
+        self.session
+            .services
+            .mcp_runtime
+            .status_snapshot(config, context, detail)
+            .await
+    }
+
     /// Resolves MCP configuration and environment bindings from the same config snapshot.
     pub async fn runtime_mcp_config_and_context(
         &self,

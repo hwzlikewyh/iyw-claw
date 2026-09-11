@@ -8,6 +8,8 @@ use crate::commands::internet_tools::{opencli_is_installed, run_opencli};
 
 const DOCTOR_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_SESSION_CHARS: usize = 96;
+
+mod doctor;
 const OPENCLI_COMMANDS: &[&str] = &[
     "bind",
     "unbind",
@@ -107,8 +109,7 @@ impl OpencliProvider {
                 };
                 classify_failure(code, message)
             })?;
-        let value = parse_execution(&execution)?;
-        validate_doctor_report(&value)?;
+        let value = doctor::check_execution(&execution)?;
         Ok(json!({
             "provider": "opencli",
             "status": "ready",
@@ -166,20 +167,6 @@ fn validate_session(session: &str) -> Result<String, OpencliFailure> {
         ));
     }
     Ok(session.to_string())
-}
-
-fn validate_doctor_report(value: &Value) -> Result<(), OpencliFailure> {
-    let healthy = match value {
-        Value::Object(_) => value.pointer("/connectivity/ok").and_then(Value::as_bool) == Some(true)
-            && value.get("daemonRunning").and_then(Value::as_bool) == Some(true)
-            && value.get("extensionConnected").and_then(Value::as_bool) == Some(true),
-        Value::String(report) => report.lines().any(|line| line.starts_with("[OK] Connectivity:"))
-            && !report.lines().any(|line| line.starts_with("[FAIL]") || line.starts_with("[MISSING]")),
-        _ => false,
-    };
-    if healthy { return Ok(()); }
-    Err(classify_failure("OPENCLI_BRIDGE_UNAVAILABLE",
-        "OpenCLI browser bridge is unavailable. Open the intended Chrome profile, enable its OpenCLI extension, and run doctor again.".to_string()))
 }
 
 fn validate_command(command: &str) -> Result<&str, OpencliFailure> {
