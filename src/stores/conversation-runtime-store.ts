@@ -25,6 +25,7 @@ import { toErrorMessage } from "@/lib/app-error"
 import { parseDisplayImageMetadata } from "@/lib/display-image-metadata"
 import { extractDeliveredImage } from "@/lib/image-delivery"
 import { computeTurnMetadataPatches } from "@/stores/turn-metadata"
+import { completeTurnTiming } from "@/lib/turn-duration"
 import { BACKGROUND_TASK_MARKER } from "@/lib/background-agent"
 import { parseFeedbackCheckOutcome } from "@/lib/feedback-check"
 
@@ -1370,10 +1371,16 @@ function reducer(
 
       // Convert liveMessage to completed MessageTurns (split into rounds)
       const streamingTurns = sourceLiveMessage
-        ? buildStreamingTurnsFromLiveMessage(
-            current.conversationId,
-            sourceLiveMessage
-          ).turns
+        ? completeTurnTiming(
+            buildStreamingTurnsFromLiveMessage(
+              current.conversationId,
+              sourceLiveMessage
+            ).turns,
+            {
+              startedAt: sourceLiveMessage.startedAt,
+              completedAt: sourceLiveMessage.completedAt ?? Date.now(),
+            }
+          )
         : []
 
       // Promote: optimisticTurns + streamingTurns → localTurns. Dedup by turn

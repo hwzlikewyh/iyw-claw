@@ -187,6 +187,7 @@ export interface LiveMessage {
   startedAt: number
   firstTextAt?: number | null
   recoveredVersion?: number
+  completedAt?: number | null
 }
 
 // ── Per-connection state ──
@@ -1643,6 +1644,12 @@ function connectionsReducer(
         )
         updated.outOfTurnToolCalls = null
       } else if (conn.status === "prompting") {
+        if (conn.liveMessage) {
+          updated.liveMessage = {
+            ...conn.liveMessage,
+            completedAt: conn.liveMessage.completedAt ?? Date.now(),
+          }
+        }
         // Prompt cycle ended: clear in-flight Claude API retry banner.
         updated.claudeApiRetry = null
         // A blocked ask_user_question can't outlive its turn. The normal path

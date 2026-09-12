@@ -4,21 +4,18 @@
 //! `session/fork`, so we use `UntypedMessage` (the same pattern used for
 //! `session/set_config_option` in connection.rs).
 
-use sacp::schema::{ForkSessionRequest, ForkSessionResponse, SessionId};
+use sacp::schema::{ForkSessionRequest, ForkSessionResponse};
 use sacp::{Agent, ConnectionTo, UntypedMessage};
 
 use crate::acp::error::AcpError;
 
 /// Send a `session/fork` request over an existing ACP connection.
 ///
-/// Returns the full `ForkSessionResponse` so the caller can attach directly
-/// without a separate `session/load` round-trip.
+/// 返回原始分叉响应，由连接层负责适配器所需的恢复与会话绑定。
 pub async fn fork_session(
     cx: &ConnectionTo<Agent>,
-    session_id: &SessionId,
-    cwd: &str,
+    req: ForkSessionRequest,
 ) -> Result<ForkSessionResponse, AcpError> {
-    let req = ForkSessionRequest::new(session_id.clone(), cwd);
     let untyped_req = UntypedMessage::new("session/fork", &req)
         .map_err(|e| AcpError::protocol(format!("Failed to build fork request: {e}")))?;
 

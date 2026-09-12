@@ -1,6 +1,6 @@
 "use client"
 
-import { memo } from "react"
+import { memo, type ReactNode } from "react"
 import { useTranslations } from "next-intl"
 import type {
   AgentType,
@@ -65,6 +65,7 @@ interface ChatInputProps {
   onCancelQueueEdit?: () => void
   onForkSend?: (draft: PromptDraft, modeId?: string | null) => boolean | void
   onSideQuestion?: (question: string) => boolean
+  sessionActions?: ReactNode
   onAddFeedback?: () => void
   feedbackAddDisabled?: boolean
   /** Keep the composer usable while the selected Agent connects silently. */
@@ -119,6 +120,7 @@ export const ChatInput = memo(function ChatInput({
   onCancelQueueEdit,
   onForkSend,
   onSideQuestion,
+  sessionActions,
   onAddFeedback,
   feedbackAddDisabled,
   allowOfflineCompose = true,
@@ -191,6 +193,7 @@ export const ChatInput = memo(function ChatInput({
         onCancelQueueEdit={onCancelQueueEdit}
         onForkSend={onForkSend}
         onSideQuestion={onSideQuestion}
+        sessionActions={sessionActions}
         onAddFeedback={onAddFeedback}
         feedbackAddDisabled={feedbackAddDisabled}
         injectContent={injectContent}
