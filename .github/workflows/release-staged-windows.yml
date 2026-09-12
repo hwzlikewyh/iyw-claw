@@ -215,6 +215,11 @@ jobs:
       IYW_CLAW_SIGN_MODE: signtool
       IYW_CLAW_SIGN_REQUIRED: "1"
       IYW_CLAW_SIGN_THUMBPRINT: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
+      # The SafeNet token needs its user PIN for every signing session. Supplying
+      # it here lets the finalizer unlock the token through PKCS#11 instead of
+      # blocking on the interactive "Token Logon" dialog. Leave the secret unset
+      # to fall back to a manual login.
+      IYW_CLAW_SAFENET_PIN: ${{ secrets.IYW_CLAW_SAFENET_PIN }}
       # 签名机下载显式走本地代理；只对本机地址绕过代理。
       HTTP_PROXY: http://127.0.0.1:7890
       HTTPS_PROXY: http://127.0.0.1:7890

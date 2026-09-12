@@ -73,6 +73,7 @@ function preflightToken() {
   const probe = join(tmpdir(), `iyw-signing-preflight-${process.pid}.exe`)
   copyFileSync(process.execPath, probe)
   try {
+    unlockToken()
     const result = spawnSync(
       process.execPath,
       [
@@ -86,6 +87,37 @@ function preflightToken() {
       fail(`SafeNet preflight failed with exit code ${result.status}`)
   } finally {
     rmSync(probe, { force: true })
+  }
+}
+
+/**
+ * Logs the SafeNet/eToken signing token in via PKCS#11 so signtool never blocks
+ * on the interactive "Token Logon" dialog.
+ *
+ * The token caches the user PIN per Windows logon session, so one successful
+ * login covers every signature in this job. When the runner has no PIN
+ * configured we keep the old behaviour: signtool prompts, and the bounded
+ * timeout turns a missing login into a clear failure instead of a hung job.
+ */
+function unlockToken() {
+  const pin = (process.env.IYW_CLAW_SAFENET_PIN ?? "").trim()
+  if (pin === "") {
+    console.log(
+      "[staged-signing] IYW_CLAW_SAFENET_PIN is not set; leaving the token login to signtool"
+    )
+    return
+  }
+  const script = join(TOOL_ROOT, "src-tauri", "scripts", "unlock-signing-token.mjs")
+  const result = spawnSync(process.execPath, [script], {
+    cwd: ROOT,
+    stdio: "inherit",
+    windowsHide: true,
+  })
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    fail(
+      "could not unlock the signing token with the configured PIN (IYW_CLAW_SAFENET_PIN)"
+    )
   }
 }
 
