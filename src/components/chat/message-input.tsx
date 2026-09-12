@@ -9,7 +9,6 @@ import {
   useRef,
   useState,
   type SetStateAction,
-  type ReactNode,
 } from "react"
 import { isDesktop, openFileDialog } from "@/lib/platform"
 import { useLocale, useTranslations } from "next-intl"
@@ -360,7 +359,6 @@ interface MessageInputProps {
    *  accepted attempts clear immediately and the parent re-queues async failures. */
   onForkSend?: (draft: PromptDraft, modeId?: string | null) => boolean | void
   onSideQuestion?: (question: string) => boolean
-  sessionActions?: ReactNode
   /** Open the live-feedback dialog (from the "+" menu). When omitted the entry
    *  is hidden (feature off). */
   onAddFeedback?: () => void
@@ -847,7 +845,6 @@ export function MessageInput({
   onCancelQueueEdit,
   onForkSend,
   onSideQuestion,
-  sessionActions,
   injectContent,
   onInjectConsumed,
 }: MessageInputProps) {
@@ -1573,11 +1570,13 @@ export function MessageInput({
     () =>
       [
         ...(onSideQuestion
-          ? [{
-              name: "btw",
-              description: tSide("command"),
-              input_hint: tSide("question"),
-            }]
+          ? [
+              {
+                name: "btw",
+                description: tSide("command"),
+                input_hint: tSide("question"),
+              },
+            ]
           : []),
         ...(availableCommands ?? []).filter(
           (command) =>
@@ -4676,7 +4675,6 @@ export function MessageInput({
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  {!isEditingQueueItem && sessionActions}
                   <SessionUsageChip
                     contextKey={attachmentTabId ?? null}
                     popoverSide="top"

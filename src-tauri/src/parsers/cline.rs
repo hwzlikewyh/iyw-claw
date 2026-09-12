@@ -265,6 +265,7 @@ impl AgentParser for ClineParser {
                     }
                     turn_counter += 1;
                     turns.push(MessageTurn {
+                        fork_message_id: None,
                         id: format!("{}-{}", conversation_id, turn_counter),
                         role: TurnRole::Assistant,
                         blocks,
@@ -285,6 +286,7 @@ impl AgentParser for ClineParser {
                     if !parsed.tool_results.is_empty() {
                         turn_counter += 1;
                         turns.push(MessageTurn {
+                            fork_message_id: None,
                             id: format!("{}-{}", conversation_id, turn_counter),
                             role: TurnRole::System,
                             blocks: parsed.tool_results,
@@ -300,6 +302,7 @@ impl AgentParser for ClineParser {
                     if !parsed.user_blocks.is_empty() {
                         turn_counter += 1;
                         turns.push(MessageTurn {
+                            fork_message_id: None,
                             id: format!("{}-{}", conversation_id, turn_counter),
                             role: TurnRole::User,
                             blocks: parsed.user_blocks,

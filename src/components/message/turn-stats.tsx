@@ -1,6 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import {
   ArrowUpToLine,
   BrainCog,
@@ -32,6 +39,7 @@ interface TurnStatsProps {
   copyText?: string
   /** ISO timestamp marking when the assistant reply finished. */
   completedAt?: string | null
+  actions?: ReactNode
 }
 
 const iconButtonClass =
@@ -46,6 +54,7 @@ export function TurnStats({
   isResponseComplete = true,
   copyText = "",
   completedAt,
+  actions,
 }: TurnStatsProps) {
   const locale = useLocale()
   const t = useTranslations("Folder.chat.messageList")
@@ -127,7 +136,7 @@ export function TurnStats({
   if (!isResponseComplete) return null
 
   return (
-    <div className="mt-2 -ms-[0.3125rem] flex items-center justify-start gap-1 text-xs text-muted-foreground">
+    <div className="mt-2 -ms-[0.3125rem] flex flex-wrap items-center justify-start gap-1 text-xs text-muted-foreground">
       <TooltipProvider delayDuration={150}>
         {hasCopy && (
           <Tooltip>
@@ -150,6 +159,7 @@ export function TurnStats({
             </TooltipContent>
           </Tooltip>
         )}
+        {actions}
         {displayModels.length > 0 && (
           <Tooltip>
             <TooltipTrigger asChild>

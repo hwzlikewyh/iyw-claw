@@ -1181,6 +1181,12 @@ impl CodexParser {
                                             matches!(message.role, MessageRole::Assistant)
                                         })
                                     {
+                                        if let Some(id) = payload
+                                            .get("history_item_id")
+                                            .and_then(serde_json::Value::as_str)
+                                        {
+                                            message.id = id.to_string();
+                                        }
                                         message.content = vec![ContentBlock::Text { text }];
                                         message.timestamp = timestamp;
                                         message.completed_at = Some(timestamp);
@@ -1188,7 +1194,11 @@ impl CodexParser {
                                     }
                                 }
                                 messages.push(UnifiedMessage {
-                                    id: format!("assistant-{}", messages.len()),
+                                    id: payload
+                                        .get("history_item_id")
+                                        .and_then(serde_json::Value::as_str)
+                                        .map(str::to_string)
+                                        .unwrap_or_else(|| format!("assistant-{}", messages.len())),
                                     role: MessageRole::Assistant,
                                     content: vec![ContentBlock::Text { text }],
                                     timestamp,
@@ -2492,6 +2502,7 @@ fn group_into_turns(messages: Vec<UnifiedMessage>) -> Vec<MessageTurn> {
 
         if matches!(msg.role, MessageRole::User) {
             turns.push(MessageTurn {
+                fork_message_id: None,
                 id: format!("turn-{}", turns.len()),
                 role: TurnRole::User,
                 blocks: msg.content.clone(),
@@ -2504,6 +2515,7 @@ fn group_into_turns(messages: Vec<UnifiedMessage>) -> Vec<MessageTurn> {
             i += 1;
         } else if matches!(msg.role, MessageRole::System) {
             turns.push(MessageTurn {
+                fork_message_id: None,
                 id: format!("turn-{}", turns.len()),
                 role: TurnRole::System,
                 blocks: msg.content.clone(),
@@ -2544,6 +2556,11 @@ fn group_into_turns(messages: Vec<UnifiedMessage>) -> Vec<MessageTurn> {
             }
 
             turns.push(MessageTurn {
+                fork_message_id: (!msg.id.is_empty()
+                    && msg.content.iter().any(|block| {
+                        matches!(block, ContentBlock::Text { text } if !text.is_empty())
+                    }))
+                .then(|| msg.id.clone()),
                 id: format!("turn-{}", turns.len()),
                 role: TurnRole::Assistant,
                 blocks,

@@ -134,6 +134,7 @@ impl EventState {
         self.session.message_count += 1;
         let timestamp = self.turn_timestamp(timestamp);
         self.session.turns.push(MessageTurn {
+            fork_message_id: None,
             id: format!("turn-{}", self.session.turns.len()),
             role: TurnRole::User,
             blocks: vec![crate::models::ContentBlock::Text { text }],
@@ -254,6 +255,7 @@ impl EventState {
             Some(index) => index,
             None => {
                 self.session.turns.push(MessageTurn {
+                    fork_message_id: None,
                     id: format!("turn-{}", self.session.turns.len()),
                     role: TurnRole::Assistant,
                     blocks: Vec::new(),

@@ -78,6 +78,7 @@ impl PaginatedMessages {
                     json!({
                         "type": "agent_message",
                         "message": message,
+                        "history_item_id": item.get("id"),
                         "phase": item.get("phase"),
                     })
                 })

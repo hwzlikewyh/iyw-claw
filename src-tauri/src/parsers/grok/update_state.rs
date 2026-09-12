@@ -101,6 +101,7 @@ impl UpdateAccumulator {
                 .map(str::to_string);
         }
         self.parsed.turns.push(MessageTurn {
+            fork_message_id: None,
             id: String::new(),
             role: TurnRole::User,
             blocks: vec![ContentBlock::Text { text }],

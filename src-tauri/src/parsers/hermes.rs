@@ -709,6 +709,7 @@ fn group_into_turns(messages: Vec<UnifiedMessage>) -> Vec<MessageTurn> {
 
         if matches!(msg.role, MessageRole::User) {
             turns.push(MessageTurn {
+                fork_message_id: None,
                 id: format!("turn-{}", turns.len()),
                 role: TurnRole::User,
                 blocks: msg.content.clone(),
@@ -721,6 +722,7 @@ fn group_into_turns(messages: Vec<UnifiedMessage>) -> Vec<MessageTurn> {
             i += 1;
         } else if matches!(msg.role, MessageRole::System) {
             turns.push(MessageTurn {
+                fork_message_id: None,
                 id: format!("turn-{}", turns.len()),
                 role: TurnRole::System,
                 blocks: msg.content.clone(),
@@ -758,6 +760,7 @@ fn group_into_turns(messages: Vec<UnifiedMessage>) -> Vec<MessageTurn> {
             }
 
             turns.push(MessageTurn {
+                fork_message_id: None,
                 id: format!("turn-{}", turns.len()),
                 role: TurnRole::Assistant,
                 blocks,

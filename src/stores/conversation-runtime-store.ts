@@ -24,7 +24,10 @@ import { kimiTodoWriteEntries } from "@/lib/plan-parse"
 import { toErrorMessage } from "@/lib/app-error"
 import { parseDisplayImageMetadata } from "@/lib/display-image-metadata"
 import { extractDeliveredImage } from "@/lib/image-delivery"
-import { computeTurnMetadataPatches } from "@/stores/turn-metadata"
+import {
+  computeTurnMetadataPatches,
+  resolveForkMessageId,
+} from "@/stores/turn-metadata"
 import { completeTurnTiming } from "@/lib/turn-duration"
 import { BACKGROUND_TASK_MARKER } from "@/lib/background-agent"
 import { parseFeedbackCheckOutcome } from "@/lib/feedback-check"
@@ -290,6 +293,7 @@ type Action =
       conversationId: number
       turnPatches: Array<{
         index: number
+        fork_message_id?: string | null
         usage?: TurnUsage | null
         duration_ms?: number | null
         model?: string | null
@@ -1716,7 +1720,9 @@ function reducer(
         const newDuration = turn.duration_ms ?? patch.duration_ms
         const newModel = turn.model ?? patch.model
         const newCompletedAt = turn.completed_at ?? patch.completed_at
+        const forkMessageId = turn.fork_message_id ?? patch.fork_message_id
         if (
+          forkMessageId !== turn.fork_message_id ||
           newUsage !== turn.usage ||
           newDuration !== turn.duration_ms ||
           newModel !== turn.model ||
@@ -1724,6 +1730,7 @@ function reducer(
         ) {
           patchedTurns[patch.index] = {
             ...turn,
+            fork_message_id: forkMessageId,
             usage: newUsage,
             duration_ms: newDuration,
             model: newModel,
@@ -2357,6 +2364,16 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
               persistedAssistantCount: cur.historyAssistantBaseline ?? 0,
               parsedAssistantTurnsBefore: parsed.history_assistant_turns_before,
             })
+            for (const index of localAssistantIndices) {
+              const messageId = resolveForkMessageId(
+                cur.localTurns[index],
+                parsedAssistantTurns
+              )
+              if (!messageId) continue
+              const patch = patches.find((patch) => patch.index === index)
+              if (patch) patch.fork_message_id = messageId
+              else patches.push({ index, fork_message_id: messageId })
+            }
 
             if (patches.length > 0 || parsed.session_stats) {
               dispatch({

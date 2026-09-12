@@ -446,15 +446,7 @@ pub struct AcpConnectionIdParams {
     pub connection_id: String,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AcpForkParams {
-    pub connection_id: String,
-    #[serde(default)]
-    pub conversation_id: Option<i32>,
-    #[serde(default)]
-    pub folder_id: Option<i32>,
-}
+pub type AcpForkParams = crate::acp::fork_target::ForkSessionOptions;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -559,9 +551,7 @@ pub async fn acp_fork(
         .fork_session(
             &state.db,
             &state.chat_channel_manager,
-            &params.connection_id,
-            params.conversation_id,
-            params.folder_id,
+            params,
         )
         .await
         .map_err(|e| {

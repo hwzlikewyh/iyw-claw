@@ -2600,10 +2600,15 @@ impl ConnectionManager {
         &self,
         db: &AppDatabase,
         chat_channel_manager: &ChatChannelManager,
-        conn_id: &str,
-        link_conversation_id: Option<i32>,
-        link_folder_id: Option<i32>,
+        options: crate::acp::fork_target::ForkSessionOptions,
     ) -> Result<ForkResultInfo, AcpError> {
+        let crate::acp::fork_target::ForkSessionOptions {
+            connection_id,
+            conversation_id: link_conversation_id,
+            folder_id: link_folder_id,
+            target,
+        } = options;
+        let conn_id = connection_id.as_str();
         let (state_arc, cmd_tx, emitter) = {
             let connections = self.connections.lock().await;
             let conn = connections
@@ -2669,6 +2674,22 @@ impl ConnectionManager {
             return Err(AcpError::TurnInProgress);
         }
 
+        let fork_point = if let Some(target) = target {
+            let state = state_arc.read().await;
+            if state.external_id.as_deref() != Some(target.session_id.as_str()) {
+                return Err(AcpError::protocol("会话已切换，请刷新后重新选择分叉消息"));
+            }
+            let agent = state.agent_type;
+            crate::acp::fork_target::validate_runtime(
+                agent,
+                state.managed_agent_version.as_deref(),
+            )?;
+            drop(state);
+            Some(crate::acp::fork_target::resolve(agent, target).await?)
+        } else {
+            None
+        };
+
         // CANCELLATION SHIELD. Up to here the fork is side-effect-free: if THIS
         // future is dropped now (e.g. an HTTP client disconnecting mid-fork), the
         // `prompt_guard` drops and nothing happened. But the instant we enqueue
@@ -2695,7 +2716,10 @@ impl ConnectionManager {
                 // Protocol-only round trip — no DB writes inside the loop.
                 let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
                 cmd_tx
-                    .send(ConnectionCommand::Fork { reply: reply_tx })
+                    .send(ConnectionCommand::Fork {
+                        point: fork_point,
+                        reply: reply_tx,
+                    })
                     .await
                     .map_err(|_| AcpError::ProcessExited)?;
                 let protocol_result = reply_rx
