@@ -168,7 +168,19 @@ async fn validated_agent_targets_for_plan(
     if !requires_skills {
         return Ok(Vec::new());
     }
-    validate_install_targets(conn, &requested).await?;
+    validate_install_targets(conn, &requested)
+        .await
+        .map_err(|error| {
+            tracing::warn!(
+                skill_id = %plan.root_skill_id,
+                version = %plan.root_version,
+                agent_types = ?requested,
+                error_code = ?error.code,
+                error = %error,
+                "[skill-market] install target validation failed"
+            );
+            error
+        })?;
     for agent_type in &requested {
         crate::commands::agent_storage::ensure_active_agent_profile_layout(conn, *agent_type)
             .await?;
@@ -203,11 +215,11 @@ async fn validate_install_targets(
                 .ok_or_else(|| {
                     AppCommandError::invalid_input(format!("{agent_type} is not installed"))
                 })?;
-        if setting
-            .installed_version
-            .as_deref()
-            .is_none_or(str::is_empty)
-        {
+        // 内置星河随应用分发，安装状态不能依赖旧 npm 版本记录。
+        if !crate::internal_xinghe_worker::installation_available(
+            *agent_type,
+            setting.installed_version.as_deref(),
+        ) {
             return Err(AppCommandError::invalid_input(format!(
                 "{agent_type} is not installed"
             )));
