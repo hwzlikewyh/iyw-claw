@@ -89,7 +89,8 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `    }$\r$\n`
   FileWriteUTF16LE $R0 `    return $$false$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
-  ; Node 本体已迁入用户目录，进程归属还需检查本安装实例的入口脚本。
+  ; Node 本体位于用户目录或受管存储目录，进程归属需同时检查运行时
+  ; 根目录和本安装实例的入口脚本。
   !insertmacro IywClawWriteNodeProcessScope
   FileWriteUTF16LE $R0 `  function Get-ProcessIdentity([object]$$CimProcess) {$\r$\n`
   FileWriteUTF16LE $R0 `    $$owner = Invoke-CimMethod -InputObject $$CimProcess -MethodName GetOwnerSid -ErrorAction Stop$\r$\n`
@@ -147,6 +148,26 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `    $$installRoot = [IO.Path]::GetDirectoryName($$target)$\r$\n`
   FileWriteUTF16LE $R0 `    $$managedRoots = @('runtime', 'agents', 'data\runtime', 'data\browser\chromium') | ForEach-Object { [IO.Path]::Combine($$installRoot, $$_) }$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
+  ; Shared runtimes live in the user profile, while agent runtimes may use a
+  ; configured storage root. Include those roots so their Node entry scripts
+  ; are scoped to this user's iyw-claw installation during an update.
+  FileWriteUTF16LE $R0 `  $$runtimeRoots = @()$\r$\n`
+  FileWriteUTF16LE $R0 `  $$userRoot = [IO.Path]::Combine([Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile), '.iyw-claw')$\r$\n`
+  FileWriteUTF16LE $R0 `  $$runtimeRoots += $$userRoot$\r$\n`
+  FileWriteUTF16LE $R0 `  foreach ($$envName in @('IYW_CLAW_HOME', 'IYW_CLAW_DATA_DIR', 'IYW_CLAW_AGENT_STORAGE_DIR')) {$\r$\n`
+  FileWriteUTF16LE $R0 `    $$envValue = [Environment]::GetEnvironmentVariable($$envName)$\r$\n`
+  FileWriteUTF16LE $R0 `    if (-not [string]::IsNullOrWhiteSpace($$envValue)) { $$runtimeRoots += $$envValue }$\r$\n`
+  FileWriteUTF16LE $R0 `  }$\r$\n`
+  FileWriteUTF16LE $R0 `  foreach ($$runtimeRoot in $$runtimeRoots) {$\r$\n`
+  FileWriteUTF16LE $R0 `    $$managedRoots += [IO.Path]::Combine([IO.Path]::GetFullPath($$runtimeRoot), 'runtime')$\r$\n`
+  FileWriteUTF16LE $R0 `    $$managedRoots += [IO.Path]::Combine([IO.Path]::GetFullPath($$runtimeRoot), 'agents')$\r$\n`
+  FileWriteUTF16LE $R0 `  }$\r$\n`
+  FileWriteUTF16LE $R0 `  $$normalizedManagedRoots = @()$\r$\n`
+  FileWriteUTF16LE $R0 `  foreach ($$managedRoot in $$managedRoots) {$\r$\n`
+  FileWriteUTF16LE $R0 `    if (-not (Test-Path -LiteralPath $$managedRoot -PathType Container)) { continue }$\r$\n`
+  FileWriteUTF16LE $R0 `    try { $$normalizedManagedRoots += Normalize-Directory (Get-SafeCanonicalPath $$managedRoot) } catch { continue }$\r$\n`
+  FileWriteUTF16LE $R0 `  }$\r$\n`
+  FileWriteUTF16LE $R0 `  $$managedRoots = @($$normalizedManagedRoots | Select-Object -Unique)$\r$\n`
   FileWriteUTF16LE $R0 `  $$currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value; if ([string]::IsNullOrWhiteSpace($$currentSid)) { throw 'Current user SID is unavailable' }$\r$\n`
   FileWriteUTF16LE $R0 `  $$isCandidate = { param([object]$$Process) if ($$Action -eq 'check-main') { return $$Process.Name -ieq 'iyw-claw.exe' }; return $$Process.Name -ieq 'iyw-claw.exe' -or $$Process.Name -ieq 'agent-browser.exe' -or $$Process.Name -match $$pattern -or (Test-ManagedProcessPath $$Process.ExecutablePath) -or -not [string]::IsNullOrWhiteSpace((Get-ManagedNodeScript $$Process)) }$\r$\n`
   FileWriteUTF16LE $R0 `  $$processSnapshots = @()$\r$\n`
