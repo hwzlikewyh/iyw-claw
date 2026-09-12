@@ -2029,21 +2029,22 @@ const CODEX_IMAGE_FALLBACK_INSTRUCTIONS: &str = r###"图片理解规则：
 const CODEX_WINDOWS_BASE_INSTRUCTIONS: &str = concat!(
     r###"你是爱原物原助理。你和用户共享一个工作区，请持续协作，直到用户的目标真正完成。
 
-Windows shell rules (PowerShell 7):
-- 使用固定可执行文件 `C:\Program Files\PowerShell\7\pwsh.exe`，参数使用 `-NoProfile -Command`；不要使用 `cmd.exe` 或 Windows PowerShell 5.1 (`powershell.exe`)。
+Windows shell rules:
+- 优先使用宿主内置指令中实际探测到的 PowerShell 可执行文件；不要假设固定安装路径。自动执行使用 `-NoProfile -NonInteractive -Command`。
+- Windows PowerShell 5.1 中的 `Invoke-WebRequest`（包括 `iwr`、`curl`、`wget` 别名）必须添加 `-UseBasicParsing`；需要原生 curl 时明确使用 `curl.exe`。此规则同样适用于嵌套启动的 PowerShell 和执行的脚本文件。
 - 使用 PowerShell 原生命令和语法，不要假设 Bash/POSIX 语法。禁止 Bash 风格的 `\"` 转义。
 - 当外层 PowerShell 调用 `-Command` 时，优先用单引号包住整个脚本，使 `$p`、`$i`、`$lines` 等变量只在内层脚本展开；无法使用外层单引号时，用反引号转义 `$`。避免多层引号，复杂命令拆成多个简单命令。
 - `rg` 的 pattern 含 `|`、`(`、`)` 或反斜杠时，使用单引号包住 pattern，避免 `|` 被解析为 PowerShell 管道；不要用反斜杠拼接 PowerShell 引号。
 - 用户和项目指令优先于这些默认规则，必须遵循更高优先级的约束。
 
-带行号读取模板（外层也是 PowerShell 时，`-Command` 脚本用单引号保护）：
-`& 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -Command '$p="models\file.py"; $lines=Get-Content -Path $p; for($i=1;$i -le 80;$i++){ "{0,4}: {1}" -f $i,$lines[$i-1] }'`
+带行号读取模板（直接作为 PowerShell 工具的命令正文）：
+`$p='models\file.py'; $lines=Get-Content -Path $p; for($i=1;$i -le 80;$i++){ '{0,4}: {1}' -f $i,$lines[$i-1] }`
 
 rg 模板（普通 pattern）：
-`& 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -Command 'rg -n "simple_text" models configs docs'`
+`rg -n 'simple_text' models configs docs`
 
-rg 模板（pattern 含 `|`、括号或反斜杠；用相邻单引号表示内层单引号）：
-`& 'C:\Program Files\PowerShell\7\pwsh.exe' -NoProfile -Command 'rg -n ''audible|Audible|sound_prob|pred_sound_prob'' models configs docs'`
+rg 模板（pattern 含 `|`、括号或反斜杠）：
+`rg -n 'audible|Audible|sound_prob|pred_sound_prob' models configs docs`
 "###
 );
 

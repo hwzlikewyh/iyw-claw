@@ -114,6 +114,8 @@ pub mod trusted_agents;
 pub(crate) mod turn_output;
 pub mod types;
 pub mod version_center;
+#[cfg(windows)]
+mod windows_shell;
 
 pub use auto_update::agent_auto_update_task;
 pub use idle_sweep::{

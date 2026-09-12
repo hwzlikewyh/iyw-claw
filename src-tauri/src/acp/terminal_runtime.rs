@@ -371,8 +371,15 @@ impl TerminalRuntime {
         // real failed spawn — rather than a pre-spawn `which` guess that runs
         // in iyw-claw's own cwd/env — means we never reroute a command that would
         // otherwise have run.
-        let mut direct = crate::process::tokio_command(&request.command);
-        direct.args(&request.args);
+        #[cfg(windows)]
+        let mut direct = super::windows_shell::command(&request.command, &request.args)
+            .map_err(TerminalRuntimeError::InvalidParams)?;
+        #[cfg(not(windows))]
+        let mut direct = {
+            let mut command = crate::process::tokio_command(&request.command);
+            command.args(&request.args);
+            command
+        };
         self.configure_command(&mut direct, &request);
 
         // Unix can reject a newly written executable with ETXTBSY while a

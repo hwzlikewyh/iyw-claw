@@ -38,6 +38,8 @@ pub fn render(
     let mut sections = vec![COMMON_PROMPT
         .replace("{tools}", &tools)
         .replace("{skill_runtime}", &crate::shared_runtime::prompt_context())];
+    #[cfg(windows)]
+    sections.push(super::windows_shell::prompt());
     if !native_response_style_is_sufficient(agent_type, response_style) {
         if let Some(style) = response_style_instruction(response_style) {
             sections.push(style.to_string());
