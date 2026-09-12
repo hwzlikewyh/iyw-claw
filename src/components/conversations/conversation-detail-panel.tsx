@@ -45,12 +45,14 @@ import { useSortedAvailableAgents } from "@/hooks/use-sorted-available-agents"
 import { MessageListView } from "@/components/message/message-list-view"
 import type { MessageScrollPosition } from "@/components/message/virtualized-message-thread"
 import { ConversationShell } from "@/components/chat/conversation-shell"
+import { SessionForkButton } from "@/components/chat/session-fork-button"
 import { SessionConfigStaleBanner } from "@/components/chat/session-config-stale-banner"
 import { BackgroundTasksChip } from "@/components/chat/background-tasks-chip"
 import { FeedbackNotesDisplay } from "@/components/chat/feedback-notes-display"
 import { FeedbackDialog } from "@/components/chat/feedback-dialog"
 import { useFeedbackEnabled } from "@/hooks/use-feedback-enabled"
 import { useSessionFeedback } from "@/hooks/use-session-feedback"
+import { useSessionFork } from "@/hooks/use-session-fork"
 import { AgentSelector } from "@/components/chat/agent-selector"
 import { ChatInput } from "@/components/chat/chat-input"
 import { WelcomeHero } from "@/components/chat/welcome-hero"
@@ -63,7 +65,7 @@ import {
 import type { ComposerInjectContent } from "@/components/chat/message-input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
-  acpFork,
+  type ForkResult,
   acpGetAgentStatus,
   createChatConversation,
   createChatDir,
@@ -90,7 +92,7 @@ import {
   shouldQueueDirectSend,
   shouldRejectDuplicateCreate,
 } from "@/lib/queue-flush"
-import { isTransientConnectionSendError, TurnBusyError } from "@/lib/turn-busy"
+import { isTransientConnectionSendError } from "@/lib/turn-busy"
 import {
   getConversationIdByExternalIdFromStore,
   getRuntimeSession,
@@ -908,6 +910,41 @@ const ConversationTabView = memo(function ConversationTabView({
   useEffect(() => {
     connectionReadyRef.current = connectionReady
   }, [connectionReady])
+  const canFork =
+    connectionReady &&
+    hasPersistedConversation &&
+    conn.supportsFork &&
+    !outboxFlushPending &&
+    !conn.agentInputs.some((item) =>
+      ["waiting", "dispatching", "fallback_queued"].includes(item.status)
+    )
+  const onSessionForked = useCallback(
+    (result: ForkResult) => {
+      sessionIdRef.current = result.forkedSessionId
+      setExternalId(effectiveConversationId, result.forkedSessionId)
+      pinTab(tabId)
+      refreshConversations()
+    },
+    [
+      effectiveConversationId,
+      pinTab,
+      refreshConversations,
+      setExternalId,
+      tabId,
+    ]
+  )
+  const {
+    fork,
+    pending: forkPending,
+    pendingRef: forkPendingRef,
+  } = useSessionFork({
+    connectionId: conn.connectionId,
+    conversationId: dbConversationId,
+    folderId,
+    canFork,
+    getQueueLength: mqGetQueueLength,
+    onForked: onSessionForked,
+  })
   // Present "connecting" to the composer while the session or selectors are
   // still settling. The composer remains usable and the send handler queues
   // submissions until this tab's connection is fully attached.
@@ -1392,6 +1429,7 @@ const ConversationTabView = memo(function ConversationTabView({
 
   useEffect(() => {
     if (!connectionReady) return
+    if (forkPending) return
     if (runtimeSyncState === "awaiting_persist") return
     if (outboxFlushPending) return
     if (msgQueueLength === 0) return
@@ -1400,7 +1438,7 @@ const ConversationTabView = memo(function ConversationTabView({
     // a just-bounced retry waits out the backoff window before re-sending.
     const wait = flushRetryDelayMs(Date.now(), lastFlushBounceAtRef.current)
     const timer = setTimeout(() => {
-      if (!connectionReadyRef.current) return
+      if (!connectionReadyRef.current || forkPendingRef.current) return
       if (!ensureConversationPointsAvailable()) return
       const next = autoSendQueueRef.current()
       if (next) {
@@ -1415,6 +1453,8 @@ const ConversationTabView = memo(function ConversationTabView({
     return () => clearTimeout(timer)
   }, [
     connectionReady,
+    forkPending,
+    forkPendingRef,
     runtimeSyncState,
     msgQueueLength,
     msgQueueHeadBlocked,
@@ -1557,6 +1597,7 @@ const ConversationTabView = memo(function ConversationTabView({
       }
     ) => {
       const fromQueueFlush = opts?.fromQueueFlush ?? false
+      if (forkPendingRef.current) return false
       if (!ensureConversationPointsAvailable()) {
         if (fromQueueFlush && opts?.queuedMessage) {
           mqRequeueItemFront({ ...opts.queuedMessage, blocked: true })
@@ -1996,6 +2037,7 @@ const ConversationTabView = memo(function ConversationTabView({
       connectionReady,
       effectiveConversationId,
       ensureConnected,
+      forkPendingRef,
       draftStorageKey,
       folderId,
       hasPersistedConversation,
@@ -2206,87 +2248,44 @@ const ConversationTabView = memo(function ConversationTabView({
   }, [handleSend])
 
   const executeForkSend = useCallback(
-    // Fire-and-forget: the input clears the draft synchronously on click (like a
-    // normal send), so there is no in-flight editable window. If the fork can't
-    // run right now — disconnected, or the queue is non-empty (a fork is an
-    // immediate session side effect and must not jump ahead of queued items) —
-    // the draft is NOT lost: it is queued as a normal send (it flushes after any
-    // queued items). The same on a fork failure.
     async (draft: PromptDraft, selectedModeIdArg?: string | null) => {
-      const connectionId = conn.connectionId
-      if (
-        !connectionId ||
-        connStatus !== "connected" ||
-        // Read the queue length SYNCHRONOUSLY so a draft re-queued by a same-
-        // tick bounce is seen even before React commits. The UI also hides the
-        // fork affordance while the queue is non-empty; this is the guard.
-        forkSendBlockedByQueue(mqGetQueueLength())
-      ) {
-        mqEnqueue(draft, selectedModeIdArg ?? null)
-        return
-      }
       try {
-        // Backend performs all DB writes in one transaction-shaped call:
-        // - current row: external_id=S2, title="[Fork] ..."
-        // - sibling row: created with external_id=S1, status=pending_review
-        const { forkedSessionId } = await acpFork(
-          connectionId,
-          dbConvIdRef.current,
-          folderId
-        )
-        // Update runtime session id to S2 (frontend in-memory state only)
-        sessionIdRef.current = forkedSessionId
-        setExternalId(effectiveConversationId, forkedSessionId)
-
-        refreshConversations()
-        // Send the message on the forked session (S2)
-        handleSend(draft, selectedModeIdArg)
+        const forked = await fork()
+        mqEnqueue(draft, selectedModeIdArg ?? null, { blocked: !forked })
       } catch (err) {
-        // Busy (a turn is in flight, e.g. another co-controlling client started
-        // one): NOT a fork failure — silently re-queue, like a normal bounce.
-        // It sends after the current turn.
-        if (err instanceof TurnBusyError) {
-          mqEnqueue(draft, selectedModeIdArg ?? null)
-          return
-        }
-        // Real fork failure: surface it. EXPLICIT product decision — fork-send
-        // is best-effort, so the draft is never lost; it is re-queued and sent
-        // on the current (un-forked) session.
         toast.error(
           t("forkSessionFailed", {
-            error:
-              err instanceof Error
-                ? err.message
-                : typeof err === "object" && err !== null
-                  ? JSON.stringify(err)
-                  : String(err),
+            error: toErrorMessage(err),
           })
         )
-        mqEnqueue(draft, selectedModeIdArg ?? null)
+        // 分叉失败保留待发送内容，由用户重试，避免自动发送到原会话。
+        mqEnqueue(draft, selectedModeIdArg ?? null, { blocked: true })
       }
     },
-    [
-      conn.connectionId,
-      connStatus,
-      mqGetQueueLength,
-      mqEnqueue,
-      effectiveConversationId,
-      folderId,
-      handleSend,
-      refreshConversations,
-      setExternalId,
-      t,
-    ]
+    [fork, mqEnqueue, t]
   )
 
   const handleForkSend = useCallback(
     (draft: PromptDraft, selectedModeIdArg?: string | null) => {
+      if (forkPendingRef.current) return false
       if (!ensureConversationPointsAvailable()) return false
       void executeForkSend(draft, selectedModeIdArg)
       return true
     },
-    [ensureConversationPointsAvailable, executeForkSend]
+    [ensureConversationPointsAvailable, executeForkSend, forkPendingRef]
   )
+
+  const handleForkSession = useCallback(async () => {
+    try {
+      if (await fork()) toast.success(t("forkSessionSuccess"))
+    } catch (error) {
+      toast.error(
+        t("forkSessionFailed", {
+          error: toErrorMessage(error),
+        })
+      )
+    }
+  }, [fork, t])
 
   const handleOpenAgentsSettings = useCallback(() => {
     openSettingsWindow("agents", { agentType: selectedAgent }).catch((err) => {
@@ -2748,12 +2747,18 @@ const ConversationTabView = memo(function ConversationTabView({
       onSaveQueueEdit={handleSaveQueueEdit}
       onCancelQueueEdit={handleQueueCancelEdit}
       onForkSend={
-        connStatus === "connected" &&
-        hasPersistedConversation &&
-        conn.supportsFork &&
-        !forkSendBlockedByQueue(msgQueue.length)
+        canFork && !forkPending && !forkSendBlockedByQueue(msgQueue.length)
           ? handleForkSend
           : undefined
+      }
+      sessionActions={
+        conn.supportsFork && hasPersistedConversation ? (
+          <SessionForkButton
+            onFork={() => void handleForkSession()}
+            disabled={!canFork || msgQueue.length > 0}
+            pending={forkPending}
+          />
+        ) : null
       }
     >
       {isWelcomeMode ? (

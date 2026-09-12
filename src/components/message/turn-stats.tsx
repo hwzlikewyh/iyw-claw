@@ -89,7 +89,13 @@ export function TurnStats({
   const displayModels = models?.length ? models : model ? [model] : []
   const hasCopy = copyText.trim().length > 0
   const hasUsage = Boolean(usage)
-  const hasDuration = typeof duration_ms === "number" && duration_ms > 0
+  const hasDuration =
+    typeof duration_ms === "number" &&
+    Number.isFinite(duration_ms) &&
+    duration_ms >= 0
+  const durationLabel = hasDuration
+    ? formatElapsedLabel(duration_ms, tLive)
+    : t("durationUnavailable")
   const hasCompletedAt = Boolean(completedLabel)
   const hasJump =
     isResponseComplete &&
@@ -119,8 +125,6 @@ export function TurnStats({
   )
 
   if (!isResponseComplete) return null
-  if (!hasCopy && !hasUsage && !hasDuration && !hasCompletedAt && !hasJump)
-    return null
 
   return (
     <div className="mt-2 -ms-[0.3125rem] flex items-center justify-start gap-1 text-xs text-muted-foreground">
@@ -211,24 +215,20 @@ export function TurnStats({
             </TooltipContent>
           </Tooltip>
         )}
-        {hasDuration && duration_ms != null && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className={cn(iconButtonClass, "cursor-default")}
-                aria-label={t("duration")}
-              >
-                <Timer aria-hidden="true" className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top">
-              <span className="font-mono tabular-nums">
-                {formatElapsedLabel(duration_ms, tLive)}
-              </span>
-            </TooltipContent>
-          </Tooltip>
-        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={cn(iconButtonClass, "cursor-default")}
+              aria-label={`${t("duration")}: ${durationLabel}`}
+            >
+              <Timer aria-hidden="true" className="h-3.5 w-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <span className="font-mono tabular-nums">{durationLabel}</span>
+          </TooltipContent>
+        </Tooltip>
         {hasJump && (
           <Tooltip>
             <TooltipTrigger asChild>

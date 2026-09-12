@@ -123,6 +123,7 @@ interface ConversationShellProps {
   onSaveQueueEdit?: (draft: PromptDraft) => void
   onCancelQueueEdit?: () => void
   onForkSend?: (draft: PromptDraft, modeId?: string | null) => boolean | void
+  sessionActions?: ReactNode
   /** Optional banner pinned to the top of the panel, above the message area
    *  (e.g. the "restart to apply" config-stale banner). Renders nothing when
    *  omitted. */
@@ -192,6 +193,7 @@ export function ConversationShell({
   onSaveQueueEdit,
   onCancelQueueEdit,
   onForkSend,
+  sessionActions,
   topBanner,
 }: ConversationShellProps) {
   const tAcp = useTranslations("Folder.chat.acpConnections")
@@ -369,6 +371,7 @@ export function ConversationShell({
               onSaveQueueEdit={onSaveQueueEdit}
               onCancelQueueEdit={onCancelQueueEdit}
               onForkSend={onForkSend}
+              sessionActions={sessionActions}
               onAddFeedback={onAddFeedback}
               feedbackAddDisabled={feedbackAddDisabled}
             />

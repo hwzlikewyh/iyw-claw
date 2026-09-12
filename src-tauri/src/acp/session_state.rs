@@ -1532,7 +1532,9 @@ impl SessionState {
                 id: format!("live-{}", uuid::Uuid::new_v4()),
                 role: MessageRole::Assistant,
                 content: Vec::new(),
-                started_at: Utc::now(),
+                started_at: self
+                    .pending_user_message_started_at
+                    .unwrap_or_else(Utc::now),
             });
         }
         self.live_message

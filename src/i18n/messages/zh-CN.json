@@ -3336,7 +3336,8 @@
         "tokenOutput": "输出",
         "tokenCacheRead": "缓存读取",
         "tokenCacheWrite": "缓存写入",
-        "duration": "耗时",
+        "duration": "本轮对话时长",
+        "durationUnavailable": "未记录",
         "completedAt": "完成时间",
         "jumpToPreviousUserMessage": "跳转到上一条用户消息",
         "userMemory": {

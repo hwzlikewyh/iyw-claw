@@ -3336,7 +3336,8 @@
         "tokenOutput": "Output",
         "tokenCacheRead": "Cache read",
         "tokenCacheWrite": "Cache write",
-        "duration": "Duration",
+        "duration": "Turn duration",
+        "durationUnavailable": "Not recorded",
         "completedAt": "Completed at",
         "jumpToPreviousUserMessage": "Jump to user message",
         "userMemory": {

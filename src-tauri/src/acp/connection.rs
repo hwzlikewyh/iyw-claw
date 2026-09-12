@@ -3798,6 +3798,7 @@ async fn run_connection(
                                 delegation_injection.as_ref(),
                                 &stderr_tail,
                                 host_health.as_ref(),
+                                session_request_context,
                             )
                             .await;
                             terminal_runtime.release_all_for_session(&sid).await;
@@ -3815,7 +3816,7 @@ async fn run_connection(
                                 &perms,
                                 &mut cmd_rx,
                                 terminal_runtime.clone(),
-                                &cwd,
+                                session_request_context,
                                 &cwd_string,
                                 &prompt_ledger,
                                 &route_binding,
@@ -4085,6 +4086,7 @@ async fn run_connection(
                             delegation_injection.as_ref(),
                             &stderr_tail,
                             host_health.as_ref(),
+                            session_request_context,
                         )
                         .await;
                         terminal_runtime.release_all_for_session(&sid).await;
@@ -4098,7 +4100,7 @@ async fn run_connection(
                             &perms,
                             &mut cmd_rx,
                             terminal_runtime.clone(),
-                            &cwd,
+                            session_request_context,
                             &cwd_string,
                             &prompt_ledger,
                             &route_binding,
@@ -4224,6 +4226,7 @@ async fn run_connection(
                     delegation_injection.as_ref(),
                     &stderr_tail,
                     host_health.as_ref(),
+                    session_request_context,
                 )
                 .await;
                 terminal_runtime.release_all_for_session(&sid).await;
@@ -4237,7 +4240,7 @@ async fn run_connection(
                     &perms,
                     &mut cmd_rx,
                     terminal_runtime.clone(),
-                    &cwd,
+                    session_request_context,
                     &cwd_string,
                     &prompt_ledger,
                     &route_binding,
@@ -5464,12 +5467,40 @@ struct ForkExitInfo {
     connection: ConnectionTo<Agent>,
 }
 
-/// After `run_conversation_loop` returns, handle normal exit or fork transition.
-///
-/// When fork is requested, the original session has already been dropped by the
-/// caller.  We attach to the forked session (S2) directly using the
-/// `ForkSessionResponse` — no separate `session/load` is needed because S2 was
-/// just created in-memory by the agent on this connection.
+/// 远山分叉仅生成持久化副本，必须恢复后才能继续；其他适配器返回活跃会话。
+async fn resume_fork_if_needed(
+    cx: &ConnectionTo<Agent>,
+    mut response: sacp::schema::ForkSessionResponse,
+    context: SessionRequestContext<'_>,
+) -> Result<sacp::schema::ForkSessionResponse, sacp::Error> {
+    if context.agent_type != AgentType::ClaudeCode {
+        return Ok(response);
+    }
+    let request = build_resume_session_request(context, response.session_id.clone());
+    let budget = RecoveryBudget::start();
+    let timeout = budget
+        .timeout_for(RecoveryStage::Resume)
+        .ok_or_else(|| sacp::util::internal_error("Forked session recovery budget expired"))?;
+    let result = tokio::time::timeout(timeout, send_resume_session(cx, request))
+        .await
+        .unwrap_or(Err(RecoveryFailure::Timeout));
+    let (resumed, _) = result.map_err(|error| {
+        tracing::error!(
+            session_id = %response.session_id.0,
+            category = error.category(),
+            error = %safe_error_detail(&error.message()),
+            "[ACP] forked session resume failed"
+        );
+        sacp::util::internal_error(format!("Forked session resume failed: {}", error.message()))
+    })?;
+    response.modes = resumed.modes;
+    response.config_options = resumed.config_options;
+    response.meta = resumed.meta;
+    tracing::info!(session_id = %response.session_id.0, "[ACP] forked session resumed");
+    Ok(response)
+}
+
+/// 处理会话退出或分叉切换，保持当前连接的路由和工具权限。
 #[allow(clippy::too_many_arguments)]
 async fn handle_fork_or_exit(
     loop_result: Result<Option<ForkExitInfo>, sacp::Error>,
@@ -5480,7 +5511,7 @@ async fn handle_fork_or_exit(
     perms: &PendingPermissions,
     cmd_rx: &mut mpsc::Receiver<ConnectionCommand>,
     terminal_runtime: Arc<TerminalRuntime>,
-    _cwd: &std::path::Path,
+    session_request_context: SessionRequestContext<'_>,
     cwd_string: &str,
     prompt_ledger: &background_watch::PromptLedger,
     route_binding: &crate::acp::runtime_host::RuntimeHostRouteBinding,
@@ -5512,17 +5543,15 @@ async fn handle_fork_or_exit(
         fork_info.original_session_id
     );
 
-    // Reply protocol-level result to manager.fork_session, which will combine
-    // it with the freshly-created sibling row id to produce the wire ForkResultInfo.
-    let _ = fork_info
-        .reply
-        .send(Ok(crate::acp::types::ForkProtocolResult {
-            forked_session_id: new_sid.clone(),
-            original_session_id: fork_info.original_session_id,
-        }));
-
-    // Build a NewSessionResponse from the ForkSessionResponse so we can
-    // attach directly — the forked session is already live on this process.
+    let fork_resp = match resume_fork_if_needed(&cx, fork_resp, session_request_context).await {
+        Ok(response) => response,
+        Err(error) => {
+            let _ = fork_info
+                .reply
+                .send(Err(AcpError::protocol(error.to_string())));
+            return Err(error);
+        }
+    };
     let initial_config_options = fork_resp.config_options.clone();
     let new_resp = NewSessionResponse::new(fork_resp.session_id)
         .modes(fork_resp.modes)
@@ -5548,6 +5577,14 @@ async fn handle_fork_or_exit(
     .await;
     emit_selectors_ready(state, emitter).await;
 
+    // 新会话已激活后再允许保存与发送，避免恢复失败却向前端报告成功。
+    let _ = fork_info
+        .reply
+        .send(Ok(crate::acp::types::ForkProtocolResult {
+            forked_session_id: new_sid.clone(),
+            original_session_id: fork_info.original_session_id,
+        }));
+
     let loop_result = run_conversation_loop(
         &mut session,
         conn_id,
@@ -5563,6 +5600,7 @@ async fn handle_fork_or_exit(
         delegation_injection,
         stderr_tail,
         host_health,
+        session_request_context,
     )
     .await;
     terminal_runtime.release_all_for_session(&new_sid).await;
@@ -5578,7 +5616,7 @@ async fn handle_fork_or_exit(
         perms,
         cmd_rx,
         terminal_runtime,
-        _cwd,
+        session_request_context,
         cwd_string,
         prompt_ledger,
         route_binding,
@@ -6067,6 +6105,7 @@ async fn run_conversation_loop<'a>(
     delegation_injection: Option<&DelegationInjection>,
     stderr_tail: &Arc<StderrTail>,
     host_health: &AtomicBool,
+    session_request_context: SessionRequestContext<'_>,
 ) -> Result<Option<ForkExitInfo>, sacp::Error> {
     // Session-scoped cache for diffing cumulative `raw_output` snapshots
     // into incremental deltas. Shared across the idle loop and the active
@@ -7373,7 +7412,13 @@ async fn run_conversation_loop<'a>(
                     sid.0,
                     cwd
                 );
-                let result = crate::acp::fork::fork_session(&cx, &sid, cwd).await;
+                let request = sacp::schema::ForkSessionRequest::new(
+                    sid.clone(),
+                    session_request_context.cwd.to_path_buf(),
+                )
+                .mcp_servers(session_request_context.mcp_servers.to_vec())
+                .meta(session_request_context.meta());
+                let result = crate::acp::fork::fork_session(&cx, request).await;
                 match result {
                     Ok(fork_response) => {
                         tracing::info!(

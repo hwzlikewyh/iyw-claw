@@ -32,6 +32,7 @@ import {
 } from "@/lib/adapters/ai-elements-adapter"
 import { isContextCompactionMeta } from "@/lib/context-compaction"
 import { TurnStats } from "./turn-stats"
+import { resolveTurnDuration } from "@/lib/turn-duration"
 import { LiveTurnStats } from "./live-turn-stats"
 import { UserResourceLinks } from "./user-resource-links"
 import { MessageTimestamp } from "./message-timestamp"
@@ -164,6 +165,7 @@ type ThreadRenderItem =
       showStats: boolean
       isRoleTransition: boolean
       previousUserIndex: number | null
+      durationMs?: number | null
     }
   | {
       key: string
@@ -488,6 +490,7 @@ const UserMessageCopyButton = memo(function UserMessageCopyButton({
 
 const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   group,
+  durationMs,
   conversationId,
   artifactConversationId,
   agentType,
@@ -504,6 +507,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   autoOpenErrors,
 }: {
   group: ResolvedMessageGroup
+  durationMs?: number | null
   conversationId: number
   artifactConversationId: number | null
   agentType: AgentType
@@ -565,7 +569,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
               displayMode={conversationDisplayMode}
               collapseCompletedTurn={collapseCompletedTurn}
               autoOpenErrors={autoOpenErrors}
-              durationMs={group.duration_ms}
+              durationMs={durationMs ?? group.duration_ms}
             />
           </MessageContent>
         )}
@@ -595,7 +599,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
             {showStats && (
               <TurnStats
                 usage={group.usage}
-                duration_ms={group.duration_ms}
+                duration_ms={durationMs ?? group.duration_ms}
                 model={modelDisplayName(modelOptions, group.model)}
                 models={group.models?.map(
                   (model) => modelDisplayName(modelOptions, model) ?? model
@@ -850,6 +854,14 @@ export function MessageListView({
         if (!next || next.kind !== "turn" || next.group.role !== "assistant") {
           item.showStats = true
           item.previousUserIndex = lastUserIdx
+          const user = lastUserIdx === null ? null : items[lastUserIdx]
+          if (user?.kind === "turn") {
+            item.durationMs = resolveTurnDuration({
+              duration_ms: item.group.duration_ms,
+              startedAt: user.group.timestamp,
+              completedAt: item.group.completed_at,
+            })
+          }
         }
       }
     }
@@ -906,6 +918,7 @@ export function MessageListView({
               <div style={pt > 0 ? { paddingTop: pt } : undefined}>
                 <HistoricalMessageGroup
                   group={item.group}
+                  durationMs={item.durationMs}
                   conversationId={conversationId}
                   artifactConversationId={resolvedArtifactConversationId}
                   agentType={agentType}
