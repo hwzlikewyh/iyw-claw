@@ -4,6 +4,8 @@
 
 Var IywClawProcessError
 
+!include "${__FILEDIR__}\installer-node-process.nsh"
+
 !macro IywClawDefineProcessFunctions Prefix
 Function ${Prefix}IywClawIssueKnownProcessKills
   Push "kill"
@@ -87,6 +89,8 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `    }$\r$\n`
   FileWriteUTF16LE $R0 `    return $$false$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
+  ; Node 本体已迁入用户目录，进程归属还需检查本安装实例的入口脚本。
+  !insertmacro IywClawWriteNodeProcessScope
   FileWriteUTF16LE $R0 `  function Get-ProcessIdentity([object]$$CimProcess) {$\r$\n`
   FileWriteUTF16LE $R0 `    $$owner = Invoke-CimMethod -InputObject $$CimProcess -MethodName GetOwnerSid -ErrorAction Stop$\r$\n`
   FileWriteUTF16LE $R0 `    if ($$owner.ReturnValue -ne 0 -or [string]::IsNullOrWhiteSpace($$owner.Sid)) { throw 'Unable to resolve process owner SID' }$\r$\n`
@@ -110,7 +114,8 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `    $$parent = Normalize-Directory (Get-SafeCanonicalPath $$parentPath)$\r$\n`
   FileWriteUTF16LE $R0 `    $$leaf = [IO.Path]::GetFileName($$cimPath)$\r$\n`
   FileWriteUTF16LE $R0 `    if (-not [string]::Equals($$leaf, $$CimProcess.Name, [StringComparison]::OrdinalIgnoreCase)) { throw 'Process executable name mismatch' }$\r$\n`
-  FileWriteUTF16LE $R0 `    return [PSCustomObject]@{ ProcessId = $$processId; StartTimeUtcTicks = $$startTicks; OwnerSid = $$owner.Sid; ExecutablePath = $$cimPath; ParentPath = $$parent; Name = $$CimProcess.Name; RuntimeProcess = $$runtime }$\r$\n`
+  FileWriteUTF16LE $R0 `    $$scriptPath = Get-ManagedNodeScript $$CimProcess$\r$\n`
+  FileWriteUTF16LE $R0 `    return [PSCustomObject]@{ ProcessId = $$processId; StartTimeUtcTicks = $$startTicks; OwnerSid = $$owner.Sid; ExecutablePath = $$cimPath; ParentPath = $$parent; Name = $$CimProcess.Name; ScriptPath = $$scriptPath; RuntimeProcess = $$runtime }$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
   FileWriteUTF16LE $R0 `  function Confirm-ProcessIdentity([object]$$Expected, [string]$$Target, [string]$$CurrentSid) {$\r$\n`
   FileWriteUTF16LE $R0 `    $$processId = [int]$$Expected.ProcessId$\r$\n`
@@ -119,10 +124,11 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `    if ($$records.Count -ne 1) { throw "PID $$processId returned multiple process records" }$\r$\n`
   FileWriteUTF16LE $R0 `    try { $$actual = Get-ProcessIdentity $$records[0] } catch { $$stillThere = @(Get-CimInstance Win32_Process -Filter "ProcessId = $$processId" -ErrorAction Stop); if ($$stillThere.Count -eq 0) { return $$null }; throw }$\r$\n`
   FileWriteUTF16LE $R0 `    $$changed = $$actual.ProcessId -ne $$Expected.ProcessId -or $$actual.StartTimeUtcTicks -ne $$Expected.StartTimeUtcTicks -or -not [string]::Equals($$actual.OwnerSid, $$Expected.OwnerSid, [StringComparison]::OrdinalIgnoreCase) -or -not [string]::Equals($$actual.ExecutablePath, $$Expected.ExecutablePath, [StringComparison]::OrdinalIgnoreCase) -or -not [string]::Equals($$actual.ParentPath, $$Expected.ParentPath, [StringComparison]::OrdinalIgnoreCase) -or -not [string]::Equals($$actual.Name, $$Expected.Name, [StringComparison]::OrdinalIgnoreCase)$\r$\n`
+  FileWriteUTF16LE $R0 `    $$changed = $$changed -or -not [string]::Equals($$actual.ScriptPath, $$Expected.ScriptPath, [StringComparison]::OrdinalIgnoreCase)$\r$\n`
   FileWriteUTF16LE $R0 `    if ($$changed) { throw "Process identity changed before stop for PID $$processId" }$\r$\n`
   FileWriteUTF16LE $R0 `    $$sameOwner = [string]::Equals($$actual.OwnerSid, $$CurrentSid, [StringComparison]::OrdinalIgnoreCase)$\r$\n`
   FileWriteUTF16LE $R0 `    $$sameParent = [string]::Equals($$actual.ParentPath, $$Target, [StringComparison]::OrdinalIgnoreCase)$\r$\n`
-  FileWriteUTF16LE $R0 `    $$inScope = $$sameParent -or (Test-ManagedProcessPath $$actual.ExecutablePath)$\r$\n`
+  FileWriteUTF16LE $R0 `    $$inScope = $$sameParent -or (Test-ManagedProcessPath $$actual.ExecutablePath) -or -not [string]::IsNullOrWhiteSpace($$actual.ScriptPath)$\r$\n`
   FileWriteUTF16LE $R0 `    if (-not ($$sameOwner -and $$inScope)) { throw "Process scope changed before stop for PID $$processId" }$\r$\n`
   FileWriteUTF16LE $R0 `    return $$actual.RuntimeProcess$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
@@ -142,7 +148,7 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `    $$managedRoots = @('runtime', 'agents', 'data\runtime', 'data\browser\chromium') | ForEach-Object { [IO.Path]::Combine($$installRoot, $$_) }$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
   FileWriteUTF16LE $R0 `  $$currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value; if ([string]::IsNullOrWhiteSpace($$currentSid)) { throw 'Current user SID is unavailable' }$\r$\n`
-  FileWriteUTF16LE $R0 `  $$isCandidate = { param([object]$$Process) if ($$Action -eq 'check-main') { return $$Process.Name -ieq 'iyw-claw.exe' }; return $$Process.Name -ieq 'iyw-claw.exe' -or $$Process.Name -ieq 'agent-browser.exe' -or $$Process.Name -match $$pattern -or (Test-ManagedProcessPath $$Process.ExecutablePath) }$\r$\n`
+  FileWriteUTF16LE $R0 `  $$isCandidate = { param([object]$$Process) if ($$Action -eq 'check-main') { return $$Process.Name -ieq 'iyw-claw.exe' }; return $$Process.Name -ieq 'iyw-claw.exe' -or $$Process.Name -ieq 'agent-browser.exe' -or $$Process.Name -match $$pattern -or (Test-ManagedProcessPath $$Process.ExecutablePath) -or -not [string]::IsNullOrWhiteSpace((Get-ManagedNodeScript $$Process)) }$\r$\n`
   FileWriteUTF16LE $R0 `  $$processSnapshots = @()$\r$\n`
   FileWriteUTF16LE $R0 `  Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object {$\r$\n`
   FileWriteUTF16LE $R0 `    if (-not (& $$isCandidate $$_)) { return }$\r$\n`
@@ -150,14 +156,18 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `    try { $$identity = Get-ProcessIdentity $$candidate } catch {$\r$\n`
   FileWriteUTF16LE $R0 `      $$stillThere = @(Get-CimInstance Win32_Process -Filter "ProcessId = $$candidatePid" -ErrorAction Stop)$\r$\n`
   FileWriteUTF16LE $R0 `      if ($$stillThere.Count -eq 0) { return }$\r$\n`
-  FileWriteUTF16LE $R0 `      if ($$Action -eq 'check-main' -or $$candidate.Name -ieq 'iyw-claw.exe' -or (Test-ManagedProcessPath $$candidate.ExecutablePath)) { throw ('Unable to verify installer-scoped process: pid={0}; error={1}' -f $$candidatePid, $$_) }$\r$\n`
+  FileWriteUTF16LE $R0 `      if ($$Action -eq 'check-main' -or $$candidate.Name -ieq 'iyw-claw.exe' -or $$candidate.Name -ieq 'node.exe' -or (Test-ManagedProcessPath $$candidate.ExecutablePath)) { throw ('Unable to verify installer-scoped process: pid={0}; error={1}' -f $$candidatePid, $$_) }$\r$\n`
   FileWriteUTF16LE $R0 `      Write-Warning ('Skipping auxiliary process {0} (PID {1}): {2}' -f $$candidate.Name, $$candidatePid, $$_)$\r$\n`
   FileWriteUTF16LE $R0 `      return$\r$\n`
   FileWriteUTF16LE $R0 `    }$\r$\n`
   FileWriteUTF16LE $R0 `    $$sameOwner = [string]::Equals($$identity.OwnerSid, $$currentSid, [StringComparison]::OrdinalIgnoreCase)$\r$\n`
   FileWriteUTF16LE $R0 `    $$sameParent = [string]::Equals($$identity.ParentPath, $$target, [StringComparison]::OrdinalIgnoreCase)$\r$\n`
-  FileWriteUTF16LE $R0 `    $$inScope = $$sameParent -or (Test-ManagedProcessPath $$identity.ExecutablePath)$\r$\n`
-  FileWriteUTF16LE $R0 `    if ($$sameOwner -and $$inScope) { $$processSnapshots += $$identity }$\r$\n`
+  FileWriteUTF16LE $R0 `    $$inScope = $$sameParent -or (Test-ManagedProcessPath $$identity.ExecutablePath) -or -not [string]::IsNullOrWhiteSpace($$identity.ScriptPath)$\r$\n`
+  FileWriteUTF16LE $R0 `    if ($$sameOwner -and $$inScope) {$\r$\n`
+  FileWriteUTF16LE $R0 `      $$scope = if ([string]::IsNullOrWhiteSpace($$identity.ScriptPath)) { 'executable' } else { 'node-entry-script' }$\r$\n`
+  FileWriteUTF16LE $R0 `      Write-Output ('Found installer-scoped process: name={0}; pid={1}; scope={2}' -f $$identity.Name, $$identity.ProcessId, $$scope)$\r$\n`
+  FileWriteUTF16LE $R0 `      $$processSnapshots += $$identity$\r$\n`
+  FileWriteUTF16LE $R0 `    }$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
   FileWriteUTF16LE $R0 `  if ($$Action -eq 'kill') {$\r$\n`
   FileWriteUTF16LE $R0 `    foreach ($$snapshot in $$processSnapshots) {$\r$\n`
