@@ -66,6 +66,7 @@ import type { ComposerInjectContent } from "@/components/chat/message-input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import {
   type ForkResult,
+  type ForkTarget,
   acpGetAgentStatus,
   createChatConversation,
   createChatDir,
@@ -912,6 +913,8 @@ const ConversationTabView = memo(function ConversationTabView({
   }, [connectionReady])
   const canFork =
     connectionReady &&
+    !conn.isViewer &&
+    mqEditingItemId == null &&
     hasPersistedConversation &&
     conn.supportsFork &&
     !outboxFlushPending &&
@@ -921,14 +924,24 @@ const ConversationTabView = memo(function ConversationTabView({
   const onSessionForked = useCallback(
     (result: ForkResult) => {
       sessionIdRef.current = result.forkedSessionId
+      syncCancelRef.current?.()
+      syncCancelRef.current = null
+      messageScrollPositionRef.current = null
+      removeConversation(effectiveConversationId)
+      setDbConversationId(effectiveConversationId, dbConversationId)
       setExternalId(effectiveConversationId, result.forkedSessionId)
+      refetchDetail(effectiveConversationId)
       pinTab(tabId)
       refreshConversations()
     },
     [
       effectiveConversationId,
+      dbConversationId,
       pinTab,
+      refetchDetail,
       refreshConversations,
+      removeConversation,
+      setDbConversationId,
       setExternalId,
       tabId,
     ]
@@ -937,6 +950,7 @@ const ConversationTabView = memo(function ConversationTabView({
     fork,
     pending: forkPending,
     pendingRef: forkPendingRef,
+    pendingMessageId: forkPendingMessageId,
   } = useSessionFork({
     connectionId: conn.connectionId,
     conversationId: dbConversationId,
@@ -2275,17 +2289,20 @@ const ConversationTabView = memo(function ConversationTabView({
     [ensureConversationPointsAvailable, executeForkSend, forkPendingRef]
   )
 
-  const handleForkSession = useCallback(async () => {
-    try {
-      if (await fork()) toast.success(t("forkSessionSuccess"))
-    } catch (error) {
-      toast.error(
-        t("forkSessionFailed", {
-          error: toErrorMessage(error),
-        })
-      )
-    }
-  }, [fork, t])
+  const handleForkSession = useCallback(
+    async (target?: ForkTarget) => {
+      try {
+        if (await fork(target)) toast.success(t("forkSessionSuccess"))
+      } catch (error) {
+        toast.error(
+          t("forkSessionFailed", {
+            error: toErrorMessage(error),
+          })
+        )
+      }
+    },
+    [fork, t]
+  )
 
   const handleOpenAgentsSettings = useCallback(() => {
     openSettingsWindow("agents", { agentType: selectedAgent }).catch((err) => {
@@ -2629,6 +2646,27 @@ const ConversationTabView = memo(function ConversationTabView({
       liveTrailingStatus={<BackgroundTasksChip contextKey={tabId} inline />}
       standaloneStatus={<BackgroundTasksChip contextKey={tabId} />}
       scrollPositionRef={messageScrollPositionRef}
+      sessionActions={
+        conn.supportsFork && hasPersistedConversation
+          ? (target) => {
+              if (
+                target &&
+                !["claude_code", "codex", "open_code"].includes(selectedAgent)
+              )
+                return null
+              return (
+                <SessionForkButton
+                  onFork={() => void handleForkSession(target ?? undefined)}
+                  disabled={!canFork || msgQueue.length > 0 || forkPending}
+                  pending={
+                    forkPending &&
+                    forkPendingMessageId === (target?.messageId ?? null)
+                  }
+                />
+              )
+            }
+          : undefined
+      }
     />
   )
 
@@ -2750,15 +2788,6 @@ const ConversationTabView = memo(function ConversationTabView({
         canFork && !forkPending && !forkSendBlockedByQueue(msgQueue.length)
           ? handleForkSend
           : undefined
-      }
-      sessionActions={
-        conn.supportsFork && hasPersistedConversation ? (
-          <SessionForkButton
-            onFork={() => void handleForkSession()}
-            disabled={!canFork || msgQueue.length > 0}
-            pending={forkPending}
-          />
-        ) : null
       }
     >
       {isWelcomeMode ? (

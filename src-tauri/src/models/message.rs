@@ -179,6 +179,9 @@ pub enum TurnRole {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageTurn {
     pub id: String,
+    /// 原生消息终点；展示 ID 保持不变，分叉时不使用顺序编号定位。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_message_id: Option<String>,
     pub role: TurnRole,
     pub blocks: Vec<ContentBlock>,
     pub timestamp: DateTime<Utc>,

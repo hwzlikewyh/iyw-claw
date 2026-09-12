@@ -64,6 +64,7 @@ pub(super) fn ensure_assistant(
     timestamp: DateTime<Utc>,
 ) -> &mut MessageTurn {
     assistant.get_or_insert_with(|| MessageTurn {
+        fork_message_id: None,
         id: String::new(),
         role: TurnRole::Assistant,
         blocks: Vec::new(),

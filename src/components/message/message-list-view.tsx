@@ -88,6 +88,7 @@ import { UserMemoryMessageActions } from "@/components/message/user-memory-messa
 import { CurrentReplyArtifacts } from "@/components/message/current-reply-artifacts"
 import { AssistantTurnContent } from "@/components/message/assistant-turn-content"
 import { useConversationDisplayPreferences } from "@/contexts/conversation-display-context"
+import type { ForkTarget } from "@/lib/api"
 import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
 import {
   CompletionEntrance,
@@ -134,10 +135,13 @@ interface MessageListViewProps {
   /** Fallback status row used when there is no live turn row. */
   standaloneStatus?: ReactNode
   scrollPositionRef?: RefObject<MessageScrollPosition | null>
+  /** null 表示最新位置的完整会话操作，其余参数指向已保存的消息终点。 */
+  sessionActions?: (target: ForkTarget | null) => ReactNode
 }
 
 interface ResolvedMessageGroup {
   id: string
+  forkTarget?: ForkTarget
   role: "user" | "assistant" | "system"
   timestamp: string
   parts: AdaptedContentPart[]
@@ -397,6 +401,9 @@ function mergeConsecutiveAssistantTurns(
         group: {
           ...last.group,
           id: first.group.id,
+          forkTarget: [...buffer]
+            .reverse()
+            .find((item) => item.group.forkTarget)?.group.forkTarget,
           parts: mergedParts,
           usage: mergedUsage,
           duration_ms: mergedDuration,
@@ -505,6 +512,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   conversationDisplayMode,
   collapseCompletedTurn,
   autoOpenErrors,
+  actions,
 }: {
   group: ResolvedMessageGroup
   durationMs?: number | null
@@ -522,6 +530,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   conversationDisplayMode: ConversationDisplayMode
   collapseCompletedTurn: boolean
   autoOpenErrors: boolean
+  actions?: ReactNode
 }) {
   if (group.role === "system") {
     return <CollapsibleSystemMessage group={group} />
@@ -608,6 +617,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
                 isResponseComplete={isResponseComplete}
                 copyText={extractTextFromParts(group.parts)}
                 completedAt={group.completed_at}
+                actions={actions}
               />
             )}
           </CompletionEntrance>
@@ -679,6 +689,7 @@ export function MessageListView({
   liveTrailingStatus,
   standaloneStatus,
   scrollPositionRef,
+  sessionActions,
 }: MessageListViewProps) {
   const resolvedArtifactConversationId = resolveArtifactConversationId(
     conversationId,
@@ -748,6 +759,8 @@ export function MessageListView({
   )
 
   const sessionSyncState = session?.syncState ?? "idle"
+  const persistedSessionId =
+    session?.externalId ?? session?.detail?.summary.external_id
 
   // Per-instance turn adapter: caches per-turn `AdaptedMessage` so unchanged
   // historical turns survive every streaming-token re-render with stable refs.
@@ -789,9 +802,23 @@ export function MessageListView({
       const phase = timelineTurns[i].phase
       const role = msg.role === "tool" ? "assistant" : msg.role
       let group = groupCache.get(msg)
-      if (!group) {
+      const forkMessageId = allTurns[i].fork_message_id
+      const forkSessionId = forkMessageId ? persistedSessionId : undefined
+      if (
+        !group ||
+        group.forkTarget?.messageId !==
+          (forkSessionId ? forkMessageId : undefined) ||
+        group.forkTarget?.sessionId !== forkSessionId
+      ) {
         group = {
           id: msg.id,
+          forkTarget:
+            forkMessageId && forkSessionId
+              ? {
+                  sessionId: forkSessionId,
+                  messageId: forkMessageId,
+                }
+              : undefined,
           role,
           timestamp: msg.timestamp,
           parts: msg.content,
@@ -892,6 +919,7 @@ export function MessageListView({
     turnAdapter,
     groupCache,
     session?.detail?.history_start,
+    persistedSessionId,
   ])
 
   const lastAssistantItem = useMemo(() => {
@@ -933,6 +961,13 @@ export function MessageListView({
                   conversationDisplayMode={conversationDisplayMode}
                   collapseCompletedTurn={collapseCompletedTurn}
                   autoOpenErrors={autoOpenErrors}
+                  actions={
+                    item.phase === "persisted" &&
+                    (item.group.forkTarget ||
+                      item.key === lastAssistantItem?.key)
+                      ? sessionActions?.(item.group.forkTarget ?? null)
+                      : undefined
+                  }
                 />
               </div>
             </MessageEntrance>
@@ -988,8 +1023,10 @@ export function MessageListView({
       conversationDisplayMode,
       collapseCompletedTurn,
       autoOpenErrors,
+      lastAssistantItem?.key,
       loadEarlierHistory,
       modelOptions,
+      sessionActions,
       t,
     ]
   )

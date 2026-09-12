@@ -1,8 +1,4 @@
-//! ACP `session/fork` support via raw JSON-RPC messages.
-//!
-//! The `sacp` crate does not yet provide typed request/response types for
-//! `session/fork`, so we use `UntypedMessage` (the same pattern used for
-//! `session/set_config_option` in connection.rs).
+//! 远山、星河复用 ACP 分叉扩展；云舟历史分叉调用同一进程的 HTTP API。
 
 use sacp::schema::{ForkSessionRequest, ForkSessionResponse};
 use sacp::{Agent, ConnectionTo, UntypedMessage};
@@ -15,7 +11,20 @@ use crate::acp::error::AcpError;
 pub async fn fork_session(
     cx: &ConnectionTo<Agent>,
     req: ForkSessionRequest,
+    opencode: Option<&crate::acp::opencode_fork::OpenCodeForkClient>,
 ) -> Result<ForkSessionResponse, AcpError> {
+    let message_id = req
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.get("jetbrains"))
+        .and_then(|meta| meta.pointer("/air/fork/messageId"))
+        .and_then(serde_json::Value::as_str);
+    if let (Some(client), Some(message_id)) = (opencode, message_id) {
+        return client
+            .fork(req.session_id.0.as_ref(), &req.cwd, message_id)
+            .await
+            .map(ForkSessionResponse::new);
+    }
     let untyped_req = UntypedMessage::new("session/fork", &req)
         .map_err(|e| AcpError::protocol(format!("Failed to build fork request: {e}")))?;
 

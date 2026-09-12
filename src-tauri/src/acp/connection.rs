@@ -446,6 +446,7 @@ pub enum ConnectionCommand {
         option_id: String,
     },
     Fork {
+        point: Option<crate::acp::fork_target::ForkPoint>,
         reply:
             tokio::sync::oneshot::Sender<Result<crate::acp::types::ForkProtocolResult, AcpError>>,
     },
@@ -1096,7 +1097,10 @@ async fn build_agent(spec: AgentLaunchSpec<'_>) -> Result<AcpAgent, AcpError> {
                 .map(|m| m.len())
                 .unwrap_or(0);
             let mut server = McpServerStdio::new(meta.name, &binary_str);
-            let cmd_args: Vec<String> = args.iter().map(|a| (*a).to_string()).collect();
+            let mut cmd_args: Vec<String> = args.iter().map(|a| (*a).to_string()).collect();
+            if agent_type == AgentType::OpenCode {
+                cmd_args.extend(crate::acp::opencode_fork::launch_args(runtime_env));
+            }
             if !cmd_args.is_empty() {
                 server = server.args(cmd_args);
             }
@@ -1528,7 +1532,7 @@ pub(crate) async fn spawn_agent_connection(
                     .to_string(),
             )
         })?;
-        let prepared = crate::acp::builtin_prompt_injection::prepare(
+        let mut prepared = crate::acp::builtin_prompt_injection::prepare(
             crate::acp::builtin_prompt_injection::PrepareRequest {
                 agent_type,
                 connection_id: &connection_id,
@@ -1543,6 +1547,9 @@ pub(crate) async fn spawn_agent_connection(
             },
         )
         .await?;
+        if agent_type == AgentType::OpenCode {
+            crate::acp::opencode_fork::prepare(&mut prepared.environment)?;
+        }
         let dedicated_worker = if internal_codex_worker_requested(agent_type, &prepared.environment)
         {
             match ensure_internal_codex_worker_ready() {
@@ -2248,6 +2255,7 @@ struct SessionRequestContext<'a> {
     builtin_prompt: &'a str,
     openclaw_session_key: Option<&'a str>,
     response_style: Option<&'a str>,
+    opencode_fork: Option<&'a crate::acp::opencode_fork::OpenCodeForkClient>,
 }
 
 impl SessionRequestContext<'_> {
@@ -3511,6 +3519,11 @@ async fn run_connection(
         let reconnect_host_health = Arc::clone(&host_health);
         let companion_launch = &mut companion_launch;
         let tools_cancellation = cancellation.clone();
+        let opencode_fork = (agent_type == AgentType::OpenCode)
+            .then(|| {
+                crate::acp::opencode_fork::OpenCodeForkClient::from_env(&agent_rebuild.runtime_env)
+            })
+            .transpose()?;
         let connection = async move {
             let state = state_outer;
             let managed_agent_version = state.read().await.managed_agent_version.clone();
@@ -3663,6 +3676,7 @@ async fn run_connection(
 
             let session_request_context = SessionRequestContext {
                 agent_type,
+                opencode_fork: opencode_fork.as_ref(),
                 cwd: &cwd,
                 mcp_servers: &mcp_servers,
                 builtin_prompt: &builtin_prompt.text,
@@ -5467,13 +5481,13 @@ struct ForkExitInfo {
     connection: ConnectionTo<Agent>,
 }
 
-/// 远山分叉仅生成持久化副本，必须恢复后才能继续；其他适配器返回活跃会话。
+/// 远山及云舟原生分叉只生成持久化副本，恢复后才能继续使用 ACP 会话。
 async fn resume_fork_if_needed(
     cx: &ConnectionTo<Agent>,
     mut response: sacp::schema::ForkSessionResponse,
     context: SessionRequestContext<'_>,
 ) -> Result<sacp::schema::ForkSessionResponse, sacp::Error> {
-    if context.agent_type != AgentType::ClaudeCode {
+    if !matches!(context.agent_type, AgentType::ClaudeCode | AgentType::OpenCode) {
         return Ok(response);
     }
     let request = build_resume_session_request(context, response.session_id.clone());
@@ -5536,7 +5550,6 @@ async fn handle_fork_or_exit(
             "ACP runtime route expired before forked session binding",
         ));
     }
-
     tracing::info!(
         "[ACP] Fork transition: attaching to forked session {} (original: {})",
         new_sid,
@@ -5546,6 +5559,7 @@ async fn handle_fork_or_exit(
     let fork_resp = match resume_fork_if_needed(&cx, fork_resp, session_request_context).await {
         Ok(response) => response,
         Err(error) => {
+            route_binding.bind_session(fork_info.original_session_id.clone());
             let _ = fork_info
                 .reply
                 .send(Err(AcpError::protocol(error.to_string())));
@@ -7398,7 +7412,7 @@ async fn run_conversation_loop<'a>(
             Some(ConnectionCommand::NativeSteer { reply, .. }) => {
                 let _ = reply.send(NativeSteerOutcome::Unsupported);
             }
-            Some(ConnectionCommand::Fork { reply }) => {
+            Some(ConnectionCommand::Fork { point, reply }) => {
                 if !supports_fork {
                     let _ = reply.send(Err(AcpError::protocol(
                         "This agent does not support session/fork".to_string(),
@@ -7412,13 +7426,25 @@ async fn run_conversation_loop<'a>(
                     sid.0,
                     cwd
                 );
-                let request = sacp::schema::ForkSessionRequest::new(
+                let mut request = sacp::schema::ForkSessionRequest::new(
                     sid.clone(),
                     session_request_context.cwd.to_path_buf(),
                 )
                 .mcp_servers(session_request_context.mcp_servers.to_vec())
                 .meta(session_request_context.meta());
-                let result = crate::acp::fork::fork_session(&cx, request).await;
+                if let Some(point) = point {
+                    let meta = request.meta.get_or_insert_with(Default::default);
+                    meta.insert(
+                        "jetbrains".into(),
+                        serde_json::json!({"air": {"fork": point}}),
+                    );
+                }
+                let result = crate::acp::fork::fork_session(
+                    &cx,
+                    request,
+                    session_request_context.opencode_fork,
+                )
+                .await;
                 match result {
                     Ok(fork_response) => {
                         tracing::info!(

@@ -9336,6 +9336,7 @@ pub async fn acp_fork(
     connection_id: String,
     conversation_id: Option<i32>,
     folder_id: Option<i32>,
+    target: Option<crate::acp::fork_target::ForkTarget>,
     db: State<'_, AppDatabase>,
     manager: State<'_, ConnectionManager>,
     chat_channel_manager: State<'_, crate::chat_channel::manager::ChatChannelManager>,
@@ -9344,9 +9345,12 @@ pub async fn acp_fork(
         .fork_session(
             &db,
             &chat_channel_manager,
-            &connection_id,
-            conversation_id,
-            folder_id,
+            crate::acp::fork_target::ForkSessionOptions {
+                connection_id,
+                conversation_id,
+                folder_id,
+                target,
+            },
         )
         .await
 }

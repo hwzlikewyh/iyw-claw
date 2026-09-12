@@ -419,17 +419,19 @@ export interface ForkResult {
   siblingConversationId: number
 }
 
-export async function acpFork(
-  connectionId: string,
-  conversationId?: number | null,
-  folderId?: number | null
-): Promise<ForkResult> {
+export interface ForkTarget {
+  sessionId: string
+  messageId: string
+}
+
+export async function acpFork(request: {
+  connectionId: string
+  conversationId: number
+  folderId: number
+  target?: ForkTarget
+}): Promise<ForkResult> {
   try {
-    return await getTransport().call("acp_fork", {
-      connectionId,
-      conversationId: conversationId ?? null,
-      folderId: folderId ?? null,
-    })
+    return await getTransport().call("acp_fork", request)
   } catch (e) {
     // A fork is serialized with prompts on the backend: it returns
     // TurnInProgress while a turn is in flight. Surface it as TurnBusyError so

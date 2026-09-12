@@ -321,6 +321,7 @@ export interface SessionStats {
 }
 
 export interface MessageTurn {
+  fork_message_id?: string | null
   id: string
   role: TurnRole
   blocks: ContentBlock[]

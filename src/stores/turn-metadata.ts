@@ -2,10 +2,40 @@ import type { MessageTurn, TurnUsage } from "@/lib/types"
 
 export interface TurnMetadataPatch {
   index: number
+  fork_message_id?: string | null
   usage?: TurnUsage | null
   duration_ms?: number | null
   model?: string | null
   completed_at?: string | null
+}
+
+export function resolveForkMessageId(
+  local: MessageTurn,
+  parsed: MessageTurn[]
+) {
+  let text = ""
+  for (const block of local.blocks) {
+    if (block.type === "tool_use" || block.type === "tool_result") text = ""
+    else if (block.type === "text") text += block.text
+  }
+  text = text.trim()
+  if (!text) return undefined
+  const startedAt = Date.parse(local.timestamp)
+  const completedAt = Date.parse(local.completed_at ?? "")
+  const matches = parsed.filter((turn) => {
+    if (!turn.fork_message_id) return false
+    const nativeCompletedAt = Date.parse(turn.completed_at ?? "")
+    if (!(nativeCompletedAt >= startedAt && nativeCompletedAt <= completedAt))
+      return false
+    const ending = turn.blocks
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("")
+      .trim()
+    return ending === text
+  })
+  // 用正文确认唯一终点，不能把耗时统计的按数量对齐直接当成消息身份。
+  return matches.length === 1 ? matches[0].fork_message_id : undefined
 }
 
 function mergeUsage(current: TurnUsage | null | undefined, extra: TurnUsage) {
