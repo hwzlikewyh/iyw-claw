@@ -8,7 +8,7 @@ const ARTIFACT_KIND_FILE: &str = "file";
 const ARTIFACT_KIND_DIRECTORY: &str = "directory";
 pub(super) const ARTIFACT_KIND_URL: &str = "url";
 
-pub(super) struct ResolvedArtifact {
+pub(crate) struct ResolvedArtifact {
     pub source: String,
     pub path: String,
     pub display_name: String,
@@ -135,7 +135,7 @@ fn ensure_relative_path_stays_in_root(
     Err("path_escape".into())
 }
 
-pub(super) fn resolve_sources(
+pub(crate) fn resolve_sources(
     working_dir: &Path,
     sources: Vec<String>,
 ) -> (Vec<ResolvedArtifact>, Vec<(String, String)>) {

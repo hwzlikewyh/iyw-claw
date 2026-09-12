@@ -30,6 +30,8 @@
 //! to the child, and returns. v2 will introduce `continue_with_session` /
 //! `close_session` tools without protocol breakage.
 
+mod artifact_listener;
+pub mod artifact_tool;
 pub mod audio_tool;
 pub mod broker;
 mod channel_listener;
