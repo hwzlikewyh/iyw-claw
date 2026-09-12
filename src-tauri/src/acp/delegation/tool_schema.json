@@ -1293,7 +1293,7 @@
   },
   {
     "name": "append_user_memory",
-    "description": "Append one durable, cross-task fact or preference that the user clearly stated to iyw-claw's user memory. Before the first memory operation in each turn, call read_memory_policy. Use this only when the information will remain useful in future conversations. Never store secrets, credentials, inferred sensitive traits, repository facts, temporary progress, or one-off task details. This tool is append-only: it cannot overwrite user memory and cannot modify the user's profile or soul documents.",
+    "description": "Append one durable, cross-task fact or preference only when the user explicitly asks to remember it. That request is authorization; do not ask again. Other reusable user signals use propose_user_memory. Before the first legacy memory operation in each turn, call read_memory_policy; manage_iyw_memory handles preflight automatically. Never store secrets, credentials, inferred sensitive traits, repository facts, temporary progress, or one-off task details. This tool is append-only: it cannot overwrite user memory and cannot modify profile or soul documents.",
     "inputSchema": {
       "type": "object",
       "required": ["content"],
@@ -1354,8 +1354,23 @@
     }
   },
   {
+    "name": "retire_user_memory",
+    "description": "Stop using one outdated memory or set its explicit expiry. Read-only recall first supplies the exact memoryId and sourceRevision. Call proactively when current evidence disproves a recalled fact or workaround, when the user replaces a preference or asks to forget it, or when a stated validity period ends. Never retire merely because a stable preference is old or unused. Omit expiresAt for immediate exclusion; supply a timezone-qualified RFC3339 timestamp only for an evidenced expiry. No extra user approval is needed for this routine maintenance. This is logical forgetting: original content remains for audit, but recall excludes it at expiry. It does not erase prior conversation context, exports or backups. Before legacy use call read_memory_policy; manage_iyw_memory performs preflight automatically.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["memoryId", "expectedRevision", "reason"],
+      "properties": {
+        "memoryId": {"type": "string", "minLength": 1, "maxLength": 100, "description": "Exact id returned by recall for kind memory or experience; no fuzzy matching."},
+        "expectedRevision": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Exact sourceRevision returned with this recalled item."},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 500, "description": "Brief evidence that the item is invalid, superseded or has an explicit expiry. No sensitive content."},
+        "expiresAt": {"type": "string", "format": "date-time", "description": "Optional known expiry in RFC3339 with timezone. Omit to stop recall immediately. Never invent an expiry for stable facts."}
+      },
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "read_user_memory_documents",
-    "description": "Read the current authoritative contents of selected host-owned user memory documents. Before the first memory operation in each turn, call read_memory_policy. Use only when the task needs the current user-memory, profile, or soul document itself; request the smallest relevant set. This is read-only, path-free, bounded by host policy, and does not replace memory_recall for historical search.",
+    "description": "Read current raw contents of selected host-owned user memory documents for inspection or editing. Original retired entries may remain for audit; never apply entries named in inactiveEntryIds. Before the first legacy memory operation in each turn, call read_memory_policy; manage_iyw_memory handles preflight automatically. Request only the smallest set needed. This read-only, path-free operation does not replace memory_recall for active historical evidence.",
     "inputSchema": {
       "type": "object",
       "required": ["documents"],

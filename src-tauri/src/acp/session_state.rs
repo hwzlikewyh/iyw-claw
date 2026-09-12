@@ -1116,7 +1116,7 @@ impl SessionState {
                     };
                     if let Some(capture) = self.last_completed_turn_harvest.as_mut() {
                         capture.assistant_input_ref =
-                            crate::user_memory::harvest_reference(&assembled);
+                            crate::user_memory::assistant_harvest_reference(&assembled);
                     }
                 }
                 self.last_completed_turn_title_input = completed_turn_title_input(

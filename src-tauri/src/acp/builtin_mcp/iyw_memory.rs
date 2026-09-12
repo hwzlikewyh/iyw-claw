@@ -10,6 +10,31 @@ use super::delivery::RelayDelivery;
 use super::gateway::{self, MemoryGroupRequest};
 use super::invocation::{execute_invocation, InvocationContext, InvocationDependencies};
 
+pub(super) fn parameters_schema() -> Value {
+    let mut variants = Vec::new();
+    for (operation, name) in [
+        ("recall", "memory_recall"),
+        ("append", "append_user_memory"),
+        ("propose", "propose_user_memory"),
+        ("retire", "retire_user_memory"),
+        ("documents.read", "read_user_memory_documents"),
+    ] {
+        let mut schema = super::interaction_tools::embedded_tool(name)["inputSchema"].clone();
+        schema["description"] = json!(format!("Complete parameters for operation={operation}."));
+        variants.push(schema);
+    }
+    variants.push(json!({
+        "type": "object",
+        "description": "Other operations only: use the exact schema returned by read_iyw_capability.",
+        "additionalProperties": true
+    }));
+    json!({
+        "type": "object",
+        "description": "Choose the branch matching operation. Put its fields here without another wrapper. Common-operation schemas are complete and require no metadata read; runtime validates the selected operation exactly.",
+        "anyOf": variants
+    })
+}
+
 pub(super) async fn invoke(
     dependencies: InvocationDependencies<'_>,
     authority: SessionContext,

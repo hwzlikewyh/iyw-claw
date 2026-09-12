@@ -11,13 +11,13 @@ use super::{
 
 pub const USER_CONTEXT_START: &str = "<!-- IYW_CLAW_USER_CONTEXT_V1_START -->";
 pub const USER_CONTEXT_END: &str = "<!-- IYW_CLAW_USER_CONTEXT_V1_END -->";
-pub const MEMORY_POLICY_REVISION: &str = "memory-policy-v4";
+pub const MEMORY_POLICY_REVISION: &str = "memory-policy-v5";
 pub const MEMORY_POLICY_REFERENCE: &str =
     "iyw-capability-gateway/references/memory-and-learning.md";
 pub const MEMORY_POLICY_DOCUMENT: &str =
     include_str!("../../experts/skills/iyw-capability-gateway/references/memory-and-learning.md");
 pub const MEMORY_POLICY_SUMMARY: &str =
-    "Memory policy v4: the Agent owns the learning loop: recall prior decisions, preferences, repeated workflows, or failures before a dependent action; apply and verify the result; then submit only a specific, transferable, evidence-backed lesson. Read current memory/profile/soul documents only when their authoritative text is needed. `matched` is evidence, `no_evidence` is not false, and `unavailable` is a routing/index limitation. The host never infers user candidates or Agent lessons from ordinary prose. Explicit durable user facts use confirmed append; uncertain reusable user signals use candidate proposal. Keep Agent experience separate from user documents. Current system, project, and user instructions override memory. Never store secrets, credentials, financial, medical, biometric, precise-location, sensitive-inference, repository, or temporary-progress data.";
+    "Memory policy v5: reuse relevant context already supplied; otherwise recall prior decisions, preferences, repeated workflows, or failures before a dependent action. Apply and verify the result, then submit only a specific, transferable, evidence-backed lesson. Read memory/profile/soul documents only when their authoritative text is needed. `matched` is evidence, `no_evidence` is not false, and `unavailable` is a routing/index limitation. The host never infers user candidates or Agent lessons from ordinary prose. Confirmed append requires the user's explicit request to remember a durable fact or preference; other reusable user signals use candidate proposal without asking for approval. Keep Agent experience separate from user documents. Current system, project, and user instructions override memory. Never store secrets, credentials, financial, medical, biometric, precise-location, sensitive-inference, repository, or temporary-progress data.";
 
 pub fn memory_policy_digest() -> &'static str {
     static DIGEST: OnceLock<String> = OnceLock::new();
@@ -33,6 +33,7 @@ pub fn memory_policy_digest() -> &'static str {
             ));
             hasher.update(b"\0");
             hasher.update(MEMORY_POLICY_DOCUMENT.as_bytes());
+            hasher.update(super::learning::LESSON_INSTRUCTIONS.as_bytes());
             format!("{:x}", hasher.finalize())
         })
         .as_str()
@@ -63,9 +64,7 @@ pub(crate) fn render_user_context(
     body.push_str(memory_policy_digest());
     body.push_str(". ");
     body.push_str(MEMORY_POLICY_SUMMARY);
-    body.push_str(" Before the first memory call in this turn, read the installed ");
-    body.push_str("`iyw-capability-gateway` Skill and its `references/memory-and-learning.md` ");
-    body.push_str("when the Skill loader exposes files, then call `read_memory_policy` when it is advertised. If file reads are unavailable, the host policy result is authoritative; never use a development-worktree path or guess a memory tool.");
+    body.push_str(" Use advertised `manage_iyw_memory` directly for recall, append, propose, retire and documents.read: their complete schemas are inline and policy preflight is automatic. No Skill, search, metadata or policy read is needed for those operations. Retire obsolete recalled facts or experience by exact ID and sourceRevision; only set expiresAt when the expiry is evidenced, never just because a stable preference is old. Stop applying entries listed in documents.read inactiveEntryIds. For other maintenance, read the mapped capability and policy reference once. If only legacy memory tools are advertised, call `read_memory_policy` before their first use in each turn. Never guess a route or use a development-worktree path.");
     append_maintenance_guidance(
         &mut body,
         documents_available,
@@ -73,6 +72,10 @@ pub(crate) fn render_user_context(
         append_available,
         proposal_available,
     );
+    if append_available || proposal_available {
+        body.push_str("\n\n");
+        body.push_str(super::learning::LESSON_INSTRUCTIONS);
+    }
     Some(bounded_envelope(&body))
 }
 
@@ -88,7 +91,9 @@ fn append_maintenance_guidance(
     }
     body.push_str("\n\n## Memory maintenance\n");
     body.push_str(
-        "Treat your current tool list as the only routing authority. For each memory tool below, \
+        "Prefer the advertised manage_iyw_memory tool with operation recall, documents.read, \
+         append or propose and the matching inline parameters. Treat your current tool list \
+         as the only routing authority. When only legacy memory tools are advertised, \
          collect listed names that equal its bare name or end with that name at a separator \
          boundary such as `__`, `_`, `.`, `/`, or `:`, and call the exact listed name only when \
          there is exactly one match. This supports native and MCP-prefixed routes. With zero or \
@@ -132,9 +137,9 @@ fn append_read_guidance(body: &mut String, documents: bool, recall: bool) {
 fn append_write_guidance(body: &mut String, append: bool, proposal: bool) {
     if append {
         body.push_str(&format!(
-            "Use `{APPEND_USER_MEMORY_TOOL}` when a user-provided fact or preference is \
-             high-confidence, durable, and useful across tasks; no separate user confirmation \
-             is required. "
+            "Use `{APPEND_USER_MEMORY_TOOL}` only when the user explicitly asks to remember \
+             a durable, cross-task fact or preference; that request is authorization and \
+             needs no additional confirmation. Otherwise use candidate proposal. "
         ));
     }
     if proposal {

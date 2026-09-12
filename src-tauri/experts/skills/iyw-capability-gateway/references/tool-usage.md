@@ -18,8 +18,10 @@ detailed reference before acting when the task matches one:
 You must read the full tool description and input schema before first use.
 Reuse a previous read in this conversation without another read. Direct tools
 include these instructions in their definitions. Capabilities
-behind the gateway require an explicit `read_iyw_capability`; each direct memory
-operation also requires that read using its advertised capability mapping.
+behind the gateway require an explicit `read_iyw_capability`. Common direct
+memory operations (recall, append, propose, retire, documents.read) carry complete
+inline schemas and require no metadata, Skill or policy read. Other memory
+operations use one read of their advertised mapping.
 
 ## Shortest Valid Call
 
@@ -34,7 +36,7 @@ state, returned revisions, and availability when the task requires them.
 | Image generation/editing | Text-to-image: `generate` (`images/generations`); single-image changes: `variation`; multi-image fusion: `mix`; four-panel or same-series extension from one reference: `extend`. Explicit `edit` (`images/edits`) requires source images. `generate`, `auto` without images, and `edit` need an exact model ID from `list_iyw_image_models`; no prior platform failure is required. Default timeout: platform 600s, Fusion 300s; override with `wait.timeoutSeconds`, including above 600. Set `delivery.registerArtifact=false` for intermediate assets. No generation capability ID exists |
 | Document knowledge | `search_iyw_knowledge`: `query`, optional known filters; `folderId` is an integer and `fileId` is a string |
 | Known IYW website API | `fetch_iyw_url`: HTTPS `iyw.cn` and all subdomains; GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS; JSON/form/text bodies and ordinary header overrides; current login token supplied by the host; fixed output envelope |
-| Memory recall | Read the mapped capability once, then `manage_iyw_memory` with `operation` and `parameters`; policy preflight is automatic |
+| Memory recall / learning / retirement | Call `manage_iyw_memory` directly with `operation` and its inline `parameters`; policy preflight is automatic |
 | Other host capabilities | Search/read once, then `invoke_iyw_capability` with `capability_id` and an `arguments` object |
 | Questions | `ask_user_question` with `questions`; group related questions in one call |
 | Final files | `present_task_files` with one `files` array for the ready deliverables |

@@ -13,7 +13,7 @@ use super::{
 };
 
 const SOURCE_KEY: &str = "user_memory";
-const INDEX_PROJECTION_VERSION: &[u8] = b"user-memory-index-v3-agent-lessons";
+const INDEX_PROJECTION_VERSION: &[u8] = b"user-memory-index-v4-retention";
 
 struct DocumentSource<'a> {
     id: UserMemoryDocumentId,
@@ -64,6 +64,7 @@ pub(super) fn build_index_snapshot(
 
     add_candidate_evidence(&mut items, candidates);
     add_agent_experiences(&mut items, &mut item_positions, candidates);
+    super::retention::apply_retention(&mut items, candidates);
     IndexSnapshot {
         source_key: SOURCE_KEY.to_string(),
         source_digest,

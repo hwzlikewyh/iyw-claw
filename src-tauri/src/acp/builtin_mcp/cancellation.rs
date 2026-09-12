@@ -244,6 +244,7 @@ fn mutation_may_outlive_request(tool_name: &str, arguments: &Value) -> bool {
             | "rebuild_user_memory_candidate_index"
             | "update_user_memory_documents"
             | "correct_user_memory"
+            | "retire_user_memory"
             | "create_scheduled_task"
             | "update_scheduled_task"
             | "delete_scheduled_task"

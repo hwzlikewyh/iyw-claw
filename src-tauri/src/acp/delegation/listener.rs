@@ -49,7 +49,7 @@ use crate::user_memory::{
 };
 use serde_json::Value;
 
-const MEMORY_ADMIN_TOOLS: [&str; 9] = [
+const MEMORY_ADMIN_TOOLS: [&str; 10] = [
     "list_user_memory_candidates",
     "resolve_user_memory_candidate",
     "delete_user_memory_candidate",
@@ -59,6 +59,7 @@ const MEMORY_ADMIN_TOOLS: [&str; 9] = [
     "get_user_memory_settings",
     "update_user_memory_documents",
     "correct_user_memory",
+    "retire_user_memory",
 ];
 
 /// Hard ceiling on a *positive* `get_delegation_status` long-poll, so a single
@@ -1704,6 +1705,7 @@ impl DelegationListener {
                     .await
             }
             "correct_user_memory" => self.admin_correct(req.token, entry, req.input).await,
+            "retire_user_memory" => self.admin_retire(req.token, entry, req.input).await,
             _ => unreachable!(),
         }
     }
@@ -1851,6 +1853,27 @@ impl DelegationListener {
             crate::commands::user_memory::correct_user_memory_core(&self.user_memory, request)
                 .await
                 .map_err(|error| error.message)?;
+        Self::serialize_memory_admin(result)
+    }
+
+    async fn admin_retire(
+        &self,
+        token: String,
+        entry: TokenEntry,
+        input: Value,
+    ) -> Result<Value, String> {
+        Self::ensure_memory_admin_mutation(&entry)?;
+        let request = serde_json::from_value(input)
+            .map_err(|error| format!("invalid memory retirement arguments: {error}"))?;
+        let _mutation = self.acquire_memory_admin_mutation(&token, &entry).await?;
+        let scope = crate::user_memory::UserMemoryRecallScope::from_workspace_key(
+            entry.memory_workspace_key.clone(),
+        );
+        let result = self
+            .user_memory
+            .retire_memory(request, scope)
+            .await
+            .map_err(|error| error.message)?;
         Self::serialize_memory_admin(result)
     }
 

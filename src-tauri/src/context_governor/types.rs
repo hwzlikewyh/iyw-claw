@@ -87,6 +87,13 @@ pub(crate) struct ContextPlanReceipt {
 }
 
 impl ContextPlanReceiptSeed {
+    pub(crate) fn record_memory_prefetch(&mut self, context_chars: usize) {
+        self.reason_codes
+            .push("initial_memory_prefetch_supplied".to_string());
+        self.memory_context_chars = self.memory_context_chars.saturating_add(context_chars);
+        self.estimated_tokens = estimated_tokens(self.memory_context_chars);
+    }
+
     pub fn new(input: ContextPlanStart<'_>) -> Self {
         let memory_context_chars = input
             .memory
@@ -120,7 +127,13 @@ impl ContextPlanReceiptSeed {
 
     pub fn finish(mut self, finish: ContextPlanFinish<'_>) -> ContextPlanReceipt {
         apply_called_observations(&mut self.memory_lifecycle, finish.memory_calls);
-        if finish.memory_recall_expected && !finish.memory_calls.recall {
+        if finish.memory_recall_expected
+            && !finish.memory_calls.recall
+            && !self
+                .reason_codes
+                .iter()
+                .any(|code| code == "initial_memory_prefetch_supplied")
+        {
             self.reason_codes
                 .push("recall_expected_but_not_called".to_string());
         }

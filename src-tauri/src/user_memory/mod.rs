@@ -27,6 +27,7 @@ mod index_types;
 mod index_verification;
 mod journal;
 mod launch_context;
+mod learning;
 mod migration;
 mod platform;
 mod recall;
@@ -51,6 +52,7 @@ mod recall_temporal;
 mod recall_types;
 mod recall_validity;
 mod recovery;
+mod retention;
 mod service;
 mod settings_projection;
 mod store;
@@ -68,8 +70,8 @@ pub use context::{
     MEMORY_POLICY_REVISION, MEMORY_POLICY_SUMMARY, USER_CONTEXT_END, USER_CONTEXT_START,
 };
 pub use harvest::{
-    extract_agent_lessons, harvest_reference, strip_agent_lessons, MemoryHarvestRequest,
-    UserMemoryCandidateIndexRebuildResult, UserMemoryHarvestRescanPreview,
+    assistant_harvest_reference, extract_agent_lessons, harvest_reference, strip_agent_lessons,
+    MemoryHarvestRequest, UserMemoryCandidateIndexRebuildResult, UserMemoryHarvestRescanPreview,
     UserMemoryHarvestRescanResult, UserMemoryHarvestState, UserMemoryHarvestStatus,
     UserMemoryHarvestSubmitResult, USER_MEMORY_HARVEST_FILE, USER_MEMORY_HARVEST_SCHEMA_VERSION,
 };
@@ -78,6 +80,7 @@ pub use recall_types::{
     UserMemoryIndexStatus, UserMemoryRecallItem, UserMemoryRecallRequest, UserMemoryRecallResult,
     UserMemoryRecallState, USER_MEMORY_MAX_RECALL_LIMIT, USER_MEMORY_MAX_RECALL_QUERY_CHARS,
 };
+pub use retention::{MemoryRetention, RetireMemoryRequest, RetireMemoryResult};
 pub use service::UserMemoryService;
 pub use transaction::{
     ResourceGeneration, TransactionPhase, UserMemoryGeneration, UserMemoryTransactionJournal,

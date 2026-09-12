@@ -220,6 +220,8 @@ pub struct UserMemoryLearningState {
     pub candidates: Vec<UserMemoryCandidate>,
     #[serde(default)]
     pub experiences: Vec<AgentExperience>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub retention: std::collections::BTreeMap<String, super::MemoryRetention>,
 }
 
 pub(crate) fn is_valid_experience_id(value: &str) -> bool {
@@ -234,6 +236,7 @@ impl Default for UserMemoryLearningState {
             schema_version: USER_MEMORY_CANDIDATE_SCHEMA_VERSION,
             candidates: Vec::new(),
             experiences: Vec::new(),
+            retention: std::collections::BTreeMap::new(),
         }
     }
 }

@@ -5,9 +5,10 @@ use super::tool_identity::{
     SEARCH_TOOL,
 };
 
-pub(super) const MEMORY_CAPABILITIES: [(&str, &str); 14] = [
+pub(super) const MEMORY_CAPABILITIES: [(&str, &str); 15] = [
     ("policy.read", "iyw.memory.policy.read.v1"),
     ("recall", "iyw.memory.recall.search.v1"),
+    ("retire", "iyw.memory.retire.v1"),
     ("documents.read", "iyw.memory.documents.read.v1"),
     ("append", "iyw.memory.confirmed.append.v1"),
     ("propose", "iyw.memory.candidate.propose.v1"),
@@ -266,7 +267,7 @@ fn memory_tool() -> Value {
         .join("; ");
     json!({
         "name": MEMORY_TOOL,
-        "description": "Operate host-owned IYW memory directly. No capability search is needed: read the selected operation's full description and input_schema once with read_iyw_capability using operation.description's exact mapping, then reuse that read. Put the operation's business fields under parameters. For prior decisions or preferences, use recall; for authoritative document contents, use documents.read. The host performs current-turn policy preflight automatically, so do not add a separate policy.read execution before this tool. Select policy.read only when the policy itself is needed. Metadata reads do not execute operations. Permissions, scopes, revisions, eTags, candidate lifecycle and preview gates remain host-owned.",
+        "description": "Read, retain or retire relevant memory without leaving the task. Call recall, append, propose, retire or documents.read directly using the inline schemas: no search, metadata, Skill or policy read is required. Recall before decisions depending on prior preferences, repeated workflows or failures; reuse relevant results already supplied. Append only when the user explicitly asks to remember a durable fact or preference; otherwise propose reusable user signals without asking for approval. A proposal is not confirmed memory. Retire a recalled obsolete entry or experience using its id as memoryId, sourceRevision as expectedRevision, and an evidence-based reason. Omit expiresAt to forget immediately; set a known RFC3339 expiry only from evidence. Never expire stable preferences just because they are old. Retirement excludes recall but preserves source history; stop applying the old fact in this conversation too. Never store secrets, sensitive inferences, repository facts, temporary progress or Agent reflections as user memory. Documents.read returns raw authoritative text for editing plus inactiveEntryIds: those entries must not inform decisions. Other operations require one read of their mapped capability schema. The host performs policy, authorization, scope and concurrency checks. matched is evidence, no_evidence is no match, unavailable is not absence. Memory failure must not block the task or trigger file edits.",
         "inputSchema": {
             "type": "object",
             "required": ["operation"],
@@ -275,9 +276,9 @@ fn memory_tool() -> Value {
                 "operation": {
                     "type": "string",
                     "enum": operations,
-                    "description": format!("Before first use, read the matching capability_id with read_iyw_capability; reuse a prior read in this conversation: {read_targets}")
+                    "description": format!("recall, append, propose, retire and documents.read use the inline parameters below. For other operations only, read the matching capability_id once with read_iyw_capability: {read_targets}")
                 },
-                "parameters": {"type": "object", "additionalProperties": true, "description": "JSON object matching the selected operation's input_schema. Place business fields directly here, without another arguments/parameters wrapper. Omit for operations whose schema requires no inputs. Use only that operation's declared fields and enum values."}
+                "parameters": super::iyw_memory::parameters_schema()
             },
             "additionalProperties": false
         }

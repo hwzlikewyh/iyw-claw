@@ -285,7 +285,8 @@ impl CompanionFeatures {
             | "rebuild_user_memory_candidate_index"
             | "get_user_memory_settings"
             | "update_user_memory_documents"
-            | "correct_user_memory" => self.memory_management,
+            | "correct_user_memory"
+            | "retire_user_memory" => self.memory_management,
             "present_task_files" => self.artifacts,
             name if crate::acp::channel_tools::CHANNEL_TOOL_NAMES.contains(&name) => self.channels,
             name if crate::browser::BROWSER_AGENT_TOOL_NAMES.contains(&name) => self.browser,
@@ -784,7 +785,8 @@ fn tool_family(name: &str) -> ToolFamily {
         | "rebuild_user_memory_candidate_index"
         | "get_user_memory_settings"
         | "update_user_memory_documents"
-        | "correct_user_memory" => ToolFamily::Memory,
+        | "correct_user_memory"
+        | "retire_user_memory" => ToolFamily::Memory,
         "get_current_user_profile" => ToolFamily::Identity,
         "delegate_to_agent"
         | "get_delegation_status"
@@ -987,7 +989,8 @@ async fn dispatch_memory_tool(bridge: CompanionBridge, call: ToolInvocation) -> 
         | "rebuild_user_memory_candidate_index"
         | "get_user_memory_settings"
         | "update_user_memory_documents"
-        | "correct_user_memory" => spawn_memory_admin(bridge, call).await,
+        | "correct_user_memory"
+        | "retire_user_memory" => spawn_memory_admin(bridge, call).await,
         _ => unreachable!("memory family contains only memory tools"),
     }
 }
@@ -2863,6 +2866,10 @@ pub fn render_memory_proposal_result(outcome: &Value) -> Value {
         false => "No new Agent memory observation was recorded.",
     };
     let activity_state = if added { "evaluating" } else { "unchanged" };
+    let confirmation_recommended = outcome
+        .get("confirmationRecommended")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let structured = json!({
         "observationAdded": added,
         "observationCount": outcome
@@ -2870,7 +2877,14 @@ pub fn render_memory_proposal_result(outcome: &Value) -> Value {
             .and_then(Value::as_u64)
             .unwrap_or(0),
         "activityState": activity_state,
+        "status": outcome.get("status"),
+        "confirmationRecommended": confirmation_recommended,
     });
+    let text = if confirmation_recommended {
+        format!("{text} Consistent observations now warrant review. List current candidates, match this observation, verify there is no newer contradiction, and resolve its exact current ID/revision without asking for routine approval.")
+    } else {
+        text.to_string()
+    };
     json!({
         "content": [{ "type": "text", "text": text }],
         "isError": false,
@@ -2934,12 +2948,7 @@ pub fn render_memory_documents_read_result(outcome: &Value) -> Value {
             "structuredContent": normalized_memory_error(outcome, "memory_documents_read_failed"),
         });
     }
-    let text = serde_json::to_string(
-        outcome
-            .get("documents")
-            .unwrap_or(&Value::Array(Vec::new())),
-    )
-    .unwrap_or_else(|_| "[]".to_string());
+    let text = serde_json::to_string(outcome).unwrap_or_else(|_| "{}".to_string());
     json!({
         "content": [{ "type": "text", "text": text }],
         "isError": false,
