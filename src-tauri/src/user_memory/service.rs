@@ -208,10 +208,17 @@ impl UserMemoryService {
                 content,
             });
         }
-        let revision = self.snapshot_locked(&policy)?.revision;
+        let snapshot = self.snapshot_locked(&policy)?;
+        let inactive_entry_ids = if ids.contains(&UserMemoryDocumentId::Memory) {
+            let learning = super::candidate_store::read_optional(self.resolved_root()?)?;
+            super::retention::inactive_document_entries(&snapshot, learning.as_ref())
+        } else {
+            Vec::new()
+        };
         Ok(super::UserMemoryDocumentsReadResult {
             documents,
-            revision,
+            revision: snapshot.revision,
+            inactive_entry_ids,
         })
     }
 

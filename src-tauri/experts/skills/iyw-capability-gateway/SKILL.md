@@ -34,8 +34,10 @@ Before first using a tool, read its advertised description and input schema,
 including nested fields, required inputs, constraints, and examples. For a
 direct tool, this definition is the read; no discovery call is needed. For
 capabilities behind `invoke_iyw_capability`, call
-`read_iyw_capability` first and read the full result. Each `manage_iyw_memory`
-operation uses its advertised capability mapping. IDs are opaque: copy them from
+`read_iyw_capability` first and read the full result. Common `manage_iyw_memory`
+operations (`recall`, `append`, `propose`, `retire`, `documents.read`) include full
+inline schemas and need no metadata, Skill or policy read. Maintenance operations
+use their advertised capability mapping. IDs are opaque: copy them from
 current search/mapping results; never derive them from direct tool names or append versions.
 
 If already read in this conversation, reuse the instructions without another
@@ -228,25 +230,22 @@ tools and the capability trio:
 
 ### Memory shortest path
 
-First call `read_iyw_capability` with the ID advertised for `recall`,
-`iyw.memory.recall.search.v1`, and read its full description and input schema.
-Then call the direct memory tool with:
+Read the direct tool's advertised schema and call it immediately:
 
 ```json
 {"operation":"recall","parameters":{"query":"图片生成默认路径"}}
 ```
 
-For writes, use the matching operation and pass its exact current fields under
+For `append`, `propose` and `retire`, use the inline schema directly. Pass fields under
 `parameters`; stale candidate revisions/eTags and repair operations without a
 preview are rejected by the host.
 
 ## Memory Gate
 
-For `manage_iyw_memory`, read the requested operation's instructions using its
-advertised capability ID, then call the direct tool with `operation` and its
-schema fields under `parameters`. No catalog search is needed for the advertised
-mapping. The tool performs current-turn policy execution internally; reading the
-operation instructions does not replace or require manually invoking that policy.
+For `manage_iyw_memory`, use inline schemas for recall, append, propose, retire
+and documents.read. Other operations need one read of their mapped capability.
+Put business fields under `parameters`. No catalog search is needed for advertised
+mappings. The tool performs current-turn policy execution internally.
 The host continues to enforce scope, revision/eTag, candidate lifecycle, preview,
 authorization, and error rules. Use the returned
 `matched`, `no_evidence`, or `unavailable` state honestly; do not claim that no

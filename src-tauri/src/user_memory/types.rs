@@ -289,6 +289,8 @@ pub struct UserMemoryDocumentReadResult {
 pub struct UserMemoryDocumentsReadResult {
     pub documents: Vec<UserMemoryDocumentReadResult>,
     pub revision: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inactive_entry_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

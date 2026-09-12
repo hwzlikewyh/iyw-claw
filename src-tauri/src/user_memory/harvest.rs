@@ -615,6 +615,31 @@ pub fn harvest_reference(input: &str) -> Option<String> {
     (!cleaned.is_empty() && !contains_potential_secret(&cleaned)).then_some(cleaned)
 }
 
+/// 经验位于回答末尾，先保留有效经验，再为普通回答分配剩余长度。
+pub fn assistant_harvest_reference(input: &str) -> Option<String> {
+    let visible = harvest_reference(&strip_agent_lessons(input));
+    let Some(start) = input.rfind(AGENT_LESSON_START) else {
+        return visible;
+    };
+    let envelope = input[start..].trim();
+    if extract_agent_lessons(envelope).is_empty() {
+        tracing::debug!("[memory-harvest] invalid experience envelope omitted");
+        return visible;
+    }
+    let cap = USER_MEMORY_MAX_CANDIDATE_CHARS * 4;
+    let remaining = cap.saturating_sub(envelope.chars().count() + "\n\n".len());
+    let prefix = visible
+        .unwrap_or_default()
+        .chars()
+        .take(remaining)
+        .collect::<String>();
+    if prefix.is_empty() {
+        Some(envelope.to_string())
+    } else {
+        Some(format!("{}\n\n{envelope}", prefix.trim_end()))
+    }
+}
+
 /// Parse only the explicit Agent-owned lesson envelope. The host deliberately
 /// does not infer lessons from ordinary prose: a missing envelope means no
 /// experience is persisted.

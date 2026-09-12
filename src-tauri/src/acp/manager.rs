@@ -49,6 +49,9 @@ mod prewarm;
 
 const MAX_EMERGENCY_RECLAIMS_PER_TICK: usize = 4;
 
+#[path = "memory_context.rs"]
+mod memory_context;
+
 fn combine_prompt_context(launch: Option<Arc<str>>, private: Option<Arc<str>>) -> Option<Arc<str>> {
     match (launch, private) {
         (None, None) => None,
@@ -1692,6 +1695,8 @@ impl ConnectionManager {
         self.require_agent_launch_policy(agent_type, true).await?;
         self.validate_agent_image_inputs(agent_type, &state_arc, &blocks)
             .await?;
+        let memory_context =
+            memory_context::prepare(self.user_memory_service.get(), &state_arc, &blocks).await;
         // Concurrency gate: reject a second prompt while a turn is already in
         // flight on this connection. Reserve channel capacity FIRST — that
         // `reserve().await` is the only point that can block or be cancelled.
@@ -1732,7 +1737,14 @@ impl ConnectionManager {
             s.turn_generation = s.turn_generation.saturating_add(1);
             let turn_nonce = s.memory_turn_tracker.begin_accepted_turn();
             s.begin_context_plan_receipt(turn_nonce, hermes_shared_home_connections);
-            if s.user_context_injected {
+            let memory_context = memory_context.and_then(|context| context.for_launch(&s));
+            if let (Some(context), Some(receipt)) =
+                (memory_context.as_ref(), s.context_plan_receipt.as_mut())
+            {
+                receipt.record_memory_prefetch(context.chars().count());
+            }
+            let reminder = memory_context::turn_reminder(&s, &blocks);
+            let launch = if s.user_context_injected {
                 None
             } else {
                 s.user_context_injected = true;
@@ -1740,7 +1752,8 @@ impl ConnectionManager {
                     .rendered
                     .clone()
                     .filter(|context| !context.trim().is_empty())
-            }
+            };
+            combine_prompt_context(launch, combine_prompt_context(memory_context, reminder))
         };
         let user_context = combine_prompt_context(launch_context, private_context);
         permit.send(ConnectionCommand::Prompt {

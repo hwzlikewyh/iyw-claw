@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 58] = [
+pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 59] = [
     (
         "list_scheduled_task_projects",
         "iyw.automation.projects.list.v1",
@@ -55,6 +55,7 @@ pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 58] = [
     ("append_user_memory", "iyw.memory.confirmed.append.v1"),
     ("propose_user_memory", "iyw.memory.candidate.propose.v1"),
     ("memory_recall", "iyw.memory.recall.search.v1"),
+    ("retire_user_memory", "iyw.memory.retire.v1"),
     ("read_user_memory_documents", "iyw.memory.documents.read.v1"),
     (
         "list_user_memory_candidates",

@@ -130,6 +130,7 @@ pub(super) fn validate_state(state: &UserMemoryLearningState) -> Result<(), AppC
         }
     }
     validate_experiences(state)?;
+    super::retention::validate_retention(&state.retention)?;
     validate_supersession_targets(state)
 }
 
