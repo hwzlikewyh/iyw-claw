@@ -161,8 +161,10 @@ export interface ForkResult {
   siblingConversationId: number
 }
 
-export async function acpFork(connectionId: string): Promise<ForkResult> {
-  return invoke("acp_fork", { connectionId })
+export async function acpFork(
+  request: Parameters<typeof import("./api").acpFork>[0]
+): Promise<ForkResult> {
+  return invoke("acp_fork", request)
 }
 
 export async function acpRespondPermission(
