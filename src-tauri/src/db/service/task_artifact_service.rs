@@ -1,20 +1,24 @@
-mod source;
+pub mod management;
+pub mod query;
+pub(crate) mod source;
+
+pub use query::list_artifacts;
 
 use std::collections::HashSet;
 use std::path::Path;
 
 use chrono::Utc;
-use sea_orm::sea_query::{Condition, Expr, ExprTrait, Func, LikeExpr, OnConflict};
+use sea_orm::sea_query::OnConflict;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+    TransactionTrait,
 };
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::db::entities::{conversation, task_artifact};
 use crate::db::error::DbError;
-use source::{current_artifact_state, resolve_sources, ResolvedArtifact};
+use source::{resolve_sources, ResolvedArtifact};
 
 const CONVERSATION_TREE_BATCH_SIZE: usize = 500;
 const MAX_CONVERSATION_ANCESTOR_DEPTH: usize = 256;
@@ -49,6 +53,8 @@ pub struct TaskArtifactPage {
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct ArtifactItemResult {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i32>,
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
@@ -100,6 +106,7 @@ async fn upsert_artifact<C: ConnectionTrait>(
     .exec(conn)
     .await?;
     Ok(ArtifactItemResult {
+        id: Some(registered_artifact_id(conn, conversation_id, (&path, message_id)).await?),
         path,
         display_name: Some(artifact.display_name),
         kind: Some(artifact.kind),
@@ -120,6 +127,7 @@ pub async fn register_artifacts(
     let rejected = rejected
         .into_iter()
         .map(|(path, reason)| ArtifactItemResult {
+            id: None,
             path,
             display_name: None,
             kind: None,
@@ -138,132 +146,24 @@ pub async fn register_artifacts(
     Ok(serde_json::json!({ "accepted": accepted, "rejected": rejected }))
 }
 
-pub async fn list_artifacts(
-    conn: &DatabaseConnection,
-    conversation_id: Option<i32>,
-    message_id: Option<&str>,
-    folder_id: Option<i32>,
-    latest_turn_only: bool,
-    search: Option<&str>,
-    page: u64,
-    page_size: u64,
-) -> Result<TaskArtifactPage, DbError> {
-    let page = page.max(1);
-    let page_size = page_size.clamp(1, MAX_PAGE_SIZE);
-    let mut query = task_artifact::Entity::find()
-        .inner_join(conversation::Entity)
-        .order_by_desc(task_artifact::Column::CreatedAt)
-        .order_by_desc(task_artifact::Column::Id);
-    let latest_generation = if latest_turn_only {
-        let Some(id) = conversation_id else {
-            return Ok(empty_artifact_page(page, page_size));
-        };
-        let Some(conversation) = conversation::Entity::find_by_id(id).one(conn).await? else {
-            return Ok(empty_artifact_page(page, page_size));
-        };
-        if conversation.last_completed_turn_generation <= 0 {
-            return Ok(empty_artifact_page(page, page_size));
-        }
-        query = query
-            .filter(task_artifact::Column::ConversationId.eq(id))
-            .filter(
-                task_artifact::Column::TurnGeneration
-                    .eq(conversation.last_completed_turn_generation),
-            );
-        Some(conversation.last_completed_turn_generation)
-    } else if let Some(id) = conversation_id {
-        let conversation_ids = conversation_scope_ids(conn, id).await?;
-        tracing::debug!(
-            conversation_id = id,
-            scope_ids = conversation_ids.len(),
-            "[task-artifacts] current conversation scope resolved"
-        );
-        query = query.filter(task_artifact::Column::ConversationId.is_in(conversation_ids));
-        None
-    } else {
-        None
+async fn registered_artifact_id<C: ConnectionTrait>(
+    conn: &C,
+    conversation_id: i32,
+    reference: (&str, Option<&str>),
+) -> Result<i32, DbError> {
+    let query = task_artifact::Entity::find()
+        .filter(task_artifact::Column::ConversationId.eq(conversation_id))
+        .filter(task_artifact::Column::Path.eq(reference.0));
+    let query = match reference.1 {
+        Some(id) => query.filter(task_artifact::Column::MessageId.eq(id)),
+        None => query.filter(task_artifact::Column::MessageId.is_null()),
     };
-    if let Some(message_id) = message_id.filter(|value| !value.trim().is_empty()) {
-        query = query.filter(task_artifact::Column::MessageId.eq(message_id));
-    }
-    if let Some(id) = folder_id {
-        query = query.filter(conversation::Column::FolderId.eq(id));
-    }
-    if let Some(search) = search.map(str::trim).filter(|value| !value.is_empty()) {
-        let pattern = format!("%{}%", escape_like_pattern(&search.to_lowercase()));
-        query = query.filter(
-            Condition::any()
-                .add(
-                    Func::lower(Expr::col(task_artifact::Column::DisplayName))
-                        .like(LikeExpr::new(pattern.clone()).escape('\\')),
-                )
-                .add(
-                    Func::lower(Expr::col(task_artifact::Column::Path))
-                        .like(LikeExpr::new(pattern.clone()).escape('\\')),
-                )
-                .add(
-                    Func::lower(Expr::col(conversation::Column::Title))
-                        .like(LikeExpr::new(pattern).escape('\\')),
-                ),
-        );
-    }
-    let total = query.clone().count(conn).await?;
-    let total_pages = total.saturating_add(page_size - 1) / page_size;
-    let page = page.min(total_pages.max(1));
-    let rows = query
-        .select_also(conversation::Entity)
-        .paginate(conn, page_size)
-        .fetch_page(page.saturating_sub(1))
-        .await?;
-    let mut results = Vec::with_capacity(rows.len());
-    for (artifact, conversation) in rows {
-        let Some(conversation) = conversation else {
-            continue;
-        };
-        if let Some(generation) = latest_generation {
-            if artifact.turn_generation != Some(generation) {
-                continue;
-            }
-        }
-        let current = current_artifact_state(&artifact.path, &artifact.kind);
-        let last_checked_at = persist_current_state(conn, &artifact, &current).await;
-        results.push(TaskArtifactInfo {
-            id: artifact.id,
-            conversation_id: artifact.conversation_id,
-            message_id: artifact.message_id,
-            folder_id: conversation.folder_id,
-            conversation_title: conversation.title,
-            agent_type: conversation.agent_type,
-            path: artifact.path,
-            display_name: artifact.display_name,
-            kind: current.kind,
-            created_at: artifact.created_at.to_rfc3339(),
-            last_checked_at: last_checked_at.to_rfc3339(),
-            status: current.status,
-        });
-    }
-    Ok(TaskArtifactPage {
-        items: results,
-        total,
-        page,
-        page_size,
-    })
-}
-
-fn escape_like_pattern(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
-}
-
-fn empty_artifact_page(page: u64, page_size: u64) -> TaskArtifactPage {
-    TaskArtifactPage {
-        items: Vec::new(),
-        total: 0,
-        page,
-        page_size,
-    }
+    query
+        .order_by_desc(task_artifact::Column::Id)
+        .one(conn)
+        .await?
+        .map(|artifact| artifact.id)
+        .ok_or_else(|| DbError::NotFound("registered artifact".into()))
 }
 
 async fn conversation_scope_ids(
@@ -338,31 +238,4 @@ async fn conversation_descendant_ids(
         frontier = next;
     }
     Ok(result)
-}
-
-async fn persist_current_state(
-    conn: &DatabaseConnection,
-    artifact: &task_artifact::Model,
-    current: &source::CurrentArtifactState,
-) -> chrono::DateTime<Utc> {
-    if current.status == artifact.status && current.kind == artifact.kind {
-        return artifact.last_checked_at;
-    }
-    let now = Utc::now();
-    let mut active: task_artifact::ActiveModel = artifact.clone().into();
-    active.status = Set(current.status.clone());
-    active.kind = Set(current.kind.clone());
-    active.last_checked_at = Set(now);
-    if let Err(error) = active.update(conn).await {
-        tracing::warn!(
-            artifact_id = artifact.id,
-            conversation_id = artifact.conversation_id,
-            status = current.status,
-            kind = current.kind,
-            error = %error,
-            "[task-artifacts] state cache update failed"
-        );
-        return artifact.last_checked_at;
-    }
-    now
 }

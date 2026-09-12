@@ -946,15 +946,21 @@ async fn dispatch_browser_tool(bridge: CompanionBridge, call: ToolInvocation) ->
 }
 
 async fn dispatch_artifacts_tool(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
-    let files = match parse_artifact_files(&call.arguments) {
-        Ok(files) => files,
+    use super::artifact_tool::{parse_call, ArtifactCall};
+    let request = match parse_call(&call.arguments) {
+        Ok(ArtifactCall::Present(files)) => BrokerMessage::Artifacts(BrokerArtifactsRequest {
+            token: bridge.context.token,
+            files,
+        }),
+        Ok(ArtifactCall::Manage(operation)) => BrokerMessage::ArtifactManagement(
+            super::transport::BrokerArtifactManagementRequest {
+                token: bridge.context.token,
+                operation,
+            },
+        ),
         Err(message) => return LineAction::Respond(err(call.id, -32602, message)),
     };
-    let request = BrokerArtifactsRequest {
-        token: bridge.context.token,
-        files,
-    };
-    let round_trip = broker_round_trip(bridge.backend, BrokerMessage::Artifacts(request));
+    let round_trip = broker_round_trip(bridge.backend, request);
     register_and_spawn(
         bridge.inflight,
         call.id,
@@ -2262,43 +2268,14 @@ fn normalize_status_task_ids(arguments: &Value) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-fn parse_artifact_files(arguments: &Value) -> Result<Vec<String>, String> {
-    const MAX_FILES: usize = 100;
-    const MAX_PATH_CHARS: usize = 4096;
-    let files = arguments
-        .get("files")
-        .and_then(Value::as_array)
-        .ok_or("present_task_files requires a non-empty files array of artifact references")?;
-    if files.is_empty() {
-        return Err(
-            "present_task_files requires a non-empty files array of artifact references".into(),
-        );
-    }
-    if files.len() > MAX_FILES {
-        return Err(format!(
-            "present_task_files accepts at most {MAX_FILES} artifacts"
-        ));
-    }
-    let mut normalized = Vec::with_capacity(files.len());
-    for value in files {
-        let reference = value
-            .as_str()
-            .ok_or("present_task_files artifact references must be strings")?
-            .trim();
-        if reference.is_empty() {
-            return Err("present_task_files artifact references must not be empty".into());
-        }
-        if reference.chars().count() > MAX_PATH_CHARS {
-            return Err(format!(
-                "present_task_files artifact references must be at most {MAX_PATH_CHARS} characters"
-            ));
-        }
-        normalized.push(reference.to_string());
-    }
-    Ok(normalized)
-}
-
 pub fn render_artifacts_result(outcome: &Value) -> Value {
+    if outcome.get("action").is_some() {
+        return json!({
+            "content": [{"type": "text", "text": outcome.to_string()}],
+            "isError": outcome.get("error").is_some(),
+            "structuredContent": outcome,
+        });
+    }
     let error = outcome.get("error").and_then(Value::as_str);
     let accepted = outcome
         .get("accepted")

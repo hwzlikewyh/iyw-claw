@@ -857,11 +857,15 @@
   },
   {
     "name": "present_task_files",
-    "description": "Call this directly to deliver final reports, documents, designs, exports or other user-facing files, directories and HTTP/HTTPS URLs in the current conversation Artifacts area before the final response. Submit image URLs directly: the host downloads them into managed artifact storage and deduplicates identical image content against submitted local images in the same turn. Do not download a URL with a separate tool just for delivery, or submit both its URL and local copy. No capability search/read/invoke is needed when this tool is advertised. Inspect accepted and rejected entries; registering a path is successful only when the host accepts it. This does not write directly to the workspace-wide All Artifacts aggregate. Do not register source, configuration, tests, migrations, build output, caches, logs, temporary files, or internal work unless the user explicitly requested that exact item as the final deliverable. Accepts working-directory-relative paths, absolute paths, and web URLs.",
+    "description": "Deliver and manage final task artifacts. Call directly; no capability search/read/invoke is needed when advertised. Register only the final deliverables needed to satisfy the user's task, without requiring separate user approval for each file. For a PowerPoint containing images, register the completed PPT/PPTX, not the images, drafts or temporary files used to make it. Include separate companion files only when the final deliverable requires them to work. Do not register files merely because they were created, modified or used during the task. Source code, configuration, logs, caches, intermediates and other working files belong here only when they themselves are the final deliverable. action=present (default) registers files/directories/HTTP(S) URLs in the current conversation; inspect accepted/rejected results. action=list searches with scope=current (default) or all (all conversations in the current workspace). action=get reads an artifact by ID in that scope. action=update changes display_name or replaces source, retaining the ID and original reply. action=delete removes the current conversation's record only, never its files or remote resources. Updates and deletes are restricted to the current conversation.",
     "inputSchema": {
       "type": "object",
-      "required": ["files"],
       "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["present", "list", "get", "update", "delete"],
+          "description": "Operation. Omit only for legacy registration with files; defaults to present."
+        },
         "files": {
           "type": "array",
           "minItems": 1,
@@ -871,10 +875,56 @@
             "minLength": 1,
             "maxLength": 4096
           },
-          "description": "Final user-facing files, directories, or HTTP/HTTPS URLs to add to the current conversation Artifacts. Submit image URLs without downloading them first; the host downloads and deduplicates them by content. Relative paths resolve from the current working directory; absolute paths and web URLs are accepted."
+          "description": "Only final deliverables and their required external companions. For an image-containing PPT, submit the completed PPT, not its embedded images or intermediate assets. Submit final image URLs directly without downloading them first or submitting both URL and local copy; the host downloads and deduplicates them by content. Relative paths resolve from the working directory; absolute paths and HTTP/HTTPS URLs are accepted."
+        },
+        "scope": {
+          "type": "string",
+          "enum": ["current", "all"],
+          "description": "list/get only: current conversation (default), or all conversations in the host-bound current workspace."
+        },
+        "artifact_id": {
+          "type": "integer", "minimum": 1, "maximum": 2147483647,
+          "description": "Existing host-issued artifact ID from registration or query results."
+        },
+        "search": {"type": "string", "maxLength": 4096, "description": "list only: search display name, path or conversation title."},
+        "message_id": {"type": "string", "minLength": 1, "maxLength": 4096, "description": "list only: restrict to an existing assistant message ID."},
+        "page": {"type": "integer", "minimum": 1, "description": "list only: page number, default 1."},
+        "page_size": {"type": "integer", "minimum": 1, "maximum": 100, "description": "list only: items per page, default 50."},
+        "display_name": {"type": "string", "minLength": 1, "maxLength": 255, "description": "update only: new display name; does not rename a source file."},
+        "source": {
+          "type": "string", "minLength": 1, "maxLength": 4096,
+          "description": "update only: replacement final deliverable, as a file/directory path or HTTP/HTTPS URL. Local content is copied into managed storage; previous files are retained."
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": ["files"],
+          "properties": {"action": {"enum": ["present"]}, "files": {}},
+          "additionalProperties": false
+        },
+        {
+          "required": ["action"],
+          "properties": {"action": {"enum": ["list"]}, "scope": {}, "search": {}, "message_id": {}, "page": {}, "page_size": {}},
+          "additionalProperties": false
+        },
+        {
+          "required": ["action", "artifact_id"],
+          "properties": {"action": {"enum": ["get"]}, "artifact_id": {}, "scope": {}},
+          "additionalProperties": false
+        },
+        {
+          "required": ["action", "artifact_id"],
+          "properties": {"action": {"enum": ["update"]}, "artifact_id": {}, "display_name": {}, "source": {}},
+          "additionalProperties": false,
+          "oneOf": [{"required": ["source"]}, {"required": ["display_name"], "not": {"required": ["source"]}}]
+        },
+        {
+          "required": ["action", "artifact_id"],
+          "properties": {"action": {"enum": ["delete"]}, "artifact_id": {}},
+          "additionalProperties": false
+        }
+      ]
     }
   },
   {

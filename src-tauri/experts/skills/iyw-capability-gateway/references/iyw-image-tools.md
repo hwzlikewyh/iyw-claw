@@ -48,7 +48,7 @@
 | `micro-generate` / `micro-variation` | `microModel/v2/generate` / `variation` | 前者 prompt，可选图片及 modelChannel/ratio/batchSize/tool；后者图片 + prompt |
 | `scheme-generate` | `ai-chat/api/designScheme/generateImage` | schemeId + prompt；schemeId 来自设计稿业务列表 |
 | `faddish` | `ai-application/faddish/generate` | prompt，可选图片 |
-| `generate` / `edit` | Fusion | 仅满足下述回退条件后使用，不是默认平台调用 |
+| `generate` / `edit` | Fusion | 文生图优先 generate；显式 edit 需参考图；从模型目录选择准确 ID，无须先尝试平台接口 |
 
 新增原生类型仅验证文档已明确的图片、提示词和基础类型；未提供枚举的字段不硬编码猜测。上游明确拒绝要保留原错误，未知状态先查任务。蒙版服务域已由补充篇明确，但区域字段/坐标结构仍不完整，当前工具不猜测该请求。
 
@@ -70,45 +70,47 @@
 
 ## 既有操作与示例
 
-**IYW platform image operations have highest priority.** Use `fission` for
-text-only creation, and `variation`, `extend`, `mix`, or a matching specialized
-platform operation for source images. Only fall back to `generate`
-(`images/generations`) or `edit` (`images/edits`) after an explicit terminal
-platform failure or a confirmed rejection before task creation. A timeout,
-transport error, or running task is not proof of failure and does not permit fallback.
-Local path/parameter errors and complex prompts do not permit fallback either.
-Using the direct tool alone does not prove platform routing: inspect its selected
-type and operation. For a one-image backpack redesign, use `variation`, not `edit`.
+Choose the route from the task:
 
-For that `generate` or `edit` fallback, first call `list_iyw_image_models` with `{}`. Choose
-from the returned descriptions, capabilities, prices, and user requirements;
-`generate` requires `capabilities.image_generation=true`, while `edit` requires
-`capabilities.image_editing=true`. Pass the selected `id` as `parameters.model`;
-the host rejects missing IDs and display names instead of choosing a default model.
-Reuse the catalog for the same task or batch and select a model for every
-`generate`/`edit` item. Platform operations and `auto` need no Fusion lookup. Refresh when
-model availability changes; an empty or failed lookup does not supply a model.
+| Task | Preferred type |
+| --- | --- |
+| Text-to-image, without source images | `generate` through Fusion `images/generations` |
+| Redesign or modify one source image | `variation` |
+| Fuse 2-10 reference images | `mix`, preserving input order |
+| Four-panel grids or same-series extension from one base image | `extend` |
 
-Then call `generate_iyw_image` and wait for its result. In the examples below,
-replace `MODEL_ID_FROM_CATALOG` with the selected ID before calling. Specialized
-operations still use one call without a Fusion model lookup.
+Fusion `edit` (`images/edits`) remains available when explicitly selected and
+requires at least one source image. `generate` and `edit` do not require a prior
+platform attempt or failure. `fission` remains an explicitly selectable platform
+operation. Select the matching specialized operation for background, outpaint,
+super-resolution and similar tasks.
 
-With source images, choose the applicable IYW tool first: one-image redesign
-uses `variation`; same-series or trend/theme extension uses `extend`; combining
-2-10 references uses `mix`. A matching specialized operation such as background,
-outpaint, or super-resolution takes priority for that task. After a confirmed
-platform failure, `edit` can handle redraw, masks, or complex composition;
-keep all needed reference images. With no images, use `fission` first.
-Do not use a generation-only type with source images.
+Before `generate`, `auto` without images, or explicit `edit`, call
+`list_iyw_image_models` with `{}`. Select from the returned descriptions,
+capabilities, prices and task requirements: `generate` needs
+`capabilities.image_generation=true`; `edit` needs
+`capabilities.image_editing=true`. Pass the exact returned `id` in
+`parameters.model`. Missing IDs and display names are rejected; the host does
+not choose a default model. Reuse the catalog for the same task or batch;
+an empty or failed lookup supplies no model. Platform operations need no Fusion
+model lookup. Replace `MODEL_ID_FROM_CATALOG` in examples before calling.
 
-`auto` is only a basic fallback: no images -> `fission`; one image -> `variation`
-or `extend` for series/extension wording; multiple images -> `mix`. It does not
-infer specialized operations or creative freedom. Do not switch routes or
-recreate a task after a timeout/uncertain submission; query the original task ID
-when available. Ordinary generation/editing delivers successful images directly using
-returned status, URLs, and delivery metadata. Review visuals for requested quality review,
-comparison, visual acceptance, or integration into a composed deliverable. A detailed prompt
-alone is not a review request; report partial/failure states and do not regenerate beyond scope.
+`auto` uses `generate` without images; with one image it uses `extend` for
+series, extension, four-panel or 2x2 wording, and `variation` otherwise; with
+multiple images it uses `mix`. Prefer an explicit type when the intent is known.
+An `extend` request needs one base image: describe the four-panel layout or series
+in its prompt. Without a reference, create the requested composition with
+`generate`. Keep multiple references for fusion; for independent series derived
+from multiple bases, use separate `requests` items, each with one base image.
+Do not discard references to force the single-image extension interface.
+
+Inspect the returned operation when explaining routing. After a timeout,
+transport error or uncertain submission, query the original task ID when available;
+do not blindly resubmit or switch routes. Deliver ordinary successful images from
+returned status, URLs and delivery metadata. Inspect visuals for requested review,
+comparison, visual acceptance or integration into a composed deliverable.
+For intermediate images used in a PPT/report/webpage, set
+`delivery.registerArtifact: false` and register only the final deliverable.
 
 **Timeouts:** omit `wait.timeoutSeconds` for 600 seconds on ordinary platform requests and
 polling, 650 seconds for product-kit/a-plus HTTP, 120 seconds for batch-center HTTP (polling 600),
@@ -118,7 +120,7 @@ Do not shorten waits merely to return sooner. Each batch item has its own wait.
 `0` means submit without polling on the platform; Fusion keeps its default timeout.
 
 ```json
-{"type":"fission","prompt":"白底陶瓷茶壶，现代东方风，产品摄影","wait":{"timeoutSeconds":900}}
+{"type":"generate","prompt":"白底陶瓷茶壶，现代东方风，产品摄影","parameters":{"model":"MODEL_ID_FROM_CATALOG"},"wait":{"timeoutSeconds":900}}
 ```
 
 ```json
@@ -133,7 +135,7 @@ Do not shorten waits merely to return sooner. Each batch item has its own wait.
 {"type":"mix","prompt":"以第1张产品结构、第2张趋势配色融合成一件可生产餐盘","images":[{"url":"https://example.com/product.png","role":"structure"},{"url":"https://example.com/trend.png","role":"style"}]}
 ```
 
-After a confirmed platform failure, an editing fallback can use:
+When Fusion editing is explicitly selected:
 
 ```json
 {"type":"edit","prompt":"以原图为参考自由重绘为超现实拼贴海报，重新设计透视和构图，保留主体标识，右侧留出标题区域","images":[{"base64":"...","mimeType":"image/png","role":"source"}],"parameters":{"model":"MODEL_ID_FROM_CATALOG"}}

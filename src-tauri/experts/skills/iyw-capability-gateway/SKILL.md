@@ -76,13 +76,13 @@ follow its workflow**. Do not treat the reference as optional background reading
    `writing-plans`, or `executing-plans`.
    For any image production or editing request, call the directly advertised
    `generate_iyw_image` tool. It replaces the old `iyw-image-workflows` and
-   `imagegen` routing split. Prioritize IYW platform operations: `fission` for
-   text-only creation, or `variation`, `extend`, `mix`, and matching specialized
-   tools for source images. `generate`/`edit` call Fusion and require an explicit
-   platform failure for this task or confirmed rejection before task creation;
-   a free-form prompt alone does not permit fallback. Before an eligible fallback,
-   call `list_iyw_image_models`, choose a model with the required capability,
-   and pass its exact ID in `parameters.model`. Do not read another image
+   `imagegen` routing split. Prefer Fusion `generate` for text-to-image,
+   `variation` for single-image changes, `mix` for multi-image fusion, and
+   `extend` for four-panel or same-series extension from one reference.
+   Explicit Fusion `edit` requires source images. Before `generate`, `auto`
+   without images, or `edit`, call `list_iyw_image_models`, choose a model with
+   the required capability, and pass its exact ID in `parameters.model`.
+   No prior platform attempt or failure is required. Do not read another image
    Skill or search/read a capability ID for generation; none is registered. Use
    `search_iyw_knowledge` only when the user asks for knowledge-base evidence;
    it is independent and never runs automatically before a normal image task.
@@ -154,6 +154,12 @@ This permits discovery without authorizing guessed endpoints or side effects.
 directories and public URLs. Register final deliverables in the current
 conversation's Artifacts area with one call, then inspect accepted/rejected
 results. Do not search/read/invoke first when this direct tool is available.
+Select final deliverables from the task without requiring a separate explicit
+request for each file. For a PPT containing images, register the completed PPT,
+not its embedded images or intermediate materials. Generate intermediate images
+with `delivery.registerArtifact: false`; include external companions only when
+the final deliverable requires them to work. The same tool supports `list/get`
+with `scope=current|all` and current-conversation `update/delete` by artifact ID.
 Read [artifact-delivery.md](references/artifact-delivery.md) for delivery scope.
 
 Use the directly advertised `ask_user_question` for a concrete user-owned input,
@@ -207,8 +213,9 @@ tools and the capability trio:
 
 ### 图片参数按需读取
 
-常用默认路径：无图用 `fission`，单图改款用 `variation`，同系列延伸用 `extend`，多图用 `mix`。
-专用处理、批量、蒙版、色号、矢量、3D、视频和回退条件见
+常用默认路径：无图文生图用 `generate`，单图改款用 `variation`，有基准图的四宫格或同系列延伸用 `extend`，多图融合用 `mix`。
+`generate` 和显式 `edit` 无需先等平台失败，但需从模型目录选择准确 ID；`edit` 仍要求参考图。
+专用处理、批量、蒙版、色号、矢量、3D、视频和模型选择见
 [图片工具参数](references/iyw-image-tools.md)；只读本次操作相关部分。
 原始图片 API、旧/新参数差异和历史点数见
 [图片接口证据](references/iyw-image-api-source.md)，不默认加载。

@@ -17,6 +17,9 @@ use crate::db::service::task_artifact_service::{self, TaskArtifactPage};
 use crate::db::AppDatabase;
 use crate::web::event_bridge::{emit_event, EventEmitter, TASK_ARTIFACT_CHANGED_EVENT};
 
+mod management;
+mod replacement;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskArtifactChange {
@@ -36,18 +39,30 @@ impl DbTaskArtifactAccess {
 }
 
 pub(crate) fn emit_task_artifacts_changed(emitter: &EventEmitter, conversation_id: i32) {
+    emit_task_artifact_change(emitter, conversation_id, "upserted");
+}
+
+fn emit_task_artifact_change(emitter: &EventEmitter, conversation_id: i32, change: &'static str) {
     emit_event(
         emitter,
         TASK_ARTIFACT_CHANGED_EVENT,
         TaskArtifactChange {
             conversation_id,
-            change: "upserted",
+            change,
         },
     );
 }
 
 #[async_trait]
 impl TaskArtifactAccess for DbTaskArtifactAccess {
+    async fn manage_task_artifacts(
+        &self,
+        context: crate::acp::delegation::artifact_tool::ArtifactContext,
+        operation: crate::acp::delegation::artifact_tool::ArtifactOperation,
+    ) -> Value {
+        self.manage(context, operation).await
+    }
+
     async fn register_task_artifacts(
         &self,
         connection_id: &str,
