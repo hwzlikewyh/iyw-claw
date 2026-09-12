@@ -92,6 +92,14 @@ pub trait ParentSessionLookup: Send + Sync {
 
 #[async_trait]
 pub trait TaskArtifactAccess: Send + Sync {
+    async fn manage_task_artifacts(
+        &self,
+        _context: super::artifact_tool::ArtifactContext,
+        _operation: super::artifact_tool::ArtifactOperation,
+    ) -> Value {
+        serde_json::json!({"error": "artifact_management_unavailable"})
+    }
+
     async fn register_task_artifacts(
         &self,
         connection_id: &str,
@@ -970,6 +978,9 @@ impl DelegationListener {
             }
             BrokerMessage::Artifacts(req) => BrokerResponse {
                 outcome: self.process_artifacts(req).await,
+            },
+            BrokerMessage::ArtifactManagement(req) => BrokerResponse {
+                outcome: self.process_artifact_management(req).await,
             },
             BrokerMessage::ImageAnalysis(req) => BrokerResponse {
                 outcome: self.process_image_analysis(req).await,

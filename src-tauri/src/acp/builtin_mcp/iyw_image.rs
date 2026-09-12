@@ -183,11 +183,28 @@ fn select_kind(kind: Option<&str>, prompt: &Option<String>, image_count: usize) 
     }
     let text = prompt.as_deref().unwrap_or_default().to_ascii_lowercase();
     if image_count == 0 {
-        "fission".to_string()
+        "generate".to_string()
     } else if image_count == 1
-        && ["系列", "延展", "延伸", "延申", "extend", "series"]
-            .iter()
-            .any(|term| text.contains(term))
+        && [
+            "系列",
+            "延展",
+            "延伸",
+            "延申",
+            "四宫格",
+            "4宫格",
+            "四格",
+            "extend",
+            "series",
+            "four-panel",
+            "four panel",
+            "4-panel",
+            "4 panel",
+            "2x2",
+            "2 x 2",
+            "2×2",
+        ]
+        .iter()
+        .any(|term| text.contains(term))
     {
         "extend".to_string()
     } else if image_count == 1 {

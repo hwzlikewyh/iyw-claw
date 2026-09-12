@@ -13,8 +13,9 @@ This places saved deliverables in the conversation's Artifacts area. Use
 `show_interactive_html` for a freely designed page that opens inside the chat;
 displaying an interactive page does not register a saved file or URL as an artifact.
 
-Register every final user-facing item together through `present_task_files`
-before the final response whenever possible:
+Register only the completed deliverables needed to satisfy the user's task
+through `present_task_files` before the final response. Infer the deliverables
+from the task; no separate explicit request or approval for each file is needed:
 
 - A working-directory-relative file or directory.
 - An absolute file or directory path when the user explicitly needs that path.
@@ -28,11 +29,53 @@ non-HTTP URL sources are rejected. A URL artifact must use `http` or `https`
 without embedded username or password. Preserve the original reference and
 inspect accepted/rejected entries in the returned result.
 
-Do not register source files, configuration, tests, migrations, build output,
-caches, logs, temporary files, scratch notes, private gateway data, or internal
-working files unless the user explicitly requests that exact item. A dirty Git
-diff is not an artifact list. Register the actual final deliverable selected by
-the current task, not every file touched during implementation.
+For a PowerPoint containing images, register the finished PPT/PPTX. Do not
+separately register its embedded images, reference materials, drafts, scripts,
+or temporary exports. Include companion files only when the final deliverable
+requires those external files to work. Apply the same rule to reports, PDFs,
+webpages, archives and other composed deliverables.
+
+Files do not become deliverables merely because they were created, modified,
+downloaded or used during the task. Source code, configuration, tests, build
+output, logs, caches and internal working files belong in Artifacts only when
+they themselves are the task's final deliverable. A dirty Git diff is not an
+artifact list.
+
+For images generated as intermediate material, set
+`generate_iyw_image` input `delivery.registerArtifact` to `false`; its default is
+`true`. Embed the needed images in the completed deliverable, then register
+that deliverable. Keep image registration enabled when the images themselves
+are the final result. In a batch, the top-level `delivery` applies to every item;
+separate intermediate assets from final-image deliveries when they differ.
+
+## Query and Manage
+
+Use the same `present_task_files` tool with an `action`:
+
+- `present`: register `files`; omitted `action` preserves this behavior.
+- `list`: paginate and search, with optional `search`, `message_id`, `page` and
+  `page_size` (default 50, maximum 100).
+- `get`: read an existing `artifact_id` and its current availability.
+- `update`: provide `artifact_id` and `display_name`, `source`, or both. The
+  source is a replacement final file, directory or HTTP/HTTPS URL. The original
+  ID, conversation, reply and creation time remain attached to the record.
+- `delete`: remove the current conversation's record by `artifact_id`. It does
+  not delete original files, managed copies or remote resources. A repeated
+  deletion returns `deleted: false`.
+
+`list` and `get` accept `scope: "current"` (default, this conversation) or
+`scope: "all"` (all conversations in the current workspace). The host determines
+the workspace; do not invent conversation IDs or folder IDs. Updates and
+deletions remain restricted to the current conversation. Obtain real IDs from
+registration or query results. Management actions are not new deliveries.
+
+```json
+{"action":"list","scope":"all","search":"report","page":1,"page_size":20}
+```
+
+```json
+{"action":"update","artifact_id":123,"display_name":"Final report","source":"output/report.pdf"}
+```
 
 ## Current Conversation and Reply Scope
 
@@ -56,9 +99,10 @@ than inventing a virtual ID.
 Make image hosting part of the document's portability before registration:
 
 1. Reuse an already verified public HTTPS image URL when one exists.
-2. For newly generated or local images, call `generate_iyw_image`. The gateway
-   uploads non-URL input to TOS and returns a public HTTPS result URL without
-   calling `checkImage`.
+2. For newly generated or local images, call `generate_iyw_image` with
+   `delivery.registerArtifact: false` when they are document materials. The
+   gateway uploads non-URL input to TOS and returns a public HTTPS result URL
+   without calling `checkImage`.
 3. Write that verified public URL into HTML `<img src>` or Markdown image link.
 4. Reopen/read the document or inspect its source to verify every image
    reference is intentional and has no local absolute path or temporary token.

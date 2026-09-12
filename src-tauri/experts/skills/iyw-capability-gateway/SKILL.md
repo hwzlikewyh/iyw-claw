@@ -68,13 +68,13 @@ follow its workflow**. Do not treat the reference as optional background reading
    `writing-plans`, or `executing-plans`.
    For any image production or editing request, call the directly advertised
    `generate_iyw_image` tool. It replaces the old `iyw-image-workflows` and
-   `imagegen` routing split. Prioritize IYW platform operations: `fission` for
-   text-only creation, or `variation`, `extend`, `mix`, and matching specialized
-   tools for source images. `generate`/`edit` call Fusion and require an explicit
-   platform failure for this task or confirmed rejection before task creation;
-   a free-form prompt alone does not permit fallback. Before an eligible fallback,
-   call `list_iyw_image_models`, choose a model with the required capability,
-   and pass its exact ID in `parameters.model`. Do not read another image
+   `imagegen` routing split. Prefer Fusion `generate` for text-to-image,
+   `variation` for single-image changes, `mix` for multi-image fusion, and
+   `extend` for four-panel or same-series extension from one reference.
+   Explicit Fusion `edit` requires source images. Before `generate`, `auto`
+   without images, or `edit`, call `list_iyw_image_models`, choose a model with
+   the required capability, and pass its exact ID in `parameters.model`.
+   No prior platform attempt or failure is required. Do not read another image
    Skill or search/read a capability ID for generation; none is registered. Use
    `search_iyw_knowledge` only when the user asks for knowledge-base evidence;
    it is independent and never runs automatically before a normal image task.
@@ -146,6 +146,12 @@ This permits discovery without authorizing guessed endpoints or side effects.
 directories and public URLs. Register final deliverables in the current
 conversation's Artifacts area with one call, then inspect accepted/rejected
 results. Do not search/read/invoke first when this direct tool is available.
+Select final deliverables from the task without requiring a separate explicit
+request for each file. For a PPT containing images, register the completed PPT,
+not its embedded images or intermediate materials. Generate intermediate images
+with `delivery.registerArtifact: false`; include external companions only when
+the final deliverable requires them to work. The same tool supports `list/get`
+with `scope=current|all` and current-conversation `update/delete` by artifact ID.
 Read [artifact-delivery.md](references/artifact-delivery.md) for delivery scope.
 
 Use the directly advertised `ask_user_question` for a concrete user-owned input,
@@ -195,45 +201,47 @@ tools and the capability trio:
 
 ### Image shortest paths
 
-**IYW platform image operations have highest priority.** Use `fission` for
-text-only creation, and `variation`, `extend`, `mix`, or a matching specialized
-platform operation for source images. Only fall back to `generate`
-(`images/generations`) or `edit` (`images/edits`) after an explicit terminal
-platform failure or a confirmed rejection before task creation. A timeout,
-transport error, or running task is not proof of failure and does not permit fallback.
-Local path/parameter errors and complex prompts do not permit fallback either.
-Using the direct tool alone does not prove platform routing: inspect its selected
-type and operation. For a one-image backpack redesign, use `variation`, not `edit`.
+Choose the route from the task:
 
-For that `generate` or `edit` fallback, first call `list_iyw_image_models` with `{}`. Choose
-from the returned descriptions, capabilities, prices, and user requirements;
-`generate` requires `capabilities.image_generation=true`, while `edit` requires
-`capabilities.image_editing=true`. Pass the selected `id` as `parameters.model`;
-the host rejects missing IDs and display names instead of choosing a default model.
-Reuse the catalog for the same task or batch and select a model for every
-`generate`/`edit` item. Platform operations and `auto` need no Fusion lookup. Refresh when
-model availability changes; an empty or failed lookup does not supply a model.
+| Task | Preferred type |
+| --- | --- |
+| Text-to-image, without source images | `generate` through Fusion `images/generations` |
+| Redesign or modify one source image | `variation` |
+| Fuse 2-10 reference images | `mix`, preserving input order |
+| Four-panel grids or same-series extension from one base image | `extend` |
 
-Then call `generate_iyw_image` and wait for its result. In the examples below,
-replace `MODEL_ID_FROM_CATALOG` with the selected ID before calling. Specialized
-operations still use one call without a Fusion model lookup.
+Fusion `edit` (`images/edits`) remains available when explicitly selected and
+requires at least one source image. `generate` and `edit` do not require a prior
+platform attempt or failure. `fission` remains an explicitly selectable platform
+operation. Select the matching specialized operation for background, outpaint,
+super-resolution and similar tasks.
 
-With source images, choose the applicable IYW tool first: one-image redesign
-uses `variation`; same-series or trend/theme extension uses `extend`; combining
-2-10 references uses `mix`. A matching specialized operation such as background,
-outpaint, or super-resolution takes priority for that task. After a confirmed
-platform failure, `edit` can handle redraw, masks, or complex composition;
-keep all needed reference images. With no images, use `fission` first.
-Do not use a generation-only type with source images.
+Before `generate`, `auto` without images, or explicit `edit`, call
+`list_iyw_image_models` with `{}`. Select from the returned descriptions,
+capabilities, prices and task requirements: `generate` needs
+`capabilities.image_generation=true`; `edit` needs
+`capabilities.image_editing=true`. Pass the exact returned `id` in
+`parameters.model`. Missing IDs and display names are rejected; the host does
+not choose a default model. Reuse the catalog for the same task or batch;
+an empty or failed lookup supplies no model. Platform operations need no Fusion
+model lookup. Replace `MODEL_ID_FROM_CATALOG` in examples before calling.
 
-`auto` is only a basic fallback: no images -> `fission`; one image -> `variation`
-or `extend` for series/extension wording; multiple images -> `mix`. It does not
-infer specialized operations or creative freedom. Do not switch routes or
-recreate a task after a timeout/uncertain submission; query the original task ID
-when available. Ordinary generation/editing delivers successful images directly using
-returned status, URLs, and delivery metadata. Review visuals for requested quality review,
-comparison, visual acceptance, or integration into a composed deliverable. A detailed prompt
-alone is not a review request; report partial/failure states and do not regenerate beyond scope.
+`auto` uses `generate` without images; with one image it uses `extend` for
+series, extension, four-panel or 2x2 wording, and `variation` otherwise; with
+multiple images it uses `mix`. Prefer an explicit type when the intent is known.
+An `extend` request needs one base image: describe the four-panel layout or series
+in its prompt. Without a reference, create the requested composition with
+`generate`. Keep multiple references for fusion; for independent series derived
+from multiple bases, use separate `requests` items, each with one base image.
+Do not discard references to force the single-image extension interface.
+
+Inspect the returned operation when explaining routing. After a timeout,
+transport error or uncertain submission, query the original task ID when available;
+do not blindly resubmit or switch routes. Deliver ordinary successful images from
+returned status, URLs and delivery metadata. Inspect visuals for requested review,
+comparison, visual acceptance or integration into a composed deliverable.
+For intermediate images used in a PPT/report/webpage, set
+`delivery.registerArtifact: false` and register only the final deliverable.
 
 **Timeouts:** omit `wait.timeoutSeconds` for 600 seconds on platform requests and
 polling, or 300 seconds on `generate`/`edit`. The agent can explicitly override
@@ -242,7 +250,7 @@ Do not shorten waits merely to return sooner. Each batch item has its own wait.
 `0` means submit without polling on the platform; Fusion keeps its default timeout.
 
 ```json
-{"type":"fission","prompt":"白底陶瓷茶壶，现代东方风，产品摄影","wait":{"timeoutSeconds":900}}
+{"type":"generate","prompt":"白底陶瓷茶壶，现代东方风，产品摄影","parameters":{"model":"MODEL_ID_FROM_CATALOG"},"wait":{"timeoutSeconds":900}}
 ```
 
 ```json
@@ -250,14 +258,14 @@ Do not shorten waits merely to return sooner. Each batch item has its own wait.
 ```
 
 ```json
-{"type":"extend","prompt":"保持原图结构和材质语言，延展同系列花瓶","images":[{"url":"https://example.com/vase.png","role":"primary"}],"parameters":{"ratio":"4:3","batchSize":1}}
+{"type":"extend","prompt":"保持原图结构和材质语言，设计四宫格同系列花瓶，每格一种配色","images":[{"url":"https://example.com/vase.png","role":"primary"}],"parameters":{"ratio":"4:3","batchSize":1}}
 ```
 
 ```json
 {"type":"mix","prompt":"以第1张产品结构、第2张趋势配色融合成一件可生产餐盘","images":[{"url":"https://example.com/product.png","role":"structure"},{"url":"https://example.com/trend.png","role":"style"}]}
 ```
 
-After a confirmed platform failure, an editing fallback can use:
+When Fusion editing is explicitly selected:
 
 ```json
 {"type":"edit","prompt":"以原图为参考自由重绘为超现实拼贴海报，重新设计透视和构图，保留主体标识，右侧留出标题区域","images":[{"base64":"...","mimeType":"image/png","role":"source"}],"parameters":{"model":"MODEL_ID_FROM_CATALOG"}}

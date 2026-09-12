@@ -4,6 +4,15 @@ import { memo, useMemo } from "react"
 
 import { useTaskArtifacts } from "@/components/layout/use-task-artifacts"
 import { CurrentReplyArtifactsPanel } from "@/components/message/current-reply-artifacts-panel"
+import {
+  extractAcceptedIds,
+  extractAcceptedPaths,
+  extractDeliveryArtifact,
+  extractMessageId,
+  indicatesRejectedArtifactCall,
+  parseNestedRecord,
+  parseRecord,
+} from "@/components/message/current-reply-artifact-result"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import type { TaskArtifactInfo } from "@/lib/api"
@@ -23,6 +32,7 @@ export interface ArtifactRegistration {
   hasCall: boolean
   rejected: boolean
   references: string[]
+  artifactIds?: number[]
   messageId?: string
 }
 
@@ -74,16 +84,10 @@ function ResolvedReplyArtifacts({
     latestTurnOnly: false,
     loadAll: true,
   })
-  const items = useMemo(() => {
-    if (registration.rejected) return []
-    if (!registration.hasCall) return query.items
-    if (registration.references.length === 0) return []
-    return matchReplyArtifacts(
-      registration.references,
-      query.items,
-      activeFolder?.path
-    )
-  }, [activeFolder?.path, query.items, registration])
+  const items = useMemo(
+    () => resolveReplyItems(registration, query.items, activeFolder?.path),
+    [activeFolder?.path, query.items, registration]
+  )
 
   if (items.length === 0) return null
 
@@ -96,6 +100,7 @@ export function extractArtifactRegistration(
   const calls: ArtifactToolCall[] = []
   collectArtifactToolCalls(parts, calls)
   const references: string[] = []
+  const artifactIds: number[] = []
   let messageId: string | null = null
   let rejected = false
   for (const call of calls) {
@@ -110,11 +115,13 @@ export function extractArtifactRegistration(
       continue
     }
     references.push(...(accepted ?? extractInputPaths(call.input)))
+    artifactIds.push(...extractAcceptedIds(call.output))
   }
   return {
     hasCall: calls.length > 0,
     rejected,
     references: dedupeStrings(references),
+    ...(artifactIds.length ? { artifactIds: [...new Set(artifactIds)] } : {}),
     ...(messageId ? { messageId } : {}),
   }
 }
@@ -156,11 +163,17 @@ function collectArtifactToolCalls(
 
 function isArtifactToolCall(call: ArtifactToolCall) {
   const toolName = call.toolName.trim()
-  if (PRESENT_TASK_FILES_SUFFIX.test(toolName)) return true
+  const input = parseRecord(call.input)
+  const argumentsValue =
+    parseNestedRecord(input?.arguments) ??
+    parseNestedRecord(input?.input) ??
+    input
+  if (PRESENT_TASK_FILES_SUFFIX.test(toolName))
+    return isPresentAction(argumentsValue)
   if (IYW_IMAGE_SUFFIX.test(toolName))
     return extractDeliveryArtifact(call.output) !== null
   if (!INVOKE_IYW_CAPABILITY_SUFFIX.test(toolName)) return false
-  const input = parseRecord(call.input)
+  if (!isPresentAction(argumentsValue)) return false
   if (input?.capability_id === PRESENT_TASK_FILES_CAPABILITY_ID) return true
   const nestedName = input?.tool_name ?? input?.toolName
   return (
@@ -169,134 +182,16 @@ function isArtifactToolCall(call: ArtifactToolCall) {
   )
 }
 
+function isPresentAction(input: Record<string, unknown> | null) {
+  return input?.action === undefined || input.action === "present"
+}
+
 function extractInputPaths(input: string | null): string[] {
   const parsed = parseRecord(input)
   if (!parsed) return []
   const argumentsValue = parseNestedRecord(parsed.arguments)
   const inputValue = parseNestedRecord(parsed.input)
   return stringArray(parsed.files ?? argumentsValue?.files ?? inputValue?.files)
-}
-
-function extractAcceptedPaths(
-  output: string | null | undefined
-): string[] | null {
-  if (output && indicatesRejectedArtifactCall(output)) return []
-  const parsed = parseRecord(output)
-  if (!parsed) return null
-  const result = parseNestedRecord(parsed.result)
-  const structured = parseNestedRecord(
-    parsed.structuredContent ?? parsed.structured_content
-  )
-  const resultStructured = parseNestedRecord(
-    result?.structuredContent ?? result?.structured_content
-  )
-  const delivery = extractDeliveryArtifact(output)
-  const accepted =
-    structured?.accepted ??
-    parsed.accepted ??
-    resultStructured?.accepted ??
-    result?.accepted ??
-    delivery?.accepted
-  return Array.isArray(accepted) ? acceptedPaths(accepted) : null
-}
-
-function extractMessageId(output: string | null | undefined): string | null {
-  const parsed = parseRecord(output)
-  if (!parsed) return null
-  const result = parseNestedRecord(parsed.result)
-  const structured = parseNestedRecord(
-    parsed.structuredContent ?? parsed.structured_content
-  )
-  const resultStructured = parseNestedRecord(
-    result?.structuredContent ?? result?.structured_content
-  )
-  const delivery = extractDeliveryArtifact(output)
-  const candidates = [
-    structured?.message_id,
-    structured?.messageId,
-    parsed.message_id,
-    parsed.messageId,
-    resultStructured?.message_id,
-    resultStructured?.messageId,
-    result?.message_id,
-    result?.messageId,
-    delivery?.message_id,
-    delivery?.messageId,
-  ]
-  return (
-    candidates.find(
-      (value): value is string =>
-        typeof value === "string" && value.trim() !== ""
-    ) ?? null
-  )
-}
-
-function extractDeliveryArtifact(
-  output: string | null | undefined
-): Record<string, unknown> | null {
-  const parsed = parseRecord(output)
-  if (!parsed) return null
-  const result = parseNestedRecord(parsed.result)
-  const structured = parseNestedRecord(
-    parsed.structuredContent ?? parsed.structured_content
-  )
-  const resultStructured = parseNestedRecord(
-    result?.structuredContent ?? result?.structured_content
-  )
-  return (
-    parseNestedRecord(parseNestedRecord(structured?.delivery)?.artifact) ??
-    parseNestedRecord(
-      parseNestedRecord(resultStructured?.delivery)?.artifact
-    ) ??
-    parseNestedRecord(parseNestedRecord(result?.delivery)?.artifact) ??
-    parseNestedRecord(parseNestedRecord(parsed.delivery)?.artifact) ??
-    null
-  )
-}
-
-function indicatesRejectedArtifactCall(output: string): boolean {
-  if (/Task artifact registration failed:/i.test(output)) return true
-  return /Presented\s+0\s+task artifact\(s\)/i.test(output)
-}
-
-function acceptedPaths(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value.flatMap((item) => {
-    const record = parseNestedRecord(item)
-    return typeof record?.path === "string" ? [record.path] : []
-  })
-}
-
-function parseRecord(value: string | null | undefined) {
-  if (!value) return null
-  const direct = parseJsonRecord(value)
-  if (direct) return direct
-  const lines = value.split(/\r?\n/)
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    const parsed = parseJsonRecord(lines[index].trim())
-    if (parsed) return parsed
-  }
-  return null
-}
-
-function parseJsonRecord(value: string) {
-  try {
-    return parseNestedRecord(JSON.parse(value))
-  } catch {
-    return null
-  }
-}
-
-function parseNestedRecord(value: unknown): Record<string, unknown> | null {
-  if (typeof value === "string") {
-    try {
-      return parseNestedRecord(JSON.parse(value))
-    } catch {
-      return null
-    }
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null
-  return value as Record<string, unknown>
 }
 
 function stringArray(value: unknown): string[] {
@@ -330,6 +225,24 @@ function matchReplyArtifacts(
     }
   }
   return Array.from(matched.values())
+}
+
+function resolveReplyItems(
+  registration: ArtifactRegistration,
+  items: TaskArtifactInfo[],
+  folderPath?: string
+): TaskArtifactInfo[] {
+  if (registration.rejected) return []
+  if (!registration.hasCall) return items
+  if (registration.references.length === 0) return []
+  if (registration.artifactIds?.length) {
+    const ids = new Set(registration.artifactIds)
+    return items.filter((item) => ids.has(item.id))
+  }
+  if (registration.messageId) {
+    return items.filter((item) => item.messageId === registration.messageId)
+  }
+  return matchReplyArtifacts(registration.references, items, folderPath)
 }
 
 function referencePathKeys(reference: string, folderPath?: string): string[] {

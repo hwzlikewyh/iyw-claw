@@ -282,6 +282,13 @@ pub struct BrokerArtifactsRequest {
     pub files: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BrokerArtifactManagementRequest {
+    pub token: String,
+    pub operation: super::artifact_tool::ArtifactOperation,
+}
+
 /// Analyze one image through the authenticated parent session's current model.
 /// The companion loads and validates bytes locally; the listener derives the
 /// parent connection from `token`, so the model cannot choose a connection or
@@ -432,6 +439,7 @@ pub enum BrokerMessage {
     MemoryDocumentsRead(BrokerMemoryDocumentsReadRequest),
     MemoryAdmin(BrokerMemoryAdminRequest),
     Artifacts(BrokerArtifactsRequest),
+    ArtifactManagement(BrokerArtifactManagementRequest),
     ImageAnalysis(BrokerImageAnalysisRequest),
     Channel(BrokerChannelRequest),
     Browser(BrokerBrowserRequest),

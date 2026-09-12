@@ -94,9 +94,16 @@ async fn prepare_task(
     seed: TaskSeed,
 ) -> Result<PreparedTask, rmcp::ErrorData> {
     let started = Instant::now();
+    let routing_prompt = seed
+        .request
+        .parameters
+        .get("prompt")
+        .and_then(|value| value.as_str())
+        .map(str::to_owned)
+        .or_else(|| seed.request.prompt.clone());
     let kind = select_kind(
         seed.request.kind.as_deref(),
-        &seed.request.prompt,
+        &routing_prompt,
         seed.request.images.len(),
     );
     preflight_kind(

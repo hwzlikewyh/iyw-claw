@@ -167,17 +167,16 @@ IYW product/material/commerce and ordinary raster creation. Attach SVG, BMP,
 ICO, and other unsupported model-image formats as ordinary files rather than
 forcing an image-analysis route.
 
-IYW platform image operations have highest priority: use `fission` for text-only
-creation, or `variation`, `extend`, `mix`, and specialized platform tools for source
-images. `auto` without images also uses `fission`. Only after an explicit terminal
-platform failure or confirmed rejection before task creation may the agent fall
-back to `generate` (`images/generations`) or `edit` (`images/edits`). A timeout,
-transport error, or running task does not authorize fallback; query its task ID.
-Local path/parameter errors and complex prompts do not authorize fallback either.
-The direct tool wraps both backends: `type=edit` is Fusion, while a one-image
-redesign uses platform `type=variation`.
+Prefer `generate` (`images/generations`) for text-to-image, `variation` for
+single-image changes, `mix` for multi-image fusion, and `extend` for four-panel
+grids or same-series extension from one base image. `auto` follows these defaults;
+without images it uses `generate`. A grid request without a reference also uses
+`generate`. Explicit `edit` (`images/edits`) requires source images. Neither Fusion
+operation requires a prior platform attempt or failure. `fission` and specialized
+platform operations remain available when selected. A timeout, transport error
+or running task is not confirmed failure; query its task ID before any retry.
 
-Before that `type=generate` or `type=edit` fallback, call
+Before `type=generate`, `auto` without images, or explicit `type=edit`, call
 `list_iyw_image_models` with `{}`. Choose a returned model for the user's task
 with `image_generation` or `image_editing` enabled, respectively, then pass its
 exact `id` in `parameters.model`. Reuse the catalog for the same task or batch.

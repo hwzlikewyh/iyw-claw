@@ -222,11 +222,16 @@ fn effect_unknown(message: impl Into<String>) -> ErrorData {
 }
 
 fn mutation_may_outlive_request(tool_name: &str, arguments: &Value) -> bool {
+    if tool_name == "present_task_files" {
+        return !matches!(
+            arguments.get("action").and_then(Value::as_str),
+            Some("list" | "get")
+        );
+    }
     matches!(
         tool_name,
         "delegate_to_agent"
             | "cancel_delegation"
-            | "present_task_files"
             | "transcribe_audio"
             | "transcribe_audio_flash"
             | "show_image"
