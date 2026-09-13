@@ -1914,6 +1914,7 @@
       "newChatAction": "New chat",
       "automations": "Scheduled tasks",
       "skillsMarket": "Capability Market",
+      "resources": "Resources",
       "loadingSubsessions": "Loading sub-conversations…"
     },
     "conversation": {
@@ -5433,6 +5434,23 @@
         "activityDescription": "Agents record, update, or skip automatically; users do not review each item."
       }
     }
+  },
+  "Resources": {
+    "title": "Resources",
+    "deliverables": "Deliverables",
+    "count": "{count, plural, one {# item} other {# items}}",
+    "allConversations": "All conversations",
+    "viewLabel": "Deliverable view",
+    "grid": "Grid view",
+    "list": "List view",
+    "clearSearch": "Clear search",
+    "subtitle": "Keep every result from your work ready to find and reuse",
+    "sessionCount": "conversations",
+    "todayCount": "delivered today",
+    "filteredResults": "Filtered results",
+    "sessionFilterLabel": "Filter by conversation",
+    "fromConversation": "From conversation",
+    "empty": "No deliverables yet"
   },
   "CapabilityMarket": {
     "title": "Capability Market",

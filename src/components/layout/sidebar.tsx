@@ -11,6 +11,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Crosshair,
+  LibraryBig,
   PackageCheck,
   Settings,
   SquarePen,
@@ -213,6 +214,15 @@ export function Sidebar() {
               active={routeId === "skills"}
               onClick={() => setRoute("skills")}
             />
+            <SidebarNavButton
+              icon={LibraryBig}
+              label={t("resources")}
+              active={routeId === "resources"}
+              onClick={() => {
+                setRoute("resources")
+                if (isMobile) toggle()
+              }}
+            />
           </nav>
 
           <div
@@ -292,6 +302,12 @@ export function Sidebar() {
               label={t("skillsMarket")}
               active={routeId === "skills"}
               onClick={() => setRoute("skills")}
+            />
+            <SidebarRailButton
+              icon={LibraryBig}
+              label={t("resources")}
+              active={routeId === "resources"}
+              onClick={() => setRoute("resources")}
             />
           </nav>
           <div className="mt-auto flex w-full justify-center border-t border-sidebar-border/70 py-2">
