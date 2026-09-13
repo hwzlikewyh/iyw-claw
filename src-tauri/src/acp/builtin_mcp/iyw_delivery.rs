@@ -48,6 +48,7 @@ async fn register_artifacts(
             turn_generation,
             authority.cwd(),
             urls.to_vec(),
+            vec![None; urls.len()],
         )
         .await
 }

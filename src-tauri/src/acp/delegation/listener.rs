@@ -109,6 +109,7 @@ pub trait TaskArtifactAccess: Send + Sync {
         turn_generation: Option<i64>,
         working_dir: &Path,
         files: Vec<String>,
+        display_names: Vec<Option<String>>,
     ) -> Value;
 }
 
@@ -2018,6 +2019,7 @@ impl DelegationListener {
                     .await,
                 &entry.working_dir,
                 req.files,
+                req.display_names,
             )
             .await
     }

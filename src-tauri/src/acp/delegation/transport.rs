@@ -280,6 +280,8 @@ pub struct BrokerMemoryAdminRequest {
 pub struct BrokerArtifactsRequest {
     pub token: String,
     pub files: Vec<String>,
+    #[serde(default)]
+    pub display_names: Vec<Option<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -54,7 +54,10 @@ pub struct ArtifactContext {
 }
 
 pub enum ArtifactCall {
-    Present(Vec<String>),
+    Present {
+        files: Vec<String>,
+        display_names: Vec<Option<String>>,
+    },
     Manage(ArtifactOperation),
 }
 
@@ -63,13 +66,21 @@ pub enum ArtifactCall {
 struct PresentParams {
     files: Vec<String>,
     action: Option<String>,
+    #[serde(default)]
+    display_names: Option<Vec<String>>,
 }
 
 pub fn parse_call(arguments: &Value) -> Result<ArtifactCall, String> {
     match arguments.get("action") {
-        None => parse_present(arguments).map(ArtifactCall::Present),
+        None => parse_present(arguments).map(|(files, display_names)| ArtifactCall::Present {
+            files,
+            display_names,
+        }),
         Some(Value::String(action)) if action == "present" => {
-            parse_present(arguments).map(ArtifactCall::Present)
+            parse_present(arguments).map(|(files, display_names)| ArtifactCall::Present {
+                files,
+                display_names,
+            })
         }
         _ => {
             let mut operation: ArtifactOperation = serde_json::from_value(arguments.clone())
@@ -80,8 +91,8 @@ pub fn parse_call(arguments: &Value) -> Result<ArtifactCall, String> {
     }
 }
 
-fn parse_present(arguments: &Value) -> Result<Vec<String>, String> {
-    let params: PresentParams = serde_json::from_value(arguments.clone())
+fn parse_present(arguments: &Value) -> Result<(Vec<String>, Vec<Option<String>>), String> {
+    let mut params: PresentParams = serde_json::from_value(arguments.clone())
         .map_err(|error| format!("Invalid artifact registration: {error}"))?;
     let _ = params.action;
     if params.files.is_empty() || params.files.len() > MAX_FILES {
@@ -89,14 +100,34 @@ fn parse_present(arguments: &Value) -> Result<Vec<String>, String> {
             "present_task_files requires 1 to {MAX_FILES} final deliverables"
         ));
     }
-    params
+    if params
+        .display_names
+        .as_ref()
+        .is_some_and(|names| names.len() != params.files.len())
+    {
+        return Err("display_names must match files length".into());
+    }
+    let display_names = params.display_names.take().unwrap_or_default();
+    let display_names = display_names
+        .into_iter()
+        .map(|mut name| {
+            normalize_text(&mut name, MAX_NAME_CHARS, "display_names").map(|()| name)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let display_names = if display_names.is_empty() {
+        vec![None; params.files.len()]
+    } else {
+        display_names.into_iter().map(Some).collect()
+    };
+    let files = params
         .files
         .into_iter()
         .map(|mut reference| {
             normalize_text(&mut reference, MAX_REFERENCE_CHARS, "files")?;
-            Ok(reference)
+            Ok::<String, String>(reference)
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((files, display_names))
 }
 
 impl ArtifactOperation {

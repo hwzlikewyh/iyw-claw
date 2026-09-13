@@ -4,7 +4,7 @@ pub(crate) mod source;
 
 pub use query::list_artifacts;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use chrono::Utc;
@@ -122,8 +122,19 @@ pub async fn register_artifacts(
     turn_generation: Option<i64>,
     working_dir: &Path,
     files: Vec<String>,
+    display_names: Vec<Option<String>>,
 ) -> Result<Value, DbError> {
-    let (resolved, rejected) = resolve_sources(working_dir, files);
+    let names_by_source = files
+        .iter()
+        .zip(display_names)
+        .filter_map(|(source, name)| name.map(|name| (source.trim().to_owned(), name)))
+        .collect::<HashMap<_, _>>();
+    let (mut resolved, rejected) = resolve_sources(working_dir, files);
+    for artifact in &mut resolved {
+        if let Some(display_name) = names_by_source.get(&artifact.source) {
+            artifact.display_name = display_name.clone();
+        }
+    }
     let rejected = rejected
         .into_iter()
         .map(|(path, reason)| ArtifactItemResult {

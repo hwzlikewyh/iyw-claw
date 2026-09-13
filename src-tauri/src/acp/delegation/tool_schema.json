@@ -857,7 +857,7 @@
   },
   {
     "name": "present_task_files",
-    "description": "Deliver and manage final task artifacts. Call directly; no capability search/read/invoke is needed when advertised. Register only the final deliverables needed to satisfy the user's task, without requiring separate user approval for each file. For a PowerPoint containing images, register the completed PPT/PPTX, not the images, drafts or temporary files used to make it. Include separate companion files only when the final deliverable requires them to work. Do not register files merely because they were created, modified or used during the task. Source code, configuration, logs, caches, intermediates and other working files belong here only when they themselves are the final deliverable. action=present (default) registers files/directories/HTTP(S) URLs in the current conversation; inspect accepted/rejected results. action=list searches with scope=current (default) or all (all conversations in the current workspace). action=get reads an artifact by ID in that scope. action=update changes display_name or replaces source, retaining the ID and original reply. action=delete removes the current conversation's record only, never its files or remote resources. Updates and deletes are restricted to the current conversation.",
+    "description": "Deliver and manage final task artifacts. Call directly; no capability search/read/invoke is needed when advertised. Register only the final deliverables needed to satisfy the user's task, without requiring separate user approval for each file. For a PowerPoint containing images, register the completed PPT/PPTX, not the images, drafts or temporary files used to make it. Include separate companion files only when the final deliverable requires them to work. Do not register files merely because they were created, modified or used during the task. Source code, configuration, logs, caches, intermediates and other working files belong here only when they themselves are the final deliverable. action=present (default) registers files/directories/HTTP(S) URLs in the current conversation; optional display_names assigns names to files by index; inspect accepted/rejected results. action=list searches with scope=current (default) or all (all conversations in the current workspace). action=get reads an artifact by ID in that scope. action=update changes display_name or replaces source, retaining the ID and original reply. action=delete removes the current conversation's record only, never its files or remote resources. Updates and deletes are restricted to the current conversation.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -876,6 +876,13 @@
             "maxLength": 4096
           },
           "description": "Only final deliverables and their required external companions. For an image-containing PPT, submit the completed PPT, not its embedded images or intermediate assets. Submit final image URLs directly without downloading them first or submitting both URL and local copy; the host downloads and deduplicates them by content. Relative paths resolve from the working directory; absolute paths and HTTP/HTTPS URLs are accepted."
+        },
+        "display_names": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": {"type": "string", "minLength": 1, "maxLength": 255},
+          "description": "present only: optional display names corresponding to files by index. When provided, the array length must match files and every name must be nonblank. Names change only the displayed labels, not the source filenames. Omit to use each file or URL name."
         },
         "scope": {
           "type": "string",
@@ -900,7 +907,7 @@
       "oneOf": [
         {
           "required": ["files"],
-          "properties": {"action": {"enum": ["present"]}, "files": {}},
+          "properties": {"action": {"enum": ["present"]}, "files": {}, "display_names": {}},
           "additionalProperties": false
         },
         {

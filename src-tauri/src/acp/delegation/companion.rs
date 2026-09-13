@@ -950,9 +950,13 @@ async fn dispatch_browser_tool(bridge: CompanionBridge, call: ToolInvocation) ->
 async fn dispatch_artifacts_tool(bridge: CompanionBridge, call: ToolInvocation) -> LineAction {
     use super::artifact_tool::{parse_call, ArtifactCall};
     let request = match parse_call(&call.arguments) {
-        Ok(ArtifactCall::Present(files)) => BrokerMessage::Artifacts(BrokerArtifactsRequest {
+        Ok(ArtifactCall::Present {
+            files,
+            display_names,
+        }) => BrokerMessage::Artifacts(BrokerArtifactsRequest {
             token: bridge.context.token,
             files,
+            display_names,
         }),
         Ok(ArtifactCall::Manage(operation)) => BrokerMessage::ArtifactManagement(
             super::transport::BrokerArtifactManagementRequest {

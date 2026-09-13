@@ -71,6 +71,7 @@ impl TaskArtifactAccess for DbTaskArtifactAccess {
         turn_generation: Option<i64>,
         working_dir: &Path,
         files: Vec<String>,
+        display_names: Vec<Option<String>>,
     ) -> Value {
         let requested = files.len();
         let Some(message_id) = message_id else {
@@ -89,6 +90,7 @@ impl TaskArtifactAccess for DbTaskArtifactAccess {
             &message_id,
             working_dir,
             files,
+            display_names,
         )
         .await;
         match task_artifact_service::register_artifacts(
@@ -98,6 +100,7 @@ impl TaskArtifactAccess for DbTaskArtifactAccess {
             turn_generation,
             working_dir,
             materialized.files,
+            materialized.display_names,
         )
         .await
         {
@@ -159,6 +162,7 @@ fn artifact_message_unavailable(files: Vec<String>) -> Value {
 
 struct MaterializedArtifacts {
     files: Vec<String>,
+    display_names: Vec<Option<String>>,
     rejected: Vec<MaterializationRejection>,
 }
 
@@ -180,6 +184,7 @@ async fn materialize_files(
     message_id: &str,
     working_dir: &Path,
     files: Vec<String>,
+    display_names: Vec<Option<String>>,
 ) -> MaterializedArtifacts {
     let Some(generation) = turn_generation.filter(|value| *value > 0) else {
         return reject_sources(files, "managed_directory_unavailable");
@@ -198,24 +203,33 @@ async fn materialize_files(
         working_dir,
         message_id,
     };
-    materialize_sources(&context, files).await
+    materialize_sources(&context, files, display_names).await
 }
 
 async fn materialize_sources(
     context: &MaterializationContext<'_>,
     files: Vec<String>,
+    display_names: Vec<Option<String>>,
 ) -> MaterializedArtifacts {
     let mut result = MaterializedArtifacts {
         files: Vec::with_capacity(files.len()),
+        display_names: Vec::with_capacity(files.len()),
         rejected: Vec::new(),
     };
     let mut seen = HashSet::new();
-    for (index, source) in files.into_iter().enumerate() {
+    for (index, (source, display_name)) in files
+        .into_iter()
+        .zip(display_names.into_iter().chain(std::iter::repeat(None)))
+        .enumerate()
+    {
         if !seen.insert(source.trim().to_owned()) {
             continue;
         }
         match materialize_source(context, &source, index).await {
-            Ok(path) => result.files.push(path),
+            Ok(path) => {
+                result.files.push(path);
+                result.display_names.push(display_name);
+            }
             Err(reason) => result.rejected.push(MaterializationRejection {
                 path: source,
                 reason,
@@ -223,7 +237,16 @@ async fn materialize_sources(
         }
     }
     let mut paths = HashSet::new();
-    result.files.retain(|path| paths.insert(path.clone()));
+    let mut unique_files = Vec::with_capacity(result.files.len());
+    let mut unique_names = Vec::with_capacity(result.display_names.len());
+    for (path, display_name) in result.files.into_iter().zip(result.display_names) {
+        if paths.insert(path.clone()) {
+            unique_files.push(path);
+            unique_names.push(display_name);
+        }
+    }
+    result.files = unique_files;
+    result.display_names = unique_names;
     result
 }
 
@@ -260,6 +283,7 @@ async fn materialize_source(
 fn reject_sources(files: Vec<String>, reason: &'static str) -> MaterializedArtifacts {
     let mut result = MaterializedArtifacts {
         files: Vec::with_capacity(files.len()),
+        display_names: Vec::new(),
         rejected: Vec::new(),
     };
     for source in files {
