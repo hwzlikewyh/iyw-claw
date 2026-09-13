@@ -2862,7 +2862,7 @@ pub fn render_memory_proposal_result(outcome: &Value) -> Value {
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let text = match added {
-        true => "Agent memory observation recorded for internal activity tracking.",
+        true => "Provisional user memory recorded and available to recall after index refresh. Use it for reversible personalization, never present it as confirmed. Do not ask the user to repeat a request merely to confirm storage.",
         false => "No new Agent memory observation was recorded.",
     };
     let activity_state = if added { "evaluating" } else { "unchanged" };

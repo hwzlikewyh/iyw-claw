@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, SecondsFormat, Utc};
 
-use super::helpers::{hash_parts, memory_entry_id};
+use super::helpers::{agent_memory_label, hash_parts, memory_entry_id};
 use super::index_types::{
     normalize_alias, IndexAlias, IndexEvidence, IndexItem, IndexItemSource, IndexSnapshot,
 };
@@ -13,7 +13,7 @@ use super::{
 };
 
 const SOURCE_KEY: &str = "user_memory";
-const INDEX_PROJECTION_VERSION: &[u8] = b"user-memory-index-v4-retention";
+const INDEX_PROJECTION_VERSION: &[u8] = b"user-memory-index-v5-candidate-recall";
 
 struct DocumentSource<'a> {
     id: UserMemoryDocumentId,
@@ -62,6 +62,7 @@ pub(super) fn build_index_snapshot(
         }
     }
 
+    super::index_candidates::add_active_candidates(&mut items, candidates);
     add_candidate_evidence(&mut items, candidates);
     add_agent_experiences(&mut items, &mut item_positions, candidates);
     super::retention::apply_retention(&mut items, candidates);
@@ -251,7 +252,7 @@ fn add_agent_experiences(
         item.scope_key = experience.scope_key.clone();
         item.confidence = experience.confidence as i64;
         item.importance = 0.6;
-        item.add_alias("agent_type", experience.agent_type.as_wire().into_owned());
+        item.add_alias("agent", agent_memory_label(experience.agent_type));
         for evidence in &experience.evidence {
             item.add_evidence(IndexEvidence {
                 source_kind: "agent_experience".to_string(),

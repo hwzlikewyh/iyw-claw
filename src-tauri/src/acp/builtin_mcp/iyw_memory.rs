@@ -18,6 +18,7 @@ pub(super) fn parameters_schema() -> Value {
         ("propose", "propose_user_memory"),
         ("retire", "retire_user_memory"),
         ("documents.read", "read_user_memory_documents"),
+        ("candidates.list", "list_user_memory_candidates"),
     ] {
         let mut schema = super::interaction_tools::embedded_tool(name)["inputSchema"].clone();
         schema["description"] = json!(format!("Complete parameters for operation={operation}."));

@@ -194,7 +194,7 @@ fn eligible_item(
     scope.permits(&item.scope_type, &item.scope_key)
         && matches!(
             item.trust_class.as_str(),
-            "host_confirmed" | "agent_experience"
+            "host_confirmed" | "agent_experience" | "candidate"
         )
         && !item.sensitive
         && query_at.is_some_and(|value| item_is_current_at(item, value))

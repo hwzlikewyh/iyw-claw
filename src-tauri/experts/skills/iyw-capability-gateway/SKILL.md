@@ -65,6 +65,7 @@ follow its workflow**. Do not treat the reference as optional background reading
 | Independent subtask, parallel Agent, task ID, wait, or cancellation | [delegation.md](references/delegation.md) |
 | Web page, public web data, browser interaction, screenshot, visual page, audio, transcription, or image understanding | [browser-and-media.md](references/browser-and-media.md) |
 | Prior decisions, preferences, repeated workflows, memory, learning, correction, candidate, or memory repair | [memory-and-learning.md](references/memory-and-learning.md) |
+| Skill usage failure, recurring workaround, verified improvement or Skill evolution | [skill-evolution.md](references/skill-evolution.md) |
 | Research, comparison, investigation, current web evidence, or cited report | [research-workflow.md](references/research-workflow.md), plus [browser-and-media.md](references/browser-and-media.md) for browser work |
 | Platform, URL, social discussion, GitHub, video, podcast, RSS, finance, or login-backed source | [internet-routing.md](references/internet-routing.md) |
 | Unsure which family or how to call the trio | [tool-usage.md](references/tool-usage.md) |

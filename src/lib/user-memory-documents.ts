@@ -129,7 +129,7 @@ export interface UserMemoryCandidateSummary {
   observationCount: number
   confidence: number
   wordingVariants?: string[]
-  sourceAgents: AgentType[]
+  sourceAgents: string[]
   firstObservedAt: string
   lastObservedAt: string
   resolvedAt?: string | null

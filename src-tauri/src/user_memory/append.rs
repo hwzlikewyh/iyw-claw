@@ -4,8 +4,8 @@ use crate::app_error::AppCommandError;
 use crate::models::agent::AgentType;
 
 use super::helpers::{
-    ensure_agent_write_allowed, ensure_manual_write_allowed, memory_entry_id, normalize_append,
-    normalize_candidate, validate_document_content,
+    agent_memory_label, ensure_agent_write_allowed, ensure_manual_write_allowed, memory_entry_id,
+    normalize_append, normalize_candidate, validate_document_content,
 };
 use super::transaction::{candidate_resource, document_resource};
 use super::{candidate_references, candidate_store, structured_file};
@@ -105,7 +105,10 @@ impl UserMemoryService {
             }
             next_markdown.push_str(&format!(
                 "- [{}] [{}] {} <!-- {} -->\n",
-                created_at, agent_type, content, entry_id
+                created_at,
+                agent_memory_label(agent_type),
+                content,
+                entry_id
             ));
             validate_document_content(&next_markdown)?;
         }

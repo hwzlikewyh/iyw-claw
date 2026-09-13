@@ -104,7 +104,6 @@ fn invoke_tool() -> Value {
     })
 }
 
-
 fn knowledge_tool() -> Value {
     json!({
         "name": KNOWLEDGE_TOOL,
@@ -135,7 +134,7 @@ fn memory_tool() -> Value {
         .join("; ");
     json!({
         "name": MEMORY_TOOL,
-        "description": "Read, retain or retire relevant memory without leaving the task. Call recall, append, propose, retire or documents.read directly using the inline schemas: no search, metadata, Skill or policy read is required. Recall before decisions depending on prior preferences, repeated workflows or failures; reuse relevant results already supplied. Append only when the user explicitly asks to remember a durable fact or preference; otherwise propose reusable user signals without asking for approval. A proposal is not confirmed memory. Retire a recalled obsolete entry or experience using its id as memoryId, sourceRevision as expectedRevision, and an evidence-based reason. Omit expiresAt to forget immediately; set a known RFC3339 expiry only from evidence. Never expire stable preferences just because they are old. Retirement excludes recall but preserves source history; stop applying the old fact in this conversation too. Never store secrets, sensitive inferences, repository facts, temporary progress or Agent reflections as user memory. Documents.read returns raw authoritative text for editing plus inactiveEntryIds: those entries must not inform decisions. Other operations require one read of their mapped capability schema. The host performs policy, authorization, scope and concurrency checks. matched is evidence, no_evidence is no match, unavailable is not absence. Memory failure must not block the task or trigger file edits.",
+        "description": "Read, retain or retire relevant memory without leaving the task. Call recall, append, propose, retire or documents.read directly using the inline schemas: no search, metadata, Skill or policy read is required. Recall before decisions depending on prior preferences, repeated workflows or failures; reuse relevant results already supplied. Append clear user-stated durable facts and future preferences, including `我喜欢吃桃子` or `下回跟我说话简洁直白`; do not require the word remember or another confirmation. Use propose only when meaning, durability or scope is uncertain. Proposals are indexed and recallable as provisional evidence, never as confirmed memory. Retire a recalled obsolete entry or experience using its id as memoryId, sourceRevision as expectedRevision, and an evidence-based reason. Omit expiresAt to forget immediately; set a known RFC3339 expiry only from evidence. Never expire stable preferences just because they are old. Retirement excludes recall but preserves source history; stop applying the old fact in this conversation too. Never store secrets, sensitive inferences, repository facts, temporary progress or Agent reflections as user memory. Documents.read returns raw authoritative text for editing plus inactiveEntryIds: those entries must not inform decisions. Other operations require one read of their mapped capability schema. The host performs policy, authorization, scope and concurrency checks. matched is evidence, no_evidence is no match, unavailable is not absence. Memory failure must not block the task or trigger file edits.",
         "inputSchema": {
             "type": "object",
             "required": ["operation"],

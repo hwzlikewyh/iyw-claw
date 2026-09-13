@@ -2,8 +2,6 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::agent::AgentType;
-
 use super::{
     UserMemoryCandidate, UserMemoryCandidateResolutionResult, UserMemoryCandidateSignal,
     UserMemoryCandidateStatus,
@@ -70,7 +68,8 @@ pub struct UserMemoryCandidateSummary {
     pub confidence: u32,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wording_variants: Vec<String>,
-    pub source_agents: Vec<AgentType>,
+    /// Agent display aliases, never internal wire identifiers.
+    pub source_agents: Vec<String>,
     pub first_observed_at: String,
     pub last_observed_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -90,7 +89,11 @@ impl From<&UserMemoryCandidate> for UserMemoryCandidateSummary {
         let source_agents = candidate
             .observations
             .iter()
-            .map(|observation| observation.agent_type)
+            .map(|observation| {
+                crate::acp::registry::get_agent_meta(observation.agent_type)
+                    .name
+                    .to_string()
+            })
             .collect::<BTreeSet<_>>()
             .into_iter()
             .collect();

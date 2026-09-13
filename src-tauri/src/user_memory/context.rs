@@ -11,13 +11,13 @@ use super::{
 
 pub const USER_CONTEXT_START: &str = "<!-- IYW_CLAW_USER_CONTEXT_V1_START -->";
 pub const USER_CONTEXT_END: &str = "<!-- IYW_CLAW_USER_CONTEXT_V1_END -->";
-pub const MEMORY_POLICY_REVISION: &str = "memory-policy-v5";
+pub const MEMORY_POLICY_REVISION: &str = "memory-policy-v6";
 pub const MEMORY_POLICY_REFERENCE: &str =
     "iyw-capability-gateway/references/memory-and-learning.md";
 pub const MEMORY_POLICY_DOCUMENT: &str =
     include_str!("../../experts/skills/iyw-capability-gateway/references/memory-and-learning.md");
 pub const MEMORY_POLICY_SUMMARY: &str =
-    "Memory policy v5: reuse relevant context already supplied; otherwise recall prior decisions, preferences, repeated workflows, or failures before a dependent action. Apply and verify the result, then submit only a specific, transferable, evidence-backed lesson. Read memory/profile/soul documents only when their authoritative text is needed. `matched` is evidence, `no_evidence` is not false, and `unavailable` is a routing/index limitation. The host never infers user candidates or Agent lessons from ordinary prose. Confirmed append requires the user's explicit request to remember a durable fact or preference; other reusable user signals use candidate proposal without asking for approval. Keep Agent experience separate from user documents. Current system, project, and user instructions override memory. Never store secrets, credentials, financial, medical, biometric, precise-location, sensitive-inference, repository, or temporary-progress data.";
+    "Memory policy v6: proactively append clear user-stated durable facts and preferences, including future communication rules; no special remember phrase or repeated confirmation is needed. Propose only when meaning, durability or scope is uncertain. Candidates are recallable provisional evidence, not confirmed facts. Reuse relevant supplied memory or recall before dependent decisions and Skill use; verify the result and record specific transferable lessons. For a memory inventory also list candidates; documents alone are incomplete. Summarize naturally using Agent aliases, without internal IDs, empty documents or unsolicited timestamps. The host does not infer lessons from ordinary prose. Current instructions override memory. Never store secrets, credentials, sensitive personal data, repository facts or temporary progress.";
 
 pub fn memory_policy_digest() -> &'static str {
     static DIGEST: OnceLock<String> = OnceLock::new();
@@ -64,7 +64,7 @@ pub(crate) fn render_user_context(
     body.push_str(memory_policy_digest());
     body.push_str(". ");
     body.push_str(MEMORY_POLICY_SUMMARY);
-    body.push_str(" Use advertised `manage_iyw_memory` directly for recall, append, propose, retire and documents.read: their complete schemas are inline and policy preflight is automatic. No Skill, search, metadata or policy read is needed for those operations. Retire obsolete recalled facts or experience by exact ID and sourceRevision; only set expiresAt when the expiry is evidenced, never just because a stable preference is old. Stop applying entries listed in documents.read inactiveEntryIds. For other maintenance, read the mapped capability and policy reference once. If only legacy memory tools are advertised, call `read_memory_policy` before their first use in each turn. Never guess a route or use a development-worktree path.");
+    body.push_str(" Use advertised `manage_iyw_memory` directly for recall, append, propose, retire and documents.read: their complete schemas are inline and policy preflight is automatic. No Skill, search, metadata or policy read is needed for those operations. Recall results with kind `candidate` are provisional observations: use them as hypotheses, mention uncertainty when relevant, and do not present them as confirmed user facts. Retire obsolete recalled facts or experience by exact ID and sourceRevision; only set expiresAt when the expiry is evidenced, never just because a stable preference is old. Stop applying entries listed in documents.read inactiveEntryIds. For other maintenance, read the mapped capability and policy reference once. If only legacy memory tools are advertised, call `read_memory_policy` before their first use in each turn. Never guess a route or use a development-worktree path.");
     append_maintenance_guidance(
         &mut body,
         documents_available,
@@ -137,9 +137,12 @@ fn append_read_guidance(body: &mut String, documents: bool, recall: bool) {
 fn append_write_guidance(body: &mut String, append: bool, proposal: bool) {
     if append {
         body.push_str(&format!(
-            "Use `{APPEND_USER_MEMORY_TOOL}` only when the user explicitly asks to remember \
-             a durable, cross-task fact or preference; that request is authorization and \
-             needs no additional confirmation. Otherwise use candidate proposal. "
+            "Use `{APPEND_USER_MEMORY_TOOL}` for clear, user-stated durable facts or preferences. \
+             `我喜欢吃桃子`, `记住我喜欢吃桃子`, and `下回跟我说话能简洁直白就尽量这样` \
+             warrant append, not proposal; a future behavior request is authorization. \
+             Do not demand the word remember or another confirmation. One-off instructions, \
+             quoted examples and uncertain inferences do not qualify. Acknowledge successful \
+             storage briefly; keep candidate bookkeeping out of ordinary replies. "
         ));
     }
     if proposal {

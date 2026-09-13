@@ -5,7 +5,6 @@ import { Bot, Check, CircleDot, SkipForward } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { Badge } from "@/components/ui/badge"
-import { getAgentLabel } from "@/lib/custom-agents"
 import {
   type UserMemoryCandidateStatus,
   type UserMemoryCandidateSummary,
@@ -83,9 +82,7 @@ export function UserMemoryCandidatesPanel({
         <ul className="max-h-80 divide-y overflow-y-auto">
           {activities.map((candidate) => {
             const StatusIcon = statusIcon(candidate.status)
-            const sources = candidate.sourceAgents
-              .map(getAgentLabel)
-              .join(" · ")
+            const sources = candidate.sourceAgents.join(" · ")
             const active = ACTIVE_STATUSES.includes(candidate.status)
             return (
               <li key={candidate.id} className="px-4 py-3">

@@ -18,6 +18,7 @@ mod harvest_store;
 mod harvest_store_sql;
 mod helpers;
 mod index;
+mod index_candidates;
 mod index_checkpoint;
 mod index_fts;
 mod index_integrity;

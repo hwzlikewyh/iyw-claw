@@ -1293,7 +1293,7 @@
   },
   {
     "name": "append_user_memory",
-    "description": "Append one durable, cross-task fact or preference only when the user explicitly asks to remember it. That request is authorization; do not ask again. Other reusable user signals use propose_user_memory. Before the first legacy memory operation in each turn, call read_memory_policy; manage_iyw_memory handles preflight automatically. Never store secrets, credentials, inferred sensitive traits, repository facts, temporary progress, or one-off task details. This tool is append-only: it cannot overwrite user memory and cannot modify profile or soul documents.",
+    "description": "Proactively append one clear, user-stated durable fact or preference. A request about future behavior, such as 下回跟我说话简洁直白, authorizes storage without the word remember or another confirmation. Use propose only for uncertain meaning, durability or scope. Legacy calls require read_memory_policy; manage_iyw_memory handles preflight automatically. Never store secrets, sensitive inferences, repository facts, temporary progress or one-off details. This is append-only; profile and soul use document maintenance.",
     "inputSchema": {
       "type": "object",
       "required": ["content"],
@@ -1310,7 +1310,7 @@
   },
   {
     "name": "propose_user_memory",
-    "description": "Submit one conservative internal observation when a reusable correction, preference, or fact may be durable but the Agent is not yet confident enough to append it to active memory. Before the first memory operation in each turn, call read_memory_policy. This records activity for later Agent maintenance; it does not require user confirmation. Never submit secrets, inferred sensitive traits, repository facts, temporary progress, one-off task details, or agent reflections, and never claim that a proposal is already durable memory.",
+    "description": "Retain one potentially reusable user observation only when meaning, durability or scope is uncertain. Clear durable user preferences use append directly. Active candidates are recallable as kind=candidate after indexing; they can guide reversible personalization, but are not confirmed facts. Never request routine user approval or ask the user to repeat a memory request. Legacy calls require read_memory_policy. Exclude secrets, sensitive inferences, repository facts, temporary details and Agent reflections.",
     "inputSchema": {
       "type": "object",
       "required": ["content", "signal"],
@@ -1332,7 +1332,7 @@
   },
   {
     "name": "memory_recall",
-    "description": "Read matching confirmed user memory and active Agent experience for the current launch when it materially helps the task. Before the first memory operation in each turn, call read_memory_policy. Use it proactively before work that depends on prior decisions, preferences, repeated workflows, or earlier failure/workaround experience. This is read-only and bounded. The resultState distinguishes matched, no_evidence, and unavailable; no_evidence means the index was usable but no stored memory matched, never that the fact is false. Use the current-user-profile capability for account name, nickname, or salutation instead of memory recall.",
+    "description": "Read matching confirmed memory, active provisional candidates and Agent experience within the authenticated scope. kind=candidate is a hypothesis, never a confirmed fact. Recall proactively before related decisions or Skill use, reusing already supplied results. matched is evidence, no_evidence is only no match, unavailable is a failed lookup. To inventory memory also list candidates and read relevant documents; documents omit candidates. Legacy calls require read_memory_policy. This operation is bounded and read-only.",
     "inputSchema": {
       "type": "object",
       "required": ["query"],

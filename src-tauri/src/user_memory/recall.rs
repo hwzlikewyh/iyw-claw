@@ -125,6 +125,22 @@ impl UserMemoryService {
             self.mark_recall_checkpoint_stale(&checkpoint, "index_stale_source")
                 .await;
             self.schedule_index_refresh_if_due();
+            if tokio::time::timeout(COLD_RECALL_TIMEOUT, self.refresh_index())
+                .await
+                .is_ok_and(|result| result.is_ok())
+            {
+                if let Ok(current) = self.index_status().await {
+                    if current.status == "ready"
+                        && current.source_digest.as_deref() == Some(source_digest.as_str())
+                    {
+                        return Ok(ReadyRecall {
+                            attempt,
+                            checkpoint: current,
+                            source_digest,
+                        });
+                    }
+                }
+            }
             return Err(unavailable_attempt(
                 attempt,
                 Some(&checkpoint),
@@ -145,7 +161,9 @@ impl UserMemoryService {
         if !self.recall_index_enabled {
             return Err(unavailable_attempt(attempt, None, "index_recall_disabled"));
         }
-        if !self.index_verified_for_process() {
+        if !self.index_verified_for_process()
+            && !self.ensure_recall_ready(COLD_RECALL_TIMEOUT).await
+        {
             self.ensure_index_refresh();
             return Err(unavailable_attempt(attempt, None, "index_unverified"));
         }

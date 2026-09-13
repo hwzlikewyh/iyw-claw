@@ -12,6 +12,10 @@ use super::{
     USER_MEMORY_AGENT_TYPES, USER_MEMORY_MAX_APPEND_CHARS, USER_MEMORY_MAX_DOCUMENT_CHARS,
 };
 
+pub(super) fn agent_memory_label(agent: AgentType) -> String {
+    crate::acp::registry::get_agent_meta(agent).name.to_string()
+}
+
 pub(super) fn normalize_agent_policy(policy: &mut UserMemoryPolicy) {
     for agent in USER_MEMORY_AGENT_TYPES {
         policy.per_agent.insert(agent, true);
