@@ -3498,6 +3498,20 @@ async fn run_connection(
                 }
             }
             let managed_agent_version = state.read().await.managed_agent_version.clone();
+            let native_history_fork = dedicated_worker
+                && init_resp
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get("iyw"))
+                    .and_then(|meta| meta.get("historyFork"))
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+            state.write().await.native_history_fork = native_history_fork;
+            tracing::info!(
+                dedicated_worker,
+                native_history_fork,
+                "[ACP] history fork capability negotiated"
+            );
             let native_steering_available = init_resp
                 .meta
                 .as_ref()
@@ -7464,6 +7478,7 @@ async fn run_conversation_loop<'a>(
                 .mcp_servers(session_request_context.mcp_servers.to_vec())
                 .meta(session_request_context.meta());
                 if let Some(point) = point {
+                    let point = point.metadata(state.read().await.native_history_fork);
                     let meta = request.meta.get_or_insert_with(Default::default);
                     meta.insert(
                         "jetbrains".into(),

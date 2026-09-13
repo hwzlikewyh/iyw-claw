@@ -22,6 +22,7 @@ mod child_events;
 mod commands;
 mod completed_snapshot;
 mod fast_mode;
+mod history_fork;
 mod event_recovery;
 mod message_projection;
 mod interaction;
@@ -615,9 +616,7 @@ async fn handle_request(
             let options = authority.session_launch.clone()
                 .ok_or_else(|| UpstreamError::InvalidRequest("fork has no owning launch configuration".into()))?
                 .with_fork_settings(session_settings.fork_values())?;
-            let request = json!({ "method": "thread/fork", "params": {
-                "threadId": source, "excludeTurns": true, "deferGoalContinuation": true,
-            } });
+            let request = history_fork::request(upstream, source, &params).await?;
             let response = upstream.fork_configured_thread(request, options).await?;
             let id = crate::upstream_backend::thread_id_from_response_for_bridge(&response)?;
             session_settings.capture(&response);

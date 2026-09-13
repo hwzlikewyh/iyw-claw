@@ -370,6 +370,8 @@ pub struct SessionState {
     /// Managed package version captured at launch. Internal telemetry only;
     /// never serialized into the live session contract.
     pub(crate) managed_agent_version: Option<String>,
+    /// 内置 worker 协商出的历史分叉能力，不与外部 ACP 包版本比较。
+    pub(crate) native_history_fork: bool,
     /// Correlates request validation, Host startup, session setup, and the
     /// first prompt without exposing any launch environment values.
     pub(crate) startup_trace: Option<crate::acp::startup_trace::StartupTrace>,
@@ -673,6 +675,7 @@ impl SessionState {
             ),
             current_model: None,
             managed_agent_version: None,
+            native_history_fork: false,
             startup_trace: None,
             hermes_memory: Default::default(),
             grok_effort_specs: None,

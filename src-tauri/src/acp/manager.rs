@@ -2683,6 +2683,7 @@ impl ConnectionManager {
             crate::acp::fork_target::validate_runtime(
                 agent,
                 state.managed_agent_version.as_deref(),
+                state.native_history_fork,
             )?;
             drop(state);
             Some(crate::acp::fork_target::resolve(agent, target).await?)
