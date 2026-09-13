@@ -1,14 +1,25 @@
 "use client"
 
-import { useMemo, useState, type Dispatch, type SetStateAction } from "react"
-import { LibraryBig, PackageCheck } from "lucide-react"
-import { useTranslations } from "next-intl"
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react"
 import { useTaskArtifacts } from "@/components/layout/use-task-artifacts"
 import { ResourceResults } from "@/components/resources/resource-results"
 import { ResourceToolbar } from "@/components/resources/resource-toolbar"
 import type { ResourceSessionOption } from "@/components/resources/resource-toolbar"
 import { ResourcePreview } from "@/components/resources/resource-preview"
+import {
+  ResourceHeader,
+  ResourceHeading,
+} from "@/components/resources/resource-overview"
 import type { TaskArtifactInfo } from "@/lib/api"
+import { formatConversationTitle } from "@/lib/conversation-title"
+import type { DbConversationSummary } from "@/lib/types"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 
 const RESOURCE_PAGE_SIZE = 24
 
@@ -28,6 +39,8 @@ type ResourceQuery = ReturnType<typeof useTaskArtifacts>
 interface ResourcePageModel {
   filters: ResourceFilters
   setFilters: Dispatch<SetStateAction<ResourceFilters>>
+  searchInput: string
+  setSearchInput: Dispatch<SetStateAction<string>>
   view: "grid" | "list"
   setView: Dispatch<SetStateAction<"grid" | "list">>
   selected: TaskArtifactInfo | null
@@ -44,64 +57,46 @@ function useResourcePageModel(): ResourcePageModel {
     session: "all",
     page: 1,
   })
+  const [searchInput, setSearchInput] = useState("")
   const [view, setView] = useState<"grid" | "list">("grid")
   const [selected, setSelected] = useState<TaskArtifactInfo | null>(null)
+  const conversations = useAppWorkspaceStore((state) => state.conversations)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters((value) =>
+        value.search === searchInput
+          ? value
+          : { ...value, search: searchInput, page: 1 }
+      )
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [searchInput])
+  const conversationId = parseConversationId(filters.session)
   const query = useTaskArtifacts({
     search: filters.search,
-    conversationId: null,
+    conversationId,
     folderId: null,
     scope: "all",
-    page: 1,
-    pageSize: 100,
-    loadAll: true,
+    page: filters.page,
+    pageSize: RESOURCE_PAGE_SIZE,
   })
-  const sessionOptions = useSessionOptions(query.items)
-  const filteredItems = useMemo(
-    () =>
-      filters.session === "all"
-        ? query.items
-        : query.items.filter(
-            (item) => String(item.conversationId) === filters.session
-          ),
-    [filters.session, query.items]
-  )
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filteredItems.length / RESOURCE_PAGE_SIZE)
-  )
-  const page = Math.min(filters.page, totalPages)
-  const displayQuery = createDisplayQuery(query, filteredItems, page)
+  const sessionOptions = useSessionOptions(conversations)
   const selection = selected
     ? (query.items.find((item) => item.id === selected.id) ?? selected)
     : null
   return {
     filters,
     setFilters,
+    searchInput,
+    setSearchInput,
     view,
     setView,
     selected: selection,
     setSelected,
     query,
-    displayQuery,
+    displayQuery: query,
     sessionOptions,
-    filteredItems,
-  }
-}
-
-function createDisplayQuery(
-  query: ResourceQuery,
-  filteredItems: TaskArtifactInfo[],
-  page: number
-): ResourceQuery {
-  return {
-    ...query,
-    items: filteredItems.slice(
-      (page - 1) * RESOURCE_PAGE_SIZE,
-      page * RESOURCE_PAGE_SIZE
-    ),
-    total: filteredItems.length,
-    page,
-    pageSize: RESOURCE_PAGE_SIZE,
+    filteredItems: query.items,
   }
 }
 
@@ -109,6 +104,8 @@ function ResourcePageContent({ model }: { model: ResourcePageModel }) {
   const {
     filters,
     setFilters,
+    searchInput,
+    setSearchInput,
     view,
     setView,
     selected,
@@ -124,6 +121,8 @@ function ResourcePageContent({ model }: { model: ResourcePageModel }) {
       <ResourcePageBody
         filters={filters}
         setFilters={setFilters}
+        searchInput={searchInput}
+        setSearchInput={setSearchInput}
         view={view}
         setView={setView}
         query={query}
@@ -140,6 +139,8 @@ function ResourcePageContent({ model }: { model: ResourcePageModel }) {
 function ResourcePageBody({
   filters,
   setFilters,
+  searchInput,
+  setSearchInput,
   view,
   setView,
   query,
@@ -150,6 +151,8 @@ function ResourcePageBody({
 }: {
   filters: ResourceFilters
   setFilters: Dispatch<SetStateAction<ResourceFilters>>
+  searchInput: string
+  setSearchInput: Dispatch<SetStateAction<string>>
   view: "grid" | "list"
   setView: Dispatch<SetStateAction<"grid" | "list">>
   query: ResourceQuery
@@ -161,19 +164,21 @@ function ResourcePageBody({
   return (
     <div className="flex min-h-0 flex-1 flex-col px-4 sm:px-6 lg:px-8">
       <ResourceHeading
-        total={filteredItems.length}
+        total={query.total}
         sessionCount={
-          new Set(filteredItems.map((item) => item.conversationId)).size
+          filters.session === "all"
+            ? sessionOptions.length
+            : query.total > 0
+              ? 1
+              : 0
         }
         todayCount={filteredItems.filter(isToday).length}
         loading={query.loading}
         filtered={filters.session !== "all" || filters.search.trim() !== ""}
       />
       <ResourceToolbar
-        search={filters.search}
-        onSearchChange={(search) =>
-          setFilters((value) => ({ ...value, search, page: 1 }))
-        }
+        search={searchInput}
+        onSearchChange={setSearchInput}
         session={filters.session}
         sessionOptions={sessionOptions}
         onSessionChange={(session) =>
@@ -187,93 +192,43 @@ function ResourcePageBody({
       <ResourceResults
         query={displayQuery}
         search={filters.search}
+        filtered={filters.session !== "all"}
         view={view}
         onSelect={onSelect}
-        onClear={() => setFilters({ search: "", session: "all", page: 1 })}
+        onClear={() => {
+          setSearchInput("")
+          setFilters({ search: "", session: "all", page: 1 })
+        }}
         onPageChange={(page) => setFilters((value) => ({ ...value, page }))}
       />
     </div>
   )
 }
 
-function ResourceHeader() {
-  const t = useTranslations("Resources")
-  return (
-    <header className="flex min-h-14 shrink-0 items-center gap-3 border-b px-4 sm:px-6">
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
-        <LibraryBig className="size-4" aria-hidden="true" />
-      </span>
-      <h1 className="text-sm font-semibold">{t("title")}</h1>
-    </header>
-  )
-}
-
-function ResourceHeading({
-  total,
-  sessionCount,
-  todayCount,
-  loading,
-  filtered,
-}: {
-  total: number
-  sessionCount: number
-  todayCount: number
-  loading: boolean
-  filtered: boolean
-}) {
-  const t = useTranslations("Resources")
-  return (
-    <div className="flex flex-wrap items-start gap-x-5 gap-y-4 pt-7 pb-5">
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div className="flex min-w-0 items-center gap-3">
-          <h2 className="text-xl font-semibold">{t("deliverables")}</h2>
-          {!loading && (
-            <span className="rounded-md bg-muted px-2 py-0.5 text-xs tabular-nums text-muted-foreground">
-              {t("count", { count: total })}
-            </span>
-          )}
-        </div>
-        <p className="text-xs text-muted-foreground">{t("subtitle")}</p>
-      </div>
-      <div className="flex shrink-0 items-start gap-5">
-        <ResourceStat value={sessionCount} label={t("sessionCount")} />
-        <ResourceStat value={todayCount} label={t("todayCount")} />
-      </div>
-      <span className="flex basis-full items-center gap-1.5 text-xs text-muted-foreground">
-        <PackageCheck className="size-3.5" aria-hidden="true" />
-        {filtered ? t("filteredResults") : t("allConversations")}
-      </span>
-    </div>
-  )
-}
-
-function ResourceStat({ value, label }: { value: number; label: string }) {
-  return (
-    <span className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-      <strong className="text-sm font-semibold leading-5 text-foreground tabular-nums">
-        {value}
-      </strong>
-      <span className="whitespace-nowrap">{label}</span>
-    </span>
-  )
-}
-
-function useSessionOptions(items: TaskArtifactInfo[]): ResourceSessionOption[] {
+function useSessionOptions(
+  items: DbConversationSummary[]
+): ResourceSessionOption[] {
   return useMemo(
     () =>
       Array.from(
         new Map(
           items.map((item) => [
-            item.conversationId,
+            item.id,
             {
-              id: item.conversationId,
-              title: item.conversationTitle?.trim() || "",
+              id: item.id,
+              title: formatConversationTitle(item.title).trim(),
             },
           ])
         ).values()
       ),
     [items]
   )
+}
+
+function parseConversationId(session: string): number | null {
+  if (session === "all") return null
+  const id = Number(session)
+  return Number.isInteger(id) && id > 0 ? id : null
 }
 
 function isToday(item: TaskArtifactInfo): boolean {

@@ -269,9 +269,7 @@ async function performTaskArtifactLoad({
 }
 
 function taskArtifactFilterKey(filters: TaskArtifactFilters): string {
-  const id =
-    filters.scope === "current" ? filters.conversationId : filters.folderId
-  return `${filters.scope}:${id ?? "none"}:message=${filters.messageId ?? "none"}:latest=${filters.latestTurnOnly ? "1" : "0"}:search=${filters.search?.trim() ?? ""}:page=${filters.page ?? 1}:size=${filters.pageSize ?? "default"}:all=${filters.loadAll ? "1" : "0"}`
+  return `${filters.scope}:conversation=${filters.conversationId ?? "none"}:folder=${filters.folderId ?? "none"}:message=${filters.messageId ?? "none"}:latest=${filters.latestTurnOnly ? "1" : "0"}:search=${filters.search?.trim() ?? ""}:page=${filters.page ?? 1}:size=${filters.pageSize ?? "default"}:all=${filters.loadAll ? "1" : "0"}`
 }
 
 function useInitialArtifactLoad(
@@ -306,7 +304,11 @@ async function fetchTaskArtifacts(
             ? { pageSize: 100 }
             : {}),
         }
-      : { folderId: filters.folderId, messageId: filters.messageId }
+      : {
+          conversationId: filters.conversationId,
+          folderId: filters.folderId,
+          messageId: filters.messageId,
+        }
   if (filters.loadAll) {
     const items = await listAllTaskArtifacts({
       ...request,

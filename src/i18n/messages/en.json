@@ -5446,10 +5446,11 @@
     "clearSearch": "Clear search",
     "subtitle": "Keep every result from your work ready to find and reuse",
     "sessionCount": "conversations",
-    "todayCount": "delivered today",
+    "todayCount": "delivered today on this page",
     "filteredResults": "Filtered results",
     "sessionFilterLabel": "Filter by conversation",
     "fromConversation": "From conversation",
+    "emptyFiltered": "This conversation has no deliverables yet",
     "empty": "No deliverables yet"
   },
   "CapabilityMarket": {

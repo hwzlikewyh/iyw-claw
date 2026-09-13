@@ -29,7 +29,10 @@ export function ResourcePreview({
         <TaskArtifactPreview
           artifact={artifact}
           className="h-full"
-          onOpenWorkspace={openConversations}
+          onOpenWorkspace={() => {
+            onClose()
+            openConversations()
+          }}
         />
       </DialogContent>
     </Dialog>

@@ -19,6 +19,7 @@ import type { TaskArtifactInfo } from "@/lib/api"
 interface ResourceResultsProps {
   query: ReturnType<typeof useTaskArtifacts>
   search: string
+  filtered?: boolean
   view: "grid" | "list"
   onSelect: (item: TaskArtifactInfo) => void
   onClear: () => void
@@ -26,7 +27,7 @@ interface ResourceResultsProps {
 }
 
 export function ResourceResults(props: ResourceResultsProps) {
-  const { query, search } = props
+  const { query, search, filtered = false } = props
   const t = useTranslations("Folder.taskArtifacts")
   const r = useTranslations("Resources")
   if (query.loading) return <ResourceLoading />
@@ -44,8 +45,14 @@ export function ResourceResults(props: ResourceResultsProps) {
     return (
       <TaskArtifactState
         icon={<PackageOpen className="size-8" />}
-        text={search.trim() ? t("emptySearch") : r("empty")}
-        action={search.trim() ? r("clearSearch") : undefined}
+        text={
+          search.trim()
+            ? t("emptySearch")
+            : filtered
+              ? r("emptyFiltered")
+              : r("empty")
+        }
+        action={search.trim() || filtered ? r("clearSearch") : undefined}
         onAction={props.onClear}
       />
     )

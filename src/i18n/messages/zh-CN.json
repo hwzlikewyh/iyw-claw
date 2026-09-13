@@ -5446,10 +5446,11 @@
     "clearSearch": "清除搜索",
     "subtitle": "把每次工作的结果沉淀下来，随时找到并继续使用",
     "sessionCount": "个会话",
-    "todayCount": "项今日交付",
+    "todayCount": "项本页今日交付",
     "filteredResults": "筛选结果",
     "sessionFilterLabel": "按会话筛选",
     "fromConversation": "来自会话",
+    "emptyFiltered": "当前会话暂无交付成果",
     "empty": "暂无交付成果"
   },
   "CapabilityMarket": {
