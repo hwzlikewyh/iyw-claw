@@ -3,18 +3,11 @@
 import { useMemo, useState, type Dispatch, type SetStateAction } from "react"
 import { LibraryBig, PackageCheck } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { TaskArtifactPreview } from "@/components/layout/task-artifact-preview"
 import { useTaskArtifacts } from "@/components/layout/use-task-artifacts"
 import { ResourceResults } from "@/components/resources/resource-results"
 import { ResourceToolbar } from "@/components/resources/resource-toolbar"
 import type { ResourceSessionOption } from "@/components/resources/resource-toolbar"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
+import { ResourcePreview } from "@/components/resources/resource-preview"
 import type { TaskArtifactInfo } from "@/lib/api"
 
 const RESOURCE_PAGE_SIZE = 24
@@ -291,31 +284,5 @@ function isToday(item: TaskArtifactInfo): boolean {
     date.getFullYear() === today.getFullYear() &&
     date.getMonth() === today.getMonth() &&
     date.getDate() === today.getDate()
-  )
-}
-
-function ResourcePreview({
-  artifact,
-  onClose,
-}: {
-  artifact: TaskArtifactInfo | null
-  onClose: () => void
-}) {
-  const { openConversations } = useWorkbenchRoute()
-  if (!artifact) return null
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="h-[min(48rem,calc(100dvh-2rem))] max-w-[min(72rem,calc(100vw-2rem))] overflow-hidden p-0 sm:max-w-[min(72rem,calc(100vw-2rem))]">
-        <DialogTitle className="sr-only">{artifact.displayName}</DialogTitle>
-        <DialogDescription className="sr-only">
-          {artifact.displayName}
-        </DialogDescription>
-        <TaskArtifactPreview
-          artifact={artifact}
-          className="h-full"
-          onOpenWorkspace={openConversations}
-        />
-      </DialogContent>
-    </Dialog>
   )
 }
