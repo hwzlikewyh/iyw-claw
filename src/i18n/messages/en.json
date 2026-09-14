@@ -5449,6 +5449,9 @@
     "todayCount": "delivered today on this page",
     "filteredResults": "Filtered results",
     "sessionFilterLabel": "Filter by conversation",
+    "sessionFilterSearchLabel": "Search conversations",
+    "sessionFilterSearchPlaceholder": "Search conversation names",
+    "sessionFilterEmpty": "No matching conversations",
     "fromConversation": "From conversation",
     "emptyFiltered": "This conversation has no deliverables yet",
     "empty": "No deliverables yet"

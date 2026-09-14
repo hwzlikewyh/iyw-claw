@@ -1,9 +1,31 @@
 "use client"
 
-import { LayoutGrid, List, RefreshCw, Search, X } from "lucide-react"
+import { useState } from "react"
+import {
+  Check,
+  ChevronsUpDown,
+  LayoutGrid,
+  List,
+  RefreshCw,
+  Search,
+  X,
+} from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import { Input } from "@/components/ui/input"
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 
 export interface ResourceSessionOption {
@@ -26,10 +48,10 @@ interface ResourceToolbarProps {
 export function ResourceToolbar(props: ResourceToolbarProps) {
   const t = useTranslations("Folder.taskArtifacts")
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-3 border-b pb-4">
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b pb-4 sm:gap-3">
       <ResourceSearch {...props} />
       <ResourceSessionFilter {...props} />
-      <div className="ms-auto flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2 sm:ms-auto">
         <ResourceViewSwitch {...props} />
         <Button
           variant="ghost"
@@ -53,20 +75,93 @@ function ResourceSessionFilter({
 }: ResourceToolbarProps) {
   const t = useTranslations("Resources")
   const artifactT = useTranslations("Folder.taskArtifacts")
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const selectedOption = sessionOptions.find(
+    (option) => String(option.id) === session
+  )
+  const selectedLabel =
+    session === "all"
+      ? t("allConversations")
+      : selectedOption?.title || artifactT("untitled")
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen)
+    if (!nextOpen) setQuery("")
+  }
+
+  const handleSelect = (value: string) => {
+    onSessionChange(value)
+    setOpen(false)
+    setQuery("")
+  }
+
   return (
-    <select
-      value={session}
-      onChange={(event) => onSessionChange(event.target.value)}
-      aria-label={t("sessionFilterLabel")}
-      className="h-9 min-w-40 max-w-full rounded-md border bg-muted/25 px-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <option value="all">{t("allConversations")}</option>
-      {sessionOptions.map((option) => (
-        <option key={option.id} value={String(option.id)}>
-          {option.title || artifactT("untitled")}
-        </option>
-      ))}
-    </select>
+    <Popover open={open} onOpenChange={handleOpenChange}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="default"
+          className="w-full min-w-0 max-w-full justify-between rounded-md bg-muted/25 sm:w-56"
+          aria-label={t("sessionFilterLabel")}
+          aria-expanded={open}
+        >
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate">{selectedLabel}</span>
+          </span>
+          <ChevronsUpDown className="size-4 shrink-0 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[min(22rem,calc(100vw-2rem))] p-0"
+      >
+        <Command shouldFilter>
+          <CommandInput
+            value={query}
+            onValueChange={setQuery}
+            placeholder={t("sessionFilterSearchPlaceholder")}
+            aria-label={t("sessionFilterSearchLabel")}
+          />
+          <CommandList className="max-h-72">
+            <CommandEmpty>{t("sessionFilterEmpty")}</CommandEmpty>
+            <CommandGroup>
+              <CommandItem
+                value={`all ${t("allConversations")}`}
+                onSelect={() => handleSelect("all")}
+              >
+                <span className="truncate">{t("allConversations")}</span>
+                <Check
+                  className={cn(
+                    "ms-auto size-4",
+                    session === "all" ? "opacity-100" : "opacity-0"
+                  )}
+                />
+              </CommandItem>
+              {sessionOptions.map((option) => {
+                const value = String(option.id)
+                const label = option.title || artifactT("untitled")
+                return (
+                  <CommandItem
+                    key={option.id}
+                    value={`${value} ${label}`}
+                    onSelect={() => handleSelect(value)}
+                  >
+                    <span className="truncate">{label}</span>
+                    <Check
+                      className={cn(
+                        "ms-auto size-4",
+                        session === value ? "opacity-100" : "opacity-0"
+                      )}
+                    />
+                  </CommandItem>
+                )
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -74,7 +169,7 @@ function ResourceSearch({ search, onSearchChange }: ResourceToolbarProps) {
   const t = useTranslations("Folder.taskArtifacts")
   const r = useTranslations("Resources")
   return (
-    <div className="relative min-w-0 basis-full sm:basis-80">
+    <div className="relative min-w-0 basis-full sm:flex-1 sm:basis-64">
       <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
       <Input
         value={search}
