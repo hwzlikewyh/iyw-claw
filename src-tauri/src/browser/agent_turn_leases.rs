@@ -6,8 +6,7 @@ use super::error::{BrowserError, BrowserErrorCode, BrowserErrorContext};
 use super::manager::BrowserSessionManager;
 use super::types::{BrowserAgentIdentity, BrowserStateSnapshot};
 
-const PENDING_CLOSE_ATTEMPTS: usize = 3;
-const PENDING_CLOSE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+mod cleanup;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct AgentTurnKey {
@@ -20,6 +19,7 @@ struct AgentTurnLeaseState {
     turns: HashMap<AgentTurnKey, HashSet<String>>,
     owners: HashMap<String, HashSet<AgentTurnKey>>,
     close_pending: HashSet<String>,
+    cleanup_running: HashSet<String>,
 }
 
 #[derive(Debug, Default)]
@@ -225,7 +225,11 @@ impl BrowserSessionManager {
         let manager = self.clone();
         tokio::spawn(async move {
             for tab_id in tab_ids {
-                manager.close_pending_tab(&tab_id, reason).await;
+                let owner = manager.clone();
+                tokio::spawn(async move {
+                    owner.close_pending_tab(&tab_id, reason).await;
+                    owner.stop_browser_runtime_if_idle(reason).await;
+                });
             }
             manager.stop_browser_runtime_if_idle(reason).await;
         });
@@ -236,27 +240,6 @@ impl BrowserSessionManager {
         tokio::spawn(async move {
             manager.stop_browser_runtime_if_idle(reason).await;
         });
-    }
-
-    async fn close_pending_tab(&self, tab_id: &str, reason: &'static str) {
-        for attempt in 1..=PENDING_CLOSE_ATTEMPTS {
-            match self.close_browser_tab(tab_id).await {
-                Ok(_) => return,
-                Err(error) => tracing::warn!(
-                    target: "iyw_claw_browser",
-                    browser_tab_id = tab_id,
-                    close_reason = reason,
-                    attempt,
-                    max_attempts = PENDING_CLOSE_ATTEMPTS,
-                    error_code = ?error.code,
-                    error = %error,
-                    "pending browser tab cleanup failed"
-                ),
-            }
-            if attempt < PENDING_CLOSE_ATTEMPTS {
-                tokio::time::sleep(PENDING_CLOSE_RETRY_DELAY).await;
-            }
-        }
     }
 }
 

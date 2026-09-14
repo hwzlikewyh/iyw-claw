@@ -188,6 +188,9 @@ impl BrowserSessionManager {
                 .and_then(Value::as_str)
                 .map(str::to_string),
         );
+        if status != BrowserDownloadStatus::InProgress {
+            self.spawn_runtime_idle_check("download_settled");
+        }
     }
 }
 

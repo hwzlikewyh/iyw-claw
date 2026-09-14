@@ -123,6 +123,12 @@ pub fn system_memory_snapshot(total: u64, available: u64) -> SystemMemorySnapsho
     }
 }
 
+pub fn current_memory_snapshot() -> SystemMemorySnapshot {
+    let mut system = System::new();
+    system.refresh_memory();
+    system_memory_snapshot(system.total_memory(), system.available_memory())
+}
+
 pub fn idle_keep_limit(pressure: MemoryPressure) -> Option<usize> {
     match pressure {
         // In normal conditions the user's setting owns the count cap. `None`

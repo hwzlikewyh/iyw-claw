@@ -18,7 +18,7 @@ import {
   type SettingsSection,
 } from "./settings-navigation"
 import { TurnBusyError, isTurnInProgressRejection } from "./turn-busy"
-import { mergeAgentInputHistory } from "./agent-input-history"
+import { requestConversationHistory } from "./conversation-history-request"
 import {
   localFileReferenceForPrompt,
   rewriteFileReferencesForPrompt,
@@ -1819,17 +1819,11 @@ export async function getFolderConversation(
   before?: number,
   forceRefresh: boolean = false
 ): Promise<DbConversationDetail> {
-  const [detail, inputs] = await Promise.all([
-    getTransport().call<DbConversationDetail>("get_folder_conversation", {
-      conversationId,
-      before: before ?? null,
-      forceRefresh,
-    }),
-    before === undefined
-      ? listAgentInputs(conversationId)
-      : Promise.resolve([]),
-  ])
-  return mergeAgentInputHistory(detail, inputs)
+  return requestConversationHistory(getTransport(), {
+    conversationId,
+    before,
+    forceRefresh,
+  })
 }
 
 export async function getConversationContextPrimer(

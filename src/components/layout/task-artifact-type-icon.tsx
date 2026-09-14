@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo } from "react"
 import {
   Database,
   File,
@@ -17,20 +17,13 @@ import {
   Type,
 } from "lucide-react"
 
-import { useActiveFolder } from "@/contexts/active-folder-context"
 import type { TaskArtifactInfo } from "@/lib/api"
-import { readFileBase64, readWorkspaceFileBase64 } from "@/lib/api"
-import { findOwningFolder } from "@/lib/file-open-target"
-import { toImageDataUrl } from "@/components/message/workspace-file-preview"
-import { toAbsoluteFilePath } from "@/lib/file-path-display"
-import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { useArtifactThumbnail } from "./use-artifact-thumbnail"
 import { cn } from "@/lib/utils"
 import {
   artifactVisualKind,
   type ArtifactVisualKind,
 } from "@/components/layout/task-artifact-type"
-
-const THUMBNAIL_MAX_BYTES = 4 * 1024 * 1024
 
 type IconSize = "sm" | "md"
 
@@ -40,24 +33,20 @@ interface TaskArtifactTypeIconProps {
   className?: string
 }
 
-interface LoadedThumbnail {
-  key: string
-  src: string
-}
-
 export function TaskArtifactTypeIcon({
   item,
   size = "sm",
   className,
 }: TaskArtifactTypeIconProps) {
   const kind = useMemo(() => artifactVisualKind(item), [item])
-  const thumbnail = useArtifactThumbnail(item, kind)
+  const { ref, thumbnail } = useArtifactThumbnail(item, kind === "image")
   const boxClass = size === "md" ? "size-9 rounded-lg" : "size-8 rounded-md"
   const iconClass = size === "md" ? "size-5" : "size-4"
 
   if (kind === "image" && thumbnail) {
     return (
       <span
+        ref={ref}
         aria-hidden="true"
         className={cn(
           "relative shrink-0 overflow-hidden bg-cover bg-center",
@@ -71,6 +60,7 @@ export function TaskArtifactTypeIcon({
 
   return (
     <span
+      ref={ref}
       className={cn(
         "grid shrink-0 place-items-center text-white shadow-[inset_0_0_0_1px_rgb(255_255_255/20%)]",
         boxClass,
@@ -144,62 +134,4 @@ function colorClassForKind(kind: ArtifactVisualKind): string {
     default:
       return "bg-slate-500"
   }
-}
-
-function useArtifactThumbnail(
-  item: TaskArtifactInfo,
-  kind: ArtifactVisualKind
-): string | null {
-  const folders = useAppWorkspaceStore((state) => state.folders)
-  const { activeFolder } = useActiveFolder()
-  const [loaded, setLoaded] = useState<LoadedThumbnail | null>(null)
-  const artifactFolderPath =
-    folders.find((folder) => folder.id === item.folderId)?.path ??
-    activeFolder?.path
-  const folderKey = folders
-    .map((folder) => `${folder.id}:${folder.path}`)
-    .join("|")
-  const thumbnailKey = `${item.path}:${item.lastCheckedAt}:${artifactFolderPath ?? ""}:${folderKey}`
-
-  useEffect(() => {
-    if (kind !== "image" || item.status !== "available") return
-
-    let cancelled = false
-    void readArtifactImage(item.path, folders, artifactFolderPath)
-      .then((base64) => {
-        if (!cancelled) {
-          setLoaded({
-            key: thumbnailKey,
-            src: toImageDataUrl(item.path, base64),
-          })
-        }
-      })
-      .catch(() => {})
-
-    return () => {
-      cancelled = true
-    }
-  }, [artifactFolderPath, folderKey, folders, item, kind, thumbnailKey])
-
-  return loaded?.key === thumbnailKey ? loaded.src : null
-}
-
-async function readArtifactImage(
-  path: string,
-  folders: ReadonlyArray<{ id: number; path: string }>,
-  activeFolderPath?: string
-): Promise<string> {
-  const absolutePath = toAbsoluteFilePath(path, activeFolderPath)
-  if (!absolutePath) throw new Error("relative artifact path has no folder")
-
-  const owner = findOwningFolder(absolutePath, folders)
-  if (owner) {
-    return readWorkspaceFileBase64(
-      owner.rootPath,
-      owner.relPath,
-      THUMBNAIL_MAX_BYTES
-    )
-  }
-
-  return readFileBase64(absolutePath, THUMBNAIL_MAX_BYTES)
 }

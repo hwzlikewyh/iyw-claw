@@ -350,6 +350,14 @@ where
         if matches!(&payload, AcpEvent::ContentDelta { text } if !text.is_empty()) {
             if let Some(trace) = &s.startup_trace { trace.first_content_received(); }
         }
+        if s.turn_in_flight && matches!(&payload,
+            AcpEvent::ContentDelta { .. } | AcpEvent::Thinking { .. }
+                | AcpEvent::ToolCall { .. } | AcpEvent::ToolCallUpdate { .. }) {
+            if let Some(trace) = &s.startup_trace {
+                trace.observe_turn_event(s.turn_generation, matches!(&payload,
+                    AcpEvent::ContentDelta { text } if !text.is_empty()));
+            }
+        }
         s.apply_event(&payload);
         s.event_seq += 1;
         let envelope = Arc::new(EventEnvelope {

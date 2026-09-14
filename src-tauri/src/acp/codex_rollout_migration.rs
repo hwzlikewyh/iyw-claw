@@ -8,6 +8,8 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::{json, Value};
 use walkdir::WalkDir;
 
+mod cache;
+
 const COMPACTION_OBSERVE_ATTEMPTS: usize = 20;
 const COMPACTION_OBSERVE_INTERVAL_MS: u64 = 100;
 const DEFERRED_MIGRATION_CAP: usize = 128;
@@ -47,7 +49,10 @@ pub async fn migrate_resumed_session(session_id: &str) -> Result<usize, String> 
 }
 
 async fn migrate_resumed_session_locked(session_id: &str) -> Result<usize, String> {
-    let paths = find_rollouts(session_id)?;
+    let requested_id = session_id.to_string();
+    let paths = tokio::task::spawn_blocking(move || find_rollouts(&requested_id))
+        .await
+        .map_err(|error| format!("rollout lookup task failed: {error}"))??;
     let mut migrated = 0;
     for path in paths {
         migrated += migrate_rollout(path).await?;
@@ -172,9 +177,19 @@ fn count_compacted_records(paths: &[PathBuf]) -> Result<usize, String> {
 
 async fn migrate_rollout(path: PathBuf) -> Result<usize, String> {
     let scan_path = path.clone();
-    let images = tokio::task::spawn_blocking(move || scan_rollout(&scan_path))
-        .await
-        .map_err(|error| format!("rollout scan task failed: {error}"))??;
+    let images = tokio::task::spawn_blocking(move || {
+        let revision = cache::revision(&scan_path);
+        if cache::already_scanned(&scan_path, revision.as_ref()) {
+            return Ok(Vec::new());
+        }
+        let images = scan_rollout(&scan_path)?;
+        if images.is_empty() {
+            cache::remember_unchanged(&scan_path, revision);
+        }
+        Ok::<_, String>(images)
+    })
+    .await
+    .map_err(|error| format!("rollout scan task failed: {error}"))??;
     if images.is_empty() {
         return Ok(0);
     }

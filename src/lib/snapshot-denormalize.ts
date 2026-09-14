@@ -231,8 +231,16 @@ function toolStateToInfo(tc: ToolCallState): ToolCallInfo {
   const outputChunks: string[] = []
   let outputBytes = 0
   if (tc.output) {
+    const nativeOutput = Object.prototype.hasOwnProperty.call(
+      tc.meta?.iyw ?? {},
+      "rawOutputAppend"
+    )
     const serialized =
-      typeof tc.output === "string" ? tc.output : JSON.stringify(tc.output)
+      typeof tc.output === "string"
+        ? tc.output
+        : nativeOutput && tc.output.kind === "text"
+          ? tc.output.content
+          : JSON.stringify(tc.output)
     outputChunks.push(serialized)
     outputBytes = serialized.length
   }

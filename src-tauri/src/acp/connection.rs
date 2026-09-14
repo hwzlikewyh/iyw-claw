@@ -4733,6 +4733,24 @@ struct ToolCallOutputCache {
 }
 
 impl ToolCallOutputCache {
+    fn consume_append(&mut self, tool_call_id: &str, delta: &str) -> Option<(String, bool)> {
+        if delta.is_empty() {
+            return None;
+        }
+        let Some(previous) = self.entries.get_mut(tool_call_id) else {
+            self.seed(tool_call_id, delta);
+            return Some(build_emit_payload(delta, true));
+        };
+        // 只保留有界尾部指纹，使完成快照仍能去重；不重建完整输出。
+        previous.total_len += delta.len();
+        previous.tail.push_str(delta);
+        previous.tail = truncate_tail_at_char_boundary(&previous.tail, MAX_CACHED_TAIL_BYTES)
+            .to_string();
+        previous.generation = self.next_generation;
+        self.next_generation = self.next_generation.wrapping_add(1);
+        Some(build_emit_payload(delta, true))
+    }
+
     /// Diff an incoming full `raw_output` snapshot for `tool_call_id` against
     /// the cache and return what should be emitted downstream.
     ///
@@ -6306,8 +6324,11 @@ async fn run_conversation_loop<'a>(
                         .await;
                 }
 
-                if let Some(trace) = state.read().await.startup_trace.clone() {
-                    trace.first_prompt_dispatched();
+                {
+                    let state = state.read().await;
+                    if let Some(trace) = &state.startup_trace {
+                        trace.prompt_dispatched(state.turn_generation);
+                    }
                 }
                 // Clone connection and session ID before entering the
                 // select loop so we can send CancelNotification without
@@ -8528,7 +8549,21 @@ async fn emit_conversation_update(
             // with `raw_output_append=true`, collapsing the O(N²) transfer
             // problem to O(N) while capping any single emitted chunk to
             // MAX_SINGLE_EMIT_BYTES.
-            let raw_output_text = if agent_type == AgentType::Grok {
+            let native_output = (agent_type == AgentType::Codex)
+                .then(|| tcu.meta.as_ref()?.get("iyw"))
+                .flatten();
+            let native_append = native_output
+                .and_then(|meta| meta.get("rawOutputAppend"))
+                .and_then(serde_json::Value::as_bool);
+            let native_start = native_output
+                .and_then(|meta| meta.get("rawOutputOffset"))
+                .and_then(serde_json::Value::as_u64) == Some(0);
+            if native_start {
+                raw_output_cache.entries.remove(&tool_call_id);
+            }
+            let raw_output_text = if native_append == Some(true) {
+                json_value_to_text(&tcu.fields.raw_output)
+            } else if agent_type == AgentType::Grok {
                 crate::acp::grok::live_tool_output(&content, &tcu.fields.raw_output)
             } else {
                 json_value_to_text(&tcu.fields.raw_output)
@@ -8536,6 +8571,11 @@ async fn emit_conversation_update(
                     .map(|text| structurize_live_output(&text))
             };
             let (raw_output, raw_output_append) = match raw_output_text.as_deref() {
+                Some(text) if native_append == Some(true) && !native_start =>
+                    match raw_output_cache.consume_append(&tool_call_id, text) {
+                        Some((payload, append)) => (Some(payload), Some(append)),
+                        None => (None, None),
+                    },
                 Some(text) => match raw_output_cache.consume(&tool_call_id, text) {
                     Some((payload, append)) => (Some(payload), Some(append)),
                     None => (None, None),

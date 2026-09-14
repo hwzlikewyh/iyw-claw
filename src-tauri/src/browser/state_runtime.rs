@@ -127,7 +127,10 @@ impl BrowserState {
             self.hosts.clear();
             self.dialogs.clear();
             self.file_choosers.clear();
-            self.downloads.clear();
+            // 浏览器回收不清空已完成下载的展示与打开记录。
+            self.downloads.retain(|_, download| {
+                download.status != super::types_cdp::BrowserDownloadStatus::InProgress
+            });
         }
     }
 

@@ -261,6 +261,11 @@ async fn run_bridge_loop(
         tokio::select! {
             command = commands.recv() => match command {
                 Some(command) => {
+                    if let BridgeCommand::Request { method, params, .. } = &command {
+                        if method == "initialize" {
+                            item_projection.configure_output(params);
+                        }
+                    }
                     let command = match command {
                         BridgeCommand::Request { method, params, response } if method == "_iyw/side_question" => {
                             let Some(parent) = session_id.clone() else {

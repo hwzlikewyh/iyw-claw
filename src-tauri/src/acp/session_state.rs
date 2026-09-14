@@ -21,6 +21,9 @@ use crate::acp::types::{
 use crate::models::agent::AgentType;
 use crate::models::message::MessageRole;
 
+#[path = "session_state_output.rs"]
+mod output;
+
 /// 当前 streaming 中的 turn 的累积内容。turn 完成后清空。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiveMessage {
@@ -951,11 +954,16 @@ impl SessionState {
                 content,
                 raw_input,
                 raw_output,
+                raw_output_append,
                 locations,
                 meta,
                 images,
                 ..
             } => {
+                let native_output = self.agent_type == AgentType::Codex
+                    && (output::is_native(meta.as_ref())
+                        || output::is_native(self.active_tool_calls.get(tool_call_id)
+                            .and_then(|tool| tool.meta.as_ref())));
                 self.upsert_tool_call(
                     tool_call_id,
                     None,
@@ -963,11 +971,16 @@ impl SessionState {
                     status.as_deref(),
                     content.as_deref(),
                     raw_input.as_deref(),
-                    raw_output.as_deref(),
+                    if native_output { None } else { raw_output.as_deref() },
                     locations.as_ref(),
                     meta.as_ref(),
                     images.as_deref(),
                 );
+                if native_output {
+                    if let Some(tool) = self.active_tool_calls.get_mut(tool_call_id) {
+                        output::apply(tool, raw_output.as_deref(), *raw_output_append == Some(true));
+                    }
+                }
                 // Defensive: if a ToolCallUpdate arrives before its initial
                 // ToolCall (unusual ordering / replay), ensure the ref block
                 // still gets anchored. Idempotent so the normal-flow case is
