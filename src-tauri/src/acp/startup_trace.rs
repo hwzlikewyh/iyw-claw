@@ -6,6 +6,8 @@ use std::time::{Duration, Instant};
 
 use crate::models::agent::AgentType;
 
+mod turn;
+
 #[derive(Clone, Debug)]
 pub(crate) struct StartupTrace {
     inner: Arc<StartupTraceInner>,
@@ -23,6 +25,7 @@ struct StartupTraceInner {
     first_prompt_logged: AtomicBool,
     first_content_logged: AtomicBool,
     prompt_dispatched_at: Mutex<Option<Instant>>,
+    turn: Mutex<Option<turn::TurnTrace>>,
 }
 
 pub(crate) struct StartupStage {
@@ -46,6 +49,7 @@ impl StartupTrace {
                 first_prompt_logged: AtomicBool::new(false),
                 first_content_logged: AtomicBool::new(false),
                 prompt_dispatched_at: Mutex::new(None),
+                turn: Mutex::new(None),
             }),
         };
         trace.log("request_accepted", "started", Duration::ZERO);

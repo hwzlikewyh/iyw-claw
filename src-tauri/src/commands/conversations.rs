@@ -982,13 +982,11 @@ pub async fn get_folder_conversation_page_core(
             "[conversation-history] transcript parsed"
         );
         let page = crate::commands::conversation_history_cache::page(&parsed, before);
-        tokio::task::spawn_blocking(move || {
-            crate::commands::conversation_history_cache::store(
-                conversation_id,
-                cache_revision,
-                parsed,
-            );
-        });
+        crate::commands::conversation_history_cache::schedule(
+            conversation_id,
+            cache_revision,
+            parsed,
+        );
         return Ok(page);
     };
     detail.history_stale = detail.history_stale && !force_refresh;

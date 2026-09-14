@@ -35,6 +35,13 @@ impl BrowserSessionManager {
         let epoch = self.current_shutdown_epoch();
         let _tab_guard = self.tab_open_lock.lock().await;
         self.ensure_shutdown_epoch(epoch)?;
+        self.close_browser_tab_locked(tab_id).await
+    }
+
+    pub(in crate::browser) async fn close_browser_tab_locked(
+        &self,
+        tab_id: &str,
+    ) -> Result<BrowserStateSnapshot, BrowserError> {
         let ticket = match self.begin_tab_close(tab_id).await {
             Ok(ticket) => ticket,
             Err(error) if error.code == BrowserErrorCode::BrowserTabNotFound => {

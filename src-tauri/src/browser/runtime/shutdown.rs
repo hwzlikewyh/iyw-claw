@@ -2,6 +2,9 @@ use super::{BrowserRuntime, RuntimeHandle};
 use crate::browser::error::BrowserError;
 use crate::browser::process::kill_tree_checked;
 
+#[path = "graceful.rs"]
+mod graceful;
+
 impl BrowserRuntime {
     pub async fn stop(&self) -> Result<(), BrowserError> {
         let _mutation = self.mutation.lock().await;
@@ -67,6 +70,7 @@ impl BrowserRuntime {
 }
 
 async fn stop_handle(handle: &RuntimeHandle) -> Result<(), BrowserError> {
+    graceful::close(handle).await;
     let initial_daemon_result = kill_tree_checked(&handle.daemon).await;
     if let Err(error) = initial_daemon_result {
         tracing::warn!(

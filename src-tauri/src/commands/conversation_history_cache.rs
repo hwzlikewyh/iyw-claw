@@ -10,6 +10,9 @@ use crate::models::DbConversationDetail;
 
 use super::conversation_history_cache_prune::{prune, remove_old_generations};
 
+mod scheduling;
+pub(super) use scheduling::schedule;
+
 pub const HISTORY_PAGE_TURNS: usize = 120;
 const HISTORY_CACHE_DIR: &str = "conversation-history";
 const HISTORY_CACHE_PARSER_REVISION: u8 = 5;

@@ -1,5 +1,5 @@
 use crate::acp::manager::ConnectionManager;
-use crate::acp::resource_governor::{MemoryPressure, ResourceSnapshot, SystemMemorySnapshot};
+use crate::acp::resource_governor::{current_memory_snapshot, MemoryPressure, SystemMemorySnapshot};
 use tokio_util::sync::CancellationToken;
 
 use super::error::{BrowserError, BrowserErrorCode, BrowserErrorContext};
@@ -30,14 +30,14 @@ impl BrowserResourceGovernor {
         ensure_not_cancelled(cancellation)?;
         let stale_processes = runtime.reclaim_stale_profile().await?;
         ensure_not_cancelled(cancellation)?;
-        let before = ResourceSnapshot::capture().memory;
+        let before = current_memory_snapshot();
         let reclaimed_agents = if under_pressure(before.pressure) {
             self.connections.sweep_excess_idle(Some(0)).await
         } else {
             0
         };
         let after = if under_pressure(before.pressure) {
-            ResourceSnapshot::capture().memory
+            current_memory_snapshot()
         } else {
             before
         };
@@ -50,7 +50,7 @@ impl BrowserResourceGovernor {
     }
 
     pub(super) fn guard_new_tab(&self) -> Result<(), BrowserError> {
-        let memory = ResourceSnapshot::capture().memory;
+        let memory = current_memory_snapshot();
         if memory.pressure == MemoryPressure::Emergency {
             tracing::warn!(
                 target: "iyw_claw_browser",

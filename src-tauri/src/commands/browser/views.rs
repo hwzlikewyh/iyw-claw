@@ -138,28 +138,7 @@ pub fn browser_complete_window_close(
 }
 
 pub fn handle_browser_window_close_requested(app: tauri::AppHandle, window_label: String) {
-    if let Some(manager) = app.try_state::<BrowserSessionManager>() {
-        let manager = manager.inner().clone();
-        let app_clone = app.clone();
-        tauri::async_runtime::spawn(async move {
-            let host_id = manager
-                .preserve_browser_window_tabs(&window_label)
-                .await
-                .ok();
-            if let Err(error) = close_browser_window(&app_clone, &window_label, "system_close") {
-                if let Some(host_id) = host_id {
-                    manager.cancel_preserved_browser_window(&host_id).await;
-                }
-                tracing::error!(
-                    target: "iyw_claw_browser",
-                    window_label = %window_label,
-                    error_code = ?error.code,
-                    "detached browser window close failed"
-                );
-            }
-        });
-        return;
-    }
+    // 用户关窗释放页面；Agent 仅关闭展示仍走 preserving_tabs 命令。
     if let Err(error) = close_browser_window(&app, &window_label, "system_close") {
         tracing::error!(
             target: "iyw_claw_browser",

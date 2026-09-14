@@ -31,6 +31,10 @@ import {
 import { completeTurnTiming } from "@/lib/turn-duration"
 import { BACKGROUND_TASK_MARKER } from "@/lib/background-agent"
 import { parseFeedbackCheckOutcome } from "@/lib/feedback-check"
+import {
+  rememberStreamingTail,
+  reuseStreamingTail,
+} from "./streaming-tail-cache"
 
 export { computeTurnMetadataPatches } from "@/stores/turn-metadata"
 
@@ -656,6 +660,14 @@ export function buildStreamingTurnsFromLiveMessage(
   const cachedByConversation = streamingTurnsCache.get(liveMessage)
   const cached = cachedByConversation?.get(conversationId)
   if (cached) return cached
+  const incremental = reuseStreamingTail(conversationId, liveMessage)
+  if (incremental) {
+    streamingTurnsCache.set(
+      liveMessage,
+      new Map([[conversationId, incremental]])
+    )
+    return incremental
+  }
   // Consolidate codex collab capsules first (spawn execution + per-wait result,
   // close folded in) so live matches the history reconstruction. No-op when the
   // message has no collab tool calls. See collab-collapse.ts.
@@ -1064,6 +1076,7 @@ export function buildStreamingTurnsFromLiveMessage(
     }))
 
   const result = { turns, inProgressToolCallIds }
+  rememberStreamingTail(conversationId, liveMessage, result)
   if (cachedByConversation) {
     cachedByConversation.set(conversationId, result)
   } else {

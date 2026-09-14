@@ -272,6 +272,12 @@ async fn initialize_agent(
     }
     if matches!(agent_type, AgentType::ClaudeCode | AgentType::Codex) {
         let mut meta = serde_json::Map::new();
+        if agent_type == AgentType::Codex {
+            meta.insert(
+                "iyw".to_string(),
+                serde_json::json!({ "rawOutputAppend": true }),
+            );
+        }
         meta.insert(
             "jetbrains".to_string(),
             serde_json::json!({

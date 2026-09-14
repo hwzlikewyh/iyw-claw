@@ -14,9 +14,17 @@ pub(super) struct ItemProjection {
     seen: HashSet<String>,
     outputs: HashMap<String, String>,
     recovered: HashSet<String>,
+    snapshot_only: bool,
 }
 
 impl ItemProjection {
+    pub(super) fn configure_output(&mut self, initialize: &Value) {
+        self.snapshot_only = initialize
+            .pointer("/clientCapabilities/_meta/iyw/rawOutputAppend")
+            .and_then(Value::as_bool) != Some(true);
+        eprintln!("[星河][worker] incremental tool output negotiated: {}", !self.snapshot_only);
+    }
+
     pub(super) fn was_started(&self, id: &str) -> bool { self.seen.contains(id) }
     pub(super) fn map(&mut self, method: &str, params: &Value) -> Option<Update> {
         if let Some(turn) = params.get("turnId").or_else(|| params.pointer("/turn/id")).and_then(Value::as_str) {
@@ -65,10 +73,23 @@ impl ItemProjection {
             }
         }
         let output = self.outputs.entry(id.to_string()).or_default();
+        let offset = output.len();
         output.push_str(&delta);
+        let replace = output.len() > MAX_TOOL_OUTPUT_BYTES;
         truncate_output(output);
-        // ACP 宿主将 rawOutput 作为完整快照，再统一转换为前端追加事件。
-        Some(tool_update(id, None, Some(Value::String(output.clone()))))
+        // 宿主会结构化带行号/空行的输出，这类内容保留完整快照语义。
+        if self.snapshot_only || output.contains('\t') || output.contains('\u{2192}')
+            || output.contains('\u{1b}') || output.lines().any(str::is_empty) {
+            return Some(tool_update(id, None, Some(Value::String(output.clone()))));
+        }
+        // 正常只传增量；截断改变了前缀，必须用有界快照替换。
+        let payload = if replace { output.clone() } else { delta };
+        let mut update = tool_update(id, None, Some(Value::String(payload)));
+        update.params["rawOutputAppend"] = Value::Bool(!replace);
+        update.params["_meta"] = json!({ "iyw": {
+            "rawOutputAppend": !replace, "rawOutputOffset": offset,
+        } });
+        Some(update)
     }
 }
 

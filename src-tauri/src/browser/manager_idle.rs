@@ -34,7 +34,11 @@ impl BrowserSessionManager {
     async fn runtime_is_idle(&self) -> bool {
         let state_idle = {
             let state = self.state.read().await;
-            state.runtime.status == BrowserRuntimeStatus::Running && state.tabs.is_empty()
+            state.runtime.status == BrowserRuntimeStatus::Running
+                && state.tabs.is_empty()
+                && state.downloads.values().all(|download| {
+                    download.status != super::types_cdp::BrowserDownloadStatus::InProgress
+                })
         };
         state_idle && self.tabs.is_empty().await && self.agent_turn_leases.is_empty().await
     }

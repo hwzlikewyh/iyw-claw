@@ -185,6 +185,24 @@ impl ControlGate {
         self.notify.notify_waiters();
     }
 
+    pub(super) async fn close_if_idle(&self) -> bool {
+        let mut inner = self.inner.lock().await;
+        expire_user_activity(&mut inner);
+        if inner.active_agent.is_some()
+            || inner.active_user_operations > 0
+            || inner.held
+            || inner.user_active_until.is_some()
+            || !inner.queue.is_empty()
+        {
+            return false;
+        }
+        inner.closed = true;
+        inner.epoch = inner.epoch.saturating_add(1);
+        drop(inner);
+        self.notify.notify_waiters();
+        true
+    }
+
     fn schedule_user_idle(&self, sequence: u64) {
         let gate = self.clone();
         tokio::spawn(async move {
