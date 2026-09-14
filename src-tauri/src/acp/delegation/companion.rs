@@ -263,7 +263,7 @@ impl CompanionFeatures {
             "check_user_feedback" => self.feedback,
             "ask_user_question" => self.ask,
             "get_session_info" | "search_session_history" => self.sessions,
-            "get_current_user_profile" => true,
+            "get_current_user_profile" | "get_agent_reach_status" => true,
             "show_image" | "analyze_image" => self.images,
             "transcribe_audio" | "transcribe_audio_flash" | "query_audio_transcription" => true,
             "read_memory_policy" => {

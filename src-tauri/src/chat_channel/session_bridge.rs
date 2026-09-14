@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use tokio::sync::Mutex as AsyncMutex;
 
+use super::media_prompt::ChannelPrompt;
 use crate::acp::types::PermissionOptionInfo;
 use crate::chat_channel::types::{ChannelMessageTarget, SentMessageId};
 use crate::models::agent::AgentType;
@@ -62,10 +63,10 @@ pub struct ActiveSession {
     /// update and so can't serve as a one-shot token. Cleared with the session.
     pub delegation_rendered: HashSet<String>,
     pub last_flushed: Instant,
-    pub pending_prompt: Option<String>,
+    pub pending_prompt: Option<ChannelPrompt>,
     /// Original user text retained only while an external Agent session is
     /// being restored. Cleared once the Agent accepts the user message.
-    pub recovery_prompt: Option<String>,
+    pub recovery_prompt: Option<ChannelPrompt>,
     /// How many times the deferred kickoff has been retried (bounded, then
     /// surfaced as an explicit failure instead of retrying forever).
     pub pending_prompt_attempts: u32,
@@ -98,7 +99,7 @@ pub struct FallbackCandidate {
     pub session_id: String,
     pub sender_id: String,
     pub target: ChannelMessageTarget,
-    pub pending_prompt: Option<String>,
+    pub pending_prompt: Option<ChannelPrompt>,
 }
 
 impl SessionBridge {

@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 use super::channel_context;
 use super::i18n::{self, Lang};
 use super::manager::ChatChannelManager;
+use super::media_prompt::{ChannelPrompt, PromptMedia};
 use super::natural_router;
 use super::session_bridge::{ActiveSession, SessionBridge, SessionOwnership};
 pub use super::session_dispatch::{
@@ -23,7 +24,6 @@ use super::session_topic_access;
 use super::session_topic_messages;
 use super::types::{ChannelMessageTarget, RichMessage};
 use crate::acp::manager::ConnectionManager;
-use crate::acp::types::PromptInputBlock;
 use crate::commands::conversation_title::{self, ConversationTitleContext};
 use crate::commands::conversations::{get_conversation_context_primer_core, ContextPrimerSource};
 use crate::db::entities::conversation;
@@ -36,6 +36,7 @@ use crate::web::event_bridge::EventEmitter;
 
 #[derive(Clone, Copy)]
 pub struct FollowupRequest<'a> {
+    pub media: &'a PromptMedia,
     pub db: &'a DatabaseConnection,
     pub text: &'a str,
     pub channel_id: i32,
@@ -279,6 +280,7 @@ pub async fn handle_task(
     prefix: &str,
     data_dir: &Path,
     trace_id: Option<&str>,
+    media: &PromptMedia,
 ) -> CommandMessageResult {
     if task_description.is_empty() {
         return CommandMessageResult::current(
@@ -563,6 +565,7 @@ pub async fn handle_task(
             folder_id,
             conversation_id: conv.id,
             text: task_prompt,
+            media: Arc::clone(media),
             channel_id,
             sender_id: sender_id.to_string(),
             response_target: session_target,
@@ -982,6 +985,7 @@ pub async fn handle_followup(req: FollowupRequest<'_>) -> RichMessage {
                 req.text,
                 req.lang,
                 req.trace_id,
+                req.media,
             )
             .await;
         }
@@ -1032,6 +1036,7 @@ pub async fn handle_followup(req: FollowupRequest<'_>) -> RichMessage {
             req.data_dir,
             req.lang,
             req.trace_id,
+            req.media,
         )
         .await;
     }
@@ -1056,6 +1061,7 @@ async fn send_followup_prompt(
     text: &str,
     _lang: Lang,
     trace_id: Option<&str>,
+    media: &PromptMedia,
 ) -> RichMessage {
     // Stamp the session with this follow-up's trace so the outbound reply
     // links back to the message that triggered it.
@@ -1067,9 +1073,7 @@ async fn send_followup_prompt(
     }
 
     // Send prompt to agent
-    let blocks = vec![PromptInputBlock::Text {
-        text: text.to_string(),
-    }];
+    let blocks = ChannelPrompt::new(text, media).blocks();
 
     tracing::info!(
         "[ChatChannel] follow-up enqueue start connection={} channel={} sender={} text_len={}",
@@ -1085,6 +1089,17 @@ async fn send_followup_prompt(
         // connection is alive, so do NOT tear down the bridge/session. Chat
         // channels only receive real assistant content, so this stays log-only.
         if matches!(e, crate::acp::error::AcpError::TurnInProgress) {
+            if !media.is_empty() {
+                let mut guard = bridge.lock().await;
+                if let Some(session) = guard.get_mut(connection_id) {
+                    if session.pending_prompt.is_none() {
+                        session.pending_prompt = Some(ChannelPrompt::new(text, media));
+                        session.pending_prompt_attempts = 0;
+                        return RichMessage::info("附件已接收，将在当前回复结束后处理。");
+                    }
+                }
+                return RichMessage::error("已有消息等待处理，本次附件尚未提交，请稍后重发。");
+            }
             tracing::info!(
                 "[ChatChannel] follow-up enqueue blocked by in-flight turn \
                  connection={} channel={} sender={}",
@@ -1105,6 +1120,9 @@ async fn send_followup_prompt(
         )
         .await;
         tracing::warn!("[ChatChannel] failed to send follow-up prompt: {e}");
+        if !media.is_empty() {
+            return RichMessage::error("附件已接收，但未能提交给智能体，请稍后重发。");
+        }
         return RichMessage::info("");
     }
 
@@ -1150,6 +1168,7 @@ pub(super) async fn resume_conversation_for_followup(
     data_dir: &Path,
     lang: Lang,
     trace_id: Option<&str>,
+    media: &PromptMedia,
 ) -> RichMessage {
     let conv = match conversation_service::get_by_id(db, conversation_id).await {
         Ok(c) => c,
@@ -1382,8 +1401,8 @@ pub(super) async fn resume_conversation_for_followup(
         send_now
     );
 
-    let pending_prompt = (!send_now).then(|| prompt.clone());
-    let recovery_prompt = (send_now && restoring_external).then(|| text.to_string());
+    let pending_prompt = (!send_now).then(|| ChannelPrompt::new(&prompt, media));
+    let recovery_prompt = (send_now && restoring_external).then(|| ChannelPrompt::new(text, media));
     remember_sender_session(
         db,
         channel_id,
@@ -1438,6 +1457,7 @@ pub(super) async fn resume_conversation_for_followup(
             &prompt,
             lang,
             trace_id,
+            media,
         )
         .await
     } else if recovered_with_recap {
@@ -1474,8 +1494,8 @@ async fn register_active_session(
     ownership: SessionOwnership,
     restoring_external_id: Option<String>,
     agent_type: AgentType,
-    pending_prompt: Option<String>,
-    recovery_prompt: Option<String>,
+    pending_prompt: Option<ChannelPrompt>,
+    recovery_prompt: Option<ChannelPrompt>,
     trace_id: Option<String>,
 ) {
     let session = ActiveSession {

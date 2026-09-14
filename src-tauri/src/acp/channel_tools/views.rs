@@ -21,6 +21,7 @@ pub struct ChannelView {
     pub default_target: Option<DefaultTargetView>,
     pub available_operations: Vec<&'static str>,
     pub config: Value,
+    pub capabilities: Value,
 }
 
 impl ChannelView {
@@ -32,6 +33,20 @@ impl ChannelView {
         let config = safe_config(&model);
         let credential_configured = credential_status(&model, wecom_authorized);
         let default_target = default_target(db, model.id).await?;
+        let capabilities = capabilities(&model.channel_type);
+        let mut available_operations = vec![
+            "update",
+            "delete",
+            "manage_credential",
+            "connect",
+            "disconnect",
+            "diagnose",
+            "send",
+        ];
+        if model.channel_type == "wecom_agent" {
+            available_operations
+                .retain(|operation| !matches!(*operation, "update" | "manage_credential"));
+        }
         Ok(Self {
             channel_id: model.id,
             name: safe_text(&model.name, 128),
@@ -44,16 +59,9 @@ impl ChannelView {
             daily_report_time: model.daily_report_time,
             credential_configured,
             default_target,
-            available_operations: vec![
-                "update",
-                "delete",
-                "manage_credential",
-                "connect",
-                "disconnect",
-                "diagnose",
-                "send",
-            ],
+            available_operations,
             config,
+            capabilities,
         })
     }
 }
@@ -172,17 +180,7 @@ fn safe_config(model: &chat_channel::Model) -> Value {
 }
 
 fn capabilities(channel_type: &str) -> Value {
-    let attachment_bytes = match channel_type {
-        "lark" => Some(30 * 1024 * 1024),
-        "wecom_agent" => Some(10 * 1024 * 1024),
-        _ => None,
-    };
-    json!({
-        "text": true,
-        "rich_text": true,
-        "attachments": attachment_bytes.is_some(),
-        "max_file_bytes": attachment_bytes,
-    })
+    crate::chat_channel::media_capabilities::view(channel_type)
 }
 
 fn redact_tokens(value: &str) -> String {

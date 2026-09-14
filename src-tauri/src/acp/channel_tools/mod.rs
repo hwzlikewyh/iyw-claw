@@ -10,6 +10,7 @@ mod operate;
 mod query;
 mod send;
 mod send_audit;
+mod send_file_io;
 mod send_files;
 mod send_result;
 mod service;

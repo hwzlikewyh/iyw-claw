@@ -18,6 +18,7 @@ use crate::db::service::{
 
 const SEND_WORKERS: usize = 8;
 const SEND_ITEM_TIMEOUT: Duration = Duration::from_secs(60);
+const MEDIA_FILE_TIMEOUT_SECS: u64 = 120;
 
 struct SentContent {
     delivered: bool,
@@ -77,7 +78,10 @@ impl ChannelToolService {
                 let working_dir = working_dir.clone();
                 async move {
                     let mut result = match tokio::time::timeout(
-                        SEND_ITEM_TIMEOUT,
+                        SEND_ITEM_TIMEOUT
+                            + Duration::from_secs(
+                                MEDIA_FILE_TIMEOUT_SECS * item.files.len() as u64,
+                            ),
                         self.send_one(index, &item, &working_dir),
                     )
                     .await
@@ -86,7 +90,7 @@ impl ChannelToolService {
                         Err(_) => json!({
                             "index": index,
                             "status": "failed",
-                            "error": "CHANNEL_SEND_TIMEOUT",
+                            "error": "CHANNEL_DELIVERY_UNKNOWN",
                         }),
                     };
                     if self
@@ -116,6 +120,12 @@ impl ChannelToolService {
         item: &SendItemInput,
         working_dir: &Path,
     ) -> Result<Value, String> {
+        if item.files.len() > crate::chat_channel::attachments::MAX_MESSAGE_ATTACHMENTS {
+            return Err("TOO_MANY_ATTACHMENTS".into());
+        }
+        if item.files.is_empty() && item.text.is_none() && item.rich.is_none() {
+            return Err("MESSAGE_CONTENT_REQUIRED".into());
+        }
         self.ensure_sendable_channel(item.channel_id).await?;
         let target_id = item.target_id.as_deref().ok_or("TARGET_NOT_FOUND")?;
         if chat_channel_target_service::find_by_public_target_id(&self.db.conn, target_id)

@@ -1519,7 +1519,7 @@
   },
   {
     "name": "list_message_channels",
-    "description": "List iyw-claw message channels using safe, non-secret views. Omit filters to list all channels. This never returns credentials, raw provider target ids, or config JSON.",
+    "description": "List all iyw-claw message channels, including WeCom self-built applications, with safe media capabilities and provider requirements. Omit filters to list all channels. This never returns credentials, raw provider target ids, or config JSON. Self-built application onboarding and credential changes use the existing settings flow.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1529,7 +1529,7 @@
         },
         "channel_type": {
           "type": "string",
-          "enum": ["lark", "weixin", "wecom", "wecom_ai_bot", "dingtalk"]
+          "enum": ["lark", "weixin", "wecom", "wecom_ai_bot", "wecom_agent", "dingtalk"]
         },
         "enabled": { "type": "boolean" },
         "runtime_status": {
@@ -1678,7 +1678,7 @@
   },
   {
     "name": "list_channel_targets",
-    "description": "List safe opaque targets for one channel. Only configured defaults and conversations that really interacted with iyw-claw are returned. Use target_id from this tool when sending.",
+    "description": "List safe opaque targets for one channel with text, image and file capabilities, byte limits, supported native image MIME types and provider requirements. Only configured defaults and conversations that really interacted with iyw-claw are returned. Use target_id from this tool when sending. Capability support does not prove that current credentials, recipient permissions or reply context are valid.",
     "inputSchema": {
       "type": "object",
       "required": ["channel_id"],
@@ -1734,7 +1734,7 @@
   },
   {
     "name": "send_channel_messages",
-    "description": "Send text or structured messages, optionally with readable local files, to default or known targets. target_id must come from list_channel_targets. File paths may be absolute or relative to the current Agent working directory. Unsupported attachments are reported per item and never disguised as successful sends.",
+    "description": "Send text, rich content, images or files through configured channels. Resolve target_id and media capabilities with list_channel_targets first. Put readable local image and document paths in files; omit text/rich for attachment-only sends. Supported image formats within the native image limit are sent as images; other resources use file delivery where available. WeCom CLI uses the actual upload receipt type and may send images as files. Each result reports message and individual file status; partial, unsupported, expired context, rejected targets and delivery-unknown are not complete success. Never retry uncertain sends with a new request_id. This sends the actual resource bytes, not a local-path link.",
     "inputSchema": {
       "type": "object",
       "required": ["request_id", "items"],
@@ -1785,6 +1785,8 @@
               },
               "files": {
                 "type": "array",
+                "maxItems": 10,
+                "description": "Up to 10 local image or file paths, absolute or relative to the current working directory. URLs, directories and base64 are not accepted. Read the target capability byte limits before sending. Only send resources authorized by the user.",
                 "items": { "type": "string", "minLength": 1 }
               }
             },

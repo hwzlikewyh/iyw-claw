@@ -10,6 +10,7 @@ use super::command_handlers;
 use super::command_response::{send_dispatch_message, DispatchResponse};
 use super::i18n::{self, Lang};
 use super::manager::ChatChannelManager;
+use super::media_prompt::{self, PromptMedia};
 use super::natural_router::{self, NaturalRouteDecision};
 use super::session_bridge::SessionBridge;
 use super::session_commands;
@@ -27,6 +28,7 @@ const DEFAULT_COMMAND_PREFIX: &str = "/";
 const MESSAGE_LANGUAGE_KEY: &str = "chat_message_language";
 /// How often to refresh cached config from DB.
 const CONFIG_CACHE_TTL_SECS: u64 = 30;
+const MEDIA_PREPARATION_TIMEOUT: Duration = Duration::from_secs(60);
 
 struct CommandConfigCache {
     prefix: String,
@@ -155,7 +157,11 @@ pub fn spawn_command_dispatcher(
                 &db_conn,
                 cmd.channel_id,
                 "inbound",
-                "command_query",
+                if cmd.attachments.is_empty() {
+                    "command_query"
+                } else {
+                    "attachment"
+                },
                 text,
                 "sent",
                 None,
@@ -166,6 +172,27 @@ pub fn spawn_command_dispatcher(
             .await;
 
             config.refresh_if_needed(&db_conn).await;
+
+            let media = match tokio::time::timeout(
+                MEDIA_PREPARATION_TIMEOUT,
+                media_prompt::prepare(&manager, &cmd, &data_dir),
+            )
+            .await
+            {
+                Ok(Ok(media)) => media,
+                result => {
+                    let error = match result {
+                        Ok(Err(error)) => error,
+                        _ => "附件处理超时，请重新发送。".into(),
+                    };
+                    tracing::warn!(channel_id = cmd.channel_id, trace_id, error = %error,
+                        "[ChatChannel] inbound media preparation failed");
+                    let _ = manager
+                        .send_to_target(&cmd.target, &RichMessage::error(error))
+                        .await;
+                    continue;
+                }
+            };
 
             let mut response = dispatch_command(
                 text,
@@ -184,6 +211,7 @@ pub fn spawn_command_dispatcher(
                 cmd.callback_data.as_deref(),
                 config.lang,
                 &trace_id,
+                &media,
             )
             .await;
 
@@ -239,6 +267,7 @@ async fn dispatch_command(
     callback_data: Option<&str>,
     lang: Lang,
     trace_id: &str,
+    media: &PromptMedia,
 ) -> DispatchResponse {
     if let Some(data) = callback_data {
         return DispatchResponse::current(
@@ -257,6 +286,7 @@ async fn dispatch_command(
             if target.is_telegram_forum_topic() {
                 return DispatchResponse::current(
                     session_commands::handle_followup(session_commands::FollowupRequest {
+                        media,
                         db,
                         text,
                         channel_id,
@@ -292,6 +322,7 @@ async fn dispatch_command(
                 route,
                 lang,
                 trace_id,
+                media,
             )
             .await;
         }
@@ -376,6 +407,7 @@ async fn dispatch_command(
                 prefix,
                 data_dir,
                 Some(trace_id),
+                media,
             )
             .await,
         ),
@@ -483,6 +515,7 @@ async fn dispatch_natural_message(
     route: &ConversationRoute,
     lang: Lang,
     trace_id: &str,
+    media: &PromptMedia,
 ) -> DispatchResponse {
     let decision = natural_router::route_natural_message(
         db, bridge, channel_id, sender_id, target, route, text, lang,
@@ -497,6 +530,7 @@ async fn dispatch_natural_message(
     match decision {
         NaturalRouteDecision::ContinueSession => DispatchResponse::current(
             session_commands::handle_followup(session_commands::FollowupRequest {
+                media,
                 db,
                 text,
                 channel_id,
@@ -623,6 +657,7 @@ async fn dispatch_natural_message(
                     prefix,
                     data_dir,
                     Some(trace_id),
+                    media,
                 )
                 .await,
             )

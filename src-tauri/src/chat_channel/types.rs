@@ -99,6 +99,7 @@ pub struct IncomingCommand {
     /// who is speaking without requiring the user to identify themselves.
     pub sender_name: Option<String>,
     pub command_text: String,
+    pub attachments: Vec<super::attachments::IncomingAttachment>,
     pub callback_data: Option<String>,
     pub target: ChannelMessageTarget,
     pub metadata: serde_json::Value,

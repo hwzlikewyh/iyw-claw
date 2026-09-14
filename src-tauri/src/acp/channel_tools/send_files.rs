@@ -1,15 +1,18 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use super::send_file_io::{mime_type, read_checked, resolved_path, safe_name};
 use serde::Serialize;
 use serde_json::{json, Value};
-use tokio::io::AsyncReadExt;
 
 use super::service::ChannelToolService;
 use super::types::SendMessagesInput;
 use crate::chat_channel::attachments::{AttachmentCapability, ChannelAttachment};
 use crate::chat_channel::types::ChannelMessageTarget;
 use crate::db::service::chat_channel_message_log_service;
+
+static MEDIA_SENDS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+const MEDIA_SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 #[derive(Serialize)]
 pub(super) struct FileSendResult {
@@ -18,6 +21,7 @@ pub(super) struct FileSendResult {
     pub(super) mime_type: String,
     pub(super) status: &'static str,
     pub(super) message_id: Option<String>,
+    pub(super) delivery_receipt: Option<String>,
     pub(super) error: Option<&'static str>,
     pub(super) log_error: Option<&'static str>,
 }
@@ -37,6 +41,7 @@ impl InspectedFile {
                 mime_type,
                 status: "failed",
                 message_id: None,
+                delivery_receipt: None,
                 error: Some(error),
                 log_error: None,
             },
@@ -92,6 +97,7 @@ async fn inspect_file(
             mime_type: mime_type.clone(),
             status: "ready",
             message_id: None,
+            delivery_receipt: None,
             error: None,
             log_error: None,
         },
@@ -110,108 +116,101 @@ impl ChannelToolService {
     ) -> Vec<FileSendResult> {
         let mut results = Vec::with_capacity(files.len());
         for mut file in files {
-            let Some(path) = file.path.take() else {
-                results.push(file.result);
-                continue;
-            };
-            let content = match read_checked(&path, file.max_file_bytes).await {
-                Ok(content) => content,
-                Err(code) => {
-                    file.result.status = "failed";
-                    file.result.error = Some(code);
-                    results.push(file.result);
-                    continue;
-                }
-            };
-            file.result.bytes = Some(content.len() as u64);
-            let attachment = ChannelAttachment {
-                name: file.result.name.clone(),
-                mime_type: file.result.mime_type.clone(),
-                bytes: Arc::from(content),
-            };
-            match self
-                .manager
-                .send_attachment_to_target(target, &attachment)
-                .await
-            {
-                Ok(_) => {
-                    file.result.status = "sent";
-                    match log_attachment(&self.db.conn, channel_id, target_id, &attachment).await {
-                        Ok(id) => file.result.message_id = Some(format!("cm_{id}")),
-                        Err(_) => file.result.log_error = Some("MESSAGE_LOG_FAILED"),
-                    }
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        channel_id,
-                        target_id,
-                        file_name = %file.result.name,
-                        mime_type = %file.result.mime_type,
-                        file_bytes = ?file.result.bytes,
-                        error_category = error.category(),
-                        error = %error,
-                        "[ChatChannel] attachment delivery failed"
-                    );
-                    file.result.status = "failed";
-                    file.result.error = Some("ATTACHMENT_SEND_FAILED");
-                }
+            if let Err(code) = self.deliver_file(target, &mut file).await {
+                file.result.status = "failed";
+                file.result.error = Some(code);
+            }
+            match log_attachment(&self.db.conn, channel_id, target_id, &file.result).await {
+                Ok(id) => file.result.message_id = Some(format!("cm_{id}")),
+                Err(_) => file.result.log_error = Some("MESSAGE_LOG_FAILED"),
             }
             results.push(file.result);
         }
         results
     }
-}
 
-async fn read_checked(path: &Path, limit: Option<u64>) -> Result<Vec<u8>, &'static str> {
-    let mut file = tokio::fs::File::open(path)
+    async fn deliver_file(
+        &self,
+        target: &ChannelMessageTarget,
+        file: &mut InspectedFile,
+    ) -> Result<(), &'static str> {
+        if file.path.is_none() {
+            return Ok(());
+        }
+        let _permit = MEDIA_SENDS
+            .acquire()
+            .await
+            .map_err(|_| "ATTACHMENT_SEND_UNAVAILABLE")?;
+        let attachment = prepare_attachment(file).await?;
+        let result = tokio::time::timeout(
+            MEDIA_SEND_TIMEOUT,
+            self.manager.send_attachment_to_target(target, &attachment),
+        )
         .await
-        .map_err(|_| "FILE_NOT_READABLE")?;
-    let metadata = file.metadata().await.map_err(|_| "FILE_NOT_READABLE")?;
-    if !metadata.is_file() {
-        return Err("FILE_NOT_READABLE");
+        .unwrap_or_else(|_| {
+            Err(crate::chat_channel::error::ChatChannelError::SendFailed(
+                "Attachment delivery timed out".into(),
+            ))
+        });
+        let receipt = result.map_err(|error| {
+            tracing::warn!(channel_id = target.channel_id, mime_type = %file.result.mime_type,
+                bytes = ?file.result.bytes, error_category = error.category(), error = %error,
+                "[ChatChannel] attachment delivery failed");
+            attachment_error(&error)
+        })?;
+        file.result.status = "sent";
+        file.result.delivery_receipt = (!receipt.0.is_empty()).then_some(receipt.0);
+        Ok(())
     }
-    if limit.is_some_and(|value| metadata.len() > value) {
-        return Err("FILE_TOO_LARGE");
-    }
-    let mut content = Vec::with_capacity(read_capacity(metadata.len(), limit));
-    match limit {
-        Some(value) => file
-            .take(value.saturating_add(1))
-            .read_to_end(&mut content)
-            .await
-            .map_err(|_| "FILE_NOT_READABLE")?,
-        None => file
-            .read_to_end(&mut content)
-            .await
-            .map_err(|_| "FILE_NOT_READABLE")?,
-    };
-    if limit.is_some_and(|value| content.len() as u64 > value) {
-        return Err("FILE_TOO_LARGE");
-    }
-    Ok(content)
 }
 
-fn read_capacity(file_bytes: u64, limit: Option<u64>) -> usize {
-    let bounded = limit.map_or(file_bytes, |value| file_bytes.min(value));
-    usize::try_from(bounded)
-        .unwrap_or(usize::MAX)
-        .min(1024 * 1024)
+async fn prepare_attachment(file: &mut InspectedFile) -> Result<ChannelAttachment, &'static str> {
+    let path = file.path.take().ok_or("FILE_NOT_READABLE")?;
+    let content = read_checked(&path, file.max_file_bytes).await?;
+    file.result.bytes = Some(content.len() as u64);
+    if let Ok(format) = image::guess_format(&content) {
+        file.result.mime_type = format.to_mime_type().to_string();
+    } else if file.result.mime_type.starts_with("image/") {
+        file.result.mime_type = "application/octet-stream".into();
+    }
+    Ok(ChannelAttachment {
+        name: file.result.name.clone(),
+        mime_type: file.result.mime_type.clone(),
+        bytes: Arc::from(content),
+    })
+}
+
+fn attachment_error(error: &crate::chat_channel::error::ChatChannelError) -> &'static str {
+    use crate::chat_channel::error::ChatChannelError;
+    let message = error.to_string();
+    match error {
+        ChatChannelError::Unsupported(_) => "ATTACHMENT_UNSUPPORTED",
+        ChatChannelError::NotConnected => "CHANNEL_NOT_CONNECTED",
+        _ if message.contains("TARGET_CONTEXT_EXPIRED") => "TARGET_CONTEXT_EXPIRED",
+        _ if message.contains("TARGET_NOT_SENDABLE") => "TARGET_NOT_SENDABLE",
+        _ if message.contains("timed out") => "ATTACHMENT_DELIVERY_UNKNOWN",
+        _ => "ATTACHMENT_SEND_FAILED",
+    }
 }
 
 async fn log_attachment(
     db: &sea_orm::DatabaseConnection,
     channel_id: i32,
     target_id: &str,
-    attachment: &ChannelAttachment,
+    attachment: &FileSendResult,
 ) -> Result<i32, crate::db::error::DbError> {
     chat_channel_message_log_service::create_log_for_target_returning(
         db,
         channel_id,
         "outbound",
         "attachment",
-        &format!("{} ({} bytes)", attachment.name, attachment.byte_len()),
-        "sent",
-        None,
+        &format!(
+            "{} ({} bytes)",
+            attachment.name,
+            attachment.bytes.unwrap_or(0)
+        ),
+        attachment.status,
+        attachment.error.map(str::to_string),
         None,
         None,
         Some(target_id.to_string()),
@@ -222,46 +221,4 @@ async fn log_attachment(
 
 pub(super) fn safe_send_digest(input: &SendMessagesInput) -> Value {
     serde_json::to_value(input).unwrap_or_else(|_| json!({ "invalid": true }))
-}
-
-fn resolved_path(value: &str, working_dir: &Path) -> PathBuf {
-    let path = PathBuf::from(value);
-    if path.is_absolute() {
-        path
-    } else {
-        working_dir.join(path)
-    }
-}
-
-fn safe_name(path: &Path) -> String {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("file")
-        .to_string()
-}
-
-fn mime_type(path: &Path) -> String {
-    match path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "jpg" | "jpeg" => "image/jpeg",
-        "png" => "image/png",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "bmp" => "image/bmp",
-        "ico" => "image/x-icon",
-        "tif" | "tiff" => "image/tiff",
-        "heic" => "image/heic",
-        "pdf" => "application/pdf",
-        "txt" | "md" | "log" => "text/plain",
-        "csv" => "text/csv",
-        "json" => "application/json",
-        "zip" => "application/zip",
-        _ => "application/octet-stream",
-    }
-    .to_string()
 }

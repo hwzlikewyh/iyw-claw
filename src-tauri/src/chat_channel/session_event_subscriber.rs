@@ -14,7 +14,7 @@ use super::session_commands;
 use super::session_topic;
 use crate::acp::internal_bus::InternalEventBus;
 use crate::acp::manager::ConnectionManager;
-use crate::acp::types::{AcpEvent, ConnectionStatus, EventEnvelope, PromptInputBlock};
+use crate::acp::types::{AcpEvent, ConnectionStatus, EventEnvelope};
 use crate::chat_channel::types::{MessageLevel, RichMessage};
 use crate::web::event_bridge::EventEmitter;
 
@@ -165,10 +165,16 @@ async fn handle_acp_envelope(
 
         AcpEvent::ContentRecovered { content } => {
             if let Some(session) = bridge.lock().await.get_mut(connection_id) {
-                session.content_buffer = content.iter().filter_map(|block| match block {
-                    crate::acp::session_state::LiveContentBlock::Text { text } => Some(text.as_str()),
-                    _ => None,
-                }).collect::<Vec<_>>().join("");
+                session.content_buffer = content
+                    .iter()
+                    .filter_map(|block| match block {
+                        crate::acp::session_state::LiveContentBlock::Text { text } => {
+                            Some(text.as_str())
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("");
             }
         }
         AcpEvent::ContentDelta { text } => {
@@ -481,9 +487,7 @@ async fn handle_acp_envelope(
                 // but only a bounded number of times; beyond that surface an
                 // explicit failure instead of retrying forever.
                 if let Some(prompt_text) = deferred_kickoff {
-                    let blocks = vec![PromptInputBlock::Text {
-                        text: prompt_text.clone(),
-                    }];
+                    let blocks = prompt_text.blocks();
                     if let Err(e) = conn_mgr.send_prompt(connection_id, blocks).await {
                         if matches!(e, crate::acp::error::AcpError::TurnInProgress) {
                             let mut g = bridge.lock().await;
@@ -887,9 +891,7 @@ async fn send_pending_prompt(
     let Some((prompt, target)) = pending else {
         return;
     };
-    let blocks = vec![PromptInputBlock::Text {
-        text: prompt.clone(),
-    }];
+    let blocks = prompt.blocks();
     match conn_mgr.send_prompt(connection_id, blocks).await {
         Ok(()) => {}
         Err(crate::acp::error::AcpError::TurnInProgress) => {
@@ -910,7 +912,7 @@ async fn restore_deferred_prompt(
     manager: &ChatChannelManager,
     db: &DatabaseConnection,
     connection_id: &str,
-    prompt: String,
+    prompt: super::media_prompt::ChannelPrompt,
     target: crate::chat_channel::types::ChannelMessageTarget,
 ) {
     let exhausted = {
@@ -952,7 +954,7 @@ async fn retry_failed_session_load(
     bridge: &Arc<Mutex<SessionBridge>>,
     data_dir: &Path,
     session: ActiveSession,
-    prompt: String,
+    prompt: super::media_prompt::ChannelPrompt,
     lang: Lang,
 ) {
     let route = conversation_binding_service::ConversationRoute {
@@ -966,7 +968,7 @@ async fn retry_failed_session_load(
         &session.target,
         &route,
         session.conversation_id,
-        &prompt,
+        &prompt.text,
         manager,
         conn_mgr,
         emitter,
@@ -974,6 +976,7 @@ async fn retry_failed_session_load(
         data_dir,
         lang,
         session.trace_id.as_deref(),
+        &prompt.media,
     ))
     .await;
     if !result.body.trim().is_empty() {

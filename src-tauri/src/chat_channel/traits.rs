@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use super::attachments::{AttachmentCapability, ChannelAttachment};
+use super::attachments::{AttachmentCapability, ChannelAttachment, IncomingAttachment};
 use super::error::ChatChannelError;
 use super::types::*;
 
@@ -66,6 +66,15 @@ pub trait ChatChannelBackend: Send + Sync + 'static {
     ) -> Result<SentMessageId, ChatChannelError> {
         Err(ChatChannelError::Unsupported(
             "attachments are not supported by this channel".to_string(),
+        ))
+    }
+
+    async fn download_attachment(
+        &self,
+        _attachment: &IncomingAttachment,
+    ) -> Result<ChannelAttachment, ChatChannelError> {
+        Err(ChatChannelError::Unsupported(
+            "Media download is not supported".into(),
         ))
     }
 

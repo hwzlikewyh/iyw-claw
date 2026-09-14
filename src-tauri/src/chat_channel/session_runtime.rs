@@ -3,6 +3,7 @@ use std::path::Path;
 
 use sea_orm::DatabaseConnection;
 
+use super::media_prompt::ChannelPrompt;
 use super::types::ChannelMessageTarget;
 use crate::acp::manager::ConnectionManager;
 use crate::acp::types::PromptInputBlock;
@@ -88,15 +89,13 @@ pub(super) async fn send_prompt_linked(
     connection_id: &str,
     folder_id: i32,
     conversation_id: i32,
-    text: &str,
+    prompt: &ChannelPrompt,
 ) -> Result<(), crate::acp::error::AcpError> {
     connection_manager
         .send_prompt_linked(
             &AppDatabase { conn: db.clone() },
             connection_id,
-            vec![PromptInputBlock::Text {
-                text: text.to_string(),
-            }],
+            prompt.blocks(),
             Some(folder_id),
             Some(conversation_id),
             None,
