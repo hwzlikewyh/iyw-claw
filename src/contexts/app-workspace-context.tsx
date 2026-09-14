@@ -26,10 +26,7 @@ interface AppWorkspaceProviderProps {
  */
 export function AppWorkspaceProvider({ children }: AppWorkspaceProviderProps) {
   useEffect(() => {
-    const { fetchFolders, refreshConversations } =
-      useAppWorkspaceStore.getState()
-    void fetchFolders()
-    void refreshConversations()
+    void useAppWorkspaceStore.getState().fetchFolders()
   }, [])
 
   // Subscribe to the global `conversation://changed` side-channel so any
@@ -56,8 +53,17 @@ export function AppWorkspaceProvider({ children }: AppWorkspaceProviderProps) {
         }
       )
       if (disposed) dispose()
-      else unlisten = dispose
-    })()
+      else {
+        unlisten = dispose
+        // 先订阅再读取，避免首次加载时丢失查询与监听之间的状态变更。
+        void useAppWorkspaceStore.getState().refreshConversations()
+      }
+    })().catch((error: unknown) => {
+      console.error("[AppWorkspace] conversation subscription failed:", error)
+      if (!disposed) {
+        void useAppWorkspaceStore.getState().refreshConversations()
+      }
+    })
 
     // Events fired while the WS was disconnected are dropped by the broadcaster
     // (receiver_count == 0). A full re-fetch on reconnect reconciles. Returns

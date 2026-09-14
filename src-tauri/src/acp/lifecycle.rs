@@ -112,8 +112,8 @@ fn is_dispatcher_terminal(event: &AcpEvent) -> bool {
 /// `Disconnected` / `Error` handlers can still emit a derived
 /// `ConversationStatusChanged` after the manager entry has been removed.
 ///
-/// Captured on `ConversationLinked` (the earliest point a connection is bound
-/// to a conversation row) and consulted on terminal status events. Without
+/// Captured as soon as a lifecycle event has a bound conversation, including
+/// restored connections that never emit `ConversationLinked`. Without
 /// this cache, `manager.get_state_and_emitter(connection_id)` races the
 /// cleanup guard: `emit_with_state(StatusChanged{Disconnected})` writes to the
 /// broadcaster *before* the guard drops, but the subscriber's async receive
@@ -389,10 +389,8 @@ pub(crate) async fn handle_event(
             // with OpenCode — a silent EndTurn that produced no output), so
             // we flip to `Cancelled` and pair the transition with an
             // `AcpEvent::Error` toast emitted upstream by `connection.rs`.
-            // `cancelled` is already written by `manager.cancel()` (eager
-            // CAS InProgress → Cancelled at the user-cancel entry point), so
-            // we leave it alone here. `completed` transitions remain
-            // frontend-driven.
+            // 代理主动取消和原生后台回合中断不一定经过 manager.cancel()，
+            // 因此这里也必须收尾。CAS 保留用户取消或手动完成后的状态。
             let target_status = match stop_reason.as_str() {
                 "end_turn" => Some(ConversationStatus::PendingReview),
                 "refusal"
@@ -401,8 +399,9 @@ pub(crate) async fn handle_event(
                 | "unknown"
                 | "empty"
                 | "prompt_error"
-                | "stream_disconnected" => Some(ConversationStatus::Cancelled),
-                // `cancelled` and any future reason: don't write here.
+                | "stream_disconnected"
+                | "cancelled" => Some(ConversationStatus::Cancelled),
+                // Unknown future reasons retain their existing behavior.
                 _ => None,
             };
             let Some((state_arc, emitter)) =
@@ -438,8 +437,23 @@ pub(crate) async fn handle_event(
                 // DB write before emit so any downstream subscriber that observes
                 // the ConversationStatusChanged event can assume the row is
                 // already at the target status.
-                match conversation_service::update_status(db_conn, cid, ts.clone()).await {
-                    Ok(()) => {
+                match conversation_service::update_status_if(
+                    db_conn,
+                    cid,
+                    ConversationStatus::InProgress,
+                    ts.clone(),
+                )
+                .await
+                {
+                    Ok(true) => {
+                        tracing::info!(
+                            connection_id = %envelope.connection_id,
+                            conversation_id = cid,
+                            turn_generation,
+                            stop_reason,
+                            status = ?ts,
+                            "[lifecycle] conversation turn status settled"
+                        );
                         emit_with_state(
                             &state_arc,
                             &emitter,
@@ -450,6 +464,7 @@ pub(crate) async fn handle_event(
                         )
                         .await;
                     }
+                    Ok(false) => {}
                     Err(error) => {
                         if completion_error.is_none() {
                             completion_error = Some(error);
@@ -664,26 +679,20 @@ async fn forward_turn_complete_to_broker(
     broker.complete_call(&call_id, outcome).await;
 }
 
-/// Snapshot the connection's `(state, emitter)` into the lifecycle cache when
-/// `ConversationLinked` arrives. Idempotent on repeat calls (re-link on the
-/// already-bound path is a no-op so we don't churn the cached refs).
+/// 恢复会话在建连时已绑定 ID，不会再发 ConversationLinked；首个生命周期
+/// 事件就缓存清理上下文，避免断开后 manager 已移除连接而无法更新状态。
 async fn try_cache_link(
     cache: &mut HashMap<String, CachedConn>,
     manager: &ConnectionManager,
     connection_id: &str,
-    conversation_id: i32,
 ) {
     if cache.contains_key(connection_id) {
         return;
     }
-    // The connection is necessarily still in the manager at this point —
-    // `ConversationLinked` is emitted by `send_prompt_linked` from the
-    // connection's own send path, well before any disconnect.
     let Some((state, emitter)) = manager.get_state_and_emitter(connection_id).await else {
-        tracing::warn!(
-            "[lifecycle][WARN] ConversationLinked for unknown connection {connection_id}; \
-             skipping cache (terminal-status hand-off will no-op)"
-        );
+        return;
+    };
+    let Some(conversation_id) = state.read().await.conversation_id else {
         return;
     };
     cache.insert(
@@ -724,6 +733,11 @@ async fn handle_terminal_event(
     if !changed {
         return Ok(());
     }
+    tracing::info!(
+        connection_id,
+        conversation_id = cid,
+        "[lifecycle] disconnected conversation marked cancelled"
+    );
     emit_with_state(
         &entry.state,
         &entry.emitter,
@@ -1091,11 +1105,13 @@ async fn connection_worker_loop(
     let mut terminal_dispatched = false;
     while let Some(envelope_arc) = rx.recv().await {
         let envelope: &EventEnvelope = envelope_arc.as_ref();
+        if !terminal_dispatched {
+            try_cache_link(&mut cache, &manager, &connection_id).await;
+        }
         match &envelope.payload {
             AcpEvent::ConversationLinked {
                 conversation_id, ..
             } => {
-                try_cache_link(&mut cache, &manager, &connection_id, *conversation_id).await;
                 if let Err(error) = crate::acp::agent_input_lifecycle::recover_connection(
                     &db,
                     &manager,
