@@ -1,5 +1,14 @@
 [
   {
+    "name": "get_agent_reach_status",
+    "description": "Get current Agent Reach channel health and active backends. Diagnoses the managed installation without installing tools, importing browser credentials, or changing channel configuration. This does not search or read websites.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "list_scheduled_task_projects",
     "description": "List projects that can be selected for iyw-claw scheduled tasks. Returns safe project ids and names without local paths. This is a read-only operation.",
     "inputSchema": {

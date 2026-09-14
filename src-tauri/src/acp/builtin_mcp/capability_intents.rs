@@ -23,6 +23,7 @@ macro_rules! metadata {
 // availability remain owned by the capability catalog.
 #[rustfmt::skip]
 const SPECIAL_METADATA: &[(&str, CapabilityIntentMetadata)] = &[
+    ("get_agent_reach_status", metadata!(&["agent reach status", "internet channel status", "联网渠道状态", "联网诊断"], &["agent reach", "internet", "channel", "status", "doctor", "联网", "渠道", "诊断"], "Check managed Agent Reach channel health and active backends before internet work. This diagnoses availability; use the upstream tools for actual search and reading.")),
     ("list_scheduled_task_projects", metadata!(&["list scheduled task projects", "列出定时任务项目", "计划任务项目"], &["list", "列出", "scheduled", "定时", "project", "项目"], "Use to inspect available scheduled-task projects before selecting one.")),
     ("list_scheduled_tasks", metadata!(&["list scheduled tasks", "列出定时任务", "查看计划任务"], &["list", "列出", "scheduled", "定时", "task", "任务"], "Use to inspect existing scheduled tasks.")),
     ("create_scheduled_task", metadata!(&["create scheduled task", "创建定时任务", "新建计划任务"], &["create", "创建", "scheduled", "定时", "task", "任务"], "Use only when the user asks to create an automation and its schedule and prompt are known.")),

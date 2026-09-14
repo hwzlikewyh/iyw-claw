@@ -149,6 +149,7 @@ pub struct InternetSkillSyncReport {
 #[serde(rename_all = "camelCase")]
 pub struct OpencliDoctorResult {
     pub ok: bool,
+    pub status: String,
     pub message: String,
 }
 

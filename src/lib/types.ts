@@ -2422,6 +2422,7 @@ export interface InternetSkillSyncReport {
 
 export interface OpencliDoctorResult {
   ok: boolean
+  status: string
   message: string
 }
 

@@ -168,21 +168,15 @@ pub async fn internet_tools_agent_reach_doctor() -> Result<Vec<InternetChannelSt
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn internet_tools_opencli_doctor() -> Result<OpencliDoctorResult, String> {
-    let paths = active_paths()?;
-    let path = opencli_command_path(&paths);
-    if !path.is_file() {
-        return Err("OpenCLI is not installed".to_string());
+    if !opencli_is_installed() {
+        return Ok(OpencliDoctorResult {
+            ok: false,
+            status: "not_installed".into(),
+            message: "OpenCLI is not installed".into(),
+        });
     }
-    let mut command = crate::process::tokio_command(path);
-    command
-        .arg("doctor")
-        .envs(private_tool_environment_for(&paths));
-    apply_managed_node_path(&mut command);
-    let output = run_tool_output(command, "OpenCLI doctor", Duration::from_secs(60)).await?;
-    Ok(OpencliDoctorResult {
-        ok: output.status.success(),
-        message: output_text(&output),
-    })
+    let execution = run_opencli(&["doctor".into()], Duration::from_secs(60)).await?;
+    Ok(crate::browser::opencli_settings_report(&execution))
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
@@ -247,7 +241,7 @@ pub async fn internet_tools_install_channels(
     internet_tools_agent_reach_doctor().await
 }
 
-fn active_paths() -> Result<AgentStoragePaths, String> {
+pub(super) fn active_paths() -> Result<AgentStoragePaths, String> {
     AgentStoragePaths::active().ok_or_else(|| "Agent storage is not active".to_string())
 }
 

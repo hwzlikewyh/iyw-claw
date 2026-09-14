@@ -3,10 +3,40 @@ use std::sync::OnceLock;
 use regex::Regex;
 use serde_json::Value;
 
-use super::{parse_execution, OpencliFailure, OpencliFailureKind};
+use super::opencli_failure::{parse_execution, OpencliFailure, OpencliFailureKind};
 use crate::commands::internet_tools::OpencliExecution;
 
 const MAX_DETAIL_CHARS: usize = 768;
+
+pub(crate) fn settings_report(
+    execution: &OpencliExecution,
+) -> crate::commands::internet_tools::OpencliDoctorResult {
+    let normalized = OpencliExecution {
+        success: execution.success,
+        exit_code: execution.exit_code,
+        stdout: plain_text(&execution.stdout),
+        stderr: plain_text(&execution.stderr),
+    };
+    let (ok, status) = match parse_execution(&normalized) {
+        Ok(value) => {
+            let report = DoctorReport::parse(&value);
+            (
+                report.healthy(),
+                if report.healthy() {
+                    "connected"
+                } else {
+                    report.failure().0
+                },
+            )
+        }
+        Err(_) => (false, "runtime_error"),
+    };
+    crate::commands::internet_tools::OpencliDoctorResult {
+        ok,
+        status: status.into(),
+        message: safe_detail(&format!("{}\n{}", normalized.stdout, normalized.stderr)),
+    }
+}
 
 pub(super) fn check_execution(execution: &OpencliExecution) -> Result<Value, OpencliFailure> {
     let normalized = OpencliExecution {

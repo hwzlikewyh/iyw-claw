@@ -82,7 +82,8 @@ mod manager_recovery;
 mod manager_runtime;
 #[cfg(feature = "tauri-runtime")]
 mod opencli;
-#[cfg(feature = "tauri-runtime")]
+#[path = "opencli/doctor.rs"]
+mod opencli_doctor;
 mod opencli_failure;
 #[cfg(feature = "tauri-runtime")]
 mod process;
@@ -151,8 +152,11 @@ mod windows_process;
 mod windows_process_values;
 
 pub use control_lease::AgentControlLease;
+#[cfg(feature = "tauri-runtime")]
+pub(crate) use engine::open_extension_settings;
 pub use error::{BrowserError, BrowserErrorCode, BrowserErrorContext};
 pub use manager::BrowserSessionManager;
+pub(crate) use opencli_doctor::settings_report as opencli_settings_report;
 #[cfg(feature = "tauri-runtime")]
 mod visibility;
 #[cfg(feature = "tauri-runtime")]

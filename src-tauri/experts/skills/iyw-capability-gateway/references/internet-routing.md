@@ -19,7 +19,11 @@ mentions a URL, or names one of these categories: web/RSS, GitHub/code, X/Twitte
 小红书, Bilibili, V2EX, Reddit, LinkedIn/jobs, YouTube, 小宇宙/podcast, finance,
 or public discussions.
 
-Before a multi-backend platform operation, run the currently installed
+Before a multi-backend platform operation, discover and invoke
+`iyw.internet.agent_reach.status.v1` through the current gateway when available.
+It returns observed channel health and active backends from the managed Agent
+Reach installation; it does not install tools or import credentials. Otherwise,
+run the currently installed
 `agent-reach doctor --json` only if that executable is actually available and
 the user asked for that external route. Prefer the current iyw gateway catalog
 and unified browser capability. Never claim a doctor result from memory or infer an
