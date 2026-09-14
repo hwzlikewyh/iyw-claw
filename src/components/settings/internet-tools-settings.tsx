@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { ExternalLink, RefreshCw, Settings2 } from "lucide-react"
+import { RefreshCw, Settings2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
@@ -32,7 +32,7 @@ import {
   internetToolsSyncSkills,
 } from "@/lib/api"
 import { toErrorMessage } from "@/lib/app-error"
-import { openUrl } from "@/lib/platform"
+import { isLocalDesktop } from "@/lib/platform"
 import type {
   AgentReachChannel,
   AgentReachConfigKey,
@@ -45,11 +45,9 @@ import type {
 } from "@/lib/types"
 import { invalidateAgentSkillsCache } from "@/hooks/use-agent-skills"
 
-const OPENCLI_EXTENSION_URL =
-  "https://chromewebstore.google.com/detail/opencli/ildkmabpimmkaediidaifkhjpohdnifk"
-
 export function InternetToolsSettings() {
   const t = useTranslations("InternetToolsSettings")
+  const localDesktop = isLocalDesktop()
   const [tools, setTools] = useState<InternetToolInfo[]>([])
   const [skills, setSkills] = useState<InternetToolSkill[]>([])
   const [family, setFamily] = useState<ManagedSkillFamilyState | null>(null)
@@ -212,7 +210,9 @@ export function InternetToolsSettings() {
         </Button>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div
+        className={localDesktop ? "grid gap-3" : "grid gap-3 lg:grid-cols-2"}
+      >
         <InternetToolCard
           name="Agent Reach"
           info={tool("agent_reach")}
@@ -222,15 +222,17 @@ export function InternetToolsSettings() {
           onDoctor={() => void doctorAgentReach()}
           doctorLabel={t("runDoctor")}
         />
-        <InternetToolCard
-          name="OpenCLI"
-          info={tool("opencli")}
-          busy={busyTools.has("opencli")}
-          onInstall={() => void install("opencli")}
-          onUninstall={() => void uninstall("opencli")}
-          onDoctor={() => void doctorOpencli()}
-          doctorLabel={t("checkConnection")}
-        />
+        {!localDesktop && (
+          <InternetToolCard
+            name="OpenCLI"
+            info={tool("opencli")}
+            busy={busyTools.has("opencli")}
+            onInstall={() => void install("opencli")}
+            onUninstall={() => void uninstall("opencli")}
+            onDoctor={() => void doctorOpencli()}
+            doctorLabel={t("checkConnection")}
+          />
+        )}
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -242,17 +244,9 @@ export function InternetToolsSettings() {
           <RefreshCw className="h-3.5 w-3.5" />
           {t("syncSkills")}
         </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => void openUrl(OPENCLI_EXTENSION_URL)}
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-          {t("browserExtension")}
-        </Button>
       </div>
 
-      {opencliDoctor && (
+      {!localDesktop && opencliDoctor && (
         <pre className="mt-3 max-h-28 overflow-auto whitespace-pre-wrap border bg-muted/30 p-3 text-xs">
           {opencliDoctor}
         </pre>

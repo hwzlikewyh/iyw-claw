@@ -9,7 +9,7 @@ use crate::commands::internet_tools::{opencli_is_installed, run_opencli};
 const DOCTOR_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_SESSION_CHARS: usize = 96;
 
-mod doctor;
+use super::opencli_doctor as doctor;
 const OPENCLI_COMMANDS: &[&str] = &[
     "bind",
     "unbind",

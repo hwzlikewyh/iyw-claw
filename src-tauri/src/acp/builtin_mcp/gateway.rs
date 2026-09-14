@@ -19,6 +19,7 @@ use super::plugin_control::{self, PluginControlRequest};
 use super::tool_identity::{GatewayTool, CAPABILITY_ID_MAX_CHARS};
 
 pub(super) enum GatewayAction {
+    AgentReachStatus,
     Html(crate::acp::interactive_html::InteractiveHtmlRequest),
     Return(CallToolResult),
     Invoke(ResolvedCapability),
@@ -274,6 +275,15 @@ fn invoke(
         Ok(resolved) => {
             let mut resolved = resolved;
             resolved.delivery_ack = parse_delivery_ack(params.delivery_ack)?;
+            if resolved.tool_name == "get_agent_reach_status" {
+                if resolved.delivery_ack.is_some() {
+                    return Err(ErrorData::invalid_params(
+                        "delivery_ack is not supported for channel status",
+                        None,
+                    ));
+                }
+                return Ok(GatewayAction::AgentReachStatus);
+            }
             return Ok(GatewayAction::Invoke(resolved));
         }
         Err(ResolveError::Unknown) => {}

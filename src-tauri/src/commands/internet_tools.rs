@@ -18,6 +18,10 @@ mod bootstrap;
 pub use bootstrap::bootstrap_core;
 mod skills;
 use skills::*;
+#[cfg(feature = "tauri-runtime")]
+mod extension;
+#[cfg(feature = "tauri-runtime")]
+pub(crate) use extension::*;
 
 const BOOTSTRAP_MARKER: &str = ".internet-tools-bootstrap.v1";
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);

@@ -1737,6 +1737,8 @@ mod tauri_app {
                 internet_tools_commands::internet_tools_read_skill,
                 internet_tools_commands::internet_tools_agent_reach_doctor,
                 internet_tools_commands::internet_tools_opencli_doctor,
+                internet_tools_commands::internet_tools_prepare_extension,
+                internet_tools_commands::internet_tools_open_extension_settings,
                 internet_tools_commands::internet_tools_configure_agent_reach,
                 internet_tools_commands::internet_tools_import_browser,
                 internet_tools_commands::internet_tools_install_channels,

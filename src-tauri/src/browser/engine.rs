@@ -76,6 +76,29 @@ fn system_engine_candidates() -> Vec<(BrowserEngineKind, PathBuf)> {
     candidates
 }
 
+pub(crate) async fn open_extension_settings(browser: &str) -> Result<(), String> {
+    let (kind, url) = match browser {
+        "chrome" => (BrowserEngineKind::Chrome, "chrome://extensions"),
+        "edge" => (BrowserEngineKind::Edge, "edge://extensions"),
+        _ => return Err("Unsupported browser for extension setup".into()),
+    };
+    let (_, path) = system_engine_candidates()
+        .into_iter()
+        .find(|(candidate, path)| *candidate == kind && path.is_file())
+        .ok_or_else(|| format!("{browser} installation was not found"))?;
+    let mut command = crate::process::tokio_command(path);
+    command
+        .arg(url)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    tokio::spawn(async move {
+        let _ = child.wait().await;
+    });
+    Ok(())
+}
+
 #[cfg(target_os = "windows")]
 fn push_windows_candidates(candidates: &mut Vec<(BrowserEngineKind, PathBuf)>) {
     let roots = [

@@ -105,6 +105,11 @@ impl BuiltinMcpHandler {
             annotate_lookup_error(error, direct_tool)
         })?;
         match action {
+            GatewayAction::AgentReachStatus => {
+                let result = super::agent_reach::status(&authority, &context.ct).await;
+                log_direct_result(&trace, &result);
+                result
+            }
             GatewayAction::Html(request) => {
                 let result = self
                     .show_interactive_html(authority, request, context.ct)
