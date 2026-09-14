@@ -151,18 +151,16 @@ impl BrowserRuntime {
         cancellation: CancellationToken,
     ) -> Result<BrowserRuntimeContext, BrowserError> {
         let _mutation = self.mutation.lock().await;
-        if let Some(mut cleanup) = self.pending_cleanup.lock().await.take() {
-            if let Err(error) = runtime_launch::cleanup_partial_owner(&mut cleanup).await {
-                *self.pending_cleanup.lock().await = Some(cleanup);
-                return Err(error);
-            }
-        }
+        self.retry_pending_cleanup().await?;
         if let Some(context) = self.context().await {
             return (context.generation == generation)
                 .then_some(context)
                 .ok_or_else(incomplete_cleanup_error);
         }
         let dependencies = self.prepare_dependencies(cancellation.clone()).await?;
+        tracing::info!(target: "iyw_claw_browser",
+            runtime_generation = generation, engine = ?dependencies.engine.kind,
+            engine_version = %dependencies.engine.version, "browser startup engine selected");
         let handle =
             match runtime_launch::launch(&self.data_root, dependencies, generation, cancellation)
                 .await
@@ -176,11 +174,12 @@ impl BrowserRuntime {
                 }
             };
         let context = handle.context();
+        let daemon_pid = handle.daemon.pid;
         *self.current.lock().await = Some(handle);
         tracing::info!(
             target: "iyw_claw_browser",
             runtime_generation = generation,
-            daemon_pid = context.cli.pid_path(&context.controller_session).display().to_string(),
+            daemon_pid,
             "browser runtime started"
         );
         Ok(context)

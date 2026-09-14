@@ -10,6 +10,10 @@ import {
   useState,
 } from "react"
 import { browserApi } from "@/lib/browser-api"
+import {
+  normalizeBrowserError as normalizeError,
+  startBrowserRuntime,
+} from "@/lib/browser-startup"
 import { closeHiddenBrowserWindow } from "@/lib/browser-window-visibility"
 import type {
   BrowserErrorEnvelope,
@@ -58,6 +62,7 @@ export function BrowserProvider({
   const [error, setError] = useState<BrowserErrorEnvelope | null>(null)
   const [busy, setBusy] = useState(false)
   const mountedRef = useRef(true)
+  const startingRef = useRef(false)
   const acceptedRevisionRef = useRef(0)
   const refreshPromiseRef = useRef<Promise<BrowserStateSnapshot | null> | null>(
     null
@@ -67,8 +72,8 @@ export function BrowserProvider({
     if (!mountedRef.current || next.stateRevision < acceptedRevisionRef.current)
       return
     acceptedRevisionRef.current = next.stateRevision
+    // 状态轮询和心跳不能抹掉命令失败；下一次主动操作才清除错误。
     setState(next)
-    setError(null)
   }, [])
 
   const refresh = useCallback(async () => {
@@ -96,6 +101,7 @@ export function BrowserProvider({
   const run = useCallback(
     async (operation: () => Promise<BrowserStateSnapshot>) => {
       setBusy(true)
+      setError(null)
       try {
         acceptState(await operation())
       } catch (cause) {
@@ -110,14 +116,17 @@ export function BrowserProvider({
   const openBrowser = useCallback(async () => {
     if (!readBrowserVisibility()) return
     setOpen(true)
+    if (startingRef.current) return
     setError(null)
     if (!isDesktop()) return
+    startingRef.current = true
     setBusy(true)
     try {
-      acceptState(await browserApi.start())
+      acceptState(await startBrowserRuntime())
     } catch (cause) {
       setError(normalizeError(cause))
     } finally {
+      startingRef.current = false
       if (mountedRef.current) setBusy(false)
     }
   }, [acceptState])
@@ -136,6 +145,7 @@ export function BrowserProvider({
     async (tabId: string, sourceHostId?: string) => {
       if (!readBrowserVisibility()) return
       setBusy(true)
+      setError(null)
       let label: string | null = null
       const sourceIsDocked = state?.hosts.some(
         (host) => host.hostId === sourceHostId && host.kind === "docked"
@@ -287,14 +297,4 @@ async function waitForTabHost(
     await new Promise((resolve) => window.setTimeout(resolve, 100))
   }
   throw new Error("Detached browser tab did not migrate")
-}
-
-function normalizeError(cause: unknown): BrowserErrorEnvelope {
-  const value = cause as Partial<BrowserErrorEnvelope> | null
-  return {
-    code: value?.code ?? "BROWSER_INTERNAL",
-    message: value?.message ?? String(cause),
-    retryable: value?.retryable ?? false,
-    effectMayHaveOccurred: value?.effectMayHaveOccurred ?? false,
-  }
 }
