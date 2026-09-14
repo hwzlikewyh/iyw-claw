@@ -154,12 +154,14 @@ fn temporary_params(input: &TitleInput, settings: &Value) -> Value {
     for key in [
         "orchestrator.skills.enabled",
         "skills.include_instructions",
-        "token_budget.use_history_notes_extension",
         "tools.experimental_request_user_input.enabled",
         "tools.update_plan.enabled",
     ] {
         config.insert(key.to_string(), json!(false));
     }
+    config.insert("features.token_budget".into(), json!({
+        "enabled": false, "use_history_notes_extension": false,
+    }));
     config.insert("web_search".into(), json!("disabled"));
     let servers = settings
         .get("mcp_servers")

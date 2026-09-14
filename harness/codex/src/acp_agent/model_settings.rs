@@ -34,7 +34,7 @@ impl ModelSettings {
             .filter(|value| !value.is_null())
             .cloned();
         if let Some(tier) = response.get("serviceTier") {
-            self.fast = tier.as_str() == Some("fast");
+            self.fast = matches!(tier.as_str(), Some("fast" | "priority"));
             self.service_tier = (!tier.is_null()).then(|| tier.clone());
         }
     }

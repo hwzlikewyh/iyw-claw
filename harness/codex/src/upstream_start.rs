@@ -62,12 +62,14 @@ impl UpstreamStartArgs {
         let (arg0_paths, launch_overrides) = launch;
         let environment_manager = build_environment(&config, &arg0_paths).await?;
         let stage = StartupStage::new("state_db");
-        let state_db = codex_core::init_state_db(&config).await;
-        stage.complete();
-        eprintln!(
-            "[internal-codex-worker] stage=state_db available={}",
-            state_db.is_some()
-        );
+        let state_db = stage
+            .finish(
+                codex_core::try_init_state_db(&config)
+                    .await
+                    .map_err(|error| format!("{}; {error:#}", error.root_cause())),
+            )
+            .map_err(start_error)?;
+        eprintln!("[internal-codex-worker] stage=state_db available=true");
         let config_warnings = config
             .startup_warnings
             .iter()
@@ -89,7 +91,7 @@ impl UpstreamStartArgs {
             cloud_config_bundle: CloudConfigBundleLoader::default(),
             feedback: CodexFeedback::new(),
             log_db: None,
-            state_db,
+            state_db: Some(state_db),
             environment_manager: Arc::new(environment_manager),
             config_warnings,
             session_source: SessionSource::Custom("iyw-claw".to_string()),

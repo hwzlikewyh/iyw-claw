@@ -16,6 +16,16 @@ This directory contains minimal source-level compatibility patches required to
 compile the locked Codex release. It is part of the harness source and must not
 depend on a developer-machine path.
 
+`codex-state` contains the production sources and migrations from pinned
+0.154.0, with test-only items omitted. Migration SQL is stored with LF endings.
+Before migration, the runtime accepts an applied checksum only when it matches
+the exact embedded SQL or its LF/CRLF variant. It adjusts the in-memory migrator,
+preserving database migration records, locking and rejection of other changes.
+The `codex-core` state bridge also exposes the upstream fallible initializer so
+the desktop worker reports initialization errors before accepting sessions;
+it must not advertise a working runtime with no state DB. Review these patches
+on upgrades and preserve all production dependencies and migrations.
+
 `codex-utils-pty` is copied from the locked `rust-v0.153.4` source tree. Local
 source deltas retain explicit pointer casts in `src/win/conpty.rs` and
 `src/win/procthreadattr.rs`, plus hidden-window creation flags in `src/pipe.rs`,

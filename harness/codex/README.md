@@ -28,6 +28,17 @@ ownership, Windows process patches, and command-description protocol extension.
 Session MCP configuration is required and checked against the thread's tool
 catalog before readiness. Tool names retain their saved namespace across resume.
 
+The official release was checked again on 2026-09-14: the latest stable tag is
+still `rust-v0.154.0`, and its tag object and source commit match `upstream.lock`.
+Newer `0.155.0-alpha` builds remain outside the stable synchronization policy.
+
+Settings commands wait for a matching `thread/settings/updated` notification;
+the empty `thread/settings/update` response only acknowledges queue acceptance.
+A prompt submitted while settings are pending waits for that confirmation.
+Errors, timeout, cancellation and shutdown settle the waiting request without
+reporting the requested model as applied. Native title configuration uses
+`features.token_budget`, as required by the pinned release.
+
 Unnamed threads use Codex's isolated structured-thread title flow. Generated
 names are persisted through `thread/name/set` and existing title notifications;
 manual names keep precedence. The previous separate Chat Completions summary
