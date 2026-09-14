@@ -5452,6 +5452,7 @@
     "sessionFilterSearchLabel": "Search conversations",
     "sessionFilterSearchPlaceholder": "Search conversation names",
     "sessionFilterEmpty": "No matching conversations",
+    "selected": "Selected",
     "fromConversation": "From conversation",
     "emptyFiltered": "This conversation has no deliverables yet",
     "empty": "No deliverables yet"

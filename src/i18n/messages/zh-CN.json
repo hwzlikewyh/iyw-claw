@@ -5452,6 +5452,7 @@
     "sessionFilterSearchLabel": "搜索会话",
     "sessionFilterSearchPlaceholder": "搜索会话名称",
     "sessionFilterEmpty": "没有匹配的会话",
+    "selected": "已选中",
     "fromConversation": "来自会话",
     "emptyFiltered": "当前会话暂无交付成果",
     "empty": "暂无交付成果"

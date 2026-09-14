@@ -103,7 +103,7 @@ function ResourceSessionFilter({
           variant="outline"
           size="default"
           className="w-full min-w-0 max-w-full justify-between rounded-md bg-muted/25 sm:w-56"
-          aria-label={t("sessionFilterLabel")}
+          aria-label={`${t("sessionFilterLabel")}: ${selectedLabel}`}
           aria-expanded={open}
         >
           <span className="flex min-w-0 items-center gap-2">
@@ -129,6 +129,9 @@ function ResourceSessionFilter({
               <CommandItem
                 value={`all ${t("allConversations")}`}
                 onSelect={() => handleSelect("all")}
+                aria-label={`${t("allConversations")}${
+                  session === "all" ? `, ${t("selected")}` : ""
+                }`}
               >
                 <span className="truncate">{t("allConversations")}</span>
                 <Check
@@ -146,6 +149,9 @@ function ResourceSessionFilter({
                     key={option.id}
                     value={`${value} ${label}`}
                     onSelect={() => handleSelect(value)}
+                    aria-label={`${label}${
+                      session === value ? `, ${t("selected")}` : ""
+                    }`}
                   >
                     <span className="truncate">{label}</span>
                     <Check
