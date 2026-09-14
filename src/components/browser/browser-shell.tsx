@@ -20,7 +20,12 @@ export function BrowserShell({
 }) {
   const { state, isOpen, closeBrowser, run } = useBrowser()
   const enabled = kind === "detached" || isOpen
-  const { host, windowLabel } = useBrowserHost(kind, enabled)
+  const {
+    host,
+    windowLabel,
+    error: hostError,
+    retry: retryHost,
+  } = useBrowserHost(kind, enabled)
   const creatingRef = useRef(false)
   const hostedTabRef = useRef(false)
   const closingWindowRef = useRef(false)
@@ -95,7 +100,12 @@ export function BrowserShell({
 
   if (!enabled) return null
   if (!state || !host || state.runtime.status !== "running") {
-    return <BrowserStatus />
+    return (
+      <BrowserStatus
+        hostError={hostError}
+        onRetry={!host || hostError ? retryHost : undefined}
+      />
+    )
   }
 
   const dialog = state.dialogs.find(

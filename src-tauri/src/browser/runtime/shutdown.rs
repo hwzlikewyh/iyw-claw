@@ -17,19 +17,24 @@ impl BrowserRuntime {
             }
             None => Ok(()),
         };
-        let pending = { self.pending_cleanup.lock().await.take() };
-        let pending_result = match pending {
-            Some(mut cleanup) => {
-                let result =
-                    crate::browser::runtime_launch::cleanup_partial_owner(&mut cleanup).await;
-                if result.is_err() {
-                    *self.pending_cleanup.lock().await = Some(cleanup);
-                }
-                result
-            }
-            None => Ok(()),
-        };
+        let pending_result = self.retry_pending_cleanup().await;
         current_result.and(pending_result)
+    }
+
+    pub(super) async fn retry_pending_cleanup(&self) -> Result<(), BrowserError> {
+        // 先释放队列锁，清理失败时才能重新保存所有权。
+        let pending = { self.pending_cleanup.lock().await.take() };
+        let Some(mut cleanup) = pending else {
+            return Ok(());
+        };
+        let result = crate::browser::runtime_launch::cleanup_partial_owner(&mut cleanup).await;
+        if let Err(error) = &result {
+            tracing::warn!(target: "iyw_claw_browser",
+                runtime_generation = cleanup.generation, error_code = ?error.code,
+                error = %error, "browser runtime cleanup failed; retaining owner");
+            *self.pending_cleanup.lock().await = Some(cleanup);
+        }
+        result
     }
 
     pub async fn release_exited(&self, generation: u64) -> Result<(), BrowserError> {
