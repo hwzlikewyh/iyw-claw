@@ -2,7 +2,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use sea_orm::DatabaseConnection;
 
-use super::agent_retention_policy::{self, AgentLogTarget};
+use super::agent_retention_policy::{self, AgentLogRule, AgentLogTarget};
 use super::agent_retention_scan::{self, LogGroup};
 use crate::acp::agent_storage::{load_config, AgentStorageConfig, AgentStoragePaths};
 
@@ -26,6 +26,32 @@ pub(crate) struct AgentLogCleanupReport {
 }
 
 pub(crate) async fn cleanup_managed_agent_logs(conn: &DatabaseConnection) -> AgentLogCleanupReport {
+    cleanup(conn, false).await
+}
+
+pub(super) async fn cleanup_periodic_agent_logs(conn: &DatabaseConnection) {
+    let report = cleanup(conn, true).await;
+    if report.failed_files > 0 || report.decision == "cleanup_timed_out" {
+        tracing::warn!(
+            decision = report.decision,
+            failed_files = report.failed_files,
+            error = report
+                .first_error
+                .as_deref()
+                .unwrap_or("cleanup budget exceeded"),
+            "[logs] periodic Agent log cleanup incomplete"
+        );
+    } else if report.deleted_files > 0 {
+        tracing::info!(
+            deleted_files = report.deleted_files,
+            deleted_bytes = report.deleted_bytes,
+            retention_days = RETENTION_DAYS,
+            "[logs] periodic Agent log cleanup completed"
+        );
+    }
+}
+
+async fn cleanup(conn: &DatabaseConnection, periodic: bool) -> AgentLogCleanupReport {
     let started = Instant::now();
     let Some(paths) = AgentStoragePaths::active() else {
         return skipped(started, "storage_unavailable");
@@ -35,8 +61,14 @@ pub(crate) async fn cleanup_managed_agent_logs(conn: &DatabaseConnection) -> Age
         Ok(None) => AgentStorageConfig::confirmed(paths.root().clone()),
         Err(error) => return failed(started, "storage_unavailable", error.to_string()),
     };
-    let targets = agent_retention_policy::targets(&paths, &config);
-    let cleanup = tokio::task::spawn_blocking(move || cleanup_targets(targets));
+    let (databases, files): (Vec<_>, Vec<_>) = agent_retention_policy::targets(&paths, &config)
+        .into_iter()
+        .partition(|target| matches!(target.rule, AgentLogRule::CodexDatabase));
+    // SQLite 只按记录清理，不能像普通日志一样删除 DB/WAL/SHM 文件。
+    if periodic {
+        super::codex_log_retention::cleanup(databases).await;
+    }
+    let cleanup = tokio::task::spawn_blocking(move || cleanup_targets(files, periodic));
     match tokio::time::timeout(CLEANUP_WALL_TIMEOUT, cleanup).await {
         Ok(Ok(mut report)) => {
             report.elapsed = started.elapsed();
@@ -47,7 +79,7 @@ pub(crate) async fn cleanup_managed_agent_logs(conn: &DatabaseConnection) -> Age
     }
 }
 
-fn cleanup_targets(targets: Vec<AgentLogTarget>) -> AgentLogCleanupReport {
+fn cleanup_targets(targets: Vec<AgentLogTarget>, periodic: bool) -> AgentLogCleanupReport {
     let started = Instant::now();
     let deadline = started + CLEANUP_BUDGET;
     let scan = agent_retention_scan::collect_groups(targets, deadline);
@@ -63,7 +95,7 @@ fn cleanup_targets(targets: Vec<AgentLogTarget>) -> AgentLogCleanupReport {
     let cutoff = SystemTime::now()
         .checked_sub(RETENTION_AGE)
         .unwrap_or(SystemTime::UNIX_EPOCH);
-    let over_threshold = report.total_bytes > TOTAL_BYTES_THRESHOLD;
+    let over_threshold = !periodic && report.total_bytes > TOTAL_BYTES_THRESHOLD;
     let mut timed_out = false;
     for group in scan.groups {
         if Instant::now() >= deadline {
