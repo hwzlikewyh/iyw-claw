@@ -61,6 +61,7 @@ pub mod idle_sweep;
 pub mod image_analysis;
 mod image_analysis_client;
 pub mod internal_bus;
+mod iyw_gateway_mcp;
 pub mod lifecycle;
 pub mod manager;
 pub mod memory_turn;

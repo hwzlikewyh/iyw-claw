@@ -3649,6 +3649,11 @@ async fn run_connection(
                 mcp_servers.push(prepared.server);
                 prepared.injection
             });
+            crate::acp::iyw_gateway_mcp::append(
+                &mut mcp_servers,
+                version_center_db.as_ref(),
+                agent_supports_mcp && mcp_caps.http,
+            ).await;
             {
                 let mut s = state.write().await;
                 // The agent's actual feedback capability for this session — the
