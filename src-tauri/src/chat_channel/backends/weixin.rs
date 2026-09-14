@@ -15,6 +15,10 @@ use crate::chat_channel::traits::ChatChannelBackend;
 use crate::chat_channel::types::*;
 use crate::db::service::sender_context_service;
 
+mod inbound;
+mod media;
+mod media_crypto;
+
 const ILINK_BASE_URL: &str = "https://ilinkai.weixin.qq.com";
 const ILINK_CHANNEL_VERSION: &str = "1.0.2";
 const ILINK_APP_ID: &str = "bot";
@@ -798,6 +802,25 @@ impl WeixinBackend {
 
 #[async_trait]
 impl ChatChannelBackend for WeixinBackend {
+    fn attachment_capability(&self) -> crate::chat_channel::attachments::AttachmentCapability {
+        crate::chat_channel::attachments::AttachmentCapability::for_channel("weixin")
+    }
+
+    async fn send_attachment_to(
+        &self,
+        attachment: &crate::chat_channel::attachments::ChannelAttachment,
+        target: &ChannelMessageTarget,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        self.send_media(attachment, target).await
+    }
+
+    async fn download_attachment(
+        &self,
+        attachment: &crate::chat_channel::attachments::IncomingAttachment,
+    ) -> Result<crate::chat_channel::attachments::ChannelAttachment, ChatChannelError> {
+        inbound::download(attachment).await
+    }
+
     fn channel_type(&self) -> ChannelType {
         ChannelType::Weixin
     }
@@ -1056,33 +1079,11 @@ impl ChatChannelBackend for WeixinBackend {
                                         continue;
                                     }
 
-                                    // Extract text from type=1 (text) or type=3 (voice-to-text)
-                                    let text = msg
-                                        .get("item_list")
-                                        .and_then(|v| v.as_array())
-                                        .and_then(|items| {
-                                            items.iter().find_map(|item| {
-                                                let t =
-                                                    item.get("type").and_then(|v| v.as_i64())?;
-                                                match t {
-                                                    1 => item
-                                                        .pointer("/text_item/text")
-                                                        .and_then(|v| v.as_str()),
-                                                    3 => item
-                                                        .pointer("/voice_item/text")
-                                                        .and_then(|v| v.as_str()),
-                                                    _ => None,
-                                                }
-                                            })
-                                        });
-
-                                    let text = match text {
-                                        Some(t) if !t.is_empty() => t,
-                                        _ => {
-                                            tracing::warn!("[Weixin] skipped non-text message");
-                                            continue;
-                                        }
-                                    };
+                                    let (text, attachments) = inbound::content(msg);
+                                    if text.is_empty() {
+                                        continue;
+                                    }
+                                    let text = text.as_str();
 
                                     let from_user_id = msg
                                         .get("from_user_id")
@@ -1187,20 +1188,24 @@ impl ChatChannelBackend for WeixinBackend {
                                         .get("msg_id")
                                         .or_else(|| msg.get("message_id"))
                                         .or_else(|| msg.get("client_msg_id"))
-                                        .and_then(|v| v.as_str())
+                                        .and_then(|v| {
+                                            v.as_str()
+                                                .map(str::to_string)
+                                                .or_else(|| v.as_u64().map(|id| id.to_string()))
+                                        })
                                         .filter(|v| !v.is_empty())
-                                        .map(|v| v.to_string())
                                         .unwrap_or_else(|| {
                                             format!(
                                                 "x{}",
                                                 weixin_message_hash(
                                                     from_user_id,
                                                     context_token,
-                                                    text
+                                                    &msg["item_list"].to_string()
                                                 )
                                             )
                                         });
                                     let command = IncomingCommand {
+                                        attachments,
                                         channel_id,
                                         sender_id: from_user_id.to_string(),
                                         sender_name: None,

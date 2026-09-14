@@ -1,5 +1,7 @@
 //! 企业微信智能机器人 WebSocket 长连接后端。
 
+mod inbound;
+mod media;
 mod protocol;
 mod runtime;
 
@@ -34,7 +36,7 @@ pub(crate) struct State {
 
 pub(crate) struct OutboundRequest {
     pub(crate) frame: Value,
-    pub(crate) result_tx: oneshot::Sender<Result<SentMessageId, ChatChannelError>>,
+    pub(crate) result_tx: oneshot::Sender<Result<Value, ChatChannelError>>,
 }
 
 impl WecomAiBotBackend {
@@ -62,6 +64,14 @@ impl WecomAiBotBackend {
     }
 
     async fn send_frame(&self, frame: Value) -> Result<SentMessageId, ChatChannelError> {
+        let req_id = protocol::frame_request_id(&frame)
+            .unwrap_or_default()
+            .to_string();
+        self.request_frame(frame).await?;
+        Ok(SentMessageId(format!("wecom-ai-bot-{req_id}")))
+    }
+
+    async fn request_frame(&self, frame: Value) -> Result<Value, ChatChannelError> {
         if self.status().await != ChannelConnectionStatus::Connected {
             return Err(ChatChannelError::NotConnected);
         }
@@ -146,6 +156,25 @@ fn normalize_chat_type(chat_type: u8) -> u8 {
 
 #[async_trait::async_trait]
 impl ChatChannelBackend for WecomAiBotBackend {
+    fn attachment_capability(&self) -> crate::chat_channel::attachments::AttachmentCapability {
+        crate::chat_channel::attachments::AttachmentCapability::for_channel("wecom_ai_bot")
+    }
+
+    async fn send_attachment_to(
+        &self,
+        attachment: &crate::chat_channel::attachments::ChannelAttachment,
+        target: &ChannelMessageTarget,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        self.send_media(attachment, target).await
+    }
+
+    async fn download_attachment(
+        &self,
+        attachment: &crate::chat_channel::attachments::IncomingAttachment,
+    ) -> Result<crate::chat_channel::attachments::ChannelAttachment, ChatChannelError> {
+        media::download(attachment).await
+    }
+
     fn channel_type(&self) -> ChannelType {
         ChannelType::WecomAiBot
     }

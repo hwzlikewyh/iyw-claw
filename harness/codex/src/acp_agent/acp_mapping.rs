@@ -37,7 +37,10 @@ pub(crate) fn initialize_response(
             "sessionCapabilities": { "resume": load_session.then(|| json!({})), "fork": {} }
         },
         "agentInfo": { "name": "iyw-claw-xinghe-inprocess", "title": "星河", "version": env!("CARGO_PKG_VERSION") },
-        "_meta": { "steering": { "supported": capabilities.contains(Capability::Steering) } }
+        "_meta": {
+            "steering": { "supported": capabilities.contains(Capability::Steering) },
+            "iyw": { "historyFork": true }
+        }
     })
 }
 

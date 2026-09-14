@@ -4,21 +4,12 @@ use super::LarkBackend;
 use crate::chat_channel::attachments::ChannelAttachment;
 use crate::chat_channel::error::ChatChannelError;
 
-const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
-
 pub(super) fn should_send_as_image(attachment: &ChannelAttachment) -> bool {
-    attachment.byte_len() <= MAX_IMAGE_BYTES
-        && matches!(
-            attachment.mime_type.as_str(),
-            "image/jpeg"
-                | "image/png"
-                | "image/webp"
-                | "image/gif"
-                | "image/bmp"
-                | "image/x-icon"
-                | "image/tiff"
-                | "image/heic"
-        )
+    crate::chat_channel::media_capabilities::native_image(
+        "lark",
+        &attachment.mime_type,
+        attachment.byte_len(),
+    )
 }
 
 pub(super) async fn upload_image(

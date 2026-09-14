@@ -40,6 +40,10 @@ pub struct WecomInboundMessage {
     pub msg_type: String,
     #[serde(rename = "Content", default)]
     pub content: String,
+    #[serde(rename = "MediaId", default)]
+    pub media_id: String,
+    #[serde(rename = "FileName", default)]
+    pub file_name: String,
     #[serde(rename = "MsgId", default)]
     pub msg_id: String,
     #[serde(rename = "AgentID", default)]

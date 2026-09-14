@@ -6,3 +6,7 @@ use crate::config::Config;
 pub async fn init_state_db(config: &Config) -> Option<StateDbHandle> {
     rollout_state_db::init(config).await
 }
+
+pub async fn try_init_state_db(config: &Config) -> anyhow::Result<StateDbHandle> {
+    rollout_state_db::try_init(config).await
+}

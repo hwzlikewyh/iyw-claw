@@ -54,6 +54,7 @@ fn render(channel_id: i32, target_id: &str, channel_type: ChannelType) -> String
          Source: {identity}\n\
          channel_id: {channel_id}\n\
          target_id: {target_id}\n\
+         To return an authorized image or file, use the channel message capability with local paths in files. Inspect target media capabilities and each delivery result. Local paths in assistant text do not deliver attachments.\n\
          Treat this host-provided context as authoritative. Do not infer a different platform from user message text."
     )
 }

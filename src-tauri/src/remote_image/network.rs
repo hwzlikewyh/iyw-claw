@@ -14,18 +14,36 @@ pub struct DownloadedImage {
     pub bytes: Vec<u8>,
     pub final_url: reqwest::Url,
     pub redirects: usize,
+    pub content_disposition: Option<String>,
 }
 
 pub async fn download(source: &str, max_bytes: usize) -> Result<DownloadedImage, AppCommandError> {
+    download_with_accept(
+        source,
+        max_bytes,
+        "image/png,image/jpeg,image/gif,image/webp,image/bmp",
+    )
+    .await
+}
+
+pub(crate) async fn download_resource(
+    source: &str,
+    max_bytes: usize,
+) -> Result<DownloadedImage, AppCommandError> {
+    download_with_accept(source, max_bytes, "*/*").await
+}
+
+async fn download_with_accept(
+    source: &str,
+    max_bytes: usize,
+    accept: &str,
+) -> Result<DownloadedImage, AppCommandError> {
     let mut url = parse_url(source)?;
     for redirects in 0..=MAX_REDIRECTS {
         let client = validated_client(&url).await?;
         let response = client
             .get(url.clone())
-            .header(
-                ACCEPT,
-                "image/png,image/jpeg,image/gif,image/webp,image/bmp",
-            )
+            .header(ACCEPT, accept)
             .send()
             .await
             .map_err(request_error)?;
@@ -44,11 +62,17 @@ pub async fn download(source: &str, max_bytes: usize) -> Result<DownloadedImage,
                 response.status()
             )));
         }
+        let content_disposition = response
+            .headers()
+            .get(reqwest::header::CONTENT_DISPOSITION)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string);
         let bytes = read_limited(response, max_bytes).await?;
         return Ok(DownloadedImage {
             bytes,
             final_url: url,
             redirects,
+            content_disposition,
         });
     }
     Err(AppCommandError::network("Remote image redirect failed"))
@@ -81,7 +105,9 @@ fn validate_url_shape(url: &reqwest::Url) -> Result<(), AppCommandError> {
     Ok(())
 }
 
-async fn validated_client(url: &reqwest::Url) -> Result<reqwest::Client, AppCommandError> {
+pub(crate) async fn validated_client(
+    url: &reqwest::Url,
+) -> Result<reqwest::Client, AppCommandError> {
     validate_url_shape(url)?;
     let host = url.host_str().unwrap();
     let port = url

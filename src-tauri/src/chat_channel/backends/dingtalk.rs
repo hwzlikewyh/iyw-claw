@@ -1,5 +1,7 @@
 //! DingTalk Stream Mode backend.
 
+mod inbound;
+mod media;
 mod protocol;
 mod runtime;
 
@@ -36,6 +38,7 @@ struct GatewayEnvelope {
 
 #[derive(Clone)]
 pub struct DingtalkBackend {
+    media_token: Arc<Mutex<Option<media::Token>>>,
     pub(super) channel_id: i32,
     config: DingtalkConfig,
     client_secret: String,
@@ -48,6 +51,7 @@ pub struct DingtalkBackend {
 impl DingtalkBackend {
     pub fn new(channel_id: i32, config: DingtalkConfig, client_secret: String) -> Self {
         Self {
+            media_token: Arc::new(Mutex::new(None)),
             channel_id,
             config,
             client_secret,
@@ -160,6 +164,25 @@ impl DingtalkBackend {
 
 #[async_trait]
 impl ChatChannelBackend for DingtalkBackend {
+    fn attachment_capability(&self) -> crate::chat_channel::attachments::AttachmentCapability {
+        crate::chat_channel::attachments::AttachmentCapability::for_channel("dingtalk")
+    }
+
+    async fn send_attachment_to(
+        &self,
+        attachment: &crate::chat_channel::attachments::ChannelAttachment,
+        target: &ChannelMessageTarget,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        self.send_media(attachment, target).await
+    }
+
+    async fn download_attachment(
+        &self,
+        attachment: &crate::chat_channel::attachments::IncomingAttachment,
+    ) -> Result<crate::chat_channel::attachments::ChannelAttachment, ChatChannelError> {
+        self.download_media(attachment).await
+    }
+
     fn channel_type(&self) -> ChannelType {
         ChannelType::Dingtalk
     }

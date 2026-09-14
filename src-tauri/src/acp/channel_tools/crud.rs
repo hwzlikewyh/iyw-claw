@@ -56,7 +56,6 @@ impl ChannelToolService {
         let wecom_authorized = self.wecom_authorized(&rows).await;
         let filtered = rows
             .into_iter()
-            .filter(|row| row.channel_type != "wecom_agent")
             .filter(|row| input.channel_id.is_none_or(|id| row.id == id))
             .filter(|row| {
                 input

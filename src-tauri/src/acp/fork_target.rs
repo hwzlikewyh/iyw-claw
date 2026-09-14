@@ -29,6 +29,20 @@ pub struct ForkPoint {
     pub message_fingerprint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message_occurrence: Option<usize>,
+    #[serde(skip)]
+    message_text: Option<String>,
+}
+
+impl ForkPoint {
+    pub(crate) fn metadata(&self, native_history_fork: bool) -> serde_json::Value {
+        let mut value = serde_json::json!(self);
+        if native_history_fork {
+            if let Some(text) = &self.message_text {
+                value["messageText"] = serde_json::json!(text);
+            }
+        }
+        value
+    }
 }
 
 pub fn supports_history(agent: AgentType) -> bool {
@@ -38,7 +52,19 @@ pub fn supports_history(agent: AgentType) -> bool {
     )
 }
 
-pub fn validate_runtime(agent: AgentType, version: Option<&str>) -> Result<(), AcpError> {
+pub fn validate_runtime(
+    agent: AgentType,
+    version: Option<&str>,
+    native_history_fork: bool,
+) -> Result<(), AcpError> {
+    if agent == AgentType::Codex && native_history_fork {
+        return Ok(());
+    }
+    if crate::internal_xinghe_worker::is_desktop_agent(agent) {
+        return Err(AcpError::protocol(
+            "当前内置星河尚不支持历史消息分叉，请更新应用",
+        ));
+    }
     let minimum = match agent {
         AgentType::ClaudeCode => semver::Version::new(0, 73, 0),
         AgentType::Codex => semver::Version::new(1, 8, 0),
@@ -82,6 +108,7 @@ fn resolve_sync(agent: AgentType, target: ForkTarget) -> Result<ForkPoint, AcpEr
         message_id: target.message_id,
         message_fingerprint: None,
         message_occurrence: None,
+        message_text: None,
     };
     // 星河旧历史没有原生 item ID，适配器支持正文指纹及全历史出现序号定位。
     if agent == AgentType::Codex {
@@ -97,6 +124,7 @@ fn resolve_sync(agent: AgentType, target: ForkTarget) -> Result<ForkPoint, AcpEr
                     })
                     .count(),
             );
+            point.message_text = Some(text);
         }
     }
     Ok(point)

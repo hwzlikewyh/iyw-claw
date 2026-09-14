@@ -81,7 +81,7 @@ const SPECIAL_METADATA: &[(&str, CapabilityIntentMetadata)] = &[
     ("operate_message_channel", metadata!(&["operate message channel", "操作消息渠道", "启停消息渠道"], &["operate", "操作", "channel", "渠道", "message", "消息"], "Use to perform a supported lifecycle operation on an identified message channel.")),
     ("list_channel_targets", metadata!(&["list channel targets", "列出渠道目标", "查看消息接收方"], &["list", "列出", "target", "目标", "channel", "渠道"], "Use to inspect available targets for an identified message channel before sending.")),
     ("list_channel_messages", metadata!(&["list channel messages", "列出渠道消息", "查询历史消息"], &["list", "列出", "message", "消息", "history", "历史"], "Use to read messages from an identified channel and target when requested.")),
-    ("send_channel_messages", metadata!(&["send channel message", "发送消息", "发企业微信消息", "发送渠道消息"], &["send", "发送", "message", "消息", "channel", "渠道"], "Use to send a message through a configured channel after resolving the exact target and content.")),
+    ("send_channel_messages", metadata!(&["send channel message", "send channel image", "send channel file", "发送消息", "发企业微信消息", "发送渠道消息", "发送图片", "发送文件", "发送附件"], &["send", "发送", "message", "消息", "channel", "渠道", "image", "图片", "file", "文件", "attachment", "附件"], "Send authorized text, images or local files through a configured channel after resolving the exact target and its media capabilities. Check every file result and do not retry delivery-unknown blindly.")),
     ("manage_channel_settings", metadata!(&["manage channel settings", "管理渠道设置", "修改消息渠道配置"], &["settings", "设置", "channel", "渠道", "manage", "管理"], "Use to change supported settings for an identified message channel.")),
 ];
 

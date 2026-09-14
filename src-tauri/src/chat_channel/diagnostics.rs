@@ -127,6 +127,7 @@ async fn run_roundtrip(
     trace_id: &str,
 ) -> RoundtripResult {
     let command = IncomingCommand {
+        attachments: Vec::new(),
         channel_id,
         sender_id: "__diagnostic__".to_string(),
         sender_name: Some("通道自检".to_string()),

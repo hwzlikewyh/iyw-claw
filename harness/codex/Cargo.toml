@@ -70,6 +70,7 @@ tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev 
 # upstream source plus only those compatibility fixes; remove it when a
 # subsequent locked Codex release incorporates an equivalent fix.
 [patch."https://github.com/openai/codex.git"]
+codex-state = { path = "patches/codex-state" }
 codex-protocol = { path = "patches/codex-protocol" }
 codex-app-server-protocol = { path = "patches/codex-app-server-protocol" }
 codex-app-server = { path = "patches/codex-app-server" }

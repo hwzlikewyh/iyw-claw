@@ -1,4 +1,5 @@
 mod attachments;
+mod inbound;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -694,7 +695,10 @@ async fn handle_lark_event(
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        if msg_type != "text" {
+        if !matches!(
+            msg_type,
+            "text" | "image" | "file" | "post" | "audio" | "media"
+        ) {
             return;
         }
 
@@ -713,16 +717,7 @@ async fn handle_lark_event(
             }
         }
 
-        let content_str = event
-            .pointer("/event/message/content")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-
-        // Content is JSON string: {"text":"actual message"}
-        let text = serde_json::from_str::<serde_json::Value>(content_str)
-            .ok()
-            .and_then(|v| v.get("text").and_then(|t| t.as_str()).map(String::from))
-            .unwrap_or_default();
+        let (text, attachments) = inbound::content(event);
 
         if text.is_empty() {
             return;
@@ -763,6 +758,7 @@ async fn handle_lark_event(
             .and_then(|value| value.as_str())
             .unwrap_or_default();
         let command = IncomingCommand {
+            attachments,
             channel_id,
             sender_id,
             sender_name: None,
@@ -937,10 +933,14 @@ impl ChatChannelBackend for LarkBackend {
     }
 
     fn attachment_capability(&self) -> AttachmentCapability {
-        AttachmentCapability {
-            supported: true,
-            max_file_bytes: Some(LARK_MAX_FILE_BYTES),
-        }
+        AttachmentCapability::for_channel("lark")
+    }
+
+    async fn download_attachment(
+        &self,
+        attachment: &crate::chat_channel::attachments::IncomingAttachment,
+    ) -> Result<ChannelAttachment, ChatChannelError> {
+        self.download_media(attachment).await
     }
 
     async fn send_attachment_to(

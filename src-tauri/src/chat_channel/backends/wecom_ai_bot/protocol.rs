@@ -17,6 +17,7 @@ pub(crate) use handshake::{connect_and_subscribe, verify_connection};
 pub(crate) struct ProviderAck {
     pub(crate) req_id: String,
     pub(crate) error: Option<String>,
+    pub(crate) body: Value,
 }
 
 pub(crate) async fn handle_message(
@@ -74,12 +75,13 @@ fn provider_ack(frame: &Value) -> Option<ProviderAck> {
     Some(ProviderAck {
         req_id,
         error: (code != 0).then(|| provider_error(frame)),
+        body: frame.get("body").cloned().unwrap_or(Value::Null),
     })
 }
 
 fn parse_callback(frame: &Value, channel_id: i32) -> Option<IncomingCommand> {
     let body = frame.get("body")?;
-    let text = callback_text(body)?;
+    let (text, attachments) = super::inbound::content(body)?;
     let (sender_id, chat_id) = callback_address(body)?;
     let req_id = target_header(frame, "req_id")
         .unwrap_or_default()
@@ -93,27 +95,18 @@ fn parse_callback(frame: &Value, channel_id: i32) -> Option<IncomingCommand> {
     if provider_id.is_empty() {
         provider_id = request_id("inbound");
     }
-    Some(build_command(
+    let mut command = build_command(
         channel_id,
         sender_id,
         chat_id,
-        text,
+        &text,
         req_id,
         provider_id,
         body["chattype"].clone(),
-    ))
-}
-
-fn callback_text(body: &Value) -> Option<&str> {
-    if body["msgtype"].as_str().is_some_and(|kind| kind != "text") {
-        return None;
-    }
-    let text = body
-        .pointer("/text/content")
-        .or_else(|| body.get("content"))?
-        .as_str()?
-        .trim();
-    (!text.is_empty()).then_some(text)
+    );
+    command.attachments = attachments;
+    command.metadata["msgtype"] = body["msgtype"].clone();
+    Some(command)
 }
 
 fn callback_address(body: &Value) -> Option<(&str, &str)> {
@@ -138,6 +131,7 @@ fn build_command(
     chattype: Value,
 ) -> IncomingCommand {
     IncomingCommand {
+        attachments: Vec::new(),
         channel_id,
         sender_id: sender_id.to_string(),
         sender_name: None,
@@ -201,6 +195,13 @@ pub(crate) fn target_chat_type(target: &ChannelMessageTarget) -> Option<u8> {
         .as_ref()?
         .get("chat_type")
         .or_else(|| target.provider_payload.as_ref()?.get("chattype"))?;
+    if let Some(kind) = value.as_str() {
+        match kind {
+            "group" => return Some(2),
+            "single" => return Some(1),
+            _ => {}
+        }
+    }
     let parsed = value
         .as_u64()
         .and_then(|value| u8::try_from(value).ok())

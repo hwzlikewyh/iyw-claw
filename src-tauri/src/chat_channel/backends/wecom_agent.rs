@@ -1,6 +1,8 @@
 //! WeCom self-built application backend.
 
 mod attachments;
+mod inbound;
+pub(crate) use inbound::inbound_attachments;
 mod client;
 mod client_media;
 pub mod crypto;
@@ -200,6 +202,13 @@ impl ChatChannelBackend for WecomAgentBackend {
 
     fn attachment_capability(&self) -> AttachmentCapability {
         attachments::capability()
+    }
+
+    async fn download_attachment(
+        &self,
+        attachment: &crate::chat_channel::attachments::IncomingAttachment,
+    ) -> Result<ChannelAttachment, ChatChannelError> {
+        self.download_media(attachment).await
     }
 
     async fn send_attachment_to(

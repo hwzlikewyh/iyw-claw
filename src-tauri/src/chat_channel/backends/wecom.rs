@@ -30,6 +30,7 @@ use crate::chat_channel::traits::ChatChannelBackend;
 use crate::chat_channel::types::*;
 
 mod cli_error;
+mod media;
 mod poll_runtime;
 
 pub const WECOM_CHAT_THREAD_KIND: &str = "wecom_chat";
@@ -59,6 +60,7 @@ struct State {
     seen: Mutex<SeenKeys>,
     /// Texts we sent recently, for group-chat echo suppression.
     recently_sent: Mutex<VecDeque<(String, Instant)>>,
+    recently_sent_media: Mutex<VecDeque<(String, Instant)>>,
     data_dir: PathBuf,
 }
 
@@ -101,6 +103,7 @@ impl WecomBackend {
                 poll_task: Mutex::new(None),
                 seen: Mutex::new(SeenKeys::new()),
                 recently_sent: Mutex::new(VecDeque::new()),
+                recently_sent_media: Mutex::new(VecDeque::new()),
                 data_dir,
             }),
         }
@@ -169,6 +172,25 @@ impl WecomBackend {
 
 #[async_trait]
 impl ChatChannelBackend for WecomBackend {
+    fn attachment_capability(&self) -> crate::chat_channel::attachments::AttachmentCapability {
+        crate::chat_channel::attachments::AttachmentCapability::for_channel("wecom")
+    }
+
+    async fn send_attachment_to(
+        &self,
+        attachment: &crate::chat_channel::attachments::ChannelAttachment,
+        target: &ChannelMessageTarget,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        self.send_media(attachment, target).await
+    }
+
+    async fn download_attachment(
+        &self,
+        attachment: &crate::chat_channel::attachments::IncomingAttachment,
+    ) -> Result<crate::chat_channel::attachments::ChannelAttachment, ChatChannelError> {
+        self.download_media(attachment).await
+    }
+
     fn channel_type(&self) -> ChannelType {
         ChannelType::Wecom
     }
@@ -381,21 +403,35 @@ async fn poll_chat(
             .get("send_time")
             .and_then(|value| value.as_str())
             .unwrap_or_default();
-        if message.get("msg_type").and_then(|value| value.as_str()) != Some("text") {
+        let attachments = media::inbound(&message);
+        if message.get("msg_type").and_then(|value| value.as_str()) != Some("text")
+            && attachments.is_empty()
+        {
             continue;
         }
-        let Some(content) = message
+        let content = match message
             .pointer("/text/content")
             .and_then(|value| value.as_str())
-        else {
-            continue;
+        {
+            Some(text) if !text.trim().is_empty() => text,
+            _ if !attachments.is_empty() => "请查看附件。",
+            _ => continue,
         };
+
+        if media::is_echo(state, &attachments).await {
+            continue;
+        }
 
         if chat_type == 2 && was_recently_sent(state, content).await {
             continue;
         }
 
-        let key = message_key(chat_id, sender, send_time, content);
+        let identity = if attachments.is_empty() {
+            content.to_string()
+        } else {
+            message.to_string()
+        };
+        let key = message_key(chat_id, sender, send_time, &identity);
         if !state.seen.lock().await.insert(key) {
             continue;
         }
@@ -421,8 +457,9 @@ async fn poll_chat(
             .and_then(|v| v.as_str())
             .filter(|v| !v.is_empty())
             .map(|v| v.to_string())
-            .unwrap_or_else(|| format!("w{}", message_key(chat_id, sender, send_time, content)));
+            .unwrap_or_else(|| format!("w{key}"));
         let command = IncomingCommand {
+            attachments,
             channel_id,
             sender_id: sender.to_string(),
             sender_name: sender_name.clone(),
@@ -546,6 +583,7 @@ async fn run_cli_raw(data_dir: &Path, args: &[&str]) -> Result<String, ChatChann
     let mut command = crate::wecom_ai::managed_command(data_dir)
         .map_err(|error| ChatChannelError::ConnectionFailed(error.to_string()))?;
     command.args(args);
+    command.kill_on_drop(true);
     command.stdin(std::process::Stdio::null());
     let output = tokio::time::timeout(CLI_TIMEOUT, command.output())
         .await

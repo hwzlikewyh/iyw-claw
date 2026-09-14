@@ -22,7 +22,7 @@ const MAX_PENDING_ACKS: usize = 128;
 
 struct PendingAck {
     sent_at: Instant,
-    result_tx: oneshot::Sender<Result<SentMessageId, ChatChannelError>>,
+    result_tx: oneshot::Sender<Result<serde_json::Value, ChatChannelError>>,
 }
 
 pub(crate) struct RunArgs {
@@ -156,6 +156,9 @@ async fn queue_outbound(
     pending: &mut HashMap<String, PendingAck>,
     request: OutboundRequest,
 ) -> Result<(), ChatChannelError> {
+    if request.result_tx.is_closed() {
+        return Ok(());
+    }
     let Some(req_id) = protocol::frame_request_id(&request.frame).map(str::to_string) else {
         let _ = request.result_tx.send(Err(ChatChannelError::SendFailed(
             "WeCom outbound frame omitted req_id".into(),
@@ -192,7 +195,7 @@ fn resolve_provider_ack(pending: &mut HashMap<String, PendingAck>, ack: protocol
     };
     let result = match ack.error {
         Some(error) => Err(ChatChannelError::SendFailed(error)),
-        None => Ok(SentMessageId(format!("wecom-ai-bot-{}", ack.req_id))),
+        None => Ok(ack.body),
     };
     let _ = pending.result_tx.send(result);
 }

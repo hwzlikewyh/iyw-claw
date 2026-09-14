@@ -117,7 +117,11 @@ async fn receive_inner(
         tracing::info!(channel_id = path.channel_id, %request_id, stage = "inbound_disabled", "[WeCom Agent] callback acknowledged while disabled");
         return Ok(empty_response(StatusCode::OK));
     }
-    if message.msg_type != "text" || message.content.trim().is_empty() {
+    let has_media = matches!(
+        message.msg_type.as_str(),
+        "image" | "file" | "voice" | "video"
+    ) && !message.media_id.is_empty();
+    if !has_media && (message.msg_type != "text" || message.content.trim().is_empty()) {
         tracing::info!(channel_id = path.channel_id, %request_id, message_type = message.msg_type, stage = "inbound_unsupported", "[WeCom Agent] unsupported callback acknowledged");
         return Ok(empty_response(StatusCode::OK));
     }
@@ -149,10 +153,15 @@ fn incoming_command(
     provider_message_id: String,
 ) -> IncomingCommand {
     IncomingCommand {
+        attachments: crate::chat_channel::backends::wecom_agent::inbound_attachments(message),
         channel_id,
         sender_id: message.from_user_name.clone(),
         sender_name: None,
-        command_text: message.content.clone(),
+        command_text: if message.content.is_empty() {
+            "请查看附件。".into()
+        } else {
+            message.content.clone()
+        },
         callback_data: None,
         target: ChannelMessageTarget {
             channel_id,

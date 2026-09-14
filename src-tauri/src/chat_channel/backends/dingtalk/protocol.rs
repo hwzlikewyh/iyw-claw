@@ -132,11 +132,12 @@ async fn send_busy(
 
 fn parse_incoming(channel_id: i32, frame: &serde_json::Value) -> Option<IncomingCommand> {
     let data = parse_data(frame.get("data")?)?;
-    let text = data.pointer("/text/content")?.as_str()?.trim();
+    let (text, attachments) = super::inbound::content(&data);
     if text.is_empty() {
         return None;
     }
-    let sender_id = field(&data, "senderStaffId").or_else(|| field(&data, "senderId"))?;
+    let staff_id = field(&data, "senderStaffId");
+    let sender_id = staff_id.clone().or_else(|| field(&data, "senderId"))?;
     let conversation_type = field(&data, "conversationType");
     let chat_id = if conversation_type.as_deref() == Some("2") {
         field(&data, "conversationId").unwrap_or_else(|| sender_id.clone())
@@ -157,6 +158,7 @@ fn parse_incoming(channel_id: i32, frame: &serde_json::Value) -> Option<Incoming
         .cloned()
         .unwrap_or(serde_json::Value::Null);
     Some(IncomingCommand {
+        attachments,
         channel_id,
         sender_id,
         sender_name: field(&data, "senderNick"),
@@ -171,6 +173,7 @@ fn parse_incoming(channel_id: i32, frame: &serde_json::Value) -> Option<Incoming
                 "session_webhook": webhook,
                 "session_webhook_expired_time": expires,
                 "chat_type": conversation_type,
+                "sender_staff_id": staff_id,
             })),
         },
         metadata: serde_json::json!({ "chat_type": conversation_type }),

@@ -103,7 +103,8 @@ pub(super) fn send_status(
 ) -> Result<&'static str, String> {
     let file_sent = files.iter().filter(|file| file.status == "sent").count();
     let successes = usize::from(text_sent) + file_sent;
-    let failures = files.len().saturating_sub(file_sent);
+    let failures =
+        files.len().saturating_sub(file_sent) + usize::from(text_requested && !text_sent);
     match (successes, failures, files_empty, text_requested) {
         (0, 0, true, false) => Err("MESSAGE_CONTENT_REQUIRED".to_string()),
         (0, 0, true, true) => Ok("failed"),

@@ -22,6 +22,7 @@ mod child_events;
 mod commands;
 mod completed_snapshot;
 mod fast_mode;
+mod history_fork;
 mod event_recovery;
 mod message_projection;
 mod interaction;
@@ -34,6 +35,7 @@ mod permission_profile;
 mod prompt_mapping;
 mod session_options;
 mod settings_mapping;
+mod settings_update;
 mod side_question;
 mod steering;
 mod subagent_items;
@@ -107,6 +109,7 @@ impl ConnectTo<Client> for CodexAcpAgent {
                     session_launch: None,
                     interactions: Default::default(),
                     automatic: Default::default(),
+                    settings_update: Default::default(),
                 };
                 run_bridge(upstream, command_rx, cx, bridge_command_tx, authority).await
             })
@@ -158,6 +161,7 @@ struct BridgeAuthority {
     session_launch: Option<crate::upstream_mcp::ThreadLaunchOptions>,
     interactions: interaction_registry::InteractionRegistry,
     automatic: automatic_turn::AutomaticTurnState,
+    settings_update: settings_update::SettingsUpdate,
 }
 
 async fn dispatch_message(
@@ -253,12 +257,19 @@ async fn run_bridge_loop(
     let mut native_title = native_title::NativeTitle::default();
     let mut side_questions = side_question::SideQuestions::default();
     loop {
+        let settings_deadline = authority.settings_update.deadline();
+        if let Some(command) = authority.settings_update.take_prompt() {
+            handle_command(upstream, command, &mut session_id, &mut pending_prompt, &mut authority, &mut session_settings, &cx).await?;
+        }
         if authority.automatic.awaiting_prompt.is_none() {
             if let Some(command) = authority.automatic.deferred_prompt.take() {
                 handle_command(upstream, command, &mut session_id, &mut pending_prompt, &mut authority, &mut session_settings, &cx).await?;
             }
         }
         tokio::select! {
+            _ = tokio::time::sleep_until(settings_deadline.unwrap_or_else(tokio::time::Instant::now)), if settings_deadline.is_some() => {
+                authority.settings_update.fail("Timed out waiting for session settings to be applied");
+            },
             command = commands.recv() => match command {
                 Some(command) => {
                     if let BridgeCommand::Request { method, params, .. } = &command {
@@ -342,6 +353,7 @@ async fn run_bridge_loop(
                     for event in events {
                     if side_questions.route(&event) { continue; }
                     if native_title.route(&event) { continue; }
+                    authority.settings_update.observe(&event, &mut session_settings);
                     let context = BridgeEventContext {
                         upstream: &upstream,
                         cx: &cx,
@@ -391,6 +403,10 @@ async fn handle_command(
             }
         }
         BridgeCommand::Prompt { params, responder } => {
+            if authority.settings_update.deadline().is_some() {
+                authority.settings_update.defer_prompt(params, responder);
+                return Ok(());
+            }
             authority.automatic.observe_prompt(&params, session_id.as_deref());
             if authority.automatic.awaiting_prompt.is_some() && commands::command(&params).is_some() {
                 if authority.automatic.deferred_prompt.is_some() {
@@ -443,6 +459,12 @@ async fn handle_command(
             params,
             response,
         } => {
+            if settings_update::is_update(&method) {
+                authority.settings_update.start(
+                    (upstream, session_settings), (method, params, response),
+                ).await;
+                return Ok(());
+            }
             let result = handle_request(
                 upstream,
                 &method,
@@ -465,6 +487,7 @@ async fn handle_command(
             if session_id.as_deref() != Some(thread_id) {
                 return Ok(());
             }
+            authority.settings_update.cancel_prompt();
             let automatic = pending_prompt.is_none() && authority.automatic.awaiting_prompt.is_none();
             if let Some(BridgeCommand::Prompt { responder, .. }) = authority.automatic.deferred_prompt.take() {
                 let _ = responder.respond(json!({ "stopReason": "cancelled" }));
@@ -620,9 +643,7 @@ async fn handle_request(
             let options = authority.session_launch.clone()
                 .ok_or_else(|| UpstreamError::InvalidRequest("fork has no owning launch configuration".into()))?
                 .with_fork_settings(session_settings.fork_values())?;
-            let request = json!({ "method": "thread/fork", "params": {
-                "threadId": source, "excludeTurns": true, "deferGoalContinuation": true,
-            } });
+            let request = history_fork::request(upstream, source, &params).await?;
             let response = upstream.fork_configured_thread(request, options).await?;
             let id = crate::upstream_backend::thread_id_from_response_for_bridge(&response)?;
             session_settings.capture(&response);

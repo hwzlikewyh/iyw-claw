@@ -4,6 +4,7 @@ use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 
 use super::i18n::{self, Lang};
+use super::media_prompt::{ChannelPrompt, PromptMedia};
 use super::session_bridge::SessionBridge;
 use super::session_runtime;
 use super::types::{ChannelMessageTarget, InteractiveMessage, RichMessage};
@@ -38,6 +39,7 @@ pub enum CommandPostAction {
         folder_id: i32,
         conversation_id: i32,
         text: String,
+        media: PromptMedia,
         channel_id: i32,
         sender_id: String,
         response_target: ChannelMessageTarget,
@@ -71,6 +73,7 @@ pub async fn handle_post_action(
         folder_id,
         conversation_id,
         text,
+        media,
         channel_id,
         sender_id,
         response_target,
@@ -114,7 +117,7 @@ pub async fn handle_post_action(
             &connection_id,
             folder_id,
             conversation_id,
-            &text,
+            &ChannelPrompt::new(&text, &media),
         )
         .await
     };

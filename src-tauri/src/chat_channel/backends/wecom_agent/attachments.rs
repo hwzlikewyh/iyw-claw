@@ -5,13 +5,11 @@ use crate::chat_channel::attachments::{AttachmentCapability, ChannelAttachment};
 use crate::chat_channel::error::ChatChannelError;
 use crate::chat_channel::types::SentMessageId;
 
-const MAX_ATTACHMENT_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_ATTACHMENT_BYTES: u64 = 20 * 1024 * 1024;
+const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 
 pub(super) fn capability() -> AttachmentCapability {
-    AttachmentCapability {
-        supported: true,
-        max_file_bytes: Some(MAX_ATTACHMENT_BYTES),
-    }
+    AttachmentCapability::for_channel("wecom_agent")
 }
 
 impl WecomAgentBackend {
@@ -22,7 +20,7 @@ impl WecomAgentBackend {
     ) -> Result<SentMessageId, ChatChannelError> {
         let user_id = user_id.trim();
         validate_attachment(user_id, attachment)?;
-        let kind = media_kind(&attachment.mime_type);
+        let kind = media_kind(attachment);
         let token = self.access_token(false, None).await?;
         let receipt = match self
             .upload_and_send(&token, user_id, kind, attachment)
@@ -69,18 +67,27 @@ fn validate_attachment(
             "WeCom target UserID is missing".to_string(),
         ));
     }
-    if attachment.byte_len() == 0 || attachment.byte_len() > MAX_ATTACHMENT_BYTES {
-        return Err(ChatChannelError::SendFailed(
-            "WeCom attachment must be between 1 byte and 10 MB".to_string(),
-        ));
+    let limit = match media_kind(attachment) {
+        MediaKind::Image => MAX_IMAGE_BYTES,
+        MediaKind::File => MAX_ATTACHMENT_BYTES,
+    };
+    if attachment.byte_len() < 5 || attachment.byte_len() > limit {
+        return Err(ChatChannelError::SendFailed(format!(
+            "WeCom attachment must be between 5 and {limit} bytes"
+        )));
     }
     Ok(())
 }
 
-fn media_kind(mime_type: &str) -> MediaKind {
-    match mime_type {
-        "image/jpeg" | "image/png" => MediaKind::Image,
-        _ => MediaKind::File,
+fn media_kind(attachment: &ChannelAttachment) -> MediaKind {
+    if crate::chat_channel::media_capabilities::native_image(
+        "wecom_agent",
+        &attachment.mime_type,
+        attachment.byte_len(),
+    ) {
+        MediaKind::Image
+    } else {
+        MediaKind::File
     }
 }
 

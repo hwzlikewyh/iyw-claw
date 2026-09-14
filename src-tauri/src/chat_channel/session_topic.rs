@@ -254,7 +254,7 @@ async fn resume_binding(
         &connection_id,
         folder.id,
         conversation.id,
-        req.text,
+        &req.text.to_string().into(),
     )
     .await
     .is_err()
@@ -297,7 +297,7 @@ async fn register_session(
             recovery_prompt: conversation
                 .external_id
                 .as_ref()
-                .map(|_| req.text.to_string()),
+                .map(|_| req.text.to_string().into()),
             pending_prompt_attempts: 0,
             trace_id: req.trace_id.map(|s| s.to_string()),
             permission_pending: None,
