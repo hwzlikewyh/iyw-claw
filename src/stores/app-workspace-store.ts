@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import { registerBackendScopedStoreReset } from "@/stores/backend-scoped-store-reset"
+import { createConversationRefresh } from "@/stores/conversation-refresh"
 import {
   getFolder as apiGetFolder,
   listAllConversations,
@@ -141,6 +142,8 @@ const DELETED_TOMBSTONE_CAP = 512
 // client) must not resurrect the row. Ids are DB autoincrement and never
 // reused, so the tombstone is permanent; the set is FIFO-bounded.
 const deletedIds = new Set<number>()
+let conversationRefresh: ReturnType<typeof createConversationRefresh> | null =
+  null
 
 export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
   (set, get) => ({
@@ -180,20 +183,36 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
     },
 
     refreshConversations: async () => {
+      const refresh = createConversationRefresh()
+      conversationRefresh = refresh
       set({ conversationsLoading: true })
       try {
         const list = await listAllConversations()
-        set({ ...withConversations(list), conversationsError: null })
+        if (conversationRefresh !== refresh) return
+        set({
+          ...withConversations(refresh.merge(list, deletedIds)),
+          conversationsError: null,
+        })
       } catch (err) {
+        if (conversationRefresh !== refresh) return
         set({ conversationsError: toErrorMessage(err) })
       } finally {
-        set({ conversationsLoading: false })
+        if (conversationRefresh === refresh) {
+          conversationRefresh = null
+          set({ conversationsLoading: false })
+        }
       }
     },
 
     getFolder: (id) => get().allFolders.find((f) => f.id === id),
 
     updateConversationLocal: (id, patch) => {
+      const bumpUpdatedAt = !("pinned_at" in patch)
+      const nextPatch = {
+        ...patch,
+        ...(bumpUpdatedAt ? { updated_at: new Date().toISOString() } : {}),
+      }
+      conversationRefresh?.patch(id, nextPatch)
       const prev = get().conversations
       const idx = prev.findIndex((c) => c.id === id)
       // Unknown id (e.g. a delegation-child status event reaching the global
@@ -204,11 +223,9 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
       // A pin toggle is a view preference, not activity — mirror the backend
       // (`update_pin`) and leave `updated_at` untouched so an updated-sorted
       // folder doesn't briefly float the row. Status/title patches still bump.
-      const bumpUpdatedAt = !("pinned_at" in patch)
       next[idx] = {
         ...next[idx],
-        ...patch,
-        ...(bumpUpdatedAt ? { updated_at: new Date().toISOString() } : {}),
+        ...nextPatch,
       }
       // These local patches cannot affect aggregate stats. Preserve the stats
       // reference so status/title/pin events do not wake every stats subscriber.
@@ -226,6 +243,7 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
     applyConversationUpsert: (summary) => {
       if (summary.parent_id != null) return
       if (deletedIds.has(summary.id)) return
+      conversationRefresh?.upsert(summary)
       const prev = get().conversations
       const idx = prev.findIndex((c) => c.id === summary.id)
       if (idx < 0) {
@@ -422,11 +440,12 @@ export const useAppWorkspaceStore = create<AppWorkspaceStoreState>()(
  * lifetime and is never reset.
  */
 export function resetAppWorkspaceStore() {
-  // NOTE: this clears state only; `fetchFolders` / `refreshConversations` have no
-  // backend epoch, so a pre-reset in-flight fetch could re-commit stale data. Moot
+  // NOTE: `fetchFolders` has no backend epoch, so a pre-reset in-flight fetch
+  // could re-commit stale folder data. Moot
   // today (the backend-identity guard never fires); a real in-place backend switch
   // would need per-store fetch epochs. See `RemoteConnectionGate`.
   deletedIds.clear()
+  conversationRefresh = null
   useAppWorkspaceStore.setState(useAppWorkspaceStore.getInitialState(), true)
 }
 
