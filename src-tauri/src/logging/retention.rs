@@ -42,8 +42,8 @@ pub async fn start(conn: DatabaseConnection) {
         cleanup_interval_hours = CLEANUP_INTERVAL.as_secs() / SECONDS_PER_HOUR,
         "[logs] retention task started"
     );
-    run_once(&conn).await;
     tokio::spawn(async move {
+        run_once(&conn).await;
         let mut interval = tokio::time::interval(CLEANUP_INTERVAL);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         interval.tick().await;
@@ -67,6 +67,7 @@ async fn run_once(conn: &DatabaseConnection) {
         ),
     }
     cleanup_channel_logs(conn).await;
+    super::agent_retention::cleanup_periodic_agent_logs(conn).await;
 }
 
 fn cleanup_owned_files() -> FileCleanupReport {

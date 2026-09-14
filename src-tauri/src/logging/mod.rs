@@ -17,6 +17,7 @@ pub(crate) mod agent_retention;
 mod agent_retention_policy;
 mod agent_retention_scan;
 mod budget;
+mod codex_log_retention;
 pub mod emergency;
 mod emergency_redact;
 pub mod hub;
