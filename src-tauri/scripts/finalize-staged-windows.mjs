@@ -94,11 +94,13 @@ function preflightToken() {
  * Logs the SafeNet/eToken signing token in so signtool never blocks on the
  * interactive "Token Logon" dialog.
  *
- * Two middleware paths are primed, because they are independent:
- *   - PKCS#11 `C_Login` covers anything talking to the middleware directly.
- *   - The CNG/KSP `SmartCardPin` property is what signtool actually needs; a
- *     successful `C_Login` alone still leaves signtool prompting for the token
- *     PIN, since CAPI does not reuse the PKCS#11 session.
+ * The CNG/KSP `SmartCardPin` property runs first because that is the path
+ * signtool actually uses; a successful PKCS#11 `C_Login` alone still leaves
+ * signtool prompting for the token PIN, since CAPI does not reuse the PKCS#11
+ * session. The PKCS#11 unlock stays as a best-effort extra for anything else
+ * talking to the middleware directly, and is deliberately non-fatal: it can
+ * fail while the token is busy with another job on the same host, which must
+ * not abort a signing run whose real requirement (the KSP PIN) is satisfied.
  *
  * The token caches the user PIN per Windows logon session, so one successful
  * unlock covers every signature in this job. When the runner has no PIN
@@ -113,21 +115,6 @@ function unlockToken() {
     )
     return
   }
-  const script = join(TOOL_ROOT, "src-tauri", "scripts", "unlock-signing-token.mjs")
-  const result = spawnSync(process.execPath, [script], {
-    cwd: ROOT,
-    stdio: "inherit",
-    windowsHide: true,
-  })
-  if (result.error) throw result.error
-  if (result.status !== 0) {
-    fail(
-      "could not unlock the signing token with the configured PIN (IYW_CLAW_SAFENET_PIN)"
-    )
-  }
-  // signtool signs through CNG, so the KSP has to accept the PIN too. Without
-  // this the PKCS#11 login above succeeds and signtool still waits on the
-  // Token Logon dialog until the job times out.
   const kspScript = join(
     TOOL_ROOT,
     "src-tauri",
@@ -143,6 +130,20 @@ function unlockToken() {
   if (kspResult.status !== 0) {
     fail(
       "could not unlock the signing token through the CNG KSP with the configured PIN (IYW_CLAW_SAFENET_PIN)"
+    )
+  }
+  // Non-fatal: PKCS#11 is not what signtool reads, and a transient middleware
+  // error here must not fail a job that can already sign through the KSP.
+  const script = join(TOOL_ROOT, "src-tauri", "scripts", "unlock-signing-token.mjs")
+  const result = spawnSync(process.execPath, [script], {
+    cwd: ROOT,
+    stdio: "inherit",
+    windowsHide: true,
+  })
+  if (result.error) throw result.error
+  if (result.status !== 0) {
+    console.warn(
+      "[staged-signing] PKCS#11 unlock did not complete; continuing because the CNG KSP PIN is already primed"
     )
   }
 }
