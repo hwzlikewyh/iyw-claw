@@ -318,6 +318,7 @@ pub(crate) async fn run_turn(
 
     let mut last_agent_message: Option<String> = None;
     let mut stop_hook_active = false;
+    let mut request_size_recovery_attempted = false;
     // Although from the perspective of codex.rs, TurnDiffTracker has the lifecycle of a Task which contains
     // many turns, from the perspective of the user, it is a single turn.
     let turn_diff_tracker = Arc::new(tokio::sync::Mutex::new(
@@ -635,6 +636,48 @@ pub(crate) async fn run_turn(
                 break;
             }
             Err(e) => {
+                if crate::responses_retry::is_request_too_large(&e)
+                    && !request_size_recovery_attempted
+                {
+                    request_size_recovery_attempted = true;
+                    info!(
+                        turn_id = %turn_context.sub_id,
+                        "HTTP 413; attempting one context compaction before resuming"
+                    );
+                    let recovery = run_auto_compact(
+                        &sess,
+                        Arc::clone(&step_context),
+                        None,
+                        &mut client_session,
+                        InitialContextInjection::BeforeLastUserMessage {
+                            world_state: Arc::clone(&world_state),
+                            step_context: Arc::clone(&step_context),
+                        },
+                        CompactionReason::ContextLimit,
+                        CompactionPhase::MidTurn,
+                    )
+                    .or_cancel(&cancellation_token)
+                    .await?;
+                    match recovery {
+                        Ok(()) => {
+                            if run_pending_session_start_hooks(&sess, &turn_context).await {
+                                return Ok(None);
+                            }
+                            can_drain_pending_input = false;
+                            continue;
+                        }
+                        Err(error)
+                            if matches!(
+                                error.details(),
+                                CodexErrorDetails::TurnAborted | CodexErrorDetails::Interrupted
+                            ) => return Err(error),
+                        Err(error) => info!(
+                            turn_id = %turn_context.sub_id,
+                            error_kind = ?codex_protocol::error::CodexErrKind::from(&error),
+                            "HTTP 413 recovery failed; preserving original rejection"
+                        ),
+                    }
+                }
                 info!("Turn error: {e:#}");
                 let error = e.to_codex_protocol_error();
                 sess.emit_turn_error_lifecycle(turn_context.as_ref(), error.clone())

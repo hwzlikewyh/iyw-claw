@@ -75,15 +75,20 @@ pub(crate) async fn update_artifact(
         .exec(&txn)
         .await
         .map_err(write_error)?;
-    let result = get_artifact(&txn, identity, false)
+    let (artifact, conversation) = task_artifact::Entity::find_by_id(identity.artifact_id)
+        .inner_join(conversation::Entity)
+        .select_also(conversation::Entity)
+        .one(&txn)
         .await?
+        .and_then(|(artifact, conversation)| conversation.map(|row| (artifact, row)))
         .ok_or_else(|| DbError::NotFound("artifact".into()))?;
     if let Err(error) = txn.commit().await {
         tracing::error!(artifact_id = identity.artifact_id, conversation_id = identity.conversation_id,
             error = %error, "[task-artifacts] update commit outcome unknown");
         return Err(DbError::Validation("effect_unknown".into()));
     }
-    Ok(result)
+    // 文件状态探测可能等待慢磁盘；写事务提交后再执行，避免长时间持锁。
+    Ok(artifact_info(conn, artifact, conversation).await)
 }
 
 fn update_fields(changes: ArtifactUpdate) -> task_artifact::ActiveModel {

@@ -17,9 +17,7 @@ import {
   type TaskArtifactInfo,
   type TaskArtifactPage,
 } from "@/lib/api"
-import { onTransportReconnect, subscribe } from "@/lib/platform"
-
-const REFRESH_DEBOUNCE_MS = 80
+import { useTaskArtifactUpdates } from "./use-task-artifact-updates"
 
 interface TaskArtifactFilters {
   conversationId: number | null
@@ -90,7 +88,7 @@ export function useTaskArtifacts(filters: TaskArtifactFilters) {
   const { state, load, cancel } = useArtifactLoader(filters)
   useInitialArtifactLoad(load, cancel)
   const backgroundRefresh = useCallback(() => void load(true, true), [load])
-  useTaskArtifactUpdates(backgroundRefresh)
+  useTaskArtifactUpdates(backgroundRefresh, filters)
   const refresh = useCallback(() => load(true, true), [load])
   return { ...state, refresh }
 }
@@ -334,31 +332,4 @@ async function fetchTaskArtifacts(
     page: filters.page ?? 1,
     pageSize: filters.pageSize ?? (filters.latestTurnOnly ? 100 : 50),
   }
-}
-
-function useTaskArtifactUpdates(refresh: () => void) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const schedule = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => {
-      timerRef.current = null
-      refresh()
-    }, REFRESH_DEBOUNCE_MS)
-  }, [refresh])
-
-  useEffect(() => {
-    let disposed = false
-    let unsubscribe: (() => void) | undefined
-    void subscribe("task-artifact://changed", schedule).then((stop) => {
-      if (disposed) stop()
-      else unsubscribe = stop
-    })
-    const stopReconnect = onTransportReconnect(schedule)
-    return () => {
-      disposed = true
-      unsubscribe?.()
-      stopReconnect?.()
-      if (timerRef.current) clearTimeout(timerRef.current)
-    }
-  }, [schedule])
 }
