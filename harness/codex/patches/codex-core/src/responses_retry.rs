@@ -17,6 +17,11 @@ use tracing::warn;
 const INITIAL_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(5);
 const MAX_CONNECTION_RETRY_DELAY: Duration = Duration::from_secs(60);
 
+pub(crate) fn is_request_too_large(err: &CodexErr) -> bool {
+    matches!(err.details(), CodexErrorDetails::UnexpectedStatus(response)
+        if response.status == http::StatusCode::PAYLOAD_TOO_LARGE)
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ResponsesStreamRequest {
     Sampling,
@@ -50,6 +55,15 @@ pub(crate) async fn handle_retryable_response_stream_error(
     turn_context: &TurnContext,
     request: ResponsesStreamRequest,
 ) -> Result<(), CodexErr> {
+    // 请求体不变时重连无法消除 413，交由回合层进行有界压缩恢复。
+    if is_request_too_large(&err) {
+        warn!(
+            turn_id = %turn_context.sub_id,
+            ?request,
+            "request body rejected with HTTP 413; skipping unchanged retry"
+        );
+        return Err(err);
+    }
     let operation = match request {
         ResponsesStreamRequest::Sampling => RetryOperation::Sampling,
         ResponsesStreamRequest::RemoteCompactionV2 => RetryOperation::RemoteCompactionV2,

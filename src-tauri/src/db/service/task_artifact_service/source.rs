@@ -159,7 +159,7 @@ pub(crate) fn resolve_sources(
     (resolved, rejected)
 }
 
-pub(super) fn current_artifact_state(path: &str, stored_kind: &str) -> CurrentArtifactState {
+pub(super) async fn current_artifact_state(path: &str, stored_kind: &str) -> CurrentArtifactState {
     if stored_kind == ARTIFACT_KIND_URL {
         return CurrentArtifactState {
             status: if is_safe_url(path) {
@@ -170,7 +170,7 @@ pub(super) fn current_artifact_state(path: &str, stored_kind: &str) -> CurrentAr
             kind: ARTIFACT_KIND_URL.into(),
         };
     }
-    let (status, kind) = match std::fs::metadata(path) {
+    let (status, kind) = match tokio::fs::metadata(path).await {
         Ok(metadata) => match artifact_kind(&metadata) {
             Ok(kind) => ("available", kind),
             Err(_) => ("inaccessible", stored_kind),

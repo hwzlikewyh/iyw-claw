@@ -19,6 +19,7 @@ import {
 } from "./settings-navigation"
 import { TurnBusyError, isTurnInProgressRejection } from "./turn-busy"
 import { requestConversationHistory } from "./conversation-history-request"
+import { requestTaskArtifacts } from "./task-artifact-request"
 import {
   localFileReferenceForPrompt,
   rewriteFileReferencesForPrompt,
@@ -4300,9 +4301,7 @@ export async function listTaskArtifacts(filters: {
 }): Promise<TaskArtifactPage> {
   const page = filters.page ?? 1
   const pageSize = filters.pageSize ?? (filters.latestTurnOnly ? 100 : 50)
-  const result = await getTransport().call<
-    TaskArtifactPage | TaskArtifactInfo[]
-  >("list_task_artifacts", {
+  return requestTaskArtifacts(getTransport(), {
     conversationId: filters.conversationId ?? null,
     messageId: filters.messageId ?? null,
     folderId: filters.folderId ?? null,
@@ -4311,8 +4310,6 @@ export async function listTaskArtifacts(filters: {
     page,
     pageSize,
   })
-  if (!Array.isArray(result)) return result
-  return { items: result, total: result.length, page, pageSize }
 }
 
 export async function listAllTaskArtifacts(filters: {

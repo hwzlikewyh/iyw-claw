@@ -26,6 +26,12 @@ the desktop worker reports initialization errors before accepting sessions;
 it must not advertise a working runtime with no state DB. Review these patches
 on upgrades and preserve all production dependencies and migrations.
 
+`codex-core` treats HTTP 413 as a request-size rejection, not a reconnectable
+stream failure. A sampling turn attempts its existing configured compaction
+once before continuing; a repeated rejection or failed compaction surfaces the
+original error. Local and remote-v2 compaction do not retry an unchanged 413
+request. No history is truncated outside the upstream compaction lifecycle.
+
 `codex-utils-pty` is copied from the locked `rust-v0.153.4` source tree. Local
 source deltas retain explicit pointer casts in `src/win/conpty.rs` and
 `src/win/procthreadattr.rs`, plus hidden-window creation flags in `src/pipe.rs`,
