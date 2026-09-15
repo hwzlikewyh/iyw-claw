@@ -171,7 +171,7 @@ pub(super) async fn artifact_info<C: ConnectionTrait>(
     artifact: task_artifact::Model,
     conversation: conversation::Model,
 ) -> TaskArtifactInfo {
-    let current = current_artifact_state(&artifact.path, &artifact.kind);
+    let current = current_artifact_state(&artifact.path, &artifact.kind).await;
     let last_checked_at = persist_current_state(conn, &artifact, &current).await;
     TaskArtifactInfo {
         id: artifact.id,

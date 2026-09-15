@@ -329,7 +329,7 @@ async fn run_compact_task_inner_impl(
                 return Err(e);
             }
             Err(e) => {
-                if retries < max_retries {
+                if !crate::responses_retry::is_request_too_large(&e) && retries < max_retries {
                     retries += 1;
                     let delay = backoff(retries);
                     sess.notify_stream_error(
