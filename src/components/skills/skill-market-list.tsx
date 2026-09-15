@@ -13,7 +13,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import type { SkillMarketItem } from "@/lib/skill-market"
+import {
+  marketItemFallbackInitial,
+  type SkillMarketItem,
+} from "@/lib/skill-market"
 import { cn } from "@/lib/utils"
 
 type Translator = (
@@ -114,7 +117,9 @@ function MarketItemCard({
             <AvatarImage className="rounded-md" src={item.iconUrl} alt="" />
           ) : null}
           <AvatarFallback className="rounded-md">
-            <Package className="size-4" aria-hidden="true" />
+            <span className="text-sm font-semibold">
+              {marketItemFallbackInitial(item.displayName)}
+            </span>
           </AvatarFallback>
         </Avatar>
         <span className="min-w-0 flex-1">
