@@ -4,10 +4,10 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
-const EXTENSION_VERSION: &str = "1.0.22";
-const ARCHIVE: &[u8] = include_bytes!("../../../resources/opencli/opencli-extension-v1.0.22.zip");
+const EXTENSION_VERSION: &str = "1.0.24";
+const ARCHIVE: &[u8] = include_bytes!("../../../resources/opencli/opencli-extension-v1.0.24.zip");
 const LICENSE: &[u8] = include_bytes!("../../../resources/opencli/LICENSE");
-const ARCHIVE_SHA256: &str = "9d2e3d053948beab5d97124aa79b1532d2122e33e461eca56cac113afd33207a";
+const ARCHIVE_SHA256: &str = "bad9163f32a66224404e302f52f35391672341d2bd0bf30c8bbaae3c6e6e246c";
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]

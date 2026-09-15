@@ -20,14 +20,15 @@ OpenCLI 的安装、修复、扩展引导和连接诊断集中在“外部浏览
 Chrome/Edge 选择只决定打开哪个扩展管理页，不修改 OpenCLI 默认 profile。
 多个 profile 同时连接而未选定默认项时，会显示需要选择配置并保留详细诊断。
 
-扩展目录：`<AgentStoragePaths.root>/browser-extensions/opencli/1.0.22`。
+扩展目录：`<AgentStoragePaths.root>/browser-extensions/opencli/1.0.24`。
 该目录不属于临时缓存，卸载 OpenCLI 运行时时保留，避免浏览器已加载的扩展丢失。
 
 ## 版本与诊断
 
-资源在 `src-tauri/resources/opencli/`，来自 OpenCLI `v1.8.6` 的官方 Release，
-扩展版本 `1.0.22`。ZIP 和 Apache-2.0 许可证编入桌面应用；准备时校验固定
-SHA-256，拒绝不安全的 ZIP 路径，并以原子文件替换方式修复内容。
+资源在 `src-tauri/resources/opencli/`，运行时固定为 OpenCLI `v1.8.7`，扩展
+`1.0.24` 取自 OpenCLI `v1.8.8` 的官方 Release。ZIP 和 Apache-2.0 许可证编入
+桌面应用；准备时校验固定 SHA-256，拒绝不安全的 ZIP 路径，并以原子文件替换
+方式修复内容。
 
 设置页复用浏览器预检的 doctor 报告解析器。仅当 daemon、extension 和真实
 connectivity probe 都正常时显示“已连接”，不再只依赖进程退出码。

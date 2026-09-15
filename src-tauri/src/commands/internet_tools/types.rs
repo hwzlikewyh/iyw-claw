@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 pub(super) const AGENT_REACH_VERSION: &str = "1.5.0";
-pub(super) const OPENCLI_VERSION: &str = "1.8.6";
+pub(super) const OPENCLI_VERSION: &str = "1.8.7";
 pub(super) const MCPORTER_VERSION: &str = "0.9.0";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
