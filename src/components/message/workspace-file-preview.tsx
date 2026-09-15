@@ -3,15 +3,25 @@
 import { AlertCircle, FileCode2, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useState } from "react"
-import { Streamdown } from "streamdown"
-
-import { useStreamdownPlugins } from "@/components/ai-elements/streamdown-plugins"
+import dynamic from "next/dynamic"
 import { HtmlPreview } from "@/components/files/html-preview"
 import { OfficePreview } from "@/components/files/office-preview"
 import { EditableImagePreview } from "@/components/ui/editable-image-preview"
-import { useWorkspaceMarkdownOptions } from "@/components/message/markdown-workspace-links"
-import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { DocumentMarkdownPreview } from "@/components/files/document-markdown-preview"
 import { joinRootRel } from "@/lib/file-open-target"
+import type { BinaryPreviewKind } from "@/lib/binary-preview"
+import { BinaryFilePreview } from "@/components/files/binary-file-preview"
+import { MediaPreview } from "@/components/files/media-preview"
+
+const PdfPreview = dynamic(
+  () => import("@/components/files/pdf-preview").then((mod) => mod.PdfPreview),
+  { ssr: false }
+)
+const ModelPreview = dynamic(
+  () =>
+    import("@/components/files/model-preview").then((mod) => mod.ModelPreview),
+  { ssr: false }
+)
 
 export type PreviewState =
   | { status: "idle" }
@@ -23,6 +33,8 @@ export type PreviewState =
   | { status: "html"; path: string; content: string; truncated: boolean }
   | { status: "html-too-large"; path: string; maxMegabytes: number }
   | { status: "pdf"; path: string; src: string }
+  | { status: "binary"; path: string; kind: BinaryPreviewKind }
+  | { status: "model"; path: string; src: string }
   | { status: "url"; path: string; src: string }
   | {
       status: "media"
@@ -133,20 +145,31 @@ export function WorkspaceFilePreview({
   if (state.status === "office") {
     return <OfficePreview rootPath={rootPath} relPath={state.path} />
   }
-  if (state.status === "pdf") {
-    const remotePdf = !state.src.startsWith("blob:")
+  if (state.status === "binary")
     return (
-      <iframe
-        title={fileName(state.path)}
-        src={state.src}
-        sandbox={
-          remotePdf ? "allow-scripts allow-forms allow-popups" : undefined
-        }
-        referrerPolicy="no-referrer"
-        className="h-full w-full border-0 bg-white"
+      <BinaryFilePreview
+        key={state.path}
+        rootPath={htmlRootPath ?? rootPath}
+        path={joinRootRel(rootPath, state.path)}
+        kind={state.kind}
       />
     )
-  }
+  if (state.status === "pdf")
+    return (
+      <PdfPreview
+        key={state.src}
+        src={state.src}
+        title={fileName(state.path)}
+      />
+    )
+  if (state.status === "model")
+    return (
+      <ModelPreview
+        key={state.src}
+        src={state.src}
+        title={fileName(state.path)}
+      />
+    )
   if (state.status === "url") {
     return <RemoteUrlPreview path={state.path} src={state.src} />
   }
@@ -174,6 +197,7 @@ export function WorkspaceFilePreview({
       <MarkdownPreview
         state={state}
         rootPath={rootPath}
+        resourceRoot={htmlRootPath}
         onOpenWorkspace={onOpenWorkspace}
       />
     )
@@ -190,7 +214,13 @@ function RemoteMediaPreview({
   if (failed) return <RemoteUrlPreview path={state.path} src={state.src} />
 
   if (state.mediaType !== "image") {
-    return <RemoteUrlPreview path={state.path} src={state.src} />
+    return (
+      <MediaPreview
+        src={state.src}
+        kind={state.mediaType}
+        title={fileName(state.path)}
+      />
+    )
   }
 
   return (
@@ -227,26 +257,22 @@ function RemoteUrlPreview({ path, src }: { path: string; src: string }) {
 function MarkdownPreview({
   state,
   rootPath,
+  resourceRoot,
   onOpenWorkspace,
 }: {
   state: Extract<PreviewState, { status: "markdown" }>
   rootPath: string
+  resourceRoot?: string
   onOpenWorkspace?: () => void
 }) {
-  const plugins = useStreamdownPlugins(state.content)
-  const roots = useAppWorkspaceStore((store) => store.folders)
-  const options = useWorkspaceMarkdownOptions({
-    content: state.content,
-    documentPath: rootPath ? joinRootRel(rootPath, state.path) : "",
-    roots,
-    onOpenWorkspace,
-  })
   return (
-    <div className="h-full overflow-auto p-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6">
-      <Streamdown plugins={plugins} {...options}>
-        {state.content}
-      </Streamdown>
-    </div>
+    <DocumentMarkdownPreview
+      content={state.content}
+      path={rootPath ? joinRootRel(rootPath, state.path) : state.path}
+      rootPath={resourceRoot ?? rootPath}
+      truncated={state.truncated}
+      onOpenWorkspace={onOpenWorkspace}
+    />
   )
 }
 

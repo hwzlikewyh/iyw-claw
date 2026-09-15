@@ -2209,6 +2209,20 @@
       "opened": "已打开",
       "recentOpen": "最近打开"
     },
+    "previewControls": {
+      "outline": "文档目录",
+      "page": "页码",
+      "password": "PDF 密码",
+      "unlock": "解锁",
+      "speed": "播放速度",
+      "play": "播放",
+      "pause": "暂停",
+      "retry": "重试",
+      "fit": "适应宽度",
+      "originalSize": "实际大小",
+      "unsupportedMedia": "当前环境无法播放此视频或音频编码。",
+      "modelLimit": "模型超出预览限制，或使用了尚不支持的格式。"
+    },
     "fileWorkspacePanel": {
       "addSelectionToChat": "添加选区到会话",
       "addToChat": "加入会话",

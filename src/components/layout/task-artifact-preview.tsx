@@ -2,12 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { RefObject } from "react"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { useTranslations } from "next-intl"
 
 import {
@@ -33,6 +27,7 @@ import { findOwningFolder } from "@/lib/file-open-target"
 import { cn } from "@/lib/utils"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { toast } from "sonner"
+import { PreviewFullscreen } from "@/components/files/preview-fullscreen"
 
 interface TaskArtifactPreviewProps {
   artifact: TaskArtifactInfo | null
@@ -49,14 +44,6 @@ type ArtifactPreviewProps = Omit<TaskArtifactPreviewProps, "artifact"> & {
   fullscreenTargetRef?: RefObject<HTMLElement | null>
   onToggleAppFullscreen?: () => void
   onToggleSystemFullscreen?: () => Promise<void>
-}
-
-type AppFullscreenDialogProps = ArtifactPreviewProps & {
-  open: boolean
-  systemFullscreen: boolean
-  fullscreenTargetRef: RefObject<HTMLElement | null>
-  onClose: () => void
-  onToggleSystemFullscreen: () => Promise<void>
 }
 
 export function TaskArtifactPreview({
@@ -101,67 +88,22 @@ function ArtifactPreviewWithFullscreen(props: ArtifactPreviewProps) {
   }, [])
 
   return (
-    <>
+    <PreviewFullscreen
+      open={appFullscreen}
+      onClose={closeAppFullscreen}
+      title={props.artifact.displayName}
+      className={props.className}
+    >
       <ArtifactPreview
         {...props}
-        onToggleAppFullscreen={() => setAppFullscreen(true)}
-      />
-      <AppFullscreenDialog
-        {...props}
-        open={appFullscreen}
-        systemFullscreen={systemFullscreen}
+        className="h-full"
+        isAppFullscreen={appFullscreen}
+        isSystemFullscreen={systemFullscreen}
         fullscreenTargetRef={fullscreenTargetRef}
-        onClose={closeAppFullscreen}
+        onToggleAppFullscreen={() => setAppFullscreen((value) => !value)}
         onToggleSystemFullscreen={toggleSystemFullscreen}
       />
-    </>
-  )
-}
-
-function AppFullscreenDialog({
-  open,
-  systemFullscreen,
-  fullscreenTargetRef,
-  onClose,
-  onToggleSystemFullscreen,
-  ...previewProps
-}: AppFullscreenDialogProps) {
-  const { artifact, onBack } = previewProps
-  const handleBack = onBack
-    ? () => {
-        onClose()
-        onBack()
-      }
-    : undefined
-  const handleEscape = () => {
-    if (systemFullscreen) void onToggleSystemFullscreen()
-    else onClose()
-  }
-  return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent
-        className="fixed inset-0 h-dvh max-h-none w-dvw max-w-none overflow-hidden rounded-none p-0 sm:max-w-none"
-        onEscapeKeyDown={(event) => {
-          event.preventDefault()
-          handleEscape()
-        }}
-      >
-        <DialogTitle className="sr-only">{artifact.displayName}</DialogTitle>
-        <DialogDescription className="sr-only">
-          {artifact.displayName}
-        </DialogDescription>
-        <ArtifactPreview
-          {...previewProps}
-          className="h-full"
-          isAppFullscreen
-          isSystemFullscreen={systemFullscreen}
-          fullscreenTargetRef={fullscreenTargetRef}
-          onBack={handleBack}
-          onToggleAppFullscreen={onClose}
-          onToggleSystemFullscreen={onToggleSystemFullscreen}
-        />
-      </DialogContent>
-    </Dialog>
+    </PreviewFullscreen>
   )
 }
 

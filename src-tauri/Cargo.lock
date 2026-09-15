@@ -3089,6 +3089,7 @@ dependencies = [
  "futures",
  "futures-lite",
  "futures-util",
+ "http-range-header",
  "if-addrs",
  "image",
  "include_dir",

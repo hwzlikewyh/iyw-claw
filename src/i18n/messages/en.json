@@ -2209,6 +2209,20 @@
       "opened": "Opened",
       "recentOpen": "Recently Opened"
     },
+    "previewControls": {
+      "outline": "Document outline",
+      "page": "Page",
+      "password": "PDF password",
+      "unlock": "Unlock",
+      "speed": "Playback speed",
+      "play": "Play",
+      "pause": "Pause",
+      "retry": "Retry",
+      "fit": "Fit width",
+      "originalSize": "Actual size",
+      "unsupportedMedia": "This video or audio encoding cannot be played here.",
+      "modelLimit": "The model exceeds preview limits or uses an unsupported format."
+    },
     "fileWorkspacePanel": {
       "addSelectionToChat": "Add Selection to Chat",
       "addToChat": "Add to Chat",
