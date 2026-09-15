@@ -27,6 +27,7 @@ pub(super) async fn launch(
     dependencies: VerifiedDependencies,
     generation: u64,
     cancellation: CancellationToken,
+    browser_args: Option<&str>,
 ) -> Result<RuntimeHandle, RuntimeLaunchFailure> {
     if cancellation.is_cancelled() {
         return Err(launch_failure(BrowserError::shutting_down(), None));
@@ -70,6 +71,10 @@ pub(super) async fn launch(
         download_path,
         screenshot_path,
     );
+    let cli = match browser_args {
+        Some(args) => cli.with_browser_args(args.to_string()),
+        None => cli,
+    };
     let mut cleanup = RuntimeCleanupHandle {
         id: runtime_id,
         generation,

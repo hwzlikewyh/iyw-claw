@@ -28,6 +28,7 @@ pub(super) struct AgentBrowserCli {
     pub(super) engine_path: PathBuf,
     pub(super) download_path: PathBuf,
     pub(super) screenshot_path: PathBuf,
+    pub(super) browser_args: Option<OsString>,
 }
 
 impl AgentBrowserCli {
@@ -46,7 +47,13 @@ impl AgentBrowserCli {
             engine_path,
             download_path,
             screenshot_path,
+            browser_args: None,
         }
+    }
+
+    pub(super) fn with_browser_args(mut self, args: impl Into<OsString>) -> Self {
+        self.browser_args = Some(args.into());
+        self
     }
 
     pub async fn run(
@@ -175,7 +182,7 @@ impl AgentBrowserCli {
     }
 
     pub(super) fn environment(&self) -> Vec<(OsString, OsString)> {
-        vec![
+        let mut environment = vec![
             env("AGENT_BROWSER_SOCKET_DIR", self.socket_dir.as_os_str()),
             env("AGENT_BROWSER_IDLE_TIMEOUT_MS", "0"),
             env("AGENT_BROWSER_NO_AUTO_DIALOG", "1"),
@@ -196,7 +203,11 @@ impl AgentBrowserCli {
                 "AGENT_BROWSER_SCREENSHOT_DIR",
                 self.screenshot_path.as_os_str(),
             ),
-        ]
+        ];
+        if let Some(args) = &self.browser_args {
+            environment.push(env("AGENT_BROWSER_ARGS", args));
+        }
+        environment
     }
 }
 

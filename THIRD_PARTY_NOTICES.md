@@ -3,7 +3,7 @@
 ## agent-browser
 
 - Project: `vercel-labs/agent-browser`
-- Version: `0.36.0`
+- Version: `0.37.1`
 - Source: https://github.com/vercel-labs/agent-browser
 - License: Apache License 2.0
 

@@ -3,13 +3,21 @@
 // 在已构建的桌面目标上验证 agent-browser 与受管引擎的最小生命周期。
 // 该脚本不下载浏览器，也不连接用户 profile；CI 通过 fixture 显式提供路径。
 
-import { execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, rmSync } from "node:fs"
+import { spawnSync } from "node:child_process"
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+} from "node:fs"
 import { join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 import process from "node:process"
 
-const VERSION = "0.36.0"
+const VERSION = "0.37.1"
 
 function parseArgs(argv) {
   const values = {
@@ -43,21 +51,37 @@ function failOrSkip(message, required) {
 }
 
 function runCommand(sidecar, args, env, label) {
-  let output
+  const outputPath = join(env.AGENT_BROWSER_SOCKET_DIR, `${label}.stdout`)
+  const errorPath = join(env.AGENT_BROWSER_SOCKET_DIR, `${label}.stderr`)
+  const outputHandle = openSync(outputPath, "w+")
+  const errorHandle = openSync(errorPath, "w+")
+  let result
   try {
-    output = execFileSync(
+    result = spawnSync(
       sidecar,
       ["--session", "iyw-smoke", "--json", ...args],
       {
         env,
-        encoding: "utf8",
         timeout: 30_000,
         windowsHide: true,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["ignore", outputHandle, errorHandle],
       }
     )
   } catch (error) {
-    throw new Error(`${label} failed with exit ${error.status ?? "unknown"}`)
+    throw new Error(`${label} failed to launch: ${error.message}`)
+  } finally {
+    closeSync(outputHandle)
+    closeSync(errorHandle)
+  }
+  const output = readFileSync(outputPath, "utf8")
+  const stderr = readFileSync(errorPath, "utf8").trim()
+  unlinkSync(outputPath)
+  unlinkSync(errorPath)
+  if (result.error || result.status !== 0) {
+    const detail = stderr ? `: ${stderr.slice(0, 256)}` : ""
+    throw new Error(
+      `${label} failed with exit ${result.status ?? "unknown"}${detail}`
+    )
   }
   let payload
   try {
@@ -125,7 +149,6 @@ function main() {
     )
     if (typeof snapshot.data?.snapshot !== "string")
       throw new Error("snapshot payload is missing")
-    runCommand(sidecarPath, ["stream", "enable"], environment, "stream enable")
     runCommand(sidecarPath, ["stream", "status"], environment, "stream status")
     runCommand(sidecarPath, ["screenshot"], environment, "screenshot")
     console.log(`[browser-smoke] agent-browser ${VERSION} lifecycle passed`)

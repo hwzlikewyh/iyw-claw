@@ -149,6 +149,7 @@ impl BrowserRuntime {
         &self,
         generation: u64,
         cancellation: CancellationToken,
+        browser_args: Option<&str>,
     ) -> Result<BrowserRuntimeContext, BrowserError> {
         let _mutation = self.mutation.lock().await;
         self.retry_pending_cleanup().await?;
@@ -161,18 +162,23 @@ impl BrowserRuntime {
         tracing::info!(target: "iyw_claw_browser",
             runtime_generation = generation, engine = ?dependencies.engine.kind,
             engine_version = %dependencies.engine.version, "browser startup engine selected");
-        let handle =
-            match runtime_launch::launch(&self.data_root, dependencies, generation, cancellation)
-                .await
-            {
-                Ok(handle) => handle,
-                Err(failure) => {
-                    if let Some(cleanup) = failure.cleanup {
-                        *self.pending_cleanup.lock().await = Some(cleanup);
-                    }
-                    return Err(failure.error);
+        let handle = match runtime_launch::launch(
+            &self.data_root,
+            dependencies,
+            generation,
+            cancellation,
+            browser_args,
+        )
+        .await
+        {
+            Ok(handle) => handle,
+            Err(failure) => {
+                if let Some(cleanup) = failure.cleanup {
+                    *self.pending_cleanup.lock().await = Some(cleanup);
                 }
-            };
+                return Err(failure.error);
+            }
+        };
         let context = handle.context();
         let daemon_pid = handle.daemon.pid;
         *self.current.lock().await = Some(handle);

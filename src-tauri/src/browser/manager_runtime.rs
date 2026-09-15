@@ -126,7 +126,7 @@ impl BrowserSessionManager {
             }
             RuntimeStartDecision::Start(ticket) => {
                 let result = self
-                    .start_runtime_with_ticket(runtime, ticket, cancellation.clone())
+                    .start_runtime_with_ticket(runtime, ticket, cancellation.clone(), None)
                     .await;
                 match result {
                     Ok(context) => Ok(context),
@@ -156,10 +156,12 @@ impl BrowserSessionManager {
         if cancellation.is_cancelled() {
             return Err(BrowserError::shutting_down());
         }
+        let compatibility_args = compatibility_browser_args();
         tracing::warn!(
             target: "iyw_claw_browser",
             error_code = ?error.code,
-            "browser initial runtime start failed; retrying once"
+            compatibility_args = compatibility_args.unwrap_or("none"),
+            "browser initial runtime start failed; retrying once in compatibility mode"
         );
         if let Err(cleanup_error) = self.retry_failed_cleanup_before_start(runtime).await {
             tracing::warn!(
@@ -175,7 +177,7 @@ impl BrowserSessionManager {
             }
             RuntimeStartDecision::Start(ticket) => ticket,
         };
-        self.start_runtime_with_ticket(runtime, ticket, cancellation)
+        self.start_runtime_with_ticket(runtime, ticket, cancellation, compatibility_args)
             .await
     }
 
@@ -334,13 +336,17 @@ impl BrowserSessionManager {
         runtime: &Arc<BrowserRuntime>,
         ticket: RuntimeTicket,
         cancellation: CancellationToken,
+        browser_args: Option<&str>,
     ) -> Result<BrowserRuntimeContext, BrowserError> {
         if let Err(error) = self.ensure_managed_browser_enabled() {
             self.fail_runtime_start(&ticket, "BROWSER_DISABLED".to_string())
                 .await?;
             return Err(error);
         }
-        match runtime.start(ticket.generation, cancellation.clone()).await {
+        match runtime
+            .start(ticket.generation, cancellation.clone(), browser_args)
+            .await
+        {
             Ok(context) => match self
                 .start_cdp_observer(&context, cancellation.clone())
                 .await
@@ -405,6 +411,16 @@ impl BrowserSessionManager {
             }
         });
     }
+}
+
+#[cfg(target_os = "windows")]
+fn compatibility_browser_args() -> Option<&'static str> {
+    Some("--disable-gpu")
+}
+
+#[cfg(not(target_os = "windows"))]
+fn compatibility_browser_args() -> Option<&'static str> {
+    None
 }
 
 fn log_shutdown_result(shutdown_epoch: u64, result: &Result<(), BrowserError>) {

@@ -10,27 +10,27 @@ const SUPPORTED_TARGETS = new Set([
   "aarch64-unknown-linux-gnu",
 ])
 const EXCLUDED_TARGET = "i686-pc-windows-msvc"
-const VERSION = "0.36.0"
+const VERSION = "0.37.1"
 const EXPECTED = {
   "x86_64-pc-windows-msvc": [
-    13837312,
-    "412ff72737a109e93f5304b0ff76c988fb6f1f451d0fc7e010577922bcc20ff3",
+    13942272,
+    "29a003139ff4eb96fa4d1ed341830b26eb3e082843bf776b4e88ad3443bb8fde",
   ],
   "x86_64-apple-darwin": [
-    13510280,
-    "45d9ac061a7d72e61eaff905326e2e19365f4dadb12142ea2f2d76d84689c708",
+    13592392,
+    "c79d1e0525c0bf79df9eec355269ae40bcda9c4a3fce3f242c24faecaaaeef84",
   ],
   "aarch64-apple-darwin": [
-    12363200,
-    "b2106ab39db0838e7b1772f7f26f760518de56d09053150c56f9dddf15af997d",
+    12429376,
+    "e52f06476ea0f1d14357c1924ce1d7f1bf08279f2642d74ccfa7ee935c46aea1",
   ],
   "x86_64-unknown-linux-gnu": [
-    14156776,
-    "56d15181e51e00213f907fcf39707cfc76bfa804ff20f5a9373661c73f96de5e",
+    14253840,
+    "f8e5f9294bd0da70dda61854f12004fd61c668cd682bfb600cdf6d0df73dea69",
   ],
   "aarch64-unknown-linux-gnu": [
-    12442720,
-    "aeb556addca3903601a433de1acad3ace1c9c61d170084bf58d875884599a990",
+    12507648,
+    "d54d3e1262dc1aa0906e0677adc6d0cbb40d1274631f4cf77136bf23a0bc20e9",
   ],
 }
 

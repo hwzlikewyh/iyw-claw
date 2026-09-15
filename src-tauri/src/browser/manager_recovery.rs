@@ -149,7 +149,7 @@ impl BrowserSessionManager {
             self.reset_control(&tab.ticket.tab_id).await;
         }
         let outcome = self
-            .start_runtime_with_ticket(runtime, plan.runtime.clone(), cancellation)
+            .start_runtime_with_ticket(runtime, plan.runtime.clone(), cancellation, None)
             .await;
         Some((plan, outcome))
     }
