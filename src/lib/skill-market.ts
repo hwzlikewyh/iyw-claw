@@ -685,6 +685,19 @@ export function audienceBadgeInfo(
   }
 }
 
+/**
+ * Fallback avatar text for market items without a configured icon. Prefers
+ * the first letter or digit so decorative punctuation is not shown alone.
+ */
+export function marketItemFallbackInitial(name: string): string {
+  const characters = Array.from(name.trim())
+  const initial =
+    characters.find((character) => /[\p{L}\p{N}]/u.test(character)) ??
+    characters[0] ??
+    ""
+  return initial.toUpperCase()
+}
+
 export function distributionBadgeInfo(
   policy: SkillMarketDistributionPolicy
 ): MarketBadgeInfo {

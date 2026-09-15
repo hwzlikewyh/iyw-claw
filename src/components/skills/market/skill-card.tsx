@@ -1,6 +1,6 @@
 "use client"
 
-import { ArrowUpRight, Package } from "lucide-react"
+import { ArrowUpRight } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -8,6 +8,7 @@ import { MarketBadgeGroup } from "@/components/skills/market/badges"
 import {
   audienceBadgeInfo,
   compatibilityBadgeInfo,
+  marketItemFallbackInitial,
   primaryInstallAction,
   type MarketBadgeInfo,
   type SkillMarketTranslator,
@@ -38,7 +39,7 @@ function itemBadges(item: SkillMarketV2Item): MarketBadgeInfo[] {
           },
         ]
       : []),
-    ...(item.compatibility !== "compatible"
+    ...(item.compatibility === "incompatible"
       ? [compatibilityBadgeInfo(item.compatibility)]
       : []),
     audienceBadgeInfo(item.audience),
@@ -101,7 +102,9 @@ function SkillCardSummary({
             <AvatarImage className="rounded-md" src={item.iconUrl} alt="" />
           ) : null}
           <AvatarFallback className="rounded-md">
-            <Package className="size-4" />
+            <span className="text-sm font-semibold">
+              {marketItemFallbackInitial(item.displayName)}
+            </span>
           </AvatarFallback>
         </Avatar>
         <span className="min-w-0 flex-1">

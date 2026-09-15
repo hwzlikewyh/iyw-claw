@@ -1,6 +1,6 @@
 "use client"
 
-import { Loader2, MoreHorizontal, Package, Pencil, Trash2 } from "lucide-react"
+import { Loader2, MoreHorizontal, Pencil, Trash2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
@@ -24,6 +24,7 @@ import {
   audienceBadgeInfo,
   compatibilityBadgeInfo,
   installStateBadgeInfo,
+  marketItemFallbackInitial,
   type SkillMarketTranslator,
   type SkillMarketV2Detail,
   type SkillMarketV2Version,
@@ -157,9 +158,9 @@ export function DetailHeader(props: DetailHeaderProps) {
   const badges = [
     installStateBadgeInfo(props.detail.installState),
     audienceBadgeInfo(props.detail.audience),
-    ...(props.detail.compatibility === "compatible"
-      ? []
-      : [compatibilityBadgeInfo(props.detail.compatibility)]),
+    ...(props.detail.compatibility === "incompatible"
+      ? [compatibilityBadgeInfo(props.detail.compatibility)]
+      : []),
   ]
   return (
     <header className="shrink-0 bg-background px-5 pt-5 pr-14 sm:px-6 sm:pt-6 sm:pr-16">
@@ -174,7 +175,9 @@ export function DetailHeader(props: DetailHeaderProps) {
               />
             ) : null}
             <AvatarFallback className="rounded-md">
-              <Package className="size-4" aria-hidden="true" />
+              <span className="text-sm font-semibold">
+                {marketItemFallbackInitial(props.detail.displayName)}
+              </span>
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0">

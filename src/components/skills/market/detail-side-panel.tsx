@@ -180,10 +180,12 @@ export function DetailSidePanel(props: DetailSidePanelProps) {
                 : "-"
             }
           />
-          <Fact
-            label={t("detail.compatibility")}
-            value={t(`compatibility.${props.detail.compatibility}`)}
-          />
+          {props.detail.compatibility !== "unknown" ? (
+            <Fact
+              label={t("detail.compatibility")}
+              value={t(`compatibility.${props.detail.compatibility}`)}
+            />
+          ) : null}
           <Fact
             label={t("detail.artifact")}
             value={
