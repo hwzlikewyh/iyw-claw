@@ -91,11 +91,17 @@ function preflightToken() {
 }
 
 /**
- * Logs the SafeNet/eToken signing token in via PKCS#11 so signtool never blocks
- * on the interactive "Token Logon" dialog.
+ * Logs the SafeNet/eToken signing token in so signtool never blocks on the
+ * interactive "Token Logon" dialog.
+ *
+ * Two middleware paths are primed, because they are independent:
+ *   - PKCS#11 `C_Login` covers anything talking to the middleware directly.
+ *   - The CNG/KSP `SmartCardPin` property is what signtool actually needs; a
+ *     successful `C_Login` alone still leaves signtool prompting for the token
+ *     PIN, since CAPI does not reuse the PKCS#11 session.
  *
  * The token caches the user PIN per Windows logon session, so one successful
- * login covers every signature in this job. When the runner has no PIN
+ * unlock covers every signature in this job. When the runner has no PIN
  * configured we keep the old behaviour: signtool prompts, and the bounded
  * timeout turns a missing login into a clear failure instead of a hung job.
  */
@@ -117,6 +123,26 @@ function unlockToken() {
   if (result.status !== 0) {
     fail(
       "could not unlock the signing token with the configured PIN (IYW_CLAW_SAFENET_PIN)"
+    )
+  }
+  // signtool signs through CNG, so the KSP has to accept the PIN too. Without
+  // this the PKCS#11 login above succeeds and signtool still waits on the
+  // Token Logon dialog until the job times out.
+  const kspScript = join(
+    TOOL_ROOT,
+    "src-tauri",
+    "scripts",
+    "unlock-signing-ksp.mjs"
+  )
+  const kspResult = spawnSync(process.execPath, [kspScript], {
+    cwd: ROOT,
+    stdio: "inherit",
+    windowsHide: true,
+  })
+  if (kspResult.error) throw kspResult.error
+  if (kspResult.status !== 0) {
+    fail(
+      "could not unlock the signing token through the CNG KSP with the configured PIN (IYW_CLAW_SAFENET_PIN)"
     )
   }
 }
