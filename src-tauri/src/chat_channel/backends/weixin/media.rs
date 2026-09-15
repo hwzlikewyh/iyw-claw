@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
+use md5::{Digest, Md5};
 use rand::RngCore;
 use serde_json::{json, Value};
 
@@ -16,6 +17,7 @@ struct Upload<'a> {
     to: &'a str,
     file: &'a ChannelAttachment,
     file_key: String,
+    raw_file_md5: String,
     key: [u8; 16],
     ciphertext: Vec<u8>,
     image: bool,
@@ -30,6 +32,7 @@ impl<'a> Upload<'a> {
             file,
             key,
             file_key: uuid::Uuid::new_v4().simple().to_string(),
+            raw_file_md5: format!("{:x}", Md5::digest(&file.bytes)),
             ciphertext: media_crypto::encrypt(&file.bytes, &key)?,
             image: crate::chat_channel::media_capabilities::native_image(
                 "weixin",
@@ -77,6 +80,7 @@ impl WeixinBackend {
         let body = json!({
             "filekey": upload.file_key, "media_type": if upload.image { 1 } else { 3 },
             "to_user_id": upload.to, "rawsize": upload.file.byte_len(),
+            "rawfilemd5": upload.raw_file_md5,
             "filesize": upload.ciphertext.len(), "no_need_thumb": true,
             "aeskey": media_crypto::hex(&upload.key),
             "base_info": { "channel_version": ILINK_CHANNEL_VERSION },
@@ -89,7 +93,9 @@ impl WeixinBackend {
             .send()
             .await
             .map_err(transport)?;
-        let result = media_http::json(response).await?;
+        let result = media_http::json(response)
+            .await
+            .map_err(|error| failure(format!("Weixin getuploadurl failed: {error}")))?;
         let source = result["upload_full_url"]
             .as_str()
             .filter(|url| !url.is_empty())
