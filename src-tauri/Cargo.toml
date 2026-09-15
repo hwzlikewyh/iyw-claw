@@ -113,6 +113,7 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "sync-s
 axum = { version = "0.8", features = ["ws", "multipart"] }
 async_zip = { version = "0.0.18", features = ["tokio", "deflate"] }
 tower-http = { version = "0.6", features = ["fs", "cors"] }
+http-range-header = "0.4.2"
 tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 futures-util = "0.3"
 tokio-util = { version = "0.7", features = ["io", "rt"] }

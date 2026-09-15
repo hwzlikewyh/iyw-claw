@@ -29,6 +29,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
+pub mod preview_session;
 use std::time::{Duration, Instant, SystemTime};
 
 use serde::Serialize;
@@ -57,8 +58,6 @@ const MAX_CONCURRENT_WATCHES: usize = 32;
 /// / loses network and its `stop_office_watch` request never arrives, while
 /// tolerating brief SSE reconnects (officecli's stream auto-reconnects).
 const SSE_LEASE_GRACE: Duration = Duration::from_secs(90);
-/// Keep the last few desktop previews warm so switching back is fast.
-const MAX_IDLE_WATCHES: usize = 2;
 /// Delay between file readiness samples. This also lets atomic-save/rename
 /// sequences settle before OfficeCLI opens the document.
 const FILE_READY_RETRY_DELAY: Duration = Duration::from_millis(100);
@@ -210,24 +209,6 @@ fn reap(mut child: Child) {
             let _ = child.start_kill();
         }
     }
-}
-
-fn schedule_idle_reap(key: String) {
-    tokio::spawn(async move {
-        tokio::time::sleep(IDLE_WATCH_RETENTION).await;
-        let child = {
-            let mut watches = lock_watches();
-            let should_reap = watches.get(&key).is_some_and(|entry| {
-                entry.desktop_ref_count == 0
-                    && entry.web_ref_count == 0
-                    && entry.last_activity.elapsed() >= IDLE_WATCH_RETENTION
-            });
-            should_reap.then(|| watches.remove(&key)).flatten()
-        };
-        if let Some(entry) = child {
-            reap(entry.child);
-        }
-    });
 }
 
 fn spawn_lock_for(key: &str) -> Arc<tokio::sync::Mutex<()>> {
@@ -647,24 +628,7 @@ fn increment_ref_count(entry: &mut WatchInstance, origin: WatchOrigin) {
     }
 }
 
-fn evict_idle_desktop_watches(watches: &mut HashMap<String, WatchInstance>) -> Vec<Child> {
-    let mut idle_keys: Vec<(String, Instant)> = watches
-        .iter()
-        .filter(|(_, entry)| entry.desktop_ref_count == 0 && entry.web_ref_count == 0)
-        .map(|(key, entry)| (key.clone(), entry.last_activity))
-        .collect();
-    idle_keys.sort_by_key(|(_, last_activity)| *last_activity);
-    let overflow = idle_keys.len().saturating_sub(MAX_IDLE_WATCHES);
-    idle_keys
-        .into_iter()
-        .take(overflow)
-        .filter_map(|(key, _)| watches.remove(&key).map(|entry| entry.child))
-        .collect()
-}
-
-/// Release one reference to the watch for `path`. The last reference keeps the
-/// process warm briefly so reopening the same file avoids a cold OfficeCLI
-/// startup. Idempotent (closing an already-stopped tab is OK).
+/// 最后一个预览关闭时立即终止进程；重复释放无副作用。
 pub async fn stop_office_watch_core(
     root_path: String,
     path: String,
@@ -686,7 +650,6 @@ pub async fn stop_office_watch_core(
     let Some(target_key) = target_key else {
         return Ok(());
     };
-    let idle_reap_key = target_key.clone();
 
     if let Some(entry) = watches.get_mut(&target_key) {
         let origin_count = match origin {
@@ -701,23 +664,13 @@ pub async fn stop_office_watch_core(
         if entry.desktop_ref_count > 0 || entry.web_ref_count > 0 {
             return Ok(());
         }
-        if origin == WatchOrigin::Web {
-            let child = watches.remove(&target_key).map(|entry| entry.child);
-            drop(watches);
-            if let Some(child) = child {
-                reap(child);
-            }
-            return Ok(());
-        }
-        entry.idle_file_state = file_state(&entry.file_canonical);
     }
-
-    let children = evict_idle_desktop_watches(&mut watches);
+    let child = watches.remove(&target_key).map(|entry| entry.child);
     drop(watches);
-    for child in children {
+    if let Some(child) = child {
+        tracing::debug!("[office-watch] last preview released; stopping process");
         reap(child);
     }
-    schedule_idle_reap(idle_reap_key);
     Ok(())
 }
 

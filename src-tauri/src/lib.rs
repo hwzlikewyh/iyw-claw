@@ -39,6 +39,7 @@ pub mod plugin_runtime;
 #[cfg(feature = "tauri-runtime")]
 pub mod preferences;
 pub mod process;
+pub mod preview_resources;
 pub mod shared_runtime;
 pub mod remote_image;
 #[cfg(not(feature = "tauri-runtime"))]
@@ -1491,6 +1492,15 @@ mod tauri_app {
                 folders::list_directory_with_files,
                 folders::get_file_tree,
                 folders::read_file_base64,
+                crate::preview_resources::desktop::open_preview_resource,
+                crate::office_watch::preview_session::open_office_preview,
+                crate::office_watch::preview_session::close_office_preview,
+                crate::office_watch::preview_session::renew_office_preview,
+                crate::preview_resources::desktop::close_preview_resource,
+                crate::preview_resources::desktop::renew_preview_resource,
+                crate::preview_resources::remote::open_remote_preview_resource,
+                crate::preview_resources::remote::close_remote_preview_resource,
+                crate::preview_resources::remote::renew_remote_preview_resource,
                 folders::read_workspace_file_base64,
                 folders::workspace_file_exists,
                 folders::read_file_preview,

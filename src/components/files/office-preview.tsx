@@ -4,15 +4,14 @@ import { useEffect, useMemo, useState } from "react"
 import { useTranslations } from "next-intl"
 import { FileWarning, Loader2 } from "lucide-react"
 
-import {
-  startOfficeWatch,
-  stopOfficeWatch,
-  openSettingsWindow,
-} from "@/lib/api"
+import { openSettingsWindow } from "@/lib/api"
+import { usePreviewVisibility } from "./use-preview-resource"
+import { PreviewToolbar } from "./preview-toolbar"
 import {
   isDesktop,
   isRemoteDesktopMode,
   getServerBaseUrl,
+  getTransport,
 } from "@/lib/transport"
 import { extractAppCommandError } from "@/lib/app-error"
 
@@ -32,32 +31,32 @@ function watchCodeOf(err: unknown): string | null {
   return extractAppCommandError(err)?.i18n_params?.watchCode ?? null
 }
 
-/**
- * Preview a .docx/.xlsx/.pptx file via a long-lived `officecli watch` server.
- *
- * The backend spawns one `officecli watch <file> --port N` process per file
- * (shared across tabs by ref-count) and we point an iframe at its loopback HTTP
- * server. officecli drives live refresh over its own SSE channel, so — unlike
- * the old one-shot `view html` render that re-read the whole file on every
- * change — the preview and the agent's officecli edits no longer contend for
- * the file on disk (the Windows file-lock bug this change fixes).
- *
- * ## Where the iframe points (and why the sandbox differs)
- *
- * - **Local desktop** (`isDesktop() && !isRemoteDesktopMode()`): the Tauri
- *   webview reaches `http://127.0.0.1:{port}` directly. That iframe gets its
- *   real loopback origin (≠ the app's `tauri://localhost`), so it keeps
- *   `allow-same-origin` — it needs same-origin to talk to its own SSE channel,
- *   and it still can't read the app's storage (different origin).
- * - **Web / remote-desktop**: the browser can't reach the server's loopback, so
- *   the iframe loads `{server}/api/office-watch-proxy/{port}/?cap=…`. Here we
- *   **drop `allow-same-origin`** → the iframe runs in an opaque origin and
- *   physically cannot read `localStorage` (the master token never leaks to a
- *   hypothetical malicious office file). The proxy injects a shim that routes
- *   officecli's root-absolute requests back through itself, and answers the
- *   resulting cross-origin CORS. Auth is the per-watch `cap`, not the token.
- */
-export function OfficePreview({
+// 可见预览持有会话；最后一个使用者退出后释放 OfficeCLI 进程。
+export function OfficePreview(props: {
+  rootPath: string | null
+  relPath: string | null
+}) {
+  const { ref, visible } = usePreviewVisibility()
+  const [zoom, setZoom] = useState(1)
+  return (
+    <div ref={ref} className="flex h-full min-h-0 flex-col">
+      <PreviewToolbar
+        zoom={zoom}
+        onZoom={setZoom}
+        onFullscreen={() =>
+          void ref.current?.requestFullscreen().catch(() => {})
+        }
+      />
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="h-full w-full" style={{ zoom }}>
+          {visible && <ActiveOfficePreview {...props} />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ActiveOfficePreview({
   rootPath,
   relPath,
 }: {
@@ -85,26 +84,32 @@ export function OfficePreview({
   // open the preview in the server's web UI instead.
   const remoteDesktop = isDesktop() && isRemoteDesktopMode()
 
-  // Start the watch server on mount (and on retry); stop it on unmount. The
-  // component is keyed by tab id upstream, so a different file remounts fresh.
-  // State is only set inside the async callbacks, never synchronously in the
-  // effect body (the repo lints against that).
   useEffect(() => {
-    let cancelled = false
-    // Whether *our* start committed a ref-count. Drives exactly-one release so
-    // an unmount-before-start race neither leaks a ref (we release once the
-    // start resolves) nor over-releases a watch another tab still shares (we
-    // never release a ref we didn't acquire).
-    let acquired = false
     const root = rootPath ?? ""
-    // Don't spawn a watch we can't display (remote-desktop, see above).
     if (!root || !path || remoteDesktop) return
-    startOfficeWatch(root, path)
+    const transport = getTransport()
+    const id = crypto.randomUUID()
+    let disposed = false
+    const release = () =>
+      void transport.call("close_office_preview", { id }).catch(() => {
+        console.warn(
+          "[office-preview] release failed; session lease will expire"
+        )
+      })
+    const timer = setInterval(() => {
+      void transport.call("renew_office_preview", { id }).catch(() => {
+        if (!disposed) setErrorCode("SESSION_EXPIRED")
+      })
+    }, 30_000)
+    void transport
+      .call<{ port: number; cap: string }>("open_office_preview", {
+        id,
+        rootPath: root,
+        path,
+      })
       .then((res) => {
-        acquired = true
-        if (cancelled) {
-          // Unmounted before start resolved — release the ref we just took.
-          void stopOfficeWatch(root, path).catch(() => {})
+        if (disposed) {
+          release()
           return
         }
         setPort(res.port)
@@ -113,15 +118,16 @@ export function OfficePreview({
         setErrorMessage(null)
       })
       .catch((err) => {
-        if (cancelled) return
+        if (disposed) return
+        clearInterval(timer)
+        release()
         setErrorCode(watchCodeOf(err) ?? "START_FAILED")
         setErrorMessage(extractAppCommandError(err)?.message ?? String(err))
       })
     return () => {
-      cancelled = true
-      if (acquired) {
-        void stopOfficeWatch(root, path).catch(() => {})
-      }
+      disposed = true
+      clearInterval(timer)
+      release()
     }
   }, [path, rootPath, retryKey, remoteDesktop])
 

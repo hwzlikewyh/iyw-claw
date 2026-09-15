@@ -9,7 +9,6 @@ import type { PreviewState } from "@/components/message/workspace-file-preview"
 import { useLazyWorkspaceTree } from "@/components/message/workspace-file-tree-data"
 import { WorkspaceTreePane } from "@/components/message/workspace-file-tree"
 import {
-  getCachedWorkspacePreview,
   loadWorkspaceFilePreview,
   revokeWorkspacePreviewResource,
 } from "@/components/message/workspace-file-preview-loader"
@@ -50,11 +49,6 @@ function useDirectoryPreview(
       if (!filePaths.has(path)) return
       const request = (requestId.current += 1)
       const options = { renderMarkdown, renderHtml, renderPdf }
-      const cached = getCachedWorkspacePreview(rootPath, path, options)
-      if (cached) {
-        setPreview(cached)
-        return
-      }
       setPreview({ status: "loading", path })
       try {
         const next = await loadWorkspaceFilePreview(rootPath, path, options)

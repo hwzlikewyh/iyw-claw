@@ -36,6 +36,7 @@ import {
   splitAbsPath,
 } from "@/lib/file-open-target"
 import { isImageFile, isOfficePreviewable } from "@/lib/language-detect"
+import { binaryPreviewKind } from "@/lib/binary-preview"
 import { getWorkspaceStateStore } from "@/hooks/use-workspace-state-store"
 import type { FileEditContent } from "@/lib/types"
 import type { FileWorkspaceTab } from "@/contexts/workspace-context"
@@ -294,7 +295,11 @@ export function useOpenFileTabsWatch({
           // Image tabs do not carry an etag and load via readFileBase64.
           // Bypass the text-file resolver: a single path-match is enough
           // to trigger a refresh.
-          if (isImageFile(path)) {
+          if (
+            isImageFile(path) ||
+            binaryPreviewKind(path) ||
+            isOfficePreviewable(path)
+          ) {
             void reloadOpenFileBackground(path)
             continue
           }
@@ -465,7 +470,12 @@ export function useOpenFileTabsWatch({
     // Text files only: image tabs carry no etag (the resolver would
     // misread a fine image as "missing"), and office tabs are refreshed
     // by their own officecli watch.
-    if (isImageFile(tab.path) || isOfficePreviewable(tab.path)) return
+    if (
+      isImageFile(tab.path) ||
+      isOfficePreviewable(tab.path) ||
+      binaryPreviewKind(tab.path)
+    )
+      return
     if (findOwningFolder(tab.path, allFolders)) return
     const io = splitAbsPath(tab.path)
     if (!io) return

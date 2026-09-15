@@ -114,6 +114,9 @@ function resolveRemoteArtifactPreview(
   if (urlPathMatches(artifact.path, /\.pdf$/i)) {
     return { status: "pdf", path: artifact.path, src: artifact.path }
   }
+  if (urlPathMatches(artifact.path, /\.(?:glb|gltf)$/i)) {
+    return { status: "model", path: artifact.path, src: artifact.path }
+  }
   const mediaType = remoteArtifactMediaType(artifact.path)
   if (mediaType) {
     return {

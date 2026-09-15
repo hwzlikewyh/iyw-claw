@@ -55,6 +55,7 @@ import {
   type WorkspaceExternalConflict,
 } from "@/hooks/use-open-file-tabs-watch"
 import { useOfficeAutoPreview } from "@/lib/office-preview-prefs"
+import { binaryPreviewKind } from "@/lib/binary-preview"
 
 export type WorkspaceMode = "conversation" | "fusion"
 export type WorkspacePane = "conversation" | "files"
@@ -848,6 +849,24 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       if (existing.isDirty) return
       if (inFlightLoadsRef.current.has(tabId)) return
 
+      if (binaryPreviewKind(absPath) || isOfficePreviewable(absPath)) {
+        setFileTabs((prev) =>
+          prev.map((tab) =>
+            tab.id === tabId
+              ? {
+                  ...tab,
+                  content: "",
+                  stale: false,
+                  loading: false,
+                  readonly: true,
+                  mtimeMs: Date.now(),
+                }
+              : tab
+          )
+        )
+        return
+      }
+
       const image = isImageFile(absPath)
 
       markTabRefreshing(tabId)
@@ -881,14 +900,32 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
           return
         }
 
+        const markdown = languageFromPath(absPath) === "markdown"
+        const gitRequest = fetchGitBase(absPath)
         const [result, gitBaseContent] = await withTimeout(
           Promise.all([
             readFileForEdit(io.rootPath, io.ioPath),
-            fetchGitBase(absPath),
+            markdown ? Promise.resolve(undefined) : gitRequest,
           ]),
           15_000,
           t("previewRequestTimedOut")
         )
+        if (markdown) {
+          void gitRequest
+            .then((base) => {
+              setFileTabs((prev) =>
+                prev.map((tab) =>
+                  tab.id === tabId && tab.etag === result.etag && !tab.isDirty
+                    ? {
+                        ...tab,
+                        gitBaseContent: dedupeGitBase(tab.content, base),
+                      }
+                    : tab
+                )
+              )
+            })
+            .catch(() => {})
+        }
         if (!settleFetch(tabId, gen)) return
         setFileTabs((prev) =>
           prev.map((tab) =>
@@ -1137,6 +1174,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
       const tabId = buildFileTabId({ kind: "file", path: absPath })
       const image = isImageFile(absPath)
       const office = !image && isOfficePreviewable(absPath)
+      const binary = binaryPreviewKind(absPath)
       const seed = loadingTab(
         tabId,
         null,
@@ -1144,7 +1182,11 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
         fileName(absPath),
         absPath,
         absPath,
-        image ? "image" : office ? "office" : languageFromPath(absPath)
+        image
+          ? "image"
+          : office
+            ? "office"
+            : (binary ?? languageFromPath(absPath))
       )
 
       const decision = decideLoad(seed, options?.reload ?? false)
@@ -1155,7 +1197,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
         // Office files (.docx/.xlsx/.pptx) are binary OpenXML — never read as
         // text. The OfficePreview component renders them via the OfficeCLI
         // backend on its own, so just settle the tab as a ready preview shell.
-        if (office) {
+        if (office || binary) {
           if (!settleFetch(tabId, gen)) return
           setFileTabs((prev) =>
             prev.map((tab) =>
@@ -1202,10 +1244,12 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
           return
         }
 
+        const markdown = languageFromPath(absPath) === "markdown"
+        const gitRequest = fetchGitBase(absPath)
         const [result, gitBaseContent] = await withTimeout(
           Promise.all([
             readFileForEdit(io.rootPath, io.ioPath),
-            fetchGitBase(absPath),
+            markdown ? Promise.resolve(undefined) : gitRequest,
           ]),
           15_000,
           t("previewRequestTimedOut")
@@ -1232,6 +1276,22 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
               : tab
           )
         )
+        if (markdown) {
+          void gitRequest
+            .then((base) => {
+              setFileTabs((prev) =>
+                prev.map((tab) =>
+                  tab.id === tabId && tab.etag === result.etag && !tab.isDirty
+                    ? {
+                        ...tab,
+                        gitBaseContent: dedupeGitBase(tab.content, base),
+                      }
+                    : tab
+                )
+              )
+            })
+            .catch(() => {})
+        }
       } catch (error) {
         if (!settleFetch(tabId, gen)) return
         if (requestedLine) {

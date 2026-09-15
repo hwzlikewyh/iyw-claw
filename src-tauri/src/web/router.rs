@@ -474,6 +474,12 @@ pub fn build_router(
             post(handlers::git::git_delete_remote_branch),
         )
         // ─── Files ───
+        .route("/open_office_preview", post(crate::office_watch::preview_session::open_handler))
+        .route("/close_office_preview", post(crate::office_watch::preview_session::close_handler))
+        .route("/renew_office_preview", post(crate::office_watch::preview_session::renew_handler))
+        .route("/open_preview_resource", post(crate::preview_resources::open_handler))
+        .route("/close_preview_resource", post(crate::preview_resources::close_handler))
+        .route("/renew_preview_resource", post(crate::preview_resources::renew_handler))
         .route(
             "/read_file_preview",
             post(handlers::files::read_file_preview),
@@ -1510,6 +1516,7 @@ pub fn build_router(
     // The login page needs to read the user's preferred language before
     // authenticating so it can render in their chosen locale.
     let public_api = Router::new()
+        .route("/preview_resource/{id}/{*name}", get(crate::preview_resources::serve))
         .route(
             "/wecom_agent_callback/{channel_id}/{callback_path}",
             get(handlers::wecom_agent_callback::verify_callback)
@@ -1559,7 +1566,11 @@ pub fn build_router(
     let api = public_api.merge(api).layer(middleware::from_fn(
         |req: axum::extract::Request, next: Next| async move {
             let method = req.method().clone();
-            let path = req.uri().path().to_string();
+            let path = if req.uri().path().contains("/preview_resource/") {
+                "/preview_resource/[redacted]".to_string()
+            } else {
+                req.uri().path().to_string()
+            };
             let request_id = uuid::Uuid::new_v4();
             let span = tracing::info_span!("http", %method, %path, %request_id);
             next.run(req).instrument(span).await
