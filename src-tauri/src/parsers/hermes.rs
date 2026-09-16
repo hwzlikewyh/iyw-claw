@@ -377,6 +377,7 @@ impl HermesParser {
 
         let base = SessionStats {
             total_usage: (total > 0).then_some(TurnUsage {
+                estimated_points: None,
                 input_tokens: input,
                 output_tokens: output,
                 cache_creation_input_tokens: cache_write,

@@ -28,6 +28,7 @@ pub(super) fn usage_from_step(usage: Option<&Value>) -> Option<TurnUsage> {
     let output_tokens = get("outputTokens");
     let cache_read_input_tokens = get("cacheReadTokens");
     (input_tokens != 0 || output_tokens != 0 || cache_read_input_tokens != 0).then_some(TurnUsage {
+        estimated_points: None,
         input_tokens,
         output_tokens,
         cache_creation_input_tokens: 0,
@@ -37,6 +38,7 @@ pub(super) fn usage_from_step(usage: Option<&Value>) -> Option<TurnUsage> {
 
 pub(super) fn add_usage(left: TurnUsage, right: TurnUsage) -> TurnUsage {
     TurnUsage {
+        estimated_points: None,
         input_tokens: left.input_tokens.saturating_add(right.input_tokens),
         output_tokens: left.output_tokens.saturating_add(right.output_tokens),
         cache_creation_input_tokens: left

@@ -12,7 +12,6 @@ import {
   ArrowUpToLine,
   BrainCog,
   CheckIcon,
-  Coins,
   CopyIcon,
   Timer,
 } from "lucide-react"
@@ -27,6 +26,7 @@ import { useMessageScroll } from "@/components/message/message-scroll-context"
 import { formatElapsedLabel } from "@/lib/format-elapsed"
 import { cn, copyTextToClipboard } from "@/lib/utils"
 import type { TurnUsage } from "@/lib/types"
+import { TurnUsageStats } from "./turn-usage-stats"
 
 interface TurnStatsProps {
   usage?: TurnUsage | null
@@ -177,53 +177,7 @@ export function TurnStats({
             </TooltipContent>
           </Tooltip>
         )}
-        {hasUsage && usage && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className={cn(iconButtonClass, "cursor-default")}
-                aria-label={t("tokenStats")}
-              >
-                <Coins aria-hidden="true" className="h-3.5 w-3.5" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-xs">
-              <div className="flex flex-col gap-0.5">
-                <div className="flex justify-between gap-3">
-                  <span>{t("tokenInput")}</span>
-                  <span className="font-mono tabular-nums">
-                    {usage.input_tokens.toLocaleString(locale)}
-                  </span>
-                </div>
-                {usage.output_tokens > 0 && (
-                  <div className="flex justify-between gap-3">
-                    <span>{t("tokenOutput")}</span>
-                    <span className="font-mono tabular-nums">
-                      {usage.output_tokens.toLocaleString(locale)}
-                    </span>
-                  </div>
-                )}
-                {usage.cache_read_input_tokens > 0 && (
-                  <div className="flex justify-between gap-3">
-                    <span>{t("tokenCacheRead")}</span>
-                    <span className="font-mono tabular-nums">
-                      {usage.cache_read_input_tokens.toLocaleString(locale)}
-                    </span>
-                  </div>
-                )}
-                {usage.cache_creation_input_tokens > 0 && (
-                  <div className="flex justify-between gap-3">
-                    <span>{t("tokenCacheWrite")}</span>
-                    <span className="font-mono tabular-nums">
-                      {usage.cache_creation_input_tokens.toLocaleString(locale)}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </TooltipContent>
-          </Tooltip>
-        )}
+        {hasUsage && usage && <TurnUsageStats usage={usage} />}
         <Tooltip>
           <TooltipTrigger asChild>
             <button

@@ -430,6 +430,7 @@ pub fn compute_session_stats(turns: &[MessageTurn]) -> Option<SessionStats> {
 
     Some(SessionStats {
         total_usage: Some(TurnUsage {
+            estimated_points: None,
             input_tokens: total_in,
             output_tokens: total_out,
             cache_creation_input_tokens: total_cache_create,

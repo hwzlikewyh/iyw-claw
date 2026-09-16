@@ -31,6 +31,7 @@ pub mod conversation_context_primer;
 mod conversation_history_cache;
 mod conversation_history_cache_prune;
 pub(crate) mod conversation_title;
+mod conversation_points;
 pub mod conversations;
 pub mod delegation;
 #[cfg(feature = "tauri-runtime")]

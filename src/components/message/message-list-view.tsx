@@ -32,6 +32,7 @@ import {
 } from "@/lib/adapters/ai-elements-adapter"
 import { isContextCompactionMeta } from "@/lib/context-compaction"
 import { TurnStats } from "./turn-stats"
+import { addUsagePoints } from "@/lib/usage-points"
 import { MessageOutputStats } from "./message-output-stats"
 import { getMessageOutputMetrics } from "./message-output-metrics"
 import { resolveTurnDuration } from "@/lib/turn-duration"
@@ -378,12 +379,14 @@ function mergeConsecutiveAssistantTurns(
         if (u) {
           if (!mergedUsage) {
             mergedUsage = {
+              estimated_points: u.estimated_points,
               input_tokens: u.input_tokens,
               output_tokens: u.output_tokens,
               cache_creation_input_tokens: u.cache_creation_input_tokens,
               cache_read_input_tokens: u.cache_read_input_tokens,
             }
           } else {
+            mergedUsage.estimated_points = addUsagePoints(mergedUsage, u)
             mergedUsage.input_tokens += u.input_tokens
             mergedUsage.output_tokens += u.output_tokens
             mergedUsage.cache_creation_input_tokens +=

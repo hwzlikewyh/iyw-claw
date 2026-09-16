@@ -880,6 +880,7 @@ pub async fn get_folder_conversation_with_live_core(
     conversation_id: i32,
 ) -> Result<DbConversationDetail, AppCommandError> {
     let (mut detail, parsed_title) = get_folder_conversation_core(conn, conversation_id).await?;
+    super::conversation_points::enrich(conn, &mut detail).await;
 
     // Per-turn auto-title backfill. The parse `get_folder_conversation_core`
     // just did already produced the session-file title; adopt it (and broadcast
@@ -967,7 +968,12 @@ pub async fn get_folder_conversation_page_core(
             "[conversation-history] cache hit"
         );
         let mut cached = cached;
-        cached.history_stale = !fresh;
+        let points_missing = cached
+            .session_stats
+            .as_ref()
+            .and_then(|stats| stats.total_usage.as_ref())
+            .is_some_and(|usage| usage.estimated_points.is_none());
+        cached.history_stale = !fresh || points_missing;
         cached
     } else {
         let parsed = get_folder_conversation_with_live_core(

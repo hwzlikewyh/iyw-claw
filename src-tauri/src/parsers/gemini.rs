@@ -594,6 +594,7 @@ impl GeminiParser {
         let output_tokens = tokens.get("output").and_then(|v| v.as_u64()).unwrap_or(0);
         let cached_tokens = tokens.get("cached").and_then(|v| v.as_u64()).unwrap_or(0);
         Some(TurnUsage {
+            estimated_points: None,
             input_tokens,
             output_tokens,
             cache_creation_input_tokens: 0,

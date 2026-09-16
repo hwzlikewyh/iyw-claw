@@ -1969,7 +1969,7 @@
     "sessionDetails": {
       "menuLabel": "会话详情",
       "title": "会话详情",
-      "subtitle": "会话元信息与 Token 用量",
+      "subtitle": "会话消耗、Token 用量与详细信息",
       "fieldTitle": "标题",
       "untitled": "未命名会话",
       "sessionId": "会话 ID",
@@ -1987,8 +1987,8 @@
       "cacheRead": "缓存读取",
       "contextWindow": "上下文窗口",
       "duration": "时长",
-      "loadingStats": "正在加载 Token 用量…",
-      "loadFailed": "加载 Token 用量失败",
+      "loadingStats": "正在加载用量与点数…",
+      "loadFailed": "加载用量与点数失败",
       "noStats": "暂无用量记录",
       "timestampsHeading": "时间",
       "createdAt": "创建时间",
@@ -5328,6 +5328,15 @@
     "logout": "退出登录",
     "signedInWithBalance": "已登录 · {balance}",
     "openSettings": "设置"
+  },
+  "UsagePoints": {
+    "turn": "本轮消耗点数",
+    "session": "当前对话消耗点数",
+    "value": "{points} 点",
+    "unavailable": "暂不可用",
+    "unavailableHint": "缺少模型价格或完整用量",
+    "estimateHint": "按记录的 Token 和当前模型单价折算，非账户实际扣款；未提供换算系数时按 1 元 = 10 点计算",
+    "estimateShort": "按用量折算，非实际扣款"
   },
   "UsageSettings": {
     "loading": "正在加载用量...",

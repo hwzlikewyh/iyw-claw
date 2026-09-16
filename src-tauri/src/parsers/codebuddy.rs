@@ -553,6 +553,7 @@ fn usage_from_raw(value: &Value) -> Option<TurnUsage> {
         return None;
     }
     Some(TurnUsage {
+        estimated_points: None,
         input_tokens: prompt.saturating_sub(cached),
         output_tokens: completion,
         cache_creation_input_tokens: 0,

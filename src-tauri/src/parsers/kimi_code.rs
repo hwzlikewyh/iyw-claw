@@ -757,6 +757,7 @@ fn usage_from_record(usage: Option<&Value>) -> Option<TurnUsage> {
         return None;
     }
     Some(TurnUsage {
+        estimated_points: None,
         input_tokens: input,
         output_tokens: output,
         cache_creation_input_tokens: cache_creation,
@@ -766,6 +767,7 @@ fn usage_from_record(usage: Option<&Value>) -> Option<TurnUsage> {
 
 fn add_usage(a: TurnUsage, b: TurnUsage) -> TurnUsage {
     TurnUsage {
+        estimated_points: None,
         input_tokens: a.input_tokens.saturating_add(b.input_tokens),
         output_tokens: a.output_tokens.saturating_add(b.output_tokens),
         cache_creation_input_tokens: a

@@ -1729,7 +1729,10 @@ function reducer(
       for (const patch of action.turnPatches) {
         const turn = patchedTurns[patch.index]
         if (!turn) continue
-        const newUsage = turn.usage ?? patch.usage
+        const newUsage =
+          patch.usage?.estimated_points != null
+            ? patch.usage
+            : (turn.usage ?? patch.usage)
         const newDuration = turn.duration_ms ?? patch.duration_ms
         const newModel = turn.model ?? patch.model
         const newCompletedAt = turn.completed_at ?? patch.completed_at
@@ -2404,14 +2407,14 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
             )
             if (
               lastLocalAssistantIndex !== undefined &&
-              !latestCoverage?.usage &&
+              latestCoverage?.usage?.estimated_points == null &&
               attempt < 1
             ) {
               trySync(attempt + 1)
             }
           })
           .catch(() => {
-            // Silent — localTurns content remains visible
+            if (!cancelled && attempt < 1) trySync(attempt + 1)
           })
       }, delay)
     }

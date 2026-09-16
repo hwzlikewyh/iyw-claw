@@ -576,6 +576,7 @@ fn usage_from_object(usage: Option<&Value>) -> Option<TurnUsage> {
         return None;
     }
     Some(TurnUsage {
+        estimated_points: None,
         input_tokens: input,
         output_tokens: output,
         cache_creation_input_tokens: cache_write,
