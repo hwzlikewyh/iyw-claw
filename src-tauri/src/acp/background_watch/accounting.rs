@@ -3,7 +3,10 @@ use std::time::Duration;
 use std::time::Instant;
 
 use crate::acp::types::BackgroundSettledInfo;
-use crate::parsers::claude_background::TaskNotification;
+use crate::parsers::claude_background::{is_terminal_task_status, TaskNotification};
+
+#[path = "accounting_records.rs"]
+mod records;
 
 struct TaskEntry {
     kind: &'static str,
@@ -19,6 +22,9 @@ pub(super) struct TaskAccounting {
     held_turn_ids: HashSet<String>,
     was_prompting: bool,
     currently_prompting: bool,
+    pending_stops: HashMap<String, String>,
+    pending_resumes: HashMap<String, String>,
+    launch_tools: HashMap<String, String>,
 }
 
 impl TaskAccounting {
@@ -30,6 +36,9 @@ impl TaskAccounting {
             held_turn_ids: HashSet::new(),
             was_prompting: false,
             currently_prompting: false,
+            pending_stops: HashMap::new(),
+            pending_resumes: HashMap::new(),
+            launch_tools: HashMap::new(),
         }
     }
 
@@ -83,28 +92,26 @@ impl TaskAccounting {
     }
 
     fn observe_user(&mut self, value: &serde_json::Value) -> Vec<BackgroundSettledInfo> {
+        let mut settled = self.observe_tool_results(value);
         if let Some(result) = value.get("toolUseResult") {
             self.observe_launch(result);
-            self.observe_task_output(result);
+            self.remember_launch_tool(value, result);
+            settled.extend(self.observe_task_output(result));
         }
         let Some(text) = user_record_text(value) else {
-            return Vec::new();
+            return settled;
         };
-        let Some(notification) = TaskNotification::parse(text.trim_start()) else {
-            return Vec::new();
-        };
-        let task_id = notification.task_id.clone();
-        self.tasks.remove(&task_id);
-        self.uncertain_ids.remove(&task_id);
-        self.settled_ids.insert(task_id.clone());
-        vec![BackgroundSettledInfo {
-            task_id: task_id.clone(),
-            status: notification.status,
-            summary: notification.summary,
-            tool_use_id: notification.tool_use_id,
-            result: notification.result,
-            wire_visible: self.held_turn_ids.contains(&task_id),
-        }]
+        for notification in TaskNotification::parse_all(&text)
+            .into_iter()
+            .filter(|n| is_terminal_task_status(&n.status))
+        {
+            let mut outcome = self.settle(&notification.task_id, &notification.status);
+            outcome.summary = notification.summary;
+            outcome.tool_use_id = notification.tool_use_id.or(outcome.tool_use_id);
+            outcome.result = notification.result;
+            settled.push(outcome);
+        }
+        settled
     }
 
     fn observe_launch(&mut self, result: &serde_json::Value) {
@@ -122,27 +129,48 @@ impl TaskAccounting {
         }
     }
 
-    fn observe_task_output(&mut self, result: &serde_json::Value) {
+    fn observe_task_output(&mut self, result: &serde_json::Value) -> Option<BackgroundSettledInfo> {
         let Some(task) = result.get("task") else {
-            return;
+            return None;
         };
         let Some(id) = nonempty_str(task.get("task_id")) else {
-            return;
+            return None;
         };
         let status = task
             .get("status")
             .and_then(|value| value.as_str())
             .unwrap_or("");
-        if is_terminal_task_status(status) && self.tasks.remove(id).is_some() {
-            self.uncertain_ids.remove(id);
-            self.settled_ids.insert(id.to_string());
-        } else if let Some(entry) = self.tasks.get_mut(id) {
-            // A fresh non-terminal task update is evidence that the task is
-            // alive. Reset the age window so a long-running task can recover
-            // from a temporary watcher gap without being re-marked instantly.
-            self.uncertain_ids.remove(id);
-            entry.started_at = Instant::now();
+        if is_terminal_task_status(status) {
+            if self.settled_ids.contains(id) {
+                return None;
+            }
+            let status = if status == "completed"
+                && task
+                    .get("exit_code")
+                    .and_then(|v| v.as_i64())
+                    .is_some_and(|code| code != 0)
+            {
+                "failed"
+            } else {
+                status
+            };
+            let mut outcome = self.settle(id, status);
+            outcome.result = task.get("output").and_then(|v| v.as_str()).map(|output| {
+                crate::parsers::truncate_str(
+                    output,
+                    crate::parsers::claude_background::BACKGROUND_RESULT_MAX_CHARS,
+                )
+            });
+            return Some(outcome);
         }
+        if status == "running" {
+            self.register(id, "task");
+            self.uncertain_ids.remove(id);
+            if let Some(entry) = self.tasks.get_mut(id) {
+                entry.started_at = Instant::now();
+            }
+        }
+        None
     }
 
     fn observe_assistant(&mut self, value: &serde_json::Value) {
@@ -163,17 +191,32 @@ impl TaskAccounting {
                 .unwrap_or("");
             let input = block.get("input");
             match name {
-                "SendMessage" => self.observe_resume(input),
-                "TaskStop" | "KillShell" => self.observe_stop(input),
+                "SendMessage" => {
+                    if let (Some(call), Some(id)) = (
+                        nonempty_str(block.get("id")),
+                        input.and_then(|v| nonempty_str(v.get("to"))),
+                    ) {
+                        self.pending_resumes
+                            .insert(call.to_string(), id.to_string());
+                    }
+                }
+                "TaskStop" | "KillShell" => {
+                    if let (Some(call), Some(id)) = (
+                        nonempty_str(block.get("id")),
+                        input.and_then(|v| {
+                            nonempty_str(v.get("task_id"))
+                                .or_else(|| nonempty_str(v.get("shell_id")))
+                        }),
+                    ) {
+                        self.pending_stops.insert(call.to_string(), id.to_string());
+                    }
+                }
                 _ => {}
             }
         }
     }
 
-    fn observe_resume(&mut self, input: Option<&serde_json::Value>) {
-        let Some(id) = input.and_then(|value| nonempty_str(value.get("to"))) else {
-            return;
-        };
+    fn observe_resume(&mut self, id: &str) {
         if self.settled_ids.remove(id) {
             self.register(id, "agent");
             if self.currently_prompting {
@@ -182,19 +225,34 @@ impl TaskAccounting {
         }
     }
 
-    fn observe_stop(&mut self, input: Option<&serde_json::Value>) {
-        let Some(id) = input.and_then(|value| {
-            nonempty_str(value.get("task_id")).or_else(|| nonempty_str(value.get("shell_id")))
-        }) else {
-            return;
-        };
-        if self.tasks.remove(id).is_some() {
-            self.uncertain_ids.remove(id);
-            self.settled_ids.insert(id.to_string());
+    fn settle(&mut self, id: &str, status: &str) -> BackgroundSettledInfo {
+        self.tasks.remove(id);
+        self.uncertain_ids.remove(id);
+        if self.settled_ids.insert(id.to_string()) {
+            tracing::info!(
+                task_id = id,
+                status,
+                outstanding = self.tasks.len(),
+                "[bg-watch] background task settled"
+            );
+        }
+        BackgroundSettledInfo {
+            task_id: id.to_string(),
+            status: status.to_string(),
+            summary: None,
+            result: None,
+            tool_use_id: self.launch_tools.get(id).cloned(),
+            wire_visible: self.currently_prompting || self.held_turn_ids.contains(id),
         }
     }
 
     fn register(&mut self, id: &str, kind: &'static str) {
+        if self.settled_ids.contains(id) {
+            return;
+        }
+        if !self.tasks.contains_key(id) {
+            tracing::info!(task_id = id, kind, "[bg-watch] background task registered");
+        }
         self.uncertain_ids.remove(id);
         self.tasks.entry(id.to_string()).or_insert(TaskEntry {
             kind,
@@ -221,19 +279,4 @@ fn user_record_text(value: &serde_json::Value) -> Option<String> {
         .filter_map(|block| block.get("text").and_then(|text| text.as_str()))
         .collect();
     (!texts.is_empty()).then(|| texts.join("\n"))
-}
-
-fn is_terminal_task_status(status: &str) -> bool {
-    matches!(
-        status,
-        "completed"
-            | "failed"
-            | "canceled"
-            | "cancelled"
-            | "killed"
-            | "stopped"
-            | "timeout"
-            | "timed_out"
-            | "error"
-    )
 }

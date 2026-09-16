@@ -791,6 +791,11 @@ impl SessionState {
                 tools: &self.active_tool_calls,
             },
         );
+        // 已结束轮次的后台退出只更新进程观测，不能插入当前轮次正文。
+        if matches!(payload, AcpEvent::ToolCallUpdate { meta: Some(meta), .. }
+            if meta.pointer("/iyw/backgroundSettlement").and_then(|v| v.as_bool()) == Some(true)) {
+            return;
+        }
         match payload {
             AcpEvent::RuntimeObservation { .. } => {}
             AcpEvent::SessionStarted { session_id } => {
@@ -810,6 +815,10 @@ impl SessionState {
                 }
                 if self.external_id.as_deref() != Some(session_id.as_str()) {
                     self.external_id_changed_at = Some(std::time::SystemTime::now());
+                    self.background_outstanding = 0;
+                    self.background_uncertain = false;
+                    self.background_activity_at = None;
+                    self.activity = Default::default();
                 }
                 self.external_id = Some(session_id.clone());
                 self.status = ConnectionStatus::Connected;
@@ -1408,10 +1417,12 @@ impl SessionState {
                 self.feedback.retain(|item| !ids.contains(&item.id));
             }
             AcpEvent::BackgroundActivity {
+                session_id,
                 outstanding,
                 uncertain,
                 ..
             } => {
+                if self.external_id.as_deref() != Some(session_id.as_str()) { return; }
                 self.background_outstanding = *outstanding;
                 self.background_uncertain = *uncertain;
                 self.background_activity_at = Some(Utc::now());

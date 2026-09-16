@@ -19,6 +19,7 @@ mod activity_mapping;
 mod approval_mapping;
 mod automatic_turn;
 mod child_events;
+mod background_commands;
 mod commands;
 mod completed_snapshot;
 mod fast_mode;
@@ -785,7 +786,14 @@ async fn handle_event(event: UpstreamEvent, context: BridgeEventContext<'_>) -> 
                     if upstream.bind_descendant(thread).await.is_err() { return Ok(()); }
                 }
             }
-            if !upstream.accepts_turn_event(&method, &params).await.map_err(to_sacp_error)? { return Ok(()); }
+            if !upstream.accepts_turn_event(&method, &params).await.map_err(to_sacp_error)? {
+                if params["threadId"].as_str() == session_id.as_deref() {
+                    if let Some(update) = item_projection.late_background_completion(&method, &params) {
+                        send_update(cx, session_id, update.method, update.params)?;
+                    }
+                }
+                return Ok(());
+            }
             let thread_id = params
                 .get("threadId")
                 .and_then(Value::as_str)

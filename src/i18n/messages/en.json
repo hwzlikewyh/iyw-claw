@@ -3738,6 +3738,7 @@
           "failed": "Context compaction failed"
         },
         "backgroundTask": {
+          "unknown": "Status unknown",
           "title": "Background task",
           "titleWithId": "Background task · {id}",
           "running": "Running",
@@ -3877,9 +3878,22 @@
         "statusClosed": "Closed",
         "statusNotFound": "Not found",
         "opSpawn": "Starting sub-agent",
-        "opWait": "Fetching sub-agent result",
+        "opWait": "Waiting for sub-agent messages",
         "opClose": "Closing sub-agent",
-        "opResume": "Resuming sub-agent"
+        "opResume": "Resuming sub-agent",
+        "statusUnknown": "Status unknown",
+        "waitFinished": "This wait has ended",
+        "waitReceived": "Sub-agent message received",
+        "waitTimedOut": "Wait timed out; sub-agents may still be running",
+        "noMessage": "No sub-agent messages yet",
+        "recentActivity": "Latest activity",
+        "resultLabel": "Result",
+        "messageLabel": "Latest message",
+        "openTranscript": "View execution history",
+        "refreshTranscript": "Refresh execution history",
+        "transcriptLoading": "Loading execution history",
+        "transcriptPending": "No execution history yet",
+        "transcriptUnavailable": "Execution history is temporarily unavailable"
       },
       "sessionFailure": {
         "category": {
@@ -3902,6 +3916,7 @@
         "moreIncidents": "+{count} more"
       },
       "backgroundTasks": {
+        "processesRunning": "{count, plural, one {# command process running} other {# command processes running}}",
         "running": "{count, plural, one {# background task running} other {# background tasks running}}",
         "unknown": "Background task status is being confirmed",
         "settling": "Syncing background results...",

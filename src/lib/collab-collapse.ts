@@ -9,8 +9,7 @@
  *   - spawn  → the EXECUTION capsule. Its per-agent status is aggregated across
  *     all ops so it no longer freezes at the spawn-time "pendingInit"; the full
  *     result text is NOT shown here (it lives in the wait capsule).
- *   - wait   → kept verbatim, one capsule per wait. codex returns each agent's
- *     result in exactly one wait, so wait capsules never overlap.
+ *   - wait   → preserves returned results; global waits show known child tasks.
  *   - close  → dropped (folded into the execution capsule's terminal status),
  *     unless it targets an agent with no spawn in this message (orphan — kept so
  *     nothing is lost).
@@ -20,6 +19,7 @@
  */
 
 import type { LiveContentBlock } from "@/contexts/acp-connections-context"
+import { projectCollabActivity } from "./collab-activity"
 import {
   isCodexCollabInput,
   parseCollabToolInput,
@@ -36,6 +36,8 @@ type CollabAgg = {
   lastMessage: string | null
   /** Whether some `wait` reported this agent (→ result shown in a wait capsule). */
   hasWait: boolean
+  task: string | null
+  name: string | null
 }
 
 type CollabToolCallBlock = Extract<LiveContentBlock, { type: "tool_call" }>
@@ -54,39 +56,33 @@ function rewriteExecutionBlock(
 ): LiveContentBlock {
   const raw = block.info.raw_input
   if (!raw) return block
-  let parsed: Record<string, unknown>
-  try {
-    const p: unknown = JSON.parse(raw)
-    if (!p || typeof p !== "object" || Array.isArray(p)) return block
-    parsed = p as Record<string, unknown>
-  } catch {
-    return block
-  }
-  const states = parsed.agentsStates
-  if (!states || typeof states !== "object" || Array.isArray(states)) {
-    return block
-  }
+  const info = parseCollabToolInput(raw)
+  if (!info) return block
+  const parsed = JSON.parse(raw)
+  const agents = info.agents
 
   const newStates: Record<string, unknown> = {}
   let anyError = false
   let anyActive = false
   let anyTerminal = false
-  for (const [agentId, value] of Object.entries(
-    states as Record<string, unknown>
-  )) {
-    const entry = agg.get(agentId)
-    if (!entry) {
-      newStates[agentId] = value
-      continue
-    }
+  for (const value of agents) {
+    const agentId = value.threadId
+    const entry = agg.get(agentId)!
     const merged = mergeCollabAgentStatus(entry.statuses)
     const kind = classifyCollabStatus(merged)
     newStates[agentId] = {
       status: merged,
       message: entry.hasWait ? null : entry.lastMessage,
+      task: entry.task,
+      name: entry.name,
     }
     if (isErrorCollabStatusKind(kind)) anyError = true
-    else if (kind === "completed" || kind === "closed") anyTerminal = true
+    else if (
+      kind === "completed" ||
+      kind === "closed" ||
+      kind === "interrupted"
+    )
+      anyTerminal = true
     else if (kind === "running" || kind === "pending") anyActive = true
   }
 
@@ -105,12 +101,47 @@ function rewriteExecutionBlock(
   }
 }
 
-export function collapseLiveCollabBlocks(
-  content: LiveContentBlock[]
-): LiveContentBlock[] {
-  if (!content.some(isCollabBlock)) return content
+function enrichWaitBlock(
+  block: CollabToolCallBlock,
+  context: { agg: Map<string, CollabAgg>; known: Set<string> }
+): LiveContentBlock {
+  const info = parseCollabToolInput(block.info.raw_input)
+  if (!info) return block
+  const agents = info.agents.length
+    ? info.agents
+    : [...context.known].map((threadId) => ({
+        threadId,
+        status: null,
+        message: null,
+      }))
+  const states = Object.fromEntries(
+    agents.map((agent) => {
+      const entry = context.agg.get(agent.threadId)
+      return [
+        agent.threadId,
+        {
+          ...agent,
+          status: agent.status ?? mergeCollabAgentStatus(entry?.statuses ?? []),
+          message: agent.message,
+          task: entry?.task,
+          name: entry?.name,
+        },
+      ]
+    })
+  )
+  return {
+    ...block,
+    info: {
+      ...block.info,
+      raw_input: JSON.stringify({
+        ...JSON.parse(block.info.raw_input!),
+        agentsStates: states,
+      }),
+    },
+  }
+}
 
-  // Pass 1 — aggregate each agent's status/message across all collab ops.
+function collectCollabContext(content: LiveContentBlock[]) {
   const agg = new Map<string, CollabAgg>()
   const spawnAgentIds = new Set<string>()
   for (const block of content) {
@@ -123,23 +154,51 @@ export function collapseLiveCollabBlocks(
         statuses: [],
         lastMessage: null,
         hasWait: false,
+        task: null,
+        name: null,
+      }
+      if (a.status === "running" || a.status === "inProgress") {
+        entry.statuses = []
+        entry.lastMessage = null
       }
       entry.statuses.push(a.status)
       if (a.message) entry.lastMessage = a.message
+      if (op === "spawn" && info.prompt) entry.task = info.prompt
+      if (a.name) entry.name = a.name
       if (op === "wait") entry.hasWait = true
       agg.set(a.threadId, entry)
       if (op === "spawn") spawnAgentIds.add(a.threadId)
     }
   }
+  return { agg, spawnAgentIds }
+}
 
+export function collapseLiveCollabBlocks(
+  content: LiveContentBlock[]
+): LiveContentBlock[] {
+  const projected = content.map(projectCollabActivity)
+  if (!projected.some(isCollabBlock)) return content
+  const { agg, spawnAgentIds } = collectCollabContext(projected)
   // Pass 2 — rebuild: drop close, rewrite spawn, keep wait + everything else.
   const result: LiveContentBlock[] = []
-  for (const block of content) {
+  const known = new Set<string>()
+  for (const block of projected) {
     if (!isCollabBlock(block)) {
       result.push(block)
       continue
     }
     const op = classifyCollabOp(block.info.title)
+    const agents = parseCollabToolInput(block.info.raw_input)?.agents ?? []
+    for (const agent of agents) known.add(agent.threadId)
+    if (op === "wait") {
+      result.push(enrichWaitBlock(block, { agg, known }))
+      continue
+    }
+    if (
+      block.info.title === "subAgentActivity" &&
+      agents.every((a) => spawnAgentIds.has(a.threadId))
+    )
+      continue
     if (op === "close") {
       const ids =
         parseCollabToolInput(block.info.raw_input)?.agents.map(
