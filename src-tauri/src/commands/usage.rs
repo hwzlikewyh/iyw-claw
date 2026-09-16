@@ -13,10 +13,10 @@ const USAGE_LIMIT: usize = 30;
 const USAGE_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Deserialize)]
-struct FusionResponse<T> {
+struct FusionResponse {
     code: i32,
     message: Option<String>,
-    data: Option<T>,
+    data: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -193,18 +193,33 @@ pub async fn get_usage_dashboard_core(
         .map_err(|error| {
             AppCommandError::network("Failed to load usage").with_detail(error.to_string())
         })?;
+    let data = decode_usage_response(response).await?;
+    tracing::info!(
+        daily_rows = data.items.len(),
+        model_rows = data.model_items.len(),
+        requests = data.summary.sessions,
+        "actual usage dashboard loaded"
+    );
+    Ok(data.into_dashboard())
+}
+
+async fn decode_usage_response(
+    response: reqwest::Response,
+) -> Result<FusionUsageData, AppCommandError> {
     let status = response.status();
     if !status.is_success() {
         tracing::warn!(status = status.as_u16(), "usage request failed");
         return Err(AppCommandError::network("Usage request failed")
             .with_detail(format!("HTTP {}", status.as_u16())));
     }
-    let payload = response
-        .json::<FusionResponse<FusionUsageData>>()
-        .await
-        .map_err(|error| {
-            AppCommandError::network("Usage response was invalid").with_detail(error.to_string())
-        })?;
+    let payload = response.json::<FusionResponse>().await.map_err(|error| {
+        tracing::warn!(stage = "envelope", "usage response decoding failed");
+        AppCommandError::network("Usage response was invalid").with_detail(error.to_string())
+    })?;
+    decode_usage_data(payload)
+}
+
+fn decode_usage_data(payload: FusionResponse) -> Result<FusionUsageData, AppCommandError> {
     if payload.code != 1 {
         tracing::warn!(business_code = payload.code, "usage request was rejected");
         return Err(
@@ -218,18 +233,16 @@ pub async fn get_usage_dashboard_core(
     let data = payload
         .data
         .ok_or_else(|| AppCommandError::network("Usage response did not contain data"))?;
+    let data: FusionUsageData = serde_json::from_value(data).map_err(|error| {
+        tracing::warn!(stage = "data", "usage response decoding failed");
+        AppCommandError::network("Usage data was invalid").with_detail(error.to_string())
+    })?;
     if data.unit != "points" || data.summary.unit != "points" {
         return Err(AppCommandError::network(
             "Usage response used an unsupported unit",
         ));
     }
-    tracing::info!(
-        daily_rows = data.items.len(),
-        model_rows = data.model_items.len(),
-        requests = data.summary.sessions,
-        "actual usage dashboard loaded"
-    );
-    Ok(data.into_dashboard())
+    Ok(data)
 }
 
 #[cfg(feature = "tauri-runtime")]
