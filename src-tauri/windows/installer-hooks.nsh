@@ -323,7 +323,37 @@ FunctionEnd
 !macroend
 
 Function .onInstFailed
+  StrCpy $R1 "$IywClawTransactionActive"
   Call IywClawRollbackAppTransaction
   Pop $R0
+  StrCmp $R1 "1" iyw_install_failure_rollback_attempted iyw_install_failure_no_rollback
+
+  iyw_install_failure_no_rollback:
+    DetailPrint "安装未完成，但新 app 已完整；请查看 installer.log 了解备份清理状态。"
+    Push "rollback: not required; new app was complete"
+    Call IywClawAppendInstallerLog
+    Goto iyw_install_failure_restart
+
+  iyw_install_failure_rollback_attempted:
+  StrCmp $R0 "1" iyw_install_failure_rollback_ok iyw_install_failure_rollback_failed
+
+  iyw_install_failure_rollback_ok:
+    StrCmp $IywClawTransactionHasBackup "1" iyw_install_failure_restored iyw_install_failure_no_previous
+  iyw_install_failure_restored:
+    DetailPrint "安装失败，旧 app 已恢复。"
+    Push "rollback: old app restored"
+    Call IywClawAppendInstallerLog
+    Goto iyw_install_failure_restart
+  iyw_install_failure_no_previous:
+    DetailPrint "安装失败，没有旧 app 可恢复，已保留空 app 目录。"
+    Push "rollback: no previous app; empty app directory retained"
+    Call IywClawAppendInstallerLog
+    Goto iyw_install_failure_restart
+  iyw_install_failure_rollback_failed:
+    DetailPrint "安装失败，旧 app 恢复失败；备份仍保留：$IywClawBackupDir"
+    Push "rollback: failed; backup retained at $IywClawBackupDir"
+    Call IywClawAppendInstallerLog
+
+  iyw_install_failure_restart:
   Call IywClawRestartOldAppIfRequested
 FunctionEnd

@@ -12,7 +12,16 @@ pub(crate) struct ThreadLaunchOptions {
 
 impl ThreadLaunchOptions {
     pub(crate) fn mcp_names(&self) -> Vec<String> {
-        self.mcp.as_ref().map(|servers| servers.keys().cloned().collect()).unwrap_or_default()
+        self.mcp
+            .as_ref()
+            .map(|servers| {
+                servers
+                    .iter()
+                    .filter(|(_, config)| config["required"] != false)
+                    .map(|(name, _)| name.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
     pub(crate) fn new(capabilities: CapabilitySet) -> Self {
         Self {
@@ -108,11 +117,17 @@ fn server_config(server: &Value) -> Result<Value, UpstreamError> {
         }
     };
     config["enabled"] = json!(true);
-    config["required"] = json!(true);
+    config["required"] = json!(!is_optional_business_gateway(server));
     // 上游校验的错误只返回类型说明，避免输出命令、参数或认证头。
     serde_json::from_value::<codex_config::McpServerConfig>(config.clone())
         .map_err(|_| invalid("MCP configuration failed runtime validation"))?;
     Ok(config)
+}
+
+fn is_optional_business_gateway(server: &Value) -> bool {
+    server["type"] == "http"
+        && server["name"] == "爱原物网关mcp"
+        && server["url"] == "https://gateway.iyw.cn/iyw-fusion-mcp-gateway/gateway/mcp/mcp"
 }
 
 fn named_values(server: &Value, field: &str) -> Result<Map<String, Value>, UpstreamError> {
