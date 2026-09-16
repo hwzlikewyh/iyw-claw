@@ -5332,7 +5332,14 @@
   "UsageSettings": {
     "loading": "Loading usage...",
     "title": "Usage",
-    "description": "View token usage and settled points from the last 30 days.",
+    "description": "Token usage and settled points",
+    "period": {
+      "label": "Date range",
+      "days": "Last {days} days"
+    },
+    "chart": {
+      "metric": "Chart metric"
+    },
     "refresh": "Refresh",
     "loadFailed": "Failed to load usage: {message}",
     "coverage": "Loaded {loaded} of {total} requests. Failed requests: {failed}.",
@@ -5347,7 +5354,7 @@
       "sessions": "Requests",
       "sessionsHint": "Daily average ~{average}",
       "pointsUsed": "Points used",
-      "pointsUsedHint": "Only includes points incurred within the assistant",
+      "pointsUsedHint": "Settled usage",
       "cacheHitRate": "Cache hit rate",
       "cacheHitRateHint": "{tokens} tokens"
     },
@@ -5355,7 +5362,9 @@
       "title": "Model distribution"
     },
     "daily": {
-      "title": "Daily usage"
+      "title": "Daily usage",
+      "records": "Daily breakdown",
+      "details": "Usage details for {date}"
     },
     "table": {
       "date": "Date",

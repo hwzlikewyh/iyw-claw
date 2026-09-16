@@ -379,31 +379,33 @@ export function SessionDetailsDialog({
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
                 {totalTokens != null && (
                   <InfoItem label={t("totalTokens")} valueClassName={numeric}>
-                    {formatTokenCount(totalTokens)}
+                    {totalTokens.toLocaleString(locale)}
                   </InfoItem>
                 )}
                 {usage && (
                   <>
                     <InfoItem label={t("inputTokens")} valueClassName={numeric}>
-                      {formatTokenCount(usage.input_tokens)}
+                      {usage.input_tokens.toLocaleString(locale)}
                     </InfoItem>
                     <InfoItem
                       label={t("outputTokens")}
                       valueClassName={numeric}
                     >
-                      {formatTokenCount(usage.output_tokens)}
+                      {usage.output_tokens.toLocaleString(locale)}
                     </InfoItem>
                     {usage.cache_creation_input_tokens > 0 && (
                       <InfoItem
                         label={t("cacheWrite")}
                         valueClassName={numeric}
                       >
-                        {formatTokenCount(usage.cache_creation_input_tokens)}
+                        {usage.cache_creation_input_tokens.toLocaleString(
+                          locale
+                        )}
                       </InfoItem>
                     )}
                     {usage.cache_read_input_tokens > 0 && (
                       <InfoItem label={t("cacheRead")} valueClassName={numeric}>
-                        {formatTokenCount(usage.cache_read_input_tokens)}
+                        {usage.cache_read_input_tokens.toLocaleString(locale)}
                       </InfoItem>
                     )}
                   </>

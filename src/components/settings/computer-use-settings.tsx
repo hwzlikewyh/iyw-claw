@@ -103,7 +103,7 @@ export function ComputerUseSettings() {
 
   return (
     <div className="h-full overflow-y-auto p-3 md:p-4">
-      <div className="mx-auto w-full max-w-3xl">
+      <div className="min-w-0 w-full">
         <div className="flex items-start justify-between gap-4 rounded-lg border bg-card p-4">
           <div className="flex min-w-0 gap-3">
             <MonitorCog className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />

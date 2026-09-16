@@ -146,7 +146,7 @@ export function AppearanceSettings() {
                 {t("themeColor.sectionDescription")}
               </p>
             </div>
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(7.5rem,1fr))] gap-2">
               {THEME_COLORS.map((color) => {
                 const isActive = themeColor === color
                 return (

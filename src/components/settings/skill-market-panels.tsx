@@ -100,7 +100,7 @@ function PanelShell({
   const t = useMarketTranslations()
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 sm:p-6">
+      <div className="flex min-w-0 w-full flex-col gap-5 p-4 sm:p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 gap-3">
             <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-card text-muted-foreground">
