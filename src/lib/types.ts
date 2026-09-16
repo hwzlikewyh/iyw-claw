@@ -305,6 +305,7 @@ export type ContentBlock =
 export type TurnRole = "user" | "assistant" | "system"
 
 export interface TurnUsage {
+  estimated_points?: number | null
   input_tokens: number
   output_tokens: number
   cache_creation_input_tokens: number

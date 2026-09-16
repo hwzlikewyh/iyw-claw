@@ -1,4 +1,5 @@
 import type { MessageTurn, TurnUsage } from "@/lib/types"
+import { addUsagePoints } from "@/lib/usage-points"
 
 export interface TurnMetadataPatch {
   index: number
@@ -41,6 +42,7 @@ export function resolveForkMessageId(
 function mergeUsage(current: TurnUsage | null | undefined, extra: TurnUsage) {
   if (!current) return { ...extra }
   return {
+    estimated_points: addUsagePoints(current, extra),
     input_tokens: current.input_tokens + extra.input_tokens,
     output_tokens: current.output_tokens + extra.output_tokens,
     cache_creation_input_tokens:

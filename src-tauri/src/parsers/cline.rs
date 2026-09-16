@@ -250,6 +250,7 @@ impl AgentParser for ClineParser {
 
             let usage = msg.metrics.as_ref().and_then(|m| {
                 m.tokens.as_ref().map(|t| TurnUsage {
+                    estimated_points: None,
                     input_tokens: t.prompt.unwrap_or(0),
                     output_tokens: t.completion.unwrap_or(0),
                     cache_creation_input_tokens: 0,

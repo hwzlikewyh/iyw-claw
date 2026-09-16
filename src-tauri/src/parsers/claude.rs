@@ -1348,6 +1348,7 @@ pub(crate) fn merge_assistant_message(
 pub(crate) fn extract_usage(value: &serde_json::Value) -> Option<TurnUsage> {
     let usage = value.get("message")?.get("usage")?;
     Some(TurnUsage {
+        estimated_points: None,
         input_tokens: usage
             .get("input_tokens")
             .and_then(|v| v.as_u64())

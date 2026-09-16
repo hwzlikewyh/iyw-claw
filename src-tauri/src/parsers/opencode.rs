@@ -780,6 +780,7 @@ fn extract_opencode_usage_from_tokens(tokens: &serde_json::Value) -> Option<Turn
     }
 
     Some(TurnUsage {
+        estimated_points: None,
         input_tokens: input,
         output_tokens: output,
         cache_creation_input_tokens: cache_write,

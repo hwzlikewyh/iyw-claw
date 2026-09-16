@@ -1969,7 +1969,7 @@
     "sessionDetails": {
       "menuLabel": "Session Details",
       "title": "Session Details",
-      "subtitle": "Session metadata and token usage",
+      "subtitle": "Conversation points, token usage and details",
       "fieldTitle": "Title",
       "untitled": "Untitled conversation",
       "sessionId": "Session ID",
@@ -1987,8 +1987,8 @@
       "cacheRead": "Cache Read",
       "contextWindow": "Context Window",
       "duration": "Duration",
-      "loadingStats": "Loading token usage…",
-      "loadFailed": "Failed to load token usage",
+      "loadingStats": "Loading usage and points…",
+      "loadFailed": "Failed to load usage and points",
       "noStats": "No usage recorded",
       "timestampsHeading": "Timestamps",
       "createdAt": "Created",
@@ -5328,6 +5328,15 @@
     "logout": "Sign out",
     "signedInWithBalance": "Signed in · {balance}",
     "openSettings": "Settings"
+  },
+  "UsagePoints": {
+    "turn": "Points used this turn",
+    "session": "Conversation points used",
+    "value": "{points} points",
+    "unavailable": "Unavailable",
+    "unavailableHint": "Model pricing or complete usage is unavailable",
+    "estimateHint": "Estimated from recorded tokens and current model prices, not actual debits; defaults to 10 points per CNY when no conversion rate is provided",
+    "estimateShort": "Usage estimate, not actual debit"
   },
   "UsageSettings": {
     "loading": "Loading usage...",

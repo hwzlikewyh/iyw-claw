@@ -39,6 +39,7 @@ impl UsageSnapshot {
         let cached = self.cached.min(self.input);
         let written = self.written.min(self.input.saturating_sub(cached));
         Some(TurnUsage {
+            estimated_points: None,
             input_tokens: self.input.saturating_sub(cached).saturating_sub(written),
             output_tokens: self.output,
             cache_creation_input_tokens: written,

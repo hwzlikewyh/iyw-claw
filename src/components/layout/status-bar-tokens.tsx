@@ -10,6 +10,10 @@ import { formatContextWindowPercent } from "@/lib/context-window"
 import type { SessionStats } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import {
+  UsagePointsRow,
+  UsagePointsValue,
+} from "@/components/message/usage-points"
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -23,6 +27,7 @@ const ICON_CIRCUMFERENCE = 2 * Math.PI * ICON_RADIUS
 type TokenRowKey = "input" | "output" | "cacheRead" | "cacheWrite" | "total"
 
 interface SessionUsageData {
+  points: number | null
   contextUsed: number | null
   contextMax: number | null
   contextPercent: number | null
@@ -149,6 +154,7 @@ function useSessionUsageData({
   if (!hasContext && !hasTokenSection) return null
 
   return {
+    points: usage?.estimated_points ?? null,
     contextUsed,
     contextMax,
     contextPercent,
@@ -263,6 +269,11 @@ function SessionUsageButton({
               </span>
             </>
           )}
+          {hasUsage && (
+            <span className="ms-1 border-s border-current/20 ps-1.5">
+              <UsagePointsValue points={data.points} />
+            </span>
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -270,7 +281,7 @@ function SessionUsageButton({
         sideOffset={popoverSideOffset}
         avoidCollisions={popoverAvoidCollisions}
         align="end"
-        className="w-56 gap-2 p-3 text-xs"
+        className="w-64 max-w-[calc(100vw-2rem)] gap-2 p-3 text-xs"
       >
         {hasContext ? (
           <div
@@ -322,6 +333,7 @@ function SessionUsageButton({
                 </div>
               ))}
             </div>
+            <UsagePointsRow points={data.points} scope="session" />
           </>
         ) : null}
       </PopoverContent>

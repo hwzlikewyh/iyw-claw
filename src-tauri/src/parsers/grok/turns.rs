@@ -42,6 +42,7 @@ impl GrokTurnMeta {
         if turn.usage.is_none() {
             if let Some(tokens) = self.total_tokens.filter(|tokens| *tokens > 0) {
                 turn.usage = Some(TurnUsage {
+                    estimated_points: None,
                     input_tokens: tokens,
                     output_tokens: 0,
                     cache_creation_input_tokens: 0,

@@ -1075,6 +1075,7 @@ fn extract_tool_result_content(value: &serde_json::Value) -> Vec<ContentBlock> {
 fn extract_usage(value: &serde_json::Value) -> Option<TurnUsage> {
     let usage = value.get("message")?.get("usage")?;
     Some(TurnUsage {
+        estimated_points: None,
         input_tokens: usage.get("input").and_then(|v| v.as_u64()).unwrap_or(0),
         output_tokens: usage.get("output").and_then(|v| v.as_u64()).unwrap_or(0),
         cache_creation_input_tokens: usage

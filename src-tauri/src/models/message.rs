@@ -140,6 +140,8 @@ pub enum ContentBlock {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnUsage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimated_points: Option<f64>,
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cache_creation_input_tokens: u64,
