@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import type { TaskArtifactInfo } from "@/lib/api"
+import { cn } from "@/lib/utils"
 
 interface TaskArtifactPreviewHeaderProps {
   artifact: TaskArtifactInfo
@@ -55,14 +56,13 @@ export function TaskArtifactPreviewHeader({
   onToggleSystemFullscreen,
 }: TaskArtifactPreviewHeaderProps) {
   const t = useTranslations("Folder.taskArtifacts")
-  const subtitle =
-    artifact.kind === "directory"
-      ? t("folderArtifact")
-      : artifact.kind === "url"
-        ? artifact.path
-        : (actions.target?.ioPath ?? artifact.displayName)
   return (
-    <header className="flex h-12 min-w-0 items-center gap-1 border-b px-3 pr-12">
+    <header
+      className={cn(
+        "flex h-12 min-w-0 items-center gap-2 border-b px-3",
+        !isAppFullscreen && "pr-12"
+      )}
+    >
       {onBack && (
         <Button
           variant="ghost"
@@ -75,11 +75,7 @@ export function TaskArtifactPreviewHeader({
           <ArrowLeft className="size-4" />
         </Button>
       )}
-      <TaskArtifactTypeIcon item={artifact} />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{artifact.displayName}</p>
-        <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
-      </div>
+      <ArtifactHeading artifact={artifact} />
       <ArtifactHeaderActions
         actions={actions}
         isAppFullscreen={isAppFullscreen}
@@ -91,6 +87,32 @@ export function TaskArtifactPreviewHeader({
   )
 }
 
+function ArtifactHeading({ artifact }: { artifact: TaskArtifactInfo }) {
+  const t = useTranslations("Folder.taskArtifacts")
+  const subtitle =
+    artifact.kind === "directory"
+      ? t("folderArtifact")
+      : artifact.kind === "url"
+        ? artifact.path
+        : null
+  return (
+    <>
+      <TaskArtifactTypeIcon item={artifact} />
+      <div className="min-w-0 flex-1">
+        <p
+          className="truncate text-sm font-medium"
+          title={artifact.displayName}
+        >
+          {artifact.displayName}
+        </p>
+        {subtitle && (
+          <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
+        )}
+      </div>
+    </>
+  )
+}
+
 function ArtifactHeaderActions({
   actions,
   isAppFullscreen,
@@ -99,16 +121,20 @@ function ArtifactHeaderActions({
   onToggleSystemFullscreen,
 }: ArtifactHeaderActionsProps) {
   return (
-    <>
-      <ArtifactFullscreenActions
-        isAppFullscreen={isAppFullscreen}
-        isSystemFullscreen={isSystemFullscreen}
-        onToggleAppFullscreen={onToggleAppFullscreen}
-        onToggleSystemFullscreen={onToggleSystemFullscreen}
-      />
-      <ArtifactLocationActions actions={actions} />
+    <div className="flex shrink-0 items-center gap-1">
+      <div className="hidden items-center gap-1 sm:flex">
+        <ArtifactLocationActions actions={actions} />
+      </div>
       <ArtifactMoreMenu actions={actions} />
-    </>
+      <div className="ml-1 flex items-center gap-1 border-l pl-2">
+        <ArtifactFullscreenActions
+          isAppFullscreen={isAppFullscreen}
+          isSystemFullscreen={isSystemFullscreen}
+          onToggleAppFullscreen={onToggleAppFullscreen}
+          onToggleSystemFullscreen={onToggleSystemFullscreen}
+        />
+      </div>
+    </div>
   )
 }
 

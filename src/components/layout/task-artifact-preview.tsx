@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { toast } from "sonner"
 import { PreviewFullscreen } from "@/components/files/preview-fullscreen"
+import { PreviewFullscreenContext } from "@/components/files/preview-toolbar"
 
 interface TaskArtifactPreviewProps {
   artifact: TaskArtifactInfo | null
@@ -143,11 +144,13 @@ function ArtifactPreview({
         onToggleSystemFullscreen={onToggleSystemFullscreen}
       />
       <div className="min-h-0">
-        <ArtifactPreviewBody
-          artifact={artifact}
-          target={actions.target}
-          onOpenWorkspace={onOpenWorkspace}
-        />
+        <PreviewFullscreenContext value={Boolean(onToggleAppFullscreen)}>
+          <ArtifactPreviewBody
+            artifact={artifact}
+            target={actions.target}
+            onOpenWorkspace={onOpenWorkspace}
+          />
+        </PreviewFullscreenContext>
       </div>
     </section>
   )

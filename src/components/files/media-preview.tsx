@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type RefObject } from "react"
 import { useTranslations } from "next-intl"
 import { PreviewToolbar } from "./preview-toolbar"
 import { usePreviewVisibility } from "./use-preview-resource"
@@ -23,8 +23,6 @@ export function MediaPreview({
   const mediaRef = useMediaSource(src, visible, rate)
   const [failed, setFailed] = useState(false)
   const t = useTranslations("Folder.chat.workspaceFiles")
-  const labels = useTranslations("Folder.previewControls")
-  const Element = kind === "video" ? "video" : "audio"
   return (
     <div ref={ref} className="flex h-full min-h-0 flex-col bg-background">
       <PreviewToolbar
@@ -34,40 +32,85 @@ export function MediaPreview({
           void ref.current?.requestFullscreen().catch(() => {})
         }
       >
-        <select
-          aria-label={labels("speed")}
-          value={rate}
-          onChange={(event) => setRate(Number(event.target.value))}
-          className="h-7 bg-background text-xs"
-        >
-          {PLAYBACK_RATES.map((value) => (
-            <option key={value} value={value}>
-              {value}x
-            </option>
-          ))}
-        </select>
+        <PlaybackSpeed rate={rate} onChange={setRate} />
       </PreviewToolbar>
       {failed && (
         <p role="alert" className="p-3 text-sm text-destructive">
           {t("previewError")}
         </p>
       )}
-      <div className="flex min-h-0 flex-1 overflow-auto bg-black/5">
-        <div
-          className="m-auto flex min-h-full shrink-0 items-center justify-center"
-          style={{ width: `${zoom * 100}%` }}
-        >
-          <Element
-            ref={mediaRef}
-            controls
-            playsInline
-            preload="metadata"
-            aria-label={title}
-            onError={() => setFailed(true)}
-            className="max-h-full w-full"
-          />
-        </div>
+      <MediaViewport
+        kind={kind}
+        title={title}
+        zoom={zoom}
+        mediaRef={mediaRef}
+        onError={() => setFailed(true)}
+      />
+    </div>
+  )
+}
+
+function MediaViewport({
+  kind,
+  title,
+  zoom,
+  mediaRef,
+  onError,
+}: {
+  kind: "video" | "audio"
+  title: string
+  zoom: number
+  mediaRef: RefObject<(HTMLVideoElement & HTMLAudioElement) | null>
+  onError: () => void
+}) {
+  const Element = kind === "video" ? "video" : "audio"
+  return (
+    <div
+      className={`flex min-h-0 min-w-0 flex-1 overflow-auto ${kind === "video" ? "bg-black" : "bg-muted/20"}`}
+    >
+      <div
+        className="m-auto flex shrink-0 items-center justify-center"
+        style={{ width: `${zoom * 100}%`, height: `${zoom * 100}%` }}
+      >
+        <Element
+          ref={mediaRef}
+          controls
+          playsInline
+          preload="metadata"
+          aria-label={title}
+          onError={onError}
+          className={
+            kind === "video"
+              ? "block size-full object-contain"
+              : "w-full max-w-xl"
+          }
+        />
       </div>
     </div>
+  )
+}
+
+function PlaybackSpeed({
+  rate,
+  onChange,
+}: {
+  rate: number
+  onChange: (rate: number) => void
+}) {
+  const labels = useTranslations("Folder.previewControls")
+  return (
+    <select
+      aria-label={labels("speed")}
+      title={labels("speed")}
+      value={rate}
+      onChange={(event) => onChange(Number(event.target.value))}
+      className="h-7 w-16 shrink-0 rounded-sm bg-background px-1 text-xs tabular-nums"
+    >
+      {PLAYBACK_RATES.map((value) => (
+        <option key={value} value={value}>
+          {value}x
+        </option>
+      ))}
+    </select>
   )
 }

@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
@@ -58,11 +59,14 @@ fn copy_local_image(directory: &Path, source: &Path) -> io::Result<Option<PathBu
     Read::by_ref(&mut file)
         .take(IMAGE_HEADER_BYTES)
         .read_to_end(&mut header)?;
-    let Some(mime) = detect_mime(&header) else {
+    if detect_mime(&header).is_none() {
         return Ok(None);
-    };
+    }
     file.seek(SeekFrom::Start(0))?;
-    write_image(directory, &mut file, mime).map(Some)
+    let name = source
+        .file_name()
+        .ok_or_else(|| io::Error::other("invalid image path"))?;
+    write_image(directory, &mut file, name).map(Some)
 }
 
 async fn publish_image(
@@ -72,13 +76,16 @@ async fn publish_image(
 ) -> Result<PathBuf, &'static str> {
     let directory = directory.to_owned();
     let mime = mime.to_owned();
-    tokio::task::spawn_blocking(move || write_image(&directory, &mut bytes.as_slice(), &mime))
-        .await
-        .map_err(storage_error)?
-        .map_err(storage_error)
+    tokio::task::spawn_blocking(move || {
+        let name = image_file_name(&mime)?;
+        write_image(&directory, &mut bytes.as_slice(), OsStr::new(&name))
+    })
+    .await
+    .map_err(storage_error)?
+    .map_err(storage_error)
 }
 
-fn write_image(directory: &Path, source: &mut impl Read, mime: &str) -> io::Result<PathBuf> {
+fn image_file_name(mime: &str) -> io::Result<String> {
     let extension = match mime {
         "image/jpeg" => "jpg",
         "image/svg+xml" => "svg",
@@ -86,31 +93,46 @@ fn write_image(directory: &Path, source: &mut impl Read, mime: &str) -> io::Resu
             .strip_prefix("image/")
             .ok_or_else(|| io::Error::other("invalid image type"))?,
     };
-    let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
-    let digest = copy_and_hash(source, &mut temporary)?;
-    temporary.as_file().sync_all()?;
-    let target = directory.join(format!("image-{digest}.{extension}"));
-    let reused = match temporary.persist_noclobber(&target) {
-        Ok(_) => false,
-        Err(error) if error.error.kind() == io::ErrorKind::AlreadyExists => {
-            let metadata = std::fs::symlink_metadata(&target)?;
-            if !metadata.is_file()
-                || copy_and_hash(&mut std::fs::File::open(&target)?, &mut io::sink())? != digest
-            {
-                return Err(io::Error::other(
-                    "managed image content does not match its digest",
-                ));
-            }
-            true
-        }
-        Err(error) => return Err(error.error),
+    Ok(format!("image.{extension}"))
+}
+
+fn write_image(directory: &Path, source: &mut impl Read, name: &OsStr) -> io::Result<PathBuf> {
+    let staging = tempfile::Builder::new()
+        .prefix(".image-")
+        .tempdir_in(directory)?;
+    let mut file = std::fs::File::create(staging.path().join(name))?;
+    let digest = copy_and_hash(source, &mut file)?;
+    file.sync_all()?;
+    drop(file);
+    // 整个目录原子发布，让同内容图片共享原始文件名且不暴露哈希文件名。
+    let target = directory.join(format!("image-{digest}"));
+    let (path, reused) = match std::fs::rename(staging.path(), &target) {
+        Ok(()) => (target.join(name), false),
+        Err(_) if target.is_dir() => (existing_image(&target, &digest)?, true),
+        Err(error) => return Err(error),
     };
     tracing::info!(
         content_digest = digest,
         reused,
         "[task-artifacts] image materialized for delivery"
     );
-    Ok(target)
+    Ok(path)
+}
+
+fn existing_image(directory: &Path, digest: &str) -> io::Result<PathBuf> {
+    let invalid = || io::Error::other("managed image content does not match its digest");
+    if !std::fs::symlink_metadata(directory)?.is_dir() {
+        return Err(invalid());
+    }
+    let mut entries = std::fs::read_dir(directory)?;
+    let path = entries.next().ok_or_else(invalid)??.path();
+    if entries.next().is_some()
+        || !std::fs::symlink_metadata(&path)?.is_file()
+        || copy_and_hash(&mut std::fs::File::open(&path)?, &mut io::sink())? != digest
+    {
+        return Err(invalid());
+    }
+    Ok(path)
 }
 
 fn copy_and_hash(source: &mut impl Read, target: &mut impl Write) -> io::Result<String> {
