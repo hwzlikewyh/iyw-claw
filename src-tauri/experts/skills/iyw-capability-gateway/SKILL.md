@@ -79,24 +79,31 @@ follow its workflow**. Do not treat the reference as optional background reading
    `writing-plans`, or `executing-plans`.
    For image generation, editing, and processing, prioritize platform capabilities
    or image models through the directly advertised `generate_iyw_image` tool.
-   Choose by the requested effect and supported functions, inputs, outputs, and
-   limits in the schema, platform reference, and model catalog/documentation.
-   Do not infer specific features from a model name or broad capability flag,
-   invent parameters, or drop requirements to fit a route. Prefer Fusion `generate`
-   for text-to-image,
+   Before installing image libraries or writing processing code, match the user's
+   effect and inputs to a service. A missing specialized operation or sparse
+   description does not prove unsupported editing: evaluate prompt-driven editing
+   or the image model catalog. Verify technical constraints against documentation;
+   broad flags do not guarantee masks, transparency, bit depth, or dimensions.
+   Do not invent requirements or discard real ones. Prefer Fusion `generate`
+   for text-to-image, Fusion `edit` for source images with a selected model,
    `variation` for single-image changes, `mix` for multi-image fusion, and
    `extend` for four-panel or same-series extension from one reference.
    Explicit Fusion `edit` requires source images. Before `generate`, `auto`
    without images, or `edit`, call `list_iyw_image_models`, choose a model with
    the required capability, and pass its exact ID in `parameters.model`.
-   No prior platform attempt or failure is required. Scripts, local image libraries,
-   or hand-drawn SVG/Canvas are fallback methods only when applicable platform
-   and model routes are unavailable, explicitly unsupported, or confirmed failed
-   after bounded recovery. Use any suitable available platform/model alternative
-   first; explain the concrete limitation before fallback. Input errors require
-   correction; timeouts, transport errors, or running tasks require status checks
-   and do not prove failure. Supporting input preparation and final composition
-   are allowed, but must not replace the requested image work. Do not read another
+   No prior platform failure is required. A catalog model argument on a platform
+   type does not select that Fusion model. Correct input errors; evaluate another
+   suitable service after confirmed route failure. Timeouts, transport errors,
+   and running/uncertain tasks require state checks before new submissions.
+   For inadequate visual results, prefer a targeted service edit within scope and
+   charging authorization. Before manual fallback, require concrete limitations
+   of both applicable platform and model routes after bounded recovery; explain
+   them without enumerating unrelated services. A failed auxiliary step alone
+   does not qualify. Copying/downloading inputs and embedding completed images
+   are allowed; redrawing, segmentation and height remapping remain core image
+   work even when called refinement or post-processing. In user-facing text use
+   only business display names, never model/provider IDs or backend names, and
+   claim only the operation/model confirmed by results. Do not read another
    image Skill or search/read a capability ID for generation; none is registered. Use
    `search_iyw_knowledge` only when the user asks for knowledge-base evidence;
    it is independent and never runs automatically before a normal image task.
@@ -231,8 +238,8 @@ tools and the capability trio:
 ### 图片参数按需读取
 
 常用默认路径：无图文生图用 `generate`，单图改款用 `variation`，有基准图的四宫格或同系列延伸用 `extend`，多图融合用 `mix`。
-按任务所需效果和平台/模型已确认支持的功能、输入、输出与限制选路；默认路径不代表支持全部图片处理需求。平台或模型可完成时优先调用，仅在适用服务均不可用、不支持或确认失败且无法恢复时才自行处理，并说明依据。
-`generate` 和显式 `edit` 无需先等平台失败，但需从模型目录选择准确 ID；`edit` 仍要求参考图。
+缺少同名专用操作时，继续评估通用指令编辑或模型，不能据此判断不支持；格式、尺寸等技术限制按实际文档核对。按下方图片参考中的失败分类恢复，核心图片精修同样遵守服务优先规则。
+`generate` 和显式 `edit` 无需先等平台失败，但需从模型目录选择准确 ID；有参考图且选择模型时用 `edit`。ID 仅用于内部参数，对用户只说业务展示名称或“通用图片处理”。
 专用处理、批量、蒙版、色号、矢量、3D、视频和模型选择见
 [图片工具参数](references/iyw-image-tools.md)；只读本次操作相关部分。
 原始图片 API、旧/新参数差异和历史点数见

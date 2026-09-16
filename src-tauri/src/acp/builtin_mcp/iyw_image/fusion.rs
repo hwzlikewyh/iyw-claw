@@ -1,7 +1,7 @@
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Map, Value};
 
-use super::super::iyw_image_models::{load_catalog, supports_operation};
+use super::super::iyw_image_models::{display_name, load_catalog, supports_operation};
 use super::input::PreparedImage;
 use super::result::{materialize_fusion_images, value_to_form_text};
 use super::{invalid, required_prompt, ImageRequest, ImageResult, IywGatewayService};
@@ -116,10 +116,7 @@ async fn select_model(
         .filter(|id| !id.is_empty());
     let id = id
         .ok_or_else(|| rmcp::ErrorData::internal_error("Fusion image model ID is missing", None))?;
-    let name = model
-        .get("display_name")
-        .and_then(Value::as_str)
-        .unwrap_or("selected image model");
+    let name = display_name(model);
     tracing::info!(
         target: "builtin_mcp",
         model_id = id,

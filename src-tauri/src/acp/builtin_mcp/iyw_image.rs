@@ -223,7 +223,7 @@ fn preflight_kind(
 ) -> Result<(), rmcp::ErrorData> {
     if matches!(kind, "generate" | "fission") && !images.is_empty() {
         return Err(invalid(
-            "generate and fission do not accept source images; choose variation, extend, mix, or a specialized IYW platform image tool",
+            "generate and fission do not accept source images. To edit these references with a selected catalog model, use type=edit and keep images, prompt, and parameters.model (image_editing=true). Otherwise choose a suitable variation, extend, mix, or specialized platform operation. Do not discard references or copy a Fusion model selection to a platform type",
         ));
     }
     if matches!(kind, "variation" | "extend") && images.len() > 1 {
