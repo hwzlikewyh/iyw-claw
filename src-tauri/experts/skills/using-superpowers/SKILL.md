@@ -28,6 +28,16 @@ This is not negotiable. You cannot rationalize your way out of this.
 Before entering plan mode, inspect the currently available skills and use only
 the process or domain skills that are actually installed.
 
+Resolve dependencies from the current enabled Skill catalog and its advertised
+paths. If an entry or required script is missing, disabled, or retired, stop
+that dependency route. Do not search historical `_work`, `chat-sessions`,
+`channel-workspaces`, backups, or extracted packages for replacement Skill code
+or interpreters. Old conversations, memory, and dependency text do not establish
+availability. Continue with a suitable currently advertised tool or enabled
+Skill and its current schema; report a blocker only when none applies. Inspect
+archived Skill code only when the user explicitly requests that investigation
+or repair, without automatically executing or restoring it.
+
 Then announce "Using [skill] to [purpose]" and follow the skill exactly. If it has a checklist, create a todo per item.
 
 ## Skill Priority
@@ -39,16 +49,15 @@ approach; domain skills then carry out the work.
 - A user-requested visible Skill or direct tool that fully satisfies a subgoal -> use it first.
 - "Generate or edit an image, create IYW product/material/pattern imagery, or
   call an IYW image tool" -> use the directly advertised `generate_iyw_image`
-  tool with IYW platform priority: `fission` for text-only creation, `variation`
-  for one-image redesign, `extend` for series extension, `mix` for multiple
-  references, or the matching specialized platform operation. `auto` also
-  selects platform operations and needs no Fusion model lookup. `generate`
-  and `edit` call Fusion `images/generations` and `images/edits`; they require
-  an explicit platform failure for the same task or confirmed rejection before
-  task creation. Local input errors, complex prompts, timeouts, transport errors,
-  and running tasks do not permit fallback. Before an eligible fallback, call
-  `list_iyw_image_models` with `{}` and pass a suitable model's exact ID in
-  `parameters.model`. Reuse the catalog for the same task or batch. Use
+  tool and its current schema: `generate` for text-only creation, `variation`
+  for one-image redesign, `extend` for four-panel or same-series extension from
+  one reference, `mix` for multiple references, or a matching specialized
+  operation. Before Fusion `generate`, `auto` without images, or explicit `edit`,
+  call `list_iyw_image_models` with `{}` and pass a suitable model's exact ID in
+  `parameters.model`; `edit` requires source images. No prior platform failure
+  is required. Platform operations need no Fusion lookup. Do not copy retired
+  Skill CLI payloads: `toolName` and `modelChannel` for `variation`, `extend`,
+  and `mix` are host-owned. Reuse the catalog for the same task or batch. Use
   `search_iyw_knowledge` separately when knowledge-base evidence is requested;
   do not start search, research, memory, browser, document, or scenario planning
   before a self-contained image request.
