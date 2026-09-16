@@ -49,7 +49,10 @@ pub(super) fn client() -> Result<Client, ErrorData> {
         .referer(false)
         .retry(reqwest::retry::never())
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if !allowed_url(attempt.url()) || attempt.previous().len() > MAX_REDIRECTS {
+            if !allowed_url(attempt.url())
+                || super::super::iyw_tool_policy::ensure_url_enabled(attempt.url()).is_err()
+                || attempt.previous().len() > MAX_REDIRECTS
+            {
                 tracing::warn!(target: "builtin_mcp", status = attempt.status().as_u16(),
                     hops = attempt.previous().len(), "[iyw-fetch] redirect blocked");
                 return attempt.stop();

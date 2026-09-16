@@ -28,12 +28,12 @@ Break the topic into 3–5 answerable sub-questions. For each, prepare 2–3 que
 variants covering terminology, counterarguments, geography/date, and the user's
 decision criteria. For current events, include a news/current-date variant.
 
-Use the gateway's live catalog to find available search, browser, code, video,
-or platform capabilities. The top-level MCP exposes the capability trio plus
-`generate_iyw_image`, `search_iyw_knowledge`, and `manage_iyw_memory`; use the
-three direct tools for their exact domains and use the trio for every other
-capability family. Read the returned schema before every distinct trio-routed
-capability family.
+Use an advertised search, content reader, code, video, or platform tool directly
+when it covers the task. Use gateway discovery only for a missing host capability;
+read its schema once and reuse it. Public information does not require a browser
+unless login state, dynamic content, or interaction requires one. A focused
+lookup needs only the queries and sources needed to establish the answer; use
+the broader research sequence for substantial research tasks.
 
 ## 3. Collect sources
 

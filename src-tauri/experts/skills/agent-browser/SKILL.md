@@ -1,10 +1,10 @@
 ---
 name: agent-browser
-description: Use the iyw-claw managed agent-browser when the unified browser broker selects it for a web page or public-data task. Navigate, inspect, extract, interact, verify, and request user takeover only for human-only steps.
+description: Use the iyw-claw managed agent-browser when required login state, unreadable dynamic content, UI interaction, screenshots or page acceptance need a browser and the broker selects the managed provider. Public search/reading and supported platform business use direct tools first.
 routing:
   capability: managed agent-browser
-  coreTriggers: [browser, web page, public data, website]
-  exclusions: [desktop app control]
+  coreTriggers: [browser interaction, browser authentication, dynamic page, screenshot, page acceptance]
+  exclusions: [desktop app control, local file work, public data covered by a direct reader, platform business covered by a direct tool]
   aliases: [agent browser, managed browser, 浏览器自动化, 网页数据]
   invocation: Use this Skill when the unified browser broker selects the managed provider; read it for advanced commands and recovery.
 ---
@@ -24,8 +24,8 @@ When the unified broker selects the managed provider:
 1. Use the available managed browser capability surface first. If the live
    gateway is present, use the exact `iyw.browser.*` stable capability returned
    by `search -> read`; never guess a capability id or namespace.
-2. Start with `browser_list_tabs` when a tab may already exist. Reuse the active
-   tab unless the user explicitly asks for another tab.
+2. Reuse the current task's known tab. Use `browser_list_tabs` only when a tab
+   needs to be located; reuse the active tab unless another is required.
 3. Use `browser_open` for HTTP/HTTPS navigation, then `browser_snapshot` or
    `browser_read`/`browser_command` to inspect the page.
 4. Use fresh snapshot references for `click`, `fill`, and other interactions.
@@ -39,10 +39,9 @@ When the unified broker selects the managed provider:
    and any OpenCLI-to-managed handoff belong to the unified broker; this Skill
    must not switch providers on its own.
 
-Prefer a reliable API or direct data source only when it is already available
-and clearly satisfies the request. If it does not return data, is incomplete,
-requires browser authentication, or the page is dynamically rendered, return
-to the managed browser before reporting a missing result.
+Prefer an available reliable API or content reader when it covers the request.
+Missing data alone does not require a browser: identify whether login state,
+dynamic rendering or interaction can resolve the gap before starting one.
 
 ## Human takeover
 
@@ -239,8 +238,8 @@ prerequisite and follow the documented fallback policy.
 
 ## Business Skills
 
-Domain Skills may wrap this Skill with page-specific selectors, field schemas,
-preflight checks, and post-submit verification. For example,
-`iyw-copyright-registration` uses `agent-browser` for the IYW copyright portal.
-Read the domain Skill first when the user names a specific business workflow,
-then use this Skill's browser-first and human-takeover rules underneath it.
+Only currently enabled domain Skills may supply page-specific workflows.
+Never load retired Skills from old references or local copies. For IYW business,
+use `iyw-capability-gateway` and its current direct tools first; apply this Skill
+only when the task actually requires browser interaction. Built-in image-to-3d
+is disabled and must not be invoked through browser UI as a fallback.

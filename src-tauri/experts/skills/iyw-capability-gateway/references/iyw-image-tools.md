@@ -4,11 +4,13 @@
 
 视频生成优先使用本 Skill 的 `generate_iyw_image`/`fetch_iyw_url`，按 [视频专篇](iyw-api-ecommerce-video.md) 选择。视频导演返回脚本，生成返回任务，成功后才能交付视频；不要把图片模型目录当成视频模型目录。
 
+自定义改款优先 `variation`，单基准图系列延伸优先 `extend`，多图融合优先 `mix`，无需先查模型目录。内置转 3D 已禁用，不调用 `image-to-3d` 或 `commerce/ImageTo3D`，也不通过浏览器或其他封装绕过。
+
 ## 能力匹配与兜底
 
 1. 安装图像库或写处理脚本前，先按用户所需效果、输入与输出选择平台能力或图片模型。没有同名专用接口、关键词未命中或描述简略，都不等于明确不支持；继续评估单图指令编辑或模型目录。自然语言可描述的视觉变化不要求存在同名 API。
 2. 核对真实技术约束。`image_generation` / `image_editing` 不保证蒙版、透明输出、位深、参考图数量或任意分辨率；按文档使用参数。不得自行添加精确几何或位深要求来排除服务，也不得丢弃用户要求或调用已知不支持的操作来制造失败。
-3. 平台和适用模型均可直接选择。有参考图且选择目录中的模型时使用 `edit`；无图创作用 `generate`。普通单图修改可用 `variation`，但把目录引用放入平台操作参数不代表选中了该模型。目录 `model_ref` 仅用于内部调用，对用户只用业务展示名称；名称缺失时说“通用图片处理”。即使追问价格、型号或锁定模型，也不在正文、表格、括号、代码或错误转述中披露货币价格、真实 ID、目录引用、供应商或后端名称。点数仅用平台明确返回的数据，不换算或猜测；未确认时不报数值。
+3. 优先匹配上述平台路线；其他专用操作按实际功能选择。用户明确选择其他服务，或优先路线有明确不支持、不可用、确认失败的证据时，才转向适用模型；已知不兼容无需先试错。有参考图且选择目录中的模型时使用 `edit`，无图创作用 `generate`；同任务复用模型目录。把目录引用放入平台操作参数不代表选中了该模型。目录 `model_ref` 仅用于内部调用，对用户只用业务展示名称；名称缺失时说“通用图片处理”。即使追问价格、型号或锁定模型，也不在正文、表格、括号、代码或错误转述中披露货币价格、真实 ID、目录引用、供应商或后端名称。点数仅用平台明确返回的数据，不换算或猜测；未确认时不报数值。
 4. 按下表恢复失败，重新对照原始用户目标选择适用服务，不能让辅助步骤的失败决定整个任务改写为本地算法。
 5. 仅在适用平台和模型路线均有不可用、文档明确不兼容或有限恢复后确认失败的具体证据时，才可脚本兜底；先说明限制，不遍历无关服务。缺少专用接口、第一张效果不佳或认为本地算法更精确，均不足以回退。
 
@@ -45,7 +47,6 @@
 | `convert` | `commerce/convert` | 单图；`inputFormat/outputFormat`，现有支持 png/jpg/jpeg/webp/gif/bmp |
 | `line-extraction` | `commerce/lineExtraction` | 单图；model 为 realistic/canny，正整数 batch_size，stats.reference |
 | `color-transfer` | `commerce/g_tools_generate_image` | 两图；productImg/styleImg，resolution 为 2K/4K |
-| `image-to-3d` | `commerce/ImageTo3D` | 单图；stats.format 整数，stats.MultiViewImages 为带 ViewImageUrl 的对象数组 |
 | `video` | `commerce/videoGenerator` | 现有封装：单图 + prompt；必填 ratio、duration 整数 4-15 秒、mode normal/hd。新页面多图、1-3 秒、product/remake 契约见 [电商视频](iyw-api-ecommerce-video.md)，不可把多图放入 images 后只取首图 |
 | `model-scene` / `background` | `commerce/modelScene` | 1-10 图 + prompt；size 比例、resolution standard/4K |
 | `modify` | `commerce/imageModification` | 图片 + prompt；可传非负 strength |
@@ -67,17 +68,17 @@
 | `micro-generate` / `micro-variation` | `microModel/v2/generate` / `variation` | 前者 prompt，可选图片及 modelChannel/ratio/batchSize/tool；后者图片 + prompt |
 | `scheme-generate` | `ai-chat/api/designScheme/generateImage` | schemeId + prompt；schemeId 来自设计稿业务列表 |
 | `faddish` | `ai-application/faddish/generate` | prompt，可选图片 |
-| `generate` / `edit` | Fusion | 文生图优先 generate；显式 edit 需参考图；将模型目录的 model_ref 原样放入 parameters.model，无须先尝试平台接口 |
+| `generate` / `edit` | Fusion | 无图创作用 generate；edit 需参考图且遵循上文平台优先条件；将当前模型目录的 model_ref 原样放入 parameters.model |
 
 新增原生类型仅验证文档已明确的图片、提示词和基础类型；未提供枚举的字段不硬编码猜测。上游明确拒绝要保留原错误，未知状态先查任务。蒙版服务域已由补充篇明确，但区域字段/坐标结构仍不完整，当前工具不猜测该请求。
 
 ## 结果与恢复
 
-- `status/images/task_id/metadata/delivery` 为输出。原生操作完整业务结果在 `metadata.result`，色号、网格、提示词、矢量文件、3D 或视频链接不能只看 images。只陈述返回证实的操作或模型；Fusion 的 `metadata.model_name` 是业务展示名称，平台操作成功不证明传入的目录模型已执行。
+- `status/images/task_id/metadata/delivery` 为输出。原生操作完整业务结果在 `metadata.result`，色号、网格、提示词、矢量文件或视频链接不能只看 images。只陈述返回证实的操作或模型；Fusion 的 `metadata.model_name` 是业务展示名称，平台操作成功不证明传入的目录模型已执行。
 - 原生异步任务的 `metadata.query` 给出已知查询路径；恢复查询用 fetch。返回 task_id 但没有已确认查询接口时保留运行中状态，不能宣称成功。
 - 批量 `requests` 最多 8 项，`count` 每项 1-4，总执行次数最多 16；每次执行可能扣点。批量成功和失败分别报告；数据类操作结果保留在各项 `runs[].metadata.result`。
 - 超时/取消/查询失败不重新扣点提交，先查原 task_id。原生查询失败时保留任务 ID 和 poll_error。
-- 原生 3D、矢量等文件链接如不在 images 中，通过 metadata.result 读取并按需用 present_task_files 交付。旧 video 封装不保留完整 metadata.result，必要时按 [电商视频](iyw-api-ecommerce-video.md) 用 fetch 查询原始视频 URL；不要声称已在图片预览中展示视频。
+- 矢量等文件链接如不在 images 中，通过 metadata.result 读取并按需用 present_task_files 交付。旧 video 封装不保留完整 metadata.result，必要时按 [电商视频](iyw-api-ecommerce-video.md) 用 fetch 查询原始视频 URL；不要声称已在图片预览中展示视频。
 
 ```json
 {"type":"erase","prompt":"移除选区杂物并延续背景纹理","images":["assets/source.png"],"parameters":{"mask":"https://已上传蒙版的真实地址"}}
@@ -172,10 +173,6 @@ When Fusion editing is explicitly selected:
 
 ```json
 {"type":"line-extraction","images":["https://example.com/product.png"],"parameters":{"model":"canny","batch_size":1,"stats":{"reference":"https://example.com/product.png"}}}
-```
-
-```json
-{"type":"image-to-3d","images":["https://example.com/product.png"],"parameters":{"stats":{"format":1,"MultiViewImages":[]}}}
 ```
 
 ```json

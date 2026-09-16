@@ -10,7 +10,7 @@
 - `PreSignedUrl`：现有已确认 `objectKey` -> 带签名 PUT URL；不能改成 `fileName/contentType`。
 - `SuperResolution` 旧工具用 `reference/upscale`；`EnhanceImage` 旧工具用 `image/enhanceType/model`；保留。
 - `outpainting` 旧工具用 `image/top/right/bottom/left`；`convert` 用 `image/inputFormat/outputFormat`；保留。
-- `ImageTo3D` 旧工具用 `image/stats.format/stats.MultiViewImages`；`lineExtraction` 用 `reference/model/batch_size/stats.reference`；保留。
+- `ImageTo3D` 仅保留历史接口证据，内置转 3D 已禁用，不得调用或经 fetch/浏览器绕过；`lineExtraction` 用 `reference/model/batch_size/stats.reference`。
 - `g_tools_generate_image` 现有 `variation/extend/mix` 由主机设置 toolName/modelChannel；不与 `g_tools` 通道混用。
 - 出血线和提取色号的旧页面可在本地计算；新文档给出 `bleedLine/extractColor` 服务路径，新增 type 显式走该路径，不暗示所有页面已改用接口。
 - 商品套图旧契约已接入工具；新版 smart/custom 与爆款复刻见 [套图参考](iyw-api-product-kits.md)。蒙版域为 `https://ai.iyw.cn/agent/api/generate_mask`，但区域结构未完整给出。AI 试衣仍缺完整提交契约。详见 [图片补充](iyw-api-image-contract-updates.md)。
@@ -54,7 +54,7 @@
 | POST | `commerce/bleedLine` | 出血线工具 | `imageUrls`、`size` | 1/导出 |
 | POST | `commerce/convert` | 格式转换 | `imageUrls`、`format` | 5 |
 | POST | `commerce/vectorizeImage` | 矢量化 | `imageUrls` | — |
-| POST | `commerce/ImageTo3D` | 转 3D 模型 | `imageUrls`、`format`、`MultiViewImages` | 30 |
+| POST | `commerce/ImageTo3D` | 已禁用，仅历史证据，不可调用 | 历史字段不作为可用契约 | 不适用 |
 | POST | `commerce/threeVisions` | 转三视图 | `imageUrls` | 5 |
 | POST | `commerce/modelScene` | 模特场景图 | `imageUrls`、`scene`、`ratio` | 5 |
 | POST | `commerce/videoGenerator` / `videoAutoDirector` / `videoRemakeDirector` | 图转视频 / 电商视频 | 历史概括字段不用于页面调用；生成与导演各自完整参数见 [电商视频](iyw-api-ecommerce-video.md) | 历史观察 10，不代表当前费用 |

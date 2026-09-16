@@ -14,19 +14,23 @@ credentials. It is a routing guide; report writing and synthesis belong to
 
 ## Triggers and preflight
 
-Use this route when the user asks to search/research/look up anything online,
-mentions a URL, or names one of these categories: web/RSS, GitHub/code, X/Twitter,
+Use this route when the task requires retrieving online information from a URL
+or one of these categories: web/RSS, GitHub/code, X/Twitter,
 小红书, Bilibili, V2EX, Reddit, LinkedIn/jobs, YouTube, 小宇宙/podcast, finance,
-or public discussions.
+or public discussions. Mentioning a platform or URL in supplied content does not
+by itself require online retrieval or a browser. Local analysis and writing from
+provided material can proceed directly.
 
-Before a multi-backend platform operation, discover and invoke
+When selecting an unknown backend or diagnosing its availability, discover and invoke
 `iyw.internet.agent_reach.status.v1` through the current gateway when available.
 It returns observed channel health and active backends from the managed Agent
 Reach installation; it does not install tools or import credentials. Otherwise,
 run the currently installed
 `agent-reach doctor --json` only if that executable is actually available and
 the user asked for that external route. Prefer the current iyw gateway catalog
-and unified browser capability. Never claim a doctor result from memory or infer an
+and use an already known suitable direct route without repeating health discovery.
+Public content uses search/read tools first; browser use follows the conditions
+in `browser-and-media.md`. Never claim a doctor result from memory or infer an
 `active_backend` that was not observed.
 
 Announce the active route briefly when it matters (for example, “使用统一浏览器
@@ -37,14 +41,14 @@ transport details.
 
 | User intent | Preferred current route | Important behavior |
 | --- | --- | --- |
-| General web/search | Gateway search capability, then managed browser read | Search multiple variants; snippets are leads only. |
+| General web/search | Available search capability, then content reader; browser only for required interaction or unreadable dynamic content | Match search depth to the task; snippets are leads only. |
 | GitHub/repository/code/Issue/PR | Discovered GitHub/code capability or managed browser | Pin owner/repo/number/branch; verify the returned URL and state. |
-| X/Twitter | Managed browser or discovered platform capability | Search may be unstable; use one documented retry then a stable feed/user/article route. |
-| 小红书/XHS | Managed browser or discovered platform capability | Search/feed first; read using the complete returned URL/token, never a bare note id. |
+| X/Twitter | Available platform capability; browser when required | Search may be unstable; use one documented retry then a stable feed/user/article route. |
+| 小红书/XHS | Available platform capability; browser when required | Search/feed first; read using the complete returned URL/token, never a bare note id. |
 | Bilibili | Bilibili-capable route or managed browser | Do not use YouTube `yt-dlp` logic for Bilibili; use a supported video/search/subtitle route. |
 | V2EX | Public API/browser route if currently advertised | Preserve topic/node identifiers and distinguish replies from the topic body. |
-| Reddit | Managed browser or discovered logged-in route | Login-backed; do not invent anonymous API access. |
-| LinkedIn/jobs | Managed browser or discovered logged-in route | Treat profile/job pages as authentication-bound and verify visible evidence. |
+| Reddit | Available authenticated platform route; browser when required | Login-backed; do not invent anonymous API access. |
+| LinkedIn/jobs | Available authenticated platform route; browser when required | Treat profile/job pages as authentication-bound and verify visible evidence. |
 | YouTube | Discovered video/subtitle/audio route or managed browser | Prefer subtitles; if absent, use the host's supported audio transcription route. |
 | 小宇宙/podcast | Discovered podcast/transcription route or managed browser | Keep transcript provenance and label machine transcription uncertainty. |
 | RSS/news/finance | Discovered feed/search route or managed browser | Record feed URL, item date, and access time; do not treat stale items as current. |
