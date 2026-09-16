@@ -30,9 +30,6 @@ function MarketIdentity() {
         <h1 className="truncate text-sm font-semibold leading-5">
           {t("title")}
         </h1>
-        <p className="truncate text-[10px] leading-4 text-muted-foreground">
-          {t("subtitle")}
-        </p>
       </div>
     </div>
   )

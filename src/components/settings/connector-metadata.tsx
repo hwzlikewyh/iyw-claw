@@ -19,11 +19,23 @@ export function ConnectorListMetadata({ server }: { server: LocalMcpServer }) {
 
   return (
     <div className="mt-1 flex flex-wrap gap-1">
-      <Badge variant="outline" className="text-[9px]">
-        {t("local.global")}
+      <Badge
+        variant="outline"
+        className={
+          server.enabled
+            ? "border-emerald-500/30 bg-emerald-500/10 text-[9px] text-emerald-700 dark:text-emerald-400"
+            : "text-[9px] text-muted-foreground"
+        }
+      >
+        {server.enabled
+          ? t("local.enabledGlobally")
+          : t("local.disabledGlobally")}
       </Badge>
       {needsConfig ? (
-        <Badge variant="secondary" className="text-[9px]">
+        <Badge
+          variant="outline"
+          className="border-amber-500/30 bg-amber-500/10 text-[9px] text-amber-700 dark:text-amber-400"
+        >
           {t("local.needsConfig")}
         </Badge>
       ) : null}

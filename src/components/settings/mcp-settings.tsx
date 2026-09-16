@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
+import { MarketItemIcon } from "@/components/skills/market/market-item-icon"
 import {
   ConnectorDetailMetadata,
   ConnectorListMetadata,
@@ -296,6 +297,7 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
   const [selectedProvider, setSelectedProvider] = useState("")
   const [marketQuery, setMarketQuery] = useState("")
   const marketQueryRef = useRef("")
+  const marketSearchRequestRef = useRef(0)
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
   const [searchResults, setSearchResults] = useState<McpMarketplaceItem[]>([])
@@ -425,14 +427,17 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
       return
     }
 
+    let cancelled = false
     setMarketDetailLoading(true)
     setMarketDetailError(null)
+    setMarketDetail(null)
 
     mcpGetMarketplaceServerDetail({
       providerId: selectedMarketItem.provider_id,
       serverId: selectedMarketItem.server_id,
     })
       .then((detail) => {
+        if (cancelled) return
         setMarketDetail(detail)
         const defaultOption =
           detail.install_options.find(
@@ -448,6 +453,7 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
         setMarketSpecDirty(false)
       })
       .catch((err) => {
+        if (cancelled) return
         const message = toLocalizedErrorMessage(err, mcpT)
         setMarketDetailError(message)
         setMarketDetail(null)
@@ -457,8 +463,11 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
         setInstallParamDraft({})
       })
       .finally(() => {
-        setMarketDetailLoading(false)
+        if (!cancelled) setMarketDetailLoading(false)
       })
+    return () => {
+      cancelled = true
+    }
   }, [selection, selectedMarketItem, mcpT])
 
   const executeSearch = useCallback(
@@ -471,8 +480,11 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
     }) => {
       if (!providerId) return
 
+      const requestId = ++marketSearchRequestRef.current
       setSearching(true)
       setSearchError(null)
+      setSearchResults([])
+      setSelection((current) => (current?.kind === "market" ? null : current))
 
       try {
         const results = await mcpSearchMarketplace({
@@ -480,6 +492,7 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
           query: query?.trim() || null,
           limit: 30,
         })
+        if (requestId !== marketSearchRequestRef.current) return
         setSearchResults(results)
 
         if (results[0]) {
@@ -492,10 +505,11 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
           })
         }
       } catch (err) {
+        if (requestId !== marketSearchRequestRef.current) return
         const message = toLocalizedErrorMessage(err, mcpT)
         setSearchError(message)
       } finally {
-        setSearching(false)
+        if (requestId === marketSearchRequestRef.current) setSearching(false)
       }
     },
     [mcpT]
@@ -513,6 +527,9 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
     }).catch((err) => {
       console.error("[Settings] auto search MCP marketplace failed:", err)
     })
+    return () => {
+      marketSearchRequestRef.current += 1
+    }
   }, [executeSearch, leftTab, selectedProvider])
 
   const uninstallServer = useCallback(
@@ -951,7 +968,7 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
 
       <div
         className={cn(
-          "grid h-full min-h-0 grid-cols-1 lg:grid-cols-[360px_1fr]",
+          "grid h-full min-h-0 min-w-0 grid-cols-1 lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)]",
           embedded
             ? "grid-rows-[minmax(22rem,45%)_minmax(22rem,1fr)] gap-0 overflow-auto lg:grid-rows-1 lg:overflow-hidden"
             : "gap-4 px-5 py-5"
@@ -959,7 +976,7 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
       >
         <section
           className={cn(
-            "min-h-0 bg-card p-3",
+            "min-h-0 min-w-0 bg-background p-3",
             embedded
               ? "border-b lg:border-b-0 lg:border-r"
               : "rounded-xl border"
@@ -968,15 +985,21 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
           <Tabs
             value={leftTab}
             onValueChange={(value) => {
+              marketSearchRequestRef.current += 1
               if (value === "custom") {
                 handleCreateDraft()
                 return
               }
               setLeftTab(value as LeftTab)
+              setSelection(
+                value === "local" && installedServers[0]
+                  ? { kind: "local", id: installedServers[0].id }
+                  : null
+              )
             }}
-            className="h-full"
+            className="h-full min-h-0 gap-0"
           >
-            <TabsList className="w-full">
+            <TabsList variant="line" className="w-full shrink-0 border-b pb-2">
               <TabsTrigger value="local" className="flex-1">
                 {t("tabs.local")}
               </TabsTrigger>
@@ -990,13 +1013,19 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
 
             <TabsContent
               value="local"
-              className="h-full min-h-0 pt-2 flex flex-col"
+              className="flex min-h-0 flex-1 flex-col pt-3"
             >
-              <div className="pb-2">
+              <div className="relative shrink-0 pb-3">
+                <Search
+                  className="pointer-events-none absolute left-3 top-2.5 size-3.5 text-muted-foreground"
+                  aria-hidden="true"
+                />
                 <Input
+                  className="h-9 bg-muted/20 pl-8 shadow-none"
                   value={localFilter}
                   onChange={(event) => setLocalFilter(event.target.value)}
                   placeholder={t("local.filterPlaceholder")}
+                  aria-label={t("local.filterPlaceholder")}
                 />
               </div>
 
@@ -1023,7 +1052,7 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
                         <ContextMenuTrigger asChild>
                           <div
                             className={cn(
-                              "flex w-full items-center gap-2 rounded-md border p-2 transition-colors",
+                              "flex w-full items-center gap-3 rounded-md border border-transparent p-3 transition-colors",
                               active
                                 ? "border-primary bg-primary/5"
                                 : "hover:bg-muted/60"
@@ -1031,23 +1060,31 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
                           >
                             <button
                               type="button"
-                              className="min-w-0 flex-1 text-left"
+                              className="flex min-w-0 flex-1 items-start gap-3 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                              aria-current={active ? "true" : undefined}
                               onClick={() => {
                                 setSelection({ kind: "local", id: server.id })
                               }}
                             >
-                              <div className="truncate text-sm font-medium">
-                                {connectorName(server)}
-                              </div>
-                              {connectorName(server) !== server.id ? (
-                                <div className="truncate font-mono text-[10px] text-muted-foreground">
-                                  {server.id}
+                              <MarketItemIcon name={connectorName(server)} />
+                              <div className="min-w-0 flex-1">
+                                <div
+                                  className="truncate text-sm font-medium"
+                                  title={connectorName(server)}
+                                >
+                                  {connectorName(server)}
                                 </div>
-                              ) : null}
-                              <div className="text-xs text-muted-foreground line-clamp-2 break-all">
-                                {specSummary(spec, mcpT)}
+                                {connectorName(server) !== server.id ? (
+                                  <div className="truncate font-mono text-[10px] text-muted-foreground">
+                                    {server.id}
+                                  </div>
+                                ) : null}
+                                <div className="mt-1 line-clamp-2 break-words text-xs leading-5 text-muted-foreground">
+                                  {server.description ||
+                                    specSummary(spec, mcpT)}
+                                </div>
+                                <ConnectorListMetadata server={server} />
                               </div>
-                              <ConnectorListMetadata server={server} />
                             </button>
                             <Switch
                               checked={server.enabled}
@@ -1097,11 +1134,12 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
                 )}
               </div>
 
-              <div className="border-t pt-2 mt-2 flex items-center gap-2">
+              <div className="mt-2 flex shrink-0 items-center justify-end gap-2 border-t pt-2">
                 <Button
-                  size="sm"
-                  variant="outline"
-                  className="flex-1"
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={t("actions.refresh")}
+                  title={t("actions.refresh")}
                   onClick={() => {
                     refreshLocalServers().catch((err) => {
                       console.error("[Settings] refresh local MCP failed:", err)
@@ -1109,18 +1147,28 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
                   }}
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
-                  {t("actions.refresh")}
                 </Button>
               </div>
             </TabsContent>
 
-            <TabsContent value="market" className="h-full min-h-0 pt-2">
-              <div className="space-y-2 pb-2">
+            <TabsContent
+              value="market"
+              className="flex min-h-0 flex-1 flex-col pt-3"
+            >
+              <div className="shrink-0 space-y-2 pb-3">
                 <Select
                   value={selectedProvider}
-                  onValueChange={setSelectedProvider}
+                  onValueChange={(value) => {
+                    marketSearchRequestRef.current += 1
+                    setSearchResults([])
+                    setSelection(null)
+                    setSelectedProvider(value)
+                  }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger
+                    className="h-9 w-full"
+                    aria-label={t("market.selectMarketplace")}
+                  >
                     <SelectValue placeholder={t("market.selectMarketplace")} />
                   </SelectTrigger>
                   <SelectContent>
@@ -1134,9 +1182,11 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
 
                 <div className="flex gap-2">
                   <Input
+                    className="h-9 min-w-0 bg-muted/20 shadow-none"
                     value={marketQuery}
                     onChange={(event) => setMarketQuery(event.target.value)}
                     placeholder={t("market.searchPlaceholder")}
+                    aria-label={t("market.searchPlaceholder")}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter") return
                       executeSearch({
@@ -1151,6 +1201,10 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
                     }}
                   />
                   <Button
+                    size="icon"
+                    variant="outline"
+                    aria-label={t("market.searchPlaceholder")}
+                    title={t("market.searchPlaceholder")}
                     onClick={() => {
                       executeSearch({
                         providerId: selectedProvider,
@@ -1179,7 +1233,7 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
                 </div>
               ) : null}
 
-              <div className="h-[calc(100%-106px)] overflow-auto space-y-1">
+              <div className="min-h-0 flex-1 space-y-1 overflow-auto">
                 {searching ? (
                   <div className="h-full min-h-24 rounded-md border border-dashed flex items-center justify-center gap-2 text-xs text-muted-foreground">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1200,8 +1254,10 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
                       >
                         <ContextMenuTrigger asChild>
                           <button
+                            type="button"
+                            aria-current={active ? "true" : undefined}
                             className={cn(
-                              "w-full rounded-md border p-2 text-left transition-colors",
+                              "w-full rounded-md border border-transparent p-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50",
                               active
                                 ? "border-primary bg-primary/5"
                                 : "hover:bg-muted/60"
@@ -1213,31 +1269,28 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
                               })
                             }}
                           >
-                            <div className="flex items-start gap-2">
-                              <div className="mt-0.5 h-7 w-7 overflow-hidden rounded-md border bg-muted/40 shrink-0">
-                                {item.icon_url ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    src={item.icon_url}
-                                    alt={item.name}
-                                    className="h-full w-full object-cover"
-                                  />
-                                ) : (
-                                  <div className="h-full w-full flex items-center justify-center text-[10px] text-muted-foreground">
-                                    MCP
-                                  </div>
-                                )}
-                              </div>
+                            <div className="flex items-start gap-3">
+                              <MarketItemIcon
+                                name={item.name}
+                                src={item.icon_url}
+                              />
                               <div className="min-w-0 flex-1">
-                                <div className="text-sm font-medium break-all">
+                                <div
+                                  className="truncate text-sm font-medium"
+                                  title={item.name}
+                                >
                                   {item.name}
                                 </div>
-                                <div className="text-xs text-muted-foreground break-all">
+                                <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
                                   {item.server_id}
                                 </div>
                               </div>
                             </div>
-
+                            {item.description ? (
+                              <p className="mt-2 line-clamp-2 break-words text-xs leading-5 text-muted-foreground">
+                                {item.description}
+                              </p>
+                            ) : null}
                             <div className="mt-2 flex flex-wrap gap-1">
                               {item.protocols.map((protocol) => (
                                 <Badge
@@ -1291,7 +1344,7 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
               </div>
             </TabsContent>
 
-            <TabsContent value="custom" className="h-full min-h-0 pt-2">
+            <TabsContent value="custom" className="min-h-0 flex-1 pt-3">
               <div className="flex h-full flex-col items-center justify-center gap-3 border border-dashed p-5 text-center">
                 <Plus className="size-5 text-muted-foreground" />
                 <p className="text-xs text-muted-foreground">
@@ -1307,7 +1360,7 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
 
         <section
           className={cn(
-            "min-h-0 overflow-auto bg-card p-4",
+            "min-h-0 min-w-0 overflow-auto bg-background p-4 sm:p-5",
             !embedded && "rounded-xl border"
           )}
         >
@@ -1480,20 +1533,11 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
                 <>
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-3 min-w-0">
-                      <div className="h-12 w-12 overflow-hidden rounded-lg border bg-muted/40 shrink-0">
-                        {marketDetail.icon_url ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={marketDetail.icon_url}
-                            alt={marketDetail.name}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="h-full w-full flex items-center justify-center text-xs text-muted-foreground">
-                            MCP
-                          </div>
-                        )}
-                      </div>
+                      <MarketItemIcon
+                        name={marketDetail.name}
+                        src={marketDetail.icon_url}
+                        className="size-12"
+                      />
                       <div className="min-w-0">
                         <h2 className="text-base font-semibold break-all">
                           {marketDetail.name}

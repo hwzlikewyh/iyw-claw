@@ -2,7 +2,7 @@
 
 import { Loader2, MoreHorizontal, Pencil, Trash2 } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { MarketItemIcon } from "@/components/skills/market/market-item-icon"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -24,7 +24,6 @@ import {
   audienceBadgeInfo,
   compatibilityBadgeInfo,
   installStateBadgeInfo,
-  marketItemFallbackInitial,
   type SkillMarketTranslator,
   type SkillMarketV2Detail,
   type SkillMarketV2Version,
@@ -166,20 +165,11 @@ export function DetailHeader(props: DetailHeaderProps) {
     <header className="shrink-0 bg-background px-5 pt-5 pr-14 sm:px-6 sm:pt-6 sm:pr-16">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 gap-3.5">
-          <Avatar className="size-12 shrink-0 rounded-md border bg-muted/30">
-            {props.detail.iconUrl ? (
-              <AvatarImage
-                className="rounded-md"
-                src={props.detail.iconUrl}
-                alt=""
-              />
-            ) : null}
-            <AvatarFallback className="rounded-md">
-              <span className="text-sm font-semibold">
-                {marketItemFallbackInitial(props.detail.displayName)}
-              </span>
-            </AvatarFallback>
-          </Avatar>
+          <MarketItemIcon
+            name={props.detail.displayName}
+            src={props.detail.iconUrl}
+            className="size-12"
+          />
           <div className="min-w-0">
             <p className="truncate text-[10px] text-muted-foreground">
               {props.detail.organizationName ?? props.detail.category}
