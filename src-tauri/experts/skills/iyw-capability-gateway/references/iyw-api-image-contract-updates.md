@@ -30,7 +30,7 @@
 | `/commerce/imageModification` | 图片编辑 | `imageUrls[]`、`prompt` |
 | `/commerce/bleedLine` | 出血线 | `imageUrls[]`、`bleed` |
 | `/commerce/convert` | 格式转换 | `imageUrls[]`、`format` |
-| `/commerce/ImageTo3D` | 转 3D 模型 | `imageUrls[]` |
+| `/commerce/ImageTo3D` | 内置转 3D 已禁用 | 仅历史证据，不可调用或绕过 |
 | `/commerce/threeVisions` | 三视图 | `imageUrls[]` |
 | `/commerce/fission` | 自由仿款 | `imageUrls[]` |
 | `/commerce/vectorizeImage` | 矢量化 | `imageUrls[]` |

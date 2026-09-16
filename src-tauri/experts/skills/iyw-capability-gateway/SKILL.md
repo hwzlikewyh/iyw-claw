@@ -32,6 +32,15 @@ permissions, and schema digests.
 电商视频和商品套图中已记录的工具契约不匹配或未封装操作，按对应参考用 fetch 调原接口。
 业务 API 路由不依赖能力三件套；主机能力才使用下文 catalog 流程。
 
+## 最短适用路径
+
+- 自定义改款优先 `variation`，单基准图系列延伸优先 `extend`，多图融合优先 `mix`，电商视频优先下文平台路线。按真实输入、目标和限制匹配；其他工具按实际功能选择。
+- 仅在用户明确选择其他服务，或优先路线有明确不支持、不可用、确认失败的证据时改用其他路线；已知不兼容无需先试错。上述平台图片工具无需查模型目录。
+- 内置转 3D 已禁用，不调用 `image-to-3d`，不通过 fetch、浏览器或其他封装绕过；不得把具有立体效果的图片当作 3D 模型交付。
+- 已公布且参数明确的工具直接调用；只补读缺失的当前操作说明。复用已读 schema、参考资料、模型目录、素材 URL 和任务 ID，支持的独立操作按授权范围批量执行。
+- 仅使用当前启用目录公布的技能。废弃、停用、移除或仅残留在历史会话/备份中的技能不读取、不执行、不恢复；遇到旧依赖立即选择现有工具，不沿旧依赖链搜索或安装。`iyw-image-workflows` 已废弃。
+- 本地文件、代码、文档用本地工具；平台业务用专用工具；公开资料优先搜索/正文读取。仅登录态、动态内容无法直接读取、页面交互、截图或页面验收需要浏览器；确定使用后再读浏览器参考和查标签页。
+
 ## 视频生成优先路由
 
 视频生成任务优先走本 Skill 的爱原物能力，先读 [电商视频](references/iyw-api-ecommerce-video.md)。
@@ -69,14 +78,14 @@ follow its workflow**. Do not treat the reference as optional background reading
 | 批量图片、新版 Agent、知识库全套、资产库、订单物流、权限分层 | [接口索引新版任务表](references/iyw-api-index.md)，仅加载对应补充资料 |
 | 爱原物产品/标签、客户需求、趋势/IP/图案、会员点数、组织、版权、设计云或具体 API | [业务接口索引](references/iyw-api-index.md)，再读匹配领域与 [HTTP 约定](references/iyw-http.md) |
 | 上传任意文件、压缩包、文档、音视频、50M 文件链接 | [通用上传](references/iyw-upload.md) |
-| 图片生成/处理、扩图、放大、抠图、消除、色号、矢量、3D | [图片工具参数](references/iyw-image-tools.md) |
+| 图片生成/处理、扩图、放大、抠图、消除、色号、矢量 | [图片工具参数](references/iyw-image-tools.md)，只补读当前操作缺失的参数 |
 | Session, profile, history, interaction, or plugin capability | [capability-families.md](references/capability-families.md) |
 | Unclear requirement, missing decision, or multiple reasonable interpretations | [capability-families.md](references/capability-families.md) |
 | Final file, directory, URL, HTML/Markdown delivery, or image references in a document | [artifact-delivery.md](references/artifact-delivery.md) |
 | Channel discovery, targets, messages, credentials, QR authorization, or connection state | [channel-operations.md](references/channel-operations.md) |
 | Scheduled task project selection, cron, create, update, pause, or delete | [automation.md](references/automation.md) |
 | Independent subtask, parallel Agent, task ID, wait, or cancellation | [delegation.md](references/delegation.md) |
-| Web page, public web data, browser interaction, screenshot, visual page, audio, transcription, or image understanding | [browser-and-media.md](references/browser-and-media.md) |
+| Required browser interaction, screenshot, page acceptance, audio, transcription, or image understanding | [browser-and-media.md](references/browser-and-media.md)，只读对应部分 |
 | Prior decisions, preferences, repeated workflows, memory, learning, correction, candidate, or memory repair | [memory-and-learning.md](references/memory-and-learning.md) |
 | Skill usage failure, recurring workaround, verified improvement or Skill evolution | [skill-evolution.md](references/skill-evolution.md) |
 | Research, comparison, investigation, current web evidence, or cited report | [research-workflow.md](references/research-workflow.md), plus [browser-and-media.md](references/browser-and-media.md) for browser work |
@@ -86,7 +95,7 @@ follow its workflow**. Do not treat the reference as optional background reading
 ## Route Proactively
 
 1. Use an exact visible direct tool when it fully satisfies the current
-   sub-goal. Otherwise use the domain Skill that owns the business workflow:
+   sub-goal. Otherwise use a currently enabled domain Skill that owns the workflow:
   `agent-browser`, `wecom-unified`,
    `open-computer-use`, `skill-creator`, `skill-installer`, `plugin-creator`,
    `writing-plans`, or `executing-plans`.
@@ -105,7 +114,10 @@ follow its workflow**. Do not treat the reference as optional background reading
    Explicit Fusion `edit` requires source images. Before `generate`, `auto`
    without images, or `edit`, call `list_iyw_image_models`, choose a model with
    the required capability, and copy its opaque `model_ref` into `parameters.model`.
-   No prior platform failure is required. A catalog model argument on a platform
+   Prefer applicable `variation`, `extend`, and `mix` routes. Use model editing
+   when explicitly selected or the preferred route is demonstrably unsupported,
+   unavailable, or confirmed failed; do not manufacture a failed trial.
+   A catalog model argument on a platform
    type does not select that Fusion model. Correct input errors; evaluate another
    suitable service after confirmed route failure. Timeouts, transport errors,
    and running/uncertain tasks require state checks before new submissions.
@@ -253,8 +265,8 @@ tools and the capability trio:
 
 常用默认路径：无图文生图用 `generate`，单图改款用 `variation`，有基准图的四宫格或同系列延伸用 `extend`，多图融合用 `mix`。
 缺少同名专用操作时，继续评估通用指令编辑或模型，不能据此判断不支持；格式、尺寸等技术限制按实际文档核对。按下方图片参考中的失败分类恢复，核心图片精修同样遵守服务优先规则。
-`generate` 和显式 `edit` 无需先等平台失败，但需将模型目录返回的 `model_ref` 原样放入 `parameters.model`；有参考图且选择模型时用 `edit`。引用仅用于内部参数，对用户只说业务展示名称或“通用图片处理”；即使追问模型、价格或锁定选型，也不披露真实模型 ID、引用、供应商和货币价格。仅可说明平台明确返回的点数，不换算、不猜测。
-视频优先规则与完整流程见 [电商视频](references/iyw-api-ecommerce-video.md)。专用处理、批量、蒙版、色号、矢量、3D 和模型选择见
+`generate` 用于无图创作；`edit` 遵循上文平台优先及替代条件，有参考图且选择模型时使用。两者需将模型目录返回的 `model_ref` 原样放入 `parameters.model`；同任务复用目录。引用仅用于内部参数，对用户只说业务展示名称或“通用图片处理”；即使追问模型、价格或锁定选型，也不披露真实模型 ID、引用、供应商和货币价格。仅可说明平台明确返回的点数，不换算、不猜测。
+视频优先规则与完整流程见 [电商视频](references/iyw-api-ecommerce-video.md)。专用处理、批量、蒙版、色号、矢量和模型选择见
 [图片工具参数](references/iyw-image-tools.md)；只读本次操作相关部分。
 原始图片 API、旧/新参数差异和历史点数见
 [图片接口证据](references/iyw-image-api-source.md)，不默认加载。
@@ -264,18 +276,6 @@ tools and the capability trio:
 ```json
 {"query":"茶具设计规范","limit":10,"denseWeight":0.5}
 ```
-
-### Memory shortest path
-
-Read the direct tool's advertised schema and call it immediately:
-
-```json
-{"operation":"recall","parameters":{"query":"图片生成默认路径"}}
-```
-
-For `append`, `propose` and `retire`, use the inline schema directly. Pass fields under
-`parameters`; stale candidate revisions/eTags and repair operations without a
-preview are rejected by the host.
 
 ## Memory Gate
 

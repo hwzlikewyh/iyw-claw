@@ -16,7 +16,7 @@ detailed reference before acting when the task matches one:
 | Channels, targets, message history/sending, credentials, QR authorization, diagnostics | [channel-operations.md](channel-operations.md) |
 | Scheduled-task projects, cron, create/update/pause/delete | [automation.md](automation.md) |
 | Delegate, wait for, collect, or cancel an independent Agent task | [delegation.md](delegation.md) |
-| Browser, public web, screenshots, audio, transcription, image understanding | [browser-and-media.md](browser-and-media.md) |
+| Required browser interaction, screenshots, page acceptance, audio, transcription, image understanding | [browser-and-media.md](browser-and-media.md)，仅相关部分 |
 | Memory, self-learning, corrections, candidates, harvest, index, document maintenance | [memory-and-learning.md](memory-and-learning.md) |
 | Research or platform evidence | [research-workflow.md](research-workflow.md) and, when web access is needed, [internet-routing.md](internet-routing.md) |
 
@@ -35,11 +35,22 @@ name it. This avoids unnecessary search/read/invoke calls. Reuse already-read
 capability instructions in the same session; continue checking current business
 state, returned revisions, and availability when the task requires them.
 
+Do not load or execute retired/disabled Skills or recover them from old paths.
+Use local tools for local work, dedicated tools for platform tasks, and search/
+content readers for public data. Browser workflows apply only when login state,
+unreadable dynamic content, UI interaction, screenshots or page acceptance need
+them. Reuse available schemas, source URLs and task IDs; do not repeat discovery.
+
 For image work, choose an applicable platform operation or model through
 `generate_iyw_image` before installing image libraries or writing processing code.
 A missing dedicated operation does not exclude prompt-driven editing; evaluate
 the available service routes and verify technical constraints without inventing
-requirements. With source images and a selected catalog model, use `edit`.
+requirements. Prioritize custom redesign (`variation`), series extension (`extend`)
+and multi-image fusion (`mix`) when applicable. Use model editing when explicitly
+selected or the preferred route is demonstrably unsupported, unavailable or
+confirmed failed; documented incompatibility needs no failed trial. With source
+images and a selected catalog model, use `edit`. Built-in image-to-3d is disabled,
+including fetch/browser fallbacks.
 Correct input errors, reassess alternatives after confirmed route failures, and
 check original task state after uncertain submissions. Refine inadequate results
 through suitable services within scope and charging authorization. Manual fallback
@@ -60,7 +71,7 @@ parameters to pass validation or replay uncertain submissions through another to
 | Business API progress | Every new fetch_iyw_url call supplies description naming the current action, plus the exact documented URL and query/body; descriptions never enter the HTTP payload |
 | Upload files | upload_iyw_file with description + workspace path; optional name/mime_type; <=50 MiB, returns a public URL |
 | Fusion image models | Call `list_iyw_image_models` with `{}`; choose a returned model supporting generation or editing as needed |
-| Image generation/editing | Text-to-image: `generate` (`images/generations`); single-image changes: `variation`; multi-image fusion: `mix`; four-panel or same-series extension from one reference: `extend`. Explicit `edit` (`images/edits`) requires source images. `generate`, `auto` without images, and `edit` need the opaque `model_ref` from `list_iyw_image_models` copied into `parameters.model`; no prior platform failure is required. Default timeout: platform 600s, Fusion 300s; override with `wait.timeoutSeconds`, including above 600. Set `delivery.registerArtifact=false` for intermediate assets. No generation capability ID exists |
+| Image generation/editing | Text-to-image: `generate` (`images/generations`); single-image changes: `variation`; multi-image fusion: `mix`; four-panel or same-series extension from one reference: `extend`. Explicit `edit` (`images/edits`) requires source images. `generate`, `auto` without images, and `edit` need the opaque `model_ref` from `list_iyw_image_models` copied into `parameters.model`; model editing follows the platform priority and alternative-route conditions above. Default timeout: platform 600s, Fusion 300s; override with `wait.timeoutSeconds`, including above 600. Set `delivery.registerArtifact=false` for intermediate assets. No generation capability ID exists |
 | Document knowledge | `search_iyw_knowledge`: `query`, optional known filters; `folderId` is an integer and `fileId` is a string |
 | Known IYW website API | `fetch_iyw_url`: HTTPS `iyw.cn` and all subdomains; GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS; JSON/form/text bodies and ordinary header overrides; current login token supplied by the host; fixed output envelope |
 | Memory recall / learning / retirement | Call `manage_iyw_memory` directly with `operation` and its inline `parameters`; policy preflight is automatic |

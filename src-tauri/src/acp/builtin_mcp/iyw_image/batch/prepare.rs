@@ -6,6 +6,7 @@ use crate::acp::builtin_mcp::iyw_image::{
     preflight_kind, prepare_images, select_kind, upload_images, validate_request,
     ImageBatchRequest, ImageRequest, PreparedImage,
 };
+use crate::acp::builtin_mcp::iyw_tool_policy::ensure_image_enabled;
 
 const MAX_BATCH_ITEMS: usize = 8;
 const MAX_EXECUTIONS: usize = 16;
@@ -20,6 +21,7 @@ pub(super) fn validate_batch(request: &ImageBatchRequest) -> Result<(), rmcp::Er
     let mut ids = HashSet::new();
     let mut executions = 0;
     for item in &request.requests {
+        ensure_image_enabled(item.kind.as_deref())?;
         validate_request(item)?;
         validate_batch_item(item, &mut ids)?;
         executions += item.count();
@@ -36,6 +38,7 @@ pub(super) async fn prepare_single(
     context: ExecutionContext<'_>,
     request: ImageRequest,
 ) -> Result<PreparedTask, rmcp::ErrorData> {
+    ensure_image_enabled(request.kind.as_deref())?;
     validate_request(&request)?;
     prepare_task(
         context,

@@ -73,6 +73,7 @@ pub(super) fn prepare(client: &Client, arguments: Value) -> Result<Request, Erro
         return Err(invalid("timeout_seconds must be between 1 and 900"));
     }
     let url = Url::parse(&params.url).map_err(|_| invalid("url must be an absolute HTTPS URL"))?;
+    super::super::iyw_tool_policy::ensure_url_enabled(&url)?;
     if !http::allowed_url(&url) {
         return Err(invalid(
             "url must use HTTPS on iyw.cn or its subdomains, without credentials or fragments",

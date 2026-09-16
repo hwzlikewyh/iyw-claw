@@ -29,6 +29,7 @@ mod iyw_knowledge;
 mod iyw_memory;
 mod iyw_progress;
 mod iyw_service;
+mod iyw_tool_policy;
 mod iyw_upload;
 mod lease;
 mod plugin_catalog;

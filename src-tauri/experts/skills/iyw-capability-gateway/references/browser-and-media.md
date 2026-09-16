@@ -1,7 +1,15 @@
 # Browser and Media Operations
 
-Load this reference for web pages, public data, website interaction, screenshots,
-audio, transcription, or image understanding. The unified `browser` tool checks
+Load the matching section for required browser work, audio, transcription, or
+image understanding. A URL or platform name alone does not require a browser.
+Use local tools for files/code/documents, dedicated tools for platform business,
+and search/content readers for public information. Choose a browser only for
+required login state, dynamic content unavailable through a suitable reader,
+UI interaction, screenshots, or page/rendering acceptance. Do not inspect tabs
+or load browser workflows before that decision. A failed unrelated tool or
+retired Skill is not a browser trigger.
+
+The unified `browser` tool checks
 both the user's connected Chrome/OpenCLI and the iyw-claw managed browser. It
 prefers OpenCLI for existing Chrome sign-in state and switches only for a
 classified human-only action. Use the live catalog for exact stable IDs and
@@ -20,14 +28,16 @@ finishes. A timeout with `effectMayHaveOccurred=true` must not be blindly retrie
 Use this sequence for ordinary navigation and interaction:
 
 1. **List**: call `browser` with `action=list_tabs` to inspect both providers.
-   Reuse an existing opaque tab id whenever possible.
+   Reuse an existing opaque tab id whenever possible; skip listing when the
+   current task already has a valid tab id.
 2. **Open**: call `browser` with `action=open` for an HTTP/HTTPS URL. Set
    `new_tab: true` only
    when another tab is explicitly needed. Pass an exact tab ID when navigating
    a non-active tab. `about:blank` is the only non-HTTP URL allowed.
 3. **Inspect**: call `browser` with `action=snapshot` before an
    action. It returns short-lived `@eN` references for interactive elements.
-   Use `browser` with `action=read` when agent-readable page text is needed; `outline` is
+   For reading only, call `browser` with `action=read` directly; no preceding
+   snapshot is needed. `outline` is
    useful for headings and `filter` narrows large pages. Use `raw` only when
    the response body itself is required.
 4. **Act**: call `browser` with the matching action using the exact tab ID. Use an
@@ -179,9 +189,12 @@ Prefer `generate` (`images/generations`) for text-to-image, `variation` for
 single-image changes, `mix` for multi-image fusion, and `extend` for four-panel
 grids or same-series extension from one base image. `auto` follows these defaults;
 without images it uses `generate`. A grid request without a reference also uses
-`generate`. Explicit `edit` (`images/edits`) requires source images. Neither Fusion
-operation requires a prior platform attempt or failure. `fission` and specialized
-platform operations remain available when selected. A timeout, transport error
+`generate`. Explicit `edit` (`images/edits`) requires source images. Prioritize
+applicable `variation`, `extend`, and `mix` routes; use model editing when the user
+selects it or the preferred route is demonstrably unsupported, unavailable, or
+confirmed failed. Documented incompatibility needs no failed trial. Match other
+specialized operations to their actual functions. Built-in image-to-3d is disabled,
+including browser/fetch fallbacks. A timeout, transport error
 or running task is not confirmed failure; query its task ID before any retry.
 
 Before `type=generate`, `auto` without images, or explicit `type=edit`, call

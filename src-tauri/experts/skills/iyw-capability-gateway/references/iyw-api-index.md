@@ -41,7 +41,7 @@
 | 需求大厅、比稿、稿件、报名、投稿、设计师、入驻、作品分类 | [门户需求与作品](iyw-api-portal-demand-creation.md) | `/Demand`、`/Creation`、`/designer/settled` |
 | 版权登记、证书、模板、提现、充值、合同、签署、实名认证 | [门户版权与财务](iyw-api-portal-copyright-finance.md) | `/Copyright`、`/Finance`、`/Contract` |
 | 用户中心、收藏分组、店铺、企业展厅、资质、帮助、投诉、文档解析 | [门户用户与内容](iyw-api-portal-account-content.md) | `/User`、`/Shop`、`/Enterprise`、`/Help` |
-| 生图、变款、重绘、扩图、放大、抠图、蒙版、消除、矢量、色号、3D | [图片工具参数](iyw-image-tools.md)，仅核对原文时读 [图片接口证据](iyw-image-api-source.md) | `generate_iyw_image` |
+| 生图、变款、重绘、扩图、放大、抠图、蒙版、消除、矢量、色号 | [图片工具参数](iyw-image-tools.md)，仅核对原文时读 [图片接口证据](iyw-image-api-source.md)；内置转 3D 已禁用 | `generate_iyw_image` |
 | 上传文件、文档、压缩包、音频、视频、50M、文件 URL | [通用上传](iyw-upload.md) | `upload_iyw_file` |
 
 ## 三层披露
