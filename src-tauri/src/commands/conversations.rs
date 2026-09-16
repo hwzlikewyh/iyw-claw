@@ -22,6 +22,8 @@ use crate::web::event_bridge::{
 
 use super::conversation_title::{self, ConversationTitleContext};
 
+mod search;
+
 #[derive(Default)]
 pub(crate) struct ListAllConversationsOptions {
     pub(crate) folder_ids: Option<Vec<i32>>,
@@ -66,17 +68,18 @@ pub(crate) async fn list_all_conversations_core(
         status,
         include_children,
     } = options;
-    conversation_service::list_all(
+    let conversations = conversation_service::list_all(
         context.conn,
         folder_ids,
         agent_type,
-        search,
+        None,
         sort_by,
         status,
         include_children,
     )
     .await
-    .map_err(AppCommandError::from)
+    .map_err(AppCommandError::from)?;
+    search::filter_conversations(context.conn, conversations, search.as_deref()).await
 }
 
 #[cfg(feature = "tauri-runtime")]
