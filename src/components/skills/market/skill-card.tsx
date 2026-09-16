@@ -2,13 +2,13 @@
 
 import { ArrowUpRight } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { MarketBadgeGroup } from "@/components/skills/market/badges"
+import { MarketItemIcon } from "@/components/skills/market/market-item-icon"
 import {
   audienceBadgeInfo,
   compatibilityBadgeInfo,
-  marketItemFallbackInitial,
+  installStateBadgeInfo,
   primaryInstallAction,
   type MarketBadgeInfo,
   type SkillMarketTranslator,
@@ -17,19 +17,20 @@ import {
 import { cn } from "@/lib/utils"
 
 const MARKET_CARD_BASE_CLASS =
-  "group flex h-[12.5rem] min-w-0 flex-col overflow-hidden rounded-lg border bg-background p-3.5 transition-[border-color,box-shadow,transform]"
+  "group flex h-52 min-w-0 flex-col overflow-hidden rounded-lg border bg-background p-4 transition-colors"
 
 export function marketCardClass(selected: boolean): string {
   return cn(
     MARKET_CARD_BASE_CLASS,
     selected
-      ? "border-foreground/35 shadow-[inset_3px_0_0_hsl(var(--foreground))]"
-      : "hover:-translate-y-0.5 hover:border-foreground/20 hover:shadow-[0_8px_22px_rgba(15,23,42,0.055)]"
+      ? "border-primary/40 bg-primary/[0.03]"
+      : "hover:border-foreground/25 hover:bg-muted/20"
   )
 }
 
 function itemBadges(item: SkillMarketV2Item): MarketBadgeInfo[] {
   return [
+    audienceBadgeInfo(item.audience),
     ...(item.packageType === "plugin"
       ? [
           {
@@ -42,7 +43,9 @@ function itemBadges(item: SkillMarketV2Item): MarketBadgeInfo[] {
     ...(item.compatibility === "incompatible"
       ? [compatibilityBadgeInfo(item.compatibility)]
       : []),
-    audienceBadgeInfo(item.audience),
+    ...(item.installState !== "not_installed"
+      ? [installStateBadgeInfo(item.installState)]
+      : []),
   ]
 }
 
@@ -97,18 +100,12 @@ function SkillCardSummary({
       aria-label={t("a11y.openDetail", { name: item.displayName })}
     >
       <span className="flex min-w-0 items-start gap-3">
-        <Avatar className="size-10 shrink-0 rounded-md border bg-muted/35">
-          {item.iconUrl ? (
-            <AvatarImage className="rounded-md" src={item.iconUrl} alt="" />
-          ) : null}
-          <AvatarFallback className="rounded-md">
-            <span className="text-sm font-semibold">
-              {marketItemFallbackInitial(item.displayName)}
-            </span>
-          </AvatarFallback>
-        </Avatar>
+        <MarketItemIcon name={item.displayName} src={item.iconUrl} />
         <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-semibold">
+          <span
+            className="block truncate text-sm font-semibold"
+            title={item.displayName}
+          >
             {item.displayName}
           </span>
           <span className="mt-0.5 block truncate text-[10px] text-muted-foreground">
@@ -123,10 +120,10 @@ function SkillCardSummary({
       <MarketBadgeGroup
         badges={itemBadges(item)}
         limit={3}
-        className="mt-2.5 h-5 shrink-0 overflow-hidden"
+        className="mt-3 h-5 shrink-0 overflow-hidden"
       />
       <span className="mt-2 line-clamp-2 h-10 shrink-0 overflow-hidden break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]">
-        {item.summary}
+        {item.summary || t("inventory.noDescription")}
       </span>
     </button>
   )
@@ -147,7 +144,10 @@ function SkillCardFooter({
 }) {
   const t = useTranslations("SkillMarketV2") as unknown as SkillMarketTranslator
   return (
-    <div className="mt-2.5 flex min-w-0 shrink-0 items-center justify-end gap-2 border-t pt-2.5">
+    <div className="mt-2.5 flex min-w-0 shrink-0 items-center justify-between gap-2 border-t pt-2.5">
+      <span className="truncate font-mono text-[10px] text-muted-foreground">
+        v{item.currentVersion.version}
+      </span>
       <Button
         size="xs"
         variant={action === "update" ? "default" : "outline"}

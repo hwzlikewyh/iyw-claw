@@ -211,14 +211,6 @@ export function useSkillMarket(targetSkillId?: string | null) {
   const [query, setQueryState] = useState<SkillMarketQueryState>(() =>
     initialQuery(searchParams, targetSkillId)
   )
-  const updateQuery = useCallback((patch: Partial<SkillMarketQueryState>) => {
-    setQueryState((current) => {
-      const next = { ...current, ...patch }
-      persistQuery(next)
-      return next
-    })
-  }, [])
-
   const source: SkillMarketSource = useMemo(
     () => getSkillMarketSource(perfCount ? { perfCount } : undefined),
     [perfCount]
@@ -274,7 +266,11 @@ export function useSkillMarket(targetSkillId?: string | null) {
   )
 
   const [refreshKey, setRefreshKey] = useState(0)
-  const refresh = useCallback(() => setRefreshKey((current) => current + 1), [])
+  const refresh = useCallback(() => {
+    requestRef.current += 1
+    setList({ ...INITIAL_LIST, loading: true })
+    setRefreshKey((current) => current + 1)
+  }, [])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -287,11 +283,22 @@ export function useSkillMarket(targetSkillId?: string | null) {
   }, [loadList, refreshKey])
 
   const loadMore = useCallback(() => {
-    if (list.nextCursor) void loadList(list.nextCursor)
-  }, [list.nextCursor, loadList])
+    if (list.nextCursor && !list.loading) void loadList(list.nextCursor)
+  }, [list.nextCursor, list.loading, loadList])
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selectedVersion, setSelectedVersion] = useState<string | null>(null)
+  const updateQuery = useCallback((patch: Partial<SkillMarketQueryState>) => {
+    requestRef.current += 1
+    setList({ ...INITIAL_LIST, loading: true })
+    setSelectedId(null)
+    setSelectedVersion(null)
+    setQueryState((current) => {
+      const next = { ...current, ...patch }
+      persistQuery(next)
+      return next
+    })
+  }, [])
   const [detailRetryKey, setDetailRetryKey] = useState(0)
   const retryDetail = useCallback(
     () => setDetailRetryKey((current) => current + 1),
@@ -593,11 +600,6 @@ export function useSkillMarket(targetSkillId?: string | null) {
   const publish = useCallback(
     async (request: SkillMarketPublishRequestV2) => {
       const item = await source.publish(request)
-      setList((current) => ({
-        ...current,
-        items: [item, ...current.items],
-        total: current.total + 1,
-      }))
       setSelectedId(item.id)
       setSelectedVersion(null)
       refresh()

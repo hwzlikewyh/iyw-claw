@@ -46,7 +46,10 @@ export function CurrentReplyArtifactsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[min(42rem,calc(100dvh-2rem))] max-w-[min(72rem,calc(100vw-2rem))] gap-0 overflow-hidden p-0 sm:max-w-[min(72rem,calc(100vw-2rem))]">
+      <DialogContent
+        className="h-[min(42rem,calc(100dvh-2rem))] max-w-[min(72rem,calc(100vw-2rem))] gap-0 overflow-hidden p-0 sm:max-w-[min(72rem,calc(100vw-2rem))]"
+        closeButtonClassName="top-2 right-2"
+      >
         <DialogTitle className="sr-only">{t("currentReplyTitle")}</DialogTitle>
         <DialogDescription className="sr-only">
           {t("currentReplyCount", { count: items.length })}

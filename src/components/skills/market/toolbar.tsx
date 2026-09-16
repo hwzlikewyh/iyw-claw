@@ -63,7 +63,7 @@ function ViewTabs({
       >
         {VIEW_ORDER.map((item) => (
           <TabsTrigger key={item} value={item} className="h-8 flex-none">
-            {t(`views.${item}`)}
+            {t(item === "market" ? "audience.globalMarket" : `views.${item}`)}
           </TabsTrigger>
         ))}
       </TabsList>
