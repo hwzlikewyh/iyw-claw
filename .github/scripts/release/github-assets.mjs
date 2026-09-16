@@ -11,13 +11,41 @@ export function gh(args, options = {}) {
     windowsHide: true,
     timeout: COMMAND_TIMEOUT,
     maxBuffer: 8 * 1024 * 1024,
+    // A Windows runner's console enables coloured output, so `gh` wrapped the
+    // JSON in ANSI escapes and every parse died on the leading ESC byte with
+    // `Unexpected token '\x1b', "\x1b[1;37m{[\x1b[m..."`. Disable colour,
+    // paging and prompts for the child so its stdout is always plain JSON.
+    env: {
+      ...process.env,
+      NO_COLOR: "1",
+      CLICOLOR: "0",
+      CLICOLOR_FORCE: "0",
+      GH_PAGER: "cat",
+      GH_FORCE_TTY: "0",
+      GITHUB_ACTIONS: "1",
+      TERM: "dumb",
+    },
     ...options,
   })
 }
 
 export function github(path, args = []) {
   const text = gh(["api", path, ...args])
-  return text.trim() ? JSON.parse(text) : null
+  // `gh` on a Windows runner can emit a UTF-8 BOM. `String.trim()` does not
+  // strip U+FEFF, so JSON.parse used to fail with
+  // `Unexpected token '\ufeff', "{"... is not valid JSON` on the very first
+  // character. Strip it before parsing and keep the raw output in the error so
+  // an unexpected body is diagnosable.
+  const cleaned = text.replace(/^\uFEFF/, "")
+  if (!cleaned.trim()) return null
+  try {
+    return JSON.parse(cleaned)
+  } catch (error) {
+    throw new Error(
+      `gh api ${path} returned invalid JSON (${error.message}); ` +
+        `first 200 chars: ${cleaned.slice(0, 200)}`
+    )
+  }
 }
 
 export async function sha256(path) {

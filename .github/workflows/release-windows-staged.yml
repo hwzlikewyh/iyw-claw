@@ -151,7 +151,12 @@ jobs:
       IYW_CLAW_SAFENET_PIN: ${{ secrets.IYW_CLAW_SAFENET_PIN }}
       HTTP_PROXY: http://127.0.0.1:7890
       HTTPS_PROXY: http://127.0.0.1:7890
-      NO_PROXY: localhost,127.0.0.1,api.github.com,uploads.github.com
+      # Release asset downloads must bypass the local proxy: proxied responses
+      # came back with a BOM-prefixed JSON body, which made
+      # `windows-release.mjs download` fail with "Unexpected token '\ufeff'".
+      # Keep the GitHub API and asset hosts on a direct connection, and only
+      # route registry/package traffic through the proxy.
+      NO_PROXY: localhost,127.0.0.1,api.github.com,uploads.github.com,objects.githubusercontent.com,release-assets.githubusercontent.com,github.com,codeload.github.com
       TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
       IYW_CLAW_SKIP_SIDECAR: "1"
     steps:
