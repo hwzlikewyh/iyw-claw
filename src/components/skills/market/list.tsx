@@ -22,7 +22,7 @@ function ListState({
     return (
       <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-3 p-4 sm:p-5">
         {Array.from({ length: 6 }, (_, index) => (
-          <Skeleton key={index} className="h-[12.5rem] rounded-lg" />
+          <Skeleton key={index} className="h-52 rounded-lg" />
         ))}
       </div>
     )
@@ -83,6 +83,18 @@ export function SkillMarketList(props: SkillMarketListProps) {
         ) : null}
       </div>
       <ScrollArea className="min-h-0 flex-1">
+        {props.error ? (
+          <div
+            role="alert"
+            className="mx-4 flex items-center gap-3 border-b py-3 text-xs text-destructive sm:mx-5"
+          >
+            <span className="min-w-0 flex-1 break-words">{props.error}</span>
+            <Button size="xs" variant="outline" onClick={props.onLoadMore}>
+              <RotateCcw className="size-3" />
+              {t("list.retry")}
+            </Button>
+          </div>
+        ) : null}
         <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-3 p-4 pt-2 sm:p-5 sm:pt-2">
           {props.items.map((item) => (
             <SkillCard

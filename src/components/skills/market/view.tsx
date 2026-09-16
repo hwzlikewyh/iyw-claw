@@ -36,6 +36,9 @@ export function SkillMarketView({
   const { list, selectItem, updateQuery } = market
   const targetQueryRequestRef = useRef<number | null>(null)
   const targetLoadingRequestRef = useRef<number | null>(null)
+  const targetSearchViewRef = useRef<"market" | "organization" | "mine">(
+    "market"
+  )
   const handledTargetRequestRef = useRef<number | null>(null)
 
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -76,6 +79,7 @@ export function SkillMarketView({
     }
     if (targetQueryRequestRef.current !== requestId) {
       targetQueryRequestRef.current = requestId
+      targetSearchViewRef.current = "market"
       updateQuery({
         view: "market",
         publisher: "all",
@@ -92,6 +96,15 @@ export function SkillMarketView({
       return
     }
     if (targetLoadingRequestRef.current !== requestId || list.error) return
+
+    if (targetSearchViewRef.current !== "mine") {
+      const view =
+        targetSearchViewRef.current === "market" ? "organization" : "mine"
+      targetSearchViewRef.current = view
+      targetLoadingRequestRef.current = null
+      updateQuery({ view })
+      return
+    }
 
     handledTargetRequestRef.current = requestId
     onNavigationTargetConsumed(requestId)

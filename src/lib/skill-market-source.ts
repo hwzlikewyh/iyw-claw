@@ -266,6 +266,28 @@ function buildFileTree(
 // JSON; the TypeScript v1 types just didn't declare them.
 // ---------------------------------------------------------------------------
 
+function catalogPageNumber(cursor: string | null): number {
+  if (!cursor) return 1
+  try {
+    const match = /^page:(\d+)$/.exec(atob(cursor))
+    const page = match ? Number(match[1]) : 1
+    return Number.isSafeInteger(page) && page > 0 ? page : 1
+  } catch {
+    return 1
+  }
+}
+
+function matchesCatalogView(
+  item: SkillMarketV2Item,
+  view: SkillMarketListQueryV2["view"]
+): boolean {
+  if (view === "market") return item.audience === "global_market"
+  if (view === "organization") return item.audience === "organization"
+  if (view === "installed") return item.installedVersion !== null
+  if (view === "needs_update") return item.installState === "update_available"
+  return true
+}
+
 class TransportSkillMarketSource implements SkillMarketSource {
   async list(query: SkillMarketListQueryV2): Promise<SkillMarketV2CatalogPage> {
     if (query.view === "enabled") {
@@ -277,25 +299,9 @@ class TransportSkillMarketSource implements SkillMarketSource {
         offline: false,
       }
     }
-    const view = (() => {
-      if (query.view === "needs_update" || query.view === "installed")
-        return "market" as const
-      if (query.view === "organization") return "market" as const
-      return query.view as "market" | "mine"
-    })()
-    // Decode cursor as a 1-based page number (base-64 encoded "page:N").
-    let page = 1
-    if (query.cursor) {
-      try {
-        const decoded = atob(query.cursor)
-        const match = /^page:(\d+)$/.exec(decoded)
-        if (match) page = parseInt(match[1], 10)
-      } catch {
-        // invalid cursor → start from page 1
-      }
-    }
+    const page = catalogPageNumber(query.cursor)
     const params: SkillMarketListParams = {
-      view,
+      view: query.view === "mine" ? "mine" : "market",
       category: query.category ?? undefined,
       q: query.q || undefined,
       page,
@@ -304,23 +310,24 @@ class TransportSkillMarketSource implements SkillMarketSource {
     }
     const localInstallView =
       query.view === "installed" || query.view === "needs_update"
-    const result = localInstallView
-      ? await listCompleteCatalog(params)
-      : await skillMarketList(params)
-    const mapped = result.items.map(mapItemV1ToV2)
-    const items = mapped.filter((item) => {
-      if (query.view === "installed") return item.installedVersion !== null
-      if (query.view === "needs_update") {
-        return item.installState === "update_available"
-      }
-      return true
-    })
-    const hasMore = !localInstallView && page * query.limit < result.total
+    const audienceView =
+      query.view === "market" || query.view === "organization"
+    // 接口返回所有可访问的受众，须先分组再分页，避免空页和总数混用。
+    const result =
+      localInstallView || audienceView
+        ? await listCompleteCatalog(params)
+        : await skillMarketList(params)
+    const items = result.items
+      .map(mapItemV1ToV2)
+      .filter((item) => matchesCatalogView(item, query.view))
+    const total = localInstallView || audienceView ? items.length : result.total
+    const end = page * query.limit
+    const hasMore = !localInstallView && end < total
     const nextCursor = hasMore ? btoa(`page:${page + 1}`) : null
     return {
-      items,
+      items: audienceView ? items.slice(end - query.limit, end) : items,
       nextCursor,
-      total: localInstallView ? items.length : result.total,
+      total,
       catalogRevision: "1",
       offline: false,
     }
