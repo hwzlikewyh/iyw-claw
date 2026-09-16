@@ -13,7 +13,16 @@ struct ListModelsRequest {}
 pub(super) fn tool() -> Value {
     json!({
         "name": IMAGE_MODELS_TOOL,
-        "description": "List available Fusion image models before generate_iyw_image type=generate (images/generations), auto without images, or an explicitly selected type=edit (images/edits). Text-to-image defaults to generate and does not require a prior platform attempt or failure. Single-image changes normally use variation, multi-image fusion uses mix, and four-panel or same-series extension from one reference uses extend; these platform operations need no Fusion catalog. Call with {}. Returns model IDs, display names, descriptions, generation/editing capabilities, and prices. Choose a model according to the user's task and preference; require image_generation=true for generate or image_editing=true for edit, then copy its exact id to parameters.model. edit requires at least one source image. Do not guess model IDs or infer capabilities from names. Generation/editing flags do not guarantee specific processing features, mask support, transparent output, reference counts, or resolutions; verify the task's requirements against the returned description and current model documentation, and use only supported inputs and options. If no returned model fits, consider a suitable platform operation before local/manual image processing. Reuse this catalog for the same task or batch; refresh when availability changes. An empty catalog or failed lookup supplies no model. This read-only tool does not generate images, upload inputs, or need capability search/read.",
+        "description": concat!(
+            "List available Fusion image models with {} before generate_iyw_image type=generate (images/generations), auto without images, or explicit edit (images/edits). ",
+            "Also evaluate this catalog when no specialized platform operation matches the user's visual transformation or a relevant platform route has confirmed failure. A missing operation name or sparse description is not proof of unsupported editing. ",
+            "Choose from returned descriptions, capabilities, prices and user requirements: image_generation=true for generate, image_editing=true for edit. For source images with a selected model use edit and preserve the references. Neither route requires a prior platform attempt or failure. ",
+            "Copy the exact id only into parameters.model; use display_name or a generic image-processing name in user-facing replies, progress and delivery descriptions. Never append internal model/provider IDs or backend names. ",
+            "Do not guess IDs or infer technical guarantees from names/flags. Verify constraints such as masks, transparency, bit depth, reference counts and resolution against documentation; do not invent stricter requirements or discard real ones. A supported visual edit may be expressed in the prompt without a same-named API. ",
+            "Platform variation, mix and extend need no Fusion catalog; passing a catalog model to those operations does not select that Fusion model. Claim a model only when the actual result confirms it. ",
+            "Reuse the catalog for the same task or batch; refresh when availability changes. An empty/failed lookup supplies no model. Before manual processing require concrete limitations of both applicable platform and model routes; do not enumerate unrelated models. ",
+            "This read-only tool does not generate images, upload inputs, or need capability search/read."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -78,7 +87,7 @@ pub(super) fn supports_operation(item: &Value, editing: bool) -> bool {
 fn model_summary(model: &Value) -> Value {
     json!({
         "id": model["id"],
-        "display_name": model["display_name"],
+        "display_name": display_name(model),
         "description": model["description"],
         "owned_by": model["owned_by"],
         "capabilities": {
@@ -87,4 +96,20 @@ fn model_summary(model: &Value) -> Value {
         },
         "prices": model["prices"]
     })
+}
+
+pub(super) fn display_name(model: &Value) -> &str {
+    let id = model.get("id").and_then(Value::as_str).unwrap_or("").trim();
+    let name = model
+        .get("display_name")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    if name.is_empty()
+        || (!id.is_empty() && name.to_ascii_lowercase().contains(&id.to_ascii_lowercase()))
+    {
+        "image processing"
+    } else {
+        name
+    }
 }

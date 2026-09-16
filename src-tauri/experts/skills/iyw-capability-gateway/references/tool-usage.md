@@ -33,17 +33,19 @@ name it. This avoids unnecessary search/read/invoke calls. Reuse already-read
 capability instructions in the same session; continue checking current business
 state, returned revisions, and availability when the task requires them.
 
-For image generation, editing, and processing, prioritize platform capabilities
-or image models through `generate_iyw_image`. Match the required effect, inputs,
-outputs, and limits against the actual schema, platform reference, and model
-catalog/documentation; broad generation/editing flags do not prove specific
-features. Use scripts or local/manual image processing only when applicable
-platform and model routes are unavailable, explicitly unsupported, or confirmed
-failed after bounded recovery. Use a suitable available service alternative first
-and explain the limitation before fallback. Input errors need correction; timeouts,
-transport errors, or running tasks need status checks and do not prove failure.
-Supporting input preparation and final composition must not replace the image
-task. See [image routing details](iyw-image-tools.md#能力匹配与兜底).
+For image work, choose an applicable platform operation or model through
+`generate_iyw_image` before installing image libraries or writing processing code.
+A missing dedicated operation does not exclude prompt-driven editing; evaluate
+the available service routes and verify technical constraints without inventing
+requirements. With source images and a selected catalog model, use `edit`.
+Correct input errors, reassess alternatives after confirmed route failures, and
+check original task state after uncertain submissions. Refine inadequate results
+through suitable services within scope and charging authorization. Manual fallback
+requires concrete limitations of both applicable platform and model routes;
+redrawing or height remapping is core image work even when called post-processing.
+Use only business display names in replies/progress, never model IDs or backend
+names; describe only execution confirmed by results. See
+[image routing and recovery](iyw-image-tools.md#能力匹配与兜底).
 
 | Work | Input shape |
 | --- | --- |

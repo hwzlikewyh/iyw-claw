@@ -4,11 +4,20 @@
 
 ## 能力匹配与兜底
 
-- 先根据任务要求的效果、输入图片、输出形式和限制，核对当前工具 schema、对应平台操作说明及模型目录/文档，再选择支持该任务的 `type` 或模型。默认路由仅适用于其支持的需求。
-- 模型的 `image_generation` / `image_editing` 标志只说明生成/编辑能力，不能据此推断抠图、蒙版、透明输出、参考图数量或任意分辨率均受支持。缺少具体能力依据时先查对应说明；不猜参数、不丢弃要求、不调用已知不支持的操作来制造失败。
-- 平台能力和适用图片模型均可直接选择；优先完成其支持的图片工作。仅当适用的平台和模型路线均不可用、明确不支持，或实际调用确认失败且有限恢复仍无法完成时，才用脚本、本地图像库、手写 SVG/Canvas 等其他手段，并先说明具体限制。有适用且可用的服务路线时先使用它，不遍历无关模型或操作。
-- 参数或路径错误先修正；超时、网络异常、任务执行中不算确认失败，先查原任务状态。无法确认时保留未知状态，不能据此重复生成或自行处理。
-- 为服务调用准备输入，或将已完成图片排版嵌入最终交付物，可以使用本地工具；不得以此替代本应由平台或模型完成的图片任务。
+1. 安装图像库或写处理脚本前，先按用户所需效果、输入与输出选择平台能力或图片模型。没有同名专用接口、关键词未命中或描述简略，都不等于明确不支持；继续评估单图指令编辑或模型目录。自然语言可描述的视觉变化不要求存在同名 API。
+2. 核对真实技术约束。`image_generation` / `image_editing` 不保证蒙版、透明输出、位深、参考图数量或任意分辨率；按文档使用参数。不得自行添加精确几何或位深要求来排除服务，也不得丢弃用户要求或调用已知不支持的操作来制造失败。
+3. 平台和适用模型均可直接选择。有参考图且选择目录中的模型时使用 `edit`；无图创作用 `generate`。普通单图修改可用 `variation`，但把目录 ID 放入平台操作参数不代表选中了该模型。模型 ID 仅用于内部调用，对用户只用业务展示名称；名称缺失时说“通用图片处理”，不在括号、代码或错误转述中附加内部 ID、供应商或后端名称。
+4. 按下表恢复失败，重新对照原始用户目标选择适用服务，不能让辅助步骤的失败决定整个任务改写为本地算法。
+5. 仅在适用平台和模型路线均有不可用、文档明确不兼容或有限恢复后确认失败的具体证据时，才可脚本兜底；先说明限制，不遍历无关服务。缺少专用接口、第一张效果不佳或认为本地算法更精确，均不足以回退。
+
+| 当前情况 | 下一步 |
+| --- | --- |
+| 图片路径或参数错误 | 按 schema 修正输入；带图且选择模型时使用 `edit`，不丢弃参考图 |
+| 单个服务明确失败 | 停止重放同一请求，评估能完成原始目标的其他平台能力或通用编辑模型 |
+| 超时、网络异常、执行中或提交结果未知 | 查原任务状态；无法确认时保留未知，不重复提交或据此改为本地生成 |
+| 已完成图片未满足需验收的效果 | 在任务范围和计费授权内优先用适用服务针对性修正，不无限生成或擅自重建图片 |
+
+本地复制、下载、输入准备和最终排版可以辅助服务调用；重绘、分割、结构推断、高度重映射属于核心图片任务，称作“精修”“确定性处理”或“后处理”也必须遵守上述条件。
 
 ## 类型与参数
 
@@ -62,7 +71,7 @@
 
 ## 结果与恢复
 
-- `status/images/task_id/metadata/delivery` 为输出。原生操作完整业务结果在 `metadata.result`，色号、网格、提示词、矢量文件、3D 或视频链接不能只看 images。
+- `status/images/task_id/metadata/delivery` 为输出。原生操作完整业务结果在 `metadata.result`，色号、网格、提示词、矢量文件、3D 或视频链接不能只看 images。只陈述返回证实的操作或模型；Fusion 的 `metadata.model_name` 是业务展示名称，平台操作成功不证明传入的目录模型已执行。
 - 原生异步任务的 `metadata.query` 给出已知查询路径；恢复查询用 fetch。返回 task_id 但没有已确认查询接口时保留运行中状态，不能宣称成功。
 - 批量 `requests` 最多 8 项，`count` 每项 1-4，总执行次数最多 16；每次执行可能扣点。批量成功和失败分别报告；数据类操作结果保留在各项 `runs[].metadata.result`。
 - 超时/取消/查询失败不重新扣点提交，先查原 task_id。原生查询失败时保留任务 ID 和 poll_error。
@@ -84,6 +93,7 @@ Choose a route whose documented capabilities cover the task:
 | --- | --- |
 | Text-to-image, without source images | `generate` through Fusion `images/generations` |
 | Redesign or modify one source image | `variation` |
+| Edit source images with a selected catalog model | `edit` through Fusion `images/edits`, preserving source images |
 | Fuse 2-10 reference images | `mix`, preserving input order |
 | Four-panel grids or same-series extension from one base image | `extend` |
 
@@ -98,8 +108,8 @@ Before `generate`, `auto` without images, or explicit `edit`, call
 capabilities, prices and task requirements: `generate` needs
 `capabilities.image_generation=true`; `edit` needs
 `capabilities.image_editing=true`. Pass the exact returned `id` in
-`parameters.model`. Missing IDs and display names are rejected; the host does
-not choose a default model. Reuse the catalog for the same task or batch;
+`parameters.model`. A missing ID or a display name used as the model argument is
+rejected; the host does not choose a default model. Reuse the catalog for the same task or batch;
 an empty or failed lookup supplies no model. Platform operations need no Fusion
 model lookup. Replace `MODEL_ID_FROM_CATALOG` in examples before calling.
 
@@ -112,7 +122,8 @@ in its prompt. Without a reference, create the requested composition with
 from multiple bases, use separate `requests` items, each with one base image.
 Do not discard references to force the single-image extension interface.
 
-Inspect the returned operation when explaining routing. After a timeout,
+Use the returned operation's business name or confirmed model display name in
+user-facing explanations, without internal IDs or backend names. After a timeout,
 transport error or uncertain submission, query the original task ID when available;
 do not blindly resubmit or switch routes. Deliver ordinary successful images from
 returned status, URLs and delivery metadata. Inspect visuals for requested review,

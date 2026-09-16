@@ -101,8 +101,13 @@ impl IywGatewayService {
             .await
             .map_err(|error| image_transport_error("Fusion response", &error))?;
         if !status.is_success() {
-            return Err(rmcp::ErrorData::invalid_params(
-                "IYW Fusion image request failed",
+            tracing::warn!(
+                operation = path,
+                http_status = status.as_u16(),
+                "[iyw-image] upstream Fusion generation failed"
+            );
+            return Err(rmcp::ErrorData::internal_error(
+                "IYW Fusion image request failed upstream; this is not local parameter validation. Check any uncertain submission state before retrying or choosing another suitable service",
                 Some(json!({"status": status.as_u16()})),
             ));
         }
@@ -130,8 +135,13 @@ impl IywGatewayService {
             .await
             .map_err(|error| image_transport_error("Fusion edit response", &error))?;
         if !status.is_success() {
-            return Err(rmcp::ErrorData::invalid_params(
-                "IYW Fusion image edit request failed",
+            tracing::warn!(
+                operation = path,
+                http_status = status.as_u16(),
+                "[iyw-image] upstream Fusion edit failed"
+            );
+            return Err(rmcp::ErrorData::internal_error(
+                "IYW Fusion image edit request failed upstream; this does not prove all image editing routes are unavailable. Check any uncertain submission state before retrying or choosing another suitable service",
                 Some(json!({"status": status.as_u16()})),
             ));
         }
@@ -192,8 +202,13 @@ impl IywGatewayService {
             .await
             .map_err(|error| image_transport_error("Fusion catalog response", &error))?;
         if !status.is_success() {
-            return Err(rmcp::ErrorData::invalid_params(
-                "IYW Fusion model request failed",
+            tracing::warn!(
+                operation = path,
+                http_status = status.as_u16(),
+                "[iyw-image] upstream Fusion catalog lookup failed"
+            );
+            return Err(rmcp::ErrorData::internal_error(
+                "IYW Fusion model request failed upstream; this lookup supplies no model and does not establish that a suitable platform operation is unavailable",
                 Some(json!({"status": status.as_u16()})),
             ));
         }
@@ -242,8 +257,14 @@ impl IywGatewayService {
         let accepted =
             status.is_success() && payload.get("code").and_then(Value::as_i64) == Some(1);
         if !accepted {
-            return Err(rmcp::ErrorData::invalid_params(
-                "IYW gateway request was rejected",
+            tracing::warn!(
+                operation = url_path,
+                http_status = status.as_u16(),
+                business_code = payload.get("code").and_then(|value| value.as_i64()),
+                "[iyw-image] upstream gateway response rejected the operation"
+            );
+            return Err(rmcp::ErrorData::internal_error(
+                "IYW gateway request was rejected upstream; this is not local parameter validation or proof that other image routes are unsupported. Do not replay unchanged arguments. Resolve any uncertain task state, then evaluate a suitable platform operation or model edit for the original goal",
                 Some(json!({"status": status.as_u16(), "code": payload.get("code")})),
             ));
         }
