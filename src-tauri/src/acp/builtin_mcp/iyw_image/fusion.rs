@@ -1,7 +1,9 @@
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Map, Value};
 
-use super::super::iyw_image_models::{display_name, load_catalog, supports_operation};
+use super::super::iyw_image_models::{
+    display_name, is_model_ref, load_catalog, model_ref, supports_operation,
+};
 use super::input::PreparedImage;
 use super::result::{materialize_fusion_images, value_to_form_text};
 use super::{invalid, required_prompt, ImageRequest, ImageResult, IywGatewayService};
@@ -105,18 +107,20 @@ async fn select_model(
         .iter()
         .find(|item| {
             supports_operation(item, editing)
-                && item.get("id").and_then(Value::as_str) == Some(requested)
+                && model_ref(item).as_deref() == Some(requested)
         })
         .ok_or_else(|| {
-            invalid("parameters.model must be an exact ID from list_iyw_image_models supporting this image operation")
+            tracing::warn!(editing, execution_status = "not_started", "[iyw-image] model reference unavailable for requested operation");
+            invalid("parameters.model is unavailable for this image operation. No generation was started. Refresh list_iyw_image_models once and select its current model_ref supporting the operation; never use a raw model ID or display name")
         })?;
     let id = model
         .get("id")
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty());
-    let id = id
-        .ok_or_else(|| rmcp::ErrorData::internal_error("Fusion image model ID is missing", None))?;
-    let name = display_name(model);
+    let id = id.ok_or_else(|| {
+        rmcp::ErrorData::internal_error("Image model configuration is invalid", None)
+    })?;
+    let name = display_name(model, &models);
     tracing::info!(
         target: "builtin_mcp",
         model_id = id,
@@ -131,12 +135,12 @@ pub(super) fn requested_model(parameters: &Map<String, Value>) -> Result<&str, r
     parameters
         .get("model")
         .and_then(Value::as_str)
-        .filter(|id| !id.trim().is_empty())
+        .filter(|reference| is_model_ref(reference))
         .ok_or_else(|| {
             tracing::warn!(
                 target: "builtin_mcp",
-                "[iyw-image] Fusion request rejected before execution: explicit model ID required"
+                "[iyw-image] Fusion request rejected before execution: opaque model_ref required"
             );
-            invalid("generate (including auto without images) and edit require parameters.model. Call list_iyw_image_models, select an exact ID supporting image_generation for generate or image_editing for edit, and pass it in parameters.model. No prior platform failure is required and no default model is selected. edit also requires a source image")
+            invalid("generate (including auto without images) and edit require an opaque model_ref in parameters.model. Call list_iyw_image_models, select a model_ref supporting image_generation for generate or image_editing for edit, and copy it unchanged into parameters.model. Raw model IDs and display names are rejected. No prior platform failure is required and no default model is selected. edit also requires a source image")
         })
 }

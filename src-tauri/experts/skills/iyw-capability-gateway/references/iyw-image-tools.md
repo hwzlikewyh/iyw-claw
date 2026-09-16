@@ -8,7 +8,7 @@
 
 1. 安装图像库或写处理脚本前，先按用户所需效果、输入与输出选择平台能力或图片模型。没有同名专用接口、关键词未命中或描述简略，都不等于明确不支持；继续评估单图指令编辑或模型目录。自然语言可描述的视觉变化不要求存在同名 API。
 2. 核对真实技术约束。`image_generation` / `image_editing` 不保证蒙版、透明输出、位深、参考图数量或任意分辨率；按文档使用参数。不得自行添加精确几何或位深要求来排除服务，也不得丢弃用户要求或调用已知不支持的操作来制造失败。
-3. 平台和适用模型均可直接选择。有参考图且选择目录中的模型时使用 `edit`；无图创作用 `generate`。普通单图修改可用 `variation`，但把目录 ID 放入平台操作参数不代表选中了该模型。模型 ID 仅用于内部调用，对用户只用业务展示名称；名称缺失时说“通用图片处理”，不在括号、代码或错误转述中附加内部 ID、供应商或后端名称。
+3. 平台和适用模型均可直接选择。有参考图且选择目录中的模型时使用 `edit`；无图创作用 `generate`。普通单图修改可用 `variation`，但把目录引用放入平台操作参数不代表选中了该模型。目录 `model_ref` 仅用于内部调用，对用户只用业务展示名称；名称缺失时说“通用图片处理”。即使追问价格、型号或锁定模型，也不在正文、表格、括号、代码或错误转述中披露货币价格、真实 ID、目录引用、供应商或后端名称。点数仅用平台明确返回的数据，不换算或猜测；未确认时不报数值。
 4. 按下表恢复失败，重新对照原始用户目标选择适用服务，不能让辅助步骤的失败决定整个任务改写为本地算法。
 5. 仅在适用平台和模型路线均有不可用、文档明确不兼容或有限恢复后确认失败的具体证据时，才可脚本兜底；先说明限制，不遍历无关服务。缺少专用接口、第一张效果不佳或认为本地算法更精确，均不足以回退。
 
@@ -67,7 +67,7 @@
 | `micro-generate` / `micro-variation` | `microModel/v2/generate` / `variation` | 前者 prompt，可选图片及 modelChannel/ratio/batchSize/tool；后者图片 + prompt |
 | `scheme-generate` | `ai-chat/api/designScheme/generateImage` | schemeId + prompt；schemeId 来自设计稿业务列表 |
 | `faddish` | `ai-application/faddish/generate` | prompt，可选图片 |
-| `generate` / `edit` | Fusion | 文生图优先 generate；显式 edit 需参考图；从模型目录选择准确 ID，无须先尝试平台接口 |
+| `generate` / `edit` | Fusion | 文生图优先 generate；显式 edit 需参考图；将模型目录的 model_ref 原样放入 parameters.model，无须先尝试平台接口 |
 
 新增原生类型仅验证文档已明确的图片、提示词和基础类型；未提供枚举的字段不硬编码猜测。上游明确拒绝要保留原错误，未知状态先查任务。蒙版服务域已由补充篇明确，但区域字段/坐标结构仍不完整，当前工具不猜测该请求。
 
@@ -107,13 +107,13 @@ super-resolution and similar tasks.
 
 Before `generate`, `auto` without images, or explicit `edit`, call
 `list_iyw_image_models` with `{}`. Select from the returned descriptions,
-capabilities, prices and task requirements: `generate` needs
+capabilities and task requirements: `generate` needs
 `capabilities.image_generation=true`; `edit` needs
-`capabilities.image_editing=true`. Pass the exact returned `id` in
-`parameters.model`. A missing ID or a display name used as the model argument is
-rejected; the host does not choose a default model. Reuse the catalog for the same task or batch;
+`capabilities.image_editing=true`. Copy the exact returned opaque `model_ref` into
+`parameters.model`. A missing/stale reference, raw model ID or display name is
+rejected; the host does not choose a default model. References remain stable within the current host process, independent of catalog order. Refresh the catalog once after an invalid reference or host restart. Reuse the catalog for the same task or batch;
 an empty or failed lookup supplies no model. Platform operations need no Fusion
-model lookup. Replace `MODEL_ID_FROM_CATALOG` in examples before calling.
+model lookup. Real IDs, providers and prices are omitted. Replace `MODEL_REF_FROM_CATALOG` in examples before calling.
 
 `auto` uses `generate` without images; with one image it uses `extend` for
 series, extension, four-panel or 2x2 wording, and `variation` otherwise; with
@@ -125,7 +125,7 @@ from multiple bases, use separate `requests` items, each with one base image.
 Do not discard references to force the single-image extension interface.
 
 Use the returned operation's business name or confirmed model display name in
-user-facing explanations, without internal IDs or backend names. After a timeout,
+user-facing explanations, without currency prices, internal IDs, references or backend names. After a timeout,
 transport error or uncertain submission, query the original task ID when available;
 do not blindly resubmit or switch routes. Deliver ordinary successful images from
 returned status, URLs and delivery metadata. Inspect visuals for requested review,
@@ -141,7 +141,7 @@ Do not shorten waits merely to return sooner. Each batch item has its own wait.
 `0` means submit without polling on the platform; Fusion keeps its default timeout.
 
 ```json
-{"type":"generate","prompt":"白底陶瓷茶壶，现代东方风，产品摄影","parameters":{"model":"MODEL_ID_FROM_CATALOG"},"wait":{"timeoutSeconds":900}}
+{"type":"generate","prompt":"白底陶瓷茶壶，现代东方风，产品摄影","parameters":{"model":"MODEL_REF_FROM_CATALOG"},"wait":{"timeoutSeconds":900}}
 ```
 
 ```json
@@ -159,7 +159,7 @@ Do not shorten waits merely to return sooner. Each batch item has its own wait.
 When Fusion editing is explicitly selected:
 
 ```json
-{"type":"edit","prompt":"以原图为参考自由重绘为超现实拼贴海报，重新设计透视和构图，保留主体标识，右侧留出标题区域","images":[{"base64":"...","mimeType":"image/png","role":"source"}],"parameters":{"model":"MODEL_ID_FROM_CATALOG"}}
+{"type":"edit","prompt":"以原图为参考自由重绘为超现实拼贴海报，重新设计透视和构图，保留主体标识，右侧留出标题区域","images":[{"base64":"...","mimeType":"image/png","role":"source"}],"parameters":{"model":"MODEL_REF_FROM_CATALOG"}}
 ```
 
 ```json

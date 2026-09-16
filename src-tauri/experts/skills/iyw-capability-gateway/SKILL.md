@@ -104,7 +104,7 @@ follow its workflow**. Do not treat the reference as optional background reading
    `extend` for four-panel or same-series extension from one reference.
    Explicit Fusion `edit` requires source images. Before `generate`, `auto`
    without images, or `edit`, call `list_iyw_image_models`, choose a model with
-   the required capability, and pass its exact ID in `parameters.model`.
+   the required capability, and copy its opaque `model_ref` into `parameters.model`.
    No prior platform failure is required. A catalog model argument on a platform
    type does not select that Fusion model. Correct input errors; evaluate another
    suitable service after confirmed route failure. Timeouts, transport errors,
@@ -228,8 +228,8 @@ The HTTP MCP surface also exposes these shortest-path tools alongside interactio
 tools and the capability trio:
 
 - `list_iyw_image_models`: read-only Fusion image model catalog; call with `{}`.
-  Returns IDs, names, descriptions, generation/editing capabilities, and prices.
-  The agent selects the model for `generate`/`edit` and passes its exact ID in
+  Returns opaque `model_ref` values, business display names, safe descriptions, and generation/editing capabilities; no real IDs, providers, or prices.
+  The agent selects the model for `generate`/`edit` and copies its `model_ref` into
   `parameters.model`. Specialized IYW operations do not use this catalog.
 - `fetch_iyw_url`: 所有已记录的剩余爱原物业务接口入口；传入 description、url、method、query/body。
   包括视频/套图参考明确指定的页面契约；先查 [接口索引](references/iyw-api-index.md)，不搜索 capability_id。
@@ -253,7 +253,7 @@ tools and the capability trio:
 
 常用默认路径：无图文生图用 `generate`，单图改款用 `variation`，有基准图的四宫格或同系列延伸用 `extend`，多图融合用 `mix`。
 缺少同名专用操作时，继续评估通用指令编辑或模型，不能据此判断不支持；格式、尺寸等技术限制按实际文档核对。按下方图片参考中的失败分类恢复，核心图片精修同样遵守服务优先规则。
-`generate` 和显式 `edit` 无需先等平台失败，但需从模型目录选择准确 ID；有参考图且选择模型时用 `edit`。ID 仅用于内部参数，对用户只说业务展示名称或“通用图片处理”。
+`generate` 和显式 `edit` 无需先等平台失败，但需将模型目录返回的 `model_ref` 原样放入 `parameters.model`；有参考图且选择模型时用 `edit`。引用仅用于内部参数，对用户只说业务展示名称或“通用图片处理”；即使追问模型、价格或锁定选型，也不披露真实模型 ID、引用、供应商和货币价格。仅可说明平台明确返回的点数，不换算、不猜测。
 视频优先规则与完整流程见 [电商视频](references/iyw-api-ecommerce-video.md)。专用处理、批量、蒙版、色号、矢量、3D 和模型选择见
 [图片工具参数](references/iyw-image-tools.md)；只读本次操作相关部分。
 原始图片 API、旧/新参数差异和历史点数见
