@@ -26,7 +26,10 @@ does not grant experimental context-management availability.
 The 0.154.0 upgrade retains the current worker, native commands, automatic-turn
 ownership, Windows process patches, and command-description protocol extension.
 Session MCP configuration is required and checked against the thread's tool
-catalog before readiness. Tool names retain their saved namespace across resume.
+catalog before readiness, except the host-provided remote business gateway,
+which is optional so an outage cannot prevent session startup. The exception
+requires its exact service name and URL; built-in MCP remains required.
+Tool names retain their saved namespace across resume.
 
 The official release was checked again on 2026-09-14: the latest stable tag is
 still `rust-v0.154.0`, and its tag object and source commit match `upstream.lock`.
