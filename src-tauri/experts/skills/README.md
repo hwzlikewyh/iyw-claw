@@ -1,20 +1,27 @@
 # iyw-claw system skills
 
-This repository is the runtime source for iyw-claw system skills.
+This directory contains the application-owned source for bundled iyw-claw Skills.
+Maintain these files here and distribute changes with the application.
 
 ## Release contract
 
-- Release tags use stable SemVer names such as `v0.0.4`.
-- The tag version must match `bundle.version` in `experts.toml`.
-- Every `[[expert]]` entry must have an `<id>/SKILL.md` file.
-- Protect `v*` tags in GitLab. Published tags must not be moved or deleted.
-- Keep repository reads anonymous while clients install without credentials. For
-  private deployments, configure a read-only Deploy Token in iyw-claw's Git
-  account settings; never commit credentials to this repository.
+- Bundled Skills are registered in `../experts.toml` and embedded by
+  `src-tauri/src/commands/experts.rs` using `include_dir!`.
+- Each registered Skill requires an `<id>/SKILL.md` file and valid local
+  dependencies. The local `experts.toml` supplies the bundled version metadata.
+- Startup extracts or refreshes the embedded Skills in `~/.iyw-claw/skills/`.
+  The current system-Skill check, update, and rollback endpoints report the
+  bundled version; they do not query or install remote releases.
+- Do not clone, fetch, pull, or download archives from the independent `skill`
+  repository during development, builds, startup, updates, or Skill repair.
+- Changes to the independent repository do not update the application or its
+  installed Skills. Rebuild and release iyw-claw to deliver bundled changes.
 
-Tag builds publish a source archive through `.gitlab-ci.yml`. iyw-claw checks
-the latest compatible stable tag at startup and also exposes manual update and
-rollback controls in Settings.
+The `.system-repo` directory is retained only for local migration, cleanup, and
+preserving dependency environments required by old installations. It is not a
+remote update source. Do not reconnect the inactive repository-sync modules in
+`src-tauri/src/system_skills/` or restore retired Skills from historical copies.
+User-requested market Skills use their separate supported installation flow.
 
 
 
@@ -27,18 +34,6 @@ Already a pro? Just edit this README.md and make it your own. Want to make it ea
 ## Add your files
 
 * [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.iyw.cn:38443/hwz/skill.git
-git branch -M main
-git push -uf origin main
-```
-
-## Integrate with your tools
-
-* [Set up project integrations](https://gitlab.iyw.cn:38443/hwz/skill/-/settings/integrations)
 
 ## Collaborate with your team
 

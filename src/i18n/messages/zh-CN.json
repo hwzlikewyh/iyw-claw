@@ -357,7 +357,7 @@
     "systemSkillsTitle": "系统技能更新",
     "systemSkillsCurrentVersion": "当前技能版本",
     "systemSkillsLatestVersion": "最新技能版本",
-    "systemSkillsAutoUpdateNotice": "启动时会自动检查并安装最新稳定版本，本地修改会被强制覆盖。",
+    "systemSkillsAutoUpdateNotice": "内置技能随应用版本更新，不再从独立技能仓库拉取或安装更新。",
     "systemSkillsCheck": "检查技能更新",
     "systemSkillsInstall": "安装技能更新",
     "systemSkillsRollback": "回滚技能",
