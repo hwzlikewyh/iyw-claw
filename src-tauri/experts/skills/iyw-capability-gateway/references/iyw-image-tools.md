@@ -1,6 +1,8 @@
 # 图片生成与处理工具
 
-图片生成、编辑和处理优先通过 `generate_iyw_image` 使用平台能力或图片模型；不要把图片 API 作为 fetch 的替代执行路径。任务查询、历史、素材、收藏和其他业务仍走 `fetch_iyw_url`，见 [图片任务管理](iyw-api-image-admin.md)。只读本次 type 对应行和示例；核对来源或契约差异时再读 [图片接口证据](iyw-image-api-source.md)。
+图片生成、编辑和处理优先通过 `generate_iyw_image` 使用平台能力或图片模型；工具契约覆盖任务时不要改用 fetch。仅 [电商视频](iyw-api-ecommerce-video.md) 和 [商品套图](iyw-api-product-kits.md) 明确记录的不匹配或未封装操作用 fetch 调原接口，不为绕过校验虚构参数。任务查询、历史、素材、收藏和其他业务仍走 `fetch_iyw_url`，见 [图片任务管理](iyw-api-image-admin.md)。只读本次 type 对应行和示例；核对来源或契约差异时再读 [图片接口证据](iyw-image-api-source.md)。
+
+视频生成优先使用本 Skill 的 `generate_iyw_image`/`fetch_iyw_url`，按 [视频专篇](iyw-api-ecommerce-video.md) 选择。视频导演返回脚本，生成返回任务，成功后才能交付视频；不要把图片模型目录当成视频模型目录。
 
 ## 能力匹配与兜底
 
@@ -27,7 +29,7 @@
 
 | type | 后端操作 | 参数与区别 |
 | --- | --- | --- |
-| `product-kit` / `a-plus` | `product-kit/generate-kit` / `generate-a-plus` | images；platform/market/language/contentType/resolution/productInfo/modules；A+ 另传 plan-a-plus 返回的 selectedPlan，默认 HTTP 650 秒 |
+| `product-kit` / `a-plus` | `product-kit/generate-kit` / `generate-a-plus` | 现有封装需 images + platform/market/language/contentType/resolution/productInfo/modules；A+ 另传 selectedPlan，默认 HTTP 650 秒。新版 smart/custom 套图用 aspectRatio/structure/kitCounts，与旧封装不匹配时走 [套图参考](iyw-api-product-kits.md) 的 fetch 路由 |
 | `a-plus-edit` | `commerce/g_tools_generate_image` | 单图 + prompt，固定 A+ 12 类型与变款通道，默认 16:9；生成后按用户要求用 fetch 保存/激活版本 |
 | `batch-*` | 10 个平台批量通道的 submit | 具体 type/字段见批量中心；默认 HTTP 120 秒、等待 600 秒；batchId 与普通 taskId 分开 |
 | `fission` | `microModel/v2/batch` | 文生图；prompt 必填，按现有 `models/jsonData` 契约，非摘要 items[] |
@@ -44,7 +46,7 @@
 | `line-extraction` | `commerce/lineExtraction` | 单图；model 为 realistic/canny，正整数 batch_size，stats.reference |
 | `color-transfer` | `commerce/g_tools_generate_image` | 两图；productImg/styleImg，resolution 为 2K/4K |
 | `image-to-3d` | `commerce/ImageTo3D` | 单图；stats.format 整数，stats.MultiViewImages 为带 ViewImageUrl 的对象数组 |
-| `video` | `commerce/videoGenerator` | 单图 + prompt；ratio、duration 4-15 秒、mode normal/hd |
+| `video` | `commerce/videoGenerator` | 现有封装：单图 + prompt；必填 ratio、duration 整数 4-15 秒、mode normal/hd。新页面多图、1-3 秒、product/remake 契约见 [电商视频](iyw-api-ecommerce-video.md)，不可把多图放入 images 后只取首图 |
 | `model-scene` / `background` | `commerce/modelScene` | 1-10 图 + prompt；size 比例、resolution standard/4K |
 | `modify` | `commerce/imageModification` | 图片 + prompt；可传非负 strength |
 | `seed-edit` | `commerce/SeedEdit` | 图片 + prompt，融合创款/指令编辑 |
@@ -54,7 +56,7 @@
 | `vectorize` / `three-views` | `commerce/vectorizeImage` / `threeVisions` | 图片，矢量化/三视图 |
 | `bleed-line` | `commerce/bleedLine` | 图片 + size 或补充版 bleed；单位/结构来自实际页面，不能猜毫米/像素 |
 | `upscale` / `super-upscale` | `commerce/upscaleImage` / `SuperUpscale` | 图片；可传非负 upscale 和已确认 op，不能提供 token |
-| `video-auto-director` / `video-remake-director` | `commerce/videoAutoDirector` / `videoRemakeDirector` | 图片 + prompt；ratio/duration/mode 按实际页面配置 |
+| `video-auto-director` / `video-remake-director` | `commerce/videoAutoDirector` / `videoRemakeDirector` | 现有封装仍要求 images + prompt；页面用 userHint，复刻另需 videoUrl；两者只产出 script。页面流程优先按 [电商视频](iyw-api-ecommerce-video.md) 用 fetch，不假设 prompt 自动映射 userHint |
 | `extract-color` / `save-color` | `commerce/extractColor` / `saveColor` | 前者图片；后者非空 colors 数组，结构来自提色结果 |
 | `detect-grid` / `build-extract-prompts` | `commerce/detectImageGrid` / `buildExtractPrompts` | 图片，返回网格信息或提取提示词 |
 | `classify-intent` | `commerce/classifyCanvasIntent` | parameters.text 或旧非空 keys 数组，不要求图片 |
@@ -75,7 +77,7 @@
 - 原生异步任务的 `metadata.query` 给出已知查询路径；恢复查询用 fetch。返回 task_id 但没有已确认查询接口时保留运行中状态，不能宣称成功。
 - 批量 `requests` 最多 8 项，`count` 每项 1-4，总执行次数最多 16；每次执行可能扣点。批量成功和失败分别报告；数据类操作结果保留在各项 `runs[].metadata.result`。
 - 超时/取消/查询失败不重新扣点提交，先查原 task_id。原生查询失败时保留任务 ID 和 poll_error。
-- 视频、3D、矢量文件链接如不在 images 中，通过 metadata.result 读取并按需用 present_task_files 交付；不要声称已经在图片预览中展示。
+- 原生 3D、矢量等文件链接如不在 images 中，通过 metadata.result 读取并按需用 present_task_files 交付。旧 video 封装不保留完整 metadata.result，必要时按 [电商视频](iyw-api-ecommerce-video.md) 用 fetch 查询原始视频 URL；不要声称已在图片预览中展示视频。
 
 ```json
 {"type":"erase","prompt":"移除选区杂物并延续背景纹理","images":["assets/source.png"],"parameters":{"mask":"https://已上传蒙版的真实地址"}}
@@ -180,7 +182,7 @@ When Fusion editing is explicitly selected:
 {"type":"video","prompt":"镜头从正面缓慢环绕，展示材质高光","images":["https://example.com/product.png"],"parameters":{"ratio":"16:9","duration":8,"mode":"normal"}}
 ```
 
-商品套图已按补充契约接入；AI 试衣仍缺完整提交契约。出血线、色号提取见上表，其参数与旧页面本地处理设置不能混用。
+商品套图保留旧工具契约；新版 smart/custom 和爆款复刻按 [套图参考](iyw-api-product-kits.md) 用 fetch。AI 试衣仍缺完整提交契约。出血线、色号提取见上表，其参数与旧页面本地处理设置不能混用。
 
 For a local path use `"images":["assets/product.png"]`; for raw base64 use an
 object with `base64` and `mimeType`; for a Data URL pass it as the string source.

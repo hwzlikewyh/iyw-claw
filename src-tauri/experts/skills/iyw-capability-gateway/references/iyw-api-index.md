@@ -2,17 +2,19 @@
 
 爱原物设计云、AI 工作台、图案网业务：先从下表选择领域，只读取相关文件和段落，再用 `fetch_iyw_url` 执行。不要一次加载全部接口；不要为业务接口搜索或编造 capability_id，也不要创建额外 MCP。
 
-图片生成/处理使用 `generate_iyw_image`；任意文件上传使用 `upload_iyw_file`；剩余业务接口统一使用 `fetch_iyw_url`。已有 `search_iyw_knowledge` 正文检索、主机记忆/浏览器等能力维持各自现有路由。
+图片生成/处理优先使用 `generate_iyw_image`；任意文件上传使用 `upload_iyw_file`；剩余业务接口统一使用 `fetch_iyw_url`。视频生成优先走本 Skill：符合专用工具契约用 generate，电商视频/套图参考中已记录的不匹配或未封装操作用 fetch 调原接口。已有 `search_iyw_knowledge` 正文检索、主机记忆/浏览器等能力维持各自现有路由。
 
 ## 按任务检索
 
 已纳入 2026-09-10 分层补充篇。涉及新版会话、知识库、套图、批量、资产库时优先读取下列新版资料；
 同一接口存在多版摘要时按 [调用约定与冲突表](iyw-api-access-contracts.md) 选择，不按日期直接覆盖已确认契约。
+电商视频与商品套图另纳入用户提供的《AI工作台接口梳理（电商视频 / 商品套图）》具体调用点，包含工具封装差异；不表示这些接口已在本次实测。
 
 | 新版任务关键词 | 按需读取 |
 | --- | --- |
 | L0/L1/L2/L3、会员权益、企业权限、authCode、容量、签名 | [权限分层](iyw-api-access-levels.md)、[调用约定](iyw-api-access-contracts.md) |
-| 商品套图、电商套图、A+、Listing、卖点、图片版本 | [商品套图与 A+](iyw-api-product-kits.md) |
+| 视频生成、电商视频、产品演绎、视频复刻、自动导演、视频脚本/历史 | [电商视频](iyw-api-ecommerce-video.md)，视频生成优先路由 |
+| 商品套图、电商套图、A+、Listing、卖点、爆款复刻、图片版本 | [商品套图与 A+](iyw-api-product-kits.md) |
 | 批量生图、水印、形状填充、批量放大、样机、批次、ZIP | [批量中心](iyw-api-batch-center.md) |
 | 新版本体/电商 Agent、会话、轮次、候选回答、SSE | [新版 Agent](iyw-api-agent-v2.md) |
 | 知识库文件夹/文件/切片/附件/配额、删除预检、批量移动 | [知识库全套](iyw-api-knowledge-full.md) |
@@ -39,7 +41,7 @@
 | 需求大厅、比稿、稿件、报名、投稿、设计师、入驻、作品分类 | [门户需求与作品](iyw-api-portal-demand-creation.md) | `/Demand`、`/Creation`、`/designer/settled` |
 | 版权登记、证书、模板、提现、充值、合同、签署、实名认证 | [门户版权与财务](iyw-api-portal-copyright-finance.md) | `/Copyright`、`/Finance`、`/Contract` |
 | 用户中心、收藏分组、店铺、企业展厅、资质、帮助、投诉、文档解析 | [门户用户与内容](iyw-api-portal-account-content.md) | `/User`、`/Shop`、`/Enterprise`、`/Help` |
-| 生图、变款、重绘、扩图、放大、抠图、蒙版、消除、矢量、色号、3D、视频 | [图片工具参数](iyw-image-tools.md)，仅核对原文时读 [图片接口证据](iyw-image-api-source.md) | `generate_iyw_image` |
+| 生图、变款、重绘、扩图、放大、抠图、蒙版、消除、矢量、色号、3D | [图片工具参数](iyw-image-tools.md)，仅核对原文时读 [图片接口证据](iyw-image-api-source.md) | `generate_iyw_image` |
 | 上传文件、文档、压缩包、音频、视频、50M、文件 URL | [通用上传](iyw-upload.md) | `upload_iyw_file` |
 
 ## 三层披露
