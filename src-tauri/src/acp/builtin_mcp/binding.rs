@@ -75,11 +75,14 @@ impl SessionBindings {
             .map(|(id, _)| id.clone());
         let replaced = match current_id {
             Some(current_id) => {
-                let current = entries.get(&current_id).expect("binding exists");
-                if !claim_replacement(&current.phase) {
-                    return BindProvisionalResult::Conflict;
-                }
-                entries.remove(&current_id);
+                let current = entries.remove(&current_id).expect("binding exists");
+                let previous_phase = current.phase.swap(REPLACED, Ordering::AcqRel);
+                tracing::info!(
+                    target: "builtin_mcp",
+                    connection_id = %parent_connection_id,
+                    previous_phase = phase_name(previous_phase),
+                    "[MCP][http] replaced previous session during initialize"
+                );
                 Some(Arc::<str>::from(current_id))
             }
             None => None,
@@ -209,29 +212,14 @@ impl SessionBindings {
     }
 }
 
-fn claim_replacement(phase: &AtomicU8) -> bool {
-    loop {
-        match phase.load(Ordering::Acquire) {
-            AWAITING_CONFIRMATION => {
-                if phase
-                    .compare_exchange(
-                        AWAITING_CONFIRMATION,
-                        REPLACED,
-                        Ordering::AcqRel,
-                        Ordering::Acquire,
-                    )
-                    .is_ok()
-                {
-                    return true;
-                }
-            }
-            ABORTED | REPLACED => {
-                phase.store(REPLACED, Ordering::Release);
-                return true;
-            }
-            DELIVERING | CONFIRMED => return false,
-            _ => return false,
-        }
+fn phase_name(phase: u8) -> &'static str {
+    match phase {
+        DELIVERING => "delivering",
+        AWAITING_CONFIRMATION => "awaiting_confirmation",
+        CONFIRMED => "confirmed",
+        ABORTED => "aborted",
+        REPLACED => "replaced",
+        _ => "unknown",
     }
 }
 
