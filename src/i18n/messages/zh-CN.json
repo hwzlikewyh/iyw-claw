@@ -3738,6 +3738,7 @@
           "failed": "上下文压缩失败"
         },
         "backgroundTask": {
+          "unknown": "状态待确认",
           "title": "后台任务",
           "titleWithId": "后台任务 · {id}",
           "running": "运行中",
@@ -3877,9 +3878,22 @@
         "statusClosed": "已关闭",
         "statusNotFound": "未找到",
         "opSpawn": "启动子智能体",
-        "opWait": "获取子智能体结果",
+        "opWait": "等待子智能体消息",
         "opClose": "结束子智能体",
-        "opResume": "恢复子智能体"
+        "opResume": "恢复子智能体",
+        "statusUnknown": "状态待确认",
+        "waitFinished": "本次等待已结束",
+        "waitReceived": "收到子智能体消息",
+        "waitTimedOut": "本次等待超时，子任务可能仍在运行",
+        "noMessage": "暂无子智能体消息",
+        "recentActivity": "最近操作",
+        "resultLabel": "执行结果",
+        "messageLabel": "最新消息",
+        "openTranscript": "查看执行记录",
+        "refreshTranscript": "刷新执行记录",
+        "transcriptLoading": "正在读取执行记录",
+        "transcriptPending": "暂无执行记录",
+        "transcriptUnavailable": "执行记录暂时不可用"
       },
       "sessionFailure": {
         "category": {
@@ -3902,6 +3916,7 @@
         "moreIncidents": "另 {count} 条"
       },
       "backgroundTasks": {
+        "processesRunning": "{count} 个命令进程运行中",
         "running": "{count} 个后台任务运行中",
         "unknown": "后台任务状态待确认",
         "settling": "正在同步后台结果...",

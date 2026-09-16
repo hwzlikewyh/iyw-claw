@@ -1,24 +1,7 @@
 "use client"
 
-/**
- * Live capsule for codex collab / sub-agent activity (codex-acp 1.0.1, PR #223).
- * Renders the streaming-time view of a `collabAgentToolCall` through the same
- * `AgentCapsule` chrome as the history "Agent" capsule, so the two are visually
- * consistent. The body is intentionally minimal: the `prompt` (the execution
- * capsule's task) and each sub-agent's `message` rendered bare as markdown (on a
- * `wait` the message is the sub-agent's full result). Per-agent status is NOT
- * shown as a row — it's conveyed by the capsule chrome (title shimmer while
- * running, ✓/⚠ suffix, auto-open on error). The sub-agent UUID(s) are shown in
- * the pill via `idBadge` so execution and wait capsules read uniformly.
- *
- * The full sub-agent transcript is NOT available live — codex-acp drops
- * `subAgentActivity` and emits no `rawOutput` for collab calls; the richer
- * reconstructed capsule only appears on history reload. Detection, op-merge and
- * status classification live in `@/lib/collab-tool`.
- */
-
 import { useMemo } from "react"
-import { AlertTriangle, Check } from "lucide-react"
+import { AlertTriangle, Check, Clock3, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import {
@@ -27,71 +10,42 @@ import {
   isErrorCollabStatusKind,
   classifyCollabOp,
   shortAgentId,
-  type CollabAgentState,
+  type CollabToolInfo,
 } from "@/lib/collab-tool"
+import { collabWaitLabel } from "@/lib/collab-presentation"
 import { MessageResponse } from "@/components/ai-elements/message"
 import { AgentCapsule } from "./agent-capsule"
+import { CollabAgentRow } from "./collab-agent-row"
 import type { ToolCallState } from "@/lib/adapters/ai-elements-adapter"
 
 interface Props {
   input?: string | null
+  output?: string | null
   errorText?: string | null
   state?: ToolCallState
 }
 
-export function CollabAgentCard({ input, errorText, state }: Props) {
+export function CollabAgentCard({ input, output, errorText, state }: Props) {
   const t = useTranslations("Folder.chat.collabAgent")
-  const tcp = useTranslations("Folder.chat.contentParts")
 
   const info = useMemo(() => parseCollabToolInput(input), [input])
-  const prompt = info?.prompt ?? null
   const agents = info?.agents ?? []
-  const opStatus = info?.status ?? null
   const op = info?.op ?? null
+  const isWait = classifyCollabOp(op) === "wait"
 
   const hasErrorAgent = agents.some((a) =>
     isErrorCollabStatusKind(classifyCollabStatus(a.status))
   )
-  // Collab calls have no rawOutput, so a failed op only shows in `status`; fold
-  // it into the error state too, else a failed wait/close with no per-agent
-  // states would render "Failed" yet stay collapsed (and show a success check).
   const isError =
     state === "output-error" ||
     !!errorText?.trim() ||
     hasErrorAgent ||
-    isErrorCollabStatusKind(classifyCollabStatus(opStatus))
+    isErrorCollabStatusKind(classifyCollabStatus(info?.status ?? null))
   const isRunning = state === "input-streaming" || state === "input-available"
 
-  // Title: the task's first line when present (CSS-truncated by the shell),
-  // else an op-aware label (so `wait`/`close` aren't bare "Sub-agent"), else
-  // the generic sub-agent label.
-  const title = useMemo(() => {
-    const firstLine = prompt?.split("\n")[0]?.trim()
-    if (firstLine && firstLine.length > 0) return firstLine
-    switch (classifyCollabOp(op)) {
-      case "spawn":
-        return t("opSpawn")
-      case "wait":
-        return t("opWait")
-      case "close":
-        return t("opClose")
-      case "resume":
-        return t("opResume")
-      default:
-        return t("title") // sendInput / unknown → generic label
-    }
-  }, [prompt, op, t])
+  const title =
+    info?.prompt?.split("\n")[0]?.trim() || t(OP_LABEL[classifyCollabOp(op)])
 
-  const rightSuffix = isError ? (
-    <AlertTriangle className="size-3.5 text-destructive" />
-  ) : state === "output-available" ? (
-    <Check className="size-3.5" />
-  ) : null
-
-  // Sub-agent id(s) shown in the pill so the capsule is identifiable and the
-  // execution/wait capsules read uniformly (status is conveyed by the chrome,
-  // not a per-agent row). Short form (first UUID segment); multiple → first id
-  // + "+N".
   const idBadge =
     agents.length === 0
       ? null
@@ -104,12 +58,66 @@ export function CollabAgentCard({ input, errorText, state }: Props) {
       title={title}
       isRunning={isRunning}
       isError={isError}
-      rightSuffix={rightSuffix}
+      rightSuffix={
+        <CollabSuffix isError={isError} isWait={isWait} state={state} />
+      }
       idBadge={idBadge}
       statusLabel={title}
+      collapseOnComplete={false}
     >
-      {/* Prompt — the execution capsule's task (spawn only; wait has none). */}
-      {prompt && (
+      <CollabCardBody
+        info={info}
+        output={output}
+        errorText={errorText}
+        isRunning={isRunning}
+        isError={isError}
+      />
+    </AgentCapsule>
+  )
+}
+
+function CollabSuffix({
+  isError,
+  isWait,
+  state,
+}: {
+  isError: boolean
+  isWait: boolean
+  state?: ToolCallState
+}) {
+  if (isError) return <AlertTriangle className="size-3.5 text-destructive" />
+  if (isWait) return <Clock3 className="size-3.5" />
+  return state === "output-available" ? <Check className="size-3.5" /> : null
+}
+
+const OP_LABEL = {
+  spawn: "opSpawn",
+  wait: "opWait",
+  close: "opClose",
+  resume: "opResume",
+  other: "title",
+} as const
+
+function CollabCardBody({
+  info,
+  output,
+  errorText,
+  isRunning,
+  isError,
+}: {
+  info: CollabToolInfo | null
+  output?: string | null
+  errorText?: string | null
+  isRunning: boolean
+  isError: boolean
+}) {
+  const tcp = useTranslations("Folder.chat.contentParts")
+  const prompt = info?.prompt
+  const agents = info?.agents ?? []
+  const isWait = classifyCollabOp(info?.op ?? null) === "wait"
+  return (
+    <>
+      {prompt && !agents.some((agent) => agent.task) && (
         <div className="space-y-1">
           <div className="text-xs font-medium text-muted-foreground">
             {tcp("agentPromptLabel")}
@@ -120,28 +128,52 @@ export function CollabAgentCard({ input, errorText, state }: Props) {
         </div>
       )}
 
-      {/* Sub-agent message(s) — rendered bare (no status row, no box): on a
-          `wait` these are the fetched results; on a no-wait execution the
-          fallback last message. Status is conveyed by the capsule chrome. */}
-      {agents.map((agent: CollabAgentState) =>
-        agent.message ? (
-          <div
-            key={agent.threadId}
-            className="text-xs text-muted-foreground prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside"
-          >
-            <MessageResponse>{agent.message}</MessageResponse>
-          </div>
-        ) : null
+      {(isWait || agents.length === 0) && (
+        <CollabWaitStatus
+          isWait={isWait}
+          isRunning={isRunning}
+          isError={isError}
+          output={output}
+        />
       )}
-
-      {/* Error output when the failure carries text but no per-agent message. */}
+      {agents.map((agent) => (
+        <CollabAgentRow key={agent.threadId} agent={agent} />
+      ))}
       {isError && errorText?.trim() && (
-        <div className="rounded-md bg-destructive/10 p-3">
-          <pre className="whitespace-pre-wrap break-words text-xs text-destructive">
-            {errorText.trim()}
-          </pre>
-        </div>
+        <pre className="whitespace-pre-wrap break-words text-xs text-destructive">
+          {errorText.trim()}
+        </pre>
       )}
-    </AgentCapsule>
+    </>
+  )
+}
+
+function CollabWaitStatus({
+  isWait,
+  isRunning,
+  isError,
+  output,
+}: {
+  isWait: boolean
+  isRunning: boolean
+  isError: boolean
+  output?: string | null
+}) {
+  const t = useTranslations("Folder.chat.collabAgent")
+  let label = isWait ? collabWaitLabel(output) : ("noMessage" as const)
+  if (isRunning) label = isWait ? "opWait" : "statusRunning"
+  if (isError) label = "statusFailed"
+  return (
+    <div
+      role="status"
+      className="flex items-start gap-2 text-xs text-muted-foreground"
+    >
+      {isRunning && !isError ? (
+        <Loader2 className="size-3.5 shrink-0 animate-spin" />
+      ) : (
+        <Clock3 className="size-3.5 shrink-0" />
+      )}
+      <span className="min-w-0 break-words">{t(label)}</span>
+    </div>
   )
 }

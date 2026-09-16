@@ -16,6 +16,7 @@ import {
   useConversationRuntimeStore,
 } from "@/stores/conversation-runtime-store"
 import { ContentPartsRenderer } from "./content-parts-renderer"
+import { BackgroundTaskStatusScope } from "./background-task-status-context"
 import { ContextCompactionCard } from "./context-compaction-card"
 import {
   createMessageTurnAdapter,
@@ -1241,7 +1242,7 @@ export function MessageListView({
   }
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col">
+    <BackgroundTaskStatusScope turns={timelineTurns}>
       <MessageThread
         className="flex-1 min-h-0"
         resize={shouldUseSmoothResize ? "smooth" : undefined}
@@ -1296,6 +1297,6 @@ export function MessageListView({
           />
         )}
       </div>
-    </div>
+    </BackgroundTaskStatusScope>
   )
 }

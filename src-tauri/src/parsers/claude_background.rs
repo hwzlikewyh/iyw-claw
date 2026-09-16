@@ -6,6 +6,23 @@ use crate::parsers::truncate_str;
 pub(crate) const BACKGROUND_TASK_MARKER: &str = "[[codeg-background-task]]";
 pub(crate) const BACKGROUND_RESULT_MAX_CHARS: usize = 20_000;
 
+pub(crate) fn is_terminal_task_status(status: &str) -> bool {
+    matches!(
+        status,
+        "completed"
+            | "failed"
+            | "canceled"
+            | "cancelled"
+            | "killed"
+            | "stopped"
+            | "interrupted"
+            | "errored"
+            | "timeout"
+            | "timed_out"
+            | "error"
+    )
+}
+
 #[derive(Clone)]
 pub(crate) struct TaskNotification {
     pub task_id: String,
@@ -16,13 +33,20 @@ pub(crate) struct TaskNotification {
 }
 
 impl TaskNotification {
+    pub(crate) fn parse_all(text: &str) -> Vec<Self> {
+        text.match_indices("<task-notification>")
+            .filter_map(|(offset, _)| Self::parse(&text[offset..]))
+            .collect()
+    }
+
     pub(crate) fn parse(text: &str) -> Option<Self> {
         if !text.starts_with("<task-notification>") {
             return None;
         }
+        let text = text.split_once("</task-notification>")?.0;
         Some(Self {
             task_id: capture_tag(text, "task-id")?,
-            status: capture_tag(text, "status").unwrap_or_else(|| "completed".into()),
+            status: capture_tag(text, "status")?,
             summary: capture_tag(text, "summary"),
             tool_use_id: capture_tag(text, "tool-use-id"),
             result: capture_tag(text, "result")
@@ -53,26 +77,41 @@ impl BackgroundLifecycle {
     }
 
     pub(crate) fn observe_notification(&mut self, value: &serde_json::Value) {
-        let Some(raw) = value
+        let Some(content) = value
             .get("message")
             .and_then(|message| message.get("content"))
-            .and_then(|content| content.as_str())
         else {
             return;
         };
-        let Some(notification) = TaskNotification::parse(raw.trim_start()) else {
-            return;
-        };
-        self.notifications
-            .insert(notification.task_id.clone(), notification);
+        if let Some(raw) = content.as_str() {
+            self.observe_notification_text(raw);
+        }
+        for block in content.as_array().into_iter().flatten() {
+            if block["type"] == "text" {
+                if let Some(raw) = block.get("text").and_then(|v| v.as_str()) {
+                    self.observe_notification_text(raw);
+                }
+            }
+        }
+    }
+
+    fn observe_notification_text(&mut self, raw: &str) {
+        for notification in TaskNotification::parse_all(raw) {
+            self.notifications
+                .insert(notification.task_id.clone(), notification);
+        }
     }
 
     pub(crate) fn observe_ack(&mut self, result: &serde_json::Value, content: &[ContentBlock]) {
-        if result.get("status").and_then(|status| status.as_str()) != Some("async_launched") {
-            return;
-        }
-        let Some(task_id) = result
-            .get("agentId")
+        self.observe_task_result(result);
+        let task_id = if result["status"] == "async_launched" {
+            result.get("agentId")
+        } else {
+            result
+                .get("backgroundTaskId")
+                .or_else(|| result.pointer("/task/task_id"))
+        };
+        let Some(task_id) = task_id
             .and_then(|id| id.as_str())
             .filter(|id| !id.is_empty())
         else {
@@ -89,6 +128,45 @@ impl BackgroundLifecycle {
         };
         self.acknowledgements
             .insert(tool_use_id, task_id.to_string());
+    }
+
+    fn observe_task_result(&mut self, result: &serde_json::Value) {
+        let task = result.get("task").unwrap_or(result);
+        let Some(task_id) = task.get("task_id").and_then(|v| v.as_str()) else {
+            return;
+        };
+        let status = task.get("status").and_then(|v| v.as_str()).or_else(|| {
+            result
+                .get("message")
+                .and_then(|v| v.as_str())
+                .filter(|message| message.starts_with("Successfully stopped task"))
+                .map(|_| "stopped")
+        });
+        let Some(status) = status.filter(|status| is_terminal_task_status(status)) else {
+            return;
+        };
+        let status = if status == "completed"
+            && task
+                .get("exit_code")
+                .and_then(|v| v.as_i64())
+                .is_some_and(|code| code != 0)
+        {
+            "failed"
+        } else {
+            status
+        };
+        self.notifications
+            .entry(task_id.to_string())
+            .or_insert_with(|| TaskNotification {
+                task_id: task_id.to_string(),
+                status: status.to_string(),
+                summary: None,
+                tool_use_id: None,
+                result: task
+                    .get("output")
+                    .and_then(|v| v.as_str())
+                    .map(|v| truncate_str(v, BACKGROUND_RESULT_MAX_CHARS)),
+            });
     }
 
     pub(crate) fn apply(&self, messages: &mut [UnifiedMessage]) {

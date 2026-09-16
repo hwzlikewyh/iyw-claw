@@ -19,6 +19,7 @@
 import { useMemo } from "react"
 import {
   Ban,
+  CircleAlert,
   CheckCircleIcon,
   Clock,
   Loader2,
@@ -36,13 +37,22 @@ import {
 } from "@/lib/background-task"
 import { Badge } from "@/components/ui/badge"
 import { Shimmer } from "@/components/ai-elements/shimmer"
+import { useBackgroundTaskStatuses } from "./background-task-status-context"
 
 export function BackgroundTaskCard({
   polls,
 }: {
   polls: AdaptedToolCallPart[]
 }) {
-  const rows = useMemo(() => buildBackgroundTaskRows(polls), [polls])
+  const statuses = useBackgroundTaskStatuses()
+  const rows = useMemo(
+    () =>
+      buildBackgroundTaskRows(polls).map((row) => {
+        const settled = row.taskId ? statuses.get(row.taskId) : null
+        return settled ? { ...row, badge: settled, isInFlight: false } : row
+      }),
+    [polls, statuses]
+  )
 
   if (rows.length === 0) return null
 
@@ -140,6 +150,14 @@ function TaskBadge({
 }) {
   const t = useTranslations("Folder.chat.contentParts.backgroundTask")
   const className = "gap-1.5 rounded-full text-xs"
+  if (badge === "unknown") {
+    return (
+      <Badge className={className} variant="secondary">
+        <CircleAlert />
+        {t("unknown")}
+      </Badge>
+    )
+  }
   if (badge === "completed") {
     return (
       <Badge className={className} variant="secondary">

@@ -15,12 +15,8 @@
  * so the live input shaper merges it back in under `COLLAB_OP_KEY` — see
  * `mergeCollabOp` and `resolveLiveToolInput`.
  *
- * Live ceiling: codex-acp drops `subAgentActivity` (the sub-agent's actual
- * streamed messages) and emits no `rawOutput` for collab calls, so the richest
- * live signal is `agentsStates[*].{status,message}` (on a `wait` completion the
- * `message` carries the sub-agent's full result). The full nested transcript
- * only exists on history reload, reconstructed by the Rust parser into the
- * richer "Agent" capsule from the on-disk `agent-<id>.jsonl`.
+ * V2 wait calls have no agent states. The live projection associates them
+ * with preceding child activity; execution records use the existing reader.
  */
 
 /** Canonical tool name the live collab path collapses to (see `inferLiveToolName`). */
@@ -41,6 +37,8 @@ export interface CollabAgentState {
   status: string | null
   /** Short live progress line; on a `wait` completion, the full result. May be null. */
   message: string | null
+  task?: string | null
+  name?: string | null
 }
 
 export interface CollabToolInfo {
@@ -131,8 +129,8 @@ export function shortAgentId(id: string): string {
  * Aggregate ONE sub-agent's status across all collab ops that referenced it
  * (spawn → wait(s) → close), for the live execution capsule. Returns a canonical
  * raw status string that {@link classifyCollabStatus} maps correctly, chosen by
- * display-kind priority: error > completed > closed > running > pending, else the
- * last non-empty raw status, else null.
+ * display-kind priority: error > completed > closed > interrupted > running >
+ * pending, else the last non-empty raw status, else null.
  *
  * This is what stops the execution (spawn) capsule from being frozen at the
  * spawn-time `pendingInit` ("初始化中"): once a later `wait` reports the agent
@@ -147,6 +145,7 @@ export function mergeCollabAgentStatus(
   if (kinds.includes("notFound")) return "notFound"
   if (kinds.includes("completed")) return "completed"
   if (kinds.includes("closed")) return "shutdown"
+  if (kinds.includes("interrupted")) return "interrupted"
   if (kinds.includes("running")) return "running"
   if (kinds.includes("pending")) return "pendingInit"
   for (let i = statuses.length - 1; i >= 0; i--) {
@@ -234,7 +233,23 @@ export function parseCollabToolInput(
         threadId,
         status: asText(entry.status),
         message: asText(entry.message),
+        task: asText(entry.task),
+        name: asText(entry.name),
       })
+    }
+  }
+
+  // 启动早期可能只有接收线程 ID，仍保留可查看的子会话入口。
+  const ids = Array.isArray(parsed.receiverThreadIds)
+    ? parsed.receiverThreadIds
+    : []
+  for (const id of ids) {
+    if (
+      typeof id === "string" &&
+      id.trim() &&
+      !agents.some((a) => a.threadId === id)
+    ) {
+      agents.push({ threadId: id, status: null, message: null })
     }
   }
 

@@ -2294,6 +2294,7 @@ const ToolCallPart = memo(function ToolCallPart({
     return (
       <CollabAgentCard
         input={part.input ?? null}
+        output={part.output ?? null}
         errorText={part.errorText ?? null}
         state={part.state}
       />

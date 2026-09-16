@@ -41,6 +41,7 @@ pub(super) struct WatchState {
     /// distinguished safely from unrelated background initiators.
     pub(super) foreground_submission_id: Option<String>,
     last_disk_activity: Option<std::time::Instant>,
+    accounting_baseline: Option<u64>,
 }
 
 impl WatchState {
@@ -60,6 +61,7 @@ impl WatchState {
             foreground_awaiting_reply: false,
             foreground_submission_id: None,
             last_disk_activity: None,
+            accounting_baseline: Some(offset),
         }
     }
 
@@ -79,6 +81,7 @@ impl WatchState {
         self.last_episode_base = 0;
         self.close_foreground_submission();
         self.last_disk_activity = None;
+        self.accounting_baseline = Some(offset);
     }
 
     pub(super) fn begin_foreground_submission(&mut self, submission_id: Option<String>) {
@@ -124,13 +127,17 @@ impl WatchState {
             self.close_foreground_submission();
         }
         self.accounting.begin_tick(prompting, ended_abnormally);
+        let seeded = self
+            .accounting_baseline
+            .take()
+            .is_some_and(|offset| self.accounting.restore(&self.file, offset));
         let max_age = crate::acp::session_state::background_keepalive_max_age()
             .to_std()
             .unwrap_or(std::time::Duration::from_secs(3600));
         let expired = self.accounting.expire(max_age);
         let lines = match self.read_changed_lines() {
             Some(lines) => lines,
-            None if expired => Vec::new(),
+            None if expired || seeded => Vec::new(),
             None => return None,
         };
         let mut turns = Vec::new();

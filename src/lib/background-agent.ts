@@ -1,3 +1,5 @@
+import type { LiveMessage } from "@/contexts/acp-connections-context"
+
 export const BACKGROUND_TASK_MARKER = "[[codeg-background-task]]"
 
 export interface BackgroundTaskLifecycle {
@@ -34,4 +36,38 @@ export function isAsyncLaunchAckText(
   output: string | null | undefined
 ): boolean {
   return output?.includes("Async agent launched successfully") ?? false
+}
+
+export function settleLiveBackgroundTask(
+  live: LiveMessage | null,
+  settlement: BackgroundTaskLifecycle & { toolUseId: string }
+): LiveMessage | null {
+  if (!live) return live
+  const output =
+    BACKGROUND_TASK_MARKER +
+    JSON.stringify({
+      task_id: settlement.taskId,
+      status: settlement.status,
+      summary: settlement.summary,
+      result: settlement.result,
+    })
+  let changed = false
+  const content = live.content.map((block) => {
+    if (
+      block.type !== "tool_call" ||
+      block.info.tool_call_id !== settlement.toolUseId
+    )
+      return block
+    changed = true
+    return {
+      ...block,
+      info: {
+        ...block.info,
+        status: "completed",
+        raw_output_chunks: [output],
+        raw_output_total_bytes: new TextEncoder().encode(output).length,
+      },
+    }
+  })
+  return changed ? { ...live, content } : live
 }

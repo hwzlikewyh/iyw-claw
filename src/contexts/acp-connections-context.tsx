@@ -17,6 +17,7 @@ import type {
   EventStreamSubscription,
 } from "@/lib/transport/types"
 import { randomUUID } from "@/lib/utils"
+import { settleLiveBackgroundTask } from "@/lib/background-agent"
 import { inferLiveToolName } from "@/lib/tool-call-normalization"
 import {
   acpConnect,
@@ -421,6 +422,7 @@ type Action =
     }
   | {
       type: "SET_BACKGROUND_OUTSTANDING"
+      settled?: Extract<AcpEvent, { type: "background_activity" }>["settled"]
       contextKey: string
       outstanding: number
       uncertain?: boolean
@@ -1671,22 +1673,36 @@ function connectionsReducer(
     case "SET_BACKGROUND_OUTSTANDING": {
       const conn = state.get(action.contextKey)
       if (!conn) return state
+      const liveMessage = action.settled?.reduce(
+        (live, task) => task.tool_use_id
+          ? settleLiveBackgroundTask(live, {
+              toolUseId: task.tool_use_id,
+              taskId: task.task_id,
+              status: task.status,
+              summary: task.summary ?? null,
+              result: task.result ?? null,
+            })
+          : live,
+        conn.liveMessage
+      ) ?? conn.liveMessage
       const syncingSince =
-        action.outOfTurnSettleCount > 0
-          ? Date.now()
-          : action.turnsCount > 0
-            ? null
+        action.turnsCount > 0
+          ? null
+          : action.outOfTurnSettleCount > 0
+            ? Date.now()
             : conn.backgroundSettleSyncingSince
       if (
         conn.backgroundOutstanding === action.outstanding &&
         conn.backgroundUncertain === (action.uncertain === true) &&
-        conn.backgroundSettleSyncingSince === syncingSince
+        conn.backgroundSettleSyncingSince === syncingSince &&
+        conn.liveMessage === liveMessage
       ) {
         return state
       }
       const next = new Map(state)
       next.set(action.contextKey, {
         ...conn,
+        liveMessage,
         backgroundOutstanding: action.outstanding,
         backgroundUncertain: action.uncertain === true,
         backgroundSettleSyncingSince: syncingSince,
@@ -2244,6 +2260,14 @@ function connectionsReducer(
       next.set(action.contextKey, {
         ...conn,
         sessionId: action.sessionId,
+        ...(conn.sessionId !== action.sessionId
+          ? {
+              backgroundOutstanding: 0,
+              backgroundUncertain: false,
+              backgroundSettleSyncingSince: null,
+              activity: null,
+            }
+          : {}),
       })
       return next
     }
@@ -3628,6 +3652,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           })
           break
         case "tool_call_update":
+          if (
+            (e.meta as { iyw?: { backgroundSettlement?: boolean } } | null)
+              ?.iyw?.backgroundSettlement === true
+          ) break
           flushStreamingQueue()
           const toolCallUpdate = {
             contextKey,
@@ -3731,9 +3759,13 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           })
           break
         case "background_activity": {
+          const sessionId =
+            storeRef.current.connections.get(contextKey)?.sessionId
+          if (sessionId && sessionId !== e.session_id) break
           dispatch({
             type: "SET_BACKGROUND_OUTSTANDING",
             contextKey,
+            settled: e.settled,
             outstanding: e.outstanding,
             uncertain: e.uncertain === true,
             outOfTurnSettleCount:

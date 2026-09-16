@@ -1,30 +1,8 @@
-/**
- * Shared parsing + detection helpers for Claude Code's built-in background-task
- * tools (`Bash(run_in_background)` launch → `TaskOutput` polls → `TaskStop`).
- *
- * Claude Code starts a background shell with `Bash(run_in_background: true)`,
- * whose result is a launch line carrying the task id ("Command running in
- * background with ID: <id>. …"). The agent then polls with
- * `TaskOutput({task_id, block, timeout})`, whose result is an XML-tagged
- * envelope, and may finally `TaskStop({task_id})`, whose result is a JSON
- * object carrying the original command.
- *
- *   poll  → <retrieval_status>success|timeout|not_ready</retrieval_status>
- *           <task_id>…</task_id> <task_type>local_bash</task_type>
- *           <status>running|completed</status> <exit_code>0</exit_code>
- *           <output>…(ANSI shell output)…</output>
- *   stop  → {"message":"Successfully stopped task: … (<command>)",
- *           "task_id":…, "task_type":…, "command":…}
- *
- * The same task is polled repeatedly (first timeout/running, then
- * success/completed), so the renderer collapses consecutive polls of one task
- * id into a single lifecycle card — mirroring the delegation-status group
- * (`@/lib/delegation-status`). iyw-claw owns only the rendering: the backend
- * (`parsers/claude.rs`) passes the tool-result text through verbatim, so all
- * parsing lives here (same convention as `delegation-status.ts`).
- */
+/** Claude 后台任务的启动、轮询、停止回执与持久化结果展示。 */
 
 import type { AdaptedToolCallPart } from "@/lib/adapters/ai-elements-adapter"
+import { parseBackgroundTaskMarker } from "./background-agent"
+import { resolveBackgroundOutcome } from "./background-task-status"
 
 export interface BackgroundTaskEnvelope {
   /** `poll` = a `TaskOutput` retrieval; `stop` = a `TaskStop` acknowledgement. */
@@ -109,7 +87,7 @@ function parseStopEnvelope(text: string): BackgroundTaskEnvelope | null {
   // a defensive fallback for wording drift.
   const looksLikeStop =
     (message != null && /successfully stopped task/i.test(message)) ||
-    (taskId != null && command != null && message != null && taskType != null)
+    (taskId != null && obj.status === "stopped")
   if (!looksLikeStop) return null
   return {
     kind: "stop",
@@ -132,6 +110,19 @@ export function parseBackgroundTaskEnvelope(
 ): BackgroundTaskEnvelope | null {
   const raw = text?.trim()
   if (!raw) return null
+  const marker = parseBackgroundTaskMarker(raw)
+  if (marker)
+    return {
+      kind: "poll",
+      retrievalStatus: null,
+      taskId: marker.taskId,
+      taskType: null,
+      status: marker.status,
+      exitCode: null,
+      output: marker.result,
+      command: null,
+      message: marker.summary,
+    }
   return parsePollEnvelope(raw) ?? parseStopEnvelope(raw)
 }
 
@@ -191,6 +182,11 @@ function inputIsBackgroundPoll(input: string | null | undefined): boolean {
  * `cancel_delegation` (bare `{task_id}`).
  */
 export function isBackgroundTaskToolCall(part: AdaptedToolCallPart): boolean {
+  if (
+    ["agent", "task"].includes(part.toolName.toLowerCase()) &&
+    parseBackgroundTaskMarker(part.output)
+  )
+    return false
   if (BACKGROUND_TASK_NAMES.has(part.toolName.trim().toLowerCase())) return true
   if (
     parseBackgroundTaskEnvelope(part.output ?? part.errorText ?? null) !== null
@@ -200,7 +196,12 @@ export function isBackgroundTaskToolCall(part: AdaptedToolCallPart): boolean {
   return inputIsBackgroundPoll(part.input)
 }
 
-export type BackgroundTaskBadge = "running" | "completed" | "failed" | "stopped"
+export type BackgroundTaskBadge =
+  | "running"
+  | "completed"
+  | "failed"
+  | "stopped"
+  | "unknown"
 
 /** One resolved task row for the card: the latest poll's outcome plus the
  *  freshest output/command gathered across every poll of that task id. */
@@ -227,27 +228,6 @@ function inputTaskId(input: string | null | undefined): string | null {
 
 function isInFlightState(part: AdaptedToolCallPart): boolean {
   return part.state === "input-available" || part.state === "input-streaming"
-}
-
-function deriveBackgroundBadge(
-  envelope: BackgroundTaskEnvelope | null,
-  part: AdaptedToolCallPart
-): BackgroundTaskBadge {
-  if (envelope?.kind === "stop") return "stopped"
-  if (envelope?.status === "completed") {
-    return envelope.exitCode != null && envelope.exitCode !== 0
-      ? "failed"
-      : "completed"
-  }
-  // An errored poll with no clean "completed" envelope is a failure.
-  if (
-    part.state === "output-error" ||
-    (part.errorText && part.errorText.trim() !== "")
-  ) {
-    return "failed"
-  }
-  // running / timeout / not_ready / no envelope yet → still running.
-  return "running"
 }
 
 interface ParsedBackgroundPoll {
@@ -287,9 +267,8 @@ export function buildBackgroundTaskRows(
   return order.map((key) => {
     const entry = byKey.get(key)!
     const latest = entry.entries[entry.entries.length - 1]
-    const env = latest.envelope
-    // The terminal poll carries the full output; fall back to the last poll that
-    // captured any so an in-flight final poll doesn't blank a completed run.
+    const outcome = resolveBackgroundOutcome(entry.entries)
+    // 空轮询保留上一次已收到的输出。
     let output: string | null = null
     let command: string | null = null
     let taskType: string | null = null
@@ -304,10 +283,9 @@ export function buildBackgroundTaskRows(
       key,
       taskId: entry.taskId,
       taskType,
-      badge: deriveBackgroundBadge(env, latest.poll),
-      isInFlight:
-        isInFlightState(latest.poll) && (env == null || env.output == null),
-      exitCode: env?.exitCode ?? null,
+      badge: outcome.badge,
+      isInFlight: outcome.badge === "running" && isInFlightState(latest.poll),
+      exitCode: outcome.exitCode,
       output,
       command,
       pollCount: entry.entries.length,

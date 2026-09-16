@@ -8,6 +8,7 @@ struct ToolEvidence<'a> {
     item_id: &'a str,
     status: Option<&'a str>,
     output: Option<&'a str>,
+    process_id: Option<String>,
 }
 
 impl<'a> ToolEvidence<'a> {
@@ -41,6 +42,7 @@ impl<'a> ToolEvidence<'a> {
                 && !context.tools.contains_key(item_id),
             item_id,
             status,
+            process_id: event_process_id(event),
             output: raw_output
                 .as_deref()
                 .filter(|value| !value.is_empty())
@@ -89,6 +91,12 @@ impl SessionActivity {
     ) -> bool {
         let has_output = evidence.output.is_some_and(|value| !value.is_empty());
         let terminal = matches!(evidence.status, Some("completed" | "failed"));
+        if !terminal {
+            if let Some(process_id) = &evidence.process_id {
+                self.record_poll(evidence.item_id, process_id, now);
+                self.urgent = true;
+            }
+        }
         let mut current_turn = true;
         if let Some(process) = self
             .snapshot
@@ -122,4 +130,25 @@ impl SessionActivity {
         }
         has_output || evidence.status.is_some()
     }
+}
+
+fn command_process_id(raw: &str) -> Option<String> {
+    let item: serde_json::Value = serde_json::from_str(raw).ok()?;
+    if item["type"] != "commandExecution" {
+        return None;
+    }
+    item.get("processId")
+        .and_then(|value| value.as_str())
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+}
+
+fn event_process_id(event: &AcpEvent) -> Option<String> {
+    let input = match event {
+        AcpEvent::ToolCall { raw_input, .. } | AcpEvent::ToolCallUpdate { raw_input, .. } => {
+            raw_input.as_deref()
+        }
+        _ => None,
+    }?;
+    command_process_id(input)
 }

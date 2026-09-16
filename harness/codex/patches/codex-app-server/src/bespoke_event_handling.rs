@@ -1104,7 +1104,7 @@ pub(crate) async fn apply_bespoke_event_handling(
                         .turn_summary
                         .command_execution_started
                         .insert(item.id.clone());
-                    first || item.description.is_some()
+                    first || item.description.is_some() || item.process_id.is_some()
                 }
                 _ => true,
             };

@@ -23,6 +23,7 @@ import {
   parseBackgroundTaskMarker,
 } from "@/lib/background-agent"
 import { normalizeToolResultError } from "@/lib/memory-policy-error"
+import { terminalBackgroundBadge } from "@/lib/background-task-status"
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`
@@ -97,9 +98,11 @@ export const AgentToolCallPart = memo(function AgentToolCallPart({
     backgroundLifecycle === null &&
     part.state === "output-available" &&
     isAsyncLaunchAckText(part.output)
-  const backgroundSettled = backgroundLifecycle?.status != null
-  const backgroundFailed =
-    backgroundSettled && backgroundLifecycle?.status !== "completed"
+  const backgroundOutcome = terminalBackgroundBadge(
+    backgroundLifecycle?.status ?? null
+  )
+  const backgroundSettled = backgroundOutcome != null
+  const backgroundFailed = backgroundOutcome === "failed"
 
   const [promptOpen, setPromptOpen] = useState(false)
 
@@ -163,13 +166,15 @@ export const AgentToolCallPart = memo(function AgentToolCallPart({
   }, [subagentType, description, t])
 
   const statusLabel = backgroundLifecycle
-    ? backgroundFailed
-      ? tBg("cardFinishedWithStatus", {
-          status: backgroundLifecycle.status ?? "",
-        })
-      : backgroundSettled
-        ? tBg("cardCompleted")
-        : tBg("cardLaunchedPending")
+    ? backgroundOutcome === "stopped"
+      ? t("backgroundTask.stopped")
+      : backgroundFailed
+        ? tBg("cardFinishedWithStatus", {
+            status: backgroundLifecycle.status ?? "",
+          })
+        : backgroundSettled
+          ? tBg("cardCompleted")
+          : tBg("cardLaunchedPending")
     : isLiveBackgroundLaunch
       ? tBg("cardRunning")
       : part.state === "input-available"
@@ -264,6 +269,7 @@ export const AgentToolCallPart = memo(function AgentToolCallPart({
 
       {backgroundLifecycle && !isError && (
         <div className="space-y-2">
+          <div className="text-xs text-muted-foreground">{statusLabel}</div>
           {backgroundLifecycle.summary && (
             <div className="text-xs text-muted-foreground">
               {backgroundLifecycle.summary}
