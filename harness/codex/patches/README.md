@@ -3,6 +3,14 @@
 The command-purpose display extension and its upgrade checklist are documented
 in [COMMAND_DESCRIPTION.md](COMMAND_DESCRIPTION.md).
 
+`codex-app-server` also forwards the canonical command start when it carries a
+process ID, even if an approval placeholder already used the same item ID.
+The harness merges this update and retains the original thread/turn ownership
+until command exit. A verified late exit updates only process activity, so a
+background command can settle after its originating turn without entering a
+new turn's transcript. Recheck this path, including approval placeholders, when
+upgrading the upstream protocol.
+
 `codex-mcp` retains the production sources of pinned 0.154.0 (`6b9826e`), with
 test-only modules omitted and standalone dependency metadata. Its status inspection
 reads one published runtime generation without starting/reconnecting clients.

@@ -29,7 +29,10 @@ import {
   resolveForkMessageId,
 } from "@/stores/turn-metadata"
 import { completeTurnTiming } from "@/lib/turn-duration"
-import { BACKGROUND_TASK_MARKER } from "@/lib/background-agent"
+import {
+  BACKGROUND_TASK_MARKER,
+  settleLiveBackgroundTask,
+} from "@/lib/background-agent"
 import { parseFeedbackCheckOutcome } from "@/lib/feedback-check"
 import {
   rememberStreamingTail,
@@ -1208,6 +1211,7 @@ function patchBackgroundSettlement(
       ]
   return {
     ...current,
+    liveMessage: settleLiveBackgroundTask(current.liveMessage, settlement),
     localTurns: local.turns,
     optimisticTurns: optimistic.turns,
     detail:

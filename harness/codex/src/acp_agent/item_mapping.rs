@@ -10,6 +10,7 @@ const TRUNCATED_OUTPUT_PREFIX: &str = "[earlier output omitted]\n";
 
 #[derive(Default)]
 pub(super) struct ItemProjection {
+    background_commands: super::background_commands::BackgroundCommands,
     turn: Option<String>,
     seen: HashSet<String>,
     outputs: HashMap<String, String>,
@@ -27,6 +28,7 @@ impl ItemProjection {
 
     pub(super) fn was_started(&self, id: &str) -> bool { self.seen.contains(id) }
     pub(super) fn map(&mut self, method: &str, params: &Value) -> Option<Update> {
+        self.background_commands.observe(method, params);
         if let Some(turn) = params.get("turnId").or_else(|| params.pointer("/turn/id")).and_then(Value::as_str) {
             if self.turn.as_deref() != Some(turn) {
                 self.turn = Some(turn.into()); self.seen.clear(); self.outputs.clear(); self.recovered.clear();
@@ -39,7 +41,8 @@ impl ItemProjection {
             "item/started" => {
                 let mut update = item_update(params, false)?;
                 if let Some(id) = item_id(params) {
-                    if self.seen.contains(id) && params.pointer("/item/description").and_then(Value::as_str).is_some() {
+                    if self.seen.contains(id) && (params.pointer("/item/description").and_then(Value::as_str).is_some()
+                        || params.pointer("/item/processId").and_then(Value::as_str).is_some()) {
                         update.method = "tool_call_update";
                     }
                 }
@@ -60,6 +63,14 @@ impl ItemProjection {
             "item/mcpToolCall/progress" => progress_update(params),
             _ => None,
         }
+    }
+
+    pub(super) fn late_background_completion(&mut self, method: &str, params: &Value) -> Option<Update> {
+        if !self.background_commands.take_completion(method, params) { return None; }
+        let mut update = item_update(params, true)?;
+        update.params["_meta"]["iyw"]["backgroundSettlement"] = Value::Bool(true);
+        eprintln!("[星河][worker] settled background command after its originating turn ended");
+        Some(update)
     }
 
     fn output_delta(&mut self, params: &Value) -> Option<Update> {

@@ -39,6 +39,7 @@ interface AgentCapsuleProps {
   statusLabel?: string
   /** Initial open state; defaults to open on error so failures are visible. */
   defaultOpen?: boolean
+  collapseOnComplete?: boolean
   children: ReactNode
 }
 
@@ -50,6 +51,7 @@ export function AgentCapsule({
   idBadge,
   statusLabel,
   defaultOpen,
+  collapseOnComplete = true,
   children,
 }: AgentCapsuleProps) {
   const [bodyOpen, setBodyOpen] = useState(defaultOpen ?? isError)
@@ -71,7 +73,7 @@ export function AgentCapsule({
     setPrevIsError(isError)
     if (!prevIsError && isError) {
       setBodyOpen(true)
-    } else if (prevIsRunning && !isRunning && !isError) {
+    } else if (collapseOnComplete && prevIsRunning && !isRunning && !isError) {
       setBodyOpen(false)
     }
   }

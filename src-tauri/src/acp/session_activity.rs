@@ -184,15 +184,24 @@ impl SessionActivity {
             .iter_mut()
             .find(|p| p.item_id == item_id)
         {
-            if process.process_id != process_id || process.status != "running" {
+            if process.process_id != process_id
+                || !matches!(process.status.as_str(), "running" | "unknown")
+            {
                 return false;
             }
+            process.status = "running".to_string();
             process.checked_at = now;
-            process.turn_generation = generation;
             return true;
         }
         if self.snapshot.processes.len() >= MAX_PROCESS_OBSERVATIONS {
-            self.snapshot.processes.remove(0);
+            if let Some(index) = self
+                .snapshot
+                .processes
+                .iter()
+                .position(|p| !matches!(p.status.as_str(), "running" | "unknown"))
+            {
+                self.snapshot.processes.remove(index);
+            }
         }
         self.snapshot.processes.push(ProcessObservation {
             turn_generation: generation,

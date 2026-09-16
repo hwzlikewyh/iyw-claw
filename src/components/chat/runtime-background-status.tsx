@@ -12,12 +12,10 @@ export function RuntimeBackgroundStatus({
   inline?: boolean
 }) {
   const activity = useSessionActivity(contextKey)
-  const t = useTranslations("Folder.chat.liveTurnStats")
+  const t = useTranslations("Folder.chat.backgroundTasks")
   const processes =
     activity?.snapshot.processes.filter(
-      (p) =>
-        (p.status === "running" || p.status === "unknown") &&
-        (!inline || p.turn_generation !== activity?.snapshot.turn_generation)
+      (p) => p.status === "running" || p.status === "unknown"
     ) ?? []
   if (processes.length === 0) return null
   return (
@@ -29,7 +27,11 @@ export function RuntimeBackgroundStatus({
       }
     >
       <CircleDashed className="size-3 shrink-0" />
-      <span>{t("backgroundUnconfirmed", { count: processes.length })}</span>
+      <span>
+        {processes.some((p) => p.status === "unknown")
+          ? t("unknown")
+          : t("processesRunning", { count: processes.length })}
+      </span>
     </div>
   )
 }
