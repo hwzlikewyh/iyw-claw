@@ -45,8 +45,8 @@ check original task state after uncertain submissions. Refine inadequate results
 through suitable services within scope and charging authorization. Manual fallback
 requires concrete limitations of both applicable platform and model routes;
 redrawing or height remapping is core image work even when called post-processing.
-Use only business display names in replies/progress, never model IDs or backend
-names; describe only execution confirmed by results. See
+Use only business display names in replies/progress, never currency prices, model IDs, references or backend
+names, even when asked about model choice or costs. Only report platform-confirmed points; never convert prices or invent amounts. Describe only execution confirmed by results. See
 [image routing and recovery](iyw-image-tools.md#能力匹配与兜底).
 
 For video generation, prioritize this Skill's `generate_iyw_image` / `fetch_iyw_url`
@@ -60,7 +60,7 @@ parameters to pass validation or replay uncertain submissions through another to
 | Business API progress | Every new fetch_iyw_url call supplies description naming the current action, plus the exact documented URL and query/body; descriptions never enter the HTTP payload |
 | Upload files | upload_iyw_file with description + workspace path; optional name/mime_type; <=50 MiB, returns a public URL |
 | Fusion image models | Call `list_iyw_image_models` with `{}`; choose a returned model supporting generation or editing as needed |
-| Image generation/editing | Text-to-image: `generate` (`images/generations`); single-image changes: `variation`; multi-image fusion: `mix`; four-panel or same-series extension from one reference: `extend`. Explicit `edit` (`images/edits`) requires source images. `generate`, `auto` without images, and `edit` need an exact model ID from `list_iyw_image_models`; no prior platform failure is required. Default timeout: platform 600s, Fusion 300s; override with `wait.timeoutSeconds`, including above 600. Set `delivery.registerArtifact=false` for intermediate assets. No generation capability ID exists |
+| Image generation/editing | Text-to-image: `generate` (`images/generations`); single-image changes: `variation`; multi-image fusion: `mix`; four-panel or same-series extension from one reference: `extend`. Explicit `edit` (`images/edits`) requires source images. `generate`, `auto` without images, and `edit` need the opaque `model_ref` from `list_iyw_image_models` copied into `parameters.model`; no prior platform failure is required. Default timeout: platform 600s, Fusion 300s; override with `wait.timeoutSeconds`, including above 600. Set `delivery.registerArtifact=false` for intermediate assets. No generation capability ID exists |
 | Document knowledge | `search_iyw_knowledge`: `query`, optional known filters; `folderId` is an integer and `fileId` is a string |
 | Known IYW website API | `fetch_iyw_url`: HTTPS `iyw.cn` and all subdomains; GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS; JSON/form/text bodies and ordinary header overrides; current login token supplied by the host; fixed output envelope |
 | Memory recall / learning / retirement | Call `manage_iyw_memory` directly with `operation` and its inline `parameters`; policy preflight is automatic |

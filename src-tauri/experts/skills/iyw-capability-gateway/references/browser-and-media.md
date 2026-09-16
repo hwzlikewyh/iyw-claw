@@ -187,7 +187,9 @@ or running task is not confirmed failure; query its task ID before any retry.
 Before `type=generate`, `auto` without images, or explicit `type=edit`, call
 `list_iyw_image_models` with `{}`. Choose a returned model for the user's task
 with `image_generation` or `image_editing` enabled, respectively, then pass its
-exact `id` in `parameters.model`. Reuse the catalog for the same task or batch.
+opaque `model_ref` unchanged in `parameters.model`. Reuse the catalog for the same task or batch;
+refresh once if a reference expires after a host restart. Use business display names in replies,
+never currency prices, real model IDs, references or providers. Only report platform-confirmed points.
 Specialized IYW operations such as `variation`, `extend`, and `mix` do not need
 this Fusion model lookup.
 
