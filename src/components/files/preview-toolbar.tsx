@@ -2,12 +2,14 @@
 
 import { Maximize2, Minus, Plus, RotateCcw } from "lucide-react"
 import { useTranslations } from "next-intl"
-import type { ReactNode } from "react"
+import { createContext, useContext, type ReactNode } from "react"
 import { PreviewAction } from "./preview-action"
 
 export const PREVIEW_ZOOM_MIN = 0.5
 export const PREVIEW_ZOOM_MAX = 3
 export const PREVIEW_ZOOM_STEP = 0.25
+
+export const PreviewFullscreenContext = createContext(false)
 
 export function PreviewToolbar({
   zoom,
@@ -20,12 +22,41 @@ export function PreviewToolbar({
   onFullscreen?: () => void
   children?: ReactNode
 }) {
-  const t = useTranslations("Folder.fileWorkspacePanel")
   const full = useTranslations("Folder.taskArtifacts")
+  const hasParentFullscreen = useContext(PreviewFullscreenContext)
+  return (
+    <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b bg-background px-2 py-1">
+      <PreviewZoomControls zoom={zoom} onZoom={onZoom} />
+      {children && (
+        <div className="flex shrink-0 items-center gap-1 border-l pl-2">
+          {children}
+        </div>
+      )}
+      {onFullscreen && !hasParentFullscreen && (
+        <PreviewAction
+          className="ml-auto"
+          label={full("previewFullscreen")}
+          onClick={onFullscreen}
+        >
+          <Maximize2 className="size-4" />
+        </PreviewAction>
+      )}
+    </div>
+  )
+}
+
+function PreviewZoomControls({
+  zoom,
+  onZoom,
+}: {
+  zoom: number
+  onZoom: (zoom: number) => void
+}) {
+  const t = useTranslations("Folder.fileWorkspacePanel")
   const change = (delta: number) =>
     onZoom(Math.max(PREVIEW_ZOOM_MIN, Math.min(PREVIEW_ZOOM_MAX, zoom + delta)))
   return (
-    <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-1 border-b bg-background px-2">
+    <div className="flex shrink-0 items-center gap-1">
       <PreviewAction
         label={t("imageZoomOut")}
         disabled={zoom <= PREVIEW_ZOOM_MIN}
@@ -46,16 +77,6 @@ export function PreviewToolbar({
       <PreviewAction label={t("imageZoomReset")} onClick={() => onZoom(1)}>
         <RotateCcw className="size-4" />
       </PreviewAction>
-      {children}
-      {onFullscreen && (
-        <PreviewAction
-          className="ml-auto"
-          label={full("previewFullscreen")}
-          onClick={onFullscreen}
-        >
-          <Maximize2 className="size-4" />
-        </PreviewAction>
-      )}
     </div>
   )
 }

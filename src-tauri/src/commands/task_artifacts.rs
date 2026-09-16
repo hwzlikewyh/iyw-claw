@@ -310,7 +310,8 @@ async fn materialize_local_source(
         .ok_or("invalid_path")?;
     let target = context
         .directory
-        .join(unique_name(name, index, context.message_id, &source_path));
+        .join(unique_directory(index, context.message_id, &source_path))
+        .join(name);
     copy_path(&source_path, &target).await.map_err(|error| {
         tracing::warn!(error = %error, "[task-artifacts] MCP artifact materialization failed");
         "materialize_failed"
@@ -367,7 +368,7 @@ fn append_materialization_rejections(result: &mut Value, rejected: Vec<Materiali
     );
 }
 
-fn unique_name(name: &str, index: usize, message_id: &str, source: &Path) -> String {
+fn unique_directory(index: usize, message_id: &str, source: &Path) -> String {
     let prefix = message_id
         .rsplit('-')
         .next()
@@ -375,7 +376,7 @@ fn unique_name(name: &str, index: usize, message_id: &str, source: &Path) -> Str
         .unwrap_or("artifact");
     let source = source.to_string_lossy();
     let digest = format!("{:x}", Sha256::digest(source.as_bytes()));
-    format!("{prefix}-{index}-{}-{name}", &digest[..16])
+    format!("{prefix}-{index}-{}", &digest[..16])
 }
 
 async fn copy_path(source: &Path, target: &Path) -> std::io::Result<()> {
