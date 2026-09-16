@@ -25,7 +25,6 @@ import {
 } from "@/components/ui/tooltip"
 import { useMessageScroll } from "@/components/message/message-scroll-context"
 import { formatElapsedLabel } from "@/lib/format-elapsed"
-import { formatTokenCount } from "@/lib/token-format"
 import { cn, copyTextToClipboard } from "@/lib/utils"
 import type { TurnUsage } from "@/lib/types"
 
@@ -194,14 +193,14 @@ export function TurnStats({
                 <div className="flex justify-between gap-3">
                   <span>{t("tokenInput")}</span>
                   <span className="font-mono tabular-nums">
-                    {formatTokenCount(usage.input_tokens)}
+                    {usage.input_tokens.toLocaleString(locale)}
                   </span>
                 </div>
                 {usage.output_tokens > 0 && (
                   <div className="flex justify-between gap-3">
                     <span>{t("tokenOutput")}</span>
                     <span className="font-mono tabular-nums">
-                      {formatTokenCount(usage.output_tokens)}
+                      {usage.output_tokens.toLocaleString(locale)}
                     </span>
                   </div>
                 )}
@@ -209,7 +208,7 @@ export function TurnStats({
                   <div className="flex justify-between gap-3">
                     <span>{t("tokenCacheRead")}</span>
                     <span className="font-mono tabular-nums">
-                      {formatTokenCount(usage.cache_read_input_tokens)}
+                      {usage.cache_read_input_tokens.toLocaleString(locale)}
                     </span>
                   </div>
                 )}
@@ -217,7 +216,7 @@ export function TurnStats({
                   <div className="flex justify-between gap-3">
                     <span>{t("tokenCacheWrite")}</span>
                     <span className="font-mono tabular-nums">
-                      {formatTokenCount(usage.cache_creation_input_tokens)}
+                      {usage.cache_creation_input_tokens.toLocaleString(locale)}
                     </span>
                   </div>
                 )}

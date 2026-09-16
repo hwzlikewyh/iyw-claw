@@ -26,11 +26,11 @@ import { cn } from "@/lib/utils"
 
 // ─── Page-level layout ───────────────────────────────────────────────────────
 
-/** Scroll container with a centred, max-width-constrained content column. */
+/** 设置正文随可用空间铺开，保留统一内边距。 */
 export function SettingsPageLayout({ children }: { children: ReactNode }) {
   return (
-    <ScrollArea className="h-full">
-      <div className="mx-auto w-full max-w-2xl space-y-5 px-5 py-5">
+    <ScrollArea className="h-full min-w-0 w-full">
+      <div className="@container min-w-0 w-full space-y-5 px-4 py-5 sm:px-5">
         {children}
       </div>
     </ScrollArea>
@@ -51,7 +51,7 @@ export function SettingsPageHeader({
   action?: ReactNode
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 pb-1">
+    <div className="flex flex-wrap items-start justify-between gap-3 pb-1">
       <div className="min-w-0">
         <div className="flex items-center gap-2.5">
           {Icon && (
@@ -59,7 +59,7 @@ export function SettingsPageHeader({
               <Icon className="h-4 w-4 text-muted-foreground" />
             </div>
           )}
-          <h1 className="text-base font-semibold tracking-tight">{title}</h1>
+          <h1 className="text-base font-semibold tracking-normal">{title}</h1>
         </div>
         {description && (
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
