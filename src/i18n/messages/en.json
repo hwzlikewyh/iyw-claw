@@ -357,7 +357,7 @@
     "systemSkillsTitle": "System Skills Update",
     "systemSkillsCurrentVersion": "Current skills version",
     "systemSkillsLatestVersion": "Latest skills version",
-    "systemSkillsAutoUpdateNotice": "The latest stable release is checked and installed automatically at startup. Local changes are force-overwritten.",
+    "systemSkillsAutoUpdateNotice": "Bundled skills update with the application. Updates are no longer fetched or installed from the separate skills repository.",
     "systemSkillsCheck": "Check skills",
     "systemSkillsInstall": "Install skills update",
     "systemSkillsRollback": "Roll back skills",

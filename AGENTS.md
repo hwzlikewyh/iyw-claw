@@ -83,6 +83,8 @@ iyw-claw（Code Generation）是一个多智能体编码工作台，它将多个
 
 ## 关键约束
 
+- **内置技能随应用发布**：技能源码在 `src-tauri/experts/skills/` 中维护；开发、构建、启动、更新和修复流程均不得 clone、fetch、pull 或下载独立 `skill` 仓库来补充或覆盖内置技能。
+- **旧技能目录仅做本地兼容**：`.system-repo` 只用于旧安装迁移和清理，不作为远程更新源；缺失内置技能通过当前应用内置包修复，不恢复已停用的仓库同步模块。
 - **仅支持静态导出**：`next.config.ts` 设置 `output: "export"`，不支持动态路由（`[param]`），必须使用查询参数替代
 - **路径别名**：`@/*` 映射到 `./src/*`，导入写法为 `@/lib/utils`、`@/components/ui/button`
 - **服务器部署**：通过环境变量配置（`IYW_CLAW_PORT`、`IYW_CLAW_HOST`、`IYW_CLAW_TOKEN`、`IYW_CLAW_DATA_DIR`、`IYW_CLAW_STATIC_DIR`）
