@@ -9,7 +9,8 @@ use crate::app_error::AppCommandError;
 use crate::db::AppDatabase;
 use crate::models::{AgentType, UsageBreakdown, UsageDailyRow, UsageDashboardStats, UsageModelRow};
 
-const USAGE_LIMIT: usize = 30;
+const DEFAULT_USAGE_DAYS: usize = 7;
+const MAX_USAGE_DAYS: usize = 100;
 const USAGE_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Deserialize)]
@@ -158,13 +159,13 @@ fn non_empty(value: String) -> Option<String> {
     (!value.trim().is_empty()).then_some(value)
 }
 
-fn usage_url() -> String {
+fn usage_url(days: usize) -> String {
     let base = crate::acp::provider_overlay::model_gateway_base_url_for(AgentType::Codex);
     let base = base.trim_end_matches('/');
     if base.ends_with("/v1") {
-        format!("{base}/usage/recent?limit={USAGE_LIMIT}")
+        format!("{base}/usage/recent?limit={days}")
     } else {
-        format!("{base}/v1/usage/recent?limit={USAGE_LIMIT}")
+        format!("{base}/v1/usage/recent?limit={days}")
     }
 }
 
@@ -175,17 +176,19 @@ fn http_client() -> &'static reqwest::Client {
 
 pub async fn get_usage_dashboard_core(
     conn: &DatabaseConnection,
+    days: Option<usize>,
 ) -> Result<UsageDashboardStats, AppCommandError> {
+    let days = days.unwrap_or(DEFAULT_USAGE_DAYS).clamp(1, MAX_USAGE_DAYS);
     let token = crate::commands::iyw_account::iyw_account_access_token_core(conn)
         .await?
         .ok_or_else(|| AppCommandError::authentication_failed("Sign in to view usage"))?;
     tracing::debug!(
-        limit = USAGE_LIMIT,
+        limit = days,
         unit = "points",
         "requesting actual usage dashboard"
     );
     let response = http_client()
-        .get(usage_url())
+        .get(usage_url(days))
         .timeout(USAGE_TIMEOUT)
         .header("token", token.expose())
         .send()
@@ -249,6 +252,7 @@ fn decode_usage_data(payload: FusionResponse) -> Result<FusionUsageData, AppComm
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn get_usage_dashboard(
     db: tauri::State<'_, AppDatabase>,
+    days: Option<usize>,
 ) -> Result<UsageDashboardStats, AppCommandError> {
-    get_usage_dashboard_core(&db.conn).await
+    get_usage_dashboard_core(&db.conn, days).await
 }

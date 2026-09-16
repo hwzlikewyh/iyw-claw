@@ -2,7 +2,7 @@
 
 import { useCallback, useSyncExternalStore } from "react"
 import { Coins } from "lucide-react"
-import { useTranslations } from "next-intl"
+import { useLocale, useTranslations } from "next-intl"
 import { useSessionStats } from "@/contexts/session-stats-context"
 import { useOptionalConnectionStore } from "@/contexts/acp-connections-context"
 import { formatTokenCount } from "@/lib/token-format"
@@ -173,6 +173,7 @@ function SessionUsageButton({
   showIcon = true,
 }: SessionUsageButtonProps) {
   const t = useTranslations("Folder.statusBar.tokens")
+  const locale = useLocale()
   const data = useSessionUsageData({ contextKey, sessionStats })
 
   if (!data) return null
@@ -316,7 +317,7 @@ function SessionUsageButton({
                 >
                   <span>{t(row.key)}</span>
                   <span className="tabular-nums">
-                    {formatTokenCount(row.value)}
+                    {row.value.toLocaleString(locale)}
                   </span>
                 </div>
               ))}

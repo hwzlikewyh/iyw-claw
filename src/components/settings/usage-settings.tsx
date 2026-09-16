@@ -1,29 +1,49 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { BarChart3, Loader2, RefreshCw } from "lucide-react"
+import { BarChart3, CalendarDays, Loader2, RefreshCw } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { getUsageDashboard } from "@/lib/api"
 import { toErrorMessage } from "@/lib/app-error"
 import {
-  DailyUsage,
   isUsageSnapshotEmpty,
   ModelDistribution,
   UsageEmptyState,
   UsageSummary,
   type UsageSnapshot,
 } from "@/components/settings/usage-settings-view"
+import { UsageDailyChart } from "./usage-daily-chart"
+import { UsageDailyTable } from "./usage-daily-table"
+import {
+  DEFAULT_USAGE_DAYS,
+  USAGE_DAY_OPTIONS,
+  usageCalendarDays,
+} from "./usage-presentation"
 import {
   SettingsPageLayout,
   SettingsPageHeader,
 } from "@/components/settings/settings-ui"
 
-export function UsageSettings() {
-  const t = useTranslations("UsageSettings")
+function useUsageSnapshot(days: number) {
   const loadRunRef = useRef(0)
-  const [snapshot, setSnapshot] = useState<UsageSnapshot | null>(null)
+  const [result, setResult] = useState<{
+    days: number
+    snapshot: UsageSnapshot
+  } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -35,15 +55,15 @@ export function UsageSettings() {
     setLoading(true)
     setError(null)
     try {
-      const stats = await getUsageDashboard()
+      const stats = await getUsageDashboard(days)
       if (!isCurrent()) return
-      setSnapshot({ stats })
+      setResult({ days, snapshot: { stats } })
     } catch (err) {
       if (isCurrent()) setError(toErrorMessage(err))
     } finally {
       if (isCurrent()) setLoading(false)
     }
-  }, [])
+  }, [days])
 
   useEffect(() => {
     load().catch((err) => {
@@ -54,56 +74,137 @@ export function UsageSettings() {
     }
   }, [load])
 
-  if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        {t("loading")}
-      </div>
-    )
+  return {
+    snapshot: result?.days === days ? result.snapshot : null,
+    loading,
+    error,
+    load,
   }
+}
+
+interface UsageControlsProps {
+  days: number
+  setDays: (days: number) => void
+  loading: boolean
+  refresh: () => void
+}
+
+function UsageControls({
+  days,
+  setDays,
+  loading,
+  refresh,
+}: UsageControlsProps) {
+  const t = useTranslations("UsageSettings")
+  return (
+    <div className="flex items-center gap-2">
+      <Select
+        value={String(days)}
+        onValueChange={(value) => setDays(Number(value))}
+      >
+        <SelectTrigger
+          size="sm"
+          className="min-w-36 rounded-md"
+          aria-label={t("period.label")}
+        >
+          <CalendarDays className="size-3.5" />
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {USAGE_DAY_OPTIONS.map((value) => (
+            <SelectItem key={value} value={String(value)}>
+              {t("period.days", { days: value })}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="icon-sm"
+            variant="outline"
+            className="rounded-md"
+            disabled={loading}
+            onClick={refresh}
+            aria-label={t("refresh")}
+          >
+            <RefreshCw
+              className={loading ? "size-3.5 animate-spin" : "size-3.5"}
+            />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{t("refresh")}</TooltipContent>
+      </Tooltip>
+    </div>
+  )
+}
+
+function UsageContent({
+  snapshot,
+  days,
+}: {
+  snapshot: UsageSnapshot
+  days: number
+}) {
+  const rows = usageCalendarDays(snapshot.stats.dailyRows, days)
+  return (
+    <>
+      <UsageSummary snapshot={snapshot} days={days} />
+      {isUsageSnapshotEmpty(snapshot) ? (
+        <UsageEmptyState />
+      ) : (
+        <>
+          <UsageDailyChart rows={rows} />
+          <UsageDailyTable rows={rows} />
+          <ModelDistribution rows={snapshot.stats.modelRows} />
+        </>
+      )}
+    </>
+  )
+}
+
+export function UsageSettings() {
+  const t = useTranslations("UsageSettings")
+  const [days, setDays] = useState<number>(DEFAULT_USAGE_DAYS)
+  const { snapshot, loading, error, load } = useUsageSnapshot(days)
 
   return (
     <SettingsPageLayout>
       <SettingsPageHeader
         icon={BarChart3}
         title={t("title")}
-        description={t("description")}
         action={
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              setLoading(true)
-              load().catch((err) => {
-                console.error("[UsageSettings] refresh failed:", err)
-              })
-            }}
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            {t("refresh")}
-          </Button>
+          <UsageControls
+            days={days}
+            setDays={setDays}
+            loading={loading}
+            refresh={() => void load()}
+          />
         }
       />
 
       {error && (
-        <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">
+        <div
+          role="alert"
+          className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+        >
           {t("loadFailed", { message: error })}
         </div>
       )}
 
+      {loading && !snapshot && (
+        <div
+          role="status"
+          className="flex min-h-64 items-center justify-center gap-2 text-sm text-muted-foreground"
+        >
+          <Loader2 className="size-4 animate-spin" />
+          {t("loading")}
+        </div>
+      )}
       {snapshot && (
-        <>
-          <UsageSummary snapshot={snapshot} />
-          {isUsageSnapshotEmpty(snapshot) ? (
-            <UsageEmptyState />
-          ) : (
-            <>
-              <ModelDistribution rows={snapshot.stats.modelRows} />
-              <DailyUsage rows={snapshot.stats.dailyRows} />
-            </>
-          )}
-        </>
+        <div aria-busy={loading} className="space-y-5">
+          <UsageContent snapshot={snapshot} days={days} />
+        </div>
       )}
     </SettingsPageLayout>
   )

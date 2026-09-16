@@ -15,9 +15,14 @@ use crate::parsers::{
 
 mod paginated_messages;
 mod command_descriptions;
+mod usage;
 
 use paginated_messages::PaginatedMessages;
 use command_descriptions::command_input_preview;
+use usage::{
+    extract_usage as extract_turn_usage_from_codex_usage,
+    total_tokens as extract_total_tokens_from_usage, TaskUsageTracker, UsageTracker,
+};
 
 pub struct CodexParser {
     base_dir: PathBuf,
@@ -947,6 +952,8 @@ impl CodexParser {
         let mut context_window_max_tokens: Option<u64> = None;
         let mut latest_total_usage: Option<TurnUsage> = None;
         let mut latest_total_tokens: Option<u64> = None;
+        let mut usage_tracker = UsageTracker::default();
+        let mut task_usage_tracker = TaskUsageTracker::default();
 
         let mut first_timestamp: Option<DateTime<Utc>> = None;
         let mut last_timestamp: Option<DateTime<Utc>> = None;
@@ -1094,9 +1101,16 @@ impl CodexParser {
                         }
 
                         match payload_type {
-                            "task_started" if context_window_max_tokens.is_none() => {
-                                context_window_max_tokens =
-                                    payload.get("model_context_window").and_then(|v| v.as_u64());
+                            "task_started" => {
+                                task_usage_tracker.begin(payload, &mut messages);
+                                if context_window_max_tokens.is_none() {
+                                    context_window_max_tokens = payload
+                                        .get("model_context_window")
+                                        .and_then(|v| v.as_u64());
+                                }
+                            }
+                            "task_complete" | "turn_aborted" => {
+                                task_usage_tracker.finish(&mut messages);
                             }
                             "user_message" => {
                                 active_agent_count = 0;
@@ -1406,19 +1420,14 @@ impl CodexParser {
                                     }
 
                                     if !info.is_null() {
-                                        if let Some(usage) = info
-                                            .get("last_token_usage")
-                                            .and_then(extract_turn_usage_from_codex_usage)
-                                        {
+                                        if let Some(usage) = usage_tracker.observe(info) {
                                             // Attach to the last assistant message
                                             if let Some(last_msg) = messages
                                                 .iter_mut()
                                                 .rev()
                                                 .find(|m| matches!(m.role, MessageRole::Assistant))
                                             {
-                                                if last_msg.usage.is_none() {
-                                                    last_msg.usage = Some(usage);
-                                                }
+                                                usage::add_usage(&mut last_msg.usage, usage);
                                             }
                                         }
                                     }
@@ -1871,6 +1880,7 @@ impl CodexParser {
         }
 
         // Finalize the last API turn once, using its terminal event timestamp.
+        task_usage_tracker.finish(&mut messages);
         if let Some(start_ts) = last_turn_context_ts {
             assign_codex_turn_duration(&mut messages, start_ts, last_timestamp);
         }
@@ -2034,68 +2044,6 @@ fn assign_codex_turn_models(turns: &mut [MessageTurn], contexts: &[(DateTime<Utc
             .find(|(timestamp, _)| *timestamp <= turn.timestamp)
             .map(|(_, model)| model.clone());
     }
-}
-
-fn extract_total_tokens_from_usage(usage: &serde_json::Value) -> Option<u64> {
-    if let Some(total_tokens) = usage.get("total_tokens").and_then(|v| v.as_u64()) {
-        return Some(total_tokens);
-    }
-
-    let input_tokens = usage
-        .get("input_tokens")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    let cached_input_tokens = usage
-        .get("cached_input_tokens")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    let output_tokens = usage
-        .get("output_tokens")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    let reasoning_output_tokens = usage
-        .get("reasoning_output_tokens")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-
-    // Codex payloads use `input_tokens` as the full input (cache read included),
-    // so fallback totals should not double-count cached tokens.
-    let total = if cached_input_tokens <= input_tokens {
-        input_tokens + output_tokens + reasoning_output_tokens
-    } else {
-        input_tokens + cached_input_tokens + output_tokens + reasoning_output_tokens
-    };
-    if total > 0 {
-        Some(total)
-    } else {
-        None
-    }
-}
-
-fn extract_turn_usage_from_codex_usage(usage: &serde_json::Value) -> Option<TurnUsage> {
-    let input_tokens = usage
-        .get("input_tokens")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    let output_tokens = usage
-        .get("output_tokens")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    let cache_read_input_tokens = usage
-        .get("cached_input_tokens")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-
-    if input_tokens == 0 && output_tokens == 0 && cache_read_input_tokens == 0 {
-        return None;
-    }
-
-    Some(TurnUsage {
-        input_tokens: input_tokens.saturating_sub(cache_read_input_tokens),
-        output_tokens,
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens,
-    })
 }
 
 fn extract_context_window_used_tokens_from_token_count_info(

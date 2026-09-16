@@ -5332,7 +5332,14 @@
   "UsageSettings": {
     "loading": "正在加载用量...",
     "title": "用量",
-    "description": "查看近 30 日的 Token 用量和已结算点数。",
+    "description": "Token 用量与已结算点数",
+    "period": {
+      "label": "统计时间范围",
+      "days": "最近 {days} 天"
+    },
+    "chart": {
+      "metric": "统计指标"
+    },
     "refresh": "刷新",
     "loadFailed": "用量加载失败：{message}",
     "coverage": "已加载 {loaded} / {total} 个请求，失败 {failed} 个。",
@@ -5347,7 +5354,7 @@
       "sessions": "总请求数",
       "sessionsHint": "日均 ~{average}",
       "pointsUsed": "已用点数",
-      "pointsUsedHint": "仅统计在原助理内使用产生的点数",
+      "pointsUsedHint": "已结算消费",
       "cacheHitRate": "缓存命中率",
       "cacheHitRateHint": "{tokens} Token"
     },
@@ -5355,7 +5362,9 @@
       "title": "模型分布"
     },
     "daily": {
-      "title": "每日用量"
+      "title": "每日用量",
+      "records": "每日明细",
+      "details": "查看 {date} 用量明细"
     },
     "table": {
       "date": "日期",
