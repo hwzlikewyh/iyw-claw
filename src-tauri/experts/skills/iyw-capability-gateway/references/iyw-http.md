@@ -1,7 +1,8 @@
 # IYW Website API Requests
 
-业务端点从 [爱原物接口索引](iyw-api-index.md) 按需查找。除图片生成/处理和通用上传，
-其余业务接口统一使用本工具。不要新增对应 MCP，也不走 capability search/read/invoke。
+业务端点从 [爱原物接口索引](iyw-api-index.md) 按需查找。图片生成/处理和通用上传优先使用专用工具，
+其余业务接口统一使用本工具。[电商视频](iyw-api-ecommerce-video.md) 和 [商品套图](iyw-api-product-kits.md)
+明确列出的契约不匹配或未封装操作，也通过本工具调用原接口。不要新增对应 MCP，也不走 capability search/read/invoke。
 
 Call `fetch_iyw_url` directly through its advertised identity. It does not need
 capability search/read. Use an endpoint and parameter contract supplied by the

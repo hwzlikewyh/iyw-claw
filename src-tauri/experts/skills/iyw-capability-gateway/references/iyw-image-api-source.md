@@ -1,6 +1,6 @@
 # 图片接口证据与契约差异
 
-这是按需核对的原始接口资料，不是独立调用入口。所有生成/处理操作通过 `generate_iyw_image`；参数和 type 对照先读 [图片工具](iyw-image-tools.md)。任务管理、收藏和素材通过 [图片任务管理](iyw-api-image-admin.md) 使用 `fetch_iyw_url`。
+这是按需核对的原始接口资料，不是独立调用入口。生成/处理优先通过 `generate_iyw_image`；参数和 type 对照先读 [图片工具](iyw-image-tools.md)。[电商视频](iyw-api-ecommerce-video.md) 与 [商品套图](iyw-api-product-kits.md) 明确记录的契约不匹配或未封装操作经 fetch 调原接口。任务管理、收藏和素材通过 [图片任务管理](iyw-api-image-admin.md) 使用 `fetch_iyw_url`。
 
 ## 证据等级
 
@@ -13,7 +13,7 @@
 - `ImageTo3D` 旧工具用 `image/stats.format/stats.MultiViewImages`；`lineExtraction` 用 `reference/model/batch_size/stats.reference`；保留。
 - `g_tools_generate_image` 现有 `variation/extend/mix` 由主机设置 toolName/modelChannel；不与 `g_tools` 通道混用。
 - 出血线和提取色号的旧页面可在本地计算；新文档给出 `bleedLine/extractColor` 服务路径，新增 type 显式走该路径，不暗示所有页面已改用接口。
-- 补充已确认商品套图契约并接入工具；蒙版域为 `https://ai.iyw.cn/agent/api/generate_mask`，但区域结构未完整给出。AI 试衣仍缺完整提交契约。详见 [图片补充](iyw-api-image-contract-updates.md)。
+- 商品套图旧契约已接入工具；新版 smart/custom 与爆款复刻见 [套图参考](iyw-api-product-kits.md)。蒙版域为 `https://ai.iyw.cn/agent/api/generate_mask`，但区域结构未完整给出。AI 试衣仍缺完整提交契约。详见 [图片补充](iyw-api-image-contract-updates.md)。
 
 ## Commerce
 
@@ -57,7 +57,7 @@
 | POST | `commerce/ImageTo3D` | 转 3D 模型 | `imageUrls`、`format`、`MultiViewImages` | 30 |
 | POST | `commerce/threeVisions` | 转三视图 | `imageUrls` | 5 |
 | POST | `commerce/modelScene` | 模特场景图 | `imageUrls`、`scene`、`ratio` | 5 |
-| POST | `commerce/videoGenerator` / `videoAutoDirector` / `videoRemakeDirector` | 图转视频 / 电商视频 | `imageUrls`、`prompt`、`ratio`、`duration`、`mode` | 10 |
+| POST | `commerce/videoGenerator` / `videoAutoDirector` / `videoRemakeDirector` | 图转视频 / 电商视频 | 历史概括字段不用于页面调用；生成与导演各自完整参数见 [电商视频](iyw-api-ecommerce-video.md) | 历史观察 10，不代表当前费用 |
 | POST | `commerce/detectImageGrid` | 九宫格检测 | `imageUrls` | — |
 | POST | `commerce/classifyCanvasIntent` | 画布意图识别 | `keys` | — |
 | POST | `commerce/buildExtractPrompts` | 构建提取提示词 | `imageUrls` | — |

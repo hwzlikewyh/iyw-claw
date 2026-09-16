@@ -1,23 +1,24 @@
 ---
 name: iyw-capability-gateway
-short-description: 爱原物业务接口、图片、上传与 iyw-claw 主机能力的分层调用指南。
+short-description: 爱原物业务接口、图片、视频、商品套图、上传与主机能力的分层调用指南。
 description: >-
   Use for 爱原物/IYW 设计云、AI工作台、图案网的业务接口：产品与标签、客户需求、
   趋势报告、知识库目录、原助理会话、IP/图案/授权、瓶型瓶盖、Temu、会员点数钱包、
   组织员工、需求比稿、版权合同、店铺展厅、素材收藏、任务进度和PDF；包含商品套图/A+、
-  批量中心、知识库切片/附件、资产库、工厂订单/物流、权益分层；也用于图片处理、
+  电商视频/产品演绎/视频复刻、爆款复刻、批量中心、知识库切片/附件、资产库、工厂订单/物流、权益分层；也用于图片处理、
   任意文件上传(50MiB)、fetch_iyw_url。按关键词索引逐层读取参数，剩余业务统一用
-  fetch_iyw_url，图片用generate_iyw_image，上传用upload_iyw_file。
+  fetch_iyw_url，图片用generate_iyw_image，上传用upload_iyw_file。视频生成优先走本 Skill
+  的 generate_iyw_image/fetch_iyw_url，按视频专篇匹配当前工具与页面契约。
   Also route iyw-claw memory/learning, session/profile/history, artifacts,
   browser/web evidence, audio, image understanding, channels/messages,
   automation, interaction and delegation through the matching reference and
   live host catalog. Read only relevant references; never guess IDs or schemas.
 routing:
   capability: IYW business APIs through fetch_iyw_url and iyw-claw host capabilities
-  coreTriggers: [host action, memory, self-learning, session, profile, history, artifact, browser, web, internet, audio, transcription, image understanding, channel, message, automation, scheduled task, feedback, question, clarification, ambiguous requirement, needs decision, 需求不清, 需要选择, delegation, 爱原物, 设计云, 产品, 标签, 客户需求, 趋势报告, 图案, IP授权, 版权, 点数, 钱包, 组织, 店铺, 瓶型, Temu, 上传文件, fetch_iyw_url, upload_iyw_file]
+  coreTriggers: [host action, memory, self-learning, session, profile, history, artifact, browser, web, internet, audio, transcription, image understanding, channel, message, automation, scheduled task, feedback, question, clarification, ambiguous requirement, needs decision, 需求不清, 需要选择, delegation, 爱原物, 设计云, 产品, 标签, 客户需求, 趋势报告, 图案, IP授权, 版权, 点数, 钱包, 组织, 店铺, 瓶型, Temu, 视频生成, 电商视频, 产品演绎, 视频复刻, 自动导演, 商品套图, A+, Listing, 爆款复刻, 上传文件, fetch_iyw_url, upload_iyw_file]
   exclusions: [trivial request, self-contained explanation]
   aliases: [iyw gateway, host capability, capability catalog, 主机能力, 能力网关, 爱原物接口, 设计云, AI工作台, 图案网, 产品库, 版权登记, 文件上传]
-  invocation: For IYW business tasks load iyw-api-index and the matching domain reference, then call fetch_iyw_url. Images and uploads use their direct tools. Search/read/invoke only for host catalog capabilities.
+  invocation: For IYW business tasks load iyw-api-index and the matching domain reference. Prioritize video generation through generate_iyw_image or fetch_iyw_url as documented in iyw-api-ecommerce-video. Images and uploads prefer their direct tools; documented workflow mismatches use fetch_iyw_url. Search/read/invoke only for host catalog capabilities.
 ---
 
 # IYW Capability Gateway
@@ -27,8 +28,18 @@ authoritative for current capability IDs, schemas, required inputs, availability
 permissions, and schema digests.
 
 爱原物业务先读 [接口索引](references/iyw-api-index.md)，按关键词仅加载对应领域。
-除图片生成/处理与通用上传外，本资料的业务接口全部通过 `fetch_iyw_url` 执行。
+图片生成/处理优先用 `generate_iyw_image`，通用上传用 `upload_iyw_file`；其余业务通过 `fetch_iyw_url` 执行。
+电商视频和商品套图中已记录的工具契约不匹配或未封装操作，按对应参考用 fetch 调原接口。
 业务 API 路由不依赖能力三件套；主机能力才使用下文 catalog 流程。
+
+## 视频生成优先路由
+
+视频生成任务优先走本 Skill 的爱原物能力，先读 [电商视频](references/iyw-api-ecommerce-video.md)。
+单图、4-15 秒且符合现有参数时用 `generate_iyw_image(type=video)`；电商产品演绎、
+多图、1-3 秒或视频复刻等页面契约用 `fetch_iyw_url` 调 `videoGenerator`。
+自动导演/复刻导演只返回脚本，任务查询与历史管理用 fetch；返回任务 ID 不代表已完成视频。
+先匹配这两条现有路径；用户明确指定其他服务，或适用路径有明确不支持/不可用/失败证据时，才考虑其他路线。
+超时或提交结果未知先查原任务，不通过换工具重复生成；不得编造视频 capability_id。
 
 Before first using a tool, read its advertised description and input schema,
 including nested fields, required inputs, constraints, and examples. For a
@@ -53,10 +64,12 @@ follow its workflow**. Do not treat the reference as optional background reading
 
 | Task signal | Load first |
 | --- | --- |
-| 商品套图/A+、批量图片、新版 Agent、知识库全套、资产库、订单物流、权限分层 | [接口索引新版任务表](references/iyw-api-index.md)，仅加载对应补充资料 |
+| 视频生成、电商视频、产品演绎、视频复刻、自动导演、视频历史 | [电商视频](references/iyw-api-ecommerce-video.md)，按实际工具契约选择 generate 或 fetch |
+| 商品套图/A+、Listing、商品卖点、爆款复刻、图片版本 | [商品套图](references/iyw-api-product-kits.md) |
+| 批量图片、新版 Agent、知识库全套、资产库、订单物流、权限分层 | [接口索引新版任务表](references/iyw-api-index.md)，仅加载对应补充资料 |
 | 爱原物产品/标签、客户需求、趋势/IP/图案、会员点数、组织、版权、设计云或具体 API | [业务接口索引](references/iyw-api-index.md)，再读匹配领域与 [HTTP 约定](references/iyw-http.md) |
 | 上传任意文件、压缩包、文档、音视频、50M 文件链接 | [通用上传](references/iyw-upload.md) |
-| 图片生成/处理、扩图、放大、抠图、消除、色号、矢量、3D、视频 | [图片工具参数](references/iyw-image-tools.md) |
+| 图片生成/处理、扩图、放大、抠图、消除、色号、矢量、3D | [图片工具参数](references/iyw-image-tools.md) |
 | Session, profile, history, interaction, or plugin capability | [capability-families.md](references/capability-families.md) |
 | Unclear requirement, missing decision, or multiple reasonable interpretations | [capability-families.md](references/capability-families.md) |
 | Final file, directory, URL, HTML/Markdown delivery, or image references in a document | [artifact-delivery.md](references/artifact-delivery.md) |
@@ -67,7 +80,7 @@ follow its workflow**. Do not treat the reference as optional background reading
 | Prior decisions, preferences, repeated workflows, memory, learning, correction, candidate, or memory repair | [memory-and-learning.md](references/memory-and-learning.md) |
 | Skill usage failure, recurring workaround, verified improvement or Skill evolution | [skill-evolution.md](references/skill-evolution.md) |
 | Research, comparison, investigation, current web evidence, or cited report | [research-workflow.md](references/research-workflow.md), plus [browser-and-media.md](references/browser-and-media.md) for browser work |
-| Platform, URL, social discussion, GitHub, video, podcast, RSS, finance, or login-backed source | [internet-routing.md](references/internet-routing.md) |
+| Research/read an existing platform, URL, social discussion, GitHub, video, podcast, RSS, finance, or login-backed source (not video generation) | [internet-routing.md](references/internet-routing.md) |
 | Unsure which family or how to call the trio | [tool-usage.md](references/tool-usage.md) |
 
 ## Route Proactively
@@ -77,6 +90,7 @@ follow its workflow**. Do not treat the reference as optional background reading
   `agent-browser`, `wecom-unified`,
    `open-computer-use`, `skill-creator`, `skill-installer`, `plugin-creator`,
    `writing-plans`, or `executing-plans`.
+   For video generation, apply the video priority and contract routing above.
    For image generation, editing, and processing, prioritize platform capabilities
    or image models through the directly advertised `generate_iyw_image` tool.
    Before installing image libraries or writing processing code, match the user's
@@ -218,7 +232,7 @@ tools and the capability trio:
   The agent selects the model for `generate`/`edit` and passes its exact ID in
   `parameters.model`. Specialized IYW operations do not use this catalog.
 - `fetch_iyw_url`: 所有已记录的剩余爱原物业务接口入口；传入 description、url、method、query/body。
-  先查 [接口索引](references/iyw-api-index.md)，不搜索 capability_id。
+  包括视频/套图参考明确指定的页面契约；先查 [接口索引](references/iyw-api-index.md)，不搜索 capability_id。
 - `upload_iyw_file`: 任意类型工作区文件，最多 50 MiB；description + path，可选 name/mime_type。
   取得公开 URL 后按用户任务用 fetch 保存业务记录或交付文件。
 - `generate_iyw_image`: image generation/editing and all confirmed IYW
@@ -240,7 +254,7 @@ tools and the capability trio:
 常用默认路径：无图文生图用 `generate`，单图改款用 `variation`，有基准图的四宫格或同系列延伸用 `extend`，多图融合用 `mix`。
 缺少同名专用操作时，继续评估通用指令编辑或模型，不能据此判断不支持；格式、尺寸等技术限制按实际文档核对。按下方图片参考中的失败分类恢复，核心图片精修同样遵守服务优先规则。
 `generate` 和显式 `edit` 无需先等平台失败，但需从模型目录选择准确 ID；有参考图且选择模型时用 `edit`。ID 仅用于内部参数，对用户只说业务展示名称或“通用图片处理”。
-专用处理、批量、蒙版、色号、矢量、3D、视频和模型选择见
+视频优先规则与完整流程见 [电商视频](references/iyw-api-ecommerce-video.md)。专用处理、批量、蒙版、色号、矢量、3D 和模型选择见
 [图片工具参数](references/iyw-image-tools.md)；只读本次操作相关部分。
 原始图片 API、旧/新参数差异和历史点数见
 [图片接口证据](references/iyw-image-api-source.md)，不默认加载。

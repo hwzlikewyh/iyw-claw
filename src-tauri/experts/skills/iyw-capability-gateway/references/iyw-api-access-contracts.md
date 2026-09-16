@@ -20,6 +20,10 @@
 | microModel/v2/batch 的 models/jsonData / items / prompts | 保留已确认分身 models/jsonData；不按汇总表重写 |
 | checkImage、GetImageSegment、microModel/upscale/variation | 多版 image/imageUrl/imageUrls/taskId 不一致；已实现类型继续使用对应明确契约，其他模式保留检索证据 |
 | commerce g_tools/f_tools、classifyCanvasIntent、watermarkEraser、bleedLine | 已支持补充明确的 toolName+imageUrls、text、target、bleed 变体；不要混用无关操作字段 |
+| videoGenerator 旧工具 reference 单图 + mode + 4-15 秒，与电商页面 scene/多图/1-15 秒 | 工具契约适用时用 type=video；页面场景按 [电商视频](iyw-api-ecommerce-video.md) 用 fetch，不丢参考图、不虚构 mode |
+| 视频导演旧摘要 prompt，与页面 userHint/videoUrl/style | [电商视频](iyw-api-ecommerce-video.md) 的具体字段表优先；页面导演用 fetch，只返回脚本，不是成片 |
+| generate-kit 旧封装 contentType/modules，与页面 aspectRatio/structure/kitCounts | [商品套图](iyw-api-product-kits.md) 的 smart/custom 请求用 fetch；不填虚构 modules 通过旧工具校验，A+ 仍按适用的专用工具契约调用 |
+| 套图历史主业务前缀与 history 前缀、name/groupId 与 title/groupIds | 页面历史用 `/ai-application/api/productKit/history/{list,update,delete,save-image-version}`，字段按 [商品套图](iyw-api-product-kits.md)；旧主业务前缀摘要不用于回退重放 |
 | 用户产品、短信、账号切换、订单支付查询的单复数与 ID 字段 | 原文与补充都是部分摘要，按当前实际契约核对；不靠错误重试猜字段 |
 | 概括分页表 | 具体端点表优先；knowledge 文件仍用 page/pageSize，trend-push 用 page/page_size |
 

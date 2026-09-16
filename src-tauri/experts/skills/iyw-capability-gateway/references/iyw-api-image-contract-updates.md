@@ -2,7 +2,7 @@
 
 来源：2026-09-10《爱原物接口文档·分层详版（补充篇）》；前端反解和原采集者实测标记，不表示本次已调用。只读取当前任务相关小节；其他领域见 [接口索引](iyw-api-index.md)，冲突和认证/签名边界见 [调用约定补充](iyw-api-access-contracts.md)。
 
-生成/处理仍由 generate_iyw_image；本表中的列表、详情、收藏、删除、素材和产品管理全走 fetch_iyw_url。这里是补充篇的概括表，部分字段与其详细章节及旧已确认契约冲突。不能按这些摘要覆盖默认实现；具体取舍见 [冲突表](iyw-api-access-contracts.md)。
+生成/处理优先由 generate_iyw_image；本表中的列表、详情、收藏、删除、素材和产品管理全走 fetch_iyw_url。这里是补充篇的概括表，部分字段与其详细章节及旧已确认契约冲突。不能按这些摘要覆盖默认实现；具体取舍见 [冲突表](iyw-api-access-contracts.md)。电商视频以 [视频专篇](iyw-api-ecommerce-video.md) 的具体调用点为准；[商品套图](iyw-api-product-kits.md) 同样区分页面契约与工具封装。
 
 明确增加的参数变体：watermark-erase 可使用 target（或已有 mask）；classify-intent 可传 text（或旧 keys）；bleed-line 可传 bleed（或旧 size）；upscale/super-upscale 可传 scale；f-tools 可使用 toolName + imageUrls（或旧 content）。其余多版不同 ID/数组形状须有真实调用依据。
 
@@ -40,9 +40,9 @@
 | `/commerce/extraction` | 元素/图案提取 | `imageUrls[]`、`extractionType` |
 | `/commerce/modelScene` | 模特场景图 | `imageUrls[]`、`scene` |
 | `/commerce/watermarkEraser` | 消除水印 | `imageUrls[]`、`target` |
-| `/commerce/videoGenerator` | 图转视频 | `imageUrls[]`、`prompt` |
-| `/commerce/videoAutoDirector` | 视频自动导演 | `imageUrls[]`、`prompt` |
-| `/commerce/videoRemakeDirector` | 视频重制导演 | `imageUrls[]`、`prompt` |
+| `/commerce/videoGenerator` | 图转视频 | 此处旧摘要不可直接构造请求；页面用 `reference` 逗号串、`scene` 等，见 [电商视频](iyw-api-ecommerce-video.md) |
+| `/commerce/videoAutoDirector` | 视频自动导演 | 页面用 `imageUrls[]/duration/ratio/userHint/style/platform/language`，返回 script |
+| `/commerce/videoRemakeDirector` | 视频重制导演 | 页面用 `videoUrl/imageUrls[]/duration/ratio/userHint`，返回 script |
 | `/commerce/detectImageGrid` | 检测图片网格 | `imageUrls[]` |
 | `/commerce/buildExtractPrompts` | 生成提取提示词 | `imageUrls[]` |
 | `/commerce/classifyCanvasIntent` | 画布意图识别 | `text`（`skipErrorToast:true`） |

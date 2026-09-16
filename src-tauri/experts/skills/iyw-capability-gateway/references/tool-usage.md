@@ -9,6 +9,8 @@ detailed reference before acting when the task matches one:
 | 爱原物业务、产品/趋势/版权等接口检索 | [iyw-api-index.md](iyw-api-index.md)，按需读取领域资料后用 fetch |
 | 上传任意类型文件，最多 50 MiB | [iyw-upload.md](iyw-upload.md) |
 | 图片生成/处理的具体 type 与参数 | [iyw-image-tools.md](iyw-image-tools.md) |
+| 视频生成、电商产品演绎、复刻导演、视频脚本/历史 | [iyw-api-ecommerce-video.md](iyw-api-ecommerce-video.md)，优先走本 Skill |
+| 商品套图、A+、Listing、爆款复刻、版本管理 | [iyw-api-product-kits.md](iyw-api-product-kits.md) |
 | Session/profile/history, interaction, or plugin capability | [capability-families.md](capability-families.md) |
 | Final files/directories/URLs, current-reply delivery, HTML/Markdown image hosting | [artifact-delivery.md](artifact-delivery.md) |
 | Channels, targets, message history/sending, credentials, QR authorization, diagnostics | [channel-operations.md](channel-operations.md) |
@@ -46,6 +48,12 @@ redrawing or height remapping is core image work even when called post-processin
 Use only business display names in replies/progress, never model IDs or backend
 names; describe only execution confirmed by results. See
 [image routing and recovery](iyw-image-tools.md#能力匹配与兜底).
+
+For video generation, prioritize this Skill's `generate_iyw_image` / `fetch_iyw_url`
+routes. Read [the video workflow](iyw-api-ecommerce-video.md) to distinguish the
+existing single-image tool from the ecommerce page contract. Documented video or
+product-kit wrapper mismatches use fetch with the exact page body; do not invent
+parameters to pass validation or replay uncertain submissions through another tool.
 
 | Work | Input shape |
 | --- | --- |
