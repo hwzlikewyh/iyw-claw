@@ -24,7 +24,10 @@ export function TaskArtifactDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[min(42rem,calc(100dvh-2rem))] max-w-[min(64rem,calc(100vw-2rem))] overflow-hidden p-0 sm:max-w-[min(64rem,calc(100vw-2rem))]">
+      <DialogContent
+        className="h-[min(42rem,calc(100dvh-2rem))] max-w-[min(64rem,calc(100vw-2rem))] overflow-hidden p-0 sm:max-w-[min(64rem,calc(100vw-2rem))]"
+        closeButtonClassName="top-2 right-2"
+      >
         <DialogTitle className="sr-only">{artifact.displayName}</DialogTitle>
         <DialogDescription className="sr-only">
           {artifact.displayName}
