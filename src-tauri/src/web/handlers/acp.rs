@@ -37,11 +37,8 @@ pub async fn acp_get_agent_status(
 pub async fn acp_list_agents(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Result<Json<Vec<AcpAgentInfo>>, AppCommandError> {
-    let db = &state.db;
-    state.agent_catalog.refresh(&db.conn).await?;
-    let result = acp_commands::acp_list_agents_core(db)
-        .await
-        .map_err(|e| AppCommandError::task_execution_failed(e.to_string()))?;
+    let result =
+        acp_commands::acp_list_agents_with_catalog_core(&state.db, &state.agent_catalog).await?;
     Ok(Json(result))
 }
 

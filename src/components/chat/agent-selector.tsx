@@ -52,7 +52,7 @@ function resolveSelected(
 }
 
 function useAgentSelection(options: SelectionOptions) {
-  const { agents: rawAgents } = useAcpAgents()
+  const { agents: rawAgents, fresh } = useAcpAgents()
   const agents = useMemo(
     () => rawAgents.filter((agent) => agent.enabled),
     [rawAgents]
@@ -66,6 +66,7 @@ function useAgentSelection(options: SelectionOptions) {
   const onAgentsLoadedRef = useLatestRef(options.onAgentsLoaded)
 
   useEffect(() => {
+    if (!fresh) return
     onAgentsLoadedRef.current?.(agents)
     if (options.defaultAgentType === selected || !selected) return
     const fallback = onFallbackRef.current
@@ -73,6 +74,7 @@ function useAgentSelection(options: SelectionOptions) {
     else onSelectRef.current(selected)
   }, [
     agents,
+    fresh,
     onAgentsLoadedRef,
     onFallbackRef,
     onSelectRef,
@@ -80,7 +82,7 @@ function useAgentSelection(options: SelectionOptions) {
     selected,
   ])
 
-  return { agents, selected }
+  return { agents, selected, fresh }
 }
 
 function EmptyAgentSelector({
@@ -149,12 +151,20 @@ export function AgentSelector({
   align = "start",
 }: AgentSelectorProps) {
   const t = useTranslations("Folder.chat.agentSelector")
-  const { agents, selected } = useAgentSelection({
+  const { agents, selected, fresh } = useAgentSelection({
     defaultAgentType,
     onSelect,
     onFallback,
     onAgentsLoaded,
   })
+  if (!fresh) {
+    return (
+      <div
+        className="h-9 w-40 animate-pulse rounded-lg bg-muted/40"
+        aria-busy="true"
+      />
+    )
+  }
   if (agents.length === 0) {
     return (
       <EmptyAgentSelector
