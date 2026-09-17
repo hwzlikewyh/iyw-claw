@@ -11,7 +11,7 @@ export function UsagePointsValue({ points }: { points?: number | null }) {
   return (
     <span
       className="tabular-nums"
-      title={available ? t("estimateHint") : t("unavailableHint")}
+      title={available ? undefined : t("unavailableHint")}
     >
       {available
         ? t("value", { points: formatUsagePoints(points, locale) })
