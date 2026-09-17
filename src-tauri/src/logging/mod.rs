@@ -16,8 +16,10 @@
 pub(crate) mod agent_retention;
 mod agent_retention_policy;
 mod agent_retention_scan;
+pub(crate) mod beijing;
 mod budget;
 mod codex_log_retention;
+mod daily_file;
 pub mod emergency;
 mod emergency_redact;
 pub mod hub;
