@@ -31,6 +31,7 @@ use crate::acp::version_center::{
     install_runtime_bundle, push_pending_activation, resolve_npm_agent_install,
     resolve_uvx_agent_install, InstalledRuntimeBundle, PendingActivation, RuntimeBundleRequest,
 };
+use crate::app_error::AppCommandError;
 use crate::commands::experts::{
     central_experts_dir, classify_link, create_link_raw, is_bundled_expert_id, ExpertLinkState,
     RUNTIME_ENV_DIR_NAMES,
@@ -9652,6 +9653,39 @@ pub async fn acp_get_agent_status(
 }
 
 pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgentInfo>, AcpError> {
+    list_agent_types(db, false).await
+}
+
+pub(crate) async fn acp_list_agents_with_catalog_core(
+    db: &AppDatabase,
+    catalog: &crate::acp::version_center::CatalogStore,
+) -> Result<Vec<AcpAgentInfo>, AppCommandError> {
+    let builtin_only = match catalog.refresh(&db.conn).await {
+        Ok(_) => false,
+        Err(error) => {
+            // 远端目录不可用时仅保留随桌面应用分发的内核，继续沿用本地设置和禁用策略。
+            let retain_builtin = crate::internal_xinghe_worker::is_desktop_agent(AgentType::Codex);
+            tracing::warn!(
+                code = ?error.code,
+                detail = ?error.detail,
+                retain_builtin,
+                "[agent-version-center] Agent catalog refresh failed; external agents unavailable"
+            );
+            if !retain_builtin {
+                return Err(error);
+            }
+            true
+        }
+    };
+    list_agent_types(db, builtin_only)
+        .await
+        .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))
+}
+
+async fn list_agent_types(
+    db: &AppDatabase,
+    builtin_only: bool,
+) -> Result<Vec<AcpAgentInfo>, AcpError> {
     let agent_types = registry::all_identity_agents();
 
     let defaults = agent_types
@@ -9712,6 +9746,9 @@ pub(crate) async fn acp_list_agents_core(db: &AppDatabase) -> Result<Vec<AcpAgen
 
     let mut agents = Vec::new();
     for (idx, agent_type) in agent_types.into_iter().enumerate() {
+        if builtin_only && !crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+            continue;
+        }
         let setting = settings_map.get(&agent_type);
         let meta = registry::get_agent_meta(agent_type);
         let (available, dist_type, local_installed_version) = match &meta.distribution {
@@ -9882,15 +9919,9 @@ pub async fn acp_list_agents(
     db: tauri::State<'_, AppDatabase>,
     catalog: tauri::State<'_, crate::acp::version_center::CatalogStore>,
 ) -> Result<Vec<AcpAgentInfo>, AcpError> {
-    catalog.refresh(&db.conn).await.map_err(|error| {
-        tracing::warn!(
-            code = ?error.code,
-            detail = ?error.detail,
-            "[agent-version-center] Agent list refresh failed closed"
-        );
-        AcpError::protocol("Agent platform catalog is unavailable")
-    })?;
-    acp_list_agents_core(&db).await
+    acp_list_agents_with_catalog_core(&db, &catalog)
+        .await
+        .map_err(|error| AcpError::protocol(error.to_string()))
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]

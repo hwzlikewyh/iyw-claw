@@ -100,7 +100,6 @@ import { isTransientConnectionSendError } from "@/lib/turn-busy"
 import {
   getConversationIdByExternalIdFromStore,
   getRuntimeSession,
-  getTimelineTurns,
   useConversationRuntimeActions,
   useConversationRuntimeStore,
 } from "@/stores/conversation-runtime-store"
@@ -136,10 +135,6 @@ import {
 } from "@/lib/model-config-groups"
 import { planSessionConfigSync } from "@/lib/session-config-compat"
 import { compareSessionControlInventory } from "@/lib/session-control-compat"
-import {
-  lastUserPromptText,
-  type SessionFailureAction,
-} from "@/lib/session-failures"
 import { isInsufficientBalanceError } from "@/lib/agent-runtime-error"
 import type { SessionConfigTranslator } from "@/lib/session-config-localization"
 
@@ -434,7 +429,6 @@ const ConversationTabView = memo(function ConversationTabView({
   )
   const sharedT = useTranslations("Folder.chat.shared")
   const tConfig = useTranslations("Folder.chat.messageInput")
-  const tSessionFailure = useTranslations("Folder.chat.sessionFailure")
   const tConfigStale = useTranslations("Folder.chat.configStale")
   const refreshConversations = useAppWorkspaceStore(
     (s) => s.refreshConversations
@@ -554,9 +548,6 @@ const ConversationTabView = memo(function ConversationTabView({
   }, [selectedAgent])
   const [sendSignal, setSendSignal] = useState(0)
   const usableAgentCount = usableAgentTypes.length
-  const [agentConnectError, setAgentConnectError] = useState<string | null>(
-    null
-  )
   const [hasSentMessage, setHasSentMessage] = useState(false)
   const [quickActionInject, setQuickActionInject] =
     useState<ComposerInjectContent | null>(null)
@@ -657,11 +648,10 @@ const ConversationTabView = memo(function ConversationTabView({
         }
       } catch (e) {
         // The connection needs this scratch dir before queued messages can flush.
-        // Surface creation failures on the welcome screen so the user can retry
-        // by re-entering chat mode instead of leaving the queue stalled silently.
+        // 通过通知保留失败反馈，避免消息队列无声停滞。
         console.error("[ConversationTabView] prepare chat dir:", e)
         if (mountedRef.current) {
-          setAgentConnectError(tWelcome("prepareSessionFailed"))
+          toast.error(tWelcome("prepareSessionFailed"))
         }
       } finally {
         prepareChatDirPendingRef.current = false
@@ -689,7 +679,6 @@ const ConversationTabView = memo(function ConversationTabView({
     setDraftAgentType(agentType)
     setModeId(getSavedModeId(agentType))
     setDraftConfigValues(getSavedPrefsForConnect(agentType).configValues ?? {})
-    setAgentConnectError(null)
   }, [agentType, conversationId])
 
   const {
@@ -785,7 +774,6 @@ const ConversationTabView = memo(function ConversationTabView({
 
   const {
     conn,
-    autoConnectError,
     ensureConnected,
     handleFocus,
     handleSend: lifecycleSend,
@@ -833,7 +821,6 @@ const ConversationTabView = memo(function ConversationTabView({
   }, [sideScope])
   const isSilentModelSwitch = modelReapplyAttempt !== null
   const visibleConnStatus = isSilentModelSwitch ? "connected" : connStatus
-  const visibleConnError = isSilentModelSwitch ? null : conn.error
   const pendingPromptRecoveryRef = useRef<PendingPromptRecovery | null>(null)
   const [dismissedContinuationGeneration, setDismissedContinuationGeneration] =
     useState<number | null>(null)
@@ -1702,7 +1689,7 @@ const ConversationTabView = memo(function ConversationTabView({
           usableAgentCount
         )
       ) {
-        setAgentConnectError(tWelcome("enableAgentFirstPlaceholder"))
+        toast.error(tWelcome("enableAgentFirstPlaceholder"))
         return
       }
       if (shouldQueueBeforeConnection(connectionReady, fromQueueFlush)) {
@@ -2052,7 +2039,7 @@ const ConversationTabView = memo(function ConversationTabView({
           //      welcome screen never returns and the list is empty),
           //   4. re-seed the draft text — message-input clears it synchronously on
           //      send, so without this the user's prompt is lost on failure,
-          //   5. surface the error on the welcome banner so it isn't silent.
+          //   5. surface the error in a toast so it isn't silent.
           removeOptimisticTurn(effectiveConversationId, optimisticTurn.id)
           setSyncState(effectiveConversationId, "idle")
           setHasSentMessage(false)
@@ -2061,7 +2048,7 @@ const ConversationTabView = memo(function ConversationTabView({
             saveMessageInputDraft(draftStorageKey, draftText)
           }
           if (mountedRef.current) {
-            setAgentConnectError(tWelcome("createConversationFailed"))
+            toast.error(tWelcome("createConversationFailed"))
           }
           return false
         } finally {
@@ -2366,7 +2353,6 @@ const ConversationTabView = memo(function ConversationTabView({
       setDraftConfigValues(
         getSavedPrefsForConnect(nextAgentType).configValues ?? {}
       )
-      setAgentConnectError(null)
       // Real user click — clear the provisional flag so TabProvider's
       // correction effect leaves this tab alone.
       confirmDraftAgent(tabId, nextAgentType)
@@ -2390,7 +2376,6 @@ const ConversationTabView = memo(function ConversationTabView({
       setDraftConfigValues(
         getSavedPrefsForConnect(nextAgentType).configValues ?? {}
       )
-      setAgentConnectError(null)
       setDraftAgentFromFallback(tabId, nextAgentType)
     },
     [setDraftAgentFromFallback, tabId]
@@ -2571,49 +2556,6 @@ const ConversationTabView = memo(function ConversationTabView({
     closeTab(tabId)
   }, [closeTab, folder, openNewConversationTab, tabId, workingDirForConnection])
 
-  const detailTurns = detail?.turns
-  const handleSessionFailureAction = useCallback(
-    (action: SessionFailureAction) => {
-      switch (action) {
-        case "retry": {
-          const text =
-            lastUserPromptText(
-              getTimelineTurns(effectiveConversationId).map(({ turn }) => turn)
-            ) ?? lastUserPromptText(detailTurns)
-          if (!text) {
-            toast.warning(tSessionFailure("retryUnavailable"))
-            return
-          }
-          mqEnqueue(
-            { blocks: [{ type: "text", text }], displayText: text },
-            selectedModeId
-          )
-          break
-        }
-        case "login":
-          handleOpenAgentsSettings()
-          break
-        case "new_session":
-          handleOpenNewSession()
-          break
-      }
-    },
-    [
-      detailTurns,
-      effectiveConversationId,
-      handleOpenAgentsSettings,
-      handleOpenNewSession,
-      mqEnqueue,
-      selectedModeId,
-      tSessionFailure,
-    ]
-  )
-
-  const handleSessionFailureDismiss = useCallback(
-    (ids: string[]) => acpActions.dismissSessionFailures(tabId, ids),
-    [acpActions, tabId]
-  )
-
   const handleContinueWithContext = useCallback(async () => {
     if (dbConversationId == null || !folder || contextPrimerLoading) return
     setContextPrimerLoading(true)
@@ -2768,15 +2710,6 @@ const ConversationTabView = memo(function ConversationTabView({
       promptCapabilities={conn.promptCapabilities}
       defaultPath={workingDirForConnection}
       agentName={getAgentDisplayName(selectedAgent)}
-      error={visibleConnError}
-      claudeApiRetry={conn.claudeApiRetry}
-      sessionFailures={conn.sessionFailures}
-      onSessionFailureAction={
-        conn.connectionId !== null && !conn.isViewer
-          ? handleSessionFailureAction
-          : undefined
-      }
-      onSessionFailureDismiss={handleSessionFailureDismiss}
       pendingPermission={conn.pendingPermission}
       pendingQuestion={conn.pendingQuestion}
       pendingAskQuestion={conn.pendingAskQuestion}
@@ -2860,20 +2793,6 @@ const ConversationTabView = memo(function ConversationTabView({
                 disabled={hasSentMessage || dbConversationId != null}
               />
             </div>
-            {!isSilentModelSwitch && (autoConnectError || agentConnectError) ? (
-              <button
-                type="button"
-                onClick={handleOpenAgentsSettings}
-                className="w-full cursor-pointer rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-center text-xs text-destructive transition-colors hover:bg-destructive/10"
-              >
-                <div
-                  className="overflow-hidden text-ellipsis whitespace-nowrap text-center"
-                  title={autoConnectError ?? agentConnectError ?? ""}
-                >
-                  {autoConnectError ?? agentConnectError}
-                </div>
-              </button>
-            ) : null}
             <ChatInput
               // composerConnStatus (not connStatus): a chat draft mid-reconnect
               // reads "connecting" until the connection's cwd matches, while
@@ -2939,20 +2858,6 @@ const ConversationTabView = memo(function ConversationTabView({
               disabled={hasSentMessage || dbConversationId != null}
               variant="settings"
             />
-            {autoConnectError || agentConnectError ? (
-              <button
-                type="button"
-                onClick={handleOpenAgentsSettings}
-                className="mt-2 w-full cursor-pointer rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-center text-xs text-destructive transition-colors hover:bg-destructive/10"
-              >
-                <div
-                  className="overflow-hidden text-ellipsis whitespace-nowrap text-center"
-                  title={autoConnectError ?? agentConnectError ?? ""}
-                >
-                  {autoConnectError ?? agentConnectError}
-                </div>
-              </button>
-            ) : null}
           </div>
           <div className="min-h-0 flex-1">{messageListNode}</div>
         </div>
