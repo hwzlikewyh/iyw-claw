@@ -47,6 +47,7 @@ pub mod idle_agent_settings;
 pub mod internet_tools;
 pub mod iyw_account;
 pub mod iyw_account_profile;
+pub mod log_report;
 pub mod logging;
 pub mod managed_skills;
 pub mod mcp;

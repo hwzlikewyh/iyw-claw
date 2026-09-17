@@ -18,10 +18,11 @@
 use std::path::Path;
 
 use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
-use tracing_appender::rolling::Rotation;
 use tracing_subscriber::{fmt, prelude::*, reload, EnvFilter, Registry};
 
+use crate::logging::beijing::BeijingTime;
 use crate::logging::budget::{self, BudgetedWriter};
+use crate::logging::daily_file::DailyFile;
 use crate::logging::hub::LogHub;
 use crate::logging::layer::BufferEmitLayer;
 use crate::logging::{LogLevel, LogSettings, LOGGING_LEVEL_KEY};
@@ -125,13 +126,7 @@ fn init_file_writer(dir: &Path, prefix: &str) -> Option<(NonBlocking, WorkerGuar
         eprintln!("[logging] could not create log dir {}: {e}", dir.display());
         return None;
     }
-    let appender = match tracing_appender::rolling::Builder::new()
-        .rotation(Rotation::DAILY)
-        .filename_prefix(prefix)
-        .filename_suffix(LOG_FILE_SUFFIX)
-        .max_log_files(file_retention())
-        .build(dir)
-    {
+    let appender = match DailyFile::open(dir, prefix, file_retention()) {
         Ok(appender) => appender,
         Err(e) => {
             eprintln!(
@@ -188,16 +183,29 @@ fn build_subscriber(
         Some((non_blocking, guard)) => {
             Registry::default()
                 .with(filter_layer)
-                .with(fmt::layer().with_writer(std::io::stderr))
+                .with(
+                    fmt::layer()
+                        .with_timer(BeijingTime)
+                        .with_writer(std::io::stderr),
+                )
                 .with(BufferEmitLayer)
-                .with(fmt::layer().json().with_writer(non_blocking))
+                .with(
+                    fmt::layer()
+                        .json()
+                        .with_timer(BeijingTime)
+                        .with_writer(non_blocking),
+                )
                 .init();
             Some(guard)
         }
         None => {
             Registry::default()
                 .with(filter_layer)
-                .with(fmt::layer().with_writer(std::io::stderr))
+                .with(
+                    fmt::layer()
+                        .with_timer(BeijingTime)
+                        .with_writer(std::io::stderr),
+                )
                 .with(BufferEmitLayer)
                 .init();
             None

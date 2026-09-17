@@ -82,7 +82,7 @@ fn candidate_dirs() -> Vec<PathBuf> {
 fn daily_file_name() -> String {
     format!(
         "{FILE_PREFIX}.{}.log",
-        chrono::Utc::now().format("%Y-%m-%d")
+        super::beijing::now().format("%Y-%m-%d")
     )
 }
 
@@ -157,6 +157,7 @@ fn write_event_inner(event: &str, status: &str, stage: &str, detail: Option<Stri
     let record = serde_json::json!({
         "schema_version": 1,
         "timestamp_ms": now_ms(),
+        "timestamp": super::beijing::now().to_rfc3339(),
         "app_version": env!("CARGO_PKG_VERSION"),
         "pid": std::process::id(),
         "run_id": run_id(),

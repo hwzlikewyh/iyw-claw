@@ -23,6 +23,7 @@ pub mod folders;
 pub mod git;
 pub mod internet_tools;
 pub mod iyw_account;
+pub mod log_report;
 pub mod logging;
 pub mod managed_skills;
 pub mod mcp;

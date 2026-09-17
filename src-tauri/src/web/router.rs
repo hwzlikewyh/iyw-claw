@@ -728,6 +728,16 @@ pub fn build_router(
         .route("/get_recent_logs", post(handlers::logging::get_recent_logs))
         .route("/list_log_files", post(handlers::logging::list_log_files))
         .route("/read_log_file", post(handlers::logging::read_log_file))
+        .route(
+            "/get_log_report_context",
+            post(handlers::log_report::get_log_report_context),
+        )
+        .route(
+            "/submit_log_report",
+            post(handlers::log_report::submit_log_report).layer(DefaultBodyLimit::max(
+                crate::commands::log_report::MAX_REQUEST_BYTES,
+            )),
+        )
         // ─── ACP ───
         .route(
             "/acp_get_agent_status",

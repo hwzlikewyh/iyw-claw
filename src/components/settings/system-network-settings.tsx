@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { useAppI18n } from "@/components/i18n-provider"
 import { BackupSettings } from "@/components/settings/backup-settings"
+import { LogReportSettings } from "@/components/settings/log-report-settings"
 import {
   SettingsPageLayout,
   SettingsPageHeader,
@@ -264,6 +265,7 @@ export function SystemNetworkSettings() {
         </div>
       </section>
 
+      <LogReportSettings />
       <BackupSettings />
     </SettingsPageLayout>
   )

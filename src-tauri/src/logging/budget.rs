@@ -11,7 +11,7 @@ pub(super) const MAX_BYTES_ENV: &str = "IYW_CLAW_LOG_MAX_BYTES";
 const SECONDS_PER_DAY: i64 = 86_400;
 
 fn unix_day_from_secs(seconds: i64) -> i32 {
-    seconds.div_euclid(SECONDS_PER_DAY) as i32
+    (seconds + i64::from(super::beijing::OFFSET_SECONDS)).div_euclid(SECONDS_PER_DAY) as i32
 }
 
 fn current_unix_day() -> i32 {
@@ -24,7 +24,7 @@ fn current_unix_day() -> i32 {
 }
 
 pub(super) fn resume_point(dir: &Path, prefix: &str, suffix: &str) -> (i32, u64) {
-    let now = chrono::Utc::now();
+    let now = super::beijing::now();
     let day = unix_day_from_secs(now.timestamp());
     let file_name = format!("{prefix}.{}.{suffix}", now.format("%Y-%m-%d"));
     let existing_bytes = std::fs::metadata(dir.join(file_name))
@@ -70,14 +70,14 @@ impl Notice {
         match self {
             Notice::Exhausted { limit, written } => format!(
                 "[logging] daily file budget reached ({written}/{limit} bytes); \
-                 dropping file logs until the next UTC day. Set {MAX_BYTES_ENV}=0 \
+                 dropping file logs until the next Beijing day. Set {MAX_BYTES_ENV}=0 \
                  only for an intentional unbounded capture."
             ),
             Notice::Reopened {
                 dropped_lines,
                 dropped_bytes,
             } => format!(
-                "[logging] daily file budget reopened; the previous UTC day dropped \
+                "[logging] daily file budget reopened; the previous Beijing day dropped \
                  {dropped_lines} line(s) / {dropped_bytes} bytes"
             ),
         }
