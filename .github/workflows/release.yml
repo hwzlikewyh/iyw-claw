@@ -209,6 +209,16 @@ jobs:
               prerelease: process.env.PRERELEASE === "true",
             });
 
+  prepare-workers:
+    needs: create-draft-release
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/build-xinghe-workers.yml
+    with:
+      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
+      release_artifacts: true
+
   prepare-frontend:
     needs: create-draft-release
     runs-on: ubuntu-22.04
@@ -263,6 +273,7 @@ jobs:
       release_body: ${{ needs.create-draft-release.outputs.release_body }}
       source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
       prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
+      parallel_worker: true
       build_matrix: '{"include":[{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false}]}'
     secrets: inherit
 
@@ -278,6 +289,7 @@ jobs:
       release_body: ${{ needs.create-draft-release.outputs.release_body }}
       source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
       prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
+      parallel_worker: true
       build_matrix: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"64","lto":"off","optional":false}]}'
     secrets: inherit
 
@@ -292,6 +304,7 @@ jobs:
       actions: read
     uses: ./.github/workflows/release-windows-staged.yml
     with:
+      parallel_worker: true
       target: ${{ matrix.target }}
       source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
       release_id: ${{ needs.create-draft-release.outputs.release_id }}
@@ -413,6 +426,7 @@ jobs:
       release_body: ${{ needs.create-draft-release.outputs.release_body }}
       source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
       prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
+      parallel_worker: true
       release_draft: true
       build_matrix: '{"include":[{"name":"Linux arm64 (optional)","runner":"ubuntu-22.04-arm","target":"aarch64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":true}]}'
     secrets: inherit

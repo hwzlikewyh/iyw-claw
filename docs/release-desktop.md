@@ -32,11 +32,14 @@
 ## 自动流程
 
 1. 校验版本和 Fusion 登录，拒绝覆盖同版本已有的非 1% 发布策略。
-2. 调用 GitHub `Release` 工作流，前端只构建一次。
+2. 调用 GitHub `Release` 工作流，前端只构建一次；独立 worker job 同时启动，
+   优先复用引擎源码变更后预构建的成品。
 3. Windows x64/x86 在 GitHub 托管机器并行编译；macOS 两架构与 Linux 同时构建。
    可选 Linux ARM64 使用原生 ARM runner 提前构建，不阻断五平台发布；Intel macOS
    安装验证在自身构建完成后启动，不等待其他平台。编译提速参数和权衡见
    [构建缓存与耗时](build-acceleration.md)。
+   各端应用编译与 worker 编译在不同 runner 并行，组装前按源码和架构接收并校验
+   worker；macOS/Linux 使用 `tauri bundle` 组装，不再重复编译应用。
 4. Windows 签名前输入通过临时草稿资产传输，校验归档 SHA-256 后解包，再核验
    版本、源码提交、架构、文件清单和逐文件摘要。本机只签名与封装。
 5. 签名后的资源作为安装验证输入；Windows 实际安装和 macOS Intel 验证成功后，

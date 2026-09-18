@@ -3,6 +3,9 @@ name: Release Tauri Bundles
 on:
   workflow_call:
     inputs:
+      parallel_worker:
+        default: false
+        type: boolean
       release_id:
         required: true
         type: string
@@ -335,14 +338,40 @@ jobs:
           path: ${{ runner.temp }}/iyw-runtime-seed-cache
           key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
 
+      - name: Compile application alongside worker
+        if: inputs.parallel_worker
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          IYW_CLAW_SKIP_SIDECAR: "1"
+          TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
+        run: |
+          set -euo pipefail
+          if [[ "$BUILD_TARGET" == *windows* ]]; then
+            echo "::error::Parallel Windows builds must use release-windows-staged.yml"
+            exit 1
+          fi
+          configs=(--config src-tauri/tauri.ci.conf.json)
+          configs+=(--config src-tauri/tauri.runtime-seed.conf.json)
+          if [[ "$BUILD_TARGET" == "aarch64-unknown-linux-gnu" ]]; then
+            configs+=(--config src-tauri/tauri.linux-arm64-ci.conf.json)
+          fi
+          pnpm dlx @tauri-apps/cli@2.11.4 build --target "$BUILD_TARGET" --features tauri-runtime "${configs[@]}" --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings
+
+      - name: Receive independently compiled worker
+        if: inputs.parallel_worker
+        uses: ./.github/actions/receive-worker
+        with:
+          target: ${{ matrix.target }}
+
       - name: Build built-in worker
-        if: hashFiles('.github/actions/prepare-worker/action.yml') != ''
+        if: ${{ !inputs.parallel_worker && hashFiles('.github/actions/prepare-worker/action.yml') != '' }}
         uses: ./.github/actions/prepare-worker
         with:
           target: ${{ matrix.target }}
 
       - name: Prepare worker for legacy source
-        if: hashFiles('.github/actions/prepare-worker/action.yml') == ''
+        if: ${{ !inputs.parallel_worker && hashFiles('.github/actions/prepare-worker/action.yml') == '' }}
         run: pnpm tauri:prepare-xinghe-worker --target "${{ matrix.target }}"
 
       - name: Run managed browser smoke
@@ -375,7 +404,7 @@ jobs:
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           assetNamePattern: iyw-claw_[version]_arm64[ext]
-          tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
+          tauriScript: ${{ inputs.parallel_worker && 'node .github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} --config src-tauri/tauri.linux-arm64-ci.conf.json -- --timings
           includeUpdaterJson: false
           retryAttempts: 2
@@ -473,7 +502,7 @@ jobs:
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           assetNamePattern: iyw-claw_[version]_amd64[ext]
-          tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
+          tauriScript: ${{ inputs.parallel_worker && 'node .github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles appimage --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} -- --timings
           includeUpdaterJson: false
           retryAttempts: 2
@@ -498,7 +527,7 @@ jobs:
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           assetNamePattern: iyw-claw_[version]_${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || 'aarch64' }}[ext]
-          tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
+          tauriScript: ${{ inputs.parallel_worker && 'node .github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
           args: --target ${{ matrix.target }} --features tauri-runtime --bundles app,dmg --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} -- --timings
           includeUpdaterJson: false
           retryAttempts: 2

@@ -4,6 +4,9 @@ inputs:
   target:
     required: true
     description: Rust target triple
+  dependency-cache:
+    default: "false"
+    description: Restore worker dependencies only when no compiled worker is available
 runs:
   using: composite
   steps:
@@ -57,6 +60,16 @@ runs:
         directory="harness/xinghe-worker/target/bundle-cache/$WORKER_TARGET"
         mkdir -p "$directory"
         tar -xf "$WORKER_ARCHIVE" -C "$directory"
+    - name: Cache worker dependencies for cold builds
+      if: inputs.dependency-cache == 'true' && steps.cache.outputs.cache-hit != 'true' && steps.download.outcome != 'success'
+      uses: swatinem/rust-cache@v2
+      with:
+        prefix-key: v1-worker-dependencies
+        workspaces: harness/xinghe-worker -> target
+        shared-key: worker-${{ inputs.target }}
+        cache-bin: "false"
+        cache-workspace-crates: "false"
+        save-if: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
     - name: Prepare and verify worker resources
       shell: bash
       env:

@@ -2,6 +2,9 @@ name: Build and Sign Windows Release
 on:
   workflow_call:
     inputs:
+      parallel_worker:
+        default: false
+        type: boolean
       target:
         required: true
         type: string
@@ -103,14 +106,28 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Runtime preparation failed' }
           pnpm tauri:verify-runtime-seed --target $env:TAURI_TARGET_TRIPLE
           if ($LASTEXITCODE -ne 0) { throw 'Runtime verification failed' }
+      - name: Compile application alongside worker
+        if: inputs.parallel_worker
+        env:
+          IYW_CLAW_SKIP_SIDECAR: "1"
+        run: |
+          $overlay = if ($env:TAURI_TARGET_TRIPLE -eq 'i686-pc-windows-msvc') { 'src-tauri/tauri.windows-x86.conf.json' } else { 'src-tauri/tauri.runtime-seed.conf.json' }
+          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config $overlay --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings
+          if ($LASTEXITCODE -ne 0) { throw 'Parallel Windows compilation failed' }
+      - name: Receive independently compiled worker
+        if: inputs.parallel_worker
+        uses: ./.github/actions/receive-worker
+        with:
+          target: ${{ inputs.target }}
       - uses: ./.github/actions/prepare-worker
-        if: hashFiles('.github/actions/prepare-worker/action.yml') != ''
+        if: ${{ !inputs.parallel_worker && hashFiles('.github/actions/prepare-worker/action.yml') != '' }}
         with:
           target: ${{ inputs.target }}
       - name: Prepare legacy worker
-        if: hashFiles('.github/actions/prepare-worker/action.yml') == ''
+        if: ${{ !inputs.parallel_worker && hashFiles('.github/actions/prepare-worker/action.yml') == '' }}
         run: pnpm tauri:prepare-xinghe-worker --target $env:TAURI_TARGET_TRIPLE
       - name: Compile unsigned application only
+        if: ${{ !inputs.parallel_worker }}
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
         run: |
