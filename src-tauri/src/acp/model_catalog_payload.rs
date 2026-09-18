@@ -36,9 +36,14 @@ fn parse_model(value: &serde_json::Value) -> Option<PersistedModel> {
         .and_then(serde_json::Value::as_object)
         .map(parse_limits)
         .unwrap_or_default();
+    let supports_reasoning_summary_parameter = value
+        .get("supports_reasoning_summary_parameter")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(true);
     Some(PersistedModel {
         id: id.to_string(),
         capabilities,
+        supports_reasoning_summary_parameter,
         image_input_mode,
         limits,
     })
@@ -76,5 +81,39 @@ fn parse_image_input_mode(value: &str) -> Option<ImageInputMode> {
         "fallback" => Some(ImageInputMode::Fallback),
         "none" => Some(ImageInputMode::None),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::layer_from_payload;
+
+    #[test]
+    fn preserves_explicit_reasoning_summary_capability() {
+        let payload = serde_json::json!({
+            "data": [{
+                "id": "doubao-seed-2-1-pro-260915",
+                "supports_reasoning_summary_parameter": false
+            }]
+        });
+        let layer = layer_from_payload(&payload).expect("valid catalog");
+        let model = layer
+            .ids
+            .first()
+            .and_then(|id| layer.capabilities.get(id))
+            .expect("model snapshot");
+        assert!(!model.supports_reasoning_summary_parameter);
+    }
+
+    #[test]
+    fn defaults_reasoning_summary_capability_for_legacy_payloads() {
+        let payload = serde_json::json!({"data": [{"id": "legacy-model"}]});
+        let layer = layer_from_payload(&payload).expect("valid catalog");
+        let model = layer
+            .ids
+            .first()
+            .and_then(|id| layer.capabilities.get(id))
+            .expect("model snapshot");
+        assert!(model.supports_reasoning_summary_parameter);
     }
 }
