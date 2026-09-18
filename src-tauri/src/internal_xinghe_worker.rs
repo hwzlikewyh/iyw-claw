@@ -18,7 +18,7 @@ mod resources;
 
 pub const WORKER_FLAG: &str = "--internal-xinghe-worker";
 pub const ACTIVE_ENV: &str = "IYW_CLAW_XINGHE_WORKER_ACTIVE";
-pub const RUNTIME_VERSION: &str = "0.154.0";
+pub const RUNTIME_VERSION: &str = "0.155.0";
 
 pub(crate) fn is_desktop_agent(agent: crate::models::agent::AgentType) -> bool {
     cfg!(feature = "tauri-runtime") && agent == crate::models::agent::AgentType::Codex
@@ -44,7 +44,7 @@ const HELPER_ENTRY: &[u8] = b"iyw_xinghe_worker_dispatch_helper_v1\0";
 const ABI_ENTRY: &[u8] = b"iyw_xinghe_worker_abi_version\0";
 const CORE_VERSION_ENTRY: &[u8] = b"iyw_xinghe_worker_core_version\0";
 const REQUIRED_ABI: u64 = 1;
-const REQUIRED_CORE_VERSION: u64 = 154 * 1_000;
+const REQUIRED_CORE_VERSION: u64 = 155 * 1_000;
 
 /// Handles a worker process or an upstream helper reexec before app startup.
 ///

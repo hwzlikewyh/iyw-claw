@@ -70,7 +70,11 @@ impl SettingsUpdate {
                 ))
             });
         match result {
-            Ok(params) => {
+            Ok(None) => {
+                eprintln!("[internal-codex-worker] stage=settings_update status=unchanged");
+                let _ = response.send(Ok(settings_mapping::response(&method, context.1)));
+            }
+            Ok(Some(params)) => {
                 eprintln!("[internal-codex-worker] stage=settings_update status=queued");
                 self.pending = Some(PendingUpdate {
                     method,
@@ -157,24 +161,29 @@ pub(super) fn is_update(method: &str) -> bool {
 async fn submit(
     context: (&UpstreamClient, &SessionSettings),
     input: (&str, &Value),
-) -> Result<Value, UpstreamError> {
+) -> Result<Option<Value>, UpstreamError> {
     let (upstream, settings) = context;
     let (request, _) = settings_mapping::request(input.0, input.1, settings)?;
     let params = request["params"].clone();
+    // 只有上游已经确认的快照才能判定无变化，真实变更仍等待应用通知。
+    if settings.matches_request(&params) {
+        return Ok(None);
+    }
     let thread = params["threadId"]
         .as_str()
         .ok_or_else(|| UpstreamError::InvalidRequest("settings request has no thread id".into()))?;
     upstream.request_json_for_thread(thread, request).await?;
-    Ok(params)
+    Ok(Some(params))
 }
 
-fn matches_requested(request: &Value, snapshot: &Value) -> bool {
+pub(super) fn matches_requested(request: &Value, snapshot: &Value) -> bool {
     let Some(params) = request.as_object() else {
         return false;
     };
     params.iter().all(|(key, value)| match key.as_str() {
         "threadId" => true,
         "permissions" => snapshot.pointer("/activePermissionProfile/id") == Some(value),
+        "effort" => snapshot.get("effort").or_else(|| snapshot.get("reasoningEffort")) == Some(value),
         "serviceTier" if value.is_null() => snapshot[key].is_null() || snapshot[key] == "default",
         "serviceTier" if value == "fast" => snapshot[key] == "fast" || snapshot[key] == "priority",
         "collaborationMode" => ["/mode", "/settings/model", "/settings/reasoning_effort"]

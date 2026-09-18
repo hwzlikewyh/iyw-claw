@@ -1,7 +1,7 @@
 import type { UsageDailyRow } from "@/lib/usage-stats"
 
-export const USAGE_DAY_OPTIONS = [7, 14, 30, 90] as const
-export const DEFAULT_USAGE_DAYS = USAGE_DAY_OPTIONS[0]
+export const USAGE_DAY_OPTIONS = [1, 7, 14, 30, 90] as const
+export const DEFAULT_USAGE_DAYS = 7
 
 export function formatUsagePoints(value: number, locale?: string): string {
   return value.toLocaleString(locale, { maximumFractionDigits: 4 })

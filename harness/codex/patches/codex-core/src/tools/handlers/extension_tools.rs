@@ -166,13 +166,14 @@ impl TurnItemEmitter for CoreTurnItemEmitter {
 async fn to_extension_call(invocation: &ToolInvocation) -> ExtensionToolCall<'_> {
     let conversation_history =
         ConversationHistory::new(invocation.session.clone_history().await.into_raw_items());
+    let settings = &invocation.step_context.settings;
     let codex_turn_metadata = invocation
         .turn
         .turn_metadata_state
         .current_meta_value_for_mcp_request(McpTurnMetadataContext {
-            model: invocation.turn.model_info().slug.as_str(),
-            reasoning_effort: invocation.turn.effective_reasoning_effort(),
-            node_repl_disabled: invocation.turn.model_info().node_repl_disabled,
+            model: settings.model_info.slug.as_str(),
+            reasoning_effort: settings.effective_reasoning_effort(),
+            node_repl_disabled: settings.model_info.node_repl_disabled,
         })
         .and_then(|metadata| to_ascii_json_string(&metadata).ok());
     let mut environments = Vec::new();
@@ -204,9 +205,9 @@ async fn to_extension_call(invocation: &ToolInvocation) -> ExtensionToolCall<'_>
         turn_id: invocation.turn.sub_id.clone(),
         call_id: invocation.call_id.clone(),
         tool_name: invocation.tool_name.clone(),
-        model: invocation.turn.model_info().slug.clone(),
+        model: settings.model_info.slug.clone(),
         codex_turn_metadata,
-        truncation_policy: invocation.turn.model_info().truncation_policy.into(),
+        truncation_policy: settings.model_info.truncation_policy.into(),
         source: extension_tool_call_source(invocation.source.clone()),
         conversation_history,
         turn_item_emitter: Arc::new(CoreTurnItemEmitter {

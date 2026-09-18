@@ -16,24 +16,40 @@ pub(super) fn reconcile(
     provider_config_next: &str,
 ) -> Result<bool, ReconcileError> {
     let config_next = patch_config(provider_config_next)?;
+    let changed = reconcile_profile(profile_root, Some((config_raw, &config_next)))?;
+    verify(profile_root, &config_next)?;
+    Ok(changed)
+}
+
+pub(super) fn reconcile_runtime_resources(profile_root: &Path) -> Result<(), ReconcileError> {
+    reconcile_profile(profile_root, None)?;
+    verify_runtime_resources(profile_root)
+}
+
+fn reconcile_profile(
+    profile_root: &Path,
+    config: Option<(&str, &str)>,
+) -> Result<bool, ReconcileError> {
     let agents_path = profile_root.join("AGENTS.md");
     let default_path = profile_root.join("agents").join("default.toml");
     let agents_raw = read_optional(&agents_path)?;
     let default_raw = read_optional(&default_path)?;
     let agents_next = patch_agents_md(&agents_raw).map_err(ReconcileError::ParseFailed)?;
-    let backup_required = config_raw != config_next.as_str()
+    let backup_required = config.is_some_and(|(raw, next)| raw != next)
         || agents_raw != agents_next
         || default_raw != DEFAULT_AGENT_TOML;
 
     if backup_required {
-        backup_existing_files(profile_root)?;
+        backup_existing_files(profile_root, config.is_some())?;
     }
 
-    let config_path = profile_root.join("config.toml");
-    let changed = write(&config_path, config_raw, &config_next)?
+    let config_changed = match config {
+        Some((raw, next)) => write(&profile_root.join("config.toml"), raw, next)?,
+        None => false,
+    };
+    let changed = config_changed
         | write(&agents_path, &agents_raw, &agents_next)?
         | write(&default_path, &default_raw, DEFAULT_AGENT_TOML)?;
-    verify(profile_root, &config_next)?;
     Ok(changed)
 }
 
@@ -114,11 +130,12 @@ fn replace_section(raw: &str, range: Range<usize>, block: &str) -> String {
     parts.join(&format!("{newline}{newline}")) + newline
 }
 
-fn backup_existing_files(profile_root: &Path) -> Result<(), ReconcileError> {
+fn backup_existing_files(profile_root: &Path, include_config: bool) -> Result<(), ReconcileError> {
     let backup_dir = unique_backup_dir(profile_root);
     let relative_paths = ["config.toml", "AGENTS.md", "agents/default.toml"];
     let existing: Vec<&str> = relative_paths
         .into_iter()
+        .filter(|relative| include_config || *relative != "config.toml")
         .filter(|relative| profile_root.join(relative).is_file())
         .collect();
     if existing.is_empty() {
@@ -174,8 +191,6 @@ fn write(path: &Path, raw: &str, next: &str) -> Result<bool, ReconcileError> {
 
 fn verify(profile_root: &Path, config_expected: &str) -> Result<(), ReconcileError> {
     let config_path = profile_root.join("config.toml");
-    let agents_path = profile_root.join("AGENTS.md");
-    let default_path = profile_root.join("agents").join("default.toml");
     let config_raw = read_back(&config_path)?;
     if !multi_agent_config_is_current(&config_raw)? {
         return Err(verification_error(
@@ -184,6 +199,12 @@ fn verify(profile_root: &Path, config_expected: &str) -> Result<(), ReconcileErr
         ));
     }
     verify_config_values(&config_raw, config_expected, &config_path)?;
+    verify_runtime_resources(profile_root)
+}
+
+fn verify_runtime_resources(profile_root: &Path) -> Result<(), ReconcileError> {
+    let agents_path = profile_root.join("AGENTS.md");
+    let default_path = profile_root.join("agents").join("default.toml");
     let agents_raw = read_back(&agents_path)?;
     if patch_agents_md(&agents_raw).map_err(ReconcileError::VerificationFailed)? != agents_raw {
         return Err(verification_error(&agents_path, "managed section mismatch"));

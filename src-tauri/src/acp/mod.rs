@@ -1,4 +1,5 @@
 pub mod account_credentials;
+pub(crate) mod xinghe_runtime_config;
 mod account_credentials_formats;
 mod agent_image_input;
 mod agent_input;

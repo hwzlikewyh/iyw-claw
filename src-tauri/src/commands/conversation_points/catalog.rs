@@ -11,6 +11,7 @@ use crate::app_error::AppCommandError;
 const PRICE_CACHE_TTL: Duration = Duration::from_secs(300);
 const PRICE_FAILURE_TTL: Duration = Duration::from_secs(2);
 const PRICE_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const PRICE_CACHE_LOOKUP_TIMEOUT: Duration = Duration::from_millis(50);
 
 struct CachedPrices {
     scope: Vec<u8>,
@@ -21,6 +22,28 @@ struct CachedPrices {
 fn cache() -> &'static Mutex<Option<CachedPrices>> {
     static CACHE: OnceLock<Mutex<Option<CachedPrices>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(None))
+}
+
+pub(super) async fn cached(conn: &DatabaseConnection) -> Option<Arc<Prices>> {
+    // 历史首屏只读取同账号的现成缓存，数据库繁忙时也不等待附加统计。
+    let token = tokio::time::timeout(
+        PRICE_CACHE_LOOKUP_TIMEOUT,
+        super::super::iyw_account::iyw_account_access_token_core(conn),
+    )
+    .await
+    .ok()?
+    .ok()??;
+    let url = crate::acp::provider_overlay::model_gateway_models_url();
+    let mut digest = Sha256::new();
+    digest.update(url.as_bytes());
+    digest.update(token.expose().as_bytes());
+    let scope = digest.finalize().to_vec();
+    let cached = cache().try_lock().ok()?;
+    cached
+        .as_ref()
+        .filter(|entry| entry.scope == scope && entry.expires > Instant::now())?
+        .prices
+        .clone()
 }
 
 pub(super) async fn load(conn: &DatabaseConnection) -> Option<Arc<Prices>> {

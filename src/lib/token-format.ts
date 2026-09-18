@@ -7,3 +7,11 @@ export function formatTokenCount(n: number): string {
   }
   return n.toLocaleString()
 }
+
+const TOKENS_PER_K = 1_000
+
+export function formatTokenThousands(n: number, locale?: string): string {
+  return `${(n / TOKENS_PER_K).toLocaleString(locale, {
+    maximumFractionDigits: 3,
+  })}K`
+}

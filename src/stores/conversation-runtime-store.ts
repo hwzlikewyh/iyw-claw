@@ -30,6 +30,10 @@ import {
 } from "@/stores/turn-metadata"
 import { completeTurnTiming } from "@/lib/turn-duration"
 import {
+  firstTokenElapsed,
+  rememberFirstTokenTime,
+} from "@/lib/turn-performance"
+import {
   BACKGROUND_TASK_MARKER,
   settleLiveBackgroundTask,
 } from "@/lib/background-agent"
@@ -1389,6 +1393,13 @@ function reducer(
         action.liveMessage !== undefined
           ? action.liveMessage
           : current.liveMessage
+
+      if (sourceLiveMessage) {
+        rememberFirstTokenTime(
+          `live-${current.conversationId}-${sourceLiveMessage.id}`,
+          firstTokenElapsed(sourceLiveMessage)
+        )
+      }
 
       // Convert liveMessage to completed MessageTurns (split into rounds)
       const streamingTurns = sourceLiveMessage

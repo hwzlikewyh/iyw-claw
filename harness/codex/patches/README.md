@@ -11,7 +11,7 @@ background command can settle after its originating turn without entering a
 new turn's transcript. Recheck this path, including approval placeholders, when
 upgrading the upstream protocol.
 
-`codex-mcp` retains the production sources of pinned 0.154.0 (`6b9826e`), with
+`codex-mcp` retains the production sources of pinned 0.155.0 (`f0a1b8f`), with
 test-only modules omitted and standalone dependency metadata. Its status inspection
 reads one published runtime generation without starting/reconnecting clients.
 Thread-scoped `mcpServerStatus/list` uses that view through `codex-core`; global
@@ -25,7 +25,7 @@ compile the locked Codex release. It is part of the harness source and must not
 depend on a developer-machine path.
 
 `codex-state` contains the production sources and migrations from pinned
-0.154.0, with test-only items omitted. Migration SQL is stored with LF endings.
+0.155.0, with test-only items omitted. Migration SQL is stored with LF endings.
 Before migration, the runtime accepts an applied checksum only when it matches
 the exact embedded SQL or its LF/CRLF variant. It adjusts the in-memory migrator,
 preserving database migration records, locking and rejection of other changes.
@@ -40,7 +40,7 @@ once before continuing; a repeated rejection or failed compaction surfaces the
 original error. Local and remote-v2 compaction do not retry an unchanged 413
 request. No history is truncated outside the upstream compaction lifecycle.
 
-`codex-utils-pty` is copied from the locked `rust-v0.153.4` source tree. Local
+`codex-utils-pty` is copied from the locked `rust-v0.155.0` source tree. Local
 source deltas retain explicit pointer casts in `src/win/conpty.rs` and
 `src/win/procthreadattr.rs`, plus hidden-window creation flags in `src/pipe.rs`,
 `src/win/mod.rs`, and `src/win/psuedocon.rs`. Its `Cargo.toml` is standalone
@@ -51,7 +51,7 @@ when starting internal Git and MCP subprocesses. Assigning the process to a job
 must not undo the hidden-window setting.
 
 `codex-shell-command` contains the production sources from the same locked
-`rust-v0.153.4` commit. Its only runtime change is setting `CREATE_NO_WINDOW`
+`rust-v0.155.0` commit. Its only runtime change is setting `CREATE_NO_WINDOW`
 on the two PowerShell detection commands in `src/powershell.rs`. Detection calls
 `pwsh` directly instead of adding an intermediate `cmd /C` process. The standalone
 manifest resolves the original workspace dependencies at the same pin. Upstream
@@ -141,6 +141,15 @@ the Windows launch flags, renamed helper paths, command descriptions, and
 legacy thread-history adapter. Production dependency changes and precomputed
 protocol exports are synchronized; test-only source additions are omitted.
 The unchanged PTY source still needs the existing pointer-cast patch.
+The 0.155.0 upgrade refreshes production sources and dependencies from
+`f0a1b8f0849d90960bc406b848f32e5a129b0457`. It preserves the local Windows,
+command-description, MCP status, SQLite checksum and HTTP 413 patches through
+three-way source migration. Both compressed protocol exports retain the optional
+command description in JSON schemas and TypeScript. The new model-provider AWS
+credential export subprocess also uses `CREATE_NO_WINDOW`. Upstream production
+migrations are included; new test-only sources are omitted. The existing PTY
+pointer casts are still required.
+
 ## MCP Tool Identity Diagnostics
 
 The Codex 0.154.0 registry patch classifies a namespace-only invocation, a

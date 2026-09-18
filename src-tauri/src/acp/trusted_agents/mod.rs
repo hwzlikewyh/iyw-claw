@@ -81,7 +81,10 @@ pub(crate) fn restrict_configured_runtime_env(
     let allowed = definition.launch.allowed_env_names;
     let before = environment.len();
     environment
-        .retain(|key, _| is_host_owned_runtime_env(key) || allowed.iter().any(|name| *name == key));
+        .retain(|key, _| is_host_owned_runtime_env(key)
+            || (crate::internal_xinghe_worker::is_desktop_agent(agent_type)
+                && matches!(key.as_str(), "CODEX_CONFIG" | "CODEX_API_KEY"))
+            || allowed.iter().any(|name| *name == key));
     let rejected = before.saturating_sub(environment.len());
     if rejected > 0 {
         tracing::debug!(

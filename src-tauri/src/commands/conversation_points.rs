@@ -5,6 +5,26 @@ use crate::models::{DbConversationDetail, MessageTurn, TurnUsage};
 mod catalog;
 mod pricing;
 
+pub(super) fn missing(detail: &DbConversationDetail) -> bool {
+    detail
+        .session_stats
+        .as_ref()
+        .and_then(|stats| stats.total_usage.as_ref())
+        .is_some_and(|usage| usage.estimated_points.is_none())
+}
+
+pub(super) async fn enrich_cached(
+    conn: &sea_orm::DatabaseConnection,
+    detail: &mut DbConversationDetail,
+) {
+    if !missing(detail) {
+        return;
+    }
+    if let Some(prices) = catalog::cached(conn).await {
+        apply(&prices, detail);
+    }
+}
+
 fn counts(usage: &TurnUsage) -> [u64; 4] {
     [
         usage.input_tokens,

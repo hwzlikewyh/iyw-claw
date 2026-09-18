@@ -24,10 +24,12 @@ import {
   ModelDistribution,
   UsageEmptyState,
   UsageSummary,
+  UsageTodaySummary,
   type UsageSnapshot,
 } from "@/components/settings/usage-settings-view"
 import { UsageDailyChart } from "./usage-daily-chart"
 import { UsageDailyTable } from "./usage-daily-table"
+import { UsageConversations } from "./usage-conversations"
 import {
   DEFAULT_USAGE_DAYS,
   USAGE_DAY_OPTIONS,
@@ -113,7 +115,9 @@ function UsageControls({
         <SelectContent>
           {USAGE_DAY_OPTIONS.map((value) => (
             <SelectItem key={value} value={String(value)}>
-              {t("period.days", { days: value })}
+              {value === 1
+                ? t("period.today")
+                : t("period.days", { days: value })}
             </SelectItem>
           ))}
         </SelectContent>
@@ -146,10 +150,22 @@ function UsageContent({
   snapshot: UsageSnapshot
   days: number
 }) {
+  const t = useTranslations("UsageSettings")
   const rows = usageCalendarDays(snapshot.stats.dailyRows, days)
   return (
     <>
-      <UsageSummary snapshot={snapshot} days={days} />
+      {days !== 1 && <UsageTodaySummary row={rows[rows.length - 1]} />}
+      <section
+        className="space-y-3"
+        aria-label={days === 1 ? t("period.today") : t("period.days", { days })}
+      >
+        {days !== 1 && (
+          <h2 className="text-sm font-semibold">
+            {t("period.days", { days })}
+          </h2>
+        )}
+        <UsageSummary snapshot={snapshot} days={days} />
+      </section>
       {isUsageSnapshotEmpty(snapshot) ? (
         <UsageEmptyState />
       ) : (
@@ -166,6 +182,7 @@ function UsageContent({
 export function UsageSettings() {
   const t = useTranslations("UsageSettings")
   const [days, setDays] = useState<number>(DEFAULT_USAGE_DAYS)
+  const [revision, setRevision] = useState(0)
   const { snapshot, loading, error, load } = useUsageSnapshot(days)
 
   return (
@@ -178,7 +195,10 @@ export function UsageSettings() {
             days={days}
             setDays={setDays}
             loading={loading}
-            refresh={() => void load()}
+            refresh={() => {
+              setRevision((value) => value + 1)
+              void load()
+            }}
           />
         }
       />
@@ -206,6 +226,7 @@ export function UsageSettings() {
           <UsageContent snapshot={snapshot} days={days} />
         </div>
       )}
+      <UsageConversations key={`${days}:${revision}`} days={days} />
     </SettingsPageLayout>
   )
 }

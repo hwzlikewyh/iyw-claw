@@ -789,7 +789,10 @@ const ConversationTabView = memo(function ConversationTabView({
     // Drives cross-client viewer discovery: when another client is already
     // live on this conversation, attach to its connection instead of spawning.
     conversationId: dbConversationId ?? undefined,
-    attachOnlyOnActivate: hasPersistedConversation,
+    attachOnlyOnActivate:
+      hasPersistedConversation &&
+      selectedAgent !== "codex" &&
+      selectedAgent !== "claude_code",
     isTransientUnmount: useCallback(
       () => isReparentUnmount(useTabStore.getState(), tabId, groupId),
       [groupId, tabId]

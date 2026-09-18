@@ -1157,7 +1157,11 @@ function applyStreamingAction(
       ...prev,
       content: newContent,
       firstTextAt:
-        action.type === "CONTENT_DELTA" && prev.firstTextAt == null
+        action.type === "CONTENT_DELTA" &&
+        prev.firstTextAt == null &&
+        !prev.content.some(
+          (block) => block.type === "text" && block.text.length > 0
+        )
           ? Date.now()
           : prev.firstTextAt,
     },

@@ -85,6 +85,12 @@ pub fn reconcile_resumed_session(
     reconcile_with_diagnostics(agent, profile_root, SessionKind::Resume)
 }
 
+/// 桌面内核直接接收配置，文件对账仅保留指令与角色资源。
+pub(crate) fn reconcile_codex_runtime_resources(profile_root: &Path) -> Result<(), ReconcileError> {
+    let _guard = lock::acquire_session_lock(AgentType::Codex, profile_root)?;
+    codex_profile::reconcile_runtime_resources(profile_root)
+}
+
 /// 执行对账并记录诊断：成功记录 fingerprint，失败记录稳定错误码。
 /// 任一必要字段失败必须阻止 spawn（不得以未知配置启动），同时写入诊断，
 /// 供 UI 展示"最近一次对账结果"并给出错误码。

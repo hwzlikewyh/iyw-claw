@@ -19,6 +19,7 @@ use codex_protocol::error::Result;
 use http::HeaderMap;
 
 use crate::BearerAuthProvider;
+use crate::shared_state::process_shared_state;
 
 use super::BedrockEndpoint;
 use super::mantle::aws_auth_config;
@@ -34,6 +35,7 @@ const AWS_DEFAULT_REGION_ENV_VAR: &str = "AWS_DEFAULT_REGION";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum BedrockAuthSource {
     CommandBearerToken,
+    CredentialExport,
     ConfiguredAwsProfile,
     ManagedBearerToken,
     ManagedAccessKeys,
@@ -55,6 +57,12 @@ pub(super) fn auth_source(
 ) -> BedrockAuthSource {
     if provider_info.has_command_auth() {
         BedrockAuthSource::CommandBearerToken
+    } else if provider_info
+        .aws
+        .as_ref()
+        .is_some_and(|aws| aws.credential_export.is_some())
+    {
+        BedrockAuthSource::CredentialExport
     } else if provider_info
         .aws
         .as_ref()
@@ -93,6 +101,24 @@ pub(super) async fn resolve_auth_method(
             "Amazon Bedrock command authentication must be resolved by the model provider"
                 .to_string(),
         )),
+        BedrockAuthSource::CredentialExport => {
+            let config = match endpoint {
+                BedrockEndpoint::Mantle => aws_auth_config(aws),
+                BedrockEndpoint::Runtime => runtime::aws_auth_config(aws),
+            };
+            let credential_export = process_shared_state()
+                .aws_credential_export(aws)
+                .ok_or_else(|| {
+                    CodexErr::Fatal(
+                        "selected Amazon Bedrock credential exporter is no longer configured"
+                            .to_string(),
+                    )
+                })?;
+            let context = AwsAuthContext::load_with_credentials_provider(config, credential_export)
+                .await
+                .map_err(aws_auth_error_to_codex_error)?;
+            Ok(BedrockAuthMethod::AwsSdkAuth { context })
+        }
         BedrockAuthSource::ManagedBearerToken => {
             let Some(CodexAuth::BedrockApiKey(auth)) = managed_auth else {
                 return Err(CodexErr::Fatal(
@@ -234,6 +260,17 @@ fn aws_auth_error_to_codex_error(error: AwsAuthError) -> CodexErr {
 }
 
 fn aws_auth_error_to_auth_error(error: AwsAuthError) -> AuthError {
+    if let Some(source) = error.credentials_provider_error() {
+        // Command failures need provider recovery, not repeated HTTP transport attempts.
+        return AuthError::Build(if error.is_retryable() {
+            format!("failed to load AWS credentials: {source}")
+        } else {
+            format!(
+                "{} {source}",
+                super::error::CREDENTIAL_EXPORT_CONFIG_ERROR_PREFIX
+            )
+        });
+    }
     if error.is_retryable() {
         AuthError::Transient(error.to_string())
     } else {

@@ -6,6 +6,7 @@ use codex_protocol::permissions::FileSystemSandboxKind;
 use codex_protocol::permissions::FileSystemSandboxPolicy;
 use codex_protocol::permissions::FileSystemSpecialPath::Root;
 use codex_protocol::permissions::NetworkSandboxPolicy;
+use codex_protocol::permissions::ReadDenyMatcher;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use std::collections::HashMap;
 use std::path::Path;
@@ -99,8 +100,20 @@ impl ResolvedWindowsSandboxPermissions {
         self.network
     }
 
-    pub(crate) fn is_enforceable_by_windows_sandbox(&self) -> bool {
-        matches!(self.file_system.kind, FileSystemSandboxKind::Restricted)
+    /// Rejects filesystem policies that the elevated Windows sandbox cannot
+    /// enforce safely.
+    pub fn validate_elevated_filesystem_policy(&self, cwd: &Path) -> Result<()> {
+        let root = cwd
+            .ancestors()
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("command cwd has no filesystem root"))?;
+        let root_is_denied = ReadDenyMatcher::try_new_for_local_paths(&self.file_system, cwd)
+            .map_err(anyhow::Error::msg)?
+            .is_some_and(|matcher| matcher.is_local_path_read_denied(root));
+        if !self.file_system.can_read_local_path_with_cwd(root, cwd) || root_is_denied {
+            anyhow::bail!("elevated Windows sandbox requires effective `:root` read access");
+        }
+        Ok(())
     }
 
     pub(crate) fn has_full_disk_read_access(&self) -> bool {

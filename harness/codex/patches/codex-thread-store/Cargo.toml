@@ -2,7 +2,7 @@
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-thread-store"
-version = "0.154.0"
+version = "0.155.0"
 autobins = false
 autotests = false
 autobenches = false
@@ -14,51 +14,51 @@ doctest = false
 
 [dependencies.chrono]
 version = "0.4.43"
-features = ["serde"]
+features = [ "serde",]
 
 [dependencies.codex-app-server-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
 [dependencies.codex-extension-items]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
 [dependencies.codex-git-utils]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
 [dependencies.codex-install-context]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
 [dependencies.codex-otel]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
 [dependencies.codex-rollout]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
 [dependencies.codex-state]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
 [dependencies.codex-utils-path]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
 [dependencies.futures]
 version = "0.3"
@@ -70,7 +70,7 @@ default-features = false
 
 [dependencies.serde]
 version = "1"
-features = ["rc", "derive"]
+features = [ "rc", "derive",]
 
 [dependencies.serde_json]
 version = "1"
@@ -78,7 +78,7 @@ version = "1"
 [dependencies.sqlx]
 version = "0.9.0"
 default-features = false
-features = ["chrono", "json", "macros", "migrate", "runtime-tokio", "tls-rustls", "sqlite-bundled", "time", "uuid"]
+features = [ "chrono", "json", "macros", "migrate", "runtime-tokio", "tls-rustls", "sqlite-bundled", "time", "uuid",]
 
 [dependencies.thiserror]
 version = "2.0.17"

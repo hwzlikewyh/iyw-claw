@@ -1220,8 +1220,7 @@ mod tauri_app {
                 // Prewarm is deliberately scheduled after the window is usable and
                 // after startup maintenance has had a chance to release its DB
                 // writes. The bounded wait keeps a stuck maintenance task from
-                // blocking prewarm forever, while the delay avoids competing with
-                // first-screen initialization on slower HDD-backed profiles.
+                // blocking prewarm forever.
                 let runtime_prewarm_manager = app.state::<ConnectionManager>().clone_ref();
                 tauri::async_runtime::spawn(async move {
                     let wait_started = std::time::Instant::now();
@@ -1240,7 +1239,6 @@ mod tauri_app {
                         wait_ms = wait_started.elapsed().as_millis(),
                         "[ACP][startup] 星河与远山运行时预热门已释放"
                     );
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     runtime_prewarm_manager.prewarm_primary_agents().await;
                 });
                 setup_stage.complete();

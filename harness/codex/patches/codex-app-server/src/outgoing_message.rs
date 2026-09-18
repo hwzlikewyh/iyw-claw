@@ -55,24 +55,40 @@ pub(crate) struct ConnectionRequestId {
     pub(crate) request_id: RequestId,
 }
 
-/// Trace data we keep for an incoming request until we send its final
-/// response or error.
+/// Trace data and cancellation state retained until an incoming request's final response or error.
 #[derive(Clone)]
 pub(crate) struct RequestContext {
     request_id: ConnectionRequestId,
+    pub(crate) cancellation: tokio_util::sync::CancellationToken,
+    cancellation_scope: RequestCancellationScope,
     span: Span,
     parent_trace: Option<W3cTraceContext>,
     _diagnostics_guard: Arc<GaugeGuard>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RequestCancellationScope {
+    Unavailable,
+    UserVerification,
+}
+
 impl RequestContext {
     pub(crate) fn new(
         request_id: ConnectionRequestId,
+        method: &str,
         span: Span,
         parent_trace: Option<W3cTraceContext>,
     ) -> Self {
         Self {
             request_id,
+            cancellation: tokio_util::sync::CancellationToken::new(),
+            cancellation_scope: match method {
+                "userVerification/status"
+                | "userVerification/enroll"
+                | "userVerification/delete"
+                | "userVerification/verify" => RequestCancellationScope::UserVerification,
+                _ => RequestCancellationScope::Unavailable,
+            },
             span,
             parent_trace,
             _diagnostics_guard: Arc::new(IN_FLIGHT_REQUESTS.track()),
@@ -247,6 +263,15 @@ impl OutgoingMessageSender {
             .is_some()
         {
             warn!("replaced unresolved request context");
+        }
+    }
+
+    pub(crate) async fn cancel_user_verification_request(&self, request_id: &ConnectionRequestId) {
+        let contexts = self.request_contexts.lock().await;
+        if let Some(context) = contexts.get(request_id)
+            && context.cancellation_scope == RequestCancellationScope::UserVerification
+        {
+            context.cancellation.cancel();
         }
     }
 
@@ -632,6 +657,44 @@ impl OutgoingMessageSender {
     ) {
         self.send_response_as_inner(request_id, response, /*thread_originator*/ None)
             .await;
+    }
+
+    /// Revalidates a sensitive result after reserving queue capacity, with no
+    /// suspension between the identity check and handing off the response.
+    pub(crate) async fn send_response_as_checked(
+        &self,
+        request_id: ConnectionRequestId,
+        response: ClientResponsePayload,
+        check: impl FnOnce() -> std::result::Result<(), JSONRPCErrorError>,
+    ) {
+        // Remain cancellable while waiting to deliver a proof, including after native work ends.
+        let permit = self.sender.reserve().await;
+        let _context = self.take_request_context(&request_id).await;
+        let Ok(permit) = permit else {
+            return;
+        };
+        let message = match check() {
+            Ok(()) => {
+                self.analytics_events_client.track_response(
+                    request_id.connection_id.0,
+                    request_id.request_id.clone(),
+                    &response,
+                );
+                OutgoingMessage::Response(OutgoingResponse {
+                    id: request_id.request_id,
+                    result: Box::new(response),
+                })
+            }
+            Err(error) => OutgoingMessage::Error(OutgoingError {
+                id: request_id.request_id,
+                error,
+            }),
+        };
+        permit.send(OutgoingEnvelope::ToConnection {
+            connection_id: request_id.connection_id,
+            message,
+            write_complete_tx: None,
+        });
     }
 
     async fn send_response_as_inner(

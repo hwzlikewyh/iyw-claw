@@ -8368,6 +8368,9 @@ fn cascade_update_agent_config(
     model_env: &BTreeMap<String, Option<String>>,
     codex_model: &CodexModelAction,
 ) -> Result<(), AcpError> {
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        return Ok(());
+    }
     let _paths = require_private_agent_storage_for_write()?;
     let (url_key, key_key, _) = agent_env_keys(agent_type);
     match agent_type {
@@ -8763,7 +8766,9 @@ pub(crate) async fn build_session_runtime_env(
     crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
         .map_err(AcpError::protocol)?;
     if agent_type == AgentType::Codex {
-        ensure_codex_model_catalog()?;
+        if worker_version.is_none() {
+            ensure_codex_model_catalog()?;
+        }
         if let Some(session_id) = session_id {
             match crate::acp::codex_rollout_migration::migrate_resumed_session(session_id).await {
                 Ok(count) if count > 0 => tracing::info!(
@@ -8788,7 +8793,11 @@ pub(crate) async fn build_session_runtime_env(
         }
     }
 
-    let local_config_json = load_agent_local_config_json(agent_type);
+    let local_config_json = if worker_version.is_some() {
+        None
+    } else {
+        load_agent_local_config_json(agent_type)
+    };
     let mut runtime_env =
         build_runtime_env_from_setting(agent_type, setting.as_ref(), local_config_json.as_deref());
     remove_managed_profile_env(agent_type, &mut runtime_env);
@@ -8799,6 +8808,20 @@ pub(crate) async fn build_session_runtime_env(
         &mut runtime_env,
     )
     .await?;
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        let native = crate::acp::xinghe_runtime_config::load_preferences(
+            &db.conn,
+            setting.as_ref(),
+            &codex_home_dir(),
+        )
+        .await?;
+        let catalog = serialize_codex_model_catalog(&managed_codex_model_ids())?;
+        let catalog_path = codex_model_catalog_path();
+        let previous = fs::read_to_string(&catalog_path).unwrap_or_default();
+        crate::acp::provider_overlay::write_if_changed(&catalog_path, &previous, &catalog)
+            .map_err(AcpError::protocol)?;
+        crate::acp::xinghe_runtime_config::project(&mut runtime_env, &native, &catalog_path)?;
+    }
     crate::acp::runtime_context::prepend_tool_dirs(Some(&paths), &mut runtime_env);
     let legacy_wecom_enabled = crate::commands::managed_skills::enabled_legacy_wecom(&db.conn)
         .await
@@ -8915,7 +8938,9 @@ pub(crate) fn fingerprint_config(
         hasher.update([0u8]);
     }
     hasher.update(b"\x01native\x01");
-    let native = if agent_type == AgentType::Codex {
+    let native = if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        None
+    } else if agent_type == AgentType::Codex {
         runtime_env
             .get("CODEX_HOME")
             .map(PathBuf::from)
@@ -9800,7 +9825,12 @@ async fn list_agent_types(
             .and_then(|m| m.env_json.as_deref())
             .and_then(|s| serde_json::from_str::<BTreeMap<String, String>>(s).ok())
             .unwrap_or_default();
-        let local_config_json = load_agent_local_config_json(agent_type);
+        env.remove(crate::acp::xinghe_runtime_config::PREFERENCES_KEY);
+        let local_config_json = if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+            None
+        } else {
+            load_agent_local_config_json(agent_type)
+        };
         if let Some(raw_local_config) = local_config_json.as_deref() {
             if let Ok(local_cfg) = serde_json::from_str::<AgentRuntimeConfig>(raw_local_config) {
                 for (key, value) in local_cfg.env {
@@ -9847,7 +9877,9 @@ async fn list_agent_types(
                 );
             }
         }
-        let codex_auth_json = if agent_type == AgentType::Codex {
+        let codex_auth_json = if agent_type == AgentType::Codex
+            && !crate::internal_xinghe_worker::is_desktop_agent(agent_type)
+        {
             load_codex_auth_json_raw()
         } else {
             None
@@ -9857,7 +9889,10 @@ async fn list_agent_types(
         } else {
             None
         };
-        let codex_config_toml = if agent_type == AgentType::Codex {
+        let codex_config_toml = if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+            crate::acp::xinghe_runtime_config::stored_preferences(setting)
+                .or_else(load_codex_config_toml_raw)
+        } else if agent_type == AgentType::Codex {
             load_codex_config_toml_raw()
         } else {
             None
@@ -10152,12 +10187,25 @@ pub(crate) async fn acp_update_agent_preferences_core(
     agent_setting_service::ensure_defaults(&db.conn, &[default])
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
-    let previous_enabled = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
+    let previous_setting = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?
-        .ok_or_else(|| AcpError::protocol(format!("agent setting not found: {agent_type}")))?
-        .enabled;
+        .ok_or_else(|| AcpError::protocol(format!("agent setting not found: {agent_type}")))?;
+    let previous_enabled = previous_setting.enabled;
 
+    let mut env = env;
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        let native = match codex_config_toml.as_deref() {
+            Some(raw) => raw.to_string(),
+            None => crate::acp::xinghe_runtime_config::load_preferences(
+                &db.conn,
+                Some(&previous_setting),
+                &codex_home_dir(),
+            )
+            .await?,
+        };
+        crate::acp::xinghe_runtime_config::save_preferences(&mut env, &native)?;
+    }
     let env_json = serialize_env_map(&env)?;
     let config_json = config_json.and_then(|raw| {
         let trimmed = raw.trim();
@@ -10191,6 +10239,10 @@ pub(crate) async fn acp_update_agent_preferences_core(
     }
 
     if agent_type == AgentType::Codex {
+        if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+            emit_acp_agents_updated(emitter, "preferences_updated", Some(agent_type));
+            return Ok(());
+        }
         if codex_auth_json.is_some() || codex_config_toml.is_some() {
             persist_codex_native_config_files(
                 codex_auth_json.as_deref(),
@@ -10290,17 +10342,26 @@ pub(crate) async fn acp_update_agent_env_core(
     agent_setting_service::ensure_defaults(&db.conn, &[default])
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
-    let previous_enabled = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
+    let previous_setting = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?
-        .ok_or_else(|| AcpError::protocol(format!("agent setting not found: {agent_type}")))?
-        .enabled;
+        .ok_or_else(|| AcpError::protocol(format!("agent setting not found: {agent_type}")))?;
+    let previous_enabled = previous_setting.enabled;
 
     // If a provider is selected, the provider's model field is authoritative:
     // each relevant env key is set when the provider has a value and cleared
     // (removed) when empty. Codex's root `model` in config.toml is handled the
     // same way.
     let mut merged_env = env;
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        let native = crate::acp::xinghe_runtime_config::load_preferences(
+            &db.conn,
+            Some(&previous_setting),
+            &codex_home_dir(),
+        )
+        .await?;
+        crate::acp::xinghe_runtime_config::save_preferences(&mut merged_env, &native)?;
+    }
     crate::acp::deepseek_config::normalize_runtime_env(agent_type, &mut merged_env)?;
     let mut codex_action = CodexModelAction::NoOp;
     // When a Claude provider is bound, capture the inputs to also rewrite the
@@ -10400,7 +10461,9 @@ pub(crate) async fn acp_update_agent_env_core(
 /// Apply a `CodexModelAction` to the `model` field at the root of
 /// `~/.codex/config.toml`, preserving everything else.
 fn apply_codex_root_model_action(action: &CodexModelAction) -> Result<(), AcpError> {
-    if matches!(action, CodexModelAction::NoOp) {
+    if crate::internal_xinghe_worker::is_desktop_agent(AgentType::Codex)
+        || matches!(action, CodexModelAction::NoOp)
+    {
         return Ok(());
     }
     let config_path = codex_config_toml_path();
@@ -10576,15 +10639,25 @@ pub(crate) async fn acp_update_agent_config_and_refresh(
     data_dir: &Path,
     emitter: &EventEmitter,
 ) -> Result<usize, AcpError> {
-    acp_update_agent_config_core(
-        agent_type,
-        config_json,
-        opencode_auth_json,
-        codex_auth_json,
-        codex_config_toml,
-        emitter,
-    )
-    .await?;
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        require_private_agent_storage_for_write()?;
+        crate::acp::xinghe_runtime_config::update_preferences(
+            &db.conn,
+            codex_config_toml.as_deref(),
+        )
+        .await?;
+        emit_acp_agents_updated(emitter, "config_updated", Some(agent_type));
+    } else {
+        acp_update_agent_config_core(
+            agent_type,
+            config_json,
+            opencode_auth_json,
+            codex_auth_json,
+            codex_config_toml,
+            emitter,
+        )
+        .await?;
+    }
     Ok(refresh_config_staleness(
         manager,
         db,
