@@ -98,7 +98,19 @@ async fn prepare_tool_component(
         Ok(offer) => offer,
         Err(error) => {
             let Some(version) = healthy_version else {
-                return Err(error);
+                return super::bootstrap_fallback::prepare(
+                    super::bootstrap_fallback::FallbackRequest {
+                        conn,
+                        channel,
+                        data_dir,
+                        tool_id,
+                        minimum_version: &current_version,
+                        task_id,
+                        emitter,
+                    },
+                    error,
+                )
+                .await;
             };
             tracing::warn!(
                 tool_id,
@@ -137,7 +149,8 @@ async fn prepare_tool_component(
     if defer_while_active && marker_ok {
         return Ok(PreparedToolComponent::Deferred { offer });
     }
-    super::bootstrap_download::prepare_fresh(
+    let minimum_version = offer.version.clone();
+    let result = super::bootstrap_download::prepare_fresh(
         conn,
         data_dir,
         tool_id,
@@ -149,7 +162,25 @@ async fn prepare_tool_component(
         marker,
         final_dir,
     )
-    .await
+    .await;
+    match result {
+        Ok(component) => Ok(component),
+        Err(error) => {
+            super::bootstrap_fallback::prepare(
+                super::bootstrap_fallback::FallbackRequest {
+                    conn,
+                    channel,
+                    data_dir,
+                    tool_id,
+                    minimum_version: &minimum_version,
+                    task_id,
+                    emitter,
+                },
+                error,
+            )
+            .await
+        }
+    }
 }
 
 pub(super) async fn healthy_active_version(

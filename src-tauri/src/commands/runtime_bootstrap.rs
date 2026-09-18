@@ -26,7 +26,7 @@ use crate::acp::manager::ConnectionManager;
 #[cfg(feature = "tauri-runtime")]
 use tauri::Manager as _;
 
-mod fallback;
+pub(crate) mod fallback;
 mod managed;
 mod types;
 

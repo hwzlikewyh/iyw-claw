@@ -21,9 +21,10 @@ pub const STATUS_READY: &str = "ready";
 pub const STATUS_ACTIVE: &str = "active";
 pub const ORIGIN_MANAGED: &str = "managed";
 pub const ORIGIN_BUNDLED: &str = "bundled";
+pub const ORIGIN_PINNED: &str = "pinned_fallback";
 
 pub fn is_verified_origin(origin: &str) -> bool {
-    matches!(origin, ORIGIN_MANAGED | ORIGIN_BUNDLED)
+    matches!(origin, ORIGIN_MANAGED | ORIGIN_BUNDLED | ORIGIN_PINNED)
 }
 
 #[derive(Debug, Clone)]

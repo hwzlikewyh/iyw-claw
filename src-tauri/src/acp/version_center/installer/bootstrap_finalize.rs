@@ -8,7 +8,9 @@ use super::bootstrap_commit::{cleanup_remaining, commit_prepared_component};
 use super::bootstrap_component::{
     cleanup_prepared_component, ComponentOutcome, PreparedToolComponent,
 };
+use super::bootstrap_failure::mark_component_failed;
 use super::component::{update_checkpoint, update_checkpoint_deferred};
+use super::init::emit_init_event;
 use super::manifest::InventoryManifest;
 use super::state::{write_state, BootstrapState};
 use crate::app_error::AppCommandError;
@@ -25,11 +27,21 @@ pub(super) async fn commit_prepared_components(
     emitter: &EventEmitter,
 ) -> Result<Vec<String>, (String, AppCommandError)> {
     let mut deferred = Vec::new();
+    let mut preparation_failure = None;
     for index in 0..prepared.len() {
         let (tool_id, result) = take_prepared(prepared, index);
         let component = match result {
             Ok(component) => component,
-            Err(error) => return fail(prepared, &tool_id, error).await,
+            Err(error) => {
+                if let Err(state_error) =
+                    mark_component_failed(data_dir, state, manifest, &tool_id, &error).await
+                {
+                    return fail(prepared, &tool_id, state_error).await;
+                }
+                emit_init_event(emitter, task_id, "blocked", Some(&tool_id), &error.message);
+                preparation_failure.get_or_insert((tool_id, error));
+                continue;
+            }
         };
         let outcome = commit_prepared_component(
             conn,
@@ -46,13 +58,20 @@ pub(super) async fn commit_prepared_components(
             Ok(outcome) => outcome,
             Err(error) => return fail(prepared, &tool_id, error).await,
         };
+        let activated = !outcome.deferred;
         checkpoint(state, &tool_id, &mut deferred, outcome);
         if let Err(error) = write_state(data_dir, state).await {
             cleanup_remaining(prepared).await;
             return Err((tool_id, error));
         }
+        if activated {
+            emit_init_event(emitter, task_id, "ready", Some(&tool_id), "");
+        }
     }
-    Ok(deferred)
+    match preparation_failure {
+        Some(failure) => Err(failure),
+        None => Ok(deferred),
+    }
 }
 
 fn take_prepared(
