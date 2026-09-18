@@ -13,7 +13,8 @@ default-run = "iyw-claw"
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "iyw_claw_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# 桌面和服务器只链接 Rust 库；星河动态库由独立 worker crate 构建。
+crate-type = ["rlib"]
 
 [features]
 default = ["tauri-runtime"]

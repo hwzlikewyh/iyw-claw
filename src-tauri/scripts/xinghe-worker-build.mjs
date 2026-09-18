@@ -23,7 +23,15 @@ export function buildWorker(root, target) {
   if (target.includes("windows")) {
     execFileSync(
       "cargo",
-      [...args, "-p", "codex-windows-sandbox", "--bins"],
+      [
+        ...args,
+        "-p",
+        "codex-windows-sandbox",
+        "--bin",
+        "xinghe-windows-sandbox-setup",
+        "--bin",
+        "xinghe-command-runner",
+      ],
       options
     )
   }

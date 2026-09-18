@@ -30,7 +30,7 @@ on:
       build_matrix:
         required: false
         type: string
-        default: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows x64","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"x86_64-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows 32-bit","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"i686-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false}]}'
+        default: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false},{"name":"Windows x64","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"x86_64-pc-windows-msvc","codegen_units":"64","lto":"off","optional":false},{"name":"Windows 32-bit","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"i686-pc-windows-msvc","codegen_units":"64","lto":"off","optional":false}]}'
       release_draft:
         required: false
         type: boolean
@@ -57,9 +57,7 @@ jobs:
       matrix: ${{ fromJSON(inputs.build_matrix) }}
     runs-on: ${{ matrix.runner }}
     env:
-      # macOS uses parallel codegen without LTO because its hosted runners are
-      # the slowest release builders. Other targets keep thin LTO for size and
-      # runtime optimization.
+      # false still enables local thin LTO; off disables the costly LTO pass.
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.codegen_units }}
       CARGO_PROFILE_RELEASE_LTO: ${{ matrix.lto }}
       RUSTC_WRAPPER: sccache
@@ -129,12 +127,12 @@ jobs:
         if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') }}
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: |
-            ./src-tauri -> target
-            ./harness/xinghe-worker -> target
+          # Worker binaries have their own cache and artifact backup.
+          prefix-key: v1-desktop-app
+          workspaces: ./src-tauri -> target
           shared-key: desktop-${{ matrix.target }}
           cache-bin: "false"
-          cache-workspace-crates: "true"
+          cache-workspace-crates: "false"
 
       - name: Install Windows x86 assembler
         if: matrix.target == 'i686-pc-windows-msvc'
@@ -150,23 +148,35 @@ jobs:
           nasm -v
           if ($LASTEXITCODE -ne 0) { throw 'NASM version check failed' }
 
-      - name: Install Linux x64 dependencies
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
+      - name: Install native Linux dependencies
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || (matrix.target == 'aarch64-unknown-linux-gnu' && runner.arch == 'ARM64')
         run: |
           sudo apt-get -o Dir::Etc::sourceparts=- update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
+            libssl-dev \
             patchelf
 
+      - name: Configure native Linux arm64 compiler
+        if: matrix.target == 'aarch64-unknown-linux-gnu' && runner.arch == 'ARM64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcc -dumpmachine
+          {
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=gcc"
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_AR=ar"
+          } >> "$GITHUB_ENV"
+
       - name: Install Linux arm64 cross dependencies
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        if: matrix.target == 'aarch64-unknown-linux-gnu' && runner.arch != 'ARM64'
         shell: bash
         run: bash .release-workflow/.github/scripts/release/setup-linux-arm64.sh desktop
 
       - name: Verify Linux arm64 cross toolchain
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        if: matrix.target == 'aarch64-unknown-linux-gnu' && runner.arch != 'ARM64'
         shell: bash
         run: |
           command -v aarch64-linux-gnu-gcc
