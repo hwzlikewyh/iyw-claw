@@ -119,6 +119,7 @@ import type {
   QuickMessage,
   SessionConfigOptionInfo,
   SessionModeInfo,
+  SessionStats,
 } from "@/lib/types"
 import {
   ATTACH_FILE_TO_SESSION_EVENT,
@@ -323,6 +324,7 @@ interface MessageInputProps {
   onModeChange?: (modeId: string) => void
   onConfigOptionChange?: (configId: string, valueId: string) => void
   agentType?: AgentType | null
+  usageStats?: SessionStats | null
   availableCommands?: AvailableCommandInfo[] | null
   promptCapabilities: PromptCapabilitiesInfo
   attachmentTabId?: string | null
@@ -827,6 +829,7 @@ export function MessageInput({
   onModeChange,
   onConfigOptionChange,
   agentType,
+  usageStats,
   availableCommands,
   promptCapabilities,
   attachmentTabId,
@@ -4677,6 +4680,12 @@ export function MessageInput({
                 <div className="flex shrink-0 items-center gap-1">
                   <SessionUsageChip
                     contextKey={attachmentTabId ?? null}
+                    agentType={agentType}
+                    sessionStats={usageStats}
+                    modelId={
+                      configOptions?.find(isModelConfigOption)?.kind
+                        .current_value
+                    }
                     popoverSide="top"
                     popoverSideOffset={8}
                   />

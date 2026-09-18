@@ -13,7 +13,7 @@ use crate::models::{
 };
 use crate::parsers::{
     compute_session_stats, folder_name_from_path, infer_context_window_max_tokens,
-    is_safe_subagent_id, latest_turn_total_usage_tokens, merge_context_window_stats,
+    is_safe_subagent_id, merge_context_window_stats,
     relocate_orphaned_tool_results, resolve_patch_line_numbers, structurize_read_tool_output,
     title_from_user_text, truncate_str, AgentParser, ParseError,
 };
@@ -182,7 +182,7 @@ impl KimiCodeParser {
         resolve_patch_line_numbers(&mut turns, cwd.as_deref());
 
         let model = read_session_log_model(session_dir).or_else(|| parsed.model_alias.clone());
-        let used_tokens = latest_turn_total_usage_tokens(&turns);
+        let used_tokens = parsed.context_tokens;
         let max_tokens = infer_context_window_max_tokens(model.as_deref());
         let session_stats =
             merge_context_window_stats(compute_session_stats(&turns), used_tokens, max_tokens);
@@ -278,6 +278,7 @@ impl AgentParser for KimiCodeParser {
 #[derive(Default)]
 struct WireParse {
     messages: Vec<UnifiedMessage>,
+    context_tokens: Option<u64>,
     first_ts: Option<DateTime<Utc>>,
     last_ts: Option<DateTime<Utc>>,
     /// The iyw-claw-managed model alias from a `config.update` record (fallback only;
@@ -488,6 +489,13 @@ fn parse_wire(path: &Path, agents_dir: Option<&Path>) -> WireParse {
             }
             "usage.record" => {
                 if let Some(usage) = usage_from_record(value.get("usage")) {
+                    // 上下文取最近一次模型调用，不能使用本轮累加后的消费。
+                    wp.context_tokens = Some(
+                        usage.input_tokens
+                            .saturating_add(usage.output_tokens)
+                            .saturating_add(usage.cache_read_input_tokens)
+                            .saturating_add(usage.cache_creation_input_tokens),
+                    );
                     pending_usage = Some(match pending_usage.take() {
                         Some(prev) => add_usage(prev, usage),
                         None => usage,

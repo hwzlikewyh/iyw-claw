@@ -2067,11 +2067,47 @@
         "summary": "{conversations} conversations / {messages} messages"
       },
       "tokens": {
+        "details": "Context, compaction and usage details",
+        "unreported": "Not reported",
+        "modelLimits": "Model limits",
+        "model": "Current model",
+        "modelContext": "Model context limit",
+        "maxInput": "Maximum input",
+        "maxOutput": "Maximum output",
+        "compaction": "Auto-compaction",
+        "targetThreshold": "Target threshold",
+        "hostBudget": "Host compaction budget",
+        "nativeThreshold": "Agent-confirmed threshold",
+        "thresholdOrigin": "Threshold source",
+        "policy": "Compaction policy",
+        "configState": "Configuration",
+        "reconnectRequired": "Reconnect to apply",
+        "budgetState": "Budget status",
+        "targetReached": "Target threshold reached",
+        "cumulativeUsage": "Cumulative tokens (reported)",
+        "estimatedPoints": "Estimated session points",
+        "source": {
+          "reported": "Current context reported by the Agent",
+          "history": "Historical usage; window may be estimated",
+          "awaiting": "Awaiting current usage from the Agent",
+          "unavailable": "Current context not reported"
+        },
+        "thresholdSource": {
+          "catalog": "Backend model configuration",
+          "host": "Host budget, including defaults and reserves",
+          "unavailable": "Not configured or reported"
+        },
+        "mode": {
+          "nativeTokens": "Native token threshold",
+          "nativeWindow": "Native window and safety reserve",
+          "nativeRatio": "Native ratio and budget",
+          "agentManaged": "Agent-managed; backend threshold not applied"
+        },
         "contextWindowUsageAria": "Context window usage",
         "contextWindow": "Context Window",
         "usedMax": "Used / Max",
         "tokenUsage": "Token Usage",
-        "input": "Input",
+        "input": "Input (excluding cache)",
         "output": "Output",
         "cacheRead": "Cache Read",
         "cacheWrite": "Cache Write",
