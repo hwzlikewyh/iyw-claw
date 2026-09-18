@@ -194,5 +194,3 @@ impl Drop for WriterLockGuard {
         drop(coordination_lock);
     }
 }
-
-

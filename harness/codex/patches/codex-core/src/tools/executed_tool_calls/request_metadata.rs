@@ -348,5 +348,3 @@ fn code_mode_input_matches_output(
         _ => false,
     }
 }
-
-

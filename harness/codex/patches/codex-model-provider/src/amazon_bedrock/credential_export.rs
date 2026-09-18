@@ -249,4 +249,3 @@ impl AwsCredentialsProvider for AwsCredentialExport {
         Ok(access_keys)
     }
 }
-

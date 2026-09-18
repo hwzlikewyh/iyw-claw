@@ -245,5 +245,3 @@ fn attachment_from_row(row: &SqliteRow) -> anyhow::Result<ThreadAttachment> {
         created_at: row.try_get("created_at")?,
     })
 }
-
-

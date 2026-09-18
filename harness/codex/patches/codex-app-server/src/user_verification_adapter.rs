@@ -124,5 +124,3 @@ pub(super) fn error(
         ),
     }
 }
-
-

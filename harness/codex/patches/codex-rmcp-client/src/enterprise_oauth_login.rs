@@ -378,5 +378,3 @@ pub struct EnterpriseOAuthLoginRequest<'a> {
     pub http_client: Arc<dyn HttpClient>,
     pub redirect_mode: StreamableHttpRedirectMode,
 }
-
-

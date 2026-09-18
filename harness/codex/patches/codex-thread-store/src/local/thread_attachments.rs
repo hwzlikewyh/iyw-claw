@@ -92,5 +92,3 @@ fn attachment_error(
         message: format!("failed to {operation} thread attachment: {message}"),
     }
 }
-
-

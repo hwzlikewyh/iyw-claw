@@ -80,5 +80,3 @@ pub(crate) fn identity(
     }
     Ok(format!("{:x}", digest.finalize()))
 }
-
-

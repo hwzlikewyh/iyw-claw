@@ -81,5 +81,3 @@ impl Drop for TurnPermit {
         self.0.active_tx.send_replace(state.active);
     }
 }
-
-

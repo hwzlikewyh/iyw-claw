@@ -143,5 +143,3 @@ fn validate_context_paths(
     }
     Ok(())
 }
-
-
