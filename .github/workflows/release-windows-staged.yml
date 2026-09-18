@@ -69,7 +69,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ inputs.target }}
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: ./.github/actions/setup-sccache
       - uses: swatinem/rust-cache@v2
         with:
           # Worker binaries have their own cache and artifact backup.
@@ -168,17 +168,20 @@ jobs:
       IYW_CLAW_SAFENET_PIN: ${{ secrets.IYW_CLAW_SAFENET_PIN }}
       HTTP_PROXY: http://127.0.0.1:7890
       HTTPS_PROXY: http://127.0.0.1:7890
-      # Release asset downloads must bypass the local proxy: proxied responses
-      # came back with a BOM-prefixed JSON body, which made
-      # `windows-release.mjs download` fail with "Unexpected token '\ufeff'".
-      # Keep the GitHub API and asset hosts on a direct connection, and only
-      # route registry/package traffic through the proxy.
-      NO_PROXY: localhost,127.0.0.1,api.github.com,uploads.github.com,objects.githubusercontent.com,release-assets.githubusercontent.com,github.com,codeload.github.com
+      # GitHub checkout and asset hosts require the runner's existing proxy.
+      NO_PROXY: localhost,127.0.0.1,api.github.com,uploads.github.com
+      GIT_CONFIG_COUNT: "1"
+      GIT_CONFIG_KEY_0: http.version
+      GIT_CONFIG_VALUE_0: HTTP/1.1
+      GIT_TERMINAL_PROMPT: "0"
+      IYW_CLAW_SIGN_TIMESTAMP_URL: ${{ vars.WINDOWS_SIGN_TIMESTAMP_URL }}
       TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
       IYW_CLAW_SKIP_SIDECAR: "1"
     steps:
       - name: Initialize signing paths
         run: |
+          if ([string]::IsNullOrWhiteSpace($env:IYW_CLAW_SAFENET_PIN)) { throw 'Signing requires IYW_CLAW_SAFENET_PIN; interactive login is disabled in CI' }
+          if (($env:IYW_CLAW_SIGN_THUMBPRINT -replace '[\s:]', '') -notmatch '^[a-fA-F0-9]{40}$') { throw 'Signing requires a valid WINDOWS_SIGN_THUMBPRINT' }
           "IYW_CLAW_STAGING_DIR=$env:RUNNER_TEMP/sign-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$env:TAURI_TARGET_TRIPLE" >> $env:GITHUB_ENV
       - uses: actions/checkout@v4
         with:

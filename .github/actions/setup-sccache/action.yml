@@ -1,0 +1,18 @@
+name: Setup optional compiler cache
+description: Use sccache when available and fall back to Cargo when setup fails
+runs:
+  using: composite
+  steps:
+    - name: Install optional sccache
+      id: install
+      continue-on-error: true
+      uses: mozilla-actions/sccache-action@v0.0.9
+      with:
+        version: v0.18.0
+        disable_annotations: "true"
+    - name: Select available compiler wrapper
+      shell: bash
+      env:
+        SCCACHE_INSTALL_OUTCOME: ${{ steps.install.outcome }}
+        SCCACHE_ACTION_PATH: ${{ github.action_path }}
+      run: node "$SCCACHE_ACTION_PATH/configure.mjs"

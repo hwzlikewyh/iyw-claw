@@ -7,6 +7,9 @@ inputs:
   dependency-cache:
     default: "false"
     description: Restore worker dependencies only when no compiled worker is available
+  setup-compiler-cache:
+    default: "false"
+    description: Set up optional sccache only when compiled worker restoration misses
 runs:
   using: composite
   steps:
@@ -60,6 +63,9 @@ runs:
         directory="harness/xinghe-worker/target/bundle-cache/$WORKER_TARGET"
         mkdir -p "$directory"
         tar -xf "$WORKER_ARCHIVE" -C "$directory"
+    - name: Setup optional compiler cache for cold builds
+      if: inputs.setup-compiler-cache == 'true' && steps.cache.outputs.cache-hit != 'true' && steps.download.outcome != 'success'
+      uses: ./.github/actions/setup-sccache
     - name: Cache worker dependencies for cold builds
       if: inputs.dependency-cache == 'true' && steps.cache.outputs.cache-hit != 'true' && steps.download.outcome != 'success'
       uses: swatinem/rust-cache@v2
