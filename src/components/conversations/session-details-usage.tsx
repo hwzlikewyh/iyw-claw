@@ -8,6 +8,7 @@ import {
   resolveContextWindowPercent,
 } from "@/lib/context-window"
 import type { DbConversationSummary, SessionStats } from "@/lib/types"
+import { formatTokenThousands } from "@/lib/token-format"
 import {
   formatSessionDuration,
   resolveSessionDurationMs,
@@ -52,7 +53,7 @@ export function SessionUsageOverview({
           {t("totalTokens")} Token
         </div>
         <div className="break-words text-xl font-semibold tabular-nums">
-          {total?.toLocaleString(locale) ?? t("none")}
+          {total == null ? t("none") : formatTokenThousands(total, locale)}
         </div>
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <Timer className="size-3" />
@@ -101,7 +102,9 @@ export function SessionTokenBreakdown({
               {t(row.key)}
             </dt>
             <dd className="break-words text-sm font-medium tabular-nums">
-              {row.value?.toLocaleString(locale) ?? t("none")}
+              {row.value == null
+                ? t("none")
+                : formatTokenThousands(row.value, locale)}
             </dd>
           </div>
         ))}
@@ -143,8 +146,8 @@ export function SessionContextUsage({ stats }: { stats: SessionStats | null }) {
         />
       </div>
       <p className="text-right text-xs tabular-nums text-muted-foreground">
-        {used?.toLocaleString(locale) ?? t("none")} /{" "}
-        {max?.toLocaleString(locale) ?? t("none")}
+        {used == null ? t("none") : formatTokenThousands(used, locale)} /{" "}
+        {max == null ? t("none") : formatTokenThousands(max, locale)}
       </p>
     </section>
   )

@@ -5,7 +5,7 @@ import { Coins } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
 import { useSessionStats } from "@/contexts/session-stats-context"
 import { useOptionalConnectionStore } from "@/contexts/acp-connections-context"
-import { formatTokenCount } from "@/lib/token-format"
+import { formatTokenThousands } from "@/lib/token-format"
 import { formatContextWindowPercent } from "@/lib/context-window"
 import type { SessionStats } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -265,7 +265,7 @@ function SessionUsageButton({
                 />
               ) : null}
               <span className="tabular-nums">
-                {formatTokenCount(total ?? 0)}
+                {formatTokenThousands(total ?? 0, locale)}
               </span>
             </>
           )}
@@ -306,7 +306,7 @@ function SessionUsageButton({
               <span className="tabular-nums">
                 {contextUsed == null || contextMax == null
                   ? "--"
-                  : `${formatTokenCount(contextUsed)} / ${formatTokenCount(contextMax)}`}
+                  : `${formatTokenThousands(contextUsed, locale)} / ${formatTokenThousands(contextMax, locale)}`}
               </span>
             </div>
           </div>
@@ -328,7 +328,7 @@ function SessionUsageButton({
                 >
                   <span>{t(row.key)}</span>
                   <span className="tabular-nums">
-                    {row.value.toLocaleString(locale)}
+                    {formatTokenThousands(row.value, locale)}
                   </span>
                 </div>
               ))}

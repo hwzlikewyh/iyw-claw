@@ -23,7 +23,11 @@ function DayDetails({ row }: { row: UsageDailyRow }) {
       {fields.map((key) => (
         <div key={key} className="space-y-1">
           <dt className="text-muted-foreground">{t(`table.${key}`)}</dt>
-          <dd className="tabular-nums">{row[key].toLocaleString(locale)}</dd>
+          <dd className="tabular-nums">
+            {key === "sessions"
+              ? row[key].toLocaleString(locale)
+              : formatTokenCount(row[key])}
+          </dd>
         </div>
       ))}
       <div className="space-y-1">

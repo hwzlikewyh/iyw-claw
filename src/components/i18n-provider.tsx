@@ -225,6 +225,7 @@ export function AppI18nProvider({
   // tray was built once at app startup with whatever was persisted then,
   // so without this it would stay stale after a language change.
   useEffect(() => {
+    if (!languageSettingsLoaded) return
     if (typeof window === "undefined") return
     if (!("__TAURI_INTERNALS__" in window)) return
     void import("@/lib/tauri")
@@ -234,7 +235,7 @@ export function AppI18nProvider({
         // (Linux without a status-bar host), and a stale label is a
         // smaller problem than crashing the i18n provider.
       })
-  }, [appLocale])
+  }, [appLocale, languageSettingsLoaded])
 
   useEffect(() => {
     if (appLocale === messagesLocale) {

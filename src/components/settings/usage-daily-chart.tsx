@@ -85,9 +85,7 @@ function ChartTooltip({ row }: { row: UsageDailyRow }) {
       {CHART_SEGMENTS.map(({ key }) => (
         <div key={key} className="flex justify-between gap-5">
           <span>{t(`table.${key}`)}</span>
-          <span className="tabular-nums">
-            {row[key].toLocaleString(locale)}
-          </span>
+          <span className="tabular-nums">{formatTokenCount(row[key])}</span>
         </div>
       ))}
     </TooltipContent>
