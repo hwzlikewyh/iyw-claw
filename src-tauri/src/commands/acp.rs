@@ -8708,6 +8708,24 @@ pub(crate) async fn build_session_runtime_env(
     session_id: Option<&str>,
     data_dir: &Path,
 ) -> Result<BTreeMap<String, String>, AcpError> {
+    build_runtime_env_for_launch((db, data_dir), (agent_type, session_id), true).await
+}
+
+pub(crate) async fn prepared_session_runtime_env(
+    db: &AppDatabase,
+    request: &crate::acp::prepared_session::PrepareSessionRequest,
+    data_dir: &Path,
+) -> Result<BTreeMap<String, String>, AcpError> {
+    build_runtime_env_for_launch((db, data_dir), (request.agent_type, request.session_id.as_deref()), false).await
+}
+
+async fn build_runtime_env_for_launch(
+    context: (&AppDatabase, &Path),
+    target: (AgentType, Option<&str>),
+    prepare_resources: bool,
+) -> Result<BTreeMap<String, String>, AcpError> {
+    let (db, data_dir) = context;
+    let (agent_type, session_id) = target;
     let paths = active_agent_storage_paths()?;
     if !crate::acp::agent_storage::startup_profile_env_is_complete(&paths, |key| {
         std::env::var_os(key)
@@ -8761,7 +8779,9 @@ pub(crate) async fn build_session_runtime_env(
         )));
     }
 
-    reconcile_agent_skills_before_launch(db, agent_type).await;
+    if prepare_resources {
+        reconcile_agent_skills_before_launch(db, agent_type).await;
+    }
 
     crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
         .map_err(AcpError::protocol)?;
@@ -8769,7 +8789,7 @@ pub(crate) async fn build_session_runtime_env(
         if worker_version.is_none() {
             ensure_codex_model_catalog()?;
         }
-        if let Some(session_id) = session_id {
+        if let Some(session_id) = session_id.filter(|_| prepare_resources) {
             match crate::acp::codex_rollout_migration::migrate_resumed_session(session_id).await {
                 Ok(count) if count > 0 => tracing::info!(
                     session_id,
@@ -8892,7 +8912,7 @@ pub(crate) async fn build_session_runtime_env(
 
     // 所有环境投影完成后再探测，后续相同启动环境才可复用校验结果。
     if let Some(required) = crate::acp::trusted_agents::minimum_node_version(agent_type)
-        .filter(|_| !crate::internal_xinghe_worker::is_desktop_agent(agent_type)) {
+        .filter(|_| prepare_resources && !crate::internal_xinghe_worker::is_desktop_agent(agent_type)) {
         crate::acp::preflight::enforce_minimum_node_version(&runtime_env, required)
             .await
             .map_err(|error| {
@@ -9198,6 +9218,20 @@ pub async fn acp_connect(
             return Err(error);
         }
     };
+    if !force_host_restart.unwrap_or(false) {
+        let prepared_stage = startup_trace.stage("prepared_session_lookup");
+        let request = crate::acp::prepared_session::PrepareSessionRequest {
+            agent_type, working_dir: working_dir.clone(), session_id: session_id.clone(),
+            conversation_id, preferred_mode_id: preferred_mode_id.clone(),
+            preferred_config_values: preferred_config_values.clone().unwrap_or_default(),
+        };
+        if let Some(id) = manager.claim_prepared_session(&request, window.label()).await? {
+            startup_trace.bind_connection(id.clone());
+            prepared_stage.finish("ready");
+            return Ok(id);
+        }
+        prepared_stage.finish("miss");
+    }
     let runtime_stage = startup_trace.stage("runtime_env_reconcile");
     let runtime_env = match build_session_runtime_env(
         &db,

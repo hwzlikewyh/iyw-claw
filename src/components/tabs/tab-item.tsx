@@ -5,6 +5,7 @@ import { Reorder } from "motion/react"
 import type { PanInfo } from "motion/react"
 import { X } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { useSessionPreparation } from "@/hooks/use-session-preparation"
 import { cn, handleMiddleClickClose } from "@/lib/utils"
 import type { ConversationStatus } from "@/lib/types"
 import { ConversationStatusDot } from "@/components/conversations/conversation-status-dot"
@@ -121,6 +122,12 @@ export const TabItem = memo(function TabItem({
   const handleClick = useCallback(() => {
     onSwitch(tab.id)
   }, [onSwitch, tab.id])
+  const preparation = useSessionPreparation({
+    agentType: tab.agentType,
+    workingDir: tab.workingDir,
+    conversationId: tab.conversationId ?? undefined,
+    disabled: isActive || tab.conversationId == null,
+  })
 
   const handleDoubleClick = useCallback(() => {
     if (!tab.isPinned) {
@@ -144,6 +151,7 @@ export const TabItem = memo(function TabItem({
       as="div"
       value={tab}
       data-tab-id={tab.id}
+      {...preparation}
       drag="x"
       dragControls={dragControls}
       dragListener={!isCoarsePointer}

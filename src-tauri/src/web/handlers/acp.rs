@@ -89,6 +89,22 @@ pub async fn acp_connect(
         }
     };
 
+    if !params.force_host_restart {
+        let prepared_stage = startup_trace.stage("prepared_session_lookup");
+        let request = crate::acp::prepared_session::PrepareSessionRequest {
+            agent_type: params.agent_type, working_dir: working_dir.clone(),
+            session_id: params.session_id.clone(), conversation_id: params.conversation_id,
+            preferred_mode_id: params.preferred_mode_id.clone(),
+            preferred_config_values: params.preferred_config_values.clone().unwrap_or_default(),
+        };
+        if let Some(id) = manager.claim_prepared_session(&request, "web").await
+            .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))? {
+            startup_trace.bind_connection(id.clone());
+            prepared_stage.finish("ready");
+            return Ok(Json(id));
+        }
+        prepared_stage.finish("miss");
+    }
     let runtime_stage = startup_trace.stage("runtime_env_reconcile");
     let runtime_env = match acp_commands::build_session_runtime_env(
         db,

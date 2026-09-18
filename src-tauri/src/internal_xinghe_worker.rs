@@ -67,11 +67,16 @@ pub fn dispatch_early() -> bool {
 
 /// Resolves the private runtime library without accepting a user override.
 pub fn resolve_library() -> Result<PathBuf, String> {
+    let library = resolve_library_path()?;
+    identity::validate(&library)?;
+    Ok(library)
+}
+
+fn resolve_library_path() -> Result<PathBuf, String> {
     let library = library_candidates()
         .into_iter()
         .find(|path| path.is_file())
         .ok_or_else(|| "内置星河运行时 is not installed，请修复安装".to_string())?;
-    identity::validate(&library)?;
     if !library.with_file_name(helper_filename()).is_file() {
         return Err("内置星河文件辅助程序不完整，请修复安装".into());
     }
@@ -100,11 +105,12 @@ fn exit_worker(symbol: &[u8]) -> ! {
 fn load_and_run(symbol: &[u8]) -> Result<i32, String> {
     let started = std::time::Instant::now();
     if symbol == WORKER_ENTRY { eprintln!("[internal-xinghe-worker] stage=load_library status=begin"); }
-    let path = resolve_library()?;
+    let path = resolve_library_path()?;
     unsafe {
         // The library remains live until its C ABI entry point returns.
         let library = load_library(&path)
             .map_err(|error| library_error("load_library", error))?;
+        identity::validate_loaded(&library)?;
         let abi = library.get::<unsafe extern "C" fn() -> u64>(ABI_ENTRY)
             .map_err(|_| "内置星河运行时缺少版本接口，请修复安装".to_string())?;
         let core_version = library.get::<unsafe extern "C" fn() -> u64>(CORE_VERSION_ENTRY)

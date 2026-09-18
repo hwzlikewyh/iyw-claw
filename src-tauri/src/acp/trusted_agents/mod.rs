@@ -109,6 +109,9 @@ fn is_host_owned_runtime_env(key: &str) -> bool {
 }
 
 pub(crate) fn minimum_node_version(agent_type: AgentType) -> Option<&'static str> {
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        return None;
+    }
     if let Some(definition) = definition_for_agent(agent_type) {
         return (definition.version_floor.runtime == RuntimeKind::Node)
             .then_some(definition.version_floor.minimum_runtime_version)
