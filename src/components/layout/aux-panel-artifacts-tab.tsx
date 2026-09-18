@@ -53,7 +53,7 @@ export function TaskArtifactsTab({
   const effectiveScope = scope
   const filters = useMemo(
     () => ({
-      conversationId,
+      conversationId: effectiveScope === "current" ? conversationId : null,
       folderId: effectiveScope === "all" ? null : activeFolderId,
       scope: effectiveScope,
       search,
