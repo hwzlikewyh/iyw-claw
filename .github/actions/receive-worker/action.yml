@@ -4,6 +4,9 @@ inputs:
   target:
     required: true
     description: Rust target triple
+  check-only:
+    default: "false"
+    description: Fail early if the producer ended without an artifact, without waiting or downloading
 runs:
   using: composite
   steps:
@@ -22,12 +25,14 @@ runs:
         WORKER_ARTIFACT_NAME: ${{ steps.identity.outputs.name }}
         WORKER_TARGET: ${{ inputs.target }}
         WORKER_ACTION_PATH: ${{ github.action_path }}
+        WORKER_CHECK_ONLY: ${{ inputs.check-only }}
       with:
         script: |
           const path = require("node:path");
           const wait = require(path.join(process.env.WORKER_ACTION_PATH, "wait-artifact.cjs"));
-          await wait({ github, context, core, name: process.env.WORKER_ARTIFACT_NAME, target: process.env.WORKER_TARGET });
+          await wait({ github, context, core, name: process.env.WORKER_ARTIFACT_NAME, target: process.env.WORKER_TARGET, checkOnly: process.env.WORKER_CHECK_ONLY === "true" });
     - name: Download worker for this release
+      if: inputs.check-only != 'true'
       uses: actions/download-artifact@v4
       with:
         artifact-ids: ${{ steps.artifact.outputs.id }}
@@ -36,6 +41,7 @@ runs:
         github-token: ${{ github.token }}
         run-id: ${{ github.run_id }}
     - name: Restore and verify compiled worker
+      if: inputs.check-only != 'true'
       shell: bash
       env:
         WORKER_TARGET: ${{ inputs.target }}

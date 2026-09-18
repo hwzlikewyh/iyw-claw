@@ -17,12 +17,9 @@ const INPUTS = [
 const COMPILER_ENV =
   /^(CARGO_PROFILE_|CARGO_TARGET_|CARGO_ENCODED_RUSTFLAGS$|RUSTFLAGS$|CC($|_)|CXX($|_)|CFLAGS($|_)|CXXFLAGS($|_)|AR($|_)|RANLIB($|_)|CMAKE_|MACOSX_DEPLOYMENT_TARGET$|SDKROOT$|VCToolsVersion$|WindowsSDKVersion$|ImageOS$|ImageVersion$)/i
 
-export function workerCacheKey(target, root = ROOT, environment = process.env) {
-  if (!/^[a-z0-9_]+-(?:[a-z0-9_]+-)*[a-z0-9_]+$/.test(target)) {
-    throw new Error("invalid worker cache target")
-  }
+function sourceFiles(root) {
   const options = { cwd: root, encoding: "utf8", windowsHide: true }
-  const files = execFileSync(
+  return execFileSync(
     "git",
     [
       "ls-files",
@@ -37,7 +34,17 @@ export function workerCacheKey(target, root = ROOT, environment = process.env) {
   )
     .split("\0")
     .filter(Boolean)
-  const hash = createHash("sha256")
+}
+
+export function workerCacheKeys(
+  target,
+  root = ROOT,
+  environment = process.env
+) {
+  if (!/^[a-z0-9_]+-(?:[a-z0-9_]+-)*[a-z0-9_]+$/.test(target)) {
+    throw new Error("invalid worker cache target")
+  }
+  const options = { cwd: root, encoding: "utf8", windowsHide: true }
   const compiler = execFileSync(
     "rustc",
     ["--version", "--verbose"],
@@ -46,22 +53,40 @@ export function workerCacheKey(target, root = ROOT, environment = process.env) {
   const configuration = Object.entries(environment)
     .filter(([name]) => COMPILER_ENV.test(name))
     .sort(([left], [right]) => left.localeCompare(right))
-  hash.update(JSON.stringify({ compiler, target, configuration }))
+  const legacy = createHash("sha256")
+  legacy.update(JSON.stringify({ compiler, target, configuration }))
+  // 同一平台的镜像滚动更新不改变产物身份；显式 SDK 和编译参数仍参与校验。
+  const hash = createHash("sha256")
+  hash.update(
+    JSON.stringify({
+      compiler,
+      target,
+      configuration: configuration.filter(
+        ([name]) => !/^ImageVersion$/i.test(name)
+      ),
+    })
+  )
   // 只缓存编译输入，打包脚本和应用版本不触发引擎重编。
-  for (const path of [...new Set(files)].sort()) {
+  for (const path of [...new Set(sourceFiles(root))].sort()) {
     if (!existsSync(resolve(root, path))) continue
-    hash
-      .update(path)
-      .update("\0")
-      .update(readFileSync(resolve(root, path)))
-      .update("\0")
+    const bytes = readFileSync(resolve(root, path))
+    for (const digest of [hash, legacy])
+      digest.update(path).update("\0").update(bytes).update("\0")
   }
-  return `xinghe-build-v2-${target}-${hash.digest("hex")}`
+  return {
+    key: `xinghe-build-v3-${target}-${hash.digest("hex")}`,
+    legacyKey: `xinghe-build-v2-${target}-${legacy.digest("hex")}`,
+  }
+}
+
+export function workerCacheKey(target, root = ROOT, environment = process.env) {
+  return workerCacheKeys(target, root, environment).key
 }
 
 if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  console.log(workerCacheKey(process.argv[2] || ""))
+  const keys = workerCacheKeys(process.argv[2] || "")
+  console.log(process.argv.includes("--json") ? JSON.stringify(keys) : keys.key)
 }
