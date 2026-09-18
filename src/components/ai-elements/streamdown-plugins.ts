@@ -101,7 +101,7 @@ function ensure(kind: HeavyKind): void {
     emit()
   }
   if (kind === "code") {
-    import("@streamdown/code")
+    import("./streamdown-code-plugin")
       .then((mod) => {
         loaded.code = makeSafeCode(mod.code)
       })
