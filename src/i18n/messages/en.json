@@ -3434,6 +3434,8 @@
         "elapsedSeconds": "{value}s",
         "toolUseCount": "{count} tool {count, plural, one {use} other {uses}}",
         "outputRate": "Average output {rate} tok/s",
+        "outputRateHint": "Reported output tokens / total turn time, including reasoning and tool waits; usage updates as the agent reports it",
+        "reportedUsage": "Reported usage",
         "firstToken": "First token {time}",
         "metricsPending": "Pending",
         "metricsUnavailable": "Not recorded",

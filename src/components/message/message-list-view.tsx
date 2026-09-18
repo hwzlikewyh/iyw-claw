@@ -630,8 +630,10 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
             {showStats && (
               <MessageOutputStats
                 messageId={group.id}
-                outputTokens={group.usage?.output_tokens}
+                conversationId={artifactConversationId}
+                usage={group.usage}
                 durationMs={durationMs ?? group.duration_ms}
+                completedAt={group.completed_at}
                 liveMessage={liveMessage}
                 toolCallCount={group.toolCallCount}
                 isStreaming={isStreaming}
@@ -985,7 +987,8 @@ export function MessageListView({
                   durationMs={item.durationMs}
                   liveMessage={
                     liveMessage &&
-                    item.group.id === `live-${conversationId}-${liveMessage.id}`
+                    item.phase === "streaming" &&
+                    item.key === lastAssistantItem?.key
                       ? liveMessage
                       : null
                   }
@@ -995,11 +998,17 @@ export function MessageListView({
                   modelOptions={modelOptions}
                   enableUserMemoryActions={enableUserMemoryActions}
                   dimmed={item.phase === "optimistic"}
-                  showStats={item.showStats}
+                  showStats={
+                    item.showStats &&
+                    (item.phase !== "streaming" ||
+                      item.key === lastAssistantItem?.key)
+                  }
                   previousUserIndex={item.previousUserIndex}
                   isResponseComplete={item.phase === "persisted"}
                   isStreaming={
-                    item.phase === "streaming" && connStatus === "prompting"
+                    isActive &&
+                    item.phase === "streaming" &&
+                    connStatus === "prompting"
                   }
                   showCurrentReplyArtifacts={item.phase !== "optimistic"}
                   animationEnabled={animationEnabled}
@@ -1061,6 +1070,7 @@ export function MessageListView({
     [
       agentType,
       connStatus,
+      isActive,
       liveMessage,
       animationEnabled,
       conversationId,

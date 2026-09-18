@@ -819,16 +819,7 @@ fn apply_in_flight_message_id(
     pending: &crate::acp::session_state::PendingUserMessage,
     started_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> Option<String> {
-    let n = turns.len();
-    if n == 0 {
-        return None;
-    }
     let started_at = started_at?;
-    let target_idx = match turns[n - 1].role {
-        TurnRole::User => n - 1,
-        TurnRole::Assistant if n >= 2 && matches!(turns[n - 2].role, TurnRole::User) => n - 2,
-        _ => return None,
-    };
     // Recency gate. `started_at` is recorded when the backend broadcasts the
     // `UserMessage` event, which happens *before* the agent request is issued
     // (see `connection.rs`), so the agent — a local subprocess on this machine's
@@ -840,29 +831,23 @@ fn apply_in_flight_message_id(
     // second), and stamping it would HIDE the genuinely new prompt via the
     // frontend's keep-first user dedup. Erring the other way only ever yields a
     // recoverable visible duplicate, so the strict bound is the safe one.
-    if turns[target_idx].timestamp < started_at {
+    let want = sig_from_user_message_blocks(&pending.blocks);
+    // 追加输入会让起始请求离开尾部，仍按本轮时间和正文定位首个匹配。
+    let target_idx = turns.iter().position(|turn| {
+        matches!(turn.role, TurnRole::User)
+            && turn.timestamp >= started_at
+            && sig_from_turn_blocks(&turn.blocks).as_ref() == Some(&want)
+    })?;
+    // 时间线按 ID 去重，不能覆盖成已存在的其他消息 ID。
+    let collides = turns
+        .iter()
+        .enumerate()
+        .any(|(i, t)| i != target_idx && t.id == pending.message_id);
+    if collides {
         return None;
     }
-    let want = sig_from_user_message_blocks(&pending.blocks);
-    if sig_from_turn_blocks(&turns[target_idx].blocks) == Some(want) {
-        // Never create a duplicate id. The broadcast id is normally disjoint from
-        // parser `turn-N` ids (and `is_reserved_turn_id` in the manager rejects a
-        // client id of that shape), but defend the invariant here too: if the id
-        // already exists on another turn, stamping would make two turns share an
-        // id and the frontend's id-keyed dedup could hide one. Leave the turn
-        // under its parser id — a recoverable visible duplicate, never a hidden
-        // prompt — and report nothing.
-        let collides = turns
-            .iter()
-            .enumerate()
-            .any(|(i, t)| i != target_idx && t.id == pending.message_id);
-        if collides {
-            return None;
-        }
-        turns[target_idx].id = pending.message_id.clone();
-        return Some(pending.message_id.clone());
-    }
-    None
+    turns[target_idx].id = pending.message_id.clone();
+    Some(pending.message_id.clone())
 }
 
 /// `get_folder_conversation_core` plus live in-flight correlation: when a turn is
