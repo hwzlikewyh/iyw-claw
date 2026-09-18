@@ -8,6 +8,7 @@ import {
   usageTotal,
   type UsageDashboardStats,
   type UsageModelRow,
+  type UsageDailyRow,
 } from "@/lib/usage-stats"
 import { formatUsagePoints } from "./usage-presentation"
 
@@ -80,6 +81,43 @@ export function UsageSummary({
         })}
       />
     </div>
+  )
+}
+
+export function UsageTodaySummary({ row }: { row: UsageDailyRow }) {
+  const t = useTranslations("UsageSettings")
+  const locale = useLocale()
+  return (
+    <section aria-label={t("today.title")} className="space-y-1 border-b pb-2">
+      <h2 className="text-sm font-semibold">{t("today.title")}</h2>
+      <div className="grid grid-cols-2 gap-x-5 @2xl:grid-cols-4">
+        <SummaryMetric
+          label={t("cards.pointsUsed")}
+          value={formatUsagePoints(row.totalPoints, locale)}
+          hint={t("cards.pointsUsedHint")}
+        />
+        <SummaryMetric
+          label={t("cards.totalTokens")}
+          value={formatTokenCount(row.total)}
+          hint={t("cards.totalTokensHint", {
+            input: formatTokenCount(row.input),
+            output: formatTokenCount(row.output),
+          })}
+        />
+        <SummaryMetric
+          label={t("cards.sessions")}
+          value={row.sessions.toLocaleString(locale)}
+          hint={row.date}
+        />
+        <SummaryMetric
+          label={t("cards.cacheHitRate")}
+          value={formatPercent(row.cacheHitRate)}
+          hint={t("cards.cacheHitRateHint", {
+            tokens: formatTokenCount(row.cacheRead),
+          })}
+        />
+      </div>
+    </section>
   )
 }
 

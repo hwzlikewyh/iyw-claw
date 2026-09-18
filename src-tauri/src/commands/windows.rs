@@ -15,6 +15,12 @@ use crate::db::service::app_metadata_service;
 use crate::db::AppDatabase;
 use crate::models::{FolderDetail, FolderHistoryEntry};
 
+#[cfg(feature = "tauri-runtime")]
+mod tray_menu_icons;
+
+#[cfg(feature = "tauri-runtime")]
+static TRAY_LOCALE_ZH_CN: AtomicBool = AtomicBool::new(false);
+
 /// Base traffic-light position (logical px) at 100 % zoom.
 #[cfg(target_os = "macos")]
 const TRAFFIC_LIGHT_X: f64 = 12.0;
@@ -1709,9 +1715,9 @@ fn tray_labels_for(locale: crate::models::system::AppLocale) -> TrayLabels {
     use crate::models::system::AppLocale;
     match locale {
         AppLocale::ZhCn => TrayLabels {
-            status: "原助理 · 正在后台运行",
+            status: "原助理 · 后台运行中",
             show_workspace: "打开工作台",
-            new_conversation: "新建会话",
+            new_conversation: "新建对话",
             recent_projects: "最近项目",
             no_recent_projects: "暂无最近项目",
             settings: "设置",
@@ -1719,7 +1725,7 @@ fn tray_labels_for(locale: crate::models::system::AppLocale) -> TrayLabels {
             quit: "退出原助理",
         },
         AppLocale::En => TrayLabels {
-            status: "原助理 · Running in background",
+            status: "原助理 · Background",
             show_workspace: "Open Workspace",
             new_conversation: "New Conversation",
             recent_projects: "Recent Projects",
@@ -1749,26 +1755,22 @@ fn build_recent_projects_menu(
 ) -> tauri::Result<tauri::menu::Submenu<tauri::Wry>> {
     use tauri::menu::SubmenuBuilder;
 
-    let mut items = Vec::with_capacity(recent_projects.len().min(5).max(1));
-    for project in recent_projects.iter().take(5) {
-        items.push(tray_menu_item(
+    const RECENT_PROJECT_LIMIT: usize = 5;
+    let mut builder = SubmenuBuilder::with_id(app, "tray:recent", labels.recent_projects);
+    for project in recent_projects.iter().take(RECENT_PROJECT_LIMIT) {
+        builder = builder.item(&tray_menu_icons::menu_item(
             app,
             &format!("{TRAY_MENU_ID_RECENT_PREFIX}{}", project.id),
             &project.name,
-            true,
         )?);
     }
-    if items.is_empty() {
-        items.push(tray_menu_item(
+    if recent_projects.is_empty() {
+        builder = builder.item(&tray_menu_item(
             app,
             TRAY_MENU_ID_RECENT_EMPTY,
             labels.no_recent_projects,
             false,
         )?);
-    }
-    let mut builder = SubmenuBuilder::with_id(app, "tray:recent", labels.recent_projects);
-    for item in &items {
-        builder = builder.item(item);
     }
     builder.build()
 }
@@ -1782,21 +1784,17 @@ fn build_tray_menu(
     use tauri::menu::{MenuBuilder, PredefinedMenuItem};
 
     let labels = tray_labels_for(locale);
-    let status_item = tray_menu_item(app, "tray:status", labels.status, false)?;
-    let open_item = tray_menu_item(app, TRAY_MENU_ID_OPEN, labels.show_workspace, true)?;
-    let new_item = tray_menu_item(app, TRAY_MENU_ID_NEW, labels.new_conversation, true)?;
+    let open_item = tray_menu_icons::menu_item(app, TRAY_MENU_ID_OPEN, labels.show_workspace)?;
+    let new_item = tray_menu_icons::menu_item(app, TRAY_MENU_ID_NEW, labels.new_conversation)?;
     let recent_menu = build_recent_projects_menu(app, &labels, recent_projects)?;
-    let separator_one = PredefinedMenuItem::separator(app)?;
     let separator_two = PredefinedMenuItem::separator(app)?;
     let separator_three = PredefinedMenuItem::separator(app)?;
-    let settings_item = tray_menu_item(app, TRAY_MENU_ID_SETTINGS, labels.settings, true)?;
-    let update_item = tray_menu_item(app, TRAY_MENU_ID_UPDATE, labels.check_update, true)?;
-    let quit_item = tray_menu_item(app, TRAY_MENU_ID_QUIT, labels.quit, true)?;
+    let settings_item = tray_menu_icons::menu_item(app, TRAY_MENU_ID_SETTINGS, labels.settings)?;
+    let update_item = tray_menu_icons::menu_item(app, TRAY_MENU_ID_UPDATE, labels.check_update)?;
+    let quit_item = tray_menu_icons::menu_item(app, TRAY_MENU_ID_QUIT, labels.quit)?;
 
     MenuBuilder::new(app)
         .items(&[
-            &status_item,
-            &separator_one,
             &open_item,
             &new_item,
             &recent_menu,
@@ -1873,6 +1871,10 @@ pub fn install_tray_icon(
         .build(app)?;
 
     TRAY_AVAILABLE.store(true, AtomicOrdering::Relaxed);
+    TRAY_LOCALE_ZH_CN.store(
+        locale == crate::models::system::AppLocale::ZhCn,
+        AtomicOrdering::Relaxed,
+    );
     Ok(())
 }
 
@@ -1914,11 +1916,8 @@ pub async fn refresh_tray_menu_command(
     app: AppHandle,
     db: tauri::State<'_, AppDatabase>,
 ) -> Result<(), AppCommandError> {
-    let locale = crate::commands::system_settings::load_system_language_settings(&db.conn)
-        .await
-        .map(|settings| settings.language)
-        .unwrap_or_default();
     let recent_projects = load_recent_tray_projects(&db).await?;
+    let locale = current_tray_locale();
     refresh_tray_menu(&app, locale, &recent_projects)
         .map_err(|e| AppCommandError::window("Failed to refresh tray menu", e.to_string()))
 }
@@ -1933,7 +1932,20 @@ pub async fn set_tray_locale(
     db: tauri::State<'_, AppDatabase>,
     locale: crate::models::system::AppLocale,
 ) -> Result<(), AppCommandError> {
+    TRAY_LOCALE_ZH_CN.store(
+        locale == crate::models::system::AppLocale::ZhCn,
+        AtomicOrdering::Relaxed,
+    );
     let recent_projects = load_recent_tray_projects(&db).await?;
-    refresh_tray_menu(&app, locale, &recent_projects)
+    refresh_tray_menu(&app, current_tray_locale(), &recent_projects)
         .map_err(|e| AppCommandError::window("Failed to refresh tray menu", e.to_string()))
+}
+
+#[cfg(feature = "tauri-runtime")]
+fn current_tray_locale() -> crate::models::system::AppLocale {
+    if TRAY_LOCALE_ZH_CN.load(AtomicOrdering::Relaxed) {
+        crate::models::system::AppLocale::ZhCn
+    } else {
+        crate::models::system::AppLocale::En
+    }
 }

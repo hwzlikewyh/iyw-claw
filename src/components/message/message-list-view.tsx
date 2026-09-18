@@ -515,6 +515,7 @@ const UserMessageCopyButton = memo(function UserMessageCopyButton({
 const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   group,
   durationMs,
+  liveMessage,
   conversationId,
   artifactConversationId,
   agentType,
@@ -525,9 +526,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   previousUserIndex = null,
   isResponseComplete = true,
   isStreaming = false,
-  activityContextKey,
   showCurrentReplyArtifacts = false,
-  recoveredVersion = 0,
   animationEnabled = false,
   conversationDisplayMode,
   collapseCompletedTurn,
@@ -536,6 +535,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
 }: {
   group: ResolvedMessageGroup
   durationMs?: number | null
+  liveMessage?: import("@/contexts/acp-connections-context").LiveMessage | null
   conversationId: number
   artifactConversationId: number | null
   agentType: AgentType
@@ -546,9 +546,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   previousUserIndex?: number | null
   isResponseComplete?: boolean
   isStreaming?: boolean
-  activityContextKey?: string
   showCurrentReplyArtifacts?: boolean
-  recoveredVersion?: number
   animationEnabled?: boolean
   conversationDisplayMode: ConversationDisplayMode
   collapseCompletedTurn: boolean
@@ -631,12 +629,12 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
             )}
             {showStats && (
               <MessageOutputStats
-                messageKey={`${conversationId}:${group.id}`}
-                contextKey={activityContextKey}
-                characters={group.outputCharacters}
+                messageId={group.id}
+                outputTokens={group.usage?.output_tokens}
+                durationMs={durationMs ?? group.duration_ms}
+                liveMessage={liveMessage}
                 toolCallCount={group.toolCallCount}
                 isStreaming={isStreaming}
-                recoveredVersion={recoveredVersion}
               />
             )}
             {showStats && (
@@ -754,7 +752,6 @@ export function MessageListView({
   }, [conversationId])
   const animationEnabled = animationScope === conversationId && isActive
   const liveMessage = session?.liveMessage ?? null
-  const recoveredVersion = liveMessage?.recoveredVersion ?? 0
   const { loadEarlierHistory } = useConversationRuntimeActions()
   const timelineTurns = useConversationRuntimeStore((s) =>
     selectTimelineTurns(s, conversationId)
@@ -986,6 +983,12 @@ export function MessageListView({
                 <HistoricalMessageGroup
                   group={item.group}
                   durationMs={item.durationMs}
+                  liveMessage={
+                    liveMessage &&
+                    item.group.id === `live-${conversationId}-${liveMessage.id}`
+                      ? liveMessage
+                      : null
+                  }
                   conversationId={conversationId}
                   artifactConversationId={resolvedArtifactConversationId}
                   agentType={agentType}
@@ -997,10 +1000,6 @@ export function MessageListView({
                   isResponseComplete={item.phase === "persisted"}
                   isStreaming={
                     item.phase === "streaming" && connStatus === "prompting"
-                  }
-                  activityContextKey={activityContextKey}
-                  recoveredVersion={
-                    item.phase === "streaming" ? recoveredVersion : 0
                   }
                   showCurrentReplyArtifacts={item.phase !== "optimistic"}
                   animationEnabled={animationEnabled}
@@ -1061,9 +1060,8 @@ export function MessageListView({
     },
     [
       agentType,
-      activityContextKey,
       connStatus,
-      recoveredVersion,
+      liveMessage,
       animationEnabled,
       conversationId,
       resolvedArtifactConversationId,

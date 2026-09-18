@@ -3433,7 +3433,10 @@
         "elapsedMinutes": "{value}m",
         "elapsedSeconds": "{value}s",
         "toolUseCount": "{count} tool {count, plural, one {use} other {uses}}",
-        "outputRate": "{rate} chars/s",
+        "outputRate": "Average output {rate} tok/s",
+        "firstToken": "First token {time}",
+        "metricsPending": "Pending",
+        "metricsUnavailable": "Not recorded",
         "runtimeRetrying": "Something went wrong, retrying",
         "waitingProcess": "Waiting for the command to finish",
         "waitingOutput": "Waiting for the assistant to continue",
@@ -5396,7 +5399,26 @@
     "description": "Token usage and settled points",
     "period": {
       "label": "Date range",
+      "today": "Today",
       "days": "Last {days} days"
+    },
+    "today": {
+      "title": "Today's usage"
+    },
+    "conversations": {
+      "title": "Conversation usage",
+      "count": "{count} active conversations in this period",
+      "conversation": "Conversation",
+      "model": "Model",
+      "tokens": "Lifetime tokens",
+      "points": "Lifetime estimated points",
+      "updatedAt": "Last active",
+      "untitled": "Untitled conversation",
+      "empty": "No active conversations in the selected period",
+      "loadFailed": "Usage unavailable",
+      "page": "Page {page} of {pages}",
+      "previous": "Previous page",
+      "next": "Next page"
     },
     "chart": {
       "metric": "Chart metric"

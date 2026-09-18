@@ -3433,7 +3433,10 @@
         "elapsedMinutes": "{value} 分钟",
         "elapsedSeconds": "{value} 秒",
         "toolUseCount": "{count} 次工具调用",
-        "outputRate": "输出 {rate} 字/秒",
+        "outputRate": "平均输出 {rate} tok/s",
+        "firstToken": "首字耗时 {time}",
+        "metricsPending": "待统计",
+        "metricsUnavailable": "未记录",
         "runtimeRetrying": "遇到问题，正在重试",
         "waitingProcess": "等待命令执行结果",
         "waitingOutput": "等待原助理继续",
@@ -5396,7 +5399,26 @@
     "description": "Token 用量与已结算点数",
     "period": {
       "label": "统计时间范围",
+      "today": "今日",
       "days": "最近 {days} 天"
+    },
+    "today": {
+      "title": "今日用量"
+    },
+    "conversations": {
+      "title": "对话用量",
+      "count": "期间活跃 {count} 个对话",
+      "conversation": "对话",
+      "model": "模型",
+      "tokens": "累计 Token",
+      "points": "累计估算点数",
+      "updatedAt": "最近活跃",
+      "untitled": "未命名对话",
+      "empty": "所选时间范围内暂无活跃对话",
+      "loadFailed": "用量加载失败",
+      "page": "第 {page} / {pages} 页",
+      "previous": "上一页",
+      "next": "下一页"
     },
     "chart": {
       "metric": "统计指标"

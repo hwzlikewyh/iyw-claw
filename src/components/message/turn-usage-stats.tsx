@@ -8,6 +8,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import type { TurnUsage } from "@/lib/types"
+import { formatTokenThousands } from "@/lib/token-format"
 import { UsagePointsRow, UsagePointsValue } from "./usage-points"
 
 export function TurnUsageStats({ usage }: { usage: TurnUsage }) {
@@ -40,7 +41,7 @@ export function TurnUsageStats({ usage }: { usage: TurnUsage }) {
               <div key={row.key} className="flex justify-between gap-3">
                 <span>{t(row.key)}</span>
                 <span className="font-mono tabular-nums">
-                  {row.value.toLocaleString(locale)}
+                  {formatTokenThousands(row.value, locale)}
                 </span>
               </div>
             ))}
