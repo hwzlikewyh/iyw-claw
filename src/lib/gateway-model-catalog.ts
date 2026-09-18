@@ -58,7 +58,7 @@ function buildReasoningOptions(
 }
 
 function buildModelOption(
-  selected: GatewayModel,
+  selectedId: string,
   models: GatewayModel[]
 ): SessionConfigOptionInfo {
   return {
@@ -68,7 +68,7 @@ function buildModelOption(
     category: "model",
     kind: {
       type: "select",
-      current_value: selected.id,
+      current_value: selectedId,
       options: models.map((model) => ({
         ...selectOption(model.id, model.name, model.description, model.iconUrl),
         priceMultiplier: model.priceMultiplier,
@@ -146,12 +146,12 @@ export function buildAgentOptionsSnapshot(
   models: GatewayModel[],
   configValues: Record<string, string> = {}
 ): AgentOptionsSnapshot {
-  const selected =
-    models.find((model) => model.id === configValues.model) ?? models[0]
+  const selectedId = configValues.model || models[0]?.id
+  const selected = models.find((model) => model.id === selectedId)
   const configOptions: SessionConfigOptionInfo[] = []
   const behavior = getAgentModelBehaviorIds(agentType)
+  if (selectedId) configOptions.push(buildModelOption(selectedId, models))
   if (selected) {
-    configOptions.push(buildModelOption(selected, models))
     if (behavior.effortConfigId) {
       const configured =
         configValues[behavior.effortConfigId] ?? configValues.reasoning_effort
@@ -200,6 +200,13 @@ export function reconcileModelConfigValues(
   configValues: Record<string, string>
 ): Record<string, string> {
   const model = snapshot.config_options.find((option) => option.id === "model")
+  // 目录变化不能替用户改选模型；不可用的选择保留到用户手动修改。
+  if (
+    configValues.model &&
+    !model?.kind.options.some((item) => item.value === configValues.model)
+  ) {
+    return configValues
+  }
   const next = { ...configValues }
   if (!model) {
     for (const id of MODEL_CONFIG_IDS) delete next[id]

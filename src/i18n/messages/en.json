@@ -3869,7 +3869,7 @@
         "dismiss": "Dismiss",
         "reconnectFailed": "Failed to reconnect session",
         "applied": "New configuration applied",
-        "modelSwitchFailed": "The Agent did not confirm that model; the previous model was restored."
+        "modelSwitchFailed": "The selected model is unavailable or not yet confirmed. Sending is paused and your selection is preserved. Retry or choose another model manually."
       },
       "collabAgent": {
         "title": "Sub-agent",

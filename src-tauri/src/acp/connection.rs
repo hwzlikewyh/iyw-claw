@@ -3788,7 +3788,7 @@ async fn run_connection(
                                 &preferred_config_values,
                                 initial_config_options.unwrap_or_default(),
                             )
-                            .await;
+                            .await?;
                             emit_selectors_ready(&state, &emitter_clone).await;
                             if let Some(stage) = selectors_stage {
                                 stage.finish("ok");
@@ -4076,7 +4076,7 @@ async fn run_connection(
                             &preferred_config_values,
                             initial_config_options.unwrap_or_default(),
                         )
-                        .await;
+                        .await?;
                         emit_selectors_ready(&state, &emitter_clone).await;
                         if let Some(stage) = selectors_stage {
                             stage.finish("ok");
@@ -4219,7 +4219,7 @@ async fn run_connection(
                     &preferred_config_values,
                     initial_config_options.unwrap_or_default(),
                 )
-                .await;
+                .await?;
                 emit_selectors_ready(&state, &emitter_clone).await;
                 if let Some(stage) = selectors_stage {
                     stage.finish("ok");
@@ -4482,15 +4482,38 @@ async fn set_session_config_option(
     config_id: String,
     value_id: String,
 ) -> Result<(), sacp::Error> {
+    let is_model = config_id == "model"
+        || state
+            .read()
+            .await
+            .config_options
+            .as_ref()
+            .is_some_and(|options| {
+                options.iter().any(|option| {
+                    option.id == config_id && option.category.as_deref() == Some("model")
+                })
+            });
+    let requested_model = is_model.then(|| value_id.clone());
     if agent_type == AgentType::Grok {
-        return crate::acp::grok::set_config_option(
-            cx, session_id, state, emitter, config_id, value_id,
-        )
-        .await;
+        crate::acp::grok::set_config_option(cx, session_id, state, emitter, config_id, value_id)
+            .await?;
+        return validate_selected_session_model(
+            requested_model.as_deref(),
+            state
+                .read()
+                .await
+                .config_options
+                .as_deref()
+                .unwrap_or_default(),
+        );
     }
     let updated = set_session_config_option_inner(cx, session_id, config_id, value_id).await?;
+    let confirmation = validate_selected_session_model(
+        requested_model.as_deref(),
+        &map_session_config_options(&updated),
+    );
     emit_session_config_options_values(state, emitter, agent_type, updated).await;
-    Ok(())
+    confirmation
 }
 
 /// Wire-level half of `set_session_config_option`: send the JSON-RPC request and
@@ -4527,8 +4550,8 @@ async fn set_session_config_option_inner(
 /// values without a client-side rewrite and sync-back cycle.
 ///
 /// Returns the (possibly updated) list of config options that the caller
-/// should emit. Failures on individual preferences are logged and skipped so
-/// a stale or invalid preference cannot block session startup.
+/// should emit. Non-model failures are logged and skipped; the caller must
+/// confirm the selected model before making the session ready for prompts.
 #[allow(clippy::too_many_arguments)]
 async fn apply_preferred_session_config_options(
     cx: &ConnectionTo<Agent>,
@@ -4666,6 +4689,34 @@ async fn apply_preferred_session_mode(
     }
 }
 
+fn validate_selected_session_model(
+    requested_model: Option<&str>,
+    options: &[SessionConfigOptionInfo],
+) -> Result<(), sacp::Error> {
+    let Some(requested_model) = requested_model.filter(|model| !model.is_empty()) else {
+        return Ok(());
+    };
+    let actual_model = options
+        .iter()
+        .find(|option| option.id == "model" || option.category.as_deref() == Some("model"))
+        .map(|option| {
+            let SessionConfigKindInfo::Select(select) = &option.kind;
+            select.current_value.as_str()
+        });
+    if actual_model == Some(requested_model) {
+        return Ok(());
+    }
+    tracing::error!(
+        requested_model,
+        actual_model,
+        "[ACP] selected model was not confirmed; refusing automatic model fallback"
+    );
+    Err(sacp::util::internal_error(format!(
+        "Selected model '{requested_model}' is unavailable or was not confirmed by the Agent. \
+         No alternative model will be used. Retry or choose another model manually."
+    )))
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn apply_and_emit_session_config_options(
     cx: &ConnectionTo<Agent>,
@@ -4678,7 +4729,7 @@ async fn apply_and_emit_session_config_options(
     preferred_mode_id: Option<&str>,
     preferred_config_values: &BTreeMap<String, String>,
     initial_config_options: Vec<SessionConfigOption>,
-) {
+) -> Result<(), sacp::Error> {
     apply_preferred_session_mode(session, (state, emitter), agent_type, preferred_mode_id).await;
     if agent_type == AgentType::Grok {
         let specs = grok_effort_specs.cloned().unwrap_or_default();
@@ -4693,8 +4744,12 @@ async fn apply_and_emit_session_config_options(
             &specs,
         )
         .await;
+        validate_selected_session_model(
+            preferred_config_values.get("model").map(String::as_str),
+            &options,
+        )?;
         emit_session_config_options_info(state, emitter, agent_type, options).await;
-        return;
+        return Ok(());
     }
     let updated = apply_preferred_session_config_options(
         cx,
@@ -4703,7 +4758,12 @@ async fn apply_and_emit_session_config_options(
         initial_config_options,
     )
     .await;
+    validate_selected_session_model(
+        preferred_config_values.get("model").map(String::as_str),
+        &map_session_config_options(&updated),
+    )?;
     emit_session_config_options_values(state, emitter, agent_type, updated).await;
+    Ok(())
 }
 
 const TERMINAL_POLL_INTERVAL_MS: u64 = 200;
