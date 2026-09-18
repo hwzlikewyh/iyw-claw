@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use sea_orm::DatabaseConnection;
+use sha2::{Digest, Sha256};
 
 use super::archive::{extract_tool_zip, locate_payload, probe_payload};
 use super::bootstrap_component::PreparedToolComponent;
@@ -70,7 +71,7 @@ pub(super) async fn prepare_fresh(
 #[allow(clippy::too_many_arguments)]
 async fn prepare_fresh_inner(
     conn: &DatabaseConnection,
-    _data_dir: &Path,
+    data_dir: &Path,
     tool_id: &str,
     channel: &str,
     task_id: &str,
@@ -84,7 +85,7 @@ async fn prepare_fresh_inner(
         .map_err(AppCommandError::io)?;
     let ticket = request_ticket(conn, offer, current_version, channel).await?;
     ensure_disk_space(stage, &ticket)?;
-    let archive = stage.join("artifact.zip");
+    let archive = cached_archive(data_dir, offer);
     let ticket = download_archive(
         conn,
         offer,
@@ -97,6 +98,21 @@ async fn prepare_fresh_inner(
     )
     .await?;
     verify_and_extract(&archive, stage, tool_id, offer, &ticket).await
+}
+
+fn cached_archive(data_dir: &Path, offer: &ToolOffer) -> PathBuf {
+    // 制品身份固定后，短时下载票据更新不会改变缓存位置。
+    let identity = serde_json::json!([
+        offer.artifact.id,
+        offer.artifact.size,
+        offer.artifact.sha256.to_ascii_lowercase()
+    ])
+    .to_string();
+    let key = format!("{:x}", Sha256::digest(identity.as_bytes()));
+    crate::shared_runtime::tool_root(data_dir, &offer.tool_id)
+        .join(".downloads")
+        .join(key)
+        .join("artifact.zip")
 }
 
 fn ensure_disk_space(data_dir: &Path, ticket: &DownloadTicket) -> Result<(), AppCommandError> {

@@ -9,6 +9,8 @@ use crate::web::event_bridge::EventEmitter;
 use super::spec::ComponentSpec;
 use super::{emit_event, RuntimeBootstrapEventKind};
 
+const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
+
 pub(super) fn source_host(url: &str) -> String {
     reqwest::Url::parse(url)
         .ok()
@@ -20,6 +22,12 @@ pub(super) async fn verify_archive(path: &Path, spec: &ComponentSpec) -> Result<
     let Some(expected) = spec.expected_sha256 else {
         return Ok(true);
     };
+    let metadata = tokio::fs::metadata(path)
+        .await
+        .map_err(|error| error.to_string())?;
+    if metadata.len() == 0 || metadata.len() > MAX_ARCHIVE_BYTES {
+        return Ok(false);
+    }
     let bytes = tokio::fs::read(path)
         .await
         .map_err(|error| format!("failed to verify {}: {error}", path.display()))?;
@@ -37,12 +45,18 @@ pub(super) async fn stream_to_file(
     let mut stream = response.bytes_stream();
     let mut downloaded = 0_u64;
     let mut last_percent = None;
+    if total.is_some_and(|size| size > MAX_ARCHIVE_BYTES) {
+        return Err("Fallback archive exceeds the size limit".to_string());
+    }
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| format!("download interrupted: {error}"))?;
+        downloaded = downloaded.saturating_add(chunk.len() as u64);
+        if downloaded > MAX_ARCHIVE_BYTES {
+            return Err("Fallback archive exceeds the size limit".to_string());
+        }
         file.write_all(&chunk)
             .await
             .map_err(|error| format!("failed to write download: {error}"))?;
-        downloaded += chunk.len() as u64;
         last_percent = emit_progress(total, downloaded, last_percent, spec, task_id, emitter);
     }
     Ok(downloaded)

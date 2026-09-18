@@ -4,7 +4,7 @@ use std::time::Instant;
 use sea_orm::DatabaseConnection;
 
 use crate::acp::version_center::{install_managed_tool, managed_tool_executable};
-use crate::app_error::{AppCommandError, AppErrorCode};
+use crate::app_error::AppCommandError;
 use crate::web::event_bridge::EventEmitter;
 
 use super::fallback;
@@ -124,27 +124,7 @@ pub(super) async fn ensure_component(
 }
 
 fn fallback_allowed(error: &AppCommandError) -> bool {
-    if !cfg!(windows) {
-        return false;
-    }
-    if error.code == AppErrorCode::NetworkError {
-        return true;
-    }
-    if error.code != AppErrorCode::InvalidInput {
-        return false;
-    }
-    matches!(
-        error.detail.as_deref(),
-        Some(
-            "AGENT_TOOL_NOT_FOUND"
-                | "AGENT_TOOL_POLICY_MISSING"
-                | "AGENT_TOOL_VERSION_NOT_FOUND"
-                | "AGENT_TOOL_ARTIFACT_NOT_READY"
-                | "AGENT_STORAGE_UNAVAILABLE"
-                | "AGENT_DOWNLOAD_UNAVAILABLE"
-                | "AGENT_RATE_LIMITED"
-        )
-    )
+    fallback::availability_failure(error)
 }
 
 fn managed_failure(

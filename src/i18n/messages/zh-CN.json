@@ -5330,19 +5330,24 @@
     "checkingTitle": "正在准备内核中",
     "checkingDescription": "首次启动需要准备运行环境，请稍候。",
     "runtimeTitle": "正在准备基础运行环境",
-    "runtimeDescription": "正在通过国内加速镜像下载 Node.js 与 Git 运行环境，仅首次启动需要。",
+    "runtimeDescription": "正在检查并准备 Node.js、Git 和 uv，已就绪的组件会保留。",
     "installingTitle": "正在准备内核中",
     "installingDescription": "首次启动需要准备运行环境，请稍候。",
     "errorTitle": "内核准备失败",
     "errorDescription": "请查看下面的失败原因后重试。",
     "errorStep": "失败步骤：{step}",
     "steps": {
-      "runtime": "准备 Node.js / Git 运行环境",
+      "runtime": "准备 Node.js / Git / uv 运行环境",
       "registry": "读取 Agent 注册表",
       "detect": "检测本地已安装版本",
       "install": "安装 Codex 内核"
     },
-    "retry": "重试"
+    "retry": "重试",
+    "waitingForWriter": "另一个窗口正在准备运行环境，正在等待完成。",
+    "componentPending": "尚未完成准备",
+    "repairCore": "内置星河核心文件缺失或校验失败，请重新运行原助理安装包修复。已保存的数据无需删除。",
+    "copyError": "复制错误详情",
+    "copyFailed": "复制失败，请选择错误文本后复制。"
   },
   "SidebarAccount": {
     "notSignedIn": "未登录",

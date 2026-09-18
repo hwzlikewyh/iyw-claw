@@ -4,7 +4,6 @@ import { Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
-import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import {
   Dialog,
@@ -20,14 +19,20 @@ import {
   acpDetectAgentLocalVersion,
   acpListAgents,
   acpPrepareNpxAgent,
-  bootstrapInitialize,
   officecliBootstrap,
 } from "@/lib/api"
-import { subscribe } from "@/lib/platform"
-import type { BootstrapInitEvent } from "@/lib/types"
+import { isLocalDesktop, subscribe } from "@/lib/platform"
+import { prepareStartupRuntime } from "@/lib/startup-runtime"
+import type { BootstrapComponentStatus, BootstrapInitEvent } from "@/lib/types"
 import { randomUUID } from "@/lib/utils"
+import {
+  StartupFailureDetails,
+  StartupRuntimeStatus,
+  updateRuntimeComponent,
+} from "./startup-runtime-status"
 
 const BOOTSTRAP_INIT_EVENT = "app://bootstrap-init"
+const CHECKING_VISIBILITY_DELAY_MS = 800
 
 type CodexBootstrapState =
   | "idle"
@@ -47,9 +52,9 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
   const { refresh: refreshAgents } = useAcpAgents()
   const [state, setState] = useState<CodexBootstrapState>("idle")
   const [bootstrapPercent, setBootstrapPercent] = useState<number | null>(null)
-  // Why the run failed. Without this the dialog blamed the network for every
-  // failure, including bugs that had nothing to do with it, and a user report
-  // carried no information at all.
+  const [components, setComponents] = useState<BootstrapComponentStatus[]>([])
+  const [message, setMessage] = useState("")
+  const controllerRef = useRef<AbortController | null>(null)
   const [failure, setFailure] = useState<{
     step: BootstrapStep
     detail: string
@@ -61,10 +66,6 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
   const officeBootstrapRef = useRef<Promise<void> | null>(null)
   const workspaceReadyOnceRef = useRef(false)
   const authenticated = status === "authenticated"
-  // The dialog only appears once real installation work starts (or fails).
-  // Fast probes ("checking", and a runtime bootstrap that finds everything
-  // already installed) stay invisible so an up-to-date machine boots straight
-  // into the workspace.
   const blocked =
     authenticated &&
     (state === "runtime" || state === "installing" || state === "error")
@@ -73,15 +74,19 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
   }
   const workspaceReady = workspaceReadyOnceRef.current
 
-  // Flip into the visible "runtime" state only after an event proves that
-  // actual transfer/extraction work started. The backend's ready fast path
-  // emits no progress, so an already complete local environment stays hidden.
+  useEffect(() => () => controllerRef.current?.abort(), [])
+
   useEffect(() => {
     if (!authenticated) return
     let disposed = false
     let unsubscribe: (() => void) | null = null
     void subscribe<BootstrapInitEvent>(BOOTSTRAP_INIT_EVENT, (event) => {
       if (event.taskId !== runtimeTaskIdRef.current) return
+      if (!runningRef.current) return
+      setMessage(event.message)
+      if (event.component) {
+        setComponents((current) => updateRuntimeComponent(current, event))
+      }
       const activePhase = [
         "downloading",
         "staging",
@@ -98,10 +103,14 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
           )
         )
       }
-    }).then((fn) => {
-      if (disposed) fn()
-      else unsubscribe = fn
     })
+      .then((fn) => {
+        if (disposed) fn()
+        else unsubscribe = fn
+      })
+      .catch((error) => {
+        console.warn("[StartupCodexGate] Progress subscription failed:", error)
+      })
     return () => {
       disposed = true
       unsubscribe?.()
@@ -124,13 +133,17 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
   const bootstrap = useCallback(async () => {
     if (runningRef.current) return
     runningRef.current = true
+    runtimeTaskIdRef.current = randomUUID()
     setState("checking")
     setBootstrapPercent(null)
     setFailure(null)
+    setMessage("")
+    const controller = new AbortController()
+    controllerRef.current = controller
+    const visibilityTimer = setTimeout(() => {
+      setState((current) => (current === "checking" ? "runtime" : current))
+    }, CHECKING_VISIBILITY_DELAY_MS)
     void bootstrapOfficeCli()
-    // Which step is in flight, so the catch below can name it. Four different
-    // backend calls funnel into one `catch`; without this the dialog cannot say
-    // which of them broke.
     let step: BootstrapStep = "registry"
     try {
       const agents = await acpListAgents().catch((error) => {
@@ -147,16 +160,15 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
         return
       }
 
-      // Node/Git must exist before the Codex npx install below can run. Keep
-      // this call in the invisible checking state: ready components emit no
-      // progress and therefore do not flash a bootstrap dialog.
       step = "runtime"
-      const runtimeReport = await bootstrapInitialize({
+      const runtimeReport = await prepareStartupRuntime({
         taskId: runtimeTaskIdRef.current,
+        signal: controller.signal,
+        onStatus: (report) => {
+          setComponents(report.components)
+          if (report.writerBusy) setMessage(t("waitingForWriter"))
+        },
       })
-      if (runtimeReport.writerBusy || runtimeReport.phase === "retryable") {
-        throw new Error("另一个窗口正在准备运行环境，请稍后重试")
-      }
       const requiredComponents = ["node", "git", "uv"]
       const components = new Map(
         runtimeReport.components.map((component) => [
@@ -166,7 +178,7 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
       )
       const failures = requiredComponents.flatMap((componentId) => {
         const component = components.get(componentId)
-        if (!component) return [`${componentId}: unavailable`]
+        if (!component) return [`${componentId}: ${t("componentPending")}`]
         if (!component.installed || !component.active) {
           return [`${componentId}: ${component.lastError ?? component.phase}`]
         }
@@ -176,10 +188,6 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
         throw new Error(failures.join("\n"))
       }
       step = "detect"
-      // The initial agent inventory already validates the active Codex
-      // directory, command entrypoint, platform and recorded marker. Reuse
-      // that result on the common path; only repair stale metadata when the
-      // inventory could not prove a local installation.
       const installed =
         codex.installed_version ?? (await acpDetectAgentLocalVersion("codex"))
       if (installed) {
@@ -187,6 +195,7 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
         setState("ready")
         return
       }
+      if (isLocalDesktop()) throw new Error(t("repairCore"))
       setState("installing")
       step = "install"
       await acpPrepareNpxAgent(
@@ -198,14 +207,19 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
       await refreshAgents()
       setState("ready")
     } catch (error) {
+      if (controller.signal.aborted) {
+        setState("idle")
+        return
+      }
       const detail = error instanceof Error ? error.message : String(error)
       console.error(`[StartupCodexGate] ${step} step failed:`, error)
       setFailure({ step, detail })
       setState("error")
     } finally {
+      clearTimeout(visibilityTimer)
       runningRef.current = false
     }
-  }, [bootstrapOfficeCli, refreshAgents])
+  }, [bootstrapOfficeCli, refreshAgents, t])
 
   useEffect(() => {
     if (status === "authenticated" && state === "idle") void bootstrap()
@@ -227,9 +241,6 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
   return (
     <>
       {workspaceReady ? children : null}
-      {/* The workspace title bar is not mounted yet, so this dialog would
-          otherwise leave the window with no way to be minimized or closed —
-          including when the bootstrap fails and only the retry button is left. */}
       <OverlayWindowControls visible={blocked} />
       <Dialog open={blocked} onOpenChange={() => {}}>
         <DialogContent
@@ -250,6 +261,14 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
               {state === "error" ? t("errorDescription") : description}
             </DialogDescription>
           </DialogHeader>
+          {components.length > 0 ? (
+            <StartupRuntimeStatus components={components} />
+          ) : null}
+          {message && state !== "error" ? (
+            <p role="status" className="text-xs text-muted-foreground">
+              {message}
+            </p>
+          ) : null}
           {state !== "error" ? (
             <Progress
               value={
@@ -263,26 +282,12 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
               className="h-2"
             />
           ) : null}
-          {state === "error" ? (
-            <div className="grid gap-4">
-              {failure ? (
-                <div className="grid gap-1.5">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    {t("errorStep", { step: t(`steps.${failure.step}`) })}
-                  </p>
-                  <pre className="max-h-40 overflow-auto rounded-md bg-muted p-2 text-left text-xs break-all whitespace-pre-wrap">
-                    {failure.detail}
-                  </pre>
-                </div>
-              ) : null}
-              <Button
-                size="sm"
-                className="mx-auto"
-                onClick={() => void bootstrap()}
-              >
-                {t("retry")}
-              </Button>
-            </div>
+          {state === "error" && failure ? (
+            <StartupFailureDetails
+              step={t(`steps.${failure.step}`)}
+              detail={failure.detail}
+              onRetry={() => void bootstrap()}
+            />
           ) : null}
         </DialogContent>
       </Dialog>

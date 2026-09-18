@@ -109,17 +109,34 @@ async fn activate_pending_tool(
             pending.component_id
         )));
     }
+    let directory = super::runtime::runtime_dir(data_dir, &pending.component_id, &pending.version)?;
+    let marker = super::manifest::read_marker(&directory).await.ok_or_else(|| {
+        AppCommandError::invalid_input("Pending runtime ownership marker is missing")
+    })?;
+    if marker.schema != 1 || marker.component_id != pending.component_id || marker.version != pending.version
+        || marker.component_kind != "runtime_tool"
+        || marker.target != super::super::capability::current_target()
+        || marker.arch != super::super::capability::current_arch()
+        || !super::super::inventory::is_verified_origin(&marker.origin) {
+        return Err(AppCommandError::invalid_input("Pending runtime ownership marker is invalid"));
+    }
+    super::archive::probe_payload(&directory, &pending.component_id, &pending.version).await?;
+    let previous = super::runtime::read_current_pointer(data_dir, &pending.component_id).await?;
     super::runtime::write_current_pointer(data_dir, &pending.component_id, &pending.version)
         .await?;
-    super::super::inventory::activate_tool(
+    if let Err(error) = super::super::inventory::activate_tool_with_origin(
         conn,
         &pending.component_id,
         &pending.version,
         policy,
         revision,
+        &marker.origin,
     )
     .await
-    .map_err(pending_inventory_error)?;
+    {
+        super::runtime::restore_current_pointer(data_dir, &pending.component_id, previous).await?;
+        return Err(pending_inventory_error(error));
+    }
     mark_manifest_active(data_dir, pending, "runtime").await
 }
 
