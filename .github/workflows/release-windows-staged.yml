@@ -106,14 +106,26 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Runtime preparation failed' }
           pnpm tauri:verify-runtime-seed --target $env:TAURI_TARGET_TRIPLE
           if ($LASTEXITCODE -ne 0) { throw 'Runtime verification failed' }
+      - name: Check worker producer before compiling
+        if: inputs.parallel_worker
+        uses: ./.github/actions/receive-worker
+        with:
+          target: ${{ inputs.target }}
+          check-only: "true"
       - name: Compile application alongside worker
         if: inputs.parallel_worker
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
         run: |
           $overlay = if ($env:TAURI_TARGET_TRIPLE -eq 'i686-pc-windows-msvc') { 'src-tauri/tauri.windows-x86.conf.json' } else { 'src-tauri/tauri.runtime-seed.conf.json' }
-          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config $overlay --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings
+          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config $overlay --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings --config profile.release.package.iyw-claw.opt-level=1
           if ($LASTEXITCODE -ne 0) { throw 'Parallel Windows compilation failed' }
+      - name: Archive application compile timings
+        if: always() && inputs.parallel_worker
+        continue-on-error: true
+        uses: ./.github/actions/build-timings
+        with:
+          target: ${{ inputs.target }}
       - name: Receive independently compiled worker
         if: inputs.parallel_worker
         uses: ./.github/actions/receive-worker
@@ -132,7 +144,7 @@ jobs:
           IYW_CLAW_SKIP_SIDECAR: "1"
         run: |
           $overlay = if ($env:TAURI_TARGET_TRIPLE -eq 'i686-pc-windows-msvc') { 'src-tauri/tauri.windows-x86.conf.json' } else { 'src-tauri/tauri.runtime-seed.conf.json' }
-          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config $overlay --no-bundle --no-sign -- --timings
+          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config $overlay --no-bundle --no-sign -- --timings --config profile.release.package.iyw-claw.opt-level=1
           if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
       - name: Package verified signing input
         run: |
@@ -143,7 +155,7 @@ jobs:
         name: Transfer staging through draft release
         run: node .release-tools/.github/scripts/release/windows-release.mjs upload
       - uses: ./.github/actions/build-timings
-        if: always() && hashFiles('.github/actions/build-timings/action.yml') != ''
+        if: always() && !inputs.parallel_worker && hashFiles('.github/actions/build-timings/action.yml') != ''
         with:
           target: ${{ inputs.target }}
 
@@ -170,6 +182,7 @@ jobs:
       HTTPS_PROXY: http://127.0.0.1:7890
       # GitHub checkout and asset hosts require the runner's existing proxy.
       NO_PROXY: localhost,127.0.0.1,api.github.com,uploads.github.com
+      IYW_CLAW_RELEASE_DOWNLOAD_PROXY: ${{ vars.WINDOWS_RELEASE_DOWNLOAD_PROXY || 'http://127.0.0.1:7890' }}
       GIT_CONFIG_COUNT: "1"
       GIT_CONFIG_KEY_0: http.version
       GIT_CONFIG_VALUE_0: HTTP/1.1
@@ -204,6 +217,7 @@ jobs:
         run: pnpm install --frozen-lockfile --prefer-offline
       - id: download
         name: Download or reuse verified staging
+        timeout-minutes: 16
         run: node .release-tools/.github/scripts/release/windows-release.mjs download
       - name: Extract signing input
         env:

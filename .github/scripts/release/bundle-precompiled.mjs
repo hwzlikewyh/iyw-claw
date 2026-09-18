@@ -29,3 +29,9 @@ execFileSync(
 execFileSync("pnpm", ["dlx", "@tauri-apps/cli@2.11.4", "bundle", ...args], {
   stdio: "inherit",
 })
+// 上传前执行体积门禁，独立打包的 DEB/RPM 也逐个核验。
+execFileSync(
+  process.execPath,
+  ["src-tauri/scripts/verify-desktop-bundle-size.mjs", "--target", target],
+  { stdio: "inherit" }
+)

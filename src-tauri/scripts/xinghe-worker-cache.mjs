@@ -14,15 +14,27 @@ function digest(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex")
 }
 
-export function restoreWorkerCache({ directory, key, names }) {
+export function restoreWorkerCache({ directory, key, legacyKey, names }) {
   const path = join(directory, MANIFEST)
   if (!existsSync(path)) return false
   const manifest = JSON.parse(readFileSync(path, "utf8"))
-  if (manifest.key !== key) return false
+  if (manifest.key !== key && (!legacyKey || manifest.key !== legacyKey)) {
+    console.warn(
+      `[xinghe-worker] cache identity mismatch: expected ${key}, found ${manifest.key}`
+    )
+    return false
+  }
   for (const name of names) {
     if (manifest.files?.[name] !== digest(join(directory, name))) {
       throw new Error(`worker cache integrity failed: ${name}`)
     }
+  }
+  if (manifest.key !== key) {
+    // 仅迁移与当前完整旧指纹匹配的缓存，不接受其他镜像下无法核验的旧产物。
+    writeFileSync(path, JSON.stringify({ key, files: manifest.files }))
+    console.log(
+      `[xinghe-worker] migrated verified cache: ${manifest.key} -> ${key}`
+    )
   }
   return true
 }

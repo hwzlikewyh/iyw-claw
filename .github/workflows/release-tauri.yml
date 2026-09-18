@@ -338,6 +338,13 @@ jobs:
           path: ${{ runner.temp }}/iyw-runtime-seed-cache
           key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
 
+      - name: Check worker producer before compiling
+        if: inputs.parallel_worker
+        uses: ./.github/actions/receive-worker
+        with:
+          target: ${{ matrix.target }}
+          check-only: "true"
+
       - name: Compile application alongside worker
         if: inputs.parallel_worker
         shell: bash
@@ -356,7 +363,14 @@ jobs:
           if [[ "$BUILD_TARGET" == "aarch64-unknown-linux-gnu" ]]; then
             configs+=(--config src-tauri/tauri.linux-arm64-ci.conf.json)
           fi
-          pnpm dlx @tauri-apps/cli@2.11.4 build --target "$BUILD_TARGET" --features tauri-runtime "${configs[@]}" --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings
+          pnpm dlx @tauri-apps/cli@2.11.4 build --target "$BUILD_TARGET" --features tauri-runtime "${configs[@]}" --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings --config profile.release.package.iyw-claw.opt-level=1
+
+      - name: Archive application compile timings
+        if: always() && inputs.parallel_worker
+        continue-on-error: true
+        uses: ./.github/actions/build-timings
+        with:
+          target: ${{ matrix.target }}
 
       - name: Receive independently compiled worker
         if: inputs.parallel_worker
@@ -385,8 +399,9 @@ jobs:
           if [[ "${{ matrix.target }}" == *windows* ]]; then sidecar+=".exe"; fi
           pnpm tauri:browser-smoke -- --sidecar "$sidecar" --engine "$IYW_CLAW_BROWSER_ENGINE"
 
-      - name: Build and upload Linux arm64
+      - name: Build and upload Linux arm64 DEB
         if: matrix.target == 'aarch64-unknown-linux-gnu'
+        timeout-minutes: ${{ inputs.parallel_worker && 20 || 100 }}
         uses: tauri-apps/tauri-action@v0.6.1
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
@@ -405,9 +420,30 @@ jobs:
           prerelease: ${{ inputs.prerelease }}
           assetNamePattern: iyw-claw_[version]_arm64[ext]
           tauriScript: ${{ inputs.parallel_worker && 'node .github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
-          args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} --config src-tauri/tauri.linux-arm64-ci.conf.json -- --timings
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.runtime-seed.conf.json --config src-tauri/tauri.linux-arm64-ci.conf.json -- --timings
           includeUpdaterJson: false
           retryAttempts: 2
+
+      - name: Build and upload Linux arm64 RPM
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        timeout-minutes: ${{ inputs.parallel_worker && 15 || 100 }}
+        uses: tauri-apps/tauri-action@v0.6.1
+        env:
+          IYW_CLAW_SKIP_SIDECAR: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ inputs.release_id }}
+          tagName: ${{ inputs.release_tag }}
+          releaseBody: ${{ inputs.release_body }}
+          releaseDraft: ${{ inputs.release_draft }}
+          prerelease: ${{ inputs.prerelease }}
+          assetNamePattern: iyw-claw_[version]_arm64[ext]
+          tauriScript: ${{ inputs.parallel_worker && 'node .github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles rpm --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.runtime-seed.conf.json --config src-tauri/tauri.linux-arm64-ci.conf.json -- --timings
+          includeUpdaterJson: false
+          retryAttempts: 0
 
       - name: Verify Linux arm64 bundle size
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -489,6 +525,7 @@ jobs:
 
       - name: Build and upload Linux x64
         if: matrix.target == 'x86_64-unknown-linux-gnu'
+        timeout-minutes: ${{ inputs.parallel_worker && 30 || 100 }}
         uses: tauri-apps/tauri-action@v0.6.1
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
@@ -514,6 +551,7 @@ jobs:
 
       - name: Build ad-hoc and upload macOS
         if: contains(matrix.target, 'apple-darwin')
+        timeout-minutes: ${{ inputs.parallel_worker && 30 || 100 }}
         uses: tauri-apps/tauri-action@v0.6.1
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
@@ -556,7 +594,7 @@ jobs:
         run: pnpm tauri:verify-runtime-seed-bundle --target "${{ matrix.target }}"
 
       - name: Archive Cargo build timings
-        if: always() && hashFiles('.github/actions/build-timings/action.yml') != ''
+        if: always() && !inputs.parallel_worker && hashFiles('.github/actions/build-timings/action.yml') != ''
         uses: ./.github/actions/build-timings
         with:
           target: ${{ matrix.target }}

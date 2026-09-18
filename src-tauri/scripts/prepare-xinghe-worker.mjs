@@ -18,7 +18,7 @@ import { verifyWorkerBinary } from "./xinghe-worker-binary.mjs"
 import { verifyHelperBinary, helperNames } from "./xinghe-worker-binary.mjs"
 import { stageWindowsRuntime } from "./xinghe-worker-msvc.mjs"
 import { buildWorker } from "./xinghe-worker-build.mjs"
-import { workerCacheKey } from "./xinghe-worker-cache-key.mjs"
+import { workerCacheKeys } from "./xinghe-worker-cache-key.mjs"
 import { restoreWorkerCache, saveWorkerCache } from "./xinghe-worker-cache.mjs"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
@@ -95,8 +95,8 @@ function prepareBinaries(target) {
   }
   const directory = join(WORKER_TARGET_ROOT, "bundle-cache", target)
   const names = [libraryName(target), ...helperNames(target)]
-  const key = workerCacheKey(target)
-  if (restoreWorkerCache({ directory, key, names })) {
+  const { key, legacyKey } = workerCacheKeys(target)
+  if (restoreWorkerCache({ directory, key, legacyKey, names })) {
     verifyBinaries(directory, target)
     console.log(`[xinghe-worker] compiler cache hit: ${key}`)
     return directory
