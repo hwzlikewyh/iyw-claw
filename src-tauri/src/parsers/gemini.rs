@@ -591,11 +591,19 @@ impl GeminiParser {
     fn parse_usage(message: &Value) -> Option<TurnUsage> {
         let tokens = message.get("tokens")?;
         let input_tokens = tokens.get("input").and_then(|v| v.as_u64()).unwrap_or(0);
-        let output_tokens = tokens.get("output").and_then(|v| v.as_u64()).unwrap_or(0);
-        let cached_tokens = tokens.get("cached").and_then(|v| v.as_u64()).unwrap_or(0);
+        let output_tokens = tokens
+            .get("output")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+            .saturating_add(tokens.get("thoughts").and_then(|v| v.as_u64()).unwrap_or(0));
+        let cached_tokens = tokens
+            .get("cached")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+            .min(input_tokens);
         Some(TurnUsage {
             estimated_points: None,
-            input_tokens,
+            input_tokens: input_tokens.saturating_sub(cached_tokens),
             output_tokens,
             cache_creation_input_tokens: 0,
             cache_read_input_tokens: cached_tokens,

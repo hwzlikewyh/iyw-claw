@@ -2,6 +2,8 @@ use crate::models::agent::AgentType;
 
 use super::model_budget;
 
+const KIMI_MIN_RESERVED_CONTEXT: u64 = 1_000;
+
 pub const MANAGED_PROVIDER_ID: &str = "iyw-claw";
 /// Seed catalog: the compiled-in fallback used until the first successful
 /// online `/v1/models` fetch (see `acp::model_catalog`). Order matters — it
@@ -180,6 +182,15 @@ pub(crate) fn patch_kimi_toml(raw: &str, base_url: &str) -> Result<String, Strin
     }
     if let Some(context) = model_context_limit(&selected_model, 1_000_000) {
         if let Some(threshold) = model_compaction_limit(&selected_model, context) {
+            // Kimi 比例下限为 50%，通过预留条件表达更早的压缩阈值。
+            let reserve = context
+                .saturating_sub(threshold)
+                .max(model_output_limit(&selected_model).unwrap_or_default())
+                .max(KIMI_MIN_RESERVED_CONTEXT);
+            loop_control.insert(
+                "reserved_context_size".into(),
+                toml::Value::Integer(reserve as i64),
+            );
             loop_control.insert(
                 "compaction_trigger_ratio".into(),
                 toml::Value::Float((threshold as f64 / context as f64).clamp(0.5, 0.99)),

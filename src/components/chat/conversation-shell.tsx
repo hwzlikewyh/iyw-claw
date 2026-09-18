@@ -13,6 +13,7 @@ import type {
   QuestionAnswer,
   SessionConfigOptionInfo,
   SessionModeInfo,
+  SessionStats,
   AvailableCommandInfo,
 } from "@/lib/types"
 import type {
@@ -69,6 +70,7 @@ interface ConversationShellProps {
   onModeChange?: (modeId: string) => void
   onConfigOptionChange?: (configId: string, valueId: string) => void
   agentType?: AgentType | null
+  usageStats?: SessionStats | null
   availableCommands?: AvailableCommandInfo[] | null
   attachmentTabId?: string | null
   stageAttachmentsInWorkingDir?: boolean
@@ -151,6 +153,7 @@ export function ConversationShell({
   onModeChange,
   onConfigOptionChange,
   agentType,
+  usageStats,
   availableCommands,
   attachmentTabId,
   stageAttachmentsInWorkingDir,
@@ -298,6 +301,7 @@ export function ConversationShell({
                 onCancel={onCancel}
                 modes={modes}
                 configOptions={configOptions}
+                usageStats={usageStats}
                 modeLoading={modeLoading}
                 configOptionsLoading={configOptionsLoading}
                 selectedModeId={selectedModeId}

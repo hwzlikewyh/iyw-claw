@@ -2067,11 +2067,47 @@
         "summary": "{conversations} 个会话 / {messages} 条消息"
       },
       "tokens": {
+        "details": "上下文、压缩与用量详情",
+        "unreported": "未上报",
+        "modelLimits": "模型限制",
+        "model": "当前模型",
+        "modelContext": "模型上下文上限",
+        "maxInput": "最大输入",
+        "maxOutput": "最大输出",
+        "compaction": "自动压缩",
+        "targetThreshold": "目标压缩阈值",
+        "hostBudget": "宿主压缩预算",
+        "nativeThreshold": "原生确认阈值",
+        "thresholdOrigin": "阈值来源",
+        "policy": "压缩策略",
+        "configState": "配置状态",
+        "reconnectRequired": "需重连应用配置",
+        "budgetState": "预算状态",
+        "targetReached": "已达到目标阈值",
+        "cumulativeUsage": "累计 Token 用量（已上报）",
+        "estimatedPoints": "当前对话估算点数",
+        "source": {
+          "reported": "Agent 上报的当前上下文",
+          "history": "历史用量快照，窗口可能为模型估算",
+          "awaiting": "等待 Agent 确认当前用量",
+          "unavailable": "当前上下文尚未上报"
+        },
+        "thresholdSource": {
+          "catalog": "后台模型配置",
+          "host": "宿主预算（含默认值及预留调整）",
+          "unavailable": "未配置或未上报"
+        },
+        "mode": {
+          "nativeTokens": "原生 Token 阈值",
+          "nativeWindow": "原生窗口及安全预留",
+          "nativeRatio": "原生比例及预算",
+          "agentManaged": "Agent 自主管理，未接入后台阈值"
+        },
         "contextWindowUsageAria": "上下文窗口使用率",
         "contextWindow": "上下文窗口",
         "usedMax": "已用 / 上限",
         "tokenUsage": "Token 用量",
-        "input": "输入",
+        "input": "输入（不含缓存）",
         "output": "输出",
         "cacheRead": "缓存读取",
         "cacheWrite": "缓存写入",

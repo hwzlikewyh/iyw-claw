@@ -10,6 +10,7 @@ import type {
   PromptInputBlock,
   SessionConfigOptionInfo,
   SessionModeInfo,
+  SessionStats,
   AvailableCommandInfo,
 } from "@/lib/types"
 import type { QueuedMessage } from "@/hooks/use-message-queue"
@@ -39,6 +40,7 @@ interface ChatInputProps {
   onModeChange?: (modeId: string) => void
   onConfigOptionChange?: (configId: string, valueId: string) => void
   agentType?: AgentType | null
+  usageStats?: SessionStats | null
   availableCommands?: AvailableCommandInfo[] | null
   attachmentTabId?: string | null
   stageAttachmentsInWorkingDir?: boolean
@@ -98,6 +100,7 @@ export const ChatInput = memo(function ChatInput({
   onModeChange,
   onConfigOptionChange,
   agentType,
+  usageStats,
   availableCommands,
   attachmentTabId,
   stageAttachmentsInWorkingDir,
@@ -168,6 +171,7 @@ export const ChatInput = memo(function ChatInput({
         onCancel={onCancel}
         modes={modes}
         configOptions={configOptions}
+        usageStats={usageStats}
         modeLoading={modeLoading}
         configOptionsLoading={configOptionsLoading}
         selectedModeId={selectedModeId}

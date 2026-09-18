@@ -2724,6 +2724,7 @@ const ConversationTabView = memo(function ConversationTabView({
         )
       }
       status={visibleConnStatus}
+      usageStats={effectiveSessionStats}
       promptCapabilities={conn.promptCapabilities}
       defaultPath={workingDirForConnection}
       agentName={getAgentDisplayName(selectedAgent)}
@@ -2815,6 +2816,7 @@ const ConversationTabView = memo(function ConversationTabView({
               // reads "connecting" until the connection's cwd matches, while
               // submissions continue entering this tab's queue.
               status={composerConnStatus}
+              usageStats={effectiveSessionStats}
               promptCapabilities={conn.promptCapabilities}
               defaultPath={workingDirForConnection}
               agentName={getAgentDisplayName(selectedAgent)}

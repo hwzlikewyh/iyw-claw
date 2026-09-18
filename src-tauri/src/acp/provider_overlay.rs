@@ -182,6 +182,17 @@ fn apply_native_budget_runtime_env(
                 "CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(),
                 threshold.to_string(),
             );
+            let declared_context = crate::acp::model_catalog::model_capabilities(model)
+                .and_then(|snapshot| snapshot.limits.context_window)
+                .filter(|limit| *limit > 0);
+            if let Some(declared_context) = declared_context {
+                runtime_env.insert(
+                    "CLAUDE_CODE_MAX_CONTEXT_TOKENS".into(),
+                    declared_context.to_string(),
+                );
+            } else {
+                runtime_env.remove("CLAUDE_CODE_MAX_CONTEXT_TOKENS");
+            }
         }
         AgentType::KimiCode => {
             if let Some(context) = crate::acp::model_budget::context_window(Some(model), 0) {

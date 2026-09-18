@@ -271,14 +271,6 @@ fn claude_context_window_used_tokens_from_usage(usage: &TurnUsage) -> Option<u64
     }
 }
 
-fn latest_claude_context_window_used_tokens(turns: &[MessageTurn]) -> Option<u64> {
-    turns.iter().rev().find_map(|turn| {
-        turn.usage
-            .as_ref()
-            .and_then(claude_context_window_used_tokens_from_usage)
-    })
-}
-
 fn merge_claude_context_window_stats(
     stats: Option<SessionStats>,
     used_tokens: Option<u64>,
@@ -614,6 +606,7 @@ impl ClaudeParser {
         let bytes = fs::read(path)?;
         let transcript_watermark = bytes.len() as u64;
         let reader = BufReader::new(bytes.as_slice());
+        let mut latest_context_tokens = None;
 
         let mut messages = Vec::new();
         let mut cwd: Option<String> = None;
@@ -649,6 +642,19 @@ impl ClaudeParser {
 
             if msg_type == "file-history-snapshot" || msg_type == "progress" {
                 continue;
+            }
+
+            if msg_type == "system"
+                && value.get("subtype").and_then(|v| v.as_str()) == Some("compact_boundary")
+            {
+                latest_context_tokens = value
+                    .pointer("/compactMetadata/postTokens")
+                    .and_then(serde_json::Value::as_u64);
+            }
+            if msg_type == "assistant" {
+                if let Some(usage) = extract_usage(&value) {
+                    latest_context_tokens = claude_context_window_used_tokens_from_usage(&usage);
+                }
             }
 
             // Resolve a buffered slash command against this entry: emit it only
@@ -1067,7 +1073,7 @@ impl ClaudeParser {
         super::relocate_orphaned_tool_results(&mut turns);
         super::structurize_read_tool_output(&mut turns);
         super::resolve_patch_line_numbers(&mut turns, cwd.as_deref());
-        let context_window_used_tokens = latest_claude_context_window_used_tokens(&turns);
+        let context_window_used_tokens = latest_context_tokens;
         let context_window_max_tokens =
             claude_context_window_max_tokens_for_model(model.as_deref());
         let session_stats = merge_claude_context_window_stats(
