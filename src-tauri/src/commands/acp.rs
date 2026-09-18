@@ -2082,6 +2082,9 @@ fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value 
             .unwrap_or(CODEX_MODEL_CONTEXT_WINDOW);
     let auto_compact_token_limit =
         crate::acp::model_budget::compaction_threshold(Some(model), context_window);
+    let supports_reasoning_summaries = crate::acp::model_catalog::model_capabilities(model)
+        .map(|snapshot| snapshot.supports_reasoning_summary_parameter)
+        .unwrap_or(true);
     serde_json::json!({
         "slug": model,
         "display_name": model,
@@ -2099,7 +2102,8 @@ fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value 
         "priority": priority,
         "base_instructions": codex_base_instructions_for_model(model),
         "include_skills_usage_instructions": true,
-        "supports_reasoning_summaries": true,
+        "supports_reasoning_summary_parameter": supports_reasoning_summaries,
+        "supports_reasoning_summaries": supports_reasoning_summaries,
         "support_verbosity": false,
         "apply_patch_tool_type": "freeform",
         "web_search_tool_type": "text",

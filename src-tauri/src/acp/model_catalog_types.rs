@@ -47,11 +47,23 @@ pub struct ModelLimits {
     pub compaction_at_tokens: Option<u64>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModelCapabilitySnapshot {
     pub capabilities: ModelCapabilities,
+    pub supports_reasoning_summary_parameter: bool,
     pub image_input_mode: ImageInputMode,
     pub limits: ModelLimits,
+}
+
+impl Default for ModelCapabilitySnapshot {
+    fn default() -> Self {
+        Self {
+            capabilities: ModelCapabilities::default(),
+            supports_reasoning_summary_parameter: true,
+            image_input_mode: ImageInputMode::None,
+            limits: ModelLimits::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,10 +102,16 @@ pub(super) struct PersistedModel {
     pub id: String,
     #[serde(default)]
     pub capabilities: ModelCapabilities,
+    #[serde(default = "default_true")]
+    pub supports_reasoning_summary_parameter: bool,
     #[serde(default)]
     pub image_input_mode: ImageInputMode,
     #[serde(default)]
     pub limits: ModelLimits,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize)]

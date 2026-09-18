@@ -93,6 +93,7 @@ fn legacy_model(id: String) -> PersistedModel {
     PersistedModel {
         id,
         capabilities: ModelCapabilities::default(),
+        supports_reasoning_summary_parameter: true,
         image_input_mode: ImageInputMode::None,
         limits: ModelLimits::default(),
     }
@@ -113,6 +114,7 @@ pub(super) fn layer_from_models(models: Vec<PersistedModel>) -> ModelCatalogLaye
             id,
             ModelCapabilitySnapshot {
                 capabilities: model.capabilities,
+                supports_reasoning_summary_parameter: model.supports_reasoning_summary_parameter,
                 image_input_mode: model.image_input_mode,
                 limits: model.limits,
             },
@@ -130,6 +132,7 @@ fn persisted_models(layer: &ModelCatalogLayer) -> Vec<PersistedModel> {
             PersistedModel {
                 id: (*id).to_string(),
                 capabilities: snapshot.capabilities,
+                supports_reasoning_summary_parameter: snapshot.supports_reasoning_summary_parameter,
                 image_input_mode: snapshot.image_input_mode,
                 limits: snapshot.limits,
             }
