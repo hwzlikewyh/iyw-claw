@@ -49,3 +49,76 @@ HTML 报告。完整命中引擎缓存时，不会生成本次 worker 编译报�
 签名成功后的资源才交给独立安装校验，临时草稿资产在正式发布前清理。
 
 手动版本输入、自动上传 Fusion 和固定 1% 灰度的使用方法见 [自动发布](release-desktop.md)。
+
+## 第三批：缓存瘦身与 worker 成品备份
+
+正常 Release、GitHub 托管打包检查和 Windows 分阶段打包入口统一使用
+`v1-desktop-app` 前缀。Rust 缓存只保存 `src-tauri` 的外部依赖编译结果及 Cargo
+下载缓存，不再整包缓存 worker 的 `target`，也不保留应用自身的编译结果。
+`sccache` 继续用于编译缓存。这样避免同时保存 worker 中间产物和独立成品，
+减少多平台缓存互相挤占。切换后的应用依赖缓存需要首次重建；worker 原有
+`xinghe-build-v2` 键保持不变，不因这次工作流调整强制重编。
+
+worker 恢复顺序：
+
+1. 按完整编译输入键恢复 Actions Cache。
+2. 未命中时，查找同键、未过期的 worker artifact 并按 ID 下载。
+3. 两处均不可用时，执行原有 Cargo 构建。
+4. 复用或编译完成后，始终执行摘要、架构、上游身份、ABI 和资源组装验证。
+
+artifact 只复用本仓库默认分支上 `push` / `workflow_dispatch` 运行产生的成品，
+不接受 fork 或 PR 运行。默认分支的构建在 worker 校验完成后立即备份，后续应用
+编译或签名失败不会使该成品失效。tag 触发的发布可读取默认分支的匹配备份，
+但不会创建新的备份。调用工作流需要已有的 `actions: read` 权限。
+
+备份包含 worker 动态库、helper 和 SHA-256 清单，先封装为 tar，保留 macOS/Linux
+可执行权限。每个编译键只在没有可用备份时上传，保留 14 天，使用 artifact 存储，
+不占 Actions Cache 容量；到期后可由仍有效的缓存或新构建重新生成。
+查找、下载或上传服务失败会记录提示；下载失败回退缓存或编译。已下载但损坏的
+归档、摘要或二进制校验失败仍会阻止发布。
+
+第三批本身不删除远端旧缓存、不改变编译参数、签名机调度或发布顺序。旧缓存由 GitHub
+自然淘汰；worker 源码、工具链或 runner 镜像变化仍会产生新键并重新编译。
+macOS Intel 和 Apple Silicon 仍打包 `libiyw_xinghe_worker.dylib` 与
+`iyw-xinghe-helper`，并在 app/DMG 验证中检查 worker。
+
+验收时应分别记录首次构建、相同引擎输入的再次发布，以及 Actions Cache 未命中但
+artifact 命中的构建耗时。2026-09-17 的 v0.1.211 中，macOS worker 准备约
+34-36 分钟、Windows 约 50-52 分钟；这些是优化前的实测基线，不是提速后的保证。
+
+## 第四批：编译速度优先与缩短发布等待
+
+桌面应用库改为只生成 `rlib`，由桌面/服务器二进制链接，不再生成未分发的
+`staticlib` 和 `cdylib`。独立星河 worker 仍是 `cdylib`，Windows 的 DLL、macOS
+的 dylib 和 Linux 的 so 均继续随包分发。当前项目发布桌面与服务器；将来若增加
+Tauri Android/iOS，需要单独配置它们要求的库产物。
+
+正常桌面发布、候选版、修复和托管/自托管打包检查统一使用
+`CARGO_PROFILE_RELEASE_CODEGEN_UNITS=64`、`CARGO_PROFILE_RELEASE_LTO=off`。
+这些参数同时用于应用和 worker。Cargo 的 `false` 仍启用 crate 内部 thin LTO，
+`off` 才完全关闭；这次仍使用 Release profile，保留原有优化等级、strip 和
+panic 恢复语义。Windows worker 仅构建实际分发的两个 sandbox helper，
+不再顺带构建 `managed_deny_probe` 等未分发的诊断程序。
+
+第四批改变了编译参数及 worker 构建脚本，因而覆盖第三批“无需强制重编”的前提：
+第一次采用新参数时，worker 与 Rust 依赖缓存会重新建立，之后缓存及 artifact
+备份均按新键复用。不同入口使用相同参数，避免同平台因 LTO 设置不同而反复构建。
+本地普通构建和独立 server CI 的 profile 参数不随此次桌面 CI 优化调整。
+
+正常 Release 的调度变化：
+
+- Intel macOS 单独调用原有构建工作流，安装验证只等待自己的构建，不再等待
+  Apple Silicon 或 Linux 重试。正式发布仍要求五个必选平台及全部原有验证成功。
+- 可选 Linux ARM64 与其他平台同时开始，不再等待正式发布；改用原生
+  `ubuntu-22.04-arm` 标准 runner，保留 Ubuntu 22.04 / glibc 兼容基线。
+  原来的 x64 到 ARM64 交叉编译路径仍支持其他调用入口。
+- ARM64 产物只上传到已创建的 release ID，不创建或提前发布 Release；该平台仍
+  不阻断五平台正式发布。其完成时间不再固定叠加在正式发布时间之后。
+
+2026-09-18 的 v0.1.213 Cargo 报告显示，macOS ARM64 应用库耗时 2661 秒，
+最终 bin 仅 5.31 秒；Windows x64 worker 库耗时 1924.6 秒，应用库 1201 秒、
+最终 bin 461.4 秒。本次优先处理这些编译/链接阶段，实际改善幅度须用新的报告确认。
+
+速度优先会减少跨单元优化，可能增加包体积或影响运行时性能。安装包体积门禁、
+签名及安装验证保持启用，不通过时停止发布。GitHub 仓库当前公开，标准 ARM
+runner 不新增 runner 费用；硬件签名机仍只有一台，离线或排队仍会影响总耗时。
