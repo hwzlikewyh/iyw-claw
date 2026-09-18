@@ -30,6 +30,10 @@ const STAGING_ROOT = resolve(
 )
 const CLI = join(ROOT, "node_modules", "@tauri-apps", "cli", "tauri.js")
 const TARGET_RELEASE = join("src-tauri", "target", TARGET, "release")
+const PREFLIGHT_TIMEOUT_MS = 12 * 60_000
+const UNLOCK_TIMEOUT_MS = 90_000
+const BUNDLE_TIMEOUT_MS = 30 * 60_000
+const VERIFY_TIMEOUT_MS = 2 * 60_000
 
 function fail(message) {
   throw new Error(message)
@@ -80,7 +84,12 @@ function preflightToken() {
         join(TOOL_ROOT, "src-tauri", "scripts", "sign-staged-windows.mjs"),
         probe,
       ],
-      { cwd: ROOT, stdio: "inherit", windowsHide: false }
+      {
+        cwd: ROOT,
+        stdio: "inherit",
+        windowsHide: false,
+        timeout: PREFLIGHT_TIMEOUT_MS,
+      }
     )
     if (result.error) throw result.error
     if (result.status !== 0)
@@ -90,26 +99,14 @@ function preflightToken() {
   }
 }
 
-/**
- * Logs the SafeNet/eToken signing token in so signtool never blocks on the
- * interactive "Token Logon" dialog.
- *
- * The CNG/KSP `SmartCardPin` property runs first because that is the path
- * signtool actually uses; a successful PKCS#11 `C_Login` alone still leaves
- * signtool prompting for the token PIN, since CAPI does not reuse the PKCS#11
- * session. The PKCS#11 unlock stays as a best-effort extra for anything else
- * talking to the middleware directly, and is deliberately non-fatal: it can
- * fail while the token is busy with another job on the same host, which must
- * not abort a signing run whose real requirement (the KSP PIN) is satisfied.
- *
- * The token caches the user PIN per Windows logon session, so one successful
- * unlock covers every signature in this job. When the runner has no PIN
- * configured we keep the old behaviour: signtool prompts, and the bounded
- * timeout turns a missing login into a clear failure instead of a hung job.
- */
+// KSP 与 PKCS#11 会话不等价；解锁后仍由真实签名探针判定是否可用。
 function unlockToken() {
   const pin = (process.env.IYW_CLAW_SAFENET_PIN ?? "").trim()
   if (pin === "") {
+    if (process.env.GITHUB_ACTIONS === "true")
+      fail(
+        "CI signing requires IYW_CLAW_SAFENET_PIN; interactive token login is unavailable"
+      )
     console.log(
       "[staged-signing] IYW_CLAW_SAFENET_PIN is not set; leaving the token login to signtool"
     )
@@ -125,6 +122,7 @@ function unlockToken() {
     cwd: ROOT,
     stdio: "inherit",
     windowsHide: true,
+    timeout: UNLOCK_TIMEOUT_MS,
   })
   if (kspResult.error) throw kspResult.error
   if (kspResult.status !== 0) {
@@ -134,16 +132,21 @@ function unlockToken() {
   }
   // Non-fatal: PKCS#11 is not what signtool reads, and a transient middleware
   // error here must not fail a job that can already sign through the KSP.
-  const script = join(TOOL_ROOT, "src-tauri", "scripts", "unlock-signing-token.mjs")
+  const script = join(
+    TOOL_ROOT,
+    "src-tauri",
+    "scripts",
+    "unlock-signing-token.mjs"
+  )
   const result = spawnSync(process.execPath, [script], {
     cwd: ROOT,
     stdio: "inherit",
     windowsHide: true,
+    timeout: UNLOCK_TIMEOUT_MS,
   })
-  if (result.error) throw result.error
-  if (result.status !== 0) {
+  if (result.error || result.status !== 0) {
     console.warn(
-      "[staged-signing] PKCS#11 unlock did not complete; continuing because the CNG KSP PIN is already primed"
+      `[staged-signing] PKCS#11 unlock did not complete (${result.error?.code || result.status}); continuing to the real signing probe`
     )
   }
 }
@@ -213,10 +216,11 @@ function bundle(version) {
       encoding: "utf8",
       maxBuffer: 64 * 1024 * 1024,
       windowsHide: false,
+      timeout: BUNDLE_TIMEOUT_MS,
     })
-    if (result.error) throw result.error
     process.stdout.write(result.stdout ?? "")
     process.stderr.write(result.stderr ?? "")
+    if (result.error) throw result.error
     const outputText = `${result.stdout ?? ""}${result.stderr ?? ""}`
     if (outputText.includes("[sign-staged-windows][ERROR]")) {
       fail("a signing command failed even though the bundler continued")
@@ -242,7 +246,12 @@ function verify(installer) {
   const result = spawnSync(
     process.execPath,
     [join(ROOT, "src-tauri", "scripts", "verify-signatures.mjs"), installer],
-    { cwd: ROOT, stdio: "inherit", windowsHide: false }
+    {
+      cwd: ROOT,
+      stdio: "inherit",
+      windowsHide: false,
+      timeout: VERIFY_TIMEOUT_MS,
+    }
   )
   if (result.error) throw result.error
   if (result.status !== 0)
