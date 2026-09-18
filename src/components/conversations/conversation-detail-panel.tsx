@@ -537,14 +537,15 @@ const ConversationTabView = memo(function ConversationTabView({
   >(() => getSavedPrefsForConnect(agentType).configValues ?? {})
   const [modelReapplyAttempt, setModelReapplyAttempt] = useState<{
     target: string
-    previousModel: string
     sourceConnectionId: string
     replacementConnectionId: string | null
   } | null>(null)
   const [requestedModel, setRequestedModel] = useState<string | null>(null)
+  const [failedModel, setFailedModel] = useState<string | null>(null)
   useEffect(() => {
     setRequestedModel(null)
     setModelReapplyAttempt(null)
+    setFailedModel(null)
   }, [selectedAgent])
   const [sendSignal, setSendSignal] = useState(0)
   const usableAgentCount = usableAgentTypes.length
@@ -1038,6 +1039,34 @@ const ConversationTabView = memo(function ConversationTabView({
     () => conn.availableCommands ?? [],
     [conn.availableCommands]
   )
+  const handleModelSwitchFailure = useCallback(
+    (target: string, error?: unknown) => {
+      setFailedModel(target)
+      setRequestedModel((current) => (current === target ? null : current))
+      setModelReapplyAttempt((current) =>
+        current?.target === target ? null : current
+      )
+      console.error("[ConversationTabView] selected model was not confirmed", {
+        agentType: selectedAgent,
+        connectionId: conn.connectionId,
+        model: target,
+        error,
+      })
+      toast.error(tConfigStale("modelSwitchFailed"), {
+        description: error == null ? undefined : toErrorMessage(error),
+      })
+    },
+    [conn.connectionId, selectedAgent, tConfigStale]
+  )
+  useEffect(() => {
+    setFailedModel(null)
+  }, [conn.connectionId])
+  useEffect(() => {
+    const live = conn.configOptions?.find(isModelConfigOption)
+    setFailedModel((current) =>
+      live?.kind.current_value === current ? null : current
+    )
+  }, [conn.configOptions])
 
   useEffect(() => {
     if (!connectionReady || connStatus === "prompting") return
@@ -1053,11 +1082,15 @@ const ConversationTabView = memo(function ConversationTabView({
       draftConfigValues
     )
     for (const { configId, valueId } of commands) {
+      const live = conn.configOptions?.find((option) => option.id === configId)
+      const isModel =
+        configId === "model" || (live && isModelConfigOption(live))
+      if (isModel && failedModel === valueId) continue
       void handleSetConfigOption(configId, valueId).catch((error: unknown) => {
-        if (configId === "model") setRequestedModel(null)
-        const live = conn.configOptions?.find(
-          (option) => option.id === configId
-        )
+        if (isModel) {
+          handleModelSwitchFailure(valueId, error)
+          return
+        }
         if (!live || live.kind.type !== "select") return
         setDraftConfigValues((current) => {
           if (current[configId] !== valueId) return current
@@ -1079,6 +1112,8 @@ const ConversationTabView = memo(function ConversationTabView({
     connectionReady,
     draftConfigValues,
     fixedOptions,
+    failedModel,
+    handleModelSwitchFailure,
     handleSetConfigOption,
     selectedAgent,
   ])
@@ -1104,19 +1139,13 @@ const ConversationTabView = memo(function ConversationTabView({
       fixed.kind.options.some((option) => option.value === target)
     )
     if (
+      target &&
       targetIsKnown &&
       live?.kind.type === "select" &&
       !live.kind.options.some((option) => option.value === target) &&
       (conn.isViewer || conn.isDelegationChild)
     ) {
-      setRequestedModel(null)
-      setDraftConfigValues((current) => {
-        if (current.model !== target) return current
-        const next = { ...current, model: live.kind.current_value }
-        saveConfigPreference(selectedAgent, "model", live.kind.current_value)
-        return next
-      })
-      toast.error(tConfigStale("modelSwitchFailed"))
+      handleModelSwitchFailure(target)
       return
     }
     if (
@@ -1148,14 +1177,7 @@ const ConversationTabView = memo(function ConversationTabView({
       if (modelReapplyAttempt.target === target) {
         setModelReapplyAttempt(null)
       }
-      setRequestedModel(null)
-      setDraftConfigValues((current) => {
-        if (current.model !== target) return current
-        const next = { ...current, model: live.kind.current_value }
-        saveConfigPreference(selectedAgent, "model", live.kind.current_value)
-        return next
-      })
-      toast.error(tConfigStale("modelSwitchFailed"))
+      handleModelSwitchFailure(target)
       return
     }
     if (modelReapplyAttempt) return
@@ -1163,24 +1185,13 @@ const ConversationTabView = memo(function ConversationTabView({
     const sourceConnectionId = conn.connectionId
     setModelReapplyAttempt({
       target,
-      previousModel: live.kind.current_value,
       sourceConnectionId,
       replacementConnectionId: null,
     })
     void acpActions
       .reapplyConfig(tabId, true, dbConvIdRef.current ?? undefined)
       .catch((error: unknown) => {
-        setModelReapplyAttempt(null)
-        setRequestedModel(null)
-        setDraftConfigValues((current) => {
-          if (current.model !== target) return current
-          const next = { ...current, model: live.kind.current_value }
-          saveConfigPreference(selectedAgent, "model", live.kind.current_value)
-          return next
-        })
-        toast.error(tConfigStale("modelSwitchFailed"), {
-          description: error instanceof Error ? error.message : String(error),
-        })
+        handleModelSwitchFailure(target, error)
       })
   }, [
     acpActions,
@@ -1194,6 +1205,7 @@ const ConversationTabView = memo(function ConversationTabView({
     connectionConfigOptions,
     connectionReady,
     fixedOptions.config_options,
+    handleModelSwitchFailure,
     selectedAgent,
     modelReapplyAttempt,
     requestedModel,
@@ -1219,43 +1231,25 @@ const ConversationTabView = memo(function ConversationTabView({
   }, [conn.connectionId, modelReapplyAttempt])
 
   const modelReapplyTarget = modelReapplyAttempt?.target
-  const modelReapplyPreviousModel = modelReapplyAttempt?.previousModel
   const modelReapplyConnectionId = modelReapplyAttempt?.replacementConnectionId
   useEffect(() => {
-    if (
-      !modelReapplyTarget ||
-      modelReapplyPreviousModel == null ||
-      !modelReapplyConnectionId
-    ) {
+    if (!modelReapplyTarget || !modelReapplyConnectionId) {
       return
     }
     const target = modelReapplyTarget
-    const fallbackModel = modelReapplyPreviousModel
     const timer = setTimeout(() => {
-      setModelReapplyAttempt((current) =>
-        current?.target === target ? null : current
-      )
-      setRequestedModel((current) => (current === target ? null : current))
-      setDraftConfigValues((current) => {
-        if (current.model !== target) return current
-        const next = { ...current, model: fallbackModel }
-        saveConfigPreference(selectedAgent, "model", fallbackModel)
-        return next
-      })
-      toast.error(tConfigStale("modelSwitchFailed"))
+      handleModelSwitchFailure(target)
     }, modelReapplyTimeoutMs(selectedAgent))
     return () => clearTimeout(timer)
   }, [
-    modelReapplyPreviousModel,
+    handleModelSwitchFailure,
     modelReapplyConnectionId,
     modelReapplyTarget,
     selectedAgent,
     tConfigStale,
   ])
 
-  // Validate the first post-reconnect selector snapshot. If the Agent still
-  // does not advertise the requested model, roll back instead of leaving a
-  // permanently misleading fixed-catalog selection in the composer.
+  // 重连后仍未确认目标模型时保留选择，并阻止使用其他模型发送。
   useEffect(() => {
     if (
       !modelReapplyAttempt ||
@@ -1267,17 +1261,7 @@ const ConversationTabView = memo(function ConversationTabView({
     }
     const live = conn.configOptions?.find(isModelConfigOption)
     if (!live || live.kind.type !== "select") {
-      const target = modelReapplyAttempt.target
-      const fallbackModel = modelReapplyAttempt.previousModel
-      setDraftConfigValues((current) => {
-        if (current.model !== target) return current
-        const next = { ...current, model: fallbackModel }
-        saveConfigPreference(selectedAgent, "model", fallbackModel)
-        return next
-      })
-      setModelReapplyAttempt(null)
-      setRequestedModel(null)
-      toast.error(tConfigStale("modelSwitchFailed"))
+      handleModelSwitchFailure(modelReapplyAttempt.target)
       return
     }
     if (
@@ -1289,24 +1273,42 @@ const ConversationTabView = memo(function ConversationTabView({
       setModelReapplyAttempt(null)
       return
     }
-    const target = modelReapplyAttempt.target
-    const fallbackModel =
-      live.kind.current_value || modelReapplyAttempt.previousModel
-    setDraftConfigValues((current) => {
-      if (current.model !== target) return current
-      const next = { ...current, model: fallbackModel }
-      saveConfigPreference(selectedAgent, "model", fallbackModel)
-      return next
-    })
-    setModelReapplyAttempt(null)
-    setRequestedModel(null)
-    toast.error(tConfigStale("modelSwitchFailed"))
+    handleModelSwitchFailure(modelReapplyAttempt.target)
   }, [
     conn.configOptions,
     conn.connectionId,
     conn.selectorsReady,
+    handleModelSwitchFailure,
     modelReapplyAttempt,
     selectedAgent,
+    tConfigStale,
+  ])
+  const ensureSelectedModelReady = useCallback(() => {
+    const target = draftConfigValues.model
+    if (!target) return true
+    const fixed = fixedOptions.config_options.find(isModelConfigOption)
+    const live = conn.configOptions?.find(isModelConfigOption)
+    const unavailable =
+      canReconcileModelConfig &&
+      !fixed?.kind.options.some((option) => option.value === target)
+    const unconfirmed =
+      (connectionReady ||
+        conn.selectorsReady ||
+        modelReapplyAttempt !== null ||
+        failedModel === target) &&
+      live?.kind.current_value !== target
+    if (!unavailable && !unconfirmed) return true
+    toast.error(tConfigStale("modelSwitchFailed"))
+    return false
+  }, [
+    canReconcileModelConfig,
+    conn.configOptions,
+    conn.selectorsReady,
+    connectionReady,
+    draftConfigValues.model,
+    failedModel,
+    fixedOptions.config_options,
+    modelReapplyAttempt,
     tConfigStale,
   ])
   const selectedModeId = useMemo(() => {
@@ -1627,6 +1629,12 @@ const ConversationTabView = memo(function ConversationTabView({
     ) => {
       const fromQueueFlush = opts?.fromQueueFlush ?? false
       if (forkPendingRef.current) return false
+      if (!ensureSelectedModelReady()) {
+        if (fromQueueFlush && opts?.queuedMessage) {
+          mqRequeueItemFront({ ...opts.queuedMessage, blocked: true })
+        }
+        return false
+      }
       // Defense in depth for restored queue items or callers bypassing the composer.
       if (parseSideQuestion(draft.displayText) !== null) {
         if (fromQueueFlush && opts?.queuedMessage) {
@@ -2074,6 +2082,7 @@ const ConversationTabView = memo(function ConversationTabView({
       connectionReady,
       effectiveConversationId,
       ensureConnected,
+      ensureSelectedModelReady,
       forkPendingRef,
       draftStorageKey,
       folderId,
@@ -2401,7 +2410,10 @@ const ConversationTabView = memo(function ConversationTabView({
 
   const handleConfigOptionChange = useCallback(
     (configId: string, valueId: string) => {
-      if (configId === "model") setRequestedModel(valueId)
+      if (configId === "model") {
+        setFailedModel(null)
+        setRequestedModel(valueId)
+      }
       setDraftConfigValues((current) => ({
         ...current,
         [configId]: valueId,
@@ -2414,6 +2426,7 @@ const ConversationTabView = memo(function ConversationTabView({
   const handleAnswerQuestion = useCallback(
     (answer: string) => {
       if (connStatus !== "connected") return
+      if (!ensureSelectedModelReady()) return
       if (!ensureConversationPointsAvailable()) return
       const optimisticTurn: MessageTurn = {
         id: `optimistic-${randomUUID()}`,
@@ -2455,6 +2468,7 @@ const ConversationTabView = memo(function ConversationTabView({
       connStatus,
       effectiveConversationId,
       ensureConversationPointsAvailable,
+      ensureSelectedModelReady,
       lifecycleSend,
       rememberSubmittedDraft,
       setSyncState,

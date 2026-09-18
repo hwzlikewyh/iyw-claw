@@ -81,7 +81,10 @@ import {
   type SessionFailureSettleScope,
 } from "@/lib/session-failures"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
-import { currentModelName } from "@/lib/model-config-groups"
+import {
+  currentModelName,
+  isModelConfigOption,
+} from "@/lib/model-config-groups"
 import { CONNECTION_KEEPALIVE_INTERVAL_MS } from "@/lib/constants"
 import { sendSystemNotification } from "@/lib/notification"
 import {
@@ -5704,9 +5707,21 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         configId,
         valueId,
       })
-      // Persist user selection to localStorage so the next `acp_connect`
-      // can ship it back to the backend as a preferred config value.
-      saveConfigPreference(conn.agentType, configId, valueId)
+      const option = conn.configOptions?.find((item) => item.id === configId)
+      const preferenceId =
+        configId === "model" || (option && isModelConfigOption(option))
+          ? "model"
+          : configId
+      const selectedModel = getSavedPrefsForConnect(conn.agentType).configValues
+        ?.model
+      // 迟到的旧模型确认不能覆盖用户已保存的新选择。
+      if (
+        preferenceId !== "model" ||
+        !selectedModel ||
+        selectedModel === valueId
+      ) {
+        saveConfigPreference(conn.agentType, preferenceId, valueId)
+      }
     },
     [dispatch]
   )
