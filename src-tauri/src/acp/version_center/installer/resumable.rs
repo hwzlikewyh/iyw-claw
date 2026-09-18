@@ -28,6 +28,7 @@ use crate::app_error::{AppCommandError, AppErrorCode};
 pub const MAX_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
 pub(super) const MAX_AGENT_ARCHIVE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MAX_ATTEMPTS: u32 = 5;
 const BACKOFF_BASE_MS: u64 = 1_000;
@@ -67,6 +68,7 @@ fn host_semaphore(host: &str) -> std::sync::Arc<Semaphore> {
 static DOWNLOAD_CLIENT: LazyLock<Result<reqwest::Client, String>> = LazyLock::new(|| {
     reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
         .timeout(ATTEMPT_TIMEOUT)
         .redirect(Policy::none())
         .build()
@@ -169,6 +171,9 @@ async fn download_resumable_with_limit(
         })?;
 
     let part_path = part_path_for(final_path);
+    if final_matches(&part_path, expected_size, expected_sha256).await {
+        return commit_verified_part(&part_path, final_path, expected_size).await;
+    }
     let meta_path = part_meta_path(final_path);
     let etag = read_resume_meta(&meta_path, artifact_id, url, expected_size, expected_sha256).await;
     if let Some(parent) = part_path.parent() {

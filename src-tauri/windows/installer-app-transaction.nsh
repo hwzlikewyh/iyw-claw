@@ -8,15 +8,8 @@ Var IywClawRestartOnFailure
 Var IywClawRestartArgs
 Var IywClawRecoveryDir
 Var IywClawAppCheckError
-Var IywClawFileCheckPath
-Var IywClawFileCheckReason
-Var IywClawFileCheckAttempts
-Var IywClawFileCheckErrorCode
-
-!define IYW_CLAW_FILE_CHECK_ATTEMPTS 5
-!define IYW_CLAW_FILE_CHECK_WAIT_MS 500
-
 !include "${__FILEDIR__}\installer-app-backup.nsh"
+!include "${__FILEDIR__}\installer-file-check.nsh"
 
 Function IywClawConfigureAppTransaction
   StrCpy $IywClawAppDir "$IywClawRoot\app"
@@ -54,95 +47,6 @@ Function IywClawAppendInstallerLog
   installer_log_done:
     Pop $1
     Pop $0
-FunctionEnd
-
-Function IywClawCheckFileOnce
-  Push $1
-  Push $2
-  StrCpy $0 "0"
-  IfFileExists "$IywClawFileCheckPath" check_file_once_open check_file_once_failure
-
-  check_file_once_open:
-    ClearErrors
-    FileOpen $1 "$IywClawFileCheckPath" r
-    IfErrors check_file_once_unreadable 0
-    ClearErrors
-    FileSeek $1 0 END $2
-    IfErrors check_file_once_seek_failed 0
-    FileClose $1
-    StrCpy $IywClawFileCheckErrorCode "0"
-    IntCmp $2 0 check_file_once_zero check_file_once_zero check_file_once_success
-
-  check_file_once_success:
-    StrCpy $IywClawFileCheckReason "ok"
-    StrCpy $0 "1"
-    Goto check_file_once_done
-
-  check_file_once_zero:
-    StrCpy $IywClawFileCheckReason "文件为空（0 字节）"
-    Goto check_file_once_done
-
-  check_file_once_unreadable:
-    System::Call 'kernel32::GetLastError() i.R4'
-    StrCpy $IywClawFileCheckErrorCode "$R4"
-    StrCpy $IywClawFileCheckReason "文件无法读取"
-    StrCpy $0 "2"
-    Goto check_file_once_done
-
-  check_file_once_seek_failed:
-    FileClose $1
-    System::Call 'kernel32::GetLastError() i.R4'
-    StrCpy $IywClawFileCheckErrorCode "$R4"
-    StrCpy $IywClawFileCheckReason "无法读取文件大小"
-    StrCpy $0 "2"
-    Goto check_file_once_done
-
-  check_file_once_failure:
-    StrCpy $IywClawFileCheckReason "文件不存在"
-    StrCpy $IywClawFileCheckErrorCode "2"
-    StrCpy $0 "3"
-
-  check_file_once_done:
-    Pop $2
-    Pop $1
-    Push $0
-FunctionEnd
-
-Function IywClawIsNonEmptyFile
-  Exch $0
-  Push $1
-  Push $2
-  Push $3
-  StrCpy $IywClawFileCheckPath "$0"
-  StrCpy $IywClawFileCheckReason "文件不存在"
-  StrCpy $IywClawFileCheckAttempts "0"
-  StrCpy $IywClawFileCheckErrorCode "2"
-  StrCpy $2 "0"
-  StrCpy $3 "1"
-
-  non_empty_file_retry:
-    StrCpy $IywClawFileCheckAttempts "$3"
-    Call IywClawCheckFileOnce
-    Pop $1
-    StrCmp $1 "1" non_empty_file_success 0
-    StrCmp $1 "2" non_empty_file_retryable non_empty_file_done
-
-  non_empty_file_retryable:
-    IntCmp $3 ${IYW_CLAW_FILE_CHECK_ATTEMPTS} non_empty_file_done non_empty_file_wait non_empty_file_done
-  non_empty_file_wait:
-    Sleep ${IYW_CLAW_FILE_CHECK_WAIT_MS}
-    IntOp $3 $3 + 1
-    Goto non_empty_file_retry
-
-  non_empty_file_success:
-    StrCpy $2 "1"
-
-  non_empty_file_done:
-    StrCpy $0 $2
-    Pop $3
-    Pop $2
-    Pop $1
-    Exch $0
 FunctionEnd
 
 Function IywClawIsAppComplete

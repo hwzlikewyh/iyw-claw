@@ -10,6 +10,7 @@ use super::spec::ComponentSpec;
 use super::{emit_event, RuntimeBootstrapEventKind};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
 
 pub(super) async fn download_archive(
@@ -77,6 +78,7 @@ pub(super) async fn download_archive(
     }
     let client = reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
         .redirect(reqwest::redirect::Policy::limited(5))
         .build()
         .map_err(|error| {
