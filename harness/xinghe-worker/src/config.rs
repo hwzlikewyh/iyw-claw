@@ -19,6 +19,9 @@ pub(super) struct WorkerConfig {
 
 impl WorkerConfig {
     pub(super) fn from_environment() -> Result<Self, ConfigError> {
+        if optional_value("CODEX_API_KEY").is_none() || optional_value("CODEX_CONFIG").is_none() {
+            return Err(ConfigError::LaunchConfiguration);
+        }
         Ok(Self {
             connection_id: optional_value(CONNECTION_ENV).ok_or(ConfigError::Connection)?,
             codex_home: required_directory(HOME_ENV)?,
@@ -44,7 +47,7 @@ impl WorkerConfig {
             linux_sandbox_executable: cfg!(target_os = "linux")
                 .then(|| self.helper_executable.clone()),
             main_execve_wrapper_executable: None,
-            enable_codex_api_key_env: false,
+            enable_codex_api_key_env: true,
             mcp_server_openai_form_elicitation: false,
             opt_out_notification_methods: Vec::new(),
         }
@@ -70,6 +73,7 @@ fn helper_executable() -> Result<PathBuf, ConfigError> {
 
 #[derive(Debug)]
 pub(super) enum ConfigError {
+    LaunchConfiguration,
     Directory,
     Executable,
     Fingerprint,

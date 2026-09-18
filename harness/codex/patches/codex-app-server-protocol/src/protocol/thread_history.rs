@@ -852,6 +852,7 @@ impl ThreadHistoryBuilder {
             failure: None,
             saved_path: None,
             imagegen_request_id: None,
+            generation_id: None,
         });
         self.upsert_item_in_current_turn(item);
     }
@@ -866,6 +867,7 @@ impl ThreadHistoryBuilder {
             failure: payload.failure.clone(),
             saved_path: payload.saved_path.clone(),
             imagegen_request_id: None,
+            generation_id: None,
         });
         self.upsert_item_in_current_turn(item);
     }

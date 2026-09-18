@@ -3,15 +3,25 @@ use serde_json::{json, Value};
 use crate::UpstreamError;
 
 /// 与外置适配器使用同一主进程配置投影，但不修改工作进程的全局环境。
-pub(super) fn environment_overrides() -> Result<Value, UpstreamError> {
+pub(super) fn environment_overrides(
+    home: Option<&std::path::Path>,
+) -> Result<Value, UpstreamError> {
     let Some(raw) = std::env::var_os("CODEX_CONFIG") else {
         return Ok(json!([]));
     };
     let raw = raw
         .to_str()
         .ok_or_else(|| invalid("CODEX_CONFIG is not UTF-8"))?;
-    let value: Value =
+    let mut value: Value =
         serde_json::from_str(raw).map_err(|_| invalid("CODEX_CONFIG is not valid JSON"))?;
+    if let Some(home) = home {
+        let config = serde_json::from_value(normalize(&value))
+            .map_err(|_| invalid("CODEX_CONFIG has unsupported TOML values"))?;
+        let resolved = codex_config::loader::resolve_relative_paths_in_config_toml(config, home)
+            .map_err(|_| invalid("CODEX_CONFIG has invalid relative paths"))?;
+        value = serde_json::to_value(resolved)
+            .map_err(|_| invalid("CODEX_CONFIG cannot be projected"))?;
+    }
     let object = value
         .as_object()
         .ok_or_else(|| invalid("CODEX_CONFIG must be an object"))?;

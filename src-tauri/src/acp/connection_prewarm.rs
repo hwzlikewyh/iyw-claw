@@ -71,7 +71,9 @@ async fn prepare_prompt(
     storage: &AgentStoragePaths,
 ) -> Result<crate::acp::builtin_prompt_injection::PreparedBuiltinPrompt, AcpError> {
     let agent_type = request.agent_type;
-    let overlay = if request.target.session_id.is_some() {
+    let overlay = if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        Ok(())
+    } else if request.target.session_id.is_some() {
         crate::acp::provider_overlay::enforce_resumed_active_provider_overlay(agent_type)
     } else {
         crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)

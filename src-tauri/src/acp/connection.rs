@@ -1376,11 +1376,9 @@ fn internal_worker_environment(
     );
     environment.insert(
         WORKER_HOME_ENV.to_string(),
-        storage
-            .profile(AgentType::Codex)
-            .root
-            .to_string_lossy()
-            .into_owned(),
+        runtime_env.get("CODEX_HOME").cloned().unwrap_or_else(|| {
+            storage.profile(AgentType::Codex).root.to_string_lossy().into_owned()
+        }),
     );
     environment.insert(
         WORKER_FINGERPRINT_ENV.to_string(),
@@ -1445,7 +1443,9 @@ pub(crate) async fn spawn_agent_connection(
     // 恢复会话（session_id 为 Some）走 reconcile_resumed_session：保持策略
     // 代际，只刷新允许热更新的安全字段；新建会话走完整 reconcile。两种路径
     // 都先经过 provider overlay 门，失败都会阻止 spawn。
-    let overlay_result = if session_id.is_some() {
+    let overlay_result = if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        Ok(())
+    } else if session_id.is_some() {
         crate::acp::provider_overlay::enforce_resumed_active_provider_overlay(agent_type)
     } else {
         crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
@@ -4455,6 +4455,11 @@ async fn set_session_mode(
     emitter: &EventEmitter,
     mode_id: String,
 ) -> Result<(), sacp::Error> {
+    // 上游不会为未变化的设置发送确认事件；在命令消费处判断以保留队列顺序。
+    if state.read().await.current_mode.as_deref() == Some(mode_id.as_str()) {
+        tracing::debug!(mode_id, "[ACP] unchanged session mode skipped");
+        return Ok(());
+    }
     let req = SetSessionModeRequest::new(session.session_id().clone(), mode_id.clone());
     session
         .connection()

@@ -44,6 +44,9 @@ pub(super) enum WorkerError {
 impl fmt::Display for WorkerError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Configuration(ConfigError::LaunchConfiguration) => {
+                formatter.write_str("worker requires injected account and configuration values")
+            }
             Self::Configuration(ConfigError::Directory) => {
                 formatter.write_str("worker configuration has an invalid directory")
             }

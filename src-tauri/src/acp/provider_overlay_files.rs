@@ -78,6 +78,10 @@ fn enforce_provider_overlay_at_root_with_kind(
             crate::acp::registry::registry_id_for(agent)
         ));
     }
+    if crate::internal_xinghe_worker::is_desktop_agent(agent) {
+        return super::session_config_reconciler::reconcile_codex_runtime_resources(profile)
+            .map_err(|error| format!("session resources reconcile failed: {error}"));
+    }
     // Codex / Claude Code 走统一 reconciler：受控字段幂等写入 + 回读校验 +
     // fingerprint + 诊断；失败会阻止新会话 spawn（不得以未知配置启动）。
     if matches!(agent, AgentType::Codex | AgentType::ClaudeCode) {

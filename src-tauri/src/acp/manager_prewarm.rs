@@ -121,7 +121,7 @@ async fn prewarm_target(
         .await
         .map_err(|error| AcpError::protocol(error.to_string()))?;
     tabs.sort_by_key(|tab| (tab.agent_type != agent, !tab.is_active, tab.position));
-    if let Some(tab) = tabs.first() {
+    for tab in tabs.iter().filter(|tab| tab.agent_type == agent) {
         if let Some(target) = target_from_tab(db, tab, agent).await? {
             return Ok(target);
         }

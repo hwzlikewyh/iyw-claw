@@ -20,6 +20,7 @@ use codex_protocol::protocol::ThreadHistoryMode;
 use codex_protocol::protocol::ThreadMemoryMode;
 use codex_rollout::RolloutItem;
 use codex_rollout::persisted_rollout_items;
+use codex_utils_absolute_path::AbsolutePathBuf;
 
 use crate::AppendThreadItemsParams;
 use crate::ArchiveThreadParams;
@@ -91,8 +92,9 @@ pub struct InMemoryThreadStoreCalls {
 /// service.
 #[derive(Default)]
 pub struct InMemoryThreadStore {
-    state: tokio::sync::Mutex<InMemoryThreadStoreState>,
-    omit_metadata_update_result: AtomicBool,
+    state: Arc<tokio::sync::Mutex<InMemoryThreadStoreState>>,
+    omit_metadata_update_result: Arc<AtomicBool>,
+    state_db: Option<codex_rollout::StateDbHandle>,
 }
 
 #[derive(Default)]
@@ -117,6 +119,15 @@ impl InMemoryThreadStore {
             .entry(id)
             .or_insert_with(|| Arc::new(Self::default()))
             .clone()
+    }
+
+    /// Shares this debug store's thread data while owning cleanup of the caller's SQLite state.
+    pub fn with_state_db(&self, state_db: Option<codex_rollout::StateDbHandle>) -> Self {
+        Self {
+            state: Arc::clone(&self.state),
+            omit_metadata_update_result: Arc::clone(&self.omit_metadata_update_result),
+            state_db,
+        }
     }
 
     /// Removes a shared in-memory store for `id`.
@@ -145,6 +156,10 @@ impl InMemoryThreadStore {
             forked_from_id: params.forked_from_id,
             parent_thread_id: params.parent_thread_id,
             cwd: params.metadata.cwd.clone().unwrap_or_default(),
+            runtime_workspace_roots: params
+                .runtime_workspace_roots
+                .as_ref()
+                .map(|roots| roots.iter().map(AbsolutePathBuf::to_path_buf).collect()),
             agent_nickname: params.source.get_nickname(),
             agent_role: params.source.get_agent_role(),
             agent_path: params.source.get_agent_path().map(Into::into),
@@ -419,8 +434,18 @@ impl InMemoryThreadStore {
     }
 
     async fn delete_thread(&self, params: DeleteThreadParams) -> ThreadStoreResult<()> {
+        self.state.lock().await.calls.delete_thread += 1;
+        let deleted_state_rows = if let Some(state_db) = &self.state_db {
+            state_db
+                .delete_threads_strict(&[params.thread_id])
+                .await
+                .map_err(|error| ThreadStoreError::Internal {
+                    message: format!("failed to delete thread state: {error}"),
+                })?
+        } else {
+            0
+        };
         let mut state = self.state.lock().await;
-        state.calls.delete_thread += 1;
         let existed = state.histories.remove(&params.thread_id).is_some();
         state.created_threads.remove(&params.thread_id);
         state.names.remove(&params.thread_id);
@@ -431,7 +456,7 @@ impl InMemoryThreadStore {
         state
             .rollout_paths
             .retain(|_, thread_id| *thread_id != params.thread_id);
-        if existed {
+        if existed || deleted_state_rows > 0 {
             Ok(())
         } else {
             Err(ThreadStoreError::ThreadNotFound {

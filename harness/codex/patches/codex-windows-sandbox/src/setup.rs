@@ -33,6 +33,7 @@ use crate::setup_error::extract_failure;
 use crate::setup_error::failure;
 use crate::setup_error::read_setup_error_report;
 use crate::ssh_config_dependencies::ssh_config_dependency_paths;
+use crate::winutil::current_account_name;
 use anyhow::Result;
 use anyhow::anyhow;
 use base64::Engine;
@@ -235,6 +236,7 @@ pub fn run_setup_refresh(
     else {
         return Ok(());
     };
+    permissions.validate_elevated_filesystem_policy(command_cwd)?;
     let deny_read_paths =
         setup_refresh_deny_read_paths(permission_profile, workspace_roots, command_cwd)?;
     run_setup_refresh_inner(
@@ -278,6 +280,7 @@ pub fn run_setup_refresh_with_extra_read_roots(
     else {
         return Ok(());
     };
+    permissions.validate_elevated_filesystem_policy(command_cwd)?;
     let deny_read_paths =
         setup_refresh_deny_read_paths(permission_profile, workspace_roots, command_cwd)?;
     let mut read_roots = gather_read_roots(command_cwd, &permissions, env_map, codex_home);
@@ -325,9 +328,9 @@ fn run_setup_refresh_inner(
     overrides: SetupRootOverrides,
     offline_proxy_settings_override: Option<&OfflineProxySettings>,
 ) -> Result<()> {
-    if !request.permissions.is_enforceable_by_windows_sandbox() {
-        anyhow::bail!("unsupported filesystem permissions for Windows sandbox setup");
-    }
+    request
+        .permissions
+        .validate_elevated_filesystem_policy(request.command_cwd)?;
     let (read_roots, write_roots) = build_payload_roots(&request, &overrides);
     let deny_read_paths = build_payload_deny_read_paths(overrides.deny_read_paths);
     let deny_write_paths = build_payload_deny_write_paths(&request, overrides.deny_write_paths);
@@ -346,7 +349,7 @@ fn run_setup_refresh_inner(
         proxy_ports: offline_proxy_settings.proxy_ports,
         allow_local_binding: offline_proxy_settings.allow_local_binding,
         otel: None,
-        real_user: std::env::var("USERNAME").unwrap_or_else(|_| "Administrators".to_string()),
+        real_user: current_account_name()?,
         mode: SetupMode::Full,
         refresh_only: true,
     };
@@ -451,8 +454,10 @@ impl SetupMarker {
         if !network_identity.uses_offline_identity() {
             return None;
         }
-        if self.proxy_ports == offline_proxy_settings.proxy_ports
-            && self.allow_local_binding == offline_proxy_settings.allow_local_binding
+        // Local-binding mode has no port-specific loopback rules, so changing proxy
+        // listeners does not require a firewall update while that mode stays enabled.
+        if self.allow_local_binding == offline_proxy_settings.allow_local_binding
+            && (self.allow_local_binding || self.proxy_ports == offline_proxy_settings.proxy_ports)
         {
             return None;
         }
@@ -1051,9 +1056,9 @@ fn run_elevated_setup_inner(
     request: SandboxSetupRequest<'_>,
     offline_proxy_settings_override: Option<&OfflineProxySettings>,
 ) -> Result<()> {
-    if !request.permissions.is_enforceable_by_windows_sandbox() {
-        anyhow::bail!("unsupported filesystem permissions for Windows sandbox setup");
-    }
+    request
+        .permissions
+        .validate_elevated_filesystem_policy(request.command_cwd)?;
     // Ensure the shared sandbox directory exists before we send it to the elevated helper.
     let sbx_dir = sandbox_dir(request.codex_home);
     std::fs::create_dir_all(&sbx_dir).map_err(|err| {
@@ -1062,7 +1067,7 @@ fn run_elevated_setup_inner(
             format!("failed to create sandbox dir {}: {err}", sbx_dir.display()),
         )
     })?;
-    let payload = elevated_provisioning_payload(&request, offline_proxy_settings_override);
+    let payload = elevated_provisioning_payload(&request, offline_proxy_settings_override)?;
     let needs_elevation = !is_elevated().map_err(|err| {
         failure(
             SetupErrorCode::OrchestratorElevationCheckFailed,
@@ -1075,10 +1080,10 @@ fn run_elevated_setup_inner(
 fn elevated_provisioning_payload(
     request: &SandboxSetupRequest<'_>,
     offline_proxy_settings_override: Option<&OfflineProxySettings>,
-) -> ElevationPayload {
+) -> Result<ElevationPayload> {
     let offline_proxy_settings =
         offline_proxy_settings_for_request(request, offline_proxy_settings_override);
-    ElevationPayload {
+    Ok(ElevationPayload {
         version: SETUP_VERSION,
         offline_username: OFFLINE_USERNAME.to_string(),
         online_username: ONLINE_USERNAME.to_string(),
@@ -1090,11 +1095,11 @@ fn elevated_provisioning_payload(
         deny_write_paths: Vec::new(),
         proxy_ports: offline_proxy_settings.proxy_ports,
         allow_local_binding: offline_proxy_settings.allow_local_binding,
-        real_user: std::env::var("USERNAME").unwrap_or_else(|_| "Administrators".to_string()),
+        real_user: current_account_name()?,
         otel: codex_otel::global_statsig_metrics_settings(),
         mode: SetupMode::InteractiveProvision,
         refresh_only: false,
-    }
+    })
 }
 
 pub fn run_elevated_provisioning_setup(
