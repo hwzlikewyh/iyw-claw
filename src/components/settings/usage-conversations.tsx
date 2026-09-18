@@ -83,7 +83,12 @@ function ConversationUsageCells({ row }: { row: ConversationUsageRow }) {
       : null)
   return (
     <>
-      <td className="break-all px-2 py-3 text-right tabular-nums">
+      <td
+        className="break-all px-2 py-3 text-right tabular-nums"
+        title={
+          total == null ? undefined : `${total.toLocaleString(locale)} Token`
+        }
+      >
         {total == null ? "--" : formatTokenThousands(total, locale)}
       </td>
       <td className="break-words px-2 py-3 text-right">

@@ -9,9 +9,12 @@ export function formatTokenCount(n: number): string {
 }
 
 const TOKENS_PER_K = 1_000
+const TOKENS_PER_M = 1_000_000
 
 export function formatTokenThousands(n: number, locale?: string): string {
-  return `${(n / TOKENS_PER_K).toLocaleString(locale, {
+  const useMillions = n >= TOKENS_PER_M
+  const divisor = useMillions ? TOKENS_PER_M : TOKENS_PER_K
+  return `${(n / divisor).toLocaleString(locale, {
     maximumFractionDigits: 3,
-  })}K`
+  })}${useMillions ? "M" : "K"}`
 }

@@ -26,7 +26,6 @@ import { useMessageScroll } from "@/components/message/message-scroll-context"
 import { formatElapsedLabel } from "@/lib/format-elapsed"
 import { cn, copyTextToClipboard } from "@/lib/utils"
 import type { TurnUsage } from "@/lib/types"
-import { TurnUsageStats } from "./turn-usage-stats"
 
 interface TurnStatsProps {
   usage?: TurnUsage | null
@@ -177,7 +176,6 @@ export function TurnStats({
             </TooltipContent>
           </Tooltip>
         )}
-        {hasUsage && usage && <TurnUsageStats usage={usage} />}
         <Tooltip>
           <TooltipTrigger asChild>
             <button

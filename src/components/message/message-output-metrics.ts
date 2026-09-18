@@ -1,6 +1,8 @@
 import type { ContentBlock, MessageTurn } from "@/lib/types"
+import type { LiveMessage } from "@/contexts/acp-connections-context"
 
 const characterCounts = new WeakMap<ContentBlock, number>()
+const liveToolCounts = new WeakMap<LiveMessage, number>()
 const turnMetrics = new WeakMap<
   MessageTurn,
   ReturnType<typeof calculateMetrics>
@@ -38,4 +40,19 @@ export function getMessageOutputMetrics(turn: MessageTurn) {
   const metrics = calculateMetrics(turn)
   turnMetrics.set(turn, metrics)
   return metrics
+}
+
+export function getLiveToolCallCount(message: LiveMessage) {
+  const cached = liveToolCounts.get(message)
+  if (cached !== undefined) return cached
+  const ids = new Set<string>()
+  let anonymous = 0
+  for (const block of message.content) {
+    if (block.type !== "tool_call") continue
+    if (block.info.tool_call_id) ids.add(block.info.tool_call_id)
+    else anonymous += 1
+  }
+  const count = ids.size + anonymous
+  liveToolCounts.set(message, count)
+  return count
 }
