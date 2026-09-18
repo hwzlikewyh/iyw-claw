@@ -122,3 +122,39 @@ panic 恢复语义。Windows worker 仅构建实际分发的两个 sandbox helpe
 速度优先会减少跨单元优化，可能增加包体积或影响运行时性能。安装包体积门禁、
 签名及安装验证保持启用，不通过时停止发布。GitHub 仓库当前公开，标准 ARM
 runner 不新增 runner 费用；硬件签名机仍只有一台，离线或排队仍会影响总耗时。
+
+## 第五批：预构建引擎与并行编译
+
+`Build Xinghe Workers` 在 main 的引擎源码、patches、Cargo 配置或相关准备脚本
+变化时提前构建六个平台，也可手动运行。使用已有的精确编译键、成品缓存和
+14 天 artifact 备份，不改变第四批编译参数或现有 worker 缓存键。
+
+正常 Release 在创建草稿后同时启动 worker 与前端；应用在前端准备好后立即
+编译，不等待 worker。worker 命中成品时只核验、重组资源和上传本次运行的
+传输包。冷构建时两个 Rust 工程分属独立 runner，不争抢同机 CPU 和 Cargo 锁。
+
+应用编译使用 `tauri.compile-only.conf.json`，仅暂时关闭打包资源复制，仍用
+真实的当前前端生成 Tauri context，并保留原有平台配置和 features。
+编译命令带 `--no-bundle --no-sign`。macOS/Linux 之后通过 tauri-action 的
+`tauriScript` 扩展点调用官方 `tauri bundle`，恢复完整资源配置、签名和上传；
+不会因恢复配置再次运行 Cargo。Windows 保持现有独立签名封装流程。
+
+汇合时只读取当前 GitHub run 中名称包含目标架构和实际源码 SHA 的 worker
+artifact。tar 保留可执行权限；恢复后要求原有完整编译键匹配，再验证文件摘要、
+架构、上游身份、ABI 和 VC 运行库。消费者设置 `IYW_XINGHE_WORKER_REQUIRE_CACHE=1`，
+身份不符会停止，不静默退回串行编译。生产者已结束而产物缺失时立即失败；
+其他情况最多等待 90 分钟，且仍受 job 总超时约束。
+
+worker 的独立依赖缓存只在成品缓存和备份都无法恢复时使用，前缀为
+`v1-worker-dependencies`，不保留 worker 自身产物；Swatinem 在保存前清理
+非依赖文件，成品先由自己的缓存和 artifact 保存。该缓存增加容量需求，
+但不会让热发布每次下载完整 worker target；成品备份继续独立于 Cache 淘汰。
+
+候选版和其他直接调用入口默认保留串行流程。只有正常 Release 显式开启
+`parallel_worker` 并启动生产者。旧 tag 不含新配置/脚本时应使用新版本发布；
+不能仅重跑旧 workflow 来启用新的任务图。
+
+已对 GitHub 上现有 macOS ARM64 artifact 执行实际查询、下载和恢复验证，外层
+SHA-256、清单、文件摘要、架构、版本、ABI、helper 与 tar 执行权限均通过检查。
+完整并行发布与真实提速仍须在新工作流运行后比较 Cargo timings：
+冷构建目标是使 worker 与应用耗时重叠，热构建目标是跳过 worker 编译。

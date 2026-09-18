@@ -84,7 +84,11 @@ function verifyBinaries(directory, target) {
 function prepareBinaries(target) {
   const source = join(WORKER_TARGET_ROOT, target, "release")
   if (!existsSync(join(ROOT, ".git"))) {
-    console.log("[xinghe-worker] source archive: building without compiler cache")
+    if (process.env.IYW_XINGHE_WORKER_REQUIRE_CACHE === "1")
+      throw new Error("precompiled worker requires a Git checkout")
+    console.log(
+      "[xinghe-worker] source archive: building without compiler cache"
+    )
     buildWorker(ROOT, target)
     verifyBinaries(source, target)
     return source
@@ -97,6 +101,8 @@ function prepareBinaries(target) {
     console.log(`[xinghe-worker] compiler cache hit: ${key}`)
     return directory
   }
+  if (process.env.IYW_XINGHE_WORKER_REQUIRE_CACHE === "1")
+    throw new Error(`precompiled worker does not match build inputs: ${key}`)
   console.log(`[xinghe-worker] compiler cache miss: ${key}`)
   buildWorker(ROOT, target)
   verifyBinaries(source, target)
