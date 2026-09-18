@@ -7,8 +7,8 @@ edition = "2021"
 publish = false
 
 [dependencies]
-codex-app-server-client = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-app-server-client" }
-codex-app-server-protocol = { git = "https://github.com/openai/codex.git", rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340", package = "codex-app-server-protocol" }
+codex-app-server-client = { git = "https://github.com/openai/codex.git", rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457", package = "codex-app-server-client" }
+codex-app-server-protocol = { git = "https://github.com/openai/codex.git", rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457", package = "codex-app-server-protocol" }
 serde_json = "1"
 
 # The Git dependency does not inherit codex-rs/Cargo.lock. These direct pins

@@ -880,7 +880,6 @@ pub async fn get_folder_conversation_with_live_core(
     conversation_id: i32,
 ) -> Result<DbConversationDetail, AppCommandError> {
     let (mut detail, parsed_title) = get_folder_conversation_core(conn, conversation_id).await?;
-    super::conversation_points::enrich(conn, &mut detail).await;
 
     // Per-turn auto-title backfill. The parse `get_folder_conversation_core`
     // just did already produced the session-file title; adopt it (and broadcast
@@ -938,6 +937,7 @@ pub async fn get_folder_conversation_page_core(
     before: Option<usize>,
     force_refresh: bool,
 ) -> Result<DbConversationDetail, AppCommandError> {
+    let started_at = std::time::Instant::now();
     let summary = conversation_service::get_by_id(conn, conversation_id)
         .await
         .map_err(AppCommandError::from)?;
@@ -945,7 +945,6 @@ pub async fn get_folder_conversation_page_core(
         summary.external_id.as_deref(),
         summary.updated_at,
     );
-    let started_at = std::time::Instant::now();
     let cached = if force_refresh {
         None
     } else {
@@ -968,15 +967,11 @@ pub async fn get_folder_conversation_page_core(
             "[conversation-history] cache hit"
         );
         let mut cached = cached;
-        let points_missing = cached
-            .session_stats
-            .as_ref()
-            .and_then(|stats| stats.total_usage.as_ref())
-            .is_some_and(|usage| usage.estimated_points.is_none());
+        let points_missing = super::conversation_points::missing(&cached);
         cached.history_stale = !fresh || points_missing;
         cached
     } else {
-        let parsed = get_folder_conversation_with_live_core(
+        let mut parsed = get_folder_conversation_with_live_core(
             conn,
             manager,
             chat_channel_manager,
@@ -984,13 +979,19 @@ pub async fn get_folder_conversation_page_core(
             conversation_id,
         )
         .await?;
+        if force_refresh {
+            super::conversation_points::enrich(conn, &mut parsed).await;
+        } else {
+            super::conversation_points::enrich_cached(conn, &mut parsed).await;
+        }
         tracing::info!(
             conversation_id,
             turns = parsed.turns.len(),
             elapsed_ms = started_at.elapsed().as_millis(),
             "[conversation-history] transcript parsed"
         );
-        let page = crate::commands::conversation_history_cache::page(&parsed, before);
+        let mut page = crate::commands::conversation_history_cache::page(&parsed, before);
+        page.history_stale = !force_refresh && super::conversation_points::missing(&parsed);
         crate::commands::conversation_history_cache::schedule(
             conversation_id,
             cache_revision,

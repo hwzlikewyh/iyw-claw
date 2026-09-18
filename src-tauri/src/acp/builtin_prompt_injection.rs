@@ -51,6 +51,9 @@ pub async fn prepare(request: PrepareRequest<'_>) -> Result<PreparedBuiltinPromp
         OpenClawPromptRoute::default()
     };
     let mut environment = request.environment.clone();
+    if crate::internal_xinghe_worker::is_desktop_agent(request.agent_type) {
+        crate::acp::xinghe_runtime_config::apply_selected_model(&mut environment)?;
+    }
     if let Some(session_key) = openclaw.session_key.as_ref() {
         environment.insert("OPENCLAW_SESSION_KEY".to_string(), session_key.clone());
     }

@@ -41,7 +41,10 @@ impl UpstreamStartArgs {
             codex_linux_sandbox_exe: self.linux_sandbox_executable.clone(),
             main_execve_wrapper_exe: self.main_execve_wrapper_executable.clone(),
         };
-        let launch_overrides = crate::launch_config::environment_overrides()?;
+        let launch_overrides = crate::launch_config::environment_overrides(
+            self.enable_codex_api_key_env
+                .then_some(self.codex_home.as_path()),
+        )?;
         let stage = StartupStage::new("load_config");
         let config = stage
             .finish(build_config(&self, &arg0_paths, (workspace_roots, &launch_overrides)).await)
@@ -86,7 +89,7 @@ impl UpstreamStartArgs {
             cli_overrides: serde_json::from_value(launch_overrides).map_err(|_| {
                 crate::launch_config::invalid("CODEX_CONFIG has unsupported TOML values")
             })?,
-            loader_overrides: LoaderOverrides::default(),
+            loader_overrides: loader_overrides(self),
             strict_config: true,
             cloud_config_bundle: CloudConfigBundleLoader::default(),
             feedback: CodexFeedback::new(),
@@ -152,12 +155,19 @@ async fn build_config(
         .codex_home(args.codex_home.clone())
         .fallback_cwd(Some(args.cwd.clone()))
         .harness_overrides(overrides)
-        .loader_overrides(LoaderOverrides::default())
+        .loader_overrides(loader_overrides(args))
         .strict_config(true)
         .cloud_config_bundle(CloudConfigBundleLoader::default())
         .build()
         .await
         .map_err(start_error)
+}
+
+fn loader_overrides(args: &UpstreamStartArgs) -> LoaderOverrides {
+    LoaderOverrides {
+        ignore_user_config: args.enable_codex_api_key_env,
+        ..LoaderOverrides::default()
+    }
 }
 
 fn validate_paths(args: &UpstreamStartArgs) -> Result<Vec<AbsolutePathBuf>, UpstreamError> {

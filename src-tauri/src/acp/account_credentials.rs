@@ -47,6 +47,9 @@ pub(crate) async fn sync_agent_credentials_for_acp(
     conn: &DatabaseConnection,
     agent: AgentType,
 ) -> Result<(), crate::acp::error::AcpError> {
+    if crate::internal_xinghe_worker::is_desktop_agent(agent) {
+        return Ok(());
+    }
     sync_agent_credentials(conn, agent)
         .await
         .map_err(credentials_acp_error)
@@ -57,7 +60,8 @@ pub(crate) async fn inject_runtime_credential_for_acp(
     agent: AgentType,
     runtime_env: &mut BTreeMap<String, String>,
 ) -> Result<(), crate::acp::error::AcpError> {
-    if !matches!(agent, AgentType::CodeBuddy | AgentType::Grok) {
+    if !matches!(agent, AgentType::CodeBuddy | AgentType::Grok)
+        && !crate::internal_xinghe_worker::is_desktop_agent(agent) {
         return Ok(());
     }
     let token = require_access_token(conn)
@@ -128,6 +132,9 @@ fn apply_runtime_credential(
     token: &AccountAccessToken,
 ) {
     match agent {
+        AgentType::Codex if crate::internal_xinghe_worker::is_desktop_agent(agent) => {
+            runtime_env.insert(super::xinghe_runtime_config::AUTH_ENV.into(), token.expose().into());
+        }
         AgentType::CodeBuddy => {
             runtime_env.insert("CODEBUDDY_API_KEY".into(), token.expose().into());
         }
@@ -143,6 +150,9 @@ pub(crate) fn write_agent_credentials_at_profile(
     profile: &Path,
     token: Option<&AccountAccessToken>,
 ) -> Result<(), String> {
+    if crate::internal_xinghe_worker::is_desktop_agent(agent) && token.is_some() {
+        return Ok(());
+    }
     if !super::provider_overlay::uses_managed_gateway(agent) {
         return Ok(());
     }

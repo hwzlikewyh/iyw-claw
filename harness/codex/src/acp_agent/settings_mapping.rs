@@ -11,6 +11,7 @@ pub(super) struct SessionSettings {
     collaboration_mode: String,
     model: ModelSettings,
     native_title: Option<String>,
+    confirmed: Option<Value>,
 }
 
 impl Default for SessionSettings {
@@ -20,11 +21,17 @@ impl Default for SessionSettings {
             collaboration_mode: "default".to_string(),
             model: ModelSettings::default(),
             native_title: None,
+            confirmed: None,
         }
     }
 }
 
 impl SessionSettings {
+    pub(super) fn matches_request(&self, request: &Value) -> bool {
+        self.confirmed.as_ref().is_some_and(|snapshot| {
+            super::settings_update::matches_requested(request, snapshot)
+        })
+    }
     pub(super) fn title_model(&self) -> Option<String> { self.model.current.clone() }
     pub(super) fn native_title(&self) -> Option<&str> { self.native_title.as_deref() }
     pub(super) fn fork_values(&self) -> Value {
@@ -35,6 +42,12 @@ impl SessionSettings {
         values
     }
     pub(super) fn capture(&mut self, response: &Value) {
+        self.confirmed = response.as_object().map(|response| Value::Object(
+            response.iter().filter(|(key, _)| matches!(key.as_str(),
+                "activePermissionProfile" | "approvalPolicy" | "model" | "effort"
+                | "reasoningEffort" | "serviceTier" | "collaborationMode"))
+                .map(|(key, value)| (key.clone(), value.clone())).collect()
+        ));
         if let Some(thread) = response.get("thread") {
             self.native_title = thread.get("name").and_then(Value::as_str)
                 .filter(|name| !name.trim().is_empty()).map(str::to_string);

@@ -17,13 +17,13 @@ The lock records both the annotated tag object and its peeled source commit.
 Cargo dependencies use the peeled commit; synchronization verifies both values
 so a rewritten release tag cannot silently change the compiled source.
 
-The current pin is `rust-v0.154.0`. It recognizes the managed
+The current pin is `rust-v0.155.0`. It recognizes the managed
 `features.context_management.experimental_mode` configuration that
 `rust-v0.152.1` rejected during session creation and recovery. The feature still
 requires an eligible upstream provider and account; parsing this configuration
 does not grant experimental context-management availability.
 
-The 0.154.0 upgrade retains the current worker, native commands, automatic-turn
+The 0.155.0 upgrade retains the current worker, native commands, automatic-turn
 ownership, Windows process patches, and command-description protocol extension.
 Session MCP configuration is required and checked against the thread's tool
 catalog before readiness, except the host-provided remote business gateway,
@@ -31,16 +31,28 @@ which is optional so an outage cannot prevent session startup. The exception
 requires its exact service name and URL; built-in MCP remains required.
 Tool names retain their saved namespace across resume.
 
-The official release was checked again on 2026-09-14: the latest stable tag is
-still `rust-v0.154.0`, and its tag object and source commit match `upstream.lock`.
-Newer `0.155.0-alpha` builds remain outside the stable synchronization policy.
+The official release was checked on 2026-09-18: the latest stable tag is
+`rust-v0.155.0`, published on 2026-09-17. Its tag object and source commit
+match `upstream.lock`; prereleases remain outside the synchronization policy.
 
-Settings commands wait for a matching `thread/settings/updated` notification;
+Settings commands that change confirmed values wait for a matching
+`thread/settings/updated` notification;
 the empty `thread/settings/update` response only acknowledges queue acceptance.
 A prompt submitted while settings are pending waits for that confirmation.
 Errors, timeout, cancellation and shutdown settle the waiting request without
 reporting the requested model as applied. Native title configuration uses
 `features.token_budget`, as required by the pinned release.
+
+Unchanged settings return immediately only when they match an authoritative
+thread snapshot. Upstream does not send an update notification for a no-op;
+waiting for one used to delay the next prompt by the 15-second timeout.
+
+Desktop launches inject the application's account token and managed settings
+through `CODEX_API_KEY` and `CODEX_CONFIG`. Preferences migrate once from the
+active profile into the existing application settings record. The worker skips
+user-level config loading and uses ephemeral auth storage. System/project policy,
+session storage, skills and model catalog resources keep their existing paths.
+Configuration changes retain the existing fingerprint and reconnect workflow.
 
 Unnamed threads use Codex's isolated structured-thread title flow. Generated
 names are persisted through `thread/name/set` and existing title notifications;

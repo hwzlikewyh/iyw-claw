@@ -158,6 +158,24 @@ pub(crate) struct RequestSerializationQueues {
 }
 
 impl RequestSerializationQueues {
+    /// Release requests whose connection closed while they waited in a queue.
+    pub(crate) async fn discard_closed(&self) {
+        let mut queues = self.inner.lock().await;
+        for queue in queues.values_mut() {
+            let previous_len = queue.requests.len();
+            queue.requests.retain(|request| {
+                !request
+                    .request
+                    .gate
+                    .as_ref()
+                    .is_some_and(|gate| gate.is_closed())
+            });
+            if queue.requests.len() != previous_len {
+                queue.changed.notify_one();
+            }
+        }
+    }
+
     /// Enqueue app-owned work alongside RPCs that mutate the same serialized resource.
     pub(crate) async fn enqueue_background(
         &self,

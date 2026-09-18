@@ -1,6 +1,6 @@
 [package]
 name = "codex-rollout"
-version = "0.154.0"
+version = "0.155.0"
 edition = "2024"
 license = "Apache-2.0"
 autobins = false
@@ -12,84 +12,75 @@ doctest = false
 name = "codex_rollout"
 path = "src/lib.rs"
 
-[dependencies."anyhow"]
-version = "^1"
+[dependencies.anyhow]
+version = "1"
 
-[dependencies."chrono"]
-version = "^0.4.43"
-features = ["serde"]
+[dependencies.chrono]
+version = "0.4.43"
+features = [ "serde",]
 
-[dependencies."codex-extension-items"]
-version = "*"
+[dependencies.codex-extension-items]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-file-search"]
-version = "*"
+[dependencies.codex-file-search]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-git-utils"]
-version = "*"
+[dependencies.codex-git-utils]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-history"]
-version = "*"
+[dependencies.codex-history]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-otel"]
-version = "*"
+[dependencies.codex-otel]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-protocol"]
-version = "*"
+[dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-state"]
-version = "*"
+[dependencies.codex-state]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-utils-absolute-path"]
-version = "*"
+[dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-utils-path"]
-version = "*"
+[dependencies.codex-utils-path]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."regex"]
-version = "^1.12.3"
+[dependencies.regex]
+version = "1.12.3"
 
-[dependencies."serde"]
-version = "^1"
-features = ["rc","derive"]
+[dependencies.serde]
+version = "1"
+features = [ "rc", "derive",]
 
-[dependencies."serde_json"]
-version = "^1"
+[dependencies.serde_json]
+version = "1"
 
-[dependencies."tempfile"]
-version = "^3.23.0"
+[dependencies.tempfile]
+version = "3.23.0"
 
-[dependencies."time"]
-version = "^0.3.47"
-features = ["formatting","local-offset","macros","parsing"]
+[dependencies.time]
+version = "0.3.47"
+features = [ "formatting", "local-offset", "macros", "parsing",]
 
-[dependencies."tokio"]
-version = "^1"
-features = ["fs","io-util","macros","process","rt","sync","time"]
+[dependencies.tokio]
+version = "1"
+features = [ "fs", "io-util", "macros", "process", "rt", "sync", "time",]
 
-[dependencies."tracing"]
-version = "^0.1.44"
+[dependencies.tracing]
+version = "0.1.44"
 
-[dependencies."uuid"]
-version = "^1"
+[dependencies.uuid]
+version = "1"
 
-[dependencies."zstd"]
-version = "^0.13"
+[dependencies.zstd]
+version = "0.13"

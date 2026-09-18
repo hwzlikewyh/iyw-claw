@@ -1,6 +1,6 @@
 [package]
 name = "codex-login"
-version = "0.154.0"
+version = "0.155.0"
 edition = "2024"
 license = "Apache-2.0"
 autobins = false
@@ -12,108 +12,97 @@ doctest = false
 name = "codex_login"
 path = "src/lib.rs"
 
-[dependencies."base64"]
-version = "^0.22.1"
+[dependencies.base64]
+version = "0.22.1"
 
-[dependencies."chrono"]
-version = "^0.4.43"
-features = ["serde"]
+[dependencies.chrono]
+version = "0.4.43"
+features = [ "serde",]
 
-[dependencies."codex-agent-identity"]
-version = "*"
+[dependencies.codex-agent-identity]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-config"]
-version = "*"
+[dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-http-client"]
-version = "*"
+[dependencies.codex-config]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-keyring-store"]
-version = "*"
+[dependencies.codex-keyring-store]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-model-provider-info"]
-version = "*"
+[dependencies.codex-model-provider-info]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-otel"]
-version = "*"
+[dependencies.codex-otel]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-protocol"]
-version = "*"
+[dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-secrets"]
-version = "*"
+[dependencies.codex-secrets]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-terminal-detection"]
-version = "*"
+[dependencies.codex-terminal-detection]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-utils-template"]
-version = "*"
+[dependencies.codex-utils-template]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."codex-workload-identity"]
-version = "*"
+[dependencies.codex-workload-identity]
 git = "https://github.com/openai/codex.git"
-rev = "6b9826e3aa83b1a5947db50f4332cb9c65f1b340"
+rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
 
-[dependencies."http"]
-version = "^1.3.1"
+[dependencies.http]
+version = "1.3.1"
 
-[dependencies."once_cell"]
-version = "^1.20.2"
+[dependencies.once_cell]
+version = "1.20.2"
 
-[dependencies."os_info"]
-version = "^3.12.0"
+[dependencies.os_info]
+version = "3.12.0"
 
-[dependencies."rand"]
-version = "^0.9"
+[dependencies.rand]
+version = "0.9"
 
-[dependencies."serde"]
-version = "^1"
-features = ["rc","derive"]
+[dependencies.serde]
+version = "1"
+features = [ "rc", "derive",]
 
-[dependencies."serde_json"]
-version = "^1"
+[dependencies.serde_json]
+version = "1"
 
-[dependencies."sha2"]
-version = "^0.10"
+[dependencies.sha2]
+version = "0.10"
 
-[dependencies."thiserror"]
-version = "^2.0.17"
+[dependencies.thiserror]
+version = "2.0.17"
 
-[dependencies."tiny_http"]
-version = "^0.12"
+[dependencies.tiny_http]
+version = "0.12"
 
-[dependencies."tokio"]
-version = "^1"
-features = ["io-std","macros","process","rt-multi-thread","signal"]
+[dependencies.tokio]
+version = "1"
+features = [ "io-std", "macros", "process", "rt-multi-thread", "signal",]
 
-[dependencies."tracing"]
-version = "^0.1.44"
+[dependencies.tracing]
+version = "0.1.44"
 
-[dependencies."url"]
-version = "^2"
+[dependencies.url]
+version = "2"
 
-[dependencies."urlencoding"]
-version = "^2.1"
+[dependencies.urlencoding]
+version = "2.1"
 
-[dependencies."webbrowser"]
-version = "^1.2.2"
+[dependencies.webbrowser]
+version = "1.2.2"
