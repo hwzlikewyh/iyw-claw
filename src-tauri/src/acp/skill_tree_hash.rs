@@ -34,7 +34,17 @@ pub(crate) fn hash_skill_path(layout: AgentSkillLayout, path: &Path) -> Result<S
 fn collect_tree_files(root: &Path) -> Result<Vec<TreeFile>, String> {
     let mut files = Vec::new();
     let mut total_bytes = 0_u64;
-    for entry in WalkDir::new(root).follow_links(false) {
+    let entries = WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| {
+            entry.depth() != 1
+                || !entry.file_type().is_dir()
+                || !RUNTIME_ENV_DIR_NAMES
+                    .iter()
+                    .any(|name| entry.file_name().eq_ignore_ascii_case(name))
+        });
+    for entry in entries {
         let entry = entry.map_err(|error| error.to_string())?;
         if !entry.file_type().is_file() {
             continue;

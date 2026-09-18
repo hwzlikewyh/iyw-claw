@@ -46,6 +46,8 @@ use crate::db::AppDatabase;
 
 #[path = "manager_prewarm.rs"]
 mod prewarm;
+#[path = "manager_prepared.rs"]
+mod prepared;
 
 const MAX_EMERGENCY_RECLAIMS_PER_TICK: usize = 4;
 
@@ -355,6 +357,7 @@ pub struct ConnectionManager {
     connection_tasks: Arc<ConnectionTaskRegistry>,
     shutdown_cleanup_pending: Arc<Mutex<HashSet<String>>>,
     runtime_hosts: Arc<crate::acp::runtime_host::RuntimeHostRegistry>,
+    prepared_sessions: Arc<Mutex<prepared::PreparedSessions>>,
     /// Per-(agent, working_dir, session_id) async mutex. Held across the
     /// dedup-lookup + spawn + SessionStarted-wait critical section so two
     /// concurrent `spawn_agent` calls for the same logical session can't
@@ -462,6 +465,7 @@ impl ConnectionManager {
             connection_tasks: Arc::new(Default::default()),
             shutdown_cleanup_pending: Arc::new(Mutex::new(HashSet::new())),
             runtime_hosts: Arc::new(Default::default()),
+            prepared_sessions: Arc::new(Mutex::new(Default::default())),
             spawn_locks: Arc::new(Mutex::new(HashMap::new())),
             spawn_handshake_timeout: spawn_handshake_timeout_from_env(),
             delegation_injection: Arc::new(std::sync::OnceLock::new()),
@@ -489,6 +493,7 @@ impl ConnectionManager {
             connection_tasks: self.connection_tasks.clone(),
             shutdown_cleanup_pending: self.shutdown_cleanup_pending.clone(),
             runtime_hosts: self.runtime_hosts.clone(),
+            prepared_sessions: self.prepared_sessions.clone(),
             spawn_locks: self.spawn_locks.clone(),
             spawn_handshake_timeout: self.spawn_handshake_timeout,
             delegation_injection: self.delegation_injection.clone(),
@@ -709,6 +714,7 @@ impl ConnectionManager {
             false,
             crate::user_memory::UserMemoryOrigin::Root,
             startup_trace,
+            None,
         )
         .await
     }
@@ -741,6 +747,7 @@ impl ConnectionManager {
             force_host_restart,
             crate::user_memory::UserMemoryOrigin::Root,
             startup_trace,
+            None,
         )
         .await
     }
@@ -778,6 +785,7 @@ impl ConnectionManager {
             false,
             user_memory_origin,
             startup_trace,
+            None,
         )
         .await
     }
@@ -797,7 +805,11 @@ impl ConnectionManager {
         force_host_restart: bool,
         user_memory_origin: crate::user_memory::UserMemoryOrigin,
         startup_trace: crate::acp::startup_trace::StartupTrace,
+        preparation: Option<Arc<prepared::Entry>>,
     ) -> Result<String, AcpError> {
+        if preparation.is_none() {
+            self.retire_conflicting_preparations((agent_type, session_id.as_deref()), None).await?;
+        }
         let _operation_guard = self.acquire_operation_read().await?;
         let storage_read_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
         let mut runtime_env = runtime_env;
@@ -1004,7 +1016,8 @@ impl ConnectionManager {
             .user_memory_context_for(agent_type, user_memory_origin)
             .await;
 
-        let connection_id = uuid::Uuid::new_v4().to_string();
+        let connection_id = preparation.as_ref().map(|entry| entry.id.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         startup_trace.bind_connection(connection_id.clone());
         let managed_version = runtime_env
             .get(crate::commands::acp::MANAGED_AGENT_VERSION_ENV)
@@ -1054,6 +1067,7 @@ impl ConnectionManager {
         )
         .await?;
 
+        if let Some(entry) = preparation { entry.registered(); }
         // When dedup is active, hold the lock until the agent's
         // SessionStarted has applied (so external_id is populated for the
         // next waiter), aborted (connection died), or the timeout fires.
@@ -1639,7 +1653,7 @@ impl ConnectionManager {
             let connections = self.connections.lock().await;
             connections
                 .iter()
-                .filter(|(_, conn)| conn.agent_type == agent_type)
+                .filter(|(_, conn)| conn.agent_type == agent_type && !conn.emitter.is_preparing())
                 .map(|(id, conn)| (id.clone(), conn.state.clone()))
                 .collect()
         };
@@ -1812,6 +1826,9 @@ impl ConnectionManager {
             let connection = connections
                 .get(conn_id)
                 .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
+            if connection.emitter.is_preparing() {
+                return Err(AcpError::protocol("Prepared session has not been claimed"));
+            }
             (connection.cmd_tx.clone(), connection.state.clone())
         };
         wait_for_launch_finalization(&cmd_tx, &state).await?;
@@ -3230,6 +3247,7 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect_by_owner_window(&self, owner_window_label: &str) -> usize {
+        self.cancel_preparations_by_owner(Some(owner_window_label)).await;
         let removed = {
             let mut connections = self.connections.lock().await;
             let ids: Vec<String> = connections
@@ -3269,6 +3287,7 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect_all_checked(&self) -> ConnectionShutdownReport {
+        self.cancel_preparations_by_owner(None).await;
         let _shutdown_gate = self.connection_tasks.begin_shutdown().await;
         // Keep entries in the manager until their background task's cleanup
         // guard runs. If an outer shutdown budget cancels this future, a later
@@ -3337,6 +3356,7 @@ impl ConnectionManager {
         }
         let authority_pending = self.shutdown_cleanup_pending.lock().await.len();
         let host_shutdown = self.runtime_hosts.shutdown_all().await;
+        self.finish_preparation_shutdown().await;
         let completed = tasks_completed
             && cleanup_completed == disconnected
             && authority_pending == 0
@@ -3362,7 +3382,8 @@ impl ConnectionManager {
 
     pub async fn list_connections(&self) -> Vec<ConnectionInfo> {
         let connections = self.connections.lock().await;
-        connections.values().map(|c| c.info()).collect()
+        connections.values().filter(|connection| !connection.emitter.is_preparing())
+            .map(|connection| connection.info()).collect()
     }
 
     pub(crate) async fn runtime_session_snapshots(
@@ -3986,6 +4007,7 @@ impl ConnectionManager {
             let connections = self.connections.lock().await;
             connections
                 .iter()
+                .filter(|(_, conn)| !conn.emitter.is_preparing())
                 .map(|(id, conn)| (id.clone(), conn.state.clone()))
                 .collect()
         };
@@ -4062,7 +4084,7 @@ impl ConnectionManager {
             let connections = self.connections.lock().await;
             connections
                 .iter()
-                .filter(|(_, conn)| conn.agent_type == agent_type)
+                .filter(|(_, conn)| conn.agent_type == agent_type && !conn.emitter.is_preparing())
                 .map(|(id, conn)| (id.clone(), conn.state.clone()))
                 .collect()
         };

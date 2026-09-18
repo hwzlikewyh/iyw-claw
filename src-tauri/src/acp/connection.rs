@@ -3652,7 +3652,7 @@ async fn run_connection(
             crate::acp::iyw_gateway_mcp::append(
                 &mut mcp_servers,
                 version_center_db.as_ref(),
-                agent_supports_mcp && mcp_caps.http,
+                (agent_type, agent_supports_mcp && mcp_caps.http),
             ).await;
             {
                 let mut s = state.write().await;

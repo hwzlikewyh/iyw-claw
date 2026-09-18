@@ -19,8 +19,9 @@ fn gateway_probe_state() -> &'static Mutex<Option<([u8; 32], bool, Instant)>> {
 pub(super) async fn append(
     servers: &mut Vec<McpServer>,
     db: Option<&DatabaseConnection>,
-    http_available: bool,
+    runtime: (crate::models::AgentType, bool),
 ) {
+    let (agent_type, http_available) = runtime;
     if !http_available {
         tracing::debug!("[iyw-gateway-mcp] skipped: HTTP MCP is unavailable for this agent");
         return;
@@ -44,7 +45,9 @@ pub(super) async fn append(
             return;
         }
     };
-    if !gateway_available(token.expose()).await {
+    // 内置星河把该网关标记为 optional，由原生 MCP 管理器并行连接。
+    let probe_required = !crate::internal_xinghe_worker::is_desktop_agent(agent_type);
+    if probe_required && !gateway_available(token.expose()).await {
         tracing::debug!(
             "[iyw-gateway-mcp] remote gateway unavailable; continuing session without it"
         );
@@ -55,6 +58,7 @@ pub(super) async fn append(
     servers.push(McpServer::Http(server));
     tracing::info!(
         server_name = SERVER_NAME,
+        probe_required,
         "[iyw-gateway-mcp] attached remote MCP with current account credentials"
     );
 }
@@ -135,12 +139,15 @@ async fn probe_gateway(token: &str) -> bool {
         .await
         .unwrap_or(false);
     if let Some(session) = session {
-        let _ = client
-            .delete(GATEWAY_URL)
-            .header("token", token)
-            .header("Mcp-Session-Id", session)
-            .send()
-            .await;
+        let cleanup = client.delete(GATEWAY_URL)
+            .header("token", token).header("Mcp-Session-Id", session);
+        // 探测已结束，回收临时远端会话不再占用 Agent 启动的关键路径。
+        tokio::spawn(async move {
+            if let Err(error) = cleanup.send().await {
+                tracing::debug!(timeout = error.is_timeout(),
+                    "[iyw-gateway-mcp] probe session cleanup failed");
+            }
+        });
     }
     valid
 }

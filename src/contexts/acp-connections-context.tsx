@@ -1,5 +1,10 @@
 "use client"
 
+import {
+  awaitAcpPreparation,
+  consumeAcpPreparation,
+} from "@/lib/acp-session-preparation"
+
 import type { InteractiveHtmlState } from "@/lib/types"
 import {
   createContext,
@@ -4992,6 +4997,21 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       }
 
       try {
+        const nextWorkingDir = workingDir ?? null
+        const current = storeRef.current.connections.get(contextKey)
+        if (
+          current &&
+          current.agentType === agentType &&
+          current.workingDir === nextWorkingDir &&
+          current.status !== "disconnected" &&
+          current.status !== "error" &&
+          !request.forceHostRestart
+        ) {
+          clearPendingReplacement(contextKey)
+          await touchConnectionLeases(contextKey, current.connectionId)
+          return
+        }
+
         // Preflight: read agent status and block if the SDK / binary is
         // not installed. The session page must never trigger a download
         // or install — if the agent is not ready, prompt the user to
@@ -5041,20 +5061,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        const nextWorkingDir = workingDir ?? null
         const existing = storeRef.current.connections.get(contextKey)
         if (existing) {
-          if (
-            existing.agentType === agentType &&
-            existing.workingDir === nextWorkingDir &&
-            existing.status !== "disconnected" &&
-            existing.status !== "error" &&
-            !request.forceHostRestart
-          ) {
-            clearPendingReplacement(contextKey)
-            await touchConnectionLeases(contextKey, existing.connectionId)
-            return
-          }
           if (
             existing.status !== "disconnected" &&
             existing.status !== "error"
@@ -5246,6 +5254,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         // re-open (the snapshot frame doesn't carry a `session_modes` event,
         // so the apply-on-event hook never fired).
         const savedPrefs = getSavedPrefsForConnect(agentType)
+        const preparationTarget = {
+          agentType,
+          workingDir,
+          sessionId,
+          conversationId,
+        }
+        if (!request.forceHostRestart)
+          await awaitAcpPreparation(preparationTarget)
         const connectionId = await acpConnect(
           agentType,
           workingDir,
@@ -5255,6 +5271,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           savedPrefs.configValues,
           request.forceHostRestart ?? false
         )
+        consumeAcpPreparation(preparationTarget)
         if (conversationId != null && conversationId > 0) {
           try {
             await resumeAgentInputs(connectionId, conversationId)

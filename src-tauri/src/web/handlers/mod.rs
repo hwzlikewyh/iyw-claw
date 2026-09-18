@@ -1,4 +1,5 @@
 pub mod acp;
+pub mod acp_prepared;
 pub mod agent_concurrency;
 pub mod agent_input;
 pub mod agent_storage;

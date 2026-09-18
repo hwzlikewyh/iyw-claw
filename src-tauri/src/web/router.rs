@@ -805,6 +805,9 @@ pub fn build_router(
             post(handlers::capability_policy::decision),
         )
         .route("/acp_connect", post(handlers::acp::acp_connect))
+        .route("/acp_prepare_session", post(handlers::acp_prepared::prepare))
+        .route("/acp_cancel_prepared_session", post(handlers::acp_prepared::cancel))
+        .route("/acp_reserve_prepared_workspace", post(handlers::acp_prepared::reserve_workspace))
         .route("/acp_disconnect", post(handlers::acp::acp_disconnect))
         .route(
             "/acp_disconnect_for_replacement",
