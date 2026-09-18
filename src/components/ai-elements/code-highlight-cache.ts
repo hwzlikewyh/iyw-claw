@@ -1,9 +1,5 @@
-import type {
-  BundledLanguage,
-  BundledTheme,
-  HighlighterGeneric,
-  ThemedToken,
-} from "shiki"
+import type { BundledLanguage, ThemedToken } from "shiki"
+import { highlightCode } from "./shared-code-highlighter"
 
 export const CODE_TOKEN_CACHE_MAX_ENTRIES = 128
 export const CODE_TOKEN_CACHE_MAX_SOURCE_CHARS = 2_000_000
@@ -33,15 +29,12 @@ interface HighlightRequest {
   language: BundledLanguage
 }
 
-type SharedHighlighter = HighlighterGeneric<BundledLanguage, BundledTheme>
 type HighlightSubscriber = (result: TokenizedCode) => void
 
 const tokenCache = new Map<string, CacheEntry>()
-const languageLoads = new Map<BundledLanguage, Promise<void>>()
 const highlightTasks = new Map<string, Promise<void>>()
 const subscribers = new Map<string, Set<HighlightSubscriber>>()
 let cachedSourceChars = 0
-let highlighterPromise: Promise<SharedHighlighter> | null = null
 
 function getCacheKey(code: string, language: BundledLanguage): string {
   let primary = PRIMARY_HASH_SEED
@@ -104,48 +97,18 @@ function writeCache(request: HighlightRequest, tokenized: TokenizedCode): void {
   enforceCacheLimits()
 }
 
-async function getHighlighter(): Promise<SharedHighlighter> {
-  if (highlighterPromise) return highlighterPromise
-  highlighterPromise = import("shiki")
-    .then(({ createHighlighter }) =>
-      createHighlighter({
-        langs: [],
-        themes: ["github-light", "github-dark"],
-      })
-    )
-    .catch((error) => {
-      highlighterPromise = null
-      throw error
-    })
-  return highlighterPromise
-}
-
-async function ensureLanguage(
-  highlighter: SharedHighlighter,
-  language: BundledLanguage
-): Promise<void> {
-  if (highlighter.getLoadedLanguages().includes(language)) return
-  const existing = languageLoads.get(language)
-  if (existing) return existing
-  const loading = highlighter.loadLanguage(language).finally(() => {
-    languageLoads.delete(language)
-  })
-  languageLoads.set(language, loading)
-  return loading
-}
-
 async function performHighlight(
   request: HighlightRequest
 ): Promise<TokenizedCode | null> {
-  const highlighter = await getHighlighter()
-  if (!subscribers.get(request.cacheKey)?.size) return null
-  await ensureLanguage(highlighter, request.language)
-  // 语法包加载期间代码块可能已卸载或更新，跳过无人消费的全文高亮。
-  if (!subscribers.get(request.cacheKey)?.size) return null
-  const result = highlighter.codeToTokens(request.code, {
-    lang: request.language,
-    themes: { dark: "github-dark", light: "github-light" },
-  })
+  const result = await highlightCode(
+    {
+      code: request.code,
+      language: request.language,
+      themes: { dark: "github-dark", light: "github-light" },
+    },
+    () => Boolean(subscribers.get(request.cacheKey)?.size)
+  )
+  if (!result) return null
   return {
     bg: result.bg ?? "transparent",
     fg: result.fg ?? "inherit",

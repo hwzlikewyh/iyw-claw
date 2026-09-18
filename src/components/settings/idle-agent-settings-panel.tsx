@@ -8,12 +8,10 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { getIdleAgentSettings, setIdleAgentSettings } from "@/lib/api"
 
-const DEFAULT_MAX_IDLE_AGENTS = 4
+const SUGGESTED_IDLE_AGENT_LIMIT = 4
 
 function useIdleAgentSettings() {
-  const [maxIdle, setMaxIdle] = useState<number | null | undefined>(
-    DEFAULT_MAX_IDLE_AGENTS
-  )
+  const [maxIdle, setMaxIdle] = useState<number | null | undefined>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -79,7 +77,7 @@ function IdleAgentControls({
         <Switch
           checked={unlimited}
           onCheckedChange={(enabled) =>
-            settings.setMaxIdle(enabled ? null : DEFAULT_MAX_IDLE_AGENTS)
+            settings.setMaxIdle(enabled ? null : SUGGESTED_IDLE_AGENT_LIMIT)
           }
           disabled={settings.loading || settings.saving}
           aria-label="不限空闲 Agent 数量"

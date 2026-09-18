@@ -117,10 +117,24 @@ function useTabBarShortcuts(options: TabShortcutOptions): void {
 function useTabStripScroll(displayActiveId: string | null) {
   const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (!displayActiveId || !scrollRef.current) return
-    scrollRef.current
-      .querySelector(`[data-tab-id="${displayActiveId}"]`)
-      ?.scrollIntoView({ block: "nearest", inline: "nearest" })
+    const strip = scrollRef.current
+    if (!displayActiveId || !strip) return
+    const revealActiveTab = () => {
+      if (strip.clientWidth === 0) return
+      strip
+        .querySelector(`[data-tab-id="${displayActiveId}"]`)
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" })
+    }
+    revealActiveTab()
+    let previousWidth = strip.clientWidth
+    const observer = new ResizeObserver(() => {
+      const width = strip.clientWidth
+      if (width === previousWidth) return
+      previousWidth = width
+      revealActiveTab()
+    })
+    observer.observe(strip)
+    return () => observer.disconnect()
   }, [displayActiveId])
   const handleWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
     if (event.deltaY === 0 || !scrollRef.current) return
@@ -211,32 +225,34 @@ interface TabBarStripProps {
 
 function TabBarStrip({ scrollRef, content }: TabBarStripProps) {
   return (
-    <Reorder.Group
-      as="div"
-      ref={scrollRef}
-      role="tablist"
-      axis="x"
-      values={content.groupTabs}
-      onReorder={content.handleReorder}
-      onWheel={content.handleWheel}
-      onMouseEnter={() => content.setIsHovered(true)}
-      onMouseLeave={() => content.setIsHovered(false)}
-      data-conv-group-strip={content.groupId}
-      className={cn(
-        "flex h-10 items-stretch gap-1.5 overflow-x-scroll border-b border-border px-1.5 pt-1.5",
-        content.isDropTarget && "bg-primary/8",
-        content.isHovered
-          ? "pb-0.5 [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border"
-          : "pb-1.5 [&::-webkit-scrollbar]:h-0"
-      )}
-    >
-      <TabBarItems {...content} />
+    <div className="@container/tab-strip flex h-10 min-w-0 shrink-0 items-center border-b border-border">
+      <Reorder.Group
+        as="div"
+        ref={scrollRef}
+        role="tablist"
+        axis="x"
+        values={content.groupTabs}
+        onReorder={content.handleReorder}
+        onWheel={content.handleWheel}
+        onMouseEnter={() => content.setIsHovered(true)}
+        onMouseLeave={() => content.setIsHovered(false)}
+        data-conv-group-strip={content.groupId}
+        className={cn(
+          "flex h-full min-w-0 flex-1 items-stretch gap-1.5 overflow-x-scroll px-1.5 pt-1.5",
+          content.isDropTarget && "bg-primary/8",
+          content.isHovered
+            ? "pb-0.5 [&::-webkit-scrollbar]:h-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border"
+            : "pb-1.5 [&::-webkit-scrollbar]:h-0"
+        )}
+      >
+        <TabBarItems {...content} />
+      </Reorder.Group>
       <TabBarSplitControls
         tabId={content.displayActiveId}
         groupId={content.stripGroupId}
         isSplit={content.isSplit}
       />
-    </Reorder.Group>
+    </div>
   )
 }
 
