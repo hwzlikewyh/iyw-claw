@@ -158,3 +158,19 @@ worker 的独立依赖缓存只在成品缓存和备份都无法恢复时使用�
 SHA-256、清单、文件摘要、架构、版本、ABI、helper 与 tar 执行权限均通过检查。
 完整并行发布与真实提速仍须在新工作流运行后比较 Cargo timings：
 冷构建目标是使 worker 与应用耗时重叠，热构建目标是跳过 worker 编译。
+
+## 缓存工具安装失败时降级
+
+v0.1.216 的 Intel macOS worker 因下载 sccache 返回 HTTP 504，在恢复现成
+worker 之前失败。独立 worker 流程现先恢复成品缓存和 artifact，仅在两者未
+命中时安装可选 sccache；成品命中不需要下载编译缓存工具。
+
+`.github/actions/setup-sccache` 固定使用当前已采用的 v0.18.0，安装失败或
+可执行文件检查失败时清空 `RUSTC_WRAPPER`，后续使用普通 Cargo 编译。
+正常桌面 macOS/Linux/Windows 构建也采用该可选安装入口。真实 Cargo 编译、
+摘要和二进制校验失败仍然阻止发布，不因缓存工具降级而跳过。
+
+关闭上游 action 的自动 post 统计，避免安装失败后再次调用未定义的路径；
+显式统计只在 wrapper 可用时执行，统计失败不阻断发布。该调整不改变编译参数
+或 worker 编译身份键，也不需要清空已有成品。独立 server 和其他旧检查入口
+不在本次修复范围。已运行的 workflow 不会自动加载这次源码修改。

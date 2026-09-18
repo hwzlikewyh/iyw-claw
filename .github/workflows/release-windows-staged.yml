@@ -69,7 +69,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ inputs.target }}
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: ./.github/actions/setup-sccache
       - uses: swatinem/rust-cache@v2
         with:
           # Worker binaries have their own cache and artifact backup.

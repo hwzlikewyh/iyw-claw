@@ -124,7 +124,7 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: ./.github/actions/setup-sccache
 
       - name: Rust cache
         if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') }}
@@ -562,6 +562,7 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Show compiler cache statistics
-        if: always()
+        if: always() && env.RUSTC_WRAPPER == 'sccache'
+        continue-on-error: true
         shell: bash
         run: sccache --show-stats
