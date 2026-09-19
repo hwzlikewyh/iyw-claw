@@ -2085,6 +2085,8 @@ fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value 
     let supports_reasoning_summaries = crate::acp::model_catalog::model_capabilities(model)
         .map(|snapshot| snapshot.supports_reasoning_summary_parameter)
         .unwrap_or(true);
+    let supports_search_tool = crate::acp::model_catalog::model_capabilities(model)
+        .is_some_and(|snapshot| snapshot.supports_search_tool);
     serde_json::json!({
         "slug": model,
         "display_name": model,
@@ -2104,6 +2106,7 @@ fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value 
         "include_skills_usage_instructions": true,
         "supports_reasoning_summary_parameter": supports_reasoning_summaries,
         "supports_reasoning_summaries": supports_reasoning_summaries,
+        "supports_search_tool": supports_search_tool,
         "support_verbosity": false,
         "apply_patch_tool_type": "freeform",
         "web_search_tool_type": "text",

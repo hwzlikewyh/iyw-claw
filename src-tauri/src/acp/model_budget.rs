@@ -40,12 +40,12 @@ pub fn max_output_tokens(model: Option<&str>, reported_context_window: u64) -> O
 pub fn compaction_threshold(model: Option<&str>, reported_context_window: u64) -> Option<u64> {
     let limits = limits_for(model, reported_context_window);
     let context = limits.context_window?;
-    let usable = limits.max_input_tokens.map_or(
-        context.saturating_mul(USABLE_CONTEXT_PERCENT) / 100,
-        |limit| limit.min(context),
-    );
+    let usable = context.saturating_mul(USABLE_CONTEXT_PERCENT) / 100;
     let output_reserve = limits.max_output_tokens.unwrap_or_default();
-    let output_safe = usable.saturating_sub(output_reserve);
+    let total_input_safe = usable.saturating_sub(output_reserve);
+    let output_safe = limits
+        .max_input_tokens
+        .map_or(total_input_safe, |limit| limit.min(total_input_safe));
     if output_safe == 0 {
         return Some(1);
     }

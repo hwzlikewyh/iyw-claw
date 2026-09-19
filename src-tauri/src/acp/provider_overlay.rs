@@ -174,6 +174,7 @@ fn apply_native_budget_runtime_env(
 ) {
     match agent_type {
         AgentType::ClaudeCode => {
+            apply_tool_search_runtime_env(runtime_env, model);
             let context = crate::acp::model_budget::context_window(Some(model), 1_000_000)
                 .unwrap_or(1_000_000);
             let threshold = crate::acp::model_budget::compaction_threshold(Some(model), context)
@@ -211,6 +212,22 @@ pub(crate) fn provider_base_url_env_key(agent_type: AgentType) -> &'static str {
         AgentType::KimiCode => "KIMI_MODEL_BASE_URL",
         AgentType::Grok => "GROK_XAI_API_BASE_URL",
         _ => "OPENAI_BASE_URL",
+    }
+}
+
+fn apply_tool_search_runtime_env(runtime_env: &mut BTreeMap<String, String>, model: &str) {
+    let supports_default = crate::acp::model_catalog::model_capabilities(model)
+        .is_some_and(|snapshot| snapshot.supports_search_tool);
+    let supports_catalog = managed_model_ids_for(AgentType::ClaudeCode)
+        .iter()
+        .all(|candidate| {
+            crate::acp::model_catalog::model_capabilities(candidate)
+                .is_some_and(|snapshot| snapshot.supports_search_tool)
+        });
+    if supports_default && supports_catalog {
+        runtime_env
+            .entry("ENABLE_TOOL_SEARCH".into())
+            .or_insert_with(|| "true".into());
     }
 }
 
