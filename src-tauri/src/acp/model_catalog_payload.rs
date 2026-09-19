@@ -44,6 +44,7 @@ fn parse_model(value: &serde_json::Value) -> Option<PersistedModel> {
         id: id.to_string(),
         capabilities,
         supports_reasoning_summary_parameter,
+        supports_search_tool: value["supports_search_tool"].as_bool().unwrap_or(false),
         image_input_mode,
         limits,
     })

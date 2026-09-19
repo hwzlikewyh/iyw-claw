@@ -51,6 +51,7 @@ pub struct ModelLimits {
 pub struct ModelCapabilitySnapshot {
     pub capabilities: ModelCapabilities,
     pub supports_reasoning_summary_parameter: bool,
+    pub supports_search_tool: bool,
     pub image_input_mode: ImageInputMode,
     pub limits: ModelLimits,
 }
@@ -60,6 +61,7 @@ impl Default for ModelCapabilitySnapshot {
         Self {
             capabilities: ModelCapabilities::default(),
             supports_reasoning_summary_parameter: true,
+            supports_search_tool: false,
             image_input_mode: ImageInputMode::None,
             limits: ModelLimits::default(),
         }
@@ -104,6 +106,8 @@ pub(super) struct PersistedModel {
     pub capabilities: ModelCapabilities,
     #[serde(default = "default_true")]
     pub supports_reasoning_summary_parameter: bool,
+    #[serde(default)]
+    pub supports_search_tool: bool,
     #[serde(default)]
     pub image_input_mode: ImageInputMode,
     #[serde(default)]
