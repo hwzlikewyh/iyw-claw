@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 
 use crate::models::{MessageRole, TurnUsage, UnifiedMessage};
@@ -106,6 +107,39 @@ pub(super) struct TaskUsageTracker {
 }
 
 impl TaskUsageTracker {
+    pub(super) fn record(
+        &self,
+        messages: &mut Vec<UnifiedMessage>,
+        usage: TurnUsage,
+        timestamp: DateTime<Utc>,
+    ) {
+        let start = self.start.unwrap_or_else(|| {
+            messages
+                .iter()
+                .rposition(|message| matches!(message.role, MessageRole::User))
+                .map_or(0, |index| index + 1)
+        });
+        if let Some(message) = messages[start..]
+            .iter_mut()
+            .rev()
+            .find(|message| matches!(message.role, MessageRole::Assistant))
+        {
+            add_usage(&mut message.usage, usage);
+            return;
+        }
+        // 用量可能先于思考正文落盘，保留本轮统计，不能回挂到上一轮。
+        messages.push(UnifiedMessage {
+            id: format!("usage-{}", messages.len()),
+            role: MessageRole::Assistant,
+            content: Vec::new(),
+            timestamp,
+            usage: Some(usage),
+            duration_ms: None,
+            model: None,
+            completed_at: None,
+        });
+    }
+
     pub(super) fn begin(&mut self, payload: &Value, messages: &mut [UnifiedMessage]) {
         let turn_id = payload.get("turn_id").and_then(Value::as_str);
         if self.start.is_some() && turn_id.is_some() && self.turn_id.as_deref() == turn_id {
