@@ -12,10 +12,10 @@ interface UsageSnapshot {
   usage: TurnUsage
   startedAt: number
 }
-const reportedUsage = new Map<number, UsageSnapshot>()
+const reportedUsage = new Map<string, UsageSnapshot>()
 
-function rememberUsage(conversationId: number, snapshot: UsageSnapshot) {
-  reportedUsage.set(conversationId, snapshot)
+function rememberUsage(snapshot: UsageSnapshot) {
+  reportedUsage.set(snapshot.scope, snapshot)
   if (reportedUsage.size > MAX_CACHED_TURNS) {
     reportedUsage.delete(reportedUsage.keys().next().value!)
   }
@@ -82,11 +82,11 @@ export function useLiveTurnUsage({
       return
     return subscribeUsage(conversationId, (usage) => {
       const next = { scope, usage, startedAt }
-      rememberUsage(conversationId, next)
+      rememberUsage(next)
       setSnapshot(next)
     })
   }, [conversationId, scope, enabled, startedAt])
-  const cached = snapshot ?? reportedUsage.get(conversationId ?? 0)
+  const cached = snapshot?.scope === scope ? snapshot : reportedUsage.get(scope)
   return cached?.scope === scope &&
     (startedAt == null || cached.startedAt === startedAt)
     ? cached

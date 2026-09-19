@@ -6,6 +6,7 @@ import {
   type ConnectionState,
 } from "@/contexts/acp-connections-context"
 import { useConversationRuntimeStore } from "@/stores/conversation-runtime-store"
+import { useTabStore } from "@/contexts/tab-context"
 import {
   getCachedGatewayModels,
   getGatewayModels,
@@ -29,6 +30,7 @@ export interface SessionUsageSourceProps {
 
 function useUsageConnection(contextKey: string | null | undefined) {
   const store = useOptionalConnectionStore()
+  const activeTabKey = useTabStore((state) => state.activeTabId)
   const subscribeActive = useCallback(
     (cb: () => void) => store?.subscribeActiveKey(cb) ?? (() => {}),
     [store]
@@ -42,7 +44,8 @@ function useUsageConnection(contextKey: string | null | undefined) {
     activeSnapshot,
     activeSnapshot
   )
-  const key = contextKey === undefined ? activeKey : contextKey
+  const key =
+    contextKey === undefined ? (activeKey ?? activeTabKey) : contextKey
   const subscribe = useCallback(
     (cb: () => void) => (key && store ? store.subscribeKey(key, cb) : () => {}),
     [key, store]
@@ -52,7 +55,7 @@ function useUsageConnection(contextKey: string | null | undefined) {
     [key, store]
   )
   const connection = useSyncExternalStore(subscribe, snapshot, snapshot)
-  return connection
+  return { connection, contextKey: key }
 }
 
 function useUsageModels(agentType: AgentType | null) {
@@ -83,27 +86,45 @@ function useUsageModels(agentType: AgentType | null) {
   return { models, refresh }
 }
 
-function useUsageRuntimeSession(sessionId: string | null | undefined) {
-  return useConversationRuntimeStore((state) => {
-    const id = sessionId
-      ? state.conversationIdByExternalId.get(sessionId)
+function useUsageRuntimeSession(source: {
+  sessionId?: string | null
+  contextKey?: string | null
+  agentType?: AgentType | null
+}) {
+  const tabConversationId = useTabStore((state) => {
+    const tab = state.tabs.find((item) => item.id === source.contextKey)
+    return !source.agentType || tab?.agentType === source.agentType
+      ? tab?.conversationId
       : undefined
-    return id === undefined ? undefined : state.byConversationId.get(id)
+  })
+  return useConversationRuntimeStore((state) => {
+    const id =
+      (source.sessionId
+        ? state.conversationIdByExternalId.get(source.sessionId)
+        : undefined) ?? tabConversationId
+    return id == null ? undefined : state.byConversationId.get(id)
   })
 }
 
 function useConnectionStats(
-  connection: ConnectionState | undefined,
-  override: SessionStats | null | undefined,
+  source: SessionUsageSourceProps & { connection?: ConnectionState },
   opened: boolean
 ) {
-  const session = useUsageRuntimeSession(connection?.sessionId)
+  const { connection } = source
+  const session = useUsageRuntimeSession({
+    sessionId: connection?.sessionId,
+    contextKey: source.contextKey,
+    agentType: source.agentType,
+  })
   const baseline =
-    override !== undefined ? override : (session?.sessionStats ?? null)
+    source.sessionStats !== undefined
+      ? source.sessionStats
+      : (session?.sessionStats ?? null)
   const currentStats = useSessionUsageStats(
     {
-      conversationId: session?.dbConversationId ?? null,
-      sessionId: connection?.sessionId ?? null,
+      conversationId:
+        session?.dbConversationId ?? session?.detail?.summary.id ?? null,
+      sessionId: connection?.sessionId ?? session?.externalId ?? null,
       connectionId: connection?.connectionId ?? null,
       enabled: opened,
     },
@@ -112,6 +133,7 @@ function useConnectionStats(
   return {
     stats: currentStats ?? baseline,
     historyModel: session?.detail?.summary.model,
+    historyAgent: session?.detail?.summary.agent_type,
   }
 }
 
@@ -119,17 +141,19 @@ export function useSessionUsage(
   props: SessionUsageSourceProps,
   opened = false
 ) {
-  const storedConnection = useUsageConnection(props.contextKey)
+  const { connection: storedConnection, contextKey } = useUsageConnection(
+    props.contextKey
+  )
   const connection =
     props.agentType && storedConnection?.agentType !== props.agentType
       ? undefined
       : storedConnection
-  const { stats, historyModel } = useConnectionStats(
-    connection,
-    props.sessionStats,
+  const { stats, historyModel, historyAgent } = useConnectionStats(
+    { ...props, contextKey, connection },
     opened
   )
-  const agentType = connection?.agentType ?? props.agentType ?? null
+  const agentType =
+    connection?.agentType ?? props.agentType ?? historyAgent ?? null
   const modelId =
     connection?.configOptions?.find(isModelConfigOption)?.kind.current_value ??
     historyModel ??

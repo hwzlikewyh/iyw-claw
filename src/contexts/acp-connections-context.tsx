@@ -1165,10 +1165,11 @@ function applyStreamingAction(
       ...prev,
       content: newContent,
       firstTextAt:
-        action.type === "CONTENT_DELTA" &&
         prev.firstTextAt == null &&
         !prev.content.some(
-          (block) => block.type === "text" && block.text.length > 0
+          (block) =>
+            block.type === "thinking" ||
+            (block.type === "text" && block.text.length > 0)
         )
           ? Date.now()
           : prev.firstTextAt,
@@ -1427,7 +1428,16 @@ function connectionsReducer(
         return next
       }
 
-      const hydratedLiveMessage = action.patch.liveMessage
+      const snapshotLiveMessage = action.patch.liveMessage
+      const hydratedLiveMessage =
+        snapshotLiveMessage?.id === current.liveMessage?.id &&
+        snapshotLiveMessage &&
+        current.liveMessage
+          ? {
+              ...snapshotLiveMessage,
+              firstTextAt: current.liveMessage.firstTextAt,
+            }
+          : snapshotLiveMessage
       const hydratedPendingPermission = mergePendingPermissionWithLiveMessage(
         action.patch.pendingPermission,
         hydratedLiveMessage ?? current.liveMessage

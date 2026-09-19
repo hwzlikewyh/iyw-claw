@@ -15,7 +15,7 @@ pub(super) use scheduling::schedule;
 
 pub const HISTORY_PAGE_TURNS: usize = 120;
 const HISTORY_CACHE_DIR: &str = "conversation-history";
-const HISTORY_CACHE_PARSER_REVISION: u8 = 7;
+const HISTORY_CACHE_PARSER_REVISION: u8 = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PageMeta {

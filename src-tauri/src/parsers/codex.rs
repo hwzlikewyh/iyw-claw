@@ -1421,14 +1421,11 @@ impl CodexParser {
 
                                     if !info.is_null() {
                                         if let Some(usage) = usage_tracker.observe(info) {
-                                            // Attach to the last assistant message
-                                            if let Some(last_msg) = messages
-                                                .iter_mut()
-                                                .rev()
-                                                .find(|m| matches!(m.role, MessageRole::Assistant))
-                                            {
-                                                usage::add_usage(&mut last_msg.usage, usage);
-                                            }
+                                            task_usage_tracker.record(
+                                                &mut messages,
+                                                usage,
+                                                timestamp,
+                                            );
                                         }
                                     }
                                 }
@@ -1879,16 +1876,16 @@ impl CodexParser {
             }
         }
 
-        // Finalize the last API turn once, using its terminal event timestamp.
-        task_usage_tracker.finish(&mut messages);
-        if let Some(start_ts) = last_turn_context_ts {
-            assign_codex_turn_duration(&mut messages, start_ts, last_timestamp);
-        }
-
         // Streaming reasoning at the very end of a truncated/interrupted rollout
         // (the `agent_reasoning` events were written but the file ended before the
         // grouped `response_item.reasoning` summary) — flush it so it isn't lost.
         flush_pending_reasoning(&mut messages, &mut pending_reasoning, pending_reasoning_ts);
+
+        // 思考内容先落盘，再把本轮用量和耗时归到最后一条助手消息。
+        task_usage_tracker.finish(&mut messages);
+        if let Some(start_ts) = last_turn_context_ts {
+            assign_codex_turn_duration(&mut messages, start_ts, last_timestamp);
+        }
 
         // Fill in subagent tool call stats (and, only as a fallback, the result)
         // on each spawn execution capsule.

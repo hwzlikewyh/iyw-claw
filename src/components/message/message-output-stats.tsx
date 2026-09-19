@@ -67,7 +67,7 @@ export const MessageOutputStats = memo(function MessageOutputStats(
     isStreaming ? (props.liveMessage?.startedAt ?? null) : null
   )
   const usage = isStreaming
-    ? liveUsage?.usage
+    ? (liveUsage?.usage ?? props.usage)
     : (props.usage ?? liveUsage?.usage)
   const durationMs = isStreaming
     ? elapsed
