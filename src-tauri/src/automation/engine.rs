@@ -58,6 +58,7 @@ const SCHEDULER_INTERVAL_SECS: u64 = 30;
 
 /// Run-history prune cadence + retention window.
 const PRUNE_INTERVAL_SECS: u64 = 6 * 60 * 60;
+const PRUNE_BACKLOG_RETRY_SECS: u64 = 5;
 const RUN_RETENTION_DAYS: i64 = 30;
 
 static ENGINE: OnceLock<Arc<AutomationEngine>> = OnceLock::new();
@@ -276,10 +277,12 @@ pub async fn run_automation_engine(engine: Arc<AutomationEngine>) {
                 }
             }
             _ = prune.tick() => {
-                if let Err(e) =
-                    automation_service::prune_old_runs(&engine.db.conn, RUN_RETENTION_DAYS).await
-                {
-                    tracing::warn!("[automation] prune error: {e}");
+                match automation_service::prune_old_runs(&engine.db.conn, RUN_RETENTION_DAYS).await {
+                    Ok(deleted) if deleted >= automation_service::PRUNE_ROUND_LIMIT => {
+                        prune.reset_after(Duration::from_secs(PRUNE_BACKLOG_RETRY_SECS));
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("[automation] prune error: {e}"),
                 }
             }
         }

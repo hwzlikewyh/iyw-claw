@@ -1402,6 +1402,7 @@ mod tauri_app {
                 conversations::list_conversations,
                 conversations::get_conversation,
                 conversations::list_all_conversations,
+                conversations::list_conversations_page,
                 conversations::list_child_conversations,
                 conversations::list_opened_tabs,
                 conversations::save_opened_tabs,

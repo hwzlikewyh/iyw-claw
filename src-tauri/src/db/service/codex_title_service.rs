@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 
-use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
-};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 
+use crate::db::entities::conversation;
 use crate::db::entities::conversation::{ConversationKind, ConversationTitleSource};
-use crate::db::entities::{automation_run, conversation, folder};
 use crate::db::error::DbError;
 use crate::models::AgentType;
 
@@ -66,24 +64,11 @@ async fn select_candidates(
 }
 
 fn live_folder_condition() -> sea_orm::sea_query::SimpleExpr {
-    conversation::Column::FolderId.in_subquery(
-        sea_orm::sea_query::Query::select()
-            .column(folder::Column::Id)
-            .from(folder::Entity)
-            .and_where(folder::Column::DeletedAt.is_null())
-            .to_owned(),
-    )
+    super::conversation_query::live_folder()
 }
 
 fn non_automation_condition() -> sea_orm::sea_query::SimpleExpr {
-    let automation_conversations = automation_run::Entity::find()
-        .select_only()
-        .column(automation_run::Column::ConversationId)
-        .filter(automation_run::Column::ConversationId.is_not_null())
-        .into_query();
-    conversation::Column::Id
-        .into_expr()
-        .not_in_subquery(automation_conversations)
+    super::conversation_query::non_automation()
 }
 
 async fn refresh_candidates(

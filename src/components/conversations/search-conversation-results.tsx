@@ -3,6 +3,7 @@
 import { formatDistanceToNow } from "date-fns"
 import { enUS, zhCN } from "date-fns/locale"
 import { Loader2, RefreshCw } from "lucide-react"
+import { useState } from "react"
 import { useLocale, useTranslations } from "next-intl"
 import { useTabActions } from "@/contexts/tab-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
@@ -21,20 +22,52 @@ import {
   CommandItem,
 } from "@/components/ui/command"
 import { useConversationSearch } from "./use-command-search"
+import type { ConversationCursor } from "@/lib/conversation-pages"
+import { ConversationSearchPagination } from "./conversation-search-pagination"
 
-export function ConversationSearchResults({
-  query,
-  folderId,
-  agent,
-  onClose,
-}: {
+interface ConversationSearchProps {
   query: string
   folderId: number | null
   agent: AgentType | null
   onClose: () => void
-}) {
+}
+
+export function ConversationSearchResults(props: ConversationSearchProps) {
+  const [cursors, setCursors] = useState<(ConversationCursor | null)[]>([null])
+  const cursor = cursors[cursors.length - 1]
+  const search = useConversationSearch({ ...props, cursor })
+  return (
+    <>
+      <SearchRequestStatus
+        {...search}
+        error={search.error || !!search.data?.incomplete}
+      />
+      <ConversationSearchMatches {...props} search={search} />
+      <ConversationSearchPagination
+        page={cursors.length}
+        loading={search.loading}
+        hasNext={!!search.data?.next_cursor}
+        previous={() => setCursors((value) => value.slice(0, -1))}
+        next={() => {
+          const next = search.data?.next_cursor
+          if (next) setCursors((value) => [...value, next])
+        }}
+      />
+    </>
+  )
+}
+
+type SearchMatchesProps = ConversationSearchProps & {
+  search: ReturnType<typeof useConversationSearch>
+}
+
+function ConversationSearchMatches({
+  query,
+  agent,
+  onClose,
+  search,
+}: SearchMatchesProps) {
   const t = useTranslations("Folder.search")
-  const search = useConversationSearch({ query, folderId, agent })
   const { openTab } = useTabActions()
   const { openConversations } = useWorkbenchRoute()
   const select = (item: DbConversationSummary) => {
@@ -42,15 +75,19 @@ export function ConversationSearchResults({
     openTab(item.folder_id, item.id, item.agent_type, true)
     onClose()
   }
-  if (search.loading || search.error) return <SearchRequestStatus {...search} />
   return (
     <>
-      <CommandEmpty>
-        {!query.trim() && !agent ? t("typeToSearch") : t("noResults")}
-      </CommandEmpty>
-      {!!search.data?.length && (
+      {!search.loading &&
+        !search.error &&
+        !search.data?.incomplete &&
+        !search.data?.next_cursor && (
+          <CommandEmpty>
+            {!query.trim() && !agent ? t("typeToSearch") : t("noResults")}
+          </CommandEmpty>
+        )}
+      {!!search.data?.items.length && (
         <CommandGroup>
-          {search.data.map((item) => (
+          {search.data.items.map((item) => (
             <ConversationSearchRow
               key={item.id}
               item={item}

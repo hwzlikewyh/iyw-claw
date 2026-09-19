@@ -5,6 +5,7 @@ use sea_orm::{
     QueryFilter, QueryOrder, QuerySelect, Set,
 };
 
+pub(crate) use super::maintenance::ROUND_LIMIT as CLEANUP_ROUND_LIMIT;
 use crate::db::entities::{chat_channel, chat_channel_message_log};
 use crate::db::error::DbError;
 
@@ -240,11 +241,7 @@ pub async fn cleanup_old_logs(
     conn: &DatabaseConnection,
     older_than: DateTimeUtc,
 ) -> Result<u64, DbError> {
-    let result = chat_channel_message_log::Entity::delete_many()
-        .filter(chat_channel_message_log::Column::CreatedAt.lt(older_than))
-        .exec(conn)
-        .await?;
-    Ok(result.rows_affected)
+    super::maintenance::cleanup_logs(conn, older_than).await
 }
 
 fn truncate_preview(s: &str) -> String {

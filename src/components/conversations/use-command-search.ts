@@ -4,7 +4,11 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useIsActiveChatMode } from "@/hooks/use-is-active-chat-mode"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
-import { listAllConversations, listTaskArtifacts } from "@/lib/api"
+import { listTaskArtifacts } from "@/lib/api"
+import {
+  listConversationsPage,
+  type ConversationCursor,
+} from "@/lib/conversation-pages"
 import { extractAppCommandError } from "@/lib/app-error"
 import { loadReferenceFiles } from "@/lib/reference-file-loader"
 import { compareAgentType, type AgentType } from "@/lib/types"
@@ -92,20 +96,23 @@ export function useConversationSearch(filters: {
   query: string
   folderId: number | null
   agent: AgentType | null
+  cursor: ConversationCursor | null
 }) {
-  const { query, folderId, agent } = filters
+  const { query, folderId, agent, cursor } = filters
   const search = query.trim()
   const load = useCallback(
     () =>
-      listAllConversations({
-        folder_ids: folderId === null ? null : [folderId],
-        agent_type: agent,
+      listConversationsPage({
+        folderIds: folderId === null ? null : [folderId],
+        agentType: agent,
         search: search || null,
+        cursor,
+        pageSize: SEARCH_PAGE_SIZE,
       }),
-    [folderId, agent, search]
+    [folderId, agent, search, cursor]
   )
   return useSearchRequest({
-    key: JSON.stringify([folderId, agent, search]),
+    key: JSON.stringify([folderId, agent, search, cursor]),
     source: "conversations",
     load,
     enabled: !!search || !!agent,

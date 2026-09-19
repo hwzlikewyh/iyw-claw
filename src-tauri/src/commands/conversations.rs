@@ -23,6 +23,10 @@ use crate::web::event_bridge::{
 use super::conversation_title::{self, ConversationTitleContext};
 
 mod search;
+mod pages;
+pub(crate) use pages::list_conversations_page_core;
+#[cfg(feature = "tauri-runtime")]
+pub use pages::*;
 
 #[derive(Default)]
 pub(crate) struct ListAllConversationsOptions {
@@ -38,6 +42,19 @@ pub(crate) async fn list_all_conversations_core(
     context: &ConversationTitleContext<'_>,
     options: ListAllConversationsOptions,
 ) -> Result<Vec<DbConversationSummary>, AppCommandError> {
+    refresh_list_titles(context).await;
+    let ListAllConversationsOptions {
+        folder_ids, agent_type, search, sort_by, status, include_children,
+    } = options;
+    let conversations = conversation_service::list_all(
+        context.conn, folder_ids, agent_type, None, sort_by, status, include_children,
+    )
+    .await
+    .map_err(AppCommandError::from)?;
+    search::filter_conversations(context.conn, conversations, search.as_deref()).await
+}
+
+async fn refresh_list_titles(context: &ConversationTitleContext<'_>) {
     let codex_titles = match tokio::task::spawn_blocking(|| {
         CodexParser::new().load_thread_name_index()
     })
@@ -60,26 +77,6 @@ pub(crate) async fn list_all_conversations_core(
     )
     .await;
     drop(notify_conversation_title_updates(context, refreshed_ids).await);
-    let ListAllConversationsOptions {
-        folder_ids,
-        agent_type,
-        search,
-        sort_by,
-        status,
-        include_children,
-    } = options;
-    let conversations = conversation_service::list_all(
-        context.conn,
-        folder_ids,
-        agent_type,
-        None,
-        sort_by,
-        status,
-        include_children,
-    )
-    .await
-    .map_err(AppCommandError::from)?;
-    search::filter_conversations(context.conn, conversations, search.as_deref()).await
 }
 
 #[cfg(feature = "tauri-runtime")]
