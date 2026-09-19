@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection,
-    EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
+    ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,
+    QueryFilter, QueryOrder, Set, TransactionTrait,
 };
 use std::sync::OnceLock;
 use tokio::sync::Mutex;
@@ -29,6 +29,7 @@ fn version_lock() -> &'static Mutex<()> {
 /// accepted mutation; used for compare-and-set (lost-update prevention) and for
 /// client-side echo/ordering on the `tabs://changed` side-channel.
 const OPENED_TABS_VERSION_KEY: &str = "opened_tabs_version";
+const TAB_INSERT_BATCH_SIZE: usize = 100;
 
 /// Outcome of a compare-and-set tab save.
 pub struct CasOutcome {
@@ -101,42 +102,54 @@ pub async fn save_all_tabs<C: ConnectionTrait>(
 ) -> Result<(), DbError> {
     opened_tab::Entity::delete_many().exec(conn).await?;
 
-    let now = Utc::now();
-    let mut active_seen = false;
-
+    let mut builder = TabBatchBuilder {
+        now: Utc::now(),
+        active_seen: false,
+    };
+    let mut batch = Vec::with_capacity(TAB_INSERT_BATCH_SIZE);
     for item in items {
         // Skip drafts — never persist a conversation-less tab.
         if item.conversation_id.is_none() {
             continue;
         }
 
-        let agent_str = serde_json::to_value(item.agent_type)
-            .ok()
-            .and_then(|v| v.as_str().map(|s| s.to_string()))
-            .unwrap_or_default();
-
-        let is_active = if item.is_active && !active_seen {
-            active_seen = true;
-            true
-        } else {
-            false
-        };
-
-        let active = opened_tab::ActiveModel {
-            id: NotSet,
-            folder_id: Set(item.folder_id),
-            conversation_id: Set(item.conversation_id),
-            agent_type: Set(agent_str),
-            position: Set(item.position),
-            is_active: Set(is_active),
-            is_pinned: Set(item.is_pinned),
-            created_at: Set(now),
-            updated_at: Set(now),
-        };
-        active.insert(conn).await?;
+        batch.push(builder.model(item));
+        if batch.len() == TAB_INSERT_BATCH_SIZE {
+            opened_tab::Entity::insert_many(batch.drain(..))
+                .exec_without_returning(conn)
+                .await?;
+        }
+    }
+    if !batch.is_empty() {
+        opened_tab::Entity::insert_many(batch)
+            .exec_without_returning(conn)
+            .await?;
     }
 
     Ok(())
+}
+
+struct TabBatchBuilder {
+    now: chrono::DateTime<Utc>,
+    active_seen: bool,
+}
+
+impl TabBatchBuilder {
+    fn model(&mut self, item: OpenedTab) -> opened_tab::ActiveModel {
+        let is_active = item.is_active && !self.active_seen;
+        self.active_seen |= is_active;
+        opened_tab::ActiveModel {
+            id: NotSet,
+            folder_id: Set(item.folder_id),
+            conversation_id: Set(item.conversation_id),
+            agent_type: Set(item.agent_type.as_wire().into_owned()),
+            position: Set(item.position),
+            is_active: Set(is_active),
+            is_pinned: Set(item.is_pinned),
+            created_at: Set(self.now),
+            updated_at: Set(self.now),
+        }
+    }
 }
 
 /// Compare-and-set save: only writes when `expected_version` matches the stored

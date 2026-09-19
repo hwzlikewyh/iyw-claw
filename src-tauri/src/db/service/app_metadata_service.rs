@@ -1,6 +1,6 @@
 use chrono::Utc;
 use sea_orm::sea_query::OnConflict;
-use sea_orm::{ActiveValue::NotSet, ColumnTrait, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveValue::NotSet, ColumnTrait, EntityTrait, QueryFilter, QuerySelect, Set};
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 
 use crate::db::entities::app_metadata;
@@ -42,24 +42,28 @@ pub async fn get_value_conn<C: ConnectionTrait>(
     conn: &C,
     key: &str,
 ) -> Result<Option<String>, DbError> {
-    let model = app_metadata::Entity::find()
+    Ok(app_metadata::Entity::find()
+        .select_only()
+        .column(app_metadata::Column::Value)
         .filter(app_metadata::Column::Key.eq(key))
         .filter(app_metadata::Column::DeletedAt.is_null())
+        .into_tuple::<String>()
         .one(conn)
-        .await?;
-    Ok(model.map(|m| m.value))
+        .await?)
 }
 
 pub async fn list_values_by_key_prefix(
     conn: &DatabaseConnection,
     prefix: &str,
 ) -> Result<Vec<String>, DbError> {
-    let rows = app_metadata::Entity::find()
+    Ok(app_metadata::Entity::find()
+        .select_only()
+        .column(app_metadata::Column::Value)
         .filter(app_metadata::Column::Key.starts_with(prefix))
         .filter(app_metadata::Column::DeletedAt.is_null())
+        .into_tuple::<String>()
         .all(conn)
-        .await?;
-    Ok(rows.into_iter().map(|row| row.value).collect())
+        .await?)
 }
 
 pub async fn update_app_version(

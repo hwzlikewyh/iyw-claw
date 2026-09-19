@@ -1,13 +1,17 @@
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, ConnectionTrait, DatabaseConnection,
-    EntityTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, QueryTrait, Set,
+    EntityTrait, IntoActiveModel, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 
+use super::conversation_query;
 use crate::db::entities::conversation::{ConversationKind, ConversationTitleSource};
-use crate::db::entities::{automation_run, conversation, folder};
+use crate::db::entities::{conversation, folder};
 use crate::db::error::DbError;
 use crate::models::{AgentType, DbConversationSummary};
+
+mod listing;
+pub use listing::{list_page, ConversationCursor, ConversationPage, ConversationPageRequest};
 
 pub async fn create<C: ConnectionTrait>(
     conn: &C,
@@ -151,15 +155,14 @@ pub async fn update_status(
     conversation_id: i32,
     status: conversation::ConversationStatus,
 ) -> Result<(), DbError> {
-    let conv = conversation::Entity::find_by_id(conversation_id)
-        .one(conn)
-        .await?
-        .ok_or_else(|| DbError::Migration(format!("Conversation not found: {conversation_id}")))?;
-    let mut active: conversation::ActiveModel = conv.into();
-    active.status = Set(status);
-    active.updated_at = Set(Utc::now());
-    active.update(conn).await?;
-    Ok(())
+    use sea_orm::sea_query::Expr;
+    let result = conversation::Entity::update_many()
+        .col_expr(conversation::Column::Status, Expr::value(status))
+        .col_expr(conversation::Column::UpdatedAt, Expr::value(Utc::now()))
+        .filter(conversation::Column::Id.eq(conversation_id))
+        .exec(conn)
+        .await?;
+    require_updated(result.rows_affected, conversation_id)
 }
 
 /// Conditional status transition (CAS): write `new_status` only if the row's
@@ -196,14 +199,16 @@ pub async fn update_pin(
     conversation_id: i32,
     pinned: bool,
 ) -> Result<(), DbError> {
-    let conv = conversation::Entity::find_by_id(conversation_id)
-        .one(conn)
-        .await?
-        .ok_or_else(|| DbError::Migration(format!("Conversation not found: {conversation_id}")))?;
-    let mut active: conversation::ActiveModel = conv.into();
-    active.pinned_at = Set(pinned.then(Utc::now));
-    active.update(conn).await?;
-    Ok(())
+    use sea_orm::sea_query::Expr;
+    let result = conversation::Entity::update_many()
+        .col_expr(
+            conversation::Column::PinnedAt,
+            Expr::value(pinned.then(Utc::now)),
+        )
+        .filter(conversation::Column::Id.eq(conversation_id))
+        .exec(conn)
+        .await?;
+    require_updated(result.rows_affected, conversation_id)
 }
 
 pub async fn update_external_id(
@@ -324,14 +329,22 @@ pub async fn update_model(
 }
 
 pub async fn soft_delete(conn: &DatabaseConnection, conversation_id: i32) -> Result<(), DbError> {
-    let conv = conversation::Entity::find_by_id(conversation_id)
+    use sea_orm::sea_query::Expr;
+    let result = conversation::Entity::update_many()
+        .col_expr(conversation::Column::DeletedAt, Expr::value(Utc::now()))
+        .filter(conversation::Column::Id.eq(conversation_id))
         .filter(conversation::Column::DeletedAt.is_null())
-        .one(conn)
-        .await?
-        .ok_or_else(|| DbError::Migration(format!("Conversation not found: {conversation_id}")))?;
-    let mut active: conversation::ActiveModel = conv.into();
-    active.deleted_at = Set(Some(Utc::now()));
-    active.update(conn).await?;
+        .exec(conn)
+        .await?;
+    require_updated(result.rows_affected, conversation_id)
+}
+
+fn require_updated(rows: u64, conversation_id: i32) -> Result<(), DbError> {
+    if rows == 0 {
+        return Err(DbError::Migration(format!(
+            "Conversation not found: {conversation_id}"
+        )));
+    }
     Ok(())
 }
 
@@ -381,8 +394,8 @@ fn conv_to_summary(r: conversation::Model) -> DbConversationSummary {
 }
 
 /// Backfill each summary's `child_count` with its number of direct, non-deleted
-/// delegation children using ONE `GROUP BY` aggregate over the whole set (never
-/// per-row — no N+1). `child_count > 0` iff `list_children` would return rows
+/// delegation children using bounded `GROUP BY` batches (never per-row).
+/// `child_count > 0` iff `list_children` would return rows
 /// (same `parent_id == id AND deleted_at IS NULL` predicate), so the sidebar
 /// chevron neither expands to nothing nor hides a real subtree. No-op on an
 /// empty slice (avoids an `IN ()`).
@@ -390,15 +403,21 @@ async fn fill_child_counts(
     conn: &DatabaseConnection,
     summaries: &mut [DbConversationSummary],
 ) -> Result<(), DbError> {
-    if summaries.is_empty() {
-        return Ok(());
+    for chunk in summaries.chunks_mut(conversation_query::ID_BATCH_SIZE) {
+        fill_child_count_batch(conn, chunk).await?;
     }
-    let ids: Vec<i32> = summaries.iter().map(|s| s.id).collect();
+    Ok(())
+}
+
+async fn fill_child_count_batch(
+    conn: &DatabaseConnection,
+    summaries: &mut [DbConversationSummary],
+) -> Result<(), DbError> {
     let pairs: Vec<(Option<i32>, i64)> = conversation::Entity::find()
         .select_only()
         .column(conversation::Column::ParentId)
         .column_as(conversation::Column::Id.count(), "cnt")
-        .filter(conversation::Column::ParentId.is_in(ids))
+        .filter(conversation::Column::ParentId.is_in(summaries.iter().map(|s| s.id)))
         .filter(conversation::Column::DeletedAt.is_null())
         .group_by(conversation::Column::ParentId)
         .into_tuple()
@@ -584,16 +603,7 @@ pub async fn list_by_folder(
     // Keep automation-owned run conversations out of every ordinary history
     // query, including folder-scoped callers. The automation detail view loads
     // them explicitly by id from the run record.
-    let automation_conversations = automation_run::Entity::find()
-        .select_only()
-        .column(automation_run::Column::ConversationId)
-        .filter(automation_run::Column::ConversationId.is_not_null())
-        .into_query();
-    query = query.filter(
-        conversation::Column::Id
-            .into_expr()
-            .not_in_subquery(automation_conversations),
-    );
+    query = query.filter(conversation_query::non_automation());
 
     // Filter by agent_type
     if let Some(ref at) = agent_type {
@@ -652,73 +662,17 @@ pub async fn list_all(
     status: Option<String>,
     include_children: bool,
 ) -> Result<Vec<DbConversationSummary>, DbError> {
-    let mut query = conversation::Entity::find().filter(conversation::Column::DeletedAt.is_null());
-
-    // Loop-engineering runs never surface in the workspace conversation list —
-    // their entry point is the loops workbench.
-    query = query.filter(conversation::Column::Kind.ne(ConversationKind::Loop));
-
-    // Automation runs are intentionally reachable only from the automation
-    // detail view. Keep them out of the normal workspace history even when
-    // their generated conversation uses a regular folder.
-    let automation_conversations = automation_run::Entity::find()
-        .select_only()
-        .column(automation_run::Column::ConversationId)
-        .filter(automation_run::Column::ConversationId.is_not_null())
-        .into_query();
-    query = query.filter(
-        conversation::Column::Id
-            .into_expr()
-            .not_in_subquery(automation_conversations),
-    );
-
-    if !include_children {
-        query = query.filter(conversation::Column::ParentId.is_null());
-    }
-
-    match folder_ids {
-        Some(ids) if !ids.is_empty() => {
-            query = query.filter(conversation::Column::FolderId.is_in(ids));
-        }
-        _ => {
-            // Exclude conversations whose folder was soft-deleted.
-            let active_folder_ids: Vec<i32> = folder::Entity::find()
-                .filter(folder::Column::DeletedAt.is_null())
-                .all(conn)
-                .await?
-                .into_iter()
-                .map(|m| m.id)
-                .collect();
-            if active_folder_ids.is_empty() {
-                return Ok(Vec::new());
-            }
-            query = query.filter(conversation::Column::FolderId.is_in(active_folder_ids));
-        }
-    }
-
-    if let Some(ref at) = agent_type {
-        let at_str = serde_json::to_value(at)
-            .ok()
-            .and_then(|v| v.as_str().map(String::from))
-            .unwrap_or_default();
-        query = query.filter(conversation::Column::AgentType.eq(at_str));
-    }
-
-    if let Some(ref s) = search {
-        if !s.is_empty() {
-            query = query.filter(conversation::Column::Title.contains(s));
-        }
-    }
-
-    if let Some(ref st) = status {
-        if let Ok(status_enum) = serde_json::from_value::<conversation::ConversationStatus>(
-            serde_json::Value::String(st.clone()),
-        ) {
-            query = query.filter(conversation::Column::Status.eq(status_enum));
-        }
-    }
-
-    query = match sort_by.as_deref() {
+    let request = ConversationPageRequest {
+        folder_ids,
+        agent_type,
+        search,
+        sort_by,
+        status,
+        include_children,
+        ..Default::default()
+    };
+    let query = listing::query(&request);
+    let query = match request.sort_by.as_deref() {
         Some("oldest") => query.order_by_asc(conversation::Column::UpdatedAt),
         _ => query.order_by_desc(conversation::Column::UpdatedAt),
     };

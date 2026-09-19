@@ -13,8 +13,9 @@ use sea_orm::{
     EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 
+pub(crate) use super::maintenance::ROUND_LIMIT as PRUNE_ROUND_LIMIT;
 use crate::db::entities::automation::{IsolationMode, TriggerKind};
-use crate::db::entities::{automation, automation_run, conversation};
+use crate::db::entities::{automation, automation_run};
 use crate::db::error::DbError;
 use crate::models::{
     AutomationConfig, AutomationDraft, AutomationInfo, AutomationRunInfo, AutomationRunStatus,
@@ -727,51 +728,5 @@ pub async fn claim_due(
 /// Best-effort retention: soft-hide conversations owned by expired terminal
 /// runs, then delete those run rows. Session files and worktrees are untouched.
 pub async fn prune_old_runs(conn: &DatabaseConnection, keep_days: i64) -> Result<u64, DbError> {
-    crate::db::retry_sqlite_maintenance("automation.prune_old_runs", || {
-        prune_old_runs_once(conn, keep_days)
-    })
-    .await
-}
-
-async fn prune_old_runs_once(conn: &DatabaseConnection, keep_days: i64) -> Result<u64, DbError> {
-    use sea_orm::TransactionTrait;
-
-    let cutoff = Utc::now() - chrono::Duration::days(keep_days);
-    // Only prune terminal rows. A still-`running` row must survive regardless of
-    // age: deleting it would defeat the one-active-run unique index (letting a
-    // duplicate fire) and orphan the live run's worktree/conversation. In normal
-    // operation reconcile force-fails a run long before the retention window, so
-    // this only guards the pathological "stuck running past retention" case.
-    // NOTE: this deletes the run *rows*; the per-run worktree directory + branch
-    // (`automation/<id>/run-<id>`) created for `worktree_per_run` are not yet
-    // garbage-collected here — tracked as a follow-up (bounded GC of those
-    // artifacts keyed on the run's worktree_folder_id + name signature).
-    let txn = conn.begin().await?;
-    let conversation_ids = automation_run::Entity::find()
-        .select_only()
-        .column(automation_run::Column::ConversationId)
-        .filter(automation_run::Column::CreatedAt.lt(cutoff))
-        .filter(automation_run::Column::Status.ne(AutomationRunStatus::Running))
-        .filter(automation_run::Column::ConversationId.is_not_null())
-        .into_tuple::<Option<i32>>()
-        .all(&txn)
-        .await?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-    if !conversation_ids.is_empty() {
-        conversation::Entity::update_many()
-            .col_expr(conversation::Column::DeletedAt, Expr::value(Utc::now()))
-            .filter(conversation::Column::Id.is_in(conversation_ids))
-            .filter(conversation::Column::DeletedAt.is_null())
-            .exec(&txn)
-            .await?;
-    }
-    let res = automation_run::Entity::delete_many()
-        .filter(automation_run::Column::CreatedAt.lt(cutoff))
-        .filter(automation_run::Column::Status.ne(AutomationRunStatus::Running))
-        .exec(&txn)
-        .await?;
-    txn.commit().await?;
-    Ok(res.rows_affected)
+    super::maintenance::prune_runs(conn, keep_days).await
 }

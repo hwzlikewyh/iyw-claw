@@ -8,6 +8,24 @@ use crate::app_state::AppState;
 use crate::commands::conversation_title::ConversationTitleContext;
 use crate::commands::conversations as conv_commands;
 use crate::models::*;
+use crate::db::service::conversation_service::{ConversationPage, ConversationPageRequest};
+
+#[derive(Deserialize)]
+pub struct ConversationPageParams {
+    pub params: ConversationPageRequest,
+}
+
+pub async fn list_conversations_page(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(args): Json<ConversationPageParams>,
+) -> Result<Json<ConversationPage>, AppCommandError> {
+    let context = ConversationTitleContext {
+        conn: &state.db.conn,
+        emitter: &state.emitter,
+        chat_channel_manager: &state.chat_channel_manager,
+    };
+    Ok(Json(conv_commands::list_conversations_page_core(&context, args.params).await?))
+}
 
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

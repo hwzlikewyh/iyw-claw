@@ -84,6 +84,10 @@ pub fn build_router(
             post(handlers::conversations::list_all_conversations),
         )
         .route(
+            "/list_conversations_page",
+            post(handlers::conversations::list_conversations_page),
+        )
+        .route(
             "/list_child_conversations",
             post(handlers::conversations::list_child_conversations),
         )

@@ -103,6 +103,7 @@ function SearchContent({
       <CommandList className="h-[min(24rem,50dvh)] max-h-[50dvh]">
         {tab === "conversations" ? (
           <ConversationSearchResults
+            key={JSON.stringify([query.trim(), scope.folderId, agent])}
             query={query}
             folderId={scope.folderId}
             agent={agent}

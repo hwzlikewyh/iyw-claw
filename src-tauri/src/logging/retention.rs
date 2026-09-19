@@ -12,6 +12,7 @@ const SECONDS_PER_HOUR: u64 = 60 * 60;
 const RETENTION_AGE: Duration =
     Duration::from_secs(RETENTION_DAYS as u64 * HOURS_PER_DAY * SECONDS_PER_HOUR);
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(HOURS_PER_DAY * SECONDS_PER_HOUR);
+const BACKLOG_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
 pub const MAX_APP_LOG_FILES: usize = RETENTION_DAYS as usize;
 
@@ -42,6 +43,7 @@ pub async fn start(conn: DatabaseConnection) {
         cleanup_interval_hours = CLEANUP_INTERVAL.as_secs() / SECONDS_PER_HOUR,
         "[logs] retention task started"
     );
+    tokio::spawn(channel_retention_loop(conn.clone()));
     tokio::spawn(async move {
         run_once(&conn).await;
         let mut interval = tokio::time::interval(CLEANUP_INTERVAL);
@@ -66,7 +68,6 @@ async fn run_once(conn: &DatabaseConnection) {
             "[logs] retention file cleanup task failed"
         ),
     }
-    cleanup_channel_logs(conn).await;
     super::agent_retention::cleanup_periodic_agent_logs(conn).await;
 }
 
@@ -234,11 +235,27 @@ fn log_file_summary(category: &str, summary: &FileCleanupSummary, elapsed: Durat
     }
 }
 
-async fn cleanup_channel_logs(conn: &DatabaseConnection) {
+async fn channel_retention_loop(conn: DatabaseConnection) {
+    loop {
+        let backlog = cleanup_channel_logs(&conn).await;
+        let delay = if backlog {
+            BACKLOG_RETRY_INTERVAL
+        } else {
+            CLEANUP_INTERVAL
+        };
+        tokio::time::sleep(delay).await;
+    }
+}
+
+async fn cleanup_channel_logs(conn: &DatabaseConnection) -> bool {
     let started = Instant::now();
     let cutoff = chrono::Utc::now() - chrono::Duration::days(RETENTION_DAYS);
-    match crate::db::service::chat_channel_message_log_service::cleanup_old_logs(conn, cutoff).await
-    {
+    let result =
+        crate::db::service::chat_channel_message_log_service::cleanup_old_logs(conn, cutoff).await;
+    let backlog = result.as_ref().is_ok_and(|count| {
+        *count >= crate::db::service::chat_channel_message_log_service::CLEANUP_ROUND_LIMIT
+    });
+    match result {
         Ok(deleted) if deleted > 0 => tracing::info!(
             target: "iyw_claw::diagnostics::retention",
             category = "chat_channel",
@@ -259,4 +276,5 @@ async fn cleanup_channel_logs(conn: &DatabaseConnection) {
             "[logs] retention cleanup failed"
         ),
     }
+    backlog
 }

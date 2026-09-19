@@ -13,8 +13,22 @@ pub(super) async fn filter_conversations(
     conversations: Vec<DbConversationSummary>,
     query: Option<&str>,
 ) -> Result<Vec<DbConversationSummary>, AppCommandError> {
+    let (results, failures) = filter_page(conn, conversations, query).await?;
+    if failures > 0 && results.is_empty() {
+        return Err(AppCommandError::task_execution_failed(
+            "Conversation history could not be searched completely",
+        ));
+    }
+    Ok(results)
+}
+
+pub(super) async fn filter_page(
+    conn: &DatabaseConnection,
+    conversations: Vec<DbConversationSummary>,
+    query: Option<&str>,
+) -> Result<(Vec<DbConversationSummary>, usize), AppCommandError> {
     let Some(query) = query.map(str::trim).filter(|query| !query.is_empty()) else {
-        return Ok(conversations);
+        return Ok((conversations, 0));
     };
     let query = query.to_lowercase();
     let started_at = std::time::Instant::now();
@@ -47,12 +61,7 @@ pub(super) async fn filter_conversations(
         elapsed_ms = started_at.elapsed().as_millis(),
         "[conversation-search] completed"
     );
-    if failures > 0 && results.is_empty() {
-        return Err(AppCommandError::task_execution_failed(
-            "Conversation history could not be searched completely",
-        ));
-    }
-    Ok(results)
+    Ok((results, failures))
 }
 
 async fn matches_conversation(
