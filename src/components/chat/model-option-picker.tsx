@@ -24,6 +24,7 @@ interface ModelOptionPickerProps {
   behaviorOptions?: SessionConfigOptionInfo[]
   onSelect: (configId: string, valueId: string) => void
   onBehaviorSelect?: (configId: string, valueId: string) => void
+  onOpen?: () => void
 }
 
 // Model picker Popover with the searchable list and model behavior cascade.
@@ -34,6 +35,7 @@ export function ModelOptionPicker({
   behaviorOptions = [],
   onSelect,
   onBehaviorSelect,
+  onOpen,
 }: ModelOptionPickerProps) {
   const t = useTranslations("Folder.chat.messageInput")
   const [open, setOpen] = useState(false)
@@ -58,6 +60,7 @@ export function ModelOptionPicker({
       open={open}
       onOpenChange={(next) => {
         setOpen(next)
+        if (next) onOpen?.()
       }}
     >
       <PopoverTrigger asChild>

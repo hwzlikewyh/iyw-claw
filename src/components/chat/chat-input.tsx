@@ -39,6 +39,7 @@ interface ChatInputProps {
   selectedModeId?: string | null
   onModeChange?: (modeId: string) => void
   onConfigOptionChange?: (configId: string, valueId: string) => void
+  onModelListOpen?: () => void
   agentType?: AgentType | null
   usageStats?: SessionStats | null
   availableCommands?: AvailableCommandInfo[] | null
@@ -99,6 +100,7 @@ export const ChatInput = memo(function ChatInput({
   selectedModeId,
   onModeChange,
   onConfigOptionChange,
+  onModelListOpen,
   agentType,
   usageStats,
   availableCommands,
@@ -177,6 +179,7 @@ export const ChatInput = memo(function ChatInput({
         selectedModeId={selectedModeId}
         onModeChange={onModeChange}
         onConfigOptionChange={onConfigOptionChange}
+        onModelListOpen={onModelListOpen}
         agentType={agentType}
         availableCommands={availableCommands}
         attachmentTabId={attachmentTabId}

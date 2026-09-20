@@ -331,6 +331,7 @@ type ConnectRequest = {
   // (sessionId already distinguishes), but carried so a re-fired pending
   // request still runs discovery.
   conversationId?: number
+  preferredConfigValues?: Record<string, string> | null
   attachOnly?: boolean
   forceHostRestart?: boolean
 }
@@ -358,6 +359,8 @@ function replacementRetryDelay(attempt: number): number {
 function sameConnectRequest(a: ConnectRequest, b: ConnectRequest) {
   return (
     sameConnectTarget(a, b) &&
+    JSON.stringify(a.preferredConfigValues ?? null) ===
+      JSON.stringify(b.preferredConfigValues ?? null) &&
     Boolean(a.attachOnly) === Boolean(b.attachOnly) &&
     Boolean(a.forceHostRestart) === Boolean(b.forceHostRestart)
   )
@@ -2677,7 +2680,11 @@ export interface AcpActionsValue {
     workingDir?: string,
     sessionId?: string,
     conversationId?: number,
-    options?: { attachOnly?: boolean; forceHostRestart?: boolean }
+    options?: {
+      attachOnly?: boolean
+      forceHostRestart?: boolean
+      preferredConfigValues?: Record<string, string> | null
+    }
   ): Promise<void>
   disconnect(contextKey: string): Promise<void>
   disconnectForReplacement(contextKey: string): Promise<boolean>
@@ -2773,7 +2780,8 @@ export interface AcpActionsValue {
   reapplyConfig(
     contextKey: string,
     forceHostRestart?: boolean,
-    conversationId?: number
+    conversationId?: number,
+    preferredConfigValues?: Record<string, string> | null
   ): Promise<boolean>
   /**
    * Dismiss the "restart to apply" banner for the current drift WITHOUT
@@ -3219,6 +3227,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             {
               attachOnly: latest.request.attachOnly,
               forceHostRestart: latest.request.forceHostRestart,
+              preferredConfigValues: latest.request.preferredConfigValues,
             }
           )
           .catch(() => {})
@@ -4968,7 +4977,11 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       workingDir?: string,
       sessionId?: string,
       conversationId?: number,
-      options?: { attachOnly?: boolean; forceHostRestart?: boolean }
+      options?: {
+        attachOnly?: boolean
+        forceHostRestart?: boolean
+        preferredConfigValues?: Record<string, string> | null
+      }
     ) => {
       const request: ConnectRequest = {
         agentType,
@@ -4977,6 +4990,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         conversationId,
         attachOnly: options?.attachOnly,
         forceHostRestart: options?.forceHostRestart,
+        preferredConfigValues: options?.preferredConfigValues,
       }
       const pendingReplacement = pendingReplacementsRef.current.get(contextKey)
       if (
@@ -5264,6 +5278,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         // re-open (the snapshot frame doesn't carry a `session_modes` event,
         // so the apply-on-event hook never fired).
         const savedPrefs = getSavedPrefsForConnect(agentType)
+        const preferredConfigValues = {
+          ...(savedPrefs.configValues ?? {}),
+          ...(request.preferredConfigValues ?? {}),
+        }
         const preparationTarget = {
           agentType,
           workingDir,
@@ -5278,7 +5296,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           sessionId,
           conversationId,
           savedPrefs.modeId,
-          savedPrefs.configValues,
+          Object.keys(preferredConfigValues).length > 0
+            ? preferredConfigValues
+            : null,
           request.forceHostRestart ?? false
         )
         consumeAcpPreparation(preparationTarget)
@@ -5446,6 +5466,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                   {
                     attachOnly: pendingRequest.attachOnly,
                     forceHostRestart: pendingRequest.forceHostRestart,
+                    preferredConfigValues:
+                      pendingRequest.preferredConfigValues,
                   }
                 )
                 .catch(() => {})
@@ -5554,7 +5576,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
     async (
       contextKey: string,
       forceHostRestart = false,
-      conversationId?: number
+      conversationId?: number,
+      preferredConfigValues?: Record<string, string> | null
     ): Promise<boolean> => {
       const conn = storeRef.current.connections.get(contextKey)
       // Viewers / delegation children don't own the backend process — restarting
@@ -5584,6 +5607,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         workingDir: workingDir ?? undefined,
         sessionId: sessionId ?? undefined,
         conversationId,
+        preferredConfigValues,
         forceHostRestart,
       }
       if (!replacement.replaced) {
@@ -5602,7 +5626,10 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         workingDir ?? undefined,
         sessionId ?? undefined,
         conversationId,
-        { forceHostRestart }
+        {
+          forceHostRestart,
+          preferredConfigValues,
+        }
       )
       return true
     },
@@ -5739,14 +5766,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         configId === "model" || (option && isModelConfigOption(option))
           ? "model"
           : configId
-      const selectedModel = getSavedPrefsForConnect(conn.agentType).configValues
-        ?.model
-      // 迟到的旧模型确认不能覆盖用户已保存的新选择。
-      if (
-        preferenceId !== "model" ||
-        !selectedModel ||
-        selectedModel === valueId
-      ) {
+      // Models are persisted by conversation surfaces after the Agent confirms
+      // the live value. Agent-wide storage is only for non-model selectors.
+      if (preferenceId !== "model") {
         saveConfigPreference(conn.agentType, preferenceId, valueId)
       }
     },

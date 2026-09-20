@@ -2384,6 +2384,16 @@ export async function updateConversationStatus(
   })
 }
 
+export async function updateConversationModel(
+  conversationId: number,
+  model: string
+): Promise<void> {
+  return getTransport().call("update_conversation_model", {
+    conversationId,
+    model,
+  })
+}
+
 export async function updateConversationTitle(
   conversationId: number,
   title: string
