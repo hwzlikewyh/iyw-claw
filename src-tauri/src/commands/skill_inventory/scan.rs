@@ -108,6 +108,11 @@ fn scan_root(
     let entries = fs::read_dir(scan_dir)
         .map_err(|error| AcpError::protocol(format!("failed to scan Skill root: {error}")))?;
     for entry in entries.flatten() {
+        if crate::commands::experts::is_legacy_skill_backup_name(
+            &entry.file_name().to_string_lossy(),
+        ) {
+            continue;
+        }
         let path = entry.path();
         let scope = spec.scope.unwrap_or(AgentSkillScope::Global);
         let mut matched = false;

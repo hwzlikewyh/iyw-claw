@@ -31,6 +31,9 @@ use crate::commands::acp::{
 };
 use crate::models::agent::AgentType;
 
+mod legacy_backups;
+pub(crate) use legacy_backups::is_legacy_skill_backup_name;
+
 // ─── Embedded bundle ────────────────────────────────────────────────────
 
 static WRITING_PLANS_BUNDLE: Dir<'_> =
@@ -752,27 +755,14 @@ fn enable_managed_link_entry(
 }
 
 fn replace_managed_copy_with_link(source: &Path, target: &Path) -> io::Result<bool> {
-    let parent = target.parent().ok_or_else(|| io::Error::other("Skill link has no parent"))?;
-    let backup = parent.join(format!(".iyw-claw-link-backup-{}", uuid::Uuid::new_v4()));
-    fs::rename(target, &backup)?;
-    match create_link_raw(source, target) {
-        Ok(copy_mode) => {
-            if let Err(error) = remove_skill_entry(&backup) {
-                tracing::warn!(path = %backup.display(), error = %error,
-                    "[skills] linked central skill but could not remove legacy backup");
-            }
-            Ok(copy_mode)
-        }
-        Err(error) => {
-            if fs::symlink_metadata(target).is_ok() {
-                remove_skill_entry(target)?;
-            }
-            fs::rename(&backup, target).map_err(|restore| io::Error::other(format!(
-                "Skill link failed: {error}; restoring legacy copy failed: {restore}"
-            )))?;
-            Err(error)
-        }
+    if !source.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("managed Skill source is unavailable: {}", source.display()),
+        ));
     }
+    remove_skill_entry(target)?;
+    create_link_raw(source, target)
 }
 
 fn raw_link_targets(link_path: &Path, expected_target: &Path) -> bool {
@@ -1143,6 +1133,10 @@ pub async fn ensure_central_experts_installed() -> InstallReport {
 
 fn ensure_central_experts_cached_blocking() -> InstallReport {
     let started_at = Instant::now();
+    let cleanup_errors = {
+        let _shared_guard = crate::commands::acp::shared_skill_mutation_guard();
+        legacy_backups::cleanup_legacy_skill_backups(&supported_agents())
+    };
     match central_experts_cache_is_current() {
         Ok(true) => {
             tracing::info!(
@@ -1151,7 +1145,10 @@ fn ensure_central_experts_cached_blocking() -> InstallReport {
                 cache = "hit",
                 "central Skill reconcile skipped"
             );
-            return InstallReport::default();
+            return InstallReport {
+                errors: cleanup_errors,
+                ..InstallReport::default()
+            };
         }
         Ok(false) => tracing::debug!(
             target: "system_skills",
@@ -1165,7 +1162,8 @@ fn ensure_central_experts_cached_blocking() -> InstallReport {
             "central Skill cache fingerprint failed; reconciling from disk"
         ),
     }
-    let report = ensure_central_experts_installed_blocking();
+    let mut report = ensure_central_experts_installed_blocking();
+    report.errors.extend(cleanup_errors);
     record_central_reconcile(&report);
     tracing::info!(
         target: "system_skills",
@@ -1817,6 +1815,10 @@ fn ensure_builtin_gateway_skill_ready_blocking(
     agent_type: AgentType,
 ) -> Result<ExpertInstallStatus, ExpertsError> {
     let _shared_guard = crate::commands::acp::shared_skill_mutation_guard();
+    let cleanup_errors = legacy_backups::cleanup_legacy_skill_backups(&[agent_type]);
+    if !cleanup_errors.is_empty() {
+        return Err(ExpertsError::Io(cleanup_errors.join("; ")));
+    }
     let central = central_experts_dir();
     fs::create_dir_all(&central)?;
     let metadata = bundled_metadata_for_id(CAPABILITY_GATEWAY_EXPERT_ID)?;
