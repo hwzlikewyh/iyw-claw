@@ -3,7 +3,10 @@ pub(crate) fn patch_gateway_credentials(raw: &str, token: Option<&str>) -> Resul
     let base =
         crate::acp::provider_overlay::model_gateway_base_url_for(crate::models::AgentType::Grok);
     if let Some(models) = config.get_mut("model").and_then(toml::Value::as_table_mut) {
-        for model in models.values_mut().filter_map(toml::Value::as_table_mut) {
+        for (_, model) in models.iter_mut() {
+            let Some(model) = model.as_table_mut() else {
+                continue;
+            };
             if model.get("base_url").and_then(toml::Value::as_str) == Some(base.as_str()) {
                 set_token_header(model, token)?;
             }
