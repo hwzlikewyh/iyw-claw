@@ -18,7 +18,10 @@ export interface ModelOptionGroup {
 // `id === "model"` and no category; Codex's approval-preset option uses
 // `category === "mode"`. Match on either signal so a future relabel stays safe.
 export function isModelConfigOption(option: SessionConfigOptionInfo): boolean {
-  return option.id === "model" || option.category === "model"
+  return (
+    option.id === "model" ||
+    (option.category === "model" && option.id !== "provider")
+  )
 }
 
 function normalizedConfigId(option: SessionConfigOptionInfo): string {

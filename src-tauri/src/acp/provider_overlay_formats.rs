@@ -220,11 +220,12 @@ pub(crate) fn patch_grok_toml(raw: &str, base_url: &str) -> Result<String, Strin
         models_table.insert("max_retries".into(), toml::Value::Integer(10));
     }
     let models = table_entry(root, "model")?;
-    models.clear();
+    let previous = std::mem::take(models);
     for model_id in model_ids {
         let model = table_entry(models, model_id)?;
         model.insert("model".into(), toml::Value::String((*model_id).into()));
         model.insert("base_url".into(), toml::Value::String(base_url.into()));
+        super::grok::preserve_gateway_token(previous.get(model_id), model);
         model.insert(
             "api_backend".into(),
             toml::Value::String("chat_completions".into()),

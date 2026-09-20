@@ -16,13 +16,14 @@ pub(crate) fn patch_json_credential(
     match agent {
         AgentType::ClaudeCode => {
             patch_nested_json(&mut root, &["env"], "ANTHROPIC_AUTH_TOKEN", token);
-            patch_anthropic_custom_headers(&mut root, token);
+            patch_custom_headers(&mut root, "ANTHROPIC_CUSTOM_HEADERS", token);
         }
         AgentType::CodeBuddy => {
             if let Some(env) = existing_json_object(&mut root, &["env"]) {
                 env.retain(|key, _| !is_codebuddy_conflicting_env_key(key));
             }
             patch_nested_json(&mut root, &["env"], "CODEBUDDY_API_KEY", token);
+            patch_custom_headers(&mut root, "CODEBUDDY_CUSTOM_HEADERS", token);
         }
         AgentType::OpenClaw => {
             patch_nested_json(
@@ -79,6 +80,9 @@ pub(crate) fn patch_toml_credential(
     raw: &str,
     token: Option<&str>,
 ) -> Result<String, String> {
+    if agent == AgentType::Grok {
+        return super::grok::patch_gateway_credentials(raw, token);
+    }
     let mut value = parse_toml_root(raw)?;
     let root = value
         .as_table_mut()
@@ -174,17 +178,19 @@ fn patch_provider_auth(
     }
 }
 
-fn patch_anthropic_custom_headers(
+fn patch_custom_headers(
     root: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
     token: Option<&str>,
 ) {
     let existing = root
         .get("env")
         .and_then(serde_json::Value::as_object)
-        .and_then(|env| env.get("ANTHROPIC_CUSTOM_HEADERS"))
+        .and_then(|env| env.get(key))
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
-    let mut lines = existing
+    let normalized = existing.replace("\\n", "\n");
+    let mut lines = normalized
         .lines()
         .filter(|line| {
             line.split_once(':')
@@ -199,7 +205,7 @@ fn patch_anthropic_custom_headers(
     patch_nested_json(
         root,
         &["env"],
-        "ANTHROPIC_CUSTOM_HEADERS",
+        key,
         custom_headers.as_deref(),
     );
 }

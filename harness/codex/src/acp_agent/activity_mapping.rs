@@ -15,7 +15,16 @@ pub(super) fn observation(method: &str, params: &Value) -> Option<Update> {
             })
         }
         "error" if params.get("willRetry")?.as_bool()? => {
-            json!({ "kind": "retry" })
+            let error = params.get("error");
+            let detail = error
+                .and_then(|error| {
+                    error
+                        .get("additionalDetails")
+                        .and_then(Value::as_str)
+                        .or_else(|| error.get("message").and_then(Value::as_str))
+                })
+                .map(crate::diagnostics::safe_detail);
+            json!({ "kind": "retry", "detail": detail })
         }
         _ => return None,
     };

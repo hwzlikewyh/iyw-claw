@@ -215,9 +215,10 @@ pub(crate) fn write_agent_credentials_at_profile(
             })
         }
         AgentType::Gemini => Ok(()),
-        // Grok's auth.json is an opaque login cache. Gateway credentials are
-        // injected through XAI_API_KEY at process launch instead of rewriting it.
-        AgentType::Grok => Ok(()),
+        // 保留原生登录缓存；网关头只写入受管模型的配置。
+        AgentType::Grok => patch_file(profile.join("config.toml"), token, |raw| {
+            patch_toml_credential(agent, raw, token)
+        }),
         AgentType::Cursor | AgentType::DeepSeek | AgentType::Custom(_) => Ok(()),
     }
 }

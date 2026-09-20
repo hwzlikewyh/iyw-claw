@@ -58,6 +58,7 @@ pub mod file_system_runtime;
 pub mod fork;
 pub mod fork_target;
 pub mod grok;
+mod hermes_model;
 pub mod idle_sweep;
 pub mod image_analysis;
 mod image_analysis_client;

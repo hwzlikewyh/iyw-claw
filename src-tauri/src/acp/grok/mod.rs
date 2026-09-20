@@ -1,9 +1,11 @@
 use std::fs;
 
+mod credentials;
 mod selectors;
 mod tools;
 mod wire;
 
+pub(crate) use credentials::{patch_gateway_credentials, preserve_gateway_token};
 pub(crate) use selectors::{
     build_set_model_params, parse_effort_specs, set_effort_selector_for_model, synthesize_options,
     EffortSpecs,

@@ -42,7 +42,10 @@ use crate::acp::npm_runtime;
 use crate::acp::permission_queue::{PermissionQueue, QueuedPermission};
 use crate::acp::permission_runtime::{PermissionRequestMeta, PermissionRuntime};
 use crate::acp::registry::{self, AgentDistribution};
-use crate::acp::session_config_compat::resolve_preferred_session_config;
+use crate::acp::session_config_compat::{
+    canonical_model_id_for_agent, model_value_for_agent, project_model_options,
+    resolve_preferred_session_config,
+};
 use crate::acp::session_recovery::{
     RecoveryBudget, RecoveryFailure, RecoveryProgress, RecoveryStage,
 };
@@ -2086,11 +2089,14 @@ fn map_session_config_option(option: &SessionConfigOption) -> Option<SessionConf
 
 fn map_session_config_options(
     config_options: &[SessionConfigOption],
+    agent_type: AgentType,
 ) -> Vec<SessionConfigOptionInfo> {
-    config_options
+    let mut mapped = config_options
         .iter()
         .filter_map(map_session_config_option)
-        .collect()
+        .collect::<Vec<_>>();
+    project_model_options(agent_type, &mut mapped);
+    mapped
 }
 
 /// Defensive fallback for Codex's approval-preset selector.
@@ -2160,7 +2166,7 @@ async fn emit_session_config_options_values(
     agent_type: AgentType,
     config_options: Vec<SessionConfigOption>,
 ) {
-    let mut mapped = map_session_config_options(&config_options);
+    let mut mapped = map_session_config_options(&config_options, agent_type);
     if agent_type == AgentType::Codex {
         ensure_codex_mode_option(&mut mapped);
     }
@@ -2320,17 +2326,19 @@ fn build_resume_session_request(
 async fn send_resume_session(
     cx: &ConnectionTo<Agent>,
     req: ResumeSessionRequest,
+    agent_type: AgentType,
 ) -> Result<(ResumeSessionResponse, Option<serde_json::Value>), RecoveryFailure> {
     let untyped_req = UntypedMessage::new("session/resume", req).map_err(|e| {
         RecoveryFailure::InvalidResponse(format!("Failed to build resume request: {e}"))
     })?;
 
-    let raw_response = cx
+    let mut raw_response = cx
         .send_request_to(Agent, untyped_req)
         .block_task()
         .await
         .map_err(RecoveryFailure::from_request_error)?;
     let models = raw_response.get("models").cloned();
+    super::hermes_model::attach_options(&mut raw_response, agent_type);
     let response = serde_json::from_value(raw_response).map_err(|e| {
         RecoveryFailure::InvalidResponse(format!("Failed to parse resume response: {e}"))
     })?;
@@ -2340,15 +2348,17 @@ async fn send_resume_session(
 async fn send_load_session(
     cx: &ConnectionTo<Agent>,
     req: LoadSessionRequest,
+    agent_type: AgentType,
 ) -> Result<LoadSessionResponse, RecoveryFailure> {
     let untyped_req = UntypedMessage::new("session/load", req).map_err(|e| {
         RecoveryFailure::InvalidResponse(format!("Failed to build load request: {e}"))
     })?;
-    let raw_response = cx
+    let mut raw_response = cx
         .send_request_to(Agent, untyped_req)
         .block_task()
         .await
         .map_err(RecoveryFailure::from_request_error)?;
+    super::hermes_model::attach_options(&mut raw_response, agent_type);
     serde_json::from_value(raw_response).map_err(|e| {
         RecoveryFailure::InvalidResponse(format!("Failed to parse load response: {e}"))
     })
@@ -2414,14 +2424,15 @@ async fn send_new_session_capturing_models(
     agent_type: AgentType,
     req: NewSessionRequest,
 ) -> Result<(NewSessionResponse, Option<serde_json::Value>), sacp::Error> {
-    if agent_type != AgentType::Grok {
+    if !matches!(agent_type, AgentType::Grok | AgentType::Hermes) {
         return Ok((cx.send_request_to(Agent, req).block_task().await?, None));
     }
     let request = UntypedMessage::new("session/new", req).map_err(|error| {
         sacp::util::internal_error(format!("Failed to build new_session request: {error}"))
     })?;
-    let raw_response = cx.send_request_to(Agent, request).block_task().await?;
+    let mut raw_response = cx.send_request_to(Agent, request).block_task().await?;
     let models = raw_response.get("models").cloned();
+    super::hermes_model::attach_options(&mut raw_response, agent_type);
     let response = serde_json::from_value(raw_response).map_err(|error| {
         sacp::util::internal_error(format!("Failed to parse new_session response: {error}"))
     })?;
@@ -3746,7 +3757,7 @@ async fn run_connection(
                     );
                     let resume_result = match recovery_budget.timeout_for(RecoveryStage::Resume) {
                         Some(timeout) => {
-                            tokio::time::timeout(timeout, send_resume_session(&cx, resume_req))
+                            tokio::time::timeout(timeout, send_resume_session(&cx, resume_req, agent_type))
                                 .await
                                 .unwrap_or(Err(RecoveryFailure::Timeout))
                         }
@@ -3946,7 +3957,7 @@ async fn run_connection(
                     .map(|trace| trace.stage("session_load"));
                 let load_result = match recovery_budget.timeout_for(RecoveryStage::Load) {
                     Some(timeout) => {
-                        tokio::time::timeout(timeout, send_load_session(&cx, load_req))
+                        tokio::time::timeout(timeout, send_load_session(&cx, load_req, agent_type))
                             .await
                             .unwrap_or(Err(RecoveryFailure::Timeout))
                     }
@@ -4568,10 +4579,20 @@ async fn set_session_config_option(
             .as_ref()
             .is_some_and(|options| {
                 options.iter().any(|option| {
-                    option.id == config_id && option.category.as_deref() == Some("model")
+                    option.id == config_id
+                        && option.id != "provider"
+                        && option.category.as_deref() == Some("model")
                 })
             });
     let requested_model = is_model.then(|| value_id.clone());
+    if agent_type == AgentType::Hermes && is_model {
+        let mut updated = state.read().await.config_options.clone().unwrap_or_default();
+        super::hermes_model::select_model(&mut updated, &value_id)?;
+        let wire_model = model_value_for_agent(agent_type, value_id);
+        super::hermes_model::set_model(cx, session_id, &wire_model).await?;
+        emit_session_config_options_info(state, emitter, agent_type, updated).await;
+        return Ok(());
+    }
     if agent_type == AgentType::Grok {
         crate::acp::grok::set_config_option(cx, session_id, state, emitter, config_id, value_id)
             .await?;
@@ -4583,12 +4604,19 @@ async fn set_session_config_option(
                 .config_options
                 .as_deref()
                 .unwrap_or_default(),
+            agent_type,
         );
     }
+    let value_id = if is_model {
+        model_value_for_agent(agent_type, value_id)
+    } else {
+        value_id
+    };
     let updated = set_session_config_option_inner(cx, session_id, config_id, value_id).await?;
     let confirmation = validate_selected_session_model(
         requested_model.as_deref(),
-        &map_session_config_options(&updated),
+        &map_session_config_options(&updated, agent_type),
+        agent_type,
     );
     emit_session_config_options_values(state, emitter, agent_type, updated).await;
     confirmation
@@ -4634,9 +4662,10 @@ async fn set_session_config_option_inner(
 async fn apply_preferred_session_config_options(
     cx: &ConnectionTo<Agent>,
     session: &mut sacp::ActiveSession<'_, Agent>,
-    preferred_config_values: &BTreeMap<String, String>,
+    preferences: (AgentType, &BTreeMap<String, String>),
     initial_config_options: Vec<SessionConfigOption>,
 ) -> Vec<SessionConfigOption> {
+    let (agent_type, preferred_config_values) = preferences;
     if preferred_config_values.is_empty() {
         return initial_config_options;
     }
@@ -4652,8 +4681,13 @@ async fn apply_preferred_session_config_options(
                 .filter(|(config_id, _)| config_id.as_str() != "model"),
         );
     for (config_id, value_id) in preferences {
+        let wire_preference = if agent_type == AgentType::Hermes && config_id == "model" {
+            model_value_for_agent(agent_type, value_id.clone())
+        } else {
+            value_id.clone()
+        };
         let Some((resolved_config_id, resolved_value_id)) =
-            resolve_preferred_session_config(&options, config_id, value_id)
+            resolve_preferred_session_config(&options, config_id, &wire_preference)
         else {
             tracing::debug!(
                 "[ACP] skipping unsupported preferred config '{config_id}'='{value_id}'"
@@ -4672,6 +4706,15 @@ async fn apply_preferred_session_config_options(
                 )
         });
         if already_matches {
+            continue;
+        }
+        if agent_type == AgentType::Hermes && resolved_config_id == "model" {
+            if let Err(error) = super::hermes_model::apply_preference(
+                cx, &session_id, (&mut options, &resolved_value_id),
+            ).await {
+                tracing::error!(model = resolved_value_id, %error,
+                    "[ACP] failed to apply legacy session model on connect");
+            }
             continue;
         }
         match set_session_config_option_inner(
@@ -4770,13 +4813,20 @@ async fn apply_preferred_session_mode(
 fn validate_selected_session_model(
     requested_model: Option<&str>,
     options: &[SessionConfigOptionInfo],
+    agent_type: AgentType,
 ) -> Result<(), sacp::Error> {
     let Some(requested_model) = requested_model.filter(|model| !model.is_empty()) else {
         return Ok(());
     };
+    let requested_model = canonical_model_id_for_agent(agent_type, requested_model);
     let actual_model = options
         .iter()
-        .find(|option| option.id == "model" || option.category.as_deref() == Some("model"))
+        .find(|option| option.id == "model")
+        .or_else(|| {
+            options.iter().find(|option| {
+                option.id != "provider" && option.category.as_deref() == Some("model")
+            })
+        })
         .map(|option| {
             let SessionConfigKindInfo::Select(select) = &option.kind;
             select.current_value.as_str()
@@ -4825,6 +4875,7 @@ async fn apply_and_emit_session_config_options(
         validate_selected_session_model(
             preferred_config_values.get("model").map(String::as_str),
             &options,
+            agent_type,
         )?;
         emit_session_config_options_info(state, emitter, agent_type, options).await;
         return Ok(());
@@ -4832,13 +4883,14 @@ async fn apply_and_emit_session_config_options(
     let updated = apply_preferred_session_config_options(
         cx,
         session,
-        preferred_config_values,
+        (agent_type, preferred_config_values),
         initial_config_options,
     )
     .await;
     validate_selected_session_model(
         preferred_config_values.get("model").map(String::as_str),
-        &map_session_config_options(&updated),
+        &map_session_config_options(&updated, agent_type),
+        agent_type,
     )?;
     emit_session_config_options_values(state, emitter, agent_type, updated).await;
     Ok(())
@@ -5669,7 +5721,7 @@ async fn resume_fork_if_needed(
     let timeout = budget
         .timeout_for(RecoveryStage::Resume)
         .ok_or_else(|| sacp::util::internal_error("Forked session recovery budget expired"))?;
-    let result = tokio::time::timeout(timeout, send_resume_session(cx, request))
+    let result = tokio::time::timeout(timeout, send_resume_session(cx, request, context.agent_type))
         .await
         .unwrap_or(Err(RecoveryFailure::Timeout));
     let (resumed, _) = result.map_err(|error| {
