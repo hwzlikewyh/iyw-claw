@@ -145,6 +145,20 @@ fn apply_managed_auth(config: &mut toml::Table) -> Result<(), AcpError> {
     provider.insert("env_key".into(), AUTH_ENV.into());
     provider.remove("auth");
     provider.remove("experimental_bearer_token");
+    // 正式网关依赖 token 头；每次从当前进程凭据读取，避免沿用迁移快照中的旧值。
+    if let Some(headers) = provider
+        .get_mut("http_headers")
+        .and_then(toml::Value::as_table_mut)
+    {
+        headers.retain(|name, _| !name.eq_ignore_ascii_case("token"));
+    }
+    let headers = provider
+        .entry("env_http_headers")
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+        .as_table_mut()
+        .ok_or_else(|| AcpError::protocol("Managed Xinghe environment headers must be a table"))?;
+    headers.retain(|name, _| !name.eq_ignore_ascii_case("token"));
+    headers.insert("token".into(), AUTH_ENV.into());
     Ok(())
 }
 

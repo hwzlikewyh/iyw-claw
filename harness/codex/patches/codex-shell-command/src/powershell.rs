@@ -17,6 +17,8 @@ fn probe_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command 
         use std::os::windows::process::CommandExt;
         // 桌面 worker 没有控制台，探测子进程必须显式禁止新建窗口。
         command.creation_flags(CREATE_NO_WINDOW);
+        // 商店版启动别名可能重建控制台，目标 PowerShell 同时显式隐藏窗口。
+        command.args(["-NonInteractive", "-WindowStyle", "Hidden"]);
     }
     command
 }

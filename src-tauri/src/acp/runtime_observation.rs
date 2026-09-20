@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 const MAX_RUNTIME_ID_BYTES: usize = 160;
+const MAX_RETRY_DETAIL_CHARS: usize = 900;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -14,6 +15,15 @@ impl RuntimeObservation {
     pub fn from_meta(meta: Option<&Map<String, Value>>) -> Option<Self> {
         let value = meta?.get("iyw")?.get("activity")?;
         let observation: Self = serde_json::from_value(value.clone()).ok()?;
+        if matches!(observation, Self::Retry) {
+            if let Some(detail) = value.get("detail").and_then(Value::as_str) {
+                let detail = super::stderr_tail::sanitize_diagnostic(detail)
+                    .chars()
+                    .take(MAX_RETRY_DETAIL_CHARS)
+                    .collect::<String>();
+                tracing::warn!(detail, "[ACP] Agent request is retrying after an error");
+            }
+        }
         if let Self::TerminalPoll {
             item_id,
             process_id,
