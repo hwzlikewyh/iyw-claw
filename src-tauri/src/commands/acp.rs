@@ -7901,6 +7901,10 @@ fn collect_skills_from_dir(
         let file_name = entry.file_name();
         let id = file_name.to_string_lossy().to_string();
 
+        if crate::commands::experts::is_legacy_skill_backup_name(&id) {
+            continue;
+        }
+
         if path.is_dir()
             && matches!(
                 kind,
