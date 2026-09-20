@@ -69,6 +69,7 @@ interface ConversationShellProps {
   selectedModeId?: string | null
   onModeChange?: (modeId: string) => void
   onConfigOptionChange?: (configId: string, valueId: string) => void
+  onModelListOpen?: () => void
   agentType?: AgentType | null
   usageStats?: SessionStats | null
   availableCommands?: AvailableCommandInfo[] | null
@@ -152,6 +153,7 @@ export function ConversationShell({
   selectedModeId,
   onModeChange,
   onConfigOptionChange,
+  onModelListOpen,
   agentType,
   usageStats,
   availableCommands,
@@ -307,6 +309,7 @@ export function ConversationShell({
                 selectedModeId={selectedModeId}
                 onModeChange={onModeChange}
                 onConfigOptionChange={onConfigOptionChange}
+                onModelListOpen={onModelListOpen}
                 agentType={agentType}
                 availableCommands={availableCommands}
                 attachmentTabId={attachmentTabId}

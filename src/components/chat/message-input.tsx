@@ -323,6 +323,7 @@ interface MessageInputProps {
   selectedModeId?: string | null
   onModeChange?: (modeId: string) => void
   onConfigOptionChange?: (configId: string, valueId: string) => void
+  onModelListOpen?: () => void
   agentType?: AgentType | null
   usageStats?: SessionStats | null
   availableCommands?: AvailableCommandInfo[] | null
@@ -828,6 +829,7 @@ export function MessageInput({
   selectedModeId,
   onModeChange,
   onConfigOptionChange,
+  onModelListOpen,
   agentType,
   usageStats,
   availableCommands,
@@ -3979,6 +3981,7 @@ export function MessageInput({
                 onBehaviorSelect={(configId, valueId) =>
                   onConfigOptionChange?.(configId, valueId)
                 }
+                onOpen={onModelListOpen}
               />
             )
           }
@@ -4631,7 +4634,10 @@ export function MessageInput({
                     >
                       <Popover
                         open={collapsedSelectorsOpen}
-                        onOpenChange={setCollapsedSelectorsOpen}
+                        onOpenChange={(next) => {
+                          setCollapsedSelectorsOpen(next)
+                          if (next) onModelListOpen?.()
+                        }}
                       >
                         <PopoverTrigger asChild>
                           <Button

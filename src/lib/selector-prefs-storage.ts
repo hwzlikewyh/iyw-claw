@@ -1,8 +1,9 @@
 "use client"
 
 /**
- * Persists user's selector preferences (mode & config option selections)
- * per agentType to localStorage, so they survive session restarts.
+ * Persists user's mode and non-model config selections per agentType to
+ * localStorage, so they survive session restarts. Model selection belongs to
+ * the conversation and is stored in `conversation.model` after ACP confirms it.
  *
  * Structure hash is stored alongside values — when the saved value no
  * longer exists in the current option set (item renamed / removed) the
@@ -50,6 +51,15 @@ function writeAll(all: AllPrefs) {
   }
 }
 
+function withoutSessionModel(
+  configValues?: Record<string, string>
+): Record<string, string> | undefined {
+  if (!configValues) return undefined
+  const next = { ...configValues }
+  delete next.model
+  return Object.keys(next).length > 0 ? next : undefined
+}
+
 function updatePrefs(
   agentType: string,
   fn: (prefs: SelectorPrefs) => SelectorPrefs
@@ -62,7 +72,7 @@ function updatePrefs(
   // user's first save would re-persist the stale hash bytes forever.
   const normalized: SelectorPrefs = {
     modeId: existing?.modeId,
-    configValues: existing?.configValues,
+    configValues: withoutSessionModel(existing?.configValues),
   }
   all[agentType] = fn(normalized)
   writeAll(all)
@@ -133,14 +143,10 @@ export function getSavedPrefsForConnect(agentType: AgentType): {
   const all = readAll()
   const prefs = normalizeLegacyPrefs(agentType, all[agentType])
 
-  // The selected model is a session preference. The native provider config
-  // remains the launch fallback, while ACP applies this value to a resumed
-  // session before publishing its selectors.
   const configValues = {
-    ...prefs.configValues,
+    ...withoutSessionModel(prefs.configValues),
     __iyw_response_style: loadConversationDisplayPreferences().responseStyle,
   }
-
   return {
     modeId: resolveModeId(agentType, prefs),
     configValues: Object.keys(configValues).length > 0 ? configValues : null,
@@ -164,6 +170,7 @@ export function saveConfigPreference(
   configId: string,
   valueId: string
 ) {
+  if (configId === "model") return
   updatePrefs(agentType, (prefs) => ({
     ...prefs,
     configValues: { ...prefs.configValues, [configId]: valueId },
@@ -174,9 +181,9 @@ export function replaceConfigPreferences(
   agentType: string,
   configValues: Record<string, string>
 ) {
+  const next = withoutSessionModel(configValues)
   updatePrefs(agentType, (prefs) => ({
     ...prefs,
-    configValues:
-      Object.keys(configValues).length > 0 ? { ...configValues } : undefined,
+    configValues: next,
   }))
 }

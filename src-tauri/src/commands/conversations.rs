@@ -1568,6 +1568,33 @@ pub async fn update_conversation_status_core(
         .map_err(AppCommandError::from)
 }
 
+pub async fn update_conversation_model_core(
+    conn: &sea_orm::DatabaseConnection,
+    conversation_id: i32,
+    model: String,
+) -> Result<(), AppCommandError> {
+    let model = model.trim().to_string();
+    if model.is_empty() {
+        return Err(AppCommandError::invalid_input("Conversation model cannot be empty"));
+    }
+    conversation_service::update_model(conn, conversation_id, Some(model))
+        .await
+        .map_err(AppCommandError::from)
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn update_conversation_model(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDatabase>,
+    conversation_id: i32,
+    model: String,
+) -> Result<(), AppCommandError> {
+    update_conversation_model_core(&db.conn, conversation_id, model).await?;
+    emit_conversation_upsert(&EventEmitter::Tauri(app), &db.conn, conversation_id).await;
+    Ok(())
+}
+
 #[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn update_conversation_status(

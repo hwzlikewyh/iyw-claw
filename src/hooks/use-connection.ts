@@ -97,7 +97,11 @@ export interface UseConnectionReturn {
     workingDir?: string,
     sessionId?: string,
     conversationId?: number,
-    options?: { attachOnly?: boolean }
+    options?: {
+      attachOnly?: boolean
+      forceHostRestart?: boolean
+      preferredConfigValues?: Record<string, string> | null
+    }
   ) => Promise<void>
   disconnect: () => Promise<void>
   /** Restart the session (disconnect + resume same sessionId) so it picks up
@@ -105,7 +109,8 @@ export interface UseConnectionReturn {
    *  `false` on a no-op (viewer / delegation child / no connection). */
   reapplyConfig: (
     forceHostRestart?: boolean,
-    conversationId?: number
+    conversationId?: number,
+    preferredConfigValues?: Record<string, string> | null
   ) => Promise<boolean>
   /** Dismiss the stale banner for the current drift without restarting. */
   dismissConfigStale: () => void
@@ -251,7 +256,11 @@ export function useConnection(contextKey: string): UseConnectionReturn {
       workingDir?: string,
       sessionId?: string,
       conversationId?: number,
-      options?: { attachOnly?: boolean; forceHostRestart?: boolean }
+      options?: {
+        attachOnly?: boolean
+        forceHostRestart?: boolean
+        preferredConfigValues?: Record<string, string> | null
+      }
     ) =>
       actions.connect(
         contextKey,
@@ -310,8 +319,17 @@ export function useConnection(contextKey: string): UseConnectionReturn {
   )
 
   const reapplyConfig = useCallback(
-    (forceHostRestart?: boolean, conversationId?: number) =>
-      actions.reapplyConfig(contextKey, forceHostRestart, conversationId),
+    (
+      forceHostRestart?: boolean,
+      conversationId?: number,
+      preferredConfigValues?: Record<string, string> | null
+    ) =>
+      actions.reapplyConfig(
+        contextKey,
+        forceHostRestart,
+        conversationId,
+        preferredConfigValues
+      ),
     [actions, contextKey]
   )
 

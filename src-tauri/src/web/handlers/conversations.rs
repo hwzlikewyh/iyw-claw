@@ -324,6 +324,28 @@ pub async fn update_conversation_status(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UpdateConversationModelParams {
+    pub conversation_id: i32,
+    pub model: String,
+}
+
+pub async fn update_conversation_model(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<UpdateConversationModelParams>,
+) -> Result<Json<()>, AppCommandError> {
+    conv_commands::update_conversation_model_core(
+        &state.db.conn,
+        params.conversation_id,
+        params.model,
+    )
+    .await?;
+    conv_commands::emit_conversation_upsert(&state.emitter, &state.db.conn, params.conversation_id)
+        .await;
+    Ok(Json(()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateConversationTitleParams {
     pub conversation_id: i32,
     pub title: String,

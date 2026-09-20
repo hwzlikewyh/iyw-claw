@@ -1420,6 +1420,7 @@ mod tauri_app {
                 chat_attachment_commands::stage_chat_attachment_bytes,
                 chat_image_commands::prepare_chat_image,
                 conversations::update_conversation_status,
+                conversations::update_conversation_model,
                 conversations::update_conversation_title,
                 conversations::update_conversation_pinned,
                 conversations::delete_conversation,
