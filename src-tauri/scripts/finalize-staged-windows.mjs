@@ -6,12 +6,12 @@
  */
 
 import {
-  copyFileSync,
   cpSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs"
 import { execFileSync, spawnSync } from "node:child_process"
@@ -34,6 +34,13 @@ const PREFLIGHT_TIMEOUT_MS = 12 * 60_000
 const UNLOCK_TIMEOUT_MS = 90_000
 const BUNDLE_TIMEOUT_MS = 30 * 60_000
 const VERIFY_TIMEOUT_MS = 2 * 60_000
+const PROBE_ATTEMPTS = 3
+const PROBE_RETRY_DELAY_MS = 15_000
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
 
 function fail(message) {
   throw new Error(message)
@@ -75,28 +82,101 @@ function restoreStaging(includesFrontend) {
 
 function preflightToken() {
   const probe = join(tmpdir(), `iyw-signing-preflight-${process.pid}.exe`)
-  copyFileSync(process.execPath, probe)
+  // Keep the probe tiny. Copying node.exe made an ~89 MB probe; a large image
+  // is needless work for a call whose only job is to prove the token answers.
+  // Use a small real PE from the system instead.
+  //
+  // The token itself intermittently goes silent: signtool sits at ~1s CPU and
+  // never returns, so the call hits its timeout. Observed on both an ~89 MB
+  // node.exe copy and a 7 KB system DLL, so size is not the trigger -- the
+  // session is. Retrying clears it, so probe a few times before giving up and
+  // report the real cause so the next failure is not misread as a bad
+  // certificate.
+  const probeImage = readSmallestProbeImage()
   try {
     unlockToken()
-    const result = spawnSync(
-      process.execPath,
-      [
-        join(TOOL_ROOT, "src-tauri", "scripts", "sign-staged-windows.mjs"),
-        probe,
-      ],
-      {
-        cwd: ROOT,
-        stdio: "inherit",
-        windowsHide: false,
-        timeout: PREFLIGHT_TIMEOUT_MS,
-      }
+    let lastReason = "unknown"
+    for (let attempt = 1; attempt <= PROBE_ATTEMPTS; attempt += 1) {
+      writeFileSync(probe, probeImage)
+      const result = spawnSync(
+        process.execPath,
+        [
+          join(TOOL_ROOT, "src-tauri", "scripts", "sign-staged-windows.mjs"),
+          probe,
+        ],
+        {
+          cwd: ROOT,
+          stdio: "inherit",
+          windowsHide: false,
+          timeout: PREFLIGHT_TIMEOUT_MS,
+        }
+      )
+      if (!result.error && result.status === 0) return
+      lastReason = result.error?.code ?? `exit ${result.status}`
+      if (attempt === PROBE_ATTEMPTS) break
+      console.warn(
+        `[staged-signing][WARN] token probe attempt ${attempt}/${PROBE_ATTEMPTS} failed (${lastReason}); retrying`
+      )
+      sleepSync(PROBE_RETRY_DELAY_MS)
+    }
+    fail(
+      `SafeNet preflight failed after ${PROBE_ATTEMPTS} attempts (${lastReason}); ` +
+        "the hardware token did not respond to signtool"
     )
-    if (result.error) throw result.error
-    if (result.status !== 0)
-      fail(`SafeNet preflight failed with exit code ${result.status}`)
   } finally {
     rmSync(probe, { force: true })
   }
+}
+
+// Pick the smallest valid PE image already present on the machine. The token
+// probe only needs a well-formed signing target, so a few-hundred-kilobyte
+// system DLL is ideal and removes any dependency on shipping our own blob.
+function readSmallestProbeImage() {
+  const roots = [
+    process.env.SystemRoot ? join(process.env.SystemRoot, "System32") : null,
+    process.env.SystemRoot
+      ? join(process.env.SystemRoot, "SysWOW64")
+      : null,
+  ].filter(Boolean)
+  let best = null
+  let bestSize = Number.POSITIVE_INFINITY
+  for (const root of roots) {
+    let entries
+    try {
+      entries = readdirSync(root, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      if (!entry.isFile()) continue
+      if (!/\.(dll|exe)$/i.test(entry.name)) continue
+      const candidate = join(root, entry.name)
+      let size
+      try {
+        size = statSync(candidate).size
+      } catch {
+        continue
+      }
+      // Skip anything the token would choke on, and anything too tiny to be a
+      // real image.
+      if (size < 1024 || size > 256 * 1024) continue
+      if (size >= bestSize) continue
+      bestSize = size
+      best = candidate
+    }
+  }
+  if (!best) fail("no small PE image available for the signing token probe")
+  const image = readFileSync(best)
+  // Guard against picking a non-PE file (MZ magic + PE header signature).
+  if (image.length < 0x40 || image[0] !== 0x4d || image[1] !== 0x5a)
+    fail(`probe candidate is not a PE image: ${best}`)
+  const peOffset = image.readUInt32LE(0x3c)
+  if (peOffset + 4 > image.length || image.readUInt32LE(peOffset) !== 0x00004550)
+    fail(`probe candidate has no PE header: ${best}`)
+  console.log(
+    `[staged-signing] token probe image=${best} size=${image.length}`
+  )
+  return image
 }
 
 // KSP 与 PKCS#11 会话不等价；解锁后仍由真实签名探针判定是否可用。
