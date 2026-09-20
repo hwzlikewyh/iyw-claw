@@ -15,6 +15,7 @@ pub use super::chat_channel_target::Entity as ChatChannelTarget;
 pub use super::chat_channel_thread_binding::Entity as ChatChannelThreadBinding;
 pub use super::chat_channel_tool_request::Entity as ChatChannelToolRequest;
 pub use super::conversation::Entity as Conversation;
+pub use super::conversation_session_segment::Entity as ConversationSessionSegment;
 pub use super::folder::Entity as Folder;
 pub use super::folder_command::Entity as FolderCommand;
 pub use super::managed_tool_installation::Entity as ManagedToolInstallation;

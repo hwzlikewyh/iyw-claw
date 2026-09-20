@@ -119,13 +119,23 @@ export async function acpConnect(
   agentType: AgentType,
   workingDir?: string,
   sessionId?: string,
-  conversationId?: number
+  conversationId?: number,
+  preferredModeId?: string | null,
+  preferredConfigValues?: Record<string, string> | null,
+  forceHostRestart = false,
+  continuationFromSessionId?: string,
+  continuationContext?: string
 ): Promise<string> {
   return invoke("acp_connect", {
     agentType,
     workingDir: workingDir ?? null,
     sessionId: sessionId ?? null,
     conversationId: conversationId ?? null,
+    preferredModeId: preferredModeId ?? null,
+    preferredConfigValues: preferredConfigValues ?? null,
+    forceHostRestart,
+    continuationFromSessionId: continuationFromSessionId ?? null,
+    continuationContext: continuationContext ?? null,
   })
 }
 

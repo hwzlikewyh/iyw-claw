@@ -56,6 +56,22 @@ pub fn build_context_primer(turns: &[MessageTurn]) -> ConversationContextPrimer 
     }
 }
 
+/// Build a primer for automatic session succession. The final user exchange is
+/// retained only when the parser recorded a completed assistant turn after it;
+/// otherwise a disconnected agent may have persisted an unfinished request.
+pub fn build_continuation_context_primer(turns: &[MessageTurn]) -> ConversationContextPrimer {
+    let boundary = turns
+        .iter()
+        .rposition(|turn| matches!(turn.role, TurnRole::User))
+        .filter(|last_user| {
+            !turns[last_user + 1..].iter().any(|turn| {
+                matches!(turn.role, TurnRole::Assistant) && turn.completed_at.is_some()
+            })
+        })
+        .unwrap_or(turns.len());
+    build_context_primer(&turns[..boundary])
+}
+
 fn select_exchanges(turns: &[MessageTurn], user_indices: &[usize]) -> (Vec<String>, bool) {
     let recent = user_indices.len().saturating_sub(MAX_USER_TURNS);
     let mut selected = Vec::new();

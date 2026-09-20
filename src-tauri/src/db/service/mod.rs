@@ -16,6 +16,8 @@ pub mod codex_title_service;
 pub mod conversation_binding_service;
 mod conversation_query;
 pub mod conversation_service;
+pub mod conversation_session_segment_service;
+pub mod conversation_session_segment_transition;
 pub mod conversation_title_service;
 pub mod folder_command_service;
 pub mod folder_service;

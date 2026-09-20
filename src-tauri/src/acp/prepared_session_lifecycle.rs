@@ -72,6 +72,8 @@ impl ConnectionManager {
                 crate::user_memory::UserMemoryOrigin::Root,
                 trace,
                 Some(entry.clone()),
+                None,
+                None,
             )
             .await?;
         if id != entry.id {

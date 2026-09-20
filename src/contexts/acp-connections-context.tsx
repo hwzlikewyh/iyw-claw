@@ -41,6 +41,7 @@ import {
   acpGetSessionSnapshot,
   acpFindConnectionForConversation,
   resumeAgentInputs,
+  getConversationContinuationPrimer,
 } from "@/lib/api"
 import { denormalizeSnapshot } from "@/lib/snapshot-denormalize"
 import { recoverWorkerContent } from "@/lib/worker-content-recovery"
@@ -332,6 +333,8 @@ type ConnectRequest = {
   // request still runs discovery.
   conversationId?: number
   preferredConfigValues?: Record<string, string> | null
+  continuationFromSessionId?: string
+  continuationContext?: string
   attachOnly?: boolean
   forceHostRestart?: boolean
 }
@@ -362,7 +365,10 @@ function sameConnectRequest(a: ConnectRequest, b: ConnectRequest) {
     JSON.stringify(a.preferredConfigValues ?? null) ===
       JSON.stringify(b.preferredConfigValues ?? null) &&
     Boolean(a.attachOnly) === Boolean(b.attachOnly) &&
-    Boolean(a.forceHostRestart) === Boolean(b.forceHostRestart)
+    Boolean(a.forceHostRestart) === Boolean(b.forceHostRestart) &&
+    (a.continuationFromSessionId ?? null) ===
+      (b.continuationFromSessionId ?? null) &&
+    (a.continuationContext ?? null) === (b.continuationContext ?? null)
   )
 }
 
@@ -2684,6 +2690,8 @@ export interface AcpActionsValue {
       attachOnly?: boolean
       forceHostRestart?: boolean
       preferredConfigValues?: Record<string, string> | null
+      continuationFromSessionId?: string
+      continuationContext?: string
     }
   ): Promise<void>
   disconnect(contextKey: string): Promise<void>
@@ -3064,6 +3072,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
   const pendingUnmappedEventsRef = useRef(new Map<string, EventEnvelope[]>())
   const recoveringContextKeysRef = useRef(new Set<string>())
   const pendingRecoveryEventsRef = useRef(new Map<string, EventEnvelope[]>())
+  const pendingContinuationRef = useRef(
+    new Map<string, { conversationId: number; expectedExternalId: string }>()
+  )
   const listenerReadyRef = useRef(false)
   const listenerReadyWaitersRef = useRef<Array<() => void>>([])
   // Set of refs (not callbacks) so unmount cleanup matches the original
@@ -3228,6 +3239,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
               attachOnly: latest.request.attachOnly,
               forceHostRestart: latest.request.forceHostRestart,
               preferredConfigValues: latest.request.preferredConfigValues,
+              continuationFromSessionId:
+                latest.request.continuationFromSessionId,
+              continuationContext: latest.request.continuationContext,
             }
           )
           .catch(() => {})
@@ -4285,6 +4299,59 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             contextKey,
             message: localizedMessage,
           })
+          const failedConnection = storeRef.current.connections.get(contextKey)
+          const conversationId =
+            runtimeConversationIdsRef.current.get(contextKey) ?? null
+          const expectedExternalId = failedConnection?.sessionId ?? null
+          const canCreateSuccessor =
+            e.code === "resource_not_found" || e.code === "session_unavailable"
+          if (
+            canCreateSuccessor &&
+            conversationId != null &&
+            expectedExternalId &&
+            !pendingContinuationRef.current.has(contextKey)
+          ) {
+            pendingContinuationRef.current.set(contextKey, {
+              conversationId,
+              expectedExternalId,
+            })
+            const reconnect = connectRef.current
+            if (reconnect && failedConnection) {
+              void (async () => {
+                let continuationContext: string
+                try {
+                  continuationContext = (
+                    await getConversationContinuationPrimer(conversationId)
+                  ).text
+                } catch (error) {
+                  console.warn(
+                    "[acp-context] continuation context primer unavailable",
+                    contextKey,
+                    error
+                  )
+                  throw error
+                }
+                try {
+                  await reconnect(
+                    contextKey,
+                    failedConnection.agentType,
+                    failedConnection.workingDir ?? undefined,
+                    undefined,
+                    conversationId,
+                    {
+                      forceHostRestart: true,
+                      continuationFromSessionId: expectedExternalId,
+                      continuationContext,
+                    }
+                  )
+                } finally {
+                  pendingContinuationRef.current.delete(contextKey)
+                }
+              })().catch(() => {
+                pendingContinuationRef.current.delete(contextKey)
+              })
+            }
+          }
           break
         }
         case "available_commands":
@@ -4981,6 +5048,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         attachOnly?: boolean
         forceHostRestart?: boolean
         preferredConfigValues?: Record<string, string> | null
+        continuationFromSessionId?: string
+        continuationContext?: string
       }
     ) => {
       const request: ConnectRequest = {
@@ -4991,6 +5060,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         attachOnly: options?.attachOnly,
         forceHostRestart: options?.forceHostRestart,
         preferredConfigValues: options?.preferredConfigValues,
+        continuationFromSessionId: options?.continuationFromSessionId,
+        continuationContext: options?.continuationContext,
       }
       const pendingReplacement = pendingReplacementsRef.current.get(contextKey)
       if (
@@ -5199,7 +5270,11 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         // streaming). Only for real persisted conversations (id > 0) — a
         // brand-new conversation has no live owner yet, so we spawn + own.
         // Best-effort: a discovery failure falls through to the owner spawn.
-        if (conversationId != null && conversationId > 0) {
+        if (
+          conversationId != null &&
+          conversationId > 0 &&
+          !request.continuationFromSessionId
+        ) {
           let discovered: ConversationConnectionInfo | null = null
           try {
             // Pass sessionId so discovery can fall back to external_id when the
@@ -5299,10 +5374,16 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           Object.keys(preferredConfigValues).length > 0
             ? preferredConfigValues
             : null,
-          request.forceHostRestart ?? false
+          request.forceHostRestart ?? false,
+          request.continuationFromSessionId,
+          request.continuationContext
         )
         consumeAcpPreparation(preparationTarget)
-        if (conversationId != null && conversationId > 0) {
+        if (
+          conversationId != null &&
+          conversationId > 0 &&
+          !request.continuationFromSessionId
+        ) {
           try {
             await resumeAgentInputs(connectionId, conversationId)
           } catch (error) {
@@ -5468,6 +5549,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                     forceHostRestart: pendingRequest.forceHostRestart,
                     preferredConfigValues:
                       pendingRequest.preferredConfigValues,
+                    continuationFromSessionId:
+                      pendingRequest.continuationFromSessionId,
+                    continuationContext: pendingRequest.continuationContext,
                   }
                 )
                 .catch(() => {})

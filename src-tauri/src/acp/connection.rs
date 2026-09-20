@@ -1434,6 +1434,9 @@ pub(crate) async fn spawn_agent_connection(
     builtin_mcp: Option<crate::acp::builtin_mcp::BuiltinMcpClient>,
     version_center_db: Option<sea_orm::DatabaseConnection>,
     storage_read_guard: crate::acp::agent_storage_work::AgentStorageReadGuard,
+    continuation_from_session_id: Option<String>,
+    continuation_context: Option<String>,
+    continuation_attempt_id: Option<String>,
 ) -> Result<tokio::sync::oneshot::Receiver<()>, AcpError> {
     let spawn_gate = connection_tasks.begin_spawn().await?;
     let mut preferred_config_values = preferred_config_values;
@@ -1499,6 +1502,17 @@ pub(crate) async fn spawn_agent_connection(
     initial_state.startup_trace = Some(startup_trace.clone());
     initial_state.hermes_memory = hermes_memory.native_memory;
     initial_state.user_memory_context = user_memory_context;
+    initial_state.continuation_context = continuation_context.and_then(|context| {
+        let context = context.chars().take(24_000).collect::<String>();
+        (!context.trim().is_empty()).then(|| {
+            Arc::<str>::from(format!(
+                "{}\n{}\n{}",
+                crate::user_memory::USER_CONTEXT_START,
+                context,
+                crate::user_memory::USER_CONTEXT_END,
+            ))
+        })
+    });
     initial_state.is_delegation_child = is_delegation_child;
     if session_id.is_some() {
         // The external session already retains the user-memory envelope in its
@@ -1726,6 +1740,10 @@ pub(crate) async fn spawn_agent_connection(
     let recovery_in_progress = Arc::new(RecoveryProgress::new());
     let recovery_in_progress_for_run = Arc::clone(&recovery_in_progress);
     let recovery_session_id = session_id.clone();
+    let continuation_activated = Arc::new(AtomicBool::new(false));
+    let continuation_activated_for_run = Arc::clone(&continuation_activated);
+    let continuation_attempt_id_for_cleanup = continuation_attempt_id.clone();
+    let continuation_db_for_cleanup = version_center_db.clone();
 
     // Insert the entry BEFORE spawning the background task so that a
     // fast-failing `run_connection` can never remove it before it was
@@ -1801,6 +1819,9 @@ pub(crate) async fn spawn_agent_connection(
                 cancellation,
                 disconnect_command_ready,
                 http_lease_issued,
+                continuation_from_session_id,
+                continuation_attempt_id,
+                continuation_activated_for_run,
             ),
             cleanup_connection_resources(
                 cleanup_injection.as_ref(),
@@ -1811,6 +1832,18 @@ pub(crate) async fn spawn_agent_connection(
             ),
         )
         .await;
+        if let (Some(attempt_id), Some(db)) = (
+            continuation_attempt_id_for_cleanup.as_deref(),
+            continuation_db_for_cleanup.as_ref(),
+        ) {
+            if !continuation_activated.load(Ordering::Acquire) {
+                let _ = crate::db::service::conversation_session_segment_service::fail_pending(
+                    db,
+                    attempt_id,
+                )
+                .await;
+            }
+        }
         let connection_failed = result.is_err();
 
         if agent_type == AgentType::Codex {
@@ -3299,6 +3332,9 @@ async fn run_connection(
     cancellation: tokio_util::sync::CancellationToken,
     disconnect_command_ready: Arc<AtomicBool>,
     http_lease_issued: Arc<AtomicBool>,
+    continuation_from_session_id: Option<String>,
+    continuation_attempt_id: Option<String>,
+    continuation_activated: Arc<AtomicBool>,
 ) -> Result<(), AcpError> {
     let mut attempt_agent = Some(agent);
     let mut reconnect_attempts = 0usize;
@@ -3479,6 +3515,9 @@ async fn run_connection(
         let authority_parent_cancellation = attempt_cancellation.clone();
         let reconnect_session_id = session_id.clone();
         let reconnect_host_health = Arc::clone(&host_health);
+        let continuation_from_session_id = continuation_from_session_id.clone();
+        let continuation_attempt_id = continuation_attempt_id.clone();
+        let continuation_activated = Arc::clone(&continuation_activated);
         let companion_launch = &mut companion_launch;
         let tools_cancellation = cancellation.clone();
         let opencode_fork = (agent_type == AgentType::OpenCode)
@@ -4183,6 +4222,45 @@ async fn run_connection(
                 mcp_recovery::wait_ready(tools_ready.as_ref(), &conn_id, &tools_cancellation)
                     .await
                     .map_err(ConnectionAttemptError::from)?;
+                if let Some(expected_external_id) = continuation_from_session_id.as_deref() {
+                    let conversation_id = database_conversation_id.ok_or_else(|| {
+                        sacp::util::internal_error(
+                            "continuation session has no durable conversation id",
+                        )
+                    })?;
+                    let db = version_center_db.as_ref().ok_or_else(|| {
+                        sacp::util::internal_error(
+                            "continuation session database is unavailable",
+                        )
+                    })?;
+                    let adopted = crate::db::service::conversation_service::update_external_id_if_matches(
+                        db,
+                        conversation_id,
+                        Some(expected_external_id),
+                        &sid,
+                    )
+                    .await
+                    .map_err(|error| {
+                        sacp::util::internal_error(format!(
+                            "continuation session binding failed: {error}"
+                        ))
+                    })?;
+                    if !adopted {
+                        return Err(sacp::util::internal_error(
+                            "conversation changed before continuation session was bound",
+                        )
+                        .into());
+                    }
+                    continuation_activated.store(true, Ordering::Release);
+                    tracing::info!(
+                        connection_id = conn_id,
+                        conversation_id,
+                        predecessor_session_id = expected_external_id,
+                        successor_session_id = sid,
+                        recovery_attempt_id = continuation_attempt_id.as_deref().unwrap_or(""),
+                        "[ACP] continuation session bound before SessionStarted"
+                    );
+                }
                 finalize_user_memory_launch(
                     &state,
                     &emitter_clone,
@@ -5819,7 +5897,7 @@ impl PromptLogContext<'_> {
 
     fn failed(
         &self,
-        error: &impl std::fmt::Display,
+        error: &sacp::Error,
         tool_call_count: usize,
         tool_stats: &ToolCallFailureStats,
     ) {
@@ -5828,7 +5906,7 @@ impl PromptLogContext<'_> {
             connection_id = self.connection_id,
             session_id = %self.session_id,
             agent_type = %self.agent_type,
-            error_kind = prompt_error_kind(&detail),
+            error_kind = prompt_error_kind(error),
             error = %detail,
             elapsed_ms = self.started_at.elapsed().as_millis(),
             tool_call_count,
@@ -5934,12 +6012,21 @@ fn is_prompt_transport_error(error: &sacp::Error) -> bool {
         })
 }
 
-fn should_terminate_prompt_error(error: &sacp::Error, host_healthy: bool) -> bool {
-    !host_healthy || is_prompt_transport_error(error)
+fn is_stream_disconnected_error(error: &sacp::Error) -> bool {
+    matches!(error.code, sacp::schema::ErrorCode::InternalError)
+        && error
+            .data
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|detail| detail.starts_with("stream disconnected before completion:"))
 }
 
-fn prompt_error_kind(detail: &str) -> &'static str {
-    if detail.starts_with("stream disconnected before completion:") {
+fn should_terminate_prompt_error(error: &sacp::Error, host_healthy: bool) -> bool {
+    !host_healthy || is_prompt_transport_error(error) || is_stream_disconnected_error(error)
+}
+
+fn prompt_error_kind(error: &sacp::Error) -> &'static str {
+    if is_stream_disconnected_error(error) {
         "stream_disconnected"
     } else {
         "acp_prompt_request_failed"
@@ -6784,7 +6871,7 @@ async fn run_conversation_loop<'a>(
                                             session_id = %sid.0,
                                             agent_type = %agent_type,
                                             host_healthy,
-                                            error_kind = prompt_error_kind(&error.to_string()),
+                                            error_kind = prompt_error_kind(&error),
                                             error = %safe_error_detail(&error.to_string()),
                                             "[ACP] prompt RPC failed on an unusable transport"
                                         );

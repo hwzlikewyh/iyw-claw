@@ -1409,6 +1409,7 @@ mod tauri_app {
                 conversations::import_local_conversations,
                 conversations::get_folder_conversation,
                 conversations::get_conversation_context_primer,
+                conversations::get_conversation_continuation_primer,
                 conversations::list_folders,
                 conversations::get_stats,
                 conversations::get_sidebar_data,

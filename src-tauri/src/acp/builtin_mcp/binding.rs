@@ -25,6 +25,7 @@ struct SessionBinding {
     principal: Principal,
     parent_connection_id: String,
     phase: Arc<AtomicU8>,
+    stream_cancellation: CancellationToken,
 }
 
 #[derive(Clone)]
@@ -76,6 +77,7 @@ impl SessionBindings {
         let replaced = match current_id {
             Some(current_id) => {
                 let current = entries.remove(&current_id).expect("binding exists");
+                current.stream_cancellation.cancel();
                 let previous_phase = current.phase.swap(REPLACED, Ordering::AcqRel);
                 tracing::info!(
                     target: "builtin_mcp",
@@ -94,6 +96,7 @@ impl SessionBindings {
                 principal,
                 parent_connection_id,
                 phase: Arc::clone(&phase),
+                stream_cancellation: CancellationToken::new(),
             },
         );
         BindProvisionalResult::Bound {
@@ -110,15 +113,15 @@ impl SessionBindings {
         &self,
         session_id: &str,
         principal: Principal,
-    ) -> bool {
+    ) -> Option<CancellationToken> {
         let entries = self.inner.write().await;
         let Some(binding) = entries
             .get(session_id)
             .filter(|binding| binding.principal == principal)
         else {
-            return false;
+            return None;
         };
-        confirm_phase(&binding.phase)
+        confirm_phase(&binding.phase).then(|| binding.stream_cancellation.clone())
     }
 
     pub(super) fn mark_delivered(ticket: &ProvisionalBinding) {
@@ -152,13 +155,16 @@ impl SessionBindings {
             binding.principal == ticket.principal && Arc::ptr_eq(&binding.phase, &ticket.phase)
         });
         if matches {
-            entries.remove(&ticket.session_id);
+            if let Some(binding) = entries.remove(&ticket.session_id) {
+                binding.stream_cancellation.cancel();
+            }
         }
         matches
     }
 
     pub(super) async fn remove(&self, session_id: &str) {
         if let Some(binding) = self.inner.write().await.remove(session_id) {
+            binding.stream_cancellation.cancel();
             binding.phase.store(REPLACED, Ordering::Release);
         }
     }
@@ -170,6 +176,7 @@ impl SessionBindings {
             .is_some_and(|binding| binding.principal == principal);
         if authorized {
             if let Some(binding) = entries.remove(session_id) {
+                binding.stream_cancellation.cancel();
                 binding.phase.store(REPLACED, Ordering::Release);
             }
         }
@@ -251,6 +258,7 @@ fn take_matching(
         if !matches(binding) {
             return true;
         }
+        binding.stream_cancellation.cancel();
         binding.phase.store(REPLACED, Ordering::Release);
         removed.push(Arc::<str>::from(session_id.as_str()));
         false

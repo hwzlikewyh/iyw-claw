@@ -230,7 +230,9 @@ export async function acpConnect(
   conversationId?: number,
   preferredModeId?: string | null,
   preferredConfigValues?: Record<string, string> | null,
-  forceHostRestart = false
+  forceHostRestart = false,
+  continuationFromSessionId?: string,
+  continuationContext?: string
 ): Promise<string> {
   return getTransport().call("acp_connect", {
     agentType,
@@ -240,6 +242,8 @@ export async function acpConnect(
     preferredModeId: preferredModeId ?? null,
     preferredConfigValues: preferredConfigValues ?? null,
     forceHostRestart,
+    continuationFromSessionId: continuationFromSessionId ?? null,
+    continuationContext: continuationContext ?? null,
   })
 }
 
@@ -1831,6 +1835,14 @@ export async function getConversationContextPrimer(
   conversationId: number
 ): Promise<ConversationContextPrimer> {
   return getTransport().call("get_conversation_context_primer", {
+    conversationId,
+  })
+}
+
+export async function getConversationContinuationPrimer(
+  conversationId: number
+): Promise<ConversationContextPrimer> {
+  return getTransport().call("get_conversation_continuation_primer", {
     conversationId,
   })
 }

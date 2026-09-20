@@ -349,6 +349,10 @@ pub struct SessionState {
     /// so snapshots and attached windows do not need to poll between events.
     pub agent_inputs: Vec<crate::acp::AgentInputItem>,
     pub auto_continuation: Option<AutoContinuationInfo>,
+    /// Bounded transcript context for a successor session. This is consumed
+    /// exactly once by the first explicit user prompt and is never emitted as
+    /// an independent user turn.
+    pub continuation_context: Option<Arc<str>>,
 
     /// Launched but unresolved Claude background tasks mirrored from the
     /// transcript watcher. A missing heartbeat marks the state unknown rather
@@ -666,6 +670,7 @@ impl SessionState {
             feedback: Vec::new(),
             agent_inputs: Vec::new(),
             auto_continuation: None,
+            continuation_context: None,
             background_outstanding: 0,
             background_uncertain: false,
             background_activity_at: None,

@@ -8,6 +8,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use futures::future::join_all;
+use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
 use sea_orm::{
@@ -60,6 +61,15 @@ fn combine_prompt_context(launch: Option<Arc<str>>, private: Option<Arc<str>>) -
         (Some(context), None) | (None, Some(context)) => Some(context),
         (Some(launch), Some(private)) => Some(Arc::from(format!("{launch}\n\n{private}"))),
     }
+}
+
+fn continuation_context_digest(context: Option<&str>) -> Option<String> {
+    context.filter(|text| !text.trim().is_empty()).map(|text| {
+        let mut hasher = Sha256::new();
+        hasher.update(b"iyw-claw/continuation-context/v1\0");
+        hasher.update(text.chars().take(24_000).collect::<String>().as_bytes());
+        format!("{:x}", hasher.finalize())
+    })
 }
 
 async fn align_conversation_turn_generation(
@@ -715,6 +725,8 @@ impl ConnectionManager {
             crate::user_memory::UserMemoryOrigin::Root,
             startup_trace,
             None,
+            None,
+            None,
         )
         .await
     }
@@ -732,6 +744,8 @@ impl ConnectionManager {
         preferred_mode_id: Option<String>,
         preferred_config_values: BTreeMap<String, String>,
         force_host_restart: bool,
+        continuation_from_session_id: Option<String>,
+        continuation_context: Option<String>,
         startup_trace: crate::acp::startup_trace::StartupTrace,
     ) -> Result<String, AcpError> {
         self.spawn_agent_with_origin_traced(
@@ -748,6 +762,8 @@ impl ConnectionManager {
             crate::user_memory::UserMemoryOrigin::Root,
             startup_trace,
             None,
+            continuation_from_session_id,
+            continuation_context,
         )
         .await
     }
@@ -786,6 +802,8 @@ impl ConnectionManager {
             user_memory_origin,
             startup_trace,
             None,
+            None,
+            None,
         )
         .await
     }
@@ -806,6 +824,8 @@ impl ConnectionManager {
         user_memory_origin: crate::user_memory::UserMemoryOrigin,
         startup_trace: crate::acp::startup_trace::StartupTrace,
         preparation: Option<Arc<prepared::Entry>>,
+        continuation_from_session_id: Option<String>,
+        continuation_context: Option<String>,
     ) -> Result<String, AcpError> {
         if preparation.is_none() {
             self.retire_conflicting_preparations((agent_type, session_id.as_deref()), None).await?;
@@ -1038,7 +1058,46 @@ impl ConnectionManager {
         // a cleanup hook, and returns the rx half of the signal. Any spawn
         // failure short-circuits before we touch the rx wait.
         self.require_agent_launch_policy(agent_type, true).await?;
-        let session_started_rx = spawn_agent_connection(
+        if continuation_from_session_id.is_some()
+            && continuation_context
+                .as_deref()
+                .is_none_or(|context| context.trim().is_empty())
+        {
+            return Err(AcpError::protocol(
+                "conversation continuation requires a verified context primer",
+            ));
+        }
+        let continuation_context_digest =
+            continuation_context_digest(continuation_context.as_deref());
+        let continuation_attempt_id = match (
+            continuation_from_session_id.as_deref(),
+            resolved_conversation_id,
+        ) {
+            (Some(expected_external_id), Some(conversation_id)) => {
+                let requested_attempt_id = uuid::Uuid::new_v4().to_string();
+                let pending = crate::db::service::conversation_session_segment_service::reserve_continuation(
+                    &version_center_db,
+                    conversation_id,
+                    expected_external_id,
+                    &requested_attempt_id,
+                    continuation_context_digest.as_deref(),
+                )
+                .await
+                .map_err(|error| {
+                    AcpError::protocol(format!(
+                        "conversation continuation could not be reserved: {error}"
+                    ))
+                })?;
+                Some(pending.recovery_attempt_id)
+            }
+            (Some(_), None) => {
+                return Err(AcpError::protocol(
+                    "conversation continuation has no durable conversation row",
+                ));
+            }
+            (None, _) => None,
+        };
+        let session_started_rx = match spawn_agent_connection(
             connection_id.clone(),
             agent_type,
             working_dir,
@@ -1064,8 +1123,23 @@ impl ConnectionManager {
             self.builtin_mcp_snapshot(),
             Some(version_center_db.clone()),
             storage_read_guard,
+            continuation_from_session_id,
+            continuation_context,
+            continuation_attempt_id.clone(),
         )
-        .await?;
+        .await {
+            Ok(receiver) => receiver,
+            Err(error) => {
+                if let Some(attempt_id) = continuation_attempt_id.as_deref() {
+                    let _ = crate::db::service::conversation_session_segment_service::fail_pending(
+                        &version_center_db,
+                        attempt_id,
+                    )
+                    .await;
+                }
+                return Err(error);
+            }
+        };
 
         if let Some(entry) = preparation { entry.registered(); }
         // When dedup is active, hold the lock until the agent's
@@ -1767,7 +1841,11 @@ impl ConnectionManager {
                     .clone()
                     .filter(|context| !context.trim().is_empty())
             };
-            combine_prompt_context(launch, combine_prompt_context(memory_context, reminder))
+            let continuation = s.continuation_context.take();
+            combine_prompt_context(
+                continuation,
+                combine_prompt_context(launch, combine_prompt_context(memory_context, reminder)),
+            )
         };
         let user_context = combine_prompt_context(launch_context, private_context);
         permit.send(ConnectionCommand::Prompt {

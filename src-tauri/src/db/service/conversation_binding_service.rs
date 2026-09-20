@@ -7,7 +7,7 @@ use sea_orm::{
 use sha2::{Digest, Sha256};
 
 use crate::chat_channel::types::ChannelMessageTarget;
-use crate::db::entities::{chat_channel_conversation_binding, conversation};
+use crate::db::entities::chat_channel_conversation_binding;
 use crate::db::error::DbError;
 
 const ROUTE_VERSION: &str = "v1";
@@ -222,8 +222,13 @@ pub async fn persist_session_start(
 ) -> Result<bool, DbError> {
     let txn = conn.begin().await?;
     let outcome: Result<bool, DbError> = async {
-        if !update_external_id_if_matches(&txn, conversation_id, expected_external_id, external_id)
-            .await?
+        if !super::conversation_session_segment_transition::persist(
+            &txn,
+            conversation_id,
+            expected_external_id,
+            external_id,
+        )
+        .await?
         {
             return Ok(false);
         }
@@ -255,36 +260,6 @@ pub async fn persist_session_start(
             Err(error)
         }
     }
-}
-
-async fn update_external_id_if_matches<C: ConnectionTrait>(
-    conn: &C,
-    conversation_id: i32,
-    expected_external_id: Option<&str>,
-    external_id: &str,
-) -> Result<bool, DbError> {
-    use sea_orm::sea_query::Expr;
-
-    let expected = match expected_external_id {
-        Some(value) => sea_orm::Condition::any()
-            .add(conversation::Column::ExternalId.eq(value))
-            .add(conversation::Column::ExternalId.eq(external_id)),
-        None => sea_orm::Condition::any()
-            .add(conversation::Column::ExternalId.is_null())
-            .add(conversation::Column::ExternalId.eq(external_id)),
-    };
-    let result = conversation::Entity::update_many()
-        .col_expr(
-            conversation::Column::ExternalId,
-            Expr::value(external_id.to_string()),
-        )
-        .col_expr(conversation::Column::UpdatedAt, Expr::value(Utc::now()))
-        .filter(conversation::Column::Id.eq(conversation_id))
-        .filter(conversation::Column::DeletedAt.is_null())
-        .filter(expected)
-        .exec(conn)
-        .await?;
-    Ok(result.rows_affected > 0)
 }
 
 async fn upsert_route<C: ConnectionTrait>(

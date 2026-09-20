@@ -1,3 +1,4 @@
+use std::future::{pending, Future};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 
@@ -6,6 +7,7 @@ use axum::response::Response;
 use futures_util::stream::poll_fn;
 use futures_util::Stream;
 use tokio::sync::OwnedSemaphorePermit;
+use tokio_util::sync::CancellationToken;
 
 type RelayCallback = Box<dyn FnOnce() + Send + 'static>;
 
@@ -102,13 +104,24 @@ pub(super) fn wrap_delivery(
     response: &mut Response,
     delivery: RelayDelivery,
     permits: (OwnedSemaphorePermit, OwnedSemaphorePermit),
+    cancellation: Option<CancellationToken>,
 ) {
     let body = std::mem::replace(response.body_mut(), Body::empty());
     let mut stream = Box::pin(body.into_data_stream());
     let mut failed = false;
     let relay = RelayGuard(delivery);
+    let mut cancelled = Box::pin(async move {
+        match cancellation {
+            Some(token) => token.cancelled().await,
+            None => pending::<()>().await,
+        }
+    });
     let stream = poll_fn(move |context| {
         let _ = &permits;
+        if cancelled.as_mut().poll(context).is_ready() {
+            relay.0.abort();
+            return Poll::Ready(None);
+        }
         match stream.as_mut().poll_next(context) {
             Poll::Ready(None) => {
                 if !failed {

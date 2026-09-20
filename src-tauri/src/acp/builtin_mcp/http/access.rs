@@ -6,6 +6,7 @@ use axum::http::{Method, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use rmcp::transport::streamable_http_server::{SessionId, SessionManager};
 use tokio::sync::OwnedSemaphorePermit;
+use tokio_util::sync::CancellationToken;
 
 use super::{AuthHttpState, SESSION_HEADER};
 use crate::acp::builtin_mcp::authority::SessionContext;
@@ -20,6 +21,7 @@ pub(super) struct AuthenticatedAccess {
     pub(super) context: SessionContext,
     pub(super) principal: Principal,
     pub(super) session_id: Option<String>,
+    pub(super) stream_cancellation: Option<CancellationToken>,
     pub(super) global_permit: OwnedSemaphorePermit,
     pub(super) session_permit: OwnedSemaphorePermit,
 }
@@ -62,11 +64,12 @@ pub(super) async fn authenticate_access(
         ));
     };
     let principal = Principal::from_bearer(&metadata.bearer);
-    let session_id = validate_session(state, &metadata, principal).await?;
+    let (session_id, session_cancellation) = validate_session(state, &metadata, principal).await?;
     Ok(AuthenticatedAccess {
         context,
         principal,
         session_id,
+        stream_cancellation: stream_request.then_some(session_cancellation).flatten(),
         global_permit,
         session_permit,
     })
@@ -76,18 +79,18 @@ async fn validate_session(
     state: &AuthHttpState,
     metadata: &RequestMetadata,
     principal: Principal,
-) -> Result<Option<String>, Response> {
+) -> Result<(Option<String>, Option<CancellationToken>), Response> {
     if let Some(ref session_id) = metadata.session_id {
-        if !state
+        let Some(stream_cancellation) = state
             .bindings
             .confirm_and_authorize(session_id, principal)
             .await
-        {
+        else {
             return Err(text_response(
                 StatusCode::NOT_FOUND,
                 "MCP session not found",
             ));
-        }
+        };
         let protocol_id: SessionId = Arc::<str>::from(session_id.as_str());
         if !state
             .protocol_sessions
@@ -104,10 +107,11 @@ async fn validate_session(
                 "MCP session not found",
             ));
         }
+        return Ok((metadata.session_id.clone(), Some(stream_cancellation)));
     } else {
         prune_stale_sessions(state, principal).await;
     }
-    Ok(metadata.session_id.clone())
+    Ok((None, None))
 }
 
 pub(super) fn request_metadata(

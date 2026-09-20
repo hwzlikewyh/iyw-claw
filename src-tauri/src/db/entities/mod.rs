@@ -14,6 +14,7 @@ pub mod chat_channel_target;
 pub mod chat_channel_thread_binding;
 pub mod chat_channel_tool_request;
 pub mod conversation;
+pub mod conversation_session_segment;
 pub mod folder;
 pub mod folder_command;
 pub mod managed_tool_installation;
