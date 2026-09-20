@@ -210,25 +210,11 @@ function unlockToken() {
       "could not unlock the signing token through the CNG KSP with the configured PIN (IYW_CLAW_SAFENET_PIN)"
     )
   }
-  // Non-fatal: PKCS#11 is not what signtool reads, and a transient middleware
-  // error here must not fail a job that can already sign through the KSP.
-  const script = join(
-    TOOL_ROOT,
-    "src-tauri",
-    "scripts",
-    "unlock-signing-token.mjs"
-  )
-  const result = spawnSync(process.execPath, [script], {
-    cwd: ROOT,
-    stdio: "inherit",
-    windowsHide: true,
-    timeout: UNLOCK_TIMEOUT_MS,
-  })
-  if (result.error || result.status !== 0) {
-    console.warn(
-      `[staged-signing] PKCS#11 unlock did not complete (${result.error?.code || result.status}); continuing to the real signing probe`
-    )
-  }
+  // Do NOT also open a PKCS#11 session here. signtool signs through the CNG
+  // KSP above, and the extra middleware login destabilised the token: jobs
+  // logged "unexpected PKCS#11 host failure" and then signtool returned
+  // success while producing no signature, so the probe failed on a token that
+  // was working a moment earlier. The KSP unlock is sufficient on its own.
 }
 
 function prepareBundleConfig() {
