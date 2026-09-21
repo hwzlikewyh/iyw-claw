@@ -54,6 +54,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           IYW_FUSION_ADMIN_TOKEN: ${{ secrets.FUSION_ADMIN_TOKEN }}
+          IYW_FUSION_GATEWAY_TOKEN: ${{ secrets.FUSION_ACCESS_TOKEN }}
           IYW_CLAW_FUSION_API_BASE_URL: https://gateway.iyw.cn/iyw-fusion-api
         run: |
           set -euo pipefail

@@ -8,6 +8,9 @@ if (!version) throw new Error("release version is required")
 const adminToken =
   process.env.IYW_FUSION_ADMIN_TOKEN || process.env.FUSION_ADMIN_TOKEN
 if (!adminToken) throw new Error("Fusion admin token is required")
+const accessToken =
+  process.env.IYW_FUSION_GATEWAY_TOKEN || process.env.FUSION_ACCESS_TOKEN
+if (!accessToken) throw new Error("Fusion access token is required")
 
 const baseUrl = (
   process.env.IYW_CLAW_FUSION_API_BASE_URL ||
@@ -34,6 +37,7 @@ const response = await fetch(endpoint, {
   headers: {
     "content-type": "application/json",
     "admin-token": adminToken,
+    token: accessToken,
     "X-IYW-Admin-Actor": "github-actions-environment-binding",
   },
   signal: AbortSignal.timeout(30_000),
