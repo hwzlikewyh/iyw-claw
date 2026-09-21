@@ -357,7 +357,6 @@ jobs:
   publish-release:
     needs:
       - create-draft-release
-      - verify-environment
       - build-tauri
       - build-macos-x64
       - build-windows
