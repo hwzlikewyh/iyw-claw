@@ -217,7 +217,9 @@ export async function getSidebarData(): Promise<SidebarData> {
   return getTransport().call("get_sidebar_data")
 }
 
-export async function getUsageDashboard(days = 7): Promise<UsageDashboardStats> {
+export async function getUsageDashboard(
+  days = 7
+): Promise<UsageDashboardStats> {
   return getTransport().call("get_usage_dashboard", { days })
 }
 

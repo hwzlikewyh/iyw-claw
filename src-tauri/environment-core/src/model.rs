@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolveRequest {
     pub schema_version: u8,
@@ -14,16 +14,6 @@ pub struct ResolveRequest {
     pub target: String,
     pub arch: String,
     pub inventory: Vec<InventoryEntry>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DownloadRequest<'a> {
-    #[serde(flatten)]
-    pub environment: &'a ResolveRequest,
-    pub component_id: &'a str,
-    pub version_id: &'a str,
-    pub artifact_id: &'a str,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -120,8 +110,6 @@ pub struct EnvironmentSnapshot {
     pub target: String,
     pub arch: String,
     pub created_at: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub selected_components: Option<Vec<String>>,
     pub components: Vec<InstalledComponent>,
 }
 
@@ -129,7 +117,6 @@ pub struct EnvironmentSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct PreparedState {
     pub transaction_id: String,
-    pub base_digest: String,
     pub plan_id: String,
     pub pc_version: String,
     pub catalog_revision: u64,

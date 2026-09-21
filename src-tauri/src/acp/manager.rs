@@ -45,6 +45,8 @@ use crate::db::entities::conversation::{self, ConversationKind, ConversationStat
 use crate::db::service::conversation_service;
 use crate::db::AppDatabase;
 
+#[path = "manager_prepared.rs"]
+mod prepared;
 #[path = "manager_prewarm.rs"]
 mod prewarm;
 #[path = "manager_prepared.rs"]
@@ -833,7 +835,8 @@ impl ConnectionManager {
         continuation_context: Option<String>,
     ) -> Result<String, AcpError> {
         if preparation.is_none() {
-            self.retire_conflicting_preparations((agent_type, session_id.as_deref()), None).await?;
+            self.retire_conflicting_preparations((agent_type, session_id.as_deref()), None)
+                .await?;
         }
         let _operation_guard = self.acquire_operation_read().await?;
         let storage_read_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
@@ -1041,7 +1044,9 @@ impl ConnectionManager {
             .user_memory_context_for(agent_type, user_memory_origin)
             .await;
 
-        let connection_id = preparation.as_ref().map(|entry| entry.id.clone())
+        let connection_id = preparation
+            .as_ref()
+            .map(|entry| entry.id.clone())
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         startup_trace.bind_connection(connection_id.clone());
         let managed_version = runtime_env
@@ -1080,19 +1085,20 @@ impl ConnectionManager {
         ) {
             (Some(expected_external_id), Some(conversation_id)) => {
                 let requested_attempt_id = uuid::Uuid::new_v4().to_string();
-                let pending = crate::db::service::conversation_session_segment_service::reserve_continuation(
-                    &version_center_db,
-                    conversation_id,
-                    expected_external_id,
-                    &requested_attempt_id,
-                    continuation_context_digest.as_deref(),
-                )
-                .await
-                .map_err(|error| {
-                    AcpError::protocol(format!(
-                        "conversation continuation could not be reserved: {error}"
-                    ))
-                })?;
+                let pending =
+                    crate::db::service::conversation_session_segment_service::reserve_continuation(
+                        &version_center_db,
+                        conversation_id,
+                        expected_external_id,
+                        &requested_attempt_id,
+                        continuation_context_digest.as_deref(),
+                    )
+                    .await
+                    .map_err(|error| {
+                        AcpError::protocol(format!(
+                            "conversation continuation could not be reserved: {error}"
+                        ))
+                    })?;
                 Some(pending.recovery_attempt_id)
             }
             (Some(_), None) => {
@@ -1132,7 +1138,8 @@ impl ConnectionManager {
             continuation_context,
             continuation_attempt_id.clone(),
         )
-        .await {
+        .await
+        {
             Ok(receiver) => receiver,
             Err(error) => {
                 if let Some(attempt_id) = continuation_attempt_id.as_deref() {
@@ -1146,7 +1153,9 @@ impl ConnectionManager {
             }
         };
 
-        if let Some(entry) = preparation { entry.registered(); }
+        if let Some(entry) = preparation {
+            entry.registered();
+        }
         // When dedup is active, hold the lock until the agent's
         // SessionStarted has applied (so external_id is populated for the
         // next waiter), aborted (connection died), or the timeout fires.
@@ -3340,7 +3349,8 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect_by_owner_window(&self, owner_window_label: &str) -> usize {
-        self.cancel_preparations_by_owner(Some(owner_window_label)).await;
+        self.cancel_preparations_by_owner(Some(owner_window_label))
+            .await;
         let removed = {
             let mut connections = self.connections.lock().await;
             let ids: Vec<String> = connections
@@ -3475,8 +3485,11 @@ impl ConnectionManager {
 
     pub async fn list_connections(&self) -> Vec<ConnectionInfo> {
         let connections = self.connections.lock().await;
-        connections.values().filter(|connection| !connection.emitter.is_preparing())
-            .map(|connection| connection.info()).collect()
+        connections
+            .values()
+            .filter(|connection| !connection.emitter.is_preparing())
+            .map(|connection| connection.info())
+            .collect()
     }
 
     pub(crate) async fn runtime_session_snapshots(
@@ -3895,9 +3908,10 @@ impl ConnectionManager {
         let (tx, rx) = tokio::sync::oneshot::channel();
         {
             let pages = self.interactive_html.lock().await;
-            if pages.values().any(|entry| {
-                entry.parent_connection_id == conn_id && entry.waiting
-            }) {
+            if pages
+                .values()
+                .any(|entry| entry.parent_connection_id == conn_id && entry.waiting)
+            {
                 return None;
             }
             let mut reg = self.pending_questions.lock().await;
@@ -3994,11 +4008,15 @@ impl ConnectionManager {
         if entry.parent_connection_id != conn_id {
             return Err(AcpError::protocol("Question belongs to another session"));
         }
-        crate::acp::question::validate_secret_answers(&entry.questions, &answer).map_err(AcpError::protocol)?;
-        crate::acp::question::validate_input_answers(&entry.questions, &answer).map_err(AcpError::protocol)?;
+        crate::acp::question::validate_secret_answers(&entry.questions, &answer)
+            .map_err(AcpError::protocol)?;
+        crate::acp::question::validate_input_answers(&entry.questions, &answer)
+            .map_err(AcpError::protocol)?;
         let outcome = build_outcome(&entry.questions, &answer);
         if !outcome.declined && outcome.answers.len() != entry.questions.len() {
-            return Err(AcpError::protocol("An answer is required for every question"));
+            return Err(AcpError::protocol(
+                "An answer is required for every question",
+            ));
         }
         let entry = pending
             .remove(question_id)
@@ -4511,7 +4529,9 @@ impl SessionQuestionAccess for ConnectionManagerQuestionLookup {
     }
 
     async fn cancel_html(&self, connection_id: &str, interaction_id: &str) {
-        self.manager.cancel_html(connection_id, interaction_id).await;
+        self.manager
+            .cancel_html(connection_id, interaction_id)
+            .await;
     }
 
     async fn register_question(

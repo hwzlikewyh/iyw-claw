@@ -27,7 +27,7 @@ pub(super) async fn bootstrap(
         Ok(UnelevatedLaunchMode::Standard) => {}
         Err(error) => return Err(log_error(session, "detect", error)),
     }
-    cli.run(session, args, timeout, cancellation)
+    cli.run_bootstrap(session, args, timeout, cancellation)
         .await
         .map(|_| ())
 }
@@ -42,8 +42,8 @@ async fn run_unelevated(
 ) -> Result<(), BrowserError> {
     let process = spawn_unelevated(
         cli.executable_path(),
-        &cli.arguments(session, args),
-        &cli.environment(),
+        &cli.bootstrap_arguments(session, args),
+        &cli.bootstrap_environment(),
     )
     .map_err(|error| log_error(session, "spawn", error))?;
     let record = capture_process(process.pid(), "agent-browser-bootstrap");

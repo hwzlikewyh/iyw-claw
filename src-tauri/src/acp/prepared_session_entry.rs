@@ -152,7 +152,7 @@ impl Entry {
         .map_err(|_| AcpError::protocol("Previous prepared session is still shutting down"))?
     }
 
-    pub(in crate::acp::manager) fn is_claimed(&self) -> bool {
+    pub(super) fn is_claimed(&self) -> bool {
         self.claimed.load(Ordering::Acquire)
     }
 }

@@ -93,11 +93,13 @@ pub(super) fn dispatch(
             .map(GatewayAction::Invoke)
             .map_err(resolve_error),
         GatewayTool::Html => {
-            session.features
+            session
+                .features
                 .authorize_call(super::interaction_tools::ASK_TOOL)
                 .map_err(|error| ErrorData::invalid_request(error.to_string(), None))?;
             let request = parse::<crate::acp::interactive_html::InteractiveHtmlRequest>(arguments)?;
-            request.validate()
+            request
+                .validate()
                 .map_err(|error| ErrorData::invalid_params(error, None))?;
             Ok(GatewayAction::Html(request))
         }
@@ -416,10 +418,14 @@ fn load_catalog() -> Result<CapabilityCatalog, ErrorData> {
 }
 
 fn parse<T: DeserializeOwned>(arguments: Option<JsonObject>) -> Result<T, ErrorData> {
-    serde_json::from_value(Value::Object(arguments.unwrap_or_default()))
-        .map_err(|error| ErrorData::invalid_params(error.to_string(), Some(json!({
-            "code": "capability_schema_mismatch", "execution_status": "not_started"
-        }))))
+    serde_json::from_value(Value::Object(arguments.unwrap_or_default())).map_err(|error| {
+        ErrorData::invalid_params(
+            error.to_string(),
+            Some(json!({
+                "code": "capability_schema_mismatch", "execution_status": "not_started"
+            })),
+        )
+    })
 }
 
 fn unknown_capability() -> ErrorData {

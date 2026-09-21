@@ -4,7 +4,7 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
 use crate::app_error::AppCommandError;
 use crate::commands::conversation_context_primer::{
-    build_continuation_context_primer, build_context_primer, ConversationContextPrimer,
+    build_context_primer, build_continuation_context_primer, ConversationContextPrimer,
 };
 use crate::db::entities::folder::FolderKind;
 use crate::db::entities::{automation_run, conversation};
@@ -25,8 +25,8 @@ use crate::web::event_bridge::{
 
 use super::conversation_title::{self, ConversationTitleContext};
 
-mod search;
 mod pages;
+mod search;
 pub(crate) use pages::list_conversations_page_core;
 #[cfg(feature = "tauri-runtime")]
 pub use pages::*;
@@ -47,10 +47,21 @@ pub(crate) async fn list_all_conversations_core(
 ) -> Result<Vec<DbConversationSummary>, AppCommandError> {
     refresh_list_titles(context).await;
     let ListAllConversationsOptions {
-        folder_ids, agent_type, search, sort_by, status, include_children,
+        folder_ids,
+        agent_type,
+        search,
+        sort_by,
+        status,
+        include_children,
     } = options;
     let conversations = conversation_service::list_all(
-        context.conn, folder_ids, agent_type, None, sort_by, status, include_children,
+        context.conn,
+        folder_ids,
+        agent_type,
+        None,
+        sort_by,
+        status,
+        include_children,
     )
     .await
     .map_err(AppCommandError::from)?;
@@ -551,24 +562,22 @@ pub async fn get_folder_conversation_core(
     let summary = conversation_service::get_by_id(conn, conversation_id)
         .await
         .map_err(AppCommandError::from)?;
-    let segment_specs = conversation_session_segment_service::list_for_conversation(
-        conn,
-        conversation_id,
-    )
-    .await
-    .unwrap_or_default()
-    .into_iter()
-    .filter_map(|segment| {
-        segment.external_id.map(|external_id| {
-            (
-                segment.id,
-                external_id,
-                segment.history_mode == "full_fork",
-                segment.status == conversation_session_segment_service::STATUS_ACTIVE,
-            )
-        })
-    })
-    .collect::<Vec<_>>();
+    let segment_specs =
+        conversation_session_segment_service::list_for_conversation(conn, conversation_id)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|segment| {
+                segment.external_id.map(|external_id| {
+                    (
+                        segment.id,
+                        external_id,
+                        segment.history_mode == "full_fork",
+                        segment.status == conversation_session_segment_service::STATUS_ACTIVE,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
 
     let (mut turns, session_stats, resolved_ext_id, mut parsed_title, transcript_watermark) =
         if segment_specs.len() > 1 {
@@ -748,9 +757,8 @@ fn load_segmented_conversation(
             turns.clear();
             seen.clear();
         }
-        for mut turn in detail.turns {
+        for turn in detail.turns {
             if seen.insert((segment_id, turn.id.clone())) {
-                turn.id = format!("segment-{segment_id}:{}", turn.id);
                 turns.push(turn);
             }
         }
@@ -1014,11 +1022,7 @@ pub async fn get_folder_conversation_page_core(
     } else {
         let revision = cache_revision.clone();
         tokio::task::spawn_blocking(move || {
-            crate::commands::conversation_history_cache::load(
-                conversation_id,
-                &revision,
-                before,
-            )
+            crate::commands::conversation_history_cache::load(conversation_id, &revision, before)
         })
         .await
         .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?
@@ -1704,7 +1708,9 @@ pub async fn update_conversation_model_core(
 ) -> Result<(), AppCommandError> {
     let model = model.trim().to_string();
     if model.is_empty() {
-        return Err(AppCommandError::invalid_input("Conversation model cannot be empty"));
+        return Err(AppCommandError::invalid_input(
+            "Conversation model cannot be empty",
+        ));
     }
     conversation_service::update_model(conn, conversation_id, Some(model))
         .await

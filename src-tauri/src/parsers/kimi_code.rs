@@ -13,9 +13,9 @@ use crate::models::{
 };
 use crate::parsers::{
     compute_session_stats, folder_name_from_path, infer_context_window_max_tokens,
-    is_safe_subagent_id, merge_context_window_stats,
-    relocate_orphaned_tool_results, resolve_patch_line_numbers, structurize_read_tool_output,
-    title_from_user_text, truncate_str, AgentParser, ParseError,
+    is_safe_subagent_id, merge_context_window_stats, relocate_orphaned_tool_results,
+    resolve_patch_line_numbers, structurize_read_tool_output, title_from_user_text, truncate_str,
+    AgentParser, ParseError,
 };
 
 /// Resolve Kimi Code's data home, honoring `KIMI_CODE_HOME`, else `~/.kimi-code`
@@ -491,7 +491,8 @@ fn parse_wire(path: &Path, agents_dir: Option<&Path>) -> WireParse {
                 if let Some(usage) = usage_from_record(value.get("usage")) {
                     // 上下文取最近一次模型调用，不能使用本轮累加后的消费。
                     wp.context_tokens = Some(
-                        usage.input_tokens
+                        usage
+                            .input_tokens
                             .saturating_add(usage.output_tokens)
                             .saturating_add(usage.cache_read_input_tokens)
                             .saturating_add(usage.cache_creation_input_tokens),

@@ -11,7 +11,8 @@ use super::error::{BrowserError, BrowserErrorCode};
 use super::process::{kill_tree_checked, wait_for_pid_file, ProcessRecord};
 use super::profile::ProfileGuard;
 use super::runtime::{
-    unavailable_error, RuntimeCleanupHandle, RuntimeHandle, VerifiedDependencies,
+    unavailable_error, RuntimeCleanupHandle, RuntimeHandle, RuntimeLaunchDependencies,
+    VerifiedDependencies,
 };
 
 const START_TIMEOUT: Duration = Duration::from_secs(30);
@@ -24,7 +25,7 @@ pub(super) struct RuntimeLaunchFailure {
 
 pub(super) async fn launch(
     data_root: &Path,
-    dependencies: VerifiedDependencies,
+    dependencies: RuntimeLaunchDependencies,
     generation: u64,
     cancellation: CancellationToken,
     browser_args: Option<&str>,
@@ -41,20 +42,20 @@ pub(super) async fn launch(
     create_dir(&socket_dir)
         .await
         .map_err(|error| launch_failure(error, None))?;
-    let profile = acquire_profile(data_root, &runtime_id, &runtime_dir, &dependencies)
+    let profile = acquire_profile(data_root, &runtime_id, &runtime_dir, &dependencies.verified)
         .await
         .map_err(|error| launch_failure(error, None))?;
-    let launch_args = match super::fingerprint::launch_args(&profile.profile_path, browser_args) {
-        Ok(args) => args,
-        Err(error) => {
-            remove_runtime_dir(&runtime_dir).await;
-            return Err(launch_failure(
-                BrowserError::new(
-                    BrowserErrorCode::BrowserInternal,
-                    format!("无法准备浏览器指纹配置：{error}"),
-                ),
-                None,
-            ));
+    if let Some(source) = dependencies.verified.engine.profile_source.as_deref() {
+        if let Err(error) = profile
+            .seed_user_profile(source, &dependencies.verified.engine.path)
+            .await
+        {
+            tracing::warn!(
+                target: "iyw_claw_browser",
+                engine = ?dependencies.verified.engine.kind,
+                error_code = ?error.code,
+                "browser user profile seed failed; continuing with isolated profile"
+            );
         }
     };
     let download_path = prepare_download_path(data_root, &runtime_dir)
@@ -64,14 +65,18 @@ pub(super) async fn launch(
         .await
         .map_err(|error| launch_failure(error, None))?;
     let cli = AgentBrowserCli::new(
-        dependencies.sidecar,
+        dependencies.verified.sidecar,
         socket_dir,
         profile.profile_path.clone(),
-        dependencies.engine.path,
+        dependencies.verified.engine.path,
         download_path,
         screenshot_path,
-    );
-    let cli = cli.with_browser_args(launch_args);
+    )
+    .with_bootstrap_extension(dependencies.extension_dir);
+    let cli = match browser_args {
+        Some(args) => cli.with_browser_args(args.to_string()),
+        None => cli,
+    };
     let mut cleanup = RuntimeCleanupHandle {
         id: runtime_id,
         generation,

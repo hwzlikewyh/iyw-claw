@@ -42,9 +42,9 @@ function validatePlan(plan, target, arch) {
   for (const action of plan.actions) {
     assert.ok(
       allowed.has(action.componentId),
-      "Unsupported environment component"
+      "unsupported environment component"
     )
-    assert.ok(!seen.has(action.componentId), "Duplicate environment component")
+    assert.ok(!seen.has(action.componentId), "duplicate environment component")
     seen.add(action.componentId)
     assert.equal(action.action, "install")
     assert.ok(typeof action.version === "string" && action.version.length > 0)
@@ -61,7 +61,7 @@ function validatePlan(plan, target, arch) {
     )
   }
   for (const id of required)
-    assert.ok(seen.has(id), `Missing required component: ${id}`)
+    assert.ok(seen.has(id), `missing required component: ${id}`)
   return [...seen].join(", ")
 }
 
@@ -85,8 +85,13 @@ async function verifyPlatform(target, arch) {
   })
   if (!response.ok) throw new Error(`Fusion HTTP ${response.status}`)
   const envelope = await response.json()
-  if (envelope.code !== 1)
-    throw new Error("Fusion environment binding is unavailable")
+  if (envelope.code !== 1) {
+    throw new Error(
+      envelope.data?.errorCode ||
+        envelope.message ||
+        "Fusion environment plan unavailable"
+    )
+  }
   return validatePlan(envelope.data, target, arch)
 }
 
@@ -96,10 +101,10 @@ for (const [target, arch] of platforms) {
     console.log(
       `[environment-plan] ${version} ${target}/${arch}: ${components}`
     )
-  } catch {
-    // 下载地址包含短时票据，只输出平台和排查入口。
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown failure"
     console.error(
-      `[environment-plan] ${version} ${target}/${arch} failed; verify Fusion binding and artifacts`
+      `[environment-plan] ${version} ${target}/${arch} failed: ${message}`
     )
     process.exitCode = 1
   }

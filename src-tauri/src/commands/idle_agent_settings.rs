@@ -9,7 +9,7 @@ use crate::db::AppDatabase;
 use tauri::State;
 
 const SETTINGS_KEY: &str = "acp.max_idle_connections";
-pub const DEFAULT_MAX_IDLE_CONNECTIONS: Option<usize> = Some(2);
+pub const DEFAULT_MAX_IDLE_CONNECTIONS: Option<usize> = None;
 
 /// User preference for completed, recoverable agent processes kept resident.
 /// `None` means no count cap; memory-pressure protection remains active.

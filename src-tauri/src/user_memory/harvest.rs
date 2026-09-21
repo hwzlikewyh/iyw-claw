@@ -512,11 +512,6 @@ impl UserMemoryService {
         request: &MemoryHarvestRequest,
     ) -> Result<String, AppCommandError> {
         let (_io_guard, _file_guard) = self.acquire_locks().await?;
-        if self.is_forgotten_content(&content).await? {
-            return Err(AppCommandError::permission_denied(
-                "Forgotten experience cannot be learned again automatically",
-            ));
-        }
         let mut state = self.read_learning_state()?;
         let digest = experience_digest(&content);
         let scope_key = self

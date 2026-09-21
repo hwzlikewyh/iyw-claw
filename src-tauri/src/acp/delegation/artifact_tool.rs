@@ -110,9 +110,7 @@ fn parse_present(arguments: &Value) -> Result<(Vec<String>, Vec<Option<String>>)
     let display_names = params.display_names.take().unwrap_or_default();
     let display_names = display_names
         .into_iter()
-        .map(|mut name| {
-            normalize_text(&mut name, MAX_NAME_CHARS, "display_names").map(|()| name)
-        })
+        .map(|mut name| normalize_text(&mut name, MAX_NAME_CHARS, "display_names").map(|()| name))
         .collect::<Result<Vec<_>, _>>()?;
     let display_names = if display_names.is_empty() {
         vec![None; params.files.len()]

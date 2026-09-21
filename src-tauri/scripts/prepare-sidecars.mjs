@@ -46,10 +46,10 @@ function removeLegacyMcpSidecars() {
 function removeBundledBrowserSidecars() {
   const binariesDir = resolve(SRC_TAURI, "binaries")
   if (!existsSync(binariesDir)) return
-  for (const entry of readdirSync(binariesDir, { withFileTypes: true })) {
-    if (entry.isFile() && /^agent-browser(?:-|\.|$)/i.test(entry.name)) {
-      unlinkSync(join(binariesDir, entry.name))
-      log(`removed bundled browser sidecar ${entry.name}`)
+  for (const entry of readdirSync(binariesDir)) {
+    if (/^agent-browser(?:-|\.|$)/i.test(entry)) {
+      unlinkSync(join(binariesDir, entry))
+      log(`removed bundled browser sidecar ${entry}`)
     }
   }
 }

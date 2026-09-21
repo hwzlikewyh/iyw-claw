@@ -220,11 +220,6 @@ impl UserMemoryService {
     ) -> Result<String, AppCommandError> {
         let content = super::helpers::normalize_candidate(fact.quote.trim())?;
         let (_guard, _file_guard) = self.acquire_locks().await?;
-        if self.is_forgotten_content(&content).await? {
-            return Err(AppCommandError::permission_denied(
-                "Forgotten content cannot be extracted again automatically",
-            ));
-        }
         let policy = self.load_policy().await?;
         if !policy.enabled
             || !policy.agent_write_enabled

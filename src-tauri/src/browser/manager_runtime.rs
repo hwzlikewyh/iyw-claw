@@ -24,6 +24,18 @@ impl BrowserSessionManager {
         manager
     }
 
+    pub async fn set_database(&self, database: sea_orm::DatabaseConnection) {
+        *self.account_database.write().await = Some(database);
+    }
+
+    pub fn schedule_engine_prefetch(&self) {
+        let prefetch = self.browser_engine_prefetch.clone();
+        let manager = self.clone();
+        tauri::async_runtime::spawn(async move {
+            prefetch.schedule(manager.shutdown_cancellation().await);
+        });
+    }
+
     pub async fn refresh_capability(&self) -> BrowserStateSnapshot {
         let capability = match self.desktop_runtime() {
             Ok(runtime) => match runtime.verify().await {
@@ -300,6 +312,9 @@ impl BrowserSessionManager {
             observer: Arc::new(tokio::sync::Mutex::new(None)),
             agent_turn_leases: Arc::new(super::agent_turn_leases::AgentTurnLeaseRegistry::default()),
             runtime_recoveries: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
+            browser_engine_prefetch: BrowserEnginePrefetch::new(PathBuf::new()),
+            account_database: Arc::new(tokio::sync::RwLock::new(None)),
+            browser_routes: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -348,18 +363,21 @@ impl BrowserSessionManager {
                         .await;
                     Err(error)
                 }
-                Ok(()) => match self.complete_runtime_start(&ticket).await {
-                    Ok(()) => {
-                        self.spawn_runtime_watcher(Arc::clone(runtime), context.generation)
-                            .await;
-                        Ok(context)
+                Ok(()) => {
+                    self.sync_iyw_login().await;
+                    match self.complete_runtime_start(&ticket).await {
+                        Ok(()) => {
+                            self.spawn_runtime_watcher(Arc::clone(runtime), context.generation)
+                                .await;
+                            Ok(context)
+                        }
+                        Err(error) => {
+                            self.stop_cdp_observer().await;
+                            let _ = runtime.stop().await;
+                            Err(error)
+                        }
                     }
-                    Err(error) => {
-                        self.stop_cdp_observer().await;
-                        let _ = runtime.stop().await;
-                        Err(error)
-                    }
-                },
+                }
             },
             Err(error) => {
                 runtime.invalidate_dependencies().await;

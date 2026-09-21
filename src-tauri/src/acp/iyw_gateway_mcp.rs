@@ -139,13 +139,17 @@ async fn probe_gateway(token: &str) -> bool {
         .await
         .unwrap_or(false);
     if let Some(session) = session {
-        let cleanup = client.delete(GATEWAY_URL)
-            .header("token", token).header("Mcp-Session-Id", session);
+        let cleanup = client
+            .delete(GATEWAY_URL)
+            .header("token", token)
+            .header("Mcp-Session-Id", session);
         // 探测已结束，回收临时远端会话不再占用 Agent 启动的关键路径。
         tokio::spawn(async move {
             if let Err(error) = cleanup.send().await {
-                tracing::debug!(timeout = error.is_timeout(),
-                    "[iyw-gateway-mcp] probe session cleanup failed");
+                tracing::debug!(
+                    timeout = error.is_timeout(),
+                    "[iyw-gateway-mcp] probe session cleanup failed"
+                );
             }
         });
     }

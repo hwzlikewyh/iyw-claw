@@ -33,13 +33,6 @@ const PREFLIGHT_TIMEOUT_MS = 12 * 60_000
 const UNLOCK_TIMEOUT_MS = 90_000
 const BUNDLE_TIMEOUT_MS = 30 * 60_000
 const VERIFY_TIMEOUT_MS = 2 * 60_000
-const PROBE_ATTEMPTS = 3
-const PROBE_RETRY_DELAY_MS = 15_000
-
-function sleepSync(ms) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
-}
-
 
 function fail(message) {
   throw new Error(message)
@@ -89,44 +82,23 @@ function preflightToken() {
   const probeImage = readFileSync(process.execPath)
   try {
     unlockToken()
-    let lastReason = "unknown"
-    for (let attempt = 1; attempt <= PROBE_ATTEMPTS; attempt += 1) {
-      // Write then copy, and sync before signing: signing in the same instant
-      // as the write let the verify step read stale attributes on the runner.
-      const staged = `${probe}.${attempt}`
-      writeFileSync(staged, probeImage)
-      cpSync(staged, probe)
-      rmSync(staged, { force: true })
-      const result = spawnSync(
-        process.execPath,
-        [
-          join(TOOL_ROOT, "src-tauri", "scripts", "sign-staged-windows.mjs"),
-          probe,
-        ],
-        {
-          cwd: ROOT,
-          stdio: "inherit",
-          windowsHide: false,
-          timeout: PREFLIGHT_TIMEOUT_MS,
-        }
-      )
-      if (!result.error && result.status === 0) return
-      lastReason = result.error?.code ?? `exit ${result.status}`
-      if (attempt === PROBE_ATTEMPTS) break
-      console.warn(
-        `[staged-signing][WARN] token probe attempt ${attempt}/${PROBE_ATTEMPTS} failed (${lastReason}); retrying`
-      )
-      sleepSync(PROBE_RETRY_DELAY_MS)
-    }
-    fail(
-      `SafeNet preflight failed after ${PROBE_ATTEMPTS} attempts (${lastReason}); ` +
-        "the hardware token did not respond to signtool"
+    const result = spawnSync(
+      process.execPath,
+      [
+        join(TOOL_ROOT, "src-tauri", "scripts", "sign-staged-windows.mjs"),
+        probe,
+      ],
+      {
+        cwd: ROOT,
+        stdio: "inherit",
+        windowsHide: false,
+        timeout: PREFLIGHT_TIMEOUT_MS,
+      }
     )
   } finally {
     rmSync(probe, { force: true })
   }
 }
-
 
 // KSP 与 PKCS#11 会话不等价；解锁后仍由真实签名探针判定是否可用。
 function unlockToken() {
@@ -159,11 +131,25 @@ function unlockToken() {
       "could not unlock the signing token through the CNG KSP with the configured PIN (IYW_CLAW_SAFENET_PIN)"
     )
   }
-  // Do NOT also open a PKCS#11 session here. signtool signs through the CNG
-  // KSP above, and the extra middleware login destabilised the token: jobs
-  // logged "unexpected PKCS#11 host failure" and then signtool returned
-  // success while producing no signature, so the probe failed on a token that
-  // was working a moment earlier. The KSP unlock is sufficient on its own.
+  // Non-fatal: PKCS#11 is not what signtool reads, and a transient middleware
+  // error here must not fail a job that can already sign through the KSP.
+  const script = join(
+    TOOL_ROOT,
+    "src-tauri",
+    "scripts",
+    "unlock-signing-token.mjs"
+  )
+  const result = spawnSync(process.execPath, [script], {
+    cwd: ROOT,
+    stdio: "inherit",
+    windowsHide: true,
+    timeout: UNLOCK_TIMEOUT_MS,
+  })
+  if (result.error || result.status !== 0) {
+    console.warn(
+      `[staged-signing] PKCS#11 unlock did not complete (${result.error?.code || result.status}); continuing to the real signing probe`
+    )
+  }
 }
 
 function prepareBundleConfig() {

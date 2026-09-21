@@ -1,5 +1,7 @@
 use crate::acp::manager::ConnectionManager;
-use crate::acp::resource_governor::{current_memory_snapshot, MemoryPressure, SystemMemorySnapshot};
+use crate::acp::resource_governor::{
+    current_memory_snapshot, MemoryPressure, SystemMemorySnapshot,
+};
 use tokio_util::sync::CancellationToken;
 
 use super::error::{BrowserError, BrowserErrorCode, BrowserErrorContext};

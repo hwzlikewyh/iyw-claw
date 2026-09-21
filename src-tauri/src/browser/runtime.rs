@@ -34,6 +34,12 @@ pub(super) struct VerifiedDependencies {
     pub engine: BrowserEngine,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct RuntimeLaunchDependencies {
+    pub verified: VerifiedDependencies,
+    pub extension_dir: PathBuf,
+}
+
 #[derive(Debug)]
 pub(super) struct RuntimeHandle {
     pub id: String,
@@ -160,8 +166,8 @@ impl BrowserRuntime {
         }
         let dependencies = self.prepare_dependencies(cancellation.clone()).await?;
         tracing::info!(target: "iyw_claw_browser",
-            runtime_generation = generation, engine = ?dependencies.engine.kind,
-            engine_version = %dependencies.engine.version, "browser startup engine selected");
+            runtime_generation = generation, engine = ?dependencies.verified.engine.kind,
+            engine_version = %dependencies.verified.engine.version, "browser startup engine selected");
         let handle = match runtime_launch::launch(
             &self.data_root,
             dependencies,

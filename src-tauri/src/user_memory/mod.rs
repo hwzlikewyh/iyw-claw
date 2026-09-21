@@ -29,7 +29,6 @@ mod correction;
 mod entry_catalog;
 mod forget;
 mod forget_backups;
-mod forget_projection;
 mod fs;
 mod generated_overrides;
 mod generated_projection;
@@ -56,11 +55,14 @@ mod journal;
 mod launch_context;
 mod learning;
 mod maintenance;
-mod foreground;
-mod maintenance_queue;
 mod maintenance_resolution;
 mod maintenance_review;
 mod maintenance_types;
+mod managed_model;
+mod managed_model_archive;
+mod managed_model_retry;
+mod managed_model_state;
+mod managed_model_types;
 mod migration;
 mod migration_preview;
 mod platform;
@@ -97,24 +99,11 @@ mod restore_sources;
 mod retention;
 mod retention_view;
 mod semantic;
-mod cloud_retrieval;
-mod cloud_settings;
 #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
 mod semantic_index;
 #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
-mod semantic_chunks;
-#[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
-mod semantic_cloud_index;
-#[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
-mod semantic_query;
-#[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
-mod semantic_lifecycle;
-#[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
 mod semantic_model;
-#[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
-mod semantic_storage;
 mod semantic_recall;
-mod semantic_rerank;
 mod semantic_settings;
 mod service;
 mod settings_projection;
@@ -163,10 +152,7 @@ pub use recall_types::{
 pub use reconcile_types::*;
 pub use retention::{MemoryRetention, RetireMemoryRequest, RetireMemoryResult};
 pub use semantic::{SemanticPreview, SemanticStatus};
-pub use cloud_retrieval::RetrievalModels;
-pub use cloud_settings::CloudRetrievalConfig;
 pub use service::UserMemoryService;
-pub use foreground::MemoryForegroundGuard;
 pub use task_history_store::ContinuationTaskContext;
 pub use transaction::{
     ResourceGeneration, TransactionPhase, UserMemoryGeneration, UserMemoryTransactionJournal,

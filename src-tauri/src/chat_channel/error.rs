@@ -6,6 +6,8 @@ pub enum ChatChannelError {
     ConnectionFailed(String),
     #[error("send failed: {0}")]
     SendFailed(String),
+    #[error("delivery deferred: {0}")]
+    DeliveryDeferred(String),
     #[error("authentication failed: {0}")]
     AuthenticationFailed(String),
     #[error("configuration invalid: {0}")]
@@ -27,6 +29,7 @@ impl ChatChannelError {
         match self {
             Self::ConnectionFailed(_) => "connection",
             Self::SendFailed(_) => "send",
+            Self::DeliveryDeferred(_) => "delivery_deferred",
             Self::AuthenticationFailed(_) => "authentication",
             Self::ConfigurationInvalid(_) => "configuration",
             Self::NotConnected | Self::AlreadyConnected => "connection_state",
@@ -47,7 +50,9 @@ impl From<ChatChannelError> for AppCommandError {
             ChatChannelError::ConfigurationInvalid(_) => {
                 AppCommandError::configuration_invalid(err.to_string())
             }
-            ChatChannelError::ConnectionFailed(_) | ChatChannelError::SendFailed(_) => {
+            ChatChannelError::ConnectionFailed(_)
+            | ChatChannelError::SendFailed(_)
+            | ChatChannelError::DeliveryDeferred(_) => {
                 AppCommandError::network(err.to_string())
             }
             _ => AppCommandError::task_execution_failed(err.to_string()),

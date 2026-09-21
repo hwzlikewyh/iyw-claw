@@ -1,16 +1,16 @@
 use tokio_util::sync::CancellationToken;
 
 use super::super::engine::detect_engine;
-use super::super::error::BrowserError;
+use super::super::error::{BrowserError, BrowserErrorCode};
 use super::super::sidecar;
-use super::{BrowserCapability, BrowserRuntime, VerifiedDependencies};
+use super::{BrowserCapability, BrowserRuntime, RuntimeLaunchDependencies, VerifiedDependencies};
 
 impl BrowserRuntime {
     pub async fn prepare_for_start(
         &self,
-        cancellation: CancellationToken,
+        _cancellation: CancellationToken,
     ) -> Result<BrowserCapability, BrowserError> {
-        Ok(self.prepare_dependencies(cancellation).await?.capability())
+        Ok(self.resolve_dependencies().await?.capability())
     }
 
     pub(super) async fn dependencies(&self) -> Result<VerifiedDependencies, BrowserError> {
@@ -30,8 +30,29 @@ impl BrowserRuntime {
 
     pub(super) async fn prepare_dependencies(
         &self,
-        _cancellation: CancellationToken,
-    ) -> Result<VerifiedDependencies, BrowserError> {
-        self.resolve_dependencies().await
+        cancellation: CancellationToken,
+    ) -> Result<RuntimeLaunchDependencies, BrowserError> {
+        if cancellation.is_cancelled() {
+            return Err(BrowserError::shutting_down());
+        }
+        let verified = self.resolve_dependencies().await?;
+        let extension_dir = crate::commands::internet_tools::internet_tools_prepare_extension()
+            .await
+            .map(std::path::PathBuf::from)
+            .map_err(|_| extension_unavailable())?;
+        (extension_dir.join("manifest.json").is_file())
+            .then_some(RuntimeLaunchDependencies {
+                verified,
+                extension_dir,
+            })
+            .ok_or_else(extension_unavailable)
     }
+}
+
+fn extension_unavailable() -> BrowserError {
+    BrowserError::new(
+        BrowserErrorCode::BrowserRuntimeUnavailable,
+        "The bundled OpenCLI browser extension could not be prepared",
+    )
+    .retryable(true)
 }

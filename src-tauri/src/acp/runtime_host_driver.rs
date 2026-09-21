@@ -13,7 +13,10 @@ use sacp::schema::{
     TerminalOutputResponse, WaitForTerminalExitRequest, WaitForTerminalExitResponse,
     WriteTextFileRequest, WriteTextFileResponse,
 };
-use sacp::{on_receive_request, Agent, Builder, Client, ConnectionTo, HandleDispatchFrom, Responder, RunWithConnectionTo};
+use sacp::{
+    on_receive_request, Agent, Builder, Client, ConnectionTo, HandleDispatchFrom, Responder,
+    RunWithConnectionTo,
+};
 use sacp_tokio::AcpAgent;
 use tokio_util::sync::CancellationToken;
 
@@ -62,10 +65,12 @@ pub(super) fn spawn(
             startup_trace,
         );
         let connection_shutdown = shutdown.clone();
-        let result = client.connect_with(agent, async move |_connection| {
-            connection_shutdown.cancelled().await;
-            Ok(())
-        }).await;
+        let result = client
+            .connect_with(agent, async move |_connection| {
+                connection_shutdown.cancelled().await;
+                Ok(())
+            })
+            .await;
         healthy.store(false, Ordering::Release);
         let outcome = RuntimeHostDriverOutcome::from_clean(result.is_ok());
         log_exit(
@@ -94,7 +99,9 @@ fn build_client(
         .on_receive_request(
             {
                 let router = router.clone();
-                async move |request: crate::acp::worker_content_recovery::ContentBarrierRequest, responder: Responder<serde_json::Value>, connection: ConnectionTo<Agent>| {
+                async move |request: crate::acp::worker_content_recovery::ContentBarrierRequest,
+                            responder: Responder<serde_json::Value>,
+                            connection: ConnectionTo<Agent>| {
                     router.content_barrier(request, responder, connection)
                 }
             },
@@ -103,8 +110,12 @@ fn build_client(
         .on_receive_request(
             {
                 let router = router.clone();
-                async move |request: worker_turn::WorkerTurnStartedRequest, responder: Responder<serde_json::Value>, connection: ConnectionTo<Agent>| {
-                    router.worker_turn_started(request, responder, connection).await
+                async move |request: worker_turn::WorkerTurnStartedRequest,
+                            responder: Responder<serde_json::Value>,
+                            connection: ConnectionTo<Agent>| {
+                    router
+                        .worker_turn_started(request, responder, connection)
+                        .await
                 }
             },
             on_receive_request!(),
@@ -112,7 +123,8 @@ fn build_client(
         .on_receive_notification(
             {
                 let router = router.clone();
-                async move |notification: ElicitationCancelNotification, _connection: ConnectionTo<Agent>| {
+                async move |notification: ElicitationCancelNotification,
+                            _connection: ConnectionTo<Agent>| {
                     router.cancel_elicitation(notification).await;
                     Ok(())
                 }
@@ -305,12 +317,7 @@ async fn initialize_agent(
         host_capabilities = capabilities.bits(),
         "[ACP][host] initialize started"
     );
-    match tokio::time::timeout(
-        timeout,
-        initialize::send(connection, request),
-    )
-    .await
-    {
+    match tokio::time::timeout(timeout, initialize::send(connection, request)).await {
         Ok(Ok(response)) => {
             if let Some(stage) = startup_stage {
                 stage.finish("ok");

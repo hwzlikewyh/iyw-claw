@@ -57,9 +57,6 @@ impl UserMemoryService {
         &self,
         item_count: usize,
     ) -> Result<Option<usize>, AppCommandError> {
-        if self.foreground_active() {
-            return Ok(None);
-        }
         let (_guard, _file_guard) = self.acquire_locks().await?;
         let policy = self.load_policy().await?;
         if !policy.enabled || !policy.agent_write_enabled {
@@ -72,12 +69,7 @@ impl UserMemoryService {
             .as_deref()
             .and_then(|time| chrono::DateTime::parse_from_rfc3339(time).ok())
             .is_some_and(|time| time + Duration::hours(REVIEW_INTERVAL_HOURS) > Utc::now());
-        let pending = maintenance
-            .reviews
-            .iter()
-            .filter(|review| review.status == MemoryReviewStatus::Pending)
-            .count();
-        if recently_run || pending >= MAX_REVIEWS {
+        if recently_run || maintenance.reviews.len() >= MAX_REVIEWS {
             return Ok(None);
         }
         let cursor = maintenance.review_cursor % item_count;
@@ -165,21 +157,20 @@ fn merge_proposals(
     maintenance: &mut super::MemoryMaintenanceState,
     proposals: Vec<MemoryReview>,
 ) -> usize {
-    let mut added = 0;
+    let before = maintenance.reviews.len();
     for proposal in proposals {
+        if maintenance.reviews.len() == MAX_REVIEWS {
+            break;
+        }
         if !maintenance
             .reviews
             .iter()
             .any(|review| review.id == proposal.id)
         {
-            if !super::maintenance_queue::make_review_room(&mut maintenance.reviews) {
-                break;
-            }
-            maintenance.reviews.push(proposal);
-            added += 1;
+            maintenance.reviews.push(proposal)
         }
     }
-    added
+    maintenance.reviews.len() - before
 }
 
 fn review_items(snapshot: &IndexSnapshot) -> Vec<&IndexItem> {

@@ -138,9 +138,7 @@ impl DingtalkBackend {
         })?;
         let webhook = protocol::string_field(payload, "session_webhook")?;
         if protocol::webhook_expired(payload) {
-            return Err(ChatChannelError::SendFailed(
-                "DingTalk session webhook expired; wait for a new inbound message".into(),
-            ));
+            return self.send_openapi_text(text, target).await;
         }
         let response = self
             .client
@@ -152,13 +150,18 @@ impl DingtalkBackend {
             .send()
             .await
             .map_err(|error| ChatChannelError::SendFailed(redact_transport_error(&error)))?;
-        if !response.status().is_success() {
-            return Err(ChatChannelError::SendFailed(format!(
-                "DingTalk reply failed (HTTP {})",
-                response.status()
+        if response.status().is_success() {
+            return Ok(SentMessageId(format!(
+                "dingtalk-session-{}",
+                uuid::Uuid::new_v4()
             )));
         }
-        Ok(SentMessageId(format!("dingtalk-{}", uuid::Uuid::new_v4())))
+        tracing::warn!(
+            channel_id = self.channel_id,
+            http_status = %response.status(),
+            "[DingTalk] session webhook failed; falling back to OpenAPI"
+        );
+        self.send_openapi_text(text, target).await
     }
 }
 

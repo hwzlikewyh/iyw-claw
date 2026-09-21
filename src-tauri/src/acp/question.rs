@@ -35,8 +35,8 @@ use tokio::sync::{oneshot, RwLock};
 
 #[path = "question_field_input.rs"]
 mod input;
-pub use input::QuestionInputSpec;
 pub(crate) use input::validate_answers as validate_input_answers;
+pub use input::QuestionInputSpec;
 
 /// Max questions per `ask_user_question` call. Matches Claude Code's
 /// `AskUserQuestion` contract; the JSON schema advertises the same `maxItems`.
@@ -243,7 +243,11 @@ pub fn validate_specs(specs: &[QuestionSpec]) -> Result<(), String> {
             ));
         }
         // MCP 允许自由文字，ACP 字段可携带较长的枚举列表。
-        let max_options = if q.input.is_some() { MAX_ELICITATION_OPTIONS } else { MAX_OPTIONS };
+        let max_options = if q.input.is_some() {
+            MAX_ELICITATION_OPTIONS
+        } else {
+            MAX_OPTIONS
+        };
         if q.options.len() > max_options {
             return Err(format!(
                 "questions[{qi}] must have at most {max_options} options"
@@ -307,7 +311,9 @@ pub fn build_outcome(questions: &[QuestionSpec], answer: &QuestionAnswer) -> Que
         .iter()
         .filter_map(|spec| {
             let a = answer.answers.iter().find(|a| a.question_id == spec.id);
-            if a.is_none() && spec.input.is_none() { return None; }
+            if a.is_none() && spec.input.is_none() {
+                return None;
+            }
             // Cap selections to the question's own size: single-select → 1;
             // multi-select → every real option plus one "Other". Enforce the cap
             // DURING iteration (early break, allocate only kept labels) so a
@@ -322,7 +328,11 @@ pub fn build_outcome(questions: &[QuestionSpec], answer: &QuestionAnswer) -> Que
                 if labels.len() == cap {
                     break;
                 }
-                let trimmed = if spec.secret || spec.input.is_some() { l.as_str() } else { l.trim() };
+                let trimmed = if spec.secret || spec.input.is_some() {
+                    l.as_str()
+                } else {
+                    l.trim()
+                };
                 if trimmed.is_empty() && spec.input.is_none() {
                     continue;
                 }
@@ -345,15 +355,27 @@ pub fn build_outcome(questions: &[QuestionSpec], answer: &QuestionAnswer) -> Que
     }
 }
 
-pub(crate) fn validate_secret_answers(questions: &[QuestionSpec], answer: &QuestionAnswer) -> Result<(), String> {
-    if answer.declined { return Ok(()); }
+pub(crate) fn validate_secret_answers(
+    questions: &[QuestionSpec],
+    answer: &QuestionAnswer,
+) -> Result<(), String> {
+    if answer.declined {
+        return Ok(());
+    }
     for question in questions.iter().filter(|question| question.secret) {
-        let values = answer.answers.iter().find(|item| item.question_id == question.id)
-            .map(|item| item.labels.as_slice()).unwrap_or_default();
+        let values = answer
+            .answers
+            .iter()
+            .find(|item| item.question_id == question.id)
+            .map(|item| item.labels.as_slice())
+            .unwrap_or_default();
         if !question.optional && (values.len() != 1 || values[0].is_empty()) {
             return Err("请填写秘密输入后再提交".into());
         }
-        if values.iter().any(|value| value.chars().count() > MAX_QUESTION_TEXT_CHARS) {
+        if values
+            .iter()
+            .any(|value| value.chars().count() > MAX_QUESTION_TEXT_CHARS)
+        {
             return Err(format!("秘密输入不能超过 {MAX_QUESTION_TEXT_CHARS} 个字符"));
         }
     }

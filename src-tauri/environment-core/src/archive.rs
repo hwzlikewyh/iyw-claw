@@ -1,6 +1,6 @@
 use std::fs::{self, File};
 use std::io::{self, Read};
-use std::path::Path;
+use std::path::{Component, Path};
 
 use anyhow::{bail, Context, Result};
 use flate2::read::GzDecoder;
@@ -8,39 +8,24 @@ use tar::EntryType;
 use xz2::read::XzDecoder;
 use zip::ZipArchive;
 
-use crate::archive_links::{create_links, safe_archive_path, validate_link_target};
-
 const MAX_EXPANDED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 
-pub struct UnpackRequest<'a> {
-    pub archive: &'a Path,
-    pub destination: &'a Path,
-    pub kind: &'a str,
-    pub file_name: &'a str,
-}
-
-pub fn unpack(request: UnpackRequest<'_>) -> Result<()> {
-    fs::create_dir_all(request.destination).context("create component staging directory")?;
-    match request.kind {
+pub fn unpack(archive: &Path, destination: &Path, kind: &str, file_name: &str) -> Result<()> {
+    fs::create_dir_all(destination).context("create component staging directory")?;
+    match kind {
         "binary" => {
-            validate_binary_name(request.file_name)?;
-            let path = request.destination.join(request.file_name);
-            fs::copy(request.archive, &path).context("stage binary component")?;
-            apply_mode(&path, Some(0o755))?;
+            validate_binary_name(file_name)?;
+            fs::copy(archive, destination.join(file_name)).context("stage binary component")?;
             Ok(())
         }
         "zip" | "npm_runtime_bundle_zip" | "uvx_runtime_bundle_zip" => {
-            unpack_zip(request.archive, request.destination)
+            unpack_zip(archive, destination)
         }
-        "tar_gz" | "npm_runtime_bundle_tar_gz" | "uvx_runtime_bundle_tar_gz" => unpack_tar(
-            GzDecoder::new(File::open(request.archive)?),
-            request.destination,
-        ),
-        "tar_xz" => unpack_tar(
-            XzDecoder::new(File::open(request.archive)?),
-            request.destination,
-        ),
-        _ => bail!("unsupported environment package kind: {}", request.kind),
+        "tar_gz" | "npm_runtime_bundle_tar_gz" | "uvx_runtime_bundle_tar_gz" => {
+            unpack_tar(GzDecoder::new(File::open(archive)?), destination)
+        }
+        "tar_xz" => unpack_tar(XzDecoder::new(File::open(archive)?), destination),
+        _ => bail!("unsupported environment package kind: {kind}"),
     }
 }
 
@@ -58,36 +43,28 @@ fn validate_binary_name(value: &str) -> Result<()> {
 fn unpack_zip(archive: &Path, destination: &Path) -> Result<()> {
     let mut archive = ZipArchive::new(File::open(archive)?).context("open ZIP artifact")?;
     let mut expanded = 0_u64;
-    let mut links = Vec::new();
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).context("read ZIP entry")?;
-        let enclosed = safe_archive_path(entry.name())?;
-        let output = destination.join(enclosed);
-        expanded = checked_expanded(expanded, entry.size())?;
+        let enclosed = entry.enclosed_name().context("ZIP entry path is unsafe")?;
+        reject_unsafe_path(&enclosed)?;
         if entry
             .unix_mode()
             .is_some_and(|mode| mode & 0o170000 == 0o120000)
         {
-            let mut target = String::new();
-            entry.take(4097).read_to_string(&mut target)?;
-            if target.len() > 4096 {
-                bail!("archive link target is too long")
-            }
-            let target = std::path::PathBuf::from(target);
-            validate_link_target(destination, &output, &target)?;
-            links.push((output, target));
-            continue;
+            bail!("ZIP symbolic links are not allowed")
         }
+        let output = destination.join(enclosed);
         if entry.is_dir() {
             fs::create_dir_all(&output)?;
             continue;
         }
+        expanded = checked_expanded(expanded, entry.size())?;
         create_parent(&output)?;
-        let mut target = File::create_new(&output)?;
+        let mut target = File::create(&output)?;
         io::copy(&mut entry, &mut target).context("extract ZIP entry")?;
         apply_mode(&output, entry.unix_mode())?;
     }
-    create_links(destination, links)
+    Ok(())
 }
 
 fn unpack_tar<R: Read>(reader: R, destination: &Path) -> Result<()> {
@@ -101,7 +78,8 @@ fn unpack_tar<R: Read>(reader: R, destination: &Path) -> Result<()> {
         {
             bail!("TAR links and special entries are not allowed")
         }
-        let relative = safe_archive_path(&entry.path()?.to_string_lossy())?;
+        let relative = entry.path().context("read TAR path")?.into_owned();
+        reject_unsafe_path(&relative)?;
         let output = destination.join(relative);
         if kind == EntryType::Directory {
             fs::create_dir_all(output)?;
@@ -119,11 +97,59 @@ fn unpack_tar<R: Read>(reader: R, destination: &Path) -> Result<()> {
         expanded = checked_expanded(expanded, entry.size())?;
         let mode = entry.header().mode().ok();
         create_parent(&output)?;
-        let mut target = File::create_new(&output)?;
+        let mut target = File::create(&output)?;
         io::copy(&mut entry, &mut target).context("extract TAR entry")?;
         apply_mode(&output, mode)?;
     }
-    create_links(destination, links)?;
+    create_links(links)?;
+    Ok(())
+}
+
+fn validate_link_target(root: &Path, link: &Path, target: &Path) -> Result<()> {
+    if target.is_absolute() {
+        bail!("TAR link target is absolute")
+    }
+    let parent = link.parent().context("TAR link has no parent")?;
+    let mut depth = parent.strip_prefix(root)?.components().count();
+    for component in target.components() {
+        match component {
+            Component::Normal(_) => depth += 1,
+            Component::CurDir => {}
+            Component::ParentDir if depth > 0 => depth -= 1,
+            _ => bail!("TAR link target escapes the component root"),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn create_links(links: Vec<(std::path::PathBuf, std::path::PathBuf)>) -> Result<()> {
+    use std::os::unix::fs::symlink;
+    for (link, target) in links {
+        create_parent(&link)?;
+        symlink(target, link).context("create TAR symbolic link")?;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn create_links(links: Vec<(std::path::PathBuf, std::path::PathBuf)>) -> Result<()> {
+    if links.is_empty() {
+        Ok(())
+    } else {
+        bail!("TAR symbolic links are not supported on Windows")
+    }
+}
+
+fn reject_unsafe_path(path: &Path) -> Result<()> {
+    if path.as_os_str().is_empty()
+        || path
+            .components()
+            .any(|part| !matches!(part, Component::Normal(_)))
+        || path.to_string_lossy().contains(':')
+    {
+        bail!("archive entry path is unsafe")
+    }
     Ok(())
 }
 

@@ -34,7 +34,7 @@ async function producerConclusion({ github, context, target }) {
 module.exports = async function waitForArtifact(options) {
   const { core, name } = options
   const started = Date.now()
-  core.info(`Checking independently compiled worker: ${name}`)
+  core.info(`Waiting for independently compiled worker: ${name}`)
   while (Date.now() - started < TIMEOUT_MS) {
     // 先读生产者状态，再读产物，避免上传完成与 job 结束之间的竞态。
     const conclusion = await producerConclusion(options)
@@ -48,10 +48,6 @@ module.exports = async function waitForArtifact(options) {
     }
     if (conclusion)
       throw new Error(`worker producer ended (${conclusion}) without ${name}`)
-    if (options.checkOnly) {
-      core.info("Worker is still running; application can compile in parallel")
-      return
-    }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
   }
   throw new Error(`timed out waiting for worker artifact: ${name}`)

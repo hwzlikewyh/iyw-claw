@@ -1,10 +1,13 @@
 import { execFileSync } from "node:child_process"
-import { statSync } from "node:fs"
-import { basename } from "node:path"
-import { sha256 } from "./download-release-asset.mjs"
-export { downloadReleaseFile, sha256 } from "./download-release-asset.mjs"
+import { createHash } from "node:crypto"
+import { createReadStream, existsSync, mkdirSync, statSync } from "node:fs"
+import { basename, join } from "node:path"
+import { setTimeout as delay } from "node:timers/promises"
 
 const COMMAND_TIMEOUT = 20 * 60 * 1000
+const DOWNLOAD_TIMEOUT = 5 * 60 * 1000
+const DOWNLOAD_ATTEMPTS = 3
+const DOWNLOAD_RETRY_DELAY = 5000
 
 export function gh(args, options = {}) {
   return execFileSync("gh", args, {
@@ -49,6 +52,12 @@ export function github(path, args = []) {
   }
 }
 
+export async function sha256(path) {
+  const hash = createHash("sha256")
+  for await (const chunk of createReadStream(path)) hash.update(chunk)
+  return hash.digest("hex")
+}
+
 export function requireDraft({ repo, releaseId, tag }) {
   const release = github(`repos/${repo}/releases/${releaseId}`)
   if (!release.draft || release.tag_name !== tag)
@@ -87,6 +96,69 @@ export async function uploadDraftFile(context, path) {
     throw new Error(`uploaded GitHub asset does not match local bytes: ${name}`)
   }
   return asset
+}
+
+export async function downloadReleaseFile(context, asset, directory) {
+  if (
+    basename(asset.name) !== asset.name ||
+    /[\\/:]/.test(asset.name) ||
+    !/^sha256:[a-f0-9]{64}$/.test(asset.digest || "")
+  ) {
+    throw new Error("invalid GitHub artifact name or digest")
+  }
+  mkdirSync(directory, { recursive: true })
+  const path = join(directory, asset.name)
+  if (
+    existsSync(path) &&
+    statSync(path).size === asset.size &&
+    `sha256:${await sha256(path)}` === asset.digest
+  )
+    return path
+  await downloadWithRetry(context, asset, directory)
+  if (
+    statSync(path).size !== asset.size ||
+    `sha256:${await sha256(path)}` !== asset.digest
+  ) {
+    throw new Error(
+      `downloaded GitHub asset failed verification: ${asset.name}`
+    )
+  }
+  return path
+}
+
+async function downloadWithRetry(context, asset, directory) {
+  const path = join(directory, asset.name)
+  const args = [
+    "release",
+    "download",
+    context.tag,
+    "--repo",
+    context.repo,
+    "--pattern",
+    asset.name,
+    "--dir",
+    directory,
+    "--clobber",
+  ]
+  for (let attempt = 1; attempt <= DOWNLOAD_ATTEMPTS; attempt += 1) {
+    try {
+      gh(args, { stdio: "inherit", timeout: DOWNLOAD_TIMEOUT })
+      return
+    } catch (error) {
+      // 下载完成后进程异常退出时，仍以制品摘要为准。
+      if (
+        existsSync(path) &&
+        statSync(path).size === asset.size &&
+        `sha256:${await sha256(path)}` === asset.digest
+      )
+        return
+      if (attempt === DOWNLOAD_ATTEMPTS) throw error
+      console.warn(
+        `[release-download] ${asset.name}: attempt ${attempt}/${DOWNLOAD_ATTEMPTS} failed (${error.code || error.status || "unknown"}); retrying`
+      )
+      await delay(DOWNLOAD_RETRY_DELAY * attempt)
+    }
+  }
 }
 
 export function cleanupStaging(context) {

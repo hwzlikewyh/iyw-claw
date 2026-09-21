@@ -58,7 +58,9 @@ pub async fn snapshot_core(
         let Ok(agent_type) = serde_json::from_str::<AgentType>(&setting.agent_type) else {
             continue;
         };
-        if crate::internal_xinghe_worker::is_desktop_agent(agent_type) { continue; }
+        if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+            continue;
+        }
         let installations = list_agent_installations(conn, agent_type)
             .await
             .map_err(acp_error)?;

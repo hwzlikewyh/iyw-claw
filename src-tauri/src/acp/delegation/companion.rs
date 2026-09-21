@@ -962,12 +962,12 @@ async fn dispatch_artifacts_tool(bridge: CompanionBridge, call: ToolInvocation) 
             files,
             display_names,
         }),
-        Ok(ArtifactCall::Manage(operation)) => BrokerMessage::ArtifactManagement(
-            super::transport::BrokerArtifactManagementRequest {
+        Ok(ArtifactCall::Manage(operation)) => {
+            BrokerMessage::ArtifactManagement(super::transport::BrokerArtifactManagementRequest {
                 token: bridge.context.token,
                 operation,
-            },
-        ),
+            })
+        }
         Err(message) => return LineAction::Respond(err(call.id, -32602, message)),
     };
     let round_trip = broker_round_trip(bridge.backend, request);

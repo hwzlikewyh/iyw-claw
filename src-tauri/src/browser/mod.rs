@@ -48,11 +48,15 @@ mod control_lease;
 mod control_waiter;
 #[cfg(feature = "tauri-runtime")]
 mod engine;
+#[cfg(feature = "tauri-runtime")]
+mod engine_prefetch;
 mod error;
 #[cfg(feature = "tauri-runtime")]
 mod fingerprint;
 #[cfg(feature = "tauri-runtime")]
 mod frame_protocol;
+#[cfg(feature = "tauri-runtime")]
+mod iyw_login;
 mod manager;
 #[cfg(feature = "tauri-runtime")]
 mod manager_cdp;
@@ -119,6 +123,8 @@ mod types_cdp;
 mod user_action;
 #[cfg(feature = "tauri-runtime")]
 mod user_action_completion;
+#[cfg(feature = "tauri-runtime")]
+mod user_capture;
 mod user_control_lease;
 #[cfg(feature = "tauri-runtime")]
 mod view_host_lifecycle;

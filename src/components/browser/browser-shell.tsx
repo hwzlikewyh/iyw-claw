@@ -1,10 +1,14 @@
 "use client"
 
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Hand } from "lucide-react"
+import { useTranslations } from "next-intl"
+import { toast } from "sonner"
 import { useBrowser } from "@/contexts/browser-context"
 import { useBrowserHost } from "@/hooks/use-browser-host"
 import { browserApi } from "@/lib/browser-api"
+import { emitAppendTextToSession } from "@/lib/session-attachment-events"
+import { useTabStore } from "@/stores/tab-store"
 import type { BrowserTabSnapshot } from "@/lib/browser-types"
 import { BrowserCanvas } from "./browser-canvas"
 import { BrowserPrompts } from "./browser-prompts"
@@ -19,6 +23,7 @@ export function BrowserShell({
   kind?: "docked" | "detached"
 }) {
   const { state, isOpen, closeBrowser, run } = useBrowser()
+  const t = useTranslations("Browser")
   const enabled = kind === "detached" || isOpen
   const {
     host,
@@ -29,6 +34,8 @@ export function BrowserShell({
   const creatingRef = useRef(false)
   const hostedTabRef = useRef(false)
   const closingWindowRef = useRef(false)
+  const [selecting, setSelecting] = useState(false)
+  const sessionTabId = useTabStore((store) => store.activeTabId)
   const claim = state?.viewClaims.find(
     (item) => item.targetHostId === host?.hostId
   )
@@ -57,6 +64,7 @@ export function BrowserShell({
   const activeTabId =
     claim?.browserTabId ?? host?.activeTabId ?? tabs[0]?.browserTabId
   const activeTab = tabs.find((tab) => tab.browserTabId === activeTabId) ?? null
+  useEffect(() => setSelecting(false), [activeTabId])
   const closeShell =
     kind === "docked"
       ? () => void closeBrowser()
@@ -117,6 +125,24 @@ export function BrowserShell({
   const userActionRequest = state.userActionRequests.find(
     (item) => item.browserTabId === activeTab?.browserTabId
   )
+  const selectElement = async (point: { x: number; y: number }) => {
+    setSelecting(false)
+    if (!activeTab || !sessionTabId) return
+    try {
+      const element = await browserApi.inspectElement(
+        activeTab.browserTabId,
+        point.x,
+        point.y
+      )
+      emitAppendTextToSession({
+        tabId: sessionTabId,
+        text: formatSelectedElement(t, element),
+      })
+      toast.success(t("elementAdded"))
+    } catch {
+      toast.error(t("elementFailed"))
+    }
+  }
 
   return (
     <section className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
@@ -130,6 +156,8 @@ export function BrowserShell({
         key={`${activeTab?.browserTabId ?? "empty"}:${activeTab?.url ?? ""}`}
         host={host}
         tab={activeTab}
+        selecting={selecting}
+        onToggleSelecting={() => setSelecting((value) => !value)}
         onClose={closeShell}
       />
       {userActionRequest ? (
@@ -144,7 +172,12 @@ export function BrowserShell({
         </div>
       ) : null}
       <div className="min-h-0 flex-1">
-        <BrowserCanvas tab={activeTab} claim={claim} />
+        <BrowserCanvas
+          tab={activeTab}
+          claim={claim}
+          selecting={selecting}
+          onSelectPoint={(point) => void selectElement(point)}
+        />
       </div>
       <BrowserPrompts
         key={dialog?.dialogId ?? chooser?.chooserId ?? "none"}
@@ -153,4 +186,30 @@ export function BrowserShell({
       />
     </section>
   )
+}
+
+function formatSelectedElement(
+  t: ReturnType<typeof useTranslations>,
+  {
+    tag,
+    role,
+    name,
+    text,
+    selector,
+  }: {
+    tag: string
+    role?: string
+    name?: string
+    text?: string
+    selector: string
+  }
+): string {
+  const details = [
+    t("elementTag", { tag }),
+    role ? t("elementRole", { role }) : null,
+    name ? t("elementName", { name }) : null,
+    text ? t("elementText", { text }) : null,
+    t("elementSelector", { selector }),
+  ].filter((value): value is string => Boolean(value))
+  return details.join("\n")
 }

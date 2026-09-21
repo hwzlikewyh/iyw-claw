@@ -264,7 +264,6 @@ pub struct TurnHarvestCapture {
     pub stop_reason: String,
 }
 
-
 /// CAS 基线随 ACP `SessionStarted` 转换滚动保存。
 ///
 /// 一个连接可能因为 fork 多次收到 `SessionStarted`；订阅者通常晚于
@@ -798,7 +797,8 @@ impl SessionState {
         );
         // 已结束轮次的后台退出只更新进程观测，不能插入当前轮次正文。
         if matches!(payload, AcpEvent::ToolCallUpdate { meta: Some(meta), .. }
-            if meta.pointer("/iyw/backgroundSettlement").and_then(|v| v.as_bool()) == Some(true)) {
+            if meta.pointer("/iyw/backgroundSettlement").and_then(|v| v.as_bool()) == Some(true))
+        {
             return;
         }
         match payload {
@@ -979,8 +979,11 @@ impl SessionState {
             } => {
                 let native_output = self.agent_type == AgentType::Codex
                     && (output::is_native(meta.as_ref())
-                        || output::is_native(self.active_tool_calls.get(tool_call_id)
-                            .and_then(|tool| tool.meta.as_ref())));
+                        || output::is_native(
+                            self.active_tool_calls
+                                .get(tool_call_id)
+                                .and_then(|tool| tool.meta.as_ref()),
+                        ));
                 self.upsert_tool_call(
                     tool_call_id,
                     None,
@@ -988,14 +991,22 @@ impl SessionState {
                     status.as_deref(),
                     content.as_deref(),
                     raw_input.as_deref(),
-                    if native_output { None } else { raw_output.as_deref() },
+                    if native_output {
+                        None
+                    } else {
+                        raw_output.as_deref()
+                    },
                     locations.as_ref(),
                     meta.as_ref(),
                     images.as_deref(),
                 );
                 if native_output {
                     if let Some(tool) = self.active_tool_calls.get_mut(tool_call_id) {
-                        output::apply(tool, raw_output.as_deref(), *raw_output_append == Some(true));
+                        output::apply(
+                            tool,
+                            raw_output.as_deref(),
+                            *raw_output_append == Some(true),
+                        );
                     }
                 }
                 // Defensive: if a ToolCallUpdate arrives before its initial
@@ -1061,9 +1072,11 @@ impl SessionState {
                 }
             }
             AcpEvent::InteractiveHtmlPresented { interaction } => {
-                if !self.interactive_html.iter().any(|page| {
-                    page.interaction_id == interaction.interaction_id
-                }) {
+                if !self
+                    .interactive_html
+                    .iter()
+                    .any(|page| page.interaction_id == interaction.interaction_id)
+                {
                     self.interactive_html.push(interaction.clone());
                 }
             }
@@ -1427,7 +1440,9 @@ impl SessionState {
                 uncertain,
                 ..
             } => {
-                if self.external_id.as_deref() != Some(session_id.as_str()) { return; }
+                if self.external_id.as_deref() != Some(session_id.as_str()) {
+                    return;
+                }
                 self.background_outstanding = *outstanding;
                 self.background_uncertain = *uncertain;
                 self.background_activity_at = Some(Utc::now());
@@ -1870,7 +1885,6 @@ fn substantive_prompt_requires_recall(message: &PendingUserMessage) -> bool {
         .iter()
         .any(|term| normalized.contains(term) || lower.contains(term))
 }
-
 
 pub(crate) fn background_keepalive_max_age() -> chrono::Duration {
     static SECS: std::sync::OnceLock<i64> = std::sync::OnceLock::new();

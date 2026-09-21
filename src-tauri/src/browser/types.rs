@@ -22,6 +22,14 @@ pub enum BrowserRuntimeStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum BrowserIywLoginStatus {
+    Unknown,
+    Authenticated,
+    Unauthenticated,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum BrowserTabStatus {
     Creating,
     Live,
@@ -136,11 +144,32 @@ pub struct BrowserEngineSummary {
 #[serde(rename_all = "camelCase")]
 pub struct BrowserRuntimeSnapshot {
     pub status: BrowserRuntimeStatus,
+    pub iyw_login_status: BrowserIywLoginStatus,
     pub generation: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub operation_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failure_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserScreenshot {
+    pub data: String,
+    pub mime_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowserElementSummary {
+    pub tag: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    pub selector: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -153,6 +182,7 @@ pub struct BrowserTabSnapshot {
     pub view_status: BrowserViewStatus,
     pub control_status: BrowserControlStatus,
     pub document_epoch: u64,
+    pub page_error_count: u32,
     pub generations: BrowserGenerations,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub host_id: Option<String>,

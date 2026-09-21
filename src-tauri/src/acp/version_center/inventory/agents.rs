@@ -154,7 +154,9 @@ pub async fn promote_agent_lkg(
     conn: &DatabaseConnection,
     agent_type: AgentType,
 ) -> Result<(), AcpError> {
-    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) { return Ok(()); }
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        return Ok(());
+    }
     let encoded = serialize_agent_type(agent_type)?;
     let model = agent_setting::Entity::find()
         .filter(agent_setting::Column::AgentType.eq(encoded.clone()))

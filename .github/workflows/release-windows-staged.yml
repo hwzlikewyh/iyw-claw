@@ -90,25 +90,13 @@ jobs:
           path: out
       - name: Stage sidecars
         run: pnpm tauri:prepare-sidecars --target $env:TAURI_TARGET_TRIPLE
-      - name: Check worker producer before compiling
-        if: inputs.parallel_worker
-        uses: ./.github/actions/receive-worker
-        with:
-          target: ${{ inputs.target }}
-          check-only: "true"
       - name: Compile application alongside worker
         if: inputs.parallel_worker
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
         run: |
-          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings --config profile.release.package.iyw-claw.opt-level=1
+          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings
           if ($LASTEXITCODE -ne 0) { throw 'Parallel Windows compilation failed' }
-      - name: Archive application compile timings
-        if: always() && inputs.parallel_worker
-        continue-on-error: true
-        uses: ./.github/actions/build-timings
-        with:
-          target: ${{ inputs.target }}
       - name: Receive independently compiled worker
         if: inputs.parallel_worker
         uses: ./.github/actions/receive-worker
@@ -126,7 +114,7 @@ jobs:
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
         run: |
-          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --no-bundle --no-sign -- --timings --config profile.release.package.iyw-claw.opt-level=1
+          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --no-bundle --no-sign -- --timings
           if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
       - name: Package verified signing input
         run: |
@@ -164,7 +152,6 @@ jobs:
       HTTPS_PROXY: http://127.0.0.1:7890
       # GitHub checkout and asset hosts require the runner's existing proxy.
       NO_PROXY: localhost,127.0.0.1,api.github.com,uploads.github.com
-      IYW_CLAW_RELEASE_DOWNLOAD_PROXY: ${{ vars.WINDOWS_RELEASE_DOWNLOAD_PROXY || 'http://127.0.0.1:7890' }}
       GIT_CONFIG_COUNT: "1"
       GIT_CONFIG_KEY_0: http.version
       GIT_CONFIG_VALUE_0: HTTP/1.1

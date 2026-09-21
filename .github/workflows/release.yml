@@ -59,21 +59,31 @@ jobs:
           RELEASE_TAG_FROM_PUSH: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
+          IYW_FUSION_ADMIN_TOKEN: ${{ secrets.FUSION_ADMIN_TOKEN }}
+          IYW_CLAW_FUSION_API_BASE_URL: https://gateway.iyw.cn/iyw-fusion-api
         run: |
           set -euo pipefail
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             version="$INPUT_VERSION"
-            if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$ ]]; then
-              echo "::error::Version '$version' must be semantic version text without a leading v."
-              exit 1
-            fi
-            IFS='.' read -r release_major release_minor release_patch <<< "${version%%-*}"
-            if (( release_major == 0 && release_minor < 1 )) \
-               || (( release_major == 0 && release_minor == 1 && release_patch < 93 )); then
-              echo "::error::Version '$version' predates the HTTP-only built-in MCP contract (minimum 0.1.93)."
-              exit 1
-            fi
+          else
+            version="${RELEASE_TAG_FROM_PUSH#v}"
+          fi
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$ ]]; then
+            echo "::error::Version '$version' must be semantic version text without a leading v."
+            exit 1
+          fi
+          IFS='.' read -r release_major release_minor release_patch <<< "${version%%-*}"
+          if (( release_major == 0 && release_minor < 1 )) \
+             || (( release_major == 0 && release_minor == 1 && release_patch < 93 )); then
+            echo "::error::Version '$version' predates the HTTP-only built-in MCP contract (minimum 0.1.93)."
+            exit 1
+          fi
+
+          node src-tauri/scripts/prepare-environment-binding.mjs "$version"
+          node src-tauri/scripts/verify-environment-plan.mjs "$version"
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
 
             tag="v$version"
             tag_exists=false
@@ -224,15 +234,6 @@ jobs:
       source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
       release_artifacts: true
 
-  verify-environment:
-    needs: create-draft-release
-    permissions:
-      contents: read
-    uses: ./.github/workflows/verify-environment.yml
-    with:
-      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
-      version: ${{ needs.create-draft-release.outputs.release_tag }}
-
   prepare-frontend:
     needs: create-draft-release
     runs-on: ubuntu-22.04
@@ -362,7 +363,7 @@ jobs:
       - build-windows
       - verify-windows-installers
       - verify-macos-x64-installer
-    if: ${{ needs.verify-environment.result == 'success' && needs.build-tauri.result == 'success' && needs.build-macos-x64.result == 'success' && needs.build-windows.result == 'success' && needs.verify-windows-installers.result == 'success' && needs.verify-macos-x64-installer.result == 'success' }}
+    if: ${{ needs.build-tauri.result == 'success' && needs.build-macos-x64.result == 'success' && needs.build-windows.result == 'success' && needs.verify-windows-installers.result == 'success' && needs.verify-macos-x64-installer.result == 'success' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: write

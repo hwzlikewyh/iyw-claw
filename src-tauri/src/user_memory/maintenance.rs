@@ -39,9 +39,7 @@ impl UserMemoryService {
         let Ok(_guard) = self.maintenance.task.try_lock() else {
             return Ok(());
         };
-        self.release_semantic_if_idle().await?;
         self.read_index_source().await?;
-        self.reconcile_memory_reviews().await?;
         if let Err(error) = self.retry_authority_export().await {
             tracing::warn!(code = ?error.code, "[memory-maintenance] compatibility export deferred");
         }

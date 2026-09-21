@@ -120,19 +120,27 @@ impl ConnectionManager {
         let Some(session_id) = target.session_id.as_deref() else {
             return false;
         };
-        let states: Vec<_> = self.connections.lock().await.values()
+        let states: Vec<_> = self
+            .connections
+            .lock()
+            .await
+            .values()
             .filter(|connection| connection.agent_type == agent_type)
             .map(|connection| connection.state.clone())
             .collect();
         for state in states {
             let state = state.read().await;
-            let existing = state.external_id.as_deref()
+            let existing = state
+                .external_id
+                .as_deref()
                 .or(state.requested_external_id.as_deref());
             if existing == Some(session_id)
                 && state.working_dir.as_ref() == Some(&target.cwd)
-                && !matches!(state.status,
+                && !matches!(
+                    state.status,
                     crate::acp::types::ConnectionStatus::Disconnected
-                        | crate::acp::types::ConnectionStatus::Error)
+                        | crate::acp::types::ConnectionStatus::Error
+                )
             {
                 tracing::info!(agent = %agent_type, status = ?state.status,
                     "[ACP][startup] prewarm skipped: target connection already exists");

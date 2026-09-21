@@ -37,7 +37,6 @@ pub async fn internet_tool_uninstall(
     tool: InternetToolId,
     remove_config: bool,
 ) -> Result<InternetToolInfo, String> {
-    reject_retired_desktop_tool(tool)?;
     if cfg!(feature = "tauri-runtime") && tool == InternetToolId::AgentReach {
         return Err(
             "Agent Reach 由安装环境统一管理，请使用 iyw-environment repair 修复".to_string(),

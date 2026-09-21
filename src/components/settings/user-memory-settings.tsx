@@ -14,6 +14,7 @@ import { UserMemoryDiagnosticsPanel } from "./user-memory-diagnostics"
 import { UserMemoryDocumentEditor } from "./user-memory-document-editor"
 import { UserMemoryPolicyPanel } from "./user-memory-policy-panel"
 import { useUserMemorySettingsState } from "./use-user-memory-settings"
+import { UserMemorySemanticPanel } from "./user-memory-semantic-panel"
 import { UserMemoryLearningPanel } from "./user-memory-learning-panel"
 import { UserMemoryMaintenancePanel } from "./user-memory-maintenance-panel"
 import { UserMemoryAuthorityPanel } from "./user-memory-authority-panel"
@@ -193,6 +194,7 @@ function LoadedMemorySettings({ state, health }: LoadedProps) {
           if (!state.dirty) void state.load()
         }}
       />
+      <UserMemorySemanticPanel />
       <UserMemoryAuthorityPanel
         disabled={state.dirty || state.saving}
         onUpdated={() => {

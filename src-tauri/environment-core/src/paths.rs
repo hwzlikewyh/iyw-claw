@@ -17,13 +17,6 @@ impl Layout {
         let root = dirs::home_dir()
             .context("operating-system user home is unavailable")?
             .join(".iyw-claw");
-        #[cfg(debug_assertions)]
-        let root = std::env::var_os("IYW_CLAW_ENVIRONMENT_TEST_ROOT")
-            .map(PathBuf::from)
-            .unwrap_or(root);
-        if !root.is_absolute() {
-            anyhow::bail!("environment root must be absolute")
-        }
         Ok(Self {
             runtime: root.join("runtime"),
             inventory: root.join("inventory"),
@@ -77,8 +70,6 @@ pub fn safe_segment<'a>(value: &'a str, label: &str) -> Result<&'a str> {
         || value.len() > 128
         || matches!(value, "." | "..")
         || value.contains(['/', '\\', ':'])
-        || value.ends_with([' ', '.'])
-        || value.chars().any(char::is_control)
     {
         anyhow::bail!("{label} path segment is invalid")
     }
@@ -93,7 +84,7 @@ pub fn platform() -> (String, String, String) {
     let arch = match std::env::consts::ARCH {
         "aarch64" => "aarch64",
         "x86" => "x86",
-        other => other,
+        _ => "x86_64",
     };
     (
         target.to_string(),
@@ -113,25 +104,11 @@ pub fn from_slash(root: &Path, relative: &str) -> Result<PathBuf> {
     if relative.is_empty()
         || relative
             .split('/')
-            .any(|part| safe_segment(part, "relative path").is_err())
+            .any(|part| matches!(part, "" | "." | ".."))
     {
         anyhow::bail!("managed relative path is invalid")
     }
     Ok(relative
         .split('/')
         .fold(root.to_path_buf(), |path, part| path.join(part)))
-}
-
-pub fn ensure_within(root: &Path, path: &Path) -> Result<()> {
-    let canonical_root = root.canonicalize()?;
-    let mut existing = path;
-    while !existing.exists() {
-        existing = existing
-            .parent()
-            .context("managed path has no existing parent")?;
-    }
-    if !existing.canonicalize()?.starts_with(canonical_root) {
-        anyhow::bail!("managed path resolves outside the environment root")
-    }
-    Ok(())
 }

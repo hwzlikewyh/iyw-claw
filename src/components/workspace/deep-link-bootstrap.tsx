@@ -32,7 +32,15 @@ export function DeepLinkBootstrap() {
 
     const clearUrl = () => {
       try {
-        window.history.replaceState({}, "", "/workspace")
+        const remaining = new URLSearchParams(window.location.search)
+        for (const key of ["folderId", "conversationId", "agent"])
+          remaining.delete(key)
+        const suffix = remaining.toString()
+        window.history.replaceState(
+          {},
+          "",
+          suffix ? `/workspace?${suffix}` : "/workspace"
+        )
       } catch {
         /* ignore */
       }
@@ -51,7 +59,7 @@ export function DeepLinkBootstrap() {
 
         // Read at run time: this effect fires once when hydration completes,
         // and getState() sees exactly the lists as of that moment.
-        const { folders, addFolderToWorkspaceById, conversations } =
+        const { folders, addFolderToWorkspaceById } =
           useAppWorkspaceStore.getState()
 
         let folder = folders.find((f) => f.id === folderId)
@@ -65,11 +73,13 @@ export function DeepLinkBootstrap() {
           }
         }
 
-        const hasConv = conversations.some(
-          (c) =>
-            c.id === conversationId &&
-            c.folder_id === folderId &&
-            c.agent_type === rawAgent
+        if (!hasLinkedConversation(folderId, conversationId, rawAgent)) {
+          await useAppWorkspaceStore.getState().refreshConversations()
+        }
+        const hasConv = hasLinkedConversation(
+          folderId,
+          conversationId,
+          rawAgent
         )
         if (!hasConv) {
           toast.error("Linked conversation not found")
@@ -90,6 +100,21 @@ type FocusRequest = {
   folderId: number
   conversationId: number
   agent: AgentType
+}
+
+function hasLinkedConversation(
+  folderId: number,
+  conversationId: number,
+  agent: AgentType
+) {
+  return useAppWorkspaceStore
+    .getState()
+    .conversations.some(
+      (c) =>
+        c.id === conversationId &&
+        c.folder_id === folderId &&
+        c.agent_type === agent
+    )
 }
 
 /**

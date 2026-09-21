@@ -14,7 +14,6 @@ import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 import { verifyArtifacts } from "./verify-signatures.mjs"
-import { verifyEnvironmentHelper as verifyHelper } from "./verify-environment-helper.mjs"
 import {
   assertCleanInstallState,
   assertDisposableRunner,
@@ -128,9 +127,10 @@ function rejectLegacyMcpSidecars(directory) {
 function verifyStagedSidecars(target, version) {
   verifyConfiguredExternalBins()
   rejectLegacyMcpSidecars(join(SRC_TAURI, "binaries"))
-  const path = join(SRC_TAURI, "binaries", helperFileName(target))
-  logFile("environment helper", path, version)
-  verifyHelper(path, { target, version })
+  verifyEnvironmentHelper(
+    join(SRC_TAURI, "binaries", helperFileName(target)),
+    version
+  )
 }
 
 function resolveInstallerPath(args, target, version) {
@@ -167,7 +167,7 @@ function resolveInstalledApp(directory) {
   die(`installed application directory is missing: ${directory}`)
 }
 
-function verifyInstalledSidecars(appDirectory, options) {
+function verifyInstalledSidecars(appDirectory, version) {
   if ((process.env.IYW_CLAW_SIGN_MODE ?? "none") !== "none") {
     verifyArtifacts([
       join(
@@ -176,14 +176,21 @@ function verifyInstalledSidecars(appDirectory, options) {
       ),
     ])
   }
-  const path = join(
-    appDirectory,
-    options.target.includes("windows")
-      ? "iyw-environment.exe"
-      : "iyw-environment"
+  verifyEnvironmentHelper(
+    join(
+      appDirectory,
+      process.platform === "win32" ? "iyw-environment.exe" : "iyw-environment"
+    ),
+    version
   )
-  logFile("environment helper", path, options.version)
-  verifyHelper(path, options)
+}
+
+function verifyEnvironmentHelper(path, version) {
+  logFile("environment helper", path, version)
+  const output = execFileSync(path, ["--version"], { encoding: "utf8" }).trim()
+  if (!/^iyw-environment \d+\.\d+\.\d+$/.test(output)) {
+    die(`environment helper returned an invalid version: ${output}`)
+  }
 }
 
 function logInstallRoot(root) {
@@ -255,10 +262,7 @@ function verifyNsisInstaller(installer, target, version) {
       logInstallRoot(installRoot)
       throw error
     }
-    verifyInstalledSidecars(resolveInstalledApp(installRoot), {
-      target,
-      version,
-    })
+    verifyInstalledSidecars(resolveInstalledApp(installRoot), version)
   } catch (error) {
     failure = error
   }
@@ -277,10 +281,10 @@ function main() {
     if (verifyNsis) {
       die("--installed-app cannot be combined with NSIS verification")
     }
-    verifyInstalledSidecars(resolveInstalledApp(resolve(args.installedApp)), {
-      target,
-      version,
-    })
+    verifyInstalledSidecars(
+      resolveInstalledApp(resolve(args.installedApp)),
+      version
+    )
     return
   }
   verifyStagedSidecars(target, version)

@@ -15,30 +15,14 @@ pub(crate) fn canonical_model_id(value: &str) -> &str {
         .unwrap_or(value)
 }
 
-pub(crate) fn canonical_model_id_for_agent(agent: AgentType, value: &str) -> &str {
-    if agent == AgentType::Hermes {
-        return value.strip_prefix("custom:").unwrap_or(value);
-    }
-    if matches!(agent, AgentType::OpenCode | AgentType::Pi) {
-        return canonical_model_id(value);
-    }
-    value
-}
-
 fn uses_provider_model_ids(agent_type: AgentType) -> bool {
-    matches!(
-        agent_type,
-        AgentType::OpenCode | AgentType::Pi | AgentType::Hermes
-    )
+    matches!(agent_type, AgentType::OpenCode | AgentType::Pi)
 }
 
 pub(crate) fn model_value_for_agent(agent_type: AgentType, value: String) -> String {
     if uses_provider_model_ids(agent_type)
         && managed_model_ids_for(agent_type).contains(&value.as_str())
     {
-        if agent_type == AgentType::Hermes {
-            return format!("custom:{value}");
-        }
         return format!("{MANAGED_PROVIDER_ID}/{value}");
     }
     value
@@ -56,15 +40,14 @@ pub(crate) fn project_model_options(
         .filter(|option| option.id == "model" || option.category.as_deref() == Some("model"))
     {
         let SessionConfigKindInfo::Select(select) = &mut option.kind;
-        select.current_value =
-            canonical_model_id_for_agent(agent_type, &select.current_value).to_string();
+        select.current_value = canonical_model_id(&select.current_value).to_string();
         for value in select.options.iter_mut().chain(
             select
                 .groups
                 .iter_mut()
                 .flat_map(|group| &mut group.options),
         ) {
-            value.value = canonical_model_id_for_agent(agent_type, &value.value).to_string();
+            value.value = canonical_model_id(&value.value).to_string();
         }
     }
 }

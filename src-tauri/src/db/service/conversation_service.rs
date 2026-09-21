@@ -531,7 +531,8 @@ pub async fn find_folder_path_by_external_id(
     {
         return Ok(Some(path));
     }
-    let Some(conversation_id) = find_segment_conversation_id(conn, external_id, &agent_type).await?
+    let Some(conversation_id) =
+        find_segment_conversation_id(conn, external_id, &agent_type).await?
     else {
         return Ok(None);
     };
@@ -578,14 +579,13 @@ async fn find_segment_conversation_id(
     use crate::db::entities::conversation_session_segment as segment;
 
     Ok(segment::Entity::find()
+        .select_only()
+        .column(segment::Column::ConversationId)
         .filter(segment::Column::ExternalId.eq(external_id))
         .filter(segment::Column::AgentType.eq(agent_type))
-        .find_also_related(conversation::Entity)
+        .into_tuple::<i32>()
         .one(conn)
-        .await?
-        .and_then(|(_, conversation)| conversation)
-        .filter(|conversation| conversation.deleted_at.is_none())
-        .map(|conversation| conversation.id))
+        .await?)
 }
 
 /// Validate a caller-provided conversation id against the persisted Agent

@@ -7,8 +7,8 @@ use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::conversation_title::ConversationTitleContext;
 use crate::commands::conversations as conv_commands;
-use crate::models::*;
 use crate::db::service::conversation_service::{ConversationPage, ConversationPageRequest};
+use crate::models::*;
 
 #[derive(Deserialize)]
 pub struct ConversationPageParams {
@@ -24,7 +24,9 @@ pub async fn list_conversations_page(
         emitter: &state.emitter,
         chat_channel_manager: &state.chat_channel_manager,
     };
-    Ok(Json(conv_commands::list_conversations_page_core(&context, args.params).await?))
+    Ok(Json(
+        conv_commands::list_conversations_page_core(&context, args.params).await?,
+    ))
 }
 
 #[derive(Deserialize, Default)]

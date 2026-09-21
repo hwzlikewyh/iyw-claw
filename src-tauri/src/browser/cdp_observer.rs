@@ -268,6 +268,8 @@ where
 {
     for (method, params) in [
         ("Page.enable", json!({})),
+        ("Runtime.enable", json!({})),
+        ("Log.enable", json!({})),
         ("Page.setLifecycleEventsEnabled", json!({ "enabled": true })),
         (
             "Page.setInterceptFileChooserDialog",

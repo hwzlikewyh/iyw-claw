@@ -46,7 +46,10 @@ impl ServerHandler for BuiltinMcpHandler {
                     _ => true,
                 })
                 .collect::<Vec<_>>();
-            let names = tools.iter().map(|tool| tool.name.as_ref()).collect::<Vec<_>>();
+            let names = tools
+                .iter()
+                .map(|tool| tool.name.as_ref())
+                .collect::<Vec<_>>();
             log_tools_list(&authority, &names);
             if let Some(delivery) = delivery {
                 let ready = authority.tools_ready();

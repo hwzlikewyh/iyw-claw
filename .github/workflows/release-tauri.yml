@@ -111,7 +111,6 @@ jobs:
           fi
           echo "[cache] persistent root: $cache_root"
 
-
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -306,17 +305,6 @@ jobs:
       - name: Verify staged sidecars
         run: node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
 
-
-
-
-
-      - name: Check worker producer before compiling
-        if: inputs.parallel_worker
-        uses: ./.github/actions/receive-worker
-        with:
-          target: ${{ matrix.target }}
-          check-only: "true"
-
       - name: Compile application alongside worker
         if: inputs.parallel_worker
         shell: bash
@@ -359,8 +347,7 @@ jobs:
         if: ${{ !inputs.parallel_worker && hashFiles('.github/actions/prepare-worker/action.yml') == '' }}
         run: pnpm tauri:prepare-xinghe-worker --target "${{ matrix.target }}"
 
-
-      - name: Build and upload Linux arm64 DEB
+      - name: Build and upload Linux arm64
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         timeout-minutes: ${{ inputs.parallel_worker && 20 || 100 }}
         uses: tauri-apps/tauri-action@v0.6.1
@@ -378,7 +365,7 @@ jobs:
           prerelease: ${{ inputs.prerelease }}
           assetNamePattern: iyw-claw_[version]_arm64[ext]
           tauriScript: ${{ inputs.parallel_worker && 'node .github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
-          args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.linux-arm64-ci.conf.json -- --timings
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.linux-arm64-ci.conf.json -- --timings
           includeUpdaterJson: false
           retryAttempts: 2
 
@@ -443,7 +430,6 @@ jobs:
         shell: bash
         run: pnpm tauri:verify-bundle-size --target "${{ matrix.target }}"
 
-      # Installed app and helper verification runs on a disposable hosted runner.
       - name: Verify Authenticode signatures
         if: contains(matrix.target, 'windows')
         shell: bash
@@ -543,7 +529,6 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 1
-
 
       - name: Archive Cargo build timings
         if: always() && !inputs.parallel_worker && hashFiles('.github/actions/build-timings/action.yml') != ''

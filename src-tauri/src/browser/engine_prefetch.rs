@@ -2,14 +2,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use sea_orm::DatabaseConnection;
-use tokio::sync::{watch, Mutex, RwLock};
+use tokio::sync::{watch, Mutex};
 use tokio_util::sync::CancellationToken;
 
 use super::error::{BrowserError, BrowserErrorCode};
-use crate::acp::version_center::install_managed_tool;
-#[cfg(not(target_os = "windows"))]
-use crate::app_error::AppCommandError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PrefetchState {
@@ -27,15 +23,12 @@ struct PrefetchFailure {
 
 const FAILURE_RETRY_DELAY: Duration = Duration::from_secs(5);
 const MISSING_ENGINE_RETRY_DELAY: Duration = Duration::from_secs(60);
-#[cfg(not(target_os = "windows"))]
-const TOOL_NOT_FOUND: &str = "AGENT_TOOL_NOT_FOUND";
 
 #[derive(Debug, Clone)]
 pub(super) struct BrowserEnginePrefetch {
     state: Arc<Mutex<PrefetchState>>,
     state_change: watch::Sender<PrefetchState>,
     last_failure: Arc<Mutex<Option<PrefetchFailure>>>,
-    database: Arc<RwLock<Option<DatabaseConnection>>>,
     data_root: PathBuf,
 }
 
@@ -46,13 +39,8 @@ impl BrowserEnginePrefetch {
             state: Arc::new(Mutex::new(PrefetchState::Idle)),
             state_change,
             last_failure: Arc::new(Mutex::new(None)),
-            database: Arc::new(RwLock::new(None)),
             data_root,
         }
-    }
-
-    pub(super) async fn set_database(&self, database: DatabaseConnection) {
-        *self.database.write().await = Some(database);
     }
 
     pub(super) fn schedule(&self, shutdown: CancellationToken) {
@@ -102,63 +90,9 @@ impl BrowserEnginePrefetch {
         if cancellation.is_cancelled() {
             return Err(BrowserError::shutting_down());
         }
-        let Some(conn) = self.database.read().await.clone() else {
-            return Err(BrowserError::new(
-                BrowserErrorCode::BrowserRuntimeUnavailable,
-                "The browser engine is waiting for desktop initialization",
-            )
-            .retryable(true));
-        };
-        let channel = self.install_channel(&conn).await;
-        let managed_result = install_managed_tool(
-            &conn,
-            &self.data_root,
-            "browser-engine",
-            None,
-            &channel,
-            false,
-            None,
-            None,
-        )
-        .await;
-        if let Err(error) = managed_result {
-            #[cfg(target_os = "windows")]
-            {
-                tracing::warn!(
-                    target: "iyw_claw_browser",
-                    error_code = ?error.code,
-                    "managed browser engine unavailable; trying verified local Chromium fallback"
-                );
-                return super::engine_download::ensure_managed_engine(
-                    &self.data_root,
-                    cancellation,
-                )
-                .await
-                .map(|engine| engine.path);
-            }
-            #[cfg(not(target_os = "windows"))]
-            {
-                return Err(map_install_error(error));
-            }
-        }
-        self.detect_or_fallback(cancellation).await
-    }
-
-    async fn detect_or_fallback(
-        &self,
-        cancellation: CancellationToken,
-    ) -> Result<PathBuf, BrowserError> {
-        if let Ok(engine) = super::engine::detect_engine(&self.data_root).await {
-            return Ok(engine.path);
-        }
-        #[cfg(target_os = "windows")]
-        {
-            return super::engine_download::ensure_managed_engine(&self.data_root, cancellation)
-                .await
-                .map(|engine| engine.path);
-        }
-        #[cfg(not(target_os = "windows"))]
-        Err(engine_unavailable())
+        super::engine::detect_engine(&self.data_root)
+            .await
+            .map(|engine| engine.path)
     }
 
     async fn detect_ready_engine(&self) -> Option<PathBuf> {
@@ -206,22 +140,8 @@ impl BrowserEnginePrefetch {
                 .await
                 .as_ref()
                 .map(|failure| failure.error.clone())
-                .unwrap_or_else(engine_unavailable),
+                .unwrap_or_else(chromix_unavailable),
         )
-    }
-
-    async fn install_channel(&self, conn: &DatabaseConnection) -> String {
-        crate::update::preferences::load(conn)
-            .await
-            .map(|prefs| prefs.channel.as_str().to_string())
-            .unwrap_or_else(|error| {
-                tracing::info!(
-                    target: "iyw_claw_browser",
-                    error = %error,
-                    "browser engine prefetch could not read update channel; using stable"
-                );
-                "stable".to_string()
-            })
     }
 
     async fn mark_ready(&self) {
@@ -245,32 +165,14 @@ async fn wait_for_install(
 ) -> Result<(), BrowserError> {
     tokio::select! {
         _ = cancellation.cancelled() => Err(BrowserError::shutting_down()),
-        changed = state_change.changed() => changed.map_err(|_| engine_unavailable()),
+        changed = state_change.changed() => changed.map_err(|_| chromix_unavailable()),
     }
 }
 
-#[cfg(not(target_os = "windows"))]
-fn map_install_error(error: AppCommandError) -> BrowserError {
-    tracing::info!(
-        target: "iyw_claw_browser",
-        error_code = ?error.code,
-        detail_present = error.detail.is_some(),
-        "managed browser engine installation failed"
-    );
-    if error.detail.as_deref() == Some(TOOL_NOT_FOUND) {
-        return BrowserError::new(
-            BrowserErrorCode::BrowserEngineNotFound,
-            "No managed browser engine release is available",
-        )
-        .retryable(true);
-    }
-    engine_unavailable()
-}
-
-fn engine_unavailable() -> BrowserError {
+fn chromix_unavailable() -> BrowserError {
     BrowserError::new(
-        BrowserErrorCode::BrowserRuntimeUnavailable,
-        "The managed browser engine is unavailable",
+        BrowserErrorCode::BrowserEngineNotFound,
+        "The verified Chromix browser engine is unavailable",
     )
     .retryable(true)
 }

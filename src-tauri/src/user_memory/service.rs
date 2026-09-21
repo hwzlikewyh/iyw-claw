@@ -44,7 +44,6 @@ pub struct UserMemoryService {
     pub(super) harvest: HarvestQueue,
     pub(super) managed_chat_root: Option<String>,
     pub(super) semantic: Arc<super::semantic::SemanticRuntime>,
-    pub(super) foreground: tokio::sync::watch::Sender<usize>,
     pub(super) maintenance: Arc<super::maintenance::MaintenanceRuntime>,
     pub(super) authority: Arc<RwLock<Option<super::authority_types::AuthoritySnapshot>>>,
 }
@@ -89,7 +88,6 @@ impl UserMemoryService {
             harvest: HarvestQueue::default(),
             managed_chat_root: None,
             semantic: Arc::new(super::semantic::SemanticRuntime::default()),
-            foreground: tokio::sync::watch::channel(0).0,
             maintenance: Arc::new(super::maintenance::MaintenanceRuntime::default()),
             authority: Arc::new(RwLock::new(None)),
         }

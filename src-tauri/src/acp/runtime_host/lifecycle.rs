@@ -62,7 +62,10 @@ impl RuntimeHostReservation {
                 tokio::pin!(notified);
                 notified.as_mut().enable();
                 if let Some(lease) = self.host.register_reserved_route(
-                    connection_id.clone(), session_id.clone(), Arc::clone(&route), self.shared,
+                    connection_id.clone(),
+                    session_id.clone(),
+                    Arc::clone(&route),
+                    self.shared,
                 )? {
                     self.armed = false;
                     return Ok(lease);
@@ -70,8 +73,11 @@ impl RuntimeHostReservation {
                 notified.await;
             }
         };
-        tokio::time::timeout(super::session::SESSION_HANDOFF_TIMEOUT, wait).await
-            .map_err(|_| crate::acp::error::AcpError::protocol("Previous ACP session is still closing"))?
+        tokio::time::timeout(super::session::SESSION_HANDOFF_TIMEOUT, wait)
+            .await
+            .map_err(|_| {
+                crate::acp::error::AcpError::protocol("Previous ACP session is still closing")
+            })?
     }
 }
 

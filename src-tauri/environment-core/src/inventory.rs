@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::{fs, io::Write};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -12,11 +12,7 @@ use crate::model::{
 use crate::paths::{from_slash, slash_relative, Layout};
 
 pub fn load_current(layout: &Layout) -> Result<Option<EnvironmentSnapshot>> {
-    let snapshot = read_json_optional(&layout.current_snapshot())?;
-    if let Some(snapshot) = &snapshot {
-        crate::validation::validate_snapshot(snapshot)?;
-    }
-    Ok(snapshot)
+    read_json_optional(&layout.current_snapshot())
 }
 
 pub fn current_pc_version() -> Option<String> {
@@ -25,13 +21,6 @@ pub fn current_pc_version() -> Option<String> {
         .ok()
         .flatten()
         .map(|value| value.pc_version)
-}
-
-pub fn snapshot_digest(layout: &Layout) -> Result<String> {
-    if !layout.current_snapshot().exists() {
-        return Ok(String::new());
-    }
-    hash_file(&layout.current_snapshot())
 }
 
 pub fn healthy_inventory(
@@ -47,19 +36,11 @@ pub fn healthy_inventory(
 
 pub fn verify_component(layout: &Layout, component: &InstalledComponent) -> Result<()> {
     let root = from_slash(&layout.root, &component.relative_path)?;
-    if !root.is_dir() || component.files.is_empty() {
+    if !root.is_dir() {
         bail!("component directory is missing")
-    }
-    validate_entrypoints(&component.component_id, &component.entrypoints)?;
-    let canonical_root = root.canonicalize()?;
-    if !canonical_root.starts_with(layout.runtime.canonicalize()?) {
-        bail!("component escaped the managed runtime")
     }
     for record in &component.files {
         let path = from_slash(&root, &record.path)?;
-        if !path.canonicalize()?.starts_with(&canonical_root) {
-            bail!("component file escaped the managed root")
-        }
         if let Some(expected) = &record.link_target {
             let metadata = fs::symlink_metadata(&path).context("read component link")?;
             let actual = fs::read_link(&path).context("read component link target")?;
@@ -79,21 +60,8 @@ pub fn verify_component(layout: &Layout, component: &InstalledComponent) -> Resu
         }
     }
     for relative in component.entrypoints.values() {
-        let path = from_slash(&root, relative)?;
-        if !path.is_file()
-            || !component
-                .files
-                .iter()
-                .any(|record| record.path == *relative)
-        {
-            bail!("installed component entrypoint is missing or unverified")
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if path.metadata()?.permissions().mode() & 0o111 == 0 {
-                bail!("installed component entrypoint is not executable")
-            }
+        if !from_slash(&root, relative)?.is_file() {
+            bail!("installed component entrypoint is missing")
         }
     }
     Ok(())
@@ -147,7 +115,7 @@ fn file_records(root: &Path) -> Result<Vec<FileRecord>> {
             });
             continue;
         }
-        if !entry.path().is_file() {
+        if !entry.file_type().is_file() {
             continue;
         }
         let path = entry.path();
@@ -169,34 +137,33 @@ fn discover_entrypoints(component: &str, root: &Path) -> Result<BTreeMap<String,
     let mut values = BTreeMap::new();
     for entry in WalkDir::new(root).follow_links(false) {
         let entry = entry?;
-        if !entry.path().is_file() {
+        if !entry.file_type().is_file() {
             continue;
         }
         let relative = slash_relative(root, entry.path())?;
         let lower = relative.to_ascii_lowercase();
-        if let Some(name) = entrypoint_name(component, &lower) {
-            values.entry(name.to_string()).or_insert(relative);
-        }
+        add_entrypoint(component, &lower, &relative, &mut values);
     }
     Ok(values)
 }
 
-fn entrypoint_name(component: &str, lower: &str) -> Option<&'static str> {
+fn add_entrypoint(
+    component: &str,
+    lower: &str,
+    relative: &str,
+    values: &mut BTreeMap<String, String>,
+) {
     let file = lower.rsplit('/').next().unwrap_or(lower);
-    match component {
+    let name = match component {
         "node" if matches!(file, "node" | "node.exe") => Some("node"),
-        "node" if file == if cfg!(windows) { "npm.cmd" } else { "npm" } => Some("npm"),
-        "node" if file == if cfg!(windows) { "npx.cmd" } else { "npx" } => Some("npx"),
+        "node" if matches!(file, "npm" | "npm.cmd") => Some("npm"),
+        "node" if matches!(file, "npx" | "npx.cmd") => Some("npx"),
         "git" if lower.ends_with("cmd/git.exe") || lower.ends_with("bin/git") => Some("git"),
         "uv" if matches!(file, "uv" | "uv.exe") => Some("uv"),
         "uv" if matches!(file, "uvx" | "uvx.exe") => Some("uvx"),
         "chromix" if matches!(file, "chrome" | "chrome.exe" | "chromium") => Some("chromix"),
         "agent-browser" if file.contains("agent-browser") => Some("agent-browser"),
         "officecli" if file.contains("officecli") => Some("officecli"),
-        "environment-maintainer" if matches!(file,
-            "iyw-environment" | "iyw-environment.exe" | "environment-maintainer" | "environment-maintainer.exe") => {
-            Some("environment-maintainer")
-        }
         "agent-reach"
             if lower.ends_with("bin/agent-reach") || lower.ends_with("bin/agent-reach.cmd") =>
         {
@@ -204,6 +171,11 @@ fn entrypoint_name(component: &str, lower: &str) -> Option<&'static str> {
         }
         "open-computer-use" if is_open_computer_use_entrypoint(lower) => Some("open-computer-use"),
         _ => None,
+    };
+    if let Some(name) = name {
+        values
+            .entry(name.to_string())
+            .or_insert_with(|| relative.to_string());
     }
 }
 
@@ -228,8 +200,7 @@ fn validate_entrypoints(component: &str, values: &BTreeMap<String, String>) -> R
         "officecli" => &["officecli"],
         "agent-reach" => &["agent-reach"],
         "open-computer-use" => &["open-computer-use"],
-        "environment-maintainer" => &["environment-maintainer"],
-        _ => bail!("unknown environment component"),
+        _ => &[],
     };
     if required.iter().all(|name| values.contains_key(*name)) {
         return Ok(());
@@ -241,10 +212,7 @@ pub fn write_json(path: &Path, value: &impl serde::Serialize) -> Result<()> {
     let parent = path.parent().context("JSON path has no parent")?;
     fs::create_dir_all(parent)?;
     let temporary = temporary_path(path);
-    let mut file = fs::File::create(&temporary)?;
-    file.write_all(&serde_json::to_vec_pretty(value)?)?;
-    file.sync_all()?;
-    drop(file);
+    fs::write(&temporary, serde_json::to_vec_pretty(value)?)?;
     replace_file(&temporary, path)?;
     Ok(())
 }

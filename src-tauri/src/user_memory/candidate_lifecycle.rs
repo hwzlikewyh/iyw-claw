@@ -40,6 +40,11 @@ impl UserMemoryService {
         F: FnOnce() -> Option<L> + Send,
     {
         let content = normalize_candidate(&proposal.content)?;
+        if self.is_forgotten_content(&content).await? {
+            return Err(AppCommandError::permission_denied(
+                "Forgotten content cannot be learned again automatically",
+            ));
+        }
         source.validate()?;
         let (_guard, _file_guard) = self.acquire_locks().await?;
         self.recover_pending_transaction().await?;

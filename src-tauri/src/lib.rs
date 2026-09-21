@@ -39,14 +39,14 @@ pub mod pets;
 pub mod plugin_runtime;
 #[cfg(feature = "tauri-runtime")]
 pub mod preferences;
-pub mod process;
 pub mod preview_resources;
-pub mod shared_runtime;
+pub mod process;
 pub mod remote_image;
 #[cfg(not(feature = "tauri-runtime"))]
 mod server_channel_target_crypto;
 #[cfg(not(feature = "tauri-runtime"))]
 mod server_secret_store;
+pub mod shared_runtime;
 pub mod supervise;
 pub mod system_skills;
 mod terminal;
@@ -653,7 +653,7 @@ mod tauri_app {
                 // Restore and apply saved system proxy settings before any network operation.
                 let db = app.state::<db::AppDatabase>();
                 tauri::async_runtime::block_on(network::proxy::init_proxy_from_db(&db.conn));
-                user_memory.schedule_index_refresh();
+                user_memory.start_managed_model_retry(effective_data_dir.clone());
                 let pending_activation_started = std::time::Instant::now();
                 match tauri::async_runtime::block_on(
                     crate::acp::version_center::consume_pending_activations_at_startup(
@@ -1616,11 +1616,11 @@ mod tauri_app {
                 crate::commands::user_memory_entries::apply_memory_governance,
                 crate::commands::user_memory_entries::forget_user_memory,
                 crate::commands::user_memory_entries::get_user_memory_semantic_status,
-                crate::commands::user_memory_entries::get_user_memory_retrieval_models,
-                crate::commands::user_memory_entries::set_user_memory_cloud_config,
                 crate::commands::user_memory_entries::set_user_memory_semantic_enabled,
-                crate::commands::user_memory_entries::prepare_user_memory_semantic,
-                crate::commands::user_memory_entries::preview_user_memory_semantic,
+                crate::commands::user_memory_maintenance::get_user_memory_maintenance,
+                crate::commands::user_memory_maintenance::run_user_memory_maintenance,
+                crate::commands::user_memory_maintenance::resolve_user_memory_review,
+                crate::commands::user_memory_maintenance::preview_user_memory_migration,
                 crate::commands::user_memory_authority::get_user_memory_authority,
                 crate::commands::user_memory_authority::prepare_user_memory_authority,
                 crate::commands::user_memory_authority::activate_user_memory_authority,
@@ -1628,16 +1628,14 @@ mod tauri_app {
                 crate::commands::user_memory_authority::get_user_memory_receipts,
                 crate::commands::user_memory_authority::record_memory_recall_feedback,
                 crate::commands::user_memory_authority::get_memory_effectiveness,
-                crate::commands::user_memory_learning::get_user_memory_learning,
-                crate::commands::user_memory_learning::set_user_memory_learning,
-                crate::commands::user_memory_learning::refresh_user_memory_views,
-                crate::commands::user_memory_maintenance::get_user_memory_maintenance,
-                crate::commands::user_memory_maintenance::run_user_memory_maintenance,
-                crate::commands::user_memory_maintenance::resolve_user_memory_review,
-                crate::commands::user_memory_maintenance::preview_user_memory_migration,
                 crate::commands::user_memory_reconcile::get_user_memory_reconciliation,
                 crate::commands::user_memory_reconcile::resolve_user_memory_file,
                 crate::commands::user_memory_reconcile::restore_user_memory_authority,
+                crate::commands::user_memory_entries::prepare_user_memory_semantic,
+                crate::commands::user_memory_entries::preview_user_memory_semantic,
+                crate::commands::user_memory_learning::get_user_memory_learning,
+                crate::commands::user_memory_learning::set_user_memory_learning,
+                crate::commands::user_memory_learning::refresh_user_memory_views,
                 user_memory_commands::update_user_memory_settings,
                 user_memory_commands::list_user_memory_candidates,
                 user_memory_commands::resolve_user_memory_candidate,
@@ -1836,6 +1834,8 @@ mod tauri_app {
                 browser_commands::browser_back,
                 browser_commands::browser_forward,
                 browser_commands::browser_reload_tab,
+                browser_commands::browser_capture_screenshot,
+                browser_commands::browser_inspect_element,
                 browser_commands::browser_resize_viewport,
                 browser_commands::browser_subscribe_frames,
                 browser_commands::browser_ack_frame,

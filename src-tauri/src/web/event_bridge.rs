@@ -110,7 +110,10 @@ impl EventEmitter {
     pub(crate) fn prepared(&self) -> (Self, Arc<AtomicBool>) {
         let active = Arc::new(AtomicBool::new(false));
         (
-            Self::Prepared { target: Arc::new(self.clone()), active: active.clone() },
+            Self::Prepared {
+                target: Arc::new(self.clone()),
+                active: active.clone(),
+            },
             active,
         )
     }
@@ -373,18 +376,25 @@ where
             return false;
         }
         if matches!(&payload, AcpEvent::ContentDelta { text } if !text.is_empty()) {
-            if let Some(trace) = &s.startup_trace { trace.first_content_received(); }
-        }
-        if s.turn_in_flight && matches!(&payload,
-            AcpEvent::ContentDelta { .. } | AcpEvent::Thinking { .. }
-                | AcpEvent::ToolCall { .. } | AcpEvent::ToolCallUpdate { .. }) {
             if let Some(trace) = &s.startup_trace {
-                let kind = match &payload {
-                    AcpEvent::ContentDelta { text } if !text.is_empty() => "content",
-                    AcpEvent::Thinking { text } if !text.is_empty() => "thinking",
-                    _ => "tool_or_empty",
-                };
-                trace.observe_turn_event(s.turn_generation, kind);
+                trace.first_content_received();
+            }
+        }
+        if s.turn_in_flight
+            && matches!(
+                &payload,
+                AcpEvent::ContentDelta { .. }
+                    | AcpEvent::Thinking { .. }
+                    | AcpEvent::ToolCall { .. }
+                    | AcpEvent::ToolCallUpdate { .. }
+            )
+        {
+            if let Some(trace) = &s.startup_trace {
+                trace.observe_turn_event(
+                    s.turn_generation,
+                    matches!(&payload,
+                    AcpEvent::ContentDelta { text } if !text.is_empty()),
+                );
             }
         }
         s.apply_event(&payload);

@@ -12,6 +12,9 @@ const VERIFY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub fn sidecar_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
+    if let Some(override_path) = std::env::var_os("IYW_CLAW_AGENT_BROWSER_PATH") {
+        candidates.push(PathBuf::from(override_path));
+    }
     if let Some(managed) = crate::managed_environment::entrypoint("agent-browser", "agent-browser")
     {
         candidates.push(managed);

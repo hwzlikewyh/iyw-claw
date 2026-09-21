@@ -8,27 +8,8 @@ impl UserMemoryService {
         &self,
         request: ResolveMemoryReviewRequest,
     ) -> Result<(), AppCommandError> {
-        self.resolve_memory_review_inner(request, None).await
-    }
-
-    pub(crate) async fn resolve_memory_review_as_agent(
-        &self,
-        request: ResolveMemoryReviewRequest,
-        agent: crate::models::AgentType,
-    ) -> Result<(), AppCommandError> {
-        self.resolve_memory_review_inner(request, Some(agent)).await
-    }
-
-    async fn resolve_memory_review_inner(
-        &self,
-        request: ResolveMemoryReviewRequest,
-        agent: Option<crate::models::AgentType>,
-    ) -> Result<(), AppCommandError> {
         let (_guard, _file_guard) = self.acquire_locks().await?;
         let policy = self.load_policy().await?;
-        if let Some(agent) = agent {
-            super::helpers::ensure_agent_write_allowed(&policy, agent)?;
-        }
         let mut state = self.read_learning_state()?;
         if candidate_store::revision(&state)? != request.expected_revision {
             return Err(super::helpers::conflict(
@@ -46,33 +27,28 @@ impl UserMemoryService {
         if request.apply {
             apply_review(&mut state, &review, (&snapshot, &policy))?;
         }
-        mark_resolved(&mut state, &request);
+        let entry = state
+            .maintenance
+            .as_mut()
+            .expect("review exists")
+            .reviews
+            .iter_mut()
+            .find(|review| review.id == request.id)
+            .expect("review exists");
+        entry.status = if request.apply {
+            MemoryReviewStatus::Applied
+        } else {
+            MemoryReviewStatus::Dismissed
+        };
+        entry.resolved_at = Some(Utc::now().to_rfc3339());
         self.persist_learning_state(&state).await?;
         self.schedule_index_refresh();
         tracing::info!(
             applied = request.apply,
-            actor = if agent.is_some() { "agent" } else { "user" },
-            "[memory-maintenance] review resolved"
+            "[memory-maintenance] user resolved review"
         );
         Ok(())
     }
-}
-
-fn mark_resolved(state: &mut super::UserMemoryLearningState, request: &ResolveMemoryReviewRequest) {
-    let review = state
-        .maintenance
-        .as_mut()
-        .expect("review exists")
-        .reviews
-        .iter_mut()
-        .find(|review| review.id == request.id)
-        .expect("review exists");
-    review.status = if request.apply {
-        MemoryReviewStatus::Applied
-    } else {
-        MemoryReviewStatus::Dismissed
-    };
-    review.resolved_at = Some(Utc::now().to_rfc3339());
 }
 
 fn find_review<'a>(

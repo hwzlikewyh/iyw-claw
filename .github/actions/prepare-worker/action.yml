@@ -19,34 +19,28 @@ runs:
         WORKER_TARGET: ${{ inputs.target }}
       run: |
         set -euo pipefail
-        node --input-type=module -e '
-          import { appendFileSync } from "node:fs";
-          import { workerCacheKeys } from "./src-tauri/scripts/xinghe-worker-cache-key.mjs";
-          const { key, legacyKey } = workerCacheKeys(process.env.WORKER_TARGET);
-          appendFileSync(process.env.GITHUB_OUTPUT, `key=${key}\nlegacy-key=${legacyKey}\n`);
-        '
+        key="$(node src-tauri/scripts/xinghe-worker-cache-key.mjs "$WORKER_TARGET")"
+        echo "key=$key" >> "$GITHUB_OUTPUT"
     - name: Restore worker binary cache
       id: cache
       uses: actions/cache/restore@v4
       with:
         path: harness/xinghe-worker/target/bundle-cache/${{ inputs.target }}
         key: ${{ steps.identity.outputs.key }}
-        restore-keys: ${{ steps.identity.outputs.legacy-key }}
     - name: Find worker artifact backup
       id: artifact
       uses: actions/github-script@v7
       env:
         WORKER_CACHE_KEY: ${{ steps.identity.outputs.key }}
-        WORKER_LEGACY_CACHE_KEY: ${{ steps.identity.outputs.legacy-key }}
         WORKER_ACTION_PATH: ${{ github.action_path }}
       with:
         script: |
           const path = require("node:path");
           const findArtifact = require(path.join(process.env.WORKER_ACTION_PATH, "find-artifact.cjs"));
-          await findArtifact({ github, context, core, keys: [process.env.WORKER_CACHE_KEY, process.env.WORKER_LEGACY_CACHE_KEY] });
+          await findArtifact({ github, context, core, key: process.env.WORKER_CACHE_KEY });
     - name: Download worker artifact backup
       id: download
-      if: steps.cache.outputs.cache-matched-key == '' && steps.artifact.outputs.artifact-id != ''
+      if: steps.cache.outputs.cache-hit != 'true' && steps.artifact.outputs.artifact-id != ''
       continue-on-error: true
       uses: actions/download-artifact@v4
       with:
@@ -70,10 +64,10 @@ runs:
         mkdir -p "$directory"
         tar -xf "$WORKER_ARCHIVE" -C "$directory"
     - name: Setup optional compiler cache for cold builds
-      if: inputs.setup-compiler-cache == 'true' && steps.cache.outputs.cache-matched-key == '' && steps.download.outcome != 'success'
+      if: inputs.setup-compiler-cache == 'true' && steps.cache.outputs.cache-hit != 'true' && steps.download.outcome != 'success'
       uses: ./.github/actions/setup-sccache
     - name: Cache worker dependencies for cold builds
-      if: inputs.dependency-cache == 'true' && steps.cache.outputs.cache-matched-key == '' && steps.download.outcome != 'success'
+      if: inputs.dependency-cache == 'true' && steps.cache.outputs.cache-hit != 'true' && steps.download.outcome != 'success'
       uses: swatinem/rust-cache@v2
       with:
         prefix-key: v1-worker-dependencies
@@ -94,7 +88,7 @@ runs:
         path: harness/xinghe-worker/target/bundle-cache/${{ inputs.target }}
         key: ${{ steps.identity.outputs.key }}
     - name: Archive verified worker binaries
-      if: steps.artifact.outputs.key != steps.identity.outputs.key && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      if: steps.artifact.outputs.artifact-id == '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       shell: bash
       env:
         WORKER_TARGET: ${{ inputs.target }}
@@ -107,7 +101,7 @@ runs:
         mkdir -p "$(dirname "$WORKER_ARCHIVE")"
         tar -cf "$WORKER_ARCHIVE" -C "harness/xinghe-worker/target/bundle-cache/$WORKER_TARGET" .
     - name: Save worker artifact backup
-      if: steps.artifact.outputs.key != steps.identity.outputs.key && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+      if: steps.artifact.outputs.artifact-id == '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
       continue-on-error: true
       uses: actions/upload-artifact@v4
       with:

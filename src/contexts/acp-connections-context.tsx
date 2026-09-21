@@ -368,7 +368,7 @@ function sameConnectRequest(a: ConnectRequest, b: ConnectRequest) {
     Boolean(a.forceHostRestart) === Boolean(b.forceHostRestart) &&
     (a.continuationFromSessionId ?? null) ===
       (b.continuationFromSessionId ?? null) &&
-    (a.continuationContext ?? null) === (b.continuationContext ?? null)
+    Boolean(a.continuationContext) === Boolean(b.continuationContext)
   )
 }
 

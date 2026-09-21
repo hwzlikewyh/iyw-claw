@@ -280,7 +280,8 @@ impl TerminalRuntime {
             .map(|offset| offset < base_offset)
             .unwrap_or(false);
         let start_offset = requested_offset.clamp(base_offset, end_offset);
-        let mut start_index = usize::try_from(start_offset.saturating_sub(base_offset)).unwrap_or(0);
+        let mut start_index =
+            usize::try_from(start_offset.saturating_sub(base_offset)).unwrap_or(0);
         while !snapshot.output.is_char_boundary(start_index) {
             start_index = start_index.saturating_sub(1);
         }
@@ -356,7 +357,9 @@ impl TerminalRuntime {
                 .map(|(id, terminal)| (id.clone(), Arc::clone(terminal)))
                 .collect()
         };
-        for (_, terminal) in &owned { terminal.request_stop(); }
+        for (_, terminal) in &owned {
+            terminal.request_stop();
+        }
         for (id, terminal) in owned {
             if let Err(err) = terminal.kill_command().await {
                 tracing::error!("[ACP] Failed to release terminal during cleanup: {err:?}");

@@ -9,6 +9,7 @@ pub mod chat_channel;
 pub mod chat_channel_agent_audit;
 pub mod chat_channel_conversation_binding;
 pub mod chat_channel_message_log;
+pub mod chat_channel_outbox;
 pub mod chat_channel_sender_context;
 pub mod chat_channel_target;
 pub mod chat_channel_thread_binding;

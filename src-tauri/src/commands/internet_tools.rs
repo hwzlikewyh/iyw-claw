@@ -548,9 +548,6 @@ fn private_tool_bin_dirs_for(paths: &AgentStoragePaths) -> Vec<PathBuf> {
     ]
     .into_iter()
     .collect::<Vec<_>>();
-    if !cfg!(feature = "tauri-runtime") {
-        directories.push(npm_runtime::npm_prefix_bin_dir(&opencli_prefix(paths)));
-    }
     if let Some(directory) = crate::managed_environment::tool_entrypoint("agent-reach")
         .and_then(|path| path.parent().map(Path::to_path_buf))
     {

@@ -78,6 +78,12 @@ pub struct BrowserSessionManager {
     pub(super) agent_turn_leases: Arc<AgentTurnLeaseRegistry>,
     #[cfg(feature = "tauri-runtime")]
     pub(super) runtime_recoveries: Arc<Mutex<HashSet<u64>>>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) browser_engine_prefetch: BrowserEnginePrefetch,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) account_database: Arc<RwLock<Option<sea_orm::DatabaseConnection>>>,
+    #[cfg(feature = "tauri-runtime")]
+    pub(super) browser_routes: Arc<Mutex<HashMap<String, super::agent_browser::BrowserRoute>>>,
 }
 
 impl BrowserSessionManager {
@@ -128,6 +134,12 @@ impl BrowserSessionManager {
             agent_turn_leases: Arc::new(AgentTurnLeaseRegistry::default()),
             #[cfg(feature = "tauri-runtime")]
             runtime_recoveries: Arc::new(Mutex::new(HashSet::new())),
+            #[cfg(feature = "tauri-runtime")]
+            browser_engine_prefetch: BrowserEnginePrefetch::new(PathBuf::new()),
+            #[cfg(feature = "tauri-runtime")]
+            account_database: Arc::new(RwLock::new(None)),
+            #[cfg(feature = "tauri-runtime")]
+            browser_routes: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

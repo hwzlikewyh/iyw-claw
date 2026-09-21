@@ -3,41 +3,11 @@ use std::sync::Arc;
 
 use crate::app_error::AppCommandError;
 use crate::user_memory::{
-    ApplyMemoryGovernanceRequest, ApplyMemoryGovernanceResult, CloudRetrievalConfig,
-    ForgetUserMemoryRequest, ForgetUserMemoryResult, MemoryGovernancePreview, RetrievalModels,
-    SemanticPreview, SemanticStatus, UserMemoryEntryListRequest, UserMemoryEntryPage,
-    UserMemoryEntryStatusRequest, UserMemoryService,
+    ApplyMemoryGovernanceRequest, ApplyMemoryGovernanceResult, ForgetUserMemoryRequest,
+    ForgetUserMemoryResult, MemoryGovernancePreview, SemanticPreview, SemanticStatus,
+    UserMemoryEntryListRequest, UserMemoryEntryPage, UserMemoryEntryStatusRequest,
+    UserMemoryService,
 };
-
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn get_user_memory_retrieval_models(
-    #[cfg(feature = "tauri-runtime")] service: tauri::State<'_, Arc<UserMemoryService>>,
-) -> Result<RetrievalModels, AppCommandError> {
-    #[cfg(feature = "tauri-runtime")]
-    {
-        service.retrieval_models().await
-    }
-    #[cfg(not(feature = "tauri-runtime"))]
-    {
-        Err(AppCommandError::configuration_invalid("tauri-only command"))
-    }
-}
-
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
-pub async fn set_user_memory_cloud_config(
-    #[cfg(feature = "tauri-runtime")] service: tauri::State<'_, Arc<UserMemoryService>>,
-    config: CloudRetrievalConfig,
-) -> Result<(), AppCommandError> {
-    #[cfg(feature = "tauri-runtime")]
-    {
-        service.set_cloud_retrieval_config(config).await
-    }
-    #[cfg(not(feature = "tauri-runtime"))]
-    {
-        let _ = config;
-        Err(AppCommandError::configuration_invalid("tauri-only command"))
-    }
-}
 
 pub async fn list_user_memory_entries_core(
     service: &UserMemoryService,

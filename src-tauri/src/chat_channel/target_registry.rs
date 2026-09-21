@@ -89,7 +89,7 @@ pub async fn register_inbound(
             display_name,
             target_kind: target_kind(target),
             source: chat_channel_target_service::SOURCE_INBOUND,
-            is_default: false,
+            is_default: true,
         },
     )
     .await
@@ -99,10 +99,12 @@ pub async fn resolve_default(
     db: &DatabaseConnection,
     channel_id: i32,
 ) -> Result<Option<(chat_channel_target::Model, ChannelMessageTarget)>, DbError> {
-    let target = chat_channel_target_service::list_by_channel(db, channel_id)
-        .await?
-        .into_iter()
-        .find(|target| target.is_default);
+    let targets = chat_channel_target_service::list_by_channel(db, channel_id).await?;
+    let target = targets
+        .iter()
+        .find(|target| target.source == chat_channel_target_service::SOURCE_INBOUND)
+        .or_else(|| targets.iter().find(|target| target.is_default))
+        .cloned();
     let Some(target) = target else {
         return Ok(None);
     };

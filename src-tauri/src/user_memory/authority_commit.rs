@@ -46,7 +46,6 @@ impl UserMemoryService {
         super::authority_records::persist(&txn, self, (&snapshot.data, identity)).await?;
         if let Some((stable_id, tombstones)) = purge {
             purge_record(&txn, &key, stable_id, tombstones).await?;
-            super::forget_projection::clear_fts(&txn).await?;
         }
         super::authority::queue_projections(&txn, &key, snapshot.epoch).await?;
         self.prepare_authority_commit(snapshot, identity)?;

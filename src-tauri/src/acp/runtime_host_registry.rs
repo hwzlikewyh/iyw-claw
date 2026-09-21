@@ -15,8 +15,8 @@ use crate::acp::runtime_host_policy::{RuntimeHostCapabilities, RuntimeHostPolicy
 use crate::acp::stderr_tail::StderrTail;
 use crate::models::agent::AgentType;
 
-mod retirement;
 mod owned;
+mod retirement;
 pub(crate) mod startup;
 
 use retirement::HostRetirements;
@@ -209,8 +209,10 @@ impl RuntimeHostRegistry {
         .await?;
         let mut reservation = RuntimeHostReservation::new(host);
         if !reservation.supports_session_close() {
-            tracing::info!(agent = crate::acp::registry::get_agent_meta(key.agent_type).name,
-                "[ACP][host] using owned runtime because session/close is unavailable");
+            tracing::info!(
+                agent = crate::acp::registry::get_agent_meta(key.agent_type).name,
+                "[ACP][host] using owned runtime because session/close is unavailable"
+            );
             return Ok(reservation);
         }
         let mut hosts = self.hosts.lock().await;

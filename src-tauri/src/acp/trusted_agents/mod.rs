@@ -80,11 +80,12 @@ pub(crate) fn restrict_configured_runtime_env(
     };
     let allowed = definition.launch.allowed_env_names;
     let before = environment.len();
-    environment
-        .retain(|key, _| is_host_owned_runtime_env(key)
+    environment.retain(|key, _| {
+        is_host_owned_runtime_env(key)
             || (crate::internal_xinghe_worker::is_desktop_agent(agent_type)
                 && matches!(key.as_str(), "CODEX_CONFIG" | "CODEX_API_KEY"))
-            || allowed.iter().any(|name| *name == key));
+            || allowed.iter().any(|name| *name == key)
+    });
     let rejected = before.saturating_sub(environment.len());
     if rejected > 0 {
         tracing::debug!(
@@ -97,7 +98,9 @@ pub(crate) fn restrict_configured_runtime_env(
 
 fn is_host_owned_runtime_env(key: &str) -> bool {
     key.eq_ignore_ascii_case("PATH")
-        || crate::shared_runtime::environment().keys().any(|name| key.eq_ignore_ascii_case(name))
+        || crate::shared_runtime::environment()
+            .keys()
+            .any(|name| key.eq_ignore_ascii_case(name))
         || key == "IYW_CLAW_MANAGED_AGENT_VERSION"
         || key == crate::wecom_ai::CONFIG_DIR_ENV
         || key == crate::wecom_ai::MANAGED_COMMAND_ENV
