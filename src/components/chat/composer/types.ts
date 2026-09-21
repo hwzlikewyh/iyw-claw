@@ -60,6 +60,8 @@ export interface ReferenceMeta {
   marketSkillId?: string
   marketSkillSlug?: string
   marketSkillVersion?: string
+  /** Keep the reference in wire text while omitting it from user-facing display. */
+  hiddenFromDisplay?: boolean
 }
 
 /**

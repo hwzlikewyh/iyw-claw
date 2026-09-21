@@ -11,6 +11,9 @@ import type { ReferenceAttrs } from "../types"
 export function ReferenceView({ node }: ReactNodeViewProps) {
   const attrs = node.attrs as ReferenceAttrs
   const task = isTaskReference(attrs)
+  if (attrs.meta?.hiddenFromDisplay) {
+    return <NodeViewWrapper as="span" className="hidden" aria-hidden />
+  }
   return (
     <NodeViewWrapper
       as="span"

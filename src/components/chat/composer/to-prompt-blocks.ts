@@ -110,10 +110,13 @@ export function docToPromptBlocks(
 
 export function composerLeafText(
   leaf: ProseMirrorNode,
-  options?: { keepEmbedded?: boolean }
+  options?: { keepEmbedded?: boolean; hideHiddenReferences?: boolean }
 ): string {
   if (leaf.type.name === "reference") {
     const attrs = leaf.attrs as ReferenceAttrs
+    if (options?.hideHiddenReferences && attrs.meta?.hiddenFromDisplay) {
+      return ""
+    }
     if (
       !options?.keepEmbedded &&
       typeof attrs.uri === "string" &&
@@ -136,6 +139,9 @@ export function serializeDocToText(doc: ProseMirrorNode): string {
 
 export function serializeDocToDisplayText(doc: ProseMirrorNode): string {
   return doc.textBetween(0, doc.content.size, "\n", (leaf) =>
-    composerLeafText(leaf, { keepEmbedded: true })
+    composerLeafText(leaf, {
+      keepEmbedded: true,
+      hideHiddenReferences: true,
+    })
   )
 }

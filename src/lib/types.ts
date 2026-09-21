@@ -2734,6 +2734,8 @@ export interface Scenario {
   skillPackageId: string
   skillPackageSlug: string
   skillPackageVersion: string
+  /** Hide the injected Skill invocation from the user-facing composer and message. */
+  hideSkillReference?: boolean
   icon: string | null
   tone: string | null
   sortOrder: number

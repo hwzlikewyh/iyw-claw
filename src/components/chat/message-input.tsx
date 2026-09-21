@@ -242,7 +242,12 @@ import {
 export interface ComposerInjectContent {
   text: string
   append?: boolean
-  skill?: { id: string; label: string; package?: PromptSkillPackage }
+  skill?: {
+    id: string
+    label: string
+    hiddenFromDisplay?: boolean
+    package?: PromptSkillPackage
+  }
   scenario?: { variables: ScenarioVariable[] }
 }
 
@@ -1396,6 +1401,7 @@ export function MessageInput({
                 marketSkillId: payload.skill.package?.id,
                 marketSkillSlug: payload.skill.package?.slug,
                 marketSkillVersion: payload.skill.package?.version,
+                hiddenFromDisplay: payload.skill.hiddenFromDisplay,
               },
             })
           }

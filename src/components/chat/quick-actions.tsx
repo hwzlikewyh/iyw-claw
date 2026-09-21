@@ -246,6 +246,7 @@ function scenarioContent(
     content.skill = {
       id: scenario.skillPackageSlug,
       label: scenario.displayName,
+      hiddenFromDisplay: scenario.hideSkillReference,
       package: {
         id: scenario.skillPackageId,
         slug: scenario.skillPackageSlug,
