@@ -136,7 +136,10 @@ export function BrowserShell({
       )
       emitAppendTextToSession({
         tabId: sessionTabId,
-        text: formatSelectedElement(t, element),
+        text: formatSelectedElement(
+          t as unknown as BrowserElementTranslator,
+          element
+        ),
       })
       toast.success(t("elementAdded"))
     } catch {
@@ -189,7 +192,7 @@ export function BrowserShell({
 }
 
 function formatSelectedElement(
-  t: ReturnType<typeof useTranslations>,
+  t: BrowserElementTranslator,
   {
     tag,
     role,
@@ -213,3 +216,13 @@ function formatSelectedElement(
   ].filter((value): value is string => Boolean(value))
   return details.join("\n")
 }
+
+type BrowserElementTranslator = (
+  key:
+    | "elementTag"
+    | "elementRole"
+    | "elementName"
+    | "elementText"
+    | "elementSelector",
+  values: Record<string, string>
+) => string
