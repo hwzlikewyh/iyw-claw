@@ -4,6 +4,7 @@ use crate::acp::error::AcpError;
 use crate::models::AgentType;
 
 const CONFIG_ENV: &str = "CODEX_CONFIG";
+const SKILL_CATALOG_TOKEN_BUDGET: i64 = 4_096;
 pub(crate) const PREFERENCES_KEY: &str = "IYW_CLAW_XINGHE_CONFIG_SNAPSHOT";
 pub(crate) const AUTH_ENV: &str = "CODEX_API_KEY";
 
@@ -116,6 +117,7 @@ pub(crate) fn project(
     let mut config: toml::Table = toml::from_str(&raw)
         .map_err(|_| AcpError::protocol("Invalid managed Xinghe configuration"))?;
     super::codex_multi_agent::patch_toml(&mut config).map_err(AcpError::protocol)?;
+    apply_skill_catalog_budget(&mut config)?;
     apply_managed_auth(&mut config)?;
     let mut values: serde_json::Map<String, serde_json::Value> = serde_json::to_value(config)
         .map_err(|_| AcpError::protocol("Invalid Xinghe configuration values"))?
@@ -133,6 +135,19 @@ pub(crate) fn project(
     );
     environment.remove("OPENAI_API_KEY");
     environment.remove(PREFERENCES_KEY);
+    Ok(())
+}
+
+fn apply_skill_catalog_budget(config: &mut toml::Table) -> Result<(), AcpError> {
+    let skills = config
+        .entry("skills")
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+        .as_table_mut()
+        .ok_or_else(|| AcpError::protocol("Xinghe skills configuration must be a table"))?;
+    // 使用原生目录裁剪，保留显式用户预算与技能全文。
+    skills
+        .entry("max_context_tokens")
+        .or_insert(SKILL_CATALOG_TOKEN_BUDGET.into());
     Ok(())
 }
 

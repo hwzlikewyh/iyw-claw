@@ -43,6 +43,7 @@ impl UserMemoryService {
         request: ForgetUserMemoryRequest,
     ) -> Result<ForgetUserMemoryResult, AppCommandError> {
         validate_request(&request)?;
+        self.semantic.generation.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         // 与后台刷新保持先索引、后事实锁的顺序，防止旧任务重新写回被删除的内容。
         let _semantic = self
             .semantic

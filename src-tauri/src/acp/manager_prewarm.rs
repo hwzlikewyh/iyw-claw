@@ -11,17 +11,21 @@ use super::ConnectionManager;
 
 impl ConnectionManager {
     pub async fn prewarm_primary_agents(&self) {
-        let results = tokio::join!(
-            self.prewarm_agent_runtime(AgentType::Codex),
-            self.prewarm_agent_runtime(AgentType::ClaudeCode),
-        );
-        for (agent, result) in [("星河", results.0), ("远山", results.1)] {
-            match result {
-                Ok(ready) => tracing::info!(agent, ready, "[ACP][startup] runtime prewarm settled"),
-                Err(error) => {
-                    tracing::warn!(agent, %error, "[ACP][startup] runtime prewarm deferred")
-                }
+        let Some(db) = self.version_center_db.get() else { return };
+        let tabs = match tab_service::list_all_tabs(db).await {
+            Ok(tabs) => tabs,
+            Err(error) => {
+                tracing::warn!(%error, "[ACP][startup] active tab unavailable for prewarm");
+                return;
             }
+        };
+        let Some(agent) = tabs.iter().find(|tab| tab.is_active).map(|tab| tab.agent_type) else {
+            return;
+        };
+        if !matches!(agent, AgentType::Codex | AgentType::ClaudeCode) { return; }
+        match self.prewarm_agent_runtime(agent).await {
+            Ok(ready) => tracing::info!(agent = %agent, ready, "[ACP][startup] runtime prewarm settled"),
+            Err(error) => tracing::warn!(agent = %agent, %error, "[ACP][startup] runtime prewarm deferred"),
         }
     }
 
@@ -32,6 +36,10 @@ impl ConnectionManager {
     async fn prewarm_agent_runtime(&self, agent_type: AgentType) -> Result<bool, AcpError> {
         let _operation = self.acquire_operation_read().await?;
         if crate::acp::agent_storage_work::has_active_agent_storage_work() || memory_is_tight() {
+            return Ok(false);
+        }
+        let _budget = self.speculative_runtime_gate.lock().await;
+        if self.speculative_runtime_capacity().await? == 0 {
             return Ok(false);
         }
         let _storage = crate::acp::agent_storage_work::begin_agent_storage_read().await;

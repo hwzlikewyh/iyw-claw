@@ -1,13 +1,14 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Database, Download, Loader2, Search } from "lucide-react"
+import { Database, RefreshCw, Loader2, Search } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { toErrorMessage } from "@/lib/app-error"
+import { UserMemoryCloudControls } from "./user-memory-cloud-controls"
 import {
   getMemorySemanticStatus,
   prepareMemorySemantic,
@@ -66,15 +67,15 @@ function useSemanticStatus() {
       setSaving(false)
     }
   }
-  return { status, error, prepare, saving, setEnabled }
+  const refresh = async () => setStatus(await getMemorySemanticStatus())
+  return { status, error, prepare, saving, setEnabled, refresh }
 }
 
 export function UserMemorySemanticPanel() {
   const t = useTranslations("UserMemorySettings.semantic")
   const state = useSemanticStatus()
   const status = state.status
-  const recovering = status?.modelDownloading || status?.retryPending
-  const error = state.error || (!recovering && status?.lastError)
+  const error = state.error || status?.lastError
   return (
     <section className="space-y-3 border-y py-4">
       <SemanticHeader state={state} />
@@ -86,6 +87,12 @@ export function UserMemorySemanticPanel() {
           onCheckedChange={(enabled) => void state.setEnabled(enabled)}
         />
       </label>
+      {status && (
+        <UserMemoryCloudControls
+          config={status.config}
+          onUpdated={state.refresh}
+        />
+      )}
       {error && (
         <p role="alert" className="break-words text-xs text-destructive">
           {error}
@@ -96,7 +103,9 @@ export function UserMemorySemanticPanel() {
           {t("indexed")}: {status.indexedItems}
         </p>
       )}
-      <SemanticSearch disabled={!status?.modelInstalled || status.busy} />
+      <SemanticSearch
+        disabled={!status?.recallEnabled || !status.config.embeddingModel}
+      />
     </section>
   )
 }
@@ -112,15 +121,11 @@ function SemanticHeader({
     ? "unsupported"
     : status.busy
       ? "preparing"
-      : status.modelDownloading
-        ? "downloading"
-        : status.retryPending
-          ? "retryPending"
-          : status.ready
-            ? "ready"
-            : status.modelInstalled
-              ? "installed"
-              : "missing"
+      : status.ready
+        ? "ready"
+        : status.config.embeddingModel
+          ? "installed"
+          : "missing"
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -134,14 +139,14 @@ function SemanticHeader({
         size="sm"
         variant="outline"
         onClick={() => void state.prepare()}
-        disabled={!status?.supported || status.busy || status.modelDownloading}
+        disabled={!status?.supported || !status.recallEnabled || status.busy}
       >
         {status?.busy ? (
           <Loader2 className="size-4 animate-spin" />
         ) : (
-          <Download className="size-4" />
+          <RefreshCw className="size-4" />
         )}
-        {t(status?.modelInstalled ? "rebuild" : "prepare")}
+        {t("rebuild")}
       </Button>
     </div>
   )

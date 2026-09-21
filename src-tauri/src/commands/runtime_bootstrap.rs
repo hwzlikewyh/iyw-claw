@@ -299,13 +299,7 @@ pub async fn bootstrap_initialize(
     .await
     .map_err(|error| error.message)?;
     if report.phase == "ready" {
-        let service = user_memory.inner().clone();
-        tauri::async_runtime::spawn(async move {
-            if let Err(error) = service.prepare_managed_model(&data_dir, &channel).await {
-                tracing::info!(error_code = ?error.code,
-                    "[memory-model] bootstrap preparation continues in background");
-            }
-        });
+        user_memory.schedule_index_refresh();
     }
     Ok(report)
 }

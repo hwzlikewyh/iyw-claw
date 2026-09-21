@@ -19,16 +19,14 @@ impl UserMemoryService {
     pub async fn semantic_settings_status(&self) -> Result<SemanticStatus, AppCommandError> {
         let mut status = self.semantic_status();
         status.recall_enabled = self.semantic_recall_enabled().await?;
-        let retry = super::managed_model_state::load_retry(&self.db).await?;
-        status.retry_pending = retry.is_some();
-        status.next_retry_at = retry.map(|state| state.next_attempt_at.to_rfc3339());
+        status.config = self.cloud_retrieval_config().await?;
         Ok(status)
     }
 
     pub async fn set_semantic_recall_enabled(&self, enabled: bool) -> Result<(), AppCommandError> {
         if enabled && !self.semantic_status().supported {
             return Err(AppCommandError::configuration_invalid(
-                "当前版本暂不支持本地语义检索",
+                "当前平台暂不支持记忆向量索引",
             ));
         }
         app_metadata_service::upsert_value(
@@ -42,7 +40,6 @@ impl UserMemoryService {
             #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
             self.touch_semantic_activity();
             self.schedule_semantic_refresh();
-            self.schedule_missing_model_repair();
         } else {
             self.release_semantic_runtime().await?;
         }

@@ -8,6 +8,7 @@ pub(super) struct TurnTrace {
     dispatched_at: Instant,
     first_event: bool,
     first_content: bool,
+    first_thinking: bool,
 }
 
 impl StartupTrace {
@@ -17,12 +18,13 @@ impl StartupTrace {
             dispatched_at: Instant::now(),
             first_event: false,
             first_content: false,
+            first_thinking: false,
         });
         self.first_prompt_dispatched();
         self.log_turn("turn_dispatch", generation, 0);
     }
 
-    pub(crate) fn observe_turn_event(&self, generation: i64, content: bool) {
+    pub(crate) fn observe_turn_event(&self, generation: i64, kind: &'static str) {
         let observation = {
             let mut turn = lock(&self.inner.turn);
             let Some(turn) = turn.as_mut() else {
@@ -32,14 +34,17 @@ impl StartupTrace {
                 return;
             }
             let first_event = !turn.first_event;
-            let first_content = content && !turn.first_content;
+            let first_content = kind == "content" && !turn.first_content;
+            let first_thinking = kind == "thinking" && !turn.first_thinking;
             turn.first_event = true;
-            turn.first_content |= content;
+            turn.first_content |= first_content;
+            turn.first_thinking |= first_thinking;
             (
                 turn.generation,
                 turn.dispatched_at.elapsed().as_millis(),
                 first_event,
                 first_content,
+                first_thinking,
             )
         };
         if observation.2 {
@@ -47,6 +52,9 @@ impl StartupTrace {
         }
         if observation.3 {
             self.log_turn("turn_first_content", observation.0, observation.1);
+        }
+        if observation.4 {
+            self.log_turn("turn_first_thinking", observation.0, observation.1);
         }
     }
 

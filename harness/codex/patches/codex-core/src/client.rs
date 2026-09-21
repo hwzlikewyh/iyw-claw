@@ -26,6 +26,8 @@
 //! fails, normal stream retry/fallback logic handles recovery on the same turn.
 
 use std::collections::HashMap;
+#[path = "client_timing.rs"]
+mod timing;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::sync::OnceLock;
@@ -1571,14 +1573,18 @@ impl ModelClientSession {
             )
             .with_endpoint(endpoint)
             .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
+            let timing = timing::ModelRequestTiming::new(
+                self.client.state.thread_id.to_string(), "http",
+            );
             let stream_result = client.stream_request(request, options).await;
 
             match stream_result {
                 Ok(stream) => {
+                    timing.opened(stream.upstream_request_id.as_deref());
                     let (stream, _) = map_response_stream(
                         stream,
                         request_session_telemetry,
-                        inference_trace_attempt,
+                        (inference_trace_attempt, timing),
                         Arc::clone(&self.client.state.provider),
                     );
                     return Ok(stream);
@@ -1822,6 +1828,9 @@ impl ModelClientSession {
                         "websocket connection is unavailable".to_string(),
                     ))
                 })?;
+            let timing = timing::ModelRequestTiming::new(
+                self.client.state.thread_id.to_string(), "websocket",
+            );
             let stream_result = websocket_connection
                 .stream_request(
                     ws_request,
@@ -1846,10 +1855,11 @@ impl ModelClientSession {
                 );
                 err
             })?;
+            timing.opened(stream_result.upstream_request_id.as_deref());
             let (stream, last_request_rx) = map_response_stream(
                 stream_result,
                 request_session_telemetry,
-                inference_trace_attempt,
+                (inference_trace_attempt, timing),
                 Arc::clone(&self.client.state.provider),
             );
             self.websocket_session.last_response_rx = Some(last_request_rx);
@@ -2082,7 +2092,7 @@ const STREAM_DROPPED_REASON: &str = "response stream dropped before provider ter
 fn map_response_stream(
     api_stream: codex_api::ResponseStream,
     session_telemetry: SessionTelemetry,
-    inference_trace_attempt: InferenceTraceAttempt,
+    trace: (InferenceTraceAttempt, timing::ModelRequestTiming),
     provider: SharedModelProvider,
 ) -> (ResponseStream, oneshot::Receiver<LastResponse>) {
     let codex_api::ResponseStream {
@@ -2097,7 +2107,7 @@ fn map_response_stream(
         upstream_request_id,
         api_stream,
         session_telemetry,
-        inference_trace_attempt,
+        trace,
         provider,
     )
 }
@@ -2106,7 +2116,7 @@ fn map_response_events<S>(
     upstream_request_id: Option<String>,
     api_stream: S,
     session_telemetry: SessionTelemetry,
-    inference_trace_attempt: InferenceTraceAttempt,
+    trace: (InferenceTraceAttempt, timing::ModelRequestTiming),
     provider: SharedModelProvider,
 ) -> (ResponseStream, oneshot::Receiver<LastResponse>)
 where
@@ -2122,6 +2132,7 @@ where
     let consumer_dropped_for_stream = consumer_dropped.clone();
 
     tokio::spawn(async move {
+        let (inference_trace_attempt, mut timing) = trace;
         let mut logged_error = false;
         let mut tx_last_response = Some(tx_last_response);
         let mut items_added: Vec<ResponseItem> = Vec::new();
@@ -2146,6 +2157,7 @@ where
             let Some(event) = event else {
                 break;
             };
+            timing.observe(&event);
             match event {
                 Ok(ResponseEvent::OutputItemDone(item)) => {
                     items_added.push(item.clone());

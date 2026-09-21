@@ -108,6 +108,10 @@ impl RetiringHost {
 }
 
 impl HostRetirements {
+    fn pending_count(&self) -> usize {
+        self.tasks.lock().unwrap_or_else(|error| error.into_inner()).iter()
+            .filter(|task| task.state.load(Ordering::Acquire) == RETIREMENT_PENDING).count()
+    }
     pub(super) fn retire(&self, hosts: Vec<Arc<AgentRuntimeHost>>) {
         let added = hosts
             .into_iter()
@@ -151,6 +155,15 @@ impl HostRetirements {
 }
 
 impl RuntimeHostRegistry {
+    pub(crate) async fn unused_runtime_count(&self) -> usize {
+        self.hosts.lock().await.values().filter(|host| !host.has_live_routes()).count()
+            + self.retirements.pending_count()
+    }
+
+    pub(crate) async fn retire_unused_excess(&self, limit: usize) {
+        let removed = self.take_prunable_hosts(None, limit).await;
+        self.retirements.retire(removed.into_iter().map(|(_, host)| host).collect());
+    }
     pub(super) async fn ready_host(&self, key: &RuntimeHostKey) -> Option<RuntimeHostReservation> {
         let retired = {
             let mut hosts = self.hosts.lock().await;
@@ -169,7 +182,7 @@ impl RuntimeHostRegistry {
     }
 
     pub(super) async fn prune_hosts(&self, preserve: Option<&RuntimeHostKey>) {
-        let removed = self.take_prunable_hosts(preserve).await;
+        let removed = self.take_prunable_hosts(preserve, MAX_WARM_IDLE_HOSTS).await;
         if removed.is_empty() {
             self.prune_orphan_spawn_locks(preserve).await;
             return;
@@ -205,6 +218,7 @@ impl RuntimeHostRegistry {
     async fn take_prunable_hosts(
         &self,
         preserve: Option<&RuntimeHostKey>,
+        limit: usize,
     ) -> Vec<(RuntimeHostKey, Arc<AgentRuntimeHost>)> {
         let mut hosts = self.hosts.lock().await;
         let mut keys = hosts
@@ -220,7 +234,7 @@ impl RuntimeHostRegistry {
         idle.sort_by_key(|(created_at, _)| *created_at);
         let preserved_idle =
             preserve.is_some_and(|key| hosts.get(key).is_some_and(|host| !host.has_live_routes()));
-        let keep_idle = MAX_WARM_IDLE_HOSTS.saturating_sub(usize::from(preserved_idle));
+        let keep_idle = limit.saturating_sub(usize::from(preserved_idle));
         let excess = idle.len().saturating_sub(keep_idle);
         keys.extend(idle.into_iter().take(excess).map(|(_, key)| key));
         keys.into_iter()

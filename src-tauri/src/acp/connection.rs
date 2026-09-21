@@ -409,6 +409,7 @@ pub enum ConnectionCommand {
         /// `blocks` so user events, prompt ledgers, previews, and titles retain
         /// the exact original input.
         user_context: Option<Arc<str>>,
+        foreground: Option<crate::user_memory::MemoryForegroundGuard>,
         /// Pre-projected cross-client user-message broadcast (`message_id` +
         /// user blocks), computed by the manager under the prompt lock. The
         /// loop emits it as `AcpEvent::UserMessage` right before issuing the
@@ -6435,6 +6436,7 @@ async fn run_conversation_loop<'a>(
             Some(ConnectionCommand::Prompt {
                 blocks,
                 user_context,
+                foreground: _memory_foreground,
                 user_messages,
                 accepted,
             }) => {

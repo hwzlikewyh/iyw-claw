@@ -49,6 +49,8 @@ use crate::db::AppDatabase;
 mod prewarm;
 #[path = "manager_prepared.rs"]
 mod prepared;
+#[path = "idle_runtime_budget.rs"]
+mod idle_runtime_budget;
 
 const MAX_EMERGENCY_RECLAIMS_PER_TICK: usize = 4;
 
@@ -397,6 +399,7 @@ pub struct ConnectionManager {
     capability_policy:
         Arc<std::sync::OnceLock<crate::acp::capability_policy::CapabilityPolicyStore>>,
     memory_pressure_tracker: Arc<Mutex<crate::acp::resource_governor::MemoryPressureTracker>>,
+    speculative_runtime_gate: Arc<Mutex<()>>,
     stalled_prompt_observations: Arc<Mutex<HashSet<(String, i64)>>>,
     operation_gate: Arc<AgentOperationGate>,
     agent_activation_locks: Arc<Mutex<HashMap<AgentType, Arc<Mutex<()>>>>>,
@@ -485,6 +488,7 @@ impl ConnectionManager {
             version_center_data_dir: Arc::new(std::sync::OnceLock::new()),
             capability_policy: Arc::new(std::sync::OnceLock::new()),
             memory_pressure_tracker: Arc::new(Mutex::new(Default::default())),
+            speculative_runtime_gate: Arc::new(Mutex::new(())),
             stalled_prompt_observations: Arc::new(Mutex::new(HashSet::new())),
             operation_gate: Arc::new(AgentOperationGate::default()),
             agent_activation_locks: Arc::new(Mutex::new(HashMap::new())),
@@ -513,6 +517,7 @@ impl ConnectionManager {
             version_center_data_dir: self.version_center_data_dir.clone(),
             capability_policy: self.capability_policy.clone(),
             memory_pressure_tracker: self.memory_pressure_tracker.clone(),
+            speculative_runtime_gate: self.speculative_runtime_gate.clone(),
             stalled_prompt_observations: self.stalled_prompt_observations.clone(),
             operation_gate: self.operation_gate.clone(),
             agent_activation_locks: self.agent_activation_locks.clone(),
@@ -1296,6 +1301,7 @@ impl ConnectionManager {
     /// per tick; emergency pressure may reclaim up to a small bounded batch,
     /// re-sampling memory after every successful disconnect.
     pub async fn sweep_excess_idle(&self, max_keep: Option<usize>) -> usize {
+        let max_keep = self.remaining_idle_connection_budget(max_keep).await;
         let emergency_batch = crate::acp::resource_governor::ResourceSnapshot::capture()
             .memory
             .pressure
@@ -1775,16 +1781,21 @@ impl ConnectionManager {
                 "prompt must contain at least one content block".to_string(),
             ));
         }
+        let preparation_started = Instant::now();
         crate::acp::capability_policy::require_prompt_file_upload(&blocks)
             .await
             .map_err(AcpError::from_capability_error)?;
         let (cmd_tx, state_arc) = self.wait_for_connection_launch(conn_id).await?;
+        let connection_wait_ms = preparation_started.elapsed().as_millis();
         let agent_type = state_arc.read().await.agent_type;
         self.require_agent_launch_policy(agent_type, true).await?;
         self.validate_agent_image_inputs(agent_type, &state_arc, &blocks)
             .await?;
+        let memory_started = Instant::now();
+        let foreground = self.user_memory_service.get().map(|service| service.begin_foreground());
         let memory_context =
             memory_context::prepare(self.user_memory_service.get(), &state_arc, &blocks).await;
+        let memory_prepare_ms = memory_started.elapsed().as_millis();
         // Concurrency gate: reject a second prompt while a turn is already in
         // flight on this connection. Reserve channel capacity FIRST — that
         // `reserve().await` is the only point that can block or be cancelled.
@@ -1851,6 +1862,7 @@ impl ConnectionManager {
         permit.send(ConnectionCommand::Prompt {
             blocks,
             user_context,
+            foreground,
             user_messages,
             accepted,
         });
@@ -1859,6 +1871,9 @@ impl ConnectionManager {
             connection_id = conn_id,
             agent_type = %agent_type,
             turn_generation,
+            connection_wait_ms,
+            memory_prepare_ms,
+            preparation_ms = preparation_started.elapsed().as_millis(),
             "[ACP] prompt enqueued to connection command channel"
         );
         Ok(())

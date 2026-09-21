@@ -57,6 +57,9 @@ impl UserMemoryService {
         &self,
         item_count: usize,
     ) -> Result<Option<usize>, AppCommandError> {
+        if self.foreground_active() {
+            return Ok(None);
+        }
         let (_guard, _file_guard) = self.acquire_locks().await?;
         let policy = self.load_policy().await?;
         if !policy.enabled || !policy.agent_write_enabled {

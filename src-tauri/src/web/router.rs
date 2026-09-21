@@ -161,6 +161,14 @@ pub fn build_router(
             post(handlers::user_memory_entries::get_user_memory_semantic_status),
         )
         .route(
+            "/get_user_memory_retrieval_models",
+            post(handlers::user_memory_entries::get_user_memory_retrieval_models),
+        )
+        .route(
+            "/set_user_memory_cloud_config",
+            post(handlers::user_memory_entries::set_user_memory_cloud_config),
+        )
+        .route(
             "/set_user_memory_semantic_enabled",
             post(handlers::user_memory_entries::set_user_memory_semantic_enabled),
         )

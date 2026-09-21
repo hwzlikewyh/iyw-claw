@@ -14,6 +14,7 @@ const PREFETCH_LIMIT: usize = 3;
 const MIN_TASK_CHARS: usize = 2;
 const MAX_HINT_CHARS: usize = 2_400;
 const MAX_MEMORY_ITEM_CHARS: usize = 400;
+const PREFETCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(150);
 const CONTEXT_OVERFLOW: &str = "Initial memory matches exceeded the context budget. Use the advertised recall tool with a focused query when relevant.";
 
 pub(super) struct PreparedMemory {
@@ -47,6 +48,21 @@ impl PreparedMemory {
 }
 
 pub(super) async fn prepare(
+    service: Option<&Arc<UserMemoryService>>,
+    state: &Arc<RwLock<SessionState>>,
+    blocks: &[PromptInputBlock],
+) -> Option<PreparedMemory> {
+    match tokio::time::timeout(PREFETCH_BUDGET, prepare_inner(service, state, blocks)).await {
+        Ok(memory) => memory,
+        Err(_) => {
+            tracing::info!(budget_ms = PREFETCH_BUDGET.as_millis(),
+                "[memory-context] optional prefetch deferred; prompt continues");
+            None
+        }
+    }
+}
+
+async fn prepare_inner(
     service: Option<&Arc<UserMemoryService>>,
     state: &Arc<RwLock<SessionState>>,
     blocks: &[PromptInputBlock],
@@ -103,7 +119,7 @@ async fn prepare_recalled_memory(
         crate::commands::skill_inventory::workspace_key(Some(&workspace)),
     );
     let result = service
-        .recall(
+        .recall_prefetch(
             UserMemoryRecallRequest {
                 query,
                 limit: Some(PREFETCH_LIMIT),
@@ -114,6 +130,9 @@ async fn prepare_recalled_memory(
     let mut versions = Vec::new();
     let rendered = match result {
         Ok(result) => {
+            if result.result_state == UserMemoryRecallState::NoEvidence {
+                return None;
+            }
             versions = match service.recalled_versions(&result).await {
                 Ok(versions) => versions,
                 Err(error) => {

@@ -361,6 +361,19 @@ pub(crate) async fn iyw_account_access_token_core(
     }))
 }
 
+pub(crate) async fn iyw_account_memory_credentials_core(
+    conn: &DatabaseConnection,
+) -> Result<Option<(crate::acp::account_credentials::AccountAccessToken, String)>, AppCommandError> {
+    use sha2::{Digest, Sha256};
+    let session = load_synced_session(conn).await?;
+    let Some(token) = session.token else { return Ok(None); };
+    // 访问令牌正常续期不触发全量重建；登录会话变化仍隔离派生索引。
+    let identity = if token.refresh_token.is_empty() { &token.access_token } else { &token.refresh_token };
+    let scope = format!("{:x}", Sha256::digest(identity.as_bytes()));
+    Ok(crate::acp::account_credentials::AccountAccessToken::new(token.access_token)
+        .map(|token| (token, scope)))
+}
+
 pub async fn iyw_account_list_models_core(
     conn: &DatabaseConnection,
     agent_type: Option<AgentType>,

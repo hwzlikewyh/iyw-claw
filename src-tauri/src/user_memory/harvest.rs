@@ -384,7 +384,7 @@ impl UserMemoryService {
     /// previous process are drained even before the next completed turn.
     pub fn start_background_workers(self: &Arc<Self>) {
         #[cfg(not(feature = "tauri-runtime"))]
-        self.start_managed_model_retry(crate::system_skills::data_dir_from_env());
+        self.schedule_semantic_refresh();
         self.ensure_harvest_worker();
         self.start_maintenance_worker();
         let service = Arc::clone(self);
@@ -416,6 +416,7 @@ impl UserMemoryService {
         }
         let recoverable_count = recoverable.len();
         for request in recoverable {
+            self.wait_for_foreground().await;
             if let Err(error) = self.process_harvest_request(request).await {
                 tracing::warn!(error = %error, "[user-memory] harvest record processing failed");
                 return Err(error);

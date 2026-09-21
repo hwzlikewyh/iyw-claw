@@ -10,10 +10,34 @@ use crate::commands::user_memory_entries::{
     preview_memory_governance_core, set_user_memory_entry_status_core,
 };
 use crate::user_memory::{
-    ApplyMemoryGovernanceRequest, ApplyMemoryGovernanceResult, ForgetUserMemoryRequest,
-    ForgetUserMemoryResult, MemoryGovernancePreview, SemanticPreview, SemanticStatus,
-    UserMemoryEntryListRequest, UserMemoryEntryPage, UserMemoryEntryStatusRequest,
+    ApplyMemoryGovernanceRequest, ApplyMemoryGovernanceResult, CloudRetrievalConfig,
+    ForgetUserMemoryRequest, ForgetUserMemoryResult, MemoryGovernancePreview, RetrievalModels,
+    SemanticPreview, SemanticStatus, UserMemoryEntryListRequest, UserMemoryEntryPage,
+    UserMemoryEntryStatusRequest,
 };
+
+pub async fn get_user_memory_retrieval_models(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<RetrievalModels>, AppCommandError> {
+    Ok(Json(state.user_memory.retrieval_models().await?))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CloudConfigParams {
+    pub config: CloudRetrievalConfig,
+}
+
+pub async fn set_user_memory_cloud_config(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<CloudConfigParams>,
+) -> Result<Json<()>, AppCommandError> {
+    state
+        .user_memory
+        .set_cloud_retrieval_config(params.config)
+        .await?;
+    Ok(Json(()))
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -52,6 +52,8 @@ impl ConnectionManager {
             return Ok(None);
         }
         let _spawn = self.connection_tasks.begin_spawn().await?;
+        let _budget = self.speculative_runtime_gate.lock().await;
+        let capacity = self.speculative_runtime_capacity().await?;
         let (owner, emitter) = context;
         let mut pool = self.prepared_sessions.lock().await;
         if let Some(entry) = pool
@@ -61,7 +63,7 @@ impl ConnectionManager {
         {
             return Ok(Some(entry.handle()));
         }
-        if !pool.has_capacity_for(&request) {
+        if capacity == 0 || !pool.has_capacity_for(&request) {
             return Ok(None);
         }
         let entry = Arc::new(self.allocate_preparation(request, (owner, emitter))?);

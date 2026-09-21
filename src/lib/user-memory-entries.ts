@@ -22,16 +22,34 @@ export interface UserMemoryEntryPage {
 }
 
 export interface MemorySemanticStatus {
+  config: CloudRetrievalConfig
   recallEnabled: boolean
   supported: boolean
-  modelInstalled: boolean
-  modelDownloading: boolean
-  retryPending: boolean
-  nextRetryAt: string | null
   ready: boolean
   busy: boolean
   indexedItems: number
   lastError: string | null
+}
+
+export interface CloudRetrievalConfig {
+  embeddingModel: string
+  rerankModel: string
+  rerankEnabled: boolean
+}
+
+export interface RetrievalModels {
+  embeddings: Array<{ id: string; displayName: string }>
+  rerank: Array<{ id: string; displayName: string }>
+}
+
+export function getMemoryRetrievalModels(): Promise<RetrievalModels> {
+  return getTransport().call("get_user_memory_retrieval_models")
+}
+
+export function setMemoryCloudConfig(
+  config: CloudRetrievalConfig
+): Promise<void> {
+  return getTransport().call("set_user_memory_cloud_config", { config })
 }
 
 export function setMemorySemanticEnabled(enabled: boolean): Promise<void> {

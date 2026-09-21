@@ -1,7 +1,6 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use fastembed::TextEmbedding;
 use qdrant_edge::{
     Condition, Distance, EdgeConfig, EdgeShard, EdgeVectorParams, Filter, HasIdCondition,
     NamedQuery, PointId, PointInsertOperations, PointOperations, PointStruct, QueryEnum,
@@ -9,17 +8,18 @@ use qdrant_edge::{
     DEFAULT_VECTOR_NAME,
 };
 
-use super::index_types::{IndexItem, IndexSnapshot};
-use super::semantic_model::{self, model_error};
+use super::index_types::IndexSnapshot;
+use super::semantic_model::model_error;
 use super::UserMemoryRecallScope;
 use crate::app_error::AppCommandError;
 
 const MAX_SEMANTIC_RESULTS: usize = 20;
-const EMBEDDING_BATCH_SIZE: usize = 16;
 
 pub(super) struct SemanticIndex {
     shard: EdgeShard,
-    model: TextEmbedding,
+    pub identity: String,
+    pub model_identity: String,
+    pub dimension: usize,
     pub digest: String,
     pub indexed: usize,
     known_points: BTreeSet<PointId>,
@@ -27,9 +27,11 @@ pub(super) struct SemanticIndex {
 }
 
 impl SemanticIndex {
-    pub fn open(root: &Path) -> Result<Self, AppCommandError> {
+    pub fn open(root: &Path, identity: &str, dimension: usize) -> Result<Self, AppCommandError> {
         super::helpers::reject_symlink(&root.join(".memory-vector"))?;
-        let directory = root.join(".memory-vector").join(semantic_model::MODEL_ID);
+        let directory = root
+            .join(".memory-vector")
+            .join(format!("cloud-{identity}-{dimension}"));
         super::helpers::reject_symlink(&directory)?;
         std::fs::create_dir_all(&directory).map_err(AppCommandError::io)?;
         let lock = super::platform::open_lock_no_follow(&directory.join("writer.lock"))
@@ -38,18 +40,19 @@ impl SemanticIndex {
         let config = EdgeConfig {
             vectors: [(
                 DEFAULT_VECTOR_NAME.into(),
-                EdgeVectorParams::builder(semantic_model::DIMENSION, Distance::Cosine).build(),
+                EdgeVectorParams::builder(dimension, Distance::Cosine).build(),
             )]
             .into(),
             max_search_threads: Some(1),
             ..Default::default()
         };
-        let model = semantic_model::load(root)?;
         let (shard, known_points) = super::semantic_storage::load(&directory, config)?;
         Ok(Self {
             _writer_lock: lock,
             shard,
-            model,
+            identity: identity.to_string(),
+            model_identity: String::new(),
+            dimension,
             digest: String::new(),
             indexed: 0,
             known_points,
@@ -67,21 +70,11 @@ impl SemanticIndex {
             .collect::<Vec<_>>();
         let point_ids = items
             .iter()
-            .map(|item| point_id(&item.id, &item.content_digest))
+            .flat_map(|item| super::semantic_chunks::point_ids(item))
             .collect::<BTreeSet<_>>();
         if self.digest == source.source_digest && point_ids == self.known_points {
             return Ok(());
         }
-        let changed = items
-            .iter()
-            .copied()
-            .filter(|item| {
-                !self
-                    .known_points
-                    .contains(&point_id(&item.id, &item.content_digest))
-            })
-            .collect::<Vec<_>>();
-        self.upsert_items(&changed)?;
         let keep: HasIdCondition = point_ids.iter().copied().collect();
         self.shard
             .update(UpdateOperation::PointOperation(
@@ -89,57 +82,60 @@ impl SemanticIndex {
             ))
             .map_err(model_error)?;
         self.shard.flush().map_err(model_error)?;
-        self.known_points = point_ids;
+        self.known_points.retain(|id| point_ids.contains(id));
         self.digest = source.source_digest.clone();
-        self.indexed = items.len();
+        self.indexed = items
+            .iter()
+            .filter(|item| {
+                super::semantic_chunks::point_ids(item)
+                    .iter()
+                    .all(|id| self.known_points.contains(id))
+            })
+            .count();
         Ok(())
     }
 
-    fn upsert_items(&mut self, changed: &[&IndexItem]) -> Result<(), AppCommandError> {
-        for batch in changed.chunks(EMBEDDING_BATCH_SIZE) {
-            let texts = batch
-                .iter()
-                .map(|item| item.content.as_str())
-                .collect::<Vec<_>>();
-            let vectors = self
-                .model
-                .embed(texts, Some(EMBEDDING_BATCH_SIZE))
-                .map_err(model_error)?;
-            let points = batch.iter().zip(vectors).map(|(item, vector)| {
-                PointStruct::new(point_id(&item.id, &item.content_digest), vector,
-                    serde_json::json!({"memory_id":item.id,"revision":item.source_revision,
-                        "content_digest":item.content_digest,"scope_type":item.scope_type,"scope_key":item.scope_key}))
-                    .into()
-            }).collect();
-            self.shard
-                .update(UpdateOperation::PointOperation(
-                    PointOperations::UpsertPoints(PointInsertOperations::PointsList(points)),
-                ))
-                .map_err(model_error)?;
+    pub fn contains(&self, id: &PointId) -> bool {
+        self.known_points.contains(id)
+    }
+
+    pub fn insert(
+        &mut self,
+        chunk: &super::semantic_chunks::MemoryChunk,
+        vector: Vec<f32>,
+    ) -> Result<(), AppCommandError> {
+        if vector.len() != self.dimension {
+            return Err(model_error("Embedding dimensions changed"));
         }
+        let point = PointStruct::new(
+            chunk.id,
+            vector,
+            serde_json::json!({"memory_id":chunk.memory_id,"content_digest":chunk.digest}),
+        )
+        .into();
+        self.shard
+            .update(UpdateOperation::PointOperation(
+                PointOperations::UpsertPoints(PointInsertOperations::PointsList(vec![point])),
+            ))
+            .map_err(model_error)?;
+        self.shard.flush().map_err(model_error)?;
+        self.known_points.insert(chunk.id);
         Ok(())
     }
 
     pub fn query(
         &mut self,
         source: &IndexSnapshot,
-        query: &str,
+        vector: Vec<f32>,
         scope: &UserMemoryRecallScope,
     ) -> Result<Vec<(String, String, f32)>, AppCommandError> {
         let allowed = allowed_points(source, scope);
         if allowed.is_empty() {
             return Ok(Vec::new());
         }
-        let mut vectors = self
-            .model
-            .embed(
-                vec![format!("为这个句子生成表示以用于检索相关文章：{query}")],
-                Some(1),
-            )
-            .map_err(model_error)?;
-        let vector = vectors
-            .pop()
-            .ok_or_else(|| model_error("Embedding result missing"))?;
+        if vector.len() != self.dimension {
+            return Err(model_error("Embedding dimensions changed"));
+        }
         let request = QueryRequestBuilder::new(MAX_SEMANTIC_RESULTS)
             .filter(Filter::new_must(Condition::HasId(
                 allowed.into_iter().collect(),
@@ -193,11 +189,6 @@ fn allowed_points(source: &IndexSnapshot, scope: &UserMemoryRecallScope) -> BTre
     eligible
         .into_iter()
         .filter(|item| !conflicts.contains(item.id.as_str()))
-        .map(|item| point_id(&item.id, &item.content_digest))
+        .flat_map(super::semantic_chunks::point_ids)
         .collect()
-}
-
-fn point_id(id: &str, digest: &str) -> PointId {
-    let fingerprint = super::helpers::hash_parts(&[id.as_bytes(), digest.as_bytes()]);
-    PointId::Uuid(uuid::Uuid::parse_str(&fingerprint[..32]).expect("hex digest is a valid UUID"))
 }

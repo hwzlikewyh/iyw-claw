@@ -5,28 +5,37 @@ use crate::app_error::AppCommandError;
 use serde::Serialize;
 
 #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
-use super::{semantic_index::SemanticIndex, semantic_model};
+use super::semantic_index::SemanticIndex;
 
 const PREVIEW_LIMIT: usize = 6;
+const REFRESH_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub(super) struct SemanticRuntime {
+    #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
+    pub(super) query_cache: super::semantic_query::QueryCache,
     #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
     pub(super) index: Mutex<Option<SemanticIndex>>,
     pub(super) status: Mutex<SemanticStatus>,
     pub(super) last_activity: Mutex<std::time::Instant>,
     pub(super) task: Arc<tokio::sync::Semaphore>,
     pub(super) refresh_requested: std::sync::atomic::AtomicBool,
+    pub(super) refresh_scheduled: std::sync::atomic::AtomicBool,
+    pub(super) generation: std::sync::atomic::AtomicU64,
 }
 
 impl Default for SemanticRuntime {
     fn default() -> Self {
         Self {
             #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
+            query_cache: super::semantic_query::QueryCache::default(),
+            #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
             index: Mutex::new(None),
             status: Mutex::new(SemanticStatus::default()),
             last_activity: Mutex::new(std::time::Instant::now()),
             task: Arc::new(tokio::sync::Semaphore::new(1)),
             refresh_requested: std::sync::atomic::AtomicBool::new(false),
+            refresh_scheduled: std::sync::atomic::AtomicBool::new(false),
+            generation: std::sync::atomic::AtomicU64::new(0),
         }
     }
 }
@@ -34,12 +43,9 @@ impl Default for SemanticRuntime {
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticStatus {
+    pub config: super::CloudRetrievalConfig,
     pub recall_enabled: bool,
     pub supported: bool,
-    pub model_installed: bool,
-    pub model_downloading: bool,
-    pub retry_pending: bool,
-    pub next_retry_at: Option<String>,
     pub ready: bool,
     pub busy: bool,
     pub indexed_items: usize,
@@ -65,8 +71,6 @@ impl UserMemoryService {
         {
             let mut status = status;
             status.supported = true;
-            status.model_installed = self.resolved_root().is_ok_and(semantic_model::installed);
-            status.model_downloading = super::managed_model::downloading();
             status
         }
         #[cfg(not(all(feature = "memory-semantic", target_pointer_width = "64")))]
@@ -78,36 +82,13 @@ impl UserMemoryService {
     pub fn prepare_semantic_index(&self) -> Result<SemanticStatus, AppCommandError> {
         #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
         {
-            let permit = self
-                .semantic
-                .task
-                .clone()
-                .try_acquire_owned()
-                .map_err(|_| super::helpers::conflict("Memory semantic worker is busy"))?;
-            let service = self.clone();
-            service.touch_semantic_activity();
-            service.set_semantic_busy(true);
-            tokio::spawn(async move {
-                match service.prepare_semantic_inner().await {
-                    Ok(Some(count)) => service.finish_semantic(Ok(count)),
-                    Ok(None) => service.mark_semantic_released(),
-                    Err(error) => service.finish_semantic(Err(error)),
-                }
-                drop(permit);
-                service.release_semantic_if_disabled().await;
-                if service
-                    .semantic
-                    .refresh_requested
-                    .load(std::sync::atomic::Ordering::Acquire)
-                {
-                    service.schedule_semantic_refresh();
-                }
-            });
+            self.touch_semantic_activity();
+            self.schedule_semantic_refresh();
             Ok(self.semantic_status())
         }
         #[cfg(not(all(feature = "memory-semantic", target_pointer_width = "64")))]
         Err(AppCommandError::configuration_invalid(
-            "当前版本暂不支持本地语义检索",
+            "当前平台暂不支持记忆向量索引",
         ))
     }
 
@@ -121,8 +102,15 @@ impl UserMemoryService {
         }
         .normalized()?;
         let items = self
-            .semantic_items(&query, &UserMemoryRecallScope::global())
-            .await?;
+            .recall(
+                super::UserMemoryRecallRequest {
+                    query,
+                    limit: Some(PREVIEW_LIMIT),
+                },
+                UserMemoryRecallScope::global(),
+            )
+            .await?
+            .items;
         Ok(SemanticPreview {
             items,
             status: self.semantic_settings_status().await?,
@@ -132,105 +120,49 @@ impl UserMemoryService {
 
 #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
 impl UserMemoryService {
-    async fn prepare_semantic_inner(&self) -> Result<Option<usize>, AppCommandError> {
-        let channel = crate::update::preferences::load(&self.db)
-            .await?
-            .channel
-            .as_str()
-            .to_string();
-        self.prepare_managed_model(&crate::system_skills::data_dir_from_env(), &channel)
-            .await?;
-        if !self.semantic_recall_enabled().await? {
-            return Ok(None);
-        }
-        self.synchronize_semantic().await.map(Some)
-    }
-
     pub(super) fn schedule_semantic_refresh(&self) {
-        if !self.semantic_recently_used() || !self.semantic_status().model_installed {
-            return;
-        }
-        let service = self.clone();
-        tokio::spawn(async move {
-            match service.semantic_recall_enabled().await {
-                Ok(true) => service.schedule_enabled_semantic_refresh(),
-                Ok(false) => {}
-                Err(error) => tracing::warn!(
-                    code = ?error.code,
-                    "[memory-semantic] recall setting unavailable; refresh skipped"
-                ),
-            }
-        });
-    }
-
-    fn schedule_enabled_semantic_refresh(&self) {
+        use std::sync::atomic::Ordering;
         self.semantic
             .refresh_requested
-            .store(true, std::sync::atomic::Ordering::Release);
-        let Ok(permit) = self.semantic.task.clone().try_acquire_owned() else {
+            .store(true, Ordering::Release);
+        if self.semantic.refresh_scheduled.swap(true, Ordering::AcqRel) {
             return;
-        };
+        }
         let service = self.clone();
-        service.set_semantic_busy(true);
         tokio::spawn(async move {
-            loop {
-                service
-                    .semantic
-                    .refresh_requested
-                    .store(false, std::sync::atomic::Ordering::Release);
+            while service
+                .semantic
+                .refresh_requested
+                .swap(false, Ordering::AcqRel)
+            {
+                service.wait_for_foreground().await;
+                let Ok(permit) = service.semantic.task.clone().acquire_owned().await else {
+                    break;
+                };
+                if !matches!(service.semantic_recall_enabled().await, Ok(true)) {
+                    break;
+                }
+                service.set_semantic_busy(true);
                 let result = service.synchronize_semantic().await;
                 let failed = result.is_err();
                 service.finish_semantic(result);
-                if failed
-                    || !service
+                drop(permit);
+                if failed {
+                    service
                         .semantic
                         .refresh_requested
-                        .load(std::sync::atomic::Ordering::Acquire)
-                {
-                    break;
+                        .store(true, Ordering::Release);
+                    tokio::time::sleep(REFRESH_RETRY_DELAY).await;
                 }
             }
-            drop(permit);
-            if service
+            service
                 .semantic
-                .refresh_requested
-                .load(std::sync::atomic::Ordering::Acquire)
-            {
-                service.schedule_index_refresh();
+                .refresh_scheduled
+                .store(false, Ordering::Release);
+            if service.semantic.refresh_requested.load(Ordering::Acquire) {
+                service.schedule_semantic_refresh();
             }
         });
-    }
-
-    async fn release_semantic_if_disabled(&self) {
-        if matches!(self.semantic_recall_enabled().await, Ok(false)) {
-            if let Err(error) = self.release_semantic_runtime().await {
-                tracing::warn!(
-                    code = ?error.code,
-                    "[memory-semantic] disabled runtime release failed"
-                );
-            }
-        }
-    }
-
-    async fn synchronize_semantic(&self) -> Result<usize, AppCommandError> {
-        let root = self.resolved_root()?.to_path_buf();
-        let (snapshot, epoch) = self.read_projection_source().await?;
-        let runtime = self.semantic.clone();
-        let count = tokio::task::spawn_blocking(move || {
-            let mut guard = runtime.index.lock().unwrap_or_else(|e| e.into_inner());
-            if guard.is_none() {
-                *guard = Some(SemanticIndex::open(&root)?);
-            }
-            let index = guard.as_mut().expect("initialized index");
-            index.synchronize(&snapshot)?;
-            Ok::<_, AppCommandError>(index.indexed)
-        })
-        .await
-        .map_err(semantic_model::model_error)??;
-        if let Some(epoch) = epoch {
-            self.complete_projection(epoch, "vector").await?;
-        }
-        Ok(count)
     }
 
     pub(super) fn set_semantic_busy(&self, busy: bool) {
@@ -273,7 +205,7 @@ impl UserMemoryService {
             Err(error) => {
                 status.ready = false;
                 status.last_error = Some(error.to_string());
-                tracing::warn!(code = ?error.code, "[memory-semantic] local index unavailable");
+                tracing::warn!(code = ?error.code, "[memory-semantic] cloud index refresh deferred");
             }
         }
     }

@@ -50,6 +50,7 @@ impl UserMemoryService {
     }
 
     pub(super) async fn release_semantic_runtime(&self) -> Result<(), AppCommandError> {
+        self.semantic.generation.fetch_add(1, Ordering::AcqRel);
         self.semantic
             .refresh_requested
             .store(false, Ordering::Release);
@@ -67,6 +68,7 @@ impl UserMemoryService {
     }
 
     pub(super) async fn drop_semantic_index(&self) -> Result<(), AppCommandError> {
+        self.semantic.query_cache.clear();
         let runtime = self.semantic.clone();
         tokio::task::spawn_blocking(move || {
             *runtime
