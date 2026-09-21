@@ -89,7 +89,9 @@ function PreferenceRow({
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{scenario.displayName}</p>
           <p className="truncate text-xs text-muted-foreground">
-            {scenario.skillPackageSlug}@{scenario.skillPackageVersion}
+            {scenario.skillPackageSlug
+              ? `${scenario.skillPackageSlug}@${scenario.skillPackageVersion}`
+              : "仅提示词"}
           </p>
         </div>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">

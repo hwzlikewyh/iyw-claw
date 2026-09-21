@@ -208,26 +208,16 @@ function ScenarioCard({
   return (
     <button
       type="button"
-      onClick={() =>
-        onSelect({
-          text: prompt,
-          scenario: { variables: scenario.variables ?? [] },
-          skill: {
-            id: scenario.skillPackageSlug,
-            label: scenario.displayName,
-            package: {
-              id: scenario.skillPackageId,
-              slug: scenario.skillPackageSlug,
-              version: scenario.skillPackageVersion,
-            },
-          },
-        })
-      }
+      onClick={() => onSelect(scenarioContent(scenario, prompt))}
       className={cn(
         "group flex min-h-24 flex-col items-start gap-2 rounded-lg border px-4 py-3 text-left transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
         TONES[scenario.tone ?? "blue"] ?? TONES.blue
       )}
-      aria-label={`${scenario.displayName}，使用 ${scenario.skillPackageSlug}`}
+      aria-label={
+        scenario.skillPackageSlug
+          ? `${scenario.displayName}，使用 ${scenario.skillPackageSlug}`
+          : scenario.displayName
+      }
     >
       <span className="flex min-w-0 items-center gap-2">
         <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-background/80 text-foreground">
@@ -242,6 +232,28 @@ function ScenarioCard({
       </span>
     </button>
   )
+}
+
+function scenarioContent(
+  scenario: Scenario,
+  prompt: string
+): ComposerInjectContent {
+  const content: ComposerInjectContent = {
+    text: prompt,
+    scenario: { variables: scenario.variables ?? [] },
+  }
+  if (scenario.skillPackageId !== "0" && scenario.skillPackageSlug) {
+    content.skill = {
+      id: scenario.skillPackageSlug,
+      label: scenario.displayName,
+      package: {
+        id: scenario.skillPackageId,
+        slug: scenario.skillPackageSlug,
+        version: scenario.skillPackageVersion,
+      },
+    }
+  }
+  return content
 }
 
 function ScenarioIcon({
