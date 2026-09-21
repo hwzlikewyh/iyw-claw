@@ -24,27 +24,39 @@ export function verifyStagedSignature({
     windowsHide: true,
     env,
   })
-  if (result.status !== 0) return false
+  if (result.status !== 0) {
+    // Keep the reason visible: a bare `false` here surfaced as a bogus
+    // "hardware signing failed" message and hid the real cause for hours.
+    console.warn(
+      `[sign-verify] signtool verify rejected ${file} (status=${result.status} error=${result.error?.code ?? "none"})`
+    )
+    return false
+  }
   const environment = Object.fromEntries(
     Object.entries(env).filter(
       ([name]) => name.toUpperCase() !== "PSMODULEPATH"
     )
   )
-  return (
-    spawnSync(
-      "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-Command", VERIFY_SCRIPT],
-      {
-        env: {
-          ...environment,
-          IYW_SIGN_VERIFY_PATH: file,
-          IYW_SIGN_VERIFY_THUMBPRINT: thumbprint,
-          IYW_SIGN_VERIFY_TIMESTAMP: timestamp ? "1" : "0",
-        },
-        timeout: VERIFY_TIMEOUT_MS,
-        stdio: "ignore",
-        windowsHide: true,
-      }
-    ).status === 0
+  const probe = spawnSync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", VERIFY_SCRIPT],
+    {
+      env: {
+        ...environment,
+        IYW_SIGN_VERIFY_PATH: file,
+        IYW_SIGN_VERIFY_THUMBPRINT: thumbprint,
+        IYW_SIGN_VERIFY_TIMESTAMP: timestamp ? "1" : "0",
+      },
+      timeout: VERIFY_TIMEOUT_MS,
+      stdio: "ignore",
+      windowsHide: true,
+    }
   )
+  if (probe.status !== 0) {
+    console.warn(
+      `[sign-verify] status check rejected ${file} (status=${probe.status} error=${probe.error?.code ?? "none"} thumbprint=${thumbprint} timestamp=${timestamp})`
+    )
+    return false
+  }
+  return true
 }
