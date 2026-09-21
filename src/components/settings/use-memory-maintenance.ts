@@ -3,6 +3,7 @@ import { toErrorMessage } from "@/lib/app-error"
 import {
   getMemoryMaintenance,
   previewMemoryMigration,
+  reconcileMemoryMigration,
   resolveMemoryReview,
   runMemoryMaintenance,
   type MemoryMaintenanceStatus,
@@ -59,6 +60,13 @@ export function useMemoryMaintenance(onUpdated: () => void) {
       })
       onUpdated()
     })
+  const reconcilePreview = () =>
+    execute(async () => {
+      if (!preview) return
+      await reconcileMemoryMigration(preview.sourceRevision)
+      setPreview(await previewMemoryMigration())
+      onUpdated()
+    })
   return {
     status,
     preview,
@@ -70,5 +78,6 @@ export function useMemoryMaintenance(onUpdated: () => void) {
     run: () => execute(runMemoryMaintenance),
     loadPreview: () =>
       execute(async () => setPreview(await previewMemoryMigration())),
+    reconcilePreview,
   }
 }

@@ -199,7 +199,9 @@ export interface UserMemoryHarvestStatus {
 
 export interface UserMemoryHarvestRescanPreview {
   reQueued: number
+  retryableDead: number
   retainedTerminal: number
+  recoveredDead: number
   discoveredUnqueued?: number
   recoveredUnqueued?: number
   skippedSensitive?: number

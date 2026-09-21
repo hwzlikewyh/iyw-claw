@@ -316,7 +316,7 @@ fn add_confirmed_wording_aliases(item: &mut IndexItem, candidate: &UserMemoryCan
 }
 
 pub(super) fn parse_memory_line(line: &str) -> Option<(String, String, Option<String>)> {
-    let marker_start = line.find("<!-- iyw-memory-")?;
+    let marker_start = line.rfind("<!-- iyw-memory-")?;
     let marker_end = line[marker_start..].find(" -->")? + marker_start;
     let entry_id = line[marker_start + 5..marker_end].trim().to_string();
     let raw = line[..marker_start].trim();
@@ -333,7 +333,7 @@ pub(super) fn parse_memory_line(line: &str) -> Option<(String, String, Option<St
     Some((entry_id, value, observed_at))
 }
 
-fn strip_memory_prefix(value: &str) -> String {
+pub(super) fn strip_memory_prefix(value: &str) -> String {
     let mut value = value.trim_start_matches("- ").trim();
     for _ in 0..2 {
         if !value.starts_with('[') {

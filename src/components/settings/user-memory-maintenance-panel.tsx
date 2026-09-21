@@ -34,6 +34,8 @@ export function UserMemoryMaintenancePanel({
       )}
       <MemoryMigrationPreviewDialog
         preview={state.preview}
+        busy={state.busy}
+        onReconcile={() => void state.reconcilePreview()}
         onClose={() => state.setPreview(null)}
       />
     </section>

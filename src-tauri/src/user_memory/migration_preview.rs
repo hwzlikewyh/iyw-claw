@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-use super::{candidate_store, UserMemoryDocumentId, UserMemoryService};
+use super::{candidate_store, MemoryMigrationIssue, UserMemoryDocumentId, UserMemoryService};
 use crate::app_error::AppCommandError;
 
 #[derive(Serialize)]
@@ -12,6 +12,7 @@ pub struct MemoryMigrationPreview {
     pub counts: BTreeMap<String, usize>,
     pub records: Vec<MemoryMigrationRecord>,
     pub warnings: Vec<String>,
+    pub unparsed_lines: Vec<MemoryMigrationIssue>,
     pub ready_for_shadow_import: bool,
 }
 
@@ -44,10 +45,7 @@ impl UserMemoryService {
         let policy = self.load_policy_unrecovered().await?;
         let mut settings = super::index_source::readonly_snapshot(self, &policy)?;
         let state = self.read_learning_state()?;
-        let revision = super::helpers::hash_parts(&[
-            settings.revision.as_bytes(),
-            candidate_store::revision(&state)?.as_bytes(),
-        ]);
+        let revision = source_revision(&settings.revision, &state)?;
         settings.enabled = true;
         for document in settings.documents.values_mut() {
             document.enabled = true;
@@ -62,7 +60,8 @@ impl UserMemoryService {
             .map(project_record)
             .collect::<Vec<_>>();
         append_missing_records(&mut records, &state);
-        let warnings = preview_warnings(&settings, &snapshot, &records);
+        let unparsed_lines = migration_issues(&settings);
+        let warnings = preview_warnings(&settings, &snapshot, &records, &unparsed_lines);
         let ready_for_shadow_import = warnings
             .iter()
             .all(|warning| warning == "sensitive_content_redacted");
@@ -76,6 +75,7 @@ impl UserMemoryService {
             counts,
             records,
             warnings,
+            unparsed_lines,
             ready_for_shadow_import,
         })
     }
@@ -195,8 +195,12 @@ fn preview_warnings(
     settings: &super::UserMemorySettingsSnapshot,
     snapshot: &super::index_types::IndexSnapshot,
     records: &[MemoryMigrationRecord],
+    unparsed_lines: &[MemoryMigrationIssue],
 ) -> Vec<String> {
     let mut warnings = document_warnings(settings);
+    if !unparsed_lines.is_empty() {
+        warnings.push("unparsed_memory_lines".into());
+    }
     if records.iter().any(|record| record.content.is_none()) {
         warnings.push("sensitive_content_redacted".into());
     }
@@ -212,15 +216,25 @@ fn document_warnings(settings: &super::UserMemorySettingsSnapshot) -> Vec<String
         if !document.readable {
             warnings.push(format!("unreadable:{}", id.file_name()));
         }
-        if *id == UserMemoryDocumentId::Memory
-            && document.content.lines().any(|line| {
-                !line.trim().is_empty()
-                    && !line.trim().starts_with('#')
-                    && super::index_parse::parse_memory_line(line).is_none()
-            })
-        {
-            warnings.push("unparsed_memory_lines".into());
-        }
     }
     warnings
+}
+
+fn migration_issues(settings: &super::UserMemorySettingsSnapshot) -> Vec<MemoryMigrationIssue> {
+    settings
+        .documents
+        .get(&UserMemoryDocumentId::Memory)
+        .filter(|document| document.readable)
+        .map(|document| super::migration_reconcile::unparsed_memory_lines(&document.content))
+        .unwrap_or_default()
+}
+
+pub(super) fn source_revision(
+    settings_revision: &str,
+    state: &super::UserMemoryLearningState,
+) -> Result<String, AppCommandError> {
+    Ok(super::helpers::hash_parts(&[
+        settings_revision.as_bytes(),
+        candidate_store::revision(state)?.as_bytes(),
+    ]))
 }

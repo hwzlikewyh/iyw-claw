@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 
 use crate::app_error::AppCommandError;
 
-const MAX_ERROR_DETAIL_CHARS: usize = 500;
+const MAX_ERROR_DETAIL_CHARS: usize = 240;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ModelGatewayChatConfig {
@@ -64,31 +64,46 @@ fn response_content(operation: &str, body: &str) -> Result<String, AppCommandErr
         AppCommandError::configuration_invalid(format!("{operation} response is not JSON"))
             .with_detail(error.to_string())
     })?;
-    root.pointer("/choices/0/message/content")
+    if root.get("error").is_some() {
+        return Err(AppCommandError::configuration_invalid(format!(
+            "{operation} provider returned an error"
+        ))
+        .with_detail(provider_error_detail(&root)));
+    }
+    if let Some(content) = root.pointer("/choices/0/message/content") {
+        if let Some(content) = decode_content(content) {
+            return Ok(content);
+        }
+    }
+    let refusal = root
+        .pointer("/choices/0/message/refusal")
         .and_then(Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| {
-            let refusal = root
-                .pointer("/choices/0/message/refusal")
-                .and_then(Value::as_str)
-                .unwrap_or("missing message content");
-            AppCommandError::configuration_invalid(format!("{operation} response has no content"))
-                .with_detail(refusal)
-        })
+        .map(safe_error_text)
+        .unwrap_or_else(|| "missing message content".into());
+    Err(
+        AppCommandError::configuration_invalid(format!("{operation} response has no content"))
+            .with_detail(refusal),
+    )
 }
 
 fn request_error(operation: &str, stage: &str, error: impl std::fmt::Display) -> AppCommandError {
-    AppCommandError::network(format!("{operation} {stage}")).with_detail(error.to_string())
+    AppCommandError::network(format!("{operation} {stage}"))
+        .with_detail(safe_error_text(&error.to_string()))
 }
 
 fn status_error(operation: &str, status: StatusCode, body: &str) -> AppCommandError {
-    let detail = body
-        .chars()
-        .take(MAX_ERROR_DETAIL_CHARS)
-        .collect::<String>();
+    let detail = serde_json::from_str::<Value>(body)
+        .map(|value| provider_error_detail(&value))
+        .unwrap_or_else(|_| safe_error_text(body));
     match status {
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
             AppCommandError::authentication_failed(format!("{operation} authentication failed"))
+                .with_detail(detail)
+        }
+        StatusCode::BAD_REQUEST
+        | StatusCode::UNPROCESSABLE_ENTITY
+        | StatusCode::NOT_IMPLEMENTED => {
+            AppCommandError::configuration_invalid(format!("{operation} request is incompatible"))
                 .with_detail(detail)
         }
         StatusCode::TOO_MANY_REQUESTS => {
@@ -97,4 +112,53 @@ fn status_error(operation: &str, status: StatusCode, body: &str) -> AppCommandEr
         _ => AppCommandError::network(format!("{operation} returned HTTP {status}"))
             .with_detail(detail),
     }
+}
+
+fn decode_content(content: &Value) -> Option<String> {
+    match content {
+        Value::String(value) if !value.trim().is_empty() => Some(value.clone()),
+        Value::Array(parts) => {
+            let text = parts
+                .iter()
+                .filter_map(|part| part.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("");
+            if text.trim().is_empty() {
+                serde_json::to_string(content).ok()
+            } else {
+                Some(text)
+            }
+        }
+        Value::Object(_) => serde_json::to_string(content).ok(),
+        _ => None,
+    }
+}
+
+fn provider_error_detail(value: &Value) -> String {
+    let code = value
+        .pointer("/error/code")
+        .or_else(|| value.get("code"))
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
+    let message = value
+        .pointer("/error/message")
+        .or_else(|| value.get("message"))
+        .and_then(Value::as_str)
+        .map(safe_error_text)
+        .unwrap_or_else(|| "provider rejected the request".into());
+    format!("code={}; message={message}", safe_error_text(code))
+}
+
+fn safe_error_text(value: &str) -> String {
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let lower = compact.to_ascii_lowercase();
+    if [
+        "token", "password", "secret", "api_key", "bearer", "sk-", "prompt=",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+    {
+        return "[redacted]".into();
+    }
+    compact.chars().take(MAX_ERROR_DETAIL_CHARS).collect()
 }

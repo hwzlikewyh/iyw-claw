@@ -2,7 +2,8 @@ use crate::app_error::AppCommandError;
 #[cfg(feature = "tauri-runtime")]
 use crate::user_memory::UserMemoryService;
 use crate::user_memory::{
-    MemoryMaintenanceStatus, MemoryMigrationPreview, ResolveMemoryReviewRequest,
+    MemoryMaintenanceStatus, MemoryMigrationPreview, ReconcileMemoryMigrationRequest,
+    ReconcileMemoryMigrationResult, ResolveMemoryReviewRequest,
 };
 #[cfg(feature = "tauri-runtime")]
 use std::sync::Arc;
@@ -17,6 +18,22 @@ pub async fn get_user_memory_maintenance(
     }
     #[cfg(not(feature = "tauri-runtime"))]
     {
+        Err(AppCommandError::configuration_invalid("tauri-only command"))
+    }
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn reconcile_user_memory_migration(
+    #[cfg(feature = "tauri-runtime")] service: tauri::State<'_, Arc<UserMemoryService>>,
+    request: ReconcileMemoryMigrationRequest,
+) -> Result<ReconcileMemoryMigrationResult, AppCommandError> {
+    #[cfg(feature = "tauri-runtime")]
+    {
+        service.reconcile_memory_migration(request).await
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        let _ = request;
         Err(AppCommandError::configuration_invalid("tauri-only command"))
     }
 }

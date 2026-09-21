@@ -202,7 +202,9 @@ impl UserMemoryHarvestStatus {
 #[serde(rename_all = "camelCase")]
 pub struct UserMemoryHarvestRescanPreview {
     pub re_queued: u32,
+    pub retryable_dead: u32,
     pub retained_terminal: u32,
+    pub recovered_dead: u32,
     pub discovered_unqueued: u32,
     pub recovered_unqueued: u32,
     pub skipped_sensitive: u32,
@@ -448,6 +450,7 @@ impl UserMemoryService {
             Ok(ExtractionOutcome::Noop(reason)) => StoreOutcome::Noop(reason),
             Err(error) => StoreOutcome::Failed {
                 kind: harvest_failure_kind(&error),
+                retryable: harvest_error_is_retryable(&error),
                 detail: error.detail.unwrap_or(error.message),
             },
         };
@@ -860,6 +863,14 @@ fn harvest_failure_kind(error: &AppCommandError) -> UserMemoryHarvestFailureKind
         }
         _ => UserMemoryHarvestFailureKind::Internal,
     }
+}
+
+fn harvest_error_is_retryable(error: &AppCommandError) -> bool {
+    use crate::app_error::AppErrorCode;
+    matches!(
+        error.code,
+        AppErrorCode::IoError | AppErrorCode::DatabaseError | AppErrorCode::NetworkError
+    )
 }
 
 #[cfg(test)]

@@ -5713,14 +5713,16 @@
       "apply": "Stop using this memory",
       "dismiss": "Keep this memory",
       "preview": "Historical migration preview",
-      "previewDescription": "Read-only inventory of current sources.",
+      "previewDescription": "Review current sources; legacy lines are backed up before conversion.",
       "previewWarnings": "Items to check",
       "authority_switch_not_implemented": "The new authoritative store has not been enabled.",
       "sensitive_content_redacted": "Sensitive records are counted with their text hidden.",
       "source_identity_conflict": "Conflicting source IDs require review before migration.",
       "unparsed_memory_lines": "Some original lines cannot be mapped to structured entries.",
       "unreadable": "Source cannot be read",
-      "redacted": "Sensitive content hidden"
+      "redacted": "Sensitive content hidden",
+      "lineNumber": "Line {line}",
+      "convertLegacy": "Convert legacy format"
     },
     "learning": {
       "title": "Background memory extraction",
@@ -5796,6 +5798,7 @@
       "rebuildPreview": "Fix {affected} activity index entries.",
       "rescanDone": "Harvest queue rescanned",
       "rescanRecovered": "Recovered completed inputs that were never queued",
+      "rescanRecoveredDead": "Recovered provider-terminated tasks",
       "rebuildDone": "Candidate index rebuilt",
       "harvestQueued": "Queued",
       "harvestExtracting": "Extracting",
