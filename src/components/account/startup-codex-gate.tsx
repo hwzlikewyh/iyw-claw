@@ -20,7 +20,6 @@ import { isLocalDesktop, subscribe } from "@/lib/platform"
 import type { BootstrapComponentStatus, BootstrapInitEvent } from "@/lib/types"
 import { randomUUID } from "@/lib/utils"
 import {
-  executeCodexBootstrap,
   type BootstrapStep,
 } from "./startup-codex-bootstrap"
 import {
