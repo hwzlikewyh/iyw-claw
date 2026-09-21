@@ -2,6 +2,8 @@ use std::collections::HashMap;
 #[cfg(feature = "tauri-runtime")]
 use std::collections::{BTreeMap, HashSet};
 #[cfg(feature = "tauri-runtime")]
+use std::path::PathBuf;
+#[cfg(feature = "tauri-runtime")]
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -18,6 +20,8 @@ use super::agent_window::{PendingWindowClose, PendingWindowOpen};
 use super::cdp_observer::CdpObserverHandle;
 use super::control::ControlGate;
 use super::control_lease::AgentControlLease;
+#[cfg(feature = "tauri-runtime")]
+use super::engine_prefetch::BrowserEnginePrefetch;
 use super::error::BrowserError;
 use super::records::{RuntimeStartDecision, RuntimeTicket, TabTicket};
 #[cfg(feature = "tauri-runtime")]
@@ -82,8 +86,6 @@ pub struct BrowserSessionManager {
     pub(super) browser_engine_prefetch: BrowserEnginePrefetch,
     #[cfg(feature = "tauri-runtime")]
     pub(super) account_database: Arc<RwLock<Option<sea_orm::DatabaseConnection>>>,
-    #[cfg(feature = "tauri-runtime")]
-    pub(super) browser_routes: Arc<Mutex<HashMap<String, super::agent_browser::BrowserRoute>>>,
 }
 
 impl BrowserSessionManager {
@@ -138,8 +140,6 @@ impl BrowserSessionManager {
             browser_engine_prefetch: BrowserEnginePrefetch::new(PathBuf::new()),
             #[cfg(feature = "tauri-runtime")]
             account_database: Arc::new(RwLock::new(None)),
-            #[cfg(feature = "tauri-runtime")]
-            browser_routes: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 

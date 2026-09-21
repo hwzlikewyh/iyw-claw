@@ -45,17 +45,17 @@ pub(super) async fn launch(
     let profile = acquire_profile(data_root, &runtime_id, &runtime_dir, &dependencies.verified)
         .await
         .map_err(|error| launch_failure(error, None))?;
-    if let Some(source) = dependencies.verified.engine.profile_source.as_deref() {
-        if let Err(error) = profile
-            .seed_user_profile(source, &dependencies.verified.engine.path)
-            .await
-        {
-            tracing::warn!(
-                target: "iyw_claw_browser",
-                engine = ?dependencies.verified.engine.kind,
-                error_code = ?error.code,
-                "browser user profile seed failed; continuing with isolated profile"
-            );
+    let launch_args = match super::fingerprint::launch_args(&profile.profile_path, browser_args) {
+        Ok(args) => args,
+        Err(error) => {
+            remove_runtime_dir(&runtime_dir).await;
+            return Err(launch_failure(
+                BrowserError::new(
+                    BrowserErrorCode::BrowserInternal,
+                    format!("无法准备浏览器指纹配置：{error}"),
+                ),
+                None,
+            ));
         }
     };
     let download_path = prepare_download_path(data_root, &runtime_dir)
@@ -73,10 +73,7 @@ pub(super) async fn launch(
         screenshot_path,
     )
     .with_bootstrap_extension(dependencies.extension_dir);
-    let cli = match browser_args {
-        Some(args) => cli.with_browser_args(args.to_string()),
-        None => cli,
-    };
+    let cli = cli.with_browser_args(launch_args);
     let mut cleanup = RuntimeCleanupHandle {
         id: runtime_id,
         generation,

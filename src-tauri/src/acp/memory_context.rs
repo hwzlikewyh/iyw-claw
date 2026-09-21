@@ -14,6 +14,7 @@ const PREFETCH_LIMIT: usize = 3;
 const MIN_TASK_CHARS: usize = 2;
 const MAX_HINT_CHARS: usize = 2_400;
 const MAX_MEMORY_ITEM_CHARS: usize = 400;
+const PREFETCH_BUDGET: std::time::Duration = std::time::Duration::from_millis(150);
 const CONTEXT_OVERFLOW: &str = "Initial memory matches exceeded the context budget. Use the advertised recall tool with a focused query when relevant.";
 
 pub(super) struct PreparedMemory {

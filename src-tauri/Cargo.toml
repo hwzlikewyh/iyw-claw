@@ -41,7 +41,7 @@ test-gateway = []
 # entry point enables only the feature it needs.
 server-runtime = ["memory-semantic"]
 memory-bench = []
-memory-semantic = ["dep:qdrant-edge", "dep:fastembed"]
+memory-semantic = ["dep:qdrant-edge"]
 
 [[bin]]
 name = "iyw-claw"
@@ -156,8 +156,6 @@ libc = "0.2"
 
 [target.'cfg(target_pointer_width = "64")'.dependencies]
 qdrant-edge = { version = "=0.8.0", optional = true }
-
-fastembed = { version = "=7.0.1", optional = true, default-features = false, features = ["ort-download-binaries-rustls-tls"] }
 
 # This crate is built repeatedly with several feature sets. Full debug info plus
 # incremental caches grows into tens of gigabytes per feature/worktree on

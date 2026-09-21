@@ -118,7 +118,6 @@ pub mod skill_package;
 pub mod skill_routing;
 pub(crate) mod skill_tree_hash;
 pub(crate) mod startup_trace;
-pub mod prepared_session;
 pub(crate) mod stderr_tail;
 pub(crate) mod task_artifact_delivery;
 pub mod terminal_runtime;

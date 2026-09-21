@@ -43,6 +43,16 @@ impl UserMemoryService {
         request: ForgetUserMemoryRequest,
     ) -> Result<ForgetUserMemoryResult, AppCommandError> {
         validate_request(&request)?;
+        self.semantic.generation.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        // 与后台刷新保持先索引、后事实锁的顺序，防止旧任务重新写回被删除的内容。
+        let _semantic = self
+            .semantic
+            .task
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| AppCommandError::task_execution_failed("Memory worker unavailable"))?;
+        let _refresh = self.index_refresh_lock.clone().lock_owned().await;
         let (_guard, _file) = self.acquire_locks().await?;
         let authority = self.active_authority().ok_or_else(|| {
             AppCommandError::configuration_invalid(
@@ -50,6 +60,7 @@ impl UserMemoryService {
             )
         })?;
         let prepared = self.prepare_forget(&request, &authority).await?;
+        self.clear_forgotten_vector_projection().await?;
         self.commit_forget(request.document, &prepared).await?;
         let backups = super::forget_backups::process(
             self,

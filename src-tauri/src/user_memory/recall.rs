@@ -78,7 +78,7 @@ impl UserMemoryService {
         };
         match tokio::time::timeout(timeout, self.recall_normalized(attempt)).await {
             Ok(Ok(result)) => Ok(self
-                .augment_semantic_recall(result, semantic_scope, limit)
+                .augment_semantic_recall(result, (semantic_scope, limit, prefetch))
                 .await),
             Ok(Err(error)) => Err(error),
             Err(_) => {

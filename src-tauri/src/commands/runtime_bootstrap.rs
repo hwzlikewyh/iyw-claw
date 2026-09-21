@@ -21,9 +21,6 @@ use tokio::sync::Mutex;
 
 use crate::web::event_bridge::EventEmitter;
 
-#[cfg(feature = "tauri-runtime")]
-use crate::acp::manager::ConnectionManager;
-
 pub(crate) mod fallback;
 mod managed;
 mod types;
@@ -194,8 +191,6 @@ pub async fn runtime_bootstrap_managed_core(
 pub async fn runtime_bootstrap(
     task_id: String,
     app: tauri::AppHandle,
-    _db: tauri::State<'_, crate::db::AppDatabase>,
-    _connection_manager: tauri::State<'_, ConnectionManager>,
 ) -> Result<RuntimeBootstrapReport, String> {
     let emitter = EventEmitter::Tauri(app);
     Ok(runtime_bootstrap_core(task_id, &emitter).await)
@@ -204,9 +199,11 @@ pub async fn runtime_bootstrap(
 /// 受管初始化状态查询（只读，不取写入锁）。供前端 `bootstrapInitStatus` 调用。
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
-pub async fn bootstrap_init_status() -> Result<crate::acp::version_center::InitStatusReport, String>
-{
-    Ok(crate::managed_environment::init_status_report())
+pub async fn bootstrap_init_status(
+) -> Result<crate::managed_environment::ManagedEnvironmentStatusReport, String> {
+    tokio::task::spawn_blocking(crate::managed_environment::init_status_report)
+        .await
+        .map_err(|error| format!("环境检测任务异常：{error}"))
 }
 
 /// 统一初始化 / 修复入口：resolve → 票据 → 下载 → 校验 → 激活 → health check。
@@ -216,33 +213,15 @@ pub async fn bootstrap_init_status() -> Result<crate::acp::version_center::InitS
 pub async fn bootstrap_initialize(
     task_id: String,
     repair: Option<bool>,
-    _app: tauri::AppHandle,
-    db: tauri::State<'_, crate::db::AppDatabase>,
-    _connection_manager: tauri::State<'_, ConnectionManager>,
-    user_memory: tauri::State<'_, std::sync::Arc<crate::user_memory::UserMemoryService>>,
-) -> Result<crate::acp::version_center::InitStatusReport, String> {
+    app: tauri::AppHandle,
+) -> Result<crate::managed_environment::ManagedEnvironmentStatusReport, String> {
+    tracing::info!(
+        task_id,
+        repair = repair.unwrap_or(false),
+        "environment status requested"
+    );
     if repair.unwrap_or(false) {
-        crate::managed_environment::repair().await?;
+        crate::managed_environment::repair(&task_id, &EventEmitter::Tauri(app)).await?;
     }
-    let conn = db.conn.clone();
-    let data_dir = crate::system_skills::data_dir_from_env();
-    let channel = managed::load_channel(&conn, &task_id).await;
-    let report = crate::managed_environment::init_status_report();
-    if report.phase == "ready" {
-        let service = user_memory.inner().clone();
-        let model_data_dir = data_dir.clone();
-        let model_channel = channel.clone();
-        tauri::async_runtime::spawn(async move {
-            if let Err(error) = service
-                .prepare_managed_model(&model_data_dir, &model_channel)
-                .await
-            {
-                tracing::info!(
-                    error_code = ?error.code,
-                    "[memory-model] bootstrap preparation continues in background"
-                );
-            }
-        });
-    }
-    Ok(report)
+    bootstrap_init_status().await
 }

@@ -32,7 +32,7 @@ impl BrowserEngine {
 pub(super) async fn detect_engine(data_root: &Path) -> Result<BrowserEngine, BrowserError> {
     let _ = data_root;
     if let Some(path) = crate::managed_environment::entrypoint("chromix", "chromix") {
-        if let Some(engine) = probe_engine(BrowserEngineKind::Chromium, path.clone(), None).await {
+        if let Some(engine) = probe_engine(path.clone()).await {
             return Ok(engine);
         }
         tracing::warn!(

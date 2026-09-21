@@ -390,11 +390,12 @@ where
             )
         {
             if let Some(trace) = &s.startup_trace {
-                trace.observe_turn_event(
-                    s.turn_generation,
-                    matches!(&payload,
-                    AcpEvent::ContentDelta { text } if !text.is_empty()),
-                );
+                let kind = match &payload {
+                    AcpEvent::ContentDelta { text } if !text.is_empty() => "content",
+                    AcpEvent::Thinking { text } if !text.is_empty() => "thinking",
+                    _ => "tool_or_empty",
+                };
+                trace.observe_turn_event(s.turn_generation, kind);
             }
         }
         s.apply_event(&payload);

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
+use super::engine_prefetch::BrowserEnginePrefetch;
 use super::error::{BrowserError, BrowserErrorCode};
 use super::manager::BrowserSessionManager;
 use super::records::{RuntimeStartDecision, RuntimeTicket};
@@ -314,7 +315,6 @@ impl BrowserSessionManager {
             runtime_recoveries: Arc::new(tokio::sync::Mutex::new(std::collections::HashSet::new())),
             browser_engine_prefetch: BrowserEnginePrefetch::new(PathBuf::new()),
             account_database: Arc::new(tokio::sync::RwLock::new(None)),
-            browser_routes: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 

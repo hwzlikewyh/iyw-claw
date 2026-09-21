@@ -20,7 +20,6 @@ mod manifest;
 mod migration;
 mod preflight;
 mod resumable;
-pub(crate) use resumable::download_resumable;
 mod runtime;
 mod runtime_bundle;
 mod runtime_migration;
@@ -29,7 +28,6 @@ mod runtime_seed;
 mod runtime_seed_files;
 mod runtime_seed_manifest;
 mod signature;
-pub(crate) use signature::verify_tool_file_signature;
 mod state;
 mod tools;
 

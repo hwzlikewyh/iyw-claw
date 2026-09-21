@@ -49,8 +49,6 @@ use crate::db::AppDatabase;
 mod prepared;
 #[path = "manager_prewarm.rs"]
 mod prewarm;
-#[path = "manager_prepared.rs"]
-mod prepared;
 #[path = "idle_runtime_budget.rs"]
 mod idle_runtime_budget;
 

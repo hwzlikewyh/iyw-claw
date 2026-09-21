@@ -1,16 +1,28 @@
 use std::fs::File;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
-use std::process::Stdio;
-use std::time::Duration;
 
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+mod repair;
+mod snapshot;
+mod status;
+
+pub use repair::repair;
+pub use status::{init_status_report, ManagedEnvironmentStatusReport};
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Snapshot {
+    schema_version: u8,
+    generation: String,
+    pc_version: String,
+    target: String,
+    arch: String,
     catalog_revision: u64,
+    #[serde(default)]
+    selected_components: Option<Vec<String>>,
     components: Vec<ManagedComponent>,
 }
 
@@ -36,14 +48,13 @@ struct ManagedFile {
 
 pub fn entrypoint(component: &str, name: &str) -> Option<PathBuf> {
     let root = crate::paths::iyw_claw_user_dir();
-    let raw = std::fs::read(root.join("inventory/environment-current.json")).ok()?;
-    let snapshot = serde_json::from_slice::<Snapshot>(&raw).ok()?;
+    let snapshot = snapshot::load(&root).ok()?;
     let component = snapshot
         .components
         .into_iter()
         .find(|item| item.component_id == component)?;
     let relative = component.entrypoints.get(name)?;
-    let component_root = managed_path(&root, &component.relative_path)?;
+    let component_root = snapshot::component_path(&root, &component.relative_path)?;
     let candidate = managed_path(&component_root, relative)?;
     let record = component.files.iter().find(|file| file.path == *relative)?;
     verify_file(&component_root, &candidate, record).then_some(candidate)
@@ -51,14 +62,23 @@ pub fn entrypoint(component: &str, name: &str) -> Option<PathBuf> {
 
 pub fn component_root(component: &str) -> Option<PathBuf> {
     let root = crate::paths::iyw_claw_user_dir();
-    let raw = std::fs::read(root.join("inventory/environment-current.json")).ok()?;
-    let snapshot = serde_json::from_slice::<Snapshot>(&raw).ok()?;
+    let snapshot = snapshot::load(&root).ok()?;
     let component = snapshot
         .components
         .into_iter()
         .find(|item| item.component_id == component)?;
-    let path = managed_path(&root, &component.relative_path)?;
+    let path = snapshot::component_path(&root, &component.relative_path)?;
     path.is_dir().then_some(path)
+}
+
+pub fn component_version(component: &str) -> Option<String> {
+    let root = crate::paths::iyw_claw_user_dir();
+    snapshot::load(&root)
+        .ok()?
+        .components
+        .into_iter()
+        .find(|item| item.component_id == component)
+        .map(|item| item.version)
 }
 
 pub fn tool_entrypoint(name: &str) -> Option<PathBuf> {
@@ -71,32 +91,6 @@ pub fn tool_entrypoint(name: &str) -> Option<PathBuf> {
         "open-computer-use" => entrypoint("open-computer-use", "open-computer-use"),
         _ => None,
     }
-}
-
-pub async fn repair() -> Result<(), String> {
-    let helper = environment_helper()
-        .ok_or_else(|| "安装目录缺少 iyw-environment 环境修复程序，请重新安装应用".to_string())?;
-    let mut command = crate::process::tokio_command(helper);
-    command
-        .args([
-            "repair",
-            "--app-version",
-            env!("CARGO_PKG_VERSION"),
-            "--json",
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    let output = tokio::time::timeout(Duration::from_secs(30 * 60), command.output())
-        .await
-        .map_err(|_| "环境修复超时，请检查网络后重试".to_string())?
-        .map_err(|error| format!("无法启动环境修复程序：{error}"))?;
-    if output.status.success() {
-        return Ok(());
-    }
-    let detail = bounded_tail(&String::from_utf8_lossy(&output.stderr), 2_000);
-    Err(format!("环境修复失败（{}）：{detail}", output.status))
 }
 
 fn environment_helper() -> Option<PathBuf> {
@@ -120,94 +114,13 @@ fn environment_helper() -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.is_file())
 }
 
-fn bounded_tail(value: &str, limit: usize) -> String {
-    let count = value.chars().count();
-    if count <= limit {
-        return value.trim().to_string();
-    }
-    value.chars().skip(count - limit).collect::<String>()
-}
-
-pub fn init_status_report() -> crate::acp::version_center::InitStatusReport {
-    let root = crate::paths::iyw_claw_user_dir();
-    let path = root.join("inventory/environment-current.json");
-    let raw = std::fs::read(&path).unwrap_or_default();
-    let snapshot = serde_json::from_slice::<Snapshot>(&raw).ok();
-    let components = snapshot
-        .as_ref()
-        .map(|value| {
-            value
-                .components
-                .iter()
-                .map(|component| component_status(&root, component))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    let ready = ["node", "git", "uv", "chromix", "agent-browser"]
-        .iter()
-        .all(|id| {
-            components
-                .iter()
-                .any(|item| item.component_id == *id && item.active)
-        });
-    crate::acp::version_center::InitStatusReport {
-        phase: if ready { "ready" } else { "degraded" }.to_string(),
-        components,
-        offline: false,
-        writer_busy: false,
-        pending_activations: Vec::new(),
-        manifest_generation: snapshot.map_or(0, |value| value.catalog_revision),
-        digest: format!("{:x}", Sha256::digest(&raw)),
-        migrated: false,
-    }
-}
-
-fn component_status(
-    root: &Path,
-    component: &ManagedComponent,
-) -> crate::acp::version_center::ComponentStatusView {
-    let active = !component.files.is_empty()
-        && required_entrypoints(&component.component_id)
-            .iter()
-            .all(|name| component_entrypoint(root, component, name).is_some());
-    crate::acp::version_center::ComponentStatusView {
-        component_id: component.component_id.clone(),
-        component_kind: component.component_kind.clone(),
-        version: component.version.clone(),
-        installed: active,
-        active,
-        phase: if active { "ready" } else { "degraded" }.to_string(),
-        last_error: (!active).then(|| "Managed environment requires repair".to_string()),
-    }
-}
-
-fn required_entrypoints(component: &str) -> &'static [&'static str] {
-    match component {
-        "node" => &["node", "npm", "npx"],
-        "git" => &["git"],
-        "uv" => &["uv", "uvx"],
-        "chromix" => &["chromix"],
-        "agent-browser" => &["agent-browser"],
-        "officecli" => &["officecli"],
-        "agent-reach" => &["agent-reach"],
-        "open-computer-use" => &["open-computer-use"],
-        _ => &[],
-    }
-}
-
-fn component_entrypoint(root: &Path, component: &ManagedComponent, name: &str) -> Option<PathBuf> {
-    let relative = component.entrypoints.get(name)?;
-    let component_root = managed_path(root, &component.relative_path)?;
-    let candidate = managed_path(&component_root, relative)?;
-    let record = component.files.iter().find(|file| file.path == *relative)?;
-    verify_file(&component_root, &candidate, record).then_some(candidate)
-}
-
 fn managed_path(root: &Path, relative: &str) -> Option<PathBuf> {
     if relative.is_empty()
-        || relative
-            .split('/')
-            .any(|part| matches!(part, "" | "." | ".."))
+        || relative.split('/').any(|part| {
+            matches!(part, "" | "." | "..")
+                || part.contains(['\\', ':', '\0'])
+                || part.ends_with([' ', '.'])
+        })
     {
         return None;
     }
