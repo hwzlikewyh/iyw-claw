@@ -15,7 +15,7 @@ import {
 import { OverlayWindowControls } from "@/components/layout/overlay-window-controls"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
-import { officecliBootstrap } from "@/lib/api"
+import { acpListAgents, officecliBootstrap } from "@/lib/api"
 import { isLocalDesktop, subscribe } from "@/lib/platform"
 import type { BootstrapComponentStatus, BootstrapInitEvent } from "@/lib/types"
 import { randomUUID } from "@/lib/utils"
