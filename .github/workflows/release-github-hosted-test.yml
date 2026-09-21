@@ -17,7 +17,11 @@ on:
         required: false
         default: all
         type: choice
-        options: [all, windows_x86, environment, environment_only]
+        options: [all, windows_x86, environment, environment_only, installer_only]
+      installer_run_id:
+        description: "Verify the real Windows installer from a prior hosted packaging run"
+        required: false
+        type: string
       frontend_run_id:
         description: "Reuse release-frontend-out from this run of the same source"
         required: false
@@ -49,6 +53,34 @@ env:
   TEST_VERSION: ${{ inputs.version }}
 
 jobs:
+  installer-acceptance:
+    if: inputs.platforms == 'installer_only' && inputs.installer_run_id != ''
+    runs-on: windows-2022
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: github-hosted-x86_64-pc-windows-msvc-${{ inputs.version }}
+          path: ${{ runner.temp }}/environment-installer-input
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.installer_run_id }}
+      - name: Verify real installation, recovery and uninstall
+        env:
+          INSTALLER_INPUT: ${{ runner.temp }}/environment-installer-input
+        run: node src-tauri/scripts/verify-managed-installer.mjs "$env:INSTALLER_INPUT"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: environment-installer-acceptance-${{ inputs.version }}
+          path: src-tauri/target/environment-installer-acceptance/*.json
+          retention-days: 7
+
   environment-acceptance:
     if: inputs.platforms == 'environment' || inputs.platforms == 'environment_only'
     uses: ./.github/workflows/verify-environment.yml
@@ -57,7 +89,7 @@ jobs:
       version: ${{ inputs.version }}
 
   prepare-frontend:
-    if: inputs.platforms != 'environment_only' && inputs.frontend_run_id == '' && inputs.candidate_repair_run == ''
+    if: inputs.platforms != 'environment_only' && inputs.platforms != 'installer_only' && inputs.frontend_run_id == '' && inputs.candidate_repair_run == ''
     name: Prepare frontend input
     runs-on: ubuntu-22.04
     outputs:
