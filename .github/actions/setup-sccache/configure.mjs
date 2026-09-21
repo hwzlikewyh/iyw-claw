@@ -23,4 +23,8 @@ if (!wrapper)
     "::warning::sccache unavailable; continuing with ordinary Cargo compilation"
   )
 // 空字符串覆盖 job 级别的 wrapper，防止 Cargo 调用不存在的 sccache。
-appendFileSync(process.env.GITHUB_ENV, `RUSTC_WRAPPER=${wrapper}\n`)
+// 大型 crate 可能超过默认 600 秒空闲窗口；编译留在客户端，缓存服务不持有 rustc。
+appendFileSync(
+  process.env.GITHUB_ENV,
+  `RUSTC_WRAPPER=${wrapper}\nSCCACHE_IDLE_TIMEOUT=0\nSCCACHE_CLIENT_SIDE=1\n`
+)

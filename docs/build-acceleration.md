@@ -208,3 +208,45 @@ Linux ARM64 的 DEB 在约 20 秒完成，RPM 此后约 49 分钟仍未结束，
 DEB 阶段限时 20 分钟，RPM 15 分钟且不整包重试；macOS/Linux x64 打包上传
 限时 30 分钟。非并行入口包含 Cargo 编译，保留较长的 100 分钟阶段预算。
 可选 ARM64 的 RPM 失败仍明确显示，已上传 DEB 不再随其一起丢失。
+
+## macOS 长编译与 Linux ARM64 失联（2026-09-21）
+
+实测基线：v0.1.226 macOS ARM64 应用编译 96.5 分钟，打包 2.6 分钟。
+Cargo timings 中应用库耗时 5410.28 秒，其中代码生成 4532.04 秒；依赖准备
+约 6 分钟。v0.1.227 macOS 两架构均在应用编译期间达到 120 分钟 job 上限。
+两次发布的 Linux ARM64 均被 GitHub 标记为 runner 失联，尚无内核 OOM 证据。
+
+两次 macOS 日志均出现 sccache 服务退出后回退本地编译。sccache v0.18.0
+默认在 600 秒没有新请求后开始退出，最多只等活动请求 10 秒；大型 crate 可能
+超过这个窗口。共享 setup 入口现在设置 `SCCACHE_IDLE_TIMEOUT=0` 和
+`SCCACHE_CLIENT_SIDE=1`，使编译留在客户端，服务只负责缓存，避免空闲退出
+中断长编译。服务重启后的统计会重置，不能据此认定应用库不可缓存。
+
+正常发布的并行应用编译通过 `.github/scripts/release/compile-desktop.sh` 执行：
+
+- macOS 两架构、Linux ARM64 使用 `CARGO_BUILD_JOBS=2`，仅应用 package 使用
+  `opt-level=1`、`codegen-units=16`。这覆盖第四批对应用使用 64 单元的约定；
+  依赖及 worker 保持原参数，包级参数只传给本次 Cargo，不进入 worker 身份键。
+  Linux x64 继续使用主分支已有的应用 `opt-level=1`，不调整其并发或代码生成单元。
+- 每 60 秒输出内存、swap、内存压力和占用最高的进程名，不记录命令参数。
+  `/usr/bin/time` 输出编译峰值资源；非零退出时尽力收集 Linux OOM 记录，
+  诊断失败不覆盖实际编译退出码。后台采样在编译退出时停止。
+- 编译结束后立即归档 Cargo timings 和资源日志；后续 worker 等待或打包失败
+  不影响已上传报告。runner 整机失联时无法保证 artifact 上传，但失联前已输出
+  的采样可在 Actions 日志中排查。
+- Rust 依赖缓存开启 `cache-on-failure`，runner 仍在线时尽力保留已编译依赖。
+  不缓存应用成品，也不依赖缓存替代源码构建或签名校验。
+
+这是针对已观察到的长编译和资源风险的缓解；OOM 尚未证实，实际提速和失联
+是否消失需在新的 macOS/Linux ARM64 运行中比较。低优化级别也影响在应用内
+实例化的泛型，可能影响运行性能和包体积，原有体积、签名及安装门禁继续生效。
+本机 Windows 仅能完成 workflow、脚本语法和静态调用链验证，不代表目标平台
+构建已通过。串行候选版入口暂不采用该应用 profile 覆盖。
+
+依据：
+
+- [v0.1.226 macOS ARM64](https://github.com/hwzlikewyh/iyw-claw/actions/runs/35550257838/job/106183903189)
+- [v0.1.227 Linux ARM64](https://github.com/hwzlikewyh/iyw-claw/actions/runs/35567950494/job/106234067184)
+- [sccache v0.18.0 配置](https://github.com/mozilla/sccache/blob/v0.18.0/docs/Configuration.md)
+- [sccache 服务退出逻辑](https://github.com/mozilla/sccache/blob/v0.18.0/src/server.rs)
+- [Cargo package profile 覆盖及泛型](https://doc.rust-lang.org/cargo/reference/profiles.html#overrides)

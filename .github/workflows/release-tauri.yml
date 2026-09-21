@@ -130,6 +130,7 @@ jobs:
           shared-key: desktop-${{ matrix.target }}
           cache-bin: "false"
           cache-workspace-crates: "false"
+          cache-on-failure: "true"
 
       - name: Install Windows x86 assembler
         if: matrix.target == 'i686-pc-windows-msvc'
@@ -323,17 +324,7 @@ jobs:
           BUILD_TARGET: ${{ matrix.target }}
           IYW_CLAW_SKIP_SIDECAR: "1"
           TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
-        run: |
-          set -euo pipefail
-          if [[ "$BUILD_TARGET" == *windows* ]]; then
-            echo "::error::Parallel Windows builds must use release-windows-staged.yml"
-            exit 1
-          fi
-          configs=(--config src-tauri/tauri.ci.conf.json)
-          if [[ "$BUILD_TARGET" == "aarch64-unknown-linux-gnu" ]]; then
-            configs+=(--config src-tauri/tauri.linux-arm64-ci.conf.json)
-          fi
-          pnpm dlx @tauri-apps/cli@2.11.4 build --target "$BUILD_TARGET" --features tauri-runtime "${configs[@]}" --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings --config profile.release.package.iyw-claw.opt-level=1
+        run: bash .github/scripts/release/compile-desktop.sh "$BUILD_TARGET"
 
       - name: Archive application compile timings
         if: always() && inputs.parallel_worker
@@ -341,6 +332,16 @@ jobs:
         uses: ./.github/actions/build-timings
         with:
           target: ${{ matrix.target }}
+
+      - name: Archive application build resources
+        if: always() && inputs.parallel_worker
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-build-resources-${{ matrix.target }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/desktop-build-${{ matrix.target }}.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Receive independently compiled worker
         if: inputs.parallel_worker
