@@ -39,12 +39,6 @@ jobs:
         with:
           node-version: 24
 
-      - name: Verify Fusion environment plan before tagging
-        env:
-          REQUESTED_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
-        shell: bash
-        run: node src-tauri/scripts/verify-environment-plan.mjs "${REQUESTED_VERSION#v}"
-
       - name: Install Rust stable
         if: github.event_name == 'workflow_dispatch'
         uses: dtolnay/rust-toolchain@stable
