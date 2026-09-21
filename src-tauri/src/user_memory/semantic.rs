@@ -8,7 +8,8 @@ use serde::Serialize;
 use super::semantic_index::SemanticIndex;
 
 const PREVIEW_LIMIT: usize = 6;
-const REFRESH_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(60);
+#[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
+const PREPARE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 pub(super) struct SemanticRuntime {
     pub(super) cloud_policy: tokio::sync::Mutex<Option<super::cloud_settings::CloudPolicy>>,
@@ -19,8 +20,6 @@ pub(super) struct SemanticRuntime {
     pub(super) status: Mutex<SemanticStatus>,
     pub(super) last_activity: Mutex<std::time::Instant>,
     pub(super) task: Arc<tokio::sync::Semaphore>,
-    pub(super) refresh_requested: std::sync::atomic::AtomicBool,
-    pub(super) refresh_scheduled: std::sync::atomic::AtomicBool,
     pub(super) generation: std::sync::atomic::AtomicU64,
 }
 
@@ -35,8 +34,6 @@ impl Default for SemanticRuntime {
             status: Mutex::new(SemanticStatus::default()),
             last_activity: Mutex::new(std::time::Instant::now()),
             task: Arc::new(tokio::sync::Semaphore::new(1)),
-            refresh_requested: std::sync::atomic::AtomicBool::new(false),
-            refresh_scheduled: std::sync::atomic::AtomicBool::new(false),
             generation: std::sync::atomic::AtomicU64::new(0),
         }
     }
@@ -73,6 +70,7 @@ impl UserMemoryService {
         {
             let mut status = status;
             status.supported = true;
+            status.busy = self.semantic.task.available_permits() == 0;
             status
         }
         #[cfg(not(all(feature = "memory-semantic", target_pointer_width = "64")))]
@@ -85,7 +83,7 @@ impl UserMemoryService {
         #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
         {
             self.touch_semantic_activity();
-            self.schedule_semantic_refresh();
+            self.prepare_semantic_once();
             Ok(self.semantic_status())
         }
         #[cfg(not(all(feature = "memory-semantic", target_pointer_width = "64")))]
@@ -122,61 +120,22 @@ impl UserMemoryService {
 
 #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
 impl UserMemoryService {
-    pub(super) fn schedule_semantic_refresh(&self) {
-        use std::sync::atomic::Ordering;
-        self.semantic
-            .refresh_requested
-            .store(true, Ordering::Release);
-        if self.semantic.refresh_scheduled.swap(true, Ordering::AcqRel) {
+    fn prepare_semantic_once(&self) {
+        let Ok(permit) = self.semantic.task.clone().try_acquire_owned() else {
             return;
-        }
+        };
         let service = self.clone();
         tokio::spawn(async move {
-            while service
-                .semantic
-                .refresh_requested
-                .swap(false, Ordering::AcqRel)
-            {
-                service.wait_for_foreground().await;
-                let Ok(permit) = service.semantic.task.clone().acquire_owned().await else {
-                    break;
-                };
-                if !matches!(service.semantic_recall_enabled().await, Ok(true)) {
-                    break;
-                }
-                service.set_semantic_busy(true);
-                let result = service.synchronize_semantic().await;
-                let failed = result.is_err();
-                service.finish_semantic(result);
-                drop(permit);
-                if failed {
-                    service
-                        .semantic
-                        .refresh_requested
-                        .store(true, Ordering::Release);
-                    tokio::time::sleep(REFRESH_RETRY_DELAY).await;
-                }
-            }
-            service
-                .semantic
-                .refresh_scheduled
-                .store(false, Ordering::Release);
-            if service.semantic.refresh_requested.load(Ordering::Acquire) {
-                service.schedule_semantic_refresh();
-            }
+            let _permit = permit;
+            let result = tokio::time::timeout(PREPARE_TIMEOUT, service.synchronize_semantic())
+                .await
+                .unwrap_or_else(|_| {
+                    Err(AppCommandError::network(
+                        "Memory index preparation timed out",
+                    ))
+                });
+            service.finish_semantic(result);
         });
-    }
-
-    pub(super) fn set_semantic_busy(&self, busy: bool) {
-        let mut status = self
-            .semantic
-            .status
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        status.busy = busy;
-        if busy {
-            status.last_error = None;
-        }
     }
 
     pub(super) fn mark_semantic_released(&self) {
@@ -207,7 +166,7 @@ impl UserMemoryService {
             Err(error) => {
                 status.ready = false;
                 status.last_error = Some(error.to_string());
-                tracing::warn!(code = ?error.code, "[memory-semantic] cloud index refresh deferred");
+                tracing::warn!(code = ?error.code, error = %error, "[memory-semantic] on-demand index refresh failed; waiting for next request");
             }
         }
     }
@@ -215,8 +174,6 @@ impl UserMemoryService {
 
 #[cfg(not(all(feature = "memory-semantic", target_pointer_width = "64")))]
 impl UserMemoryService {
-    pub(super) fn schedule_semantic_refresh(&self) {}
-
     pub(super) async fn release_semantic_if_idle(&self) -> Result<(), AppCommandError> {
         Ok(())
     }

@@ -79,6 +79,9 @@ impl UserMemoryService {
                 .map_err(super::index_checkpoint::database_error)?;
             let expected = snapshot.source_digest.clone();
             let scope = self.memory_recall_scope(scope.clone());
+            if snapshot.items.is_empty() {
+                return Ok(Vec::new());
+            }
             let matches = self
                 .run_semantic_query(snapshot, query.to_string(), scope)
                 .await?;
@@ -116,7 +119,6 @@ impl UserMemoryService {
             .load(std::sync::atomic::Ordering::Acquire);
         let config = self.resolve_cloud_model(&gateway).await?;
         if config.embedding_model.is_empty() {
-            self.schedule_semantic_refresh();
             return Ok(Vec::new());
         }
         let identity = super::semantic_cloud_index::index_identity(&gateway, &config);
@@ -125,18 +127,15 @@ impl UserMemoryService {
             .await?;
         let model_identity = identity;
         let identity = super::semantic_cloud_index::space_identity(&model_identity, &vector.space);
-        let result = self
-            .query_cloud_index(super::semantic_cloud_index::CloudSearch {
-                snapshot,
-                scope,
-                identity,
-                model_identity,
-                generation,
-                vector: vector.values,
-            })
-            .await;
-        self.schedule_semantic_refresh();
-        result
+        self.query_cloud_index(super::semantic_cloud_index::CloudSearch {
+            snapshot,
+            scope,
+            identity,
+            model_identity,
+            generation,
+            vector: vector.values,
+        })
+        .await
     }
 }
 

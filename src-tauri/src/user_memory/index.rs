@@ -31,7 +31,6 @@ impl UserMemoryService {
         if !self.request_index_refresh(force) {
             return;
         }
-        self.schedule_semantic_refresh();
         tokio::spawn(run_index_refresh_worker(self.clone()));
     }
 

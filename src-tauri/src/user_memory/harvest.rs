@@ -385,8 +385,6 @@ impl UserMemoryService {
     /// Start the harvest worker during application startup so records left by a
     /// previous process are drained even before the next completed turn.
     pub fn start_background_workers(self: &Arc<Self>) {
-        #[cfg(not(feature = "tauri-runtime"))]
-        self.schedule_semantic_refresh();
         self.ensure_harvest_worker();
         self.start_maintenance_worker();
         let service = Arc::clone(self);

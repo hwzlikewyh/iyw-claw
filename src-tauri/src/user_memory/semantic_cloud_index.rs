@@ -21,6 +21,19 @@ impl UserMemoryService {
         &self,
         request: CloudSearch,
     ) -> Result<Vec<(String, String, f32)>, AppCommandError> {
+        // 先恢复已有向量，再在本次检索时限内补齐，避免冷加载重复嵌入。
+        if let Ok(_permit) = self.semantic.task.clone().try_acquire_owned() {
+            if self.semantic.generation.load(Ordering::Acquire) != request.generation {
+                return Ok(Vec::new());
+            }
+            self.ensure_cloud_index(
+                (request.model_identity.clone(), request.identity.clone()),
+                request.vector.len(),
+            )
+            .await?;
+            let result = self.synchronize_semantic().await;
+            self.finish_semantic(result);
+        }
         let runtime = self.semantic.clone();
         let root = self.resolved_root()?.to_path_buf();
         tokio::task::spawn_blocking(move || {
@@ -68,27 +81,22 @@ impl UserMemoryService {
             .map(|chunk| chunk.memory_id.as_str())
             .collect::<std::collections::BTreeSet<_>>()
             .len();
-        let mut complete = true;
         for chunk in chunks {
             if self.semantic.generation.load(Ordering::Acquire) != generation {
                 return Ok(0);
             }
-            if self.foreground_active() {
-                complete = false;
-                break;
-            }
-            self.index_cloud_chunk(&gateway, (&config.embedding_model, &identity), chunk)
-                .await?;
+            self.index_cloud_chunk(
+                &gateway,
+                (&config.embedding_model, &identity, generation),
+                chunk,
+            )
+            .await?;
         }
         let count = self.reconcile_cloud_index(snapshot).await?;
-        if complete && count == expected {
+        if count == expected {
             if let Some(epoch) = epoch {
                 self.complete_projection(epoch, "vector").await?;
             }
-        } else {
-            self.semantic
-                .refresh_requested
-                .store(true, Ordering::Release);
         }
         Ok(count)
     }
@@ -96,10 +104,10 @@ impl UserMemoryService {
     async fn index_cloud_chunk(
         &self,
         gateway: &CloudGateway,
-        model: (&str, &str),
+        model: (&str, &str, u64),
         chunk: MemoryChunk,
     ) -> Result<(), AppCommandError> {
-        let (model, identity) = model;
+        let (model, identity, generation) = model;
         let exists = self
             .semantic
             .index
@@ -117,6 +125,10 @@ impl UserMemoryService {
         let runtime = self.semantic.clone();
         tokio::task::spawn_blocking(move || {
             let mut guard = runtime.index.lock().unwrap_or_else(|e| e.into_inner());
+            // 检索超时后阻塞任务仍可能完成，遗忘后的旧结果不可写回。
+            if runtime.generation.load(Ordering::Acquire) != generation {
+                return Ok(());
+            }
             guard
                 .as_mut()
                 .ok_or_else(|| super::helpers::conflict("Memory index released"))?
@@ -132,10 +144,14 @@ impl UserMemoryService {
         dimension: usize,
     ) -> Result<(), AppCommandError> {
         let runtime = self.semantic.clone();
+        let generation = runtime.generation.load(Ordering::Acquire);
         let root = self.resolved_root()?.to_path_buf();
         tokio::task::spawn_blocking(move || {
             let (model_identity, identity) = identity;
             let mut guard = runtime.index.lock().unwrap_or_else(|e| e.into_inner());
+            if runtime.generation.load(Ordering::Acquire) != generation {
+                return Err(super::helpers::conflict("Memory index generation changed"));
+            }
             if guard
                 .as_ref()
                 .is_some_and(|index| index.identity == identity && index.dimension == dimension)
