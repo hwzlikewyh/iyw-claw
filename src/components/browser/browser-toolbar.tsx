@@ -4,15 +4,26 @@ import { useState } from "react"
 import {
   ArrowLeft,
   ArrowRight,
+  Camera,
+  CircleAlert,
+  CircleCheck,
   Hand,
+  MousePointer2,
   PanelTopClose,
   RotateCw,
+  Share2,
   SquareArrowOutUpRight,
   X,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { toast } from "sonner"
 import { useBrowser } from "@/contexts/browser-context"
 import { browserApi } from "@/lib/browser-api"
+import {
+  emitAppendTextToSession,
+  emitAttachImageToSession,
+} from "@/lib/session-attachment-events"
+import { useTabStore } from "@/stores/tab-store"
 import type {
   BrowserHostSnapshot,
   BrowserTabSnapshot,
@@ -24,15 +35,21 @@ import { BrowserDownloads } from "./browser-downloads"
 export function BrowserToolbar({
   host,
   tab,
+  selecting,
+  onToggleSelecting,
   onClose,
 }: {
   host: BrowserHostSnapshot
   tab: BrowserTabSnapshot | null
+  selecting: boolean
+  onToggleSelecting: () => void
   onClose?: () => void
 }) {
   const t = useTranslations("Browser")
   const { state, run, busy, detachTab, refresh } = useBrowser()
   const [address, setAddress] = useState(tab?.url ?? "")
+  const [capturing, setCapturing] = useState(false)
+  const sessionTabId = useTabStore((store) => store.activeTabId)
 
   const navigate = () => {
     if (!tab) return
@@ -57,6 +74,35 @@ export function BrowserToolbar({
   }
 
   const held = tab?.controlStatus === "user_held"
+
+  const sharePage = () => {
+    if (!tab || !sessionTabId) return
+    const title = tab.title.trim() || tab.url
+    emitAppendTextToSession({
+      tabId: sessionTabId,
+      text: `${title}\n${tab.url}`,
+    })
+    toast.success(t("pageAdded"))
+  }
+
+  const sendScreenshot = async () => {
+    if (!tab || !sessionTabId || capturing) return
+    setCapturing(true)
+    try {
+      const screenshot = await browserApi.captureScreenshot(tab.browserTabId)
+      emitAttachImageToSession({
+        tabId: sessionTabId,
+        data: screenshot.data,
+        mimeType: screenshot.mimeType,
+        name: "browser-screenshot.png",
+      })
+      toast.success(t("screenshotAdded"))
+    } catch {
+      toast.error(t("screenshotFailed"))
+    } finally {
+      setCapturing(false)
+    }
+  }
 
   return (
     <div className="flex h-10 shrink-0 items-center gap-1 border-b px-2">
@@ -94,6 +140,45 @@ export function BrowserToolbar({
         spellCheck={false}
       />
       <ToolButton
+        label={t("sendPage")}
+        icon={Share2}
+        disabled={!tab || !sessionTabId}
+        onClick={sharePage}
+      />
+      <ToolButton
+        label={t("sendScreenshot")}
+        icon={Camera}
+        disabled={!tab || !sessionTabId || busy || capturing}
+        onClick={() => void sendScreenshot()}
+      />
+      <ToolButton
+        label={t("selectElement")}
+        icon={MousePointer2}
+        active={selecting}
+        disabled={!tab || !sessionTabId || busy || capturing}
+        onClick={onToggleSelecting}
+      />
+      <PageErrorIndicator errors={tab?.pageErrorCount ?? 0} />
+      {state?.runtime.iywLoginStatus === "authenticated" ? (
+        <span
+          className="flex size-7 shrink-0 items-center justify-center text-emerald-600"
+          title={t("iywLogin.authenticated")}
+          aria-label={t("iywLogin.authenticated")}
+          role="img"
+        >
+          <CircleCheck className="size-3.5" />
+        </span>
+      ) : state?.runtime.iywLoginStatus === "unauthenticated" ? (
+        <span
+          className="flex size-7 shrink-0 items-center justify-center text-muted-foreground"
+          title={t("iywLogin.unauthenticated")}
+          aria-label={t("iywLogin.unauthenticated")}
+          role="img"
+        >
+          <CircleAlert className="size-3.5" />
+        </span>
+      ) : null}
+      <ToolButton
         label={held ? t("releaseControl") : t("holdControl")}
         icon={Hand}
         active={held}
@@ -126,6 +211,25 @@ export function BrowserToolbar({
         <ToolButton label={t("closeBrowser")} icon={X} onClick={onClose} />
       ) : null}
     </div>
+  )
+}
+
+function PageErrorIndicator({ errors }: { errors: number }) {
+  const t = useTranslations("Browser")
+  const Icon = errors > 0 ? CircleAlert : CircleCheck
+  const label =
+    errors > 0 ? t("pageErrors", { count: errors }) : t("pageHealthy")
+  return (
+    <span
+      className={`flex size-7 shrink-0 items-center justify-center ${
+        errors > 0 ? "text-amber-600" : "text-emerald-600"
+      }`}
+      title={label}
+      aria-label={label}
+      role="img"
+    >
+      <Icon className="size-3.5" />
+    </span>
   )
 }
 

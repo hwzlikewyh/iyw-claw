@@ -28,7 +28,8 @@ pub(super) struct AgentBrowserCli {
     pub(super) engine_path: PathBuf,
     pub(super) download_path: PathBuf,
     pub(super) screenshot_path: PathBuf,
-    pub(super) browser_args: Option<OsString>,
+    bootstrap_extensions: Vec<PathBuf>,
+    bootstrap_browser_args: Vec<String>,
 }
 
 impl AgentBrowserCli {
@@ -47,12 +48,20 @@ impl AgentBrowserCli {
             engine_path,
             download_path,
             screenshot_path,
-            browser_args: None,
+            bootstrap_extensions: Vec::new(),
+            bootstrap_browser_args: Vec::new(),
         }
     }
 
-    pub(super) fn with_browser_args(mut self, args: impl Into<OsString>) -> Self {
-        self.browser_args = Some(args.into());
+    pub(super) fn with_bootstrap_extension(mut self, extension: PathBuf) -> Self {
+        self.bootstrap_extensions.push(extension);
+        self.bootstrap_browser_args
+            .push("--headless=new".to_string());
+        self
+    }
+
+    pub(super) fn with_browser_args(mut self, args: impl Into<String>) -> Self {
+        self.bootstrap_browser_args.push(args.into());
         self
     }
 
@@ -63,41 +72,8 @@ impl AgentBrowserCli {
         timeout: Duration,
         cancellation: CancellationToken,
     ) -> Result<Value, BrowserError> {
-        if cancellation.is_cancelled() {
-            return Err(cancelled_error());
-        }
-        let mut command = self.command(session, args);
-        let child = command.spawn().map_err(|_| unavailable_error())?;
-        let process = child
-            .id()
-            .and_then(|pid| capture_process(pid, "agent-browser-client"));
-        let started = std::time::Instant::now();
-        let operation = operation_name(args);
-        log_command_started(session, operation, process.as_ref());
-        let output = collect_output(child);
-        tokio::pin!(output);
-        let result = tokio::select! {
-            result = &mut output => result,
-            _ = cancellation.cancelled() => {
-                kill_client(process.as_ref()).await;
-                log_command_interrupted(session, operation, started, "cancelled");
-                return Err(cancelled_error().effect_may_have_occurred(may_change_page(args)));
-            }
-            _ = tokio::time::sleep(timeout) => {
-                kill_client(process.as_ref()).await;
-                log_command_interrupted(session, operation, started, "timed_out");
-                return Err(timeout_error(args, timeout));
-            }
-        }?;
-        log_command_completed(session, operation, started, &result);
-        parse_output(
-            result.success,
-            &result.stdout,
-            &result.stderr,
-            session,
-            operation,
-        )
-        .map_err(|error| annotate_timeout(error, args))
+        self.run_with_mode(session, args, timeout, cancellation, false)
+            .await
     }
 
     pub async fn bootstrap(
@@ -108,6 +84,17 @@ impl AgentBrowserCli {
         cancellation: CancellationToken,
     ) -> Result<(), BrowserError> {
         command_bootstrap::bootstrap(self, session, args, timeout, cancellation).await
+    }
+
+    pub(super) async fn run_bootstrap(
+        &self,
+        session: &str,
+        args: &[&str],
+        timeout: Duration,
+        cancellation: CancellationToken,
+    ) -> Result<Value, BrowserError> {
+        self.run_with_mode(session, args, timeout, cancellation, true)
+            .await
     }
 
     pub async fn run_pinned(
@@ -157,10 +144,64 @@ impl AgentBrowserCli {
         kill_matching_processes(&self.executable, "iyw-", "agent-browser-daemon").await
     }
 
-    fn command(&self, session: &str, args: &[&str]) -> Command {
+    async fn run_with_mode(
+        &self,
+        session: &str,
+        args: &[&str],
+        timeout: Duration,
+        cancellation: CancellationToken,
+        bootstrap: bool,
+    ) -> Result<Value, BrowserError> {
+        if cancellation.is_cancelled() {
+            return Err(cancelled_error());
+        }
+        let mut command = self.command(session, args, bootstrap);
+        let child = command.spawn().map_err(|_| unavailable_error())?;
+        let process = child
+            .id()
+            .and_then(|pid| capture_process(pid, "agent-browser-client"));
+        let started = std::time::Instant::now();
+        let operation = operation_name(args);
+        log_command_started(session, operation, process.as_ref());
+        let output = collect_output(child);
+        tokio::pin!(output);
+        let result = tokio::select! {
+            result = &mut output => result,
+            _ = cancellation.cancelled() => {
+                kill_client(process.as_ref()).await;
+                log_command_interrupted(session, operation, started, "cancelled");
+                return Err(cancelled_error().effect_may_have_occurred(may_change_page(args)));
+            }
+            _ = tokio::time::sleep(timeout) => {
+                kill_client(process.as_ref()).await;
+                log_command_interrupted(session, operation, started, "timed_out");
+                return Err(timeout_error(args, timeout));
+            }
+        }?;
+        log_command_completed(session, operation, started, &result);
+        parse_output(
+            result.success,
+            &result.stdout,
+            &result.stderr,
+            session,
+            operation,
+        )
+        .map_err(|error| annotate_timeout(error, args))
+    }
+
+    fn command(&self, session: &str, args: &[&str], bootstrap: bool) -> Command {
         let mut command = Command::new(&self.executable);
-        command.args(self.arguments(session, args));
-        for (key, value) in self.environment() {
+        command.args(if bootstrap {
+            self.bootstrap_arguments(session, args)
+        } else {
+            self.arguments(session, args)
+        });
+        let environment = if bootstrap {
+            self.bootstrap_environment()
+        } else {
+            self.environment()
+        };
+        for (key, value) in environment {
             command.env(key, value);
         }
         configure_hidden_process(&mut command);
@@ -181,8 +222,17 @@ impl AgentBrowserCli {
         values
     }
 
+    pub(super) fn bootstrap_arguments(&self, session: &str, args: &[&str]) -> Vec<OsString> {
+        let mut values = self.arguments(session, args);
+        for extension in &self.bootstrap_extensions {
+            values.push(OsString::from("--extension"));
+            values.push(extension.as_os_str().to_os_string());
+        }
+        values
+    }
+
     pub(super) fn environment(&self) -> Vec<(OsString, OsString)> {
-        let mut environment = vec![
+        let environment = vec![
             env("AGENT_BROWSER_SOCKET_DIR", self.socket_dir.as_os_str()),
             env("AGENT_BROWSER_IDLE_TIMEOUT_MS", "0"),
             env("AGENT_BROWSER_NO_AUTO_DIALOG", "1"),
@@ -204,8 +254,16 @@ impl AgentBrowserCli {
                 self.screenshot_path.as_os_str(),
             ),
         ];
-        if let Some(args) = &self.browser_args {
-            environment.push(env("AGENT_BROWSER_ARGS", args));
+        environment
+    }
+
+    pub(super) fn bootstrap_environment(&self) -> Vec<(OsString, OsString)> {
+        let mut environment = self.environment();
+        if !self.bootstrap_browser_args.is_empty() {
+            environment.push(env(
+                "AGENT_BROWSER_ARGS",
+                self.bootstrap_browser_args.join("\n"),
+            ));
         }
         environment
     }

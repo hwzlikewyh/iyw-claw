@@ -1,4 +1,7 @@
-use crate::browser::{BrowserGenerations, BrowserSessionManager, BrowserStateSnapshot};
+use crate::browser::{
+    BrowserElementSummary, BrowserGenerations, BrowserScreenshot, BrowserSessionManager,
+    BrowserStateSnapshot,
+};
 
 use super::{browser_command, BrowserCommandFuture};
 
@@ -66,6 +69,26 @@ pub fn browser_reload_tab(
 ) -> BrowserCommandFuture<BrowserStateSnapshot> {
     let manager = manager.inner().clone();
     browser_command(async move { manager.reload_browser_tab(&tab_id).await })
+}
+
+#[tauri::command(async)]
+pub fn browser_capture_screenshot(
+    manager: tauri::State<'_, BrowserSessionManager>,
+    tab_id: String,
+) -> BrowserCommandFuture<BrowserScreenshot> {
+    let manager = manager.inner().clone();
+    browser_command(async move { manager.capture_browser_tab_screenshot(&tab_id).await })
+}
+
+#[tauri::command(async)]
+pub fn browser_inspect_element(
+    manager: tauri::State<'_, BrowserSessionManager>,
+    tab_id: String,
+    x: f64,
+    y: f64,
+) -> BrowserCommandFuture<BrowserElementSummary> {
+    let manager = manager.inner().clone();
+    browser_command(async move { manager.inspect_browser_tab_element(&tab_id, x, y).await })
 }
 
 #[tauri::command(async)]

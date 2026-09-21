@@ -2,9 +2,11 @@ import type { Channel } from "@tauri-apps/api/core"
 import { getShellTransport, isDesktop } from "@/lib/transport"
 import type {
   BrowserFrameSubscriptionSnapshot,
+  BrowserElementSummary,
   BrowserGenerations,
   BrowserHostRegistration,
   BrowserInputEvent,
+  BrowserScreenshot,
   BrowserStateSnapshot,
   BrowserViewClaimSnapshot,
 } from "@/lib/browser-types"
@@ -41,6 +43,14 @@ export const browserApi = {
     shell().call<BrowserStateSnapshot>("browser_forward", { tabId }),
   reload: (tabId: string) =>
     shell().call<BrowserStateSnapshot>("browser_reload_tab", { tabId }),
+  captureScreenshot: (tabId: string) =>
+    shell().call<BrowserScreenshot>("browser_capture_screenshot", { tabId }),
+  inspectElement: (tabId: string, x: number, y: number) =>
+    shell().call<BrowserElementSummary>("browser_inspect_element", {
+      tabId,
+      x,
+      y,
+    }),
   resize: (
     tabId: string,
     generations: BrowserGenerations,

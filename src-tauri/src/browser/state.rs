@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 
 use super::cdp_records::{DialogRecord, DownloadRecord, FileChooserRecord};
 use super::records::{runtime_snapshot, HostRecord, RuntimeRecord, TabRecord, ViewClaimRecord};
-use super::types::{BrowserCapability, BrowserRuntimeStatus, BrowserStateSnapshot};
+use super::types::{
+    BrowserCapability, BrowserIywLoginStatus, BrowserRuntimeStatus, BrowserStateSnapshot,
+};
 use super::types_cdp::{
     BrowserDialogSnapshot, BrowserDownloadSnapshot, BrowserFileChooserSnapshot,
 };
@@ -28,6 +30,7 @@ impl BrowserState {
             capability,
             runtime: RuntimeRecord {
                 status,
+                iyw_login_status: BrowserIywLoginStatus::Unknown,
                 generation: 0,
                 operation_id: None,
                 failure_code: None,
@@ -53,6 +56,10 @@ impl BrowserState {
             self.runtime.status = self.capability.status;
             self.runtime.failure_code = None;
         }
+    }
+
+    pub fn set_iyw_login_status(&mut self, status: BrowserIywLoginStatus) {
+        self.runtime.iyw_login_status = status;
     }
 
     pub fn snapshot(&self) -> BrowserStateSnapshot {

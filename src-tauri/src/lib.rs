@@ -1828,6 +1828,8 @@ mod tauri_app {
                 browser_commands::browser_back,
                 browser_commands::browser_forward,
                 browser_commands::browser_reload_tab,
+                browser_commands::browser_capture_screenshot,
+                browser_commands::browser_inspect_element,
                 browser_commands::browser_resize_viewport,
                 browser_commands::browser_subscribe_frames,
                 browser_commands::browser_ack_frame,

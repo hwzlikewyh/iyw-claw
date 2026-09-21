@@ -11,7 +11,8 @@ use super::error::BrowserError;
 use super::process::{kill_tree_checked, wait_for_pid_file, ProcessRecord};
 use super::profile::ProfileGuard;
 use super::runtime::{
-    unavailable_error, RuntimeCleanupHandle, RuntimeHandle, VerifiedDependencies,
+    unavailable_error, RuntimeCleanupHandle, RuntimeHandle, RuntimeLaunchDependencies,
+    VerifiedDependencies,
 };
 
 const START_TIMEOUT: Duration = Duration::from_secs(30);
@@ -24,7 +25,7 @@ pub(super) struct RuntimeLaunchFailure {
 
 pub(super) async fn launch(
     data_root: &Path,
-    dependencies: VerifiedDependencies,
+    dependencies: RuntimeLaunchDependencies,
     generation: u64,
     cancellation: CancellationToken,
     browser_args: Option<&str>,
@@ -41,17 +42,17 @@ pub(super) async fn launch(
     create_dir(&socket_dir)
         .await
         .map_err(|error| launch_failure(error, None))?;
-    let profile = acquire_profile(data_root, &runtime_id, &runtime_dir, &dependencies)
+    let profile = acquire_profile(data_root, &runtime_id, &runtime_dir, &dependencies.verified)
         .await
         .map_err(|error| launch_failure(error, None))?;
-    if let Some(source) = dependencies.engine.profile_source.as_deref() {
+    if let Some(source) = dependencies.verified.engine.profile_source.as_deref() {
         if let Err(error) = profile
-            .seed_user_profile(source, &dependencies.engine.path)
+            .seed_user_profile(source, &dependencies.verified.engine.path)
             .await
         {
             tracing::warn!(
                 target: "iyw_claw_browser",
-                engine = ?dependencies.engine.kind,
+                engine = ?dependencies.verified.engine.kind,
                 error_code = ?error.code,
                 "browser user profile seed failed; continuing with isolated profile"
             );
@@ -64,13 +65,14 @@ pub(super) async fn launch(
         .await
         .map_err(|error| launch_failure(error, None))?;
     let cli = AgentBrowserCli::new(
-        dependencies.sidecar,
+        dependencies.verified.sidecar,
         socket_dir,
         profile.profile_path.clone(),
-        dependencies.engine.path,
+        dependencies.verified.engine.path,
         download_path,
         screenshot_path,
-    );
+    )
+    .with_bootstrap_extension(dependencies.extension_dir);
     let cli = match browser_args {
         Some(args) => cli.with_browser_args(args.to_string()),
         None => cli,

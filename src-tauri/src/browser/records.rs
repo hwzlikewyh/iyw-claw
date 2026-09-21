@@ -4,13 +4,14 @@ use std::time::Instant;
 use super::error::{BrowserError, BrowserErrorCode};
 use super::types::{
     BrowserControlStatus, BrowserGenerations, BrowserHostKind, BrowserHostSnapshot,
-    BrowserRuntimeSnapshot, BrowserRuntimeStatus, BrowserTabSnapshot, BrowserTabStatus,
-    BrowserViewStatus,
+    BrowserIywLoginStatus, BrowserRuntimeSnapshot, BrowserRuntimeStatus, BrowserTabSnapshot,
+    BrowserTabStatus, BrowserViewStatus,
 };
 
 #[derive(Debug)]
 pub(super) struct RuntimeRecord {
     pub status: BrowserRuntimeStatus,
+    pub iyw_login_status: BrowserIywLoginStatus,
     pub generation: u64,
     pub operation_id: Option<String>,
     pub failure_code: Option<String>,
@@ -27,6 +28,7 @@ pub(super) struct TabRecord {
     pub tab_generation: u64,
     pub view_generation: u64,
     pub document_epoch: u64,
+    pub page_error_count: u32,
     pub host_id: Option<String>,
     pub operation_id: Option<String>,
 }
@@ -49,6 +51,7 @@ impl TabRecord {
             tab_generation: 1,
             view_generation: 1,
             document_epoch: 0,
+            page_error_count: 0,
             host_id,
             operation_id: Some(operation_id),
         }
@@ -63,6 +66,7 @@ impl TabRecord {
             view_status: self.view_status,
             control_status: BrowserControlStatus::Idle,
             document_epoch: self.document_epoch,
+            page_error_count: self.page_error_count,
             generations: BrowserGenerations {
                 runtime_generation: runtime.generation,
                 tab_generation: self.tab_generation,
@@ -156,6 +160,7 @@ pub(super) struct RecoveryPlan {
 pub(super) fn runtime_snapshot(record: &RuntimeRecord) -> BrowserRuntimeSnapshot {
     BrowserRuntimeSnapshot {
         status: record.status,
+        iyw_login_status: record.iyw_login_status,
         generation: record.generation,
         operation_id: record.operation_id.clone(),
         failure_code: record.failure_code.clone(),

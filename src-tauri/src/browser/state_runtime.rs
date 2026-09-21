@@ -3,7 +3,7 @@ use uuid::Uuid;
 use super::error::{BrowserError, BrowserErrorCode, BrowserErrorContext};
 use super::records::{remove_tab_record, RuntimeStartDecision, RuntimeTicket};
 use super::state::BrowserState;
-use super::types::{BrowserRuntimeStatus, BrowserTabStatus};
+use super::types::{BrowserIywLoginStatus, BrowserRuntimeStatus, BrowserTabStatus};
 
 impl BrowserState {
     pub fn begin_runtime_start(&mut self) -> Result<RuntimeStartDecision, BrowserError> {
@@ -17,6 +17,7 @@ impl BrowserState {
         }
         self.runtime.generation = self.runtime.generation.saturating_add(1);
         self.runtime.status = BrowserRuntimeStatus::Starting;
+        self.runtime.iyw_login_status = BrowserIywLoginStatus::Unknown;
         self.runtime.failure_code = None;
         let operation_id = Uuid::new_v4().to_string();
         self.runtime.operation_id = Some(operation_id.clone());
@@ -59,6 +60,7 @@ impl BrowserState {
             remove_tab_record(&mut self.tabs, &mut self.hosts, &tab_id);
         }
         self.runtime.status = BrowserRuntimeStatus::Failed;
+        self.runtime.iyw_login_status = BrowserIywLoginStatus::Unknown;
         self.runtime.operation_id = None;
         self.runtime.failure_code = Some(failure_code.into());
         Ok(())
@@ -71,6 +73,7 @@ impl BrowserState {
             return false;
         }
         self.runtime.status = BrowserRuntimeStatus::Failed;
+        self.runtime.iyw_login_status = BrowserIywLoginStatus::Unknown;
         self.runtime.operation_id = None;
         self.runtime.failure_code = Some(failure_code);
         let claims = self.claims.keys().cloned().collect::<Vec<_>>();
@@ -121,6 +124,7 @@ impl BrowserState {
         } else {
             self.capability.status
         };
+        self.runtime.iyw_login_status = BrowserIywLoginStatus::Unknown;
         if self.runtime.failure_code.is_none() {
             self.tabs.clear();
             self.claims.clear();

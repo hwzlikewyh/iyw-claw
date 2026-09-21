@@ -7,6 +7,8 @@ use super::types::{BrowserHostKind, BrowserRuntimeStatus, BrowserTabStatus, Brow
 
 mod tab_close;
 
+const MAX_PAGE_ERRORS: u32 = 99;
+
 impl BrowserState {
     pub fn reserve_tab(
         &mut self,
@@ -103,6 +105,7 @@ impl BrowserState {
         tab.url = url;
         tab.status = BrowserTabStatus::Live;
         tab.document_epoch = tab.document_epoch.saturating_add(1);
+        tab.page_error_count = 0;
         tab.operation_id = None;
         Ok(())
     }
@@ -143,6 +146,26 @@ impl BrowserState {
         }
         self.clear_tab_cdp(tab_id);
         true
+    }
+
+    pub fn record_page_error(&mut self, target_id: &str) {
+        if let Some(tab) = self
+            .tabs
+            .values_mut()
+            .find(|tab| tab.target_id.as_deref() == Some(target_id))
+        {
+            tab.page_error_count = tab.page_error_count.saturating_add(1).min(MAX_PAGE_ERRORS);
+        }
+    }
+
+    pub fn reset_page_errors(&mut self, target_id: &str) {
+        if let Some(tab) = self
+            .tabs
+            .values_mut()
+            .find(|tab| tab.target_id.as_deref() == Some(target_id))
+        {
+            tab.page_error_count = 0;
+        }
     }
 
     pub(super) fn validate_tab_ticket(&self, ticket: &TabTicket) -> Result<(), BrowserError> {

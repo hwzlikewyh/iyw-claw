@@ -9,6 +9,11 @@ export type BrowserRuntimeStatus =
   | "stopping"
   | "failed"
 
+export type BrowserIywLoginStatus =
+  | "unknown"
+  | "authenticated"
+  | "unauthenticated"
+
 export type BrowserTabStatus =
   | "creating"
   | "live"
@@ -46,6 +51,19 @@ export interface BrowserCapability {
   }
 }
 
+export interface BrowserScreenshot {
+  data: string
+  mimeType: string
+}
+
+export interface BrowserElementSummary {
+  tag: string
+  role?: string
+  name?: string
+  text?: string
+  selector: string
+}
+
 export interface BrowserTabSnapshot {
   browserTabId: string
   title: string
@@ -59,6 +77,7 @@ export interface BrowserTabSnapshot {
     | "user_held"
     | "agent_waiting"
   documentEpoch: number
+  pageErrorCount: number
   generations: BrowserGenerations
   hostId?: string
 }
@@ -116,6 +135,7 @@ export interface BrowserStateSnapshot {
   capability: BrowserCapability
   runtime: {
     status: BrowserRuntimeStatus
+    iywLoginStatus: BrowserIywLoginStatus
     generation: number
     operationId?: string
     failureCode?: string

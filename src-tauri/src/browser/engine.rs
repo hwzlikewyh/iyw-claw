@@ -32,33 +32,16 @@ impl BrowserEngine {
 }
 
 pub(super) async fn detect_engine(data_root: &Path) -> Result<BrowserEngine, BrowserError> {
-    if let Some((path, marker_version)) =
-        crate::acp::version_center::managed_browser_engine_installation(data_root).await
-    {
+    let _ = data_root;
+    if let Some(path) = crate::managed_environment::entrypoint("chromix", "chromix") {
         if let Some(engine) = probe_engine(BrowserEngineKind::Chromium, path.clone(), None).await {
             return Ok(engine);
         }
         tracing::warn!(
             target: "iyw_claw_browser",
             path = %path.display(),
-            marker_version = %marker_version,
-            "managed browser engine metadata unavailable; trying fallback engines"
+            "managed Chromix entrypoint failed its platform probe"
         );
-    }
-    #[cfg(target_os = "windows")]
-    if let Some(engine) = probe_engine(
-        BrowserEngineKind::Chromium,
-        super::engine_download::managed_engine_path(data_root),
-        None,
-    )
-    .await
-    {
-        return Ok(engine);
-    }
-    for (kind, path) in system_engine_candidates() {
-        if let Some(engine) = probe_engine(kind, path, None).await {
-            return Ok(engine);
-        }
     }
     Err(managed_engine_not_found())
 }

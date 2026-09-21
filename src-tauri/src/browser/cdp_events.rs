@@ -30,6 +30,11 @@ impl BrowserSessionManager {
                     .await
             }
             "Page.lifecycleEvent" => self.handle_lifecycle(params, target_id).await,
+            "Runtime.exceptionThrown" => self.handle_page_error(target_id).await,
+            "Runtime.consoleAPICalled" if console_error(&params) => {
+                self.handle_page_error(target_id).await
+            }
+            "Log.entryAdded" if log_error(&params) => self.handle_page_error(target_id).await,
             "Browser.downloadWillBegin" => self.handle_download_begin(params, frame_target).await,
             "Browser.downloadProgress" => self.handle_download_progress(params).await,
             _ => {}
@@ -149,8 +154,16 @@ impl BrowserSessionManager {
     async fn handle_lifecycle(&self, params: Value, target_id: Option<String>) {
         if params.get("name").and_then(Value::as_str) == Some("init") {
             if let Some(target_id) = target_id {
-                self.state.write().await.record_document_init(&target_id);
+                let mut state = self.state.write().await;
+                state.record_document_init(&target_id);
+                state.reset_page_errors(&target_id);
             }
+        }
+    }
+
+    async fn handle_page_error(&self, target_id: Option<String>) {
+        if let Some(target_id) = target_id {
+            self.state.write().await.record_page_error(&target_id);
         }
     }
 
@@ -204,4 +217,15 @@ fn number_u64(params: &Value, key: &str) -> u64 {
         .and_then(Value::as_f64)
         .unwrap_or(0.0)
         .max(0.0) as u64
+}
+
+fn console_error(params: &Value) -> bool {
+    params.get("type").and_then(Value::as_str) == Some("error")
+}
+
+fn log_error(params: &Value) -> bool {
+    matches!(
+        params.pointer("/entry/level").and_then(Value::as_str),
+        Some("error") | Some("fatal")
+    )
 }

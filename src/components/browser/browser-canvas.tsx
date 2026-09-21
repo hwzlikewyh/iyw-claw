@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef } from "react"
+import { type PointerEvent, useRef } from "react"
 import { LoaderCircle, MonitorX } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useBrowserFrames } from "@/hooks/use-browser-frames"
@@ -13,9 +13,13 @@ import type {
 export function BrowserCanvas({
   tab,
   claim,
+  selecting = false,
+  onSelectPoint,
 }: {
   tab: BrowserTabSnapshot | null
   claim?: BrowserViewClaimSnapshot
+  selecting?: boolean
+  onSelectPoint?: (point: { x: number; y: number }) => void
 }) {
   const t = useTranslations("Browser")
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -28,13 +32,49 @@ export function BrowserCanvas({
 
   const focusInput = () => textInputRef.current?.focus({ preventScroll: true })
 
+  const selectPoint = (event: PointerEvent<HTMLCanvasElement>) => {
+    const canvas = event.currentTarget
+    const rect = canvas.getBoundingClientRect()
+    const width = viewportDimension(
+      canvas.dataset.browserViewportWidth,
+      rect.width
+    )
+    const height = viewportDimension(
+      canvas.dataset.browserViewportHeight,
+      rect.height
+    )
+    onSelectPoint?.({
+      x: Math.max(
+        0,
+        Math.min(
+          width,
+          ((event.clientX - rect.left) / Math.max(1, rect.width)) * width
+        )
+      ),
+      y: Math.max(
+        0,
+        Math.min(
+          height,
+          ((event.clientY - rect.top) / Math.max(1, rect.height)) * height
+        )
+      ),
+    })
+  }
+
   return (
     <div className="relative h-full min-h-0 overflow-hidden bg-white dark:bg-neutral-950">
       <canvas
         ref={canvasRef}
-        className="block h-full w-full touch-none select-none outline-none"
+        className={`block h-full w-full touch-none select-none outline-none ${
+          selecting ? "cursor-crosshair" : ""
+        }`}
         {...canvasProps}
         onPointerDown={(event) => {
+          if (selecting) {
+            event.preventDefault()
+            selectPoint(event)
+            return
+          }
           focusInput()
           canvasProps.onPointerDown(event)
         }}
@@ -66,6 +106,14 @@ export function BrowserCanvas({
       ) : null}
     </div>
   )
+}
+
+function viewportDimension(
+  value: string | undefined,
+  fallback: number
+): number {
+  const parsed = value ? Number(value) : fallback
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
 function CanvasState({
