@@ -13,6 +13,13 @@ use serde_json::{json, Map, Value};
 use crate::app_error::AppCommandError;
 
 mod grok;
+mod runtime;
+mod xinghe;
+
+pub(crate) use runtime::refresh_running_sessions;
+#[cfg(feature = "tauri-runtime")]
+pub(crate) use runtime::refresh_tauri;
+pub(crate) use xinghe::project_preferences as project_xinghe_preferences;
 
 const MARKETPLACE_OFFICIAL: &str = "official_registry";
 const MARKETPLACE_SMITHERY: &str = "smithery";
@@ -370,8 +377,9 @@ pub async fn mcp_install_from_marketplace(
     protocol: Option<String>,
     parameter_values: Option<Value>,
     db: tauri::State<'_, crate::db::AppDatabase>,
+    app: tauri::AppHandle,
 ) -> Result<LocalMcpServer, AppCommandError> {
-    mcp_install_from_marketplace_core(
+    let result = mcp_install_from_marketplace_core(
         &db.conn,
         provider_id,
         server_id,
@@ -380,7 +388,9 @@ pub async fn mcp_install_from_marketplace(
         protocol,
         parameter_values,
     )
-    .await
+    .await;
+    runtime::refresh_tauri(&app, &db).await;
+    result
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -389,8 +399,11 @@ pub async fn mcp_upsert_local_server(
     server_id: String,
     spec: Value,
     db: tauri::State<'_, crate::db::AppDatabase>,
+    app: tauri::AppHandle,
 ) -> Result<LocalMcpServer, AppCommandError> {
-    mcp_upsert_local_server_core(&db.conn, server_id, spec).await
+    let result = mcp_upsert_local_server_core(&db.conn, server_id, spec).await;
+    runtime::refresh_tauri(&app, &db).await;
+    result
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -399,8 +412,11 @@ pub async fn mcp_set_server_enabled(
     server_id: String,
     enabled: bool,
     db: tauri::State<'_, crate::db::AppDatabase>,
+    app: tauri::AppHandle,
 ) -> Result<Option<LocalMcpServer>, AppCommandError> {
-    mcp_set_server_enabled_core(&db.conn, server_id, enabled).await
+    let result = mcp_set_server_enabled_core(&db.conn, server_id, enabled).await;
+    runtime::refresh_tauri(&app, &db).await;
+    result
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -409,8 +425,11 @@ pub async fn mcp_set_server_apps(
     server_id: String,
     apps: Vec<McpAppType>,
     db: tauri::State<'_, crate::db::AppDatabase>,
+    app: tauri::AppHandle,
 ) -> Result<Option<LocalMcpServer>, AppCommandError> {
-    mcp_set_server_apps_core(&db.conn, server_id, apps).await
+    let result = mcp_set_server_apps_core(&db.conn, server_id, apps).await;
+    runtime::refresh_tauri(&app, &db).await;
+    result
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -418,8 +437,11 @@ pub async fn mcp_set_server_apps(
 pub async fn mcp_remove_server(
     server_id: String,
     db: tauri::State<'_, crate::db::AppDatabase>,
+    app: tauri::AppHandle,
 ) -> Result<bool, AppCommandError> {
-    mcp_remove_server_core(&db.conn, server_id).await
+    let result = mcp_remove_server_core(&db.conn, server_id).await;
+    runtime::refresh_tauri(&app, &db).await;
+    result
 }
 
 pub async fn mcp_install_from_marketplace_core(

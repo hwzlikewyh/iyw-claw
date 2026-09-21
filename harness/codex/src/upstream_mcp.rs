@@ -64,7 +64,13 @@ impl ThreadLaunchOptions {
 
     pub(crate) fn apply(self, request: &mut Value) {
         if let Some(servers) = self.mcp {
-            request["params"]["config"] = json!({ "mcp_servers": servers });
+            if !request["params"]["config"].is_object() {
+                request["params"]["config"] = json!({});
+            }
+            // 上游按覆盖键替换整张表；逐服务器写入才能保留启动配置中的连接器。
+            for (name, config) in servers {
+                request["params"]["config"][format!("mcp_servers.{name}")] = config;
+            }
         }
         if let Some(settings) = self.fork_settings {
             request["params"]["model"] = settings["model"].clone();

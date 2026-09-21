@@ -75,16 +75,22 @@ pub async fn skill_market_install(
     version: String,
     agent_types: Vec<AgentType>,
     db: State<'_, AppDatabase>,
+    app: tauri::AppHandle,
 ) -> Result<(), AppCommandError> {
-    install::install_core(&db.conn, id, version, agent_types).await
+    let result = install::install_core(&db.conn, id, version, agent_types).await;
+    crate::commands::mcp::refresh_tauri(&app, &db).await;
+    result
 }
 
 #[tauri::command]
 pub async fn skill_market_uninstall(
     id: String,
     db: State<'_, AppDatabase>,
+    app: tauri::AppHandle,
 ) -> Result<(), AppCommandError> {
-    uninstall_core(&db.conn, id).await
+    let result = uninstall_core(&db.conn, id).await;
+    crate::commands::mcp::refresh_tauri(&app, &db).await;
+    result
 }
 
 #[tauri::command]

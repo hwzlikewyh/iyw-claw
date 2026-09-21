@@ -8847,6 +8847,7 @@ async fn build_runtime_env_for_launch(
         let previous = fs::read_to_string(&catalog_path).unwrap_or_default();
         crate::acp::provider_overlay::write_if_changed(&catalog_path, &previous, &catalog)
             .map_err(AcpError::protocol)?;
+        let native = super::mcp::project_xinghe_preferences(&db.conn, &native).await?;
         crate::acp::xinghe_runtime_config::project(&mut runtime_env, &native, &catalog_path)?;
     }
     crate::acp::runtime_context::prepend_tool_dirs(Some(&paths), &mut runtime_env);

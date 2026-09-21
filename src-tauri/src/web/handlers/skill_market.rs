@@ -131,22 +131,33 @@ pub async fn install(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<InstallParams>,
 ) -> Result<Json<()>, AppCommandError> {
-    skill_market::install_core(
+    let result = skill_market::install_core(
         &state.db.conn,
         params.id,
         params.version,
         params.agent_types,
     )
-    .await?;
-    Ok(Json(()))
+    .await;
+    refresh_running_sessions(&state).await;
+    result.map(Json)
 }
 
 pub async fn uninstall(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<IDParams>,
 ) -> Result<Json<()>, AppCommandError> {
-    skill_market::uninstall_core(&state.db.conn, params.id).await?;
-    Ok(Json(()))
+    let result = skill_market::uninstall_core(&state.db.conn, params.id).await;
+    refresh_running_sessions(&state).await;
+    result.map(Json)
+}
+
+async fn refresh_running_sessions(state: &AppState) {
+    crate::commands::mcp::refresh_running_sessions(
+        &state.connection_manager,
+        &state.db,
+        &state.data_dir,
+    )
+    .await;
 }
 
 pub async fn rebuild_artifact(

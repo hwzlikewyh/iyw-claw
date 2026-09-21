@@ -34,7 +34,7 @@ pub async fn managed_target_agents(
         .filter(|agent_type| {
             settings
                 .get(agent_type)
-                .is_some_and(|setting| setting.enabled && setting.installed_version.is_some())
+                .is_some_and(|setting| setting.enabled && agent_installed(*agent_type, setting))
         })
         .collect())
 }
@@ -117,7 +117,7 @@ pub(crate) async fn reconcile_managed_mcp_for_agent_unlocked(
     let installed = agent_setting_service::get_by_agent_type(conn, agent_type)
         .await
         .map_err(AppCommandError::db)?
-        .is_some_and(|setting| setting.installed_version.is_some());
+        .is_some_and(|setting| agent_installed(agent_type, &setting));
     let catalog =
         super::mcp_catalog::load_or_import_unlocked(conn, super::mcp::scan_legacy_server_specs)
             .await?;
@@ -140,7 +140,7 @@ pub(crate) async fn reconcile_all_managed_mcp_unlocked(
     {
         let enabled = settings
             .get(&agent_type)
-            .is_some_and(|setting| setting.enabled && setting.installed_version.is_some());
+            .is_some_and(|setting| setting.enabled && agent_installed(agent_type, setting));
         if let Err(error) = reconcile_agent_with_catalog(&catalog, agent_type, enabled) {
             failures.push(format_agent_failure(agent_type, &error));
         }
@@ -155,6 +155,16 @@ fn format_agent_failure(agent_type: AgentType, error: &AppCommandError) -> Strin
         .map(|detail| format!("\n{detail}"))
         .unwrap_or_default();
     format!("{agent_type:?}: {}{detail}", error.message)
+}
+
+fn agent_installed(
+    agent_type: AgentType,
+    setting: &crate::db::entities::agent_setting::Model,
+) -> bool {
+    crate::internal_xinghe_worker::installation_available(
+        agent_type,
+        setting.installed_version.as_deref(),
+    )
 }
 
 fn reconcile_agent_with_catalog(

@@ -116,8 +116,9 @@ pub async fn mcp_install_from_marketplace(
         params.protocol,
         params.parameter_values,
     )
-    .await?;
-    Ok(Json(result))
+    .await;
+    refresh_running_sessions(&state).await;
+    result.map(Json)
 }
 
 pub async fn mcp_upsert_local_server(
@@ -126,8 +127,9 @@ pub async fn mcp_upsert_local_server(
 ) -> Result<Json<LocalMcpServer>, AppCommandError> {
     let result =
         mcp_commands::mcp_upsert_local_server_core(&state.db.conn, params.server_id, params.spec)
-            .await?;
-    Ok(Json(result))
+            .await;
+    refresh_running_sessions(&state).await;
+    result.map(Json)
 }
 
 pub async fn mcp_set_server_enabled(
@@ -136,8 +138,9 @@ pub async fn mcp_set_server_enabled(
 ) -> Result<Json<Option<LocalMcpServer>>, AppCommandError> {
     let result =
         mcp_commands::mcp_set_server_enabled_core(&state.db.conn, params.server_id, params.enabled)
-            .await?;
-    Ok(Json(result))
+            .await;
+    refresh_running_sessions(&state).await;
+    result.map(Json)
 }
 
 pub async fn mcp_set_server_apps(
@@ -146,14 +149,21 @@ pub async fn mcp_set_server_apps(
 ) -> Result<Json<Option<LocalMcpServer>>, AppCommandError> {
     let result =
         mcp_commands::mcp_set_server_apps_core(&state.db.conn, params.server_id, params.apps)
-            .await?;
-    Ok(Json(result))
+            .await;
+    refresh_running_sessions(&state).await;
+    result.map(Json)
 }
 
 pub async fn mcp_remove_server(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<RemoveServerParams>,
 ) -> Result<Json<bool>, AppCommandError> {
-    let result = mcp_commands::mcp_remove_server_core(&state.db.conn, params.server_id).await?;
-    Ok(Json(result))
+    let result = mcp_commands::mcp_remove_server_core(&state.db.conn, params.server_id).await;
+    refresh_running_sessions(&state).await;
+    result.map(Json)
+}
+
+async fn refresh_running_sessions(state: &AppState) {
+    mcp_commands::refresh_running_sessions(&state.connection_manager, &state.db, &state.data_dir)
+        .await;
 }
