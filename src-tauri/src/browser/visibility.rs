@@ -56,7 +56,7 @@ impl BrowserSessionManager {
         }
         Err(BrowserError::new(
             BrowserErrorCode::BrowserControlChanged,
-            "The built-in browser is disabled. Use browser(action=list_tabs), open an external browser tab, and take a fresh snapshot before continuing.",
+            "The built-in browser is disabled. Ask the user to enable it in Settings before browsing; external browser fallback is unavailable.",
         ))
     }
 }

@@ -9,6 +9,9 @@ use super::*;
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn internet_tools_detect() -> Result<Vec<InternetToolInfo>, String> {
     let paths = active_paths()?;
+    if cfg!(feature = "tauri-runtime") {
+        return Ok(vec![detect_tool(&paths, InternetToolId::AgentReach).await]);
+    }
     let (agent_reach, opencli) = tokio::join!(
         detect_tool(&paths, InternetToolId::AgentReach),
         detect_tool(&paths, InternetToolId::Opencli)
@@ -18,6 +21,7 @@ pub async fn internet_tools_detect() -> Result<Vec<InternetToolInfo>, String> {
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn internet_tool_install(tool: InternetToolId) -> Result<InternetToolInfo, String> {
+    reject_retired_desktop_tool(tool)?;
     let _guard = bootstrap_lock().lock().await;
     let paths = active_paths()?;
     match tool {
@@ -33,6 +37,12 @@ pub async fn internet_tool_uninstall(
     tool: InternetToolId,
     remove_config: bool,
 ) -> Result<InternetToolInfo, String> {
+    reject_retired_desktop_tool(tool)?;
+    if cfg!(feature = "tauri-runtime") && tool == InternetToolId::AgentReach {
+        return Err(
+            "Agent Reach 由安装环境统一管理，请使用 iyw-environment repair 修复".to_string(),
+        );
+    }
     let _guard = bootstrap_lock().lock().await;
     let paths = active_paths()?;
     remove_agent_skill_links(tool).await?;
@@ -45,6 +55,13 @@ pub async fn internet_tool_uninstall(
     remove_tool_assets(&paths, tool)?;
     let _ = fs::remove_file(paths.root().join(BOOTSTRAP_MARKER));
     Ok(detect_tool(&paths, tool).await)
+}
+
+fn reject_retired_desktop_tool(tool: InternetToolId) -> Result<(), String> {
+    if cfg!(feature = "tauri-runtime") && tool == InternetToolId::Opencli {
+        return Err("OpenCLI 已从桌面端移除，已有文件保持不变".into());
+    }
+    Ok(())
 }
 
 async fn remove_agent_skill_links(tool: InternetToolId) -> Result<(), String> {

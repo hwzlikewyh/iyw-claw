@@ -15,10 +15,17 @@ struct CurrentPointer {
 }
 
 pub fn managed_tool_executable(name: &str) -> Option<PathBuf> {
-    let data_dir = std::env::var_os("IYW_CLAW_DATA_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(crate::paths::iyw_claw_user_dir);
-    managed_tool_executable_at(Path::new(&data_dir), name, None)
+    #[cfg(feature = "tauri-runtime")]
+    {
+        return crate::managed_environment::tool_entrypoint(name);
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        let data_dir = std::env::var_os("IYW_CLAW_DATA_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(crate::paths::iyw_claw_user_dir);
+        managed_tool_executable_at(Path::new(&data_dir), name, None)
+    }
 }
 
 pub(super) async fn active_tool_is_healthy(data_dir: &Path, tool_id: &str, version: &str) -> bool {

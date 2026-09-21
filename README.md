@@ -67,13 +67,13 @@ pnpm build
 pnpm tauri build
 ```
 
-macOS 默认生成 `.app` 和 `.dmg`。构建包含内置 Node/npm、Git、uv 和 Codex 的完整安装包：
+macOS 默认生成 `.app` 和 `.dmg`。构建应用与环境引导程序：
 
 ```bash
 pnpm tauri:build:prod
 ```
 
-该入口会准备并验证运行时、构建前端和应用，再检查 app/DMG 内的运行时能否启动。
+该入口会准备并验证环境引导程序、构建前端和应用。Node/npm、Git、uv、Chromix、agent-browser 及后台选定的可选工具由安装引导从 Fusion 环境计划下载，不内置 Agent SDK 或记忆模型。
 本地无签名环境使用 `pnpm tauri:build:fast` 需要已有 `out/`；完整重新构建可使用
 `pnpm tauri:build:prod --no-sign`。在 Apple Silicon 上构建并验证 Intel 包需要 Rosetta 2，
 通过 `TAURI_TARGET_TRIPLE=x86_64-apple-darwin` 选择 Intel 目标，并预先安装对应 Rust target。
@@ -84,17 +84,13 @@ pnpm tauri:build:prod
 pnpm server:build
 ```
 
-准备桌面应用捆绑的 sidecars（当前为受支持 Windows 平台的 `agent-browser`）：
+准备桌面应用捆绑的环境引导程序（`iyw-environment`）：
 
 ```bash
 pnpm tauri:prepare-sidecars
 ```
 
-仅准备 `uv` / `uvx` Python 工具运行时：
-
-```bash
-pnpm tauri:prepare-sidecars --uv-only
-```
+环境安装完成后在用户目录生成独立修复入口；修复程序复用已校验组件，缺失或损坏时重新下载。GitHub Release 发布前校验当前版本的五个平台环境计划，缺少绑定或制品时阻止发布。
 
 ## Docker 运行
 

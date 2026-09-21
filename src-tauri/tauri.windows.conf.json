@@ -1,6 +1,6 @@
 {
   "bundle": {
-    "externalBin": ["binaries/agent-browser"],
+    "externalBin": ["binaries/iyw-environment"],
     "resources": {
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
       "../LICENSE": "LICENSE"

@@ -7,7 +7,9 @@ use crate::commands::experts::central_experts_dir;
 use super::*;
 
 pub(super) fn find_agent_reach_skill(paths: &AgentStoragePaths) -> Option<PathBuf> {
-    walkdir::WalkDir::new(uv_tools_dir(paths))
+    let root = crate::managed_environment::component_root("agent-reach")
+        .unwrap_or_else(|| uv_tools_dir(paths));
+    walkdir::WalkDir::new(root)
         .max_depth(8)
         .into_iter()
         .filter_map(Result::ok)
@@ -59,6 +61,9 @@ pub(super) fn sync_installed_skills(paths: &AgentStoragePaths) -> Result<Vec<Str
         copy_dir(&agent_reach_skill, &central.join("agent-reach"))?;
         synced.push("agent-reach".to_string());
     }
+    if cfg!(feature = "tauri-runtime") {
+        return Ok(synced);
+    }
     let opencli_skills = opencli_prefix(paths).join("node_modules/@jackwener/opencli/skills");
     if opencli_skills.is_dir() {
         fs::create_dir_all(&central).map_err(|error| error.to_string())?;
@@ -95,7 +100,7 @@ pub(super) fn list_internet_skills_from(central: &Path) -> Vec<InternetToolSkill
             let id = entry.file_name().to_string_lossy().to_string();
             let source = if id == "agent-reach" {
                 InternetToolId::AgentReach
-            } else if id.starts_with("opencli-") {
+            } else if !cfg!(feature = "tauri-runtime") && id.starts_with("opencli-") {
                 InternetToolId::Opencli
             } else {
                 return None;

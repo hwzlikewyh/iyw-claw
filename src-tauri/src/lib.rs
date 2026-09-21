@@ -27,6 +27,7 @@ pub mod github_mirror;
 pub mod internal_xinghe_worker;
 pub mod keyring_store;
 pub mod logging;
+pub mod managed_environment;
 pub mod models;
 mod network;
 pub mod office_watch;
@@ -404,14 +405,8 @@ mod tauri_app {
                 unsafe {
                     std::env::set_var("IYW_CLAW_DATA_DIR", &effective_data_dir);
                 }
-                crate::logging::emergency::run_stage("prepare-shared-runtime", || {
-                    tauri::async_runtime::block_on(
-                        crate::acp::version_center::prepare_shared_runtime(&effective_data_dir),
-                    )
-                    .map_err(|error| std::io::Error::other(error.to_string()))
-                })?;
                 app.manage(crate::browser::BrowserSessionManager::new_desktop(
-                    effective_data_dir.clone(),
+                    paths::iyw_claw_user_dir(),
                     app.state::<ConnectionManager>().clone_ref(),
                 ));
 
@@ -524,7 +519,7 @@ mod tauri_app {
                     tracing::warn!(
                         previous_root = %previous_root.display(),
                         new_root = %initial_agent_root.display(),
-                        "[agent-storage] rebased persisted root onto current installation"
+                        "[agent-storage] switched persisted root to the user .iyw-claw directory"
                     );
                 }
 
@@ -565,10 +560,6 @@ mod tauri_app {
                     }
                 }
                 app.manage(database);
-                tauri::async_runtime::block_on(
-                    app.state::<crate::browser::BrowserSessionManager>()
-                        .set_database(app.state::<db::AppDatabase>().conn.clone()),
-                );
                 crate::plugin_runtime::global::install_database(
                     app.state::<db::AppDatabase>().conn.clone(),
                 );
@@ -625,26 +616,12 @@ mod tauri_app {
                         }
                     });
                 }
-                let migration_sources =
-                    desktop_bootstrap.user_memory_migration_sources(&effective_data_dir);
                 let user_memory = std::sync::Arc::new(
                     crate::user_memory::UserMemoryService::from_resolution(
                         app.state::<db::AppDatabase>().conn.clone(),
                         user_memory_resolution,
                     ).with_managed_chat_root(&effective_data_dir),
                 );
-                match tauri::async_runtime::block_on(
-                    user_memory.migrate_legacy_documents(migration_sources),
-                ) {
-                    Ok(report) => {
-                        for warning in report.warnings {
-                            tracing::warn!("[user-memory][migration] {warning}");
-                        }
-                    }
-                    Err(error) => {
-                        tracing::warn!("[user-memory] legacy migration unavailable: {error}")
-                    }
-                }
                 let startup_harvest = user_memory.clone();
                 tauri::async_runtime::spawn(async move {
                     startup_harvest.start_background_workers();
@@ -1216,8 +1193,6 @@ mod tauri_app {
                     event = "startup_ready",
                     "desktop startup completed"
                 );
-                app.state::<crate::browser::BrowserSessionManager>()
-                    .schedule_engine_prefetch();
                 // Prewarm is deliberately scheduled after the window is usable and
                 // after startup maintenance has had a chance to release its DB
                 // writes. The bounded wait keeps a stuck maintenance task from

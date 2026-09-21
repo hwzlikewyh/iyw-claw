@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 #[cfg(not(target_os = "windows"))]
 use std::time::Duration;
@@ -19,7 +18,6 @@ pub(super) struct BrowserEngine {
     pub kind: BrowserEngineKind,
     pub path: PathBuf,
     pub version: String,
-    pub profile_source: Option<PathBuf>,
 }
 
 impl BrowserEngine {
@@ -32,187 +30,21 @@ impl BrowserEngine {
 }
 
 pub(super) async fn detect_engine(data_root: &Path) -> Result<BrowserEngine, BrowserError> {
-    if let Some((path, marker_version)) =
-        crate::acp::version_center::managed_browser_engine_installation(data_root).await
-    {
-        if let Some(engine) = probe_engine(BrowserEngineKind::Chromium, path.clone(), None).await {
+    let _ = data_root;
+    if let Some(path) = crate::managed_environment::entrypoint("chromix", "chromix") {
+        if let Some(engine) = probe_engine(path.clone()).await {
             return Ok(engine);
         }
         tracing::warn!(
             target: "iyw_claw_browser",
-            path = %path.display(),
-            marker_version = %marker_version,
-            "managed browser engine metadata unavailable; trying fallback engines"
+            component = "chromix",
+            "managed Chromix entrypoint failed its platform probe"
         );
-    }
-    #[cfg(target_os = "windows")]
-    if let Some(engine) = probe_engine(
-        BrowserEngineKind::Chromium,
-        super::engine_download::managed_engine_path(data_root),
-        None,
-    )
-    .await
-    {
-        return Ok(engine);
-    }
-    for (kind, path) in system_engine_candidates() {
-        if let Some(engine) = probe_engine(kind, path, None).await {
-            return Ok(engine);
-        }
     }
     Err(managed_engine_not_found())
 }
 
-fn system_engine_candidates() -> Vec<(BrowserEngineKind, PathBuf)> {
-    let mut candidates = Vec::new();
-    #[cfg(target_os = "windows")]
-    push_windows_candidates(&mut candidates);
-    #[cfg(target_os = "macos")]
-    push_macos_candidates(&mut candidates);
-    #[cfg(target_os = "linux")]
-    push_linux_candidates(&mut candidates);
-    let mut seen = HashSet::new();
-    candidates.retain(|(_, path)| seen.insert(path.to_string_lossy().to_ascii_lowercase()));
-    candidates
-}
-
-pub(crate) async fn open_extension_settings(browser: &str) -> Result<(), String> {
-    let (kind, url) = match browser {
-        "chrome" => (BrowserEngineKind::Chrome, "chrome://extensions"),
-        "edge" => (BrowserEngineKind::Edge, "edge://extensions"),
-        _ => return Err("Unsupported browser for extension setup".into()),
-    };
-    let (_, path) = system_engine_candidates()
-        .into_iter()
-        .find(|(candidate, path)| *candidate == kind && path.is_file())
-        .ok_or_else(|| format!("{browser} installation was not found"))?;
-    let mut command = crate::process::tokio_command(path);
-    command
-        .arg(url)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    let mut child = command.spawn().map_err(|error| error.to_string())?;
-    tokio::spawn(async move {
-        let _ = child.wait().await;
-    });
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-fn push_windows_candidates(candidates: &mut Vec<(BrowserEngineKind, PathBuf)>) {
-    let roots = [
-        std::env::var_os("PROGRAMFILES"),
-        std::env::var_os("PROGRAMFILES(X86)"),
-        std::env::var_os("LOCALAPPDATA"),
-    ];
-    let browsers = [
-        (
-            BrowserEngineKind::Chrome,
-            "Google/Chrome/Application/chrome.exe",
-        ),
-        (
-            BrowserEngineKind::Edge,
-            "Microsoft/Edge/Application/msedge.exe",
-        ),
-        (
-            BrowserEngineKind::Brave,
-            "BraveSoftware/Brave-Browser/Application/brave.exe",
-        ),
-        (
-            BrowserEngineKind::Vivaldi,
-            "Vivaldi/Application/vivaldi.exe",
-        ),
-        (BrowserEngineKind::Opera, "Opera/launcher.exe"),
-        (
-            BrowserEngineKind::Chromium,
-            "Chromium/Application/chrome.exe",
-        ),
-    ];
-    for root in roots.into_iter().flatten().map(PathBuf::from) {
-        for (kind, relative) in browsers {
-            candidates.push((kind, root.join(relative)));
-        }
-    }
-    for root in std::env::var_os("PATH")
-        .into_iter()
-        .flat_map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
-    {
-        for (kind, relative) in browsers {
-            candidates.push((kind, root.join(relative)));
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn push_macos_candidates(candidates: &mut Vec<(BrowserEngineKind, PathBuf)>) {
-    let roots = [
-        Some(PathBuf::from("/Applications")),
-        dirs::home_dir().map(|home| home.join("Applications")),
-    ];
-    let browsers = [
-        (
-            BrowserEngineKind::Chrome,
-            "Google Chrome.app/Contents/MacOS/Google Chrome",
-        ),
-        (
-            BrowserEngineKind::Edge,
-            "Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-        ),
-        (
-            BrowserEngineKind::Brave,
-            "Brave Browser.app/Contents/MacOS/Brave Browser",
-        ),
-        (
-            BrowserEngineKind::Vivaldi,
-            "Vivaldi.app/Contents/MacOS/Vivaldi",
-        ),
-        (BrowserEngineKind::Opera, "Opera.app/Contents/MacOS/Opera"),
-        (
-            BrowserEngineKind::Chromium,
-            "Chromium.app/Contents/MacOS/Chromium",
-        ),
-    ];
-    for root in roots.into_iter().flatten() {
-        for (kind, relative) in browsers {
-            candidates.push((kind, root.join(relative)));
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn push_linux_candidates(candidates: &mut Vec<(BrowserEngineKind, PathBuf)>) {
-    let browsers = [
-        (BrowserEngineKind::Chrome, "google-chrome"),
-        (BrowserEngineKind::Chrome, "google-chrome-stable"),
-        (BrowserEngineKind::Edge, "microsoft-edge"),
-        (BrowserEngineKind::Edge, "microsoft-edge-stable"),
-        (BrowserEngineKind::Brave, "brave-browser"),
-        (BrowserEngineKind::Vivaldi, "vivaldi"),
-        (BrowserEngineKind::Opera, "opera"),
-        (BrowserEngineKind::Chromium, "chromium"),
-        (BrowserEngineKind::Chromium, "chromium-browser"),
-    ];
-    let mut directories = std::env::var_os("PATH")
-        .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
-        .unwrap_or_default();
-    directories.extend([
-        PathBuf::from("/usr/bin"),
-        PathBuf::from("/usr/local/bin"),
-        PathBuf::from("/snap/bin"),
-    ]);
-    for directory in directories {
-        for (kind, name) in browsers {
-            candidates.push((kind, directory.join(name)));
-        }
-    }
-}
-
-pub(super) async fn probe_engine(
-    kind: BrowserEngineKind,
-    path: PathBuf,
-    profile_source: Option<PathBuf>,
-) -> Option<BrowserEngine> {
+async fn probe_engine(path: PathBuf) -> Option<BrowserEngine> {
     if !path.is_file() {
         return None;
     }
@@ -223,10 +55,9 @@ pub(super) async fn probe_engine(
     #[cfg(not(target_os = "windows"))]
     let version = executable_version(&path).await?;
     Some(BrowserEngine {
-        kind,
+        kind: BrowserEngineKind::Chromix,
         version,
         path,
-        profile_source,
     })
 }
 
@@ -301,7 +132,7 @@ fn windows_file_version(path: &Path) -> Option<String> {
 fn managed_engine_not_found() -> BrowserError {
     BrowserError::new(
         BrowserErrorCode::BrowserEngineNotFound,
-        "No verified managed browser engine is installed",
+        "Chromix is missing or invalid. Run the environment repair program before starting the browser",
     )
     .retryable(true)
 }

@@ -20,7 +20,7 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "externalBin": ["binaries/agent-browser"],
+    "externalBin": ["binaries/iyw-environment"],
     "targets": "nsis",
     "icon": [
       "icons/32x32.png",
@@ -31,7 +31,8 @@
     ],
     "resources": {
       "../out": "resources/bundle/",
-      "resources/xinghe-worker": "xinghe-resources"
+      "resources/xinghe-worker": "xinghe-resources",
+      "resources/environment": "environment"
     },
     "windows": {
       "webviewInstallMode": {

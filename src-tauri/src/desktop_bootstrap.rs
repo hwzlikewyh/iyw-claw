@@ -5,9 +5,6 @@ use sea_orm::DatabaseConnection;
 
 use crate::acp::agent_storage::{load_config, save_config, AgentStorageConfig, AgentStorageError};
 
-#[path = "desktop_bootstrap_storage.rs"]
-mod desktop_bootstrap_storage;
-
 const APP_DIR_NAME: &str = "app";
 const DATA_DIR_ENV: &str = "IYW_CLAW_DATA_DIR";
 const HOME_DIR_ENV: &str = "IYW_CLAW_HOME";
@@ -76,10 +73,8 @@ fn push_migration_source(
     }
 }
 
-pub fn initial_agent_storage_root(selected_root: Option<&Path>, data_dir: &Path) -> PathBuf {
-    selected_root
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| data_dir.join("agents"))
+pub fn initial_agent_storage_root(_selected_root: Option<&Path>, _data_dir: &Path) -> PathBuf {
+    crate::paths::iyw_claw_user_dir()
 }
 
 pub fn resolve_install_root(executable: &Path) -> Option<PathBuf> {
@@ -92,13 +87,13 @@ pub fn resolve_install_root(executable: &Path) -> Option<PathBuf> {
 
 pub fn resolve_data_root(
     explicit: Option<OsString>,
-    install_root: Option<&Path>,
+    _install_root: Option<&Path>,
 ) -> Option<PathBuf> {
     explicit
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .map(absolutize)
-        .or_else(|| install_root.map(|root| root.join("data")))
+        .or_else(|| Some(crate::paths::iyw_claw_user_dir().join("data")))
 }
 
 pub fn apply_pre_runtime_environment() -> DesktopBootstrap {
@@ -118,14 +113,12 @@ pub fn apply_pre_runtime_environment() -> DesktopBootstrap {
     if let Some(data_root) = data_root.as_deref() {
         std::env::set_var(DATA_DIR_ENV, data_root);
     }
+    std::env::set_var(HOME_DIR_ENV, crate::paths::iyw_claw_user_dir());
+    std::env::set_var(crate::acp::agent_storage::STORAGE_ROOT_ENV, crate::paths::iyw_claw_user_dir());
+    if std::env::var_os(LOG_DIR_ENV).is_none_or(|value| value.is_empty()) {
+        std::env::set_var(LOG_DIR_ENV, crate::paths::iyw_claw_user_dir().join("logs"));
+    }
     if let Some(root) = install_root.as_deref() {
-        let data_root = data_root
-            .as_deref()
-            .unwrap_or_else(|| unreachable!("installed desktop always has a data root"));
-        std::env::set_var(HOME_DIR_ENV, data_root);
-        if std::env::var_os(LOG_DIR_ENV).is_none_or(|value| value.is_empty()) {
-            std::env::set_var(LOG_DIR_ENV, root.join("logs"));
-        }
         std::env::set_var(INSTALL_ROOT_ENV, root);
     }
 
@@ -151,17 +144,20 @@ pub async fn ensure_initial_agent_storage(
     Ok(())
 }
 
-/// Rebase a persisted Agent storage root onto the current installation root.
-///
-/// Older installs could persist a former installation root after an upgrade.
-/// A custom Agent-only directory remains user-controlled: rebasing requires a
-/// recorded prior install root, a complete legacy install layout, or an active
-/// managed profile path that still names the old root.
+/// 将新桌面环境指向用户目录，不迁移旧目录或旧 profile。
 pub async fn reconcile_agent_storage_root(
     conn: &DatabaseConnection,
     selected_root: &Path,
 ) -> Result<Option<PathBuf>, AgentStorageError> {
-    desktop_bootstrap_storage::reconcile(conn, selected_root).await
+    let Some(config) = load_config(conn).await? else {
+        return Ok(None);
+    };
+    if config.root.as_deref() == Some(selected_root) {
+        return Ok(None);
+    }
+    // 新布局只更新指向，不读取或复制旧安装目录中的任何内容。
+    save_config(conn, &AgentStorageConfig::confirmed(selected_root.to_path_buf())).await?;
+    Ok(config.root)
 }
 
 fn absolutize(path: PathBuf) -> PathBuf {

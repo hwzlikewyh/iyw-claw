@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 //
-// Prepare third-party sidecars before `tauri build` / `tauri dev`.
+// Prepare the environment helper before `tauri build` / `tauri dev`.
 //
 // What it does:
 //   1. Resolves the target triple — `--target <triple>` arg, or
@@ -9,7 +9,7 @@
 // first-party MCP executable is built or staged here.
 //
 // Skippable: set `IYW_CLAW_SKIP_SIDECAR=1` when iterating on the frontend
-// and the optional browser sidecar is not needed.
+// and the environment helper is already staged.
 //
 // Intentionally Node-only (no shell): runs identically on macOS, Linux,
 // Windows GitHub runners.
@@ -20,7 +20,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 
-import { prepareAgentBrowserSidecar } from "./prepare-agent-browser-sidecar.mjs"
+import { prepareEnvironmentHelper } from "./prepare-environment-helper.mjs"
 
 const SRC_TAURI = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -40,6 +40,17 @@ function removeLegacyMcpSidecars() {
     })
   if (removed.length > 0) {
     log(`removed ${removed.length} legacy MCP sidecar(s)`)
+  }
+}
+
+function removeBundledBrowserSidecars() {
+  const binariesDir = resolve(SRC_TAURI, "binaries")
+  if (!existsSync(binariesDir)) return
+  for (const entry of readdirSync(binariesDir, { withFileTypes: true })) {
+    if (entry.isFile() && /^agent-browser(?:-|\.|$)/i.test(entry.name)) {
+      unlinkSync(join(binariesDir, entry.name))
+      log(`removed bundled browser sidecar ${entry.name}`)
+    }
   }
 }
 
@@ -74,6 +85,7 @@ async function main() {
   }
 
   removeLegacyMcpSidecars()
+  removeBundledBrowserSidecars()
 
   const { target: cliTarget } = parseArgs(process.argv.slice(2))
   const configuredTarget = cliTarget || process.env.TAURI_TARGET_TRIPLE
@@ -81,7 +93,7 @@ async function main() {
   const hostTarget = resolveHostTriple()
   const target = configuredTarget || hostTarget
   log(`target triple: ${target}`)
-  await prepareAgentBrowserSidecar(target)
+  prepareEnvironmentHelper(target)
 }
 
 if (

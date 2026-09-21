@@ -23,7 +23,16 @@ import { isLocalDesktop } from "@/lib/platform"
 import type { BootstrapComponentStatus, BootstrapInitEvent } from "@/lib/types"
 import { copyTextToClipboard } from "@/lib/utils"
 
-const COMPONENTS = { node: "Node.js", git: "Git", uv: "uv" }
+const COMPONENTS: Record<string, string> = {
+  node: "Node.js",
+  git: "Git",
+  uv: "uv",
+  chromix: "Chromix",
+  "agent-browser": "agent-browser",
+  officecli: "OfficeCLI",
+  "agent-reach": "Agent Reach",
+  "open-computer-use": "Open Computer Use",
+}
 
 export function updateRuntimeComponent(
   current: BootstrapComponentStatus[],
@@ -33,10 +42,10 @@ export function updateRuntimeComponent(
   const previous = current.find((item) => item.componentId === id)
   const component: BootstrapComponentStatus = {
     componentId: id,
-    componentKind: "runtime_tool",
+    componentKind: previous?.componentKind ?? "runtime_tool",
     version: previous?.version ?? "",
-    installed: event.phase === "ready",
-    active: event.phase === "ready",
+    installed: event.phase === "ready" || Boolean(previous?.installed),
+    active: event.phase === "ready" || Boolean(previous?.active),
     phase: event.phase,
     lastError:
       event.phase === "blocked" || event.phase === "degraded"
@@ -52,26 +61,32 @@ export function StartupRuntimeStatus({
   components: BootstrapComponentStatus[]
 }) {
   return (
-    <ul className="grid gap-2 text-sm">
-      {Object.entries(COMPONENTS).map(([id, label]) => {
-        const component = components.find((item) => item.componentId === id)
-        const ready = component?.installed && component.active
-        const failed = Boolean(component?.lastError)
-        const pending = !component || component.phase === "not_started"
-        const Icon = ready ? Check : failed ? X : pending ? Minus : Loader2
-        return (
-          <li key={id} className="flex items-center justify-between gap-3">
-            <span>{label}</span>
-            <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
-              <span className="truncate text-xs">{component?.version}</span>
-              <Icon
-                aria-label={component?.phase ?? "not_started"}
-                className={`size-4 shrink-0 ${ready ? "text-green-600" : failed ? "text-destructive" : pending ? "" : "animate-spin"}`}
-              />
-            </span>
-          </li>
+    <ul className="grid max-h-64 gap-2 overflow-y-auto text-sm">
+      {Object.entries(COMPONENTS)
+        .filter(
+          ([id]) =>
+            (!isLocalDesktop() && ["node", "git", "uv"].includes(id)) ||
+            components.some((component) => component.componentId === id)
         )
-      })}
+        .map(([id, label]) => {
+          const component = components.find((item) => item.componentId === id)
+          const ready = component?.installed && component.active
+          const failed = Boolean(component?.lastError)
+          const pending = !component || component.phase === "not_started"
+          const Icon = ready ? Check : failed ? X : pending ? Minus : Loader2
+          return (
+            <li key={id} className="flex items-center justify-between gap-3">
+              <span>{label}</span>
+              <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+                <span className="truncate text-xs">{component?.version}</span>
+                <Icon
+                  aria-label={component?.phase ?? "not_started"}
+                  className={`size-4 shrink-0 ${ready ? "text-green-600" : failed ? "text-destructive" : pending ? "" : "animate-spin"}`}
+                />
+              </span>
+            </li>
+          )
+        })}
     </ul>
   )
 }

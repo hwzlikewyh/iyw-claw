@@ -73,7 +73,7 @@ function listBlockedProcesses() {
   return names.filter(
     (name) =>
       name === "iyw-claw.exe" ||
-      name === "agent-browser.exe" ||
+      name === "iyw-environment.exe" ||
       (name.startsWith("iyw-claw-mcp") && name.endsWith(".exe"))
   )
 }

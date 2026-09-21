@@ -24,10 +24,6 @@ on:
         description: Original x64 build run when signing is retried separately
         required: false
         type: string
-      x86_run_id:
-        description: Successful hosted Windows x86 build run
-        required: true
-        type: string
 
 permissions:
   contents: write
@@ -45,10 +41,9 @@ jobs:
       - uses: actions/github-script@v7
         env:
           X64_RUN_ID: ${{ inputs.x64_run_id }}
-          X86_RUN_ID: ${{ inputs.x86_run_id }}
         with:
           script: |
-            const ids = [process.env.X64_RUN_ID, process.env.X86_RUN_ID].map(Number);
+            const ids = [process.env.X64_RUN_ID].map(Number);
             if (ids.some(id => !Number.isSafeInteger(id) || id <= 0)) throw new Error('Invalid source run');
             while (true) {
               const runs = await Promise.all(ids.map(run_id => github.rest.actions.getWorkflowRun({...context.repo,run_id})));
@@ -87,8 +82,6 @@ jobs:
         include:
           - arch: x64
             target: x86_64-pc-windows-msvc
-          - arch: x86
-            target: i686-pc-windows-msvc
     env:
       RELEASE_VERSION: ${{ inputs.version }}
       RELEASE_ID: ${{ inputs.release_id }}
@@ -101,7 +94,7 @@ jobs:
       HTTPS_PROXY: http://127.0.0.1:7890
       NO_PROXY: localhost,127.0.0.1,api.github.com,uploads.github.com
       GH_TOKEN: ${{ github.token }}
-      SOURCE_STAGING_RUN_ID: ${{ matrix.arch == 'x64' && inputs.x64_staging_run_id || inputs.x86_run_id }}
+      SOURCE_STAGING_RUN_ID: ${{ inputs.x64_staging_run_id || inputs.x64_run_id }}
       SOURCE_SIGNING_RUN_ID: ${{ inputs.x64_run_id }}
     steps:
       - uses: actions/checkout@v4
@@ -234,7 +227,7 @@ jobs:
           path: |
             src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*_${{ matrix.arch }}-setup.exe
             src-tauri/resources/xinghe-worker/*
-            src-tauri/binaries/agent-browser-${{ matrix.target }}.exe
+            src-tauri/binaries/iyw-environment-${{ matrix.target }}.exe
           if-no-files-found: error
           retention-days: 2
 
@@ -268,7 +261,7 @@ jobs:
           archives=("$bundle"/*.app.tar.gz)
           test "${#archives[@]}" -eq 1
           tar -xzf "${archives[0]}" -C "$bundle"
-          node --input-type=module -e 'import {verifyRuntimeSeedBundle} from "./src-tauri/scripts/verify-runtime-seed-bundle.mjs"; await verifyRuntimeSeedBundle("x86_64-apple-darwin");'
+          node src-tauri/scripts/verify-sidecar-bundle.mjs --target x86_64-apple-darwin --installed-app "$bundle"
 
   publish:
     needs: [verify-windows, verify-macos]

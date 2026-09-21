@@ -1735,7 +1735,7 @@
     "autostartSaveFailed": "Failed to update startup setting: {message}",
     "browserTitle": "Browser",
     "browserVisible": "Show built-in browser",
-    "browserDescription": "Off by default. When off, agents use the external browser. Enable to allow built-in presentation and user handoff. Changes apply immediately and persist after restart.",
+    "browserDescription": "Off by default. Browser actions stop when disabled. Enable to use the installed Chromix browser with page presentation and user handoff.",
     "browserSaveFailed": "Failed to save browser setting: {message}"
   },
   "MainCloseDialog": {

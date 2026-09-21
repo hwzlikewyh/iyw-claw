@@ -17,7 +17,11 @@ on:
         required: false
         default: all
         type: choice
-        options: [all, windows_x86]
+        options: [all, windows_x86, environment, environment_only, installer_only]
+      installer_run_id:
+        description: "Verify the real Windows installer from a prior hosted packaging run"
+        required: false
+        type: string
       frontend_run_id:
         description: "Reuse release-frontend-out from this run of the same source"
         required: false
@@ -40,7 +44,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: github-hosted-packaging-test-${{ inputs.version }}-${{ inputs.candidate_repair_run || 'primary' }}
+  group: github-hosted-packaging-test-${{ inputs.version }}-${{ inputs.platforms }}-${{ inputs.candidate_repair_run || 'primary' }}
   cancel-in-progress: false
 
 env:
@@ -49,8 +53,43 @@ env:
   TEST_VERSION: ${{ inputs.version }}
 
 jobs:
+  installer-acceptance:
+    if: inputs.platforms == 'installer_only' && inputs.installer_run_id != ''
+    runs-on: windows-2022
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: github-hosted-x86_64-pc-windows-msvc-${{ inputs.version }}
+          path: ${{ runner.temp }}/environment-installer-input
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.installer_run_id }}
+      - name: Verify real installation, recovery and uninstall
+        env:
+          INSTALLER_INPUT: ${{ runner.temp }}/environment-installer-input
+        run: node src-tauri/scripts/verify-managed-installer.mjs "$env:INSTALLER_INPUT"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: environment-installer-acceptance-${{ inputs.version }}
+          path: src-tauri/target/environment-installer-acceptance/*.json
+          retention-days: 7
+
+  environment-acceptance:
+    if: inputs.platforms == 'environment' || inputs.platforms == 'environment_only'
+    uses: ./.github/workflows/verify-environment.yml
+    with:
+      source_ref: ${{ inputs.source_ref }}
+      version: ${{ inputs.version }}
+
   prepare-frontend:
-    if: inputs.frontend_run_id == '' && inputs.candidate_repair_run == ''
+    if: inputs.platforms != 'environment_only' && inputs.platforms != 'installer_only' && inputs.frontend_run_id == '' && inputs.candidate_repair_run == ''
     name: Prepare frontend input
     runs-on: ubuntu-22.04
     outputs:
@@ -101,7 +140,7 @@ jobs:
     timeout-minutes: 120
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(inputs.platforms == 'windows_x86' && '{"include":[{"name":"Windows x86","runner":"windows-2022","target":"i686-pc-windows-msvc","bundles":"nsis"}]}' || '{"include":[{"name":"Windows x64","runner":"windows-2022","target":"x86_64-pc-windows-msvc","bundles":"nsis"},{"name":"Windows x86","runner":"windows-2022","target":"i686-pc-windows-msvc","bundles":"nsis"},{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","bundles":"app,dmg"},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","bundles":"app,dmg"},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"appimage"}]}') }}
+      matrix: ${{ fromJSON(inputs.platforms == 'windows_x86' && '{"include":[{"name":"Windows x86","runner":"windows-2022","target":"i686-pc-windows-msvc","bundles":"nsis"}]}' || inputs.platforms == 'environment' && '{"include":[{"name":"Windows x64","runner":"windows-2022","target":"x86_64-pc-windows-msvc","bundles":"nsis"},{"name":"macOS x64","runner":"macos-15-intel","target":"x86_64-apple-darwin","bundles":"app,dmg"},{"name":"macOS arm64","runner":"macos-15","target":"aarch64-apple-darwin","bundles":"app,dmg"},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"appimage"},{"name":"Linux arm64","runner":"ubuntu-24.04-arm","target":"aarch64-unknown-linux-gnu","bundles":"deb"}]}' || '{"include":[{"name":"Windows x64","runner":"windows-2022","target":"x86_64-pc-windows-msvc","bundles":"nsis"},{"name":"Windows x86","runner":"windows-2022","target":"i686-pc-windows-msvc","bundles":"nsis"},{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","bundles":"app,dmg"},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","bundles":"app,dmg"},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","bundles":"appimage"}]}') }}
     env:
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "64"
       CARGO_PROFILE_RELEASE_LTO: "off"
@@ -144,7 +183,7 @@ jobs:
           platform: win64
 
       - name: Install Linux dependencies
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
@@ -163,8 +202,6 @@ jobs:
 
       - name: Stage and verify sidecars
         shell: bash
-        env:
-          IYW_CLAW_BROWSER_SIDECAR_EXCLUDED: ${{ matrix.target == 'i686-pc-windows-msvc' && '1' || '' }}
         run: |
           pnpm tauri:prepare-sidecars --target "${{ matrix.target }}"
           node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
@@ -179,24 +216,6 @@ jobs:
         if: hashFiles('.github/actions/prepare-worker/action.yml') == ''
         run: pnpm tauri:prepare-xinghe-worker --target "${{ matrix.target }}"
 
-      - name: Cache runtime seed archives
-        if: matrix.target != 'i686-pc-windows-msvc'
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/iyw-runtime-seed-cache
-          key: runtime-downloads-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('src-tauri/scripts/runtime-seed-config.mjs') }}
-          restore-keys: |
-            runtime-downloads-${{ runner.os }}-${{ matrix.target }}-
-
-      - name: Prepare and verify runtime seed
-        if: matrix.target != 'i686-pc-windows-msvc'
-        shell: bash
-        env:
-          IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}/iyw-runtime-seed-cache
-        run: |
-          pnpm tauri:prepare-runtime-seed --target "${{ matrix.target }}"
-          pnpm tauri:verify-runtime-seed --target "${{ matrix.target }}"
-
       - name: Build unsigned desktop bundle
         shell: bash
         env:
@@ -208,18 +227,13 @@ jobs:
           --features tauri-runtime
           --bundles "${{ matrix.bundles }}"
           --config src-tauri/tauri.ci.conf.json
+          ${{ matrix.target == 'aarch64-unknown-linux-gnu' && '--config src-tauri/tauri.linux-arm64-ci.conf.json' || '' }}
           ${{ matrix.target == 'i686-pc-windows-msvc' && '--config src-tauri/tauri.windows-x86.conf.json' || '' }}
-          ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }}
           --no-sign -- --timings
 
       - name: Verify desktop bundle size
         shell: bash
         run: pnpm tauri:verify-bundle-size --target "${{ matrix.target }}"
-
-      - name: Verify macOS runtime seed in app bundle
-        if: contains(matrix.target, 'apple-darwin')
-        shell: bash
-        run: pnpm tauri:verify-runtime-seed-bundle --target "${{ matrix.target }}"
 
       - name: Upload desktop test bundle
         uses: actions/upload-artifact@v4
@@ -240,8 +254,6 @@ jobs:
             src-tauri/target/${{ matrix.target }}/release/iyw-claw.exe
             src-tauri/binaries/**
             src-tauri/resources/xinghe-worker/**
-            src-tauri/resources/runtime-seed/**
-            src-tauri/tauri.runtime-seed.conf.json
           if-no-files-found: error
           retention-days: 2
           compression-level: 1

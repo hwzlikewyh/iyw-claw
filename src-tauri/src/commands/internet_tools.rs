@@ -83,7 +83,9 @@ fn uv_tool_bin_dir(paths: &AgentStoragePaths) -> PathBuf {
 }
 
 fn legacy_agent_reach_installed(paths: &AgentStoragePaths) -> bool {
-    !crate::shared_runtime::uv_tools_dir().join("agent-reach").is_dir()
+    !crate::shared_runtime::uv_tools_dir()
+        .join("agent-reach")
+        .is_dir()
         && paths.uv_runtime_dir().join("tools/agent-reach").is_dir()
 }
 
@@ -121,6 +123,9 @@ fn opencli_command_path(paths: &AgentStoragePaths) -> PathBuf {
 }
 
 pub(crate) fn opencli_is_installed() -> bool {
+    if cfg!(feature = "tauri-runtime") {
+        return false;
+    }
     AgentStoragePaths::active()
         .map(|paths| opencli_command_path(&paths).is_file())
         .unwrap_or(false)
@@ -139,6 +144,9 @@ pub(crate) async fn run_opencli(
     args: &[String],
     timeout: Duration,
 ) -> Result<OpencliExecution, String> {
+    if cfg!(feature = "tauri-runtime") {
+        return Err("OpenCLI 已从桌面端移除，请使用内置浏览器".into());
+    }
     let paths =
         AgentStoragePaths::active().ok_or_else(|| "Agent storage is not active".to_string())?;
     let path = opencli_command_path(&paths);
@@ -174,6 +182,12 @@ fn mcporter_config_path(paths: &AgentStoragePaths) -> PathBuf {
 }
 
 fn agent_reach_command_path(paths: &AgentStoragePaths) -> PathBuf {
+    if let Some(path) = crate::managed_environment::tool_entrypoint("agent-reach") {
+        return path;
+    }
+    if cfg!(feature = "tauri-runtime") {
+        return paths.root().join("runtime/agent-reach/.missing");
+    }
     let name = if cfg!(windows) {
         "agent-reach.exe"
     } else {
@@ -271,6 +285,14 @@ async fn ensure_node_supported() -> Result<(), String> {
 }
 
 async fn install_agent_reach(paths: &AgentStoragePaths) -> Result<(), String> {
+    if cfg!(feature = "tauri-runtime") {
+        return crate::managed_environment::tool_entrypoint("agent-reach")
+            .filter(|path| path.is_file())
+            .map(|_| ())
+            .ok_or_else(|| {
+                "Agent Reach 由安装环境统一管理，请运行 iyw-environment repair 修复环境".to_string()
+            });
+    }
     if let Ok(executable) = std::env::current_exe() {
         binary_cache::seed_bundled_uv_tools(paths, &executable)
             .map_err(|error| error.to_string())?;
@@ -330,6 +352,9 @@ async fn install_agent_reach(paths: &AgentStoragePaths) -> Result<(), String> {
 }
 
 async fn install_opencli(paths: &AgentStoragePaths) -> Result<(), String> {
+    if cfg!(feature = "tauri-runtime") {
+        return Err("OpenCLI 已从桌面端移除，不再安装或更新".into());
+    }
     ensure_node_supported().await?;
     let prefix = opencli_prefix(paths);
     fs::create_dir_all(&prefix).map_err(|error| error.to_string())?;
@@ -517,13 +542,21 @@ pub(crate) fn private_tool_bin_dirs() -> Vec<PathBuf> {
 }
 
 fn private_tool_bin_dirs_for(paths: &AgentStoragePaths) -> Vec<PathBuf> {
-    [
+    let mut directories = [
         binary_cache::uv_tool_dir_for(paths),
         uv_tool_bin_dir(paths),
-        npm_runtime::npm_prefix_bin_dir(&opencli_prefix(paths)),
     ]
     .into_iter()
-    .collect()
+    .collect::<Vec<_>>();
+    if !cfg!(feature = "tauri-runtime") {
+        directories.push(npm_runtime::npm_prefix_bin_dir(&opencli_prefix(paths)));
+    }
+    if let Some(directory) = crate::managed_environment::tool_entrypoint("agent-reach")
+        .and_then(|path| path.parent().map(Path::to_path_buf))
+    {
+        directories.insert(0, directory);
+    }
+    directories
 }
 
 pub(crate) fn private_tool_environment() -> Vec<(&'static str, PathBuf)> {

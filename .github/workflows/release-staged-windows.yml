@@ -98,8 +98,6 @@ jobs:
 
       - name: Build frontend and stage sidecars
         shell: pwsh
-        env:
-          IYW_CLAW_BROWSER_SIDECAR_EXCLUDED: ""
         run: |
           pnpm build
           if ($LASTEXITCODE -ne 0) { throw "frontend build failed" }
@@ -118,31 +116,13 @@ jobs:
         if: hashFiles('.github/actions/prepare-worker/action.yml') == ''
         run: pnpm tauri:prepare-xinghe-worker --target x86_64-pc-windows-msvc
 
-      - name: Cache runtime seed downloads
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/iyw-runtime-seed-cache
-          key: runtime-downloads-${{ runner.os }}-x86_64-pc-windows-msvc-${{ hashFiles('src-tauri/scripts/runtime-seed-config.mjs') }}
-          restore-keys: |
-            runtime-downloads-${{ runner.os }}-x86_64-pc-windows-msvc-
-
-      - name: Prepare runtime seed
-        shell: pwsh
-        env:
-          IYW_CLAW_RUNTIME_SEED_CACHE: ${{ runner.temp }}\iyw-runtime-seed-cache
-        run: |
-          pnpm tauri:prepare-runtime-seed --target x86_64-pc-windows-msvc
-          if ($LASTEXITCODE -ne 0) { throw "runtime seed preparation failed" }
-          pnpm tauri:verify-runtime-seed --target x86_64-pc-windows-msvc
-          if ($LASTEXITCODE -ne 0) { throw "runtime seed verification failed" }
-
       - name: Build unsigned staging binary
         shell: pwsh
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
           TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
         run: |
-          pnpm exec tauri build --target x86_64-pc-windows-msvc --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.runtime-seed.conf.json --no-bundle --no-sign -- --timings
+          pnpm exec tauri build --target x86_64-pc-windows-msvc --features tauri-runtime --config src-tauri/tauri.ci.conf.json --no-bundle --no-sign -- --timings
           if ($LASTEXITCODE -ne 0) { throw "unsigned staging binary build failed" }
           $status = (Get-AuthenticodeSignature -LiteralPath src-tauri\target\x86_64-pc-windows-msvc\release\iyw-claw.exe).Status
           if ($status -ne 'NotSigned') { throw "staging binary must be unsigned, found $status" }
@@ -156,9 +136,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path (Join-Path $staging 'src-tauri') | Out-Null
           Copy-Item -LiteralPath out -Destination (Join-Path $staging 'out') -Recurse -Force
           Copy-Item -LiteralPath src-tauri\binaries -Destination (Join-Path $staging 'src-tauri\binaries') -Recurse -Force
-          Copy-Item -LiteralPath src-tauri\resources\runtime-seed -Destination (Join-Path $staging 'src-tauri\resources\runtime-seed') -Recurse -Force
           Copy-Item -LiteralPath src-tauri\resources\xinghe-worker -Destination (Join-Path $staging 'src-tauri\resources\xinghe-worker') -Recurse -Force
-          Copy-Item -LiteralPath src-tauri\tauri.runtime-seed.conf.json -Destination (Join-Path $staging 'src-tauri\tauri.runtime-seed.conf.json') -Force
           $targetRoot = 'src-tauri\target\x86_64-pc-windows-msvc\release'
           New-Item -ItemType Directory -Force -Path (Join-Path $staging $targetRoot) | Out-Null
           Copy-Item -LiteralPath (Join-Path $targetRoot 'iyw-claw.exe') -Destination (Join-Path $staging "$targetRoot\iyw-claw.exe") -Force

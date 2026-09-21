@@ -35,10 +35,15 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node
-        if: github.event_name == 'workflow_dispatch'
         uses: actions/setup-node@v4
         with:
           node-version: 24
+
+      - name: Verify Fusion environment plan before tagging
+        env:
+          REQUESTED_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        shell: bash
+        run: node src-tauri/scripts/verify-environment-plan.mjs "${REQUESTED_VERSION#v}"
 
       - name: Install Rust stable
         if: github.event_name == 'workflow_dispatch'
@@ -219,6 +224,15 @@ jobs:
       source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
       release_artifacts: true
 
+  verify-environment:
+    needs: create-draft-release
+    permissions:
+      contents: read
+    uses: ./.github/workflows/verify-environment.yml
+    with:
+      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
+      version: ${{ needs.create-draft-release.outputs.release_tag }}
+
   prepare-frontend:
     needs: create-draft-release
     runs-on: ubuntu-22.04
@@ -304,7 +318,7 @@ jobs:
       # failed (ETIMEDOUT)". Sign serially instead.
       max-parallel: 1
       matrix:
-        target: [x86_64-pc-windows-msvc, i686-pc-windows-msvc]
+        target: [x86_64-pc-windows-msvc]
     permissions:
       contents: write
       actions: read
@@ -342,12 +356,13 @@ jobs:
   publish-release:
     needs:
       - create-draft-release
+      - verify-environment
       - build-tauri
       - build-macos-x64
       - build-windows
       - verify-windows-installers
       - verify-macos-x64-installer
-    if: ${{ needs.build-tauri.result == 'success' && needs.build-macos-x64.result == 'success' && needs.build-windows.result == 'success' && needs.verify-windows-installers.result == 'success' && needs.verify-macos-x64-installer.result == 'success' }}
+    if: ${{ needs.verify-environment.result == 'success' && needs.build-tauri.result == 'success' && needs.build-macos-x64.result == 'success' && needs.build-windows.result == 'success' && needs.verify-windows-installers.result == 'success' && needs.verify-macos-x64-installer.result == 'success' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: write

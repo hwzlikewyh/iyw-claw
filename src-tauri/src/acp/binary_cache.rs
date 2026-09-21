@@ -22,6 +22,9 @@ pub fn managed_uv_tool_path(paths: &AgentStoragePaths, tool: &str) -> PathBuf {
     if let Some(path) = crate::acp::version_center::managed_tool_executable(tool) {
         return path;
     }
+    if cfg!(feature = "tauri-runtime") {
+        return crate::shared_runtime::root().join("uv/.missing");
+    }
     let exe = if cfg!(windows) {
         format!("{tool}.exe")
     } else {
@@ -64,6 +67,11 @@ pub fn seed_bundled_uv_tools(
 /// when the pointer is missing (legacy install), fall back to the highest
 /// installed version.
 pub fn uv_tool_dir_for(paths: &AgentStoragePaths) -> PathBuf {
+    if cfg!(feature = "tauri-runtime") {
+        return crate::managed_environment::tool_entrypoint("uv")
+            .and_then(|path| path.parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| crate::shared_runtime::root().join("uv/.missing"));
+    }
     let uv_root = paths.uv_runtime_dir();
     if let Some(active) = active_uv_version_dir(&uv_root) {
         return active;

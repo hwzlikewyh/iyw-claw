@@ -42,7 +42,7 @@ fn link_windows_test_manifest() {
 /// path, so without a backstop every contributor would hit
 /// `resource path ... doesn't exist` on first compile.
 ///
-/// We write a zero-byte placeholder when the browser sidecar is missing so
+/// We write a zero-byte placeholder when the environment helper is missing so
 /// `cargo check` / clippy / rust-analyzer succeed. Production paths
 /// overwrite the placeholder with the real binary before Tauri bundles it:
 ///   * `pnpm tauri build`  → `beforeBuildCommand` → `prepare-sidecars.mjs`
@@ -74,7 +74,7 @@ fn ensure_sidecar_placeholders() {
             | "x86_64-unknown-linux-gnu"
             | "aarch64-unknown-linux-gnu"
     ) {
-        ensure_sidecar_placeholder(&dir, "agent-browser", &triple, ext);
+        ensure_sidecar_placeholder(&dir, "iyw-environment", &triple, ext);
     }
 }
 
