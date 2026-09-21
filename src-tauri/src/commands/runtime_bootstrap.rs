@@ -110,6 +110,9 @@ pub async fn runtime_bootstrap_managed_core(
     task_id: String,
     emitter: &EventEmitter,
 ) -> RuntimeBootstrapReport {
+    if cfg!(feature = "tauri-runtime") {
+        return runtime_bootstrap_core(task_id, emitter).await;
+    }
     let started = Instant::now();
     let _guard = bootstrap_lock().lock().await;
     tracing::info!(phase = "begin", "managed runtime bootstrap started");
@@ -198,7 +201,9 @@ pub async fn runtime_bootstrap(
 #[tauri::command]
 pub async fn bootstrap_init_status(
 ) -> Result<crate::managed_environment::ManagedEnvironmentStatusReport, String> {
-    Ok(crate::managed_environment::init_status_report())
+    tokio::task::spawn_blocking(crate::managed_environment::init_status_report)
+        .await
+        .map_err(|error| format!("环境检测任务异常：{error}"))
 }
 
 /// 统一初始化 / 修复入口：resolve → 票据 → 下载 → 校验 → 激活 → health check。
@@ -218,5 +223,5 @@ pub async fn bootstrap_initialize(
     if repair.unwrap_or(false) {
         crate::managed_environment::repair(&task_id, &EventEmitter::Tauri(app)).await?;
     }
-    Ok(crate::managed_environment::init_status_report())
+    bootstrap_init_status().await
 }

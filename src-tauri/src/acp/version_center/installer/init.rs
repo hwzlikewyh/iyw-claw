@@ -119,6 +119,11 @@ pub async fn bootstrap_initialize(
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<InitStatusReport, AppCommandError> {
+    if cfg!(feature = "tauri-runtime") {
+        return Err(AppCommandError::dependency_missing(
+            "桌面环境由独立安装引导管理，请运行环境修复程序",
+        ));
+    }
     let Some(_guard) = acquire_writer_lock(data_dir).await? else {
         emit_init_event(
             emitter,

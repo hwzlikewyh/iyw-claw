@@ -1,15 +1,23 @@
+#[cfg(not(feature = "tauri-runtime"))]
 use std::sync::Arc;
 
+#[cfg(not(feature = "tauri-runtime"))]
 use axum::{Extension, Json};
 use serde::Deserialize;
 
+#[cfg(not(feature = "tauri-runtime"))]
 use crate::acp::version_center::{
     bootstrap_init_status as vc_bootstrap_init_status,
     bootstrap_initialize as vc_bootstrap_initialize, InitStatusReport,
 };
-use crate::app_error::AppCommandError;
-use crate::app_state::AppState;
-use crate::commands::runtime_bootstrap as rb;
+#[cfg(not(feature = "tauri-runtime"))]
+use crate::{app_error::AppCommandError, app_state::AppState, commands::runtime_bootstrap as rb};
+
+#[cfg(feature = "tauri-runtime")]
+#[path = "runtime_bootstrap_desktop.rs"]
+mod desktop;
+#[cfg(feature = "tauri-runtime")]
+pub use desktop::{bootstrap_init_status, bootstrap_initialize, runtime_bootstrap};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,9 +29,13 @@ pub struct RuntimeBootstrapParams {
 #[serde(rename_all = "camelCase")]
 pub struct BootstrapInitializeParams {
     pub task_id: String,
+    #[cfg(not(feature = "tauri-runtime"))]
     pub channel: Option<String>,
+    #[cfg(feature = "tauri-runtime")]
+    pub repair: Option<bool>,
 }
 
+#[cfg(not(feature = "tauri-runtime"))]
 pub async fn runtime_bootstrap(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<RuntimeBootstrapParams>,
@@ -47,6 +59,7 @@ pub async fn runtime_bootstrap(
 }
 
 /// 受管初始化状态查询（只读，不取写入锁）；对应 Tauri command bootstrap_init_status。
+#[cfg(not(feature = "tauri-runtime"))]
 pub async fn bootstrap_init_status(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Result<Json<InitStatusReport>, AppCommandError> {
@@ -54,6 +67,7 @@ pub async fn bootstrap_init_status(
 }
 
 /// 统一初始化 / 修复入口；channel 缺省时按更新偏好读取，读不到则 stable。
+#[cfg(not(feature = "tauri-runtime"))]
 pub async fn bootstrap_initialize(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<BootstrapInitializeParams>,
