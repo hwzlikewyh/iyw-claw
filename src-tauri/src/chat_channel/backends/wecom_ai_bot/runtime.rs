@@ -15,7 +15,7 @@ pub(crate) use protocol::{
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const MAX_SILENT_INTERVALS: u32 = 3;
-const MAX_RECONNECT_ATTEMPTS: u32 = 5;
+const STABLE_SESSION_DURATION: Duration = Duration::from_secs(60);
 const OUTBOUND_ACK_TIMEOUT: Duration = Duration::from_secs(10);
 const OUTBOUND_ACK_SWEEP: Duration = Duration::from_secs(1);
 const MAX_PENDING_ACKS: usize = 128;
@@ -51,16 +51,20 @@ pub(crate) async fn run_loop(mut args: RunArgs) {
             Ok(stream) => {
                 let recovered = connected_once;
                 connected_once = true;
-                failures = 0;
                 set_status(&args.state, ChannelConnectionStatus::Connected).await;
                 resolve_ready(&mut args.ready_tx, Ok(()));
                 if recovered {
                     emit_connected(&args).await;
                 }
-                match run_session(stream, &mut args).await {
+                let session_started = Instant::now();
+                let result = match run_session(stream, &mut args).await {
                     Ok(()) => break,
                     Err(error) => error,
+                };
+                if session_started.elapsed() >= STABLE_SESSION_DURATION {
+                    failures = 0;
                 }
+                result
             }
             Err(error) if !connected_once => {
                 set_status(&args.state, ChannelConnectionStatus::Error).await;
@@ -72,10 +76,10 @@ pub(crate) async fn run_loop(mut args: RunArgs) {
         report_disconnect(&args, &error).await;
         reject_pending(&mut args.outbound_rx);
         failures += 1;
-        if is_terminal(&error) || failures >= MAX_RECONNECT_ATTEMPTS {
+        if is_terminal(&error) {
             break;
         }
-        if wait_reconnect(&mut args.stop_rx, failures).await {
+        if wait_reconnect(&mut args.stop_rx, failures, args.channel_id).await {
             break;
         }
     }
@@ -267,8 +271,14 @@ async fn set_status(state: &State, next: ChannelConnectionStatus) -> bool {
     changed
 }
 
-async fn wait_reconnect(stop_rx: &mut watch::Receiver<bool>, failures: u32) -> bool {
-    let delay = Duration::from_secs(1_u64 << failures.saturating_sub(1).min(5));
+async fn wait_reconnect(
+    stop_rx: &mut watch::Receiver<bool>,
+    failures: u32,
+    channel_id: i32,
+) -> bool {
+    let base = 1_u64 << failures.saturating_sub(1).min(5);
+    let jitter = (channel_id.unsigned_abs() % 5) as u64;
+    let delay = Duration::from_secs((base + jitter).min(30));
     tokio::select! {
         _ = tokio::time::sleep(delay) => false,
         changed = stop_rx.changed() => changed.is_err() || *stop_rx.borrow(),

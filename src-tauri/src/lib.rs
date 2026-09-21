@@ -1057,9 +1057,15 @@ mod tauri_app {
                     let cm = app.state::<ConnectionManager>().clone_ref();
                     let emitter = web::event_bridge::EventEmitter::Tauri(app.handle().clone());
                     tauri::async_runtime::spawn(async move {
+                        let recovery_manager = ccm_ref.clone_ref();
+                        let recovery_db = db_conn.clone();
                         ccm_ref
                             .start_background(br, bus, db_conn, data_dir, cm, emitter)
                             .await;
+                        crate::chat_channel::desktop_recovery::spawn(
+                            recovery_manager,
+                            recovery_db,
+                        );
                     });
                 }
 

@@ -19,6 +19,8 @@ use crate::chat_channel::types::*;
 
 const TOKEN_REFRESH_MARGIN_SECS: u64 = 300;
 const LARK_MAX_FILE_BYTES: u64 = 30 * 1024 * 1024;
+const WS_PING_INTERVAL: Duration = Duration::from_secs(120);
+const WS_READ_IDLE_TIMEOUT: Duration = Duration::from_secs(245);
 
 // ── Lark WebSocket protobuf Frame (pbbp2) ──
 // Source: larksuite/oapi-sdk-go ws/pbbp2.pb.go
@@ -458,10 +460,16 @@ impl LarkBackend {
                 let (mut write, mut read) = ws_stream.split();
                 let mut partial_msgs: HashMap<String, PartialMessage> = HashMap::new();
                 let mut last_partial_cleanup = Instant::now();
+                let mut heartbeat = tokio::time::interval(WS_PING_INTERVAL);
+                heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                heartbeat.tick().await;
+                let idle = tokio::time::sleep(WS_READ_IDLE_TIMEOUT);
+                tokio::pin!(idle);
 
                 loop {
                     tokio::select! {
                         msg = read.next() => {
+                            idle.as_mut().reset(tokio::time::Instant::now() + WS_READ_IDLE_TIMEOUT);
                             match msg {
                                 Some(Ok(tungstenite::Message::Binary(data))) => {
                                     match Frame::decode(data.as_ref()) {
@@ -548,6 +556,7 @@ impl LarkBackend {
                                 Some(Ok(tungstenite::Message::Ping(data))) => {
                                     let _ = write.send(tungstenite::Message::Pong(data)).await;
                                 }
+                                Some(Ok(tungstenite::Message::Pong(_))) => {}
                                 Some(Ok(tungstenite::Message::Close(_))) | None => {
                                     if !*shutdown_rx.borrow() {
                                         report_transport_error(
@@ -576,6 +585,30 @@ impl LarkBackend {
                                 }
                                 _ => {}
                             }
+                        }
+                        _ = heartbeat.tick() => {
+                            if let Err(error) = write.send(tungstenite::Message::Ping(Vec::new().into())).await {
+                                report_transport_error(
+                                    &status,
+                                    &runtime_tx,
+                                    channel_id,
+                                    generation,
+                                    "ping_failed",
+                                    &redact_transport_error(&error),
+                                ).await;
+                                break;
+                            }
+                        }
+                        _ = &mut idle => {
+                            report_transport_error(
+                                &status,
+                                &runtime_tx,
+                                channel_id,
+                                generation,
+                                "silent_timeout",
+                                "provider sent no frames before the read deadline",
+                            ).await;
+                            break;
                         }
                         _ = shutdown_rx.changed() => {
                             let _ = write.close().await;

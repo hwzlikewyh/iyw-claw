@@ -375,17 +375,16 @@ async fn process_envelope(
             Some((_, target)) => manager.send_to_target(target, &msg).await,
             None => manager.send_to_channel(ch.id, &msg).await,
         };
-        let (status, error_detail) = match &send_result {
-            Ok(_) => {
-                // Only update the debounce timestamp on success, and only for
-                // debounced event types.
-                if debounced {
-                    last_push.insert(key, now);
-                }
-                ("sent", None)
+        let (status, error_detail, accepted) = match &send_result {
+            Ok(_) => ("sent", None, true),
+            Err(super::error::ChatChannelError::DeliveryDeferred(_)) => {
+                ("queued", Some("WAITING_CONTEXT".to_string()), true)
             }
-            Err(e) => ("failed", Some(e.to_string())),
+            Err(_) => ("failed", Some("CHANNEL_SEND_FAILED".to_string()), false),
         };
+        if accepted && debounced {
+            last_push.insert(key, now);
+        }
 
         let _ = chat_channel_message_log_service::create_log_for_target(
             db_conn,

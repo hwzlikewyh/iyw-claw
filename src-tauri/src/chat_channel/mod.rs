@@ -7,6 +7,7 @@ pub mod command_handlers;
 mod command_response;
 pub mod config_patch;
 pub mod dedupe;
+pub mod desktop_recovery;
 pub mod diagnostics;
 pub mod error;
 pub mod event_subscriber;

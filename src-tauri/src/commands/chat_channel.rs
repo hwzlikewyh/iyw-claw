@@ -330,27 +330,19 @@ pub(crate) async fn reconcile_wecom_unified_best_effort(
 }
 
 fn normalize_daily_report(
-    channel_type: ChannelType,
+    _channel_type: ChannelType,
     enabled: bool,
     time: Option<String>,
 ) -> (bool, Option<String>) {
-    if channel_type == ChannelType::Dingtalk {
-        (false, None)
-    } else {
-        (enabled, time)
-    }
+    (enabled, time)
 }
 
 fn normalize_daily_report_update(
-    channel_type: ChannelType,
+    _channel_type: ChannelType,
     enabled: Option<bool>,
     time: Option<Option<String>>,
 ) -> (Option<bool>, Option<Option<String>>) {
-    if channel_type == ChannelType::Dingtalk {
-        (Some(false), Some(None))
-    } else {
-        (enabled, time)
-    }
+    (enabled, time)
 }
 
 async fn register_default_target(

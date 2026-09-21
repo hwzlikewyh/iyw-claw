@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::NotSet, ColumnTrait, DatabaseConnection, EntityTrait,
-    IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, Set,
+    IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 
 use crate::db::entities::chat_channel_outbox;
@@ -50,7 +50,9 @@ pub async fn list_waiting(
 }
 
 pub async fn remove(db: &DatabaseConnection, id: i32) -> Result<(), DbError> {
-    chat_channel_outbox::Entity::delete_by_id(id).exec(db).await?;
+    chat_channel_outbox::Entity::delete_by_id(id)
+        .exec(db)
+        .await?;
     Ok(())
 }
 

@@ -13,6 +13,8 @@ use crate::chat_channel::types::{ChannelConnectionStatus, ChannelRuntimeEvent, I
 const MAX_RECONNECT_DELAY_SECS: u64 = 30;
 const REGISTRATION_TIMEOUT: Duration = Duration::from_secs(15);
 const STABLE_SESSION_DURATION: Duration = Duration::from_secs(30);
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(120);
+const READ_IDLE_TIMEOUT: Duration = Duration::from_secs(130);
 
 pub(super) type DingTalkSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -119,13 +121,32 @@ async fn run_stream(
     shutdown_rx: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), ChatChannelError> {
     let (mut write, mut read) = stream.split();
+    let mut keepalive = tokio::time::interval(KEEPALIVE_INTERVAL);
+    keepalive.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    keepalive.tick().await;
+    let idle = tokio::time::sleep(READ_IDLE_TIMEOUT);
+    tokio::pin!(idle);
     loop {
         tokio::select! {
             _ = shutdown_rx.changed() => {
                 let _ = write.close().await;
                 return Ok(());
             }
-            message = read.next() => match message {
+            _ = keepalive.tick() => {
+                write.send(tungstenite::Message::Ping(Vec::new().into()))
+                    .await
+                    .map_err(|error| ChatChannelError::ConnectionFailed(
+                        super::redact_transport_error(&error)
+                    ))?;
+            }
+            _ = &mut idle => {
+                return Err(ChatChannelError::ConnectionFailed(
+                    "DingTalk stream became silent".into()
+                ));
+            }
+            message = read.next() => {
+                idle.as_mut().reset(tokio::time::Instant::now() + READ_IDLE_TIMEOUT);
+                match message {
                 Some(Ok(tungstenite::Message::Text(text))) => {
                     super::protocol::handle_frame(
                         backend.channel_id,
@@ -148,6 +169,7 @@ async fn run_stream(
                     ));
                 }
                 _ => {}
+                }
             }
         }
     }
