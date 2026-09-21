@@ -83,6 +83,8 @@ iyw-claw（Code Generation）是一个多智能体编码工作台，它将多个
 
 ## 关键约束
 
+- **记忆嵌入与重排经 Fusion 转发**：客户端保留 SQLite 权威记忆和 Qdrant 派生索引，不再加载、下载或打包本地嵌入模型。不得为记忆检索恢复 fastembed、ORT/ONNX、DirectML 依赖或平台专用运行库构建流程；实现与验证边界见 `docs/memory-lifecycle.md`。
+
 - **内置技能随应用发布**：技能源码在 `src-tauri/experts/skills/` 中维护；开发、构建、启动、更新和修复流程均不得 clone、fetch、pull 或下载独立 `skill` 仓库来补充或覆盖内置技能。
 - **旧技能目录仅做本地兼容**：`.system-repo` 只用于旧安装迁移和清理，不作为远程更新源；缺失内置技能通过当前应用内置包修复，不恢复已停用的仓库同步模块。
 - **仅支持静态导出**：`next.config.ts` 设置 `output: "export"`，不支持动态路由（`[param]`），必须使用查询参数替代
