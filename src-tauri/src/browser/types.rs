@@ -4,7 +4,7 @@ use super::types_cdp::{
     BrowserDialogSnapshot, BrowserDownloadSnapshot, BrowserFileChooserSnapshot,
 };
 
-pub const BROWSER_SIDECAR_VERSION: &str = "0.37.1";
+pub const BROWSER_SIDECAR_VERSION: &str = "0.38.1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -62,6 +62,7 @@ pub enum BrowserHostKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BrowserEngineKind {
+    Chromix,
     Chrome,
     Edge,
     Brave,

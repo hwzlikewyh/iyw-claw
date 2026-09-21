@@ -1,23 +1,7 @@
 #[cfg(feature = "tauri-runtime")]
 mod agent_browser;
 #[cfg(feature = "tauri-runtime")]
-mod agent_browser_external;
-#[cfg(feature = "tauri-runtime")]
-mod agent_browser_handoff;
-#[cfg(feature = "tauri-runtime")]
-mod agent_browser_handoff_state;
-#[cfg(feature = "tauri-runtime")]
 mod agent_browser_input;
-#[cfg(feature = "tauri-runtime")]
-mod agent_browser_presentation;
-#[cfg(feature = "tauri-runtime")]
-mod agent_browser_provider_actions;
-#[cfg(feature = "tauri-runtime")]
-mod agent_browser_request;
-#[cfg(feature = "tauri-runtime")]
-mod agent_browser_request_support;
-#[cfg(feature = "tauri-runtime")]
-mod agent_browser_route;
 #[cfg(all(test, feature = "tauri-runtime"))]
 mod agent_browser_tests;
 #[cfg(feature = "tauri-runtime")]
@@ -64,11 +48,9 @@ mod control_lease;
 mod control_waiter;
 #[cfg(feature = "tauri-runtime")]
 mod engine;
-#[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
-mod engine_download;
-#[cfg(feature = "tauri-runtime")]
-mod engine_prefetch;
 mod error;
+#[cfg(feature = "tauri-runtime")]
+mod fingerprint;
 #[cfg(feature = "tauri-runtime")]
 mod frame_protocol;
 mod manager;
@@ -80,8 +62,6 @@ mod manager_idle;
 mod manager_recovery;
 #[cfg(feature = "tauri-runtime")]
 mod manager_runtime;
-#[cfg(feature = "tauri-runtime")]
-mod opencli;
 #[path = "opencli/doctor.rs"]
 mod opencli_doctor;
 mod opencli_failure;
@@ -89,8 +69,6 @@ mod opencli_failure;
 mod process;
 #[cfg(feature = "tauri-runtime")]
 mod profile;
-#[cfg(feature = "tauri-runtime")]
-mod profile_seed;
 mod records;
 #[cfg(feature = "tauri-runtime")]
 mod resource_gate;
@@ -152,8 +130,6 @@ mod windows_process;
 mod windows_process_values;
 
 pub use control_lease::AgentControlLease;
-#[cfg(feature = "tauri-runtime")]
-pub(crate) use engine::open_extension_settings;
 pub use error::{BrowserError, BrowserErrorCode, BrowserErrorContext};
 pub use manager::BrowserSessionManager;
 pub(crate) use opencli_doctor::settings_report as opencli_settings_report;

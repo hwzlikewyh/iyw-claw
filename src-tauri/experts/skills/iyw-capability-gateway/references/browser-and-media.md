@@ -9,25 +9,22 @@ UI interaction, screenshots, or page/rendering acceptance. Do not inspect tabs
 or load browser workflows before that decision. A failed unrelated tool or
 retired Skill is not a browser trigger.
 
-The unified `browser` tool checks
-both the user's connected Chrome/OpenCLI and the iyw-claw managed browser. It
-prefers OpenCLI for existing Chrome sign-in state and switches only for a
-classified human-only action. Use the live catalog for exact stable IDs and
-schemas.
+The unified `browser` tool uses only the installed managed Chromix browser.
+Use the live catalog for exact stable IDs and schemas. External browser tab IDs
+are retired; do not replay their references or import external login state.
 
-The built-in browser setting is enforced by the host. When off, all operations,
-presentation, and user action stay in external Chrome/OpenCLI. Never re-enable
-or enter the managed browser to recover an external failure. An old managed tab
-requires a new external open and snapshot; do not replay its references.
-`OPENCLI_USER_ACTION_REQUIRED` means the human step is still pending, even when
-the external tab was successfully presented. Verify fresh state after the user
-finishes. A timeout with `effectMayHaveOccurred=true` must not be blindly retried.
+The built-in browser setting is enforced by the host. When off, browser
+operations return an error; ask the user to enable the browser when needed.
+Never enable it automatically or launch an external browser as a fallback.
+Missing runtime components require the separate environment repair program,
+not an upstream download command. Verify fresh state after a human-only step.
+A timeout with `effectMayHaveOccurred=true` must not be blindly retried.
 
 ## Unified Browser Workflow
 
 Use this sequence for ordinary navigation and interaction:
 
-1. **List**: call `browser` with `action=list_tabs` to inspect both providers.
+1. **List**: call `browser` with `action=list_tabs` to inspect managed tabs.
    Reuse an existing opaque tab id whenever possible; skip listing when the
    current task already has a valid tab id.
 2. **Open**: call `browser` with `action=open` for an HTTP/HTTPS URL. Set
@@ -90,7 +87,7 @@ and is not a delay. Follow the current schema's field names and examples.
 ## Advanced Browser Commands
 
 Use `browser_command` only when a dedicated tool cannot express the operation.
-Read the installed `agent-browser` Skill first. The host pins the command to one
+Read the advanced-command schema first. The host pins the command to one
 managed tab, appends its fixed CDP endpoint, and never invokes a shell. Commands
 may cover extraction, semantic locators, keyboard/mouse/form actions,
 upload/download, waits, PDF, frames/dialogs, JavaScript, accessibility,
@@ -102,7 +99,7 @@ Treat cookies, storage, state, headers, clipboard data, credentials, and page
 scripts as sensitive. Pass every command argument separately: no shell quoting,
 pipes, redirects, command chaining, or guessed command names.
 
-## Recovery, Fallback, and Human Action
+## Recovery and Human Action
 
 - A gateway schema rejection with `execution_status=not_started` follows the
   one-correction rule in `tool-usage.md`: use the schema already read, preserve the
@@ -111,14 +108,11 @@ pipes, redirects, command chaining, or guessed command names.
 - For a stale reference or locator failure, take one fresh snapshot and retry
   the same intended action once with one new reference or revised locator. Do
   not cycle selectors.
-- For OpenCLI bridge, Chrome, extension, daemon, CDP, network, timeout,
+- For browser, daemon, CDP, network, timeout,
   selector, or unknown failure, return the structured failure and stop the
   current browser/provider attempt. Do not switch providers from this Skill;
   the caller may choose another already-authorized route, but must not treat
   this failure alone as proof that the business task is impossible.
-- Switch only when the built-in browser is enabled and OpenCLI reports login, MFA, CAPTCHA, device approval,
-  security confirmation, human review, or another explicit user-action
-  requirement. Keep that task pinned to the managed provider afterward.
 - Request browser user action only for credentials held by the user, MFA,
   CAPTCHA, device approval, secure payment confirmation, an unavailable
   managed operation, or explicit human review. Do not request it for ordinary

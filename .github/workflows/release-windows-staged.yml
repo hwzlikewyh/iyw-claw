@@ -46,7 +46,6 @@ jobs:
     steps:
       - name: Initialize build paths
         run: |
-          "IYW_CLAW_RUNTIME_SEED_CACHE=$env:RUNNER_TEMP/iyw-runtime-seed-cache" >> $env:GITHUB_ENV
           "IYW_CLAW_STAGING_DIR=$env:RUNNER_TEMP/staging-$env:TAURI_TARGET_TRIPLE" >> $env:GITHUB_ENV
           "STAGING_ARCHIVE=$env:RUNNER_TEMP/iyw-staging-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$env:TAURI_TARGET_TRIPLE.zip" >> $env:GITHUB_ENV
       - uses: actions/checkout@v4
@@ -90,22 +89,7 @@ jobs:
           name: ${{ inputs.frontend_artifact }}
           path: out
       - name: Stage sidecars
-        env:
-          IYW_CLAW_BROWSER_SIDECAR_EXCLUDED: ${{ inputs.target == 'i686-pc-windows-msvc' && '1' || '' }}
         run: pnpm tauri:prepare-sidecars --target $env:TAURI_TARGET_TRIPLE
-      - uses: actions/cache@v4
-        if: inputs.target != 'i686-pc-windows-msvc'
-        with:
-          path: ${{ runner.temp }}/iyw-runtime-seed-cache
-          key: runtime-downloads-${{ runner.os }}-${{ inputs.target }}-${{ hashFiles('src-tauri/scripts/runtime-seed-config.mjs') }}
-          restore-keys: runtime-downloads-${{ runner.os }}-${{ inputs.target }}-
-      - name: Prepare runtime seed
-        if: inputs.target != 'i686-pc-windows-msvc'
-        run: |
-          pnpm tauri:prepare-runtime-seed --target $env:TAURI_TARGET_TRIPLE
-          if ($LASTEXITCODE -ne 0) { throw 'Runtime preparation failed' }
-          pnpm tauri:verify-runtime-seed --target $env:TAURI_TARGET_TRIPLE
-          if ($LASTEXITCODE -ne 0) { throw 'Runtime verification failed' }
       - name: Check worker producer before compiling
         if: inputs.parallel_worker
         uses: ./.github/actions/receive-worker
@@ -117,8 +101,7 @@ jobs:
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
         run: |
-          $overlay = if ($env:TAURI_TARGET_TRIPLE -eq 'i686-pc-windows-msvc') { 'src-tauri/tauri.windows-x86.conf.json' } else { 'src-tauri/tauri.runtime-seed.conf.json' }
-          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config $overlay --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings --config profile.release.package.iyw-claw.opt-level=1
+          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings --config profile.release.package.iyw-claw.opt-level=1
           if ($LASTEXITCODE -ne 0) { throw 'Parallel Windows compilation failed' }
       - name: Archive application compile timings
         if: always() && inputs.parallel_worker
@@ -143,8 +126,7 @@ jobs:
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
         run: |
-          $overlay = if ($env:TAURI_TARGET_TRIPLE -eq 'i686-pc-windows-msvc') { 'src-tauri/tauri.windows-x86.conf.json' } else { 'src-tauri/tauri.runtime-seed.conf.json' }
-          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config $overlay --no-bundle --no-sign -- --timings --config profile.release.package.iyw-claw.opt-level=1
+          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --no-bundle --no-sign -- --timings --config profile.release.package.iyw-claw.opt-level=1
           if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
       - name: Package verified signing input
         run: |
@@ -236,7 +218,7 @@ jobs:
           path: |
             src-tauri/target/${{ inputs.target }}/release/bundle/nsis/*-setup.exe
             src-tauri/resources/xinghe-worker/*
-            src-tauri/binaries/agent-browser-${{ inputs.target }}.exe
+            src-tauri/binaries/iyw-environment-${{ inputs.target }}.exe
           compression-level: 1
           if-no-files-found: error
           retention-days: 2

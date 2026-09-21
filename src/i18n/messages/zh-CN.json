@@ -1735,7 +1735,7 @@
     "autostartSaveFailed": "更新启动设置失败：{message}",
     "browserTitle": "浏览器",
     "browserVisible": "显示内置浏览器",
-    "browserDescription": "默认关闭。关闭时 Agent 使用外部浏览器；开启后允许内置浏览器展示和人工接管。设置立即生效，重启后保留。",
+    "browserDescription": "默认关闭。关闭时停止浏览器操作；开启后使用已安装的 Chromix，支持页面展示和人工接管。",
     "browserSaveFailed": "浏览器设置保存失败：{message}"
   },
   "MainCloseDialog": {

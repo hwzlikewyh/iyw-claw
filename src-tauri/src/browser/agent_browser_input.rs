@@ -21,10 +21,6 @@ pub(super) fn legacy_input(tool: &str, input: &Value) -> Result<Value, BrowserEr
     Ok(Value::Object(map))
 }
 
-pub(super) fn requires_managed(action: &str) -> bool {
-    matches!(action, "request_user_action" | "present" | "close_window")
-}
-
 pub(super) fn managed_input(action: &str, input: &Value) -> Result<Value, BrowserError> {
     let mut map = input
         .as_object()
@@ -34,6 +30,15 @@ pub(super) fn managed_input(action: &str, input: &Value) -> Result<Value, Browse
     copy_alias(&mut map, "new_tab", "newTab");
     copy_alias(&mut map, "timeout_ms", "timeoutMs");
     copy_alias(&mut map, "full_page", "fullPage");
+    if map
+        .get("tab_id")
+        .and_then(Value::as_str)
+        .is_some_and(|id| id.starts_with("opencli:"))
+    {
+        return Err(invalid_argument(
+            "External browser tab IDs are retired; open a new managed browser tab and take a fresh snapshot",
+        ));
+    }
     if let Some(target) = map.get("target").cloned() {
         if let Some(selector) = target_string(&target) {
             map.insert("selector".to_string(), Value::String(selector));
@@ -100,24 +105,6 @@ pub(super) fn managed_semantic_command(
         command["timeout_ms"] = timeout.clone();
     }
     Ok(Some(command))
-}
-
-pub(super) fn add_fallback(value: Value, reason: Option<&str>) -> Value {
-    let mut value = value;
-    if let Some(map) = value.as_object_mut() {
-        map.insert("provider".to_string(), Value::String("managed".to_string()));
-        if let Some(reason) = reason {
-            map.insert(
-                "fallback".to_string(),
-                json!({
-                    "from": "opencli",
-                    "to": "managed",
-                    "reason": reason,
-                }),
-            );
-        }
-    }
-    value
 }
 
 fn legacy_action(tool: &str) -> Result<&'static str, BrowserError> {

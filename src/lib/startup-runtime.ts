@@ -5,14 +5,17 @@ const WRITER_RETRY_INTERVAL_MS = 2_000
 const WRITER_WAIT_TIMEOUT_MS = 120_000
 
 export async function prepareStartupRuntime(options: {
+  repair?: boolean
   taskId: string
   signal: AbortSignal
   onStatus: (report: BootstrapInitStatusReport) => void
 }) {
   const deadline = Date.now() + WRITER_WAIT_TIMEOUT_MS
+  let repair = options.repair ?? false
   while (true) {
     options.signal.throwIfAborted()
-    const report = await bootstrapInitialize({ taskId: options.taskId })
+    const report = await bootstrapInitialize({ repair, taskId: options.taskId })
+    repair = false
     options.signal.throwIfAborted()
     options.onStatus(report)
     if (!report.writerBusy) return report

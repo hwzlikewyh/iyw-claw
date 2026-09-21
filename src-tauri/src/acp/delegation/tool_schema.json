@@ -254,7 +254,7 @@
   },
   {
     "name": "browser",
-    "description": "Unified browser entry for web navigation, reading, interaction, screenshots, waits, and advanced commands. Prefer OpenCLI to reuse the user's connected Chrome sign-in state. The host enforces the built-in browser setting: when disabled, operations, presentation, and user action stay in external Chrome; do not enable or enter the managed browser to recover a failure. Old managed tabs require a new external open and snapshot, never replay their references. When enabled, present may copy the page URL to a detached managed window without changing the operation provider, and login, MFA/OTP, CAPTCHA, device approval, security confirmation, or explicit human review may hand off to the managed browser. External presentation does not complete a human step: OPENCLI_USER_ACTION_REQUIRED requires the user to act, followed by fresh state verification. Provider failures are returned directly; do not blindly retry timeouts with effectMayHaveOccurred=true. The legacy browser_* tools remain compatible aliases.",
+    "description": "Unified managed Chromix browser entry for navigation, reading, interaction, screenshots, waits, and advanced commands. The browser must be enabled by the user; when disabled, stop browser actions and do not launch an external browser. Installation and environment repair are separate user actions, not browser fallbacks. Reuse returned managed browserTabId values; retired external tab IDs and references must not be replayed. Use request_user_action only for genuine human-only steps and verify fresh state afterward. Do not blindly retry failures with effectMayHaveOccurred=true. The legacy browser_* tools remain compatible aliases.",
     "inputSchema": {
       "type": "object",
       "required": ["action"],
@@ -294,7 +294,7 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 256,
-          "description": "Managed browserTabId or an opaque OpenCLI browser tab id returned by a previous call."
+          "description": "Managed browserTabId returned by a previous call. Retired external browser tab IDs are rejected."
         },
         "tabId": {
           "type": "string",
@@ -439,7 +439,7 @@
   },
   {
     "name": "browser_list_tabs",
-    "description": "Compatibility alias for browser(action=list_tabs). It checks Chrome/OpenCLI and, when enabled, managed tabs; disabled managed tabs are not exposed. Reports provider health and opaque browserTabId values for later calls.",
+    "description": "Compatibility alias for browser(action=list_tabs). Lists managed tabs visible to this Agent with browserTabId values for later calls. When the built-in browser is disabled, returns an error without inspecting external browsers.",
     "inputSchema": {
       "type": "object",
       "properties": {},
@@ -448,7 +448,7 @@
   },
   {
     "name": "browser_open",
-    "description": "Compatibility alias for browser(action=open). It prefers OpenCLI and the user's Chrome sign-in state, preserves the task's selected provider, and routes an opaque tab_id back to its owning provider. Set new_tab only when another tab is required. Non-human provider failures are returned directly.",
+    "description": "Compatibility alias for browser(action=open). Opens an enabled managed Chromix tab using its persistent profile. It does not import external sign-in data or launch external browsers. Set new_tab only when another tab is required. Failures are returned directly.",
     "inputSchema": {
       "type": "object",
       "required": ["url"],
@@ -585,7 +585,7 @@
   },
   {
     "name": "browser_press",
-    "description": "Compatibility alias for browser(action=press). Press a key or chord in the selected provider's exact tab. Unavailable, timeout, and runtime failures are returned directly; only a classified human-only OpenCLI failure can hand off.",
+    "description": "Compatibility alias for browser(action=press). Press a key or chord in the exact managed tab. Unavailable, timeout, and runtime failures are returned directly without switching browsers.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id", "key"],
@@ -654,7 +654,7 @@
   },
   {
     "name": "browser_screenshot",
-    "description": "Compatibility alias for browser(action=screenshot). Capture the selected provider's tab; the managed provider returns a local path while OpenCLI returns its bounded command output. Use analyze_image when visual inspection is needed. Failures do not trigger a provider switch.",
+    "description": "Compatibility alias for browser(action=screenshot). Capture the selected managed tab and return a local image path. Use analyze_image when visual inspection is needed. Failures do not launch another browser.",
     "inputSchema": {
       "type": "object",
       "required": ["tab_id"],
@@ -694,7 +694,7 @@
   },
   {
     "name": "browser_request_user_action",
-    "description": "Compatibility alias for browser(action=request_user_action). Use only for login credentials held by the user, MFA/OTP, CAPTCHA, device approval, security/payment confirmation, or explicit human review. When the built-in browser is disabled, present the external Chrome tab and return OPENCLI_USER_ACTION_REQUIRED; verify fresh state after the user acts. When enabled, an OpenCLI task may perform a restricted same-origin handoff to the managed browser and remain managed afterward. Never use this for selector/runtime errors or include secrets in completion conditions.",
+    "description": "Compatibility alias for browser(action=request_user_action). In the enabled managed browser, request user login, MFA/OTP, CAPTCHA, device approval, security/payment confirmation, or explicit human review. Verify fresh state after the user acts. When disabled, return an error without launching an external browser. Never use this for selector/runtime errors or include secrets in completion conditions.",
     "inputSchema": {
       "type": "object",
       "required": ["reason"],
@@ -823,7 +823,7 @@
   },
   {
     "name": "browser_present",
-    "description": "Compatibility alias for browser(action=present). When the built-in browser is disabled, present the external Chrome tab. When enabled, a managed task opens a detached iyw-claw window and an OpenCLI task may copy the current page URL into a detached display window while preserving the OpenCLI operation route. This call does not wait for or confirm user input.",
+    "description": "Compatibility alias for browser(action=present). Show the enabled managed tab in a detached iyw-claw window. When the built-in browser is disabled, return an error. This call does not wait for or confirm user input.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -850,7 +850,7 @@
   },
   {
     "name": "browser_close_window",
-    "description": "Compatibility alias for browser(action=close_window). Close only a detached managed-browser window while preserving its tab and sign-in state. OpenCLI user windows are never controlled or closed by this action.",
+    "description": "Compatibility alias for browser(action=close_window). Close only a detached managed-browser window while preserving its tab and sign-in state. External browser windows are never controlled or closed by this action.",
     "inputSchema": {
       "type": "object",
       "properties": {

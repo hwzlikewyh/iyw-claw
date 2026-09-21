@@ -46,7 +46,6 @@ pub(crate) use runtime::{runtime_dir, write_current_pointer};
 pub(crate) use runtime_bundle::{
     install_runtime_bundle, InstalledRuntimeBundle, RuntimeBundleInstallError, RuntimeBundleRequest,
 };
-pub(crate) use runtime_seed::{import_runtime_seed_exclusive, RuntimeSeedImport};
 pub use tools::{install_managed_tool, ManagedToolInstallResult};
 pub use runtime_migration::prepare_shared_runtime;
 pub(crate) use state::acquire_writer_lock;

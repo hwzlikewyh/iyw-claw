@@ -41,7 +41,14 @@ export interface BrowserCapability {
   sidecarVersion: string
   sidecarVerified: boolean
   engine?: {
-    kind: "chrome" | "edge" | "brave" | "vivaldi" | "opera" | "chromium"
+    kind:
+      | "chromix"
+      | "chrome"
+      | "edge"
+      | "brave"
+      | "vivaldi"
+      | "opera"
+      | "chromium"
     version: string
   }
 }

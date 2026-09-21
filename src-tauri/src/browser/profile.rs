@@ -46,7 +46,7 @@ impl ProfileGuard {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
             Err(_) => return Err(profile_error()),
         }
-        let profile_path = root.join("profile-v1");
+        let profile_path = root.join("profiles/default");
         reclaim_stale_lock(&lock_path, sidecar_path, engine_path, &profile_path).await
     }
 
@@ -57,7 +57,7 @@ impl ProfileGuard {
         engine_path: &Path,
     ) -> Result<Self, BrowserError> {
         std::fs::create_dir_all(root).map_err(|_| profile_error())?;
-        let profile_path = root.join("profile-v1");
+        let profile_path = root.join("profiles/default");
         std::fs::create_dir_all(&profile_path).map_err(|_| profile_error())?;
         let lock_path = root.join("runtime.lock.json");
         let current = capture_process(std::process::id(), "iyw-claw").ok_or_else(profile_error)?;
@@ -95,14 +95,6 @@ impl ProfileGuard {
             return Err(profile_error());
         }
         Ok(())
-    }
-
-    pub async fn seed_user_profile(
-        &self,
-        source: &Path,
-        browser_executable: &Path,
-    ) -> Result<(), BrowserError> {
-        super::profile_seed::seed(&self.profile_path, source, browser_executable).await
     }
 }
 

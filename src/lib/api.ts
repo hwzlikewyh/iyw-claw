@@ -1383,11 +1383,16 @@ export async function bootstrapInitStatus(): Promise<BootstrapInitStatusReport> 
 
 export async function bootstrapInitialize(params: {
   channel?: string
+  repair?: boolean
   taskId: string
 }): Promise<BootstrapInitStatusReport> {
   return getTransport().call(
     "bootstrap_initialize",
-    { channel: params.channel ?? "stable", taskId: params.taskId },
+    {
+      channel: params.channel ?? "stable",
+      repair: params.repair ?? false,
+      taskId: params.taskId,
+    },
     { timeoutMs: 1_800_000 }
   )
 }

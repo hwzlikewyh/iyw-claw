@@ -60,6 +60,11 @@ pub async fn install_managed_tool(
     task_id: Option<&str>,
     emitter: Option<&crate::web::event_bridge::EventEmitter>,
 ) -> Result<ManagedToolInstallResult, AppCommandError> {
+    if cfg!(feature = "tauri-runtime") {
+        return Err(AppCommandError::dependency_missing(
+            "桌面基础环境由安装引导管理，请运行环境修复程序",
+        ));
+    }
     let _guard = install_lock().lock().await;
     let _writer = super::state::acquire_writer_lock(data_dir).await?.ok_or_else(|| {
         AppCommandError::task_execution_failed("Shared runtime is being updated; retry shortly")

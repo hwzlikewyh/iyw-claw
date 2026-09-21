@@ -52,11 +52,11 @@ not evidence. Aim for breadth first, then select 3–5 strongest sources for dee
 reading; the correct count depends on scope, not a fabricated quota.
 
 Use the unified `iyw.browser.unified.v1` capability for pages and public web
-data when browser interaction is needed. It checks the user's connected
-Chrome/OpenCLI and the managed browser together, preferring OpenCLI for the
-user's existing sign-in state. Take a fresh snapshot/read after navigation or
-DOM changes and verify URL/title/text. It hands off to the managed profile only
-for login/MFA/CAPTCHA/payment or another human-only step.
+data when browser interaction is needed. It uses the installed managed Chromix
+browser when the user has enabled it; external browsers are not a fallback.
+Take a fresh snapshot/read after navigation or DOM changes and verify
+URL/title/text. Request user action in that same profile only for genuine
+login/MFA/CAPTCHA/payment or another human-only step.
 
 ## 4. Deep-read and verify
 

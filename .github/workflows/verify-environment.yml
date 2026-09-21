@@ -1,0 +1,75 @@
+name: Verify Managed Environment
+
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  native-environment:
+    name: Environment ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-2022
+            target: x86_64-pc-windows-msvc
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_ref }}
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri/environment-core -> ../target/environment-helper
+          shared-key: environment-${{ matrix.target }}
+      - name: Install Linux runtime dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          audio=libasound2
+          if [[ '${{ matrix.runner }}' == 'ubuntu-24.04-arm' ]]; then audio=libasound2t64; fi
+          sudo apt-get install -y libnss3 libatk-bridge2.0-0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libxkbcommon0 libxtst6 liblzma-dev "$audio"
+      - name: Build independent helper
+        env:
+          ENVIRONMENT_VERSION: ${{ inputs.version }}
+        shell: bash
+        run: |
+          node scripts/set-version.mjs "$ENVIRONMENT_VERSION"
+          node src-tauri/scripts/prepare-environment-helper.mjs '${{ matrix.target }}'
+          node src-tauri/scripts/verify-sidecar-bundle.mjs --target '${{ matrix.target }}'
+      - name: Verify real downloads, reuse and repair
+        env:
+          ENVIRONMENT_TARGET: ${{ matrix.target }}
+        run: node src-tauri/scripts/verify-managed-environment.mjs
+      - name: Upload sanitized acceptance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: environment-${{ matrix.target }}-${{ inputs.version }}
+          path: src-tauri/target/environment-acceptance/*.json
+          if-no-files-found: warn
+          retention-days: 7

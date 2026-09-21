@@ -184,7 +184,7 @@ function prepareSigningConfig() {
 }
 
 function bundleArgs(signingConfig, bundleConfig) {
-  return [
+  const args = [
     CLI,
     "bundle",
     "--target",
@@ -196,12 +196,12 @@ function bundleArgs(signingConfig, bundleConfig) {
     "--config",
     "src-tauri/tauri.ci.conf.json",
     "--config",
-    LAYOUT.overlay,
-    "--config",
     signingConfig,
     "--config",
     bundleConfig,
   ]
+  if (LAYOUT.overlay) args.splice(10, 0, "--config", LAYOUT.overlay)
+  return args
 }
 
 function bundle(version) {

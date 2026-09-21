@@ -13,15 +13,8 @@ import { dirname, join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
-import { verifyInstalledRuntimeSeed } from "./runtime-seed-bundle-verification.mjs"
 import { verifyArtifacts } from "./verify-signatures.mjs"
-
-import {
-  addAgentBrowserHash,
-  verifyAgentBrowserConfig,
-  verifyInstalledAgentBrowser,
-  verifyStagedAgentBrowser,
-} from "./verify-agent-browser-bundle.mjs"
+import { verifyEnvironmentHelper as verifyHelper } from "./verify-environment-helper.mjs"
 import {
   assertCleanInstallState,
   assertDisposableRunner,
@@ -106,8 +99,18 @@ function logFile(label, path, version) {
   return stats
 }
 
-function verifyConfiguredExternalBins(target) {
-  verifyAgentBrowserConfig(SRC_TAURI, target, die)
+function helperFileName(target) {
+  return `iyw-environment-${target}${target.includes("windows") ? ".exe" : ""}`
+}
+
+function verifyConfiguredExternalBins() {
+  const config = JSON.parse(
+    readFileSync(join(SRC_TAURI, "tauri.conf.json"), "utf8")
+  )
+  const bins = config.bundle?.externalBin ?? []
+  if (bins.length !== 1 || bins[0] !== "binaries/iyw-environment") {
+    die("Tauri externalBin must contain only the environment helper")
+  }
 }
 
 function rejectLegacyMcpSidecars(directory) {
@@ -123,9 +126,11 @@ function rejectLegacyMcpSidecars(directory) {
 }
 
 function verifyStagedSidecars(target, version) {
-  verifyConfiguredExternalBins(target)
+  verifyConfiguredExternalBins()
   rejectLegacyMcpSidecars(join(SRC_TAURI, "binaries"))
-  verifyStagedAgentBrowser(SRC_TAURI, target, { die, logFile, sha256 })
+  const path = join(SRC_TAURI, "binaries", helperFileName(target))
+  logFile("environment helper", path, version)
+  verifyHelper(path, { target, version })
 }
 
 function resolveInstallerPath(args, target, version) {
@@ -153,25 +158,32 @@ function resolveInstalledApp(directory) {
   const appDirectory = join(directory, "app")
   if (existsSync(appDirectory)) return appDirectory
   if (existsSync(join(directory, "iyw-claw.exe"))) return directory
+  if (directory.endsWith(".app")) return join(directory, "Contents", "MacOS")
+  const app = readdirSync(directory)
+    .filter((entry) => entry.endsWith(".app"))
+    .map((entry) => join(directory, entry, "Contents", "MacOS"))
+    .find((entry) => existsSync(entry))
+  if (app) return app
   die(`installed application directory is missing: ${directory}`)
 }
 
-function verifyInstalledSidecars(appDirectory, target, expectedHashes = null) {
+function verifyInstalledSidecars(appDirectory, options) {
   if ((process.env.IYW_CLAW_SIGN_MODE ?? "none") !== "none") {
-    verifyArtifacts([join(appDirectory, "iyw-claw.exe")])
+    verifyArtifacts([
+      join(
+        appDirectory,
+        process.platform === "win32" ? "iyw-claw.exe" : "iyw-claw"
+      ),
+    ])
   }
-  verifyInstalledAgentBrowser(appDirectory, target, expectedHashes, {
-    die,
-    logFile,
-    sha256,
-  })
-  verifyInstalledRuntimeSeed(appDirectory, target, die)
-}
-
-function stagedHashes(target) {
-  const hashes = new Map()
-  addAgentBrowserHash(hashes, SRC_TAURI, target, sha256)
-  return hashes
+  const path = join(
+    appDirectory,
+    options.target.includes("windows")
+      ? "iyw-environment.exe"
+      : "iyw-environment"
+  )
+  logFile("environment helper", path, options.version)
+  verifyHelper(path, options)
 }
 
 function logInstallRoot(root) {
@@ -243,11 +255,10 @@ function verifyNsisInstaller(installer, target, version) {
       logInstallRoot(installRoot)
       throw error
     }
-    verifyInstalledSidecars(
-      resolveInstalledApp(installRoot),
+    verifyInstalledSidecars(resolveInstalledApp(installRoot), {
       target,
-      stagedHashes(target)
-    )
+      version,
+    })
   } catch (error) {
     failure = error
   }
@@ -266,10 +277,10 @@ function main() {
     if (verifyNsis) {
       die("--installed-app cannot be combined with NSIS verification")
     }
-    verifyInstalledSidecars(
-      resolveInstalledApp(resolve(args.installedApp)),
-      target
-    )
+    verifyInstalledSidecars(resolveInstalledApp(resolve(args.installedApp)), {
+      target,
+      version,
+    })
     return
   }
   verifyStagedSidecars(target, version)
