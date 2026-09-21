@@ -33,7 +33,8 @@ const JPEG_QUALITIES: [u8; 4] = [85, 70, 55, 40];
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PreparedChatImage {
-    pub url: String,
+    pub url: Option<String>,
+    pub data: Option<String>,
     pub local_path: Option<String>,
     pub mime_type: String,
     pub name: String,

@@ -533,7 +533,7 @@ function restoredImageFile(attachment: ImageInputAttachment): File {
 
 interface RestoredImageUpload {
   attachment: ImageInputAttachment
-  file: File
+  source: ImageAttachmentStaging["source"]
 }
 
 function prepareRestoredImages(restored: InputAttachment[]): {
@@ -551,15 +551,19 @@ function prepareRestoredImages(restored: InputAttachment[]): {
       try {
         const file = restoredImageFile(attachment)
         const previewUrl = URL.createObjectURL(file)
+        const source: ImageAttachmentStaging["source"] = {
+          kind: "browser-file",
+          file,
+        }
         const next: ImageInputAttachment = {
           ...attachment,
           previewUrl,
           staging: {
             status: "uploading",
-            source: { kind: "browser-file", file },
+            source,
           },
         }
-        uploads.push({ attachment: next, file })
+        uploads.push({ attachment: next, source })
         return next
       } catch (error) {
         console.error("[MessageInput] restored image decode failed", {
@@ -625,6 +629,23 @@ function updateImageAttachment(
   )
 }
 
+function preparedImagePreview(prepared: PreparedChatImage): string | undefined {
+  return prepared.data
+    ? `data:${prepared.mimeType};base64,${prepared.data}`
+    : undefined
+}
+
+function preparedInlineImageAttrs(prepared: PreparedChatImage) {
+  return {
+    name: prepared.name,
+    mimeType: prepared.mimeType,
+    uri: prepared.url,
+    localPath: prepared.localPath,
+    status: "ready" as const,
+    previewUrl: preparedImagePreview(prepared),
+  }
+}
+
 function applyPreparedImage(
   current: InputAttachment[],
   id: string,
@@ -633,13 +654,13 @@ function applyPreparedImage(
 ): InputAttachment[] {
   return updateImageAttachment(current, id, (item) => ({
     ...item,
-    data: "",
+    data: prepared.data ?? "",
     uri: prepared.url,
     localPath: prepared.localPath,
     name: prepared.name,
     mimeType: prepared.mimeType,
     sourceMimeType: sourceMimeType ?? item.sourceMimeType,
-    previewUrl: undefined,
+    previewUrl: preparedImagePreview(prepared),
     staging: undefined,
   }))
 }
@@ -1153,32 +1174,24 @@ export function MessageInput({
 
   const uploadRestoredImages = useCallback(
     (uploads: RestoredImageUpload[]) => {
-      for (const { attachment, file } of uploads) {
-        void uploadChatImage(file, {
+      for (const { attachment, source } of uploads) {
+        void retryImageUpload(source, {
           ...chatImageStorage,
           mimeType: attachment.mimeType,
         })
           .then((prepared) => {
             setAttachments((current) =>
-              updateImageAttachment(current, attachment.id, (item) => ({
-                ...item,
-                data: "",
-                uri: prepared.url,
-                localPath: prepared.localPath,
-                name: prepared.name,
-                mimeType: prepared.mimeType,
-                sourceMimeType: prepared.mimeType,
-                staging: undefined,
-              }))
+              applyPreparedImage(
+                current,
+                attachment.id,
+                prepared,
+                attachment.sourceMimeType
+              )
             )
-            updateInlineImage(attachment.id, {
-              name: prepared.name,
-              mimeType: prepared.mimeType,
-              uri: prepared.url,
-              localPath: prepared.localPath,
-              status: "ready",
-              previewUrl: undefined,
-            })
+            updateInlineImage(
+              attachment.id,
+              preparedInlineImageAttrs(prepared)
+            )
           })
           .catch((error) => {
             console.error("[MessageInput] restored image upload failed", {
@@ -1190,7 +1203,7 @@ export function MessageInput({
                 ...item,
                 staging: {
                   status: "failed",
-                  source: { kind: "browser-file", file },
+                  source,
                 },
               }))
             )
@@ -1207,28 +1220,55 @@ export function MessageInput({
   const restorePersistedInlineImages = useCallback(
     (editor: Editor) => {
       const restored: ImageInputAttachment[] = []
+      const uploads: RestoredImageUpload[] = []
       for (const attrs of inlineImageAttrs(editor)) {
-        if (attrs.status !== "ready" || !isPublicImageUrl(attrs.uri)) {
+        if (attrs.status === "ready" && isPublicImageUrl(attrs.uri)) {
+          restored.push({
+            id: attrs.attachmentId,
+            type: "image",
+            data: "",
+            uri: attrs.uri,
+            localPath: attrs.localPath,
+            name: attrs.name,
+            mimeType: attrs.mimeType,
+            sourceMimeType: attrs.mimeType,
+          })
+          continue
+        }
+        if (attrs.status !== "ready" || !attrs.localPath) {
           updateInlineImage(attrs.attachmentId, {
             status: "failed",
             previewUrl: undefined,
           })
           continue
         }
-        restored.push({
+        const source: ImageAttachmentStaging["source"] = {
+          kind: "local-path",
+          path: attrs.localPath,
+          source: "workspace",
+        }
+        const attachment: ImageInputAttachment = {
           id: attrs.attachmentId,
           type: "image",
           data: "",
-          uri: attrs.uri,
+          uri: null,
           localPath: attrs.localPath,
           name: attrs.name,
           mimeType: attrs.mimeType,
           sourceMimeType: attrs.mimeType,
+          staging: { status: "uploading", source },
+        }
+        restored.push(attachment)
+        uploads.push({ attachment, source })
+        updateInlineImage(attrs.attachmentId, {
+          status: "uploading",
+          previewUrl: undefined,
         })
       }
       setAttachments(restored)
+      uploadRestoredImages(uploads)
     },
-    [setAttachments, updateInlineImage]
+    [setAttachments, updateInlineImage, uploadRestoredImages]
   )
 
   // Replay a sent `PromptInputBlock[]` (a queued message being re-edited) into
@@ -1929,14 +1969,7 @@ export function MessageInput({
           setAttachments((current) =>
             applyPreparedImage(current, id, prepared, mimeType)
           )
-          updateInlineImage(id, {
-            name: prepared.name,
-            mimeType: prepared.mimeType,
-            uri: prepared.url,
-            localPath: prepared.localPath,
-            status: "ready",
-            previewUrl: undefined,
-          })
+          updateInlineImage(id, preparedInlineImageAttrs(prepared))
         })
         .catch((error) => {
           console.error("[MessageInput] image file staging failed", {
@@ -1998,14 +2031,7 @@ export function MessageInput({
               opts.sourceMimeType ?? mimeType
             )
           )
-          updateInlineImage(id, {
-            name: prepared.name,
-            mimeType: prepared.mimeType,
-            uri: prepared.url,
-            localPath: prepared.localPath,
-            status: "ready",
-            previewUrl: undefined,
-          })
+          updateInlineImage(id, preparedInlineImageAttrs(prepared))
         })
         .catch((error) => {
           setAttachments((current) =>
@@ -2080,14 +2106,7 @@ export function MessageInput({
           setAttachments((current) =>
             applyPreparedImage(current, id, staged, sourceMimeType)
           )
-          updateInlineImage(id, {
-            name: staged.name,
-            mimeType: staged.mimeType,
-            uri: staged.url,
-            localPath: staged.localPath,
-            status: "ready",
-            previewUrl: undefined,
-          })
+          updateInlineImage(id, preparedInlineImageAttrs(staged))
         })
         .catch((error) => {
           setAttachments((current) =>
@@ -3271,14 +3290,7 @@ export function MessageInput({
         setAttachments((current) =>
           applyPreparedImage(current, id, staged, attachment.sourceMimeType)
         )
-        updateInlineImage(id, {
-          name: staged.name,
-          mimeType: staged.mimeType,
-          uri: staged.url,
-          localPath: staged.localPath,
-          status: "ready",
-          previewUrl: undefined,
-        })
+        updateInlineImage(id, preparedInlineImageAttrs(staged))
       } catch (error) {
         console.error("[MessageInput] image staging retry failed", {
           name: attachment.name,
@@ -3368,14 +3380,10 @@ export function MessageInput({
             result.mime_type
           )
         )
-        updateInlineImage(previewAttachmentId, {
-          name: prepared.name,
-          mimeType: prepared.mimeType,
-          uri: prepared.url,
-          localPath: prepared.localPath,
-          status: "ready",
-          previewUrl: undefined,
-        })
+        updateInlineImage(
+          previewAttachmentId,
+          preparedInlineImageAttrs(prepared)
+        )
       } catch (error) {
         console.error("[MessageInput] edited image staging failed", {
           name: result.name,
@@ -3468,11 +3476,18 @@ export function MessageInput({
       })
     }
     const invalidImage = attachments.find(
-      (attachment): attachment is ImageInputAttachment =>
-        attachment.type === "image" &&
-        (!SUPPORTED_IMAGE_MIME_TYPES.has(attachment.mimeType.toLowerCase()) ||
-          !isPublicImageUrl(attachment.uri) ||
-          attachment.data.length > 0)
+      (attachment): attachment is ImageInputAttachment => {
+        if (attachment.type !== "image") return false
+        const hasUrl = isPublicImageUrl(attachment.uri)
+        const hasInlineData =
+          !attachment.uri &&
+          attachment.data.length > 0 &&
+          bytesFromBase64(attachment.data) <= IMAGE_ATTACHMENT_MAX_BYTES
+        return (
+          !SUPPORTED_IMAGE_MIME_TYPES.has(attachment.mimeType.toLowerCase()) ||
+          !((hasUrl && !attachment.data) || hasInlineData)
+        )
+      }
     )
     if (invalidImage) {
       console.error("[MessageInput] send blocked invalid image attachment", {

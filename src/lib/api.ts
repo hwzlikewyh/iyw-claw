@@ -3027,7 +3027,8 @@ export async function readLocalFileBase64(
 }
 
 export interface PreparedChatImage {
-  url: string
+  url: string | null
+  data: string | null
   localPath: string | null
   mimeType: string
   name: string

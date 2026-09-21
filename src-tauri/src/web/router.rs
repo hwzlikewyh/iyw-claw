@@ -18,6 +18,8 @@ use super::{auth, handlers, ws};
 use crate::app_state::AppState;
 use tracing::Instrument;
 
+const INLINE_IMAGE_PROMPT_MAX_BODY_BYTES: usize = 256 * 1024 * 1024;
+
 pub fn build_router(
     state: Arc<AppState>,
     token: String,
@@ -182,11 +184,13 @@ pub fn build_router(
         )
         .route(
             "/submit_agent_input",
-            post(handlers::agent_input::submit_agent_input),
+            post(handlers::agent_input::submit_agent_input)
+                .layer(DefaultBodyLimit::max(INLINE_IMAGE_PROMPT_MAX_BODY_BYTES)),
         )
         .route(
             "/queue_agent_input",
-            post(handlers::agent_input::queue_agent_input),
+            post(handlers::agent_input::queue_agent_input)
+                .layer(DefaultBodyLimit::max(INLINE_IMAGE_PROMPT_MAX_BODY_BYTES)),
         )
         .route(
             "/list_agent_inputs",
@@ -826,7 +830,11 @@ pub fn build_router(
             "/acp_touch_connection",
             post(handlers::acp::acp_touch_connection),
         )
-        .route("/acp_prompt", post(handlers::acp::acp_prompt))
+        .route(
+            "/acp_prompt",
+            post(handlers::acp::acp_prompt)
+                .layer(DefaultBodyLimit::max(INLINE_IMAGE_PROMPT_MAX_BODY_BYTES)),
+        )
         .route("/acp_preflight", post(handlers::acp::acp_preflight))
         .route("/acp_set_mode", post(handlers::acp::acp_set_mode))
         .route(
