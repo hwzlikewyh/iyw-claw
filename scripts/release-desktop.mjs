@@ -157,7 +157,7 @@ async function main() {
     )
   }
   console.log(
-    `[release] ${version}: Windows x64/x86, macOS x64/ARM64, Linux x64; Fusion 1% optional rollout`
+    `[release] ${version}: Windows x64, macOS x64/ARM64, Linux x64; Fusion 1% optional rollout`
   )
   if (args.includes("--check")) return
   if (!findRelease(version))

@@ -61,22 +61,43 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
       - uses: actions/github-script@v7
         env:
           RELEASE_ID: ${{ inputs.release_id }}
           VERSION: ${{ inputs.version }}
           VERIFICATION_RUN: ${{ inputs.verification_run_id }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          GH_TOKEN: ${{ github.token }}
         with:
           script: |
-            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,{...context.repo,run_id:Number(process.env.VERIFICATION_RUN),per_page:100});
-            for(const name of ['verify-macos','finalize-windows (x64, x86_64-pc-windows-msvc)','finalize-windows (x86, i686-pc-windows-msvc)','verify-windows / Verify installed i686-pc-windows-msvc']) {
+            const runId = Number(process.env.VERIFICATION_RUN);
+            const source = (await github.rest.repos.getCommit({...context.repo,ref:process.env.SOURCE_REF})).data.sha;
+            const run = (await github.rest.actions.getWorkflowRun({...context.repo,run_id:runId})).data;
+            const tag = `v${process.env.VERSION}`;
+            const tagged = (await github.rest.repos.getCommit({...context.repo,ref:tag})).data.sha;
+            if(run.head_sha !== source || tagged !== source) throw new Error('Release source does not match the verified build');
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,{...context.repo,run_id:runId,per_page:100});
+            const required = [
+              'build-tauri / Build Linux x64',
+              'build-tauri / Build macOS arm64',
+              'build-macos-x64 / Build macOS x64',
+              'build-windows (x86_64-pc-windows-msvc) / build',
+              'build-windows (x86_64-pc-windows-msvc) / sign',
+              'verify-windows-installers / Verify installed x86_64-pc-windows-msvc',
+              'verify-macos-x64-installer / verify',
+            ];
+            for(const name of required) {
               if(jobs.find(job=>job.name===name)?.conclusion!=='success') throw new Error(`${name} has not passed`);
             }
-            const releaseId=Number(process.env.RELEASE_ID), tag=`v${process.env.VERSION}`;
+            const releaseId=Number(process.env.RELEASE_ID);
             const release=(await github.rest.repos.getRelease({...context.repo,release_id:releaseId})).data;
-            if(!release.draft || release.tag_name!==tag || release.assets.some(asset=>asset.name.includes('staging.zip'))) throw new Error('Release is not ready');
+            if(!release.draft || release.tag_name!==tag) throw new Error('Release is not ready');
+            const {cleanupStaging}=await import(`${process.cwd()}/.github/scripts/release/github-assets.mjs`);
+            await cleanupStaging({repo:`${context.repo.owner}/${context.repo.repo}`,releaseId,tag});
             const updater=require('./.github/scripts/release/upload-updater-json.cjs');
-            const notes='- 修复部分 Windows 电脑因缺少运行库而无法发送消息的问题。\n- 安装包自带所需运行组件，完善星河及辅助程序的启动兼容性。\n- 改进图片成果展示与下载体验。';
+            const notes=release.body || '';
             await updater({github,context,core,tag,releaseId,notes});
             await updater.assertPublishableReleaseAssets({github,context,core,releaseId});
             await github.rest.repos.updateRelease({...context.repo,release_id:releaseId,draft:false,prerelease:false,body:notes});

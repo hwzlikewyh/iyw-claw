@@ -49,15 +49,21 @@ jobs:
           set -euo pipefail
           tag="v${FUSION_VERSION}"
           mkdir -p release-assets
-          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir release-assets \
-            --pattern "_${FUSION_VERSION}_x64-setup.exe" \
-            --pattern "_${FUSION_VERSION}_x64-setup.exe.sig" \
-            --pattern "_${FUSION_VERSION}_amd64.AppImage" \
-            --pattern "_${FUSION_VERSION}_amd64.AppImage.sig" \
-            --pattern "_x64.app.tar.gz" \
-            --pattern "_x64.app.tar.gz.sig" \
-            --pattern "_aarch64.app.tar.gz" \
-            --pattern "_aarch64.app.tar.gz.sig"
+          patterns=(
+            --pattern "*_${FUSION_VERSION}_x64-setup.exe"
+            --pattern "*_${FUSION_VERSION}_x64-setup.exe.sig"
+          )
+          if [[ "$FUSION_ARTIFACT_SET" == "desktop_all" ]]; then
+            patterns+=(
+              --pattern "*_${FUSION_VERSION}_amd64.AppImage"
+              --pattern "*_${FUSION_VERSION}_amd64.AppImage.sig"
+              --pattern "*_x64.app.tar.gz"
+              --pattern "*_x64.app.tar.gz.sig"
+              --pattern "*_aarch64.app.tar.gz"
+              --pattern "*_aarch64.app.tar.gz.sig"
+            )
+          fi
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir release-assets "${patterns[@]}"
 
       - name: Upload artifacts and publish Fusion release
         shell: bash
@@ -73,6 +79,18 @@ jobs:
           request() {
             curl --fail-with-body --silent --show-error \
               "${api_headers[@]}" "$@"
+          }
+
+          artifact_path() {
+            local suffix="$1"
+            local -a matches
+            shopt -s nullglob
+            matches=(release-assets/*"$suffix")
+            if [[ "${#matches[@]}" -ne 1 ]]; then
+              echo "Expected exactly one artifact ending in $suffix" >&2
+              return 1
+            fi
+            printf '%s' "${matches[0]}"
           }
 
           is_ready_artifact() {
@@ -156,18 +174,18 @@ jobs:
           }
 
           upload_artifact windows x86_64 nsis \
-            "release-assets/_${FUSION_VERSION}_x64-setup.exe" \
-            "release-assets/_${FUSION_VERSION}_x64-setup.exe.sig"
+            "$(artifact_path "_${FUSION_VERSION}_x64-setup.exe")" \
+            "$(artifact_path "_${FUSION_VERSION}_x64-setup.exe.sig")"
           if [[ "$FUSION_ARTIFACT_SET" == "desktop_all" ]]; then
             upload_artifact linux x86_64 appimage \
-              "release-assets/_${FUSION_VERSION}_amd64.AppImage" \
-              "release-assets/_${FUSION_VERSION}_amd64.AppImage.sig"
+              "$(artifact_path "_${FUSION_VERSION}_amd64.AppImage")" \
+              "$(artifact_path "_${FUSION_VERSION}_amd64.AppImage.sig")"
             upload_artifact darwin x86_64 app_tar_gz \
-              release-assets/_x64.app.tar.gz \
-              release-assets/_x64.app.tar.gz.sig
+              "$(artifact_path '_x64.app.tar.gz')" \
+              "$(artifact_path '_x64.app.tar.gz.sig')"
             upload_artifact darwin aarch64 app_tar_gz \
-              release-assets/_aarch64.app.tar.gz \
-              release-assets/_aarch64.app.tar.gz.sig
+              "$(artifact_path '_aarch64.app.tar.gz')" \
+              "$(artifact_path '_aarch64.app.tar.gz.sig')"
           fi
 
           publish_file="$(mktemp)"

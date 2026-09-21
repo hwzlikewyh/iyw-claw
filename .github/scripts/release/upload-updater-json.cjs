@@ -5,7 +5,6 @@ const replaceReleaseAsset = require("./replace-release-asset.cjs")
 // gets sanitized away in uploaded asset names, so never match on the prefix.
 const PLATFORM_PATTERNS = [
   { platform: "windows-x86_64", pattern: /x64-setup\.exe$/ },
-  { platform: "windows-i686", pattern: /x86-setup\.exe$/ },
   { platform: "darwin-x86_64", pattern: /x64\.app\.tar\.gz$/ },
   { platform: "darwin-aarch64", pattern: /aarch64\.app\.tar\.gz$/ },
   { platform: "linux-x86_64", pattern: /amd64\.AppImage$/ },

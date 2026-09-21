@@ -11,7 +11,6 @@ const UPLOAD_TIMEOUT = 20 * 60 * 1000
 const ROLLOUT_PERCENT = 1
 const PLATFORMS = [
   ["windows", "x86_64", "nsis", "x64-setup.exe"],
-  ["windows", "i686", "nsis", "x86-setup.exe"],
   ["linux", "x86_64", "appimage", "amd64.AppImage"],
   ["darwin", "x86_64", "app_tar_gz", "x64.app.tar.gz"],
   ["darwin", "aarch64", "app_tar_gz", "aarch64.app.tar.gz"],
@@ -94,7 +93,16 @@ function assetByName(release, name) {
 async function artifactInputs(context, release, directory) {
   const result = []
   for (const [target, arch, packageKind, suffix] of PLATFORMS) {
-    const name = `iyw-claw_${release.tag_name.slice(1)}_${suffix}`
+    const ending =
+      target === "darwin"
+        ? `_${suffix}`
+        : `_${release.tag_name.slice(1)}_${suffix}`
+    const matches = release.assets.filter((asset) =>
+      asset.name.endsWith(ending)
+    )
+    if (matches.length !== 1)
+      throw new Error(`signed release asset missing or ambiguous: ${ending}`)
+    const name = matches[0].name
     const asset = assetByName(release, name)
     const signatureAsset = assetByName(release, `${name}.sig`)
     const path = await downloadReleaseFile(context, asset, directory)
