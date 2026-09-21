@@ -18,7 +18,11 @@ impl UserMemoryService {
         let candidate_count = items.len().min(MAX_CANDIDATES);
         let mut candidates = items[..candidate_count].to_vec();
         let outcome = tokio::time::timeout(RERANK_TIMEOUT, async {
-            let config = self.cloud_retrieval_config().await?;
+            if !self.semantic_recall_enabled().await? {
+                return Ok(None);
+            }
+            let gateway = self.cloud_gateway().await?;
+            let config = self.resolve_cloud_model(&gateway).await?;
             if !config.rerank_enabled || config.rerank_model.is_empty() {
                 return Ok(None);
             }
@@ -27,7 +31,6 @@ impl UserMemoryService {
             if candidates.len() < 2 {
                 return Ok(None);
             }
-            let gateway = self.cloud_gateway().await?;
             let documents = candidates
                 .iter()
                 .map(|item| item.content.clone())

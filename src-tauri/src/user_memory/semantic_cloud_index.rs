@@ -57,6 +57,9 @@ impl UserMemoryService {
         let generation = self.semantic.generation.load(Ordering::Acquire);
         let gateway = self.cloud_gateway().await?;
         let config = self.resolve_cloud_model(&gateway).await?;
+        if config.embedding_model.is_empty() {
+            return Ok(0);
+        }
         let identity = index_identity(&gateway, &config);
         let (snapshot, epoch) = self.read_projection_source().await?;
         let chunks = current_chunks(&snapshot);

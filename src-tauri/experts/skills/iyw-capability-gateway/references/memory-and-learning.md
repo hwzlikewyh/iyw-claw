@@ -28,6 +28,13 @@ changes.
 
 ### Turn gate and context loading
 
+Semantic retrieval and reranking run automatically under Fusion's available
+model catalog and priority order. The host maintains the local derived index;
+do not ask users to enable retrieval, select models, download model files, or
+rebuild the index. When cloud retrieval is unavailable, continue with the host's
+existing scoped results and current task evidence. Disabling overall memory
+still disables cloud memory retrieval.
+
 - Use `manage_iyw_memory` directly for `recall`, `append`, `propose`, `retire`
   and `documents.read`, whose complete parameter schemas are inline. No search,
   metadata, Skill or policy read is required. For other operations, read the

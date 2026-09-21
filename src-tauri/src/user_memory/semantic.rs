@@ -11,6 +11,7 @@ const PREVIEW_LIMIT: usize = 6;
 const REFRESH_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(60);
 
 pub(super) struct SemanticRuntime {
+    pub(super) cloud_policy: tokio::sync::Mutex<Option<super::cloud_settings::CloudPolicy>>,
     #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
     pub(super) query_cache: super::semantic_query::QueryCache,
     #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
@@ -26,6 +27,7 @@ pub(super) struct SemanticRuntime {
 impl Default for SemanticRuntime {
     fn default() -> Self {
         Self {
+            cloud_policy: tokio::sync::Mutex::new(None),
             #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
             query_cache: super::semantic_query::QueryCache::default(),
             #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]

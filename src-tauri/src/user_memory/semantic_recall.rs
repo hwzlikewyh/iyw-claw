@@ -114,7 +114,7 @@ impl UserMemoryService {
             .semantic
             .generation
             .load(std::sync::atomic::Ordering::Acquire);
-        let config = self.cloud_retrieval_config().await?;
+        let config = self.resolve_cloud_model(&gateway).await?;
         if config.embedding_model.is_empty() {
             self.schedule_semantic_refresh();
             return Ok(Vec::new());
