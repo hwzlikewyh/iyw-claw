@@ -97,7 +97,12 @@ function preflightToken() {
     unlockToken()
     let lastReason = "unknown"
     for (let attempt = 1; attempt <= PROBE_ATTEMPTS; attempt += 1) {
-      writeFileSync(probe, probeImage)
+      // Write then copy, and sync before signing: signing in the same instant
+      // as the write let the verify step read stale attributes on the runner.
+      const staged = `${probe}.${attempt}`
+      writeFileSync(staged, probeImage)
+      cpSync(staged, probe)
+      rmSync(staged, { force: true })
       const result = spawnSync(
         process.execPath,
         [
