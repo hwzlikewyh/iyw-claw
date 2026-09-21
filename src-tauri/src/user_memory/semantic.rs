@@ -217,10 +217,6 @@ impl UserMemoryService {
 impl UserMemoryService {
     pub(super) fn schedule_semantic_refresh(&self) {}
 
-    pub(super) async fn release_semantic_runtime(&self) -> Result<(), AppCommandError> {
-        Ok(())
-    }
-
     pub(super) async fn release_semantic_if_idle(&self) -> Result<(), AppCommandError> {
         Ok(())
     }

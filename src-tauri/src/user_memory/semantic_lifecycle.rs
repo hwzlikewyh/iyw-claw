@@ -1,4 +1,3 @@
-use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use super::{semantic_model, UserMemoryService};
@@ -45,24 +44,6 @@ impl UserMemoryService {
         }
         self.drop_semantic_index().await?;
         tracing::info!("[memory-semantic] idle runtime released");
-        drop(permit);
-        Ok(())
-    }
-
-    pub(super) async fn release_semantic_runtime(&self) -> Result<(), AppCommandError> {
-        self.semantic.generation.fetch_add(1, Ordering::AcqRel);
-        self.semantic
-            .refresh_requested
-            .store(false, Ordering::Release);
-        let permit = self
-            .semantic
-            .task
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(semantic_model::model_error)?;
-        self.drop_semantic_index().await?;
-        tracing::info!("[memory-semantic] disabled runtime released");
         drop(permit);
         Ok(())
     }
