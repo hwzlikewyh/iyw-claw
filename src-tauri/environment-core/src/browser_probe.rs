@@ -35,7 +35,7 @@ pub fn verify(executable: &Path, scratch: &Path) -> Result<()> {
         .arg(PROBE_URL)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
     probe_process::configure(&mut command);
     #[cfg(windows)]
     command.arg("--do-not-de-elevate");
@@ -47,10 +47,19 @@ pub fn verify(executable: &Path, scratch: &Path) -> Result<()> {
             return Err(error);
         }
     };
+    let stderr = probe_process::drain(child.stderr.take().context("Chromix stderr unavailable")?);
     let result = inspect(&mut child, scratch);
     probe_process::terminate(&mut child);
     drop(job);
-    result
+    let detail = stderr.join().unwrap_or_default();
+    result.with_context(|| {
+        format!(
+            "Chromix 系统诊断：{}",
+            detail
+                .trim()
+                .replace(&*scratch.to_string_lossy(), "<probe>")
+        )
+    })
 }
 
 fn inspect(child: &mut Child, scratch: &Path) -> Result<()> {

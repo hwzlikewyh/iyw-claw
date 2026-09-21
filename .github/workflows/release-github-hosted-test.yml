@@ -17,7 +17,7 @@ on:
         required: false
         default: all
         type: choice
-        options: [all, windows_x86, environment]
+        options: [all, windows_x86, environment, environment_only]
       frontend_run_id:
         description: "Reuse release-frontend-out from this run of the same source"
         required: false
@@ -50,14 +50,14 @@ env:
 
 jobs:
   environment-acceptance:
-    if: inputs.platforms == 'environment'
+    if: inputs.platforms == 'environment' || inputs.platforms == 'environment_only'
     uses: ./.github/workflows/verify-environment.yml
     with:
       source_ref: ${{ inputs.source_ref }}
       version: ${{ inputs.version }}
 
   prepare-frontend:
-    if: inputs.frontend_run_id == '' && inputs.candidate_repair_run == ''
+    if: inputs.platforms != 'environment_only' && inputs.frontend_run_id == '' && inputs.candidate_repair_run == ''
     name: Prepare frontend input
     runs-on: ubuntu-22.04
     outputs:

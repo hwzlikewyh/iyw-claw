@@ -44,7 +44,7 @@ pub fn run(mut command: Command, timeout: Duration) -> Result<String> {
     Ok(format!("{out}{err}"))
 }
 
-fn drain(mut stream: impl Read + Send + 'static) -> std::thread::JoinHandle<String> {
+pub(crate) fn drain(mut stream: impl Read + Send + 'static) -> std::thread::JoinHandle<String> {
     std::thread::spawn(move || {
         let mut result = Vec::new();
         let mut buffer = [0_u8; 4096];
@@ -87,6 +87,7 @@ pub fn configure(command: &mut Command) {
 }
 
 pub fn terminate(child: &mut Child) {
+    #[cfg(windows)]
     if child.try_wait().ok().flatten().is_some() {
         return;
     }
