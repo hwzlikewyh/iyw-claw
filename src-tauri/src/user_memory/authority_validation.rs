@@ -24,11 +24,10 @@ pub(super) fn validate_import(data: &AuthorityData) -> Result<(), AppCommandErro
     if let Some(ResourceGeneration::Present { value, .. }) =
         data.documents.get(&UserMemoryDocumentId::Memory)
     {
-        if value.lines().any(|line| {
-            !line.trim().is_empty()
-                && !line.trim().starts_with('#')
-                && super::index_parse::parse_memory_line(line).is_none()
-        }) {
+        if value
+            .lines()
+            .any(super::migration_reconcile::is_unparsed_memory_line)
+        {
             return Err(AppCommandError::invalid_input(
                 "Memory contains unparsed lines; reconcile the migration preview first",
             ));

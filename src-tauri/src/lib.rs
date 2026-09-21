@@ -1651,6 +1651,7 @@ mod tauri_app {
                 crate::commands::user_memory_maintenance::run_user_memory_maintenance,
                 crate::commands::user_memory_maintenance::resolve_user_memory_review,
                 crate::commands::user_memory_maintenance::preview_user_memory_migration,
+                crate::commands::user_memory_maintenance::reconcile_user_memory_migration,
                 crate::commands::user_memory_authority::get_user_memory_authority,
                 crate::commands::user_memory_authority::prepare_user_memory_authority,
                 crate::commands::user_memory_authority::activate_user_memory_authority,

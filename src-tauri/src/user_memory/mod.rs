@@ -14,6 +14,7 @@ mod authority_sql;
 mod authority_types;
 mod authority_validation;
 mod background_learning;
+mod background_learning_gateway;
 #[cfg(feature = "memory-bench")]
 pub mod bench;
 mod candidate_api_types;
@@ -39,6 +40,7 @@ mod harvest;
 mod harvest_legacy;
 mod harvest_pending;
 mod harvest_reconcile;
+mod harvest_rescan;
 mod harvest_store;
 mod harvest_store_sql;
 mod helpers;
@@ -65,6 +67,7 @@ mod managed_model_state;
 mod managed_model_types;
 mod migration;
 mod migration_preview;
+mod migration_reconcile;
 mod platform;
 mod recall;
 mod recall_config;
@@ -143,6 +146,7 @@ pub use harvest::{
 };
 pub use maintenance_types::*;
 pub use migration_preview::*;
+pub use migration_reconcile::*;
 pub use recall_feedback::*;
 pub use recall_scope::UserMemoryRecallScope;
 pub use recall_types::{

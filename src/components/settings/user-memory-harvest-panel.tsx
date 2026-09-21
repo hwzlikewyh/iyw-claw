@@ -54,8 +54,9 @@ export function UserMemoryHarvestPanel({
       const result = await rescan(true)
       await refresh()
       const recovered = result.preview.recoveredUnqueued ?? 0
+      const recoveredDead = result.preview.recoveredDead ?? 0
       toast.success(t("diagnostics.rescanDone"), {
-        description: `${t("diagnostics.rescanRecovered")}: ${recovered}`,
+        description: `${t("diagnostics.rescanRecovered")}: ${recovered}; ${t("diagnostics.rescanRecoveredDead")}: ${recoveredDead}`,
       })
     } catch (error) {
       onError(toErrorMessage(error))

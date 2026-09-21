@@ -2,9 +2,9 @@ use chrono::{Duration, Utc};
 use sea_orm::{ConnectionTrait, DatabaseConnection, QueryResult, TransactionTrait};
 
 use super::harvest::{
-    MemoryHarvestRequest, UserMemoryHarvestFailureKind, UserMemoryHarvestRescanPreview,
-    UserMemoryHarvestRescanResult, UserMemoryHarvestStatus, UserMemoryHarvestSubmitResult,
-    USER_MEMORY_HARVEST_MAX_QUEUED, USER_MEMORY_HARVEST_MAX_RETRIES,
+    MemoryHarvestRequest, UserMemoryHarvestFailureKind, UserMemoryHarvestRescanResult,
+    UserMemoryHarvestStatus, UserMemoryHarvestSubmitResult, USER_MEMORY_HARVEST_MAX_QUEUED,
+    USER_MEMORY_HARVEST_MAX_RETRIES,
 };
 use super::harvest_store_sql::{agent_name, execute, query_all, query_one};
 use super::index_checkpoint::database_error;
@@ -19,6 +19,7 @@ pub(super) enum StoreOutcome {
     Failed {
         kind: UserMemoryHarvestFailureKind,
         detail: String,
+        retryable: bool,
     },
 }
 
@@ -100,40 +101,7 @@ pub(super) async fn rescan(
     conn: &DatabaseConnection,
     execute_update: bool,
 ) -> Result<UserMemoryHarvestRescanResult, AppCommandError> {
-    let row = query_one(
-        conn,
-        "SELECT SUM(CASE WHEN state IN ('queued','extracting') OR (state = 'failed' AND attempts < ?) THEN 1 ELSE 0 END) AS recoverable, SUM(CASE WHEN state IN ('proposed','noop','dead') THEN 1 ELSE 0 END) AS terminal FROM memory_harvest_outbox",
-        [i64::from(USER_MEMORY_HARVEST_MAX_RETRIES).into()],
-    )
-    .await?;
-    let preview = UserMemoryHarvestRescanPreview {
-        re_queued: row
-            .as_ref()
-            .and_then(|value| value.try_get::<i64>("", "recoverable").ok())
-            .unwrap_or(0)
-            .max(0) as u32,
-        retained_terminal: row
-            .as_ref()
-            .and_then(|value| value.try_get::<i64>("", "terminal").ok())
-            .unwrap_or(0)
-            .max(0) as u32,
-        discovered_unqueued: 0,
-        recovered_unqueued: 0,
-        skipped_sensitive: 0,
-        skipped_context_poor: 0,
-    };
-    if execute_update {
-        execute(
-            conn,
-            "UPDATE memory_harvest_outbox SET state = 'queued', next_attempt_at = NULL, updated_at = ? WHERE state IN ('queued','extracting') OR (state = 'failed' AND attempts < ?)",
-            [Utc::now().to_rfc3339().into(), i64::from(USER_MEMORY_HARVEST_MAX_RETRIES).into()],
-        )
-        .await?;
-    }
-    Ok(UserMemoryHarvestRescanResult {
-        preview,
-        executed: execute_update,
-    })
+    super::harvest_rescan::rescan(conn, execute_update).await
 }
 
 pub(super) async fn recoverable(
@@ -234,7 +202,11 @@ async fn outcome_fields(
             json_ids(experience_ids)?,
         ),
         StoreOutcome::Noop(reason) => ("noop".into(), None, None, Some(reason), None, None),
-        StoreOutcome::Failed { kind, detail } => {
+        StoreOutcome::Failed {
+            kind,
+            detail,
+            retryable,
+        } => {
             let attempts = query_one(
                 conn,
                 "SELECT attempts FROM memory_harvest_outbox WHERE dedup_key = ?",
@@ -243,7 +215,7 @@ async fn outcome_fields(
             .await?
             .and_then(|row| row.try_get::<i64>("", "attempts").ok())
             .unwrap_or(0);
-            let state = if attempts >= i64::from(USER_MEMORY_HARVEST_MAX_RETRIES) {
+            let state = if !retryable || attempts >= i64::from(USER_MEMORY_HARVEST_MAX_RETRIES) {
                 "dead"
             } else {
                 "failed"

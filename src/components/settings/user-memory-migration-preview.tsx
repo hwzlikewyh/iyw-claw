@@ -1,6 +1,8 @@
 "use client"
 
 import { useTranslations } from "next-intl"
+import { Loader2, WandSparkles } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -12,9 +14,13 @@ import type { MemoryMigrationPreview } from "@/lib/user-memory-maintenance"
 
 export function MemoryMigrationPreviewDialog({
   preview,
+  busy,
+  onReconcile,
   onClose,
 }: {
   preview: MemoryMigrationPreview | null
+  busy: boolean
+  onReconcile: () => void
   onClose: () => void
 }) {
   const t = useTranslations("UserMemorySettings.maintenance")
@@ -30,13 +36,27 @@ export function MemoryMigrationPreviewDialog({
           <DialogTitle>{t("preview")}</DialogTitle>
           <DialogDescription>{t("previewDescription")}</DialogDescription>
         </DialogHeader>
-        {preview && <PreviewContent preview={preview} />}
+        {preview && (
+          <PreviewContent
+            preview={preview}
+            busy={busy}
+            onReconcile={onReconcile}
+          />
+        )}
       </DialogContent>
     </Dialog>
   )
 }
 
-function PreviewContent({ preview }: { preview: MemoryMigrationPreview }) {
+function PreviewContent({
+  preview,
+  busy,
+  onReconcile,
+}: {
+  preview: MemoryMigrationPreview
+  busy: boolean
+  onReconcile: () => void
+}) {
   const t = useTranslations("UserMemorySettings.maintenance")
   return (
     <div className="min-w-0 space-y-4">
@@ -49,6 +69,30 @@ function PreviewContent({ preview }: { preview: MemoryMigrationPreview }) {
       </div>
       {preview.warnings.length > 0 && (
         <PreviewWarnings warnings={preview.warnings} />
+      )}
+      {preview.unparsedLines.length > 0 && (
+        <div className="space-y-2">
+          <ul className="max-h-48 divide-y overflow-y-auto border-y text-xs">
+            {preview.unparsedLines.map((line) => (
+              <li key={line.contentDigest} className="space-y-1 py-2">
+                <span className="text-muted-foreground">
+                  {t("lineNumber", { line: line.lineNumber })}
+                </span>
+                <p className="whitespace-pre-wrap break-words">
+                  {line.content ?? t("redacted")}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <Button disabled={busy} onClick={onReconcile}>
+            {busy ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <WandSparkles className="size-4" />
+            )}
+            {t("convertLegacy")}
+          </Button>
+        </div>
       )}
       <ul className="divide-y">
         {preview.records.map((record) => (

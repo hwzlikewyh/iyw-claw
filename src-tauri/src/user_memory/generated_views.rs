@@ -99,7 +99,7 @@ impl UserMemoryService {
                 system_prompt: VIEW_PROMPT,
                 user_content:json!({"facts":sources.iter().map(|item|json!({"id":item.id,"content":item.content})).collect::<Vec<_>>()}).to_string(),
                 json_schema:view_schema(),max_tokens:VIEW_OUTPUT_TOKENS,operation:"Memory profile generation",
-            }).await.map_err(|error|AppCommandError::network("Memory profile generation failed").with_detail(format!("provider_error_code={:?}",error.code)))?;
+            }).await.map_err(|error|super::background_learning_gateway::preserve_provider_error("Memory profile generation failed", error))?;
         let response: ViewResponse = serde_json::from_str(&response)
             .map_err(|_| AppCommandError::invalid_input("Invalid generated memory view"))?;
         validate_proposals(response.blocks, sources)

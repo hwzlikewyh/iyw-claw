@@ -98,8 +98,8 @@ impl UserMemoryService {
                 .map(|item| json!({"id":item.id,"kind":item.kind,"content":item.content,"validTo":item.valid_to}))
                 .collect::<Vec<_>>()}).to_string(),
             json_schema: review_schema(), max_tokens: REVIEW_OUTPUT_TOKENS, operation: "Memory validity review",
-        }).await.map_err(|error| AppCommandError::network("Memory review failed")
-            .with_detail(format!("provider_error_code={:?}",error.code)))?;
+        }).await.map_err(|error| super::background_learning_gateway::preserve_provider_error(
+            "Memory review failed", error))?;
         let response: ReviewResponse = serde_json::from_str(&response)
             .map_err(|_| AppCommandError::invalid_input("Invalid memory review response"))?;
         if response.proposals.len() > MAX_PROPOSALS {

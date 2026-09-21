@@ -31,6 +31,7 @@ export interface MemoryMigrationPreview {
   generatedAt: string
   counts: Record<string, number>
   warnings: string[]
+  unparsedLines: MemoryMigrationIssue[]
   readyForShadowImport: boolean
   records: {
     id: string
@@ -41,6 +42,18 @@ export interface MemoryMigrationPreview {
     scopeKey: string
     validTo: string | null
   }[]
+}
+
+export interface MemoryMigrationIssue {
+  lineNumber: number
+  content: string | null
+  contentDigest: string
+  sensitive: boolean
+}
+
+export interface ReconcileMemoryMigrationResult {
+  converted: number
+  backupFile: string | null
 }
 
 export const getMemoryMaintenance = () =>
@@ -57,3 +70,9 @@ export const resolveMemoryReview = (request: {
 
 export const previewMemoryMigration = () =>
   getTransport().call<MemoryMigrationPreview>("preview_user_memory_migration")
+
+export const reconcileMemoryMigration = (expectedRevision: string) =>
+  getTransport().call<ReconcileMemoryMigrationResult>(
+    "reconcile_user_memory_migration",
+    { request: { expectedRevision } }
+  )

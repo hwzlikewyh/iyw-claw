@@ -195,6 +195,10 @@ pub fn build_router(
             post(handlers::user_memory_maintenance::preview_user_memory_migration),
         )
         .route(
+            "/reconcile_user_memory_migration",
+            post(handlers::user_memory_maintenance::reconcile_user_memory_migration),
+        )
+        .route(
             "/get_user_memory_authority",
             post(handlers::user_memory_authority::get_user_memory_authority),
         )

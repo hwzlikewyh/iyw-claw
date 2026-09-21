@@ -5713,14 +5713,16 @@
       "apply": "停止使用这条记忆",
       "dismiss": "保留这条记忆",
       "preview": "历史迁移预览",
-      "previewDescription": "当前来源的只读清单。",
+      "previewDescription": "核对当前来源；旧格式行会先备份再转换。",
       "previewWarnings": "需要核对的项目",
       "authority_switch_not_implemented": "新的权威存储尚未启用。",
       "sensitive_content_redacted": "敏感记录已计数，正文未显示。",
       "source_identity_conflict": "来源标识存在冲突，迁移前需要复核。",
       "unparsed_memory_lines": "部分原文尚不能映射为结构化条目。",
       "unreadable": "来源无法读取",
-      "redacted": "敏感内容未显示"
+      "redacted": "敏感内容未显示",
+      "lineNumber": "第 {line} 行",
+      "convertLegacy": "转换旧格式"
     },
     "learning": {
       "title": "后台记忆提炼",
@@ -5796,6 +5798,7 @@
       "rebuildPreview": "将修正 {affected} 条活动索引。",
       "rescanDone": "已重新扫描采集队列",
       "rescanRecovered": "已补入从未入队的已完成输入",
+      "rescanRecoveredDead": "已恢复供应商终止任务",
       "rebuildDone": "已重建候选索引",
       "harvestQueued": "排队",
       "harvestExtracting": "抽取中",

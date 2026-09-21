@@ -1,5 +1,6 @@
 use crate::user_memory::{
-    MemoryMaintenanceStatus, MemoryMigrationPreview, ResolveMemoryReviewRequest,
+    MemoryMaintenanceStatus, MemoryMigrationPreview, ReconcileMemoryMigrationRequest,
+    ReconcileMemoryMigrationResult, ResolveMemoryReviewRequest,
 };
 use crate::{app_error::AppCommandError, app_state::AppState};
 use axum::{extract::Extension, Json};
@@ -40,4 +41,22 @@ pub async fn preview_user_memory_migration(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Result<Json<MemoryMigrationPreview>, AppCommandError> {
     Ok(Json(state.user_memory.preview_memory_migration().await?))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReconcileMigrationParams {
+    request: ReconcileMemoryMigrationRequest,
+}
+
+pub async fn reconcile_user_memory_migration(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<ReconcileMigrationParams>,
+) -> Result<Json<ReconcileMemoryMigrationResult>, AppCommandError> {
+    Ok(Json(
+        state
+            .user_memory
+            .reconcile_memory_migration(params.request)
+            .await?,
+    ))
 }

@@ -4,15 +4,14 @@ use serde_json::json;
 use super::{
     CandidateObservationSource, MemoryHarvestRequest, UserMemoryCandidateSignal, UserMemoryService,
 };
-use crate::acp::model_gateway_chat::{ModelGatewayChatConfig, StructuredChatRequest};
-use crate::acp::provider_overlay::{model_gateway_base_url_for, MANAGED_DEFAULT_MODEL};
+use crate::acp::model_gateway_chat::StructuredChatRequest;
+use crate::acp::provider_overlay::MANAGED_DEFAULT_MODEL;
 use crate::app_error::AppCommandError;
 use crate::db::service::app_metadata_service;
 
 const CONFIG_KEY: &str = "user_memory.background_learning_v1";
 const MAX_FACTS: usize = 5;
 const EXTRACTION_TOKENS: u32 = 1800;
-const MODEL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -81,7 +80,7 @@ impl UserMemoryService {
         Ok(BackgroundLearningStatus {
             config,
             available,
-            models: crate::acp::model_catalog::all_model_options()
+            models: super::background_learning_gateway::structured_model_options()
                 .into_iter()
                 .map(|model| BackgroundLearningModelOption {
                     id: model.id,
@@ -96,9 +95,8 @@ impl UserMemoryService {
         config: BackgroundLearningConfig,
     ) -> Result<(), AppCommandError> {
         let (_guard, _file_guard) = self.acquire_locks().await?;
-        let selectable = crate::acp::model_catalog::all_model_options()
-            .iter()
-            .any(|model| model.id == config.model);
+        let selectable =
+            super::background_learning_gateway::supports_structured_output(&config.model);
         if config.enabled && !selectable {
             return Err(AppCommandError::invalid_input(
                 "Select a managed model for memory learning",
@@ -163,6 +161,11 @@ impl UserMemoryService {
         input: &str,
         model: &str,
     ) -> Result<Extraction, AppCommandError> {
+        if !super::background_learning_gateway::supports_structured_output(model) {
+            return Err(AppCommandError::configuration_invalid(
+                "Selected memory learning model does not support structured output",
+            ));
+        }
         let gateway = self.learning_gateway(model).await?;
         let response = crate::acp::model_gateway_chat::call_structured(
             &gateway,
@@ -176,8 +179,10 @@ impl UserMemoryService {
         )
         .await
         .map_err(|error| {
-            AppCommandError::network("Background memory extraction failed")
-                .with_detail(format!("provider_error_code={:?}", error.code))
+            super::background_learning_gateway::preserve_provider_error(
+                "Background memory extraction failed",
+                error,
+            )
         })?;
         let extraction: Extraction = serde_json::from_str(&response).map_err(|_| {
             AppCommandError::invalid_input("Memory extraction returned invalid structured data")
@@ -251,37 +256,6 @@ impl UserMemoryService {
         self.persist_learning_state(&state).await?;
         self.schedule_index_refresh();
         Ok(outcome.candidate.id)
-    }
-
-    pub(super) async fn learning_gateway(
-        &self,
-        model: &str,
-    ) -> Result<ModelGatewayChatConfig, AppCommandError> {
-        let token = crate::commands::iyw_account::iyw_account_access_token_core(&self.db)
-            .await?
-            .ok_or_else(|| {
-                AppCommandError::configuration_missing("Sign in to use background memory learning")
-            })?;
-        let base = model_gateway_base_url_for(crate::models::agent::AgentType::Codex);
-        let api_url =
-            crate::chat_channel::natural_router_config::normalize_chat_completions_url(&base)?;
-        Ok(ModelGatewayChatConfig {
-            api_url,
-            api_key: token.expose().to_string(),
-            model: model.to_string(),
-            timeout: MODEL_TIMEOUT,
-        })
-    }
-
-    async fn is_user_conversation(&self, conversation: &str) -> Result<bool, AppCommandError> {
-        use sea_orm::{ConnectionTrait, DbBackend, Statement};
-        let Ok(id) = conversation.parse::<i32>() else {
-            return Ok(false);
-        };
-        let row = self.db.query_one(Statement::from_sql_and_values(DbBackend::Sqlite,
-            "SELECT c.id FROM conversation c WHERE c.id = ? AND c.parent_id IS NULL AND c.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM automation_run a WHERE a.conversation_id = c.id)", [id.into()]))
-            .await.map_err(super::index_checkpoint::database_error)?;
-        Ok(row.is_some())
     }
 }
 
