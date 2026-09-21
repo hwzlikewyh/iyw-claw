@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 60] = [
+pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 62] = [
+    ("get_user_memory_maintenance", "iyw.memory.maintenance.read.v1"),
+    ("resolve_user_memory_review", "iyw.memory.review.resolve.v1"),
     (
         "get_agent_reach_status",
         "iyw.internet.agent_reach.status.v1",

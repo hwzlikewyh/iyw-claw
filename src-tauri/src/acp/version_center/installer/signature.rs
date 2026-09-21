@@ -27,6 +27,38 @@ pub fn verify_tool_signature(bytes: &[u8], signature_text: &str) -> Result<(), A
     })
 }
 
+pub fn verify_tool_file_signature(
+    path: &Path,
+    signature_text: &str,
+) -> Result<(), AppCommandError> {
+    if signature_text.trim().is_empty() {
+        tracing::warn!("[managed-install] unsigned artifact accepted with SHA-256 verification");
+        return Ok(());
+    }
+    let public_key = parse_public_key(required_public_key()?)?;
+    let signature = Signature::decode(signature_text.trim()).map_err(|error| {
+        AppCommandError::invalid_input("Managed tool signature is invalid")
+            .with_detail(error.to_string())
+    })?;
+    let mut verifier = public_key.verify_stream(&signature).map_err(|error| {
+        AppCommandError::invalid_input("Managed tool signature must support streaming verification")
+            .with_detail(error.to_string())
+    })?;
+    let mut file = std::fs::File::open(path).map_err(AppCommandError::io)?;
+    let mut buffer = vec![0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer).map_err(AppCommandError::io)?;
+        if read == 0 {
+            break;
+        }
+        verifier.update(&buffer[..read]);
+    }
+    verifier.finalize().map_err(|error| {
+        AppCommandError::invalid_input("Managed tool signature verification failed")
+            .with_detail(error.to_string())
+    })
+}
+
 pub fn verify_agent_signature(bytes: &[u8], signature_text: &str) -> Result<(), AppCommandError> {
     if signature_text.trim().is_empty() {
         tracing::warn!(

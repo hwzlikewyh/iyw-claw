@@ -71,7 +71,14 @@ impl Default for ModelCapabilitySnapshot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ModelCatalogLayer {
     pub ids: Vec<&'static str>,
+    pub display_names: HashMap<&'static str, &'static str>,
     pub capabilities: HashMap<&'static str, ModelCapabilitySnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelOption {
+    pub id: String,
+    pub display_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +109,8 @@ pub(super) struct PersistedCatalogV4 {
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) struct PersistedModel {
     pub id: String,
+    #[serde(default)]
+    pub display_name: String,
     #[serde(default)]
     pub capabilities: ModelCapabilities,
     #[serde(default = "default_true")]

@@ -67,3 +67,45 @@ and are distributed under the applicable Microsoft Visual Studio license terms.
 They are installed beside the built-in worker and copied with sandbox helpers.
 Redistribution reference:
 https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files
+
+## Local memory retrieval
+
+64-bit builds include the following components, with exact dependency versions
+and checksums recorded in `src-tauri/Cargo.lock`:
+
+- Qdrant Edge `0.8.0` - https://github.com/qdrant/qdrant - Apache License 2.0.
+- fastembed-rs `7.0.1` - https://github.com/Anush008/fastembed-rs - Apache License 2.0.
+- ort `2.0.0-rc.13` - https://github.com/pykeio/ort - MIT or Apache License 2.0.
+- ONNX Runtime - https://github.com/microsoft/onnxruntime - MIT License.
+
+The Apache License 2.0 text accompanies this distribution as `LICENSE`.
+ONNX Runtime copyright: Microsoft Corporation. The MIT license text below
+applies to ONNX Runtime.
+
+The separately downloaded BGE Small Chinese model is sourced from
+`BAAI/bge-small-zh-v1.5`, revision
+`313386ad7ffad360a4870fd1910f8ecaf1a05151`:
+https://huggingface.co/BAAI/bge-small-zh-v1.5 . It is licensed under the MIT
+License by the Beijing Academy of Artificial Intelligence. The managed model
+manifest records its source revision, pooling, dimension and verified file
+hashes. The application obtains the package through Fusion distribution.
+
+MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE.

@@ -52,20 +52,3 @@ pub fn verify(root: &Path) -> Result<BTreeMap<String, String>> {
     }
     Ok(BTreeMap::from([("model".into(), "model.onnx".into())]))
 }
-
-pub fn publish_pointer(
-    layout: &crate::paths::Layout,
-    snapshot: &crate::model::EnvironmentSnapshot,
-) -> Result<()> {
-    let Some(model) = snapshot
-        .components
-        .iter()
-        .find(|value| value.component_id == COMPONENT)
-    else {
-        return Ok(());
-    };
-    crate::inventory::write_json(
-        &layout.runtime.join("models/memory-embedding/current.json"),
-        &serde_json::json!({"schemaVersion":1,"modelId":MODEL_ID,"version":model.version}),
-    )
-}

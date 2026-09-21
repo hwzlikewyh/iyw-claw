@@ -23,7 +23,6 @@ pub fn commit(
         .join(format!("{}.json", snapshot.generation));
     inventory::write_json(&generation, snapshot)?;
     inventory::write_json(&layout.current_snapshot(), snapshot)?;
-    crate::memory_model::publish_pointer(layout, snapshot)?;
     write_receipts(layout, state);
     Ok(())
 }
@@ -36,9 +35,7 @@ fn activate_component(
     let (_, _, platform) = crate::paths::platform();
     let mut expected =
         layout.component_dir(&component.component_id, &component.version, &platform)?;
-    if component.component_id != crate::memory_model::COMPONENT {
-        expected.push(&state.transaction_id);
-    }
+    expected.push(&state.transaction_id);
     let destination = from_slash(&layout.root, &component.relative_path)?;
     if expected != destination {
         bail!("prepared component destination does not match its identity")
@@ -49,17 +46,7 @@ fn activate_component(
         if inventory::verify_component(layout, component).is_ok() {
             return Ok(());
         }
-        if component.component_id != crate::memory_model::COMPONENT {
-            bail!("previously staged component failed verification")
-        }
-        let backup = layout
-            .quarantine
-            .join(&state.transaction_id)
-            .join(&component.component_id);
-        ensure_within(&layout.root, &backup)?;
-        fs::create_dir_all(backup.parent().context("model backup has no parent")?)?;
-        fs::rename(&destination, &backup)
-            .context("BGE 模型正在使用或不可写，请关闭主程序后重试")?;
+        bail!("previously staged component failed verification")
     }
     let source = layout
         .transaction_dir(&state.transaction_id)?

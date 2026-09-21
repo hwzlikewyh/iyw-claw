@@ -20,23 +20,12 @@ pub(super) async fn collect_temporal<C: ConnectionTrait>(
     let Some(range) = temporal_range(query.query()) else {
         return Ok(LaneCollection::skipped("query_has_no_date"));
     };
-    let validity = valid_at_sql("i");
-    let scope = query.scope().predicate("i");
-    let sql = format!(
-        "SELECT e.memory_id FROM memory_evidence AS e INDEXED BY idx_memory_evidence_time CROSS JOIN memory_item_current AS i ON i.id = e.memory_id WHERE e.observed_at >= ? AND e.observed_at < ? AND {scope} AND i.trust_class IN ('host_confirmed', 'agent_experience', 'candidate') AND i.sensitive = 0 AND i.superseded_by IS NULL{validity} GROUP BY e.memory_id ORDER BY MAX(e.observed_at) DESC, e.memory_id LIMIT ?"
-    );
-    let mut values = vec![range.start.into(), range.end.into()];
-    query.scope().push_bind(&mut values);
-    push_query_at(&mut values, query.query_at());
-    values.push((MAX_TEMPORAL_CANDIDATES as i64).into());
-    let rows = db
-        .query_all(Statement::from_sql_and_values(
-            DbBackend::Sqlite,
-            sql,
-            values,
-        ))
-        .await
-        .map_err(database_error)?;
+    let latest = collect_latest_timestamp(db, query, &range).await?;
+    let rows = if latest.len() == MAX_TEMPORAL_CANDIDATES {
+        latest
+    } else {
+        collect_temporal_range(db, query, &range).await?
+    };
     let candidate_count = rows.len();
     add_rows(
         rows,
@@ -47,6 +36,52 @@ pub(super) async fn collect_temporal<C: ConnectionTrait>(
         },
     );
     Ok(LaneCollection::collected(candidate_count))
+}
+
+async fn collect_latest_timestamp<C: ConnectionTrait>(
+    db: &C,
+    query: RecallQuery<'_>,
+    range: &TemporalRange,
+) -> Result<Vec<sea_orm::QueryResult>, AppCommandError> {
+    let validity = valid_at_sql("i");
+    let scope = query.scope().predicate("i");
+    let sql = format!(
+        "SELECT e.memory_id FROM memory_evidence AS e INDEXED BY idx_memory_evidence_time CROSS JOIN memory_item_current AS i ON i.id = e.memory_id WHERE e.observed_at = (SELECT latest.observed_at FROM memory_evidence AS latest INDEXED BY idx_memory_evidence_time WHERE latest.observed_at >= ? AND latest.observed_at < ? ORDER BY latest.observed_at DESC LIMIT 1) AND {scope} AND i.trust_class IN ('host_confirmed', 'agent_experience', 'candidate') AND i.sensitive = 0 AND i.superseded_by IS NULL{validity} GROUP BY e.memory_id ORDER BY e.memory_id LIMIT ?"
+    );
+    let mut values = vec![range.start.clone().into(), range.end.clone().into()];
+    query.scope().push_bind(&mut values);
+    push_query_at(&mut values, query.query_at());
+    values.push((MAX_TEMPORAL_CANDIDATES as i64).into());
+    db.query_all(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        sql,
+        values,
+    ))
+    .await
+    .map_err(database_error)
+}
+
+async fn collect_temporal_range<C: ConnectionTrait>(
+    db: &C,
+    query: RecallQuery<'_>,
+    range: &TemporalRange,
+) -> Result<Vec<sea_orm::QueryResult>, AppCommandError> {
+    let validity = valid_at_sql("i");
+    let scope = query.scope().predicate("i");
+    let sql = format!(
+        "SELECT e.memory_id FROM memory_evidence AS e INDEXED BY idx_memory_evidence_time CROSS JOIN memory_item_current AS i ON i.id = e.memory_id WHERE e.observed_at >= ? AND e.observed_at < ? AND {scope} AND i.trust_class IN ('host_confirmed', 'agent_experience', 'candidate') AND i.sensitive = 0 AND i.superseded_by IS NULL{validity} GROUP BY e.memory_id ORDER BY MAX(e.observed_at) DESC, e.memory_id LIMIT ?"
+    );
+    let mut values = vec![range.start.clone().into(), range.end.clone().into()];
+    query.scope().push_bind(&mut values);
+    push_query_at(&mut values, query.query_at());
+    values.push((MAX_TEMPORAL_CANDIDATES as i64).into());
+    db.query_all(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        sql,
+        values,
+    ))
+    .await
+    .map_err(database_error)
 }
 
 struct TemporalRange {

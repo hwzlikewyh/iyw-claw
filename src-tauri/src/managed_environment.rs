@@ -71,6 +71,16 @@ pub fn component_root(component: &str) -> Option<PathBuf> {
     path.is_dir().then_some(path)
 }
 
+pub fn component_version(component: &str) -> Option<String> {
+    let root = crate::paths::iyw_claw_user_dir();
+    snapshot::load(&root)
+        .ok()?
+        .components
+        .into_iter()
+        .find(|item| item.component_id == component)
+        .map(|item| item.version)
+}
+
 pub fn tool_entrypoint(name: &str) -> Option<PathBuf> {
     match name {
         "node" | "npm" | "npx" => entrypoint("node", name),

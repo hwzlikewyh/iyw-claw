@@ -1,6 +1,6 @@
 use std::sync::atomic::Ordering;
 
-use rmcp::model::CallToolResult;
+use rmcp::model::{CallToolResult, Tool};
 use rmcp::ErrorData;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
@@ -11,6 +11,10 @@ use super::gateway::{self, MemoryGroupRequest};
 use super::invocation::{execute_invocation, InvocationContext, InvocationDependencies};
 
 pub(super) fn parameters_schema() -> Value {
+    scoped_parameters_schema(None)
+}
+
+fn scoped_parameters_schema(features: Option<&super::features::FeatureSnapshot>) -> Value {
     let mut variants = Vec::new();
     for (operation, name) in [
         ("recall", "memory_recall"),
@@ -20,6 +24,9 @@ pub(super) fn parameters_schema() -> Value {
         ("documents.read", "read_user_memory_documents"),
         ("candidates.list", "list_user_memory_candidates"),
     ] {
+        if features.is_some_and(|features| !features.should_list(name)) {
+            continue;
+        }
         let mut schema = super::interaction_tools::embedded_tool(name)["inputSchema"].clone();
         schema["description"] = json!(format!("Complete parameters for operation={operation}."));
         variants.push(schema);
@@ -34,6 +41,41 @@ pub(super) fn parameters_schema() -> Value {
         "description": "Choose the branch matching operation. Put its fields here without another wrapper. Common-operation schemas are complete and require no metadata read; runtime validates the selected operation exactly.",
         "anyOf": variants
     })
+}
+
+pub(super) fn project_tool(
+    mut tool: Tool,
+    features: &super::features::FeatureSnapshot,
+) -> Option<Tool> {
+    let available = super::gateway_tools::MEMORY_CAPABILITIES
+        .iter()
+        .filter(|(_, id)| {
+            super::capability_registry::tool_name_for_capability_id(id)
+                .is_some_and(|name| features.should_list(name))
+        })
+        .collect::<Vec<_>>();
+    if available.is_empty() {
+        return None;
+    }
+    let operations = available
+        .iter()
+        .map(|(operation, _)| *operation)
+        .collect::<Vec<_>>();
+    let mapping = available
+        .iter()
+        .map(|(operation, id)| format!("{operation}={id}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let mut schema = (*tool.input_schema).clone();
+    let properties = schema.get_mut("properties")?.as_object_mut()?;
+    properties.insert("operation".into(), json!({"type":"string","enum":operations,
+        "description":format!("Only these operations are enabled in this session. Common operations have inline schemas; read other mapped schemas once: {mapping}")}));
+    properties.insert(
+        "parameters".into(),
+        scoped_parameters_schema(Some(features)),
+    );
+    tool.input_schema = std::sync::Arc::new(schema);
+    Some(tool)
 }
 
 pub(super) async fn invoke(

@@ -1,0 +1,183 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { Loader2, RefreshCw } from "lucide-react"
+import { useTranslations } from "next-intl"
+import { Button } from "@/components/ui/button"
+import { Switch } from "@/components/ui/switch"
+import { getTransport } from "@/lib/transport"
+import { toErrorMessage } from "@/lib/app-error"
+
+interface LearningConfig {
+  enabled: boolean
+  model: string
+  reviewEnabled: boolean
+}
+interface LearningStatus {
+  config: LearningConfig
+  available: boolean
+  models: Array<{ id: string; displayName: string }>
+}
+
+function useLearningSettings(onUpdated: () => void) {
+  const [status, setStatus] = useState<LearningStatus | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    let current = true
+    getTransport()
+      .call<LearningStatus>("get_user_memory_learning")
+      .then((value) => current && setStatus(value))
+      .catch((reason) => current && setError(toErrorMessage(reason)))
+    return () => {
+      current = false
+    }
+  }, [])
+  const save = async (config: LearningConfig) => {
+    if (!status || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await getTransport().call("set_user_memory_learning", { config })
+      setStatus({ ...status, config })
+    } catch (reason) {
+      setError(toErrorMessage(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const refresh = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await getTransport().call("refresh_user_memory_views")
+      onUpdated()
+    } catch (reason) {
+      setError(toErrorMessage(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return { status, busy, error, save, refresh }
+}
+
+export function UserMemoryLearningPanel({
+  onUpdated,
+}: {
+  onUpdated: () => void
+}) {
+  const t = useTranslations("UserMemorySettings.learning")
+  const state = useLearningSettings(onUpdated)
+  const selectedAvailable =
+    state.status?.models.some(
+      (model) => model.id === state.status?.config.model
+    ) ?? false
+  return (
+    <section className="space-y-3 border-y py-4">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="text-sm font-medium">{t("title")}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">{t("dataUse")}</p>
+        </div>
+        <Switch
+          aria-label={t("title")}
+          checked={state.status?.config.enabled ?? false}
+          disabled={
+            !state.status ||
+            state.busy ||
+            ((!state.status.available || !selectedAvailable) &&
+              !state.status.config.enabled)
+          }
+          onCheckedChange={(enabled) =>
+            state.status && void state.save({ ...state.status.config, enabled })
+          }
+        />
+      </div>
+      {state.status && <LearningControls state={state} />}
+      {state.status && <ReviewToggle state={state} />}
+      {state.error && (
+        <p role="alert" className="break-words text-xs text-destructive">
+          {state.error}
+        </p>
+      )}
+    </section>
+  )
+}
+
+function ReviewToggle({
+  state,
+}: {
+  state: ReturnType<typeof useLearningSettings>
+}) {
+  const t = useTranslations("UserMemorySettings.maintenance")
+  const status = state.status!
+  return (
+    <label className="flex items-center justify-between gap-4 text-sm">
+      <span>{t("enableReview")}</span>
+      <Switch
+        checked={status.config.reviewEnabled ?? false}
+        disabled={
+          state.busy || (!status.config.enabled && !status.config.reviewEnabled)
+        }
+        onCheckedChange={(reviewEnabled) =>
+          void state.save({ ...status.config, reviewEnabled })
+        }
+      />
+    </label>
+  )
+}
+
+function LearningControls({
+  state,
+}: {
+  state: ReturnType<typeof useLearningSettings>
+}) {
+  const t = useTranslations("UserMemorySettings.learning")
+  const status = state.status!
+  const selectedAvailable = status.models.some(
+    (model) => model.id === status.config.model
+  )
+  return (
+    <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+      <select
+        aria-label={t("model")}
+        value={status.config.model}
+        disabled={state.busy || !status.available}
+        className="h-9 w-full min-w-0 rounded-md border bg-background px-2 text-sm"
+        onChange={(event) =>
+          void state.save({ ...status.config, model: event.target.value })
+        }
+      >
+        {!selectedAvailable && (
+          <option value={status.config.model} disabled>
+            {t("modelNameUnavailable")}
+          </option>
+        )}
+        {status.models.map((model) => (
+          <option key={model.id} value={model.id}>
+            {model.displayName}
+          </option>
+        ))}
+      </select>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-auto min-h-9 w-fit max-w-full whitespace-normal"
+        disabled={state.busy || !status.available || !status.config.enabled}
+        onClick={() => void state.refresh()}
+      >
+        {state.busy ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <RefreshCw className="size-4" />
+        )}
+        {t("refresh")}
+      </Button>
+      {!status.available && (
+        <p className="text-xs text-muted-foreground sm:col-span-2">
+          {t("unavailable")}
+        </p>
+      )}
+    </div>
+  )
+}

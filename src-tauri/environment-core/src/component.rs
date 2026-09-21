@@ -138,9 +138,7 @@ fn build_component(
         context
             .layout
             .component_dir(&action.component_id, &action.version, context.platform)?;
-    if action.component_id != crate::memory_model::COMPONENT {
-        final_dir.push(context.transaction);
-    }
+    final_dir.push(context.transaction);
     Ok(PreparedComponent {
         component: InstalledComponent {
             component_id: action.component_id.clone(),

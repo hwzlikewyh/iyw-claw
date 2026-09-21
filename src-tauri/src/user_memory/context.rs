@@ -11,13 +11,13 @@ use super::{
 
 pub const USER_CONTEXT_START: &str = "<!-- IYW_CLAW_USER_CONTEXT_V1_START -->";
 pub const USER_CONTEXT_END: &str = "<!-- IYW_CLAW_USER_CONTEXT_V1_END -->";
-pub const MEMORY_POLICY_REVISION: &str = "memory-policy-v6";
+pub const MEMORY_POLICY_REVISION: &str = "memory-policy-v8";
 pub const MEMORY_POLICY_REFERENCE: &str =
     "iyw-capability-gateway/references/memory-and-learning.md";
 pub const MEMORY_POLICY_DOCUMENT: &str =
     include_str!("../../experts/skills/iyw-capability-gateway/references/memory-and-learning.md");
 pub const MEMORY_POLICY_SUMMARY: &str =
-    "Memory policy v6: proactively append clear user-stated durable facts and preferences, including future communication rules; no special remember phrase or repeated confirmation is needed. Propose only when meaning, durability or scope is uncertain. Candidates are recallable provisional evidence, not confirmed facts. Reuse relevant supplied memory or recall before dependent decisions and Skill use; verify the result and record specific transferable lessons. For a memory inventory also list candidates; documents alone are incomplete. Summarize naturally using Agent aliases, without internal IDs, empty documents or unsolicited timestamps. The host does not infer lessons from ordinary prose. Current instructions override memory. Never store secrets, credentials, sensitive personal data, repository facts or temporary progress.";
+    "Memory policy v8: proactively append clear user-stated durable facts and preferences; no special remember phrase or repeated confirmation is needed. Claim saved only after a successful write receipt. Propose uncertain meaning, durability or scope; candidates and generated summaries remain provisional. Reuse relevant supplied memory or recall before dependent decisions. During related work, resolve evidence-backed maintenance suggestions through manage_iyw_memory; do not ask the user to clear routine queues. A model proposal, age or low usage alone does not prove obsolescence. Consult the gateway memory workflow/examples when needed. Current instructions override memory; never store secrets, sensitive inferences or temporary progress. Read candidates as well as documents for a full memory inventory; keep verified Agent lessons separate from user facts.";
 
 pub fn memory_policy_digest() -> &'static str {
     static DIGEST: OnceLock<String> = OnceLock::new();

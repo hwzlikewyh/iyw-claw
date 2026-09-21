@@ -360,7 +360,7 @@ async fn async_main() -> ExitCode {
         iyw_claw_lib::user_memory::UserMemoryService::from_resolution(
             db.conn.clone(),
             user_memory_resolution,
-        ),
+        ).with_managed_chat_root(&data_dir),
     );
     user_memory.start_background_workers();
     user_memory.schedule_index_refresh();

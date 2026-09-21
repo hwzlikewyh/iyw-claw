@@ -13,7 +13,7 @@ use super::{
 };
 
 const SOURCE_KEY: &str = "user_memory";
-const INDEX_PROJECTION_VERSION: &[u8] = b"user-memory-index-v5-candidate-recall";
+const INDEX_PROJECTION_VERSION: &[u8] = b"user-memory-index-v9-report-delivery-intents";
 
 struct DocumentSource<'a> {
     id: UserMemoryDocumentId,
@@ -66,11 +66,12 @@ pub(super) fn build_index_snapshot(
     add_candidate_evidence(&mut items, candidates);
     add_agent_experiences(&mut items, &mut item_positions, candidates);
     super::retention::apply_retention(&mut items, candidates);
+    let relations = super::generated_projection::append_generated(&mut items, candidates, settings);
     IndexSnapshot {
         source_key: SOURCE_KEY.to_string(),
         source_digest,
         items,
-        relations: Vec::new(),
+        relations,
     }
 }
 
@@ -79,12 +80,27 @@ pub(super) fn source_digest(
     candidates: Option<&UserMemoryLearningState>,
 ) -> String {
     let candidate_bytes = candidates
-        .and_then(|state| serde_json::to_vec(state).ok())
+        .and_then(|state| {
+            let mut state = state.clone();
+            state.maintenance = None;
+            serde_json::to_vec(&state).ok()
+        })
         .unwrap_or_default();
+    let now = Utc::now();
+    let expired = candidates
+        .into_iter()
+        .flat_map(|state| state.retention.iter())
+        .filter(|(_, record)| {
+            DateTime::parse_from_rfc3339(&record.expires_at).is_ok_and(|expires| expires <= now)
+        })
+        .map(|(id, _)| id.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
     hash_parts(&[
         INDEX_PROJECTION_VERSION,
         settings.revision.as_bytes(),
         &candidate_bytes,
+        expired.as_bytes(),
     ])
 }
 
@@ -108,6 +124,9 @@ fn add_memory_entries(
         item.importance = 0.7;
         item.sensitive = super::helpers::contains_potential_secret(&item.content);
         item.add_alias("document", source.file_name);
+        if let Some(intent) = super::index_types::semantic_intent_key(&item.content) {
+            item.add_alias("intent", intent);
+        }
         item.add_evidence(document_evidence(
             source.file_name,
             &item.id,
@@ -127,8 +146,7 @@ fn add_markdown_paragraphs(
         if value.is_empty() {
             continue;
         }
-        let digest = hash_parts(&[source.id.file_name().as_bytes(), value.as_bytes()]);
-        let item_id = format!("iyw-{}-{}", document_kind(source.id), &digest[..20]);
+        let item_id = super::retention_view::document_entry_id(source.id, value);
         let mut item = IndexItem::new(
             item_id,
             value.to_string(),
@@ -219,7 +237,7 @@ fn add_candidate_evidence(items: &mut [IndexItem], state: Option<&UserMemoryLear
             item.add_evidence(IndexEvidence {
                 source_kind: "candidate_observation".to_string(),
                 source_id: observation.opaque_source_id.clone(),
-                conversation_id: None,
+                conversation_id: observation.conversation_id.clone(),
                 turn_nonce: observation.turn_nonce as i64,
                 excerpt_digest: candidate.deduplication_digest.clone(),
                 observed_at,
@@ -297,7 +315,7 @@ fn add_confirmed_wording_aliases(item: &mut IndexItem, candidate: &UserMemoryCan
     }
 }
 
-fn parse_memory_line(line: &str) -> Option<(String, String, Option<String>)> {
+pub(super) fn parse_memory_line(line: &str) -> Option<(String, String, Option<String>)> {
     let marker_start = line.find("<!-- iyw-memory-")?;
     let marker_end = line[marker_start..].find(" -->")? + marker_start;
     let entry_id = line[marker_start + 5..marker_end].trim().to_string();

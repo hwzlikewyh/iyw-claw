@@ -1,5 +1,35 @@
 [
   {
+    "name": "get_user_memory_maintenance",
+    "description": "Read a bounded set of current pending memory reviews for routine Agent maintenance. Returns revision, pendingCount, reviews with exact quotations and evidence references, and active/expired counts. Treat reviews as proposals, not proof. Check current user evidence and scope before resolving; do not ask the user to clear routine maintenance. No mutation or model request is performed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12,
+          "default": 4
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "resolve_user_memory_review",
+    "description": "Resolve one current memory review using its exact id and the revision returned by maintenance.read. apply=true stops the target memory from current use and retains its history; apply=false dismisses an unsupported suggestion. The Agent may resolve routine, evidence-backed cases without asking the user. A model suggestion alone, age or low usage is insufficient evidence. Source changes or revision conflicts require rereading. Do not claim success before resolved=true.",
+    "inputSchema": {
+      "type": "object",
+      "required": ["id", "expectedRevision", "apply"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "expectedRevision": { "type": "string", "minLength": 1 },
+        "apply": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "get_agent_reach_status",
     "description": "Get current Agent Reach channel health and active backends. Diagnoses the managed installation without installing tools, importing browser credentials, or changing channel configuration. This does not search or read websites.",
     "inputSchema": {
@@ -328,7 +358,11 @@
               "type": "object",
               "properties": {
                 "ref": { "type": "string", "minLength": 1, "maxLength": 128 },
-                "selector": { "type": "string", "minLength": 1, "maxLength": 2048 },
+                "selector": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
                 "role": { "type": "string", "maxLength": 128 },
                 "name": { "type": "string", "maxLength": 2048 },
                 "text": { "type": "string", "maxLength": 2048 }
@@ -890,7 +924,7 @@
           "type": "array",
           "minItems": 1,
           "maxItems": 100,
-          "items": {"type": "string", "minLength": 1, "maxLength": 255},
+          "items": { "type": "string", "minLength": 1, "maxLength": 255 },
           "description": "present only: optional display names corresponding to files by index. When provided, the array length must match files and every name must be nonblank. Names change only the displayed labels, not the source filenames. Omit to use each file or URL name."
         },
         "scope": {
@@ -899,16 +933,43 @@
           "description": "list/get only: current conversation (default), or all conversations in the host-bound current workspace."
         },
         "artifact_id": {
-          "type": "integer", "minimum": 1, "maximum": 2147483647,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647,
           "description": "Existing host-issued artifact ID from registration or query results."
         },
-        "search": {"type": "string", "maxLength": 4096, "description": "list only: search display name, path or conversation title."},
-        "message_id": {"type": "string", "minLength": 1, "maxLength": 4096, "description": "list only: restrict to an existing assistant message ID."},
-        "page": {"type": "integer", "minimum": 1, "description": "list only: page number, default 1."},
-        "page_size": {"type": "integer", "minimum": 1, "maximum": 100, "description": "list only: items per page, default 50."},
-        "display_name": {"type": "string", "minLength": 1, "maxLength": 255, "description": "update only: new display name; does not rename a source file."},
+        "search": {
+          "type": "string",
+          "maxLength": 4096,
+          "description": "list only: search display name, path or conversation title."
+        },
+        "message_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "list only: restrict to an existing assistant message ID."
+        },
+        "page": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "list only: page number, default 1."
+        },
+        "page_size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "list only: items per page, default 50."
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "description": "update only: new display name; does not rename a source file."
+        },
         "source": {
-          "type": "string", "minLength": 1, "maxLength": 4096,
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
           "description": "update only: replacement final deliverable, as a file/directory path or HTTP/HTTPS URL. Local content is copied into managed storage; previous files are retained."
         }
       },
@@ -916,28 +977,51 @@
       "oneOf": [
         {
           "required": ["files"],
-          "properties": {"action": {"enum": ["present"]}, "files": {}, "display_names": {}},
+          "properties": {
+            "action": { "enum": ["present"] },
+            "files": {},
+            "display_names": {}
+          },
           "additionalProperties": false
         },
         {
           "required": ["action"],
-          "properties": {"action": {"enum": ["list"]}, "scope": {}, "search": {}, "message_id": {}, "page": {}, "page_size": {}},
+          "properties": {
+            "action": { "enum": ["list"] },
+            "scope": {},
+            "search": {},
+            "message_id": {},
+            "page": {},
+            "page_size": {}
+          },
           "additionalProperties": false
         },
         {
           "required": ["action", "artifact_id"],
-          "properties": {"action": {"enum": ["get"]}, "artifact_id": {}, "scope": {}},
+          "properties": {
+            "action": { "enum": ["get"] },
+            "artifact_id": {},
+            "scope": {}
+          },
           "additionalProperties": false
         },
         {
           "required": ["action", "artifact_id"],
-          "properties": {"action": {"enum": ["update"]}, "artifact_id": {}, "display_name": {}, "source": {}},
+          "properties": {
+            "action": { "enum": ["update"] },
+            "artifact_id": {},
+            "display_name": {},
+            "source": {}
+          },
           "additionalProperties": false,
-          "oneOf": [{"required": ["source"]}, {"required": ["display_name"], "not": {"required": ["source"]}}]
+          "oneOf": [
+            { "required": ["source"] },
+            { "required": ["display_name"], "not": { "required": ["source"] } }
+          ]
         },
         {
           "required": ["action", "artifact_id"],
-          "properties": {"action": {"enum": ["delete"]}, "artifact_id": {}},
+          "properties": { "action": { "enum": ["delete"] }, "artifact_id": {} },
           "additionalProperties": false
         }
       ]
@@ -1026,9 +1110,7 @@
     "description": "Ask the user for a specific input, preference or decision that is needed to continue and cannot be reliably obtained from the request, available context or reasonable implementation judgment. Use for clarifying requirements, choosing an approach or target, setting scope, supplying missing information and collecting concise feedback. Render one or a few related questions as interactive cards and wait for the user to submit options or free text. Omit options for an open-ended question. Prefer one focused question; batch closely related questions when useful. Do not ask routine should-I-proceed questions or ask the user to look up information you can obtain yourself. For visual comparisons, experimentation, interactive explanations, design feedback or richer user expression, use show_interactive_html instead. Do not collect secrets. Free text is always available: do not add an Other option. Put a recommended option first and append (Recommended); recommendations are not user consent.",
     "inputSchema": {
       "type": "object",
-      "required": [
-        "questions"
-      ],
+      "required": ["questions"],
       "properties": {
         "questions": {
           "type": "array",
@@ -1037,9 +1119,7 @@
           "description": "1-4 questions to ask in this single call.",
           "items": {
             "type": "object",
-            "required": [
-              "question"
-            ],
+            "required": ["question"],
             "properties": {
               "question": {
                 "type": "string",
@@ -1062,9 +1142,7 @@
                 "description": "Optional choices, up to four. Omit or use [] for a free-text question. Free text is always provided by the host.",
                 "items": {
                   "type": "object",
-                  "required": [
-                    "label"
-                  ],
+                  "required": ["label"],
                   "properties": {
                     "label": {
                       "type": "string",
@@ -1376,10 +1454,29 @@
       "type": "object",
       "required": ["memoryId", "expectedRevision", "reason"],
       "properties": {
-        "memoryId": {"type": "string", "minLength": 1, "maxLength": 100, "description": "Exact id returned by recall for kind memory or experience; no fuzzy matching."},
-        "expectedRevision": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Exact sourceRevision returned with this recalled item."},
-        "reason": {"type": "string", "minLength": 1, "maxLength": 500, "description": "Brief evidence that the item is invalid, superseded or has an explicit expiry. No sensitive content."},
-        "expiresAt": {"type": "string", "format": "date-time", "description": "Optional known expiry in RFC3339 with timezone. Omit to stop recall immediately. Never invent an expiry for stable facts."}
+        "memoryId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Exact id returned by recall for kind memory or experience; no fuzzy matching."
+        },
+        "expectedRevision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Exact sourceRevision returned with this recalled item."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "Brief evidence that the item is invalid, superseded or has an explicit expiry. No sensitive content."
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Optional known expiry in RFC3339 with timezone. Omit to stop recall immediately. Never invent an expiry for stable facts."
+        }
       },
       "additionalProperties": false
     }
@@ -1412,9 +1509,17 @@
     "inputSchema": {
       "type": "object",
       "properties": {
-        "status": { "type": "string", "enum": ["tentative", "emerging", "pending_confirmation", "terminal"] },
+        "status": {
+          "type": "string",
+          "enum": ["tentative", "emerging", "pending_confirmation", "terminal"]
+        },
         "offset": { "type": "integer", "minimum": 0, "default": 0 },
-        "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 50 }
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 50
+        }
       },
       "additionalProperties": false
     }
@@ -1430,10 +1535,50 @@
         "expectedRevision": { "type": "string", "minLength": 1 },
         "resolution": {
           "oneOf": [
-            { "type": "object", "required": ["type"], "properties": { "type": { "type": "string", "enum": ["confirm"] }, "editedContent": { "type": ["string", "null"], "maxLength": 1000 } }, "additionalProperties": false },
-            { "type": "object", "required": ["type"], "properties": { "type": { "type": "string", "enum": ["reject"] } }, "additionalProperties": false },
-            { "type": "object", "required": ["type", "candidateId"], "properties": { "type": { "type": "string", "enum": ["supersede_by_candidate"] }, "candidateId": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
-            { "type": "object", "required": ["type", "entryId"], "properties": { "type": { "type": "string", "enum": ["supersede_by_memory_entry"] }, "entryId": { "type": "string", "minLength": 1 } }, "additionalProperties": false }
+            {
+              "type": "object",
+              "required": ["type"],
+              "properties": {
+                "type": { "type": "string", "enum": ["confirm"] },
+                "editedContent": {
+                  "type": ["string", "null"],
+                  "maxLength": 1000
+                }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["type"],
+              "properties": {
+                "type": { "type": "string", "enum": ["reject"] }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["type", "candidateId"],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["supersede_by_candidate"]
+                },
+                "candidateId": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "required": ["type", "entryId"],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": ["supersede_by_memory_entry"]
+                },
+                "entryId": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
           ]
         }
       },
@@ -1446,7 +1591,10 @@
     "inputSchema": {
       "type": "object",
       "required": ["candidateId", "expectedRevision"],
-      "properties": { "candidateId": { "type": "string", "minLength": 1 }, "expectedRevision": { "type": "string", "minLength": 1 } },
+      "properties": {
+        "candidateId": { "type": "string", "minLength": 1 },
+        "expectedRevision": { "type": "string", "minLength": 1 }
+      },
       "additionalProperties": false
     }
   },
@@ -1492,9 +1640,33 @@
           "type": "object",
           "minProperties": 1,
           "properties": {
-            "memory": { "type": "object", "properties": { "content": { "type": "string", "maxLength": 65536 }, "enabled": { "type": "boolean" }, "expectedEtag": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
-            "profile": { "type": "object", "properties": { "content": { "type": "string", "maxLength": 65536 }, "enabled": { "type": "boolean" }, "expectedEtag": { "type": "string", "minLength": 1 } }, "additionalProperties": false },
-            "soul": { "type": "object", "properties": { "content": { "type": "string", "maxLength": 65536 }, "enabled": { "type": "boolean" }, "expectedEtag": { "type": "string", "minLength": 1 } }, "additionalProperties": false }
+            "memory": {
+              "type": "object",
+              "properties": {
+                "content": { "type": "string", "maxLength": 65536 },
+                "enabled": { "type": "boolean" },
+                "expectedEtag": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            },
+            "profile": {
+              "type": "object",
+              "properties": {
+                "content": { "type": "string", "maxLength": 65536 },
+                "enabled": { "type": "boolean" },
+                "expectedEtag": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            },
+            "soul": {
+              "type": "object",
+              "properties": {
+                "content": { "type": "string", "maxLength": 65536 },
+                "enabled": { "type": "boolean" },
+                "expectedEtag": { "type": "string", "minLength": 1 }
+              },
+              "additionalProperties": false
+            }
           },
           "additionalProperties": false
         }
@@ -1529,7 +1701,14 @@
         },
         "channel_type": {
           "type": "string",
-          "enum": ["lark", "weixin", "wecom", "wecom_ai_bot", "wecom_agent", "dingtalk"]
+          "enum": [
+            "lark",
+            "weixin",
+            "wecom",
+            "wecom_ai_bot",
+            "wecom_agent",
+            "dingtalk"
+          ]
         },
         "enabled": { "type": "boolean" },
         "runtime_status": {

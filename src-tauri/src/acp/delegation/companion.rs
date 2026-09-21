@@ -278,6 +278,8 @@ impl CompanionFeatures {
             "memory_recall" => self.memory_recall,
             "read_user_memory_documents" => self.memory_documents_read,
             "list_user_memory_candidates"
+            | "get_user_memory_maintenance"
+            | "resolve_user_memory_review"
             | "resolve_user_memory_candidate"
             | "delete_user_memory_candidate"
             | "get_user_memory_harvest_status"
@@ -778,6 +780,8 @@ fn tool_family(name: &str) -> ToolFamily {
         | "memory_recall"
         | "read_user_memory_documents"
         | "list_user_memory_candidates"
+        | "get_user_memory_maintenance"
+        | "resolve_user_memory_review"
         | "resolve_user_memory_candidate"
         | "delete_user_memory_candidate"
         | "get_user_memory_harvest_status"
@@ -986,6 +990,8 @@ async fn dispatch_memory_tool(bridge: CompanionBridge, call: ToolInvocation) -> 
         "memory_recall" => spawn_memory_recall(bridge, call).await,
         "read_user_memory_documents" => spawn_memory_documents_read(bridge, call).await,
         "list_user_memory_candidates"
+        | "get_user_memory_maintenance"
+        | "resolve_user_memory_review"
         | "resolve_user_memory_candidate"
         | "delete_user_memory_candidate"
         | "get_user_memory_harvest_status"

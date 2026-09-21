@@ -56,7 +56,9 @@ pub(super) fn confirm_references(
 ) -> usize {
     let mut affected = 0;
     for candidate in referencing_candidates_mut(state, candidate_id) {
-        mark_confirmed(candidate, confirmed);
+        // 被替代不等于得到确认，不能用目标正文覆盖来源候选的含义。
+        candidate.superseded_by_candidate_id = None;
+        candidate.superseded_by_memory_entry_id = Some(confirmed.entry_id.to_string());
         affected += 1;
     }
     affected

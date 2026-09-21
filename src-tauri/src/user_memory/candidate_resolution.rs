@@ -17,8 +17,7 @@ impl UserMemoryService {
     ) -> Result<UserMemoryCandidateResolutionResult, AppCommandError> {
         let (_guard, _file_guard) = self.acquire_locks().await?;
         self.recover_pending_transaction().await?;
-        let root = self.resolved_root()?;
-        let mut state = candidate_store::read_state(root)?;
+        let mut state = self.read_learning_state()?;
         require_revision(&state, &request.expected_revision)?;
         let index = find_candidate(&state, &request.candidate_id)?;
         if state.candidates[index].status.is_terminal() {
@@ -33,7 +32,7 @@ impl UserMemoryService {
             }
             resolution => {
                 self.apply_resolution(&mut state, index, resolution).await?;
-                candidate_store::write_state(root, &state)?;
+                self.persist_learning_state(&state).await?;
                 self.schedule_index_refresh();
                 Ok(UserMemoryCandidateResolutionResult {
                     candidate: state.candidates[index].clone(),
@@ -49,8 +48,7 @@ impl UserMemoryService {
     ) -> Result<UserMemoryCandidateDeleteResult, AppCommandError> {
         let (_guard, _file_guard) = self.acquire_locks().await?;
         self.recover_pending_transaction().await?;
-        let root = self.resolved_root()?;
-        let mut state = candidate_store::read_state(root)?;
+        let mut state = self.read_learning_state()?;
         require_revision(&state, &request.expected_revision)?;
         let index = find_candidate(&state, &request.candidate_id)?;
         if !state.candidates[index].status.is_terminal() {
@@ -60,7 +58,7 @@ impl UserMemoryService {
         }
         normalize_references_before_delete(&mut state, index)?;
         state.candidates.remove(index);
-        candidate_store::write_state(root, &state)?;
+        self.persist_learning_state(&state).await?;
         self.schedule_index_refresh();
         Ok(UserMemoryCandidateDeleteResult {
             deleted: true,

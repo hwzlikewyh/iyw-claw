@@ -4,7 +4,6 @@ use crate::app_error::AppCommandError;
 
 use super::helpers::settings_revision;
 use super::settings_projection::{readable_document_snapshot, unreadable_document_snapshot};
-use super::store::candidate_settings;
 use super::{
     UserMemoryDocumentId, UserMemoryPolicy, UserMemoryService, UserMemorySettingsSnapshot,
 };
@@ -17,16 +16,19 @@ pub(super) fn readonly_snapshot(
     let root = resolution.path.as_path();
     let mut documents = BTreeMap::new();
     for id in UserMemoryDocumentId::ALL {
-        let snapshot = match service.read_document_optional(id) {
+        let mut snapshot = match service.read_document_optional(id) {
             Ok(content) => {
                 readable_document_snapshot(root, policy, id, content.unwrap_or_default())
             }
             Err(error) => unreadable_document_snapshot(root, policy, id, error),
         };
+        if service.active_authority().is_some() {
+            snapshot.readonly = false;
+        }
         documents.insert(id, snapshot);
     }
     let revision = settings_revision(policy, &documents)?;
-    let (candidate_diagnostic, candidate_counts) = candidate_settings(root);
+    let (candidate_diagnostic, candidate_counts) = service.candidate_settings();
     Ok(UserMemorySettingsSnapshot {
         enabled: policy.enabled,
         agent_write_enabled: policy.agent_write_enabled,

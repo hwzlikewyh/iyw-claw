@@ -2,7 +2,6 @@ use crate::app_error::AppCommandError;
 use crate::models::agent::AgentType;
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::store::candidate_settings;
 use super::{
     CompanionHealthReason, CompanionHealthSnapshot, CompanionHealthStatus,
     UserMemoryCandidateDiagnostic, UserMemoryCandidateDiagnosticReason, UserMemoryCapabilityInputs,
@@ -111,11 +110,13 @@ impl UserMemoryService {
                 }
                 Err(error) => log_document_error(id, &error),
             }
-            if super::fs::is_document_readonly(self.resolved_root().unwrap(), id) {
+            if self.active_authority().is_none()
+                && super::fs::is_document_readonly(self.resolved_root().unwrap(), id)
+            {
                 readonly_documents.insert(id);
             }
         }
-        let (candidate_diagnostic, _) = candidate_settings(self.resolved_root().unwrap());
+        let (candidate_diagnostic, _) = self.candidate_settings();
         (
             UserMemoryResourceAccess {
                 storage_available: true,

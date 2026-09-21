@@ -23,6 +23,11 @@ routing:
 
 # IYW Capability Gateway
 
+记忆相关能力统一使用 `manage_iyw_memory`，不为每个动作寻找一个独立 MCP 工具。
+需要维护记忆、处理纠正或排查失效时，读 [记忆策略](references/memory-and-learning.md)
+和 [调用示例](references/memory-examples.md)。示例覆盖保存、范围例外、旧信息停用、
+候选及后台复核、冲突重读和失败恢复；常规维护由 Agent 在任务中完成。
+
 This Skill is an active routing gate, not a static tool list. The host catalog is
 authoritative for current capability IDs, schemas, required inputs, availability,
 permissions, and schema digests.

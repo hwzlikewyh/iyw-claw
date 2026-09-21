@@ -620,7 +620,7 @@ mod tauri_app {
                     crate::user_memory::UserMemoryService::from_resolution(
                         app.state::<db::AppDatabase>().conn.clone(),
                         user_memory_resolution,
-                    ),
+                    ).with_managed_chat_root(&effective_data_dir),
                 );
                 let startup_harvest = user_memory.clone();
                 tauri::async_runtime::spawn(async move {
@@ -648,11 +648,12 @@ mod tauri_app {
                         .inner()
                         .clone(),
                 );
-                app.manage(user_memory);
+                app.manage(user_memory.clone());
 
                 // Restore and apply saved system proxy settings before any network operation.
                 let db = app.state::<db::AppDatabase>();
                 tauri::async_runtime::block_on(network::proxy::init_proxy_from_db(&db.conn));
+                user_memory.start_managed_model_retry(effective_data_dir.clone());
                 let pending_activation_started = std::time::Instant::now();
                 match tauri::async_runtime::block_on(
                     crate::acp::version_center::consume_pending_activations_at_startup(
@@ -1609,6 +1610,32 @@ mod tauri_app {
                 user_memory_commands::append_user_memory_direct,
                 user_memory_commands::correct_user_memory,
                 user_memory_commands::get_user_memory_settings,
+                crate::commands::user_memory_entries::list_user_memory_entries,
+                crate::commands::user_memory_entries::set_user_memory_entry_status,
+                crate::commands::user_memory_entries::preview_memory_governance,
+                crate::commands::user_memory_entries::apply_memory_governance,
+                crate::commands::user_memory_entries::forget_user_memory,
+                crate::commands::user_memory_entries::get_user_memory_semantic_status,
+                crate::commands::user_memory_entries::set_user_memory_semantic_enabled,
+                crate::commands::user_memory_entries::prepare_user_memory_semantic,
+                crate::commands::user_memory_entries::preview_user_memory_semantic,
+                crate::commands::user_memory_authority::get_user_memory_authority,
+                crate::commands::user_memory_authority::prepare_user_memory_authority,
+                crate::commands::user_memory_authority::activate_user_memory_authority,
+                crate::commands::user_memory_authority::get_user_memory_history,
+                crate::commands::user_memory_authority::get_user_memory_receipts,
+                crate::commands::user_memory_authority::record_memory_recall_feedback,
+                crate::commands::user_memory_authority::get_memory_effectiveness,
+                crate::commands::user_memory_learning::get_user_memory_learning,
+                crate::commands::user_memory_learning::set_user_memory_learning,
+                crate::commands::user_memory_learning::refresh_user_memory_views,
+                crate::commands::user_memory_maintenance::get_user_memory_maintenance,
+                crate::commands::user_memory_maintenance::run_user_memory_maintenance,
+                crate::commands::user_memory_maintenance::resolve_user_memory_review,
+                crate::commands::user_memory_maintenance::preview_user_memory_migration,
+                crate::commands::user_memory_reconcile::get_user_memory_reconciliation,
+                crate::commands::user_memory_reconcile::resolve_user_memory_file,
+                crate::commands::user_memory_reconcile::restore_user_memory_authority,
                 user_memory_commands::update_user_memory_settings,
                 user_memory_commands::list_user_memory_candidates,
                 user_memory_commands::resolve_user_memory_candidate,

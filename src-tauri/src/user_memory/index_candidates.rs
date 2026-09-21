@@ -46,7 +46,7 @@ fn add_observations(item: &mut IndexItem, candidate: &UserMemoryCandidate) {
         item.add_evidence(IndexEvidence {
             source_kind: "candidate_observation".into(),
             source_id: observation.opaque_source_id.clone(),
-            conversation_id: None,
+            conversation_id: observation.conversation_id.clone(),
             turn_nonce: observation.turn_nonce as i64,
             excerpt_digest: candidate.deduplication_digest.clone(),
             observed_at: observed

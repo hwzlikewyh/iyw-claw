@@ -50,6 +50,18 @@ impl UserMemoryService {
         let root = self.resolved_root()?.to_path_buf();
         let sources = deduplicate_sources(&root, sources);
         let mut receipt = load_receipt(&root, sources.clone())?;
+        if self.active_authority().is_some() {
+            for id in UserMemoryDocumentId::ALL {
+                receipt.files.insert(
+                    id,
+                    result(UserMemoryMigrationStatus::SkippedExisting, None, None),
+                );
+            }
+            return Ok(UserMemoryMigrationReport {
+                warnings: Vec::new(),
+                receipt,
+            });
+        }
         for id in UserMemoryDocumentId::ALL {
             if receipt
                 .files
