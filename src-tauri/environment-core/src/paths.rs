@@ -17,6 +17,13 @@ impl Layout {
         let root = dirs::home_dir()
             .context("operating-system user home is unavailable")?
             .join(".iyw-claw");
+        #[cfg(debug_assertions)]
+        let root = std::env::var_os("IYW_CLAW_ENVIRONMENT_TEST_ROOT")
+            .map(PathBuf::from)
+            .unwrap_or(root);
+        if !root.is_absolute() {
+            anyhow::bail!("environment root must be absolute")
+        }
         Ok(Self {
             runtime: root.join("runtime"),
             inventory: root.join("inventory"),

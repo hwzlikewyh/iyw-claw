@@ -219,6 +219,8 @@ FunctionEnd
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  ; Tauri 在 include hooks 后才定义 VERSION，必须在宏展开时保存版本。
+  StrCpy $IywClawEnvironmentVersion "${VERSION}"
   Call IywClawValidateNewApp
   Pop $R0
   StrCmp $R0 "1" iyw_new_app_valid 0

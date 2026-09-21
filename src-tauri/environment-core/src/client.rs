@@ -3,7 +3,10 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use reqwest::{blocking::Client, Url};
 
+use crate::failure::{self, Failure};
 use crate::model::{ApiResponse, EnvironmentPlan, ResolveRequest};
+
+const PLAN_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub struct FusionClient {
     base_url: String,
@@ -26,21 +29,44 @@ impl FusionClient {
     }
 
     pub fn resolve(&self, request: &ResolveRequest) -> Result<EnvironmentPlan> {
+        crate::retry::run("环境计划", || self.resolve_once(request))
+    }
+
+    fn resolve_once(&self, request: &ResolveRequest) -> Result<EnvironmentPlan> {
         let url = format!("{}/app-updates/v1/environment/resolve", self.base_url);
         let response = self
             .http
             .post(url)
+            .timeout(PLAN_TIMEOUT)
             .json(request)
             .send()
-            .context("request Fusion environment plan")?;
+            .map_err(failure::network)?;
         let status = response.status();
-        let body = response
-            .json::<ApiResponse<EnvironmentPlan>>()
-            .context("decode Fusion environment plan")?;
-        if !status.is_success() || body.code != 1 {
-            bail!("Fusion environment plan failed: {}", body.message)
+        if status.is_server_error() || status.as_u16() == 429 {
+            return Err(Failure::network(format!("Fusion 暂时不可用（HTTP {status}）")).into());
         }
-        let plan = body.data.context("Fusion environment plan omitted data")?;
+        let body = response
+            .json::<ApiResponse<serde_json::Value>>()
+            .map_err(failure::network)?;
+        if !status.is_success() || body.code != 1 {
+            let code = body
+                .data
+                .as_ref()
+                .and_then(|value| value.get("errorCode"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("UNKNOWN");
+            return Err(Failure::permanent(
+                "PLAN",
+                format!(
+                    "Fusion 环境计划失败（{code}，HTTP {status}）：{}",
+                    body.message
+                ),
+            )
+            .into());
+        }
+        let plan =
+            serde_json::from_value(body.data.context("Fusion environment plan omitted data")?)
+                .context("Fusion environment plan has an incompatible format")?;
         self.validate_download_urls(&plan)?;
         Ok(plan)
     }

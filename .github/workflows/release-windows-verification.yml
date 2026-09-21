@@ -44,3 +44,30 @@ jobs:
           IYW_CLAW_VERIFY_NSIS: "1"
           IYW_CLAW_SIGN_MODE: signtool
         run: node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
+
+      - name: Verify real NSIS environment installation
+        timeout-minutes: 25
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'Requires a disposable hosted runner' }
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $root = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.iyw-claw'
+          if (Test-Path -LiteralPath $root) { throw 'Refusing to modify an existing user environment' }
+          $installers = @(Get-ChildItem 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -Filter '*-setup.exe')
+          if ($installers.Count -ne 1) { throw 'Expected exactly one signed installer' }
+          $installRoot = Join-Path $env:RUNNER_TEMP 'iyw-environment-live-install'
+          if (Test-Path -LiteralPath $installRoot) { throw 'Live installation root already exists' }
+          $process = Start-Process -FilePath $installers[0].FullName -ArgumentList @('/S',"/D=$installRoot") -Wait -PassThru -WindowStyle Hidden
+          if ($process.ExitCode -ne 0) {
+            Get-Content (Join-Path $root 'logs/environment/last-error.log') -ErrorAction SilentlyContinue
+            throw "Real NSIS installation failed: $($process.ExitCode)"
+          }
+          $helper = Join-Path $installRoot 'app/iyw-environment.exe'
+          & $helper diagnose --json
+          if ($LASTEXITCODE -ne 0) { throw 'Installed environment integrity check failed' }
+          $snapshot = Get-Content (Join-Path $root 'inventory/environment-current.json') -Raw | ConvertFrom-Json
+          if ($snapshot.pcVersion -ne $version) { throw 'Environment version mismatch' }
+          foreach ($component in @('node','git','uv','chromix','agent-browser')) {
+            if ($component -notin $snapshot.components.componentId) { throw "Missing required component: $component" }
+          }

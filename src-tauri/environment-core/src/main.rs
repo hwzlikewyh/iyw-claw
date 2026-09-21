@@ -2,10 +2,12 @@ mod activation;
 mod archive;
 mod client;
 mod download;
+mod failure;
 mod install;
 mod inventory;
 mod model;
 mod paths;
+mod retry;
 
 use std::process::ExitCode;
 
@@ -16,8 +18,34 @@ fn main() -> ExitCode {
         Ok(code) => ExitCode::from(code),
         Err(error) => {
             eprintln!("iyw-environment: {error:#}");
-            ExitCode::from(30)
+            write_failure(&error);
+            ExitCode::from(failure::exit_code(&error))
         }
+    }
+}
+
+fn write_failure(error: &anyhow::Error) {
+    if !std::env::args().any(|arg| matches!(arg.as_str(), "install" | "repair")) {
+        return;
+    }
+    let Ok(layout) = paths::Layout::resolve() else {
+        return;
+    };
+    if std::fs::create_dir_all(&layout.logs).is_err() {
+        return;
+    }
+    let message = format!("{error:#}");
+    let _ = std::fs::write(layout.logs.join("last-error.log"), &message);
+    #[cfg(windows)]
+    {
+        let bytes: Vec<u8> = message
+            .chars()
+            .take(900)
+            .collect::<String>()
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect();
+        let _ = std::fs::write(layout.logs.join("last-error.txt"), bytes);
     }
 }
 

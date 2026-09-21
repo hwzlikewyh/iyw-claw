@@ -1,12 +1,16 @@
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use reqwest::blocking::Client;
 use sha2::{Digest, Sha256};
 
+use crate::failure::{self, Failure};
 use crate::model::EnvironmentArtifact;
+
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
 
 pub fn ensure_cached(
     client: &Client,
@@ -33,7 +37,9 @@ pub fn ensure_cached(
     }
     fs::create_dir_all(&cache_dir).context("create artifact cache")?;
     let partial = cache_dir.join("artifact.part");
-    download(client, &artifact.url, &partial, artifact, component)?;
+    crate::retry::run(component, || {
+        download(client, &artifact.url, &partial, artifact, component)
+    })?;
     fs::rename(&partial, &destination).context("activate verified artifact cache")?;
     Ok(destination)
 }
@@ -45,16 +51,26 @@ fn download(
     artifact: &EnvironmentArtifact,
     component: &str,
 ) -> Result<()> {
-    let mut response = client.get(url).send().context("download TOS artifact")?;
+    let mut response = client.get(url).send().map_err(failure::network)?;
     if !response.status().is_success() {
-        bail!("TOS download failed with status {}", response.status())
+        let status = response.status().as_u16();
+        return Err(Failure {
+            code: "NETWORK",
+            message: format!("{component} 下载失败（HTTP {status}）"),
+            retryable: matches!(status, 408 | 429 | 500..=599),
+        }
+        .into());
     }
     let mut file = File::create(destination).context("create partial artifact")?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 128 * 1024];
     let mut downloaded = 0_u64;
+    let mut last_progress = Instant::now();
+    emit(component, "downloading", 0, artifact.size_bytes);
     loop {
-        let read = response.read(&mut buffer).context("read TOS artifact")?;
+        let read = response.read(&mut buffer).map_err(|error| {
+            Failure::network(format!("{component} 下载连接中断（{:?}）", error.kind()))
+        })?;
         if read == 0 {
             break;
         }
@@ -62,7 +78,10 @@ fn download(
             .context("write partial artifact")?;
         hasher.update(&buffer[..read]);
         downloaded = downloaded.saturating_add(read as u64);
-        emit(component, "downloading", downloaded, artifact.size_bytes);
+        if last_progress.elapsed() >= PROGRESS_INTERVAL {
+            emit(component, "downloading", downloaded, artifact.size_bytes);
+            last_progress = Instant::now();
+        }
         if downloaded > artifact.size_bytes {
             bail!("downloaded artifact exceeds the declared size")
         }
@@ -70,7 +89,12 @@ fn download(
     file.sync_all().context("flush partial artifact")?;
     let actual = format!("{:x}", hasher.finalize());
     if downloaded != artifact.size_bytes || actual != artifact.sha256 {
-        bail!("downloaded artifact failed size or SHA-256 verification")
+        return Err(Failure {
+            code: "INTEGRITY",
+            message: format!("{component} 下载文件大小或 SHA-256 不符"),
+            retryable: true,
+        }
+        .into());
     }
     emit(component, "downloaded", downloaded, artifact.size_bytes);
     Ok(())
