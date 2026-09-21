@@ -5,7 +5,9 @@ use super::tool_identity::{
     SEARCH_TOOL,
 };
 
-pub(super) const MEMORY_CAPABILITIES: [(&str, &str); 15] = [
+pub(super) const MEMORY_CAPABILITIES: [(&str, &str); 17] = [
+    ("maintenance.read", "iyw.memory.maintenance.read.v1"),
+    ("review.resolve", "iyw.memory.review.resolve.v1"),
     ("policy.read", "iyw.memory.policy.read.v1"),
     ("recall", "iyw.memory.recall.search.v1"),
     ("retire", "iyw.memory.retire.v1"),
@@ -41,15 +43,6 @@ pub(super) fn values() -> [Value; 12] {
         knowledge_tool(),
         memory_tool(),
     ]
-    .map(with_usage_instruction)
-}
-
-fn with_usage_instruction(mut tool: Value) -> Value {
-    let description = tool["description"].as_str().unwrap_or_default();
-    tool["description"] = json!(format!(
-        "Read this advertised definition, including nested schema fields and examples, before first use; reuse it throughout the conversation. For a direct tool, reading this definition requires no extra discovery or metadata call unless its instructions require a model lookup or operation-specific capability read. {description}"
-    ));
-    tool
 }
 
 fn search_tool() -> Value {
@@ -134,7 +127,7 @@ fn memory_tool() -> Value {
         .join("; ");
     json!({
         "name": MEMORY_TOOL,
-        "description": "Read, retain or retire relevant memory without leaving the task. Call recall, append, propose, retire or documents.read directly using the inline schemas: no search, metadata, Skill or policy read is required. Recall before decisions depending on prior preferences, repeated workflows or failures; reuse relevant results already supplied. Append clear user-stated durable facts and future preferences, including `我喜欢吃桃子` or `下回跟我说话简洁直白`; do not require the word remember or another confirmation. Use propose only when meaning, durability or scope is uncertain. Proposals are indexed and recallable as provisional evidence, never as confirmed memory. Retire a recalled obsolete entry or experience using its id as memoryId, sourceRevision as expectedRevision, and an evidence-based reason. Omit expiresAt to forget immediately; set a known RFC3339 expiry only from evidence. Never expire stable preferences just because they are old. Retirement excludes recall but preserves source history; stop applying the old fact in this conversation too. Never store secrets, sensitive inferences, repository facts, temporary progress or Agent reflections as user memory. Documents.read returns raw authoritative text for editing plus inactiveEntryIds: those entries must not inform decisions. Other operations require one read of their mapped capability schema. The host performs policy, authorization, scope and concurrency checks. matched is evidence, no_evidence is no match, unavailable is not absence. Memory failure must not block the task or trigger file edits.",
+        "description": "One entry for memory recall, learning, correction and maintenance. Common operations use inline parameters; others require one read of their mapped capability schema. Reuse relevant memory, append explicit durable user facts, propose uncertain observations, and retire only exact entries disproved by current evidence. Handle routine candidates and reviews during related work without asking the user to maintain queues. Never treat model suggestions, age or low usage as proof; never store secrets, sensitive inferences or transient tasks. Writes require successful receipts; revision conflicts require fresh reads. Retirement preserves history. Unavailable memory must not block the task or trigger direct file edits. Detailed workflows, limits and examples: iyw-capability-gateway/references/memory-and-learning.md and memory-examples.md.",
         "inputSchema": {
             "type": "object",
             "required": ["operation"],

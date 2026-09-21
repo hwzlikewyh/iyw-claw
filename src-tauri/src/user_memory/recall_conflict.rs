@@ -36,35 +36,18 @@ pub(super) async fn filter_conflict_seeds<C: ConnectionTrait>(
     recall: &mut RecallAccumulator,
 ) -> Result<(), &'static str> {
     let started_at = std::time::Instant::now();
-    let initial_ids =
-        super::recall_rank::relation_seed_ids(&recall.candidates, context.attempt.limit);
-    let initial_conflicts = query_conflicts(
+    let ids = recall.candidates.keys().cloned().collect::<Vec<_>>();
+    let conflicts = query_conflicts(
         conn,
         recall,
         ConflictQuery {
             context,
-            ids: &initial_ids,
+            ids: &ids,
             lane: "conflict_seed",
             started_at,
         },
     )
     .await?;
-    let conflicts = if initial_conflicts.is_empty() {
-        initial_conflicts
-    } else {
-        let all_ids = recall.candidates.keys().cloned().collect::<Vec<_>>();
-        query_conflicts(
-            conn,
-            recall,
-            ConflictQuery {
-                context,
-                ids: &all_ids,
-                lane: "conflict_seed",
-                started_at,
-            },
-        )
-        .await?
-    };
     let before = recall.candidates.len();
     recall.candidates.retain(|id, _| !conflicts.contains(id));
     let removed = before.saturating_sub(recall.candidates.len());
@@ -174,9 +157,9 @@ async fn unresolved_conflict_ids<C: ConnectionTrait>(
     let source_validity = valid_at_sql("source");
     let target_validity = valid_at_sql("target");
     let sql = format!(
-        "SELECT DISTINCT r.source_id AS id FROM memory_relation_current AS r \
-         JOIN memory_item_current AS source ON source.id = r.source_id \
-         JOIN memory_item_current AS target ON target.id = r.target_id \
+        "SELECT DISTINCT r.source_id AS id FROM memory_relation_current AS r INDEXED BY idx_memory_relation_lookup \
+         CROSS JOIN memory_item_current AS source ON source.id = r.source_id \
+         CROSS JOIN memory_item_current AS target ON target.id = r.target_id \
          WHERE r.source_id IN ({placeholders}) AND r.relation = 'contradicts' \
          AND r.confidence >= 50 AND {source_scope} AND {target_scope} \
          AND source.trust_class IN ('host_confirmed', 'agent_experience', 'candidate') AND source.sensitive = 0 \

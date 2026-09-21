@@ -57,16 +57,22 @@ impl UserMemoryService {
                 "Memory maintenance is disabled",
             ));
         }
-        let root = self.resolved_root()?;
-        let mut state = candidate_store::read_state(root)?;
+        let mut state = self.read_learning_state()?;
         let settings = super::index_source::readonly_snapshot(self, &policy)?;
-        let snapshot = super::index_parse::build_index_snapshot(&settings, Some(&state));
+        let snapshot = self.scope_index_snapshot(super::index_parse::build_index_snapshot(
+            &settings,
+            Some(&state),
+        ));
+        let scope = self.memory_recall_scope(scope);
         let item = find_target(&snapshot.items, &request, &scope)?;
         let retention = earliest_retention(&state, item, retention);
         state
             .retention
             .insert(request.memory_id.clone(), retention.clone());
-        candidate_store::write_state(root, &state)?;
+        if parse_time(&retention.expires_at)? <= now {
+            block_retired_view(&mut state, &request.memory_id)?;
+        }
+        self.persist_learning_state(&state).await?;
         self.schedule_index_refresh();
         let excluded = parse_time(&retention.expires_at)? <= now;
         tracing::info!(
@@ -81,6 +87,21 @@ impl UserMemoryService {
             revision: candidate_store::revision(&state)?,
         })
     }
+}
+
+fn block_retired_view(
+    state: &mut UserMemoryLearningState,
+    id: &str,
+) -> Result<(), AppCommandError> {
+    if let Some(view) = state
+        .generated_views
+        .iter()
+        .find(|view| super::retention_view::document_entry_id(view.document, &view.content) == id)
+        .cloned()
+    {
+        super::generated_overrides::block_view(state, &view)?;
+    }
+    Ok(())
 }
 
 fn prepare_retention(
@@ -122,9 +143,14 @@ fn validate_target(item: &IndexItem, request: &RetireMemoryRequest) -> Result<()
             "Memory changed; recall the current item before retiring it",
         ));
     }
-    if item.sensitive || !matches!(item.kind.as_str(), "memory" | "experience") {
+    if item.sensitive
+        || !matches!(
+            item.kind.as_str(),
+            "memory" | "experience" | "profile" | "soul"
+        )
+    {
         return Err(AppCommandError::invalid_input(
-            "Only recalled user-memory entries and Agent experience can be retired",
+            "Only recalled memory, profile, collaboration entries and Agent experience can be retired",
         ));
     }
     Ok(())
@@ -171,7 +197,13 @@ pub(super) fn apply_retention(items: &mut [IndexItem], state: Option<&UserMemory
             .get(&item.id)
             .filter(|record| record.content_digest == item.content_digest)
         {
-            item.valid_to = Some(record.expires_at.clone());
+            if item
+                .valid_to
+                .as_deref()
+                .is_none_or(|current| record.expires_at.as_str() < current)
+            {
+                item.valid_to = Some(record.expires_at.clone());
+            }
         }
     }
 }
@@ -185,7 +217,7 @@ pub(super) fn inactive_document_entries(
         .items
         .into_iter()
         .filter(|item| {
-            item.kind == "memory"
+            matches!(item.kind.as_str(), "memory" | "profile" | "soul")
                 && item
                     .valid_to
                     .as_deref()
@@ -204,7 +236,9 @@ pub(super) fn validate_retention(
         ));
     }
     for (id, record) in records {
-        if !(super::is_valid_memory_entry_id(id) || super::is_valid_experience_id(id))
+        if !(super::is_valid_memory_entry_id(id)
+            || super::is_valid_experience_id(id)
+            || super::retention_view::is_document_entry_id(id))
             || !super::is_lower_hex_string(&record.content_digest, 64)
             || record.source_revision.is_empty()
             || record.source_revision.chars().count() > 128

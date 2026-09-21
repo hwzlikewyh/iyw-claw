@@ -31,6 +31,13 @@ impl ServerHandler for BuiltinMcpHandler {
             let tools = gateway::tools()
                 .map_err(catalog_error)?
                 .into_iter()
+                .filter_map(|tool| {
+                    if tool.name == "manage_iyw_memory" {
+                        crate::acp::builtin_mcp::iyw_memory::project_tool(tool, authority.features())
+                    } else {
+                        Some(tool)
+                    }
+                })
                 .filter(|tool| match tool.name.as_ref() {
                     "ask_user_question" | "show_interactive_html" => {
                         authority.features().should_list("ask_user_question")

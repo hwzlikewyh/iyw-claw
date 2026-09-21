@@ -33,10 +33,14 @@ pub(super) async fn hydrate<C: ConnectionTrait>(
     let mut by_id = load_hydrated_items(db, &ids, request.query_at, request.scope).await?;
     let mut remaining = MAX_RECALL_TOTAL_CHARS;
     let mut items = Vec::new();
+    let mut seen_content = std::collections::BTreeSet::new();
     for (id, score, lanes) in request.ranked {
         let Some(mut item) = by_id.remove(&id) else {
             continue;
         };
+        if !seen_content.insert(item.content.clone()) {
+            continue;
+        }
         let Some(content) =
             bounded_recall_content(&item.content, remaining.min(MAX_RECALL_ITEM_CHARS))
         else {
@@ -67,7 +71,7 @@ async fn load_hydrated_items<C: ConnectionTrait>(
     let validity = valid_at_sql("memory_item_current");
     let scope_predicate = scope.predicate("memory_item_current");
     let sql = format!(
-        "SELECT id, kind, content, confidence, importance, source_revision FROM memory_item_current INDEXED BY sqlite_autoindex_memory_item_current_1 WHERE id IN ({placeholders}) AND {scope_predicate} AND trust_class IN ('host_confirmed', 'agent_experience', 'candidate') AND sensitive = 0 AND superseded_by IS NULL{validity}"
+        "SELECT id, CASE WHEN trust_class = 'candidate' THEN 'candidate' ELSE kind END AS kind, content, confidence, importance, source_revision FROM memory_item_current INDEXED BY sqlite_autoindex_memory_item_current_1 WHERE id IN ({placeholders}) AND {scope_predicate} AND trust_class IN ('host_confirmed', 'agent_experience', 'candidate') AND sensitive = 0 AND superseded_by IS NULL{validity}"
     );
     let expected_count = ids.len();
     let mut values = ids.iter().cloned().map(Value::from).collect::<Vec<_>>();

@@ -9,15 +9,16 @@ use crate::acp::registry;
 use crate::models::agent::AgentType;
 
 pub use super::model_catalog_types::{
-    ImageInputMode, ModelCapabilities, ModelCapabilitySnapshot, ModelLimits,
+    ImageInputMode, ModelCapabilities, ModelCapabilitySnapshot, ModelLimits, ModelOption,
 };
 use super::model_catalog_types::{
     ModelCatalogLayer, PersistedCatalog, PersistedCatalogV4, PersistedModel, RuntimeCatalog,
 };
 
 const PERSIST_FILE_NAME: &str = "model-catalog.json";
-const PERSIST_VERSION: u32 = 4;
+const PERSIST_VERSION: u32 = 5;
 const PREVIOUS_PERSIST_VERSIONS: [u32; 2] = [2, 3];
+const PREVIOUS_SCOPED_PERSIST_VERSION: u32 = 4;
 
 fn interner() -> &'static Mutex<HashSet<&'static str>> {
     static INTERNER: OnceLock<Mutex<HashSet<&'static str>>> = OnceLock::new();
@@ -73,7 +74,12 @@ fn load_persisted() -> Option<RuntimeCatalog> {
                 agent_platform_ids: HashMap::new(),
             })
         }
-        PersistedCatalog::Scoped(value) if value.version == PERSIST_VERSION => {
+        PersistedCatalog::Scoped(value)
+            if matches!(
+                value.version,
+                PREVIOUS_SCOPED_PERSIST_VERSION | PERSIST_VERSION
+            ) =>
+        {
             let scoped = value
                 .scoped
                 .into_iter()
@@ -92,6 +98,7 @@ fn load_persisted() -> Option<RuntimeCatalog> {
 fn legacy_model(id: String) -> PersistedModel {
     PersistedModel {
         id,
+        display_name: String::new(),
         capabilities: ModelCapabilities::default(),
         supports_reasoning_summary_parameter: true,
         supports_search_tool: false,
@@ -102,6 +109,7 @@ fn legacy_model(id: String) -> PersistedModel {
 
 pub(super) fn layer_from_models(models: Vec<PersistedModel>) -> ModelCatalogLayer {
     let mut ids = Vec::new();
+    let mut display_names = HashMap::new();
     let mut capabilities = HashMap::new();
     let mut seen = HashSet::new();
     for model in models {
@@ -111,6 +119,10 @@ pub(super) fn layer_from_models(models: Vec<PersistedModel>) -> ModelCatalogLaye
         }
         let id = intern(id);
         ids.push(id);
+        let display_name = model.display_name.trim();
+        if !display_name.is_empty() {
+            display_names.insert(id, intern(display_name));
+        }
         capabilities.insert(
             id,
             ModelCapabilitySnapshot {
@@ -122,7 +134,11 @@ pub(super) fn layer_from_models(models: Vec<PersistedModel>) -> ModelCatalogLaye
             },
         );
     }
-    ModelCatalogLayer { ids, capabilities }
+    ModelCatalogLayer {
+        ids,
+        display_names,
+        capabilities,
+    }
 }
 
 fn persisted_models(layer: &ModelCatalogLayer) -> Vec<PersistedModel> {
@@ -133,6 +149,12 @@ fn persisted_models(layer: &ModelCatalogLayer) -> Vec<PersistedModel> {
             let snapshot = layer.capabilities.get(id).copied().unwrap_or_default();
             PersistedModel {
                 id: (*id).to_string(),
+                display_name: layer
+                    .display_names
+                    .get(id)
+                    .copied()
+                    .unwrap_or_default()
+                    .to_string(),
                 capabilities: snapshot.capabilities,
                 supports_reasoning_summary_parameter: snapshot.supports_reasoning_summary_parameter,
                 supports_search_tool: snapshot.supports_search_tool,
@@ -289,4 +311,23 @@ pub fn default_model_for(agent: AgentType) -> &'static str {
 
 pub fn compaction_threshold(model: Option<&str>, context_window: u64) -> Option<u64> {
     super::model_budget::compaction_threshold(model, context_window)
+}
+
+pub fn all_model_options() -> Vec<ModelOption> {
+    let current = catalog().read().expect("catalog poisoned");
+    current
+        .complete
+        .ids
+        .iter()
+        .filter_map(|id| {
+            current
+                .complete
+                .display_names
+                .get(id)
+                .map(|display_name| ModelOption {
+                    id: (*id).to_string(),
+                    display_name: (*display_name).to_string(),
+                })
+        })
+        .collect()
 }

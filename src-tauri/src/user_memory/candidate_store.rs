@@ -74,42 +74,22 @@ pub(super) fn observation_key(candidate_digest: &str, source_id: &str, turn_nonc
     hash_parts(&[candidate_digest.as_bytes(), source_id.as_bytes(), &nonce])
 }
 
-/// Conservative wording-equivalence used for candidate merging. Returns true
-/// only when both texts are normalized, carry the same signal, the shorter is
-/// a character-multiset subset of the longer, and their lengths are close.
-/// This groups phrasings such as "prefer dark theme" and "prefer the dark
-/// theme" into one candidate while keeping contradictory variants ("dark" vs
-/// "light") separate. Original wording differences are preserved in
-/// `wording_variants`, and the merge never revives terminal candidates.
+/// 只归并大小写和空白差异；语义改写必须保留否定、顺序和适用范围。
 pub(super) fn candidates_equivalent(left: &str, right: &str) -> bool {
+    let left = normalize_equivalent_wording(left);
+    let right = normalize_equivalent_wording(right);
     if left.is_empty() || right.is_empty() {
         return false;
     }
-    let (shorter, longer) = if left.chars().count() <= right.chars().count() {
-        (left, right)
-    } else {
-        (right, left)
-    };
-    let shorter_chars = shorter.chars().count();
-    if shorter_chars < 4 {
-        return false;
-    }
-    let longer_chars = longer.chars().count();
-    if longer_chars as f64 / shorter_chars as f64 > 1.6 {
-        return false;
-    }
-    let mut remaining = std::collections::BTreeMap::<char, usize>::new();
-    for character in longer.chars() {
-        *remaining.entry(character).or_insert(0) += 1;
-    }
-    for character in shorter.chars() {
-        let count = remaining.entry(character).or_insert(0);
-        if *count == 0 {
-            return false;
-        }
-        *count -= 1;
-    }
-    true
+    left == right
+}
+
+fn normalize_equivalent_wording(content: &str) -> String {
+    content
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }
 
 pub(super) fn validate_state(state: &UserMemoryLearningState) -> Result<(), AppCommandError> {
@@ -131,6 +111,9 @@ pub(super) fn validate_state(state: &UserMemoryLearningState) -> Result<(), AppC
     }
     validate_experiences(state)?;
     super::retention::validate_retention(&state.retention)?;
+    super::generated_views::validate_views(&state.generated_views)?;
+    super::generated_overrides::validate(&state.generated_overrides)?;
+    super::maintenance_types::validate(state.maintenance.as_ref())?;
     validate_supersession_targets(state)
 }
 
@@ -143,7 +126,11 @@ fn validate_experiences(state: &UserMemoryLearningState) -> Result<(), AppComman
     for experience in &state.experiences {
         validate_experience(experience)?;
         if !ids.insert(experience.id.as_str())
-            || !digests.insert(experience.content_digest.as_str())
+            || !digests.insert((
+                experience.scope_type.as_str(),
+                experience.scope_key.as_str(),
+                experience.content_digest.as_str(),
+            ))
         {
             return Err(invalid_state("duplicate experience identity"));
         }
@@ -272,6 +259,17 @@ fn validate_observations(candidate: &UserMemoryCandidate) -> Result<(), AppComma
     for observation in &candidate.observations {
         if !is_valid_opaque_source_id(&observation.opaque_source_id) {
             return Err(invalid_state("candidate source identifier is invalid"));
+        }
+        if observation
+            .conversation_id
+            .as_deref()
+            .is_some_and(|id| id.parse::<i32>().is_err())
+            || observation.source_excerpt.as_deref().is_some_and(|quote| {
+                quote.chars().count() > super::USER_MEMORY_MAX_CANDIDATE_CHARS
+                    || super::helpers::contains_potential_secret(quote)
+            })
+        {
+            return Err(invalid_state("candidate evidence source is invalid"));
         }
         let observed_at = parse_timestamp(&observation.observed_at)?;
         if observed_at < first
@@ -408,7 +406,9 @@ fn wrap_read_error(error: AppCommandError) -> AppCommandError {
     invalid_state(error.detail.unwrap_or(error.message))
 }
 
-fn ensure_serialized_size(state: &UserMemoryLearningState) -> Result<(), AppCommandError> {
+pub(super) fn ensure_serialized_size(
+    state: &UserMemoryLearningState,
+) -> Result<(), AppCommandError> {
     let content = serde_json::to_string_pretty(state)
         .map_err(|error| invalid_state(format!("serialization failed: {error}")))?;
     if content.chars().count() <= USER_MEMORY_MAX_CANDIDATE_STATE_CHARS {

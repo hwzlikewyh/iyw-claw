@@ -14,6 +14,13 @@ import { UserMemoryDiagnosticsPanel } from "./user-memory-diagnostics"
 import { UserMemoryDocumentEditor } from "./user-memory-document-editor"
 import { UserMemoryPolicyPanel } from "./user-memory-policy-panel"
 import { useUserMemorySettingsState } from "./use-user-memory-settings"
+import { UserMemorySemanticPanel } from "./user-memory-semantic-panel"
+import { UserMemoryLearningPanel } from "./user-memory-learning-panel"
+import { UserMemoryMaintenancePanel } from "./user-memory-maintenance-panel"
+import { UserMemoryAuthorityPanel } from "./user-memory-authority-panel"
+import { UserMemoryReconciliationPanel } from "./user-memory-reconciliation"
+import { UserMemoryGovernancePanel } from "./user-memory-governance-panel"
+import { UserMemoryEffectivenessPanel } from "./user-memory-effectiveness"
 
 type MemoryHealth = {
   availabilityDown: boolean
@@ -68,6 +75,9 @@ function UnavailableMemorySettings({ error, reload }: ErrorStateProps) {
         <RefreshCw className="h-3.5 w-3.5" />
         {t("reload")}
       </Button>
+      <div className="w-full max-w-3xl">
+        <UserMemoryReconciliationPanel onUpdated={reload} />
+      </div>
     </div>
   )
 }
@@ -180,6 +190,34 @@ function LoadedMemorySettings({ state, health }: LoadedProps) {
       <UserMemoryDiagnosticsPanel
         settings={state.settings}
         busy={state.saving}
+        onMemoryChanged={() => {
+          if (!state.dirty) void state.load()
+        }}
+      />
+      <UserMemorySemanticPanel />
+      <UserMemoryAuthorityPanel
+        disabled={state.dirty || state.saving}
+        onUpdated={() => {
+          if (!state.dirty) void state.load()
+        }}
+      />
+      <UserMemoryLearningPanel onUpdated={() => void state.load()} />
+      <UserMemoryReconciliationPanel
+        onUpdated={() => {
+          if (!state.dirty) void state.load()
+        }}
+      />
+      <UserMemoryGovernancePanel
+        disabled={state.dirty || state.saving}
+        onUpdated={() => {
+          if (!state.dirty) void state.load()
+        }}
+      />
+      <UserMemoryEffectivenessPanel />
+      <UserMemoryMaintenancePanel
+        onUpdated={() => {
+          if (!state.dirty) void state.load()
+        }}
       />
       <UserMemoryDocumentEditor
         activeDocumentId={state.activeDocumentId}
@@ -190,6 +228,7 @@ function LoadedMemorySettings({ state, health }: LoadedProps) {
         saving={state.saving}
         onDocumentChange={state.setActiveDocumentId}
         onDraftChange={state.setDraft}
+        onEntryUpdated={() => void state.load()}
       />
     </SettingsPageLayout>
   )

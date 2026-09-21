@@ -88,6 +88,10 @@ pub struct CandidateObservation {
     pub opaque_source_id: String,
     pub turn_nonce: u64,
     pub observed_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_excerpt: Option<String>,
 }
 
 impl CandidateObservation {
@@ -97,6 +101,8 @@ impl CandidateObservation {
             opaque_source_id: source.opaque_source_id,
             turn_nonce: source.turn_nonce,
             observed_at,
+            conversation_id: None,
+            source_excerpt: None,
         }
     }
 }
@@ -222,6 +228,14 @@ pub struct UserMemoryLearningState {
     pub experiences: Vec<AgentExperience>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub retention: std::collections::BTreeMap<String, super::MemoryRetention>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generated_views: Vec<super::GeneratedMemoryView>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generated_views_input_digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub generated_overrides: Vec<super::GeneratedViewOverride>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maintenance: Option<super::MemoryMaintenanceState>,
 }
 
 pub(crate) fn is_valid_experience_id(value: &str) -> bool {
@@ -237,6 +251,10 @@ impl Default for UserMemoryLearningState {
             candidates: Vec::new(),
             experiences: Vec::new(),
             retention: std::collections::BTreeMap::new(),
+            generated_views: Vec::new(),
+            generated_views_input_digest: None,
+            generated_overrides: Vec::new(),
+            maintenance: None,
         }
     }
 }

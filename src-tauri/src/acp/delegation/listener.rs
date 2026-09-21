@@ -49,7 +49,11 @@ use crate::user_memory::{
 };
 use serde_json::Value;
 
-const MEMORY_ADMIN_TOOLS: [&str; 10] = [
+mod memory_review;
+
+const MEMORY_ADMIN_TOOLS: [&str; 12] = [
+    "get_user_memory_maintenance",
+    "resolve_user_memory_review",
     "list_user_memory_candidates",
     "resolve_user_memory_candidate",
     "delete_user_memory_candidate",
@@ -1690,6 +1694,10 @@ impl DelegationListener {
             return Err("User memory administration is unavailable for this session.".into());
         }
         match req.tool.as_str() {
+            "get_user_memory_maintenance" => self.admin_memory_maintenance(req.input).await,
+            "resolve_user_memory_review" => {
+                self.admin_memory_review(req.token, entry, req.input).await
+            }
             "list_user_memory_candidates" => self.admin_list(req.input).await,
             "resolve_user_memory_candidate" => {
                 self.admin_resolve(req.token, entry, req.input).await

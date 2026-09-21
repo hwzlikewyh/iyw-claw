@@ -1,6 +1,6 @@
 [package]
 name = "iyw-claw"
-version = "0.1.221"
+version = "0.1.224"
 description = "Agent Code Generation App"
 authors = ["feitao"]
 edition = "2021"
@@ -17,7 +17,7 @@ name = "iyw_claw_lib"
 crate-type = ["rlib"]
 
 [features]
-default = ["tauri-runtime"]
+default = ["tauri-runtime", "memory-semantic"]
 tauri-runtime = [
     "dep:tauri",
     "dep:tauri-plugin-opener",
@@ -39,8 +39,9 @@ tauri-runtime = [
 test-gateway = []
 # Keep the server binary out of ordinary Tauri builds. Its dedicated build
 # entry point enables only the feature it needs.
-server-runtime = []
+server-runtime = ["memory-semantic"]
 memory-bench = []
+memory-semantic = ["dep:qdrant-edge", "dep:fastembed"]
 
 [[bin]]
 name = "iyw-claw"
@@ -152,6 +153,10 @@ junction = "1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(target_pointer_width = "64")'.dependencies]
+qdrant-edge = { version = "=0.8.0", optional = true }
+fastembed = { version = "=7.0.1", optional = true, default-features = false, features = ["ort-download-binaries-rustls-tls"] }
 
 # This crate is built repeatedly with several feature sets. Full debug info plus
 # incremental caches grows into tens of gigabytes per feature/worktree on

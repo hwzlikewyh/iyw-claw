@@ -277,7 +277,7 @@ async fn attempt_once(
         let response = request
             .send()
             .await
-            .map_err(|error| AttemptError::Transient(error.to_string()))?;
+            .map_err(|error| AttemptError::Transient(error.without_url().to_string()))?;
         let status = response.status();
 
         if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
@@ -367,7 +367,7 @@ async fn head_content_length(client: &reqwest::Client, url: &str) -> Result<u64,
         .head(url)
         .send()
         .await
-        .map_err(|error| AttemptError::Transient(error.to_string()))?;
+        .map_err(|error| AttemptError::Transient(error.without_url().to_string()))?;
     head.headers()
         .get(reqwest::header::CONTENT_LENGTH)
         .and_then(|value| value.to_str().ok())
@@ -398,7 +398,7 @@ async fn stream_to_part(
     let mut last_reported_bytes = server_resume;
 
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|error| AttemptError::Transient(error.to_string()))?;
+        let chunk = chunk.map_err(|error| AttemptError::Transient(error.without_url().to_string()))?;
         total = total.saturating_add(chunk.len() as u64);
         if total > expected_size as u64 || total > max_archive_bytes {
             return Err(AttemptError::Fatal(AppCommandError::invalid_input(
@@ -584,7 +584,7 @@ fn resume_meta(
 ) -> Vec<u8> {
     serde_json::json!({
         "artifact_id": artifact_id,
-        "url": url,
+        "url_sha256": url_fingerprint(url),
         "expected_size": expected_size,
         "expected_sha256": expected_sha256,
         "etag": etag,
@@ -593,7 +593,7 @@ fn resume_meta(
     .into_bytes()
 }
 
-/// 读取并校验 sidecar metadata。仅当 artifact ID / URL / 大小 / 摘要全部匹配时
+/// 读取并校验 sidecar metadata。仅当 artifact ID / URL 指纹 / 大小 / 摘要全部匹配时
 /// 才返回可续传的 ETag；任何不匹配都丢弃旧 metadata，从头下载。
 async fn read_resume_meta(
     meta_path: &Path,
@@ -605,7 +605,7 @@ async fn read_resume_meta(
     let raw = tokio::fs::read_to_string(meta_path).await.ok()?;
     let value = serde_json::from_str::<serde_json::Value>(&raw).ok()?;
     let matches = value.get("artifact_id")?.as_str() == Some(artifact_id)
-        && value.get("url")?.as_str() == Some(url)
+        && value.get("url_sha256")?.as_str() == Some(url_fingerprint(url).as_str())
         && value.get("expected_size")?.as_i64() == Some(expected_size)
         && value
             .get("expected_sha256")?
@@ -616,6 +616,10 @@ async fn read_resume_meta(
         return None;
     }
     value.get("etag")?.as_str().map(ToString::to_string)
+}
+
+fn url_fingerprint(url: &str) -> String {
+    format!("{:x}", Sha256::digest(url.as_bytes()))
 }
 
 fn parse_content_range(

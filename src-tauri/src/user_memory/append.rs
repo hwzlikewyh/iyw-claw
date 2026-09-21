@@ -65,6 +65,13 @@ impl UserMemoryService {
         let (_guard, _file_guard) = self.acquire_locks().await?;
         self.recover_pending_transaction().await?;
         let policy = self.load_policy_unrecovered().await?;
+        if !matches!(policy_mode, AppendPolicy::ManualUser)
+            && self.is_forgotten_content(&content).await?
+        {
+            return Err(AppCommandError::permission_denied(
+                "Explicitly forgotten content cannot be learned again automatically",
+            ));
+        }
         match policy_mode {
             AppendPolicy::Agent => ensure_agent_write_allowed(&policy, input.agent_type)?,
             AppendPolicy::ManualUser => ensure_manual_write_allowed(&policy)?,
@@ -127,7 +134,7 @@ impl UserMemoryService {
         prepared: &PreparedMemoryAppend,
     ) -> Result<Option<(UserMemoryLearningState, UserMemoryLearningState)>, AppCommandError> {
         let root = self.resolved_root()?;
-        let previous = match candidate_store::read_optional(root) {
+        let previous = match self.read_learning_optional() {
             Ok(Some(state)) => state,
             Ok(None) => return Ok(None),
             Err(error) => {
@@ -155,9 +162,9 @@ impl UserMemoryService {
             };
             confirm_candidate_and_references(&mut next, candidate_id, &confirmed);
         }
-        if let Err(error) =
+        if let Err(error) = self.active_authority().map(|_| Ok(())).unwrap_or_else(|| {
             structured_file::ensure_writable_optional(root, USER_MEMORY_CANDIDATE_FILE)
-        {
+        }) {
             tracing::warn!(
                 "[user-memory] candidate reconciliation skipped after confirmed append: {error}"
             );

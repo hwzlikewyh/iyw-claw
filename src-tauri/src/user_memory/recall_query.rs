@@ -125,10 +125,19 @@ pub(super) async fn collect_alias<C: ConnectionTrait>(
     let validity = valid_at_sql("i");
     let alias_scope = query.scope.predicate("a");
     let item_scope = query.scope.predicate("i");
+    let mut aliases = vec![normalize_alias(query.query)];
+    if let Some(intent) = super::index_types::semantic_intent_key(query.query) {
+        aliases.push(intent.into());
+    }
+    aliases.sort();
+    aliases.dedup();
+    let placeholders = std::iter::repeat_n("?", aliases.len())
+        .collect::<Vec<_>>()
+        .join(",");
     let sql = format!(
-        "SELECT a.memory_id FROM memory_alias_current AS a JOIN memory_item_current AS i ON i.id = a.memory_id WHERE a.normalized_alias = ? AND {alias_scope} AND {item_scope} AND i.trust_class IN ('host_confirmed', 'agent_experience', 'candidate') AND i.sensitive = 0 AND i.superseded_by IS NULL{validity} GROUP BY a.memory_id ORDER BY a.memory_id LIMIT ?"
+        "SELECT a.memory_id FROM memory_alias_current AS a JOIN memory_item_current AS i ON i.id = a.memory_id WHERE a.normalized_alias IN ({placeholders}) AND {alias_scope} AND {item_scope} AND i.trust_class IN ('host_confirmed', 'agent_experience', 'candidate') AND i.sensitive = 0 AND i.superseded_by IS NULL{validity} GROUP BY a.memory_id ORDER BY a.memory_id LIMIT ?"
     );
-    let mut values = vec![normalize_alias(query.query).into()];
+    let mut values = aliases.into_iter().map(Value::from).collect::<Vec<_>>();
     query.scope.push_bind(&mut values);
     query.scope.push_bind(&mut values);
     push_query_at(&mut values, query.query_at);

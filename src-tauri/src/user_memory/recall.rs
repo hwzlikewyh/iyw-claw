@@ -42,9 +42,11 @@ impl UserMemoryService {
         scope: UserMemoryRecallScope,
     ) -> Result<UserMemoryRecallResult, AppCommandError> {
         let (query, limit) = request.normalized()?;
+        let scope = self.memory_recall_scope(scope);
         let query_chars = query.chars().count();
         let timeout_query = query.clone();
         let started_at = Instant::now();
+        let semantic_scope = scope.clone();
         let attempt = RecallAttempt {
             query,
             limit,
@@ -58,7 +60,10 @@ impl UserMemoryService {
             COLD_RECALL_TIMEOUT
         };
         match tokio::time::timeout(timeout, self.recall_normalized(attempt)).await {
-            Ok(result) => result,
+            Ok(Ok(result)) => Ok(self
+                .augment_semantic_recall(result, semantic_scope, limit)
+                .await),
+            Ok(Err(error)) => Err(error),
             Err(_) => {
                 tracing::info!(
                     query_chars,

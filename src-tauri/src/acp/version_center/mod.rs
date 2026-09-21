@@ -24,6 +24,8 @@ pub use catalog::{
     platform_projection, CatalogStore, CatalogView, PlatformAccess, PlatformProjection,
 };
 pub use client::{AgentPlatformClient, CapabilityPolicyHttpFetcher, CatalogFetch};
+pub use client::{MemoryModelArtifact, MemoryModelOffer, MemoryModelQuery};
+pub(crate) use installer::{download_resumable, verify_tool_file_signature};
 // Task 06 新增统一初始化入口的再导出（最小改动：仅追加三行，供命令层/前端接线）。
 pub use installer::{
     prepare_shared_runtime,

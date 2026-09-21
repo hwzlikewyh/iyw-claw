@@ -168,7 +168,7 @@ async fn metadata_bool(
     ))
 }
 
-fn normalize_chat_completions_url(raw: &str) -> Result<String, AppCommandError> {
+pub(crate) fn normalize_chat_completions_url(raw: &str) -> Result<String, AppCommandError> {
     let trimmed = raw.trim().trim_end_matches('/');
     if trimmed.is_empty() {
         return Err(AppCommandError::invalid_input("Router API URL is empty"));

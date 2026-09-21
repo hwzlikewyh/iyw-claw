@@ -278,6 +278,7 @@ pub async fn bootstrap_initialize(
     app: tauri::AppHandle,
     db: tauri::State<'_, crate::db::AppDatabase>,
     connection_manager: tauri::State<'_, ConnectionManager>,
+    user_memory: tauri::State<'_, std::sync::Arc<crate::user_memory::UserMemoryService>>,
 ) -> Result<crate::acp::version_center::InitStatusReport, String> {
     let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     let resource_dir = app.path().resource_dir().ok();
@@ -286,7 +287,7 @@ pub async fn bootstrap_initialize(
     let data_dir = crate::system_skills::data_dir_from_env();
     let defer_while_active = connection_manager.has_live_agent_sessions().await;
     let channel = managed::load_channel(&conn, &task_id).await;
-    crate::acp::version_center::bootstrap_initialize(
+    let report = crate::acp::version_center::bootstrap_initialize(
         &conn,
         &data_dir,
         resource_dir.as_deref(),
@@ -296,5 +297,15 @@ pub async fn bootstrap_initialize(
         &emitter,
     )
     .await
-    .map_err(|error| error.message)
+    .map_err(|error| error.message)?;
+    if report.phase == "ready" {
+        let service = user_memory.inner().clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = service.prepare_managed_model(&data_dir, &channel).await {
+                tracing::info!(error_code = ?error.code,
+                    "[memory-model] bootstrap preparation continues in background");
+            }
+        });
+    }
+    Ok(report)
 }

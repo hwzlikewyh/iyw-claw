@@ -1,9 +1,11 @@
 "use client"
 
-import { FileText } from "lucide-react"
+import { useState } from "react"
+import { Code, FileText, List } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { Textarea } from "@/components/ui/textarea"
+import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   getUserMemoryDocument,
@@ -13,6 +15,7 @@ import {
   type UserMemoryDraft,
   type UserMemorySettingsSnapshot,
 } from "@/lib/user-memory-documents"
+import { UserMemoryEntriesPanel } from "./user-memory-entries-panel"
 
 interface UserMemoryDocumentEditorProps {
   activeDocumentId: UserMemoryDocumentId
@@ -23,6 +26,7 @@ interface UserMemoryDocumentEditorProps {
   saving: boolean
   onDocumentChange: (documentId: UserMemoryDocumentId) => void
   onDraftChange: (draft: UserMemoryDraft) => void
+  onEntryUpdated: () => void
 }
 
 type EditorView = UserMemoryDocumentEditorProps & {
@@ -144,44 +148,78 @@ function DocumentEditorBody(view: EditorView) {
   )
 }
 
-export function UserMemoryDocumentEditor({
-  activeDocumentId,
-  settings,
-  draft,
-  markerProtected,
-  dirty,
-  saving,
-  onDocumentChange,
-  onDraftChange,
-}: UserMemoryDocumentEditorProps) {
-  const document = getUserMemoryDocument(activeDocumentId)
-  const snapshot = settings.documents[activeDocumentId]
-  const content = draft.documents[activeDocumentId].content
-  const markerLocked = markerProtected[activeDocumentId] ?? false
-  const readonly = snapshot.readonly ?? false
-
+export function UserMemoryDocumentEditor(props: UserMemoryDocumentEditorProps) {
+  const [view, setView] = useState<"entries" | "source">("entries")
+  const editor: EditorView = {
+    ...props,
+    document: getUserMemoryDocument(props.activeDocumentId),
+    content: props.draft.documents[props.activeDocumentId].content,
+    markerLocked: props.markerProtected[props.activeDocumentId] ?? false,
+    readonly:
+      props.settings.documents[props.activeDocumentId].readonly ?? false,
+  }
   return (
-    <section className="overflow-hidden rounded-xl border bg-card">
+    <section className="overflow-hidden rounded-md border bg-card">
       <DocumentEditorHeader
-        activeDocumentId={activeDocumentId}
-        onDocumentChange={onDocumentChange}
+        activeDocumentId={props.activeDocumentId}
+        onDocumentChange={props.onDocumentChange}
       />
-      <DocumentEditorBody
-        {...{
-          activeDocumentId,
-          settings,
-          draft,
-          markerProtected,
-          dirty,
-          saving,
-          onDocumentChange,
-          onDraftChange,
-          document,
-          content,
-          markerLocked,
-          readonly,
-        }}
+      <EditorViewButtons
+        view={view}
+        onChange={setView}
+        saving={props.saving}
+        dirty={props.dirty}
       />
+      {view === "entries" ? (
+        <UserMemoryEntriesPanel
+          key={`${props.activeDocumentId}:${props.settings.revision}`}
+          document={props.activeDocumentId}
+          disabled={props.saving || props.dirty}
+          onUpdated={props.onEntryUpdated}
+        />
+      ) : (
+        <DocumentEditorBody {...editor} />
+      )}
     </section>
+  )
+}
+
+function EditorViewButtons({
+  view,
+  onChange,
+  saving,
+  dirty,
+}: {
+  view: "entries" | "source"
+  onChange: (value: "entries" | "source") => void
+  saving: boolean
+  dirty: boolean
+}) {
+  const t = useTranslations("UserMemorySettings.entries")
+  return (
+    <div className="flex justify-end gap-1 border-b px-4 py-1">
+      <Button
+        size="icon"
+        variant={view === "entries" ? "secondary" : "ghost"}
+        title={t("listView")}
+        aria-label={t("listView")}
+        aria-pressed={view === "entries"}
+        disabled={saving || dirty}
+        onClick={() => onChange("entries")}
+      >
+        <List className="size-4" />
+      </Button>
+      <Button
+        size="icon"
+        variant={view === "source" ? "secondary" : "ghost"}
+        title={t("sourceView")}
+        aria-label={t("sourceView")}
+        aria-pressed={view === "source"}
+        disabled={saving}
+        onClick={() => onChange("source")}
+      >
+        <Code className="size-4" />
+      </Button>
+    </div>
   )
 }

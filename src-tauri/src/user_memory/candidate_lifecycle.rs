@@ -17,7 +17,7 @@ impl UserMemoryService {
     ) -> Result<UserMemoryCandidateStateSnapshot, AppCommandError> {
         let (_guard, _file_guard) = self.acquire_locks().await?;
         self.recover_pending_transaction().await?;
-        let state = candidate_store::read_state(self.resolved_root()?)?;
+        let state = self.read_learning_state()?;
         candidate_store::snapshot(&state)
     }
 
@@ -43,25 +43,30 @@ impl UserMemoryService {
         source.validate()?;
         let (_guard, _file_guard) = self.acquire_locks().await?;
         self.recover_pending_transaction().await?;
+        if self.is_forgotten_content(&content).await? {
+            return Err(AppCommandError::permission_denied(
+                "Forgotten content cannot be learned again automatically",
+            ));
+        }
         let _authorization_lease = acquire_lease().ok_or_else(|| {
             AppCommandError::permission_denied(
                 "User memory proposal is unavailable for this session.",
             )
         })?;
         self.propose_agent_memory_locked(content, proposal.signal, source)
+            .await
     }
 
-    fn propose_agent_memory_locked(
+    async fn propose_agent_memory_locked(
         &self,
         content: String,
         signal: super::UserMemoryCandidateSignal,
         source: CandidateObservationSource,
     ) -> Result<UserMemoryProposalResult, AppCommandError> {
-        let root = self.resolved_root()?;
-        let mut state = candidate_store::read_state(root)?;
+        let mut state = self.read_learning_state()?;
         let outcome = observe_candidate(&mut state, content, signal, source)?;
         if outcome.observation_added {
-            candidate_store::write_state(root, &state)?;
+            self.persist_learning_state(&state).await?;
             self.schedule_index_refresh();
         }
         let revision = candidate_store::revision(&state)?;
@@ -75,12 +80,12 @@ impl UserMemoryService {
     }
 }
 
-struct ObservationOutcome {
-    observation_added: bool,
-    candidate: UserMemoryCandidate,
+pub(super) struct ObservationOutcome {
+    pub observation_added: bool,
+    pub candidate: UserMemoryCandidate,
 }
 
-fn observe_candidate(
+pub(super) fn observe_candidate(
     state: &mut UserMemoryLearningState,
     content: String,
     signal: super::UserMemoryCandidateSignal,
@@ -94,10 +99,7 @@ fn observe_candidate(
     {
         return observe_existing(candidate, source, None);
     }
-    // Controlled similarity merge: same signal, non-terminal, and the new
-    // normalized wording is a character-multiset variant of an existing
-    // candidate (e.g. "prefer dark theme" vs "prefer the dark theme").
-    // Wording differences are preserved for later Agent maintenance.
+    // 自动归并仅允许格式差异，语义不同的候选保留独立来源等待判断。
     if let Some(candidate) = state.candidates.iter_mut().find(|candidate| {
         candidate.signal == signal
             && !candidate.status.is_terminal()

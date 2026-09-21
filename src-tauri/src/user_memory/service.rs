@@ -42,6 +42,10 @@ pub struct UserMemoryService {
     pub(super) migration_blocked_documents: Arc<RwLock<BTreeSet<UserMemoryDocumentId>>>,
     pub(super) migration_report: Arc<RwLock<Option<UserMemoryMigrationReport>>>,
     pub(super) harvest: HarvestQueue,
+    pub(super) managed_chat_root: Option<String>,
+    pub(super) semantic: Arc<super::semantic::SemanticRuntime>,
+    pub(super) maintenance: Arc<super::maintenance::MaintenanceRuntime>,
+    pub(super) authority: Arc<RwLock<Option<super::authority_types::AuthoritySnapshot>>>,
 }
 
 pub(crate) struct UserMemoryBackupGuard {
@@ -82,6 +86,10 @@ impl UserMemoryService {
             migration_blocked_documents: Arc::new(RwLock::new(BTreeSet::new())),
             migration_report: Arc::new(RwLock::new(None)),
             harvest: HarvestQueue::default(),
+            managed_chat_root: None,
+            semantic: Arc::new(super::semantic::SemanticRuntime::default()),
+            maintenance: Arc::new(super::maintenance::MaintenanceRuntime::default()),
+            authority: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -193,6 +201,7 @@ impl UserMemoryService {
                 "User memory is disabled",
             ));
         }
+        let learning = self.read_learning_optional()?;
         let mut documents = Vec::with_capacity(ids.len());
         for id in ids {
             if !policy.documents.get(id).copied().unwrap_or(true) {
@@ -205,16 +214,40 @@ impl UserMemoryService {
                 document: *id,
                 file_name: id.file_name().to_string(),
                 revision: hash_parts(&[content.as_bytes()]),
-                content,
+                content: super::retention_view::active_document_content(
+                    *id,
+                    &content,
+                    learning.as_ref(),
+                ),
             });
         }
         let snapshot = self.snapshot_locked(&policy)?;
-        let inactive_entry_ids = if ids.contains(&UserMemoryDocumentId::Memory) {
-            let learning = super::candidate_store::read_optional(self.resolved_root()?)?;
-            super::retention::inactive_document_entries(&snapshot, learning.as_ref())
-        } else {
-            Vec::new()
-        };
+        let view = super::index_parse::build_index_snapshot(&snapshot, learning.as_ref());
+        for document in &mut documents {
+            let kind = match document.document {
+                UserMemoryDocumentId::Profile => "profile",
+                UserMemoryDocumentId::Soul => "soul",
+                _ => continue,
+            };
+            for item in view.items.iter().filter(|item| {
+                item.kind == kind
+                    && item
+                        .evidence
+                        .iter()
+                        .any(|source| source.source_kind == "generated_view")
+                    && super::recall_validity::item_is_current_at(item, &chrono::Utc::now())
+            }) {
+                document
+                    .content
+                    .push_str("\n\n[Generated from active memory evidence; provisional]\n");
+                document.content.push_str(&item.content);
+            }
+        }
+        for document in &mut documents {
+            document.revision = hash_parts(&[document.content.as_bytes()]);
+        }
+        let inactive_entry_ids =
+            super::retention::inactive_document_entries(&snapshot, learning.as_ref());
         Ok(super::UserMemoryDocumentsReadResult {
             documents,
             revision: snapshot.revision,
@@ -277,16 +310,25 @@ impl UserMemoryService {
     pub(super) async fn acquire_locks(
         &self,
     ) -> Result<(tokio::sync::OwnedMutexGuard<()>, File), AppCommandError> {
+        let guards = self.acquire_reconciliation_locks().await?;
+        self.load_authority_locked().await?;
+        Ok(guards)
+    }
+
+    pub(super) async fn acquire_reconciliation_locks(
+        &self,
+    ) -> Result<(tokio::sync::OwnedMutexGuard<()>, File), AppCommandError> {
         let io_guard = self.io_lock.clone().lock_owned().await;
         let root = self.resolved_root()?.to_path_buf();
-        tokio::task::spawn_blocking(move || {
+        let guards = tokio::task::spawn_blocking(move || {
             fs::acquire_file_lock(&root).map(|file_guard| (io_guard, file_guard))
         })
         .await
         .map_err(|error| {
             AppCommandError::task_execution_failed("User memory lock task failed")
                 .with_detail(error.to_string())
-        })?
+        })??;
+        Ok(guards)
     }
 }
 

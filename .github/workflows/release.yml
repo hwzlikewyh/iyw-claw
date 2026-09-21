@@ -297,6 +297,12 @@ jobs:
     needs: [create-draft-release, prepare-frontend]
     strategy:
       fail-fast: false
+      # Both Windows legs sign with the same hardware token on the single
+      # self-hosted signing runner. Running them concurrently made one leg's
+      # Sign call block on the token and hit the 180s spawn timeout, which the
+      # script then reported as "hardware signing or certificate verification
+      # failed (ETIMEDOUT)". Sign serially instead.
+      max-parallel: 1
       matrix:
         target: [x86_64-pc-windows-msvc, i686-pc-windows-msvc]
     permissions:

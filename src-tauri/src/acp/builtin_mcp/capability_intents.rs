@@ -23,6 +23,8 @@ macro_rules! metadata {
 // availability remain owned by the capability catalog.
 #[rustfmt::skip]
 const SPECIAL_METADATA: &[(&str, CapabilityIntentMetadata)] = &[
+    ("get_user_memory_maintenance", metadata!(&["memory maintenance", "记忆维护", "待复核记忆"], &["memory", "review", "maintenance", "记忆", "复核", "维护"], "Read a small batch of current review suggestions; resolve ordinary evidence-backed cases during related work without handing routine maintenance to the user.")),
+    ("resolve_user_memory_review", metadata!(&["resolve memory review", "处理记忆复核", "废弃旧记忆"], &["memory", "review", "resolve", "记忆", "复核", "处理", "废弃"], "Apply or dismiss one exact current review with its revision after checking evidence and scope; a model proposal alone is not proof of obsolescence.")),
     ("get_agent_reach_status", metadata!(&["agent reach status", "internet channel status", "联网渠道状态", "联网诊断"], &["agent reach", "internet", "channel", "status", "doctor", "联网", "渠道", "诊断"], "Check managed Agent Reach channel health and active backends before internet work. This diagnoses availability; use the upstream tools for actual search and reading.")),
     ("list_scheduled_task_projects", metadata!(&["list scheduled task projects", "列出定时任务项目", "计划任务项目"], &["list", "列出", "scheduled", "定时", "project", "项目"], "Use to inspect available scheduled-task projects before selecting one.")),
     ("list_scheduled_tasks", metadata!(&["list scheduled tasks", "列出定时任务", "查看计划任务"], &["list", "列出", "scheduled", "定时", "task", "任务"], "Use to inspect existing scheduled tasks.")),

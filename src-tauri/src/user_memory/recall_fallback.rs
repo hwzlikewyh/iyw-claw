@@ -53,9 +53,11 @@ impl UserMemoryService {
     ) -> UserMemoryRecallResult {
         let query_chars = request.attempt.query.chars().count();
         let failed_request = request.clone();
+        let service = self.clone();
         match self
             .read_index_source_with(move |settings, candidates| {
-                let snapshot = build_index_snapshot(&settings, candidates.as_ref());
+                let snapshot = service
+                    .scope_index_snapshot(build_index_snapshot(&settings, candidates.as_ref()));
                 fallback_result(request, &snapshot)
             })
             .await

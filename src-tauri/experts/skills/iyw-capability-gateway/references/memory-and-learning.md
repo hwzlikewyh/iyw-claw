@@ -4,6 +4,10 @@ This reference maps the complete `self-improving` behavior to the iyw-claw
 host-owned MCP memory service. It preserves the learning policy without
 creating a second local memory runtime.
 
+For concrete operation parameters and complete task sequences, read
+[memory-examples.md](memory-examples.md). It covers ordinary learning, scoped
+exceptions, corrections, expiry, review queues, concurrency and recovery.
+
 ## Runtime authority and progressive disclosure
 
 This file is the detailed policy behind the bundled
@@ -67,14 +71,18 @@ tentative (1 observation)
 
 Candidate observations are deduplicated by content/signal and an opaque source
 plus turn key. Equivalent wording can be retained as bounded variants; the host
-updates observation count, confidence, status, provenance, and references. The
-TurnComplete harvester does not infer user candidates from raw prompt text;
-the Agent must explicitly decide that a user signal is reusable and call the
-candidate capability.
-most specific scope wins (workspace/project, then domain, then global); callers
-must not invent a namespace selector. When confirmation is recommended, inspect
+updates observation count, confidence, status, provenance, and references.
+Automatic equivalence only covers formatting differences; semantic changes,
+negation and scope changes remain separate observations. With explicit user
+opt-in, the background harvester may propose candidates from user statements
+with verbatim source evidence. Agent writes remain available. Generated profile
+and collaboration paragraphs are provisional summaries of active confirmed
+memories; they stop applying when their supporting source changes or expires.
+Use the host-provided scope and never invent a namespace selector. When confirmation is recommended, inspect
 the current candidate and resolve it automatically if current evidence still
 supports it. Never claim that a proposal is durable before the host confirms it.
+Only say a memory was saved after a successful persistence receipt. A superseded
+candidate is not confirmed merely because its replacement was confirmed.
 
 Candidate list, resolve, and delete operations use optimistic concurrency:
 
@@ -171,7 +179,7 @@ Treat these as learning signals:
 
 | Signal | Action |
 | --- | --- |
-| Explicit correction (`no`, `actually`, `use X`) | Append a clear lasting rule; retain a correction candidate only when scope or meaning is uncertain. |
+| Explicit correction (`no`, `actually`, `use X`) | Read the exact old entry and use `documents.correct` for an atomic replacement; use a candidate only when scope or meaning is uncertain. |
 | Explicit durable preference (`always`, `never`, `for me`) | Append immediately; the instruction itself is sufficient. |
 | Repeated workflow or stable preference | Propose a candidate and rely on host observation counts; do not invent promotion. |
 | User edits or praise | Treat as evidence only when the user expresses a reusable rule; silence is not confirmation. |
@@ -204,6 +212,8 @@ their evidence. A staged proposal is not an applied improvement.
 
 | Intent | Gateway capability | Rules |
 | --- | --- | --- |
+| Inspect routine maintenance | `iyw.memory.maintenance.read.v1` | Use `maintenance.read`, default four current pending reviews; suggestions require independent evidence before adoption. |
+| Resolve a current review | `iyw.memory.review.resolve.v1` | Use `review.resolve` with exact review ID and current revision; apply supported retirement or dismiss an unsupported proposal without routine user approval. |
 | Load current policy | `iyw.memory.policy.read.v1` | Read-only turn preflight for direct memory surfaces; returns revision, digest, and this complete policy document. |
 | Recall historical context | `iyw.memory.recall.search.v1` | Bounded read; `matched` is evidence, `no_evidence` is not false, `unavailable` is a routing limitation. |
 | Retire obsolete memory / set expiry | `iyw.memory.retire.v1` | Direct `retire` with recalled ID and sourceRevision; omit expiresAt for immediate exclusion, or supply an evidenced RFC3339 expiry. |
@@ -234,8 +244,8 @@ for that task and state the conflict when it affects the result. If two rules
 at the same scope conflict and recency is not clear, ask the user.
 
 During normal related work, the Agent should also keep memory current: when a
-recalled user rule is explicitly corrected, retire the old recalled entry,
-append a clear durable replacement or propose an uncertain one, and resolve any active stale candidate; when an old
+recalled user rule is explicitly corrected, read its exact content and eTag,
+then use `documents.correct` to replace it and update candidate references in one transaction; when an old
 candidate is terminal and no longer useful, delete it through the host after
 reading its current revision. For Agent experience, stop applying a lesson
 when current evidence disproves it, retire its exact recalled ID/revision and
@@ -258,8 +268,8 @@ The host retains the original source and a content-bound retirement record for
 audit, projects its deadline into `valid_to`, and excludes expired records from
 all recall lanes. Reindexing or recording the same content again must not revive
 it. Concurrent retirement can only shorten its validity. This operation covers
-user-memory entries and Agent experience; profile/soul edits use their existing
-document transaction. Source-revision conflicts require fresh recall.
+user-memory, profile, collaboration entries and Agent experience; replacement
+content uses the document correction transaction. Source-revision conflicts require fresh recall.
 
 Stop using retired evidence already in the current conversation as soon as it
 is invalidated. Logical forgetting does not erase old messages, raw document
@@ -296,6 +306,21 @@ advertised, report the exact limitation; do not claim deletion/export/cleanup
 and do not edit files with shell commands.
 
 ## Maintenance and degradation
+
+During related substantive work, check a small maintenance batch when older
+preferences, corrections or unresolved candidates matter. Resolve ordinary
+cases with explicit current user evidence and matching scope. Read the exact
+schema once, then use `maintenance.read` and `review.resolve` through the same
+memory tool. Re-read the current revision after each mutation. Leave genuine
+ambiguity unresolved until relevant evidence is available; ask the user only
+when it changes the current task's outcome. Never retire from model opinion,
+age or low retrieval count alone. Do not enumerate or drain the whole store
+on every turn.
+
+The host closes pending reviews when their source evidence is no longer
+current and retains bounded recent resolution history. This does not delete
+the underlying memory's version history. An expired suggestion is not a
+pending user chore.
 
 The source Skill's HOT/WARM/COLD tiers, compaction, archive, heartbeat state,
 setup directory, and weekly cron are behavior concepts, not local paths to

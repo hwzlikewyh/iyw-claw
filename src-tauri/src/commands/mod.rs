@@ -89,6 +89,11 @@ pub mod task_artifacts;
 pub mod terminal;
 pub mod usage;
 pub mod user_memory;
+pub mod user_memory_authority;
+pub mod user_memory_entries;
+pub mod user_memory_learning;
+pub mod user_memory_maintenance;
+pub mod user_memory_reconcile;
 pub mod version_control;
 #[cfg(feature = "tauri-runtime")]
 pub mod windows;
