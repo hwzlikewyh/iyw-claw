@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use crate::acp::capability_policy::monitor_file_upload;
 use crate::app_error::AppCommandError;
 
-use super::chat_image::{EncodedChatImage, PreparedChatImage};
+use super::chat_image::EncodedChatImage;
 
 const GATEWAY_ORIGIN: &str = "https://gateway.iyw.cn";
 const IMAGE_API_PREFIX: &str = "/ai-application/api/microModel";
@@ -21,6 +21,21 @@ struct GatewayEnvelope {
     #[serde(default)]
     data: Value,
     message: Option<String>,
+}
+
+struct GatewayResponse {
+    status: reqwest::StatusCode,
+    payload: GatewayEnvelope,
+}
+
+enum UploadFailure {
+    Unavailable(AppCommandError),
+    Terminal(AppCommandError),
+}
+
+pub(super) enum ImageUploadOutcome {
+    Uploaded(String),
+    Unavailable(AppCommandError),
 }
 
 fn image_extension(mime_type: &str) -> Result<&'static str, AppCommandError> {
@@ -62,7 +77,7 @@ async fn post_gateway(
     token: &str,
     path: &str,
     body: Value,
-) -> Result<GatewayEnvelope, AppCommandError> {
+) -> Result<GatewayResponse, AppCommandError> {
     let response = client
         .post(endpoint(path))
         .header("token", token)
@@ -78,13 +93,17 @@ async fn post_gateway(
         AppCommandError::network("IYW image service returned invalid JSON")
             .with_detail(error.to_string())
     })?;
-    if !status.is_success() || payload.code != 1 {
-        return Err(gateway_error(
-            "IYW image service rejected the request",
-            &payload,
-        ));
+    Ok(GatewayResponse { status, payload })
+}
+
+fn accepted_gateway(
+    response: GatewayResponse,
+    message: &str,
+) -> Result<GatewayEnvelope, AppCommandError> {
+    if !response.status.is_success() || response.payload.code != 1 {
+        return Err(gateway_error(message, &response.payload));
     }
-    Ok(payload)
+    Ok(response.payload)
 }
 
 fn signed_url(payload: &GatewayEnvelope) -> Result<Url, AppCommandError> {
@@ -141,54 +160,75 @@ async fn put_image(
     Ok(())
 }
 
+async fn check_image(client: &Client, token: &str, url: &str) -> Result<(), UploadFailure> {
+    let response = post_gateway(client, token, "checkImage", json!({ "image": url }))
+        .await
+        .map_err(UploadFailure::Unavailable)?;
+    if !response.status.is_success() {
+        return Err(UploadFailure::Unavailable(gateway_error(
+            "IYW image check service is unavailable",
+            &response.payload,
+        )));
+    }
+    if response.payload.code != 1 {
+        return Err(UploadFailure::Terminal(gateway_error(
+            "IYW image service rejected the image",
+            &response.payload,
+        )));
+    }
+    Ok(())
+}
+
+async fn upload_once(
+    conn: &DatabaseConnection,
+    image: &EncodedChatImage,
+) -> Result<String, UploadFailure> {
+    let token = crate::commands::iyw_account::iyw_account_access_token_core(conn)
+        .await
+        .map_err(UploadFailure::Terminal)?
+        .ok_or_else(|| {
+            UploadFailure::Unavailable(AppCommandError::authentication_failed(
+                "Sign in to iyw-claw first",
+            ))
+        })?;
+    let client = Client::builder()
+        .timeout(UPLOAD_TIMEOUT)
+        .user_agent("iyw-claw")
+        .build()
+        .map_err(|error| {
+            UploadFailure::Unavailable(
+                AppCommandError::network("Failed to initialize image upload")
+                    .with_detail(error.to_string()),
+            )
+        })?;
+    let key = object_key(image).map_err(UploadFailure::Terminal)?;
+    let presigned = post_gateway(
+        &client,
+        token.expose(),
+        "PreSignedUrl",
+        json!({ "objectKey": key }),
+    )
+    .await
+    .map_err(UploadFailure::Unavailable)?;
+    let presigned = accepted_gateway(presigned, "IYW image upload is unavailable")
+        .map_err(UploadFailure::Unavailable)?;
+    let signed = signed_url(&presigned).map_err(UploadFailure::Unavailable)?;
+    let url = public_url(signed.clone()).map_err(UploadFailure::Unavailable)?;
+    put_image(&client, signed, image)
+        .await
+        .map_err(UploadFailure::Unavailable)?;
+    check_image(&client, token.expose(), &url).await?;
+    Ok(url)
+}
+
 pub(super) async fn upload_prepared(
     conn: &DatabaseConnection,
     image: &EncodedChatImage,
-) -> Result<PreparedChatImage, AppCommandError> {
+) -> Result<ImageUploadOutcome, AppCommandError> {
     let monitor = monitor_file_upload(None).await?;
-    monitor
-        .run_until_revoked(async {
-            let token = crate::commands::iyw_account::iyw_account_access_token_core(conn)
-                .await?
-                .ok_or_else(|| {
-                    AppCommandError::authentication_failed("Sign in to iyw-claw first")
-                })?;
-            let client = Client::builder()
-                .timeout(UPLOAD_TIMEOUT)
-                .user_agent("iyw-claw")
-                .build()
-                .map_err(|error| {
-                    AppCommandError::network("Failed to initialize image upload")
-                        .with_detail(error.to_string())
-                })?;
-            let key = object_key(image)?;
-            let presigned = post_gateway(
-                &client,
-                token.expose(),
-                "PreSignedUrl",
-                json!({ "objectKey": key }),
-            )
-            .await?;
-            let signed = signed_url(&presigned)?;
-            let url = public_url(signed.clone())?;
-            put_image(&client, signed, image).await?;
-            post_gateway(
-                &client,
-                token.expose(),
-                "checkImage",
-                json!({ "image": url }),
-            )
-            .await?;
-            Ok(PreparedChatImage {
-                url,
-                local_path: None,
-                mime_type: image.mime_type.to_string(),
-                name: image.name.clone(),
-                source_bytes: image.source_bytes,
-                derived_bytes: image.bytes.len(),
-                width: image.width,
-                height: image.height,
-            })
-        })
-        .await?
+    match monitor.run_until_revoked(upload_once(conn, image)).await? {
+        Ok(url) => Ok(ImageUploadOutcome::Uploaded(url)),
+        Err(UploadFailure::Unavailable(error)) => Ok(ImageUploadOutcome::Unavailable(error)),
+        Err(UploadFailure::Terminal(error)) => Err(error),
+    }
 }
