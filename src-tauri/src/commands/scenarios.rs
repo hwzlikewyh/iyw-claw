@@ -49,6 +49,8 @@ pub struct Scenario {
     pub skill_package_slug: String,
     pub skill_package_version: String,
     #[serde(default)]
+    pub hide_skill_reference: bool,
+    #[serde(default)]
     pub icon: Option<String>,
     #[serde(default)]
     pub tone: Option<String>,
