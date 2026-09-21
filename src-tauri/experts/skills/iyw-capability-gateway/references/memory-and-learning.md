@@ -67,14 +67,18 @@ tentative (1 observation)
 
 Candidate observations are deduplicated by content/signal and an opaque source
 plus turn key. Equivalent wording can be retained as bounded variants; the host
-updates observation count, confidence, status, provenance, and references. The
-TurnComplete harvester does not infer user candidates from raw prompt text;
-the Agent must explicitly decide that a user signal is reusable and call the
-candidate capability.
-most specific scope wins (workspace/project, then domain, then global); callers
-must not invent a namespace selector. When confirmation is recommended, inspect
+updates observation count, confidence, status, provenance, and references.
+Automatic equivalence only covers formatting differences; semantic changes,
+negation and scope changes remain separate observations. With explicit user
+opt-in, the background harvester may propose candidates from user statements
+with verbatim source evidence. Agent writes remain available. Generated profile
+and collaboration paragraphs are provisional summaries of active confirmed
+memories; they stop applying when their supporting source changes or expires.
+Use the host-provided scope and never invent a namespace selector. When confirmation is recommended, inspect
 the current candidate and resolve it automatically if current evidence still
 supports it. Never claim that a proposal is durable before the host confirms it.
+Only say a memory was saved after a successful persistence receipt. A superseded
+candidate is not confirmed merely because its replacement was confirmed.
 
 Candidate list, resolve, and delete operations use optimistic concurrency:
 

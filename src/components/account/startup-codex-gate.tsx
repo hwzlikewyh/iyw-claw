@@ -130,99 +130,103 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
     return officeBootstrapRef.current
   }, [])
 
-  const bootstrap = useCallback(async () => {
-    if (runningRef.current) return
-    runningRef.current = true
-    runtimeTaskIdRef.current = randomUUID()
-    setState("checking")
-    setBootstrapPercent(null)
-    setFailure(null)
-    setMessage("")
-    const controller = new AbortController()
-    controllerRef.current = controller
-    const visibilityTimer = setTimeout(() => {
-      setState((current) => (current === "checking" ? "runtime" : current))
-    }, CHECKING_VISIBILITY_DELAY_MS)
-    void bootstrapOfficeCli()
-    let step: BootstrapStep = "registry"
-    try {
-      const agents = await acpListAgents().catch((error) => {
-        console.warn(
-          "[StartupCodexGate] Agent registry unavailable; continuing fail-closed:",
-          error
-        )
-        return []
-      })
-      const codex = agents.find((agent) => agent.agent_type === "codex")
-      if (!codex) {
-        await refreshAgents()
-        setState("ready")
-        return
-      }
-
-      step = "runtime"
-      const runtimeReport = await prepareStartupRuntime({
-        taskId: runtimeTaskIdRef.current,
-        signal: controller.signal,
-        onStatus: (report) => {
-          setComponents(report.components)
-          if (report.writerBusy) setMessage(t("waitingForWriter"))
-        },
-      })
-      const requiredComponents = ["node", "git", "uv"]
-      const components = new Map(
-        runtimeReport.components.map((component) => [
-          component.componentId,
-          component,
-        ])
-      )
-      const failures = requiredComponents.flatMap((componentId) => {
-        const component = components.get(componentId)
-        if (!component) return [`${componentId}: ${t("componentPending")}`]
-        if (!component.installed || !component.active) {
-          return [`${componentId}: ${component.lastError ?? component.phase}`]
+  const bootstrap = useCallback(
+    async (repair = false) => {
+      if (runningRef.current) return
+      runningRef.current = true
+      runtimeTaskIdRef.current = randomUUID()
+      setState("checking")
+      setBootstrapPercent(null)
+      setFailure(null)
+      setMessage("")
+      const controller = new AbortController()
+      controllerRef.current = controller
+      const visibilityTimer = setTimeout(() => {
+        setState((current) => (current === "checking" ? "runtime" : current))
+      }, CHECKING_VISIBILITY_DELAY_MS)
+      void bootstrapOfficeCli()
+      let step: BootstrapStep = "registry"
+      try {
+        const agents = await acpListAgents().catch((error) => {
+          console.warn(
+            "[StartupCodexGate] Agent registry unavailable; continuing fail-closed:",
+            error
+          )
+          return []
+        })
+        const codex = agents.find((agent) => agent.agent_type === "codex")
+        if (!codex) {
+          await refreshAgents()
+          setState("ready")
+          return
         }
-        return []
-      })
-      if (failures.length > 0) {
-        throw new Error(failures.join("\n"))
-      }
-      step = "detect"
-      const installed =
-        codex.installed_version ?? (await acpDetectAgentLocalVersion("codex"))
-      if (installed) {
+
+        step = "runtime"
+        const runtimeReport = await prepareStartupRuntime({
+          repair,
+          taskId: runtimeTaskIdRef.current,
+          signal: controller.signal,
+          onStatus: (report) => {
+            setComponents(report.components)
+            if (report.writerBusy) setMessage(t("waitingForWriter"))
+          },
+        })
+        const requiredComponents = ["node", "git", "uv"]
+        const components = new Map(
+          runtimeReport.components.map((component) => [
+            component.componentId,
+            component,
+          ])
+        )
+        const failures = requiredComponents.flatMap((componentId) => {
+          const component = components.get(componentId)
+          if (!component) return [`${componentId}: ${t("componentPending")}`]
+          if (!component.installed || !component.active) {
+            return [`${componentId}: ${component.lastError ?? component.phase}`]
+          }
+          return []
+        })
+        if (failures.length > 0) {
+          throw new Error(failures.join("\n"))
+        }
+        step = "detect"
+        const installed =
+          codex.installed_version ?? (await acpDetectAgentLocalVersion("codex"))
+        if (installed) {
+          await refreshAgents()
+          setState("ready")
+          return
+        }
+        if (isLocalDesktop()) throw new Error(t("repairCore"))
+        setState("installing")
+        step = "install"
+        await acpPrepareNpxAgent(
+          "codex",
+          codex.registry_version,
+          taskIdRef.current,
+          false
+        )
         await refreshAgents()
         setState("ready")
-        return
+      } catch (error) {
+        if (controller.signal.aborted) {
+          setState("idle")
+          return
+        }
+        const detail = error instanceof Error ? error.message : String(error)
+        console.error(`[StartupCodexGate] ${step} step failed:`, error)
+        setFailure({ step, detail })
+        setState("error")
+      } finally {
+        clearTimeout(visibilityTimer)
+        runningRef.current = false
       }
-      if (isLocalDesktop()) throw new Error(t("repairCore"))
-      setState("installing")
-      step = "install"
-      await acpPrepareNpxAgent(
-        "codex",
-        codex.registry_version,
-        taskIdRef.current,
-        false
-      )
-      await refreshAgents()
-      setState("ready")
-    } catch (error) {
-      if (controller.signal.aborted) {
-        setState("idle")
-        return
-      }
-      const detail = error instanceof Error ? error.message : String(error)
-      console.error(`[StartupCodexGate] ${step} step failed:`, error)
-      setFailure({ step, detail })
-      setState("error")
-    } finally {
-      clearTimeout(visibilityTimer)
-      runningRef.current = false
-    }
-  }, [bootstrapOfficeCli, refreshAgents, t])
+    },
+    [bootstrapOfficeCli, refreshAgents, t]
+  )
 
   useEffect(() => {
-    if (status === "authenticated" && state === "idle") void bootstrap()
+    if (status === "authenticated" && state === "idle") void bootstrap(false)
   }, [bootstrap, state, status])
 
   const title =
@@ -286,7 +290,7 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
             <StartupFailureDetails
               step={t(`steps.${failure.step}`)}
               detail={failure.detail}
-              onRetry={() => void bootstrap()}
+              onRetry={() => void bootstrap(true)}
             />
           ) : null}
         </DialogContent>

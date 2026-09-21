@@ -20,7 +20,7 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "externalBin": ["binaries/agent-browser"],
+    "externalBin": ["binaries/iyw-environment"],
     "targets": "nsis",
     "icon": [
       "icons/32x32.png",

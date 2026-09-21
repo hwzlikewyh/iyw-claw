@@ -67,13 +67,29 @@ pub async fn run_preflight(agent_type: AgentType) -> PreflightResult {
     if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
         let result = crate::internal_xinghe_worker::resolve_library();
         let passed = result.is_ok();
-        return PreflightResult { agent_type, agent_name: "星河".into(), passed, checks: vec![CheckItem {
-            check_id: "builtin-worker".into(), label: "内置星河运行时".into(),
-            status: if passed { CheckStatus::Pass } else { CheckStatus::Fail },
-            message: result.map(|_| format!("内置运行时 {} 已就绪", crate::internal_xinghe_worker::RUNTIME_VERSION))
-                .unwrap_or_else(|error| format!("{error}；请修复或重新安装应用")),
-            fixes: Vec::new(),
-        }] };
+        return PreflightResult {
+            agent_type,
+            agent_name: "星河".into(),
+            passed,
+            checks: vec![CheckItem {
+                check_id: "builtin-worker".into(),
+                label: "内置星河运行时".into(),
+                status: if passed {
+                    CheckStatus::Pass
+                } else {
+                    CheckStatus::Fail
+                },
+                message: result
+                    .map(|_| {
+                        format!(
+                            "内置运行时 {} 已就绪",
+                            crate::internal_xinghe_worker::RUNTIME_VERSION
+                        )
+                    })
+                    .unwrap_or_else(|error| format!("{error}；请修复或重新安装应用")),
+                fixes: Vec::new(),
+            }],
+        };
     }
     let meta = registry::get_agent_meta(agent_type);
     let storage = AgentStoragePaths::active();

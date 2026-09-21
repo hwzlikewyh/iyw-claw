@@ -500,7 +500,9 @@ pub(crate) fn verify_agent_installed(
     runtime_env: &BTreeMap<String, String>,
 ) -> Result<(), AcpError> {
     if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
-        return crate::internal_xinghe_worker::resolve_library().map(|_| ()).map_err(AcpError::SdkNotInstalled);
+        return crate::internal_xinghe_worker::resolve_library()
+            .map(|_| ())
+            .map_err(AcpError::SdkNotInstalled);
     }
     let meta = registry::get_agent_meta(agent_type);
     match meta.distribution {
@@ -7079,7 +7081,10 @@ async fn installed_enabled_skill_agent_types(
         .filter(|agent_type| {
             settings.get(agent_type).is_some_and(|setting| {
                 setting.enabled
-                    && crate::internal_xinghe_worker::installation_available(*agent_type, setting.installed_version.as_deref())
+                    && crate::internal_xinghe_worker::installation_available(
+                        *agent_type,
+                        setting.installed_version.as_deref(),
+                    )
             })
         })
         .collect::<Vec<_>>();
@@ -7358,7 +7363,10 @@ pub async fn reconcile_shared_market_skills(
         .map(|agent_type| {
             let enabled = settings.get(&agent_type).is_some_and(|setting| {
                 setting.enabled
-                    && crate::internal_xinghe_worker::installation_available(agent_type, setting.installed_version.as_deref())
+                    && crate::internal_xinghe_worker::installation_available(
+                        agent_type,
+                        setting.installed_version.as_deref(),
+                    )
             });
             (agent_type, enabled)
         })
@@ -8715,6 +8723,29 @@ pub(crate) async fn build_session_runtime_env(
     session_id: Option<&str>,
     data_dir: &Path,
 ) -> Result<BTreeMap<String, String>, AcpError> {
+    build_runtime_env_for_launch((db, data_dir), (agent_type, session_id), true).await
+}
+
+pub(crate) async fn prepared_session_runtime_env(
+    db: &AppDatabase,
+    request: &crate::acp::prepared_session::PrepareSessionRequest,
+    data_dir: &Path,
+) -> Result<BTreeMap<String, String>, AcpError> {
+    build_runtime_env_for_launch(
+        (db, data_dir),
+        (request.agent_type, request.session_id.as_deref()),
+        false,
+    )
+    .await
+}
+
+async fn build_runtime_env_for_launch(
+    context: (&AppDatabase, &Path),
+    target: (AgentType, Option<&str>),
+    prepare_resources: bool,
+) -> Result<BTreeMap<String, String>, AcpError> {
+    let (db, data_dir) = context;
+    let (agent_type, session_id) = target;
     let paths = active_agent_storage_paths()?;
     if !crate::acp::agent_storage::startup_profile_env_is_complete(&paths, |key| {
         std::env::var_os(key)
@@ -8743,12 +8774,17 @@ pub(crate) async fn build_session_runtime_env(
     let worker_version = if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
         crate::internal_xinghe_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
         Some(crate::internal_xinghe_worker::RUNTIME_VERSION)
-    } else { None };
-    let installed_version = worker_version.or_else(|| setting
-        .as_ref()
-        .and_then(|model| model.installed_version.as_deref())
-        .map(str::trim)
-        .filter(|version| !version.is_empty()))
+    } else {
+        None
+    };
+    let installed_version = worker_version
+        .or_else(|| {
+            setting
+                .as_ref()
+                .and_then(|model| model.installed_version.as_deref())
+                .map(str::trim)
+                .filter(|version| !version.is_empty())
+        })
         .ok_or_else(|| AcpError::SdkNotInstalled(format!("{agent_type} is not installed")))?;
     crate::acp::deepseek_config::validate_tool_version(agent_type, installed_version)
         .map_err(AcpError::protocol)?;
@@ -8768,7 +8804,9 @@ pub(crate) async fn build_session_runtime_env(
         )));
     }
 
-    reconcile_agent_skills_before_launch(db, agent_type).await;
+    if prepare_resources {
+        reconcile_agent_skills_before_launch(db, agent_type).await;
+    }
 
     crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
         .map_err(AcpError::protocol)?;
@@ -8776,7 +8814,7 @@ pub(crate) async fn build_session_runtime_env(
         if worker_version.is_none() {
             ensure_codex_model_catalog()?;
         }
-        if let Some(session_id) = session_id {
+        if let Some(session_id) = session_id.filter(|_| prepare_resources) {
             match crate::acp::codex_rollout_migration::migrate_resumed_session(session_id).await {
                 Ok(count) if count > 0 => tracing::info!(
                     session_id,
@@ -8898,8 +8936,11 @@ pub(crate) async fn build_session_runtime_env(
     }
 
     // 所有环境投影完成后再探测，后续相同启动环境才可复用校验结果。
-    if let Some(required) = crate::acp::trusted_agents::minimum_node_version(agent_type)
-        .filter(|_| !crate::internal_xinghe_worker::is_desktop_agent(agent_type)) {
+    if let Some(required) =
+        crate::acp::trusted_agents::minimum_node_version(agent_type).filter(|_| {
+            prepare_resources && !crate::internal_xinghe_worker::is_desktop_agent(agent_type)
+        })
+    {
         crate::acp::preflight::enforce_minimum_node_version(&runtime_env, required)
             .await
             .map_err(|error| {
@@ -9169,6 +9210,8 @@ pub async fn acp_connect(
     preferred_mode_id: Option<String>,
     preferred_config_values: Option<BTreeMap<String, String>>,
     force_host_restart: Option<bool>,
+    continuation_from_session_id: Option<String>,
+    continuation_context: Option<String>,
     manager: State<'_, ConnectionManager>,
     db: State<'_, AppDatabase>,
     app_handle: tauri::AppHandle,
@@ -9205,6 +9248,26 @@ pub async fn acp_connect(
             return Err(error);
         }
     };
+    if !force_host_restart.unwrap_or(false) {
+        let prepared_stage = startup_trace.stage("prepared_session_lookup");
+        let request = crate::acp::prepared_session::PrepareSessionRequest {
+            agent_type,
+            working_dir: working_dir.clone(),
+            session_id: session_id.clone(),
+            conversation_id,
+            preferred_mode_id: preferred_mode_id.clone(),
+            preferred_config_values: preferred_config_values.clone().unwrap_or_default(),
+        };
+        if let Some(id) = manager
+            .claim_prepared_session(&request, window.label())
+            .await?
+        {
+            startup_trace.bind_connection(id.clone());
+            prepared_stage.finish("ready");
+            return Ok(id);
+        }
+        prepared_stage.finish("miss");
+    }
     let runtime_stage = startup_trace.stage("runtime_env_reconcile");
     let runtime_env = match build_session_runtime_env(
         &db,
@@ -9250,6 +9313,8 @@ pub async fn acp_connect(
             preferred_mode_id,
             preferred_config_values.unwrap_or_default(),
             force_host_restart.unwrap_or(false),
+            continuation_from_session_id,
+            continuation_context,
             startup_trace,
         )
         .await
@@ -9667,7 +9732,9 @@ pub(crate) async fn acp_get_agent_status_core(
 
     let installed_version = if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
         crate::internal_xinghe_worker::installed_version()
-    } else { installed_version };
+    } else {
+        installed_version
+    };
 
     Ok(crate::acp::types::AcpAgentStatus {
         agent_type,
@@ -9820,9 +9887,15 @@ async fn list_agent_types(
                     .and_then(|paths| binary_cache::uvx_prepared_version(paths, agent_type)),
             ),
         };
-        let (dist_type, local_installed_version) = if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
-            ("builtin", crate::internal_xinghe_worker::installed_version())
-        } else { (dist_type, local_installed_version) };
+        let (dist_type, local_installed_version) =
+            if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+                (
+                    "builtin",
+                    crate::internal_xinghe_worker::installed_version(),
+                )
+            } else {
+                (dist_type, local_installed_version)
+            };
         let platform = crate::acp::version_center::platform_projection(&db.conn, agent_type).await;
         if !platform.clone().visible(local_installed_version.is_some()) {
             continue;
@@ -9928,7 +10001,9 @@ async fn list_agent_types(
             registry_id: registry::registry_id_for(agent_type).to_string(),
             registry_version: if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
                 Some(crate::internal_xinghe_worker::RUNTIME_VERSION.to_string())
-            } else { platform.recommended_version },
+            } else {
+                platform.recommended_version
+            },
             name: meta.name.to_string(),
             description: meta.description.to_string(),
             available,
@@ -10204,12 +10279,14 @@ pub(crate) async fn acp_update_agent_preferences_core(
     if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
         let native = match codex_config_toml.as_deref() {
             Some(raw) => raw.to_string(),
-            None => crate::acp::xinghe_runtime_config::load_preferences(
-                &db.conn,
-                Some(&previous_setting),
-                &codex_home_dir(),
-            )
-            .await?,
+            None => {
+                crate::acp::xinghe_runtime_config::load_preferences(
+                    &db.conn,
+                    Some(&previous_setting),
+                    &codex_home_dir(),
+                )
+                .await?
+            }
         };
         crate::acp::xinghe_runtime_config::save_preferences(&mut env, &native)?;
     }

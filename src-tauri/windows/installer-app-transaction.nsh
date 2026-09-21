@@ -57,8 +57,7 @@ Function IywClawIsAppComplete
   Call IywClawIsNonEmptyFile
   Pop $1
   StrCmp $1 "1" 0 app_complete_done
-  StrCmp $IywClawRequireBrowser "1" 0 app_complete_success
-  Push "$0\agent-browser.exe"
+  Push "$0\iyw-environment.exe"
   Call IywClawIsNonEmptyFile
   Pop $1
   StrCmp $1 "1" 0 app_complete_done
@@ -187,30 +186,10 @@ FunctionEnd
 
 Function IywClawCommitAppTransaction
   StrCmp $IywClawTransactionActive "1" 0 inactive_transaction
-  Call IywClawValidateTransactionPaths
+  Call IywClawValidateNewApp
   Pop $R0
-  StrCmp $R0 "1" 0 commit_transaction_failed
-  Push "$IywClawAppDir"
-  Call IywClawIsAppComplete
-  Pop $R0
-  StrCmp $R0 "1" app_install_valid 0
-  StrCpy $IywClawTransactionError "新 app 校验失败：$IywClawAppCheckError"
+  StrCmp $R0 "1" app_legacy_check_complete 0
   Goto commit_transaction_failed
-
-  app_install_valid:
-    Push "$IywClawAppDir"
-    Push "check-legacy-files"
-    Call IywClawRunKnownProcessCommandAt
-    Pop $R0
-    StrCmp $R0 "0" app_legacy_check_complete 0
-    StrCmp $R0 "1" app_legacy_found app_legacy_check_failed
-
-  app_legacy_found:
-    StrCpy $IywClawTransactionError "新 app 仍包含旧 iyw-claw-mcp 文件"
-    Goto commit_transaction_failed
-  app_legacy_check_failed:
-    StrCpy $IywClawTransactionError "无法复核新 app 的旧 MCP 文件"
-    Goto commit_transaction_failed
 
   app_legacy_check_complete:
     ; 新 app 完整即成为可恢复版本。backup 删除不是原子操作，优先清理，失败时
@@ -256,6 +235,40 @@ Function IywClawCommitAppTransaction
     StrCpy $IywClawTransactionHasBackup "0"
     DetailPrint "新 app 校验完成，app 事务已提交。"
     Push "1"
+FunctionEnd
+
+Function IywClawValidateNewApp
+  Call IywClawValidateTransactionPaths
+  Pop $R0
+  StrCmp $R0 "1" 0 validate_new_app_failed
+  Push "$IywClawAppDir"
+  Call IywClawIsAppComplete
+  Pop $R0
+  StrCmp $R0 "1" app_install_valid 0
+  StrCpy $IywClawTransactionError "新 app 校验失败：$IywClawAppCheckError"
+  Goto validate_new_app_failed
+
+  app_install_valid:
+    Push "$IywClawAppDir"
+    Push "check-legacy-files"
+    Call IywClawRunKnownProcessCommandAt
+    Pop $R0
+  StrCmp $R0 "0" app_legacy_check_complete 0
+  StrCmp $R0 "1" app_legacy_found app_legacy_check_failed
+
+  app_legacy_found:
+    StrCpy $IywClawTransactionError "新 app 仍包含旧 iyw-claw-mcp 文件"
+    Goto validate_new_app_failed
+  app_legacy_check_failed:
+    StrCpy $IywClawTransactionError "无法复核新 app 的旧 MCP 文件"
+    Goto validate_new_app_failed
+
+  app_legacy_check_complete:
+    Push "1"
+    Return
+
+  validate_new_app_failed:
+    Push "0"
 FunctionEnd
 
 Function IywClawRollbackAppTransaction

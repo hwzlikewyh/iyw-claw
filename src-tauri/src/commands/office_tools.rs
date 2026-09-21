@@ -21,9 +21,10 @@ use tokio::sync::{watch, Mutex};
 
 use crate::acp::types::AgentSkillScope;
 use crate::app_error::AppCommandError;
+#[cfg(not(feature = "tauri-runtime"))]
+use crate::commands::acp::resolve_command_on_path;
 use crate::commands::acp::{
-    preferred_scope_skill_dir, remove_skill_entry, resolve_command_on_path, scoped_skill_dirs,
-    validate_skill_id,
+    preferred_scope_skill_dir, remove_skill_entry, scoped_skill_dirs, validate_skill_id,
 };
 use crate::commands::experts::{
     central_experts_dir, classify_link, managed_copy_is_owned, managed_link_is_owned,
@@ -507,15 +508,20 @@ fn officecli_primary_install_path() -> Option<PathBuf> {
 }
 
 pub(crate) fn resolve_officecli() -> Option<PathBuf> {
-    if let Some(p) = resolve_command_on_path("officecli") {
-        return Some(p);
+    if let Some(path) = crate::managed_environment::tool_entrypoint("officecli") {
+        return Some(path);
     }
-    // Fall back to the official installers' known locations — covers the window
-    // on Windows where `install.ps1`'s persistent User-PATH change hasn't yet
-    // reached this already-running process.
-    officecli_known_install_paths()
-        .into_iter()
-        .find(|p| p.is_file())
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        if let Some(p) = resolve_command_on_path("officecli") {
+            return Some(p);
+        }
+        return officecli_known_install_paths()
+            .into_iter()
+            .find(|p| p.is_file());
+    }
+    #[cfg(feature = "tauri-runtime")]
+    None
 }
 
 /// Directory to prepend to a spawned agent's `PATH` so agent-invoked
@@ -526,13 +532,21 @@ pub(crate) fn resolve_officecli() -> Option<PathBuf> {
 /// it isn't installed. Also closes the latent gap where a GUI-launched iyw-claw on
 /// Unix doesn't inherit `~/.local/bin` on `PATH`.
 pub(crate) fn officecli_agent_path_dir() -> Option<PathBuf> {
-    if resolve_command_on_path("officecli").is_some() {
-        return None;
+    if let Some(path) = crate::managed_environment::tool_entrypoint("officecli") {
+        return path.parent().map(Path::to_path_buf);
     }
-    officecli_known_install_paths()
-        .into_iter()
-        .find(|p| p.is_file())
-        .and_then(|p| p.parent().map(Path::to_path_buf))
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        if resolve_command_on_path("officecli").is_some() {
+            return None;
+        }
+        return officecli_known_install_paths()
+            .into_iter()
+            .find(|p| p.is_file())
+            .and_then(|p| p.parent().map(Path::to_path_buf));
+    }
+    #[cfg(feature = "tauri-runtime")]
+    None
 }
 
 /// Recognize the self-contained-.NET "missing system dependency" startup
@@ -789,6 +803,20 @@ async fn officecli_install_locked(
     task_id: String,
     emitter: &EventEmitter,
 ) -> Result<OfficecliInfo, OfficeToolsError> {
+    if cfg!(feature = "tauri-runtime") {
+        let info = officecli_detect().await;
+        if info.installed && info.runtime_error.is_none() && info.compatible {
+            return Ok(info);
+        }
+        let message = "OfficeCLI 由安装环境统一管理，请运行 iyw-environment repair 修复环境";
+        emit_officecli_install_event(
+            emitter,
+            &task_id,
+            OfficecliInstallEventKind::Failed,
+            message,
+        );
+        return Err(OfficeToolsError::CommandFailed(message.to_string()));
+    }
     emit_officecli_install_event(
         emitter,
         &task_id,

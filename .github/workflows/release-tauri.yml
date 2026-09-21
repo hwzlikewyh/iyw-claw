@@ -3,6 +3,9 @@ name: Release Tauri Bundles
 on:
   workflow_call:
     inputs:
+      parallel_worker:
+        default: false
+        type: boolean
       release_id:
         required: true
         type: string
@@ -30,7 +33,7 @@ on:
       build_matrix:
         required: false
         type: string
-        default: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows x64","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"x86_64-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false},{"name":"Windows 32-bit","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"i686-pc-windows-msvc","codegen_units":"8","lto":"thin","optional":false}]}'
+        default: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false},{"name":"Windows x64","runner":["self-hosted","Windows","X64","iyw-signing"],"target":"x86_64-pc-windows-msvc","codegen_units":"64","lto":"off","optional":false}]}'
       release_draft:
         required: false
         type: boolean
@@ -57,9 +60,7 @@ jobs:
       matrix: ${{ fromJSON(inputs.build_matrix) }}
     runs-on: ${{ matrix.runner }}
     env:
-      # macOS uses parallel codegen without LTO because its hosted runners are
-      # the slowest release builders. Other targets keep thin LTO for size and
-      # runtime optimization.
+      # false still enables local thin LTO; off disables the costly LTO pass.
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.codegen_units }}
       CARGO_PROFILE_RELEASE_LTO: ${{ matrix.lto }}
       RUSTC_WRAPPER: sccache
@@ -100,11 +101,9 @@ jobs:
         run: |
           set -euo pipefail
           cache_root="${RUNNER_TOOL_CACHE:-$HOME/.cache}/iyw-claw"
-          mkdir -p "$cache_root/sccache" "$cache_root/pnpm-store" \
-            "$cache_root/runtime-seed/${{ matrix.target }}"
+          mkdir -p "$cache_root/sccache" "$cache_root/pnpm-store"
           {
             echo "SCCACHE_DIR=$cache_root/sccache"
-            echo "IYW_CLAW_RUNTIME_SEED_CACHE=$cache_root/runtime-seed/${{ matrix.target }}"
           } >> "$GITHUB_ENV"
           pnpm config set store-dir "$cache_root/pnpm-store"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
@@ -112,29 +111,25 @@ jobs:
           fi
           echo "[cache] persistent root: $cache_root"
 
-      - name: Configure hosted runtime seed cache
-        if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') }}
-        shell: bash
-        run: echo "IYW_CLAW_RUNTIME_SEED_CACHE=${RUNNER_TEMP}/iyw-runtime-seed-cache" >> "$GITHUB_ENV"
-
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
       - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
+        uses: ./.github/actions/setup-sccache
 
       - name: Rust cache
         if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') }}
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: |
-            ./src-tauri -> target
-            ./harness/xinghe-worker -> target
+          # Worker binaries have their own cache and artifact backup.
+          prefix-key: v1-desktop-app
+          workspaces: ./src-tauri -> target
           shared-key: desktop-${{ matrix.target }}
           cache-bin: "false"
-          cache-workspace-crates: "true"
+          cache-workspace-crates: "false"
+          cache-on-failure: "true"
 
       - name: Install Windows x86 assembler
         if: matrix.target == 'i686-pc-windows-msvc'
@@ -150,23 +145,35 @@ jobs:
           nasm -v
           if ($LASTEXITCODE -ne 0) { throw 'NASM version check failed' }
 
-      - name: Install Linux x64 dependencies
-        if: matrix.target == 'x86_64-unknown-linux-gnu'
+      - name: Install native Linux dependencies
+        if: matrix.target == 'x86_64-unknown-linux-gnu' || (matrix.target == 'aarch64-unknown-linux-gnu' && runner.arch == 'ARM64')
         run: |
           sudo apt-get -o Dir::Etc::sourceparts=- update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
+            libssl-dev \
             patchelf
 
+      - name: Configure native Linux arm64 compiler
+        if: matrix.target == 'aarch64-unknown-linux-gnu' && runner.arch == 'ARM64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcc -dumpmachine
+          {
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=gcc"
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_AR=ar"
+          } >> "$GITHUB_ENV"
+
       - name: Install Linux arm64 cross dependencies
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        if: matrix.target == 'aarch64-unknown-linux-gnu' && runner.arch != 'ARM64'
         shell: bash
         run: bash .release-workflow/.github/scripts/release/setup-linux-arm64.sh desktop
 
       - name: Verify Linux arm64 cross toolchain
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        if: matrix.target == 'aarch64-unknown-linux-gnu' && runner.arch != 'ARM64'
         shell: bash
         run: |
           command -v aarch64-linux-gnu-gcc
@@ -293,67 +300,58 @@ jobs:
 
       - name: Stage desktop sidecars
         shell: bash
-        env:
-          IYW_CLAW_BROWSER_SIDECAR_EXCLUDED: ${{ matrix.target == 'i686-pc-windows-msvc' && '1' || '' }}
         run: pnpm tauri:prepare-sidecars --target ${{ matrix.target }}
 
       - name: Verify staged sidecars
         run: node src-tauri/scripts/verify-sidecar-bundle.mjs --target "${{ matrix.target }}"
 
-      - id: runtime-cache
-        name: Restore runtime seed archives
-        if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') && matrix.target != 'i686-pc-windows-msvc' }}
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ runner.temp }}/iyw-runtime-seed-cache
-          key: runtime-downloads-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('src-tauri/scripts/runtime-seed-config.mjs') }}
-          restore-keys: |
-            runtime-downloads-${{ runner.os }}-${{ matrix.target }}-
-
-      - name: Prepare runtime seed
+      - name: Compile application alongside worker
+        if: inputs.parallel_worker
         shell: bash
-        run: pnpm tauri:prepare-runtime-seed --target ${{ matrix.target }}
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          IYW_CLAW_SKIP_SIDECAR: "1"
+          TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
+        run: bash .github/scripts/release/compile-desktop.sh "$BUILD_TARGET"
 
-      - name: Verify runtime seed
-        shell: bash
-        run: pnpm tauri:verify-runtime-seed --target ${{ matrix.target }}
-
-      - name: Save runtime seed archives
-        if: ${{ steps.runtime-cache.outputs.cache-hit != 'true' && !contains(toJSON(matrix.runner), 'self-hosted') && matrix.target != 'i686-pc-windows-msvc' }}
-        uses: actions/cache/save@v4
+      - name: Archive application compile timings
+        if: always() && inputs.parallel_worker
+        continue-on-error: true
+        uses: ./.github/actions/build-timings
         with:
-          path: ${{ runner.temp }}/iyw-runtime-seed-cache
-          key: ${{ steps.runtime-cache.outputs.cache-primary-key }}
+          target: ${{ matrix.target }}
+
+      - name: Archive application build resources
+        if: always() && inputs.parallel_worker
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-build-resources-${{ matrix.target }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/desktop-build-${{ matrix.target }}.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Receive independently compiled worker
+        if: inputs.parallel_worker
+        uses: ./.github/actions/receive-worker
+        with:
+          target: ${{ matrix.target }}
 
       - name: Build built-in worker
-        if: hashFiles('.github/actions/prepare-worker/action.yml') != ''
+        if: ${{ !inputs.parallel_worker && hashFiles('.github/actions/prepare-worker/action.yml') != '' }}
         uses: ./.github/actions/prepare-worker
         with:
           target: ${{ matrix.target }}
 
       - name: Prepare worker for legacy source
-        if: hashFiles('.github/actions/prepare-worker/action.yml') == ''
+        if: ${{ !inputs.parallel_worker && hashFiles('.github/actions/prepare-worker/action.yml') == '' }}
         run: pnpm tauri:prepare-xinghe-worker --target "${{ matrix.target }}"
-
-      - name: Run managed browser smoke
-        if: inputs.browser_engine_fixture != '' && matrix.target != 'i686-pc-windows-msvc'
-        shell: bash
-        env:
-          IYW_CLAW_REQUIRED_BROWSER_SMOKE: "1"
-          IYW_CLAW_BROWSER_ENGINE: ${{ inputs.browser_engine_fixture }}
-        run: |
-          sidecar="src-tauri/binaries/agent-browser-${{ matrix.target }}"
-          if [[ "${{ matrix.target }}" == *windows* ]]; then sidecar+=".exe"; fi
-          pnpm tauri:browser-smoke -- --sidecar "$sidecar" --engine "$IYW_CLAW_BROWSER_ENGINE"
 
       - name: Build and upload Linux arm64
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         uses: tauri-apps/tauri-action@v0.6.1
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
-          # agent-browser is a pinned vendor binary. Its exact source hash and
-          # size are verified before and after bundling; do not require a
-          # second Authenticode signature on that byte-identical sidecar.
           TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -365,8 +363,8 @@ jobs:
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           assetNamePattern: iyw-claw_[version]_arm64[ext]
-          tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
-          args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} --config src-tauri/tauri.linux-arm64-ci.conf.json -- --timings
+          tauriScript: ${{ inputs.parallel_worker && 'node .github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles deb,rpm --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.linux-arm64-ci.conf.json -- --timings
           includeUpdaterJson: false
           retryAttempts: 2
 
@@ -394,11 +392,11 @@ jobs:
           releaseBody: ${{ inputs.release_body }}
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
-          assetNamePattern: iyw-claw_[version]_${{ matrix.target == 'i686-pc-windows-msvc' && 'x86' || 'x64' }}[setup][ext]
+          assetNamePattern: iyw-claw_[version]_x64[setup][ext]
           tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
           # steps.signing.outputs.config_arg is either empty (unsigned) or
           # `--config <abs path to generated overlay>`.
-          args: --target ${{ matrix.target }} --features tauri-runtime --bundles nsis --config src-tauri/tauri.ci.conf.json ${{ matrix.target == 'i686-pc-windows-msvc' && '--config src-tauri/tauri.windows-x86.conf.json' || '' }} ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} ${{ steps.signing.outputs.config_arg }} -- --timings
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles nsis --config src-tauri/tauri.ci.conf.json ${{ steps.signing.outputs.config_arg }} -- --timings
           # latest.json is generated by the publish-release job in release.yml
           # from the actual release assets (tauri-action's name matching breaks
           # on the non-ASCII productName).
@@ -410,9 +408,6 @@ jobs:
         shell: bash
         run: pnpm tauri:verify-bundle-size --target "${{ matrix.target }}"
 
-      # Signing silently covering only some first-party artifacts is the failure
-      # mode worth catching. The pinned agent-browser vendor binary is verified
-      # by exact size and SHA-256 in the staging step and is excluded here.
       - name: Verify Authenticode signatures
         if: contains(matrix.target, 'windows')
         shell: bash
@@ -434,7 +429,7 @@ jobs:
           path: |
             src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
             src-tauri/resources/xinghe-worker/*
-            src-tauri/binaries/agent-browser-${{ matrix.target }}.exe
+            src-tauri/binaries/iyw-environment-${{ matrix.target }}.exe
           if-no-files-found: error
           retention-days: 1
 
@@ -463,8 +458,8 @@ jobs:
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           assetNamePattern: iyw-claw_[version]_amd64[ext]
-          tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
-          args: --target ${{ matrix.target }} --features tauri-runtime --bundles appimage --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} -- --timings
+          tauriScript: ${{ inputs.parallel_worker && 'node .github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles appimage --config src-tauri/tauri.ci.conf.json -- --timings
           includeUpdaterJson: false
           retryAttempts: 2
 
@@ -488,8 +483,8 @@ jobs:
           releaseDraft: ${{ inputs.release_draft }}
           prerelease: ${{ inputs.prerelease }}
           assetNamePattern: iyw-claw_[version]_${{ matrix.target == 'x86_64-apple-darwin' && 'x64' || 'aarch64' }}[ext]
-          tauriScript: pnpm dlx @tauri-apps/cli@2.11.4
-          args: --target ${{ matrix.target }} --features tauri-runtime --bundles app,dmg --config src-tauri/tauri.ci.conf.json ${{ matrix.target != 'i686-pc-windows-msvc' && '--config src-tauri/tauri.runtime-seed.conf.json' || '' }} -- --timings
+          tauriScript: ${{ inputs.parallel_worker && 'node .github/scripts/release/bundle-precompiled.mjs' || 'pnpm dlx @tauri-apps/cli@2.11.4' }}
+          args: --target ${{ matrix.target }} --features tauri-runtime --bundles app,dmg --config src-tauri/tauri.ci.conf.json -- --timings
           includeUpdaterJson: false
           retryAttempts: 2
 
@@ -511,18 +506,14 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Verify macOS runtime seed in app bundle
-        if: matrix.target == 'aarch64-apple-darwin'
-        shell: bash
-        run: pnpm tauri:verify-runtime-seed-bundle --target "${{ matrix.target }}"
-
       - name: Archive Cargo build timings
-        if: always() && hashFiles('.github/actions/build-timings/action.yml') != ''
+        if: always() && !inputs.parallel_worker && hashFiles('.github/actions/build-timings/action.yml') != ''
         uses: ./.github/actions/build-timings
         with:
           target: ${{ matrix.target }}
 
       - name: Show compiler cache statistics
-        if: always()
+        if: always() && env.RUSTC_WRAPPER == 'sccache'
+        continue-on-error: true
         shell: bash
         run: sccache --show-stats

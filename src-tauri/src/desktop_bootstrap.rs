@@ -76,10 +76,8 @@ fn push_migration_source(
     }
 }
 
-pub fn initial_agent_storage_root(selected_root: Option<&Path>, data_dir: &Path) -> PathBuf {
-    selected_root
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| data_dir.join("agents"))
+pub fn initial_agent_storage_root(_selected_root: Option<&Path>, _data_dir: &Path) -> PathBuf {
+    crate::paths::iyw_claw_user_dir()
 }
 
 pub fn resolve_install_root(executable: &Path) -> Option<PathBuf> {

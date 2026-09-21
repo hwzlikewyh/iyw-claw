@@ -275,7 +275,10 @@ impl TerminalManager {
         cmd.cwd(&opts.working_dir);
 
         // Inject extra environment variables (e.g. git credential helper config)
-        let mut environment = opts.extra_env.clone().unwrap_or_default()
+        let mut environment = opts
+            .extra_env
+            .clone()
+            .unwrap_or_default()
             .into_iter()
             .collect::<std::collections::BTreeMap<_, _>>();
         crate::acp::runtime_context::prepend_tool_dirs(

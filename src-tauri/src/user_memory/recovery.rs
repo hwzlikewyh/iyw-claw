@@ -4,6 +4,9 @@ use super::{fs, journal, UserMemoryService};
 
 impl UserMemoryService {
     pub(super) async fn recover_pending_transaction(&self) -> Result<(), AppCommandError> {
+        if self.active_authority().is_some() {
+            return Ok(());
+        }
         let root = self.resolved_root()?;
         match journal::read(root)? {
             None => Ok(()),

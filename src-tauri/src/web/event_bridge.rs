@@ -1,4 +1,4 @@
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use serde::{ser::SerializeStruct, Serialize, Serializer};
@@ -100,9 +100,37 @@ pub enum EventEmitter {
     /// Silent no-op emitter — drops all events. Used when streaming progress
     /// is not needed (e.g. legacy non-streaming call paths).
     Noop,
+    Prepared {
+        target: Arc<EventEmitter>,
+        active: Arc<AtomicBool>,
+    },
 }
 
 impl EventEmitter {
+    pub(crate) fn prepared(&self) -> (Self, Arc<AtomicBool>) {
+        let active = Arc::new(AtomicBool::new(false));
+        (
+            Self::Prepared {
+                target: Arc::new(self.clone()),
+                active: active.clone(),
+            },
+            active,
+        )
+    }
+
+    pub(crate) fn is_preparing(&self) -> bool {
+        matches!(self, Self::Prepared { active, .. } if !active.load(Ordering::Acquire))
+    }
+
+    fn active_target(&self) -> &Self {
+        match self {
+            Self::Prepared { target, active } if active.load(Ordering::Acquire) => {
+                target.active_target()
+            }
+            _ => self,
+        }
+    }
+
     /// Convenience constructor for the standalone server runtime path.
     /// Mirrors how `Tauri` resolves the same two pieces of state via
     /// `app.try_state`.
@@ -117,7 +145,7 @@ impl EventEmitter {
     /// registered (only happens in degraded test setups) — the caller
     /// treats this as "no in-process consumers wired".
     pub fn acp_event_bus(&self) -> Option<Arc<InternalEventBus>> {
-        match self {
+        match self.active_target() {
             #[cfg(feature = "tauri-runtime")]
             EventEmitter::Tauri(app) => {
                 use tauri::Manager;
@@ -125,7 +153,7 @@ impl EventEmitter {
                     .map(|s| Arc::clone(&s))
             }
             EventEmitter::WebOnly { bus, .. } => Some(Arc::clone(bus)),
-            EventEmitter::Noop => None,
+            EventEmitter::Noop | EventEmitter::Prepared { .. } => None,
         }
     }
 
@@ -275,7 +303,7 @@ pub enum AutomationChange {
 /// Unified event emission: serializes the payload exactly once and dispatches
 /// the shared `Arc<Value>` to both the Tauri webview and the web broadcaster.
 pub fn emit_event(emitter: &EventEmitter, event: &str, payload: impl Serialize) {
-    match emitter {
+    match emitter.active_target() {
         #[cfg(feature = "tauri-runtime")]
         EventEmitter::Tauri(app) => {
             use tauri::{Emitter, Manager};
@@ -293,7 +321,7 @@ pub fn emit_event(emitter: &EventEmitter, event: &str, payload: impl Serialize) 
         EventEmitter::WebOnly { broadcaster, .. } => {
             let _ = broadcaster.send(event, &payload);
         }
-        EventEmitter::Noop => {}
+        EventEmitter::Noop | EventEmitter::Prepared { .. } => {}
     }
 }
 
@@ -348,14 +376,25 @@ where
             return false;
         }
         if matches!(&payload, AcpEvent::ContentDelta { text } if !text.is_empty()) {
-            if let Some(trace) = &s.startup_trace { trace.first_content_received(); }
-        }
-        if s.turn_in_flight && matches!(&payload,
-            AcpEvent::ContentDelta { .. } | AcpEvent::Thinking { .. }
-                | AcpEvent::ToolCall { .. } | AcpEvent::ToolCallUpdate { .. }) {
             if let Some(trace) = &s.startup_trace {
-                trace.observe_turn_event(s.turn_generation, matches!(&payload,
-                    AcpEvent::ContentDelta { text } if !text.is_empty()));
+                trace.first_content_received();
+            }
+        }
+        if s.turn_in_flight
+            && matches!(
+                &payload,
+                AcpEvent::ContentDelta { .. }
+                    | AcpEvent::Thinking { .. }
+                    | AcpEvent::ToolCall { .. }
+                    | AcpEvent::ToolCallUpdate { .. }
+            )
+        {
+            if let Some(trace) = &s.startup_trace {
+                trace.observe_turn_event(
+                    s.turn_generation,
+                    matches!(&payload,
+                    AcpEvent::ContentDelta { text } if !text.is_empty()),
+                );
             }
         }
         s.apply_event(&payload);
@@ -373,12 +412,14 @@ where
     // Per-connection broadcaster — primary delivery path for web/remote-
     // desktop transports (they use Subscribe-with-Snapshot attach for ACP
     // events).
-    stream.send(Arc::clone(&envelope_arc));
+    if !emitter.is_preparing() {
+        stream.send(Arc::clone(&envelope_arc));
+    }
 
     // In-process consumers (lifecycle, pet, chat-channel). Typed envelope —
     // no JSON parse on the receiver side. Plus surface ring-buffer pressure
     // and bus emit-rate via metrics so operators can see when things drift.
-    match emitter {
+    match emitter.active_target() {
         #[cfg(feature = "tauri-runtime")]
         EventEmitter::Tauri(app) => {
             use tauri::{Emitter, Manager};
@@ -402,7 +443,7 @@ where
                     .fetch_add(evicted as u64, Ordering::Relaxed);
             }
         }
-        EventEmitter::Noop => {}
+        EventEmitter::Noop | EventEmitter::Prepared { .. } => {}
     }
 
     // Bridge conversation status transitions onto the global

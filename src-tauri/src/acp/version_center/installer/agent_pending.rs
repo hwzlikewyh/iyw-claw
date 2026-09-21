@@ -13,9 +13,11 @@ pub async fn consume_pending_activations_at_startup(
     conn: &DatabaseConnection,
     data_dir: &Path,
 ) -> Result<(), AppCommandError> {
-    let _writer = super::state::acquire_writer_lock(data_dir).await?.ok_or_else(|| {
-        AppCommandError::task_execution_failed("Shared runtime is being updated; retry shortly")
-    })?;
+    let _writer = super::state::acquire_writer_lock(data_dir)
+        .await?
+        .ok_or_else(|| {
+            AppCommandError::task_execution_failed("Shared runtime is being updated; retry shortly")
+        })?;
     let _guard = lock_pending_activations().await;
     let pending = read_pending_activations(data_dir).await?;
     if pending.is_empty() {
@@ -24,11 +26,15 @@ pub async fn consume_pending_activations_at_startup(
     let mut remaining = Vec::new();
     let mut changed = false;
     for item in pending {
-        let retired = item.component_kind == "agent" && serde_json::from_str::<AgentType>(&item.component_id)
-            .is_ok_and(crate::internal_xinghe_worker::is_desktop_agent);
+        let retired = item.component_kind == "agent"
+            && serde_json::from_str::<AgentType>(&item.component_id)
+                .is_ok_and(crate::internal_xinghe_worker::is_desktop_agent);
         if retired {
             changed = true;
-            tracing::info!(agent = "星河", "[agent-version-center] retired pending external activation for built-in worker");
+            tracing::info!(
+                agent = "星河",
+                "[agent-version-center] retired pending external activation for built-in worker"
+            );
             continue;
         }
         match activate_pending_component(conn, data_dir, &item).await {
@@ -60,7 +66,9 @@ pub async fn consume_pending_activations_at_startup(
 pub(crate) async fn pending_agent_activation_version(
     agent_type: AgentType,
 ) -> Result<Option<String>, AppCommandError> {
-    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) { return Ok(None); }
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        return Ok(None);
+    }
     let _guard = lock_pending_activations().await;
     let component_id = serialize_agent_type(agent_type)?;
     Ok(
@@ -110,15 +118,22 @@ async fn activate_pending_tool(
         )));
     }
     let directory = super::runtime::runtime_dir(data_dir, &pending.component_id, &pending.version)?;
-    let marker = super::manifest::read_marker(&directory).await.ok_or_else(|| {
-        AppCommandError::invalid_input("Pending runtime ownership marker is missing")
-    })?;
-    if marker.schema != 1 || marker.component_id != pending.component_id || marker.version != pending.version
+    let marker = super::manifest::read_marker(&directory)
+        .await
+        .ok_or_else(|| {
+            AppCommandError::invalid_input("Pending runtime ownership marker is missing")
+        })?;
+    if marker.schema != 1
+        || marker.component_id != pending.component_id
+        || marker.version != pending.version
         || marker.component_kind != "runtime_tool"
         || marker.target != super::super::capability::current_target()
         || marker.arch != super::super::capability::current_arch()
-        || !super::super::inventory::is_verified_origin(&marker.origin) {
-        return Err(AppCommandError::invalid_input("Pending runtime ownership marker is invalid"));
+        || !super::super::inventory::is_verified_origin(&marker.origin)
+    {
+        return Err(AppCommandError::invalid_input(
+            "Pending runtime ownership marker is invalid",
+        ));
     }
     super::archive::probe_payload(&directory, &pending.component_id, &pending.version).await?;
     let previous = super::runtime::read_current_pointer(data_dir, &pending.component_id).await?;

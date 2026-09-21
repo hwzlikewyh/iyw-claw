@@ -39,8 +39,11 @@ fn prepare_roots(sources: &[PathBuf]) -> io::Result<()> {
                     error = %error, "[shared-runtime] migration failed; retained recoverable state");
                 return Err(error);
             }
-            tracing::info!(tool, duration_ms = started.elapsed().as_millis() as u64,
-                "[shared-runtime] tool preparation completed");
+            tracing::info!(
+                tool,
+                duration_ms = started.elapsed().as_millis() as u64,
+                "[shared-runtime] tool preparation completed"
+            );
         }
     }
     for path in crate::shared_runtime::environment().values() {

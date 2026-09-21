@@ -143,6 +143,7 @@ async fn forward_request(state: &AuthHttpState, pending: PendingForward) -> Resp
         context,
         principal,
         session_id,
+        stream_cancellation,
         global_permit,
         session_permit,
     } = access;
@@ -178,7 +179,12 @@ async fn forward_request(state: &AuthHttpState, pending: PendingForward) -> Resp
         }
     }
     cleanup_binding(state, downstream.status(), &request_session).await;
-    wrap_delivery(&mut downstream, delivery, (global_permit, session_permit));
+    wrap_delivery(
+        &mut downstream,
+        delivery,
+        (global_permit, session_permit),
+        stream_cancellation,
+    );
     downstream
 }
 

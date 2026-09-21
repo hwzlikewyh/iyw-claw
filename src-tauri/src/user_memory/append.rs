@@ -127,7 +127,7 @@ impl UserMemoryService {
         prepared: &PreparedMemoryAppend,
     ) -> Result<Option<(UserMemoryLearningState, UserMemoryLearningState)>, AppCommandError> {
         let root = self.resolved_root()?;
-        let previous = match candidate_store::read_optional(root) {
+        let previous = match self.read_learning_optional() {
             Ok(Some(state)) => state,
             Ok(None) => return Ok(None),
             Err(error) => {
@@ -155,9 +155,9 @@ impl UserMemoryService {
             };
             confirm_candidate_and_references(&mut next, candidate_id, &confirmed);
         }
-        if let Err(error) =
+        if let Err(error) = self.active_authority().map(|_| Ok(())).unwrap_or_else(|| {
             structured_file::ensure_writable_optional(root, USER_MEMORY_CANDIDATE_FILE)
-        {
+        }) {
             tracing::warn!(
                 "[user-memory] candidate reconciliation skipped after confirmed append: {error}"
             );

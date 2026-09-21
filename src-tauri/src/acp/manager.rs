@@ -8,6 +8,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use futures::future::join_all;
+use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
 use sea_orm::{
@@ -44,6 +45,8 @@ use crate::db::entities::conversation::{self, ConversationKind, ConversationStat
 use crate::db::service::conversation_service;
 use crate::db::AppDatabase;
 
+#[path = "manager_prepared.rs"]
+mod prepared;
 #[path = "manager_prewarm.rs"]
 mod prewarm;
 
@@ -58,6 +61,15 @@ fn combine_prompt_context(launch: Option<Arc<str>>, private: Option<Arc<str>>) -
         (Some(context), None) | (None, Some(context)) => Some(context),
         (Some(launch), Some(private)) => Some(Arc::from(format!("{launch}\n\n{private}"))),
     }
+}
+
+fn continuation_context_digest(context: Option<&str>) -> Option<String> {
+    context.filter(|text| !text.trim().is_empty()).map(|text| {
+        let mut hasher = Sha256::new();
+        hasher.update(b"iyw-claw/continuation-context/v1\0");
+        hasher.update(text.chars().take(24_000).collect::<String>().as_bytes());
+        format!("{:x}", hasher.finalize())
+    })
 }
 
 async fn align_conversation_turn_generation(
@@ -355,6 +367,7 @@ pub struct ConnectionManager {
     connection_tasks: Arc<ConnectionTaskRegistry>,
     shutdown_cleanup_pending: Arc<Mutex<HashSet<String>>>,
     runtime_hosts: Arc<crate::acp::runtime_host::RuntimeHostRegistry>,
+    prepared_sessions: Arc<Mutex<prepared::PreparedSessions>>,
     /// Per-(agent, working_dir, session_id) async mutex. Held across the
     /// dedup-lookup + spawn + SessionStarted-wait critical section so two
     /// concurrent `spawn_agent` calls for the same logical session can't
@@ -462,6 +475,7 @@ impl ConnectionManager {
             connection_tasks: Arc::new(Default::default()),
             shutdown_cleanup_pending: Arc::new(Mutex::new(HashSet::new())),
             runtime_hosts: Arc::new(Default::default()),
+            prepared_sessions: Arc::new(Mutex::new(Default::default())),
             spawn_locks: Arc::new(Mutex::new(HashMap::new())),
             spawn_handshake_timeout: spawn_handshake_timeout_from_env(),
             delegation_injection: Arc::new(std::sync::OnceLock::new()),
@@ -489,6 +503,7 @@ impl ConnectionManager {
             connection_tasks: self.connection_tasks.clone(),
             shutdown_cleanup_pending: self.shutdown_cleanup_pending.clone(),
             runtime_hosts: self.runtime_hosts.clone(),
+            prepared_sessions: self.prepared_sessions.clone(),
             spawn_locks: self.spawn_locks.clone(),
             spawn_handshake_timeout: self.spawn_handshake_timeout,
             delegation_injection: self.delegation_injection.clone(),
@@ -709,6 +724,9 @@ impl ConnectionManager {
             false,
             crate::user_memory::UserMemoryOrigin::Root,
             startup_trace,
+            None,
+            None,
+            None,
         )
         .await
     }
@@ -726,6 +744,8 @@ impl ConnectionManager {
         preferred_mode_id: Option<String>,
         preferred_config_values: BTreeMap<String, String>,
         force_host_restart: bool,
+        continuation_from_session_id: Option<String>,
+        continuation_context: Option<String>,
         startup_trace: crate::acp::startup_trace::StartupTrace,
     ) -> Result<String, AcpError> {
         self.spawn_agent_with_origin_traced(
@@ -741,6 +761,9 @@ impl ConnectionManager {
             force_host_restart,
             crate::user_memory::UserMemoryOrigin::Root,
             startup_trace,
+            None,
+            continuation_from_session_id,
+            continuation_context,
         )
         .await
     }
@@ -778,6 +801,9 @@ impl ConnectionManager {
             false,
             user_memory_origin,
             startup_trace,
+            None,
+            None,
+            None,
         )
         .await
     }
@@ -797,7 +823,14 @@ impl ConnectionManager {
         force_host_restart: bool,
         user_memory_origin: crate::user_memory::UserMemoryOrigin,
         startup_trace: crate::acp::startup_trace::StartupTrace,
+        preparation: Option<Arc<prepared::Entry>>,
+        continuation_from_session_id: Option<String>,
+        continuation_context: Option<String>,
     ) -> Result<String, AcpError> {
+        if preparation.is_none() {
+            self.retire_conflicting_preparations((agent_type, session_id.as_deref()), None)
+                .await?;
+        }
         let _operation_guard = self.acquire_operation_read().await?;
         let storage_read_guard = crate::acp::agent_storage_work::begin_agent_storage_read().await;
         let mut runtime_env = runtime_env;
@@ -1004,7 +1037,10 @@ impl ConnectionManager {
             .user_memory_context_for(agent_type, user_memory_origin)
             .await;
 
-        let connection_id = uuid::Uuid::new_v4().to_string();
+        let connection_id = preparation
+            .as_ref()
+            .map(|entry| entry.id.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         startup_trace.bind_connection(connection_id.clone());
         let managed_version = runtime_env
             .get(crate::commands::acp::MANAGED_AGENT_VERSION_ENV)
@@ -1025,7 +1061,47 @@ impl ConnectionManager {
         // a cleanup hook, and returns the rx half of the signal. Any spawn
         // failure short-circuits before we touch the rx wait.
         self.require_agent_launch_policy(agent_type, true).await?;
-        let session_started_rx = spawn_agent_connection(
+        if continuation_from_session_id.is_some()
+            && continuation_context
+                .as_deref()
+                .is_none_or(|context| context.trim().is_empty())
+        {
+            return Err(AcpError::protocol(
+                "conversation continuation requires a verified context primer",
+            ));
+        }
+        let continuation_context_digest =
+            continuation_context_digest(continuation_context.as_deref());
+        let continuation_attempt_id = match (
+            continuation_from_session_id.as_deref(),
+            resolved_conversation_id,
+        ) {
+            (Some(expected_external_id), Some(conversation_id)) => {
+                let requested_attempt_id = uuid::Uuid::new_v4().to_string();
+                let pending =
+                    crate::db::service::conversation_session_segment_service::reserve_continuation(
+                        &version_center_db,
+                        conversation_id,
+                        expected_external_id,
+                        &requested_attempt_id,
+                        continuation_context_digest.as_deref(),
+                    )
+                    .await
+                    .map_err(|error| {
+                        AcpError::protocol(format!(
+                            "conversation continuation could not be reserved: {error}"
+                        ))
+                    })?;
+                Some(pending.recovery_attempt_id)
+            }
+            (Some(_), None) => {
+                return Err(AcpError::protocol(
+                    "conversation continuation has no durable conversation row",
+                ));
+            }
+            (None, _) => None,
+        };
+        let session_started_rx = match spawn_agent_connection(
             connection_id.clone(),
             agent_type,
             working_dir,
@@ -1051,9 +1127,28 @@ impl ConnectionManager {
             self.builtin_mcp_snapshot(),
             Some(version_center_db.clone()),
             storage_read_guard,
+            continuation_from_session_id,
+            continuation_context,
+            continuation_attempt_id.clone(),
         )
-        .await?;
+        .await
+        {
+            Ok(receiver) => receiver,
+            Err(error) => {
+                if let Some(attempt_id) = continuation_attempt_id.as_deref() {
+                    let _ = crate::db::service::conversation_session_segment_service::fail_pending(
+                        &version_center_db,
+                        attempt_id,
+                    )
+                    .await;
+                }
+                return Err(error);
+            }
+        };
 
+        if let Some(entry) = preparation {
+            entry.registered();
+        }
         // When dedup is active, hold the lock until the agent's
         // SessionStarted has applied (so external_id is populated for the
         // next waiter), aborted (connection died), or the timeout fires.
@@ -1639,7 +1734,7 @@ impl ConnectionManager {
             let connections = self.connections.lock().await;
             connections
                 .iter()
-                .filter(|(_, conn)| conn.agent_type == agent_type)
+                .filter(|(_, conn)| conn.agent_type == agent_type && !conn.emitter.is_preparing())
                 .map(|(id, conn)| (id.clone(), conn.state.clone()))
                 .collect()
         };
@@ -1753,7 +1848,11 @@ impl ConnectionManager {
                     .clone()
                     .filter(|context| !context.trim().is_empty())
             };
-            combine_prompt_context(launch, combine_prompt_context(memory_context, reminder))
+            let continuation = s.continuation_context.take();
+            combine_prompt_context(
+                continuation,
+                combine_prompt_context(launch, combine_prompt_context(memory_context, reminder)),
+            )
         };
         let user_context = combine_prompt_context(launch_context, private_context);
         permit.send(ConnectionCommand::Prompt {
@@ -1812,6 +1911,9 @@ impl ConnectionManager {
             let connection = connections
                 .get(conn_id)
                 .ok_or_else(|| AcpError::ConnectionNotFound(conn_id.into()))?;
+            if connection.emitter.is_preparing() {
+                return Err(AcpError::protocol("Prepared session has not been claimed"));
+            }
             (connection.cmd_tx.clone(), connection.state.clone())
         };
         wait_for_launch_finalization(&cmd_tx, &state).await?;
@@ -3230,6 +3332,8 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect_by_owner_window(&self, owner_window_label: &str) -> usize {
+        self.cancel_preparations_by_owner(Some(owner_window_label))
+            .await;
         let removed = {
             let mut connections = self.connections.lock().await;
             let ids: Vec<String> = connections
@@ -3269,6 +3373,7 @@ impl ConnectionManager {
     }
 
     pub async fn disconnect_all_checked(&self) -> ConnectionShutdownReport {
+        self.cancel_preparations_by_owner(None).await;
         let _shutdown_gate = self.connection_tasks.begin_shutdown().await;
         // Keep entries in the manager until their background task's cleanup
         // guard runs. If an outer shutdown budget cancels this future, a later
@@ -3337,6 +3442,7 @@ impl ConnectionManager {
         }
         let authority_pending = self.shutdown_cleanup_pending.lock().await.len();
         let host_shutdown = self.runtime_hosts.shutdown_all().await;
+        self.finish_preparation_shutdown().await;
         let completed = tasks_completed
             && cleanup_completed == disconnected
             && authority_pending == 0
@@ -3362,7 +3468,11 @@ impl ConnectionManager {
 
     pub async fn list_connections(&self) -> Vec<ConnectionInfo> {
         let connections = self.connections.lock().await;
-        connections.values().map(|c| c.info()).collect()
+        connections
+            .values()
+            .filter(|connection| !connection.emitter.is_preparing())
+            .map(|connection| connection.info())
+            .collect()
     }
 
     pub(crate) async fn runtime_session_snapshots(
@@ -3781,9 +3891,10 @@ impl ConnectionManager {
         let (tx, rx) = tokio::sync::oneshot::channel();
         {
             let pages = self.interactive_html.lock().await;
-            if pages.values().any(|entry| {
-                entry.parent_connection_id == conn_id && entry.waiting
-            }) {
+            if pages
+                .values()
+                .any(|entry| entry.parent_connection_id == conn_id && entry.waiting)
+            {
                 return None;
             }
             let mut reg = self.pending_questions.lock().await;
@@ -3880,11 +3991,15 @@ impl ConnectionManager {
         if entry.parent_connection_id != conn_id {
             return Err(AcpError::protocol("Question belongs to another session"));
         }
-        crate::acp::question::validate_secret_answers(&entry.questions, &answer).map_err(AcpError::protocol)?;
-        crate::acp::question::validate_input_answers(&entry.questions, &answer).map_err(AcpError::protocol)?;
+        crate::acp::question::validate_secret_answers(&entry.questions, &answer)
+            .map_err(AcpError::protocol)?;
+        crate::acp::question::validate_input_answers(&entry.questions, &answer)
+            .map_err(AcpError::protocol)?;
         let outcome = build_outcome(&entry.questions, &answer);
         if !outcome.declined && outcome.answers.len() != entry.questions.len() {
-            return Err(AcpError::protocol("An answer is required for every question"));
+            return Err(AcpError::protocol(
+                "An answer is required for every question",
+            ));
         }
         let entry = pending
             .remove(question_id)
@@ -3986,6 +4101,7 @@ impl ConnectionManager {
             let connections = self.connections.lock().await;
             connections
                 .iter()
+                .filter(|(_, conn)| !conn.emitter.is_preparing())
                 .map(|(id, conn)| (id.clone(), conn.state.clone()))
                 .collect()
         };
@@ -4062,7 +4178,7 @@ impl ConnectionManager {
             let connections = self.connections.lock().await;
             connections
                 .iter()
-                .filter(|(_, conn)| conn.agent_type == agent_type)
+                .filter(|(_, conn)| conn.agent_type == agent_type && !conn.emitter.is_preparing())
                 .map(|(id, conn)| (id.clone(), conn.state.clone()))
                 .collect()
         };
@@ -4396,7 +4512,9 @@ impl SessionQuestionAccess for ConnectionManagerQuestionLookup {
     }
 
     async fn cancel_html(&self, connection_id: &str, interaction_id: &str) {
-        self.manager.cancel_html(connection_id, interaction_id).await;
+        self.manager
+            .cancel_html(connection_id, interaction_id)
+            .await;
     }
 
     async fn register_question(

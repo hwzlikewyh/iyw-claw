@@ -8,7 +8,7 @@ use super::helpers::{
 };
 use super::transaction::{candidate_resource, document_resource};
 use super::{
-    candidate_references, candidate_store, fs, CorrectUserMemoryRequest, CorrectUserMemoryResult,
+    candidate_references, fs, CorrectUserMemoryRequest, CorrectUserMemoryResult,
     ResourceGeneration, UserMemoryDocumentId, UserMemoryGeneration, UserMemoryLearningState,
     UserMemoryService,
 };
@@ -42,7 +42,9 @@ impl UserMemoryService {
         self.recover_pending_transaction().await?;
         let policy = self.load_policy_unrecovered().await?;
         ensure_manual_document_write_allowed(&policy, request.document)?;
-        fs::ensure_document_writable_optional(self.resolved_root()?, request.document)?;
+        if self.active_authority().is_none() {
+            fs::ensure_document_writable_optional(self.resolved_root()?, request.document)?;
+        }
         let prepared = self.prepare_correction(&request, &correction)?;
         self.commit_correction(request.document, &prepared).await?;
         let revision = self.snapshot_locked(&policy)?.revision;
@@ -61,8 +63,13 @@ impl UserMemoryService {
     ) -> Result<PreparedCorrection, AppCommandError> {
         let previous_document = self.read_document_resource(request.document)?;
         let current = current_document(&previous_document, &request.expected_etag)?;
-        let old_entry_id = memory_entry_id(&correction.old_content);
-        let new_entry_id = memory_entry_id(&correction.new_content);
+        if request.document != UserMemoryDocumentId::Memory
+            && !current.contains(&correction.old_content)
+        {
+            return self.prepare_generated_correction(request, correction, previous_document);
+        }
+        let old_entry_id = corrected_entry_id(request.document, &correction.old_content);
+        let new_entry_id = corrected_entry_id(request.document, &correction.new_content);
         let next_document = replace_correction(
             request.document,
             current,
@@ -94,19 +101,27 @@ impl UserMemoryService {
         &self,
         correction: &CandidateCorrection<'_>,
     ) -> Result<Option<(UserMemoryLearningState, UserMemoryLearningState)>, AppCommandError> {
-        if correction.document != UserMemoryDocumentId::Memory {
-            return Ok(None);
-        }
-        let Some(previous) = candidate_store::read_optional(self.resolved_root()?)? else {
+        let Some(previous) = self.read_learning_optional()? else {
             return Ok(None);
         };
         let mut next = previous.clone();
-        let affected = candidate_references::rewrite_memory_entry_references(
-            &mut next,
-            correction.old_entry_id,
-            &correction.confirmed,
-        );
-        if affected == 0 {
+        let affected = if correction.document == UserMemoryDocumentId::Memory {
+            candidate_references::rewrite_memory_entry_references(
+                &mut next,
+                correction.old_entry_id,
+                &correction.confirmed,
+            )
+        } else {
+            0
+        };
+        if let Some(mut retention) = next.retention.remove(correction.old_entry_id) {
+            retention.content_digest =
+                super::helpers::hash_parts(&[correction.confirmed.content.as_bytes()]);
+            retention.updated_at = correction.confirmed.resolved_at.into();
+            next.retention
+                .insert(correction.confirmed.entry_id.into(), retention);
+        }
+        if next == previous {
             return Ok(None);
         }
         tracing::info!(
@@ -118,28 +133,86 @@ impl UserMemoryService {
         Ok(Some((previous, next)))
     }
 
+    fn prepare_generated_correction(
+        &self,
+        request: &CorrectUserMemoryRequest,
+        correction: &NormalizedCorrection,
+        previous_document: ResourceGeneration<String>,
+    ) -> Result<PreparedCorrection, AppCommandError> {
+        let previous = self.read_learning_state()?;
+        let mut next = previous.clone();
+        let overridden = next
+            .generated_views
+            .iter()
+            .filter(|view| {
+                view.document == request.document && view.content == correction.old_content
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        for view in overridden {
+            super::generated_overrides::block_view(&mut next, &view)?;
+        }
+        let original = next.generated_views.len();
+        next.generated_views.retain(|view| {
+            view.document != request.document || view.content != correction.old_content
+        });
+        if next.generated_views.len() == original {
+            return Err(AppCommandError::not_found(
+                "Generated memory paragraph was not found",
+            ));
+        }
+        let mut document = current_document(&previous_document, &request.expected_etag)?
+            .trim_end()
+            .to_string();
+        if !document.is_empty() {
+            document.push_str("\n\n");
+        }
+        document.push_str(&correction.new_content);
+        validate_document_update_content(&document)?;
+        Ok(PreparedCorrection {
+            old_entry_id: super::retention_view::document_entry_id(
+                request.document,
+                &correction.old_content,
+            ),
+            new_entry_id: super::retention_view::document_entry_id(
+                request.document,
+                &correction.new_content,
+            ),
+            previous_document,
+            next_document: document,
+            candidate_change: Some((previous, next)),
+        })
+    }
+
     async fn commit_correction(
         &self,
         document: UserMemoryDocumentId,
         prepared: &PreparedCorrection,
     ) -> Result<(), AppCommandError> {
         let (previous_candidate, next_candidate) = candidate_generations(prepared)?;
-        self.execute_transaction(
-            UserMemoryGeneration {
-                policy: None,
-                documents: BTreeMap::from([(document, prepared.previous_document.clone())]),
-                candidate_state: previous_candidate,
-            },
-            UserMemoryGeneration {
-                policy: None,
-                documents: BTreeMap::from([(
-                    document,
-                    document_resource(prepared.next_document.clone()),
-                )]),
-                candidate_state: next_candidate,
-            },
-        )
-        .await
+        let previous = UserMemoryGeneration {
+            policy: None,
+            documents: BTreeMap::from([(document, prepared.previous_document.clone())]),
+            candidate_state: previous_candidate,
+        };
+        let next = UserMemoryGeneration {
+            policy: None,
+            documents: BTreeMap::from([(
+                document,
+                document_resource(prepared.next_document.clone()),
+            )]),
+            candidate_state: next_candidate,
+        };
+        if self.active_authority().is_some() {
+            self.commit_authority_change(
+                &previous,
+                &next,
+                Some((&prepared.old_entry_id, &prepared.new_entry_id)),
+            )
+            .await
+        } else {
+            self.execute_transaction(previous, next).await
+        }
     }
 }
 
@@ -147,8 +220,8 @@ fn normalize_correction(
     request: &CorrectUserMemoryRequest,
 ) -> Result<NormalizedCorrection, AppCommandError> {
     let correction = NormalizedCorrection {
-        old_content: normalize_append(&request.old_content)?,
-        new_content: normalize_append(&request.new_content)?,
+        old_content: normalize_correction_content(request.document, &request.old_content)?,
+        new_content: normalize_correction_content(request.document, &request.new_content)?,
     };
     if correction.old_content == correction.new_content {
         Err(AppCommandError::invalid_input(
@@ -157,6 +230,21 @@ fn normalize_correction(
     } else {
         Ok(correction)
     }
+}
+
+fn normalize_correction_content(
+    document: UserMemoryDocumentId,
+    input: &str,
+) -> Result<String, AppCommandError> {
+    if document == UserMemoryDocumentId::Memory {
+        return normalize_append(input);
+    }
+    let content = input.trim();
+    if content.is_empty() {
+        return Err(AppCommandError::invalid_input("Memory paragraph is empty"));
+    }
+    validate_document_update_content(content)?;
+    Ok(content.to_string())
 }
 
 fn current_document<'a>(
@@ -168,9 +256,18 @@ fn current_document<'a>(
         ResourceGeneration::Present { .. } => Err(conflict(
             "User memory document changed; reload before correcting",
         )),
+        ResourceGeneration::Absent if expected_etag == super::helpers::hash_parts(&[b""]) => Ok(""),
         ResourceGeneration::Absent => Err(AppCommandError::not_found(
             "User memory document does not contain the requested memory",
         )),
+    }
+}
+
+fn corrected_entry_id(document: UserMemoryDocumentId, content: &str) -> String {
+    if document == UserMemoryDocumentId::Memory {
+        memory_entry_id(content)
+    } else {
+        super::retention_view::document_entry_id(document, content)
     }
 }
 

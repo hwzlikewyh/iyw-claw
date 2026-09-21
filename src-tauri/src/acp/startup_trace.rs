@@ -96,8 +96,12 @@ impl StartupTrace {
         if !self.inner.first_prompt_logged.load(Ordering::Acquire)
             || self.inner.first_content_logged.load(Ordering::Acquire)
             || self.inner.first_content_logged.swap(true, Ordering::AcqRel)
-        { return; }
-        let elapsed = lock(&self.inner.prompt_dispatched_at).map(|at| at.elapsed()).unwrap_or_default();
+        {
+            return;
+        }
+        let elapsed = lock(&self.inner.prompt_dispatched_at)
+            .map(|at| at.elapsed())
+            .unwrap_or_default();
         // duration 是发送后等待，since_accepted 包含本地启动；不记录内容。
         self.log("first_content", "received", elapsed);
     }

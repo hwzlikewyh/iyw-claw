@@ -15,11 +15,12 @@ pub mod restore;
 mod user_memory;
 
 pub(crate) const USER_MEMORY_ARCHIVE_DIR: &str = "user-memory";
-pub(crate) const USER_MEMORY_BACKUP_FILES: [&str; 4] = [
+pub(crate) const USER_MEMORY_BACKUP_FILES: [&str; 5] = [
     "user-memory.md",
     "user-profile.md",
     "user-soul.md",
     crate::user_memory::USER_MEMORY_CANDIDATE_FILE,
+    crate::user_memory::USER_MEMORY_AUTHORITY_FILE,
 ];
 
 use std::collections::BTreeMap;

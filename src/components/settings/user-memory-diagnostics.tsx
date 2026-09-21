@@ -19,6 +19,7 @@ import { UserMemoryCandidatesPanel } from "./user-memory-candidates-panel"
 interface UserMemoryDiagnosticsPanelProps {
   settings: UserMemorySettingsSnapshot
   busy: boolean
+  onMemoryChanged: () => void
 }
 
 const CANDIDATE_PAGE_SIZE = 100
@@ -61,10 +62,14 @@ async function loadAllCandidates(
 export function UserMemoryDiagnosticsPanel({
   settings,
   busy,
+  onMemoryChanged,
 }: UserMemoryDiagnosticsPanelProps) {
   const t = useTranslations("UserMemorySettings")
   const [candidates, setCandidates] = useState<UserMemoryCandidateSummary[]>([])
   const [harvest, setHarvest] = useState<UserMemoryHarvestStatus | null>(null)
+  const [candidateRevision, setCandidateRevision] = useState<string | null>(
+    null
+  )
   const [actionError, setActionError] = useState<string | null>(null)
 
   const loadState = useCallback(async () => {
@@ -75,6 +80,7 @@ export function UserMemoryDiagnosticsPanel({
       try {
         const page = await loadAllCandidates(list)
         setCandidates(page.candidates)
+        setCandidateRevision(page.revision)
       } catch (error) {
         setActionError(toErrorMessage(error))
       }
@@ -105,7 +111,14 @@ export function UserMemoryDiagnosticsPanel({
 
   return (
     <section className="space-y-3">
-      <UserMemoryCandidatesPanel candidates={candidates} />
+      <UserMemoryCandidatesPanel
+        candidates={candidates}
+        revision={candidateRevision}
+        onChanged={() => {
+          void loadState()
+          onMemoryChanged()
+        }}
+      />
 
       {actionError && (
         <div

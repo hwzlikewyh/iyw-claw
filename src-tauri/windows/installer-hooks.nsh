@@ -10,6 +10,7 @@ Var IywClawInstallRegistryKey
 !include "${__FILEDIR__}\installer-install-root.nsh"
 !include "${__FILEDIR__}\installer-desktop-shortcut.nsh"
 !include "${__FILEDIR__}\installer-failure.nsh"
+!include "${__FILEDIR__}\installer-environment.nsh"
 
 Function IywClawIsMainProcessRunning
   ; 仅检查当前用户、本安装目录且真实路径匹配的主进程。
@@ -137,16 +138,10 @@ Function IywClawResolveInstallRoot
     FileClose $R0
     Delete "$IywClawRoot\.iyw-claw-install-probe"
 
-    ; app 是应用更新替换的区域；runtime/agents/inventory/staging 保留给
-    ; 其余受管组件，config/data/logs 为现有持久区。用户 Skill 与共享的
-    ; Node/Git/uv 由首次启动写入用户目录 .iyw-claw，安装器不另建 Skill 库。
+    ; 主程序与安装事务位于用户选择的安装根。运行环境、配置、插件和
+    ; 浏览器 profile 由环境 helper 写入操作系统用户目录 .iyw-claw。
     CreateDirectory "$IywClawRoot\app"
-    CreateDirectory "$IywClawRoot\runtime"
-    CreateDirectory "$IywClawRoot\agents"
-    CreateDirectory "$IywClawRoot\inventory"
     CreateDirectory "$IywClawRoot\staging"
-    CreateDirectory "$IywClawRoot\config"
-    CreateDirectory "$IywClawRoot\data"
     CreateDirectory "$IywClawRoot\logs"
 
     StrCpy $INSTDIR "$IywClawRoot\app"
@@ -225,6 +220,21 @@ FunctionEnd
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+  Call IywClawValidateNewApp
+  Pop $R0
+  StrCmp $R0 "1" iyw_new_app_valid 0
+  Call IywClawHandleInstallFailure
+  Abort
+
+  iyw_new_app_valid:
+  Call IywClawInstallEnvironment
+  Pop $R0
+  StrCmp $R0 "1" iyw_environment_ready 0
+  StrCpy $IywClawTransactionError "$IywClawEnvironmentError"
+  Call IywClawHandleInstallFailure
+  Abort
+
+  iyw_environment_ready:
   iyw_retry_app_commit:
   Call IywClawCommitAppTransaction
   Pop $R0
@@ -248,8 +258,7 @@ FunctionEnd
   ${If} $UpdateMode = 1
     DetailPrint "已保留运行环境、受管组件、配置、数据和日志。"
   ${Else}
-    ; 安装包已包含基础运行时种子，首次启动校验后导入，失败才在线回退。
-    DetailPrint "首次启动将校验并导入基础运行时种子，失败后才在线回退。"
+    DetailPrint "基础运行环境已从 Fusion 下载并安装到用户目录 .iyw-claw。"
   ${EndIf}
 !macroend
 

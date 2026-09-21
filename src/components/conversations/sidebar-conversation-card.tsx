@@ -16,6 +16,7 @@ import {
   CalendarClock,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { useSessionPreparation } from "@/hooks/use-session-preparation"
 import type { DbConversationSummary, ConversationStatus } from "@/lib/types"
 import { STATUS_ORDER } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -212,6 +213,11 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
   // hand-toggling its status doesn't fit — its lifecycle is the sub-agent's. The
   // time / running badge then stays visible on hover (nothing swaps in for it).
   const isSubsession = conversation.parent_id != null
+  const preparation = useSessionPreparation({
+    agentType: conversation.agent_type,
+    conversationId: conversation.id,
+    disabled: isSubsession || isSelected || isOpenInTab,
+  })
 
   return (
     <>
@@ -245,6 +251,7 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
             >
               <button
                 data-conversation-id={conversation.id}
+                {...preparation}
                 onClick={handleClick}
                 onDoubleClick={handleDblClick}
                 className={cn(

@@ -25,7 +25,7 @@ jobs:
       prerelease: true
       frontend_artifact: github-hosted-test-frontend-${{ inputs.version }}
       frontend_run_id: ${{ inputs.prior_run }}
-      build_matrix: '{"include":[{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false}]}'
+      build_matrix: '{"include":[{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false}]}'
     secrets: inherit
   wait-original:
     runs-on: ubuntu-22.04

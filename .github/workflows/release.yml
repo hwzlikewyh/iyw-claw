@@ -35,7 +35,6 @@ jobs:
           fetch-depth: 0
 
       - name: Setup Node
-        if: github.event_name == 'workflow_dispatch'
         uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -54,21 +53,31 @@ jobs:
           RELEASE_TAG_FROM_PUSH: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
+          IYW_FUSION_ADMIN_TOKEN: ${{ secrets.FUSION_ADMIN_TOKEN }}
+          IYW_CLAW_FUSION_API_BASE_URL: https://gateway.iyw.cn/iyw-fusion-api
         run: |
           set -euo pipefail
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             version="$INPUT_VERSION"
-            if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$ ]]; then
-              echo "::error::Version '$version' must be semantic version text without a leading v."
-              exit 1
-            fi
-            IFS='.' read -r release_major release_minor release_patch <<< "${version%%-*}"
-            if (( release_major == 0 && release_minor < 1 )) \
-               || (( release_major == 0 && release_minor == 1 && release_patch < 93 )); then
-              echo "::error::Version '$version' predates the HTTP-only built-in MCP contract (minimum 0.1.93)."
-              exit 1
-            fi
+          else
+            version="${RELEASE_TAG_FROM_PUSH#v}"
+          fi
+          if [[ ! "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$ ]]; then
+            echo "::error::Version '$version' must be semantic version text without a leading v."
+            exit 1
+          fi
+          IFS='.' read -r release_major release_minor release_patch <<< "${version%%-*}"
+          if (( release_major == 0 && release_minor < 1 )) \
+             || (( release_major == 0 && release_minor == 1 && release_patch < 93 )); then
+            echo "::error::Version '$version' predates the HTTP-only built-in MCP contract (minimum 0.1.93)."
+            exit 1
+          fi
+
+          node src-tauri/scripts/prepare-environment-binding.mjs "$version"
+          node src-tauri/scripts/verify-environment-plan.mjs "$version"
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
 
             tag="v$version"
             tag_exists=false
@@ -209,6 +218,16 @@ jobs:
               prerelease: process.env.PRERELEASE === "true",
             });
 
+  prepare-workers:
+    needs: create-draft-release
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/build-xinghe-workers.yml
+    with:
+      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
+      release_artifacts: true
+
   prepare-frontend:
     needs: create-draft-release
     runs-on: ubuntu-22.04
@@ -263,7 +282,24 @@ jobs:
       release_body: ${{ needs.create-draft-release.outputs.release_body }}
       source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
       prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
-      build_matrix: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"16","lto":"false","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"8","lto":"thin","optional":false}]}'
+      parallel_worker: true
+      build_matrix: '{"include":[{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false}]}'
+    secrets: inherit
+
+  build-macos-x64:
+    needs: [create-draft-release, prepare-frontend]
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release-tauri.yml
+    with:
+      release_id: ${{ needs.create-draft-release.outputs.release_id }}
+      release_tag: ${{ needs.create-draft-release.outputs.release_tag }}
+      release_body: ${{ needs.create-draft-release.outputs.release_body }}
+      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
+      prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
+      parallel_worker: true
+      build_matrix: '{"include":[{"name":"macOS x64","runner":"macos-latest","target":"x86_64-apple-darwin","codegen_units":"64","lto":"off","optional":false}]}'
     secrets: inherit
 
   build-windows:
@@ -271,12 +307,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [x86_64-pc-windows-msvc, i686-pc-windows-msvc]
+        target: [x86_64-pc-windows-msvc]
     permissions:
       contents: write
       actions: read
     uses: ./.github/workflows/release-windows-staged.yml
     with:
+      parallel_worker: true
       target: ${{ matrix.target }}
       source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
       release_id: ${{ needs.create-draft-release.outputs.release_id }}
@@ -297,7 +334,7 @@ jobs:
   verify-macos-x64-installer:
     needs:
       - create-draft-release
-      - build-tauri
+      - build-macos-x64
     permissions:
       contents: read
       actions: read
@@ -309,10 +346,11 @@ jobs:
     needs:
       - create-draft-release
       - build-tauri
+      - build-macos-x64
       - build-windows
       - verify-windows-installers
       - verify-macos-x64-installer
-    if: ${{ needs.build-tauri.result == 'success' && needs.build-windows.result == 'success' && needs.verify-windows-installers.result == 'success' && needs.verify-macos-x64-installer.result == 'success' }}
+    if: ${{ needs.build-tauri.result == 'success' && needs.build-macos-x64.result == 'success' && needs.build-windows.result == 'success' && needs.verify-windows-installers.result == 'success' && needs.verify-macos-x64-installer.result == 'success' }}
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -387,7 +425,6 @@ jobs:
     needs:
       - create-draft-release
       - prepare-frontend
-      - publish-release
     permissions:
       contents: write
       actions: read
@@ -398,6 +435,7 @@ jobs:
       release_body: ${{ needs.create-draft-release.outputs.release_body }}
       source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
       prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
-      release_draft: false
-      build_matrix: '{"include":[{"name":"Linux arm64 (optional)","runner":"ubuntu-22.04","target":"aarch64-unknown-linux-gnu","codegen_units":"16","lto":"false","optional":true}]}'
+      parallel_worker: true
+      release_draft: true
+      build_matrix: '{"include":[{"name":"Linux arm64 (optional)","runner":"ubuntu-22.04-arm","target":"aarch64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":true}]}'
     secrets: inherit

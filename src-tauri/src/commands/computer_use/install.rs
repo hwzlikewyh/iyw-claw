@@ -7,8 +7,8 @@ use crate::app_error::AppCommandError;
 
 use super::MCP_SERVER_ID;
 
-pub(super) const PACKAGE_VERSION: &str = "0.2.1";
-const PACKAGE_SPEC: &str = "open-computer-use@0.2.1";
+pub(super) const PACKAGE_VERSION: &str = "0.3.5";
+const PACKAGE_SPEC: &str = "open-computer-use@0.3.5";
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
 
 fn tool_root(paths: &AgentStoragePaths) -> PathBuf {
@@ -22,7 +22,9 @@ fn install_prefix(paths: &AgentStoragePaths) -> PathBuf {
 }
 
 pub(super) fn command_is_managed(paths: &AgentStoragePaths, command: &str) -> bool {
-    Path::new(command).starts_with(tool_root(paths))
+    crate::managed_environment::tool_entrypoint(MCP_SERVER_ID)
+        .is_some_and(|path| path == Path::new(command))
+        || Path::new(command).starts_with(tool_root(paths))
 }
 
 fn staging_prefix(paths: &AgentStoragePaths) -> PathBuf {
@@ -151,6 +153,16 @@ fn activate_install(
 pub(super) async fn ensure_private_package(
     paths: &AgentStoragePaths,
 ) -> Result<(PathBuf, bool), AppCommandError> {
+    if cfg!(feature = "tauri-runtime") {
+        return crate::managed_environment::tool_entrypoint(MCP_SERVER_ID)
+            .filter(|path| path.is_file())
+            .map(|path| (path, false))
+            .ok_or_else(|| {
+                AppCommandError::dependency_missing(
+                    "Open Computer Use 由安装环境统一管理，请运行 iyw-environment repair",
+                )
+            });
+    }
     let prefix = install_prefix(paths);
     let executable = command_path(&prefix);
     if executable.is_file() {

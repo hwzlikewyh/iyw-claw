@@ -18,7 +18,9 @@ pub(super) async fn install_component(
     emitter: &EventEmitter,
 ) -> Result<PathBuf, String> {
     let _writer = crate::acp::version_center::acquire_writer_lock(data_dir)
-        .await.map_err(command_error)?.ok_or_else(|| "Shared runtime is being updated; retry shortly".to_string())?;
+        .await
+        .map_err(command_error)?
+        .ok_or_else(|| "Shared runtime is being updated; retry shortly".to_string())?;
     let started = Instant::now();
     tracing::info!(
         task_id,
@@ -104,7 +106,9 @@ async fn install_inner(
     task_id: &str,
     emitter: &EventEmitter,
 ) -> Result<PathBuf, String> {
-    let downloads = crate::shared_runtime::root().join("cache").join("downloads");
+    let downloads = crate::shared_runtime::root()
+        .join("cache")
+        .join("downloads");
     tokio::fs::create_dir_all(&downloads)
         .await
         .map_err(|error| format!("failed to create {}: {error}", downloads.display()))?;

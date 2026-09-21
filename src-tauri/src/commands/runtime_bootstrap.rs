@@ -23,8 +23,6 @@ use crate::web::event_bridge::EventEmitter;
 
 #[cfg(feature = "tauri-runtime")]
 use crate::acp::manager::ConnectionManager;
-#[cfg(feature = "tauri-runtime")]
-use tauri::Manager as _;
 
 pub(crate) mod fallback;
 mod managed;
@@ -193,69 +191,11 @@ pub async fn runtime_bootstrap_managed_core(
 pub async fn runtime_bootstrap(
     task_id: String,
     app: tauri::AppHandle,
-    db: tauri::State<'_, crate::db::AppDatabase>,
-    connection_manager: tauri::State<'_, ConnectionManager>,
+    _db: tauri::State<'_, crate::db::AppDatabase>,
+    _connection_manager: tauri::State<'_, ConnectionManager>,
 ) -> Result<RuntimeBootstrapReport, String> {
-    let started = Instant::now();
-    let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
-    tracing::info!(
-        task_id = %task_id,
-        phase = "command_enter",
-        "runtime bootstrap command entered"
-    );
-    let resource_dir = app.path().resource_dir().ok();
     let emitter = EventEmitter::Tauri(app);
-    let conn = db.conn.clone();
-    let data_dir = crate::system_skills::data_dir_from_env();
-    let defer_while_active = connection_manager.has_live_agent_sessions().await;
-    if !defer_while_active {
-        if let Some(resource_dir) = resource_dir.as_deref() {
-            if let Err(error) = crate::acp::version_center::import_runtime_seed_exclusive(
-                crate::acp::version_center::RuntimeSeedImport {
-                    conn: &conn,
-                    data_dir: &data_dir,
-                    resource_dir,
-                    task_id: &task_id,
-                    emitter: &emitter,
-                },
-            )
-            .await
-            {
-                tracing::warn!(
-                    error_code = ?error.code,
-                    "[runtime-seed] bundled seed unavailable or rejected; continuing with Version Center"
-                );
-            }
-        }
-    }
-    tracing::info!(
-        task_id = %task_id,
-        phase = "session_probe_complete",
-        defer_while_active,
-        data_dir = %data_dir.display(),
-        "runtime bootstrap prerequisites resolved"
-    );
-    let report = Box::pin(runtime_bootstrap_managed_core(
-        &conn,
-        &data_dir,
-        defer_while_active,
-        task_id.clone(),
-        &emitter,
-    ))
-    .await;
-    tracing::info!(
-        task_id = %task_id,
-        phase = "managed_bootstrap_complete",
-        node_status = ?report.node.status,
-        git_status = ?report.git.status,
-        uv_status = ?report.uv.status,
-        duration_ms = started.elapsed().as_millis() as u64,
-        "runtime bootstrap command completed"
-    );
-    tauri::async_runtime::spawn(async move {
-        crate::system_skills::startup_update_core(&conn, &data_dir, &emitter).await;
-    });
-    Ok(report)
+    Ok(runtime_bootstrap_core(task_id, &emitter).await)
 }
 
 /// 受管初始化状态查询（只读，不取写入锁）。供前端 `bootstrapInitStatus` 调用。
@@ -263,10 +203,7 @@ pub async fn runtime_bootstrap(
 #[tauri::command]
 pub async fn bootstrap_init_status() -> Result<crate::acp::version_center::InitStatusReport, String>
 {
-    let data_dir = crate::system_skills::data_dir_from_env();
-    crate::acp::version_center::bootstrap_init_status(&data_dir)
-        .await
-        .map_err(|error| error.message)
+    Ok(crate::managed_environment::init_status_report())
 }
 
 /// 统一初始化 / 修复入口：resolve → 票据 → 下载 → 校验 → 激活 → health check。
@@ -275,26 +212,34 @@ pub async fn bootstrap_init_status() -> Result<crate::acp::version_center::InitS
 #[tauri::command]
 pub async fn bootstrap_initialize(
     task_id: String,
-    app: tauri::AppHandle,
+    repair: Option<bool>,
+    _app: tauri::AppHandle,
     db: tauri::State<'_, crate::db::AppDatabase>,
-    connection_manager: tauri::State<'_, ConnectionManager>,
+    _connection_manager: tauri::State<'_, ConnectionManager>,
+    user_memory: tauri::State<'_, std::sync::Arc<crate::user_memory::UserMemoryService>>,
 ) -> Result<crate::acp::version_center::InitStatusReport, String> {
-    let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
-    let resource_dir = app.path().resource_dir().ok();
-    let emitter = EventEmitter::Tauri(app);
+    if repair.unwrap_or(false) {
+        crate::managed_environment::repair().await?;
+    }
     let conn = db.conn.clone();
     let data_dir = crate::system_skills::data_dir_from_env();
-    let defer_while_active = connection_manager.has_live_agent_sessions().await;
     let channel = managed::load_channel(&conn, &task_id).await;
-    crate::acp::version_center::bootstrap_initialize(
-        &conn,
-        &data_dir,
-        resource_dir.as_deref(),
-        &channel,
-        defer_while_active,
-        &task_id,
-        &emitter,
-    )
-    .await
-    .map_err(|error| error.message)
+    let report = crate::managed_environment::init_status_report();
+    if report.phase == "ready" {
+        let service = user_memory.inner().clone();
+        let model_data_dir = data_dir.clone();
+        let model_channel = channel.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = service
+                .prepare_managed_model(&model_data_dir, &model_channel)
+                .await
+            {
+                tracing::info!(
+                    error_code = ?error.code,
+                    "[memory-model] bootstrap preparation continues in background"
+                );
+            }
+        });
+    }
+    Ok(report)
 }

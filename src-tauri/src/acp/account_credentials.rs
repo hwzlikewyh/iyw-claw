@@ -61,7 +61,8 @@ pub(crate) async fn inject_runtime_credential_for_acp(
     runtime_env: &mut BTreeMap<String, String>,
 ) -> Result<(), crate::acp::error::AcpError> {
     if !matches!(agent, AgentType::CodeBuddy | AgentType::Grok)
-        && !crate::internal_xinghe_worker::is_desktop_agent(agent) {
+        && !crate::internal_xinghe_worker::is_desktop_agent(agent)
+    {
         return Ok(());
     }
     let token = require_access_token(conn)
@@ -133,7 +134,10 @@ fn apply_runtime_credential(
 ) {
     match agent {
         AgentType::Codex if crate::internal_xinghe_worker::is_desktop_agent(agent) => {
-            runtime_env.insert(super::xinghe_runtime_config::AUTH_ENV.into(), token.expose().into());
+            runtime_env.insert(
+                super::xinghe_runtime_config::AUTH_ENV.into(),
+                token.expose().into(),
+            );
         }
         AgentType::CodeBuddy => {
             runtime_env.insert("CODEBUDDY_API_KEY".into(), token.expose().into());

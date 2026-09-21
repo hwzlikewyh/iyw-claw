@@ -9,7 +9,7 @@ use crate::db::AppDatabase;
 use tauri::State;
 
 const SETTINGS_KEY: &str = "acp.max_idle_connections";
-pub const DEFAULT_MAX_IDLE_CONNECTIONS: usize = 4;
+pub const DEFAULT_MAX_IDLE_CONNECTIONS: Option<usize> = None;
 
 /// User preference for completed, recoverable agent processes kept resident.
 /// `None` means no count cap; memory-pressure protection remains active.
@@ -21,7 +21,7 @@ pub struct IdleAgentSettings {
 impl Default for IdleAgentSettings {
     fn default() -> Self {
         Self {
-            max_idle_connections: Some(DEFAULT_MAX_IDLE_CONNECTIONS),
+            max_idle_connections: DEFAULT_MAX_IDLE_CONNECTIONS,
         }
     }
 }

@@ -7,8 +7,8 @@ use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::conversation_title::ConversationTitleContext;
 use crate::commands::conversations as conv_commands;
-use crate::models::*;
 use crate::db::service::conversation_service::{ConversationPage, ConversationPageRequest};
+use crate::models::*;
 
 #[derive(Deserialize)]
 pub struct ConversationPageParams {
@@ -24,7 +24,9 @@ pub async fn list_conversations_page(
         emitter: &state.emitter,
         chat_channel_manager: &state.chat_channel_manager,
     };
-    Ok(Json(conv_commands::list_conversations_page_core(&context, args.params).await?))
+    Ok(Json(
+        conv_commands::list_conversations_page_core(&context, args.params).await?,
+    ))
 }
 
 #[derive(Deserialize, Default)]
@@ -187,6 +189,26 @@ pub async fn get_conversation_context_primer(
     AppCommandError,
 > {
     let result = conv_commands::get_conversation_context_primer_core(
+        conv_commands::ContextPrimerSource {
+            conn: &state.db.conn,
+            manager: &state.connection_manager,
+            chat_channel_manager: &state.chat_channel_manager,
+            emitter: &state.emitter,
+        },
+        params.conversation_id,
+    )
+    .await?;
+    Ok(Json(result))
+}
+
+pub async fn get_conversation_continuation_primer(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<GetConversationContextPrimerParams>,
+) -> Result<
+    Json<crate::commands::conversation_context_primer::ConversationContextPrimer>,
+    AppCommandError,
+> {
+    let result = conv_commands::get_conversation_continuation_primer_core(
         conv_commands::ContextPrimerSource {
             conn: &state.db.conn,
             manager: &state.connection_manager,

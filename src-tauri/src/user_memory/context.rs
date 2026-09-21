@@ -11,13 +11,13 @@ use super::{
 
 pub const USER_CONTEXT_START: &str = "<!-- IYW_CLAW_USER_CONTEXT_V1_START -->";
 pub const USER_CONTEXT_END: &str = "<!-- IYW_CLAW_USER_CONTEXT_V1_END -->";
-pub const MEMORY_POLICY_REVISION: &str = "memory-policy-v6";
+pub const MEMORY_POLICY_REVISION: &str = "memory-policy-v7";
 pub const MEMORY_POLICY_REFERENCE: &str =
     "iyw-capability-gateway/references/memory-and-learning.md";
 pub const MEMORY_POLICY_DOCUMENT: &str =
     include_str!("../../experts/skills/iyw-capability-gateway/references/memory-and-learning.md");
 pub const MEMORY_POLICY_SUMMARY: &str =
-    "Memory policy v6: proactively append clear user-stated durable facts and preferences, including future communication rules; no special remember phrase or repeated confirmation is needed. Propose only when meaning, durability or scope is uncertain. Candidates are recallable provisional evidence, not confirmed facts. Reuse relevant supplied memory or recall before dependent decisions and Skill use; verify the result and record specific transferable lessons. For a memory inventory also list candidates; documents alone are incomplete. Summarize naturally using Agent aliases, without internal IDs, empty documents or unsolicited timestamps. The host does not infer lessons from ordinary prose. Current instructions override memory. Never store secrets, credentials, sensitive personal data, repository facts or temporary progress.";
+    "Memory policy v7: proactively append clear user-stated durable facts and preferences, including future communication rules; no special remember phrase or repeated confirmation is needed. Only claim a memory was saved after a successful write receipt. Propose when meaning, durability or scope is uncertain. Candidates and generated profile/collaboration summaries are provisional evidence, not confirmed user facts. Reuse relevant supplied memory or recall before dependent decisions and Skill use; verify the result and record specific transferable lessons. For a memory inventory also list candidates; documents alone are incomplete. Summarize naturally using Agent aliases, without internal IDs, empty documents or unsolicited timestamps. If the user enables background extraction, the host may propose evidence-grounded candidates; explicit Agent writes remain available. Current instructions override memory. Never store secrets, credentials, sensitive personal data, repository facts or temporary progress.";
 
 pub fn memory_policy_digest() -> &'static str {
     static DIGEST: OnceLock<String> = OnceLock::new();

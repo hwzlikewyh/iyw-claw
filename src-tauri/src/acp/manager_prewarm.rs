@@ -39,7 +39,11 @@ impl ConnectionManager {
         let Some(request) = self.prepare_runtime_prewarm(agent_type).await? else {
             return Ok(false);
         };
-        if memory_is_tight() {
+        if memory_is_tight()
+            || self
+                .has_connection_for_prewarm_target(agent_type, &request.target)
+                .await
+        {
             return Ok(false);
         }
         let ready =
@@ -72,9 +76,8 @@ impl ConnectionManager {
             .ok_or_else(|| AcpError::protocol("Agent data directory unavailable"))?;
         let target = prewarm_target(conn, agent_type).await?;
         if self
-            .find_connection_for_reuse(agent_type, Some(&target.cwd), target.session_id.as_deref())
+            .has_connection_for_prewarm_target(agent_type, &target)
             .await
-            .is_some()
         {
             return Ok(None);
         }
@@ -100,9 +103,47 @@ impl ConnectionManager {
             target,
         }))
     }
+
+    async fn has_connection_for_prewarm_target(
+        &self,
+        agent_type: AgentType,
+        target: &RuntimePrewarmTarget,
+    ) -> bool {
+        let Some(session_id) = target.session_id.as_deref() else {
+            return false;
+        };
+        let states: Vec<_> = self
+            .connections
+            .lock()
+            .await
+            .values()
+            .filter(|connection| connection.agent_type == agent_type)
+            .map(|connection| connection.state.clone())
+            .collect();
+        for state in states {
+            let state = state.read().await;
+            let existing = state
+                .external_id
+                .as_deref()
+                .or(state.requested_external_id.as_deref());
+            if existing == Some(session_id)
+                && state.working_dir.as_ref() == Some(&target.cwd)
+                && !matches!(
+                    state.status,
+                    crate::acp::types::ConnectionStatus::Disconnected
+                        | crate::acp::types::ConnectionStatus::Error
+                )
+            {
+                tracing::info!(agent = %agent_type, status = ?state.status,
+                    "[ACP][startup] prewarm skipped: target connection already exists");
+                return true;
+            }
+        }
+        false
+    }
 }
 
-fn memory_is_tight() -> bool {
+pub(super) fn memory_is_tight() -> bool {
     use crate::acp::resource_governor::{system_memory_snapshot, MemoryPressure};
     // 预热门禁只需要可用内存，不枚举整台机器的进程、磁盘和 CPU。
     let mut system = sysinfo::System::new();

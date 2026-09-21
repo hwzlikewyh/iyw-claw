@@ -117,7 +117,10 @@ fn page_detail(
 }
 
 fn count_assistants(turns: &[crate::models::MessageTurn]) -> usize {
-    turns.iter().filter(|turn| matches!(turn.role, crate::models::TurnRole::Assistant)).count()
+    turns
+        .iter()
+        .filter(|turn| matches!(turn.role, crate::models::TurnRole::Assistant))
+        .count()
 }
 
 pub fn store(conversation_id: i32, cache_revision: String, detail: DbConversationDetail) {

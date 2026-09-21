@@ -216,16 +216,22 @@ pub async fn update_external_id(
     conversation_id: i32,
     external_id: String,
 ) -> Result<(), DbError> {
-    use sea_orm::sea_query::Expr;
+    use sea_orm::TransactionTrait;
 
-    conversation::Entity::update_many()
-        .col_expr(conversation::Column::ExternalId, Expr::value(external_id))
-        .col_expr(conversation::Column::UpdatedAt, Expr::value(Utc::now()))
-        .filter(conversation::Column::Id.eq(conversation_id))
-        .filter(conversation::Column::DeletedAt.is_null())
-        .exec(conn)
-        .await?;
-    Ok(())
+    let txn = conn.begin().await?;
+    let result = super::conversation_session_segment_transition::replace_alias(
+        &txn,
+        conversation_id,
+        &external_id,
+    )
+    .await;
+    match result {
+        Ok(()) => txn.commit().await.map_err(Into::into),
+        Err(error) => {
+            txn.rollback().await?;
+            Err(error)
+        }
+    }
 }
 
 /// Persist an Agent session id only while the row still contains the value
@@ -237,28 +243,30 @@ pub async fn update_external_id_if_matches(
     expected_external_id: Option<&str>,
     external_id: &str,
 ) -> Result<bool, DbError> {
-    use sea_orm::sea_query::Expr;
+    use sea_orm::TransactionTrait;
 
-    let expected = match expected_external_id {
-        Some(value) => sea_orm::Condition::any()
-            .add(conversation::Column::ExternalId.eq(value))
-            .add(conversation::Column::ExternalId.eq(external_id)),
-        None => sea_orm::Condition::any()
-            .add(conversation::Column::ExternalId.is_null())
-            .add(conversation::Column::ExternalId.eq(external_id)),
-    };
-    let result = conversation::Entity::update_many()
-        .col_expr(
-            conversation::Column::ExternalId,
-            Expr::value(external_id.to_string()),
-        )
-        .col_expr(conversation::Column::UpdatedAt, Expr::value(Utc::now()))
-        .filter(conversation::Column::Id.eq(conversation_id))
-        .filter(conversation::Column::DeletedAt.is_null())
-        .filter(expected)
-        .exec(conn)
-        .await?;
-    Ok(result.rows_affected > 0)
+    let txn = conn.begin().await?;
+    let result = super::conversation_session_segment_transition::persist(
+        &txn,
+        conversation_id,
+        expected_external_id,
+        external_id,
+    )
+    .await;
+    match result {
+        Ok(true) => {
+            txn.commit().await?;
+            Ok(true)
+        }
+        Ok(false) => {
+            txn.rollback().await?;
+            Ok(false)
+        }
+        Err(error) => {
+            txn.rollback().await?;
+            Err(error)
+        }
+    }
 }
 
 pub async fn clear_external_id(
@@ -509,14 +517,29 @@ pub async fn find_folder_path_by_external_id(
         .ok()
         .and_then(|value| value.as_str().map(str::to_owned))
         .unwrap_or_default();
-    let row = conversation::Entity::find()
+    let direct = conversation::Entity::find()
         .filter(conversation::Column::ExternalId.eq(external_id))
-        .filter(conversation::Column::AgentType.eq(agent_type))
+        .filter(conversation::Column::AgentType.eq(agent_type.clone()))
         .filter(conversation::Column::DeletedAt.is_null())
         .find_also_related(folder::Entity)
         .one(conn)
         .await?;
-    Ok(row
+    if let Some(path) = direct
+        .and_then(|(_, folder)| folder)
+        .filter(|folder| folder.deleted_at.is_none())
+        .map(|folder| folder.path)
+    {
+        return Ok(Some(path));
+    }
+    let Some(conversation_id) =
+        find_segment_conversation_id(conn, external_id, &agent_type).await?
+    else {
+        return Ok(None);
+    };
+    Ok(conversation::Entity::find_by_id(conversation_id)
+        .find_also_related(folder::Entity)
+        .one(conn)
+        .await?
         .and_then(|(_, folder)| folder)
         .filter(|folder| folder.deleted_at.is_none())
         .map(|folder| folder.path))
@@ -533,12 +556,33 @@ pub async fn find_id_by_external_id(
         .ok()
         .and_then(|value| value.as_str().map(str::to_owned))
         .unwrap_or_default();
-    Ok(conversation::Entity::find()
+    let direct = conversation::Entity::find()
         .select_only()
         .column(conversation::Column::Id)
         .filter(conversation::Column::ExternalId.eq(external_id))
-        .filter(conversation::Column::AgentType.eq(agent_type))
+        .filter(conversation::Column::AgentType.eq(agent_type.clone()))
         .filter(conversation::Column::DeletedAt.is_null())
+        .into_tuple::<i32>()
+        .one(conn)
+        .await?;
+    match direct {
+        Some(id) => Ok(Some(id)),
+        None => find_segment_conversation_id(conn, external_id, &agent_type).await,
+    }
+}
+
+async fn find_segment_conversation_id(
+    conn: &DatabaseConnection,
+    external_id: &str,
+    agent_type: &str,
+) -> Result<Option<i32>, DbError> {
+    use crate::db::entities::conversation_session_segment as segment;
+
+    Ok(segment::Entity::find()
+        .select_only()
+        .column(segment::Column::ConversationId)
+        .filter(segment::Column::ExternalId.eq(external_id))
+        .filter(segment::Column::AgentType.eq(agent_type))
         .into_tuple::<i32>()
         .one(conn)
         .await?)

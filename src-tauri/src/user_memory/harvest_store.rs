@@ -92,6 +92,10 @@ pub(super) async fn status(
     Ok(status)
 }
 
+pub(super) async fn available_slots(conn: &DatabaseConnection) -> Result<usize, AppCommandError> {
+    Ok(USER_MEMORY_HARVEST_MAX_QUEUED.saturating_sub(pending_count(conn).await? as usize))
+}
+
 pub(super) async fn rescan(
     conn: &DatabaseConnection,
     execute_update: bool,
@@ -113,6 +117,10 @@ pub(super) async fn rescan(
             .and_then(|value| value.try_get::<i64>("", "terminal").ok())
             .unwrap_or(0)
             .max(0) as u32,
+        discovered_unqueued: 0,
+        recovered_unqueued: 0,
+        skipped_sensitive: 0,
+        skipped_context_poor: 0,
     };
     if execute_update {
         execute(

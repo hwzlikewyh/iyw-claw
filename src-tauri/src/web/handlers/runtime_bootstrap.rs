@@ -22,6 +22,7 @@ pub struct RuntimeBootstrapParams {
 pub struct BootstrapInitializeParams {
     pub task_id: String,
     pub channel: Option<String>,
+    pub repair: Option<bool>,
 }
 
 pub async fn runtime_bootstrap(
@@ -58,6 +59,7 @@ pub async fn bootstrap_initialize(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<BootstrapInitializeParams>,
 ) -> Result<Json<InitStatusReport>, AppCommandError> {
+    let _ = params.repair;
     let _storage_work_guard = crate::acp::agent_storage_work::begin_agent_storage_work().await;
     let channel = match params.channel {
         Some(channel) if !channel.trim().is_empty() => channel,

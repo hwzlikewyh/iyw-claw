@@ -51,9 +51,12 @@ export function UserMemoryHarvestPanel({
     if (typeof rescan !== "function") return
     setLoading(true)
     try {
-      await rescan(true)
+      const result = await rescan(true)
       await refresh()
-      toast.success(t("diagnostics.rescanDone"))
+      const recovered = result.preview.recoveredUnqueued ?? 0
+      toast.success(t("diagnostics.rescanDone"), {
+        description: `${t("diagnostics.rescanRecovered")}: ${recovered}`,
+      })
     } catch (error) {
       onError(toErrorMessage(error))
     } finally {
@@ -79,15 +82,16 @@ export function UserMemoryHarvestPanel({
 
   return (
     <div className="border-t pt-3 text-xs">
-      <div className="mb-1 flex items-center justify-between gap-2">
+      <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <span className="flex items-center gap-1.5 font-medium">
           <Layers className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
           {t("diagnostics.harvest")}
         </span>
-        <span className="flex gap-2">
+        <div className="grid gap-2 sm:flex">
           <Button
             size="sm"
             variant="outline"
+            className="w-full sm:w-auto"
             disabled={busy || loading}
             onClick={() => void runRescan()}
           >
@@ -97,56 +101,74 @@ export function UserMemoryHarvestPanel({
           <Button
             size="sm"
             variant="outline"
+            className="w-full sm:w-auto"
             disabled={busy || loading}
             onClick={() => void runRebuildIndex()}
           >
             {t("diagnostics.rebuildIndex")}
           </Button>
-        </span>
+        </div>
       </div>
       {harvest ? (
         <>
           <p className="flex flex-wrap gap-x-3 gap-y-1">
             <span>
-              {t("diagnostics.harvestQueued", { queued: harvest.queued })}
+              {t("diagnostics.harvestQueued")} {harvest.queued}
             </span>
             <span>
-              {t("diagnostics.harvestExtracting", {
-                extracting: harvest.extracting,
-              })}
+              {t("diagnostics.harvestExtracting")} {harvest.extracting}
             </span>
             <span>
-              {t("diagnostics.harvestProposed", { proposed: harvest.proposed })}
+              {t("diagnostics.harvestProposed")} {harvest.proposed}
             </span>
-            <span>{t("diagnostics.harvestNoop", { noop: harvest.noop })}</span>
             <span>
-              {t("diagnostics.harvestFailed", { failed: harvest.failed })}
+              {t("diagnostics.harvestNoop")} {harvest.noop}
             </span>
-            <span>{t("diagnostics.harvestDead", { dead: harvest.dead })}</span>
             <span>
-              {t("diagnostics.harvestBacklog", { backlog: harvest.backlog })}
+              {t("diagnostics.harvestFailed")} {harvest.failed}
             </span>
+            <span>
+              {t("diagnostics.harvestDead")} {harvest.dead}
+            </span>
+            <span>
+              {t("diagnostics.harvestBacklog")} {harvest.backlog}
+            </span>
+            {!!harvest.discoveredUnqueued && (
+              <span>
+                {t("diagnostics.harvestDiscovered")}{" "}
+                {harvest.discoveredUnqueued}
+              </span>
+            )}
+            {!!harvest.skippedSensitiveUnqueued && (
+              <span>
+                {t("diagnostics.harvestSensitiveSkipped")}{" "}
+                {harvest.skippedSensitiveUnqueued}
+              </span>
+            )}
+            {!!harvest.skippedContextPoorUnqueued && (
+              <span>
+                {t("diagnostics.harvestContextPoorSkipped")}{" "}
+                {harvest.skippedContextPoorUnqueued}
+              </span>
+            )}
           </p>
           <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground">
             {harvest.lastHarvestAt && (
               <span>
-                {t("diagnostics.harvestLast", {
-                  time: formatTime(harvest.lastHarvestAt),
-                })}
+                {t("diagnostics.harvestLast")}{" "}
+                {formatTime(harvest.lastHarvestAt)}
               </span>
             )}
             {harvest.lastSuccessWriteAt && (
               <span>
-                {t("diagnostics.harvestLastSuccess", {
-                  time: formatTime(harvest.lastSuccessWriteAt),
-                })}
+                {t("diagnostics.harvestLastSuccess")}{" "}
+                {formatTime(harvest.lastSuccessWriteAt)}
               </span>
             )}
             {harvest.lastFailureAt && (
               <span className="text-red-400">
-                {t("diagnostics.harvestLastFailure", {
-                  time: formatTime(harvest.lastFailureAt),
-                })}
+                {t("diagnostics.harvestLastFailure")}{" "}
+                {formatTime(harvest.lastFailureAt)}
               </span>
             )}
             {!harvest.lastHarvestAt && !harvest.lastFailureAt && (

@@ -55,6 +55,10 @@ pub struct AcpConnectParams {
     pub preferred_config_values: Option<BTreeMap<String, String>>,
     #[serde(default)]
     pub force_host_restart: bool,
+    #[serde(default)]
+    pub continuation_from_session_id: Option<String>,
+    #[serde(default)]
+    pub continuation_context: Option<String>,
 }
 
 pub async fn acp_connect(
@@ -89,6 +93,27 @@ pub async fn acp_connect(
         }
     };
 
+    if !params.force_host_restart {
+        let prepared_stage = startup_trace.stage("prepared_session_lookup");
+        let request = crate::acp::prepared_session::PrepareSessionRequest {
+            agent_type: params.agent_type,
+            working_dir: working_dir.clone(),
+            session_id: params.session_id.clone(),
+            conversation_id: params.conversation_id,
+            preferred_mode_id: params.preferred_mode_id.clone(),
+            preferred_config_values: params.preferred_config_values.clone().unwrap_or_default(),
+        };
+        if let Some(id) = manager
+            .claim_prepared_session(&request, "web")
+            .await
+            .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?
+        {
+            startup_trace.bind_connection(id.clone());
+            prepared_stage.finish("ready");
+            return Ok(Json(id));
+        }
+        prepared_stage.finish("miss");
+    }
     let runtime_stage = startup_trace.stage("runtime_env_reconcile");
     let runtime_env = match acp_commands::build_session_runtime_env(
         db,
@@ -135,6 +160,8 @@ pub async fn acp_connect(
             params.preferred_mode_id,
             params.preferred_config_values.unwrap_or_default(),
             params.force_host_restart,
+            params.continuation_from_session_id,
+            params.continuation_context,
             startup_trace,
         )
         .await
@@ -545,11 +572,7 @@ pub async fn acp_fork(
 ) -> Result<Json<ForkResultInfo>, AppCommandError> {
     let manager = &state.connection_manager;
     let result = manager
-        .fork_session(
-            &state.db,
-            &state.chat_channel_manager,
-            params,
-        )
+        .fork_session(&state.db, &state.chat_channel_manager, params)
         .await
         .map_err(|e| {
             let message = e.to_string();
@@ -617,8 +640,11 @@ pub async fn acp_respond_html(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<AcpRespondHtmlParams>,
 ) -> Result<Json<()>, AppCommandError> {
-    state.connection_manager.respond_html(&params.connection_id, params.response)
-        .await.map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?;
+    state
+        .connection_manager
+        .respond_html(&params.connection_id, params.response)
+        .await
+        .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?;
     Ok(Json(()))
 }
 

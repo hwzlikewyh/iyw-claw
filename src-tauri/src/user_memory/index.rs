@@ -4,7 +4,6 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement, Transac
 
 use crate::app_error::AppCommandError;
 
-use super::candidate_store;
 use super::index_checkpoint::{
     database_error, mark_error, mark_stale_if_current, write_ready_checkpoint, IndexFtsStatus,
 };
@@ -32,17 +31,21 @@ impl UserMemoryService {
         if !self.request_index_refresh(force) {
             return;
         }
+        self.schedule_semantic_refresh();
         tokio::spawn(run_index_refresh_worker(self.clone()));
     }
 
     pub(crate) async fn refresh_index(&self) -> Result<(), AppCommandError> {
         let _refresh_guard = self.index_refresh_lock.clone().lock_owned().await;
         self.mark_index_unverified();
-        let source = self.read_index_source().await?;
+        let (source, authority_epoch) = self.read_projection_source().await?;
         if let Ok(checkpoint) = super::recall_status::load_index_status(&self.db).await {
             if checkpoint.status == "ready"
                 && checkpoint.source_digest.as_deref() == Some(source.source_digest.as_str())
             {
+                if let Some(epoch) = authority_epoch {
+                    self.complete_projection(epoch, "fts").await?;
+                }
                 self.mark_index_verified_if_idle();
                 tracing::debug!(
                     generation = ?checkpoint.index_generation,
@@ -73,6 +76,9 @@ impl UserMemoryService {
                 }
             }
         } else {
+            if let Some(epoch) = authority_epoch {
+                self.complete_projection(epoch, "fts").await?;
+            }
             self.mark_index_verified_if_idle();
         }
         Ok(())
@@ -114,8 +120,18 @@ impl UserMemoryService {
     }
 
     pub(super) async fn read_index_source(&self) -> Result<IndexSnapshot, AppCommandError> {
-        self.read_index_source_with(|settings, candidates| {
-            build_index_snapshot(&settings, candidates.as_ref())
+        Ok(self.read_projection_source().await?.0)
+    }
+
+    pub(super) async fn read_projection_source(
+        &self,
+    ) -> Result<(IndexSnapshot, Option<i64>), AppCommandError> {
+        let service = self.clone();
+        self.read_index_source_with(move |settings, candidates| {
+            (
+                service.scope_index_snapshot(build_index_snapshot(&settings, candidates.as_ref())),
+                service.active_authority().map(|snapshot| snapshot.epoch),
+            )
         })
         .await
     }
@@ -128,12 +144,15 @@ impl UserMemoryService {
     /// and candidate state are replaced atomically, so a lock-free snapshot is
     /// safe for deciding whether an already-published index can serve recall.
     pub(crate) async fn read_index_source_digest_fast(&self) -> Result<String, AppCommandError> {
-        let policy = self.load_policy_unrecovered().await?;
-        let service = self.clone();
+        let snapshot = super::authority_sql::load(&self.db, &self.authority_key()?).await?;
+        super::authority_export::validate_marker(self.resolved_root()?, snapshot.as_ref())?;
+        let mut service = self.clone();
+        service.authority = std::sync::Arc::new(std::sync::RwLock::new(snapshot));
+        let policy = service.load_policy_unrecovered().await?;
         tokio::task::spawn_blocking(move || {
             let settings = super::index_source::readonly_snapshot(&service, &policy)?;
-            let candidates = candidate_store::read_optional(service.resolved_root()?)?;
-            Ok(source_digest(&settings, candidates.as_ref()))
+            let candidates = service.read_learning_optional()?;
+            Ok(service.scoped_source_digest(&source_digest(&settings, candidates.as_ref())))
         })
         .await
         .map_err(|error| {
@@ -163,7 +182,7 @@ impl UserMemoryService {
             let _io_guard = io_guard;
             let _file_guard = file_guard;
             let settings = service.snapshot_locked(&policy)?;
-            let candidates = candidate_store::read_optional(service.resolved_root()?)?;
+            let candidates = service.read_learning_optional()?;
             Ok(project(settings, candidates))
         })
         .await

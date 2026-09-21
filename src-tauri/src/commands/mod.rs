@@ -1,4 +1,5 @@
 pub mod acp;
+pub mod acp_prepared;
 pub mod agent_concurrency;
 pub mod agent_input;
 pub mod agent_storage;
@@ -30,8 +31,8 @@ pub mod computer_use;
 pub mod conversation_context_primer;
 mod conversation_history_cache;
 mod conversation_history_cache_prune;
-pub(crate) mod conversation_title;
 mod conversation_points;
+pub(crate) mod conversation_title;
 pub mod conversations;
 pub mod delegation;
 #[cfg(feature = "tauri-runtime")]
@@ -88,6 +89,11 @@ pub mod task_artifacts;
 pub mod terminal;
 pub mod usage;
 pub mod user_memory;
+pub mod user_memory_authority;
+pub mod user_memory_entries;
+pub mod user_memory_learning;
+pub mod user_memory_maintenance;
+pub mod user_memory_reconcile;
 pub mod version_control;
 #[cfg(feature = "tauri-runtime")]
 pub mod windows;

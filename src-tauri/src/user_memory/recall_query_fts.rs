@@ -37,10 +37,10 @@ pub(super) async fn collect_fts<C: ConnectionTrait>(
     let Some(match_queries) = fts_queries(query.query, minimum_token_chars) else {
         return Ok(LaneCollection::skipped("query_has_no_tokens"));
     };
-    let mut rows = collect_fts_variant(db, &query, &match_queries.primary, lane).await?;
+    let mut rows = collect_fts_variant(db, &query, &match_queries.primary, lane, true).await?;
     if rows.is_empty() {
         if let Some(fallback) = match_queries.fallback.as_deref() {
-            rows = collect_fts_variant(db, &query, fallback, lane).await?;
+            rows = collect_fts_variant(db, &query, fallback, lane, false).await?;
         }
     }
     let candidate_count = rows.len();
@@ -60,10 +60,11 @@ async fn collect_fts_variant<C: ConnectionTrait>(
     query: &FtsQuery<'_>,
     match_query: &str,
     lane: &str,
+    include_candidates: bool,
 ) -> Result<Vec<QueryResult>, String> {
     let rows = execute_fts_query(
         db,
-        fast_fts_statement(query, match_query),
+        fast_fts_statement(query, match_query, include_candidates),
         query.table,
         lane,
     )
@@ -76,18 +77,23 @@ async fn collect_fts_variant<C: ConnectionTrait>(
     // 预取页不足时必须回退到过滤后截断，避免不可见高排名项遮挡后续合法项。
     execute_fts_query(
         db,
-        filtered_fts_statement(query, match_query),
+        filtered_fts_statement(query, match_query, include_candidates),
         query.table,
         lane,
     )
     .await
 }
 
-fn fast_fts_statement(query: &FtsQuery<'_>, match_query: &str) -> Statement {
+fn fast_fts_statement(
+    query: &FtsQuery<'_>,
+    match_query: &str,
+    include_candidates: bool,
+) -> Statement {
     let validity = valid_at_sql("memory_item_current");
     let scope = query.scope.predicate("memory_item_current");
+    let trust = trust_predicate(include_candidates);
     let sql = format!(
-        "SELECT memory_item_current.id FROM (SELECT {table}.rowid, rank AS fts_rank FROM {table} WHERE {table} MATCH ? LIMIT ?) AS matches JOIN memory_item_current ON memory_item_current.row_id = matches.rowid WHERE {scope} AND memory_item_current.trust_class IN ('host_confirmed', 'agent_experience', 'candidate') AND memory_item_current.sensitive = 0 AND memory_item_current.superseded_by IS NULL{validity} ORDER BY matches.fts_rank, memory_item_current.id LIMIT ?",
+        "SELECT memory_item_current.id FROM (SELECT {table}.rowid, rank AS fts_rank FROM {table} WHERE {table} MATCH ? LIMIT ?) AS matches CROSS JOIN memory_item_current ON memory_item_current.row_id = matches.rowid WHERE {scope} AND {trust} AND memory_item_current.sensitive = 0 AND memory_item_current.superseded_by IS NULL{validity} ORDER BY matches.fts_rank, memory_item_current.id LIMIT ?",
         table = query.table,
     );
     let mut values = vec![
@@ -114,11 +120,16 @@ async fn has_fts_match<C: ConnectionTrait>(
         .map(|rows| !rows.is_empty())
 }
 
-fn filtered_fts_statement(query: &FtsQuery<'_>, match_query: &str) -> Statement {
+fn filtered_fts_statement(
+    query: &FtsQuery<'_>,
+    match_query: &str,
+    include_candidates: bool,
+) -> Statement {
     let validity = valid_at_sql("memory_item_current");
     let scope = query.scope.predicate("memory_item_current");
+    let trust = trust_predicate(include_candidates);
     let sql = format!(
-        "SELECT memory_item_current.id FROM (SELECT {table}.rowid, rank AS fts_rank FROM {table} WHERE {table} MATCH ? AND EXISTS (SELECT 1 FROM memory_item_current WHERE memory_item_current.row_id = {table}.rowid AND {scope} AND memory_item_current.trust_class IN ('host_confirmed', 'agent_experience', 'candidate') AND memory_item_current.sensitive = 0 AND memory_item_current.superseded_by IS NULL{validity}) ORDER BY rank LIMIT ?) AS matches JOIN memory_item_current ON memory_item_current.row_id = matches.rowid ORDER BY matches.fts_rank, memory_item_current.id",
+        "SELECT memory_item_current.id FROM (SELECT {table}.rowid, rank AS fts_rank FROM {table} WHERE {table} MATCH ? AND EXISTS (SELECT 1 FROM memory_item_current WHERE memory_item_current.row_id = {table}.rowid AND {scope} AND {trust} AND memory_item_current.sensitive = 0 AND memory_item_current.superseded_by IS NULL{validity}) ORDER BY rank LIMIT ?) AS matches CROSS JOIN memory_item_current ON memory_item_current.row_id = matches.rowid ORDER BY matches.fts_rank, memory_item_current.id",
         table = query.table,
     );
     let mut values = vec![match_query.to_string().into()];
@@ -126,6 +137,14 @@ fn filtered_fts_statement(query: &FtsQuery<'_>, match_query: &str) -> Statement 
     push_query_at(&mut values, query.query_at);
     values.push((MAX_LANE_CANDIDATES as i64).into());
     Statement::from_sql_and_values(DbBackend::Sqlite, sql, values)
+}
+
+fn trust_predicate(include_candidates: bool) -> &'static str {
+    if include_candidates {
+        "memory_item_current.trust_class IN ('host_confirmed','agent_experience','candidate')"
+    } else {
+        "memory_item_current.trust_class IN ('host_confirmed','agent_experience')"
+    }
 }
 
 async fn execute_fts_query<C: ConnectionTrait>(

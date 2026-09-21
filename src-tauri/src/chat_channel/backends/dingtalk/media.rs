@@ -46,6 +46,27 @@ impl DingtalkBackend {
         Ok(token)
     }
 
+    pub(super) async fn send_openapi_text(
+        &self,
+        text: &str,
+        target: &ChannelMessageTarget,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        let (endpoint, mut body) = target_body(target)?;
+        body["robotCode"] = json!(self.config.client_id);
+        body["msgKey"] = json!("sampleMarkdown");
+        body["msgParam"] = json!(json!({ "title": "iyw-claw", "text": text }).to_string());
+        let token = self.access_token().await?;
+        let response = self
+            .client
+            .post(format!("https://api.dingtalk.com/v1.0/robot/{endpoint}"))
+            .header("x-acs-dingtalk-access-token", token)
+            .json(&body)
+            .send()
+            .await
+            .map_err(transport)?;
+        receipt(&media_http::json(response).await?)
+    }
+
     pub(super) async fn send_media(
         &self,
         file: &ChannelAttachment,

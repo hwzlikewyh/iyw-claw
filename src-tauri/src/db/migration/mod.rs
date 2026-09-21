@@ -46,6 +46,10 @@ mod m20260826_000001_plugin_runtime_state;
 mod m20260829_000001_memory_learning;
 mod m20260904_000001_task_artifact_message;
 mod m20260919_000001_crud_indexes;
+mod m20260919_000002_memory_authority;
+mod m20260920_000001_memory_lifecycle;
+mod m20260920_000002_conversation_session_segment;
+mod m20260921_000001_chat_channel_outbox;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -98,6 +102,10 @@ impl MigratorTrait for Migrator {
             Box::new(m20260829_000001_memory_learning::Migration),
             Box::new(m20260904_000001_task_artifact_message::Migration),
             Box::new(m20260919_000001_crud_indexes::Migration),
+            Box::new(m20260919_000002_memory_authority::Migration),
+            Box::new(m20260920_000001_memory_lifecycle::Migration),
+            Box::new(m20260920_000002_conversation_session_segment::Migration),
+            Box::new(m20260921_000001_chat_channel_outbox::Migration),
         ]
     }
 }

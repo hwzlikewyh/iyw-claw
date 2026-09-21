@@ -6,9 +6,18 @@ use std::time::SystemTime;
 
 const IDENTITY: &[u8] =
     b"IYW_XINGHE_WORKER|1|0.155.0|f0a1b8f0849d90960bc406b848f32e5a129b0457|END_WORKER_ID\0";
+const IDENTITY_EXPORT: &[u8] = b"IYW_XINGHE_WORKER_IDENTITY_V1\0";
 const READ_BYTES: usize = 64 * 1024;
 type CachedIdentity = (u64, Option<SystemTime>, bool);
 static CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedIdentity>>> = OnceLock::new();
+
+pub(super) unsafe fn validate_loaded(library: &libloading::Library) -> Result<(), String> {
+    // 导出标记与磁盘校验完全一致，子进程不再为同一标记扫描整个动态库。
+    let identity = library
+        .get::<*const [u8; IDENTITY.len()]>(IDENTITY_EXPORT)
+        .map_err(|_| "内置星河运行时缺少身份接口，请修复安装".to_string())?;
+    outcome(!identity.is_null() && (**identity).as_slice() == IDENTITY)
+}
 
 pub(super) fn validate(path: &Path) -> Result<(), String> {
     let metadata = std::fs::metadata(path).map_err(|_| "无法读取内置星河运行时".to_string())?;

@@ -151,6 +151,110 @@ pub fn build_router(
             post(handlers::user_memory::get_user_memory_settings),
         )
         .route(
+            "/list_user_memory_entries",
+            post(handlers::user_memory_entries::list_user_memory_entries),
+        )
+        .route(
+            "/set_user_memory_entry_status",
+            post(handlers::user_memory_entries::set_user_memory_entry_status),
+        )
+        .route(
+            "/preview_memory_governance",
+            post(handlers::user_memory_entries::preview_memory_governance),
+        )
+        .route(
+            "/apply_memory_governance",
+            post(handlers::user_memory_entries::apply_memory_governance),
+        )
+        .route(
+            "/forget_user_memory",
+            post(handlers::user_memory_entries::forget_user_memory),
+        )
+        .route(
+            "/get_user_memory_semantic_status",
+            post(handlers::user_memory_entries::get_user_memory_semantic_status),
+        )
+        .route(
+            "/set_user_memory_semantic_enabled",
+            post(handlers::user_memory_entries::set_user_memory_semantic_enabled),
+        )
+        .route(
+            "/get_user_memory_maintenance",
+            post(handlers::user_memory_maintenance::get_user_memory_maintenance),
+        )
+        .route(
+            "/run_user_memory_maintenance",
+            post(handlers::user_memory_maintenance::run_user_memory_maintenance),
+        )
+        .route(
+            "/resolve_user_memory_review",
+            post(handlers::user_memory_maintenance::resolve_user_memory_review),
+        )
+        .route(
+            "/preview_user_memory_migration",
+            post(handlers::user_memory_maintenance::preview_user_memory_migration),
+        )
+        .route(
+            "/get_user_memory_authority",
+            post(handlers::user_memory_authority::get_user_memory_authority),
+        )
+        .route(
+            "/prepare_user_memory_authority",
+            post(handlers::user_memory_authority::prepare_user_memory_authority),
+        )
+        .route(
+            "/activate_user_memory_authority",
+            post(handlers::user_memory_authority::activate_user_memory_authority),
+        )
+        .route(
+            "/get_user_memory_history",
+            post(handlers::user_memory_authority::get_user_memory_history),
+        )
+        .route(
+            "/get_user_memory_receipts",
+            post(handlers::user_memory_authority::get_user_memory_receipts),
+        )
+        .route(
+            "/record_memory_recall_feedback",
+            post(handlers::user_memory_authority::record_memory_recall_feedback),
+        )
+        .route(
+            "/get_memory_effectiveness",
+            post(handlers::user_memory_authority::get_memory_effectiveness),
+        )
+        .route(
+            "/get_user_memory_reconciliation",
+            post(handlers::user_memory_reconcile::get_user_memory_reconciliation),
+        )
+        .route(
+            "/resolve_user_memory_file",
+            post(handlers::user_memory_reconcile::resolve_user_memory_file),
+        )
+        .route(
+            "/restore_user_memory_authority",
+            post(handlers::user_memory_reconcile::restore_user_memory_authority),
+        )
+        .route(
+            "/prepare_user_memory_semantic",
+            post(handlers::user_memory_entries::prepare_user_memory_semantic),
+        )
+        .route(
+            "/preview_user_memory_semantic",
+            post(handlers::user_memory_entries::preview_user_memory_semantic),
+        )
+        .route(
+            "/get_user_memory_learning",
+            post(handlers::user_memory_learning::get_user_memory_learning),
+        )
+        .route(
+            "/set_user_memory_learning",
+            post(handlers::user_memory_learning::set_user_memory_learning),
+        )
+        .route(
+            "/refresh_user_memory_views",
+            post(handlers::user_memory_learning::refresh_user_memory_views),
+        )
+        .route(
             "/update_user_memory_settings",
             post(handlers::user_memory::update_user_memory_settings),
         )
@@ -247,6 +351,10 @@ pub fn build_router(
         .route(
             "/get_conversation_context_primer",
             post(handlers::conversations::get_conversation_context_primer),
+        )
+        .route(
+            "/get_conversation_continuation_primer",
+            post(handlers::conversations::get_conversation_continuation_primer),
         )
         .route(
             "/list_opened_tabs",
@@ -486,12 +594,30 @@ pub fn build_router(
             post(handlers::git::git_delete_remote_branch),
         )
         // ─── Files ───
-        .route("/open_office_preview", post(crate::office_watch::preview_session::open_handler))
-        .route("/close_office_preview", post(crate::office_watch::preview_session::close_handler))
-        .route("/renew_office_preview", post(crate::office_watch::preview_session::renew_handler))
-        .route("/open_preview_resource", post(crate::preview_resources::open_handler))
-        .route("/close_preview_resource", post(crate::preview_resources::close_handler))
-        .route("/renew_preview_resource", post(crate::preview_resources::renew_handler))
+        .route(
+            "/open_office_preview",
+            post(crate::office_watch::preview_session::open_handler),
+        )
+        .route(
+            "/close_office_preview",
+            post(crate::office_watch::preview_session::close_handler),
+        )
+        .route(
+            "/renew_office_preview",
+            post(crate::office_watch::preview_session::renew_handler),
+        )
+        .route(
+            "/open_preview_resource",
+            post(crate::preview_resources::open_handler),
+        )
+        .route(
+            "/close_preview_resource",
+            post(crate::preview_resources::close_handler),
+        )
+        .route(
+            "/renew_preview_resource",
+            post(crate::preview_resources::renew_handler),
+        )
         .route(
             "/read_file_preview",
             post(handlers::files::read_file_preview),
@@ -817,6 +943,18 @@ pub fn build_router(
             post(handlers::capability_policy::decision),
         )
         .route("/acp_connect", post(handlers::acp::acp_connect))
+        .route(
+            "/acp_prepare_session",
+            post(handlers::acp_prepared::prepare),
+        )
+        .route(
+            "/acp_cancel_prepared_session",
+            post(handlers::acp_prepared::cancel),
+        )
+        .route(
+            "/acp_reserve_prepared_workspace",
+            post(handlers::acp_prepared::reserve_workspace),
+        )
         .route("/acp_disconnect", post(handlers::acp::acp_disconnect))
         .route(
             "/acp_disconnect_for_replacement",
@@ -852,10 +990,7 @@ pub fn build_router(
             "/acp_respond_permission",
             post(handlers::acp::acp_respond_permission),
         )
-        .route(
-            "/acp_respond_html",
-            post(handlers::acp::acp_respond_html),
-        )
+        .route("/acp_respond_html", post(handlers::acp::acp_respond_html))
         .route(
             "/acp_answer_question",
             post(handlers::acp::acp_answer_question),
@@ -1542,7 +1677,10 @@ pub fn build_router(
     // The login page needs to read the user's preferred language before
     // authenticating so it can render in their chosen locale.
     let public_api = Router::new()
-        .route("/preview_resource/{id}/{*name}", get(crate::preview_resources::serve))
+        .route(
+            "/preview_resource/{id}/{*name}",
+            get(crate::preview_resources::serve),
+        )
         .route(
             "/wecom_agent_callback/{channel_id}/{callback_path}",
             get(handlers::wecom_agent_callback::verify_callback)

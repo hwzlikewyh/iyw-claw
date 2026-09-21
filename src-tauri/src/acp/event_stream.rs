@@ -497,8 +497,13 @@ fn live_content_size(block: &crate::acp::session_state::LiveContentBlock) -> usi
         Block::Text { text } | Block::Thinking { text } => 32 + json_str_len(text),
         Block::ToolCallRef { tool_call_id } => 48 + json_str_len(tool_call_id),
         Block::Plan { entries } => 32 + json_value_size(entries),
-        Block::UserInput { message_id, blocks, .. } => 128 + json_str_len(message_id)
-            + blocks.iter().map(user_block_size).sum::<usize>() + blocks.len(),
+        Block::UserInput {
+            message_id, blocks, ..
+        } => {
+            128 + json_str_len(message_id)
+                + blocks.iter().map(user_block_size).sum::<usize>()
+                + blocks.len()
+        }
     }
 }
 

@@ -56,6 +56,17 @@ pub fn build_context_primer(turns: &[MessageTurn]) -> ConversationContextPrimer 
     }
 }
 
+/// Build a primer for automatic session succession. The final user exchange is
+/// intentionally excluded because a disconnected agent may have persisted it
+/// without ever completing the turn.
+pub fn build_continuation_context_primer(turns: &[MessageTurn]) -> ConversationContextPrimer {
+    let boundary = turns
+        .iter()
+        .rposition(|turn| matches!(turn.role, TurnRole::User))
+        .unwrap_or(turns.len());
+    build_context_primer(&turns[..boundary])
+}
+
 fn select_exchanges(turns: &[MessageTurn], user_indices: &[usize]) -> (Vec<String>, bool) {
     let recent = user_indices.len().saturating_sub(MAX_USER_TURNS);
     let mut selected = Vec::new();

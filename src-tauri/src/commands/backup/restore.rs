@@ -474,6 +474,12 @@ fn apply_pending_restore_with_optional_paths(
     if let Some(user_memory_root) = user_memory_root {
         let staged_user_memory = staging.join(super::USER_MEMORY_ARCHIVE_DIR);
         for file_name in super::USER_MEMORY_BACKUP_FILES {
+            if file_name == crate::user_memory::USER_MEMORY_AUTHORITY_FILE
+                && user_memory_root.join(file_name).try_exists()?
+            {
+                // 保留本机已提交代次，旧备份不能静默恢复已废弃的记忆。
+                continue;
+            }
             let staged_document = staged_user_memory.join(file_name);
             if staged_document.is_file() {
                 swap_in(

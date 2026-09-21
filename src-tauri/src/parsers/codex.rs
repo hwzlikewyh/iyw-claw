@@ -13,12 +13,12 @@ use crate::parsers::{
     folder_name_from_path, title_from_user_text, truncate_str, AgentParser, ParseError,
 };
 
-mod paginated_messages;
 mod command_descriptions;
+mod paginated_messages;
 mod usage;
 
-use paginated_messages::PaginatedMessages;
 use command_descriptions::command_input_preview;
+use paginated_messages::PaginatedMessages;
 use usage::{
     extract_usage as extract_turn_usage_from_codex_usage,
     total_tokens as extract_total_tokens_from_usage, TaskUsageTracker, UsageTracker,
@@ -1609,7 +1609,11 @@ impl CodexParser {
                                             model: None,
                                             completed_at: Some(timestamp),
                                         });
-                                        command_descriptions::append_completed_command(payload, &mut messages, timestamp);
+                                        command_descriptions::append_completed_command(
+                                            payload,
+                                            &mut messages,
+                                            timestamp,
+                                        );
                                     }
                                 }
                             }
@@ -2502,9 +2506,9 @@ fn group_into_turns(messages: Vec<UnifiedMessage>) -> Vec<MessageTurn> {
 
             turns.push(MessageTurn {
                 fork_message_id: (!msg.id.is_empty()
-                    && msg.content.iter().any(|block| {
-                        matches!(block, ContentBlock::Text { text } if !text.is_empty())
-                    }))
+                    && msg.content.iter().any(
+                        |block| matches!(block, ContentBlock::Text { text } if !text.is_empty()),
+                    ))
                 .then(|| msg.id.clone()),
                 id: format!("turn-{}", turns.len()),
                 role: TurnRole::Assistant,

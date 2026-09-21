@@ -180,7 +180,10 @@ impl SessionRequestRouter {
             .routes
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if session_id.as_ref().is_some_and(|id| routes.sessions.contains_key(id)) {
+        if session_id
+            .as_ref()
+            .is_some_and(|id| routes.sessions.contains_key(id))
+        {
             return None;
         }
         routes.connections.insert(

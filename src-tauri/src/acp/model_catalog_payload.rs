@@ -42,6 +42,12 @@ fn parse_model(value: &serde_json::Value) -> Option<PersistedModel> {
         .unwrap_or(true);
     Some(PersistedModel {
         id: id.to_string(),
+        display_name: value
+            .get("display_name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .unwrap_or_default()
+            .to_string(),
         capabilities,
         supports_reasoning_summary_parameter,
         supports_search_tool: value["supports_search_tool"].as_bool().unwrap_or(false),

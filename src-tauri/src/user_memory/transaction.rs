@@ -51,6 +51,9 @@ impl UserMemoryService {
         previous: UserMemoryGeneration,
         next: UserMemoryGeneration,
     ) -> Result<(), AppCommandError> {
+        if self.active_authority().is_some() {
+            return self.commit_authority_change(&previous, &next, None).await;
+        }
         let prepared = UserMemoryTransactionJournal {
             schema_version: USER_MEMORY_TRANSACTION_SCHEMA_VERSION,
             transaction_id: uuid::Uuid::new_v4(),
@@ -212,7 +215,7 @@ pub(super) fn validate_journal(
     validate_generation(&transaction.next)
 }
 
-fn validate_participation(
+pub(super) fn validate_participation(
     previous: &UserMemoryGeneration,
     next: &UserMemoryGeneration,
 ) -> Result<(), AppCommandError> {
@@ -229,7 +232,9 @@ fn validate_participation(
     }
 }
 
-fn validate_generation(generation: &UserMemoryGeneration) -> Result<(), AppCommandError> {
+pub(super) fn validate_generation(
+    generation: &UserMemoryGeneration,
+) -> Result<(), AppCommandError> {
     for resource in generation.documents.values() {
         if let ResourceGeneration::Present { etag, value } = resource {
             validate_document_content(value)?;
@@ -239,6 +244,7 @@ fn validate_generation(generation: &UserMemoryGeneration) -> Result<(), AppComma
         }
     }
     if let Some(ResourceGeneration::Present { etag, value }) = &generation.candidate_state {
+        candidate_store::ensure_serialized_size(value)?;
         if *etag != candidate_store::revision(value)? {
             return Err(transaction_invalid("candidate generation etag is invalid"));
         }

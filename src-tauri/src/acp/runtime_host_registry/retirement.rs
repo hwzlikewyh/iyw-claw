@@ -262,9 +262,13 @@ impl RuntimeHostRegistry {
         drop(registered);
         let retirement_report = self.retirements.reap_all().await;
         self.spawn_locks.lock().await.clear();
-        let reaped = startup_report.reaped && hosts_reaped && retirement_report.reaped
+        let reaped = startup_report.reaped
+            && hosts_reaped
+            && retirement_report.reaped
             && owned_results.iter().all(|report| report.reaped);
-        let clean = startup_report.clean && hosts_clean && retirement_report.clean
+        let clean = startup_report.clean
+            && hosts_clean
+            && retirement_report.clean
             && owned_results.iter().all(|report| report.clean);
         let completed = reaped && clean;
         tracing::info!(

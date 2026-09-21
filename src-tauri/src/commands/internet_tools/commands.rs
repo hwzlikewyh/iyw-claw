@@ -33,6 +33,11 @@ pub async fn internet_tool_uninstall(
     tool: InternetToolId,
     remove_config: bool,
 ) -> Result<InternetToolInfo, String> {
+    if cfg!(feature = "tauri-runtime") && tool == InternetToolId::AgentReach {
+        return Err(
+            "Agent Reach 由安装环境统一管理，请使用 iyw-environment repair 修复".to_string(),
+        );
+    }
     let _guard = bootstrap_lock().lock().await;
     let paths = active_paths()?;
     remove_agent_skill_links(tool).await?;

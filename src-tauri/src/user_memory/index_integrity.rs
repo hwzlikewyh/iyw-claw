@@ -135,7 +135,7 @@ fn validate_relation(
 ) -> Result<(), sea_orm::DbErr> {
     let known = matches!(
         relation.relation.as_str(),
-        "supports" | "relates_to" | "related" | "contradicts"
+        "supports" | "relates_to" | "related" | "contradicts" | "derived_from"
     );
     if !known
         || relation.source_id == relation.target_id

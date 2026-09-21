@@ -49,7 +49,8 @@ async fn pending_turn(
     generation: i64,
 ) -> Option<NativeBackgroundTurn> {
     let mut snapshot = state.write().await;
-    let pending = snapshot.native_background_turn
+    let pending = snapshot
+        .native_background_turn
         .as_ref()
         .filter(|turn| turn.source_generation == generation && turn.adopted_generation.is_none())
         .cloned();
@@ -118,9 +119,12 @@ async fn adopt_generation(
     hermes_shared_home_connections: Option<u16>,
 ) -> Option<i64> {
     let mut snapshot = state.write().await;
-    let pending = snapshot.native_background_turn.as_ref().is_some_and(|turn| {
-        turn.source_generation == generation && turn.adopted_generation.is_none()
-    });
+    let pending = snapshot
+        .native_background_turn
+        .as_ref()
+        .is_some_and(|turn| {
+            turn.source_generation == generation && turn.adopted_generation.is_none()
+        });
     if snapshot.turn_generation != generation || !snapshot.turn_completion_pending || !pending {
         tracing::error!(
             connection_id = conn_id,
@@ -153,12 +157,9 @@ async fn mark_conversation_in_progress(
     let Some(conversation_id) = state.read().await.conversation_id else {
         return;
     };
-    if let Err(error) = conversation_service::update_status(
-        db,
-        conversation_id,
-        ConversationStatus::InProgress,
-    )
-    .await
+    if let Err(error) =
+        conversation_service::update_status(db, conversation_id, ConversationStatus::InProgress)
+            .await
     {
         tracing::error!(connection_id = conn_id, conversation_id, adopted_generation, error = %error, "[agent-input] native background conversation status update failed");
         return;
@@ -188,9 +189,15 @@ async fn emit_adopted_turn(
     )
     .await;
     if !background.automatic {
-        emit_with_state(state, emitter, AcpEvent::UserMessage {
-            message_id: background.message_id, blocks: background.blocks,
-        }).await;
+        emit_with_state(
+            state,
+            emitter,
+            AcpEvent::UserMessage {
+                message_id: background.message_id,
+                blocks: background.blocks,
+            },
+        )
+        .await;
     }
     let snapshot = state.read().await;
     snapshot.agent_input_notify.notify_one();
@@ -206,9 +213,13 @@ pub(crate) async fn begin_automatic(
     let (generation, idle, conn_id) = {
         let mut snapshot = state.write().await;
         if let Some(existing) = &snapshot.native_background_turn {
-            return if existing.automatic && existing.message_id == turn_id { Ok(Some(true)) }
-                else if existing.adopted_generation == Some(snapshot.turn_generation) { Ok(None) }
-                else { Err("another native turn is already registered".into()) };
+            return if existing.automatic && existing.message_id == turn_id {
+                Ok(Some(true))
+            } else if existing.adopted_generation == Some(snapshot.turn_generation) {
+                Ok(None)
+            } else {
+                Err("another native turn is already registered".into())
+            };
         }
         if after_generation.is_some_and(|generation| snapshot.turn_generation > generation) {
             return Ok(Some(false));
@@ -219,17 +230,29 @@ pub(crate) async fn begin_automatic(
         let idle = !snapshot.turn_in_flight && !snapshot.turn_completion_pending;
         let generation = snapshot.turn_generation;
         snapshot.native_background_turn = Some(NativeBackgroundTurn {
-            automatic: true, message_id: turn_id.to_string(), blocks: Vec::new(),
-            source_generation: generation, adopted_generation: None, terminal_status: None,
+            automatic: true,
+            message_id: turn_id.to_string(),
+            blocks: Vec::new(),
+            source_generation: generation,
+            adopted_generation: None,
+            terminal_status: None,
         });
-        if idle { snapshot.turn_completion_pending = true; }
+        if idle {
+            snapshot.turn_completion_pending = true;
+        }
         (generation, idle, snapshot.connection_id.clone())
     };
     if idle {
-        let adopted = adopt_generation(state, &conn_id, generation, None).await
+        let adopted = adopt_generation(state, &conn_id, generation, None)
+            .await
             .ok_or("automatic turn lost its generation")?;
         mark_conversation_in_progress(db, state, emitter, &conn_id, adopted).await;
-        let background = state.read().await.native_background_turn.clone().ok_or("automatic turn disappeared")?;
+        let background = state
+            .read()
+            .await
+            .native_background_turn
+            .clone()
+            .ok_or("automatic turn disappeared")?;
         emit_adopted_turn(state, emitter, background).await;
     }
     Ok(Some(true))
@@ -241,8 +264,11 @@ pub(crate) async fn cancel_pending_automatic(
     turn_id: &str,
 ) -> bool {
     let mut snapshot = state.write().await;
-    let Some(turn) = snapshot.native_background_turn.as_ref()
-        .filter(|turn| turn.automatic && turn.message_id == turn_id) else {
+    let Some(turn) = snapshot
+        .native_background_turn
+        .as_ref()
+        .filter(|turn| turn.automatic && turn.message_id == turn_id)
+    else {
         return false;
     };
     if turn.adopted_generation.is_some() {

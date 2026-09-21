@@ -4,12 +4,15 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
 use crate::app_error::AppCommandError;
 use crate::commands::conversation_context_primer::{
-    build_context_primer, ConversationContextPrimer,
+    build_context_primer, build_continuation_context_primer, ConversationContextPrimer,
 };
 use crate::db::entities::folder::FolderKind;
 use crate::db::entities::{automation_run, conversation};
 use crate::db::error::DbError;
-use crate::db::service::{conversation_service, folder_service, import_service, tab_service};
+use crate::db::service::{
+    conversation_service, conversation_session_segment_service, folder_service, import_service,
+    tab_service,
+};
 #[cfg(feature = "tauri-runtime")]
 use crate::db::AppDatabase;
 use crate::models::*;
@@ -22,8 +25,8 @@ use crate::web::event_bridge::{
 
 use super::conversation_title::{self, ConversationTitleContext};
 
-mod search;
 mod pages;
+mod search;
 pub(crate) use pages::list_conversations_page_core;
 #[cfg(feature = "tauri-runtime")]
 pub use pages::*;
@@ -44,10 +47,21 @@ pub(crate) async fn list_all_conversations_core(
 ) -> Result<Vec<DbConversationSummary>, AppCommandError> {
     refresh_list_titles(context).await;
     let ListAllConversationsOptions {
-        folder_ids, agent_type, search, sort_by, status, include_children,
+        folder_ids,
+        agent_type,
+        search,
+        sort_by,
+        status,
+        include_children,
     } = options;
     let conversations = conversation_service::list_all(
-        context.conn, folder_ids, agent_type, None, sort_by, status, include_children,
+        context.conn,
+        folder_ids,
+        agent_type,
+        None,
+        sort_by,
+        status,
+        include_children,
     )
     .await
     .map_err(AppCommandError::from)?;
@@ -548,9 +562,37 @@ pub async fn get_folder_conversation_core(
     let summary = conversation_service::get_by_id(conn, conversation_id)
         .await
         .map_err(AppCommandError::from)?;
+    let segment_specs =
+        conversation_session_segment_service::list_for_conversation(conn, conversation_id)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|segment| {
+                segment.external_id.map(|external_id| {
+                    (
+                        segment.id,
+                        external_id,
+                        segment.history_mode == "full_fork",
+                        segment.status == conversation_session_segment_service::STATUS_ACTIVE,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
 
     let (mut turns, session_stats, resolved_ext_id, mut parsed_title, transcript_watermark) =
-        if let Some(ref ext_id) = summary.external_id {
+        if segment_specs.len() > 1 {
+            let agent_type = summary.agent_type;
+            tokio::task::spawn_blocking(move || {
+                load_segmented_conversation(agent_type, segment_specs)
+            })
+            .await
+            .map_err(|error| {
+                AppCommandError::task_execution_failed(
+                    "Failed to read conversation segment history",
+                )
+                .with_detail(error.to_string())
+            })??
+        } else if let Some(ref ext_id) = summary.external_id {
             let at = summary.agent_type;
             let eid = ext_id.clone();
             let db_created_at = summary.created_at;
@@ -677,6 +719,54 @@ pub async fn get_folder_conversation_core(
         },
         parsed_title,
     ))
+}
+
+fn load_segmented_conversation(
+    agent_type: AgentType,
+    segments: Vec<(i32, String, bool, bool)>,
+) -> Result<
+    (
+        Vec<MessageTurn>,
+        Option<SessionStats>,
+        Option<String>,
+        Option<String>,
+        Option<u64>,
+    ),
+    AppCommandError,
+> {
+    let parser = parser_for_agent(agent_type);
+    let mut turns = Vec::new();
+    let mut seen = HashSet::new();
+    let mut stats = None;
+    let mut title = None;
+    let mut watermark = None;
+    for (segment_id, external_id, full_fork, active) in segments {
+        let detail = match parser.get_conversation(&external_id) {
+            Ok(detail) => detail,
+            Err(crate::parsers::ParseError::ConversationNotFound(_)) if !active => {
+                tracing::warn!(
+                    segment_id,
+                    external_id,
+                    "[conversation-history] closed session segment transcript is unavailable"
+                );
+                continue;
+            }
+            Err(error) => return Err(parse_error_to_app_error(error)),
+        };
+        if full_fork {
+            turns.clear();
+            seen.clear();
+        }
+        for turn in detail.turns {
+            if seen.insert((segment_id, turn.id.clone())) {
+                turns.push(turn);
+            }
+        }
+        stats = detail.session_stats.or(stats);
+        title = detail.summary.title.or(title);
+        watermark = detail.transcript_watermark.or(watermark);
+    }
+    Ok((turns, stats, None, title, watermark))
 }
 
 fn strip_private_user_context(turns: &mut Vec<MessageTurn>) {
@@ -932,11 +1022,7 @@ pub async fn get_folder_conversation_page_core(
     } else {
         let revision = cache_revision.clone();
         tokio::task::spawn_blocking(move || {
-            crate::commands::conversation_history_cache::load(
-                conversation_id,
-                &revision,
-                before,
-            )
+            crate::commands::conversation_history_cache::load(conversation_id, &revision, before)
         })
         .await
         .map_err(|error| AppCommandError::task_execution_failed(error.to_string()))?
@@ -1019,6 +1105,21 @@ pub async fn get_conversation_context_primer_core(
     source: ContextPrimerSource<'_>,
     conversation_id: i32,
 ) -> Result<ConversationContextPrimer, AppCommandError> {
+    build_conversation_context_primer(source, conversation_id, false).await
+}
+
+pub async fn get_conversation_continuation_primer_core(
+    source: ContextPrimerSource<'_>,
+    conversation_id: i32,
+) -> Result<ConversationContextPrimer, AppCommandError> {
+    build_conversation_context_primer(source, conversation_id, true).await
+}
+
+async fn build_conversation_context_primer(
+    source: ContextPrimerSource<'_>,
+    conversation_id: i32,
+    for_continuation: bool,
+) -> Result<ConversationContextPrimer, AppCommandError> {
     let started_at = std::time::Instant::now();
     let detail = get_folder_conversation_page_core(
         source.conn,
@@ -1030,14 +1131,25 @@ pub async fn get_conversation_context_primer_core(
         false,
     )
     .await?;
-    let primer = build_context_primer(&detail.turns);
+    let mut turns = detail.turns;
+    if let Some(in_flight_id) = detail.in_flight_user_turn_id.as_deref() {
+        if let Some(index) = turns.iter().position(|turn| turn.id == in_flight_id) {
+            turns.truncate(index);
+        }
+    }
+    let primer = if for_continuation {
+        build_continuation_context_primer(&turns)
+    } else {
+        build_context_primer(&turns)
+    };
     tracing::info!(
         conversation_id,
-        visible_turns = detail.turns.len(),
+        visible_turns = turns.len(),
         included_user_turns = primer.included_user_turns,
         total_user_turns = primer.total_user_turns,
         primer_chars = primer.text.chars().count(),
         truncated = primer.truncated,
+        for_continuation,
         elapsed_ms = started_at.elapsed().as_millis(),
         "[conversation-context-primer] generated"
     );
@@ -1054,6 +1166,27 @@ pub async fn get_conversation_context_primer(
     conversation_id: i32,
 ) -> Result<ConversationContextPrimer, AppCommandError> {
     get_conversation_context_primer_core(
+        ContextPrimerSource {
+            conn: &db.conn,
+            manager: &manager,
+            chat_channel_manager: &chat_channel_manager,
+            emitter: &EventEmitter::Tauri(app),
+        },
+        conversation_id,
+    )
+    .await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn get_conversation_continuation_primer(
+    app: tauri::AppHandle,
+    db: tauri::State<'_, AppDatabase>,
+    manager: tauri::State<'_, crate::acp::manager::ConnectionManager>,
+    chat_channel_manager: tauri::State<'_, crate::chat_channel::manager::ChatChannelManager>,
+    conversation_id: i32,
+) -> Result<ConversationContextPrimer, AppCommandError> {
+    get_conversation_continuation_primer_core(
         ContextPrimerSource {
             conn: &db.conn,
             manager: &manager,
@@ -1575,7 +1708,9 @@ pub async fn update_conversation_model_core(
 ) -> Result<(), AppCommandError> {
     let model = model.trim().to_string();
     if model.is_empty() {
-        return Err(AppCommandError::invalid_input("Conversation model cannot be empty"));
+        return Err(AppCommandError::invalid_input(
+            "Conversation model cannot be empty",
+        ));
     }
     conversation_service::update_model(conn, conversation_id, Some(model))
         .await

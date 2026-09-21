@@ -188,6 +188,10 @@ export interface UserMemoryHarvestStatus {
   failed: number
   dead: number
   backlog: number
+  pendingSubmissions?: number
+  discoveredUnqueued?: number
+  skippedSensitiveUnqueued?: number
+  skippedContextPoorUnqueued?: number
   lastHarvestAt?: string | null
   lastSuccessWriteAt?: string | null
   lastFailureAt?: string | null
@@ -196,6 +200,10 @@ export interface UserMemoryHarvestStatus {
 export interface UserMemoryHarvestRescanPreview {
   reQueued: number
   retainedTerminal: number
+  discoveredUnqueued?: number
+  recoveredUnqueued?: number
+  skippedSensitive?: number
+  skippedContextPoor?: number
 }
 
 export interface UserMemoryHarvestRescanResult {

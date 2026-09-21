@@ -78,7 +78,9 @@ pub struct EventEnvelope {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AcpEvent {
     /// 上游权威回合内容，修复队列丢失导致的文本缺口和工具顺序。
-    ContentRecovered { content: Vec<crate::acp::session_state::LiveContentBlock> },
+    ContentRecovered {
+        content: Vec<crate::acp::session_state::LiveContentBlock>,
+    },
     RuntimeObservation {
         observation: crate::acp::runtime_observation::RuntimeObservation,
     },

@@ -217,7 +217,9 @@ export async function getSidebarData(): Promise<SidebarData> {
   return getTransport().call("get_sidebar_data")
 }
 
-export async function getUsageDashboard(days = 7): Promise<UsageDashboardStats> {
+export async function getUsageDashboard(
+  days = 7
+): Promise<UsageDashboardStats> {
   return getTransport().call("get_usage_dashboard", { days })
 }
 
@@ -230,7 +232,9 @@ export async function acpConnect(
   conversationId?: number,
   preferredModeId?: string | null,
   preferredConfigValues?: Record<string, string> | null,
-  forceHostRestart = false
+  forceHostRestart = false,
+  continuationFromSessionId?: string,
+  continuationContext?: string
 ): Promise<string> {
   return getTransport().call("acp_connect", {
     agentType,
@@ -240,6 +244,8 @@ export async function acpConnect(
     preferredModeId: preferredModeId ?? null,
     preferredConfigValues: preferredConfigValues ?? null,
     forceHostRestart,
+    continuationFromSessionId: continuationFromSessionId ?? null,
+    continuationContext: continuationContext ?? null,
   })
 }
 
@@ -1379,11 +1385,16 @@ export async function bootstrapInitStatus(): Promise<BootstrapInitStatusReport> 
 
 export async function bootstrapInitialize(params: {
   channel?: string
+  repair?: boolean
   taskId: string
 }): Promise<BootstrapInitStatusReport> {
   return getTransport().call(
     "bootstrap_initialize",
-    { channel: params.channel ?? "stable", taskId: params.taskId },
+    {
+      channel: params.channel ?? "stable",
+      repair: params.repair ?? false,
+      taskId: params.taskId,
+    },
     { timeoutMs: 1_800_000 }
   )
 }
@@ -1831,6 +1842,14 @@ export async function getConversationContextPrimer(
   conversationId: number
 ): Promise<ConversationContextPrimer> {
   return getTransport().call("get_conversation_context_primer", {
+    conversationId,
+  })
+}
+
+export async function getConversationContinuationPrimer(
+  conversationId: number
+): Promise<ConversationContextPrimer> {
+  return getTransport().call("get_conversation_continuation_primer", {
     conversationId,
   })
 }

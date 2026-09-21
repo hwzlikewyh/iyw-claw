@@ -42,7 +42,9 @@ use crate::acp::npm_runtime;
 use crate::acp::permission_queue::{PermissionQueue, QueuedPermission};
 use crate::acp::permission_runtime::{PermissionRequestMeta, PermissionRuntime};
 use crate::acp::registry::{self, AgentDistribution};
-use crate::acp::session_config_compat::resolve_preferred_session_config;
+use crate::acp::session_config_compat::{
+    canonical_model_id, model_value_for_agent, project_model_options, resolve_preferred_session_config,
+};
 use crate::acp::session_recovery::{
     RecoveryBudget, RecoveryFailure, RecoveryProgress, RecoveryStage,
 };
@@ -1299,7 +1301,9 @@ fn internal_xinghe_worker_requested(
     agent_type: AgentType,
     runtime_env: &BTreeMap<String, String>,
 ) -> bool {
-    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) { return true; }
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        return true;
+    }
     agent_type == AgentType::Codex
         && runtime_env.get(CODEX_BACKEND_ENV).is_some_and(|value| {
             value
@@ -1326,9 +1330,13 @@ fn build_internal_xinghe_worker_agent(
         ));
     }
     let mut environment = internal_worker_environment(runtime_env, cwd, &storage, launch);
-    let library = crate::internal_xinghe_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
+    let library =
+        crate::internal_xinghe_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
     let helper = library.with_file_name(crate::internal_xinghe_worker::helper_filename());
-    environment.insert("IYW_CLAW_XINGHE_WORKER_HELPER".into(), helper.to_string_lossy().into_owned());
+    environment.insert(
+        "IYW_CLAW_XINGHE_WORKER_HELPER".into(),
+        helper.to_string_lossy().into_owned(),
+    );
     let env_vars = environment
         .iter()
         .map(|(name, value)| sacp::schema::EnvVariable::new(name, value))
@@ -1377,15 +1385,26 @@ fn internal_worker_environment(
     environment.insert(
         WORKER_HOME_ENV.to_string(),
         runtime_env.get("CODEX_HOME").cloned().unwrap_or_else(|| {
-            storage.profile(AgentType::Codex).root.to_string_lossy().into_owned()
+            storage
+                .profile(AgentType::Codex)
+                .root
+                .to_string_lossy()
+                .into_owned()
         }),
     );
     environment.insert(
         WORKER_FINGERPRINT_ENV.to_string(),
         // 预热池使用稳定配置键；运行器内部的会话权限仍使用每实例唯一的代际。
-        format!("{}:instance:{}", launch.runtime_fingerprint, uuid::Uuid::new_v4().simple()),
+        format!(
+            "{}:instance:{}",
+            launch.runtime_fingerprint,
+            uuid::Uuid::new_v4().simple()
+        ),
     );
-    environment.insert(WORKER_CONNECTION_ENV.to_string(), launch.connection_id.to_string());
+    environment.insert(
+        WORKER_CONNECTION_ENV.to_string(),
+        launch.connection_id.to_string(),
+    );
     if let Some(session_id) = launch.expected_session_id {
         environment.insert(WORKER_SESSION_ENV.to_string(), session_id.to_string());
     }
@@ -1434,6 +1453,9 @@ pub(crate) async fn spawn_agent_connection(
     builtin_mcp: Option<crate::acp::builtin_mcp::BuiltinMcpClient>,
     version_center_db: Option<sea_orm::DatabaseConnection>,
     storage_read_guard: crate::acp::agent_storage_work::AgentStorageReadGuard,
+    continuation_from_session_id: Option<String>,
+    continuation_context: Option<String>,
+    continuation_attempt_id: Option<String>,
 ) -> Result<tokio::sync::oneshot::Receiver<()>, AcpError> {
     let spawn_gate = connection_tasks.begin_spawn().await?;
     let mut preferred_config_values = preferred_config_values;
@@ -1499,6 +1521,17 @@ pub(crate) async fn spawn_agent_connection(
     initial_state.startup_trace = Some(startup_trace.clone());
     initial_state.hermes_memory = hermes_memory.native_memory;
     initial_state.user_memory_context = user_memory_context;
+    initial_state.continuation_context = continuation_context.and_then(|context| {
+        let context = context.chars().take(24_000).collect::<String>();
+        (!context.trim().is_empty()).then(|| {
+            Arc::<str>::from(format!(
+                "{}\n{}\n{}",
+                crate::user_memory::USER_CONTEXT_START,
+                context,
+                crate::user_memory::USER_CONTEXT_END,
+            ))
+        })
+    });
     initial_state.is_delegation_child = is_delegation_child;
     if session_id.is_some() {
         // The external session already retains the user-memory envelope in its
@@ -1726,6 +1759,10 @@ pub(crate) async fn spawn_agent_connection(
     let recovery_in_progress = Arc::new(RecoveryProgress::new());
     let recovery_in_progress_for_run = Arc::clone(&recovery_in_progress);
     let recovery_session_id = session_id.clone();
+    let continuation_activated = Arc::new(AtomicBool::new(false));
+    let continuation_activated_for_run = Arc::clone(&continuation_activated);
+    let continuation_attempt_id_for_cleanup = continuation_attempt_id.clone();
+    let continuation_db_for_cleanup = version_center_db.clone();
 
     // Insert the entry BEFORE spawning the background task so that a
     // fast-failing `run_connection` can never remove it before it was
@@ -1801,6 +1838,9 @@ pub(crate) async fn spawn_agent_connection(
                 cancellation,
                 disconnect_command_ready,
                 http_lease_issued,
+                continuation_from_session_id,
+                continuation_attempt_id,
+                continuation_activated_for_run,
             ),
             cleanup_connection_resources(
                 cleanup_injection.as_ref(),
@@ -1811,6 +1851,17 @@ pub(crate) async fn spawn_agent_connection(
             ),
         )
         .await;
+        if let (Some(attempt_id), Some(db)) = (
+            continuation_attempt_id_for_cleanup.as_deref(),
+            continuation_db_for_cleanup.as_ref(),
+        ) {
+            if !continuation_activated.load(Ordering::Acquire) {
+                let _ = crate::db::service::conversation_session_segment_service::fail_pending(
+                    db, attempt_id,
+                )
+                .await;
+            }
+        }
         let connection_failed = result.is_err();
 
         if agent_type == AgentType::Codex {
@@ -1934,7 +1985,11 @@ async fn runtime_host_key(
         process_fingerprint,
         crate::acp::runtime_host::RuntimeHostIdentity {
             definition_fingerprint: identity.definition_fingerprint,
-            runtime_version: if dedicated_worker { crate::internal_xinghe_worker::RUNTIME_VERSION.to_string() } else { identity.runtime_version },
+            runtime_version: if dedicated_worker {
+                crate::internal_xinghe_worker::RUNTIME_VERSION.to_string()
+            } else {
+                identity.runtime_version
+            },
             policy,
         },
     ))
@@ -2053,11 +2108,14 @@ fn map_session_config_option(option: &SessionConfigOption) -> Option<SessionConf
 
 fn map_session_config_options(
     config_options: &[SessionConfigOption],
+    agent_type: AgentType,
 ) -> Vec<SessionConfigOptionInfo> {
-    config_options
+    let mut mapped = config_options
         .iter()
         .filter_map(map_session_config_option)
-        .collect()
+        .collect::<Vec<_>>();
+    project_model_options(agent_type, &mut mapped);
+    mapped
 }
 
 /// Defensive fallback for Codex's approval-preset selector.
@@ -2127,7 +2185,7 @@ async fn emit_session_config_options_values(
     agent_type: AgentType,
     config_options: Vec<SessionConfigOption>,
 ) {
-    let mut mapped = map_session_config_options(&config_options);
+    let mut mapped = map_session_config_options(&config_options, agent_type);
     if agent_type == AgentType::Codex {
         ensure_codex_mode_option(&mut mapped);
     }
@@ -3299,6 +3357,9 @@ async fn run_connection(
     cancellation: tokio_util::sync::CancellationToken,
     disconnect_command_ready: Arc<AtomicBool>,
     http_lease_issued: Arc<AtomicBool>,
+    continuation_from_session_id: Option<String>,
+    continuation_attempt_id: Option<String>,
+    continuation_activated: Arc<AtomicBool>,
 ) -> Result<(), AcpError> {
     let mut attempt_agent = Some(agent);
     let mut reconnect_attempts = 0usize;
@@ -3339,7 +3400,8 @@ async fn run_connection(
             crate::shared_runtime::envs_dir(),
         ]);
         let file_system_runtime = Arc::new(FileSystemRuntime::with_additional_roots(
-            cwd.clone(), file_system_roots,
+            cwd.clone(),
+            file_system_roots,
         ));
 
         let conn_id = connection_id.clone();
@@ -3425,7 +3487,9 @@ async fn run_connection(
             connection_id.clone(),
             session_id.clone(),
             crate::acp::runtime_host::RuntimeSessionRoute {
-                worker_database: dedicated_worker.then(|| version_center_db.clone()).flatten(),
+                worker_database: dedicated_worker
+                    .then(|| version_center_db.clone())
+                    .flatten(),
                 state: Arc::clone(&state),
                 emitter: emitter.clone(),
                 permissions: pending_perms.clone(),
@@ -3479,6 +3543,9 @@ async fn run_connection(
         let authority_parent_cancellation = attempt_cancellation.clone();
         let reconnect_session_id = session_id.clone();
         let reconnect_host_health = Arc::clone(&host_health);
+        let continuation_from_session_id = continuation_from_session_id.clone();
+        let continuation_attempt_id = continuation_attempt_id.clone();
+        let continuation_activated = Arc::clone(&continuation_activated);
         let companion_launch = &mut companion_launch;
         let tools_cancellation = cancellation.clone();
         let opencode_fork = (agent_type == AgentType::OpenCode)
@@ -3489,12 +3556,17 @@ async fn run_connection(
         let connection = async move {
             let state = state_outer;
             if dedicated_worker {
-                let request = UntypedMessage::new("_iyw/worker/bind_owner", serde_json::json!({
-                    "connectionId": state.read().await.connection_id,
-                }))?;
+                let request = UntypedMessage::new(
+                    "_iyw/worker/bind_owner",
+                    serde_json::json!({
+                        "connectionId": state.read().await.connection_id,
+                    }),
+                )?;
                 let response = cx.send_request_to(Agent, request).block_task().await?;
                 if response.get("bound").and_then(serde_json::Value::as_bool) != Some(true) {
-                    return Err(ConnectionAttemptError::Protocol(sacp::util::internal_error("worker owner binding failed")));
+                    return Err(ConnectionAttemptError::Protocol(
+                        sacp::util::internal_error("worker owner binding failed"),
+                    ));
                 }
             }
             let managed_agent_version = state.read().await.managed_agent_version.clone();
@@ -3611,13 +3683,18 @@ async fn run_connection(
 
             let requested_session = {
                 let state = state.read().await;
-                state.external_id.clone().or_else(|| state.requested_external_id.clone())
+                state
+                    .external_id
+                    .clone()
+                    .or_else(|| state.requested_external_id.clone())
             };
             let mcp_namespace = crate::acp::mcp_namespace::resolve(
                 version_center_db.as_ref(),
                 (agent_type, requested_session.as_deref()),
                 builtin_mcp_server_name(database_conversation_id, agent_type),
-            ).await.map_err(ConnectionAttemptError::from)?;
+            )
+            .await
+            .map_err(ConnectionAttemptError::from)?;
             // 命名空间在持久化会话中固定；每次连接仅更新 authority 和凭证。
             let (companion_health, companion) = mcp_recovery::prepare(
                 companion_launch,
@@ -3642,7 +3719,8 @@ async fn run_connection(
             .await
             .map_err(ConnectionAttemptError::from)?;
             // 星河在会话启动时建立 MCP；其他 Agent 可能延迟到首轮才初始化。
-            let tools_ready = companion.as_ref()
+            let tools_ready = companion
+                .as_ref()
                 .filter(|_| agent_type == AgentType::Codex)
                 .map(|prepared| prepared.tools_ready.clone());
             let delegate_injection = companion.map(|prepared| {
@@ -3652,8 +3730,9 @@ async fn run_connection(
             crate::acp::iyw_gateway_mcp::append(
                 &mut mcp_servers,
                 version_center_db.as_ref(),
-                agent_supports_mcp && mcp_caps.http,
-            ).await;
+                (agent_type, agent_supports_mcp && mcp_caps.http),
+            )
+            .await;
             {
                 let mut s = state.write().await;
                 // The agent's actual feedback capability for this session — the
@@ -3731,7 +3810,9 @@ async fn run_connection(
                             });
                             let mut session = cx.attach_session(new_resp, Default::default())?;
                             mcp_recovery::wait_ready(
-                                tools_ready.as_ref(), &conn_id, &tools_cancellation,
+                                tools_ready.as_ref(),
+                                &conn_id,
+                                &tools_cancellation,
                             )
                             .await
                             .map_err(ConnectionAttemptError::from)?;
@@ -3788,7 +3869,7 @@ async fn run_connection(
                                 &preferred_config_values,
                                 initial_config_options.unwrap_or_default(),
                             )
-                            .await;
+                            .await?;
                             emit_selectors_ready(&state, &emitter_clone).await;
                             if let Some(stage) = selectors_stage {
                                 stage.finish("ok");
@@ -3929,7 +4010,9 @@ async fn run_connection(
                             .flatten();
                         let mut session = cx.attach_session(new_resp, Default::default())?;
                         mcp_recovery::wait_ready(
-                            tools_ready.as_ref(), &conn_id, &tools_cancellation,
+                            tools_ready.as_ref(),
+                            &conn_id,
+                            &tools_cancellation,
                         )
                         .await
                         .map_err(ConnectionAttemptError::from)?;
@@ -4076,7 +4159,7 @@ async fn run_connection(
                             &preferred_config_values,
                             initial_config_options.unwrap_or_default(),
                         )
-                        .await;
+                        .await?;
                         emit_selectors_ready(&state, &emitter_clone).await;
                         if let Some(stage) = selectors_stage {
                             stage.finish("ok");
@@ -4165,8 +4248,12 @@ async fn run_connection(
                     };
                 let sid = new_resp.session_id.0.to_string();
                 crate::acp::mcp_namespace::resolve(
-                    version_center_db.as_ref(), (agent_type, Some(&sid)), mcp_namespace.clone(),
-                ).await.map_err(ConnectionAttemptError::from)?;
+                    version_center_db.as_ref(),
+                    (agent_type, Some(&sid)),
+                    mcp_namespace.clone(),
+                )
+                .await
+                .map_err(ConnectionAttemptError::from)?;
                 if !route_binding.bind_session(sid.clone()) {
                     return Err(sacp::util::internal_error(
                         "ACP runtime route expired before new session binding",
@@ -4183,6 +4270,44 @@ async fn run_connection(
                 mcp_recovery::wait_ready(tools_ready.as_ref(), &conn_id, &tools_cancellation)
                     .await
                     .map_err(ConnectionAttemptError::from)?;
+                if let Some(expected_external_id) = continuation_from_session_id.as_deref() {
+                    let conversation_id = database_conversation_id.ok_or_else(|| {
+                        sacp::util::internal_error(
+                            "continuation session has no durable conversation id",
+                        )
+                    })?;
+                    let db = version_center_db.as_ref().ok_or_else(|| {
+                        sacp::util::internal_error("continuation session database is unavailable")
+                    })?;
+                    let adopted =
+                        crate::db::service::conversation_service::update_external_id_if_matches(
+                            db,
+                            conversation_id,
+                            Some(expected_external_id),
+                            &sid,
+                        )
+                        .await
+                        .map_err(|error| {
+                            sacp::util::internal_error(format!(
+                                "continuation session binding failed: {error}"
+                            ))
+                        })?;
+                    if !adopted {
+                        return Err(sacp::util::internal_error(
+                            "conversation changed before continuation session was bound",
+                        )
+                        .into());
+                    }
+                    continuation_activated.store(true, Ordering::Release);
+                    tracing::info!(
+                        connection_id = conn_id,
+                        conversation_id,
+                        predecessor_session_id = expected_external_id,
+                        successor_session_id = sid,
+                        recovery_attempt_id = continuation_attempt_id.as_deref().unwrap_or(""),
+                        "[ACP] continuation session bound before SessionStarted"
+                    );
+                }
                 finalize_user_memory_launch(
                     &state,
                     &emitter_clone,
@@ -4219,7 +4344,7 @@ async fn run_connection(
                     &preferred_config_values,
                     initial_config_options.unwrap_or_default(),
                 )
-                .await;
+                .await?;
                 emit_selectors_ready(&state, &emitter_clone).await;
                 if let Some(stage) = selectors_stage {
                     stage.finish("ok");
@@ -4369,9 +4494,16 @@ pub(crate) async fn handle_permission_request(
         .collect();
 
     let mut tool_call_value = serde_json::to_value(&req.tool_call).unwrap_or_default();
-    if let Some(key) = req.meta.as_ref().and_then(|meta| meta.get("iyw"))
-        .and_then(|meta| meta.get("requestKey")).and_then(serde_json::Value::as_str) {
-        if !tool_call_value["_meta"].is_object() { tool_call_value["_meta"] = serde_json::json!({}); }
+    if let Some(key) = req
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.get("iyw"))
+        .and_then(|meta| meta.get("requestKey"))
+        .and_then(serde_json::Value::as_str)
+    {
+        if !tool_call_value["_meta"].is_object() {
+            tool_call_value["_meta"] = serde_json::json!({});
+        }
         tool_call_value["_meta"]["iyw"] = serde_json::json!({ "requestKey": key });
     }
 
@@ -4482,15 +4614,43 @@ async fn set_session_config_option(
     config_id: String,
     value_id: String,
 ) -> Result<(), sacp::Error> {
+    let is_model = config_id == "model"
+        || state
+            .read()
+            .await
+            .config_options
+            .as_ref()
+            .is_some_and(|options| {
+                options.iter().any(|option| {
+                    option.id == config_id && option.category.as_deref() == Some("model")
+                })
+            });
+    let requested_model = is_model.then(|| value_id.clone());
     if agent_type == AgentType::Grok {
-        return crate::acp::grok::set_config_option(
-            cx, session_id, state, emitter, config_id, value_id,
-        )
-        .await;
+        crate::acp::grok::set_config_option(cx, session_id, state, emitter, config_id, value_id)
+            .await?;
+        return validate_selected_session_model(
+            requested_model.as_deref(),
+            state
+                .read()
+                .await
+                .config_options
+                .as_deref()
+                .unwrap_or_default(),
+        );
     }
+    let value_id = if is_model {
+        model_value_for_agent(agent_type, value_id)
+    } else {
+        value_id
+    };
     let updated = set_session_config_option_inner(cx, session_id, config_id, value_id).await?;
+    let confirmation = validate_selected_session_model(
+        requested_model.as_deref(),
+        &map_session_config_options(&updated, agent_type),
+    );
     emit_session_config_options_values(state, emitter, agent_type, updated).await;
-    Ok(())
+    confirmation
 }
 
 /// Wire-level half of `set_session_config_option`: send the JSON-RPC request and
@@ -4527,8 +4687,8 @@ async fn set_session_config_option_inner(
 /// values without a client-side rewrite and sync-back cycle.
 ///
 /// Returns the (possibly updated) list of config options that the caller
-/// should emit. Failures on individual preferences are logged and skipped so
-/// a stale or invalid preference cannot block session startup.
+/// should emit. Non-model failures are logged and skipped; the caller must
+/// confirm the selected model before making the session ready for prompts.
 #[allow(clippy::too_many_arguments)]
 async fn apply_preferred_session_config_options(
     cx: &ConnectionTo<Agent>,
@@ -4666,6 +4826,35 @@ async fn apply_preferred_session_mode(
     }
 }
 
+fn validate_selected_session_model(
+    requested_model: Option<&str>,
+    options: &[SessionConfigOptionInfo],
+) -> Result<(), sacp::Error> {
+    let Some(requested_model) = requested_model.filter(|model| !model.is_empty()) else {
+        return Ok(());
+    };
+    let requested_model = canonical_model_id(requested_model);
+    let actual_model = options
+        .iter()
+        .find(|option| option.id == "model" || option.category.as_deref() == Some("model"))
+        .map(|option| {
+            let SessionConfigKindInfo::Select(select) = &option.kind;
+            select.current_value.as_str()
+        });
+    if actual_model == Some(requested_model) {
+        return Ok(());
+    }
+    tracing::error!(
+        requested_model,
+        actual_model,
+        "[ACP] selected model was not confirmed; refusing automatic model fallback"
+    );
+    Err(sacp::util::internal_error(format!(
+        "Selected model '{requested_model}' is unavailable or was not confirmed by the Agent. \
+         No alternative model will be used. Retry or choose another model manually."
+    )))
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn apply_and_emit_session_config_options(
     cx: &ConnectionTo<Agent>,
@@ -4678,7 +4867,7 @@ async fn apply_and_emit_session_config_options(
     preferred_mode_id: Option<&str>,
     preferred_config_values: &BTreeMap<String, String>,
     initial_config_options: Vec<SessionConfigOption>,
-) {
+) -> Result<(), sacp::Error> {
     apply_preferred_session_mode(session, (state, emitter), agent_type, preferred_mode_id).await;
     if agent_type == AgentType::Grok {
         let specs = grok_effort_specs.cloned().unwrap_or_default();
@@ -4693,8 +4882,12 @@ async fn apply_and_emit_session_config_options(
             &specs,
         )
         .await;
+        validate_selected_session_model(
+            preferred_config_values.get("model").map(String::as_str),
+            &options,
+        )?;
         emit_session_config_options_info(state, emitter, agent_type, options).await;
-        return;
+        return Ok(());
     }
     let updated = apply_preferred_session_config_options(
         cx,
@@ -4703,7 +4896,12 @@ async fn apply_and_emit_session_config_options(
         initial_config_options,
     )
     .await;
+    validate_selected_session_model(
+        preferred_config_values.get("model").map(String::as_str),
+        &map_session_config_options(&updated, agent_type),
+    )?;
     emit_session_config_options_values(state, emitter, agent_type, updated).await;
+    Ok(())
 }
 
 const TERMINAL_POLL_INTERVAL_MS: u64 = 200;
@@ -4768,8 +4966,8 @@ impl ToolCallOutputCache {
         // 只保留有界尾部指纹，使完成快照仍能去重；不重建完整输出。
         previous.total_len += delta.len();
         previous.tail.push_str(delta);
-        previous.tail = truncate_tail_at_char_boundary(&previous.tail, MAX_CACHED_TAIL_BYTES)
-            .to_string();
+        previous.tail =
+            truncate_tail_at_char_boundary(&previous.tail, MAX_CACHED_TAIL_BYTES).to_string();
         previous.generation = self.next_generation;
         self.next_generation = self.next_generation.wrapping_add(1);
         Some(build_emit_payload(delta, true))
@@ -5523,7 +5721,10 @@ async fn resume_fork_if_needed(
     mut response: sacp::schema::ForkSessionResponse,
     context: SessionRequestContext<'_>,
 ) -> Result<sacp::schema::ForkSessionResponse, sacp::Error> {
-    if !matches!(context.agent_type, AgentType::ClaudeCode | AgentType::OpenCode) {
+    if !matches!(
+        context.agent_type,
+        AgentType::ClaudeCode | AgentType::OpenCode
+    ) {
         return Ok(response);
     }
     let request = build_resume_session_request(context, response.session_id.clone());
@@ -5759,7 +5960,7 @@ impl PromptLogContext<'_> {
 
     fn failed(
         &self,
-        error: &impl std::fmt::Display,
+        error: &sacp::Error,
         tool_call_count: usize,
         tool_stats: &ToolCallFailureStats,
     ) {
@@ -5768,7 +5969,7 @@ impl PromptLogContext<'_> {
             connection_id = self.connection_id,
             session_id = %self.session_id,
             agent_type = %self.agent_type,
-            error_kind = prompt_error_kind(&detail),
+            error_kind = prompt_error_kind(error),
             error = %detail,
             elapsed_ms = self.started_at.elapsed().as_millis(),
             tool_call_count,
@@ -5874,12 +6075,21 @@ fn is_prompt_transport_error(error: &sacp::Error) -> bool {
         })
 }
 
-fn should_terminate_prompt_error(error: &sacp::Error, host_healthy: bool) -> bool {
-    !host_healthy || is_prompt_transport_error(error)
+fn is_stream_disconnected_error(error: &sacp::Error) -> bool {
+    matches!(error.code, sacp::schema::ErrorCode::InternalError)
+        && error
+            .data
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|detail| detail.starts_with("stream disconnected before completion:"))
 }
 
-fn prompt_error_kind(detail: &str) -> &'static str {
-    if detail.starts_with("stream disconnected before completion:") {
+fn should_terminate_prompt_error(error: &sacp::Error, host_healthy: bool) -> bool {
+    !host_healthy || is_prompt_transport_error(error) || is_stream_disconnected_error(error)
+}
+
+fn prompt_error_kind(error: &sacp::Error) -> &'static str {
+    if is_stream_disconnected_error(error) {
         "stream_disconnected"
     } else {
         "acp_prompt_request_failed"
@@ -6359,8 +6569,10 @@ async fn run_conversation_loop<'a>(
                 // conflicting with session.read_update()'s mutable borrow.
                 let cx = session.connection();
                 let prompt_request = crate::acp::runtime_host_worker_turn::prompt_request(
-                    state, PromptRequest::new(sid.clone(), prompt_blocks),
-                ).await;
+                    state,
+                    PromptRequest::new(sid.clone(), prompt_blocks),
+                )
+                .await;
                 // Use Box::pin (heap) instead of tokio::pin! (stack) so the
                 // future can be moved into a background task on cancel.
                 let mut prompt_response = Box::pin(
@@ -6724,7 +6936,7 @@ async fn run_conversation_loop<'a>(
                                             session_id = %sid.0,
                                             agent_type = %agent_type,
                                             host_healthy,
-                                            error_kind = prompt_error_kind(&error.to_string()),
+                                            error_kind = prompt_error_kind(&error),
                                             error = %safe_error_detail(&error.to_string()),
                                             "[ACP] prompt RPC failed on an unusable transport"
                                         );
@@ -7365,7 +7577,12 @@ async fn run_conversation_loop<'a>(
                 }
             }
             Some(ConnectionCommand::SideQuestion { request, reply }) => {
-                side_lane.dispatch(session.connection(), session.session_id().0.as_ref(), request, reply);
+                side_lane.dispatch(
+                    session.connection(),
+                    session.session_id().0.as_ref(),
+                    request,
+                    reply,
+                );
             }
             Some(ConnectionCommand::RespondPermission {
                 request_id,
@@ -7455,12 +7672,21 @@ async fn run_conversation_loop<'a>(
             }) => {
                 let automatic = {
                     let snapshot = state.read().await;
-                    snapshot.turn_generation == expected_turn_generation && snapshot.turn_in_flight
-                        && snapshot.native_background_turn.as_ref().is_some_and(|turn| turn.automatic)
+                    snapshot.turn_generation == expected_turn_generation
+                        && snapshot.turn_in_flight
+                        && snapshot
+                            .native_background_turn
+                            .as_ref()
+                            .is_some_and(|turn| turn.automatic)
                 };
                 if automatic {
-                    let _ = session.connection().send_notification_to(Agent, CancelNotification::new(session.session_id().clone()));
-                    PermissionRuntime::new(state, emitter, perms).drain("automatic_turn_cancelled").await;
+                    let _ = session.connection().send_notification_to(
+                        Agent,
+                        CancelNotification::new(session.session_id().clone()),
+                    );
+                    PermissionRuntime::new(state, emitter, perms)
+                        .drain("automatic_turn_cancelled")
+                        .await;
                     continue;
                 }
                 tracing::debug!(
@@ -7469,20 +7695,44 @@ async fn run_conversation_loop<'a>(
                     "[agent-input] ignoring safe cancellation while connection is idle"
                 );
             }
-            Some(ConnectionCommand::NativeSteer { blocks, codex_image_validation, expected_turn_generation, reply, settled, .. }) => {
+            Some(ConnectionCommand::NativeSteer {
+                blocks,
+                codex_image_validation,
+                expected_turn_generation,
+                reply,
+                settled,
+                ..
+            }) => {
                 let available = {
                     let snapshot = state.read().await;
-                    snapshot.turn_generation == expected_turn_generation && snapshot.turn_in_flight
-                        && snapshot.native_background_turn.as_ref().is_some_and(|turn| turn.automatic)
+                    snapshot.turn_generation == expected_turn_generation
+                        && snapshot.turn_in_flight
+                        && snapshot
+                            .native_background_turn
+                            .as_ref()
+                            .is_some_and(|turn| turn.automatic)
                         && snapshot.native_steering_available
                 };
                 let validation = match codex_image_validation {
-                    Some((data_dir, scope)) => crate::acp::agent_image_input::validate_codex_image_inputs(&data_dir, scope, &blocks).await,
+                    Some((data_dir, scope)) => {
+                        crate::acp::agent_image_input::validate_codex_image_inputs(
+                            &data_dir, scope, &blocks,
+                        )
+                        .await
+                    }
                     None => Ok(()),
                 };
                 let outcome = match validation {
                     Err(error) => NativeSteerOutcome::Failed(error.to_string()),
-                    Ok(()) if available => send_native_steer(&session.connection(), session.session_id(), agent_type, blocks).await,
+                    Ok(()) if available => {
+                        send_native_steer(
+                            &session.connection(),
+                            session.session_id(),
+                            agent_type,
+                            blocks,
+                        )
+                        .await
+                    }
                     Ok(()) => NativeSteerOutcome::PromptRequired,
                 };
                 let _ = reply.send(outcome);
@@ -8582,7 +8832,8 @@ async fn emit_conversation_update(
                 .and_then(serde_json::Value::as_bool);
             let native_start = native_output
                 .and_then(|meta| meta.get("rawOutputOffset"))
-                .and_then(serde_json::Value::as_u64) == Some(0);
+                .and_then(serde_json::Value::as_u64)
+                == Some(0);
             if native_start {
                 raw_output_cache.entries.remove(&tool_call_id);
             }
@@ -8596,11 +8847,12 @@ async fn emit_conversation_update(
                     .map(|text| structurize_live_output(&text))
             };
             let (raw_output, raw_output_append) = match raw_output_text.as_deref() {
-                Some(text) if native_append == Some(true) && !native_start =>
+                Some(text) if native_append == Some(true) && !native_start => {
                     match raw_output_cache.consume_append(&tool_call_id, text) {
                         Some((payload, append)) => (Some(payload), Some(append)),
                         None => (None, None),
-                    },
+                    }
+                }
                 Some(text) => match raw_output_cache.consume(&tool_call_id, text) {
                     Some((payload, append)) => (Some(payload), Some(append)),
                     None => (None, None),
@@ -8760,11 +9012,20 @@ async fn emit_conversation_update(
         }
         SessionUpdate::SessionInfoUpdate(info) => {
             if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
-                if let Some(message) = info.meta.as_ref().and_then(|meta| meta.get("iyw"))
-                    .and_then(|meta| meta.get("recoveryError")).and_then(serde_json::Value::as_str) {
+                if let Some(message) = info
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get("iyw"))
+                    .and_then(|meta| meta.get("recoveryError"))
+                    .and_then(serde_json::Value::as_str)
+                {
                     let snapshot = state.read().await;
-                    let reason = info.meta.as_ref().and_then(|meta| meta.get("iyw"))
-                        .and_then(|meta| meta.get("recoveryReason")).and_then(serde_json::Value::as_str);
+                    let reason = info
+                        .meta
+                        .as_ref()
+                        .and_then(|meta| meta.get("iyw"))
+                        .and_then(|meta| meta.get("recoveryReason"))
+                        .and_then(serde_json::Value::as_str);
                     let reason = match reason {
                         Some("history_read_failed") => "history_read_failed",
                         Some("final_message_mismatch") => "final_message_mismatch",
@@ -8775,29 +9036,39 @@ async fn emit_conversation_update(
                         generation = snapshot.turn_generation, reason,
                         "[星河][worker] completed output verification failed");
                     drop(snapshot);
-                    emit_with_state(state, emitter, AcpEvent::Error {
-                        message: message.into(), agent_type: agent_type.to_string(),
-                        code: Some("worker_content_recovery_failed".into()), details: None, terminal: false,
-                    }).await;
+                    emit_with_state(
+                        state,
+                        emitter,
+                        AcpEvent::Error {
+                            message: message.into(),
+                            agent_type: agent_type.to_string(),
+                            code: Some("worker_content_recovery_failed".into()),
+                            details: None,
+                            terminal: false,
+                        },
+                    )
+                    .await;
                     if let Some(meta) = info.meta.as_ref().and_then(|meta| meta.get("iyw")) {
                         crate::acp::worker_content_recovery::acknowledge(state, meta).await;
                     }
                 }
-                if let Some(meta) = info.meta.as_ref().and_then(|meta| meta.get("iyw"))
-                    .filter(|meta| meta.get("completedContent").is_some()) {
+                if let Some(meta) = info
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.get("iyw"))
+                    .filter(|meta| meta.get("completedContent").is_some())
+                {
                     crate::acp::worker_content_recovery::apply(state, emitter, meta).await;
                 }
             }
             if agent_type == AgentType::Codex {
                 if let Some(observation) =
-                    crate::acp::runtime_observation::RuntimeObservation::from_meta(info.meta.as_ref())
-                {
-                    emit_with_state(
-                        state,
-                        emitter,
-                        AcpEvent::RuntimeObservation { observation },
+                    crate::acp::runtime_observation::RuntimeObservation::from_meta(
+                        info.meta.as_ref(),
                     )
-                    .await;
+                {
+                    emit_with_state(state, emitter, AcpEvent::RuntimeObservation { observation })
+                        .await;
                 }
             }
             if let Some(title) = info

@@ -1625,7 +1625,13 @@ impl DelegationListener {
             log_memory_unavailable("recall", "capability_disabled", req.query.chars().count());
             return Err("User memory recall is unavailable for this session.".to_string());
         }
-        self.user_memory
+        let turn_nonce = entry.memory_turn_tracker.active_nonce();
+        let conversation_id = self
+            .parent_lookup
+            .current_conversation_id(&entry.parent_connection_id)
+            .await;
+        let result = self
+            .user_memory
             .recall(
                 UserMemoryRecallRequest {
                     query: req.query,
@@ -1636,7 +1642,22 @@ impl DelegationListener {
                 ),
             )
             .await
-            .map_err(|error| error.message)
+            .map_err(|error| error.message)?;
+        match self.user_memory.recalled_versions(&result).await {
+            Ok(versions) => {
+                if let Err(error) = self
+                    .user_memory
+                    .record_recall_delivery(versions, (conversation_id, turn_nonce))
+                    .await
+                {
+                    tracing::warn!(code = ?error.code, "[memory-recall] delivery receipt unavailable");
+                }
+            }
+            Err(error) => {
+                tracing::warn!(code = ?error.code, "[memory-recall] version capture unavailable")
+            }
+        }
+        Ok(result)
     }
 
     async fn process_memory_documents_read(

@@ -63,13 +63,15 @@ fn duration_from_env(key: &str, default_secs: u64) -> Option<Duration> {
 }
 
 /// Read the idle-process fallback from `IYW_CLAW_ACP_MAX_IDLE_CONNECTIONS`.
-/// `0` disables the count cap; absence defaults to four.
+/// `0`, an absent value, or an invalid value disables the count cap.
 pub fn max_idle_connections_from_env() -> Option<usize> {
-    let count = match std::env::var("IYW_CLAW_ACP_MAX_IDLE_CONNECTIONS") {
-        Ok(raw) => raw.parse::<usize>().unwrap_or(DEFAULT_MAX_IDLE_CONNECTIONS),
-        Err(_) => DEFAULT_MAX_IDLE_CONNECTIONS,
+    let Ok(raw) = std::env::var("IYW_CLAW_ACP_MAX_IDLE_CONNECTIONS") else {
+        return DEFAULT_MAX_IDLE_CONNECTIONS;
     };
-    (count > 0).then_some(count)
+    match raw.parse::<usize>() {
+        Ok(count) => (count > 0).then_some(count),
+        Err(_) => DEFAULT_MAX_IDLE_CONNECTIONS,
+    }
 }
 
 /// Long-running task that calls `ConnectionManager::sweep_idle` on a

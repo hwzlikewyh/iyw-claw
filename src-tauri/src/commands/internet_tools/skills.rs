@@ -7,7 +7,9 @@ use crate::commands::experts::central_experts_dir;
 use super::*;
 
 pub(super) fn find_agent_reach_skill(paths: &AgentStoragePaths) -> Option<PathBuf> {
-    walkdir::WalkDir::new(uv_tools_dir(paths))
+    let root = crate::managed_environment::component_root("agent-reach")
+        .unwrap_or_else(|| uv_tools_dir(paths));
+    walkdir::WalkDir::new(root)
         .max_depth(8)
         .into_iter()
         .filter_map(Result::ok)

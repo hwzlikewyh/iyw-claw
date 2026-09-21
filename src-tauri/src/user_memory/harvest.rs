@@ -40,6 +40,7 @@ const AGENT_LESSON_START: &str = "<!-- IYW_CLAW_AGENT_LESSON_V1 ";
 const AGENT_LESSON_END: &str = " -->";
 const MAX_AGENT_LESSON_CHARS: usize = 2_400;
 const HARVEST_OUTBOX_IMPORT_KEY: &str = "user_memory.harvest_outbox_imported_v1";
+const HARVEST_STORE_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -167,6 +168,14 @@ pub struct UserMemoryHarvestStatus {
     pub failed: u32,
     pub dead: u32,
     pub backlog: u32,
+    #[serde(default)]
+    pub pending_submissions: u32,
+    #[serde(default)]
+    pub discovered_unqueued: u32,
+    #[serde(default)]
+    pub skipped_sensitive_unqueued: u32,
+    #[serde(default)]
+    pub skipped_context_poor_unqueued: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_harvest_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -194,6 +203,10 @@ impl UserMemoryHarvestStatus {
 pub struct UserMemoryHarvestRescanPreview {
     pub re_queued: u32,
     pub retained_terminal: u32,
+    pub discovered_unqueued: u32,
+    pub recovered_unqueued: u32,
+    pub skipped_sensitive: u32,
+    pub skipped_context_poor: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -230,13 +243,23 @@ impl UserMemoryService {
         request: MemoryHarvestRequest,
     ) -> Result<UserMemoryHarvestSubmitResult, AppCommandError> {
         validate_harvest_request(&request)?;
-        let result = harvest_store::submit(&self.db, &request).await;
+        let result = self.persist_harvest_submission(&request).await;
         self.ensure_harvest_worker();
         result
     }
 
     pub async fn harvest_status(&self) -> Result<UserMemoryHarvestStatus, AppCommandError> {
-        harvest_store::status(&self.db).await
+        let mut status = harvest_store::status(&self.db).await?;
+        status.pending_submissions = self.pending_harvest_submissions().await?;
+        let discovery = super::harvest_reconcile::discover(self).await?;
+        status.discovered_unqueued = discovery.requests.len() as u32;
+        status.skipped_sensitive_unqueued = discovery.skipped_sensitive;
+        status.skipped_context_poor_unqueued = discovery.skipped_context_poor;
+        status.backlog = status
+            .backlog
+            .saturating_add(status.pending_submissions)
+            .saturating_add(status.discovered_unqueued);
+        Ok(status)
     }
 
     /// Re-queue unprocessed or recoverable records. Returns a preview first;
@@ -245,8 +268,23 @@ impl UserMemoryService {
         self: &Arc<Self>,
         execute: bool,
     ) -> Result<UserMemoryHarvestRescanResult, AppCommandError> {
-        let result = harvest_store::rescan(&self.db, execute).await?;
-        self.ensure_harvest_worker();
+        let discovery = super::harvest_reconcile::discover(self).await?;
+        let mut result = harvest_store::rescan(&self.db, execute).await?;
+        result.preview.discovered_unqueued = discovery.requests.len() as u32;
+        result.preview.skipped_sensitive = discovery.skipped_sensitive;
+        result.preview.skipped_context_poor = discovery.skipped_context_poor;
+        if execute {
+            let staged = self.pending_harvest_submissions().await? as usize;
+            let available = harvest_store::available_slots(&self.db)
+                .await?
+                .saturating_sub(staged);
+            for request in discovery.requests.into_iter().take(available) {
+                if self.persist_harvest_submission(&request).await?.enqueued {
+                    result.preview.recovered_unqueued += 1;
+                }
+            }
+            self.ensure_harvest_worker();
+        }
         Ok(result)
     }
 
@@ -259,8 +297,7 @@ impl UserMemoryService {
     ) -> Result<UserMemoryCandidateIndexRebuildResult, AppCommandError> {
         let (_io_guard, _file_guard) = self.acquire_locks().await?;
         self.recover_pending_transaction().await?;
-        let root = self.resolved_root()?.to_path_buf();
-        let mut state = candidate_store::read_state(&root)?;
+        let mut state = self.read_learning_state()?;
         let mut affected = 0u32;
         for candidate in &mut state.candidates {
             let next_digest =
@@ -282,7 +319,7 @@ impl UserMemoryService {
             }
         }
         if execute {
-            candidate_store::write_state(&root, &state)?;
+            self.persist_learning_state(&state).await?;
             self.schedule_index_refresh();
         }
         Ok(UserMemoryCandidateIndexRebuildResult {
@@ -330,7 +367,8 @@ impl UserMemoryService {
                                     error = %error,
                                     "[user-memory] harvest worker pass failed"
                                 );
-                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                tokio::time::sleep(HARVEST_STORE_RETRY_DELAY).await;
+                                inner.wake.notify_one();
                                 break;
                             }
                         }
@@ -346,6 +384,7 @@ impl UserMemoryService {
     /// previous process are drained even before the next completed turn.
     pub fn start_background_workers(self: &Arc<Self>) {
         self.ensure_harvest_worker();
+        self.start_maintenance_worker();
         let service = Arc::clone(self);
         tokio::spawn(async move {
             match import_legacy_harvest_once(&service).await {
@@ -366,7 +405,13 @@ impl UserMemoryService {
     }
 
     async fn process_recoverable_harvest(self: &Arc<Self>) -> Result<usize, AppCommandError> {
+        let pending_error = self.replay_pending_harvest().await.err();
         let recoverable = harvest_store::recoverable(&self.db).await?;
+        if recoverable.is_empty() {
+            if let Some(error) = pending_error {
+                return Err(error);
+            }
+        }
         let recoverable_count = recoverable.len();
         for request in recoverable {
             if let Err(error) = self.process_harvest_request(request).await {
@@ -410,14 +455,33 @@ impl UserMemoryService {
         &self,
         request: &MemoryHarvestRequest,
     ) -> Result<ExtractionOutcome, AppCommandError> {
+        let policy = self.load_policy_unrecovered().await?;
+        if !policy.enabled
+            || !policy.agent_write_enabled
+            || !policy
+                .per_agent
+                .get(&request.agent_type)
+                .copied()
+                .unwrap_or(true)
+        {
+            return Ok(ExtractionOutcome::Noop(
+                "memory learning is disabled".to_string(),
+            ));
+        }
         let experience_ids = self.extract_experiences(request).await?;
-        if experience_ids.is_empty() {
+        let candidate_ids = self.extract_background_candidates(request).await?;
+        if self.learning_config().await?.enabled {
+            if let Err(error) = self.refresh_generated_views().await {
+                tracing::warn!(code=?error.code,"[memory-views] generated view refresh deferred");
+            }
+        }
+        if experience_ids.is_empty() && candidate_ids.is_empty() {
             return Ok(ExtractionOutcome::Noop(
                 "no reusable signal in completed turn".to_string(),
             ));
         }
         Ok(ExtractionOutcome::Proposed {
-            candidate_ids: Vec::new(),
+            candidate_ids,
             experience_ids,
         })
     }
@@ -431,6 +495,9 @@ impl UserMemoryService {
         };
         let mut ids = Vec::new();
         for lesson in extract_agent_lessons(text) {
+            if self.is_forgotten_content(&lesson).await? {
+                continue;
+            }
             ids.push(self.record_agent_experience(lesson, request).await?);
         }
         Ok(ids)
@@ -442,21 +509,26 @@ impl UserMemoryService {
         request: &MemoryHarvestRequest,
     ) -> Result<String, AppCommandError> {
         let (_io_guard, _file_guard) = self.acquire_locks().await?;
-        let root = self.resolved_root()?.to_path_buf();
-        let mut state = candidate_store::read_state(&root)?;
+        let mut state = self.read_learning_state()?;
         let digest = experience_digest(&content);
-        let id = experience_id(&digest);
+        let scope_key = self
+            .memory_workspace_key(request.workspace_key.as_deref())
+            .unwrap_or_default();
+        let mut id = experience_id(&hash_parts(&[digest.as_bytes(), scope_key.as_bytes()]));
         let now = chrono::Utc::now().to_rfc3339();
         let evidence = AgentExperienceEvidence {
             opaque_source_id: derive_harvest_source_id(&request.conversation),
             turn_nonce: request.turn_nonce,
             observed_at: now.clone(),
         };
-        if let Some(existing) = state
-            .experiences
-            .iter_mut()
-            .find(|experience| experience.content_digest == digest)
-        {
+        if let Some(existing) = state.experiences.iter_mut().find(|experience| {
+            experience.content_digest == digest
+                && self
+                    .memory_workspace_key(Some(&experience.scope_key))
+                    .unwrap_or_default()
+                    == scope_key
+        }) {
+            id = existing.id.clone();
             if !existing.evidence.iter().any(|item| {
                 item.opaque_source_id == evidence.opaque_source_id
                     && item.turn_nonce == evidence.turn_nonce
@@ -468,7 +540,7 @@ impl UserMemoryService {
                 if existing.evidence.len() > USER_MEMORY_MAX_EXPERIENCE_EVIDENCE {
                     existing.evidence.remove(0);
                 }
-                candidate_store::write_state(&root, &state)?;
+                self.persist_learning_state(&state).await?;
             }
         } else {
             if state.experiences.len() >= USER_MEMORY_MAX_EXPERIENCES {
@@ -493,11 +565,7 @@ impl UserMemoryService {
                 } else {
                     "global".to_string()
                 },
-                scope_key: request
-                    .workspace_key
-                    .clone()
-                    .filter(|key| !key.is_empty())
-                    .unwrap_or_default(),
+                scope_key,
                 observation_count: 1,
                 confidence: 40,
                 first_observed_at: now.clone(),
@@ -505,7 +573,7 @@ impl UserMemoryService {
                 evidence: vec![evidence],
                 superseded_by: None,
             });
-            candidate_store::write_state(&root, &state)?;
+            self.persist_learning_state(&state).await?;
         }
         drop(_file_guard);
         drop(_io_guard);
@@ -554,7 +622,9 @@ pub struct UserMemoryCandidateIndexRebuildResult {
     pub revision: String,
 }
 
-fn validate_harvest_request(request: &MemoryHarvestRequest) -> Result<(), AppCommandError> {
+pub(super) fn validate_harvest_request(
+    request: &MemoryHarvestRequest,
+) -> Result<(), AppCommandError> {
     if request.conversation.is_empty() || request.turn_nonce == 0 {
         return Err(AppCommandError::invalid_input(
             "Harvest request must carry a conversation and turn nonce",

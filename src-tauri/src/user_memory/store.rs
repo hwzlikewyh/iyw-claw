@@ -32,6 +32,9 @@ impl UserMemoryService {
     pub(super) async fn load_policy_unrecovered(
         &self,
     ) -> Result<UserMemoryPolicy, AppCommandError> {
+        if let Some(snapshot) = self.active_authority() {
+            return Ok(snapshot.data.policy);
+        }
         let raw = app_metadata_service::get_value(&self.db, POLICY_KEY)
             .await
             .map_err(AppCommandError::from)?;
@@ -54,6 +57,18 @@ impl UserMemoryService {
     ) -> Result<(), AppCommandError> {
         let mut normalized = policy.clone();
         normalize_agent_policy(&mut normalized);
+        if let Some(snapshot) = self.active_authority() {
+            let previous = super::UserMemoryGeneration {
+                policy: Some(snapshot.data.policy),
+                documents: BTreeMap::new(),
+                candidate_state: None,
+            };
+            let next = super::UserMemoryGeneration {
+                policy: Some(normalized),
+                ..previous.clone()
+            };
+            return self.commit_authority_change(&previous, &next, None).await;
+        }
         let value = serde_json::to_string(&normalized)
             .map_err(|error| AppCommandError::configuration_invalid(error.to_string()))?;
         app_metadata_service::upsert_value(&self.db, POLICY_KEY, &value)
@@ -69,14 +84,17 @@ impl UserMemoryService {
         let root = resolution.path.as_path();
         let mut documents = BTreeMap::new();
         for id in UserMemoryDocumentId::ALL {
-            let snapshot = match self.read_document(id) {
+            let mut snapshot = match self.read_document(id) {
                 Ok(content) => readable_document_snapshot(root, policy, id, content),
                 Err(error) => unreadable_document_snapshot(root, policy, id, error),
             };
+            if self.active_authority().is_some() {
+                snapshot.readonly = false;
+            }
             documents.insert(id, snapshot);
         }
         let revision = settings_revision(policy, &documents)?;
-        let (candidate_diagnostic, candidate_counts) = candidate_settings(root);
+        let (candidate_diagnostic, candidate_counts) = self.candidate_settings();
         Ok(UserMemorySettingsSnapshot {
             enabled: policy.enabled,
             agent_write_enabled: policy.agent_write_enabled,
@@ -141,6 +159,9 @@ impl UserMemoryService {
         if let Some(content) = self.read_document_optional(id)? {
             return Ok(content);
         }
+        if self.active_authority().is_some() {
+            return Ok(String::new());
+        }
         fs::read_document(self.resolved_root()?, id)
     }
 
@@ -158,6 +179,16 @@ impl UserMemoryService {
         &self,
         id: UserMemoryDocumentId,
     ) -> Result<Option<String>, AppCommandError> {
+        if let Some(snapshot) = self.active_authority() {
+            return Ok(snapshot
+                .data
+                .documents
+                .get(&id)
+                .and_then(|resource| match resource {
+                    super::ResourceGeneration::Present { value, .. } => Some(value.clone()),
+                    super::ResourceGeneration::Absent => None,
+                }));
+        }
         let root = self.resolved_root()?;
         if self.migration_blocks_document(id)
             && std::fs::symlink_metadata(root.join(id.file_name()))
@@ -210,7 +241,7 @@ impl UserMemoryService {
         if current == next {
             return Ok(());
         }
-        let Some(state) = candidate_store::read_optional(self.resolved_root()?)? else {
+        let Some(state) = self.read_learning_optional()? else {
             return Ok(());
         };
         if candidate_references::preserves_referenced_memory_entries(&state, current, next) {
@@ -220,6 +251,33 @@ impl UserMemoryService {
                 "Candidate-backed memory entries must be corrected through the dedicated API",
             ))
         }
+    }
+}
+
+impl UserMemoryService {
+    pub(super) fn candidate_settings(
+        &self,
+    ) -> (
+        UserMemoryCandidateDiagnostic,
+        BTreeMap<UserMemoryCandidateStatus, u32>,
+    ) {
+        if let Some(snapshot) = self.active_authority() {
+            let mut counts = empty_candidate_counts();
+            if let super::ResourceGeneration::Present { value, .. } = snapshot.data.learning {
+                for candidate in value.candidates {
+                    *counts.entry(candidate.status).or_default() += 1;
+                }
+            }
+            return (
+                UserMemoryCandidateDiagnostic {
+                    available: true,
+                    reason: None,
+                    detail: None,
+                },
+                counts,
+            );
+        }
+        candidate_settings(self.resolved_root().expect("resolved root"))
     }
 }
 

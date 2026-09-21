@@ -50,16 +50,28 @@ impl ElicitationAccess {
         questions: Arc<dyn SessionQuestionAccess>,
         config: QuestionRuntimeConfig,
     ) -> Self {
-        Self { questions, config, pending: Default::default() }
+        Self {
+            questions,
+            config,
+            pending: Default::default(),
+        }
     }
 }
 
 impl SessionRequestRouter {
     pub(super) async fn cancel_elicitation(&self, notification: ElicitationCancelNotification) {
         if let Some(route) = self.resolve(&notification.session_id) {
-            if notification.request_key.starts_with("session/request_permission:") {
-                crate::acp::permission_runtime::PermissionRuntime::new(&route.state, &route.emitter, &route.permissions)
-                    .cancel_key(&notification.request_key).await;
+            if notification
+                .request_key
+                .starts_with("session/request_permission:")
+            {
+                crate::acp::permission_runtime::PermissionRuntime::new(
+                    &route.state,
+                    &route.emitter,
+                    &route.permissions,
+                )
+                .cancel_key(&notification.request_key)
+                .await;
             } else if let Some(access) = &route.elicitation {
                 access.pending.cancel(&notification.request_key);
             }
@@ -71,16 +83,22 @@ impl SessionRequestRouter {
         request: ElicitationCreateRequest,
         responder: Responder<Value>,
     ) -> Result<(), sacp::Error> {
-        let request_key = request.0.pointer("/_meta/iyw/requestKey").and_then(Value::as_str).map(str::to_string);
-        let deadline = request.0.pointer("/_meta/codex/autoResolutionMs").and_then(Value::as_u64)
-            .and_then(|millis| tokio::time::Instant::now().checked_add(Duration::from_millis(millis)));
+        let request_key = request
+            .0
+            .pointer("/_meta/iyw/requestKey")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let deadline = request
+            .0
+            .pointer("/_meta/codex/autoResolutionMs")
+            .and_then(Value::as_u64)
+            .and_then(|millis| {
+                tokio::time::Instant::now().checked_add(Duration::from_millis(millis))
+            });
         let (session_id, plan) = match parse_request(request.0) {
             Ok(parsed) => parsed,
             Err(error) => {
-                tracing::warn!(
-                    error,
-                    "[ACP] elicitation request declined"
-                );
+                tracing::warn!(error, "[ACP] elicitation request declined");
                 respond_decline(responder);
                 return Ok(());
             }
@@ -104,7 +122,10 @@ impl SessionRequestRouter {
         let request_lease = match request_key {
             Some(key) => match access.pending.register(&key) {
                 Some(lease) => Some(lease),
-                None => { respond_decline(responder); return Ok(()); }
+                None => {
+                    respond_decline(responder);
+                    return Ok(());
+                }
             },
             None => None,
         };
@@ -122,7 +143,8 @@ impl SessionRequestRouter {
             deadline,
             questions: Arc::clone(&access.questions),
             turn_generation: snapshot.turn_generation,
-            track_turn: snapshot.agent_type == crate::models::agent::AgentType::Codex && snapshot.turn_in_flight,
+            track_turn: snapshot.agent_type == crate::models::agent::AgentType::Codex
+                && snapshot.turn_in_flight,
             agent: snapshot.agent_type,
             request: request_lease,
         };
@@ -131,7 +153,14 @@ impl SessionRequestRouter {
         let emitter = route.emitter.clone();
         let Some(registered) = access
             .questions
-            .register_question(&connection_id, plan.specs().iter().take(crate::acp::question::MAX_QUESTIONS).cloned().collect())
+            .register_question(
+                &connection_id,
+                plan.specs()
+                    .iter()
+                    .take(crate::acp::question::MAX_QUESTIONS)
+                    .cloned()
+                    .collect(),
+            )
             .await
         else {
             tracing::warn!(
@@ -176,7 +205,12 @@ fn spawn_response_task(
     mut lifecycle: QuestionLifecycle,
 ) {
     tokio::spawn(async move {
-        let outcome = lifecycle::wait_for_form(&plan, &mut registered, (&state, &connection_id, &mut lifecycle)).await;
+        let outcome = lifecycle::wait_for_form(
+            &plan,
+            &mut registered,
+            (&state, &connection_id, &mut lifecycle),
+        )
+        .await;
         let response = match outcome {
             Some(outcome) => {
                 if let Some(tool_call_id) = plan.tool_call_id() {

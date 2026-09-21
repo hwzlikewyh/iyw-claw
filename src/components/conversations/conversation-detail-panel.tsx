@@ -1,5 +1,10 @@
 "use client"
 
+import {
+  prepareAcpSession,
+  reservePreparedChatDir,
+} from "@/lib/acp-session-preparation"
+
 import { InteractiveHtmlPages } from "@/components/chat/interactive-html-card"
 import {
   memo,
@@ -671,7 +676,12 @@ const ConversationTabView = memo(function ConversationTabView({
     prepareChatDirPendingRef.current = true
     void (async () => {
       try {
-        const res = await createChatDir()
+        const preparedPath = await reservePreparedChatDir(
+          selectedAgentRef.current
+        )
+        const res = preparedPath
+          ? { path: preparedPath }
+          : await createChatDir()
         if (mountedRef.current) {
           setChatDraftWorkingDir(tabId, res.path)
         }
@@ -829,6 +839,30 @@ const ConversationTabView = memo(function ConversationTabView({
     silentReconnect: modelReapplyAttempt !== null,
   })
   const { status: connStatus, sessionId: connSessionId } = conn
+  useEffect(() => {
+    if (
+      !isActive ||
+      !isDocumentVisible ||
+      !conn.selectorsReady ||
+      !hasPersistedConversation
+    )
+      return
+    const isChat = ownTab?.isChat || folder?.kind === "chat"
+    const target = isChat
+      ? { agentType: selectedAgent }
+      : { agentType: selectedAgent, workingDir: workingDirForConnection }
+    if (!target.workingDir && !isChat) return
+    void prepareAcpSession(target)
+  }, [
+    isActive,
+    isDocumentVisible,
+    conn.selectorsReady,
+    hasPersistedConversation,
+    selectedAgent,
+    workingDirForConnection,
+    ownTab?.isChat,
+    folder?.kind,
+  ])
   const sideScope = `${conn.connectionId ?? ""}:${connSessionId ?? ""}`
   const [pendingSideInject, setPendingSideInject] = useState<{
     scope: string

@@ -58,7 +58,4 @@ jobs:
             exit 1
           fi
           tar -xzf "${archives[0]}" -C "$bundle"
-          node --input-type=module -e '
-            import { verifyRuntimeSeedBundle } from "./src-tauri/scripts/verify-runtime-seed-bundle.mjs";
-            await verifyRuntimeSeedBundle("x86_64-apple-darwin");
-          '
+          node src-tauri/scripts/verify-sidecar-bundle.mjs --target x86_64-apple-darwin --installed-app "$bundle"

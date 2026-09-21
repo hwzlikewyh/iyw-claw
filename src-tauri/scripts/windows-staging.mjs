@@ -20,36 +20,22 @@ const WORKER_FILES = [
 ]
 
 export function windowsLayout(target) {
-  if (!["x86_64-pc-windows-msvc", "i686-pc-windows-msvc"].includes(target)) {
+  if (target !== "x86_64-pc-windows-msvc") {
     throw new Error(`unsupported Windows staging target: ${target}`)
   }
-  const x64 = target === "x86_64-pc-windows-msvc"
   const binary = `src-tauri/target/${target}/release/iyw-claw.exe`
+  const helper = `src-tauri/binaries/iyw-environment-${target}.exe`
   return {
-    arch: x64 ? "x64" : "x86",
+    arch: "x64",
     binary,
-    directories: [
-      "out",
-      WORKER_ROOT,
-      ...(x64
-        ? ["src-tauri/binaries", "src-tauri/resources/runtime-seed"]
-        : []),
-    ],
-    files: [binary, ...(x64 ? ["src-tauri/tauri.runtime-seed.conf.json"] : [])],
+    directories: ["out", WORKER_ROOT, "src-tauri/binaries"],
+    files: [binary],
     required: [
       binary,
       ...WORKER_FILES.map((name) => `${WORKER_ROOT}/${name}`),
-      ...(x64
-        ? [
-            "src-tauri/tauri.runtime-seed.conf.json",
-            `src-tauri/binaries/agent-browser-${target}.exe`,
-            "src-tauri/resources/runtime-seed/manifest.json",
-          ]
-        : []),
+      helper,
     ],
-    overlay: x64
-      ? "src-tauri/tauri.runtime-seed.conf.json"
-      : "src-tauri/tauri.windows-x86.conf.json",
+    overlay: null,
   }
 }
 
