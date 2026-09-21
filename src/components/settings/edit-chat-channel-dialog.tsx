@@ -134,12 +134,8 @@ export function EditChatChannelDialog({
         id: channel.id,
         name: name.trim(),
         configPatchJson,
-        dailyReportEnabled:
-          channel.channel_type !== "dingtalk" && dailyReportEnabled,
-        dailyReportTime:
-          channel.channel_type !== "dingtalk" && dailyReportEnabled
-            ? dailyReportTime
-            : null,
+        dailyReportEnabled,
+        dailyReportTime: dailyReportEnabled ? dailyReportTime : null,
       })
 
       if (token.trim()) {

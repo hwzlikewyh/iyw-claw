@@ -133,6 +133,9 @@ pub(super) async fn send_dispatch_message(
     };
     let (status, error_code, provider_message_id) = match result {
         Ok(sent_id) => ("sent", None, Some(sent_id.0)),
+        Err(ChatChannelError::DeliveryDeferred(_)) => {
+            ("queued", Some("WAITING_CONTEXT".to_string()), None)
+        }
         Err(error) => {
             tracing::error!(
                 channel_id,
@@ -175,6 +178,7 @@ pub(crate) async fn send_long_message(
     // for provider envelopes and split the fully rendered fallback only once.
     let chunks = split_utf8_chunks(&text, 1500);
     let mut last_id: Option<SentMessageId> = None;
+    let mut deferred: Option<String> = None;
     for chunk in chunks {
         let partial = RichMessage {
             title: None,
@@ -182,8 +186,16 @@ pub(crate) async fn send_long_message(
             fields: Vec::new(),
             level: message.level,
         };
-        let id = manager.send_to_target(target, &partial).await?;
-        last_id = Some(id);
+        match manager.send_to_target(target, &partial).await {
+            Ok(id) => last_id = Some(id),
+            Err(ChatChannelError::DeliveryDeferred(detail)) => {
+                deferred.get_or_insert(detail);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    if let Some(detail) = deferred {
+        return Err(ChatChannelError::DeliveryDeferred(detail));
     }
     last_id.ok_or_else(|| ChatChannelError::SendFailed("empty message".to_string()))
 }

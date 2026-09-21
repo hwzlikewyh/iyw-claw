@@ -18,7 +18,10 @@ pub(super) fn connection_status_label(status: Option<ChannelConnectionStatus>) -
 }
 
 pub(super) fn requires_backend_rebuild(reason: &'static str) -> bool {
-    matches!(reason, "edit" | "credential" | "qr_completed")
+    matches!(
+        reason,
+        "edit" | "credential" | "qr_completed" | "desktop_recovery"
+    )
 }
 
 pub(super) async fn reconcile_connect(

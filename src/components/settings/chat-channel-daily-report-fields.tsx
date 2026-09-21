@@ -15,16 +15,12 @@ interface ChatChannelDailyReportFieldsProps {
 }
 
 export function ChatChannelDailyReportFields({
-  channelType,
   enabled,
   time,
   onEnabledChange,
   onTimeChange,
 }: ChatChannelDailyReportFieldsProps) {
   const t = useTranslations("ChatChannelSettings")
-  if (channelType === "dingtalk") {
-    return null
-  }
   return (
     <>
       <div className="flex items-center justify-between">

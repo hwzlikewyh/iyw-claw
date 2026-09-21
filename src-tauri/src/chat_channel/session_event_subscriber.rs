@@ -418,6 +418,21 @@ async fn handle_acp_envelope(
                             )
                             .await;
                         }
+                        Err(super::error::ChatChannelError::DeliveryDeferred(_)) => {
+                            let _ = chat_channel_message_log_service::create_log_for_target(
+                                db,
+                                channel_id,
+                                "outbound",
+                                "agent_reply",
+                                &body,
+                                "queued",
+                                Some("WAITING_CONTEXT".to_string()),
+                                trace_id,
+                                None,
+                                target_id,
+                            )
+                            .await;
+                        }
                         Err(error) => {
                             tracing::error!(
                                 "[SessionEventSub] failed to send completion to channel={} \
