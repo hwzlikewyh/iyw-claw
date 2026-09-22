@@ -101,7 +101,7 @@ impl UserMemoryService {
             limit: Some(PREVIEW_LIMIT),
         }
         .normalized()?;
-        let items = self
+        let result = self
             .recall(
                 super::UserMemoryRecallRequest {
                     query,
@@ -109,11 +109,22 @@ impl UserMemoryService {
                 },
                 UserMemoryRecallScope::global(),
             )
-            .await?
-            .items;
+            .await?;
+        if result.result_state == super::UserMemoryRecallState::Unavailable {
+            tracing::warn!(
+                reasons = ?result.reason_codes,
+                "[memory-semantic] search preview unavailable"
+            );
+            return Err(AppCommandError::configuration_invalid(
+                "记忆检索暂时不可用，请稍后重试",
+            ));
+        }
+        // 不再为预览状态请求云端目录，保留召回超时后的全文降级结果。
+        let mut status = self.semantic_status();
+        status.recall_enabled = self.semantic_recall_enabled().await?;
         Ok(SemanticPreview {
-            items,
-            status: self.semantic_settings_status().await?,
+            items: result.items,
+            status,
         })
     }
 }

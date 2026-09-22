@@ -22,28 +22,17 @@ export interface UserMemoryEntryPage {
 }
 
 export interface MemorySemanticStatus {
+  config: {
+    embeddingModel: string
+    rerankModel: string
+    rerankEnabled: boolean
+  }
   recallEnabled: boolean
   supported: boolean
-  modelInstalled: boolean
-  modelDownloading: boolean
-  retryPending: boolean
-  nextRetryAt: string | null
   ready: boolean
   busy: boolean
   indexedItems: number
   lastError: string | null
-}
-
-export function setMemorySemanticEnabled(enabled: boolean): Promise<void> {
-  return getTransport().call("set_user_memory_semantic_enabled", { enabled })
-}
-
-export function getMemorySemanticStatus(): Promise<MemorySemanticStatus> {
-  return getTransport().call("get_user_memory_semantic_status")
-}
-
-export function prepareMemorySemantic(): Promise<MemorySemanticStatus> {
-  return getTransport().call("prepare_user_memory_semantic")
 }
 
 export function previewMemorySemantic(query: string): Promise<{

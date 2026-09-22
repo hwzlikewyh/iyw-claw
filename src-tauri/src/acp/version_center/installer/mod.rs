@@ -41,7 +41,6 @@ pub use init::{
 };
 pub use manifest::digest_managed_root;
 pub(crate) use manifest::{push_pending_activation, PendingActivation};
-pub(crate) use resumable::download_resumable;
 pub use runtime::{
     managed_browser_engine_executable, managed_browser_engine_installation, managed_tool_executable,
 };
@@ -51,6 +50,5 @@ pub(crate) use runtime_bundle::{
 };
 pub use runtime_migration::prepare_shared_runtime;
 pub(crate) use runtime_seed::{import_runtime_seed_exclusive, RuntimeSeedImport};
-pub(crate) use signature::verify_tool_file_signature;
 pub(crate) use state::acquire_writer_lock;
 pub use tools::{install_managed_tool, ManagedToolInstallResult};

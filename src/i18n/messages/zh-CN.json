@@ -5612,18 +5612,7 @@
       "boundary": "交给 Agent 不等于被采用。请在条目的版本历史中标记召回回执，积累真实效果证据。"
     },
     "semantic": {
-      "useInRecall": "将本地语义结果用于 Agent 记忆召回",
-      "title": "本地语义检索",
-      "unsupported": "当前平台使用关键词检索",
-      "preparing": "正在准备",
-      "downloading": "正在下载模型",
-      "retryPending": "等待后台重试",
-      "ready": "可用",
-      "installed": "模型已准备",
-      "missing": "模型未准备",
-      "prepare": "准备本地模型 · 95 MB",
-      "rebuild": "更新语义索引",
-      "indexed": "索引条目",
+      "title": "语义检索",
       "query": "用自然语言查找记忆",
       "search": "语义查找",
       "empty": "没有足够相关的记忆"
