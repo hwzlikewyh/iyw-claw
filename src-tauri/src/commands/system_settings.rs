@@ -61,35 +61,21 @@ pub(crate) async fn save_skill_auto_update_settings(
     Ok(settings)
 }
 
+#[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn get_skill_auto_update_settings(
-    #[cfg(feature = "tauri-runtime")] db: State<'_, AppDatabase>,
-    #[cfg(not(feature = "tauri-runtime"))] _db: (),
+    db: State<'_, AppDatabase>,
 ) -> Result<SkillAutoUpdateSettings, AppCommandError> {
-    #[cfg(feature = "tauri-runtime")]
-    {
-        return load_skill_auto_update_settings(&db.conn).await;
-    }
-    #[cfg(not(feature = "tauri-runtime"))]
-    {
-        unreachable!()
-    }
+    load_skill_auto_update_settings(&db.conn).await
 }
 
+#[cfg(feature = "tauri-runtime")]
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn update_skill_auto_update_settings(
     settings: SkillAutoUpdateSettings,
-    #[cfg(feature = "tauri-runtime")] db: State<'_, AppDatabase>,
-    #[cfg(not(feature = "tauri-runtime"))] _db: (),
+    db: State<'_, AppDatabase>,
 ) -> Result<SkillAutoUpdateSettings, AppCommandError> {
-    #[cfg(feature = "tauri-runtime")]
-    {
-        return save_skill_auto_update_settings(&db.conn, settings).await;
-    }
-    #[cfg(not(feature = "tauri-runtime"))]
-    {
-        unreachable!()
-    }
+    save_skill_auto_update_settings(&db.conn, settings).await
 }
 
 fn normalize_proxy_settings(
