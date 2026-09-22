@@ -15,6 +15,12 @@ import { fileURLToPath } from "node:url"
 import process from "node:process"
 import { verifyArtifacts } from "./verify-signatures.mjs"
 import {
+  environmentHelperHostTarget,
+  helperExecutableName,
+  helperFileName,
+  verifyEnvironmentHelper,
+} from "./environment-helper-runtime.mjs"
+import {
   assertCleanInstallState,
   assertDisposableRunner,
   cleanupInstall,
@@ -66,17 +72,6 @@ function readVersion(args) {
     .version
 }
 
-function resolveHostTarget() {
-  const output = execFileSync("rustc", ["-vV"], { encoding: "utf8" })
-  const line = output.split(/\r?\n/).find((item) => item.startsWith("host:"))
-  if (!line) die("rustc -vV did not return a host target triple")
-  return line.slice("host:".length).trim()
-}
-
-function resolveTarget(args) {
-  return args.target || process.env.TAURI_TARGET_TRIPLE || resolveHostTarget()
-}
-
 function requireNonEmptyFile(path, label) {
   if (!existsSync(path)) die(`${label} is missing: ${path}`)
   const stats = lstatSync(path)
@@ -96,10 +91,6 @@ function logFile(label, path, version) {
     `${label}: path=${path} version=${version} size=${stats.size} sha256=${sha256(path)}`
   )
   return stats
-}
-
-function helperFileName(target) {
-  return `iyw-environment-${target}${target.includes("windows") ? ".exe" : ""}`
 }
 
 function verifyConfiguredExternalBins() {
@@ -129,6 +120,7 @@ function verifyStagedSidecars(target, version) {
   rejectLegacyMcpSidecars(join(SRC_TAURI, "binaries"))
   verifyEnvironmentHelper(
     join(SRC_TAURI, "binaries", helperFileName(target)),
+    target,
     version
   )
 }
@@ -167,7 +159,7 @@ function resolveInstalledApp(directory) {
   die(`installed application directory is missing: ${directory}`)
 }
 
-function verifyInstalledSidecars(appDirectory, version) {
+function verifyInstalledSidecars(appDirectory, target, version) {
   if ((process.env.IYW_CLAW_SIGN_MODE ?? "none") !== "none") {
     verifyArtifacts([
       join(
@@ -177,20 +169,10 @@ function verifyInstalledSidecars(appDirectory, version) {
     ])
   }
   verifyEnvironmentHelper(
-    join(
-      appDirectory,
-      process.platform === "win32" ? "iyw-environment.exe" : "iyw-environment"
-    ),
+    join(appDirectory, helperExecutableName(target)),
+    target,
     version
   )
-}
-
-function verifyEnvironmentHelper(path, version) {
-  logFile("environment helper", path, version)
-  const output = execFileSync(path, ["--version"], { encoding: "utf8" }).trim()
-  if (!/^iyw-environment \d+\.\d+\.\d+$/.test(output)) {
-    die(`environment helper returned an invalid version: ${output}`)
-  }
 }
 
 function logInstallRoot(root) {
@@ -262,7 +244,7 @@ function verifyNsisInstaller(installer, target, version) {
       logInstallRoot(installRoot)
       throw error
     }
-    verifyInstalledSidecars(resolveInstalledApp(installRoot), version)
+    verifyInstalledSidecars(resolveInstalledApp(installRoot), target, version)
   } catch (error) {
     failure = error
   }
@@ -271,7 +253,10 @@ function verifyNsisInstaller(installer, target, version) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2))
-  const target = resolveTarget(args)
+  const target =
+    args.target ||
+    process.env.TAURI_TARGET_TRIPLE ||
+    environmentHelperHostTarget()
   const version = readVersion(args)
   const verifyNsis = Boolean(
     args.installer || process.env.IYW_CLAW_VERIFY_NSIS === "1"
@@ -283,6 +268,7 @@ function main() {
     }
     verifyInstalledSidecars(
       resolveInstalledApp(resolve(args.installedApp)),
+      target,
       version
     )
     return
