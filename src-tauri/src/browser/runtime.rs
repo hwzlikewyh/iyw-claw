@@ -37,7 +37,6 @@ pub(super) struct VerifiedDependencies {
 #[derive(Debug, Clone)]
 pub(super) struct RuntimeLaunchDependencies {
     pub verified: VerifiedDependencies,
-    pub extension_dir: PathBuf,
 }
 
 #[derive(Debug)]

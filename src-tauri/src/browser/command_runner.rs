@@ -28,7 +28,6 @@ pub(super) struct AgentBrowserCli {
     pub(super) engine_path: PathBuf,
     pub(super) download_path: PathBuf,
     pub(super) screenshot_path: PathBuf,
-    bootstrap_extensions: Vec<PathBuf>,
     bootstrap_browser_args: Vec<String>,
 }
 
@@ -48,16 +47,8 @@ impl AgentBrowserCli {
             engine_path,
             download_path,
             screenshot_path,
-            bootstrap_extensions: Vec::new(),
             bootstrap_browser_args: Vec::new(),
         }
-    }
-
-    pub(super) fn with_bootstrap_extension(mut self, extension: PathBuf) -> Self {
-        self.bootstrap_extensions.push(extension);
-        self.bootstrap_browser_args
-            .push("--headless=new".to_string());
-        self
     }
 
     pub(super) fn with_browser_args(mut self, args: impl Into<String>) -> Self {
@@ -223,12 +214,7 @@ impl AgentBrowserCli {
     }
 
     pub(super) fn bootstrap_arguments(&self, session: &str, args: &[&str]) -> Vec<OsString> {
-        let mut values = self.arguments(session, args);
-        for extension in &self.bootstrap_extensions {
-            values.push(OsString::from("--extension"));
-            values.push(extension.as_os_str().to_os_string());
-        }
-        values
+        self.arguments(session, args)
     }
 
     pub(super) fn environment(&self) -> Vec<(OsString, OsString)> {

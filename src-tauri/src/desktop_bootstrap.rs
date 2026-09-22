@@ -73,8 +73,10 @@ fn push_migration_source(
     }
 }
 
-pub fn initial_agent_storage_root(_selected_root: Option<&Path>, _data_dir: &Path) -> PathBuf {
-    crate::paths::iyw_claw_user_dir()
+pub fn initial_agent_storage_root(selected_root: Option<&Path>, _data_dir: &Path) -> PathBuf {
+    selected_root
+        .map(Path::to_path_buf)
+        .unwrap_or_else(crate::paths::iyw_claw_user_dir)
 }
 
 pub fn resolve_install_root(executable: &Path) -> Option<PathBuf> {
@@ -87,12 +89,13 @@ pub fn resolve_install_root(executable: &Path) -> Option<PathBuf> {
 
 pub fn resolve_data_root(
     explicit: Option<OsString>,
-    _install_root: Option<&Path>,
+    install_root: Option<&Path>,
 ) -> Option<PathBuf> {
     explicit
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .map(absolutize)
+        .or_else(|| install_root.map(|root| root.join("data")))
         .or_else(|| Some(crate::paths::iyw_claw_user_dir().join("data")))
 }
 
@@ -113,10 +116,24 @@ pub fn apply_pre_runtime_environment() -> DesktopBootstrap {
     if let Some(data_root) = data_root.as_deref() {
         std::env::set_var(DATA_DIR_ENV, data_root);
     }
-    std::env::set_var(HOME_DIR_ENV, crate::paths::iyw_claw_user_dir());
-    std::env::set_var(crate::acp::agent_storage::STORAGE_ROOT_ENV, crate::paths::iyw_claw_user_dir());
+    let installed_data_root = data_root.as_deref().filter(|data| {
+        install_root
+            .as_ref()
+            .is_some_and(|root| root.join("data") == *data)
+    });
+    let asset_root = legacy_home
+        .as_deref()
+        .or(installed_data_root)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(crate::paths::iyw_claw_user_dir);
+    std::env::set_var(HOME_DIR_ENV, asset_root);
+    // Agent 路径由数据库的已保存配置解析，不能在加载配置前覆盖为新默认值。
     if std::env::var_os(LOG_DIR_ENV).is_none_or(|value| value.is_empty()) {
-        std::env::set_var(LOG_DIR_ENV, crate::paths::iyw_claw_user_dir().join("logs"));
+        let log_root = install_root
+            .clone()
+            .unwrap_or_else(crate::paths::iyw_claw_user_dir)
+            .join("logs");
+        std::env::set_var(LOG_DIR_ENV, log_root);
     }
     if let Some(root) = install_root.as_deref() {
         std::env::set_var(INSTALL_ROOT_ENV, root);
@@ -144,20 +161,26 @@ pub async fn ensure_initial_agent_storage(
     Ok(())
 }
 
-/// 将新桌面环境指向用户目录，不迁移旧目录或旧 profile。
+/// 新默认目录只用于未配置的安装；升级保留已确认的会话与 profile 路径。
 pub async fn reconcile_agent_storage_root(
     conn: &DatabaseConnection,
     selected_root: &Path,
 ) -> Result<Option<PathBuf>, AgentStorageError> {
-    let Some(config) = load_config(conn).await? else {
+    let Some(mut config) = load_config(conn).await? else {
         return Ok(None);
     };
-    if config.root.as_deref() == Some(selected_root) {
+    if config.initialized
+        && config
+            .root
+            .as_ref()
+            .is_some_and(|root| !root.as_os_str().is_empty())
+    {
         return Ok(None);
     }
-    // 新布局只更新指向，不读取或复制旧安装目录中的任何内容。
-    save_config(conn, &AgentStorageConfig::confirmed(selected_root.to_path_buf())).await?;
-    Ok(config.root)
+    let previous = config.root.replace(selected_root.to_path_buf());
+    config.initialized = true;
+    save_config(conn, &config).await?;
+    Ok(previous)
 }
 
 fn absolutize(path: PathBuf) -> PathBuf {

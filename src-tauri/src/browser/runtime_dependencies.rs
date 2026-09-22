@@ -1,7 +1,7 @@
 use tokio_util::sync::CancellationToken;
 
 use super::super::engine::detect_engine;
-use super::super::error::{BrowserError, BrowserErrorCode};
+use super::super::error::BrowserError;
 use super::super::sidecar;
 use super::{BrowserCapability, BrowserRuntime, RuntimeLaunchDependencies, VerifiedDependencies};
 
@@ -35,24 +35,8 @@ impl BrowserRuntime {
         if cancellation.is_cancelled() {
             return Err(BrowserError::shutting_down());
         }
-        let verified = self.resolve_dependencies().await?;
-        let extension_dir = crate::commands::internet_tools::internet_tools_prepare_extension()
-            .await
-            .map(std::path::PathBuf::from)
-            .map_err(|_| extension_unavailable())?;
-        (extension_dir.join("manifest.json").is_file())
-            .then_some(RuntimeLaunchDependencies {
-                verified,
-                extension_dir,
-            })
-            .ok_or_else(extension_unavailable)
+        Ok(RuntimeLaunchDependencies {
+            verified: self.resolve_dependencies().await?,
+        })
     }
-}
-
-fn extension_unavailable() -> BrowserError {
-    BrowserError::new(
-        BrowserErrorCode::BrowserRuntimeUnavailable,
-        "The bundled OpenCLI browser extension could not be prepared",
-    )
-    .retryable(true)
 }

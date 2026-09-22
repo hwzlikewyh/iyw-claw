@@ -519,7 +519,7 @@ mod tauri_app {
                     tracing::warn!(
                         previous_root = %previous_root.display(),
                         new_root = %initial_agent_root.display(),
-                        "[agent-storage] switched persisted root to the user .iyw-claw directory"
+                        "[agent-storage] initialized persisted root from the desktop layout"
                     );
                 }
 

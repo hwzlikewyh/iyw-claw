@@ -72,7 +72,7 @@ pub(super) async fn launch(
         download_path,
         screenshot_path,
     )
-    .with_bootstrap_extension(dependencies.extension_dir);
+    .with_browser_args("--headless=new");
     let cli = cli.with_browser_args(launch_args);
     let mut cleanup = RuntimeCleanupHandle {
         id: runtime_id,
