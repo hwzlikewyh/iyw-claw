@@ -117,17 +117,15 @@ fn server_config(server: &Value) -> Result<Value, UpstreamError> {
         }
     };
     config["enabled"] = json!(true);
-    config["required"] = json!(!is_optional_business_gateway(server));
+    config["required"] = json!(!is_optional_builtin_mcp(server));
     // 上游校验的错误只返回类型说明，避免输出命令、参数或认证头。
     serde_json::from_value::<codex_config::McpServerConfig>(config.clone())
         .map_err(|_| invalid("MCP configuration failed runtime validation"))?;
     Ok(config)
 }
 
-fn is_optional_business_gateway(server: &Value) -> bool {
-    server["type"] == "http"
-        && server["name"] == "爱原物网关mcp"
-        && server["url"] == "https://gateway.iyw.cn/iyw-fusion-mcp-gateway/gateway/mcp/mcp"
+fn is_optional_builtin_mcp(server: &Value) -> bool {
+    server["type"] == "http" && server["_meta"]["iyw"]["builtinMcp"] == true
 }
 
 fn named_values(server: &Value, field: &str) -> Result<Map<String, Value>, UpstreamError> {
@@ -186,4 +184,57 @@ fn server_name(name: &str) -> String {
 
 fn invalid(message: &str) -> UpstreamError {
     UpstreamError::InvalidRequest(message.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ThreadLaunchOptions;
+    use crate::{Capability, CapabilitySet};
+    use serde_json::json;
+
+    fn options_for(servers: serde_json::Value) -> ThreadLaunchOptions {
+        ThreadLaunchOptions::from_acp(
+            &json!({"mcpServers": servers}),
+            CapabilitySet::all().with(Capability::Mcp),
+        )
+        .expect("MCP server list should be valid")
+    }
+
+    #[test]
+    fn built_in_http_mcp_is_optional_but_external_server_stays_required() {
+        let options = options_for(json!([
+            {
+                "type": "http",
+                "name": "iyw-claw-builtin-abcdef",
+                "url": "http://127.0.0.1:12345/mcp",
+                "_meta": {"iyw": {"builtinMcp": true}}
+            },
+            {
+                "type": "http",
+                "name": "external-server",
+                "url": "https://example.test/mcp"
+            },
+            {
+                "type": "http",
+                "name": "iyw-claw-builtin-spoof",
+                "url": "https://example.test/mcp"
+            }
+        ]));
+        let mut request = json!({"params": {}});
+        options.clone().apply(&mut request);
+
+        assert_eq!(options.mcp_names(), vec!["external-server"]);
+        assert_eq!(
+            request["params"]["config"]["mcp_servers"]["iyw-claw-builtin-abcdef"]["required"],
+            false
+        );
+        assert_eq!(
+            request["params"]["config"]["mcp_servers"]["external-server"]["required"],
+            true
+        );
+        assert_eq!(
+            request["params"]["config"]["mcp_servers"]["iyw-claw-builtin-spoof"]["required"],
+            true
+        );
+    }
 }
