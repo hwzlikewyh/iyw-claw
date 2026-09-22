@@ -1130,6 +1130,12 @@ mod tauri_app {
                     crate::web::event_bridge::EventEmitter::Tauri(app.handle().clone()),
                 ));
 
+                tauri::async_runtime::spawn(crate::commands::skill_market::auto_update_task(
+                    crate::db::AppDatabase {
+                        conn: app.state::<crate::db::AppDatabase>().conn.clone(),
+                    },
+                ));
+
                 // Office watch preview servers: reap dead children + ref0
                 // stragglers (live previews are never swept). Override via
                 // `IYW_CLAW_OFFICE_WATCH_IDLE_TIMEOUT_SECS` (`0` disables).
@@ -1541,6 +1547,7 @@ mod tauri_app {
                 app_update_commands::relaunch_app,
                 skill_market_commands::skill_market_list,
                 skill_market_commands::skill_market_categories,
+                skill_market_commands::skill_market_check_updates,
                 skill_market_commands::skill_market_detail,
                 skill_market_commands::skill_market_list_versions,
                 skill_market_commands::skill_market_publish,
@@ -1570,6 +1577,8 @@ mod tauri_app {
                 system_settings::update_system_language_settings,
                 system_settings::get_system_rendering_settings,
                 system_settings::update_system_rendering_settings,
+                system_settings::get_skill_auto_update_settings,
+                system_settings::update_skill_auto_update_settings,
                 desktop_commands::get_pending_main_close_request,
                 desktop_commands::complete_main_close,
                 desktop_commands::cancel_main_close,

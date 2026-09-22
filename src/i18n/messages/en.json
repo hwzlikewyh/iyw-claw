@@ -1755,7 +1755,12 @@
     "browserTitle": "Browser",
     "browserVisible": "Show built-in browser",
     "browserDescription": "Off by default. Browser actions stop when disabled. Enable to use the installed Chromix browser with page presentation and user handoff.",
-    "browserSaveFailed": "Failed to save browser setting: {message}"
+    "browserSaveFailed": "Failed to save browser setting: {message}",
+    "skillAutoUpdateTitle": "Skill updates",
+    "skillAutoUpdateDescription": "Manage updates for skills installed from Skill Market.",
+    "skillAutoUpdateLabel": "Automatically update installed skills",
+    "skillAutoUpdateHint": "Automatically update regular skills and expert packages; plugins still require manual updates.",
+    "skillAutoUpdateSaveFailed": "Failed to save Skill auto-update setting: {message}"
   },
   "MainCloseDialog": {
     "title": "Close 原助理",

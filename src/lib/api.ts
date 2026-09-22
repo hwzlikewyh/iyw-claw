@@ -149,6 +149,7 @@ import type {
   IywWechatQrcode,
   SystemProxySettings,
   SystemRenderingSettings,
+  SkillAutoUpdateSettings,
   LogSettings,
   LogSettingsView,
   LogRecord,
@@ -1529,6 +1530,16 @@ export async function updateSystemRenderingSettings(
   settings: SystemRenderingSettings
 ): Promise<SystemRenderingSettings> {
   return getTransport().call("update_system_rendering_settings", { settings })
+}
+
+export async function getSkillAutoUpdateSettings(): Promise<SkillAutoUpdateSettings> {
+  return getTransport().call("get_skill_auto_update_settings")
+}
+
+export async function updateSkillAutoUpdateSettings(
+  settings: SkillAutoUpdateSettings
+): Promise<SkillAutoUpdateSettings> {
+  return getTransport().call("update_skill_auto_update_settings", { settings })
 }
 
 // --- Logging ---

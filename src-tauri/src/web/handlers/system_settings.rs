@@ -7,6 +7,9 @@ use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::system_settings as settings_commands;
 use crate::commands::system_settings::{
+    load_skill_auto_update_settings, save_skill_auto_update_settings, SkillAutoUpdateSettings,
+};
+use crate::commands::system_settings::{
     LANGUAGE_SETTINGS_UPDATED_EVENT, SYSTEM_LANGUAGE_SETTINGS_KEY, SYSTEM_PROXY_SETTINGS_KEY,
 };
 use crate::db::service::app_metadata_service;
@@ -27,6 +30,11 @@ pub struct UpdateLanguageSettingsParams {
     pub settings: SystemLanguageSettings,
 }
 
+#[derive(Deserialize)]
+pub struct UpdateSkillAutoUpdateSettingsParams {
+    pub settings: SkillAutoUpdateSettings,
+}
+
 // ---------------------------------------------------------------------------
 // Read handlers
 // ---------------------------------------------------------------------------
@@ -45,6 +53,21 @@ pub async fn get_system_language_settings(
     let db = &state.db;
     let settings = settings_commands::load_system_language_settings(&db.conn).await?;
     Ok(Json(settings))
+}
+
+pub async fn get_skill_auto_update_settings(
+    Extension(state): Extension<Arc<AppState>>,
+) -> Result<Json<SkillAutoUpdateSettings>, AppCommandError> {
+    Ok(Json(load_skill_auto_update_settings(&state.db.conn).await?))
+}
+
+pub async fn update_skill_auto_update_settings(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<UpdateSkillAutoUpdateSettingsParams>,
+) -> Result<Json<SkillAutoUpdateSettings>, AppCommandError> {
+    Ok(Json(
+        save_skill_auto_update_settings(&state.db.conn, params.settings).await?,
+    ))
 }
 
 // ---------------------------------------------------------------------------
