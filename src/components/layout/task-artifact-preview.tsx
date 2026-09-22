@@ -11,6 +11,7 @@ import {
 import { TaskArtifactDirectoryPreview } from "@/components/layout/task-artifact-directory-preview"
 import { EmptyTaskArtifactPreview } from "@/components/layout/task-artifact-preview-empty"
 import { TaskArtifactPreviewHeader } from "@/components/layout/task-artifact-preview-header"
+import { TaskArtifactPreviewMenu } from "@/components/layout/task-artifact-preview-menu"
 import {
   resolveArtifactPreview,
   startArtifactPreviewLoad,
@@ -87,6 +88,10 @@ function ArtifactPreviewWithFullscreen(props: ArtifactPreviewProps) {
   const closeAppFullscreen = useCallback(() => {
     setAppFullscreen(false)
   }, [])
+  const openWorkspace = () => {
+    closeAppFullscreen()
+    props.onOpenWorkspace?.()
+  }
 
   return (
     <PreviewFullscreen
@@ -97,6 +102,7 @@ function ArtifactPreviewWithFullscreen(props: ArtifactPreviewProps) {
     >
       <ArtifactPreview
         {...props}
+        onOpenWorkspace={openWorkspace}
         className="h-full"
         isAppFullscreen={appFullscreen}
         isSystemFullscreen={systemFullscreen}
@@ -126,33 +132,35 @@ function ArtifactPreview({
     onOpenWorkspace,
   })
   return (
-    <section
-      aria-label={artifact.displayName}
-      ref={fullscreenTargetRef}
-      className={cn(
-        "grid min-h-0 grid-rows-[auto_minmax(0,1fr)] bg-background",
-        className
-      )}
-    >
-      <TaskArtifactPreviewHeader
-        artifact={artifact}
-        actions={actions}
-        onBack={onBack}
-        isAppFullscreen={isAppFullscreen}
-        isSystemFullscreen={isSystemFullscreen}
-        onToggleAppFullscreen={onToggleAppFullscreen}
-        onToggleSystemFullscreen={onToggleSystemFullscreen}
-      />
-      <div className="min-h-0">
-        <PreviewFullscreenContext value={Boolean(onToggleAppFullscreen)}>
-          <ArtifactPreviewBody
-            artifact={artifact}
-            target={actions.target}
-            onOpenWorkspace={onOpenWorkspace}
-          />
-        </PreviewFullscreenContext>
-      </div>
-    </section>
+    <TaskArtifactPreviewMenu actions={actions}>
+      <section
+        aria-label={artifact.displayName}
+        ref={fullscreenTargetRef}
+        className={cn(
+          "grid min-h-0 grid-rows-[auto_minmax(0,1fr)] bg-background",
+          className
+        )}
+      >
+        <TaskArtifactPreviewHeader
+          artifact={artifact}
+          actions={actions}
+          onBack={onBack}
+          isAppFullscreen={isAppFullscreen}
+          isSystemFullscreen={isSystemFullscreen}
+          onToggleAppFullscreen={onToggleAppFullscreen}
+          onToggleSystemFullscreen={onToggleSystemFullscreen}
+        />
+        <div className="min-h-0">
+          <PreviewFullscreenContext value={Boolean(onToggleAppFullscreen)}>
+            <ArtifactPreviewBody
+              artifact={artifact}
+              target={actions.target}
+              onOpenWorkspace={onOpenWorkspace}
+            />
+          </PreviewFullscreenContext>
+        </div>
+      </section>
+    </TaskArtifactPreviewMenu>
   )
 }
 

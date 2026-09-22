@@ -5,6 +5,11 @@ import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
 import { useWorkspaceActions } from "@/contexts/workspace-context"
+import { useSendArtifactToChat } from "@/components/layout/use-send-artifact-to-chat"
+import {
+  useArtifactCommonActions,
+  type ArtifactCommonActions,
+} from "@/components/layout/use-artifact-common-actions"
 import { usePlatform } from "@/hooks/use-platform"
 import type { TaskArtifactInfo } from "@/lib/api"
 import { splitAbsPath } from "@/lib/file-open-target"
@@ -29,7 +34,7 @@ interface UseTaskArtifactActionsOptions {
   onOpenWorkspace?: () => void
 }
 
-export interface TaskArtifactActions {
+export interface TaskArtifactActions extends ArtifactCommonActions {
   kind: TaskArtifactInfo["kind"]
   target: TaskArtifactTarget | null
   canOpenWorkspace: boolean
@@ -44,6 +49,7 @@ export interface TaskArtifactActions {
   openWith: () => Promise<void>
   reveal: () => Promise<void>
   copyPath: () => Promise<void>
+  sendToChat?: () => void
 }
 
 type ArtifactAction =
@@ -123,20 +129,22 @@ export function useTaskArtifactActions({
   const { isWindows } = usePlatform()
   const target = useArtifactTarget(artifact)
   const run = useArtifactActionRunner(artifact)
+  const sendToChat = useSendArtifactToChat({ artifact, onOpenWorkspace })
+  const commonActions = useArtifactCommonActions(artifact)
   const available = artifact.status === "available"
   const directory = artifact.kind === "directory"
   const canUseSystem = artifact.kind !== "url" && isLocalDesktop() && available
   const canOpenExternal = artifact.kind === "url" && available
   const canOpenWorkspace = !directory && target !== null && available
-  const canCopyItem = canUseSystem && isWindows
-  return createTaskArtifactActions({
+  const actions = createTaskArtifactActions({
     artifact,
     target,
     run,
     canUseSystem,
     canOpenExternal,
     canOpenWorkspace,
-    canCopyItem,
+    canCopyItem: canUseSystem && isWindows,
+    sendToChat,
     isWindows,
     onPreview,
     onOpenWorkspace,
@@ -150,6 +158,7 @@ export function useTaskArtifactActions({
     revealFailed: t("revealFailed"),
     openWorkspaceFailed: t("openWorkspaceFailed"),
   })
+  return { ...actions, ...commonActions }
 }
 
 interface ArtifactActionFactoryOptions extends UseTaskArtifactActionsOptions {
@@ -159,6 +168,7 @@ interface ArtifactActionFactoryOptions extends UseTaskArtifactActionsOptions {
   canOpenExternal: boolean
   canOpenWorkspace: boolean
   canCopyItem: boolean
+  sendToChat?: () => void
   isWindows: boolean
   openFilePreview: (path: string) => Promise<void>
   copyFailed: string
@@ -173,7 +183,7 @@ interface ArtifactActionFactoryOptions extends UseTaskArtifactActionsOptions {
 
 function createTaskArtifactActions(
   options: ArtifactActionFactoryOptions
-): TaskArtifactActions {
+): Omit<TaskArtifactActions, keyof ArtifactCommonActions> {
   const { artifact, run, target } = options
   return {
     kind: artifact.kind,
@@ -184,6 +194,7 @@ function createTaskArtifactActions(
     canChooseApplication:
       options.canUseSystem && options.isWindows && artifact.kind === "file",
     canCopyItem: options.canCopyItem,
+    sendToChat: options.sendToChat,
     preview: () => options.onPreview(artifact),
     copyItem: () =>
       run({

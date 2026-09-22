@@ -236,7 +236,10 @@ function ArtifactMoreMenu({ actions }: { actions: TaskArtifactActions }) {
         className={TASK_ARTIFACT_MENU_CONTENT_CLASS}
         align="end"
       >
-        <TaskArtifactDropdownMenuItems actions={actions} />
+        <TaskArtifactDropdownMenuItems
+          actions={actions}
+          includePreview={false}
+        />
       </DropdownMenuContent>
     </DropdownMenu>
   )

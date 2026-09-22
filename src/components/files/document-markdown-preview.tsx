@@ -147,6 +147,7 @@ function MarkdownBody(
       }}
     >
       <article
+        data-artifact-preview-text
         className="mx-auto max-w-[80ch] break-words [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6 [&_p]:[content-visibility:auto]"
         style={{ zoom: props.zoom, fontSize: "1rem", lineHeight: 1.7 }}
       >

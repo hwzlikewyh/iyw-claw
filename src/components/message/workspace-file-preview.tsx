@@ -284,7 +284,10 @@ function TextPreview({
   const t = useTranslations("Folder.chat.workspaceFiles")
   return (
     <div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto]">
-      <pre className="overflow-auto whitespace-pre p-4 font-mono text-xs leading-5 text-foreground">
+      <pre
+        data-artifact-preview-text
+        className="overflow-auto whitespace-pre p-4 font-mono text-xs leading-5 text-foreground"
+      >
         {state.content}
       </pre>
       {state.truncated && (

@@ -4,10 +4,14 @@ import { Fragment, useMemo, type ReactNode } from "react"
 import {
   AppWindow,
   Copy,
+  Download,
   ExternalLink,
   Files,
   FolderSearch,
+  MessageSquarePlus,
   PanelsTopLeft,
+  Save,
+  TextCursorInput,
   Waypoints,
   type LucideIcon,
 } from "lucide-react"
@@ -18,6 +22,7 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
 } from "@/components/ui/context-menu"
+import { isDesktop } from "@/lib/platform"
 import {
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -29,6 +34,7 @@ interface ArtifactMenuEntry {
   label: string
   icon: LucideIcon
   onSelect: () => void
+  disabled?: boolean
 }
 
 interface ArtifactMenuLabels {
@@ -40,6 +46,9 @@ interface ArtifactMenuLabels {
   openWith: string
   reveal: string
   copyPath: string
+  sendToChat: string
+  copyName: string
+  download: string
 }
 
 function previewMenuEntries(
@@ -62,6 +71,25 @@ function previewMenuEntries(
       label: labels.openWorkspace,
       icon: Waypoints,
       onSelect: () => void actions.openWorkspace(),
+    })
+  }
+  if (actions.sendToChat) {
+    entries.push({
+      id: "sendToChat",
+      section: "preview",
+      label: labels.sendToChat,
+      icon: MessageSquarePlus,
+      onSelect: actions.sendToChat,
+    })
+  }
+  if (actions.download) {
+    entries.push({
+      id: "download",
+      section: "preview",
+      label: labels.download,
+      icon: isDesktop() ? Save : Download,
+      onSelect: () => void actions.download?.(),
+      disabled: actions.downloading,
     })
   }
   return entries
@@ -126,6 +154,13 @@ function clipboardMenuEntries(
     })
   }
   entries.push({
+    id: "copyName",
+    section: "clipboard",
+    label: labels.copyName,
+    icon: TextCursorInput,
+    onSelect: () => void actions.copyName(),
+  })
+  entries.push({
     id: "copyPath",
     section: "clipboard",
     label: labels.copyPath,
@@ -149,6 +184,9 @@ function useArtifactMenuEntries(
       openWith: t("openWith"),
       reveal: t("reveal"),
       copyPath: actions.kind === "url" ? t("copyLink") : t("copyPath"),
+      sendToChat: t("sendToChat"),
+      copyName: t("copyName"),
+      download: t(isDesktop() ? "saveAs" : "download"),
     }
     return [
       ...previewMenuEntries(actions, labels),
@@ -164,14 +202,18 @@ const TASK_ARTIFACT_MENU_ITEM_CLASS = "gap-2 rounded-md px-2.5 py-1.5"
 
 function ArtifactMenuEntries({
   actions,
+  includePreview = true,
   renderItem,
   renderSeparator,
 }: {
   actions: TaskArtifactActions
+  includePreview?: boolean
   renderItem: (entry: ArtifactMenuEntry) => ReactNode
   renderSeparator: (id: string) => ReactNode
 }) {
-  const entries = useArtifactMenuEntries(actions)
+  const entries = useArtifactMenuEntries(actions).filter(
+    (entry) => includePreview || entry.id !== "preview"
+  )
   return entries.map((entry, index) => {
     const previous = entries[index - 1]
     return (
@@ -187,16 +229,20 @@ function ArtifactMenuEntries({
 
 export function TaskArtifactContextMenuItems({
   actions,
+  includePreview,
 }: {
   actions: TaskArtifactActions
+  includePreview?: boolean
 }) {
   return (
     <ArtifactMenuEntries
       actions={actions}
+      includePreview={includePreview}
       renderItem={(entry) => (
         <ContextMenuItem
           className={TASK_ARTIFACT_MENU_ITEM_CLASS}
           onSelect={entry.onSelect}
+          disabled={entry.disabled}
         >
           <entry.icon />
           {entry.label}
@@ -209,16 +255,20 @@ export function TaskArtifactContextMenuItems({
 
 export function TaskArtifactDropdownMenuItems({
   actions,
+  includePreview,
 }: {
   actions: TaskArtifactActions
+  includePreview?: boolean
 }) {
   return (
     <ArtifactMenuEntries
       actions={actions}
+      includePreview={includePreview}
       renderItem={(entry) => (
         <DropdownMenuItem
           className={TASK_ARTIFACT_MENU_ITEM_CLASS}
           onSelect={entry.onSelect}
+          disabled={entry.disabled}
         >
           <entry.icon />
           {entry.label}
