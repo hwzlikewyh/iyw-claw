@@ -134,31 +134,8 @@ function LearningControls({
 }) {
   const t = useTranslations("UserMemorySettings.learning")
   const status = state.status!
-  const selectedAvailable = status.models.some(
-    (model) => model.id === status.config.model
-  )
   return (
-    <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-      <select
-        aria-label={t("model")}
-        value={status.config.model}
-        disabled={state.busy || !status.available}
-        className="h-9 w-full min-w-0 rounded-md border bg-background px-2 text-sm"
-        onChange={(event) =>
-          void state.save({ ...status.config, model: event.target.value })
-        }
-      >
-        {!selectedAvailable && (
-          <option value={status.config.model} disabled>
-            {t("modelNameUnavailable")}
-          </option>
-        )}
-        {status.models.map((model) => (
-          <option key={model.id} value={model.id}>
-            {model.displayName}
-          </option>
-        ))}
-      </select>
+    <div className="flex justify-end">
       <Button
         variant="outline"
         size="sm"
@@ -173,11 +150,6 @@ function LearningControls({
         )}
         {t("refresh")}
       </Button>
-      {!status.available && (
-        <p className="text-xs text-muted-foreground sm:col-span-2">
-          {t("unavailable")}
-        </p>
-      )}
     </div>
   )
 }

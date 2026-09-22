@@ -1188,10 +1188,7 @@ export function MessageInput({
                 attachment.sourceMimeType
               )
             )
-            updateInlineImage(
-              attachment.id,
-              preparedInlineImageAttrs(prepared)
-            )
+            updateInlineImage(attachment.id, preparedInlineImageAttrs(prepared))
           })
           .catch((error) => {
             console.error("[MessageInput] restored image upload failed", {
@@ -3404,6 +3401,11 @@ export function MessageInput({
 
   const buildDraft = useCallback((): PromptDraft | null => {
     const editor = editorRef.current?.getEditor()
+    const attachmentSnapshot = attachmentsRef.current
+    const imageAttachments = attachmentSnapshot.filter(
+      (attachment): attachment is ImageInputAttachment =>
+        attachment.type === "image"
+    )
     // The send boundary is authoritative in case the agent changed before the
     // deferred re-stamp effect ran.
     if (editor) {
@@ -3413,7 +3415,7 @@ export function MessageInput({
     const inlineImages = editor ? inlineImageAttrs(editor) : []
     const missingInlineImage = inlineImages.find(
       (attrs) =>
-        !attachmentsRef.current.some(
+        !attachmentSnapshot.some(
           (item) => item.type === "image" && item.id === attrs.attachmentId
         )
     )
@@ -3426,7 +3428,7 @@ export function MessageInput({
     const blocks: PromptInputBlock[] = editor
       ? docToPromptBlocks(editor, {
           resolveImage: (attrs) => {
-            const attachment = attachmentsRef.current.find(
+            const attachment = attachmentSnapshot.find(
               (item): item is ImageInputAttachment =>
                 item.type === "image" && item.id === attrs.attachmentId
             )
@@ -3475,48 +3477,70 @@ export function MessageInput({
         return true
       })
     }
-    const invalidImage = attachments.find(
-      (attachment): attachment is ImageInputAttachment => {
-        if (attachment.type !== "image") return false
-        const hasUrl = isPublicImageUrl(attachment.uri)
-        const hasInlineData =
-          !attachment.uri &&
-          attachment.data.length > 0 &&
-          bytesFromBase64(attachment.data) <= IMAGE_ATTACHMENT_MAX_BYTES
-        return (
-          !SUPPORTED_IMAGE_MIME_TYPES.has(attachment.mimeType.toLowerCase()) ||
-          !((hasUrl && !attachment.data) || hasInlineData)
-        )
-      }
+    const failedImage = imageAttachments.find(
+      (attachment) => attachment.staging?.status === "failed"
     )
+    if (failedImage) {
+      console.warn("[MessageInput] send blocked failed image attachment", {
+        attachmentId: failedImage.id,
+        name: failedImage.name,
+        stagingStatus: failedImage.staging?.status,
+      })
+      toast.error(tAttach("attachUploadFailed", { names: failedImage.name }))
+      return null
+    }
+    const uploadingImage = imageAttachments.find(
+      (attachment) => attachment.staging?.status === "uploading"
+    )
+    if (uploadingImage) {
+      console.info("[MessageInput] send blocked uploading image attachment", {
+        attachmentId: uploadingImage.id,
+        name: uploadingImage.name,
+        stagingStatus: uploadingImage.staging?.status,
+      })
+      toast.error(
+        tAttach("attachImageStagingRequired", { name: uploadingImage.name })
+      )
+      return null
+    }
+    const invalidImage = imageAttachments.find((attachment) => {
+      const hasUrl = isPublicImageUrl(attachment.uri)
+      const hasInlineData =
+        !attachment.uri &&
+        attachment.data.length > 0 &&
+        bytesFromBase64(attachment.data) <= IMAGE_ATTACHMENT_MAX_BYTES
+      return (
+        !SUPPORTED_IMAGE_MIME_TYPES.has(attachment.mimeType.toLowerCase()) ||
+        !((hasUrl && !attachment.data) || hasInlineData)
+      )
+    })
     if (invalidImage) {
       console.error("[MessageInput] send blocked invalid image attachment", {
+        attachmentId: invalidImage.id,
         name: invalidImage.name,
         mimeType: invalidImage.mimeType,
         base64Length: invalidImage.data.length,
+        hasUrl: isPublicImageUrl(invalidImage.uri),
+        hasInlineData: invalidImage.data.length > 0,
       })
       toast.error(tAttach("attachImageReadFailed", { name: invalidImage.name }))
       return null
     }
-    const unstagedImage = attachments.find(
-      (attachment): attachment is ImageInputAttachment =>
-        attachment.type === "image" && attachment.staging !== undefined
-    )
-    if (unstagedImage) {
-      toast.error(
-        tAttach("attachImageStagingRequired", { name: unstagedImage.name })
-      )
-      return null
-    }
-    if (blocks.length === 0 && attachments.length === 0) return null
+    if (blocks.length === 0 && attachmentSnapshot.length === 0) return null
 
     const displayText =
       displayProse ||
-      `Attached ${attachments.length} attachment${attachments.length > 1 ? "s" : ""}`
+      `Attached ${attachmentSnapshot.length} attachment${
+        attachmentSnapshot.length > 1 ? "s" : ""
+      }`
     console.info("[MessageInput] draft image boundary", {
-      imageCount: attachments.filter(
-        (attachment) => attachment.type === "image"
-      ).length,
+      imageCount: imageAttachments.length,
+      imageStates: imageAttachments.map((attachment) => ({
+        attachmentId: attachment.id,
+        hasUrl: isPublicImageUrl(attachment.uri),
+        hasInlineData: attachment.data.length > 0,
+        stagingStatus: attachment.staging?.status ?? "ready",
+      })),
       resourceCount: blocks.filter((block) => block.type !== "image").length,
     })
     const expert = editor ? getExpertReference(editor) : null
@@ -3533,7 +3557,7 @@ export function MessageInput({
           }
         : undefined
     return { blocks, displayText, skillPackage }
-  }, [attachments, skillPrefix, t, tAttach])
+  }, [skillPrefix, t, tAttach])
 
   // Clear the accepted draft immediately. Invalidate the pre-send debounce so
   // it cannot write the old document back after the visible composer is empty.
