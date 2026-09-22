@@ -68,10 +68,7 @@ export function UserMemoryLearningPanel({
 }) {
   const t = useTranslations("UserMemorySettings.learning")
   const state = useLearningSettings(onUpdated)
-  const selectedAvailable =
-    state.status?.models.some(
-      (model) => model.id === state.status?.config.model
-    ) ?? false
+  const modelAvailable = (state.status?.models.length ?? 0) > 0
   return (
     <section className="space-y-3 border-y py-4">
       <div className="flex items-center justify-between gap-4">
@@ -85,7 +82,7 @@ export function UserMemoryLearningPanel({
           disabled={
             !state.status ||
             state.busy ||
-            ((!state.status.available || !selectedAvailable) &&
+            ((!state.status.available || !modelAvailable) &&
               !state.status.config.enabled)
           }
           onCheckedChange={(enabled) =>
@@ -140,7 +137,12 @@ function LearningControls({
         variant="outline"
         size="sm"
         className="h-auto min-h-9 w-fit max-w-full whitespace-normal"
-        disabled={state.busy || !status.available || !status.config.enabled}
+        disabled={
+          state.busy ||
+          !status.available ||
+          !status.config.enabled ||
+          status.models.length === 0
+        }
         onClick={() => void state.refresh()}
       >
         {state.busy ? (

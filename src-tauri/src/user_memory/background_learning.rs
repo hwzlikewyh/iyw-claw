@@ -5,7 +5,6 @@ use super::{
     CandidateObservationSource, MemoryHarvestRequest, UserMemoryCandidateSignal, UserMemoryService,
 };
 use crate::acp::model_gateway_chat::StructuredChatRequest;
-use crate::acp::provider_overlay::MANAGED_DEFAULT_MODEL;
 use crate::app_error::AppCommandError;
 use crate::db::service::app_metadata_service;
 
@@ -26,7 +25,7 @@ impl Default for BackgroundLearningConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            model: MANAGED_DEFAULT_MODEL.into(),
+            model: String::new(),
             review_enabled: false,
         }
     }
@@ -73,7 +72,8 @@ impl UserMemoryService {
     pub async fn background_learning_status(
         &self,
     ) -> Result<BackgroundLearningStatus, AppCommandError> {
-        let config = self.learning_config().await?;
+        // 返回原始配置，避免保存开关时把自动选择固化成当前模型。
+        let config = self.stored_learning_config().await?;
         let available = crate::commands::iyw_account::iyw_account_access_token_core(&self.db)
             .await?
             .is_some();
@@ -96,10 +96,10 @@ impl UserMemoryService {
     ) -> Result<(), AppCommandError> {
         let (_guard, _file_guard) = self.acquire_locks().await?;
         let selectable =
-            super::background_learning_gateway::supports_structured_output(&config.model);
+            super::background_learning_gateway::resolve_learning_model(&config.model).is_some();
         if config.enabled && !selectable {
             return Err(AppCommandError::invalid_input(
-                "Select a managed model for memory learning",
+                "No managed model is available for memory learning",
             ));
         }
         app_metadata_service::upsert_value(
@@ -117,6 +117,13 @@ impl UserMemoryService {
     pub(super) async fn learning_config(
         &self,
     ) -> Result<BackgroundLearningConfig, AppCommandError> {
+        let mut config = self.stored_learning_config().await?;
+        config.model = super::background_learning_gateway::resolve_learning_model(&config.model)
+            .unwrap_or_default();
+        Ok(config)
+    }
+
+    async fn stored_learning_config(&self) -> Result<BackgroundLearningConfig, AppCommandError> {
         match app_metadata_service::get_value(&self.db, CONFIG_KEY)
             .await
             .map_err(AppCommandError::from)?
@@ -161,11 +168,6 @@ impl UserMemoryService {
         input: &str,
         model: &str,
     ) -> Result<Extraction, AppCommandError> {
-        if !super::background_learning_gateway::supports_structured_output(model) {
-            return Err(AppCommandError::configuration_invalid(
-                "Selected memory learning model does not support structured output",
-            ));
-        }
         let gateway = self.learning_gateway(model).await?;
         let response = crate::acp::model_gateway_chat::call_structured(
             &gateway,

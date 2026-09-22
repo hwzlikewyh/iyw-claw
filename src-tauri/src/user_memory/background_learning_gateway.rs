@@ -14,7 +14,7 @@ impl UserMemoryService {
     ) -> Result<ModelGatewayChatConfig, AppCommandError> {
         if !supports_structured_output(model) {
             return Err(AppCommandError::configuration_invalid(
-                "Selected memory learning model does not support structured output",
+                "Memory learning requires an available model with structured output support",
             ));
         }
         let token = crate::commands::iyw_account::iyw_account_access_token_core(&self.db)
@@ -63,6 +63,15 @@ pub(super) fn structured_model_options() -> Vec<crate::acp::model_catalog::Model
         .into_iter()
         .filter(|model| supports_structured_output(&model.id))
         .collect()
+}
+
+pub(super) fn resolve_learning_model(configured: &str) -> Option<String> {
+    let models = structured_model_options();
+    models
+        .iter()
+        .find(|model| model.id == configured.trim())
+        .or_else(|| models.first())
+        .map(|model| model.id.clone())
 }
 
 pub(super) fn preserve_provider_error(message: &str, error: AppCommandError) -> AppCommandError {
