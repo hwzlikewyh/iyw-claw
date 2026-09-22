@@ -5754,11 +5754,8 @@
     },
     "learning": {
       "title": "后台记忆提炼",
-      "dataUse": "开启后，新对话中的用户片段会发送到所选原助理模型，提炼候选记忆；画像归纳使用有效的已确认记忆。",
-      "model": "提炼模型",
-      "modelNameUnavailable": "模型名称不可用",
-      "refresh": "整理画像与协作方式",
-      "unavailable": "登录原助理后可选择后台提炼模型"
+      "dataUse": "开启后，新对话中的用户片段会发送到后台配置的模型，提炼候选记忆；画像归纳使用有效的已确认记忆。",
+      "refresh": "整理画像与协作方式"
     },
     "markerProtectedSaveBlocked": "系统管理的条目标记发生变化，已阻止保存",
     "manual": {
