@@ -5765,11 +5765,8 @@
     },
     "learning": {
       "title": "Background memory extraction",
-      "dataUse": "When enabled, user excerpts from new conversations are sent to the selected iyw-claw model to propose memories. Profile generation uses active confirmed memories.",
-      "model": "Extraction model",
-      "modelNameUnavailable": "Model name unavailable",
-      "refresh": "Refresh profile and collaboration",
-      "unavailable": "Sign in to select a background memory model"
+      "dataUse": "When enabled, user excerpts from new conversations are sent to the model configured by the administrator to propose memories. Profile generation uses active confirmed memories.",
+      "refresh": "Refresh profile and collaboration"
     },
     "markerProtectedSaveBlocked": "Saving was blocked because system-managed entry markers changed",
     "manual": {
