@@ -43,19 +43,31 @@ pub(super) async fn wait_ready(
     let Some(ready) = ready else {
         return Ok(());
     };
-    let result = ready.wait(cancellation).await;
-    match result {
+    match ready.wait(cancellation).await {
         Ok(()) => tracing::info!(
             connection_id,
             "[ACP] Agent HTTP MCP tool catalog delivered before session ready"
         ),
-        Err(reason) => tracing::warn!(
-            connection_id,
-            reason,
-            "[ACP] Agent HTTP MCP tool catalog is not ready"
-        ),
+        Err(crate::acp::builtin_mcp::ToolReadinessError::TimedOut) => {
+            tracing::warn!(
+                connection_id,
+                degraded = true,
+                reason = crate::acp::builtin_mcp::ToolReadinessError::TimedOut.as_str(),
+                "[ACP] Agent HTTP MCP tool catalog is not ready; continuing without built-in MCP"
+            );
+            return Ok(());
+        }
+        Err(reason) => {
+            tracing::warn!(
+                connection_id,
+                reason = reason.as_str(),
+                degraded = false,
+                "[ACP] Agent HTTP MCP tool catalog is not ready"
+            );
+            return Err(AcpError::BuiltinMcpUnavailable(reason.as_str().to_string()));
+        }
     }
-    result.map_err(|reason| AcpError::BuiltinMcpUnavailable(reason.to_string()))
+    Ok(())
 }
 
 pub(super) async fn reset_transport(

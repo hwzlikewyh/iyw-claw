@@ -71,7 +71,10 @@ export interface UseConnectionLifecycleReturn {
   ) => Promise<boolean>
   handleSetConfigOption: (configId: string, valueId: string) => Promise<void>
   handleCancel: () => void
-  handleRespondPermission: (requestId: string, optionId: string) => void
+  handleRespondPermission: (
+    requestId: string,
+    optionId: string
+  ) => Promise<void>
 }
 
 function normalizeErrorMessage(error: unknown): string {
@@ -481,9 +484,7 @@ export function useConnectionLifecycle({
   const handleRespondPermission = useCallback(
     (requestId: string, optionId: string) => {
       touchActivity(contextKey)
-      connRespondPermission(requestId, optionId).catch((e: unknown) =>
-        console.error("[ConnLifecycle] respondPermission:", e)
-      )
+      return connRespondPermission(requestId, optionId)
     },
     [connRespondPermission, contextKey, touchActivity]
   )

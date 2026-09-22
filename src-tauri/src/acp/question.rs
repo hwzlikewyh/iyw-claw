@@ -37,13 +37,15 @@ use tokio::sync::{oneshot, RwLock};
 mod input;
 pub(crate) use input::validate_answers as validate_input_answers;
 pub use input::QuestionInputSpec;
+#[path = "question_ui.rs"]
+mod ui;
+pub use ui::{active_questions, validate_answer_ids, QuestionUi};
 
-/// Max questions per `ask_user_question` call. Matches Claude Code's
-/// `AskUserQuestion` contract; the JSON schema advertises the same `maxItems`.
-pub const MAX_QUESTIONS: usize = 4;
-/// 无选项表示自由文字问题，最多展示四个可选项。
+/// 多字段表单的请求上限，与内置工具 schema 一致。
+pub const MAX_QUESTIONS: usize = 32;
+/// 无选项表示自由文字问题，较多选项使用下拉选择。
 pub const MIN_OPTIONS: usize = 0;
-pub const MAX_OPTIONS: usize = 4;
+pub const MAX_OPTIONS: usize = 128;
 /// ACP 表单由宿主分页显示；单字段可保留较长的枚举选项。
 pub const MAX_ELICITATION_OPTIONS: usize = 128;
 /// Max characters for a question's short `header` chip.
@@ -70,6 +72,8 @@ pub struct QuestionOption {
 /// A single multiple-choice question.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuestionSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui: Option<QuestionUi>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<QuestionInputSpec>,
     /// 秘密输入仅用于当前交互，不进入普通结果卡片。
@@ -215,6 +219,7 @@ pub fn validate_specs(specs: &[QuestionSpec]) -> Result<(), String> {
             specs.len()
         ));
     }
+    ui::validate_ui(specs)?;
     let mut seen_ids = std::collections::HashSet::new();
     for (qi, q) in specs.iter().enumerate() {
         // `parse_questions` mints a fresh uuid per question; a hand-rolled client
@@ -252,6 +257,9 @@ pub fn validate_specs(specs: &[QuestionSpec]) -> Result<(), String> {
             return Err(format!(
                 "questions[{qi}] must have at most {max_options} options"
             ));
+        }
+        if let Some(input) = &q.input {
+            input.validate_definition(q)?;
         }
         let mut seen_labels = std::collections::HashSet::new();
         for (oi, o) in q.options.iter().enumerate() {

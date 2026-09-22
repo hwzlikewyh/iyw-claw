@@ -43,7 +43,8 @@ use crate::acp::permission_queue::{PermissionQueue, QueuedPermission};
 use crate::acp::permission_runtime::{PermissionRequestMeta, PermissionRuntime};
 use crate::acp::registry::{self, AgentDistribution};
 use crate::acp::session_config_compat::{
-    canonical_model_id, model_value_for_agent, project_model_options, resolve_preferred_session_config,
+    canonical_model_id, model_value_for_agent, project_model_options,
+    resolve_preferred_session_config,
 };
 use crate::acp::session_recovery::{
     RecoveryBudget, RecoveryFailure, RecoveryProgress, RecoveryStage,
@@ -2986,11 +2987,16 @@ async fn prepare_http_companion(
         .issue(authority, Arc::clone(&memory_access.turn_tracker))
         .await?;
     context.http_lease_issued.store(true, Ordering::Release);
-    let server =
-        McpServerHttp::new(server_name.clone(), client.endpoint()).headers(vec![HttpHeader::new(
+    let server_meta = serde_json::Map::from_iter([(
+        "iyw".to_string(),
+        serde_json::json!({ "builtinMcp": true }),
+    )]);
+    let server = McpServerHttp::new(server_name.clone(), client.endpoint())
+        .headers(vec![HttpHeader::new(
             "Authorization",
             format!("Bearer {}", bearer.as_str()),
-        )]);
+        )])
+        .meta(server_meta);
     tracing::info!(
         connection_id = context.connection_id,
         agent = %context.agent_type,

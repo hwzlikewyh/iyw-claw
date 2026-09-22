@@ -49,6 +49,6 @@ pub use authority::{SessionAuthority, SessionIdentity};
 pub use credential::SessionToken;
 pub use features::{FeatureSnapshot, MemoryCapability, MemoryPermissions};
 pub use lease::BuiltinMcpIssueError;
-pub(crate) use readiness::ToolReadiness;
+pub(crate) use readiness::{ToolReadiness, ToolReadinessError};
 pub use service::{BuiltinMcpClient, BuiltinMcpService};
 pub(crate) use tool_identity::{invoked_tool_name, GatewayToolIdentity};

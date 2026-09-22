@@ -6,6 +6,23 @@ use tokio_util::sync::CancellationToken;
 
 const TOOLS_READY_TIMEOUT: Duration = Duration::from_secs(20);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolReadinessError {
+    Cancelled,
+    TransportChanged,
+    TimedOut,
+}
+
+impl ToolReadinessError {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Cancelled => "MCP startup cancelled",
+            Self::TransportChanged => "MCP transport changed during startup",
+            Self::TimedOut => "Agent did not complete MCP tools/list before the startup deadline",
+        }
+    }
+}
+
 #[derive(Default, Debug)]
 struct ReadyState {
     generation: u64,
@@ -44,17 +61,28 @@ impl ToolReadiness {
         self.changed.notify_waiters();
     }
 
-    pub(crate) async fn wait(&self, cancellation: &CancellationToken) -> Result<(), &'static str> {
+    pub(crate) async fn wait(
+        &self,
+        cancellation: &CancellationToken,
+    ) -> Result<(), ToolReadinessError> {
+        self.wait_with_timeout(cancellation, TOOLS_READY_TIMEOUT)
+            .await
+    }
+
+    async fn wait_with_timeout(
+        &self,
+        cancellation: &CancellationToken,
+        timeout: Duration,
+    ) -> Result<(), ToolReadinessError> {
         tokio::select! {
             biased;
-            _ = cancellation.cancelled() => Err("MCP startup cancelled"),
-            result = tokio::time::timeout(TOOLS_READY_TIMEOUT, self.wait_delivered()) => {
-                result.unwrap_or(Err("Agent did not complete MCP tools/list before the startup deadline"))
-            }
+            _ = cancellation.cancelled() => Err(ToolReadinessError::Cancelled),
+            result = tokio::time::timeout(timeout, self.wait_delivered()) =>
+                result.unwrap_or(Err(ToolReadinessError::TimedOut)),
         }
     }
 
-    async fn wait_delivered(&self) -> Result<(), &'static str> {
+    async fn wait_delivered(&self) -> Result<(), ToolReadinessError> {
         let generation = self.generation();
         loop {
             let changed = self.changed.notified();
@@ -63,7 +91,7 @@ impl ToolReadiness {
             {
                 let state = self.state.lock().unwrap_or_else(|error| error.into_inner());
                 if state.generation != generation {
-                    return Err("MCP transport changed during startup");
+                    return Err(ToolReadinessError::TransportChanged);
                 }
                 if state.delivered {
                     return Ok(());
@@ -71,5 +99,32 @@ impl ToolReadiness {
             }
             changed.await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ToolReadiness, ToolReadinessError};
+    use std::time::Duration;
+    use tokio_util::sync::CancellationToken;
+
+    #[tokio::test]
+    async fn timeout_is_distinguished_from_cancellation() {
+        let readiness = ToolReadiness::default();
+        let cancellation = CancellationToken::new();
+        assert_eq!(
+            readiness
+                .wait_with_timeout(&cancellation, Duration::from_millis(1))
+                .await,
+            Err(ToolReadinessError::TimedOut)
+        );
+
+        cancellation.cancel();
+        assert_eq!(
+            readiness
+                .wait_with_timeout(&cancellation, Duration::from_secs(1))
+                .await,
+            Err(ToolReadinessError::Cancelled)
+        );
     }
 }

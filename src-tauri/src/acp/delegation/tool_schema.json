@@ -1107,7 +1107,7 @@
   },
   {
     "name": "ask_user_question",
-    "description": "Ask the user for a specific input, preference or decision that is needed to continue and cannot be reliably obtained from the request, available context or reasonable implementation judgment. Use for clarifying requirements, choosing an approach or target, setting scope, supplying missing information and collecting concise feedback. Render one or a few related questions as interactive cards and wait for the user to submit options or free text. Omit options for an open-ended question. Prefer one focused question; batch closely related questions when useful. Do not ask routine should-I-proceed questions or ask the user to look up information you can obtain yourself. For visual comparisons, experimentation, interactive explanations, design feedback or richer user expression, use show_interactive_html instead. Do not collect secrets. Free text is always available: do not add an Other option. Put a recommended option first and append (Recommended); recommendations are not user consent.",
+    "description": "Collect missing user input or decisions using a native interactive form. Use layout=form for related fields filled together, layout=steps for sequential decisions, or one question for a concise reply. Mix text, textarea, select, combobox (searchable), radio, checkbox, number, date, switch, password and repeat controls via ui.control. Prefer a few focused fields; up to 32 are supported. Give conditional fields stable ids; ui.when references an earlier question id and compares an exact option label or text answer. Conditional fields appear only when applicable; a child of radio/checkbox appears inside the selected option. Use ui.group to group fields. input is a JSON Schema property defining type, constraints and optional default; options supply display labels. For repeated rows use ui.control=repeat, ui.columns and optional ui.max_rows; the answer is one JSON array string in selected. Secret fields have no defaults and are masked in the UI, but answers are delivered to the agent; request credentials only when the task requires them. User submission is required; recommendations/defaults are not consent. Omit options for free text, and do not add an Other option. Do not ask routine should-I-proceed questions or request information you can discover. Use show_interactive_html for custom visual interactions beyond forms.",
     "inputSchema": {
       "type": "object",
       "required": ["questions"],
@@ -1115,8 +1115,8 @@
         "questions": {
           "type": "array",
           "minItems": 1,
-          "maxItems": 4,
-          "description": "1-4 questions to ask in this single call.",
+          "maxItems": 32,
+          "description": "Related questions or form fields in display order. Conditional parents must come first.",
           "items": {
             "type": "object",
             "required": ["question"],
@@ -1124,6 +1124,50 @@
               "question": {
                 "type": "string",
                 "description": "The full question shown to the user."
+              },
+              "id": { "type": "string", "minLength": 1, "maxLength": 128, "description": "Unique id within this request, required when another field references this question." },
+              "optional": { "type": "boolean", "default": false },
+              "secret": { "type": "boolean", "default": false },
+              "input": {
+                "type": "object",
+                "description": "JSON Schema property, not the internal input envelope. Option labels are also answer values. Constraints are checked by the host.",
+                "properties": {
+                  "type": { "type": "string", "enum": ["string", "number", "integer", "boolean", "array"] },
+                  "default": {},
+                  "minLength": { "type": "integer", "minimum": 0 },
+                  "maxLength": { "type": "integer", "minimum": 0, "maximum": 4096 },
+                  "minimum": { "type": "number" },
+                  "maximum": { "type": "number" },
+                  "minItems": { "type": "integer", "minimum": 0 },
+                  "maxItems": { "type": "integer", "minimum": 0, "maximum": 128 },
+                  "pattern": { "type": "string" },
+                  "format": { "type": "string", "enum": ["email", "uri", "date", "date-time"] }
+                },
+                "additionalProperties": false
+              },
+              "ui": {
+                "type": "object",
+                "properties": {
+                  "control": { "type": "string", "enum": ["text", "textarea", "select", "combobox", "radio", "checkbox", "number", "date", "switch", "password", "repeat"] },
+                  "group": { "type": "string", "maxLength": 4096 },
+                  "not_before": { "type": "string", "description": "For dates, the id of an earlier date field that sets the inclusive minimum date." },
+                  "placeholder": { "type": "string", "maxLength": 4096 },
+                  "when": {
+                    "type": "object", "required": ["question_id", "equals"],
+                    "properties": { "question_id": { "type": "string" }, "equals": { "type": "string", "description": "Exact parent option label or answer, e.g. true for a switch." } },
+                    "additionalProperties": false
+                  },
+                  "max_rows": { "type": "integer", "minimum": 1, "maximum": 20 },
+                  "columns": {
+                    "type": "array", "minItems": 1, "maxItems": 6,
+                    "items": {
+                      "type": "object", "required": ["id", "label"],
+                      "properties": { "id": { "type": "string", "minLength": 1, "maxLength": 128 }, "label": { "type": "string", "minLength": 1, "maxLength": 4096 }, "required": { "type": "boolean" }, "placeholder": { "type": "string", "maxLength": 4096 } },
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "additionalProperties": false
               },
               "header": {
                 "type": "string",
@@ -1138,8 +1182,8 @@
               "options": {
                 "type": "array",
                 "minItems": 0,
-                "maxItems": 4,
-                "description": "Optional choices, up to four. Omit or use [] for a free-text question. Free text is always provided by the host.",
+                "maxItems": 128,
+                "description": "Optional choices. Use a select or combobox for many options. Omit or use [] for a free-text question.",
                 "items": {
                   "type": "object",
                   "required": ["label"],
@@ -1157,7 +1201,8 @@
               }
             }
           }
-        }
+        },
+        "layout": { "type": "string", "enum": ["form", "steps"], "description": "form collects all visible fields together; steps shows one decision at a time." }
       }
     }
   },
