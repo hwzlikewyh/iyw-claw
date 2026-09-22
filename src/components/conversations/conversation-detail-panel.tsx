@@ -1927,16 +1927,20 @@ const ConversationTabView = memo(function ConversationTabView({
       const packageRef = draft.skillPackage
       if (packageRef && !opts?.scenarioPrepared) {
         const prepareAndContinue = async (): Promise<boolean> => {
-          const toastId = toast.loading(
-            `正在准备技能包 ${packageRef.slug}@${packageRef.version}`
-          )
+          const toastId = packageRef.hiddenFromDisplay
+            ? undefined
+            : toast.loading(
+                `正在准备技能包 ${packageRef.slug}@${packageRef.version}`
+              )
           try {
             await prepareScenarioPackage(
               packageRef,
               selectedAgent,
               workingDirForConnection
             )
-            toast.success(`技能包 ${packageRef.slug} 已就绪`, { id: toastId })
+            if (toastId !== undefined) {
+              toast.success(`技能包 ${packageRef.slug} 已就绪`, { id: toastId })
+            }
             const continued = handleSendRef.current(
               { ...draft, skillPackage: undefined },
               selectedModeIdArg,
@@ -2458,16 +2462,20 @@ const ConversationTabView = memo(function ConversationTabView({
       if (!ensureConversationPointsAvailable()) return false
       const packageRef = draft.skillPackage
       if (!packageRef) return enqueueAgentDraft(draft, selectedModeIdArg)
-      const toastId = toast.loading(
-        `正在准备技能包 ${packageRef.slug}@${packageRef.version}`
-      )
+      const toastId = packageRef.hiddenFromDisplay
+        ? undefined
+        : toast.loading(
+            `正在准备技能包 ${packageRef.slug}@${packageRef.version}`
+          )
       return prepareScenarioPackage(
         packageRef,
         selectedAgent,
         workingDirForConnection
       )
         .then(() => {
-          toast.success(`技能包 ${packageRef.slug} 已就绪`, { id: toastId })
+          if (toastId !== undefined) {
+            toast.success(`技能包 ${packageRef.slug} 已就绪`, { id: toastId })
+          }
           return enqueueAgentDraft(
             { ...draft, skillPackage: undefined },
             selectedModeIdArg

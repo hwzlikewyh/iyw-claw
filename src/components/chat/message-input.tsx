@@ -3529,6 +3529,7 @@ export function MessageInput({
             id: packageMeta.marketSkillId,
             slug: packageMeta.marketSkillSlug,
             version: packageMeta.marketSkillVersion,
+            hiddenFromDisplay: packageMeta.hiddenFromDisplay === true,
           }
         : undefined
     return { blocks, displayText, skillPackage }

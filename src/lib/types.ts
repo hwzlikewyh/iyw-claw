@@ -1037,6 +1037,7 @@ export interface PromptSkillPackage {
   id: string
   slug: string
   version: string
+  hiddenFromDisplay?: boolean
 }
 
 // Permission option info from agent
