@@ -732,6 +732,12 @@ async fn async_main() -> ExitCode {
         state.emitter.clone(),
     ));
 
+    tokio::spawn(iyw_claw_lib::commands::skill_market::auto_update_task(
+        iyw_claw_lib::db::AppDatabase {
+            conn: state.db.conn.clone(),
+        },
+    ));
+
     // Office watch preview servers: reap dead children + ref0 stragglers.
     if let Some(idle_timeout) = iyw_claw_lib::office_watch::idle_timeout_from_env() {
         tokio::spawn(iyw_claw_lib::office_watch::office_watch_idle_sweep_task(

@@ -1195,11 +1195,23 @@ pub fn build_router(
             "/system_skills_rollback",
             post(handlers::system_skills::rollback),
         )
+        .route(
+            "/get_skill_auto_update_settings",
+            post(handlers::system_settings::get_skill_auto_update_settings),
+        )
+        .route(
+            "/update_skill_auto_update_settings",
+            post(handlers::system_settings::update_skill_auto_update_settings),
+        )
         // ─── Skill market ───
         .route("/skill_market_list", post(handlers::skill_market::list))
         .route(
             "/skill_market_categories",
             post(handlers::skill_market::categories),
+        )
+        .route(
+            "/skill_market_check_updates",
+            post(handlers::skill_market::check_updates),
         )
         .route("/skill_market_detail", post(handlers::skill_market::detail))
         .route(

@@ -1,13 +1,21 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Loader2, MonitorCog, RefreshCw, SlidersHorizontal } from "lucide-react"
+import {
+  Loader2,
+  MonitorCog,
+  RefreshCw,
+  SlidersHorizontal,
+  Sparkles,
+} from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import {
   getSystemRenderingSettings,
+  getSkillAutoUpdateSettings,
+  updateSkillAutoUpdateSettings,
   updateSystemRenderingSettings,
 } from "@/lib/api"
 import { isLocalDesktop } from "@/lib/platform"
@@ -17,7 +25,10 @@ import { toErrorMessage } from "@/lib/app-error"
 import { AutostartSettingsSection } from "@/components/settings/autostart-settings-section"
 import { BrowserSettingsSection } from "@/components/settings/browser-settings-section"
 import { DelegationSettingsSection } from "@/components/settings/delegation-settings"
+import { Switch } from "@/components/ui/switch"
 import {
+  SettingRow,
+  SettingSection,
   SettingsPageLayout,
   SettingsPageHeader,
 } from "@/components/settings/settings-ui"
@@ -46,6 +57,9 @@ export function GeneralSettings() {
   const [disableHwAccel, setDisableHwAccel] = useState(false)
   const [savingRendering, setSavingRendering] = useState(false)
   const [persistedDisableHwAccel, setPersistedDisableHwAccel] = useState(false)
+  const [skillAutoUpdateEnabled, setSkillAutoUpdateEnabled] = useState(true)
+  const [skillAutoUpdateLoading, setSkillAutoUpdateLoading] = useState(true)
+  const [skillAutoUpdateSaving, setSkillAutoUpdateSaving] = useState(false)
   const [processStartLoaded, setProcessStartLoaded] = useState(
     processStartDisableHwAccel !== null
   )
@@ -57,9 +71,10 @@ export function GeneralSettings() {
     setLoadError(null)
 
     try {
-      const renderingSettings = renderingSettingsLoadable
-        ? await getSystemRenderingSettings()
-        : null
+      const [renderingSettings, skillSettings] = await Promise.all([
+        renderingSettingsLoadable ? getSystemRenderingSettings() : null,
+        getSkillAutoUpdateSettings(),
+      ])
 
       if (renderingSettings) {
         const value = renderingSettings.disable_hardware_acceleration
@@ -70,14 +85,36 @@ export function GeneralSettings() {
           setProcessStartLoaded(true)
         }
       }
+      setSkillAutoUpdateEnabled(skillSettings.enabled)
     } catch (err) {
       const message = toErrorMessage(err)
       setLoadError(message)
       console.error("[Settings] load general settings failed:", err)
     } finally {
       setLoading(false)
+      setSkillAutoUpdateLoading(false)
     }
   }, [renderingSettingsLoadable])
+
+  const saveSkillAutoUpdate = useCallback(
+    async (next: boolean) => {
+      const previous = skillAutoUpdateEnabled
+      setSkillAutoUpdateEnabled(next)
+      setSkillAutoUpdateSaving(true)
+      try {
+        const result = await updateSkillAutoUpdateSettings({ enabled: next })
+        setSkillAutoUpdateEnabled(result.enabled)
+      } catch (error) {
+        setSkillAutoUpdateEnabled(previous)
+        toast.error(
+          t("skillAutoUpdateSaveFailed", { message: toErrorMessage(error) })
+        )
+      } finally {
+        setSkillAutoUpdateSaving(false)
+      }
+    },
+    [skillAutoUpdateEnabled, t]
+  )
 
   useEffect(() => {
     loadSettings().catch((err) => {
@@ -130,6 +167,24 @@ export function GeneralSettings() {
         title={t("sectionTitle")}
         description={t("sectionDescription")}
       />
+
+      <SettingSection
+        icon={Sparkles}
+        title={t("skillAutoUpdateTitle")}
+        description={t("skillAutoUpdateDescription")}
+      >
+        <SettingRow
+          title={t("skillAutoUpdateLabel")}
+          description={t("skillAutoUpdateHint")}
+        >
+          <Switch
+            checked={skillAutoUpdateEnabled}
+            disabled={skillAutoUpdateLoading || skillAutoUpdateSaving}
+            onCheckedChange={(checked) => void saveSkillAutoUpdate(checked)}
+            aria-label={t("skillAutoUpdateLabel")}
+          />
+        </SettingRow>
+      </SettingSection>
 
       {loadError && (
         <div className="rounded-md border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">

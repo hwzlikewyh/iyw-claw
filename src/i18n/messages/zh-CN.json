@@ -1755,12 +1755,12 @@
     "browserTitle": "浏览器",
     "browserVisible": "显示内置浏览器",
     "browserDescription": "默认关闭。关闭时 Agent 使用外部浏览器；开启后允许内置浏览器展示和人工接管。设置立即生效，重启后保留。",
-    "browserSaveFailed": "浏览器设置保存失败：{message}"
-    ,"skillAutoUpdateTitle": "技能更新"
-    ,"skillAutoUpdateDescription": "管理从能力市场安装的技能更新。"
-    ,"skillAutoUpdateLabel": "自动更新已安装技能"
-    ,"skillAutoUpdateHint": "自动更新能力市场中的普通技能和专家包；插件包仍需手动更新。"
-    ,"skillAutoUpdateSaveFailed": "技能自动更新设置保存失败：{message}"
+    "browserSaveFailed": "浏览器设置保存失败：{message}",
+    "skillAutoUpdateTitle": "技能更新",
+    "skillAutoUpdateDescription": "管理从能力市场安装的技能更新。",
+    "skillAutoUpdateLabel": "自动更新已安装技能",
+    "skillAutoUpdateHint": "自动更新能力市场中的普通技能和专家包；插件包仍需手动更新。",
+    "skillAutoUpdateSaveFailed": "技能自动更新设置保存失败：{message}"
   },
   "MainCloseDialog": {
     "title": "关闭原助理",

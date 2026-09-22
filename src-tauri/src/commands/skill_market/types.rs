@@ -156,6 +156,30 @@ pub struct SkillMarketListResult {
     pub page_size: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillUpdateCheckItem {
+    pub id: String,
+    pub installed_version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillUpdateCandidate {
+    pub id: String,
+    pub slug: Option<String>,
+    pub installed_version: Option<String>,
+    pub current_version: Option<String>,
+    pub package_type: Option<SkillPackageType>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillUpdateCheckResult {
+    pub items: Vec<SkillUpdateCandidate>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillMarketUploadFile {

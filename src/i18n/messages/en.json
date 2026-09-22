@@ -1755,7 +1755,12 @@
     "browserTitle": "Browser",
     "browserVisible": "Show built-in browser",
     "browserDescription": "Off by default. When off, agents use the external browser. Enable to allow built-in presentation and user handoff. Changes apply immediately and persist after restart.",
-    "browserSaveFailed": "Failed to save browser setting: {message}"
+    "browserSaveFailed": "Failed to save browser setting: {message}",
+    "skillAutoUpdateTitle": "Skill updates",
+    "skillAutoUpdateDescription": "Manage updates for skills installed from Skill Market.",
+    "skillAutoUpdateLabel": "Automatically update installed skills",
+    "skillAutoUpdateHint": "Automatically update regular skills and expert packages; plugins still require manual updates.",
+    "skillAutoUpdateSaveFailed": "Failed to save Skill auto-update setting: {message}"
   },
   "MainCloseDialog": {
     "title": "Close 原助理",

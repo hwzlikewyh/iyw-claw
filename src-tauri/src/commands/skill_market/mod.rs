@@ -1,3 +1,4 @@
+mod auto_update;
 pub(crate) mod client;
 mod install;
 mod install_plan;
@@ -14,6 +15,7 @@ mod plugin_types;
 mod routing_description;
 mod types;
 
+pub use auto_update::task as auto_update_task;
 pub use install::{install_core, revalidate_artifact_core};
 
 pub const MAX_SKILL_MARKET_REQUEST_BYTES: usize = 36 * 1024 * 1024;
@@ -31,7 +33,8 @@ use types::{parse_id, FileNode, FileTree, SkillMarketFile, SkillMarketItem};
 pub use types::{
     SkillDependencyInput, SkillMarketAddVersionRequest, SkillMarketCategory, SkillMarketDetail,
     SkillMarketListParams, SkillMarketListResult, SkillMarketMetadataRequest,
-    SkillMarketPublishRequest, SkillMarketVersion, SkillPackageType,
+    SkillMarketPublishRequest, SkillMarketVersion, SkillPackageType, SkillUpdateCandidate,
+    SkillUpdateCheckItem, SkillUpdateCheckResult,
 };
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -284,6 +287,24 @@ pub async fn categories_core(
 ) -> Result<Vec<SkillMarketCategory>, AppCommandError> {
     let builder = client::request(conn, Method::GET, "/skills/categories").await?;
     parse_value(client::send(builder).await?, Some("items"))
+}
+
+pub async fn check_updates_core(
+    conn: &DatabaseConnection,
+    items: Vec<SkillUpdateCheckItem>,
+) -> Result<SkillUpdateCheckResult, AppCommandError> {
+    if items.len() > 256 {
+        return Err(AppCommandError::invalid_input(
+            "At most 256 Skill updates may be checked per request",
+        ));
+    }
+    let body = serde_json::json!({ "items": items });
+    let builder = client::request(conn, Method::POST, "/skills/updates/check")
+        .await?
+        .json(&body);
+    let items: Vec<SkillUpdateCandidate> =
+        parse_value(client::send(builder).await?, Some("items"))?;
+    Ok(SkillUpdateCheckResult { items })
 }
 
 pub async fn detail_core(

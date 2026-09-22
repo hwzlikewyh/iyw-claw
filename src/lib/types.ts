@@ -2464,6 +2464,10 @@ export interface SystemRenderingSettings {
   disable_hardware_acceleration: boolean
 }
 
+export interface SkillAutoUpdateSettings {
+  enabled: boolean
+}
+
 // --- iyw Account ---
 
 export interface IywAccountProfile {

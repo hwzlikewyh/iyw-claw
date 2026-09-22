@@ -21,6 +21,14 @@ pub async fn skill_market_categories(
 }
 
 #[tauri::command]
+pub async fn skill_market_check_updates(
+    items: Vec<SkillUpdateCheckItem>,
+    db: State<'_, AppDatabase>,
+) -> Result<SkillUpdateCheckResult, AppCommandError> {
+    check_updates_core(&db.conn, items).await
+}
+
+#[tauri::command]
 pub async fn skill_market_detail(
     id: String,
     version: Option<String>,

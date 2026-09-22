@@ -8,7 +8,7 @@ use crate::app_state::AppState;
 use crate::commands::skill_market::{
     self, SkillMarketAddVersionRequest, SkillMarketCategory, SkillMarketDetail,
     SkillMarketListParams, SkillMarketListResult, SkillMarketMetadataRequest,
-    SkillMarketPublishRequest, SkillMarketVersion,
+    SkillMarketPublishRequest, SkillMarketVersion, SkillUpdateCheckItem, SkillUpdateCheckResult,
 };
 use crate::models::AgentType;
 
@@ -27,6 +27,11 @@ pub struct DetailParams {
 #[derive(Deserialize)]
 pub struct IDParams {
     id: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateCheckParams {
+    items: Vec<SkillUpdateCheckItem>,
 }
 
 #[derive(Deserialize)]
@@ -72,6 +77,15 @@ pub async fn categories(
     Extension(state): Extension<Arc<AppState>>,
 ) -> Result<Json<Vec<SkillMarketCategory>>, AppCommandError> {
     Ok(Json(skill_market::categories_core(&state.db.conn).await?))
+}
+
+pub async fn check_updates(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<UpdateCheckParams>,
+) -> Result<Json<SkillUpdateCheckResult>, AppCommandError> {
+    Ok(Json(
+        skill_market::check_updates_core(&state.db.conn, params.items).await?,
+    ))
 }
 
 pub async fn detail(
