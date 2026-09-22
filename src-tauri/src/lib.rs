@@ -677,7 +677,6 @@ mod tauri_app {
                 // Restore and apply saved system proxy settings before any network operation.
                 let db = app.state::<db::AppDatabase>();
                 tauri::async_runtime::block_on(network::proxy::init_proxy_from_db(&db.conn));
-                user_memory.start_managed_model_retry(effective_data_dir.clone());
                 let pending_activation_started = std::time::Instant::now();
                 match tauri::async_runtime::block_on(
                     crate::acp::version_center::consume_pending_activations_at_startup(

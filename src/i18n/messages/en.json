@@ -5651,18 +5651,7 @@
       "boundary": "Delivery is not adoption. Mark receipts in an entry's version history to build real effectiveness evidence."
     },
     "semantic": {
-      "useInRecall": "Use local semantic results in Agent recall",
-      "title": "Local semantic search",
-      "unsupported": "Keyword search on this platform",
-      "preparing": "Preparing",
-      "downloading": "Downloading model",
-      "retryPending": "Waiting for background retry",
-      "ready": "Ready",
-      "installed": "Model installed",
-      "missing": "Model not installed",
-      "prepare": "Prepare local model · 95 MB",
-      "rebuild": "Update semantic index",
-      "indexed": "Indexed entries",
+      "title": "Semantic search",
       "query": "Find memories in natural language",
       "search": "Semantic search",
       "empty": "No sufficiently relevant memories"

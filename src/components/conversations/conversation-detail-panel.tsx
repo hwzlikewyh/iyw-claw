@@ -1057,35 +1057,8 @@ const ConversationTabView = memo(function ConversationTabView({
     () => fixedOptions.modes?.available_modes ?? [],
     [fixedOptions.modes]
   )
-  const connectionConfigOptions = useMemo(() => {
-    const liveModel = conn.configOptions?.find(isModelConfigOption)
-    if (!conn.selectorsReady) {
-      return fixedOptions.config_options.filter(
-        (option) => !isModelConfigOption(option)
-      )
-    }
-    return fixedOptions.config_options.flatMap((option) => {
-      if (!isModelConfigOption(option)) return [option]
-      if (liveModel?.kind.type !== "select") return []
-      const liveValues = new Set(
-        liveModel.kind.options.map((candidate) => candidate.value)
-      )
-      const options = option.kind.options.filter((candidate) =>
-        liveValues.has(candidate.value)
-      )
-      if (options.length === 0) return []
-      return [
-        {
-          ...option,
-          kind: {
-            ...option.kind,
-            current_value: liveModel.kind.current_value,
-            options,
-          },
-        },
-      ]
-    })
-  }, [conn.configOptions, conn.selectorsReady, fixedOptions.config_options])
+  // 列表由 SDK 配置与缓存目录决定；ACP 只负责应用确认，不阻塞或裁剪显示。
+  const connectionConfigOptions = fixedOptions.config_options
   const modelRefreshPendingRef = useRef<Promise<unknown> | null>(null)
   const handleModelListOpen = useCallback(() => {
     if (modelRefreshPendingRef.current) return
@@ -1191,6 +1164,7 @@ const ConversationTabView = memo(function ConversationTabView({
     if (
       dbConversationId != null ||
       !conn.selectorsReady ||
+      requestedModel !== null ||
       liveModelOption?.kind.type !== "select"
     ) {
       return
@@ -1211,6 +1185,7 @@ const ConversationTabView = memo(function ConversationTabView({
     dbConversationId,
     draftConfigValues.model,
     liveModelOption,
+    requestedModel,
     updateRequestedModel,
   ])
   useEffect(() => {
@@ -1228,6 +1203,8 @@ const ConversationTabView = memo(function ConversationTabView({
     const scope = `${dbConversationId}:${conn.connectionId}`
     if (sessionModelSeedScopeRef.current === scope) return
     sessionModelSeedScopeRef.current = scope
+    // 用户可能已在连接完成前选择模型，历史回填不能覆盖该选择。
+    if (requestedModelRef.current !== null) return
     const savedModel = detail.summary.model?.trim()
     const savedModelConfirmed = Boolean(
       savedModel &&
@@ -3049,7 +3026,6 @@ const ConversationTabView = memo(function ConversationTabView({
       onRespondChannelConfirmation={handleRespondChannelConfirmation}
       modes={connectionModes}
       configOptions={connectionConfigOptions}
-      configOptionsLoading={!conn.selectorsReady}
       selectedModeId={selectedModeId}
       onModeChange={handleModeChange}
       onConfigOptionChange={handleConfigOptionChange}
@@ -3127,7 +3103,6 @@ const ConversationTabView = memo(function ConversationTabView({
               responseStarted={hasLiveResponseContent}
               modes={connectionModes}
               configOptions={connectionConfigOptions}
-              configOptionsLoading={!conn.selectorsReady}
               selectedModeId={selectedModeId}
               onModeChange={handleModeChange}
               onConfigOptionChange={handleConfigOptionChange}
