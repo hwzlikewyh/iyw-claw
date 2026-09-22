@@ -2724,9 +2724,13 @@ const ConversationTabView = memo(function ConversationTabView({
 
   const handleAnswerQuestion = useCallback(
     (answer: string) => {
-      if (connStatus !== "connected") return
-      if (!ensureSelectedModelReady()) return
-      if (!ensureConversationPointsAvailable()) return
+      if (
+        connStatus !== "connected" ||
+        !ensureSelectedModelReady() ||
+        !ensureConversationPointsAvailable()
+      ) {
+        return Promise.reject(new Error("Question response is unavailable"))
+      }
       const optimisticTurn: MessageTurn = {
         id: `optimistic-${randomUUID()}`,
         role: "user",
@@ -2745,8 +2749,12 @@ const ConversationTabView = memo(function ConversationTabView({
       setSendSignal((prev) => prev + 1)
       setSyncState(effectiveConversationId, "awaiting_persist")
       rememberSubmittedDraft(draft)
-      lifecycleSend(draft, null, {
+      return lifecycleSend(draft, null, {
         clientMessageId: optimisticTurn.id,
+        onError: (error) => {
+          removeOptimisticTurn(effectiveConversationId, optimisticTurn.id)
+          throw error
+        },
         // Rejected because a turn was already in flight — roll back the
         // optimistic turn and re-queue so it isn't stranded or lost.
         onTurnInProgress: () => {
@@ -2758,7 +2766,7 @@ const ConversationTabView = memo(function ConversationTabView({
           // re-queues at the front.)
           mqEnqueue(draft, null)
         },
-      })
+      }).then(() => undefined)
     },
     [
       appendOptimisticTurn,

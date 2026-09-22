@@ -69,15 +69,30 @@ export function AskQuestionResultCard({
     return {
       question_id: "result",
       created_at: "",
-      questions: questions.map((q, i) => ({
-        id: `q${i}`,
-        question: q.question,
-        header: q.header,
-        multi_select: q.multiSelect,
-        options: q.options,
-      })),
+      questions: questions
+        .filter(
+          (question) =>
+            !outcome ||
+            outcome.declined ||
+            outcome.answers.some(
+              (answer) =>
+                answer.header === question.header &&
+                answer.question === question.question
+            )
+        )
+        .map((q, i) => ({
+          id: `q${i}`,
+          question: q.question,
+          header: q.header,
+          multi_select: q.multiSelect,
+          options: q.options,
+          secret: q.secret,
+          optional: q.optional,
+          ui: q.ui,
+          input: q.input,
+        })),
     }
-  }, [questions])
+  }, [questions, outcome])
 
   // Seed each question's selection by matching its answer text against the
   // offered option labels (option-aware, so a label containing ", " survives).
@@ -91,7 +106,9 @@ export function AskQuestionResultCard({
       ])
     )
     pending.questions.forEach((q) => {
-      const values = bySig.get(`${q.header}${KEY_SEP}${q.question}`) ?? []
+      const values = q.secret
+        ? []
+        : (bySig.get(`${q.header}${KEY_SEP}${q.question}`) ?? [])
       const { selected, other } = matchSelections(
         values,
         q.options.map((o) => o.label)
@@ -192,6 +209,15 @@ export function AskQuestionResultCard({
   // Answered / declined. Collapsed by default into a capsule that summarizes the
   // picks; expanding reveals the live card (so the layout matches exactly).
   const picks = (outcome?.answers ?? [])
+    .filter(
+      (answer) =>
+        !questions.some(
+          (question) =>
+            question.secret &&
+            question.header === answer.header &&
+            question.question === answer.question
+        )
+    )
     .flatMap((a) => a.selected)
     .filter(Boolean)
   const summary = outcome?.declined

@@ -14,6 +14,10 @@ pub(super) fn result_card_input(specs: &[QuestionSpec]) -> Value {
                 "header": spec.header,
                 "multiSelect": spec.multi_select,
                 "options": spec.options,
+                "secret": spec.secret,
+                "optional": spec.optional,
+                "input": spec.input,
+                "ui": spec.ui,
             })
         })
         .collect();
@@ -43,6 +47,7 @@ pub(super) fn approval_spec(message: &str) -> QuestionSpec {
         limit(message)
     };
     QuestionSpec {
+        ui: None,
         input: None,
         secret: false,
         optional: false,
