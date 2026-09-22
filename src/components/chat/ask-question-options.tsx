@@ -1,24 +1,35 @@
 import { useTranslations } from "next-intl"
+import { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { splitRecommended } from "@/lib/ask-question"
 import { cn } from "@/lib/utils"
-import type { QuestionOption, QuestionSpec } from "@/lib/types"
-import { MAX_ANSWER_CHARS, type QuestionSelection } from "./use-ask-question"
-
-type OptionsProps = {
-  question: QuestionSpec
-  value: QuestionSelection
-  locked: boolean
-  readOnly?: boolean
-  onSelect: (label: string) => void
-  onText: (text: string) => void
-}
+import type { QuestionOption } from "@/lib/types"
+import { questionControl } from "@/lib/question-answer"
+import { QuestionSelectField } from "./question-select-field"
+import { QuestionTextField } from "./question-text-field"
+import { QuestionRepeatField } from "./question-repeat-field"
+import type { QuestionFieldProps as OptionsProps } from "./question-field-props"
 
 export function AskQuestionOptions(props: OptionsProps) {
   const { question, value, locked, onSelect } = props
+  const control = questionControl(question)
+  if (control === "repeat") return <QuestionRepeatField {...props} />
+  if (
+    ["text", "textarea", "date", "number", "password", "switch"].includes(
+      control
+    )
+  )
+    return <QuestionTextField {...props} />
+  if (control === "select" || control === "combobox")
+    return (
+      <div className="space-y-2">
+        <QuestionSelectField {...props} />
+        <FreeTextAnswer {...props} />
+      </div>
+    )
   const rows = question.options.map((option, index) => (
     <OptionRow key={option.label} {...props} option={option} index={index} />
   ))
@@ -29,6 +40,7 @@ export function AskQuestionOptions(props: OptionsProps) {
         <div className="space-y-2">{rows}</div>
       ) : (
         <RadioGroup
+          aria-label={question.header}
           disabled={locked}
           value={String(
             question.options.findIndex((option) =>
@@ -73,28 +85,32 @@ function OptionRow({
   onSelect,
   option,
   index,
+  optionChildren,
 }: OptionsProps & { option: QuestionOption; index: number }) {
   const selected = value.chosen.includes(option.label)
   return (
-    <Label
+    <div
       key={option.label}
       className={cn(
-        "flex items-start gap-2.5 rounded-lg border p-2.5",
+        "rounded-md border",
         selected ? "border-primary bg-primary/10" : "border-border/60",
         !locked && "cursor-pointer hover:bg-muted/40"
       )}
     >
-      {question.multi_select ? (
-        <Checkbox
-          checked={selected}
-          disabled={locked}
-          onCheckedChange={() => onSelect(option.label)}
-        />
-      ) : (
-        <RadioGroupItem value={String(index)} disabled={locked} />
-      )}
-      <OptionBody option={option} />
-    </Label>
+      <Label className="flex cursor-pointer items-start gap-2.5 p-2.5">
+        {question.multi_select ? (
+          <Checkbox
+            checked={selected}
+            disabled={locked}
+            onCheckedChange={() => onSelect(option.label)}
+          />
+        ) : (
+          <RadioGroupItem value={String(index)} disabled={locked} />
+        )}
+        <OptionBody option={option} />
+      </Label>
+      {selected && optionChildren?.(option.label)}
+    </div>
   )
 }
 
@@ -106,38 +122,37 @@ function FreeTextAnswer({
   onText,
 }: OptionsProps) {
   const t = useTranslations("Folder.chat.askQuestion")
+  const [expanded, setExpanded] = useState(Boolean(value.otherText))
   if (question.input?.allow_other === false) return null
   return (
     <>
       {" "}
       {(!readOnly || value.otherText) && (
-        <label className="block space-y-1 text-xs text-muted-foreground">
-          <span>
-            {t(question.options.length ? "customAnswer" : "freeText")}
-          </span>
-          {question.secret ? (
-            <input
-              type="password"
-              autoComplete="off"
-              value={value.otherText}
-              disabled={locked}
-              maxLength={MAX_ANSWER_CHARS}
-              onChange={(event) => onText(event.target.value)}
-              placeholder={t("otherPlaceholder")}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-ring disabled:opacity-70"
-            />
-          ) : (
-            <textarea
-              value={value.otherText}
-              disabled={locked}
-              maxLength={MAX_ANSWER_CHARS}
-              rows={3}
-              onChange={(event) => onText(event.target.value)}
-              placeholder={t("otherPlaceholder")}
-              className="w-full resize-y rounded-md border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-ring disabled:opacity-70"
+        <div className="block space-y-1 text-xs text-muted-foreground">
+          <button
+            type="button"
+            disabled={locked}
+            aria-expanded={expanded || Boolean(value.otherText)}
+            className="text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {t("customAnswer")}
+          </button>
+          {(expanded || Boolean(value.otherText)) && (
+            <QuestionTextField
+              question={{
+                ...question,
+                options: [],
+                ui: { ...question.ui, control: "textarea" },
+              }}
+              value={value}
+              locked={locked}
+              readOnly={readOnly}
+              onSelect={() => {}}
+              onText={onText}
             />
           )}
-        </label>
+        </div>
       )}
     </>
   )

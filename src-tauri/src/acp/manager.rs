@@ -3991,12 +3991,14 @@ impl ConnectionManager {
         if entry.parent_connection_id != conn_id {
             return Err(AcpError::protocol("Question belongs to another session"));
         }
-        crate::acp::question::validate_secret_answers(&entry.questions, &answer)
+        crate::acp::question::validate_answer_ids(&answer).map_err(AcpError::protocol)?;
+        let active = crate::acp::question::active_questions(&entry.questions, &answer);
+        crate::acp::question::validate_secret_answers(&active, &answer)
             .map_err(AcpError::protocol)?;
-        crate::acp::question::validate_input_answers(&entry.questions, &answer)
+        crate::acp::question::validate_input_answers(&active, &answer)
             .map_err(AcpError::protocol)?;
-        let outcome = build_outcome(&entry.questions, &answer);
-        if !outcome.declined && outcome.answers.len() != entry.questions.len() {
+        let outcome = build_outcome(&active, &answer);
+        if !outcome.declined && outcome.answers.len() != active.len() {
             return Err(AcpError::protocol(
                 "An answer is required for every question",
             ));
@@ -4004,6 +4006,7 @@ impl ConnectionManager {
         let entry = pending
             .remove(question_id)
             .expect("question checked under lock");
+        tracing::debug!(question_id, fields = active.len(), declined = answer.declined, "Question response accepted");
         drop(pending);
         // Ignore a dropped receiver: the listener may have abandoned the wait
         // (peer-close) at the same instant; the resolved-event below still clears

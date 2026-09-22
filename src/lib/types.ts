@@ -1057,6 +1057,7 @@ export interface QuestionOption {
 /** A single multiple-choice question (mirror of Rust `QuestionSpec`). `id` is
  *  the backend-minted correlation key the answer is submitted against. */
 export interface QuestionSpec {
+  ui?: import("./question-ui").QuestionUi | null
   input?: QuestionInputSpec
   secret?: boolean
   optional?: boolean

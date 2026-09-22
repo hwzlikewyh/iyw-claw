@@ -12,12 +12,20 @@
  * that persists `content` instead of `structuredContent`.
  */
 
+import { questionHistoryMetadata } from "./question-history"
+import type { QuestionInputSpec } from "./types"
+import type { QuestionUi } from "./question-ui"
+
 export interface AskQuestionOption {
   label: string
   description: string
 }
 
 export interface AskQuestion {
+  secret?: boolean
+  optional?: boolean
+  ui?: QuestionUi
+  input?: QuestionInputSpec
   question: string
   header: string
   /** The wire field is `multiSelect` (camelCase); we also accept `multi_select`. */
@@ -119,6 +127,7 @@ export function parseAskQuestionInput(
     if (!question && options.length === 0) continue
     out.push({
       question,
+      ...questionHistoryMetadata(obj),
       header:
         asString(obj.header).trim() ||
         Array.from(question.trim()).slice(0, 12).join(""),

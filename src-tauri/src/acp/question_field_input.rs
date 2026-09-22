@@ -18,6 +18,27 @@ pub struct QuestionInputSpec {
 }
 
 impl QuestionInputSpec {
+    pub(super) fn validate_definition(&self, spec: &QuestionSpec) -> Result<(), String> {
+        validation::validate_schema(&self.schema)?;
+        if self.values.len() > super::MAX_ELICITATION_OPTIONS
+            || self.default_values.len() > super::MAX_ELICITATION_OPTIONS
+        {
+            return Err("Too many input values".into());
+        }
+        if self.values.iter().any(|(label, value)| {
+            !spec.options.iter().any(|option| option.label == *label)
+                || value.chars().count() > MAX_QUESTION_TEXT_CHARS
+        }) {
+            return Err("Invalid input option mapping".into());
+        }
+        if spec.secret && !self.default_values.is_empty() {
+            return Err("Secret defaults are not supported".into());
+        }
+        if !self.default_values.is_empty() {
+            self.value(&self.default_values)?;
+        }
+        Ok(())
+    }
     pub(crate) fn from_property(
         property: &Value,
         spec: &QuestionSpec,
@@ -143,6 +164,7 @@ pub(crate) fn validate_answers(
     if answer.declined {
         return Ok(());
     }
+    super::ui::validate_date_order(questions, answer)?;
     for question in questions {
         let Some(input) = &question.input else {
             continue;
@@ -172,6 +194,7 @@ pub(crate) fn validate_answers(
         input
             .value(labels)
             .map_err(|error| format!("{}：{error}", question.header))?;
+        super::ui::validate_repeated(question, labels)?;
     }
     Ok(())
 }

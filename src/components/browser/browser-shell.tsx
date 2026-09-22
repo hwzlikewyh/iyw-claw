@@ -189,7 +189,7 @@ export function BrowserShell({
 }
 
 function formatSelectedElement(
-  t: ReturnType<typeof useTranslations>,
+  t: ReturnType<typeof useTranslations<"Browser">>,
   {
     tag,
     role,

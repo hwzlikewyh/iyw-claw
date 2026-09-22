@@ -330,7 +330,7 @@ function SubAgentSessionBody({
   const onRespondPermission = useCallback(
     (requestId: string, optionId: string) => {
       if (!childConnectionId) return
-      void respondPermission(childConnectionId, requestId, optionId)
+      return respondPermission(childConnectionId, requestId, optionId)
     },
     [childConnectionId, respondPermission]
   )
