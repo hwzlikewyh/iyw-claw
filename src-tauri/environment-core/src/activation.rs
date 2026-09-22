@@ -42,7 +42,11 @@ fn activate_and_publish(
         if prepared.staged {
             activated.push(activate_component(layout, state, prepared)?);
         }
-        inventory::verify_component(layout, &prepared.component)?;
+        crate::download::emit(&prepared.component.component_id, "verifying", 0, 0);
+        inventory::verify_component(layout, &prepared.component).context(
+            "environment integrity check failed; run environment repair before retrying",
+        )?;
+        crate::download::emit(&prepared.component.component_id, "verified", 0, 0);
     }
     let generation = layout
         .inventory

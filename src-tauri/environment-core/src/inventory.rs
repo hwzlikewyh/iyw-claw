@@ -11,6 +11,9 @@ use crate::model::{
 };
 use crate::paths::{from_slash, slash_relative, Layout};
 
+#[path = "inventory_cache.rs"]
+mod cache;
+
 pub fn load_current(layout: &Layout) -> Result<Option<EnvironmentSnapshot>> {
     read_json_optional(&layout.current_snapshot())
 }
@@ -23,23 +26,32 @@ pub fn current_pc_version() -> Option<String> {
         .map(|value| value.pc_version)
 }
 
-pub fn healthy_inventory(
+pub fn installation_inventory(
     layout: &Layout,
     snapshot: Option<&EnvironmentSnapshot>,
+    full_check: bool,
 ) -> Vec<InventoryEntry> {
     snapshot
         .into_iter()
         .flat_map(|value| &value.components)
-        .map(|component| inventory_entry(layout, component))
+        .map(|component| inventory_entry(layout, component, full_check))
         .collect()
 }
 
 pub fn verify_component(layout: &Layout, component: &InstalledComponent) -> Result<()> {
+    check_component(layout, component, true)
+}
+
+fn check_component(
+    layout: &Layout,
+    component: &InstalledComponent,
+    full_check: bool,
+) -> Result<()> {
     let root = from_slash(&layout.root, &component.relative_path)?;
-    if !root.is_dir() {
+    if !root.is_dir() || component.files.is_empty() || component.entrypoints.is_empty() {
         bail!("component directory is missing")
     }
-    for record in &component.files {
+    for record in cache::immutable_records(&component.component_id, &component.files) {
         let path = from_slash(&root, &record.path)?;
         if let Some(expected) = &record.link_target {
             let metadata = fs::symlink_metadata(&path).context("read component link")?;
@@ -54,7 +66,7 @@ pub fn verify_component(layout: &Layout, component: &InstalledComponent) -> Resu
         let metadata = fs::metadata(&path).context("read installed component file")?;
         if !metadata.is_file()
             || metadata.len() != record.size
-            || hash_file(&path)? != record.sha256
+            || (full_check && hash_file(&path)? != record.sha256)
         {
             bail!("installed component file failed verification")
         }
@@ -67,7 +79,14 @@ pub fn verify_component(layout: &Layout, component: &InstalledComponent) -> Resu
     Ok(())
 }
 
-fn inventory_entry(layout: &Layout, component: &InstalledComponent) -> InventoryEntry {
+fn inventory_entry(
+    layout: &Layout,
+    component: &InstalledComponent,
+    full_check: bool,
+) -> InventoryEntry {
+    crate::download::emit(&component.component_id, "checking", 0, 0);
+    // 普通安装这里只检查文件和大小；提交前统一验摘要，修复则提前验摘要以选择损坏组件。
+    let healthy = check_component(layout, component, full_check).is_ok();
     InventoryEntry {
         component_key: component.component_id.clone(),
         component_kind: component.component_kind.clone(),
@@ -75,7 +94,7 @@ fn inventory_entry(layout: &Layout, component: &InstalledComponent) -> Inventory
         sha256: component.artifact_sha256.clone(),
         active: true,
         pinned: false,
-        healthy: verify_component(layout, component).is_ok(),
+        healthy,
         lkg: true,
     }
 }
@@ -85,7 +104,10 @@ pub fn describe_component(
     component_id: &str,
     root: &Path,
 ) -> Result<(Vec<FileRecord>, BTreeMap<String, String>)> {
-    let files = file_records(root)?;
+    let records = file_records(root)?;
+    let files = cache::immutable_records(component_id, &records)
+        .cloned()
+        .collect();
     let entrypoints = discover_entrypoints(component_id, root)?;
     validate_entrypoints(component_id, &entrypoints)?;
     for entrypoint in entrypoints.values() {

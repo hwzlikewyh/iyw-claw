@@ -84,7 +84,7 @@ fn run_repair(args: &[String]) -> Result<u8> {
     let version = option(args, "--app-version")
         .or_else(inventory::current_pc_version)
         .context("repair requires an installed environment or --app-version")?;
-    let transaction = install::prepare(&version)?;
+    let transaction = install::prepare_repair(&version)?;
     install::commit(Some(&transaction))?;
     Ok(0)
 }
