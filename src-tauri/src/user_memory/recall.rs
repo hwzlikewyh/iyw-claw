@@ -41,6 +41,23 @@ impl UserMemoryService {
         request: UserMemoryRecallRequest,
         scope: UserMemoryRecallScope,
     ) -> Result<UserMemoryRecallResult, AppCommandError> {
+        self.recall_with_mode(request, scope, false).await
+    }
+
+    pub(crate) async fn recall_prefetch(
+        &self,
+        request: UserMemoryRecallRequest,
+        scope: UserMemoryRecallScope,
+    ) -> Result<UserMemoryRecallResult, AppCommandError> {
+        self.recall_with_mode(request, scope, true).await
+    }
+
+    async fn recall_with_mode(
+        &self,
+        request: UserMemoryRecallRequest,
+        scope: UserMemoryRecallScope,
+        prefetch: bool,
+    ) -> Result<UserMemoryRecallResult, AppCommandError> {
         let (query, limit) = request.normalized()?;
         let scope = self.memory_recall_scope(scope);
         let query_chars = query.chars().count();
@@ -61,7 +78,7 @@ impl UserMemoryService {
         };
         match tokio::time::timeout(timeout, self.recall_normalized(attempt)).await {
             Ok(Ok(result)) => Ok(self
-                .augment_semantic_recall(result, semantic_scope, limit)
+                .augment_semantic_recall(result, (semantic_scope, limit, prefetch))
                 .await),
             Ok(Err(error)) => Err(error),
             Err(_) => {

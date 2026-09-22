@@ -17,11 +17,9 @@ use crate::update::preferences;
 mod capability_policy;
 mod config;
 mod error;
-mod memory_model;
 pub use capability_policy::CapabilityPolicyHttpFetcher;
 use config::{endpoint, http_client, INSTALLATION_HEADER};
 use error::{envelope_error, retryable_agent_resolve_error};
-pub use memory_model::{MemoryModelArtifact, MemoryModelOffer, MemoryModelQuery};
 
 const AGENT_RESOLVE_RETRY_DELAY_MS: u64 = 1_000;
 

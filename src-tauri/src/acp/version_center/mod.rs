@@ -23,10 +23,7 @@ pub(crate) use catalog::platform_id;
 pub use catalog::{
     platform_projection, CatalogStore, CatalogView, PlatformAccess, PlatformProjection,
 };
-pub use client::{
-    AgentPlatformClient, CapabilityPolicyHttpFetcher, CatalogFetch, MemoryModelArtifact,
-    MemoryModelOffer, MemoryModelQuery,
-};
+pub use client::{AgentPlatformClient, CapabilityPolicyHttpFetcher, CatalogFetch};
 // Task 06 新增统一初始化入口的再导出（最小改动：仅追加三行，供命令层/前端接线）。
 pub(crate) use installer::acquire_writer_lock;
 pub use installer::{

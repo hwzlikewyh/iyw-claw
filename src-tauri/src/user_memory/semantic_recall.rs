@@ -9,45 +9,58 @@ use crate::app_error::AppCommandError;
 const RESULT_LIMIT: usize = 6;
 const MIN_SCORE: f32 = 0.60;
 const RRF_OFFSET: f64 = 60.0;
-const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(300);
+const QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+const PREFETCH_QUERY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(40);
 
 impl UserMemoryService {
     pub(super) async fn augment_semantic_recall(
         &self,
         mut result: UserMemoryRecallResult,
-        scope: UserMemoryRecallScope,
-        limit: usize,
+        options: (UserMemoryRecallScope, usize, bool),
     ) -> UserMemoryRecallResult {
-        if !self.semantic_status().ready
-            || result.result_state == UserMemoryRecallState::Unavailable
-        {
+        let (scope, limit, prefetch) = options;
+        if result.result_state == UserMemoryRecallState::Unavailable {
             return result;
         }
         let query = result.query.clone();
-        let outcome = tokio::time::timeout(QUERY_TIMEOUT, async {
+        let timeout = if prefetch {
+            PREFETCH_QUERY_TIMEOUT
+        } else {
+            QUERY_TIMEOUT
+        };
+        let outcome = tokio::time::timeout(timeout, async {
             if !self.semantic_recall_enabled().await? {
                 return Ok(None);
             }
             let items = self.semantic_items(&query, &scope).await?;
-            let current = self.read_index_source().await?;
-            Ok::<_, AppCommandError>(Some((items, current)))
+            Ok::<_, AppCommandError>(Some(items))
         })
         .await;
-        let Ok(Ok(Some((items, current)))) = outcome else {
+        if let Ok(Ok(Some(items))) = outcome {
+            fuse(&mut result.items, items);
+        }
+        deduplicate_content(&mut result.items);
+        if !prefetch {
+            self.rerank_memory_items((&query, &scope), &mut result.items)
+                .await;
+        }
+        self.validate_augmented_recall(result, (scope, limit)).await
+    }
+
+    async fn validate_augmented_recall(
+        &self,
+        mut result: UserMemoryRecallResult,
+        options: (UserMemoryRecallScope, usize),
+    ) -> UserMemoryRecallResult {
+        let (scope, limit) = options;
+        let Ok(current) = self.read_index_source().await else {
+            result.items.clear();
+            result.abstained = true;
+            result.result_state = UserMemoryRecallState::Unavailable;
+            result.reason_codes.push("memory_source_unavailable".into());
             return result;
         };
-        fuse(&mut result.items, items);
-        let now = chrono::Utc::now();
-        result.items.retain(|item| {
-            current.items.iter().any(|source| {
-                source.id == item.id
-                    && source.source_revision == item.source_revision
-                    && !source.sensitive
-                    && scope.permits(&source.scope_type, &source.scope_key)
-                    && super::recall_validity::item_is_current_at(source, &now)
-            })
-        });
-        deduplicate_content(&mut result.items);
+        retain_current(&mut result.items, &current, &scope);
         result.items.truncate(limit);
         enforce_budget(&mut result.items);
         update_result_state(&mut result, current.source_digest);
@@ -73,9 +86,11 @@ impl UserMemoryService {
             if current.source_digest != expected {
                 return Ok(Vec::new());
             }
+            let mut seen = std::collections::BTreeSet::new();
             Ok(matches
                 .into_iter()
                 .filter_map(|hit| hydrate_hit(hit, &current.items))
+                .filter(|item| seen.insert(item.id.clone()))
                 .take(RESULT_LIMIT)
                 .collect())
         }
@@ -93,32 +108,35 @@ impl UserMemoryService {
         query: String,
         scope: UserMemoryRecallScope,
     ) -> Result<Vec<(String, String, f32)>, AppCommandError> {
-        let permit = self
+        self.touch_semantic_activity();
+        let gateway = self.cloud_gateway().await?;
+        let generation = self
             .semantic
-            .task
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| super::helpers::conflict("Memory semantic worker is busy"))?;
-        let runtime = self.semantic.clone();
-        let service = self.clone();
-        tokio::task::spawn_blocking(move || {
-            let mut index = runtime.index.lock().unwrap_or_else(|e| e.into_inner());
-            let result = match index.as_mut() {
-                Some(index) => index.query(&snapshot, &query, &scope),
-                None => Err(super::semantic_model::model_error("Model is not ready")),
-            };
-            drop(index);
-            drop(permit);
-            if runtime
-                .refresh_requested
-                .load(std::sync::atomic::Ordering::Acquire)
-            {
-                service.schedule_semantic_refresh();
-            }
-            result
-        })
-        .await
-        .map_err(super::semantic_model::model_error)?
+            .generation
+            .load(std::sync::atomic::Ordering::Acquire);
+        let config = self.cloud_retrieval_config().await?;
+        if config.embedding_model.is_empty() {
+            self.schedule_semantic_refresh();
+            return Ok(Vec::new());
+        }
+        let identity = super::semantic_cloud_index::index_identity(&gateway, &config);
+        let vector = self
+            .cloud_query_vector(gateway, config.embedding_model, query)
+            .await?;
+        let model_identity = identity;
+        let identity = super::semantic_cloud_index::space_identity(&model_identity, &vector.space);
+        let result = self
+            .query_cloud_index(super::semantic_cloud_index::CloudSearch {
+                snapshot,
+                scope,
+                identity,
+                model_identity,
+                generation,
+                vector: vector.values,
+            })
+            .await;
+        self.schedule_semantic_refresh();
+        result
     }
 }
 
@@ -137,6 +155,38 @@ fn deduplicate_content(items: &mut Vec<UserMemoryRecallItem>) {
         }
     }
     *items = unique;
+}
+
+pub(super) fn retain_current(
+    items: &mut Vec<UserMemoryRecallItem>,
+    snapshot: &super::index_types::IndexSnapshot,
+    scope: &UserMemoryRecallScope,
+) {
+    let now = chrono::Utc::now();
+    let allowed = snapshot
+        .items
+        .iter()
+        .filter(|source| {
+            !source.sensitive
+                && scope.permits(&source.scope_type, &source.scope_key)
+                && super::recall_validity::item_is_current_at(source, &now)
+        })
+        .map(|source| (source.id.as_str(), source.source_revision.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    let conflicts = snapshot
+        .relations
+        .iter()
+        .filter(|relation| {
+            relation.relation == "contradicts"
+                && allowed.contains_key(relation.source_id.as_str())
+                && allowed.contains_key(relation.target_id.as_str())
+        })
+        .flat_map(|relation| [relation.source_id.as_str(), relation.target_id.as_str()])
+        .collect::<std::collections::BTreeSet<_>>();
+    items.retain(|item| {
+        allowed.get(item.id.as_str()) == Some(&item.source_revision.as_str())
+            && !conflicts.contains(item.id.as_str())
+    });
 }
 
 fn update_result_state(result: &mut UserMemoryRecallResult, digest: String) {

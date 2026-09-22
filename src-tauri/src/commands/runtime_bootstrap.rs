@@ -214,32 +214,11 @@ pub async fn bootstrap_initialize(
     task_id: String,
     repair: Option<bool>,
     _app: tauri::AppHandle,
-    db: tauri::State<'_, crate::db::AppDatabase>,
     _connection_manager: tauri::State<'_, ConnectionManager>,
-    user_memory: tauri::State<'_, std::sync::Arc<crate::user_memory::UserMemoryService>>,
 ) -> Result<crate::acp::version_center::InitStatusReport, String> {
     if repair.unwrap_or(false) {
         crate::managed_environment::repair().await?;
     }
-    let conn = db.conn.clone();
-    let data_dir = crate::system_skills::data_dir_from_env();
-    let channel = managed::load_channel(&conn, &task_id).await;
     let report = crate::managed_environment::init_status_report();
-    if report.phase == "ready" {
-        let service = user_memory.inner().clone();
-        let model_data_dir = data_dir.clone();
-        let model_channel = channel.clone();
-        tauri::async_runtime::spawn(async move {
-            if let Err(error) = service
-                .prepare_managed_model(&model_data_dir, &model_channel)
-                .await
-            {
-                tracing::info!(
-                    error_code = ?error.code,
-                    "[memory-model] bootstrap preparation continues in background"
-                );
-            }
-        });
-    }
     Ok(report)
 }

@@ -1756,6 +1756,11 @@
     "browserVisible": "显示内置浏览器",
     "browserDescription": "默认关闭。关闭时 Agent 使用外部浏览器；开启后允许内置浏览器展示和人工接管。设置立即生效，重启后保留。",
     "browserSaveFailed": "浏览器设置保存失败：{message}"
+    ,"skillAutoUpdateTitle": "技能更新"
+    ,"skillAutoUpdateDescription": "管理从能力市场安装的技能更新。"
+    ,"skillAutoUpdateLabel": "自动更新已安装技能"
+    ,"skillAutoUpdateHint": "自动更新能力市场中的普通技能和专家包；插件包仍需手动更新。"
+    ,"skillAutoUpdateSaveFailed": "技能自动更新设置保存失败：{message}"
   },
   "MainCloseDialog": {
     "title": "关闭原助理",
@@ -3295,7 +3300,10 @@
         }
       },
       "permissionDialog": {
-        "subtitle": "Agent 请求继续当前轮次的权限。",
+        "title": "需要你的授权",
+        "subtitle": "确认以下操作后，将继续执行。",
+        "commandRequest": "执行当前任务所需的操作",
+        "submitError": "授权结果未能发送，请重试。",
         "queuedCount": "还有 {count} 项待审批",
         "kindFallbackTool": "工具",
         "command": "命令",
@@ -3872,11 +3880,42 @@
         "result": "交互结果"
       },
       "askQuestion": {
+        "formMode": "一起填写",
+        "stepsMode": "逐题回答",
+        "progress": "问题进度",
+        "review": "确认回答",
+        "reviewTitle": "确认你填写的信息",
+        "backToEdit": "返回修改",
+        "editAnswer": "修改回答",
+        "later": "稍后填写",
+        "savedTitle": "填写内容已暂存",
+        "savedDescription": "已填内容保留在当前问答中，Agent 正在等待回答。",
+        "resume": "继续填写",
+        "required": "必填",
+        "optional": "选填",
+        "requiredError": "请填写或选择此项。",
+        "dateOrder": "结束日期不能早于开始日期。",
+        "invalidInput": "输入不符合此字段的格式或范围要求。",
+        "tooLong": "回答不能超过 4096 个字符。",
+        "tooManyRows": "条目数量超过允许范围。",
+        "rowRequired": "请补全每个条目的必填项。",
+        "selectPlaceholder": "请选择",
+        "searchOptions": "搜索选项…",
+        "noOptions": "没有匹配的选项",
+        "secretValue": "已填写（内容已隐藏）",
+        "showSecret": "显示内容",
+        "hideSecret": "隐藏内容",
+        "notAnswered": "未填写",
+        "yes": "是",
+        "no": "否",
+        "addRow": "添加一项",
+        "removeRow": "移除第 {index} 项",
+        "rowField": "第 {index} 项：{label}",
         "previous": "上一题",
         "customAnswer": "自定义回答 / 补充说明",
         "freeText": "你的回答",
         "title": "智能体需要你的回答",
-        "subtitle": "回答后点击提交，可随时跳过",
+        "subtitle": "确认这些信息后，将按你的要求继续。",
         "recommended": "推荐",
         "other": "其他",
         "otherPlaceholder": "输入你的回答…",
@@ -5612,18 +5651,7 @@
       "boundary": "交给 Agent 不等于被采用。请在条目的版本历史中标记召回回执，积累真实效果证据。"
     },
     "semantic": {
-      "useInRecall": "将本地语义结果用于 Agent 记忆召回",
-      "title": "本地语义检索",
-      "unsupported": "当前平台使用关键词检索",
-      "preparing": "正在准备",
-      "downloading": "正在下载模型",
-      "retryPending": "等待后台重试",
-      "ready": "可用",
-      "installed": "模型已准备",
-      "missing": "模型未准备",
-      "prepare": "准备本地模型 · 95 MB",
-      "rebuild": "更新语义索引",
-      "indexed": "索引条目",
+      "title": "语义检索",
       "query": "用自然语言查找记忆",
       "search": "语义查找",
       "empty": "没有足够相关的记忆"

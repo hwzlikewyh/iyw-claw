@@ -25,11 +25,15 @@ mod candidate_store;
 mod candidate_types;
 mod capabilities;
 mod capability_types;
+mod cloud_retrieval;
+mod cloud_settings;
 mod context;
 mod correction;
 mod entry_catalog;
+mod foreground;
 mod forget;
 mod forget_backups;
+mod forget_projection;
 mod fs;
 mod generated_overrides;
 mod generated_projection;
@@ -57,17 +61,13 @@ mod journal;
 mod launch_context;
 mod learning;
 mod maintenance;
+mod migration_reconcile;
+mod maintenance_queue;
 mod maintenance_resolution;
 mod maintenance_review;
 mod maintenance_types;
-mod managed_model;
-mod managed_model_archive;
-mod managed_model_retry;
-mod managed_model_state;
-mod managed_model_types;
 mod migration;
 mod migration_preview;
-mod migration_reconcile;
 mod platform;
 mod recall;
 mod recall_config;
@@ -103,11 +103,22 @@ mod retention;
 mod retention_view;
 mod semantic;
 #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
+mod semantic_chunks;
+#[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
+mod semantic_cloud_index;
+#[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
 mod semantic_index;
 #[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
+mod semantic_lifecycle;
+#[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
 mod semantic_model;
+#[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
+mod semantic_query;
 mod semantic_recall;
+mod semantic_rerank;
 mod semantic_settings;
+#[cfg(all(feature = "memory-semantic", target_pointer_width = "64"))]
+mod semantic_storage;
 mod service;
 mod settings_projection;
 mod store;
@@ -127,6 +138,8 @@ pub use candidate_api_types::*;
 pub use candidate_types::*;
 pub use capabilities::*;
 pub use capability_types::*;
+pub use cloud_retrieval::RetrievalModels;
+pub use cloud_settings::CloudRetrievalConfig;
 pub use context::{
     memory_policy_digest, strip_user_context, MEMORY_POLICY_DOCUMENT, MEMORY_POLICY_REFERENCE,
     MEMORY_POLICY_REVISION, MEMORY_POLICY_SUMMARY, USER_CONTEXT_END, USER_CONTEXT_START,
@@ -134,6 +147,7 @@ pub use context::{
 pub use entry_catalog::{
     UserMemoryEntry, UserMemoryEntryListRequest, UserMemoryEntryPage, UserMemoryEntryStatusRequest,
 };
+pub use foreground::MemoryForegroundGuard;
 pub use forget::*;
 pub use generated_overrides::GeneratedViewOverride;
 pub use generated_views::{GeneratedMemoryView, GeneratedViewSource};
