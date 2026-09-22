@@ -17,6 +17,80 @@ use crate::preferences;
 pub(crate) const SYSTEM_PROXY_SETTINGS_KEY: &str = "system_proxy_settings";
 pub(crate) const SYSTEM_LANGUAGE_SETTINGS_KEY: &str = "system_language_settings";
 pub(crate) const LANGUAGE_SETTINGS_UPDATED_EVENT: &str = "app://language-settings-updated";
+pub(crate) const SKILL_AUTO_UPDATE_SETTINGS_KEY: &str = "skill_auto_update_settings";
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SkillAutoUpdateSettings {
+    pub enabled: bool,
+}
+
+impl Default for SkillAutoUpdateSettings {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
+}
+
+pub(crate) async fn load_skill_auto_update_settings(
+    conn: &DatabaseConnection,
+) -> Result<SkillAutoUpdateSettings, AppCommandError> {
+    let raw = app_metadata_service::get_value(conn, SKILL_AUTO_UPDATE_SETTINGS_KEY)
+        .await
+        .map_err(AppCommandError::from)?;
+    raw.map(|value| {
+        serde_json::from_str(&value).map_err(|error| {
+            AppCommandError::configuration_invalid("Failed to parse Skill update settings")
+                .with_detail(error.to_string())
+        })
+    })
+    .transpose()
+    .map(|value| value.unwrap_or_default())
+}
+
+pub(crate) async fn save_skill_auto_update_settings(
+    conn: &DatabaseConnection,
+    settings: SkillAutoUpdateSettings,
+) -> Result<SkillAutoUpdateSettings, AppCommandError> {
+    let value = serde_json::to_string(&settings).map_err(|error| {
+        AppCommandError::invalid_input("Failed to serialize Skill update settings")
+            .with_detail(error.to_string())
+    })?;
+    app_metadata_service::upsert_value(conn, SKILL_AUTO_UPDATE_SETTINGS_KEY, &value)
+        .await
+        .map_err(AppCommandError::from)?;
+    Ok(settings)
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn get_skill_auto_update_settings(
+    #[cfg(feature = "tauri-runtime")] db: State<'_, AppDatabase>,
+    #[cfg(not(feature = "tauri-runtime"))] _db: (),
+) -> Result<SkillAutoUpdateSettings, AppCommandError> {
+    #[cfg(feature = "tauri-runtime")]
+    {
+        return load_skill_auto_update_settings(&db.conn).await;
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        unreachable!()
+    }
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn update_skill_auto_update_settings(
+    settings: SkillAutoUpdateSettings,
+    #[cfg(feature = "tauri-runtime")] db: State<'_, AppDatabase>,
+    #[cfg(not(feature = "tauri-runtime"))] _db: (),
+) -> Result<SkillAutoUpdateSettings, AppCommandError> {
+    #[cfg(feature = "tauri-runtime")]
+    {
+        return save_skill_auto_update_settings(&db.conn, settings).await;
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        unreachable!()
+    }
+}
 
 fn normalize_proxy_settings(
     settings: SystemProxySettings,
