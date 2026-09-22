@@ -1,242 +1,221 @@
 "use client"
 
-import { useMemo } from "react"
+import { useMemo, useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import {
+  Check,
+  FolderOpen,
+  Loader2,
   ShieldAlert,
-  Terminal,
-  ListTodo,
-  Compass,
-  FileText,
-  Globe,
-  Search,
+  ShieldCheck,
+  X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { CodeBlock } from "@/components/ai-elements/code-block"
-import { UnifiedDiffPreview } from "@/components/diff/unified-diff-preview"
-import { MessageResponse } from "@/components/ai-elements/message"
 import type { PendingPermission } from "@/contexts/acp-connections-context"
 import { parsePermissionToolCall } from "@/lib/permission-request"
 import { resolvePermissionOptionLabel } from "@/lib/permission-option-label"
+import { PermissionDetails } from "./permission-details"
+import { permissionSummary } from "./permission-summary"
 
 interface PermissionDialogProps {
   permission: PendingPermission | null
-  onRespond: (requestId: string, optionId: string) => void
+  onRespond: (requestId: string, optionId: string) => void | Promise<void>
 }
 
-function formatKindLabel(kind: string, fallbackLabel: string): string {
-  const normalized = kind.replace(/_/g, " ").trim()
-  return normalized.length > 0 ? normalized : fallbackLabel
+export function PermissionDialog(props: PermissionDialogProps) {
+  return props.permission ? (
+    <PermissionCard
+      key={props.permission.request_id}
+      permission={props.permission}
+      onRespond={props.onRespond}
+    />
+  ) : null
 }
 
-export function PermissionDialog({
+function PermissionCard({
   permission,
   onRespond,
-}: PermissionDialogProps) {
+}: PermissionDialogProps & { permission: PendingPermission }) {
   const t = useTranslations("Folder.chat.permissionDialog")
   const parsed = useMemo(
-    () => parsePermissionToolCall(permission?.tool_call),
-    [permission?.tool_call]
+    () => parsePermissionToolCall(permission.tool_call),
+    [permission.tool_call]
   )
-  if (!permission) return null
-  const queued = permission.queued ?? 0
-
-  const hasFileChanges = parsed.fileChanges.length > 0
-  const hasPlan =
-    parsed.planEntries.length > 0 || Boolean(parsed.planExplanation)
-  const hasPlanMarkdown = Boolean(parsed.planMarkdown)
-  const hasAllowedPrompts = parsed.allowedPrompts.length > 0
-  const hasWeb = Boolean(parsed.url) || Boolean(parsed.query)
-  const hasOtherStructured =
-    Boolean(parsed.command) ||
-    hasFileChanges ||
-    hasPlan ||
-    hasPlanMarkdown ||
-    hasAllowedPrompts ||
-    Boolean(parsed.modeTarget) ||
-    hasWeb
-  // Agent-provided description (ACP `content` text). Shown only when no richer
-  // structured view exists, so it replaces the raw-JSON fallback for agents
-  // like Kimi Code that carry the request text in `content` rather than
-  // `rawInput`, while leaving command/diff/plan dialogs untouched.
-  const hasContentText = Boolean(parsed.contentText)
-  const hasStructured = hasOtherStructured || hasContentText
-
+  const response = usePermissionResponse({ permission, onRespond })
   return (
-    <div className="mx-4 mb-3 rounded-xl border border-border/70 bg-card/95 p-3 shadow-sm">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 space-y-1">
-          <div className="flex items-center gap-1.5 text-sm font-medium">
-            <ShieldAlert className="h-4 w-4 shrink-0 text-amber-500" />
-            <span className="truncate">{parsed.title}</span>
+    <section
+      aria-label={t("title")}
+      className="mx-4 mb-3 min-w-0 shrink-0 overflow-hidden rounded-lg border border-border bg-card shadow-sm"
+    >
+      <PermissionHeader permission={permission} kind={parsed.normalizedKind} />
+      <div className="max-h-[min(36vh,18rem)] min-w-0 space-y-3 overflow-y-auto overscroll-contain px-4 pb-4">
+        <p className="text-sm font-medium [overflow-wrap:anywhere]">
+          {parsed.command
+            ? (permissionSummary(permission.tool_call) ?? t("commandRequest"))
+            : parsed.title}
+        </p>
+        <PermissionDetails parsed={parsed} />
+        {parsed.cwd && (
+          <div className="flex items-start gap-2 text-xs leading-5 text-muted-foreground">
+            <FolderOpen className="mt-0.5 size-3.5 shrink-0" />
+            <span className="min-w-0 [overflow-wrap:anywhere]">
+              {t("cwd", { cwd: parsed.cwd })}
+            </span>
           </div>
-          <p className="text-xs text-muted-foreground">{t("subtitle")}</p>
+        )}
+      </div>
+      <PermissionActions permission={permission} {...response} />
+    </section>
+  )
+}
+
+function usePermissionResponse({
+  permission,
+  onRespond,
+}: PermissionDialogProps & { permission: PendingPermission }) {
+  const [pending, setPending] = useState<string | null>(null)
+  const [error, setError] = useState(false)
+  const inFlight = useRef(false)
+  const respond = async (optionId: string) => {
+    if (inFlight.current) return
+    inFlight.current = true
+    setPending(optionId)
+    setError(false)
+    try {
+      await onRespond(permission.request_id, optionId)
+    } catch {
+      setError(true)
+    } finally {
+      inFlight.current = false
+      setPending(null)
+    }
+  }
+  return { pending, error, respond }
+}
+
+function PermissionHeader({
+  permission,
+  kind,
+}: {
+  permission: PendingPermission
+  kind: string
+}) {
+  const t = useTranslations("Folder.chat.permissionDialog")
+  return (
+    <header className="flex items-start gap-3 p-4">
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+        <ShieldAlert className="size-4.5" />
+      </span>
+      <div className="min-w-0 flex-1">
+        <h3 className="text-sm font-semibold">{t("title")}</h3>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          {t("subtitle")}
+        </p>
+      </div>
+      <div className="flex max-w-[45%] flex-wrap justify-end gap-1.5">
+        <Badge
+          variant="outline"
+          className="max-w-full rounded-md text-[10px] whitespace-normal [overflow-wrap:anywhere]"
+        >
+          {kind || t("kindFallbackTool")}
+        </Badge>
+        {Boolean(permission.queued) && (
+          <span className="text-[10px] text-muted-foreground">
+            {t("queuedCount", { count: permission.queued! })}
+          </span>
+        )}
+      </div>
+    </header>
+  )
+}
+
+function PermissionActions({
+  permission,
+  pending,
+  error,
+  respond,
+}: {
+  permission: PendingPermission
+  pending: string | null
+  error: boolean
+  respond: (id: string) => Promise<void>
+}) {
+  const t = useTranslations("Folder.chat.permissionDialog")
+  const primaryId = permission.options.find(
+    (option) => option.kind === "allow_once"
+  )?.option_id
+  const groups = [
+    permission.options.filter((option) => option.kind.startsWith("reject")),
+    permission.options.filter(
+      (option) =>
+        !option.kind.startsWith("reject") && option.option_id !== primaryId
+    ),
+    permission.options.filter((option) => option.option_id === primaryId),
+  ]
+  const button = (option: PendingPermission["options"][number]) => (
+    <PermissionButton
+      key={option.option_id}
+      option={option}
+      primary={option.option_id === primaryId}
+      pending={pending}
+      respond={respond}
+    />
+  )
+  return (
+    <footer className="border-t border-border/60 p-4">
+      {error && (
+        <p role="alert" className="mb-3 text-xs text-destructive">
+          {t("submitError")}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap gap-2">
+          {groups[0].map(button)}
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          {queued > 0 && (
-            <Badge variant="secondary" className="text-[10px] tabular-nums">
-              {t("queuedCount", { count: queued })}
-            </Badge>
-          )}
-          <Badge variant="outline" className="text-[10px]">
-            {formatKindLabel(parsed.normalizedKind, t("kindFallbackTool"))}
-          </Badge>
+        <div className="ms-auto flex min-w-0 max-w-full flex-wrap justify-end gap-2">
+          {[...groups[1], ...groups[2]].map(button)}
         </div>
       </div>
+    </footer>
+  )
+}
 
-      <div className="mt-3 max-h-[min(36vh,18rem)] space-y-2 overflow-y-auto pr-1">
-        {parsed.command && (
-          <div className="space-y-1.5 rounded-md border border-border/60 bg-muted/20 p-2">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Terminal className="h-3.5 w-3.5" />
-              <span>{t("command")}</span>
-            </div>
-            <CodeBlock code={parsed.command} language="bash" />
-            {parsed.cwd && (
-              <div className="break-all text-xs text-muted-foreground">
-                {t("cwd", { cwd: parsed.cwd })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {hasFileChanges && parsed.diffPreview && (
-          <UnifiedDiffPreview diffText={parsed.diffPreview} />
-        )}
-
-        {hasPlan && (
-          <div className="space-y-1.5 rounded-md border border-border/60 bg-muted/20 p-2">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <ListTodo className="h-3.5 w-3.5" />
-              <span>{t("plan")}</span>
-            </div>
-            {parsed.planExplanation && (
-              <p className="text-xs text-foreground/90">
-                {parsed.planExplanation}
-              </p>
-            )}
-            {parsed.planEntries.length > 0 && (
-              <div className="space-y-1 rounded-md bg-muted/40 p-2">
-                {parsed.planEntries.map((entry, index) => (
-                  <div key={`${entry.text}-${index}`} className="text-xs">
-                    <span className="text-foreground/90">{entry.text}</span>
-                    {entry.status && (
-                      <span className="ml-2 text-muted-foreground">
-                        ({entry.status})
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {hasPlanMarkdown && (
-          <div className="space-y-1.5 rounded-md border border-border/60 bg-muted/20 p-2">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <FileText className="h-3.5 w-3.5" />
-              <span>{t("plan")}</span>
-            </div>
-            <div className="text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside">
-              <MessageResponse>{parsed.planMarkdown!}</MessageResponse>
-            </div>
-          </div>
-        )}
-
-        {hasAllowedPrompts && (
-          <div className="space-y-1.5 rounded-md border border-border/60 bg-muted/20 p-2">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Terminal className="h-3.5 w-3.5" />
-              <span>{t("allowedActions")}</span>
-            </div>
-            <div className="space-y-1 rounded-md bg-muted/40 p-2">
-              {parsed.allowedPrompts.map((item, index) => (
-                <div
-                  key={`${item.prompt}-${index}`}
-                  className="flex items-center gap-2 text-xs"
-                >
-                  {item.tool && (
-                    <Badge variant="outline" className="shrink-0 text-[10px]">
-                      {item.tool}
-                    </Badge>
-                  )}
-                  <span className="text-foreground/90">{item.prompt}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {parsed.modeTarget && (
-          <div className="rounded-md border border-border/60 bg-muted/20 p-2 text-xs">
-            <div className="flex items-center gap-1 text-muted-foreground">
-              <Compass className="h-3.5 w-3.5" />
-              <span>{t("targetMode", { mode: parsed.modeTarget })}</span>
-            </div>
-          </div>
-        )}
-
-        {hasWeb && (
-          <div className="space-y-1.5 rounded-md border border-border/60 bg-muted/20 p-2">
-            {parsed.url && (
-              <div className="flex items-center gap-2 text-xs">
-                <Globe className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="break-all font-mono text-foreground/90">
-                  {parsed.url}
-                </span>
-              </div>
-            )}
-            {parsed.query && (
-              <div className="flex items-center gap-2 text-xs">
-                <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="break-all text-foreground/90">
-                  {parsed.query}
-                </span>
-              </div>
-            )}
-            {parsed.prompt && (
-              <div className="mt-1 text-xs text-muted-foreground">
-                <MessageResponse>{parsed.prompt}</MessageResponse>
-              </div>
-            )}
-          </div>
-        )}
-
-        {!hasOtherStructured && parsed.contentText && (
-          <div className="rounded-md border border-border/60 bg-muted/20 p-2 text-xs text-foreground/90">
-            <MessageResponse>{parsed.contentText}</MessageResponse>
-          </div>
-        )}
-
-        {!hasStructured && (
-          <pre className="rounded-md border border-border/60 bg-muted/20 p-2 text-xs whitespace-pre-wrap break-all text-foreground/90">
-            {parsed.jsonPreview}
-          </pre>
-        )}
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-2">
-        {permission.options.map((opt) => {
-          const isReject = opt.kind.startsWith("reject")
-          const label = resolvePermissionOptionLabel(opt)
-          return (
-            <Button
-              key={opt.option_id}
-              variant={isReject ? "outline" : "default"}
-              className="h-auto min-h-9 whitespace-normal break-words text-left"
-              onClick={() => onRespond(permission.request_id, opt.option_id)}
-            >
-              {label
-                ? t(`options.${label.key}`, {
-                    command: label.command ?? "",
-                  })
-                : opt.name}
-            </Button>
-          )
-        })}
-      </div>
-    </div>
+function PermissionButton({
+  option,
+  primary,
+  pending,
+  respond,
+}: {
+  option: PendingPermission["options"][number]
+  primary: boolean
+  pending: string | null
+  respond: (id: string) => Promise<void>
+}) {
+  const t = useTranslations("Folder.chat.permissionDialog")
+  const reject = option.kind.startsWith("reject")
+  const Icon = reject ? X : primary ? Check : ShieldCheck
+  const label = resolvePermissionOptionLabel(option)
+  return (
+    <Button
+      key={option.option_id}
+      type="button"
+      variant={reject ? "ghost" : primary ? "default" : "outline"}
+      size="sm"
+      disabled={pending !== null}
+      className="h-auto min-h-9 min-w-0 max-w-full rounded-md py-2 text-xs whitespace-normal"
+      onClick={() => void respond(option.option_id)}
+    >
+      {pending === option.option_id ? (
+        <Loader2 className="size-3.5 animate-spin" />
+      ) : (
+        <Icon className="size-3.5" />
+      )}
+      <span className="min-w-0 [overflow-wrap:anywhere]">
+        {label
+          ? t(`options.${label.key}`, { command: label.command ?? "" })
+          : option.name}
+      </span>
+    </Button>
   )
 }

@@ -51,8 +51,11 @@ interface ConversationShellProps {
     modeId?: string | null
   ) => boolean | void | Promise<boolean>
   onCancel: () => void
-  onRespondPermission: (requestId: string, optionId: string) => void
-  onAnswerQuestion: (answer: string) => void
+  onRespondPermission: (
+    requestId: string,
+    optionId: string
+  ) => void | Promise<void>
+  onAnswerQuestion: (answer: string) => void | Promise<void>
   onAnswerAskQuestion: (
     questionId: string,
     answer: QuestionAnswer

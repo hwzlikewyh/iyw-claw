@@ -207,6 +207,7 @@ fn parse_form(properties: &BTreeMap<String, ElicitationPropertySchema>, message:
             .unwrap_or(question);
         let (options, value_by_label) = normalize_choices(choices);
         specs.push(QuestionSpec {
+            ui: None,
             input: None,
             secret: false,
             optional: false,
