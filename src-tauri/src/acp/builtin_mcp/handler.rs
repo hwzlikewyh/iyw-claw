@@ -22,7 +22,7 @@ use super::invocation::{
 use super::iyw_service::IywGatewayService;
 use super::receipt::DeliveryReceiptRegistry;
 use super::runtime::RuntimeRegistry;
-use super::tool_identity::resolve_gateway_route;
+use super::tool_identity::{resolve_gateway_route, GatewayTool};
 
 mod server;
 
@@ -89,6 +89,12 @@ impl BuiltinMcpHandler {
             return Err(error);
         };
         let direct_tool = direct_tool_hint(&request, authority.gateway_server_name());
+        let search_arguments = (route.tool() == GatewayTool::Search)
+            .then(|| serde_json::Value::Object(request.arguments.clone().unwrap_or_default()));
+        let remote_context = super::remote_mcp::RemoteContext {
+            request_cancel: &context.ct,
+            authority_cancel: authority.cancellation(),
+        };
         let action = gateway::dispatch(
             route.tool(),
             request.arguments,
@@ -121,8 +127,29 @@ impl BuiltinMcpHandler {
                 result
             }
             GatewayAction::Return(result) => {
+                let result = if let Some(arguments) = search_arguments {
+                    self.iyw.remote.merge_search((result, &arguments), remote_context).await
+                } else {
+                    result
+                };
                 trace.log_result(&result);
                 Ok(result)
+            }
+            GatewayAction::RemoteRead(capability_id) => {
+                let result = self.iyw.remote.read(&capability_id, remote_context).await;
+                log_direct_result(&trace, &result);
+                result
+            }
+            GatewayAction::RemoteInvoke(invocation) => {
+                if let Some(receipt) = invocation.delivery_ack.as_deref() {
+                    self.receipts.acknowledge_required(authority.connection_id(), receipt).await?;
+                }
+                ensure_active(&authority, &context.ct)?;
+                super::policy::require_call(&authority).await?;
+                let arguments = invocation.arguments.as_object().cloned().unwrap_or_default();
+                let result = self.iyw.remote.invoke((&invocation.tool_name, arguments), remote_context).await;
+                log_direct_result(&trace, &result);
+                result
             }
             GatewayAction::Invoke(invocation) => {
                 let is_memory_policy = invocation.tool_name == "read_memory_policy";

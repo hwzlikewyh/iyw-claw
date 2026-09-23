@@ -9,6 +9,8 @@ description: >-
   任意文件上传(50MiB)、fetch_iyw_url。按关键词索引逐层读取参数，剩余业务统一用
   fetch_iyw_url，图片用generate_iyw_image，上传用upload_iyw_file。视频生成优先走本 Skill
   的 generate_iyw_image/fetch_iyw_url，按视频专篇匹配当前工具与页面契约。
+  Also discover signed-in enterprise/profile/prospecting/email, customs/trade,
+  ecommerce/brand review and other remote business tools when direct routes do not cover the task.
   Also route iyw-claw memory/learning, session/profile/history, artifacts,
   browser/web evidence, audio, image understanding, channels/messages,
   automation, interaction and delegation through the matching reference and
@@ -18,7 +20,7 @@ routing:
   coreTriggers: [host action, memory, self-learning, session, profile, history, artifact, browser, web, internet, audio, transcription, image understanding, channel, message, automation, scheduled task, feedback, question, clarification, ambiguous requirement, needs decision, 需求不清, 需要选择, delegation, 爱原物, 设计云, 产品, 标签, 客户需求, 趋势报告, 图案, IP授权, 版权, 点数, 钱包, 组织, 店铺, 瓶型, Temu, 视频生成, 电商视频, 产品演绎, 视频复刻, 自动导演, 商品套图, A+, Listing, 爆款复刻, 上传文件, fetch_iyw_url, upload_iyw_file]
   exclusions: [trivial request, self-contained explanation]
   aliases: [iyw gateway, host capability, capability catalog, 主机能力, 能力网关, 爱原物接口, 设计云, AI工作台, 图案网, 产品库, 版权登记, 文件上传]
-  invocation: For IYW business tasks load iyw-api-index and the matching domain reference. Prioritize video generation through generate_iyw_image or fetch_iyw_url as documented in iyw-api-ecommerce-video. Images and uploads prefer their direct tools; documented workflow mismatches use fetch_iyw_url. Search/read/invoke only for host catalog capabilities.
+  invocation: For IYW business tasks load iyw-api-index and the matching domain reference. Prioritize video generation through generate_iyw_image or fetch_iyw_url as documented in iyw-api-ecommerce-video. Images and uploads prefer their direct tools; documented workflow mismatches use fetch_iyw_url. Search/read/invoke covers remaining host and remote business capabilities.
 ---
 
 # IYW Capability Gateway
@@ -32,10 +34,30 @@ This Skill is an active routing gate, not a static tool list. The host catalog i
 authoritative for current capability IDs, schemas, required inputs, availability,
 permissions, and schema digests.
 
+The same search/read/invoke trio includes signed-in remote business capabilities.
+Use search `source=local` for host actions, `source=remote` for enterprise/profile/
+prospecting/email, customs/trade, ecommerce products, brand reviews, copyright,
+product tags/patterns, web search, speech or retrieval; omit source when unsure.
+Existing direct tools and documented business API routes keep their priority.
+Use remote discovery when those routes do not cover the requested subgoal,
+before claiming it unsupported.
+
+Read a group's workflow and relevant `items`: members have their own
+`capability_id`, complete `input_schema` and `usage` (`use_when`, `argument_sources`,
+`result_summary`). A fully read member needs no additional read. Invoke its ID,
+never the group; the host carries remote versions. Remote instruction examples
+are usage guidance for this same trio, not permission to invent callable names
+or put routing fields in arguments. `remote_catalog.status=unavailable` is not
+evidence of absence; local matches remain usable. `TOOL_CHANGED` with
+`execution_status=not_started` requires rereading the old capability_id and using
+the current member ID returned. `remote_catalog_expired` permits one fresh search.
+Unknown execution outcomes require original task/status evidence before replay.
+These recovery cases take precedence over the generic stop rules below.
+
 爱原物业务先读 [接口索引](references/iyw-api-index.md)，按关键词仅加载对应领域。
 图片生成/处理优先用 `generate_iyw_image`，通用上传用 `upload_iyw_file`；其余业务通过 `fetch_iyw_url` 执行。
 电商视频和商品套图中已记录的工具契约不匹配或未封装操作，按对应参考用 fetch 调原接口。
-业务 API 路由不依赖能力三件套；主机能力才使用下文 catalog 流程。
+已记录的业务 API 路由不依赖能力三件套；主机能力及未覆盖的远程业务使用下文 catalog 流程。
 
 ## 最短适用路径
 
