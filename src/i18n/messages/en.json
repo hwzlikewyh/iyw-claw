@@ -3510,6 +3510,7 @@
         "toolUseCount": "{count} tool {count, plural, one {use} other {uses}}",
         "outputRate": "Average output {rate} tok/s",
         "outputRateHint": "Reported output tokens / total turn time, including reasoning and tool waits; usage updates as the agent reports it",
+        "recentOutputRateHint": "Based on reported output tokens in the trailing 1-second window; usage refreshes every second",
         "reportedUsage": "Reported usage",
         "firstToken": "First token {time}",
         "metricsPending": "Pending",

@@ -1662,11 +1662,13 @@ function connectionsReducer(
       const next = new Map(state)
       const updated = { ...conn, status: action.status }
       if (action.status === "prompting") {
-        updated.liveMessage = {
-          id: randomUUID(),
-          role: "assistant",
-          content: [],
-          startedAt: Date.now(),
+        if (conn.status !== "prompting" || !conn.liveMessage) {
+          updated.liveMessage = {
+            id: randomUUID(),
+            role: "assistant",
+            content: [],
+            startedAt: Date.now(),
+          }
         }
         updated.pendingQuestion = null
         updated.claudeApiRetry = null

@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react"
 import { useTranslations } from "next-intl"
 import type { ToolCallInfo } from "@/contexts/acp-connections-context"
 import { useSessionActivity } from "@/hooks/use-session-activity"
-import { OUTPUT_RATE_WINDOW_MS } from "@/hooks/use-recent-output-rate"
 import { activityTimings } from "@/lib/session-activity"
 import {
   inferLiveToolName,
@@ -32,6 +31,8 @@ export type ActivityIcon =
 type TurnSummary = ReturnType<typeof summarizeLiveTurn>
 type SessionActivity = ReturnType<typeof useSessionActivity>
 
+const ACTIVITY_RECENCY_WINDOW_MS = 5_000
+
 function useActivityNow(activity: SessionActivity, enabled: boolean) {
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
@@ -45,10 +46,10 @@ function useActivityNow(activity: SessionActivity, enabled: boolean) {
         hasActiveTool: false,
       })
       const ages = [timing.textAge, timing.thinkingAge].filter(
-        (age): age is number => age !== null && age < OUTPUT_RATE_WINDOW_MS
+        (age): age is number => age !== null && age < ACTIVITY_RECENCY_WINDOW_MS
       )
       if (ages.length === 0) return
-      const delay = OUTPUT_RATE_WINDOW_MS - Math.max(...ages)
+      const delay = ACTIVITY_RECENCY_WINDOW_MS - Math.max(...ages)
       timer = setTimeout(() => setNow(Date.now()), delay)
     }
     const visible = () => {
@@ -80,8 +81,9 @@ function selectPhase(
     hasActiveTool: false,
   })
   if (process) return "waitingProcess"
-  if (textAge !== null && textAge < OUTPUT_RATE_WINDOW_MS) return "streaming"
-  if (thinkingAge !== null && thinkingAge < OUTPUT_RATE_WINDOW_MS)
+  if (textAge !== null && textAge < ACTIVITY_RECENCY_WINDOW_MS)
+    return "streaming"
+  if (thinkingAge !== null && thinkingAge < ACTIVITY_RECENCY_WINDOW_MS)
     return "thinking"
   if (!activity && summary.lastContent)
     return summary.lastContent === "text" ? "streaming" : "thinking"
