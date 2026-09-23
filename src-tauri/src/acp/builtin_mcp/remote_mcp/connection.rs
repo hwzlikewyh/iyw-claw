@@ -153,10 +153,9 @@ async fn list_tools(peer: &Peer<RoleClient>) -> Result<Vec<Tool>, ErrorData> {
     let mut tools = Vec::new();
     for _ in 0..MAX_TOOL_PAGES {
         let page = peer
-            .list_tools(Some(rmcp::model::PaginatedRequestParams {
-                meta: None,
-                cursor,
-            }))
+            .list_tools(Some(
+                rmcp::model::PaginatedRequestParams::default().with_cursor(cursor),
+            ))
             .await
             .map_err(|error| super::request::service_error(error, false))?;
         tools.extend(page.tools);
