@@ -18,6 +18,7 @@ pub(super) struct IywGatewayService {
     conn: DatabaseConnection,
     listener: Arc<DelegationListener>,
     client: reqwest::Client,
+    pub(super) remote: Arc<super::remote_mcp::RemoteGateway>,
     pub(super) image_timeout: Option<Duration>,
 }
 
@@ -32,6 +33,7 @@ impl IywGatewayService {
             .build()
             .map_err(|error| format!("failed to initialize IYW gateway client: {error}"))?;
         Ok(Arc::new(Self {
+            remote: super::remote_mcp::RemoteGateway::new(conn.clone()),
             conn,
             listener,
             client,

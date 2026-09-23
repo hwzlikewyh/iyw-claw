@@ -3739,12 +3739,15 @@ async fn run_connection(
                 mcp_servers.push(prepared.server);
                 prepared.injection
             });
-            crate::acp::iyw_gateway_mcp::append(
-                &mut mcp_servers,
-                version_center_db.as_ref(),
-                (agent_type, agent_supports_mcp && mcp_caps.http),
-            )
-            .await;
+            // 内置网关代理远程目录；不支持宿主网关的 Agent 保留原生远程接入。
+            if delegate_injection.is_none() {
+                crate::acp::iyw_gateway_mcp::append(
+                    &mut mcp_servers,
+                    version_center_db.as_ref(),
+                    (agent_type, agent_supports_mcp && mcp_caps.http),
+                )
+                .await;
+            }
             {
                 let mut s = state.write().await;
                 // The agent's actual feedback capability for this session — the

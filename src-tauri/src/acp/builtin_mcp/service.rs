@@ -31,6 +31,7 @@ pub struct BuiltinMcpClient {
     endpoint: Arc<str>,
     ready: Arc<AtomicBool>,
     leases: Arc<LeaseManager>,
+    remote: Arc<super::remote_mcp::RemoteGateway>,
     advertised_tools: Arc<[String]>,
     capability_tools: Arc<[String]>,
 }
@@ -61,9 +62,10 @@ impl BuiltinMcpClient {
             authority.cancellation().cancel();
             return Err(BuiltinMcpIssueError::ServiceUnavailable);
         }
-        self.leases
-            .issue(authority, turn_tracker, self.ready.as_ref())
-            .await
+        let token = self.leases
+            .issue(authority, turn_tracker, self.ready.as_ref()).await?;
+        self.remote.prewarm();
+        Ok(token)
     }
 
     pub async fn revoke_parent(&self, connection_id: &str) -> usize {
@@ -150,6 +152,7 @@ fn build_runtime(
     let handler_receipts = leases.receipts();
     let handler_lifecycle = leases.lifecycle();
     let protocol_sessions = leases.protocol_sessions();
+    let remote = Arc::clone(&iyw.remote);
     let protocol = StreamableHttpService::new(
         move || {
             Ok(BuiltinMcpHandler::new(
@@ -180,6 +183,7 @@ fn build_runtime(
         leases,
         advertised_tools,
         capability_tools,
+        remote,
     };
     (router, client)
 }

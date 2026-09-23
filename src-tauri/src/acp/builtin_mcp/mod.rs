@@ -39,6 +39,7 @@ mod plugin_control_support;
 mod policy;
 mod readiness;
 mod receipt;
+mod remote_mcp;
 mod result;
 mod runtime;
 mod service;
