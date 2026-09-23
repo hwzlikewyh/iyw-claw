@@ -272,7 +272,7 @@ tools and the capability trio:
   `parameters.model`. Specialized IYW operations do not use this catalog.
 - `fetch_iyw_url`: 所有已记录的剩余爱原物业务接口入口；传入 description、url、method、query/body。
   包括视频/套图参考明确指定的页面契约；先查 [接口索引](references/iyw-api-index.md)，不搜索 capability_id。
-- `upload_iyw_file`: 任意类型工作区文件，最多 1 GiB；description + path，可选 name/mime_type。
+- `upload_iyw_file`: MCP 主机上可读的任意类型文件，不限工作区，最多 1 GiB；description + path，可选 name/mime_type。
   取得公开 URL 后按用户任务用 fetch 保存业务记录或交付文件。
 - `generate_iyw_image`: image generation/editing and all confirmed IYW
   image operations. Prefer an explicit `type`; put supported operation-specific

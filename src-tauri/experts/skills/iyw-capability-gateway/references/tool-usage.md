@@ -69,7 +69,7 @@ parameters to pass validation or replay uncertain submissions through another to
 | Work | Input shape |
 | --- | --- |
 | Business API progress | Every new fetch_iyw_url call supplies description naming the current action, plus the exact documented URL and query/body; descriptions never enter the HTTP payload |
-| Upload files | upload_iyw_file with description + workspace path; optional name/mime_type; <=1 GiB, returns a public URL |
+| Upload files | upload_iyw_file with description + readable host file path, including outside the workspace; prefer an absolute path; optional name/mime_type; <=1 GiB, returns a public URL |
 | Fusion image models | Call `list_iyw_image_models` with `{}`; choose a returned model supporting generation or editing as needed |
 | Image generation/editing | Text-to-image: `generate` (`images/generations`); single-image changes: `variation`; multi-image fusion: `mix`; four-panel or same-series extension from one reference: `extend`. Explicit `edit` (`images/edits`) requires source images. `generate`, `auto` without images, and `edit` need the opaque `model_ref` from `list_iyw_image_models` copied into `parameters.model`; model editing follows the platform priority and alternative-route conditions above. Default timeout: platform 600s, Fusion 300s; override with `wait.timeoutSeconds`, including above 600. Set `delivery.registerArtifact=false` for intermediate assets. No generation capability ID exists |
 | Document knowledge | `search_iyw_knowledge`: `query`, optional known filters; `folderId` is an integer and `fileId` is a string |

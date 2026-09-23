@@ -36,17 +36,9 @@ pub(super) async fn prepare(cwd: &Path, arguments: Value) -> Result<UploadFile, 
     if request.path.trim().is_empty() {
         return Err(invalid("path must be non-empty"));
     }
-    let root = tokio::fs::canonicalize(cwd)
-        .await
-        .map_err(|cause| file_error("Resolve current workspace", cause))?;
     let path = tokio::fs::canonicalize(cwd.join(&request.path))
         .await
         .map_err(|cause| file_error("Resolve upload file", cause))?;
-    if !path.starts_with(&root) {
-        return Err(invalid(
-            "Upload path must stay inside the MCP host's current workspace, including symlink targets. Copy the authorized file into that workspace first; changing name does not change the source path.",
-        ));
-    }
     let name = request.name.unwrap_or_else(|| {
         path.file_name()
             .unwrap_or_default()
@@ -136,9 +128,9 @@ fn invalid(message: &'static str) -> ErrorData {
 
 fn file_error(operation: &'static str, cause: std::io::Error) -> ErrorData {
     let reason = match cause.kind() {
-        std::io::ErrorKind::NotFound => "File or workspace not found on the MCP host. Use its exact filesystem path; Chinese is supported. Do not URL-encode, add shell quotes, or use a remote client's path.",
-        std::io::ErrorKind::PermissionDenied => "The MCP host cannot access this file or workspace. Check its read permissions; changing name cannot grant access.",
-        _ => "The MCP host could not access this file or workspace. Check that the path exists and is readable on that host; Chinese filenames are supported.",
+        std::io::ErrorKind::NotFound => "File not found on the MCP host. Use its exact absolute path, or resolve a relative path from the session working directory. Chinese and paths outside the workspace are supported. Do not URL-encode, add shell quotes, or use a remote client's path.",
+        std::io::ErrorKind::PermissionDenied => "The MCP host cannot access this file. Check its read permissions; changing name cannot grant access.",
+        _ => "The MCP host could not access this file. Check that the path exists and is readable on that host; Chinese filenames and paths outside the workspace are supported.",
     };
     tracing::warn!(target: "builtin_mcp", operation, io_kind = ?cause.kind(),
         os_error = cause.raw_os_error(), "[iyw-upload] local file access failed");
