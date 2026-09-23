@@ -97,7 +97,8 @@ jobs:
               fi
               # 只允许发布工具变化时重试同一 draft，应用源码仍固定在原 tag。
               if ! git diff --quiet "$tag_ref" HEAD -- . \
-                  ':(exclude).github/workflows' ':(exclude).github/scripts/release'; then
+                  ':(exclude).github/workflows' ':(exclude).github/scripts/release' \
+                  ':(exclude)src-tauri/scripts/finalize-staged-windows.mjs'; then
                 echo "::error::Application source changed since $tag; use a new release version."
                 exit 1
               fi
