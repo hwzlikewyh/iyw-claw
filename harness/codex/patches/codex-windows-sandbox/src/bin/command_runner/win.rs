@@ -9,6 +9,7 @@
 
 #![allow(unsafe_op_in_unsafe_fn)]
 
+#[path = "win/cwd_junction.rs"]
 mod cwd_junction;
 
 use anyhow::Context;
@@ -293,15 +294,11 @@ fn spawn_ipc_process(req: &SpawnRequest) -> Result<IpcSpawnedProcess> {
     }
 
     let effective_cwd = effective_cwd(&req.cwd, Some(log_dir.as_path()));
-    let desktop = if req.use_private_desktop {
-        LaunchDesktop::open_private(
-            req.private_desktop_name
-                .as_deref()
-                .context("runner: missing parent-owned private desktop")?,
-        )?
-    } else {
-        LaunchDesktop::prepare(/*use_private_desktop*/ false, Some(log_dir.as_path()))?
-    };
+    let desktop = LaunchDesktop::open_private(
+        req.private_desktop_name
+            .as_deref()
+            .context("runner: missing parent-owned private desktop")?,
+    )?;
 
     let mut conpty_owner = None;
     let mut hpc_handle: Option<HANDLE> = None;

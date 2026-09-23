@@ -48,6 +48,9 @@ impl WorkerConfig {
                 .then(|| self.helper_executable.clone()),
             main_execve_wrapper_executable: None,
             enable_codex_api_key_env: true,
+            api_key: optional_value("CODEX_API_KEY"),
+            config_json: optional_value("CODEX_CONFIG"),
+            runtime_environment: Default::default(),
             mcp_server_openai_form_elicitation: false,
             opt_out_notification_methods: Vec::new(),
         }

@@ -89,9 +89,10 @@ async fn align_conversation_turn_generation(
         )));
     };
     let mut snapshot = state.write().await;
-    snapshot.turn_generation = snapshot
-        .turn_generation
-        .max(row.last_completed_turn_generation);
+    snapshot.turn_generation = std::cmp::Ord::max(
+        snapshot.turn_generation,
+        row.last_completed_turn_generation,
+    );
     Ok(())
 }
 
@@ -1387,11 +1388,11 @@ impl ConnectionManager {
                 let memory = resources.connection_memory(&state);
                 idle.push((id.clone(), state.last_activity_at, memory.private_bytes));
             }
-            let private_total = idle
+            // 进程内会话没有独立读数；已测得的占用仍可作为回收预算下限。
+            let known_private_total = idle
                 .iter()
-                .map(|(_, _, bytes)| *bytes)
-                .collect::<Option<Vec<_>>>()
-                .map(|values| values.iter().sum::<u64>());
+                .filter_map(|(_, _, bytes)| *bytes)
+                .reduce(u64::saturating_add);
             let count_limit_exceeded = keep_limit.is_some_and(|limit| idle.len() > limit);
             // An unlimited preference must remain unlimited while the system is
             // comfortable. Under pressure, private memory becomes a second
@@ -1400,7 +1401,7 @@ impl ConnectionManager {
                 resources.memory.pressure,
                 crate::acp::resource_governor::MemoryPressure::Shrinking
                     | crate::acp::resource_governor::MemoryPressure::Emergency
-            ) && private_total
+            ) && known_private_total
                 .is_some_and(|total| total > private_budget);
             if !count_limit_exceeded && !private_budget_exceeded {
                 return 0;
@@ -3524,7 +3525,10 @@ impl ConnectionManager {
                 agent_type: state.agent_type,
                 status: state.status.clone(),
                 launcher_pid: state.agent_pid,
-                last_activity_at: state.last_activity_at.max(state.last_agent_event_at),
+                last_activity_at: std::cmp::Ord::max(
+                    state.last_activity_at,
+                    state.last_agent_event_at,
+                ),
                 recoverable: state.external_id.is_some()
                     && state.recoverable_session
                     && !state.recovery_failed,

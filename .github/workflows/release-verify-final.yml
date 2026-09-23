@@ -39,7 +39,7 @@ jobs:
           path: src-tauri
           run-id: ${{ inputs.verification_run_id }}
           github-token: ${{ github.token }}
-      - name: Verify signed helper payloads against build input
+      - name: Verify signed embedded runtime against build input
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -48,9 +48,14 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $installer = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/iyw-claw_$env:RELEASE_VERSION`_x64-setup.exe"
           $extracted = Join-Path $env:RUNNER_TEMP 'signed-x64-resources'
-          & 7z x $installer "-o$extracted" 'xinghe-resources/*'
+          & 7z x $installer "-o$extracted" 'iyw-claw.exe' 'xinghe-resources/*'
           if ($LASTEXITCODE -ne 0) { throw 'Installer resource extraction failed' }
-          ./.release-tools/.github/scripts/release/verify-signed-pe.ps1 -ExpectedRoot src-tauri/resources/xinghe-worker -SignedRoot (Join-Path $extracted 'xinghe-resources') -Thumbprint $env:SIGNER
+          ./.release-tools/.github/scripts/release/verify-signed-pe.ps1 -ExpectedRoot src-tauri/target/x86_64-pc-windows-msvc/release -SignedRoot $extracted -Thumbprint $env:SIGNER
+          $expected = (Get-FileHash src-tauri/resources/xinghe-worker/runtime.json).Hash
+          $installed = (Get-FileHash (Join-Path $extracted 'xinghe-resources/runtime.json')).Hash
+          if ($expected -ne $installed) { throw 'Embedded runtime metadata changed in the installer' }
+          node --input-type=module -e "import {verifyWorkerBundle} from './src-tauri/scripts/verify-xinghe-worker-bundle.mjs'; console.log(verifyWorkerBundle(process.argv[1], 'x86_64-pc-windows-msvc'))" $extracted
+          if ($LASTEXITCODE -ne 0) { throw 'Embedded runtime verification failed' }
       - name: Verify actual x64 installation
         env:
           IYW_CLAW_VERIFY_NSIS: "1"

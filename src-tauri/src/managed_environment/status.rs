@@ -73,7 +73,7 @@ pub fn init_status_report() -> ManagedEnvironmentStatusReport {
 }
 
 fn builtin_agent_status() -> ManagedComponentStatus {
-    let error = crate::internal_xinghe_worker::resolve_library().err();
+    let error = crate::internal_xinghe_worker::resolve_helper_path().err();
     let active = error.is_none();
     ManagedComponentStatus {
         component_id: "builtin-agent".into(),

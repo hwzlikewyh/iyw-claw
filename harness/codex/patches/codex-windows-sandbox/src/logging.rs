@@ -88,6 +88,18 @@ pub fn setup_log_writer(base_dir: &Path) -> Result<File> {
     }
 }
 
+/// Release setup's retained handles under the setup lock, after its writers finish.
+/// Keep the slot initialized so later diagnostics cannot reopen a caller-controlled path.
+pub(crate) fn release_setup_log() -> Result<()> {
+    if let Some(log) = SETUP_LOG.get() {
+        let mut log = log
+            .lock()
+            .map_err(|_| anyhow::anyhow!("setup log lock poisoned"))?;
+        *log = None;
+    }
+    Ok(())
+}
+
 fn append_line(line: &str, base_dir: Option<&Path>) {
     if let Some(log) = SETUP_LOG.get() {
         if let Ok(mut log) = log.lock()

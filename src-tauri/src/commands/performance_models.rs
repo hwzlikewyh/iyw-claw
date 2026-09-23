@@ -13,8 +13,17 @@ pub struct AppPerformanceStats {
     pub os_info: OsInfo,
     pub processes: Vec<AppProcessInfo>,
     pub agent_sessions: Vec<AppAgentSessionInfo>,
+    pub embedded_runtimes: Vec<AppEmbeddedRuntimeInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_memory: Option<AppSystemMemoryInfo>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AppEmbeddedRuntimeInfo {
+    pub agent_type: AgentType,
+    pub session_count: usize,
+    pub main_process_id: u32,
 }
 
 #[derive(Debug, Serialize, Clone)]

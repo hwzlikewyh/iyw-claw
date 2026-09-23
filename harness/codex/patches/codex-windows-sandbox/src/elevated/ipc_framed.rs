@@ -66,8 +66,6 @@ pub struct SpawnRequest {
     pub tty: bool,
     #[serde(default)]
     pub stdin_open: bool,
-    #[serde(default)]
-    pub use_private_desktop: bool,
     /// Private desktop kept alive by the parent across command runners.
     pub private_desktop_name: Option<String>,
 }

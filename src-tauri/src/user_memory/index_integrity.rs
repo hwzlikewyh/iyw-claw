@@ -48,7 +48,7 @@ pub(super) async fn check_fts_integrity<C: ConnectionTrait>(
     conn: &C,
     table: &str,
 ) -> Result<(), sea_orm::DbErr> {
-    conn.execute(Statement::from_string(
+    conn.execute_raw(Statement::from_string(
         DbBackend::Sqlite,
         format!("INSERT INTO {table}({table}, rank) VALUES ('integrity-check', 1)"),
     ))
@@ -58,7 +58,7 @@ pub(super) async fn check_fts_integrity<C: ConnectionTrait>(
 
 async fn table_count<C: ConnectionTrait>(conn: &C, table: &str) -> Result<i64, sea_orm::DbErr> {
     let row = conn
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DbBackend::Sqlite,
             format!("SELECT COUNT(*) AS row_count FROM {table}"),
         ))

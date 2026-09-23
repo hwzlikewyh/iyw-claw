@@ -111,7 +111,7 @@ async fn repair_fts<C: ConnectionTrait>(
 }
 
 async fn execute<C: ConnectionTrait>(conn: &C, sql: &'static str) -> Result<(), sea_orm::DbErr> {
-    conn.execute(Statement::from_string(DbBackend::Sqlite, sql))
+    conn.execute_raw(Statement::from_string(DbBackend::Sqlite, sql))
         .await
         .map(|_| ())
 }
@@ -139,7 +139,7 @@ mod tests {
         let txn = db.begin().await.unwrap();
         assert_eq!(rebuild_fts(&txn, FtsLane::Unicode).await, "ready");
         assert!(txn
-            .query_one(Statement::from_string(
+            .query_one_raw(Statement::from_string(
                 DbBackend::Sqlite,
                 "SELECT rowid FROM memory_item_fts_unicode WHERE memory_item_fts_unicode MATCH 'recoverable'",
             ))
@@ -169,7 +169,7 @@ mod tests {
         let txn = db.begin().await.unwrap();
         assert_eq!(rebuild_fts(&txn, FtsLane::Unicode).await, "ready");
         assert!(txn
-            .query_one(Statement::from_string(
+            .query_one_raw(Statement::from_string(
                 DbBackend::Sqlite,
                 "SELECT rowid FROM memory_item_fts_unicode WHERE memory_item_fts_unicode MATCH 'repairable'",
             ))

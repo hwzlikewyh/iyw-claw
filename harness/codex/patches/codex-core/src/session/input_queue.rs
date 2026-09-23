@@ -26,7 +26,7 @@ pub enum TurnInput {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         acceptance_order: Option<u64>,
     },
-    FunctionCallOutput(ResponseItem),
+    FunctionCallOutput(#[serde(with = "turn_input_response_item")] ResponseItemEnvelope),
     // Preserve the existing serialized format while carrying injection API metadata
     // through the in-memory queue.
     ResponseItem(#[serde(with = "turn_input_response_item")] ResponseItemEnvelope),

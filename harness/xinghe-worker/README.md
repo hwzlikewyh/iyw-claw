@@ -1,52 +1,33 @@
-# 星河 Worker 动态库
+# 星河 Worker 历史源码
 
-`iyw-xinghe-worker` is a private dynamic library, not a user-facing executable.
-The desktop application starts its own executable with `--internal-xinghe-worker`
-for a 星河 connection; that child loads this library and serves ACP over
-inherited stdin/stdout. A missing or mismatched library requires an application
-repair and does not silently select the external runtime.
+`iyw-xinghe-worker` is retained for historical ABI and cache references. It is
+not part of the desktop build. The current desktop links the pinned Codex graph
+into `iyw-claw.exe` and calls it through Rust APIs in `harness/codex`.
 
-Keeping the upstream Codex graph in this `cdylib` prevents the main iyw-claw
-crate from resolving or linking its SQLite dependency graph. The C ABI exports
-only no-argument entry points. No Rust values, credentials, or pointers cross
-the dynamic-library boundary.
+The old `cdylib` boundary is retired. No DLL, worker executable, C ABI entry
+point, or worker-side credential environment is required for a normal release.
 
-The worker reads its paths and session binding from environment variables set by
-the parent process. They must never be supplied as command-line arguments or
-written to diagnostics. The child resolves the library only from the desktop
-application's private resource locations; it does not accept a library path
-override or provide a public plugin mechanism.
+The active runtime receives validated paths, configuration, and the API key as
+typed host-owned startup arguments. Secrets are not placed in command-line
+arguments, embedded resources, or persistent Codex credentials.
 
-Normal desktop build hooks and release workflows invoke
-`node src-tauri/scripts/prepare-xinghe-worker.mjs --target <triple>`. The primary
-Tauri resource configuration installs the resulting `resources/xinghe-worker`
-directory as `xinghe-resources`. NSIS runtime seeds contain the shared Node, Git and uv tools; the
-former npm 星河 seed is no longer generated or activated on desktop.
+Normal desktop build hooks invoke `prepare-xinghe-worker.mjs` only to write and
+validate `resources/xinghe-worker/runtime.json`. The metadata records the pinned
+source identity; it is not a binary payload. The Tauri resource directory is
+kept for package identity and upgrade checks.
 
-Windows also builds the pinned sandbox setup and command-runner executables.
-All platforms include a private `iyw-xinghe-helper` executable that statically
-links the existing helper dispatch. Upstream passes only allowlisted environment
-variables to filesystem helpers, and Windows also copies helpers into the sandbox.
-A copied desktop executable could not locate its worker DLL or active-worker
-marker. The helper accepts only existing internal helper modes and does not
-start a second agent or public CLI.
+Windows sandbox setup and command-runner roles are compiled into the same EXE.
+They are launched through internal flags when Windows requires a restricted or
+elevated child role; this preserves OS isolation while removing helper files.
 
-The worker exports its ABI and core version as integers and embeds its locked
-upstream identity. Preparation verifies the binary architecture and identity;
-the Windows verifier also reads the export table and checks each helper's
-architecture. Installed helpers must match the staged bytes. The application validates
-the identity before launch and the ABI before invoking either entry point.
+The application embeds the locked upstream identity and a runtime marker. Bundle
+verification checks those bytes in the main executable and checks that the
+resource directory contains metadata only.
 
-Windows preparation reads the worker and helper PE imports and bundles the
-required `vcruntime140.dll` / `vcruntime140_1.dll` from Visual Studio's matching
-architecture release CRT directory. `VCToolsRedistDir` takes precedence; otherwise
-the build discovers Visual Studio with `vswhere`. Missing or unsupported runtime
-dependencies stop packaging. Installed runtime files must match staging.
-The worker loads dependencies from its own directory and System32, and sandbox
-helper copies include the bundled CRT. Loader failures retain the native error.
-Microsoft runtime files remain covered by the Visual Studio redistribution terms.
+The Windows app is built with the static MSVC CRT flag so the embedded runtime
+does not require adjacent Xinghe or CRT DLL files. OS libraries and the normal
+Tauri WebView2 installation remain external platform prerequisites.
 
-The implementation branch has passed Windows worker `cargo check`. That does
-not prove desktop compilation, signed package contents, or authenticated
-end-to-end behavior. Release acceptance must cover the compatibility matrix
-in the harness design before these changes are published.
+The current locked source is Codex 0.156.1. Compilation and bundle checks do not
+prove authenticated end-to-end behavior. Release acceptance must cover the
+compatibility matrix in the harness design before these changes are published.

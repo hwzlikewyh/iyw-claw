@@ -22,7 +22,7 @@ pub(crate) async fn load_preferences(
     profile: &std::path::Path,
 ) -> Result<String, AcpError> {
     if let Some(raw) = stored_preferences(setting) {
-        return Ok(raw);
+        return compatible_preferences(raw, profile);
     }
     // 只在首次升级时迁移已有偏好；以后启动直接读取应用设置快照。
     let raw = match std::fs::read_to_string(profile.join("config.toml")) {
@@ -33,7 +33,19 @@ pub(crate) async fn load_preferences(
     if let Some(setting) = setting {
         persist_preferences(conn, setting, &raw).await?;
     }
-    Ok(raw)
+    compatible_preferences(raw, profile)
+}
+
+fn compatible_preferences(raw: String, profile: &std::path::Path) -> Result<String, AcpError> {
+    let Some(paths) = super::agent_storage::AgentStoragePaths::active() else {
+        return Ok(raw);
+    };
+    let current = paths.profile(AgentType::Codex).root;
+    if profile != current { return Ok(raw); }
+    let legacy = paths.config_dir().join("codex");
+    super::xinghe_profile::rebase_toml(&raw, (&legacy, profile))
+        .map(|rebased| rebased.unwrap_or(raw))
+        .map_err(AcpError::protocol)
 }
 
 async fn persist_preferences(

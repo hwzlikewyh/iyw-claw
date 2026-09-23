@@ -26,11 +26,9 @@ fn link_windows_test_manifest() {
         processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'";
     println!("cargo:rustc-link-arg={dependency}");
 
-    // The packaged desktop entry must request elevation on every launch. This
-    // applies only to the Tauri binary; the server target does not enable the
-    // `tauri-runtime` feature that runs this build-script branch.
+    // 正常桌面入口显式提权；同 EXE 的受限沙箱角色必须按调用者身份启动。
     println!(
-        "cargo:rustc-link-arg-bin=iyw-claw=/MANIFESTUAC:level='requireAdministrator' uiAccess='false'"
+        "cargo:rustc-link-arg-bin=iyw-claw=/MANIFESTUAC:level='asInvoker' uiAccess='false'"
     );
 }
 

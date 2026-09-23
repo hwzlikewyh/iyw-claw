@@ -41,7 +41,7 @@ use codex_app_server_protocol::NetworkRequirements;
 use codex_app_server_protocol::NetworkUnixSocketPermission;
 use codex_app_server_protocol::NewThreadModelDefaults;
 use codex_app_server_protocol::SandboxMode;
-use codex_app_server_protocol::WindowsSandboxSetupMode;
+use codex_app_server_protocol::WindowsSandboxImplementation;
 use codex_config::ConfigRequirementsToml;
 use codex_config::HookEventsToml;
 use codex_config::HookHandlerConfig as CoreHookHandlerConfig;
@@ -55,6 +55,7 @@ use codex_features::canonical_feature_for_key;
 use codex_features::feature_for_key;
 use codex_model_provider::create_model_provider;
 use codex_plugin::PluginId;
+use codex_protocol::config_types::ForcedLoginMethod;
 use codex_protocol::config_types::WebSearchMode;
 use serde_json::json;
 use std::path::PathBuf;
@@ -135,8 +136,11 @@ impl ConfigRequestProcessor {
             .config_manager
             .read_requirements()
             .await
-            .map_err(map_error)?
-            .map(map_requirements_toml_to_api);
+            .map_err(map_error)?;
+        let requirements = map_requirements_to_api(
+            requirements,
+            self.thread_manager.auth_manager().allowed_login_methods(),
+        );
 
         Ok(ConfigRequirementsReadResponse { requirements })
     }
@@ -367,7 +371,10 @@ pub(super) async fn reload_user_config(
         };
         let current_config = thread.config().await;
         let next_config = match config_manager
-            .load_latest_config_for_thread(current_config.as_ref())
+            .load_latest_config_with_session_layers(
+                &current_config.config_layer_stack,
+                &current_config.cwd,
+            )
             .await
         {
             Ok(config) => config,
@@ -381,13 +388,27 @@ pub(super) async fn reload_user_config(
     }
 }
 
-fn map_requirements_toml_to_api(requirements: ConfigRequirementsToml) -> ConfigRequirements {
-    let windows_sandbox_private_desktop = requirements
-        .windows
-        .as_ref()
-        .and_then(|windows| windows.sandbox_private_desktop);
+fn map_requirements_to_api(
+    requirements: Option<ConfigRequirementsToml>,
+    allowed_login_methods: Vec<ForcedLoginMethod>,
+) -> Option<ConfigRequirements> {
+    let requirements = match requirements {
+        Some(requirements) => requirements,
+        None if allowed_login_methods == [ForcedLoginMethod::Api, ForcedLoginMethod::Chatgpt] => {
+            return None;
+        }
+        None => ConfigRequirementsToml::default(),
+    };
 
-    ConfigRequirements {
+    Some(ConfigRequirements {
+        model_provider: requirements.model_provider,
+        model_providers: requirements.model_providers.map(|providers| {
+            providers
+                .into_iter()
+                .map(|(id, provider)| (id, serde_json::json!(provider)))
+                .collect()
+        }),
+        allowed_login_methods: Some(allowed_login_methods),
         application: requirements.application.map(|application| {
             codex_app_server_protocol::ApplicationRequirements {
                 network: application.network.map(|network| {
@@ -447,11 +468,11 @@ fn map_requirements_toml_to_api(requirements: ConfigRequirementsToml) -> ConfigR
                     implementations
                         .into_iter()
                         .map(|implementation| match implementation {
-                            codex_config::types::WindowsSandboxModeToml::Elevated => {
-                                WindowsSandboxSetupMode::Elevated
+                            codex_config::WindowsSandboxImplementationToml::Elevated => {
+                                WindowsSandboxImplementation::Elevated
                             }
-                            codex_config::types::WindowsSandboxModeToml::Unelevated => {
-                                WindowsSandboxSetupMode::Unelevated
+                            codex_config::WindowsSandboxImplementationToml::Unelevated => {
+                                WindowsSandboxImplementation::Unelevated
                             }
                         })
                         .collect()
@@ -514,8 +535,7 @@ fn map_requirements_toml_to_api(requirements: ConfigRequirementsToml) -> ConfigR
         feedback: requirements.feedback.map(|feedback| FeedbackRequirements {
             enabled: feedback.enabled,
         }),
-        windows_sandbox_private_desktop,
-    }
+    })
 }
 
 fn map_computer_use_requirements_to_api(

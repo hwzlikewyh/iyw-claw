@@ -85,7 +85,7 @@ fn consume_restore_marker(marker: &Path) {
 }
 
 async fn mark_checkpoint_stale(conn: &DatabaseConnection) -> Result<(), sea_orm::DbErr> {
-    conn.execute(Statement::from_sql_and_values(
+    conn.execute_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         "INSERT INTO memory_source_checkpoint (source_key, source_digest, index_generation, indexed_at, status, fts_unicode_status, fts_trigram_status, last_error) \
          VALUES (?, '', 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 'stale', 'unverified', 'unverified', ?) \
@@ -115,7 +115,7 @@ mod tests {
     }
 
     async fn checkpoint_status(conn: &sea_orm::DatabaseConnection) -> Option<(String, String)> {
-        conn.query_one(Statement::from_sql_and_values(
+        conn.query_one_raw(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             "SELECT status, last_error FROM memory_source_checkpoint WHERE source_key = ?",
             [SOURCE_KEY.into()],

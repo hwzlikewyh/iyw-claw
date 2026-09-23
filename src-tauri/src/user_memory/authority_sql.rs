@@ -7,7 +7,7 @@ pub(super) async fn execute<C: ConnectionTrait>(
     sql: &str,
     values: Vec<Value>,
 ) -> Result<u64, AppCommandError> {
-    db.execute(Statement::from_sql_and_values(
+    db.execute_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         sql,
         values,
@@ -22,7 +22,7 @@ pub(super) async fn rows<C: ConnectionTrait>(
     sql: &str,
     values: Vec<Value>,
 ) -> Result<Vec<QueryResult>, AppCommandError> {
-    db.query_all(Statement::from_sql_and_values(
+    db.query_all_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         sql,
         values,

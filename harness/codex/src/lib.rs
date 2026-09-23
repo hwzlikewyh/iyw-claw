@@ -35,6 +35,8 @@ pub use contracts::{
 };
 #[cfg(feature = "upstream")]
 pub use helper_dispatch::dispatch_from_process_args as dispatch_upstream_helper;
+#[cfg(all(windows, feature = "bundled-host"))]
+pub use codex_windows_sandbox::elevate_desktop;
 #[cfg(not(feature = "upstream"))]
 pub const fn dispatch_upstream_helper() -> bool {
     false
@@ -56,6 +58,21 @@ pub use upstream::{UpstreamPin, UPSTREAM_PIN};
 pub use upstream_backend::{UpstreamClient, UpstreamError, UpstreamEvent, UpstreamEventPoll};
 #[cfg(feature = "upstream")]
 pub use upstream_start::UpstreamStartArgs;
+
+/// Capabilities exposed by the embedded desktop 星河 runtime.
+pub const fn desktop_xinghe_capabilities() -> CapabilitySet {
+    CapabilitySet::empty()
+        .with(Capability::Prompt)
+        .with(Capability::Cancellation)
+        .with(Capability::Steering)
+        .with(Capability::Images)
+        .with(Capability::Permission)
+        .with(Capability::Mcp)
+        .with(Capability::Subagents)
+        .with(Capability::Skills)
+        .with(Capability::Goals)
+        .with(Capability::Configuration)
+}
 
 /// The lifecycle states a host can expose without leaking upstream details.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

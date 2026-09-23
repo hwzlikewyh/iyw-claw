@@ -224,7 +224,7 @@ async fn rollback_migration(conn: &DatabaseConnection, cause: &str) {
 }
 
 async fn execute_sql(conn: &DatabaseConnection, sql: &str) -> Result<(), sea_orm::DbErr> {
-    conn.execute(Statement::from_string(DbBackend::Sqlite, sql.to_owned()))
+    conn.execute_raw(Statement::from_string(DbBackend::Sqlite, sql.to_owned()))
         .await
         .map(|_| ())
 }

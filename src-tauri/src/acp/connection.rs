@@ -63,6 +63,9 @@ use crate::acp::types::{
     ToolCallImageInfo, UserMessageBlock,
 };
 use crate::models::agent::AgentType;
+use iyw_codex_harness::{
+    desktop_xinghe_capabilities, CodexAcpAgent, HarnessConfig, UpstreamStartArgs,
+};
 use crate::network::proxy;
 use crate::web::event_bridge::{emit_with_state, emit_with_state_gated, EventEmitter};
 
@@ -76,11 +79,6 @@ const MAX_PROMPT_RESOURCE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_RESOURCE_URI_DISPLAY_BYTES: usize = 1024;
 const CODEX_BACKEND_ENV: &str = "IYW_CLAW_CODEX_BACKEND";
 const INTERNAL_XINGHE_WORKER_BACKEND: &str = "internal-worker";
-const WORKER_CWD_ENV: &str = "IYW_CLAW_XINGHE_WORKER_CWD";
-const WORKER_FINGERPRINT_ENV: &str = "IYW_CLAW_XINGHE_WORKER_FINGERPRINT";
-const WORKER_HOME_ENV: &str = "IYW_CLAW_XINGHE_WORKER_HOME";
-const WORKER_SESSION_ENV: &str = "IYW_CLAW_XINGHE_WORKER_EXPECTED_SESSION_ID";
-const WORKER_CONNECTION_ENV: &str = "IYW_CLAW_XINGHE_WORKER_CONNECTION_ID";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1317,111 +1315,69 @@ fn internal_xinghe_worker_requested(
 fn build_internal_xinghe_worker_agent(
     runtime_env: &BTreeMap<String, String>,
     cwd: &Path,
-    builtin_prompt: &str,
-    stderr_tail: &Arc<StderrTail>,
+    _builtin_prompt: &str,
+    _stderr_tail: &Arc<StderrTail>,
     launch: InternalWorkerLaunch<'_>,
 ) -> Result<AcpAgent, AcpError> {
-    ensure_internal_xinghe_worker_ready()?;
     let storage = AgentStoragePaths::active().ok_or_else(|| {
         AcpError::SdkNotInstalled("星河 is not installed: storage is unavailable".to_string())
     })?;
-    let executable = crate::update::runtime::self_exe();
-    if !executable.is_file() {
-        return Err(AcpError::SdkNotInstalled(
-            "星河 is not installed: application executable is unavailable".to_string(),
-        ));
-    }
-    let mut environment = internal_worker_environment(runtime_env, cwd, &storage, launch);
-    let library =
-        crate::internal_xinghe_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
-    let helper = library.with_file_name(crate::internal_xinghe_worker::helper_filename());
-    environment.insert(
-        "IYW_CLAW_XINGHE_WORKER_HELPER".into(),
-        helper.to_string_lossy().into_owned(),
-    );
-    let env_vars = environment
-        .iter()
-        .map(|(name, value)| sacp::schema::EnvVariable::new(name, value))
-        .collect();
-    let executable = executable.to_string_lossy().into_owned();
-    let server = McpServerStdio::new("星河内部运行器", &executable)
-        .args(vec![crate::internal_xinghe_worker::WORKER_FLAG.to_string()])
-        .env(env_vars);
-    let prompt_for_log = builtin_prompt.to_string();
-    let tail = Arc::clone(stderr_tail);
+    let helper = crate::internal_xinghe_worker::resolve_helper_path()
+        .map_err(AcpError::SdkNotInstalled)?;
+    let codex_home = runtime_env.get("CODEX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| storage.profile(AgentType::Codex).root);
+    let api_key = runtime_env.get(crate::acp::xinghe_runtime_config::AUTH_ENV)
+        .filter(|key| !key.trim().is_empty())
+        .cloned()
+        .ok_or(AcpError::AuthenticationRequired)?;
+    let config_json = runtime_env.get("CODEX_CONFIG")
+        .cloned()
+        .ok_or_else(|| AcpError::protocol("Xinghe launch configuration is missing"))?;
+    let start_args = UpstreamStartArgs {
+        harness: HarnessConfig {
+            experimental_api: true,
+            ..Default::default()
+        },
+        runtime_fingerprint: launch.runtime_fingerprint.to_string(),
+        capabilities: desktop_xinghe_capabilities(),
+        codex_home,
+        cwd: cwd.to_path_buf(),
+        workspace_roots: vec![cwd.to_path_buf()],
+        helper_executable: helper,
+        linux_sandbox_executable: cfg!(target_os = "linux")
+            .then(|| crate::internal_xinghe_worker::resolve_helper_path())
+            .transpose()
+            .map_err(AcpError::SdkNotInstalled)?,
+        main_execve_wrapper_executable: None,
+        enable_codex_api_key_env: false,
+        api_key: Some(api_key),
+        config_json: Some(config_json),
+        runtime_environment: merge_agent_env(&[], runtime_env).into_iter()
+            .filter(|(key, _)| !matches!(key.as_str(),
+                "CODEX_API_KEY" | "OPENAI_API_KEY" | "CODEX_CONFIG"))
+            .collect(),
+        mcp_server_openai_form_elicitation: false,
+        opt_out_notification_methods: Vec::new(),
+    };
+    let embedded = CodexAcpAgent::new(start_args)
+        .map_err(|error| AcpError::protocol(error.to_string()))?
+        .with_owner(launch.connection_id, None, 0)
+        .map_err(|error| AcpError::protocol(error.to_string()))?
+        .with_expected_session_id(launch.expected_session_id.map(str::to_string));
+    let agent = AcpAgent::in_process(embedded);
     tracing::info!(
         agent = "星河",
-        launch_kind = "self_reexec_worker",
-        environment_key_count = environment.len(),
-        "[ACP] selected internal 星河 worker"
+        launch_kind = "in_process_harness",
+        "[ACP] selected embedded 星河 runtime"
     );
-    let agent = AcpAgent::new(McpServer::Stdio(server)).with_debug(move |line, direction| {
-        if direction == sacp_tokio::LineDirection::Stderr {
-            capture_agent_stderr(&tail, line, &prompt_for_log);
-        }
-    });
-    Ok(if cwd.is_dir() {
-        agent.with_current_dir(cwd)
-    } else {
-        agent
-    })
-}
-
-fn internal_worker_environment(
-    runtime_env: &BTreeMap<String, String>,
-    cwd: &Path,
-    storage: &AgentStoragePaths,
-    launch: InternalWorkerLaunch<'_>,
-) -> BTreeMap<String, String> {
-    let mut environment = merge_agent_env(&[], runtime_env)
-        .into_iter()
-        .collect::<BTreeMap<_, _>>();
-    environment.insert(
-        crate::internal_xinghe_worker::ACTIVE_ENV.to_string(),
-        "1".to_string(),
-    );
-    environment.insert(
-        WORKER_CWD_ENV.to_string(),
-        cwd.to_string_lossy().into_owned(),
-    );
-    environment.insert(
-        WORKER_HOME_ENV.to_string(),
-        runtime_env.get("CODEX_HOME").cloned().unwrap_or_else(|| {
-            storage
-                .profile(AgentType::Codex)
-                .root
-                .to_string_lossy()
-                .into_owned()
-        }),
-    );
-    environment.insert(
-        WORKER_FINGERPRINT_ENV.to_string(),
-        // 预热池使用稳定配置键；运行器内部的会话权限仍使用每实例唯一的代际。
-        format!(
-            "{}:instance:{}",
-            launch.runtime_fingerprint,
-            uuid::Uuid::new_v4().simple()
-        ),
-    );
-    environment.insert(
-        WORKER_CONNECTION_ENV.to_string(),
-        launch.connection_id.to_string(),
-    );
-    if let Some(session_id) = launch.expected_session_id {
-        environment.insert(WORKER_SESSION_ENV.to_string(), session_id.to_string());
-    }
-    environment
+    Ok(agent)
 }
 
 fn ensure_internal_xinghe_worker_ready() -> Result<(), AcpError> {
-    crate::internal_xinghe_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
-    if crate::update::runtime::self_exe().is_file() {
-        Ok(())
-    } else {
-        Err(AcpError::SdkNotInstalled(
-            "星河 is not installed: application executable is unavailable".to_string(),
-        ))
-    }
+    crate::internal_xinghe_worker::resolve_helper_path()
+        .map(|_| ())
+        .map_err(AcpError::SdkNotInstalled)
 }
 
 /// Spawn an ACP agent process and run the connection loop in a background task.

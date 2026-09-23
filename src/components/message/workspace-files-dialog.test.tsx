@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest"
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { WorkspaceFilesDialog } from "./workspace-files-dialog"
 
@@ -10,15 +10,13 @@ const {
   openSettingsWindow,
   readFilePreview,
   readWorkspaceFileBase64,
-  startOfficeWatch,
-  stopOfficeWatch,
+  transportCall,
 } = vi.hoisted(() => ({
   getFileTree: vi.fn(),
   openSettingsWindow: vi.fn(),
   readFilePreview: vi.fn(),
   readWorkspaceFileBase64: vi.fn(),
-  startOfficeWatch: vi.fn(),
-  stopOfficeWatch: vi.fn(),
+  transportCall: vi.fn(),
 }))
 
 vi.mock("next-intl", () => ({
@@ -41,19 +39,33 @@ vi.mock("@/lib/api", () => ({
   openSettingsWindow,
   readFilePreview,
   readWorkspaceFileBase64,
-  startOfficeWatch,
-  stopOfficeWatch,
 }))
 
 vi.mock("@/lib/transport", () => ({
   getServerBaseUrl: () => "http://server.test",
   isDesktop: () => true,
   isRemoteDesktopMode: () => false,
+  getActiveRemoteConnectionId: () => null,
+  getTransport: () => ({ call: transportCall }),
 }))
 
 describe("WorkspaceFilesDialog", () => {
+  afterEach(() => vi.unstubAllGlobals())
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(private callback: IntersectionObserverCallback) {}
+        observe() {
+          this.callback(
+            [{ isIntersecting: true } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver
+          )
+        }
+        disconnect() {}
+      }
+    )
     getFileTree.mockResolvedValue([
       {
         kind: "file",
@@ -65,8 +77,13 @@ describe("WorkspaceFilesDialog", () => {
       path: "report.docx",
       content: "binary fallback",
     })
-    startOfficeWatch.mockResolvedValue({ port: 26315, cap: "watch-cap" })
-    stopOfficeWatch.mockResolvedValue(undefined)
+    transportCall.mockImplementation((method: string) =>
+      Promise.resolve(
+        method === "open_office_preview"
+          ? { port: 26315, cap: "watch-cap" }
+          : undefined
+      )
+    )
   })
 
   it("previews Office files through OfficeCLI instead of the text reader", async () => {
@@ -76,10 +93,11 @@ describe("WorkspaceFilesDialog", () => {
     fireEvent.click(await screen.findByText("report.docx"))
 
     await waitFor(() =>
-      expect(startOfficeWatch).toHaveBeenCalledWith(
-        "D:/projects/iyw-claw",
-        "report.docx"
-      )
+      expect(transportCall).toHaveBeenCalledWith("open_office_preview", {
+        id: expect.any(String),
+        rootPath: "D:/projects/iyw-claw",
+        path: "report.docx",
+      })
     )
     expect(readFilePreview).not.toHaveBeenCalled()
     expect(await screen.findByTitle("officePreviewTitle")).toHaveAttribute(

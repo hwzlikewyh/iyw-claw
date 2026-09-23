@@ -7,6 +7,7 @@ mod install;
 mod inventory;
 mod model;
 mod paths;
+mod progress;
 mod retry;
 
 use std::process::ExitCode;
@@ -51,6 +52,7 @@ fn write_failure(error: &anyhow::Error) {
 
 fn run() -> Result<u8> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
+    progress::configure(option(&args, "--progress-file"))?;
     let command = args.first().map(String::as_str).unwrap_or("diagnose");
     match command {
         "diagnose" => install::diagnose(),

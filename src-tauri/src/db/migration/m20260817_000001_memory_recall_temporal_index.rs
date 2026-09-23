@@ -46,7 +46,7 @@ mod tests {
         Migration.up(&SchemaManager::new(&db)).await.unwrap();
 
         let row = db
-            .query_one(Statement::from_string(
+            .query_one_raw(Statement::from_string(
                 DbBackend::Sqlite,
                 "SELECT 1 AS present FROM sqlite_master WHERE type = 'index' AND name = 'idx_memory_evidence_time'",
             ))

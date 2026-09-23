@@ -1,6 +1,6 @@
 [package]
 name = "codex-app-server"
-version = "0.155.0"
+version = "0.156.1"
 edition = "2024"
 license = "Apache-2.0"
 autobins = false
@@ -25,239 +25,239 @@ features = [ "http1", "json", "tokio", "ws",]
 
 [dependencies.codex-analytics]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-agent-extension]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-arg0]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-aws-auth]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-cloud-config]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-code-mode]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-config]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-network-proxy]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-connectors]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-core]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-core-plugins]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-diagnostics]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-home]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-exec-server]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-extension-api]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-external-agent-migration]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-features]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-goal-extension]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-git-attribution]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-guardian-v2]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-git-utils]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-file-watcher]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-hooks]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-history-notes-extension]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-otel]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-plugin]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-shell-command]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-skills]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-skills-extension]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-utils-cli]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-user-verification]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-utils-pty]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-backend-client]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-file-search]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-chatgpt]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-login]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-image-generation-extension]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-memories-extension]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-web-search-extension]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-memories-write]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-mcp]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-mcp-extension]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-model-provider]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-models-manager]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-queue-extension]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-app-server-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-app-server-transport]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-feedback]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-rmcp-client]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-rollout]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-sandboxing]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-state]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-thread-store]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-tools]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-utils-json-to-toml]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.chrono]
 version = "0.4.43"
@@ -301,6 +301,7 @@ features = [ "io-std", "macros", "process", "rt-multi-thread", "signal",]
 
 [dependencies.tokio-util]
 version = "0.7.18"
+features = ["rt"]
 
 [dependencies.tracing]
 version = "0.1.44"
@@ -317,9 +318,16 @@ version = "2"
 version = "1"
 features = [ "serde", "v7",]
 
+[dependencies.codex-prompts]
+git = "https://github.com/openai/codex.git"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+
+[dependencies.codex-model-provider-info]
+git = "https://github.com/openai/codex.git"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 [target."cfg(all(target_os = \"linux\", target_env = \"musl\", any(target_arch = \"x86_64\", target_arch = \"aarch64\")))".dependencies.tikv-jemallocator]
 version = "=0.7.0"
 
 [target."cfg(windows)".dependencies.codex-windows-sandbox]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"

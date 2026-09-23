@@ -38,7 +38,12 @@ pub fn startup_profile_env(
         let profile_env = config
             .profile_overrides
             .get(registry_id)
-            .map(|root| override_profile_env(agent_type, root))
+            .map(|root| {
+                let root = if agent_type == AgentType::Codex {
+                    super::xinghe_profile::managed_override(paths, root)
+                } else { root.clone() };
+                override_profile_env(agent_type, &root)
+            })
             .unwrap_or_else(|| paths.profile(agent_type).env);
         for (key, value) in profile_env {
             env.insert(key.to_string(), OsString::from(value));

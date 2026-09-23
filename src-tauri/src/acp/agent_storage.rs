@@ -14,6 +14,7 @@ use crate::models::agent::AgentType;
 
 pub const STORAGE_ROOT_ENV: &str = "IYW_CLAW_AGENT_STORAGE_DIR";
 pub const STORAGE_METADATA_KEY: &str = "agent_storage.config.v1";
+pub use super::xinghe_profile::migrate_legacy_codex_profile;
 
 #[derive(Debug, Error)]
 pub enum AgentStorageError {
@@ -53,9 +54,17 @@ pub async fn load_config(
     let Some(raw) = app_metadata_service::get_value(conn, STORAGE_METADATA_KEY).await? else {
         return Ok(None);
     };
-    serde_json::from_str(&raw)
-        .map(Some)
-        .map_err(|error| AgentStorageError::InvalidConfig(error.to_string()))
+    let mut config: AgentStorageConfig = serde_json::from_str(&raw)
+        .map_err(|error| AgentStorageError::InvalidConfig(error.to_string()))?;
+    if let Some(root) = config.root.clone() {
+        let paths = AgentStoragePaths::new(root);
+        if let Some(profile) = config.profile_overrides.get_mut(
+            crate::acp::registry::registry_id_for(AgentType::Codex),
+        ) {
+            *profile = super::xinghe_profile::managed_override(&paths, profile);
+        }
+    }
+    Ok(Some(config))
 }
 
 pub async fn save_config(
@@ -174,7 +183,7 @@ impl AgentStoragePaths {
             AgentType::ClaudeCode => {
                 single_profile_env(config_dir.join("claude"), "CLAUDE_CONFIG_DIR")
             }
-            AgentType::Codex => single_profile_env(config_dir.join("codex"), "CODEX_HOME"),
+            AgentType::Codex => single_profile_env(config_dir.join("xinghe"), "CODEX_HOME"),
             AgentType::Gemini => {
                 let home = config_dir.join("gemini-home");
                 let mut env = BTreeMap::new();

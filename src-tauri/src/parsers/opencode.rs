@@ -61,7 +61,7 @@ impl OpenCodeParser {
             .sqlx_logging(false);
 
         let conn = Database::connect(opts).await?;
-        conn.execute(Statement::from_string(
+        conn.execute_raw(Statement::from_string(
             DbBackend::Sqlite,
             "PRAGMA busy_timeout=3000;".to_owned(),
         ))
@@ -109,7 +109,7 @@ impl OpenCodeParser {
         let conn = self.open_sqlite_connection().await?;
 
         let rows = conn
-            .query_all(Statement::from_string(
+            .query_all_raw(Statement::from_string(
                 DbBackend::Sqlite,
                 r#"
                 SELECT
@@ -156,7 +156,7 @@ impl OpenCodeParser {
         conversation_id: &str,
     ) -> Result<Option<ConversationSummary>, ParseError> {
         let row = conn
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DbBackend::Sqlite,
                 r#"
                 SELECT
@@ -227,7 +227,7 @@ impl OpenCodeParser {
         conversation_id: &str,
     ) -> Result<Vec<UnifiedMessage>, ParseError> {
         let rows = conn
-            .query_all(Statement::from_sql_and_values(
+            .query_all_raw(Statement::from_sql_and_values(
                 DbBackend::Sqlite,
                 r#"
                 SELECT id, time_created, data
@@ -336,7 +336,7 @@ impl OpenCodeParser {
         conversation_id: &str,
     ) -> Vec<String> {
         let rows = match conn
-            .query_all(Statement::from_sql_and_values(
+            .query_all_raw(Statement::from_sql_and_values(
                 DbBackend::Sqlite,
                 r#"
                 SELECT DISTINCT json_extract(p.data, '$.state.metadata.sessionId') AS sid
@@ -368,7 +368,7 @@ impl OpenCodeParser {
         subagent_tools: &HashMap<String, Vec<AgentToolCall>>,
     ) -> Result<(Vec<ContentBlock>, Option<TurnUsage>), ParseError> {
         let rows = conn
-            .query_all(Statement::from_sql_and_values(
+            .query_all_raw(Statement::from_sql_and_values(
                 DbBackend::Sqlite,
                 r#"
                 SELECT data
@@ -921,7 +921,7 @@ async fn batch_load_subagent_tool_calls(
     let values: Vec<sea_orm::Value> = session_ids.iter().map(|s| s.as_str().into()).collect();
 
     let rows = match conn
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             &sql,
             values,

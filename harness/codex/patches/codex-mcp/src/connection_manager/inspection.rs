@@ -29,9 +29,9 @@ impl McpConnectionSet {
                 infos.insert(name.clone(), ready.server_info.clone());
                 let catalog = filter_tools(ready.listed_tools().await, &view.tool_filter);
                 tools.extend(if client.is_codex_apps_mcp_server {
-                    prepare_codex_apps_tools_for_model(catalog, &self.tool_plugin_provenance)
+                    prepare_codex_apps_tools_for_model(catalog, &self.tool_plugin_context)
                 } else {
-                    prepare_regular_mcp_tools_for_model(catalog, &self.tool_plugin_provenance)
+                    prepare_regular_mcp_tools_for_model(catalog, &self.tool_plugin_context)
                 });
             } else if let Some(Err(error)) = client.client.peek() {
                 errors.insert(name.clone(), error.to_string());

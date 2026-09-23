@@ -368,7 +368,7 @@ pub async fn reorder_folders(conn: &DatabaseConnection, ids: Vec<i32>) -> Result
     let sql = format!(
         "UPDATE folder SET sort_order = CASE id {case_expr} END, updated_at = '{now_str}' WHERE id IN ({id_list})"
     );
-    conn.execute(Statement::from_string(DbBackend::Sqlite, sql))
+    conn.execute_raw(Statement::from_string(DbBackend::Sqlite, sql))
         .await?;
 
     Ok(())

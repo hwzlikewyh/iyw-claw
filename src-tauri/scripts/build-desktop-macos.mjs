@@ -67,6 +67,7 @@ export function createMacBuildPlan(tauriCli, options, target) {
         args,
       },
       scriptStep("verify-sidecar-bundle", target),
+      scriptStep("verify-xinghe-worker-bundle", target),
       scriptStep("verify-desktop-bundle-size", target),
     ],
   }

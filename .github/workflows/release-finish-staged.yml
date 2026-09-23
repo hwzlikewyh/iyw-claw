@@ -146,6 +146,9 @@ jobs:
             New-Item -ItemType Directory -Force -Path $directory | Out-Null
             Copy-Item -Path (Join-Path $expanded "$directory/*") -Destination $directory -Recurse -Force
           }
+          $targetRoot = "src-tauri/target/$env:BUILD_TARGET/release"
+          New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
+          Copy-Item -LiteralPath (Join-Path $expanded "$targetRoot/iyw-claw.exe") -Destination (Join-Path $targetRoot 'iyw-claw.exe') -Force
       - name: Download signed x64 installer
         if: matrix.arch == 'x64'
         shell: pwsh
@@ -225,6 +228,7 @@ jobs:
           name: windows-installer-verification-${{ matrix.target }}
           overwrite: true
           path: |
+            src-tauri/target/${{ matrix.target }}/release/iyw-claw.exe
             src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*_${{ matrix.arch }}-setup.exe
             src-tauri/resources/xinghe-worker/*
             src-tauri/binaries/iyw-environment-${{ matrix.target }}.exe

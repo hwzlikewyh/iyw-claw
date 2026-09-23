@@ -68,7 +68,7 @@ impl RemoteFileSystem {
         let response = client
             .fs_canonicalize(FsCanonicalizeParams {
                 path: path.clone(),
-                sandbox: remote_sandbox_context(sandbox),
+                sandbox: sandbox.cloned(),
             })
             .await
             .map_err(map_remote_error)?;
@@ -87,7 +87,7 @@ impl RemoteFileSystem {
             .fs_read_file(FsReadFileParams {
                 path: path.clone(),
                 follow_symlinks: (!options.follow_symlinks).then_some(false),
-                sandbox: remote_sandbox_context(sandbox),
+                sandbox: sandbox.cloned(),
             })
             .await
             .map_err(map_remote_error)?;
@@ -106,7 +106,7 @@ impl RemoteFileSystem {
     ) -> FileSystemResult<FileSystemReadStream> {
         trace!("remote fs read_file_stream");
         let client = self.client.get().await.map_err(map_remote_error)?;
-        file_stream::open(client, path.clone(), remote_sandbox_context(sandbox)).await
+        file_stream::open(client, path.clone(), sandbox).await
     }
 
     async fn write_file(
@@ -123,7 +123,7 @@ impl RemoteFileSystem {
                 path: path.clone(),
                 data_base64: STANDARD.encode(contents),
                 follow_symlinks: (!options.follow_symlinks).then_some(false),
-                sandbox: remote_sandbox_context(sandbox),
+                sandbox: sandbox.cloned(),
             })
             .await;
         self.metadata_requests.lock().await.clear();
@@ -144,7 +144,7 @@ impl RemoteFileSystem {
                 path: path.clone(),
                 recursive: Some(options.recursive),
                 follow_symlinks: (!options.follow_symlinks).then_some(false),
-                sandbox: remote_sandbox_context(sandbox),
+                sandbox: sandbox.cloned(),
             })
             .await;
         self.metadata_requests.lock().await.clear();
@@ -204,7 +204,7 @@ impl RemoteFileSystem {
             .fs_get_metadata(FsGetMetadataParams {
                 path: path.clone(),
                 follow_symlinks: (!options.follow_symlinks).then_some(false),
-                sandbox: remote_sandbox_context(sandbox),
+                sandbox: sandbox.cloned(),
             })
             .await
             .map_err(map_remote_error)?;
@@ -228,7 +228,7 @@ impl RemoteFileSystem {
         let response = client
             .fs_read_directory(FsReadDirectoryParams {
                 path: path.clone(),
-                sandbox: remote_sandbox_context(sandbox),
+                sandbox: sandbox.cloned(),
             })
             .await
             .map_err(map_remote_error)?;
@@ -255,7 +255,7 @@ impl RemoteFileSystem {
             .fs_walk(FsWalkParams {
                 path: path.clone(),
                 options,
-                sandbox: remote_sandbox_context(sandbox),
+                sandbox: sandbox.cloned(),
             })
             .await
             .map_err(map_remote_error)
@@ -275,7 +275,7 @@ impl RemoteFileSystem {
                 recursive: Some(options.recursive),
                 force: Some(options.force),
                 follow_symlinks: (!options.follow_symlinks).then_some(false),
-                sandbox: remote_sandbox_context(sandbox),
+                sandbox: sandbox.cloned(),
             })
             .await;
         self.metadata_requests.lock().await.clear();
@@ -297,7 +297,7 @@ impl RemoteFileSystem {
                 source_path: source_path.clone(),
                 destination_path: destination_path.clone(),
                 recursive: options.recursive,
-                sandbox: remote_sandbox_context(sandbox),
+                sandbox: sandbox.cloned(),
             })
             .await;
         self.metadata_requests.lock().await.clear();
@@ -405,14 +405,6 @@ impl ExecutorFileSystem for RemoteFileSystem {
             sandbox,
         ))
     }
-}
-
-fn remote_sandbox_context(
-    sandbox: Option<&FileSystemSandboxContext>,
-) -> Option<FileSystemSandboxContext> {
-    sandbox
-        .cloned()
-        .map(FileSystemSandboxContext::drop_cwd_if_unused)
 }
 
 fn map_remote_error(error: ExecServerError) -> io::Error {

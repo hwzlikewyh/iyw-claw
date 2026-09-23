@@ -35,7 +35,10 @@ impl Context<'_> {
                 .prepare_action(action)
                 .with_context(|| format!("prepare environment component: {}", action.component_id))
             {
-                Ok(component) => components.push(component),
+                Ok(component) => {
+                    emit(&action.component_id, "component-prepared", 0, 0);
+                    components.push(component);
+                }
                 Err(error) if action.optional => {
                     eprintln!(
                         "optional component {} preparation failed: {error:#}",
@@ -48,6 +51,7 @@ impl Context<'_> {
                             staged: false,
                         });
                     }
+                    emit(&action.component_id, "optional-skipped", 0, 0);
                 }
                 Err(error) => return Err(error),
             }

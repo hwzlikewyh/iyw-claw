@@ -31,7 +31,7 @@ pub(super) async fn load_index_status<C: ConnectionTrait>(
     conn: &C,
 ) -> Result<UserMemoryIndexStatus, AppCommandError> {
     let row = conn
-        .query_one(Statement::from_sql_and_values(
+        .query_one_raw(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             "SELECT source_key, source_digest, index_generation, indexed_at, status, fts_unicode_status, fts_trigram_status, last_error FROM memory_source_checkpoint WHERE source_key = ?",
             [SOURCE_KEY.to_string().into()],

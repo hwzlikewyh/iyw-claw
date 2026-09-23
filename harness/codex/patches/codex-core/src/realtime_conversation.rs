@@ -1771,6 +1771,9 @@ fn wrap_realtime_delegation_input(
 }
 
 fn realtime_api_key(auth: Option<&CodexAuth>, provider: &ModelProviderInfo) -> CodexResult<String> {
+    if let Some(api_key) = codex_model_provider::host_api_key(auth, provider) {
+        return Ok(api_key.to_string());
+    }
     if let Some(api_key) = provider.api_key()? {
         return Ok(api_key);
     }

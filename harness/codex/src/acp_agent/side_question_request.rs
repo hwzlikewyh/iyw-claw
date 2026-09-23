@@ -69,14 +69,10 @@ pub(super) async fn run(
         overrides.insert(key.into(), json!(false));
     }
     overrides.insert("web_search".into(), json!("disabled"));
-    let servers = settings
-        .pointer("/config/mcp_servers")
-        .and_then(Value::as_object)
-        .into_iter()
-        .flat_map(|s| s.keys())
-        .map(|name| (name.clone(), json!({"enabled": false})))
-        .collect::<serde_json::Map<_, _>>();
-    overrides.insert("mcp_servers".into(), json!(servers));
+    overrides.insert(
+        "mcp_servers".into(),
+        super::super::isolated_config::disabled_mcp_servers(&settings["config"])?,
+    );
     if let Some(effort) = input
         .model_settings
         .get("effort")
@@ -295,5 +291,5 @@ async fn raw_call(
         .request(request)
         .await
         .map_err(|e| e.to_string())?
-        .map_err(|e| e.message)
+        .map_err(|e| format!("Native side stage {method} failed: {}", crate::diagnostics::safe_detail(&e.message)))
 }

@@ -78,7 +78,7 @@ async fn load_hydrated_items<C: ConnectionTrait>(
     scope.push_bind(&mut values);
     push_query_at(&mut values, query_at);
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             sql,
             values,

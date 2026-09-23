@@ -82,17 +82,21 @@ function ProcessGroupHeader({
           {group.displayName}
         </span>
         <span className="shrink-0 text-xs text-muted-foreground">
-          {group.processes.length} 个进程
+          {group.embeddedRuntime
+            ? `${group.embeddedRuntime.sessionCount} 个会话`
+            : `${group.processes.length} 个进程`}
         </span>
       </span>
       <span className="text-right text-sm font-medium tabular-nums">
-        {formatBytes(group.privateMemoryBytes)}
+        {group.resourceAttribution ?? formatBytes(group.privateMemoryBytes)}
       </span>
       <span className="text-right text-sm tabular-nums text-muted-foreground">
-        {formatBytes(group.memoryBytes)}
+        {group.resourceAttribution ?? formatBytes(group.memoryBytes)}
       </span>
       <span className="text-right text-sm tabular-nums text-muted-foreground">
-        {group.cpuUsage.toFixed(1)}%
+        {group.resourceAttribution
+          ? "主进程内"
+          : `${group.cpuUsage.toFixed(1)}%`}
       </span>
     </button>
   )
@@ -167,18 +171,32 @@ function AgentSessionDetail({
   )
 }
 
+function EmbeddedRuntimeDetail({
+  runtime,
+}: {
+  runtime: NonNullable<ProcessGroup["embeddedRuntime"]>
+}) {
+  return (
+    <div className="px-4 py-3 text-xs text-muted-foreground">
+      资源归属：iyw-claw · PID {runtime.mainProcessId} · 会话占用无法单独计量
+    </div>
+  )
+}
+
 export function ProcessGroupSection({
   group,
   expanded,
   onToggle,
   ending,
   onEndSession,
+  endingConnectionIds,
 }: {
   group: ProcessGroup
   expanded: boolean
   onToggle: () => void
   ending: boolean
   onEndSession?: (connectionId: string) => void
+  endingConnectionIds?: ReadonlySet<string>
 }) {
   const session = group.session
   const showProcesses = !group.isAgentSession
@@ -190,6 +208,17 @@ export function ProcessGroupSection({
           {session && (
             <AgentSessionDetail {...{ session, ending, onEndSession }} />
           )}
+          {group.embeddedRuntime && (
+            <EmbeddedRuntimeDetail runtime={group.embeddedRuntime} />
+          )}
+          {group.embeddedSessions?.map((embedded) => (
+            <AgentSessionDetail
+              key={embedded.connectionId}
+              session={embedded}
+              ending={Boolean(endingConnectionIds?.has(embedded.connectionId))}
+              onEndSession={onEndSession}
+            />
+          ))}
           {showProcesses && group.processes.length > 0 && (
             <div className="divide-y">
               {group.processes.map((proc) => (

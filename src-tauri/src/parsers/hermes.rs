@@ -80,7 +80,7 @@ impl HermesParser {
             .sqlx_logging(false);
 
         let conn = Database::connect(opts).await?;
-        conn.execute(Statement::from_string(
+        conn.execute_raw(Statement::from_string(
             DbBackend::Sqlite,
             "PRAGMA busy_timeout=3000;".to_owned(),
         ))
@@ -93,7 +93,7 @@ impl HermesParser {
         let conn = self.open_sqlite_connection().await?;
 
         let rows = conn
-            .query_all(Statement::from_string(
+            .query_all_raw(Statement::from_string(
                 DbBackend::Sqlite,
                 // `cwd` lives in `model_config` JSON for ACP sessions (the column
                 // is NULL); `json_valid` guards against non-JSON blobs aborting
@@ -147,7 +147,7 @@ impl HermesParser {
         conversation_id: &str,
     ) -> Result<Option<ConversationSummary>, ParseError> {
         let row = conn
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DbBackend::Sqlite,
                 r#"
                 SELECT
@@ -222,7 +222,7 @@ impl HermesParser {
         session_model: Option<&str>,
     ) -> Result<Vec<UnifiedMessage>, ParseError> {
         let rows = conn
-            .query_all(Statement::from_sql_and_values(
+            .query_all_raw(Statement::from_sql_and_values(
                 DbBackend::Sqlite,
                 // ORDER BY id ASC only — Hermes deliberately avoids ORDER BY
                 // timestamp (WSL2 clock-regression). `id` is INTEGER AUTOINCREMENT.
@@ -350,7 +350,7 @@ impl HermesParser {
         model: Option<&str>,
     ) -> Result<Option<SessionStats>, ParseError> {
         let row = conn
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DbBackend::Sqlite,
                 r#"
                 SELECT input_tokens, output_tokens, cache_read_tokens, cache_write_tokens

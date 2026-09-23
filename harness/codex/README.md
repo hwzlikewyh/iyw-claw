@@ -1,9 +1,9 @@
 # Codex Harness
 
 `iyw-codex-harness` is the ACP integration boundary for the desktop's private
-星河 worker. The upstream graph is compiled into `harness/xinghe-worker` and
-loaded by an application child process. The standalone server retains its
-external ACP distribution.
+星河 runtime. The pinned upstream graph is linked into `iyw-claw.exe`; the
+desktop calls it through Rust APIs. The standalone server retains its external
+ACP distribution.
 
 ## Upstream boundary
 
@@ -17,7 +17,7 @@ The lock records both the annotated tag object and its peeled source commit.
 Cargo dependencies use the peeled commit; synchronization verifies both values
 so a rewritten release tag cannot silently change the compiled source.
 
-The current pin is `rust-v0.155.0`. It recognizes the managed
+The current pin is `rust-v0.156.1`. It recognizes the managed
 `features.context_management.experimental_mode` configuration that
 `rust-v0.152.1` rejected during session creation and recovery. The feature still
 requires an eligible upstream provider and account; parsing this configuration
@@ -31,9 +31,15 @@ which is optional so an outage cannot prevent session startup. The exception
 requires its exact service name and URL; built-in MCP remains required.
 Tool names retain their saved namespace across resume.
 
-The official release was checked on 2026-09-18: the latest stable tag is
-`rust-v0.155.0`, published on 2026-09-17. Its tag object and source commit
+The official release was checked on 2026-09-23: the latest stable tag is
+`rust-v0.156.1`, published on 2026-09-23. Its tag object and source commit
 match `upstream.lock`; prereleases remain outside the synchronization policy.
+
+The 0.156.1 update preserves the in-process integration, gateway auth,
+command-description, HTTP retry and hidden-window patches. The Windows setup
+role uses the upstream `setup_helper_main` library entry, and the host also
+dispatches the new native MXC role before desktop startup. Official source:
+https://github.com/openai/codex/releases/tag/rust-v0.156.1
 
 Settings commands that change confirmed values wait for a matching
 `thread/settings/updated` notification;
@@ -47,9 +53,9 @@ Unchanged settings return immediately only when they match an authoritative
 thread snapshot. Upstream does not send an update notification for a no-op;
 waiting for one used to delay the next prompt by the 15-second timeout.
 
-Desktop launches inject the application's account token and managed settings
-through `CODEX_API_KEY` and `CODEX_CONFIG`. Preferences migrate once from the
-active profile into the existing application settings record. The worker skips
+Desktop launches project the application's account token and managed settings
+from `CODEX_API_KEY` and `CODEX_CONFIG` into typed instance arguments. Preferences
+migrate once from the active profile into the existing application settings record. The runtime skips
 user-level config loading and uses ephemeral auth storage. System/project policy,
 session storage, skills and model catalog resources keep their existing paths.
 Configuration changes retain the existing fingerprint and reconnect workflow.
@@ -67,10 +73,10 @@ modules.
 
 ## Current status
 
-The parent crate is dependency-free by default. The `upstream-acp` feature is
-enabled by the separate worker crate. `src-tauri` loads the worker through a
-versioned C ABI so its SeaORM/SQLite graph remains separate. Desktop launches
-check the bundled library; its absence does not select an older npm runtime.
+The parent crate is dependency-free by default. The desktop `bundled-host`
+feature enables the in-process app-server and same-executable Windows helper
+roles. `harness/xinghe-worker` remains only as retired source for historical
+ABI/cache tooling; normal desktop builds do not compile or load its DLL.
 
 The facade routes approvals and MCP interactions through the owning application
 session. Offered command and network policy decisions retain their original
