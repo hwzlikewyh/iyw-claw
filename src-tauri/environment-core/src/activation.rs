@@ -67,15 +67,22 @@ fn activate_component(
         .join("components")
         .join(component);
     let destination = from_slash(&layout.root, &prepared.component.relative_path)?;
+    let parent = destination
+        .parent()
+        .context("component path has no parent")?;
+    crate::retry::file("create component parent", parent, || {
+        fs::create_dir_all(parent)
+    })?;
     let backup = move_existing_to_backup(layout, state, component, &destination)?;
-    fs::create_dir_all(
-        destination
-            .parent()
-            .context("component path has no parent")?,
-    )?;
-    if let Err(error) = fs::rename(&source, &destination) {
-        restore_backup(&destination, backup.as_ref())?;
-        return Err(error).context("activate managed component");
+    if let Err(error) = crate::retry::file("activate managed component", &destination, || {
+        fs::rename(&source, &destination)
+    }) {
+        if let Err(rollback_error) = restore_backup(&destination, backup.as_ref()) {
+            return Err(error).context(format!(
+                "component rollback also failed: {rollback_error:#}"
+            ));
+        }
+        return Err(error);
     }
     Ok(ActivatedComponent {
         destination,
@@ -97,17 +104,28 @@ fn move_existing_to_backup(
         .join(safe_segment(&state.transaction_id, "transaction")?)
         .join(component);
     if backup.exists() {
-        fs::remove_dir_all(&backup)?;
+        crate::retry::file("remove component backup", &backup, || {
+            fs::remove_dir_all(&backup)
+        })?;
     }
-    fs::create_dir_all(backup.parent().context("backup path has no parent")?)?;
-    fs::rename(destination, &backup)?;
+    let parent = backup.parent().context("backup path has no parent")?;
+    crate::retry::file("create component backup parent", parent, || {
+        fs::create_dir_all(parent)
+    })?;
+    crate::retry::file("back up installed component", destination, || {
+        fs::rename(destination, &backup)
+    })?;
     Ok(Some(backup))
 }
 
 fn rollback(activated: Vec<ActivatedComponent>) -> Result<()> {
     for item in activated.into_iter().rev() {
         if item.destination.exists() {
-            fs::remove_dir_all(&item.destination).context("remove failed component activation")?;
+            crate::retry::file(
+                "remove failed component activation",
+                &item.destination,
+                || fs::remove_dir_all(&item.destination),
+            )?;
         }
         restore_backup(&item.destination, item.backup.as_ref())?;
     }
@@ -116,7 +134,9 @@ fn rollback(activated: Vec<ActivatedComponent>) -> Result<()> {
 
 fn restore_backup(destination: &PathBuf, backup: Option<&PathBuf>) -> Result<()> {
     if let Some(backup) = backup.filter(|path| path.exists()) {
-        fs::rename(backup, destination).context("restore previous managed component")?;
+        crate::retry::file("restore previous managed component", destination, || {
+            fs::rename(backup, destination)
+        })?;
     }
     Ok(())
 }

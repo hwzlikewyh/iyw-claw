@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use walkdir::WalkDir;
@@ -232,16 +232,30 @@ fn validate_entrypoints(component: &str, values: &BTreeMap<String, String>) -> R
 
 pub fn write_json(path: &Path, value: &impl serde::Serialize) -> Result<()> {
     let parent = path.parent().context("JSON path has no parent")?;
-    fs::create_dir_all(parent)?;
-    let temporary = temporary_path(path);
-    fs::write(&temporary, serde_json::to_vec_pretty(value)?)?;
-    replace_file(&temporary, path)?;
-    Ok(())
+    crate::retry::file("create inventory directory", parent, || {
+        fs::create_dir_all(parent)
+    })?;
+    let temporary = path.with_extension(format!("tmp-{}", uuid::Uuid::new_v4().simple()));
+    let result = fs::write(&temporary, serde_json::to_vec_pretty(value)?)
+        .with_context(|| format!("write inventory: {}", temporary.display()))
+        .and_then(|_| {
+            crate::retry::file("publish inventory", path, || replace_file(&temporary, path))
+        });
+    if result.is_err() && temporary.exists() {
+        if let Err(error) = fs::remove_file(&temporary) {
+            eprintln!(
+                "inventory temporary cleanup failed: {}; error={error}",
+                temporary.display()
+            );
+        }
+    }
+    result
 }
 
 pub fn read_prepared(layout: &Layout, transaction: &str) -> Result<PreparedState> {
     let path = layout.transaction_dir(transaction)?.join("prepared.json");
-    let bytes = fs::read(path).context("read prepared environment transaction")?;
+    let bytes = fs::read(&path)
+        .with_context(|| format!("read prepared transaction: {}", path.display()))?;
     serde_json::from_slice(&bytes).context("decode prepared environment transaction")
 }
 
@@ -251,21 +265,17 @@ fn read_json_optional<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Opt
             .map(Some)
             .context("decode environment inventory"),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error).context("read environment inventory"),
+        Err(error) => Err(error).with_context(|| format!("read inventory: {}", path.display())),
     }
 }
 
-fn temporary_path(path: &Path) -> PathBuf {
-    path.with_extension(format!("tmp-{}", uuid::Uuid::new_v4().simple()))
-}
-
 #[cfg(not(windows))]
-fn replace_file(source: &Path, destination: &Path) -> Result<()> {
-    fs::rename(source, destination).context("publish environment inventory")
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::rename(source, destination)
 }
 
 #[cfg(windows)]
-fn replace_file(source: &Path, destination: &Path) -> Result<()> {
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{
         MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
@@ -283,7 +293,7 @@ fn replace_file(source: &Path, destination: &Path) -> Result<()> {
         .collect::<Vec<_>>();
     let flags = MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH;
     if unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), flags) } == 0 {
-        return Err(std::io::Error::last_os_error()).context("publish environment inventory");
+        return Err(std::io::Error::last_os_error());
     }
     Ok(())
 }

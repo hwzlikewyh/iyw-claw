@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context as _, Result};
 use chrono::Utc;
 
 use crate::client::FusionClient;
@@ -31,7 +31,10 @@ impl Context<'_> {
             if !seen.insert(&action.component_id) {
                 bail!("environment plan contains a duplicate component")
             }
-            match self.prepare_action(action) {
+            match self
+                .prepare_action(action)
+                .with_context(|| format!("prepare environment component: {}", action.component_id))
+            {
                 Ok(component) => components.push(component),
                 Err(error) if action.optional => {
                     eprintln!(
@@ -120,7 +123,11 @@ impl Context<'_> {
                 "component",
             )?);
         if staged.exists() {
-            fs::remove_dir_all(&staged)?;
+            crate::retry::file(
+                "remove previous component staging directory",
+                &staged,
+                || fs::remove_dir_all(&staged),
+            )?;
         }
         emit(&action.component_id, "extracting", 0, 0);
         archive::unpack(

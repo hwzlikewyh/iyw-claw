@@ -11,20 +11,27 @@ use zip::ZipArchive;
 const MAX_EXPANDED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
 
 pub fn unpack(archive: &Path, destination: &Path, kind: &str, file_name: &str) -> Result<()> {
-    fs::create_dir_all(destination).context("create component staging directory")?;
+    create_directory(destination)?;
     match kind {
         "binary" => {
             validate_binary_name(file_name)?;
-            fs::copy(archive, destination.join(file_name)).context("stage binary component")?;
+            let output = destination.join(file_name);
+            let size = fs::metadata(archive)
+                .with_context(|| format!("read binary artifact size: {}", archive.display()))?
+                .len();
+            crate::paths::require_space(destination, size)?;
+            crate::retry::file("stage binary component", &output, || {
+                fs::copy(archive, &output)
+            })?;
             Ok(())
         }
         "zip" | "npm_runtime_bundle_zip" | "uvx_runtime_bundle_zip" => {
             unpack_zip(archive, destination)
         }
         "tar_gz" | "npm_runtime_bundle_tar_gz" | "uvx_runtime_bundle_tar_gz" => {
-            unpack_tar(GzDecoder::new(File::open(archive)?), destination)
+            unpack_tar(GzDecoder::new(open_archive(archive)?), destination)
         }
-        "tar_xz" => unpack_tar(XzDecoder::new(File::open(archive)?), destination),
+        "tar_xz" => unpack_tar(XzDecoder::new(open_archive(archive)?), destination),
         _ => bail!("unsupported environment package kind: {kind}"),
     }
 }
@@ -41,7 +48,8 @@ fn validate_binary_name(value: &str) -> Result<()> {
 }
 
 fn unpack_zip(archive: &Path, destination: &Path) -> Result<()> {
-    let mut archive = ZipArchive::new(File::open(archive)?).context("open ZIP artifact")?;
+    let mut archive = ZipArchive::new(open_archive(archive)?).context("open ZIP artifact")?;
+    check_zip_space(&mut archive, destination)?;
     let mut expanded = 0_u64;
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).context("read ZIP entry")?;
@@ -55,13 +63,11 @@ fn unpack_zip(archive: &Path, destination: &Path) -> Result<()> {
         }
         let output = destination.join(enclosed);
         if entry.is_dir() {
-            fs::create_dir_all(&output)?;
+            create_directory(&output)?;
             continue;
         }
         expanded = checked_expanded(expanded, entry.size())?;
-        create_parent(&output)?;
-        let mut target = File::create(&output)?;
-        io::copy(&mut entry, &mut target).context("extract ZIP entry")?;
+        write_entry(&output, &mut entry)?;
         apply_mode(&output, entry.unix_mode())?;
     }
     Ok(())
@@ -82,7 +88,7 @@ fn unpack_tar<R: Read>(reader: R, destination: &Path) -> Result<()> {
         reject_unsafe_path(&relative)?;
         let output = destination.join(relative);
         if kind == EntryType::Directory {
-            fs::create_dir_all(output)?;
+            create_directory(&output)?;
             continue;
         }
         if kind == EntryType::Symlink {
@@ -95,14 +101,40 @@ fn unpack_tar<R: Read>(reader: R, destination: &Path) -> Result<()> {
             continue;
         }
         expanded = checked_expanded(expanded, entry.size())?;
+        crate::paths::require_space(destination, entry.size())?;
         let mode = entry.header().mode().ok();
-        create_parent(&output)?;
-        let mut target = File::create(&output)?;
-        io::copy(&mut entry, &mut target).context("extract TAR entry")?;
+        write_entry(&output, &mut entry)?;
         apply_mode(&output, mode)?;
     }
     create_links(links)?;
     Ok(())
+}
+
+fn open_archive(path: &Path) -> Result<File> {
+    crate::retry::file("open component archive", path, || File::open(path))
+}
+
+fn create_directory(path: &Path) -> Result<()> {
+    crate::retry::file("create archive directory", path, || {
+        fs::create_dir_all(path)
+    })
+}
+
+fn write_entry(path: &Path, entry: &mut impl Read) -> Result<()> {
+    create_parent(path)?;
+    let mut target = crate::retry::file("create archive file", path, || File::create(path))?;
+    io::copy(entry, &mut target)
+        .with_context(|| format!("write archive file: {}", path.display()))?;
+    Ok(())
+}
+
+fn check_zip_space(archive: &mut ZipArchive<File>, destination: &Path) -> Result<()> {
+    let mut expanded = 0;
+    for index in 0..archive.len() {
+        let entry = archive.by_index(index).context("read ZIP entry size")?;
+        expanded = checked_expanded(expanded, entry.size())?;
+    }
+    crate::paths::require_space(destination, expanded)
 }
 
 fn validate_link_target(root: &Path, link: &Path, target: &Path) -> Result<()> {
@@ -155,7 +187,7 @@ fn reject_unsafe_path(path: &Path) -> Result<()> {
 
 fn create_parent(path: &Path) -> Result<()> {
     let parent = path.parent().context("archive entry has no parent")?;
-    fs::create_dir_all(parent).context("create archive entry parent")
+    create_directory(parent)
 }
 
 fn checked_expanded(current: u64, additional: u64) -> Result<u64> {

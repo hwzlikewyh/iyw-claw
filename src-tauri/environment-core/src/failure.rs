@@ -1,5 +1,7 @@
 use std::fmt;
 
+const PERMISSION_DENIED_EXIT_CODE: u8 = 31;
+
 #[derive(Debug)]
 pub struct Failure {
     pub code: &'static str,
@@ -42,6 +44,13 @@ pub fn network(error: reqwest::Error) -> anyhow::Error {
 }
 
 pub fn exit_code(error: &anyhow::Error) -> u8 {
+    if error.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|error| error.kind() == std::io::ErrorKind::PermissionDenied)
+    }) {
+        return PERMISSION_DENIED_EXIT_CODE;
+    }
     match error.downcast_ref::<Failure>().map(|error| error.code) {
         Some("NETWORK") => 20,
         Some("INTEGRITY") => 21,

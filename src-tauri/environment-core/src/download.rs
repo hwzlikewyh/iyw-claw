@@ -30,17 +30,23 @@ pub fn ensure_cached(
         return Ok(destination);
     }
     if destination.exists() {
-        fs::remove_file(&destination).context("remove invalid artifact cache")?;
+        crate::retry::file("remove invalid artifact cache", &destination, || {
+            fs::remove_file(&destination)
+        })?;
     }
     if artifact.url.is_empty() {
         bail!("Fusion did not return a download URL for {component}")
     }
-    fs::create_dir_all(&cache_dir).context("create artifact cache")?;
+    crate::retry::file("create artifact cache", &cache_dir, || {
+        fs::create_dir_all(&cache_dir)
+    })?;
     let partial = cache_dir.join("artifact.part");
     crate::retry::run(component, || {
         download(client, &artifact.url, &partial, artifact, component)
     })?;
-    fs::rename(&partial, &destination).context("activate verified artifact cache")?;
+    crate::retry::file("activate verified artifact cache", &destination, || {
+        fs::rename(&partial, &destination)
+    })?;
     Ok(destination)
 }
 
@@ -61,7 +67,13 @@ fn download(
         }
         .into());
     }
-    let mut file = File::create(destination).context("create partial artifact")?;
+    let mut file = crate::retry::file("create partial artifact", destination, || {
+        File::create(destination)
+    })?;
+    crate::paths::require_space(
+        destination.parent().context("artifact has no parent")?,
+        artifact.size_bytes,
+    )?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 128 * 1024];
     let mut downloaded = 0_u64;
@@ -75,7 +87,7 @@ fn download(
             break;
         }
         file.write_all(&buffer[..read])
-            .context("write partial artifact")?;
+            .with_context(|| format!("write partial artifact: {}", destination.display()))?;
         hasher.update(&buffer[..read]);
         downloaded = downloaded.saturating_add(read as u64);
         if last_progress.elapsed() >= PROGRESS_INTERVAL {
@@ -86,7 +98,8 @@ fn download(
             bail!("downloaded artifact exceeds the declared size")
         }
     }
-    file.sync_all().context("flush partial artifact")?;
+    file.sync_all()
+        .with_context(|| format!("flush partial artifact: {}", destination.display()))?;
     let actual = format!("{:x}", hasher.finalize());
     if downloaded != artifact.size_bytes || actual != artifact.sha256 {
         return Err(Failure {
@@ -111,11 +124,13 @@ pub fn valid_file(path: &Path, size: u64, sha256: &str) -> Result<bool> {
 }
 
 pub fn hash_file(path: &Path) -> Result<String> {
-    let mut file = File::open(path).context("open file for SHA-256")?;
+    let mut file = crate::retry::file("open file for SHA-256", path, || File::open(path))?;
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; 128 * 1024];
     loop {
-        let read = file.read(&mut buffer).context("hash file")?;
+        let read = file
+            .read(&mut buffer)
+            .with_context(|| format!("hash file: {}", path.display()))?;
         if read == 0 {
             break;
         }
