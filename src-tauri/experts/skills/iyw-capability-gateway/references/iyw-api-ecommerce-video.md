@@ -22,7 +22,7 @@
 本篇所有业务接口均为 `POST https://gateway.iyw.cn/ai-application/api/commerce/` + 下表操作名，JSON 请求体。fetch 传完整 URL、`method:POST`、具体动作 `description` 和 `body`；先读 [HTTP 约定](iyw-http.md)。
 
 - 登录由主机处理；不读取 Cookie，不提供 token/tokenInfo。HTTP 成功后仍检查 `body.code === 1`。
-- 图片/参考视频先复用可访问 URL。fetch 不上传文件，本地素材使用 [upload_iyw_file](iyw-upload.md)，上限 50 MiB；符合图片工具契约时由图片工具自行处理输入。
+- 图片/参考视频先复用可访问 URL。fetch 不上传文件，本地素材使用 [upload_iyw_file](iyw-upload.md)，上限 1 GiB；符合图片工具契约时由图片工具自行处理输入。
 - 页面产品图最多 9 张，允许 webp/jpg/jpeg/png/gif/bmp；参考视频允许 mp4/mov/avi/mkv/webm，建议不超过 30 秒。页面的图片压缩（最长边 2048px、质量 0.9）属于前端行为，不代表工具会自动完成。
 - 缺少所需商品图或复刻视频时取得实际素材，不编造 URL，也不自动改为无图生成。
 

@@ -12,15 +12,17 @@ use super::{
     public_url, IywGatewayService,
 };
 
-const UPLOAD_TIMEOUT: Duration = Duration::from_secs(300);
+const UPLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub(super) async fn upload(
     service: &IywGatewayService,
     file: UploadFile,
 ) -> Result<Value, ErrorData> {
-    validate_size(file.bytes.len() as u64)?;
+    validate_size(file.size_bytes)?;
     let client = reqwest::Client::builder()
         .timeout(UPLOAD_TIMEOUT)
+        .connect_timeout(CONNECT_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
         .retry(reqwest::retry::never())
         .build()
@@ -34,12 +36,13 @@ pub(super) async fn upload(
     let started = Instant::now();
     let signed = presign(service, &file).await?;
     let url = public_url(&signed);
-    let size = file.bytes.len();
+    let size = file.size_bytes;
     tracing::info!(target: "builtin_mcp", size_bytes = size, "[iyw-upload] storage upload started");
     let response = client
         .put(signed)
         .header(reqwest::header::CONTENT_TYPE, &file.mime_type)
-        .body(file.bytes)
+        .header(reqwest::header::CONTENT_LENGTH, size)
+        .body(file.body)
         .send()
         .await
         .map_err(transport_error)?;
@@ -48,7 +51,7 @@ pub(super) async fn upload(
         duration_ms = started.elapsed().as_millis(), "[iyw-upload] storage response received");
     if !status.is_success() {
         return Err(error(
-            "IYW storage rejected the upload",
+            format!("IYW storage rejected the upload (HTTP {}). Check storage permissions and signature validity; changing the local path or name will not fix this rejection.", status.as_u16()),
             "storage_rejected",
             "responded",
         ));
@@ -80,13 +83,7 @@ async fn presign(
             json!({"objectKey": key}),
         )
         .await
-        .map_err(|_| {
-            error(
-                "IYW upload authorization failed; check the current login and service availability",
-                "presign_failed",
-                "not_started",
-            )
-        })?;
+        .map_err(presign_error)?;
     extract_url(&value).map_err(|_| {
         error(
             "IYW returned an invalid upload URL",
@@ -96,12 +93,55 @@ async fn presign(
     })
 }
 
+fn presign_error(cause: ErrorData) -> ErrorData {
+    let status = cause
+        .data
+        .as_ref()
+        .and_then(|data| data.get("status"))
+        .and_then(Value::as_u64);
+    let business_code = cause
+        .data
+        .as_ref()
+        .and_then(|data| data.get("code"))
+        .and_then(Value::as_i64);
+    let reason = if cause.message == "Sign in to iyw-claw before using IYW tools"
+        || matches!(status, Some(401 | 403))
+        || matches!(business_code, Some(403 | 404))
+    {
+        "Sign in again on the MCP host, then retry only after login is restored."
+    } else if cause.message == "IYW image gateway request failed" {
+        "The MCP host could not reach the upload authorization service. Check its network, proxy and TLS connectivity."
+    } else if cause.message == "IYW image gateway response failed" {
+        "The upload authorization service returned an unreadable response. Check service availability."
+    } else {
+        "Check the MCP host's current login and upload authorization service availability."
+    };
+    let status = status
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unavailable".into());
+    let business_code = business_code
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "unavailable".into());
+    error(
+        format!("IYW upload authorization failed (HTTP: {status}, business code: {business_code}). {reason} No file bytes were uploaded. Changing path or name cannot fix this stage."),
+        "presign_failed",
+        "not_started",
+    )
+}
+
 fn transport_error(cause: reqwest::Error) -> ErrorData {
     tracing::warn!(target: "builtin_mcp", timeout = cause.is_timeout(),
         connect = cause.is_connect(), status = cause.status().map(|status| status.as_u16()),
         "[iyw-upload] storage transport failed");
+    let reason = if cause.is_timeout() {
+        "Storage upload timed out"
+    } else if cause.is_connect() {
+        "The MCP host could not connect to storage; check its network, proxy and TLS connectivity"
+    } else {
+        "Storage upload transport failed"
+    };
     error(
-        "Storage upload did not complete; an object may already exist",
+        format!("{reason}; an object may already exist. Do not retry blindly or change name/path to repeat the upload."),
         "transport_error",
         "unknown",
     )

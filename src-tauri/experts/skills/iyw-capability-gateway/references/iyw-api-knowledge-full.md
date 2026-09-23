@@ -4,7 +4,7 @@
 
 管理业务统一用 fetch_iyw_url；原有 search_iyw_knowledge 保留正文检索专用能力。先选择 category 0/1，再从 parentId:"0" 查根目录；文件夹/文件 ID 使用实际返回字符串。删除文件夹必须依照 delete-plan 返回内容和用户选择的 delete_all/move_files 执行，completed 与 syncFailedFiles 都要检查。
 
-通用上传工具仍限制 50 MiB；还要遵守知识库更小的限制，例如图片 8 MB、Markdown/文本 10 MB。上传后可以使用返回 URL 调 files/create，至少提供实际 fileUrl/uri/tosUrl 之一，不能猜 bucket、tosPath 或内部 URI。files/upload-token 只记录为主机凭证流程，不让代理读出 STS。知识库不接受 URL 时应明确缺少所需服务支持。
+通用上传工具仍限制 1 GiB；还要遵守知识库更小的限制，例如图片 8 MB、Markdown/文本 10 MB。上传后可以使用返回 URL 调 files/create，至少提供实际 fileUrl/uri/tosUrl 之一，不能猜 bucket、tosPath 或内部 URI。files/upload-token 只记录为主机凭证流程，不让代理读出 STS。知识库不接受 URL 时应明确缺少所需服务支持。
 
 files/create、batch-move、batch-delete、folders/delete-tree 可用 timeout_seconds:600。批量状态刷新每次 <=10 文件，间隔5秒，完成/失败即停止正常轮询；失败项最多按文档额外 forceRefresh 一次，不自动重新上传或创建。
 

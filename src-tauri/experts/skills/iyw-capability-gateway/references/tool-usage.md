@@ -7,7 +7,7 @@ detailed reference before acting when the task matches one:
 | --- | --- |
 | Known IYW website API request | [iyw-http.md](iyw-http.md) |
 | 爱原物业务、产品/趋势/版权等接口检索 | [iyw-api-index.md](iyw-api-index.md)，按需读取领域资料后用 fetch |
-| 上传任意类型文件，最多 50 MiB | [iyw-upload.md](iyw-upload.md) |
+| 上传任意类型文件，最多 1 GiB | [iyw-upload.md](iyw-upload.md) |
 | 图片生成/处理的具体 type 与参数 | [iyw-image-tools.md](iyw-image-tools.md) |
 | 视频生成、电商产品演绎、复刻导演、视频脚本/历史 | [iyw-api-ecommerce-video.md](iyw-api-ecommerce-video.md)，优先走本 Skill |
 | 商品套图、A+、Listing、爆款复刻、版本管理 | [iyw-api-product-kits.md](iyw-api-product-kits.md) |
@@ -69,7 +69,7 @@ parameters to pass validation or replay uncertain submissions through another to
 | Work | Input shape |
 | --- | --- |
 | Business API progress | Every new fetch_iyw_url call supplies description naming the current action, plus the exact documented URL and query/body; descriptions never enter the HTTP payload |
-| Upload files | upload_iyw_file with description + workspace path; optional name/mime_type; <=50 MiB, returns a public URL |
+| Upload files | upload_iyw_file with description + workspace path; optional name/mime_type; <=1 GiB, returns a public URL |
 | Fusion image models | Call `list_iyw_image_models` with `{}`; choose a returned model supporting generation or editing as needed |
 | Image generation/editing | Text-to-image: `generate` (`images/generations`); single-image changes: `variation`; multi-image fusion: `mix`; four-panel or same-series extension from one reference: `extend`. Explicit `edit` (`images/edits`) requires source images. `generate`, `auto` without images, and `edit` need the opaque `model_ref` from `list_iyw_image_models` copied into `parameters.model`; model editing follows the platform priority and alternative-route conditions above. Default timeout: platform 600s, Fusion 300s; override with `wait.timeoutSeconds`, including above 600. Set `delivery.registerArtifact=false` for intermediate assets. No generation capability ID exists |
 | Document knowledge | `search_iyw_knowledge`: `query`, optional known filters; `folderId` is an integer and `fileId` is a string |
