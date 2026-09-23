@@ -2618,6 +2618,7 @@ const FILE_TREE_IGNORED_DIRS: &[&str] = &[".git", "__pycache__"];
 
 /// Hard limit: refuse to open files larger than 50 MB in the text editor.
 const FILE_OPEN_HARD_LIMIT: usize = 50_000_000;
+const FILE_PREVIEW_HARD_LIMIT: usize = 100 * 1024 * 1024;
 const FILE_PREVIEW_MIN_BYTES: usize = 4_096;
 const FILE_BINARY_SNIFF_BYTES: usize = 2_048;
 /// Save limit: refuse to save content larger than 50 MB.
@@ -3437,7 +3438,7 @@ pub async fn read_file_preview(
 
     run_file_io(move || {
         ensure_path_in_workspace(&root, &target)?;
-        let (content, truncated) = read_text_preview(&target, FILE_OPEN_HARD_LIMIT, max_bytes)?;
+        let (content, truncated) = read_text_preview(&target, FILE_PREVIEW_HARD_LIMIT, max_bytes)?;
         Ok(FilePreviewContent {
             path: path_for_response,
             content,

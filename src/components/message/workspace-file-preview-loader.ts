@@ -5,7 +5,7 @@ import { binaryPreviewKind } from "@/lib/binary-preview"
 import { isImageFile, isOfficePreviewable } from "@/lib/language-detect"
 
 const TEXT_PREVIEW_MAX_BYTES = 2 * 1024 * 1024
-const HTML_PREVIEW_MAX_MEGABYTES = 20
+const HTML_PREVIEW_MAX_MEGABYTES = 100
 const HTML_PREVIEW_LIMIT_BYTES = HTML_PREVIEW_MAX_MEGABYTES * 1024 * 1024
 
 export type CacheablePreview = Extract<
@@ -33,7 +33,7 @@ async function fetchWorkspacePreview(
   const result = await readFilePreview(
     rootPath,
     path,
-    html ? HTML_PREVIEW_LIMIT_BYTES - 1 : TEXT_PREVIEW_MAX_BYTES
+    html ? HTML_PREVIEW_LIMIT_BYTES : TEXT_PREVIEW_MAX_BYTES
   )
   if (html && result.truncated) {
     return {
