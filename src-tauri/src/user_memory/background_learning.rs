@@ -227,6 +227,7 @@ impl UserMemoryService {
     ) -> Result<String, AppCommandError> {
         let content = super::helpers::normalize_candidate(fact.quote.trim())?;
         let (_guard, _file_guard) = self.acquire_locks().await?;
+        self.ensure_harvest_not_cleared(request, &content).await?;
         let policy = self.load_policy().await?;
         if !policy.enabled
             || !policy.agent_write_enabled
