@@ -62,11 +62,6 @@ import { AgentSelector } from "@/components/chat/agent-selector"
 import { ChatInput } from "@/components/chat/chat-input"
 import { WelcomeHero } from "@/components/chat/welcome-hero"
 import { QuickActions } from "@/components/chat/quick-actions"
-import {
-  ConversationPointsDialog,
-  getConversationPointsBlockReason,
-  type ConversationPointsBlockReason,
-} from "@/components/conversations/conversation-points-gate"
 import type { ComposerInjectContent } from "@/components/chat/message-input"
 import { useSideQuestion } from "@/hooks/use-side-question"
 import { SideQuestionPanel } from "@/components/chat/side-question-panel"
@@ -424,26 +419,7 @@ const ConversationTabView = memo(function ConversationTabView({
   groupId,
 }: ConversationTabViewProps) {
   const isDocumentVisible = useDocumentVisibility()
-  const { status: accountStatus, profile: accountProfile } = useIywAccount()
-  const [pointsDialogReason, setPointsDialogReason] =
-    useState<ConversationPointsBlockReason | null>(null)
-  const currentPointsBlockReason = getConversationPointsBlockReason(
-    accountStatus,
-    accountProfile?.balance_points
-  )
-  const ensureConversationPointsAvailable = useCallback(() => {
-    if (currentPointsBlockReason === null) return true
-    console.warn("[conversation-points] blocked prompt submission", {
-      tabId,
-      accountStatus,
-      reason: currentPointsBlockReason,
-    })
-    setPointsDialogReason(currentPointsBlockReason)
-    return false
-  }, [accountStatus, currentPointsBlockReason, tabId])
-  useEffect(() => {
-    if (currentPointsBlockReason === null) setPointsDialogReason(null)
-  }, [currentPointsBlockReason])
+  const { status: accountStatus } = useIywAccount()
   const [catalogVersion, setCatalogVersion] = useState(0)
   const t = useTranslations("Folder.conversation")
   const tWelcome = useTranslations("Folder.chat.welcomeInputPanel")
@@ -1722,7 +1698,6 @@ const ConversationTabView = memo(function ConversationTabView({
     const wait = flushRetryDelayMs(Date.now(), lastFlushBounceAtRef.current)
     const timer = setTimeout(() => {
       if (!connectionReadyRef.current || forkPendingRef.current) return
-      if (!ensureConversationPointsAvailable()) return
       const next = autoSendQueueRef.current()
       if (next) {
         // Mark this as the queue auto-flush: it sends the dequeued head now and,
@@ -1742,7 +1717,6 @@ const ConversationTabView = memo(function ConversationTabView({
     msgQueueLength,
     msgQueueHeadBlocked,
     outboxFlushPending,
-    ensureConversationPointsAvailable,
   ])
 
   // Mirror the connection's liveMessage into the runtime session OUTSIDE React.
@@ -1893,12 +1867,6 @@ const ConversationTabView = memo(function ConversationTabView({
           mqRequeueItemFront({ ...opts.queuedMessage, blocked: true })
         }
         setSideOpen(true)
-        return false
-      }
-      if (!ensureConversationPointsAvailable()) {
-        if (fromQueueFlush && opts?.queuedMessage) {
-          mqRequeueItemFront({ ...opts.queuedMessage, blocked: true })
-        }
         return false
       }
       const packageRef = draft.skillPackage
@@ -2375,7 +2343,6 @@ const ConversationTabView = memo(function ConversationTabView({
       conn.connectionId,
       conn.configOptions,
       conn.promptCapabilities.image,
-      ensureConversationPointsAvailable,
       workingDirForConnection,
       persistConfirmedModel,
       setSideOpen,
@@ -2436,7 +2403,6 @@ const ConversationTabView = memo(function ConversationTabView({
 
   const handlePromptingSubmit = useCallback(
     (draft: PromptDraft, selectedModeIdArg: string | null) => {
-      if (!ensureConversationPointsAvailable()) return false
       const packageRef = draft.skillPackage
       if (!packageRef) return enqueueAgentDraft(draft, selectedModeIdArg)
       const toastId = packageRef.hiddenFromDisplay
@@ -2474,13 +2440,7 @@ const ConversationTabView = memo(function ConversationTabView({
           return false
         })
     },
-    [
-      ensureConversationPointsAvailable,
-      enqueueAgentDraft,
-      selectedAgent,
-      tWelcome,
-      workingDirForConnection,
-    ]
+    [enqueueAgentDraft, selectedAgent, tWelcome, workingDirForConnection]
   )
 
   const handleDeleteAgentInput = useCallback(
@@ -2503,7 +2463,6 @@ const ConversationTabView = memo(function ConversationTabView({
       const connectionId = conn.connectionId
       const conversationId = dbConvIdRef.current
       if (!connectionId || conversationId == null) return
-      if (!ensureConversationPointsAvailable()) return
       void retryAgentInput(connectionId, conversationId, messageId).catch(
         (error) => {
           console.error("[agent-input] retry failed", { messageId, error })
@@ -2511,17 +2470,16 @@ const ConversationTabView = memo(function ConversationTabView({
         }
       )
     },
-    [conn.connectionId, ensureConversationPointsAvailable, tAgentInput]
+    [conn.connectionId, tAgentInput]
   )
 
   const handleQueueRetry = useCallback(
     (messageId: string) => {
-      if (!ensureConversationPointsAvailable()) return
       const item = msgQueue.find((candidate) => candidate.id === messageId)
       if (!item?.blocked) return
       mqUpdateItem(messageId, item.draft)
     },
-    [ensureConversationPointsAvailable, mqUpdateItem, msgQueue]
+    [mqUpdateItem, msgQueue]
   )
 
   const handleReorderAgentInputs = useCallback(
@@ -2545,7 +2503,6 @@ const ConversationTabView = memo(function ConversationTabView({
       const connectionId = conn.connectionId
       const conversationId = dbConvIdRef.current
       if (!connectionId || conversationId == null) return
-      if (!ensureConversationPointsAvailable()) return
       void forceAgentInputsThrough(
         connectionId,
         conversationId,
@@ -2560,7 +2517,7 @@ const ConversationTabView = memo(function ConversationTabView({
         toast.error(tAgentInput("safeForceFailed"))
       })
     },
-    [conn.connectionId, ensureConversationPointsAvailable, tAgentInput]
+    [conn.connectionId, tAgentInput]
   )
 
   // Sync handleSend ref for auto-send effect (declared before handleSend)
@@ -2589,11 +2546,10 @@ const ConversationTabView = memo(function ConversationTabView({
   const handleForkSend = useCallback(
     (draft: PromptDraft, selectedModeIdArg?: string | null) => {
       if (forkPendingRef.current) return false
-      if (!ensureConversationPointsAvailable()) return false
       void executeForkSend(draft, selectedModeIdArg)
       return true
     },
-    [ensureConversationPointsAvailable, executeForkSend, forkPendingRef]
+    [executeForkSend, forkPendingRef]
   )
 
   const handleForkSession = useCallback(
@@ -2701,11 +2657,7 @@ const ConversationTabView = memo(function ConversationTabView({
 
   const handleAnswerQuestion = useCallback(
     (answer: string) => {
-      if (
-        connStatus !== "connected" ||
-        !ensureSelectedModelReady() ||
-        !ensureConversationPointsAvailable()
-      ) {
+      if (connStatus !== "connected" || !ensureSelectedModelReady()) {
         return Promise.reject(new Error("Question response is unavailable"))
       }
       const optimisticTurn: MessageTurn = {
@@ -2751,7 +2703,6 @@ const ConversationTabView = memo(function ConversationTabView({
       mqEnqueue,
       connStatus,
       effectiveConversationId,
-      ensureConversationPointsAvailable,
       ensureSelectedModelReady,
       lifecycleSend,
       rememberSubmittedDraft,
@@ -3178,10 +3129,6 @@ const ConversationTabView = memo(function ConversationTabView({
         onSubmit={feedback.submit}
         submitting={feedback.submitting}
         agentName={getAgentDisplayName(selectedAgent)}
-      />
-      <ConversationPointsDialog
-        reason={pointsDialogReason}
-        onDismiss={() => setPointsDialogReason(null)}
       />
     </ConversationShell>
   )

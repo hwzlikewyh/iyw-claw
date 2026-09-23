@@ -177,7 +177,7 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
 
   const refreshProfile = useCallback(async () => {
     const generation = getGeneration()
-    setStatus("checking")
+    setStatus((current) => (current === "authenticated" ? current : "checking"))
     setError(null)
     try {
       const next = await requestProfile(generation)
