@@ -59,13 +59,13 @@ public static class IywInstallDisk {
     public static extern bool GetDiskFreeSpaceExW(string path, out ulong available, out ulong total, out ulong free);
 }
 '@
-    [ulong]$available = 0
-    [ulong]$total = 0
-    [ulong]$free = 0
+    [System.UInt64]$available = 0
+    [System.UInt64]$total = 0
+    [System.UInt64]$free = 0
     if (-not [IywInstallDisk]::GetDiskFreeSpaceExW($Path, [ref]$available, [ref]$total, [ref]$free)) {
         throw [ComponentModel.Win32Exception]::new([Runtime.InteropServices.Marshal]::GetLastWin32Error())
     }
-    $required = [ulong]$env:IYW_INSTALL_REQUIRED_KB * 1024
+    $required = [System.UInt64]$env:IYW_INSTALL_REQUIRED_KB * 1024
     if ($available -lt $required) {
         throw "Insufficient installation space: $Path; required=$required bytes; available=$available bytes (the old application backup is retained)."
     }
