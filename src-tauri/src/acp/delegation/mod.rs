@@ -1,34 +1,10 @@
-//! Multi-agent delegation: the parent agent's LLM can call the built-in MCP
-//! tool `delegate_to_agent` to spawn a fresh ACP session of any (possibly
-//! different) agent type, wait for its first turn to finish, and receive the
-//! sub-agent's final assistant text as the MCP tool_result.
+//! 内置 HTTP MCP 的异步委派。`delegate_to_agent` 经 listener 和 broker
+//! 建立独立 ACP 会话、提交完整任务后返回 task_id，父代理继续执行独立工作。
+//! 子会话首次 TurnComplete 将结果写入父会话范围内的缓存并通知界面；父代理
+//! 通过 `get_delegation_status` 按需批量收集结果，使用 `cancel_delegation` 停止任务。
 //!
-//! The high-level wiring is:
-//!
-//! ```text
-//!   parent LLM ─┐
-//!               │ ToolUse(delegate_to_agent, ...)
-//!               ▼
-//!   parent CLI ──stdio──► iyw-claw-mcp (per-launch companion binary)
-//!                                 │
-//!                                 │ UDS / named pipe (token-authed)
-//!                                 ▼
-//!                       DelegationBroker (this module)
-//!                                 │
-//!                                 │ ConnectionSpawner trait
-//!                                 ▼
-//!                       ConnectionManager.spawn_agent / send_prompt_linked
-//!                                 │
-//!                                 ▼
-//!                       child ACP session  ── TurnComplete ──┐
-//!                                                            │
-//!   parent LLM ◄── MCP tool_result ◄── DelegationOutcome ◄───┘
-//! ```
-//!
-//! v1 is one-shot (function-call semantics): after the child's first
-//! `TurnComplete`, the broker resolves the pending call, sends `disconnect`
-//! to the child, and returns. v2 will introduce `continue_with_session` /
-//! `close_session` tools without protocol breakage.
+//! 任务生命周期、早到结果、取消和连接回收均由现有 broker 管理。
+//! MCP 委派为单次会话；星河原生 spawn_agent/followup_task 是另一条协作路径。
 
 mod artifact_listener;
 pub mod artifact_tool;
@@ -48,5 +24,6 @@ pub mod meta_writer;
 pub mod mutation_gate;
 pub mod parent_watcher;
 pub mod spawner;
+pub(crate) mod task_prompt;
 pub mod transport;
 pub mod types;

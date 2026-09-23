@@ -4385,7 +4385,9 @@ impl crate::acp::delegation::spawner::ConnectionSpawner for ConnectionManagerSpa
             .send_prompt_linked(
                 &self.db,
                 conn_id,
-                vec![PromptInputBlock::Text { text: task }],
+                vec![PromptInputBlock::Text {
+                    text: crate::acp::delegation::task_prompt::build(&task, &link),
+                }],
                 Some(folder.id),
                 None,
                 Some(link),

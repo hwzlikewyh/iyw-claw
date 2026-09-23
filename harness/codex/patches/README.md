@@ -51,6 +51,16 @@ interrupt the history commit after a successful compaction response. It does not
 change normal sampling timeouts, model selection, or compaction thresholds.
 Review these boundaries when upgrading the pinned runtime.
 
+`codex-core` also classifies explicitly plaintext collaboration messages using
+the configured tool namespace, including iyw-claw's `agents` namespace and flat
+tool exposure. Previously the check recognized only `collaboration`, allowing a
+plaintext task to enter the encrypted-message path. The explicit
+`encrypted_function_args: []` marker selects plaintext; encrypted or unspecified
+markers keep upstream behavior. This applies to `spawn_agent`, `followup_task`,
+and `send_message`, independently of `fork_turns`. Collaboration guidance keeps
+the parent working after dispatch and bounds missing-task recovery to one resend.
+Review this classification and guidance on upstream upgrades.
+
 `codex-utils-pty` is copied from the locked `rust-v0.155.0` source tree. Local
 source deltas retain explicit pointer casts in `src/win/conpty.rs` and
 `src/win/procthreadattr.rs`, plus hidden-window creation flags in `src/pipe.rs`,
