@@ -22,6 +22,20 @@ pub(crate) fn is_request_too_large(err: &CodexErr) -> bool {
         if response.status == http::StatusCode::PAYLOAD_TOO_LARGE)
 }
 
+pub(crate) fn is_retryable_response_error(err: &CodexErr) -> bool {
+    if let CodexErrorDetails::UnexpectedStatus(response) = err.details() {
+        if response.status.is_client_error() {
+            return matches!(
+                response.status,
+                http::StatusCode::REQUEST_TIMEOUT
+                    | http::StatusCode::CONFLICT
+                    | http::StatusCode::TOO_MANY_REQUESTS
+            );
+        }
+    }
+    err.is_retryable()
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum ResponsesStreamRequest {
     Sampling,
@@ -69,6 +83,10 @@ pub(crate) async fn handle_retryable_response_stream_error(
             ?request,
             "request body rejected with HTTP 413; skipping unchanged retry"
         );
+        return Err(err);
+    }
+    // 余额、认证及参数错误不会因重连或切换传输而恢复。
+    if !is_retryable_response_error(&err) {
         return Err(err);
     }
     let operation = match request {

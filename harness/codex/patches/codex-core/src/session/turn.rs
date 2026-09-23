@@ -1671,7 +1671,7 @@ async fn run_sampling_request(
             original_input = Some(prompt.input);
         }
 
-        if !err.is_retryable() {
+        if !crate::responses_retry::is_retryable_response_error(&err) {
             return Err(err);
         }
 

@@ -7,6 +7,12 @@ use tracing::warn;
 
 /// Retries failures that may be model-specific and succeed with a different model.
 pub(crate) fn should_retry_with_current_model(error: &CodexErr) -> bool {
+    if matches!(error.details(), CodexErrorDetails::UnexpectedStatus(response)
+        if matches!(response.status, http::StatusCode::UNAUTHORIZED
+            | http::StatusCode::PAYMENT_REQUIRED | http::StatusCode::FORBIDDEN))
+    {
+        return false;
+    }
     matches!(
         error.details(),
         CodexErrorDetails::InvalidRequest(_)

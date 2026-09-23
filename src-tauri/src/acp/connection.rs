@@ -1588,6 +1588,7 @@ pub(crate) async fn spawn_agent_connection(
                     .to_string(),
             )
         })?;
+        let prompt_prepare_stage = startup_trace.stage("builtin_prompt_prepare");
         let mut prepared = crate::acp::builtin_prompt_injection::prepare(
             crate::acp::builtin_prompt_injection::PrepareRequest {
                 agent_type,
@@ -1603,6 +1604,7 @@ pub(crate) async fn spawn_agent_connection(
             },
         )
         .await?;
+        prompt_prepare_stage.finish("ok");
         if agent_type == AgentType::OpenCode {
             crate::acp::opencode_fork::prepare(&mut prepared.environment)?;
         }
@@ -1731,6 +1733,7 @@ pub(crate) async fn spawn_agent_connection(
     // `terminal/create` tool authenticate via the same helper path the
     // agent process uses, while keeping unrelated secrets scoped to the
     // agent and out of arbitrary shell commands it runs.
+    let terminal_environment_stage = startup_trace.stage("terminal_environment_prepare");
     let mut terminal_base_env: BTreeMap<String, String> = runtime_env
         .iter()
         .filter(|(k, _)| k.starts_with("GIT_CONFIG_"))
@@ -1742,11 +1745,8 @@ pub(crate) async fn spawn_agent_connection(
     // them right after install (before install.ps1's User-PATH change lands).
     prepend_officecli_path(&mut terminal_base_env);
     prepend_internet_tools_path(&mut terminal_base_env);
-    crate::acp::runtime_context::prepend_tool_dirs(
-        crate::acp::agent_storage::AgentStoragePaths::active().as_ref(),
-        &mut terminal_base_env,
-    );
     crate::wecom_ai::inherit_terminal_environment(&runtime_env, &mut terminal_base_env);
+    terminal_environment_stage.finish("ok");
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<ConnectionCommand>(32);
     let cancellation = tokio_util::sync::CancellationToken::new();

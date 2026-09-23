@@ -40,6 +40,17 @@ once before continuing; a repeated rejection or failed compaction surfaces the
 original error. Local and remote-v2 compaction do not retry an unchanged 413
 request. No history is truncated outside the upstream compaction lifecycle.
 
+Response retries also reject terminal HTTP client errors, including 402 payment
+failures; 408, 409 and 429 retain retry behavior. Authentication and payment
+failures do not trigger previous-model compaction fallback. The original error
+continues through the existing turn error lifecycle and UI balance handling.
+
+Local and remote-v2 compaction requests share one 300-second wall-clock budget
+across retries and existing transport/model fallbacks. This budget does not
+interrupt the history commit after a successful compaction response. It does not
+change normal sampling timeouts, model selection, or compaction thresholds.
+Review these boundaries when upgrading the pinned runtime.
+
 `codex-utils-pty` is copied from the locked `rust-v0.155.0` source tree. Local
 source deltas retain explicit pointer casts in `src/win/conpty.rs` and
 `src/win/procthreadattr.rs`, plus hidden-window creation flags in `src/pipe.rs`,

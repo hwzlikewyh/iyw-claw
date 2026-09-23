@@ -54,7 +54,11 @@ pub(super) async fn append(
         return;
     }
     let server = McpServerHttp::new(SERVER_NAME, GATEWAY_URL)
-        .headers(vec![HttpHeader::new("token", token.expose())]);
+        .headers(vec![HttpHeader::new("token", token.expose())])
+        .meta(serde_json::Map::from_iter([(
+            "iyw".to_string(),
+            serde_json::json!({ "builtinMcp": true }),
+        )]));
     servers.push(McpServer::Http(server));
     tracing::info!(
         server_name = SERVER_NAME,
