@@ -7,18 +7,19 @@ use super::{authority::SessionContext, iyw_service::IywGatewayService};
 mod file;
 mod http;
 
-pub(super) const MAX_FILE_BYTES: u64 = 50 * 1024 * 1024;
+pub(super) const MAX_FILE_BYTES: u64 = 1024 * 1024 * 1024;
 
 pub(super) fn tool() -> Value {
     json!({
         "name": super::tool_identity::UPLOAD_TOOL,
-        "description": "Upload one local file of any type to IYW storage using the current iyw-claw login. Accepts documents, archives, audio, video, images and arbitrary binary files, at most 50 MiB (52,428,800 bytes, inclusive). Provide an absolute path inside the current workspace or a workspace-relative path and a short description of the current action. The path is on the host running this MCP, not a remote client. Directories and paths outside the workspace are rejected; create an archive first when uploading a directory. The host reads bounded file bytes, requests a signed URL and uploads without exposing credentials. Returns ok, public HTTPS url, name, mime_type and size_bytes only after the storage upload succeeds. The resulting URL can be accessed by anyone who has it; upload only the file authorized by the user. No extension allowlist; mime_type is optional and defaults to application/octet-stream. No base64 or URL inputs; place the file in the workspace first. No capability search/read, token or cookie arguments. This does not create a product, parse a document, or register a final artifact: use the returned URL in fetch_iyw_url or present_task_files as appropriate. generate_iyw_image already uploads its image inputs internally. No automatic retries: cancellation or transport failure may leave an uploaded object; report uncertainty without repeating the upload blindly.",
+        "description": "Upload one workspace file (any type, up to 1 GiB / 1,073,741,824 bytes) using the current iyw-claw login. Call directly with path and description; omit name and mime_type unless needed. Chinese names, spaces and parentheses are supported: pass the exact filesystem path, without URL encoding, shell quotes or file://. Paths belong to the MCP host and must stay inside its current workspace; archive directories first. name only overrides the returned filename, never the source path. Returns ok, public HTTPS url, name, mime_type and size_bytes after storage accepts the upload. Anyone with the URL can access it; upload only authorized files. No token, cookie, base64 or capability search/read needed. This does not create a business record or register a deliverable; use the returned URL in fetch_iyw_url or present_task_files. Image generation uploads its own inputs. On failure read error.code/message/execution_status: correct invalid input once; resolve login/network errors before another attempt. Changing name or path cannot fix presign_failed or storage_rejected. Never retry an unknown outcome blindly or invent an alternate upload endpoint.",
         "inputSchema": {
             "type": "object", "required": ["path", "description"],
+            "examples": [{"path": "交付文件/设计方案（最终版）.pdf", "description": "上传设计方案"}],
             "properties": {
-                "path": {"type": "string", "minLength": 1, "description": "Path to one regular file inside the current workspace. Absolute or workspace-relative."},
+                "path": {"type": "string", "minLength": 1, "description": "Exact path to a regular file on the MCP host, absolute or workspace-relative. Chinese and spaces are supported. Do not URL-encode or include shell quotes. Windows JSON: use D:/workspace/中文.pdf or escaped backslashes."},
                 "description": super::iyw_progress::schema(),
-                "name": {"type": "string", "minLength": 1, "maxLength": 255, "description": "Optional file name including extension; defaults to the local basename. No directories or control characters."},
+                "name": {"type": "string", "minLength": 1, "maxLength": 255, "description": "Usually omit. Overrides the returned filename, not the file to read; defaults to the local basename. Chinese and spaces are supported. Include an extension; no slash, backslash, colon or control characters."},
                 "mime_type": {"type": "string", "minLength": 1, "description": "Optional valid MIME type. Defaults to application/octet-stream; no file-type filtering is applied."}
             },
             "additionalProperties": false
@@ -33,7 +34,7 @@ pub(super) async fn upload(
     arguments: Value,
 ) -> Result<CallToolResult, ErrorData> {
     let file = file::prepare(authority.cwd(), arguments).await?;
-    let size = file.bytes.len();
+    let size = file.size_bytes;
     tracing::info!(target: "builtin_mcp", size_bytes = size, "[iyw-upload] file validated");
     let url = http::upload(service, file).await?;
     Ok(CallToolResult::structured(url))
@@ -45,7 +46,8 @@ pub(super) async fn upload_image_bytes(
     content: (&str, &str),
 ) -> Result<String, ErrorData> {
     let file = file::UploadFile {
-        bytes,
+        size_bytes: bytes.len() as u64,
+        body: bytes.into(),
         name: format!("image.{}", content.1),
         mime_type: content.0.to_string(),
         category: "img",
@@ -67,9 +69,14 @@ pub(super) fn failure(error: ErrorData) -> CallToolResult {
     CallToolResult::structured_error(value)
 }
 
-pub(super) fn error(message: &'static str, code: &'static str, state: &'static str) -> ErrorData {
+pub(super) fn error(
+    message: impl Into<String>,
+    code: &'static str,
+    state: &'static str,
+) -> ErrorData {
+    let message = message.into();
     tracing::warn!(target: "builtin_mcp", code, execution_status = state,
-        reason = message, "[iyw-upload] upload failed");
+        reason = %message, "[iyw-upload] upload failed");
     ErrorData::invalid_request(
         message,
         Some(json!({"code": code, "execution_status": state})),
