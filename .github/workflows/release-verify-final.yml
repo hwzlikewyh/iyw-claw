@@ -44,9 +44,18 @@ jobs:
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           SIGNER: ${{ vars.WINDOWS_SIGN_THUMBPRINT }}
+          RELEASE_ID: ${{ inputs.release_id }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $installer = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/iyw-claw_$env:RELEASE_VERSION`_x64-setup.exe"
+          $installers = @(Get-ChildItem 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -Filter "*_$($env:RELEASE_VERSION)_x64-setup.exe")
+          if ($installers.Count -ne 1) { throw 'Expected exactly one installer for this release version' }
+          $installer = $installers[0].FullName
+          $release = gh api "repos/$env:GITHUB_REPOSITORY/releases/$env:RELEASE_ID" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or !$release.draft -or $release.tag_name -ne "v$env:RELEASE_VERSION") { throw 'Release identity mismatch' }
+          $asset = @($release.assets | Where-Object name -eq "iyw-claw_$($env:RELEASE_VERSION)_x64-setup.exe")
+          $digest = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($asset.Count -ne 1 -or $asset[0].digest -ne "sha256:$digest") { throw 'Draft installer differs from verification input' }
           $extracted = Join-Path $env:RUNNER_TEMP 'signed-x64-resources'
           & 7z x $installer "-o$extracted" 'iyw-claw.exe' 'xinghe-resources/*'
           if ($LASTEXITCODE -ne 0) { throw 'Installer resource extraction failed' }
@@ -61,8 +70,13 @@ jobs:
           IYW_CLAW_VERIFY_NSIS: "1"
           IYW_CLAW_SIGN_MODE: signtool
         run: node src-tauri/scripts/verify-sidecar-bundle.mjs --target x86_64-pc-windows-msvc
+  verify-installation:
+    uses: ./.github/workflows/release-windows-verification.yml
+    with:
+      source_ref: ${{ inputs.source_ref }}
+      artifact_run_id: ${{ inputs.verification_run_id }}
   publish:
-    needs: verify-x64
+    needs: [verify-x64, verify-installation]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +96,8 @@ jobs:
             const run = (await github.rest.actions.getWorkflowRun({...context.repo,run_id:runId})).data;
             const tag = `v${process.env.VERSION}`;
             const tagged = (await github.rest.repos.getCommit({...context.repo,ref:tag})).data.sha;
-            if(run.head_sha !== source || tagged !== source) throw new Error('Release source does not match the verified build');
+            const validateSource = require('./.github/scripts/release/verified-release-source.cjs');
+            await validateSource({github,repo:context.repo,run,source,tagged});
             const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,{...context.repo,run_id:runId,per_page:100});
             const required = [
               'build-tauri / Build Linux x64',
@@ -90,7 +105,6 @@ jobs:
               'build-macos-x64 / Build macOS x64',
               'build-windows (x86_64-pc-windows-msvc) / build',
               'build-windows (x86_64-pc-windows-msvc) / sign',
-              'verify-windows-installers / Verify installed x86_64-pc-windows-msvc',
               'verify-macos-x64-installer / verify',
             ];
             for(const name of required) {
