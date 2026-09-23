@@ -31,6 +31,8 @@ pub(super) enum GatewayAction {
     Upload(Value),
     Knowledge(Value),
     MemoryGroup(MemoryGroupRequest),
+    RemoteRead(String),
+    RemoteInvoke(ResolvedCapability),
 }
 
 pub(super) struct MemoryGroupRequest {
@@ -213,6 +215,9 @@ fn read(
 ) -> Result<GatewayAction, ErrorData> {
     let params = parse::<CapabilityParams>(arguments)?;
     let capability_id = parse_capability_id(&params.capability_id)?;
+    if capability_id.starts_with(super::remote_mcp::REMOTE_PREFIX) {
+        return Ok(GatewayAction::RemoteRead(capability_id.to_string()));
+    }
     if let Some(detail) = plugin_control::read_detail(capability_id) {
         return Ok(GatewayAction::Return(CallToolResult::structured(detail)));
     }
@@ -243,6 +248,13 @@ fn invoke(
 ) -> Result<GatewayAction, ErrorData> {
     let params = parse::<InvokeParams>(arguments)?;
     let capability_id = parse_capability_id(&params.capability_id)?;
+    if capability_id.starts_with(super::remote_mcp::REMOTE_PREFIX) {
+        return Ok(GatewayAction::RemoteInvoke(ResolvedCapability {
+            tool_name: capability_id.to_string(),
+            arguments: Value::Object(params.arguments),
+            delivery_ack: parse_delivery_ack(params.delivery_ack)?,
+        }));
+    }
     let active_nonce = session.memory_turn_tracker.active_nonce();
     let policy_loaded_nonce = session.memory_policy_loaded_nonce.load(Ordering::Acquire);
     if memory_policy_required(capability_id, active_nonce, policy_loaded_nonce) {
@@ -446,6 +458,16 @@ fn resolve_error(error: ResolveError) -> ErrorData {
 struct SearchParams {
     query: String,
     limit: Option<usize>,
+    #[serde(rename = "source")]
+    _source: Option<SearchSource>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum SearchSource {
+    All,
+    Local,
+    Remote,
 }
 
 #[derive(Deserialize)]

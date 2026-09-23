@@ -100,6 +100,27 @@ discovery or repeat the operation under another name.
 
 ## Five-Step Sequence
 
+The built-in trio discovers local and remote capabilities. Select search
+`source=local` for host operations to avoid network waits, `source=remote` for
+business discovery, or `all` when unsure. `limit` applies per selected source.
+Remote search discovers tools, not business records or web pages. It uses the
+current signed-in account; unavailable metadata does not prove absence.
+
+For `kind=group`, read its workflow and relevant `items`. Members already include
+complete `input_schema` and `usage`: inspect `use_when`, `argument_sources`,
+`result_summary`, required fields and constraints, then invoke the member's
+`capability_id` without another read. Groups cannot execute. The host forwards
+the remote member and version; never add `tool_id` or `tool_version` to business
+arguments. Remote instructions use remote protocol terms; this route always
+uses the actual built-in trio and mapped capability IDs.
+
+`TOOL_CHANGED` plus `execution_status=not_started` allows a fresh read of the old
+capability_id; use the current ID returned after checking the revised definition.
+`remote_catalog_expired` allows one fresh search. These specific recovery cases
+override the generic stop rules below; they never authorize repeating an earlier
+call with an unknown outcome. Check original business status or idempotency first.
+Account switching invalidates the previous remote catalog.
+
 1. Inspect the actual callable surface and choose one complete trio when the
    current host sub-goal requires gateway discovery. The roles are
    `search_iyw_capabilities`, `read_iyw_capability`, and
