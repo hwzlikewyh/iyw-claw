@@ -1,6 +1,6 @@
 [package]
 name = "iyw-claw"
-version = "0.1.240"
+version = "0.1.241"
 description = "Agent Code Generation App"
 authors = ["feitao"]
 edition = "2021"
@@ -113,7 +113,6 @@ subtle = "2.6"
 agent-client-protocol-schema = { version = "0.11", features = ["unstable_session_usage", "unstable_session_fork", "unstable_session_resume", "unstable_elicitation"] }
 kill_tree = { version = "0.2", features = ["tokio"] }
 which = "7"
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"], optional = true }
 axum = { version = "0.8", features = ["ws", "multipart"] }
 async_zip = { version = "0.0.18", features = ["tokio", "deflate"] }
 tower-http = { version = "0.6", features = ["fs", "cors"] }
@@ -145,6 +144,13 @@ tauri-plugin-single-instance = { version = "2", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 mac-notification-sys = "0.6"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# 与内置星河统一 Secret Service 后端，独立 I/O 避免嵌套 Tokio 等待。
+keyring = { version = "3", features = ["async-secret-service", "async-io", "crypto-rust"], optional = true }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"], optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_ProcessStatus", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_UI_WindowsAndMessaging"] }

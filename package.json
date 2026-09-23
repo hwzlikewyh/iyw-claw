@@ -1,7 +1,7 @@
 {
   "name": "iyw-claw",
   "private": true,
-  "version": "0.1.240",
+  "version": "0.1.241",
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "predev": "node scripts/prepare-preview-assets.mjs",
