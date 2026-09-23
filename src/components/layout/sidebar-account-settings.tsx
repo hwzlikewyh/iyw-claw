@@ -29,8 +29,18 @@ export function SidebarAccountSettings() {
   const t = useTranslations("SidebarAccount")
   const startupT = useTranslations("StartupLogin")
   const [open, setOpen] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const { status, profile, actionLoading, refreshProfile, logout } =
     useIywAccount()
+
+  const handleRefreshProfile = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      await refreshProfile()
+    } finally {
+      setRefreshing(false)
+    }
+  }, [refreshProfile])
 
   const handleOpenSettings = useCallback(() => {
     setOpen(false)
@@ -112,8 +122,8 @@ export function SidebarAccountSettings() {
               <AccountProfilePanel
                 profile={profile}
                 loading={actionLoading}
-                refreshing={status === "checking"}
-                onRefresh={() => void refreshProfile()}
+                refreshing={refreshing}
+                onRefresh={() => void handleRefreshProfile()}
                 onLogout={() => void logout()}
               />
             ) : (
