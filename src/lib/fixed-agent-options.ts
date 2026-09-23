@@ -9,6 +9,7 @@ import {
   localizeSessionConfigOption,
   type SessionConfigTranslator,
 } from "@/lib/session-config-localization"
+import { getSavedModelConfigPreferences } from "@/lib/selector-prefs-storage"
 import type { AgentOptionsSnapshot, AgentType } from "@/lib/types"
 
 export function getFixedAgentOptions(
@@ -19,7 +20,8 @@ export function getFixedAgentOptions(
   const snapshot = buildAgentOptionsSnapshot(
     agentType,
     getCachedGatewayModels(agentType),
-    configValues
+    configValues,
+    getSavedModelConfigPreferences(agentType)
   )
   return translator
     ? {

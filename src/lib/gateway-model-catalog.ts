@@ -59,7 +59,9 @@ function buildReasoningOptions(
 
 function buildModelOption(
   selectedId: string,
-  models: GatewayModel[]
+  models: GatewayModel[],
+  reasoningConfigId: string | null,
+  modelConfigValues: Record<string, Record<string, string>>
 ): SessionConfigOptionInfo {
   return {
     id: "model",
@@ -75,6 +77,11 @@ function buildModelOption(
         modelBehavior: {
           reasoningOptions: buildReasoningOptions(model),
           defaultReasoningEffort: model.defaultEffort,
+          savedReasoningEffort: reasoningConfigId
+            ? (modelConfigValues[model.id]?.[reasoningConfigId] ??
+              modelConfigValues[model.id]?.reasoning_effort ??
+              null)
+            : null,
           fastModeSupported: model.fastModeSupported,
           fastModeDefaultEnabled: model.fastModeDefaultEnabled,
         },
@@ -82,6 +89,29 @@ function buildModelOption(
       groups: [],
     },
   }
+}
+
+export function resolveModelReasoningEffort(
+  model: SessionConfigSelectOptionInfo,
+  savedValue?: string
+): string | null {
+  const metadata = model.modelBehavior
+  if (!metadata || metadata.reasoningOptions.length === 0) return null
+  if (
+    savedValue &&
+    metadata.reasoningOptions.some((option) => option.value === savedValue)
+  ) {
+    return savedValue
+  }
+  if (
+    metadata.defaultReasoningEffort &&
+    metadata.reasoningOptions.some(
+      (option) => option.value === metadata.defaultReasoningEffort
+    )
+  ) {
+    return metadata.defaultReasoningEffort
+  }
+  return metadata.reasoningOptions[0].value
 }
 
 function buildEffortOption(
@@ -144,17 +174,28 @@ function buildFastModeOption(
 export function buildAgentOptionsSnapshot(
   agentType: AgentType,
   models: GatewayModel[],
-  configValues: Record<string, string> = {}
+  configValues: Record<string, string> = {},
+  modelConfigValues: Record<string, Record<string, string>> = {}
 ): AgentOptionsSnapshot {
   const selectedId = configValues.model || models[0]?.id
   const selected = models.find((model) => model.id === selectedId)
   const configOptions: SessionConfigOptionInfo[] = []
   const behavior = getAgentModelBehaviorIds(agentType)
-  if (selectedId) configOptions.push(buildModelOption(selectedId, models))
+  if (selectedId) {
+    configOptions.push(
+      buildModelOption(
+        selectedId,
+        models,
+        behavior.effortConfigId,
+        modelConfigValues
+      )
+    )
+  }
   if (selected) {
     if (behavior.effortConfigId) {
       const configured =
-        configValues[behavior.effortConfigId] ?? configValues.reasoning_effort
+        modelConfigValues[selected.id]?.[behavior.effortConfigId] ??
+        modelConfigValues[selected.id]?.reasoning_effort
       const effort = buildEffortOption(
         selected,
         behavior.effortConfigId,

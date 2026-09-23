@@ -71,7 +71,11 @@ interface ConversationShellProps {
   configOptionsLoading?: boolean
   selectedModeId?: string | null
   onModeChange?: (modeId: string) => void
-  onConfigOptionChange?: (configId: string, valueId: string) => void
+  onConfigOptionChange?: (
+    configId: string,
+    valueId: string,
+    behaviorModelId?: string
+  ) => void
   onModelListOpen?: () => void
   agentType?: AgentType | null
   usageStats?: SessionStats | null

@@ -55,7 +55,11 @@ export interface SessionSelectorSetting {
    *  of the plain button list — used for long model lists that otherwise jank. */
   search?: SessionSelectorSearch
   modelBehaviorOptions?: SessionConfigOptionInfo[]
-  onModelBehaviorSelect?: (configId: string, valueId: string) => void
+  onModelBehaviorSelect?: (
+    modelValue: string,
+    configId: string,
+    valueId: string
+  ) => void
 }
 
 interface SessionSelectorsPanelProps {
@@ -162,7 +166,11 @@ export function SessionSelectorsPanel({
                     if (modelValue !== active.currentValue) {
                       active.onSelect(modelValue)
                     }
-                    active.onModelBehaviorSelect?.(configId, valueId)
+                    active.onModelBehaviorSelect?.(
+                      modelValue,
+                      configId,
+                      valueId
+                    )
                     onAfterSelect?.()
                   }
                 : undefined

@@ -5850,8 +5850,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         configId === "model" || (option && isModelConfigOption(option))
           ? "model"
           : configId
-      // Models are persisted by conversation surfaces after the Agent confirms
-      // the live value. Agent-wide storage is only for non-model selectors.
+      // Models are persisted by conversation surfaces after confirmation.
+      // Agent-wide storage handles only non-model selectors; model-scoped
+      // reasoning is written by the user-selection handler in the conversation.
       if (preferenceId !== "model") {
         saveConfigPreference(conn.agentType, preferenceId, valueId)
       }

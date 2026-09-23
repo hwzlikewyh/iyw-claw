@@ -327,7 +327,11 @@ interface MessageInputProps {
   configOptionsLoading?: boolean
   selectedModeId?: string | null
   onModeChange?: (modeId: string) => void
-  onConfigOptionChange?: (configId: string, valueId: string) => void
+  onConfigOptionChange?: (
+    configId: string,
+    valueId: string,
+    behaviorModelId?: string
+  ) => void
   onModelListOpen?: () => void
   agentType?: AgentType | null
   usageStats?: SessionStats | null
@@ -4024,8 +4028,8 @@ export function MessageInput({
                 onSelect={(configId, valueId) =>
                   onConfigOptionChange?.(configId, valueId)
                 }
-                onBehaviorSelect={(configId, valueId) =>
-                  onConfigOptionChange?.(configId, valueId)
+                onBehaviorSelect={(modelValue, configId, valueId) =>
+                  onConfigOptionChange?.(configId, valueId, modelValue)
                 }
                 onOpen={onModelListOpen}
               />
@@ -4138,8 +4142,11 @@ export function MessageInput({
           onSelect: (value) => onConfigOptionChange?.(option.id, value),
           ...(isModelConfigOption(option) && {
             modelBehaviorOptions,
-            onModelBehaviorSelect: (configId: string, valueId: string) =>
-              onConfigOptionChange?.(configId, valueId),
+            onModelBehaviorSelect: (
+              modelValue: string,
+              configId: string,
+              valueId: string
+            ) => onConfigOptionChange?.(configId, valueId, modelValue),
           }),
           ...(searchable && {
             search: {

@@ -115,6 +115,7 @@ import {
   type MessageTurn,
   type PromptDraft,
   type QuestionAnswer,
+  type SessionConfigOptionInfo,
   type UserMessageBlock,
   type PromptSkillPackage,
   type SkillInventorySnapshot,
@@ -126,13 +127,17 @@ import {
   loadFixedAgentOptions,
   refreshFixedAgentOptions,
 } from "@/lib/fixed-agent-options"
-import { reconcileModelConfigValues } from "@/lib/gateway-model-catalog"
+import {
+  reconcileModelConfigValues,
+  resolveModelReasoningEffort,
+} from "@/lib/gateway-model-catalog"
 import {
   hasManagedGatewayModelProjection,
   modelReapplyTimeoutMs,
 } from "@/lib/agent-model-switch"
 import {
   currentModelName,
+  isReasoningConfigOption,
   isModelConfigOption,
 } from "@/lib/model-config-groups"
 import { planSessionConfigSync } from "@/lib/session-config-compat"
@@ -155,6 +160,28 @@ function reconcileConversationConfigValues(
     currentKeys.length === Object.keys(next).length &&
     currentKeys.every((key) => current[key] === next[key])
   return unchanged ? current : next
+}
+
+function resolveModelReasoningConfig(
+  agentType: AgentType,
+  options: SessionConfigOptionInfo[],
+  modelId: string
+): { configId: string; value: string | null } | null {
+  const reasoningOption = options.find(isReasoningConfigOption)
+  const modelOption = options.find(isModelConfigOption)
+  if (!reasoningOption || modelOption?.kind.type !== "select") return null
+  const targetModel = modelOption.kind.options.find(
+    (option) => option.value === modelId
+  )
+  const savedValues = getSavedModelConfigPreferences(agentType)[modelId]
+  const savedValue =
+    savedValues?.[reasoningOption.id] ?? savedValues?.reasoning_effort
+  return {
+    configId: reasoningOption.id,
+    value: targetModel
+      ? resolveModelReasoningEffort(targetModel, savedValue)
+      : null,
+  }
 }
 
 function scenarioPackageReady(
@@ -280,9 +307,11 @@ async function prepareScenarioPackage(
 }
 import {
   getSavedModeId,
+  getSavedModelConfigPreferences,
   getSavedPrefsForConnect,
   replaceConfigPreferences,
   saveConfigPreference,
+  saveModelConfigPreference,
   saveModePreference,
 } from "@/lib/selector-prefs-storage"
 import {
@@ -1192,8 +1221,17 @@ const ConversationTabView = memo(function ConversationTabView({
     const target = savedModelConfirmed
       ? savedModel!
       : liveModelOption.kind.current_value
+    const reasoning = resolveModelReasoningConfig(
+      selectedAgent,
+      fixedOptions.config_options,
+      target
+    )
     sessionModelSeedTargetRef.current = target
-    setDraftConfigValues((current) => ({ ...current, model: target }))
+    setDraftConfigValues((current) => {
+      const next: Record<string, string> = { ...current, model: target }
+      if (reasoning?.value) next[reasoning.configId] = reasoning.value
+      return next
+    })
     setFailedModel(null)
     updateRequestedModel(
       liveModelOption.kind.current_value === target ? null : target
@@ -2639,20 +2677,51 @@ const ConversationTabView = memo(function ConversationTabView({
   )
 
   const handleConfigOptionChange = useCallback(
-    (configId: string, valueId: string) => {
+    (configId: string, valueId: string, behaviorModelId?: string) => {
       if (configId === "model") {
         setFailedModel(null)
         updateRequestedModel(valueId)
+        const reasoning = resolveModelReasoningConfig(
+          selectedAgent,
+          fixedOptions.config_options,
+          valueId
+        )
+        setDraftConfigValues((current) => {
+          const next: Record<string, string> = { ...current, model: valueId }
+          if (reasoning) {
+            if (reasoning.value) next[reasoning.configId] = reasoning.value
+            else delete next[reasoning.configId]
+          }
+          return next
+        })
+        return
       }
       setDraftConfigValues((current) => ({
         ...current,
         [configId]: valueId,
       }))
-      if (configId !== "model") {
+      const option = fixedOptions.config_options.find(
+        (item) => item.id === configId
+      )
+      const modelId =
+        behaviorModelId ??
+        draftConfigValues.model ??
+        (fixedModelOption?.kind.type === "select"
+          ? fixedModelOption.kind.current_value
+          : null)
+      if (option && isReasoningConfigOption(option) && modelId) {
+        saveModelConfigPreference(selectedAgent, modelId, configId, valueId)
+      } else {
         saveConfigPreference(selectedAgent, configId, valueId)
       }
     },
-    [selectedAgent, updateRequestedModel]
+    [
+      draftConfigValues.model,
+      fixedModelOption,
+      fixedOptions.config_options,
+      selectedAgent,
+      updateRequestedModel,
+    ]
   )
 
   const handleAnswerQuestion = useCallback(
