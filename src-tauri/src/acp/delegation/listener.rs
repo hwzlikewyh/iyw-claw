@@ -2087,7 +2087,7 @@ impl DelegationListener {
         let task = match req.input.get("task").and_then(|v| v.as_str()) {
             Some(s) if !s.trim().is_empty() => s.to_string(),
             _ => {
-                return report_failed("invalid_working_dir", "missing or empty task");
+                return report_failed("invalid_task", "missing or empty task");
             }
         };
         // The `working_dir` the LLM explicitly passed (before defaulting),

@@ -34,8 +34,11 @@ pub struct ToolCall {
 }
 
 impl ToolCall {
-    pub(crate) fn direct_source(&self) -> ToolCallSource {
-        if self.tool_name.namespace.as_deref() == Some("collaboration")
+    pub(crate) fn direct_source(&self, agent_namespace: Option<&str>) -> ToolCallSource {
+        let is_agent_namespace = self.tool_name.namespace.as_deref() == agent_namespace
+            || self.tool_name.namespace.as_deref() == Some("collaboration")
+            || self.tool_name.is_default_namespace();
+        if is_agent_namespace
             && matches!(
                 self.tool_name.name.as_str(),
                 "spawn_agent" | "send_message" | "followup_task"

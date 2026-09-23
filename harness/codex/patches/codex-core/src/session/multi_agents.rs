@@ -49,13 +49,22 @@ You may also see them addressed as to=/root/..., which indicates your identity i
 "#;
 const DEFAULT_MULTI_AGENT_V2_MODEL_OVERRIDE_USAGE_HINT_TEXT: &str = "Full-history forks (`fork_turns` omitted or `\"all\"`) inherit the parent model and reasoning effort and do not accept overrides. Only set `model` or `reasoning_effort` when explicitly requested by the user, applicable `AGENTS.md` instructions, or skill instructions; when doing so, set `fork_turns` to `\"none\"` or a positive integer string.";
 const DEFAULT_MULTI_AGENT_V2_WAIT_AGENT_USAGE_HINT_TEXT: &str =
-    "When calling `wait_agent`, prefer longer waits (minutes) to avoid busy polling.";
+    "Call `wait_agent` only when progress depends on an unfinished child and no independent work remains. A wait timeout is not an agent failure; check actual activity at useful checkpoints instead of repeatedly waiting or polling.";
 const DEFAULT_MULTI_AGENT_V2_SHARED_USAGE_HINT_TEXT: &str = r#"Note that collaboration tools cannot be called from inside `functions.exec`. Call `spawn_agent`, `send_message`, `followup_task`, `wait_agent`, `interrupt_agent`, and `list_agents` only as direct tool calls using the recipient shown in their tool definitions, such as `to=functions.collaboration.spawn_agent`, since they are intentionally absent from the `functions.exec` `tools.*` namespace. Available tools in `functions.exec` are explicitly described with a `tools` namespace in the developer message.
 
 All agents share the same directory. In detail:
 - All agents have access to the same container and filesystem as you.
 - All agents use the same current working directory.
 - As a result, edits made by one agent are immediately visible to all other agents.
+
+Delegation workflow:
+- Give every child a complete task: goal, absolute working paths, exclusive file scope, constraints, acceptance criteria, and expected output. `fork_turns` controls inherited history only; always supply the task in `message`.
+- After dispatch, continue useful independent work immediately. Do not wait for a startup acknowledgment. Children may send a brief progress message after a real file read, then continue without waiting for permission from the parent.
+- A child must execute its assigned task and return concrete evidence or a precise blocker. A role acknowledgment is not a final result. Review tasks can return findings and file locations without creating files; code tasks must identify actual changes and validation limits.
+- If a child ended without doing the task or explicitly lacked its task, inspect existing work before resending the complete task once with `followup_task`. `send_message` does not wake an idle child. Do not repeatedly respawn the same failed task under new names.
+- Before taking over active work, interrupt the child, confirm its turn has stopped, and inspect any commands still running and existing edits. An interrupt acknowledgment alone does not prove background commands stopped.
+- At integration, validate each result against its acceptance criteria. A completed turn, a wait timeout, or the absence of new files does not establish success or failure. Do not infer rate limiting without an actual error.
+- Children perform focused checks permitted by the repository; the parent performs necessary final checks once after integration. Do not duplicate full builds or override repository test restrictions.
 "#;
 
 #[derive(Clone, Debug, Default)]

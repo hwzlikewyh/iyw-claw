@@ -38,32 +38,47 @@ parent's branch, user intent, or prior tool results.
 
 ## Create and Collect
 
-The create operation returns a `task_id` immediately and does not block. Preserve
-each ID exactly. Several independent tasks may be created before collection,
+The create operation returns a `task_id` after session setup and task submission;
+it does not wait for task completion. Preserve each ID exactly and immediately
+continue independent local work without waiting for a startup acknowledgment.
+Several independent tasks may be created before collection,
 but do not fan out work that edits the same file, contract, schema, migration,
 or shared index concurrently.
 
 Use `get_delegation_status` with one or many task IDs:
 
 - Omit `wait_ms` for a non-blocking snapshot.
-- Use a positive `wait_ms` for bounded waiting, capped by the current schema.
+- Use a positive `wait_ms` only when integration needs the result and no
+  independent work remains, capped by the current schema.
 - Use `wait_ms: 0` when the host supports waiting without a timeout.
 - With multiple IDs, a wait may return when any task reaches a terminal state;
-  call again for the remaining IDs.
+  remove settled IDs before calling again for the remaining IDs.
 
 While merely waiting for a running task, do not emit repetitive user-facing
 updates such as “still running.” Speak when a terminal result arrives, a real
-failure needs handling, or user input is required. A finished task includes its
-full result text; inspect it against the delegated acceptance criteria rather
-than treating completion status as proof of correctness.
+failure needs handling, or user input is required. A wait timeout is not failure
+and is not evidence of rate limiting. A finished task may contain capped text,
+or only a child session reference if the cache was evicted; inspect the full
+session when needed and check the acceptance criteria. Review tasks need findings
+and file evidence, not newly created files. Code tasks need actual changes and
+validation evidence. Children run repository-permitted focused checks; the parent
+performs necessary final verification once after integration.
+
+If a child ended with only an acknowledgment or explicitly lacked its task,
+inspect its existing changes and command activity first. Allow at most one
+corrected delegation with a complete prompt; do not silently duplicate active
+work or keep relaunching the same failed task. This one-shot MCP interface has
+no `followup_task`; that operation belongs to the native Xinghe agent runtime.
 
 ## Cancellation
 
 Use `cancel_delegation` only with the exact `task_id` returned by creation and
-only when the result is no longer wanted or the user requests stopping it. Do
-not cancel merely because work is taking time. If the task has already finished,
+only when the result is no longer wanted, the work must be taken over, or the user
+requests stopping it. Do not cancel merely because work is taking time. If the task has already finished,
 the host returns its final result and nothing is canceled. Report canceled,
-failed, completed, and unknown states distinctly.
+failed, completed, and unknown states distinctly. Cancellation status records the
+request; it does not prove all background commands have exited. Check the child
+session and process activity before taking over its files. Preserve partial work.
 
 ## Integrate Results Safely
 

@@ -3135,6 +3135,13 @@ impl DelegationBroker {
             }
         };
 
+        tracing::info!(
+            task_id = %call_id,
+            child_conversation_id,
+            task_bytes = req.task.len(),
+            "[delegation] complete task prompt queued; child continues independently"
+        );
+
         // The child is now running. Stamp the start so terminal paths can
         // report a real `duration_ms`.
         let started_at = Instant::now();
@@ -3490,6 +3497,20 @@ impl DelegationBroker {
     /// the `call_id` is no longer reserved the call was already resolved by
     /// another terminal path, so the buffer is skipped (silent no-op).
     pub async fn complete_call(&self, call_id: &str, outcome: DelegationOutcome) {
+        let outcome = match outcome {
+            DelegationOutcome::Ok(ref ok) if ok.text.trim().is_empty() => {
+                tracing::warn!(
+                    task_id = call_id,
+                    child_conversation_id = ok.child_conversation_id,
+                    "[delegation] child ended without a result; reporting child_empty"
+                );
+                DelegationOutcome::from_err(
+                    DelegationError::ChildEmpty,
+                    Some(ok.child_conversation_id),
+                )
+            }
+            outcome => outcome,
+        };
         let task = {
             let mut inner = self.pending.inner.lock().await;
             match inner.running.remove(call_id) {
