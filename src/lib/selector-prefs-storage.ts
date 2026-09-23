@@ -1,8 +1,8 @@
 "use client"
 
 /**
- * Persists user's mode and non-model config selections per agentType to
- * localStorage, so they survive session restarts. Model selection belongs to
+ * Persists user's mode and non-model config selections per agentType, plus
+ * reasoning selections per model, to localStorage. Model selection belongs to
  * the conversation and is stored in `conversation.model` after ACP confirms it.
  *
  * Structure hash is stored alongside values — when the saved value no
@@ -28,6 +28,7 @@ const STORAGE_KEY = "iyw-claw:selector-prefs"
 interface SelectorPrefs {
   modeId?: string
   configValues?: Record<string, string>
+  modelConfigValues?: Record<string, Record<string, string>>
 }
 
 type AllPrefs = Record<string, SelectorPrefs>
@@ -60,6 +61,50 @@ function withoutSessionModel(
   return Object.keys(next).length > 0 ? next : undefined
 }
 
+function isReasoningConfigId(configId: string): boolean {
+  const normalized = configId.trim().toLowerCase().replace(/_/g, "-")
+  return (
+    normalized.includes("reasoning") ||
+    normalized.includes("thought") ||
+    normalized.includes("effort")
+  )
+}
+
+function withoutGlobalReasoning(
+  configValues?: Record<string, string>
+): Record<string, string> | undefined {
+  const next = withoutSessionModel(configValues)
+  if (!next) return undefined
+  for (const configId of Object.keys(next)) {
+    if (isReasoningConfigId(configId)) delete next[configId]
+  }
+  return Object.keys(next).length > 0 ? next : undefined
+}
+
+function normalizeModelConfigValues(
+  modelConfigValues?: Record<string, Record<string, string>>
+): Record<string, Record<string, string>> | undefined {
+  if (!modelConfigValues) return undefined
+  const next: Record<string, Record<string, string>> = {}
+  for (const [modelId, values] of Object.entries(modelConfigValues)) {
+    if (!modelId || !values || typeof values !== "object") continue
+    const normalizedValues: Record<string, string> = {}
+    for (const [configId, valueId] of Object.entries(values)) {
+      if (
+        isReasoningConfigId(configId) &&
+        typeof valueId === "string" &&
+        valueId.trim()
+      ) {
+        normalizedValues[configId] = valueId
+      }
+    }
+    if (Object.keys(normalizedValues).length > 0) {
+      next[modelId] = normalizedValues
+    }
+  }
+  return Object.keys(next).length > 0 ? next : undefined
+}
+
 function updatePrefs(
   agentType: string,
   fn: (prefs: SelectorPrefs) => SelectorPrefs
@@ -72,7 +117,8 @@ function updatePrefs(
   // user's first save would re-persist the stale hash bytes forever.
   const normalized: SelectorPrefs = {
     modeId: existing?.modeId,
-    configValues: withoutSessionModel(existing?.configValues),
+    configValues: withoutGlobalReasoning(existing?.configValues),
+    modelConfigValues: normalizeModelConfigValues(existing?.modelConfigValues),
   }
   all[agentType] = fn(normalized)
   writeAll(all)
@@ -107,6 +153,7 @@ function normalizeLegacyPrefs(
   const next: SelectorPrefs = {
     modeId: prefs?.modeId,
     configValues: { ...prefs?.configValues },
+    modelConfigValues: normalizeModelConfigValues(prefs?.modelConfigValues),
   }
   if (agentType === "codex" && next.modeId === "plan") {
     next.modeId = "agent"
@@ -144,13 +191,44 @@ export function getSavedPrefsForConnect(agentType: AgentType): {
   const prefs = normalizeLegacyPrefs(agentType, all[agentType])
 
   const configValues = {
-    ...withoutSessionModel(prefs.configValues),
+    ...withoutGlobalReasoning(prefs.configValues),
     __iyw_response_style: loadConversationDisplayPreferences().responseStyle,
   }
   return {
     modeId: resolveModeId(agentType, prefs),
     configValues: Object.keys(configValues).length > 0 ? configValues : null,
   }
+}
+
+/** Read all valid model-scoped reasoning preferences for the agent. */
+export function getSavedModelConfigPreferences(
+  agentType: AgentType
+): Record<string, Record<string, string>> {
+  const all = readAll()
+  return normalizeModelConfigValues(all[agentType]?.modelConfigValues) ?? {}
+}
+
+/** Save a reasoning preference for one concrete model. */
+export function saveModelConfigPreference(
+  agentType: string,
+  modelId: string,
+  configId: string,
+  valueId: string
+) {
+  const normalizedModelId = modelId.trim()
+  if (!normalizedModelId || !isReasoningConfigId(configId) || !valueId.trim()) {
+    return
+  }
+  updatePrefs(agentType, (prefs) => ({
+    ...prefs,
+    modelConfigValues: {
+      ...prefs.modelConfigValues,
+      [normalizedModelId]: {
+        ...prefs.modelConfigValues?.[normalizedModelId],
+        [configId]: valueId,
+      },
+    },
+  }))
 }
 
 // ── Save (user actions only) ──
@@ -170,7 +248,7 @@ export function saveConfigPreference(
   configId: string,
   valueId: string
 ) {
-  if (configId === "model") return
+  if (configId === "model" || isReasoningConfigId(configId)) return
   updatePrefs(agentType, (prefs) => ({
     ...prefs,
     configValues: { ...prefs.configValues, [configId]: valueId },
@@ -181,7 +259,7 @@ export function replaceConfigPreferences(
   agentType: string,
   configValues: Record<string, string>
 ) {
-  const next = withoutSessionModel(configValues)
+  const next = withoutGlobalReasoning(configValues)
   updatePrefs(agentType, (prefs) => ({
     ...prefs,
     configValues: next,

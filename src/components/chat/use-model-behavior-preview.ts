@@ -3,6 +3,7 @@ import {
   isFastConfigOption,
   isReasoningConfigOption,
 } from "@/lib/model-config-groups"
+import { resolveModelReasoningEffort } from "@/lib/gateway-model-catalog"
 import type {
   SessionConfigOptionInfo,
   SessionConfigSelectOptionInfo,
@@ -18,16 +19,11 @@ function optionsForModel(
   return behaviorOptions.flatMap((behavior) => {
     if (isReasoningConfigOption(behavior)) {
       if (metadata.reasoningOptions.length === 0) return []
-      const configured = behavior.kind.current_value
-      const current = metadata.reasoningOptions.some(
-        (item) => item.value === configured
-      )
-        ? configured
-        : metadata.reasoningOptions.some(
-              (item) => item.value === metadata.defaultReasoningEffort
-            )
-          ? metadata.defaultReasoningEffort!
-          : metadata.reasoningOptions[0].value
+      const configured =
+        metadata.savedReasoningEffort ??
+        (model.value === currentValue ? behavior.kind.current_value : undefined)
+      const current = resolveModelReasoningEffort(model, configured)
+      if (!current) return []
       return [
         {
           ...behavior,
@@ -48,7 +44,9 @@ function optionsForModel(
           : metadata.fastModeDefaultEnabled
             ? "on"
             : "off"
-      return [{ ...behavior, kind: { ...behavior.kind, current_value: current } }]
+      return [
+        { ...behavior, kind: { ...behavior.kind, current_value: current } },
+      ]
     }
     return [behavior]
   })

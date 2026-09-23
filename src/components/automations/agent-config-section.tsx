@@ -143,7 +143,7 @@ export function AgentConfigSection({
               onSelect={(configId, valueId) =>
                 onConfigChange(configId, valueId)
               }
-              onBehaviorSelect={(configId, valueId) =>
+              onBehaviorSelect={(_modelValue, configId, valueId) =>
                 onConfigChange(configId, valueId)
               }
             />

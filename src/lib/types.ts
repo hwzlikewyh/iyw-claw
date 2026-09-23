@@ -1148,6 +1148,7 @@ export interface SessionConfigSelectOptionInfo {
   modelBehavior?: {
     reasoningOptions: SessionConfigSelectOptionInfo[]
     defaultReasoningEffort: string | null
+    savedReasoningEffort?: string | null
     fastModeSupported: boolean
     fastModeDefaultEnabled: boolean
   }

@@ -23,7 +23,11 @@ interface ModelOptionPickerProps {
   groups: ModelOptionGroup[]
   behaviorOptions?: SessionConfigOptionInfo[]
   onSelect: (configId: string, valueId: string) => void
-  onBehaviorSelect?: (configId: string, valueId: string) => void
+  onBehaviorSelect?: (
+    modelValue: string,
+    configId: string,
+    valueId: string
+  ) => void
   onOpen?: () => void
 }
 
@@ -105,7 +109,7 @@ export function ModelOptionPicker({
             if (modelValue !== currentValue) {
               onSelect(option.id, modelValue)
             }
-            onBehaviorSelect?.(configId, valueId)
+            onBehaviorSelect?.(modelValue, configId, valueId)
             setOpen(false)
           }}
           autoFocus
