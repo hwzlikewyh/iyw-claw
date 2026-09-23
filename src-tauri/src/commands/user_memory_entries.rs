@@ -3,10 +3,11 @@ use std::sync::Arc;
 
 use crate::app_error::AppCommandError;
 use crate::user_memory::{
-    ApplyMemoryGovernanceRequest, ApplyMemoryGovernanceResult, CloudRetrievalConfig,
-    ForgetUserMemoryRequest, ForgetUserMemoryResult, MemoryGovernancePreview, RetrievalModels,
-    SemanticPreview, SemanticStatus, UserMemoryEntryListRequest, UserMemoryEntryPage,
-    UserMemoryEntryStatusRequest, UserMemoryService,
+    ApplyMemoryGovernanceRequest, ApplyMemoryGovernanceResult, ClearUserMemoryRequest,
+    ClearUserMemoryResult, CloudRetrievalConfig, ForgetUserMemoryRequest, ForgetUserMemoryResult,
+    MemoryGovernancePreview, RetrievalModels, SemanticPreview, SemanticStatus,
+    UserMemoryEntryListRequest, UserMemoryEntryPage, UserMemoryEntryStatusRequest,
+    UserMemoryService,
 };
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
@@ -71,6 +72,31 @@ pub async fn forget_user_memory_core(
     request: ForgetUserMemoryRequest,
 ) -> Result<ForgetUserMemoryResult, AppCommandError> {
     service.forget_user_memory(request).await
+}
+
+pub async fn clear_user_memory_core(
+    service: &UserMemoryService,
+    request: ClearUserMemoryRequest,
+) -> Result<ClearUserMemoryResult, AppCommandError> {
+    service.clear_user_memory(request).await.inspect_err(|error| {
+        tracing::warn!(code=?error.code, message=%error.message, "[memory-clear] request failed");
+    })
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn clear_user_memory(
+    #[cfg(feature = "tauri-runtime")] service: tauri::State<'_, Arc<UserMemoryService>>,
+    request: ClearUserMemoryRequest,
+) -> Result<ClearUserMemoryResult, AppCommandError> {
+    #[cfg(feature = "tauri-runtime")]
+    {
+        clear_user_memory_core(service.inner().as_ref(), request).await
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        let _ = request;
+        Err(AppCommandError::configuration_invalid("tauri-only command"))
+    }
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]

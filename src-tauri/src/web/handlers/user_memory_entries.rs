@@ -6,14 +6,15 @@ use serde::Deserialize;
 use crate::app_error::AppCommandError;
 use crate::app_state::AppState;
 use crate::commands::user_memory_entries::{
-    apply_memory_governance_core, forget_user_memory_core, list_user_memory_entries_core,
-    preview_memory_governance_core, set_user_memory_entry_status_core,
+    apply_memory_governance_core, clear_user_memory_core, forget_user_memory_core,
+    list_user_memory_entries_core, preview_memory_governance_core,
+    set_user_memory_entry_status_core,
 };
 use crate::user_memory::{
-    ApplyMemoryGovernanceRequest, ApplyMemoryGovernanceResult, CloudRetrievalConfig,
-    ForgetUserMemoryRequest, ForgetUserMemoryResult, MemoryGovernancePreview, RetrievalModels,
-    SemanticPreview, SemanticStatus, UserMemoryEntryListRequest, UserMemoryEntryPage,
-    UserMemoryEntryStatusRequest,
+    ApplyMemoryGovernanceRequest, ApplyMemoryGovernanceResult, ClearUserMemoryRequest,
+    ClearUserMemoryResult, CloudRetrievalConfig, ForgetUserMemoryRequest, ForgetUserMemoryResult,
+    MemoryGovernancePreview, RetrievalModels, SemanticPreview, SemanticStatus,
+    UserMemoryEntryListRequest, UserMemoryEntryPage, UserMemoryEntryStatusRequest,
 };
 
 pub async fn get_user_memory_retrieval_models(
@@ -103,6 +104,21 @@ pub async fn forget_user_memory(
 ) -> Result<Json<ForgetUserMemoryResult>, AppCommandError> {
     Ok(Json(
         forget_user_memory_core(&state.user_memory, params.request).await?,
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ClearMemoryParams {
+    pub request: ClearUserMemoryRequest,
+}
+
+pub async fn clear_user_memory(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<ClearMemoryParams>,
+) -> Result<Json<ClearUserMemoryResult>, AppCommandError> {
+    Ok(Json(
+        clear_user_memory_core(&state.user_memory, params.request).await?,
     ))
 }
 

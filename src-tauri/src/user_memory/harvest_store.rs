@@ -163,7 +163,7 @@ pub(super) async fn finish(
         outcome_fields(conn, dedup_key, outcome).await?;
     execute(
         conn,
-        "UPDATE memory_harvest_outbox SET state = ?, failure_kind = ?, failure_detail = ?, noop_reason = ?, candidate_ids = ?, experience_ids = ?, processed_at = ?, processing_ms = ?, next_attempt_at = CASE WHEN ? = 'failed' THEN ? ELSE NULL END, updated_at = ? WHERE dedup_key = ?",
+        "UPDATE memory_harvest_outbox SET state = ?, failure_kind = ?, failure_detail = ?, noop_reason = ?, candidate_ids = ?, experience_ids = ?, processed_at = ?, processing_ms = ?, next_attempt_at = CASE WHEN ? = 'failed' THEN ? ELSE NULL END, updated_at = ? WHERE dedup_key = ? AND state = 'extracting'",
         [
             state.clone().into(), failure_kind.into(), failure_detail.into(), noop_reason.into(),
             candidate_ids.into(), experience_ids.into(), now.clone().into(), (elapsed_ms as i64).into(),

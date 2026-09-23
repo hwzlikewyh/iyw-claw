@@ -8,7 +8,7 @@ use super::harvest::{
 };
 use super::{harvest_store, structured_file, UserMemoryService};
 
-const PENDING_FILE: &str = ".user-memory-harvest-pending.json";
+pub(super) const PENDING_FILE: &str = ".user-memory-harvest-pending.json";
 const PENDING_SCHEMA_VERSION: u32 = 1;
 const REPLAY_BATCH_SIZE: usize = 32;
 
@@ -83,6 +83,18 @@ impl UserMemoryService {
         let (_guard, _file_guard) = self.acquire_locks().await?;
         Ok(read_pending(self.resolved_root()?)?.requests.len() as u32)
     }
+}
+
+pub(super) fn pending_for_clear(
+    root: &std::path::Path,
+) -> Result<Vec<MemoryHarvestRequest>, AppCommandError> {
+    let mut requests = read_pending(root)?.requests;
+    for request in &mut requests {
+        request.user_input_ref = None;
+        request.assistant_input_ref = None;
+        request.tool_outcome_ref = None;
+    }
+    Ok(requests)
 }
 
 fn read_pending(root: &std::path::Path) -> Result<PendingHarvest, AppCommandError> {

@@ -84,7 +84,7 @@ export async function forgetMemoryEntry(
     return result
   } catch (error) {
     state.setError(toErrorMessage(error))
-    return null
+    throw error
   } finally {
     state.setBusy(false)
   }

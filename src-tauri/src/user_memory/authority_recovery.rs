@@ -19,6 +19,8 @@ pub(super) struct PendingAuthority {
     previous_digest: String,
     next: AuthoritySnapshot,
     identity: Option<(String, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    purge: Option<super::authority_commit::AuthorityPurge>,
 }
 
 impl UserMemoryService {
@@ -27,13 +29,25 @@ impl UserMemoryService {
         next: &AuthoritySnapshot,
         identity: Option<(&str, &str)>,
     ) -> Result<(), AppCommandError> {
+        self.prepare_authority_purge_commit(next, (identity, None))
+    }
+
+    pub(super) fn prepare_authority_purge_commit(
+        &self,
+        next: &AuthoritySnapshot,
+        change: (
+            Option<(&str, &str)>,
+            Option<&super::authority_commit::AuthorityPurge>,
+        ),
+    ) -> Result<(), AppCommandError> {
         let current = self
             .authority_snapshot()
             .ok_or_else(|| super::helpers::conflict("Memory authority is missing"))?;
         let pending = PendingAuthority {
             previous_digest: current.digest,
             next: next.clone(),
-            identity: identity.map(|(old, new)| (old.into(), new.into())),
+            identity: change.0.map(|(old, new)| (old.into(), new.into())),
+            purge: change.1.cloned(),
         };
         structured_file::write_json_atomic(self.resolved_root()?, PENDING_FILE, &pending)
     }
@@ -78,6 +92,13 @@ impl UserMemoryService {
             self.replay_authority_commit(&pending).await?;
         }
         super::authority_export::write_fence(self.resolved_root()?, &pending.next)?;
+        if pending
+            .purge
+            .as_ref()
+            .is_some_and(|purge| purge.harvest_cutoff.is_some())
+        {
+            super::clear::clear_pending_sources(self.resolved_root()?);
+        }
         self.finish_authority_commit();
         tracing::info!(
             epoch = pending.next.epoch,
@@ -109,6 +130,9 @@ impl UserMemoryService {
             .as_ref()
             .map(|(old, new)| (old.as_str(), new.as_str()));
         super::authority_records::persist(&txn, self, (&next.data, rename)).await?;
+        if let Some(purge) = &pending.purge {
+            super::authority_commit::apply_purge(&txn, &key, purge).await?;
+        }
         super::authority::queue_projections(&txn, &key, next.epoch).await?;
         txn.commit()
             .await

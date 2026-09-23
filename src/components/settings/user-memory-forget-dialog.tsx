@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Loader2, Trash2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
@@ -10,49 +10,76 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
+import { toErrorMessage } from "@/lib/app-error"
 import type { ForgetUserMemoryResult } from "@/lib/user-memory-entries"
 
-export function UserMemoryForgetDialog({
-  disabled,
-  onForget,
-}: {
+type ForgetAction = (
+  purgeBackups: boolean
+) => Promise<ForgetUserMemoryResult | null>
+
+function useForgetDialog(onForget: ForgetAction) {
+  const t = useTranslations("UserMemorySettings.entries")
+  const pending = useRef(false)
+  const [open, setOpen] = useState(false)
+  const [purgeBackups, setPurgeBackups] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const changeOpen = (value: boolean) => {
+    if (pending.current) return
+    setError(null)
+    setPurgeBackups(false)
+    setOpen(value)
+  }
+  const forget = async () => {
+    if (pending.current) return
+    pending.current = true
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await onForget(purgeBackups)
+      if (!result?.forgotten) return setError(t("forgetFailed"))
+      setOpen(false)
+      toast.success(t("forgotten"), {
+        description: result.residualBackupPaths.length
+          ? t("backupResidual", { count: result.residualBackupPaths.length })
+          : t("noBackupResidual"),
+      })
+    } catch (reason) {
+      setError(toErrorMessage(reason))
+    } finally {
+      pending.current = false
+      setBusy(false)
+    }
+  }
+  return {
+    open,
+    changeOpen,
+    purgeBackups,
+    setPurgeBackups,
+    busy,
+    error,
+    forget,
+  }
+}
+
+export function UserMemoryForgetDialog(props: {
   disabled: boolean
   onForget: (purgeBackups: boolean) => Promise<ForgetUserMemoryResult | null>
 }) {
-  const t = useTranslations("UserMemorySettings.entries")
-  const [open, setOpen] = useState(false)
-  const [confirmation, setConfirmation] = useState("")
-  const [purgeBackups, setPurgeBackups] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const forget = async () => {
-    setBusy(true)
-    const result = await onForget(purgeBackups)
-    setBusy(false)
-    if (!result) return
-    setOpen(false)
-    toast.success(t("forgotten"), {
-      description: result.residualBackupPaths.length
-        ? t("backupResidual", { count: result.residualBackupPaths.length })
-        : t("noBackupResidual"),
-    })
-  }
+  const state = useForgetDialog(props.onForget)
   return (
     <>
-      <ForgetTrigger disabled={disabled} open={() => setOpen(true)} />
-      <Dialog open={open} onOpenChange={(value) => !busy && setOpen(value)}>
-        <DialogContent className="sm:max-w-md">
-          <ForgetForm
-            busy={busy}
-            confirmation={confirmation}
-            setConfirmation={setConfirmation}
-            purgeBackups={purgeBackups}
-            setPurgeBackups={setPurgeBackups}
-            forget={forget}
-          />
+      <ForgetTrigger
+        disabled={props.disabled}
+        open={() => state.changeOpen(true)}
+      />
+      <Dialog open={state.open} onOpenChange={state.changeOpen}>
+        <DialogContent className="sm:max-w-md" showCloseButton={!state.busy}>
+          <ForgetForm state={state} />
         </DialogContent>
       </Dialog>
     </>
@@ -81,21 +108,7 @@ function ForgetTrigger({
   )
 }
 
-function ForgetForm({
-  busy,
-  confirmation,
-  setConfirmation,
-  purgeBackups,
-  setPurgeBackups,
-  forget,
-}: {
-  busy: boolean
-  confirmation: string
-  setConfirmation: (value: string) => void
-  purgeBackups: boolean
-  setPurgeBackups: (value: boolean) => void
-  forget: () => Promise<void>
-}) {
+function ForgetForm({ state }: { state: ReturnType<typeof useForgetDialog> }) {
   const t = useTranslations("UserMemorySettings.entries")
   return (
     <>
@@ -106,31 +119,50 @@ function ForgetForm({
       <label className="flex items-start gap-2 text-sm">
         <input
           type="checkbox"
-          checked={purgeBackups}
-          disabled={busy}
-          onChange={(event) => setPurgeBackups(event.target.checked)}
+          checked={state.purgeBackups}
+          disabled={state.busy}
+          onChange={(event) => state.setPurgeBackups(event.target.checked)}
         />
         {t("purgeBackups")}
       </label>
-      <Input
-        value={confirmation}
-        disabled={busy}
-        aria-label={t("forgetConfirmation")}
-        placeholder="FORGET"
-        onChange={(event) => setConfirmation(event.target.value)}
-      />
+      {state.error && (
+        <p role="alert" className="break-words text-sm text-destructive">
+          {state.error}
+        </p>
+      )}
+      <ForgetFooter state={state} />
+    </>
+  )
+}
+
+function ForgetFooter({
+  state,
+}: {
+  state: ReturnType<typeof useForgetDialog>
+}) {
+  const t = useTranslations("UserMemorySettings.entries")
+  return (
+    <DialogFooter>
+      <Button
+        variant="outline"
+        disabled={state.busy}
+        onClick={() => state.changeOpen(false)}
+        autoFocus
+      >
+        {t("forgetCancel")}
+      </Button>
       <Button
         variant="destructive"
-        disabled={busy || confirmation !== "FORGET"}
-        onClick={() => void forget()}
+        disabled={state.busy}
+        onClick={() => void state.forget()}
       >
-        {busy ? (
+        {state.busy ? (
           <Loader2 className="size-4 animate-spin" />
         ) : (
           <Trash2 className="size-4" />
         )}
         {t("forget")}
       </Button>
-    </>
+    </DialogFooter>
   )
 }

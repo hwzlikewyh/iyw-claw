@@ -16,6 +16,7 @@ import {
   type UserMemorySettingsSnapshot,
 } from "@/lib/user-memory-documents"
 import { UserMemoryEntriesPanel } from "./user-memory-entries-panel"
+import { UserMemoryClearDialog } from "./user-memory-clear-dialog"
 
 interface UserMemoryDocumentEditorProps {
   activeDocumentId: UserMemoryDocumentId
@@ -169,6 +170,7 @@ export function UserMemoryDocumentEditor(props: UserMemoryDocumentEditorProps) {
         onChange={setView}
         saving={props.saving}
         dirty={props.dirty}
+        onUpdated={props.onEntryUpdated}
       />
       {view === "entries" ? (
         <UserMemoryEntriesPanel
@@ -189,15 +191,23 @@ function EditorViewButtons({
   onChange,
   saving,
   dirty,
+  onUpdated,
 }: {
   view: "entries" | "source"
   onChange: (value: "entries" | "source") => void
   saving: boolean
   dirty: boolean
+  onUpdated: () => void
 }) {
   const t = useTranslations("UserMemorySettings.entries")
   return (
-    <div className="flex justify-end gap-1 border-b px-4 py-1">
+    <div className="flex flex-wrap items-center gap-1 border-b px-4 py-1">
+      <div className="mr-auto">
+        <UserMemoryClearDialog
+          disabled={saving || dirty}
+          onUpdated={onUpdated}
+        />
+      </div>
       <Button
         size="icon"
         variant={view === "entries" ? "secondary" : "ghost"}
