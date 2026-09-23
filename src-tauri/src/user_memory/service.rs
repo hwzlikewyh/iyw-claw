@@ -41,6 +41,7 @@ pub struct UserMemoryService {
     pub(super) recall_tool_enabled: bool,
     pub(super) migration_blocked_documents: Arc<RwLock<BTreeSet<UserMemoryDocumentId>>>,
     pub(super) migration_report: Arc<RwLock<Option<UserMemoryMigrationReport>>>,
+    pub(super) memory_format_checked: Arc<AtomicBool>,
     pub(super) harvest: HarvestQueue,
     pub(super) managed_chat_root: Option<String>,
     pub(super) semantic: Arc<super::semantic::SemanticRuntime>,
@@ -86,6 +87,7 @@ impl UserMemoryService {
             recall_tool_enabled: configured_recall_tool_enabled(),
             migration_blocked_documents: Arc::new(RwLock::new(BTreeSet::new())),
             migration_report: Arc::new(RwLock::new(None)),
+            memory_format_checked: Arc::new(AtomicBool::new(false)),
             harvest: HarvestQueue::default(),
             managed_chat_root: None,
             semantic: Arc::new(super::semantic::SemanticRuntime::default()),
@@ -314,6 +316,7 @@ impl UserMemoryService {
     ) -> Result<(tokio::sync::OwnedMutexGuard<()>, File), AppCommandError> {
         let guards = self.acquire_reconciliation_locks().await?;
         self.load_authority_locked().await?;
+        self.reconcile_memory_format_once_locked().await;
         Ok(guards)
     }
 
