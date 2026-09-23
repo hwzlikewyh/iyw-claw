@@ -220,10 +220,14 @@ function bundleArgs(signingConfig, bundleConfig) {
 
 function bundle(version) {
   const output = join(ROOT, TARGET_RELEASE, "bundle", "nsis")
+  const suffix = `_${version}_${LAYOUT.arch}-setup.exe`
   mkdirSync(output, { recursive: true })
-  // 资源管理器可能持有目录句柄，只清理已知安装产物。
+  // 保留其它版本及目录，旧安装器可能仍在使用其安装包。
   for (const entry of readdirSync(output, { withFileTypes: true })) {
-    if (entry.isFile() && /-setup\.exe(?:\.sig)?$/.test(entry.name))
+    if (
+      entry.isFile() &&
+      (entry.name.endsWith(suffix) || entry.name.endsWith(`${suffix}.sig`))
+    )
       rmSync(join(output, entry.name), { force: true })
   }
   const signingConfig = prepareSigningConfig()
@@ -247,7 +251,7 @@ function bundle(version) {
     if (result.status !== 0)
       fail(`NSIS bundle failed with exit code ${result.status}`)
     const installers = readdirSync(output).filter((name) =>
-      name.endsWith("-setup.exe")
+      name.endsWith(suffix)
     )
     if (installers.length !== 1)
       fail(`expected one final installer, found ${installers.length}`)
