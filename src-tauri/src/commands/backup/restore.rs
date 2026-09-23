@@ -142,6 +142,9 @@ pub(crate) async fn stage_restore_core(
     let encrypted = tokio::task::spawn_blocking(move || crypto::is_encrypted(&src_buf))
         .await
         .map_err(spawn_err)??;
+    if encrypted {
+        emit(emitter, op_id, BackupPhase::Decrypting);
+    }
     let (zip_path, _guard) = core::obtain_plaintext_zip(src, encrypted, passphrase).await?;
     require_stage_active(cancel, monitor).await?;
 
@@ -173,14 +176,30 @@ pub(crate) async fn stage_restore_core(
     let staging_c = staging_root.clone();
     let manifest_c = manifest.clone();
     let cancel_c = cancel.clone();
+    let emitter_c = emitter.clone();
+    let op_id_c = op_id.to_string();
     tokio::task::spawn_blocking(move || -> Result<(), AppCommandError> {
+        let mut last_progress = std::time::Instant::now();
         archive::extract_all(
             &zip_c,
             &staging_c,
             &manifest_c,
             &cancel_c,
-            &mut archive::null_progress(),
+            &mut |_, processed| {
+                if last_progress.elapsed() >= super::PROGRESS_INTERVAL {
+                    last_progress = std::time::Instant::now();
+                    core::emit(
+                        &emitter_c,
+                        &op_id_c,
+                        BackupPhase::Extracting,
+                        processed,
+                        Some(manifest_c.total_bytes()),
+                        None,
+                    );
+                }
+            },
         )?;
+        emit(&emitter_c, &op_id_c, BackupPhase::Verifying);
         archive::verify_checksums(&staging_c, &manifest_c, &cancel_c)
     })
     .await
@@ -198,6 +217,9 @@ pub(crate) async fn stage_restore_core(
         .await
         .map_err(AppCommandError::io)?;
     require_stage_active(cancel, monitor).await?;
+
+    let (restored_external_path, skipped_conflicts) =
+        super::external_restore::prepare(&staging_root, data_dir, external_mode)?;
 
     // Validate/synthesize candidate state while holding the canonical memory
     // lock. A Phase 1 archive gets an explicit empty schema-v1 candidate state
@@ -219,28 +241,12 @@ pub(crate) async fn stage_restore_core(
             )?;
         }
 
+        // 校验并重定位暂存副本；原生会话文件在重启后应用。
+        super::portable::prepare(&staging_root, data_dir).await?;
         // Commit core restore only after all user-memory validation succeeds.
         require_stage_active(cancel, monitor).await?;
         write_pending_marker(data_dir, &staging_root, &manifest, stages_user_memory)?;
     }
-    require_stage_active(cancel, monitor).await?;
-
-    // 5. External transcripts run AFTER the commit and are TRULY non-fatal: the
-    //    core restore is already committed, so an external (best-effort,
-    //    non-transactional) write must never turn the call into an error — that
-    //    would tell the UI "failed / don't restart" while the marker silently
-    //    applies on the next launch. Any external failure is logged and the
-    //    stage still reports success.
-    let (restored_external_path, skipped_conflicts) =
-        match handle_external(&staging_root, data_dir, &manifest, external_mode, cancel).await {
-            Ok(result) => result,
-            Err(e) => {
-                tracing::error!(
-                    "[RESTORE] external transcript handling failed (core restore still staged): {e}"
-                );
-                (None, Vec::new())
-            }
-        };
     require_stage_active(cancel, monitor).await?;
 
     emit(emitter, op_id, BackupPhase::Done);
@@ -429,6 +435,9 @@ fn apply_pending_restore_with_optional_paths(
         persist_restore_source_changed(data_dir)?;
     }
 
+    // 原生进程尚未启动。失败时保留 marker 与暂存目录，下次启动可重试。
+    super::external_restore::apply(&staging).map_err(app_error_to_io)?;
+
     // Safety snapshot of the current live data, then swap staged files in.
     let backup_dir = data_dir.join(SAFETY_DIR).join(safe_timestamp());
     std::fs::create_dir_all(&backup_dir)?;
@@ -451,6 +460,20 @@ fn apply_pending_restore_with_optional_paths(
     let staged_uploads = staging.join("uploads");
     if staged_uploads.is_dir() {
         swap_in(&staged_uploads, uploads_root, &backup_dir.join("uploads"))?;
+    }
+
+    for (name, root) in super::portable::host_roots(data_dir) {
+        if name != "uploads" {
+            swap_in(&staging.join(&name), &root, &backup_dir.join(&name))?;
+        }
+    }
+    // 相同会话 ID 的旧分页缓存不能遮蔽恢复后的正文。
+    let history_cache = data_dir.join("cache/conversation-history");
+    if history_cache.exists() {
+        move_path(
+            &history_cache,
+            &backup_dir.join("conversation-history-cache"),
+        )?;
     }
 
     let staged_tokens = staging.join("tokens.json");
@@ -555,7 +578,7 @@ fn swap_in(staged: &Path, live: &Path, backup: &Path) -> std::io::Result<()> {
 
 /// Rename `src` → `dst`, falling back to recursive copy + remove across
 /// filesystem boundaries (IYW_CLAW_HOME / IYW_CLAW_DATA_DIR may differ).
-fn move_path(src: &Path, dst: &Path) -> std::io::Result<()> {
+pub(super) fn move_path(src: &Path, dst: &Path) -> std::io::Result<()> {
     if let Some(parent) = dst.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -596,53 +619,6 @@ fn copy_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Apply external transcripts from the staging dir per `mode`. External files
-/// are owned by the agent CLIs, so OriginalLocations never overwrites an
-/// existing file unless the caller authorized it (`Overwrite`); skipped paths
-/// are returned for the UI to report.
-async fn handle_external(
-    staging_root: &Path,
-    data_dir: &Path,
-    manifest: &BackupManifest,
-    mode: ExternalRestoreMode,
-    cancel: &CancellationToken,
-) -> Result<(Option<String>, Vec<String>), AppCommandError> {
-    let staged_external = staging_root.join("external");
-    if !manifest.includes_external_transcripts || !staged_external.is_dir() {
-        return Ok((None, Vec::new()));
-    }
-    match mode {
-        ExternalRestoreMode::Skip => {
-            let _ = tokio::fs::remove_dir_all(&staged_external).await;
-            Ok((None, Vec::new()))
-        }
-        ExternalRestoreMode::SideLocation => {
-            // Zero-risk: move the whole tree to a timestamped side folder under
-            // the data dir; the user copies it back manually if desired.
-            let stamp = sanitize_stamp(&manifest.created_at);
-            let dest = data_dir.join(RESTORED_TRANSCRIPTS_DIR).join(stamp);
-            let staged_c = staged_external.clone();
-            let dest_c = dest.clone();
-            tokio::task::spawn_blocking(move || move_path(&staged_c, &dest_c))
-                .await
-                .map_err(spawn_err)?
-                .map_err(AppCommandError::io)?;
-            Ok((Some(dest.to_string_lossy().into_owned()), Vec::new()))
-        }
-        ExternalRestoreMode::OriginalLocations { on_conflict } => {
-            let staged_c = staged_external.clone();
-            let cancel_c = cancel.clone();
-            let skipped = tokio::task::spawn_blocking(move || {
-                super::external::restore_external_from_staging(&staged_c, on_conflict, &cancel_c)
-            })
-            .await
-            .map_err(spawn_err)??;
-            let _ = tokio::fs::remove_dir_all(&staged_external).await;
-            Ok((None, skipped))
-        }
-    }
-}
-
 fn write_pending_marker(
     data_dir: &Path,
     staging_root: &Path,
@@ -661,23 +637,20 @@ fn write_pending_marker(
             .with_detail(e.to_string())
     })?;
     let marker = data_dir.join(PENDING_MARKER);
-    // Atomic, no-clobber claim: `create_new` lets exactly one concurrent stage
-    // commit. A second one fails with AlreadyExists rather than racing a rename
-    // and silently committing a different staging dir. A crash mid-write leaves
-    // a partial marker, which `apply_pending_restore_*` treats as malformed and
-    // discards (its staging is then reaped by `cleanup_transient_dirs`).
-    let mut f = match OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&marker)
-    {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            return Err(already_pending_error())
+    // 完整写入并刷盘后再原子认领，避免崩溃留下半个提交标记。
+    let mut temporary = tempfile::NamedTempFile::new_in(data_dir).map_err(AppCommandError::io)?;
+    temporary.write_all(&json).map_err(AppCommandError::io)?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(AppCommandError::io)?;
+    temporary.persist_noclobber(&marker).map_err(|error| {
+        if error.error.kind() == std::io::ErrorKind::AlreadyExists {
+            already_pending_error()
+        } else {
+            AppCommandError::io(error.error)
         }
-        Err(e) => return Err(AppCommandError::io(e)),
-    };
-    f.write_all(&json).map_err(AppCommandError::io)?;
+    })?;
     Ok(())
 }
 
@@ -718,13 +691,6 @@ fn safe_timestamp() -> String {
         Utc::now().format("%Y%m%d-%H%M%S"),
         uuid::Uuid::new_v4().simple()
     )
-}
-
-fn sanitize_stamp(rfc3339: &str) -> String {
-    rfc3339
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect()
 }
 
 fn emit(emitter: &EventEmitter, op_id: &str, phase: BackupPhase) {

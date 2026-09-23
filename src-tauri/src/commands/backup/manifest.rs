@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 /// Bumped only on an incompatible change to the archive layout / manifest
 /// shape. Restores reject any archive whose `format_version` exceeds this.
-pub const BACKUP_FORMAT_VERSION: u32 = 1;
+pub const BACKUP_FORMAT_VERSION: u32 = 2;
 
 /// Magic discriminator stored in every manifest so a stray ZIP can't be
 /// mistaken for a iyw-claw backup.

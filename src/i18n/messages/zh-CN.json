@@ -5041,6 +5041,18 @@
       "backup": "备份",
       "restore": "恢复"
     },
+    "progress": {
+      "snapshotting": "正在生成数据快照…",
+      "archiving": "正在打包对话和附件…",
+      "encrypting": "正在加密备份…",
+      "decrypting": "正在解密备份…",
+      "extracting": "正在解压备份…",
+      "verifying": "正在校验并准备恢复…",
+      "swapping": "正在应用恢复…",
+      "done": "处理完成",
+      "cancelled": "已取消",
+      "error": "处理失败"
+    },
     "export": {
       "includeExternal": "包含会话内容",
       "includeExternalHint": "同时打包各 CLI 的会话记录（Claude、Codex、Gemini 等），体积更大。",
@@ -5057,6 +5069,10 @@
     },
     "restore": {
       "selectFile": "选择备份文件",
+      "uploading": "正在上传备份…",
+      "legacyWarning": "此备份未包含完整的换机迁移数据，缺失的对话正文或附件无法恢复。",
+      "projectNote": "项目源码不包含在备份中。继续项目对话前，请将项目迁移到对应目录。",
+      "skippedFiles": "将保留目标机器上 {count} 个已有会话文件；这些文件不会被备份覆盖。",
       "passphrasePrompt": "该备份已加密，请输入其口令。",
       "unlock": "解锁",
       "preview": {
@@ -5075,7 +5091,7 @@
       "staged": "恢复已就绪，正在重启…",
       "restarting": "恢复已就绪，正在重启服务…",
       "restartTimeout": "服务未能及时恢复。待其启动后请刷新页面。",
-      "externalSideLocation": "会话记录已恢复到 {path}",
+      "externalSideLocation": "重启后会话记录将保存到 {path}",
       "confirmTitle": "替换全部数据？",
       "confirmBody": "这将用备份替换当前的 原助理 数据库与上传文件，然后重启。当前数据会先做快照。",
       "cancel": "取消",
@@ -5085,7 +5101,7 @@
         "hint": "该备份包含各 CLI 的会话记录。请选择恢复到何处。",
         "modeSkip": "不恢复",
         "modeSide": "恢复到安全的旁路目录",
-        "modeOriginal": "恢复到 CLI 的原始位置",
+        "modeOriginal": "恢复到此机器的会话目录",
         "forceOverwrite": "覆盖已存在的文件",
         "forceOverwriteHint": "替换 CLI 目录中已存在的文件。",
         "scanning": "正在检查冲突…",
