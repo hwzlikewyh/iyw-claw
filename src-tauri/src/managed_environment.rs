@@ -1,13 +1,13 @@
 use std::fs::File;
-use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 
+mod file_stamp;
 mod repair;
 mod snapshot;
 mod status;
+mod verification_cache;
 
 pub use repair::repair;
 pub use status::{init_status_report, ManagedEnvironmentStatusReport};
@@ -51,7 +51,7 @@ pub fn entrypoint(component: &str, name: &str) -> Option<PathBuf> {
     let snapshot = snapshot::load(&root).ok()?;
     let component = snapshot
         .components
-        .into_iter()
+        .iter()
         .find(|item| item.component_id == component)?;
     let relative = component.entrypoints.get(name)?;
     let component_root = snapshot::component_path(&root, &component.relative_path)?;
@@ -65,7 +65,7 @@ pub fn component_root(component: &str) -> Option<PathBuf> {
     let snapshot = snapshot::load(&root).ok()?;
     let component = snapshot
         .components
-        .into_iter()
+        .iter()
         .find(|item| item.component_id == component)?;
     let path = snapshot::component_path(&root, &component.relative_path)?;
     path.is_dir().then_some(path)
@@ -73,12 +73,12 @@ pub fn component_root(component: &str) -> Option<PathBuf> {
 
 pub fn component_version(component: &str) -> Option<String> {
     let root = crate::paths::iyw_claw_user_dir();
-    snapshot::load(&root)
-        .ok()?
+    let snapshot = snapshot::load(&root).ok()?;
+    snapshot
         .components
-        .into_iter()
+        .iter()
         .find(|item| item.component_id == component)
-        .map(|item| item.version)
+        .map(|item| item.version.clone())
 }
 
 pub fn tool_entrypoint(name: &str) -> Option<PathBuf> {
@@ -166,12 +166,15 @@ fn verify_regular_file(root: &Path, path: &Path, record: &ManagedFile) -> bool {
     if !canonical_path.starts_with(canonical_root) {
         return false;
     }
-    let Ok(metadata) = canonical_path.metadata() else {
+    let Ok(mut file) = File::open(&canonical_path) else {
+        return false;
+    };
+    let Ok(metadata) = file.metadata() else {
         return false;
     };
     metadata.is_file()
         && metadata.len() == record.size
-        && hash_file(&canonical_path).is_some_and(|hash| hash == record.sha256)
+        && verification_cache::verify(&mut file, &canonical_path, record)
 }
 
 fn canonical_file_is_within(root: &Path, path: &Path) -> bool {
@@ -182,18 +185,4 @@ fn canonical_file_is_within(root: &Path, path: &Path) -> bool {
         return false;
     };
     canonical_path.starts_with(canonical_root) && canonical_path.is_file()
-}
-
-fn hash_file(path: &Path) -> Option<String> {
-    let mut file = File::open(path).ok()?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let read = file.read(&mut buffer).ok()?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Some(format!("{:x}", hasher.finalize()))
 }

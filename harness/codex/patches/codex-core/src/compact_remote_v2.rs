@@ -11,6 +11,7 @@ use crate::compact::InitialContextInjection;
 use crate::compact::build_compaction_initial_context;
 use crate::compact::compaction_status_from_result;
 use crate::compact::insert_initial_context_before_last_real_user_or_summary;
+use crate::compact::request_budget::RequestBudget;
 use crate::compact_model_fallback::record_model_fallback;
 use crate::compact_model_fallback::should_retry_with_current_model;
 use crate::compact_remote_history::HistoryItemGroup;
@@ -242,22 +243,24 @@ async fn run_remote_compact_task_inner_impl(
     sess.emit_turn_item_started(turn_context, &compaction_item)
         .await;
 
-    let attempt = run_remote_compact_v2_attempt(
-        sess,
-        step_context,
-        client_session.as_deref_mut(),
-        &compaction_trace,
-        compaction_metadata,
-        analytics_details,
-    )
-    .await;
+    let request_budget = RequestBudget::new();
+    let attempt = request_budget
+        .run(run_remote_compact_v2_attempt(
+            sess,
+            step_context,
+            client_session.as_deref_mut(),
+            &compaction_trace,
+            compaction_metadata,
+            analytics_details,
+        ))
+        .await;
     let (attempt, compaction_turn_context) = match attempt {
         Ok(attempt) => (attempt, turn_context),
         Err(error) => {
             let Some(fallback_step_context) = fallback_step_context else {
                 return Err(error);
             };
-            if !should_retry_with_current_model(&error) {
+            if request_budget.is_exhausted() || !should_retry_with_current_model(&error) {
                 return Err(error);
             }
             sess.set_last_known_step_context(fallback_step_context)
@@ -270,15 +273,16 @@ async fn run_remote_compact_task_inner_impl(
                     fallback_turn_context.model_info().slug.as_str(),
                     fallback_turn_context.provider.info().name.as_str(),
                 );
-            let fallback_result = run_remote_compact_v2_attempt(
-                sess,
-                fallback_step_context,
-                client_session,
-                &fallback_compaction_trace,
-                compaction_metadata,
-                analytics_details,
-            )
-            .await;
+            let fallback_result = request_budget
+                .run(run_remote_compact_v2_attempt(
+                    sess,
+                    fallback_step_context,
+                    client_session,
+                    &fallback_compaction_trace,
+                    compaction_metadata,
+                    analytics_details,
+                ))
+                .await;
             record_model_fallback(
                 &sess.services.session_telemetry,
                 turn_context.model_info().slug.as_str(),
@@ -289,6 +293,7 @@ async fn run_remote_compact_task_inner_impl(
             );
             match fallback_result {
                 Ok(attempt) => (attempt, fallback_turn_context),
+                Err(fallback_error) if request_budget.is_exhausted() => return Err(fallback_error),
                 Err(_) => return Err(error),
             }
         }
@@ -407,7 +412,7 @@ async fn run_remote_compaction_request_v2(
 
         match result {
             Ok(compaction_output) => return Ok(compaction_output),
-            Err(err) if !err.is_retryable() => return Err(err),
+            Err(err) if !crate::responses_retry::is_retryable_response_error(&err) => return Err(err),
             Err(err) => {
                 handle_retryable_response_stream_error(
                     &mut retry_state,

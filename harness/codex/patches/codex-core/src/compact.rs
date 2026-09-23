@@ -61,6 +61,9 @@ pub use codex_prompts::SUMMARIZATION_PROMPT;
 pub use codex_prompts::SUMMARY_PREFIX;
 const COMPACT_USER_MESSAGE_MAX_TOKENS: usize = 20_000;
 
+#[path = "compact_request_budget.rs"]
+pub(crate) mod request_budget;
+
 /// Controls whether compaction replacement history must include initial context.
 ///
 /// Pre-turn/manual compaction variants use `DoNotInject`: they replace history with a summary and
@@ -260,6 +263,7 @@ async fn run_compact_task_inner_impl(
     );
 
     let max_retries = turn_context.provider.info().stream_max_retries();
+    let request_budget = request_budget::RequestBudget::new();
     let mut retries = 0;
     let mut client_session = sess.services.model_client.new_session();
     // Reuse one client session so turn-scoped state (sticky routing, websocket incremental
@@ -283,14 +287,15 @@ async fn run_compact_task_inner_impl(
             base_instructions: sess.get_prompt_base_instructions().await,
             ..Default::default()
         };
-        let attempt_result = drain_to_completed(
-            &sess,
-            turn_context.as_ref(),
-            &mut client_session,
-            &responses_metadata,
-            &prompt,
-        )
-        .await;
+        let attempt_result = request_budget
+            .run(drain_to_completed(
+                &sess,
+                turn_context.as_ref(),
+                &mut client_session,
+                &responses_metadata,
+                &prompt,
+            ))
+            .await;
 
         match attempt_result {
             Ok(response_id) => {
@@ -332,7 +337,11 @@ async fn run_compact_task_inner_impl(
                 return Err(e);
             }
             Err(e) => {
-                if !crate::responses_retry::is_request_too_large(&e) && retries < max_retries {
+                if crate::responses_retry::is_retryable_response_error(&e)
+                    && !crate::responses_retry::is_request_too_large(&e)
+                    && !request_budget.is_exhausted()
+                    && retries < max_retries
+                {
                     retries += 1;
                     let delay = backoff(retries);
                     sess.notify_stream_error(
@@ -341,7 +350,7 @@ async fn run_compact_task_inner_impl(
                         e,
                     )
                     .await;
-                    tokio::time::sleep(delay).await;
+                    tokio::time::sleep(request_budget.retry_delay(delay)).await;
                     continue;
                 } else {
                     sess.track_turn_codex_error(turn_context.as_ref(), &e);

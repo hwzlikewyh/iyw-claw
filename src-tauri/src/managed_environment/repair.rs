@@ -23,7 +23,19 @@ struct Progress {
     message: String,
 }
 
+struct RepairCacheGuard;
+
+impl Drop for RepairCacheGuard {
+    fn drop(&mut self) {
+        super::snapshot::clear();
+        super::verification_cache::clear();
+    }
+}
+
 pub async fn repair(task_id: &str, emitter: &EventEmitter) -> Result<(), String> {
+    super::snapshot::clear();
+    super::verification_cache::clear();
+    let _cache_guard = RepairCacheGuard;
     tokio::time::timeout(REPAIR_TIMEOUT, run(task_id, emitter))
         .await
         .map_err(|_| "环境修复超时，请检查网络后重试".to_string())?

@@ -1,13 +1,85 @@
 use std::collections::BTreeSet;
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
+use super::file_stamp::FileStamp;
 use super::Snapshot;
 
-pub(super) fn load(root: &Path) -> Result<Snapshot, String> {
-    let raw = std::fs::read(root.join("inventory/environment-current.json"))
-        .map_err(|_| "环境清单缺失或不可读，请运行环境修复".to_string())?;
+struct CachedSnapshot {
+    path: PathBuf,
+    stamp: FileStamp,
+    snapshot: Arc<Snapshot>,
+}
+
+static CACHE: OnceLock<Mutex<Option<CachedSnapshot>>> = OnceLock::new();
+
+pub(super) fn clear() {
+    if let Some(cache) = CACHE.get() {
+        *cache.lock().unwrap_or_else(|error| error.into_inner()) = None;
+    }
+}
+
+pub(super) fn load(root: &Path) -> Result<Arc<Snapshot>, String> {
+    let path = root.join("inventory/environment-current.json");
+    let mut cache = CACHE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let (snapshot, stamp) = match read_snapshot(&path, cache.as_ref()) {
+        Ok(value) => value,
+        Err(error) => {
+            *cache = None;
+            return Err(error);
+        }
+    };
+    let ids = snapshot
+        .components
+        .iter()
+        .map(|item| item.component_id.as_str())
+        .collect();
+    if let Err(error) = validate_selection(root, &snapshot, &ids) {
+        *cache = None;
+        return Err(error);
+    }
+    *cache = stamp.map(|stamp| CachedSnapshot {
+        path,
+        stamp,
+        snapshot: Arc::clone(&snapshot),
+    });
+    Ok(snapshot)
+}
+
+fn read_snapshot(
+    path: &Path,
+    cached: Option<&CachedSnapshot>,
+) -> Result<(Arc<Snapshot>, Option<FileStamp>), String> {
+    let mut file =
+        File::open(path).map_err(|_| "环境清单缺失或不可读，请运行环境修复".to_string())?;
+    let before = FileStamp::read(&file);
+    let snapshot = match cached
+        .filter(|entry| entry.path.as_path() == path && before.as_ref() == Some(&entry.stamp))
+    {
+        Some(entry) => Arc::clone(&entry.snapshot),
+        None => {
+            let mut raw = Vec::new();
+            file.read_to_end(&mut raw)
+                .map_err(|_| "环境清单缺失或不可读，请运行环境修复".to_string())?;
+            Arc::new(parse(&raw)?)
+        }
+    };
+    let current =
+        File::open(path).map_err(|_| "环境清单缺失或不可读，请运行环境修复".to_string())?;
+    if before != FileStamp::read(&file) || before != FileStamp::read(&current) {
+        return Err("环境清单在读取期间发生变化，请重试".into());
+    }
+    Ok((snapshot, before))
+}
+
+fn parse(raw: &[u8]) -> Result<Snapshot, String> {
     let snapshot: Snapshot =
-        serde_json::from_slice(&raw).map_err(|_| "环境清单格式错误，请运行环境修复".to_string())?;
+        serde_json::from_slice(raw).map_err(|_| "环境清单格式错误，请运行环境修复".to_string())?;
     let target = match std::env::consts::OS {
         "macos" => "darwin",
         value => value,
@@ -27,7 +99,6 @@ pub(super) fn load(root: &Path) -> Result<Snapshot, String> {
     }) {
         return Err("环境清单包含重复或未知组件，请运行环境修复".into());
     }
-    validate_selection(root, &snapshot, &ids)?;
     Ok(snapshot)
 }
 
