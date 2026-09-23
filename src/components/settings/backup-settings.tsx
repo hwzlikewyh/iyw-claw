@@ -56,6 +56,7 @@ import {
   type BackupProgress,
   type ExternalConflict,
   type ExternalRestoreMode,
+  type StagedRestore,
 } from "@/lib/api"
 
 type RestoreSource =
@@ -99,10 +100,10 @@ export function BackupSettings() {
   const desktop = isDesktop() && getActiveRemoteConnectionId() === null
 
   // ── Export ──
-  const [includeExternal, setIncludeExternal] = useState(false)
   const [passphrase, setPassphrase] = useState("")
   const [passphraseConfirm, setPassphraseConfirm] = useState("")
   const [exporting, setExporting] = useState(false)
+  const transferInFlight = useRef(false)
 
   // ── Restore ──
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -111,11 +112,17 @@ export function BackupSettings() {
   const [restorePassphrase, setRestorePassphrase] = useState("")
   const [inspecting, setInspecting] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [picking, setPicking] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<{
+    loaded: number
+    total: number
+  } | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [restoring, setRestoring] = useState(false)
 
-  // ── External transcripts (opt-in restore) ──
-  const [externalChoice, setExternalChoice] = useState<ExternalChoice>("skip")
+  // ── External transcripts ──
+  const [externalChoice, setExternalChoice] =
+    useState<ExternalChoice>("original")
   const [forceOverwrite, setForceOverwrite] = useState(false)
   const [conflicts, setConflicts] = useState<ExternalConflict[] | null>(null)
   const [scanningConflicts, setScanningConflicts] = useState(false)
@@ -125,10 +132,16 @@ export function BackupSettings() {
   useEffect(() => {
     let active = true
     let unsub: (() => void) | undefined
-    void listenBackupProgress((event) => setProgress(event)).then((fn) => {
-      if (active) unsub = fn
-      else fn()
+    void listenBackupProgress((event) => {
+      if (active) setProgress(event)
     })
+      .then((fn) => {
+        if (active) unsub = fn
+        else fn()
+      })
+      .catch(() => {
+        console.warn("[Backup] progress subscription unavailable")
+      })
     return () => {
       active = false
       unsub?.()
@@ -137,24 +150,32 @@ export function BackupSettings() {
 
   const passphraseMismatch =
     passphrase.length > 0 && passphrase !== passphraseConfirm
-  const busy = exporting || restoring
+  const busy =
+    exporting ||
+    restoring ||
+    inspecting ||
+    uploading ||
+    picking ||
+    scanningConflicts
 
   const resetExternalState = useCallback(() => {
-    setExternalChoice("skip")
+    setExternalChoice("original")
     setForceOverwrite(false)
     setConflicts(null)
   }, [])
 
   const handleExport = useCallback(async () => {
+    if (transferInFlight.current) return
     if (passphraseMismatch) {
       toast.error(t("export.passphraseMismatch"))
       return
     }
+    transferInFlight.current = true
     setExporting(true)
     setProgress(null)
     try {
       const opts = {
-        includeExternalTranscripts: includeExternal,
+        includeExternalTranscripts: true,
         passphrase: passphrase || null,
       }
       if (desktop) {
@@ -167,10 +188,30 @@ export function BackupSettings() {
     } catch (err) {
       toast.error(localize(err))
     } finally {
+      transferInFlight.current = false
       setExporting(false)
       setProgress(null)
     }
-  }, [desktop, includeExternal, passphrase, passphraseMismatch, t, localize])
+  }, [desktop, passphrase, passphraseMismatch, t, localize])
+
+  const scanConflicts = useCallback(
+    async (source: RestoreSource, pass: string | null) => {
+      setScanningConflicts(true)
+      setConflicts(null)
+      try {
+        const found =
+          source.kind === "desktop"
+            ? await scanExternalConflictsDesktop(source.path, pass)
+            : await scanExternalConflictsWeb(source.uploadId, pass)
+        setConflicts(found)
+      } catch (err) {
+        toast.error(localize(err))
+      } finally {
+        setScanningConflicts(false)
+      }
+    },
+    [localize]
+  )
 
   const runInspect = useCallback(
     async (source: RestoreSource, pass: string | null) => {
@@ -181,31 +222,41 @@ export function BackupSettings() {
             ? await inspectBackupDesktop(source.path, pass)
             : await inspectBackupWeb(source.uploadId, pass)
         setPreview(pv)
+        if (pv.compatible && pv.manifest?.includesExternalTranscripts) {
+          await scanConflicts(source, pass)
+        }
       } catch (err) {
         toast.error(localize(err))
-        setPreview(null)
+        setPreview((current) => (current?.needsPassphrase ? current : null))
       } finally {
         setInspecting(false)
       }
     },
-    [localize]
+    [localize, scanConflicts]
   )
 
   const handlePickDesktop = useCallback(async () => {
-    const { open } = await import("@tauri-apps/plugin-dialog")
-    const picked = await open({
-      multiple: false,
-      filters: [{ name: "原助理 备份", extensions: ["iyw-clawbak", "zip"] }],
-    })
-    if (typeof picked !== "string") return
-    const name = picked.split(/[\\/]/).pop() ?? picked
-    const source: RestoreSource = { kind: "desktop", path: picked, name }
-    setRestoreSource(source)
-    setPreview(null)
-    setRestorePassphrase("")
-    resetExternalState()
-    await runInspect(source, null)
-  }, [runInspect, resetExternalState])
+    setPicking(true)
+    try {
+      const { open } = await import("@tauri-apps/plugin-dialog")
+      const picked = await open({
+        multiple: false,
+        filters: [{ name: "原助理 备份", extensions: ["iyw-clawbak", "zip"] }],
+      })
+      if (typeof picked !== "string") return
+      const name = picked.split(/[\\/]/).pop() ?? picked
+      const source: RestoreSource = { kind: "desktop", path: picked, name }
+      setRestoreSource(source)
+      setPreview(null)
+      setRestorePassphrase("")
+      resetExternalState()
+      await runInspect(source, null)
+    } catch (err) {
+      toast.error(localize(err))
+    } finally {
+      setPicking(false)
+    }
+  }, [runInspect, resetExternalState, localize])
 
   const handlePickWeb = useCallback(
     async (file: File) => {
@@ -214,8 +265,11 @@ export function BackupSettings() {
       setRestorePassphrase("")
       resetExternalState()
       setUploading(true)
+      setUploadProgress(null)
       try {
-        const uploadId = await uploadBackupWeb(file)
+        const uploadId = await uploadBackupWeb(file, (loaded, total) => {
+          setUploadProgress({ loaded, total })
+        })
         const source: RestoreSource = {
           kind: "web",
           uploadId,
@@ -227,6 +281,7 @@ export function BackupSettings() {
         toast.error(localize(err))
       } finally {
         setUploading(false)
+        setUploadProgress(null)
       }
     },
     [runInspect, resetExternalState, localize]
@@ -254,30 +309,38 @@ export function BackupSettings() {
       setExternalChoice(choice)
       setConflicts(null)
       if (choice !== "original" || !restoreSource) return
-      setScanningConflicts(true)
-      try {
-        const found =
-          restoreSource.kind === "desktop"
-            ? await scanExternalConflictsDesktop(
-                restoreSource.path,
-                restorePassphrase || null
-              )
-            : await scanExternalConflictsWeb(
-                restoreSource.uploadId,
-                restorePassphrase || null
-              )
-        setConflicts(found)
-      } catch (err) {
-        toast.error(localize(err))
-      } finally {
-        setScanningConflicts(false)
+      await scanConflicts(restoreSource, restorePassphrase || null)
+    },
+    [restoreSource, restorePassphrase, scanConflicts]
+  )
+
+  const reportStaged = useCallback(
+    (staged: StagedRestore) => {
+      if (staged.restoredExternalPath) {
+        toast.message(
+          t("restore.externalSideLocation", {
+            path: staged.restoredExternalPath,
+          })
+        )
+      }
+      if (staged.skippedConflicts.length > 0) {
+        toast.warning(
+          t("restore.skippedFiles", { count: staged.skippedConflicts.length })
+        )
       }
     },
-    [restoreSource, restorePassphrase, localize]
+    [t]
   )
 
   const performRestore = useCallback(async () => {
-    if (!restoreSource) return
+    if (
+      !restoreSource ||
+      busy ||
+      !preview?.compatible ||
+      transferInFlight.current
+    )
+      return
+    transferInFlight.current = true
     setConfirmOpen(false)
     setRestoring(true)
     setProgress(null)
@@ -285,11 +348,12 @@ export function BackupSettings() {
       const pass = restorePassphrase || null
       const externalMode = buildExternalMode()
       if (restoreSource.kind === "desktop") {
-        await stageRestoreDesktop({
+        const staged = await stageRestoreDesktop({
           srcPath: restoreSource.path,
           passphrase: pass,
           externalMode,
         })
+        reportStaged(staged)
         toast.success(t("restore.staged"))
         await relaunchApp()
       } else {
@@ -298,13 +362,7 @@ export function BackupSettings() {
           passphrase: pass,
           externalMode,
         })
-        if (res.staged.restoredExternalPath) {
-          toast.message(
-            t("restore.externalSideLocation", {
-              path: res.staged.restoredExternalPath,
-            })
-          )
-        }
+        reportStaged(res.staged)
         // The restore is staged but only APPLIED on the next server start. If
         // the restart request fails (e.g. unsupported platform, busy), do NOT
         // poll health + reload — that would land back on the still-running old
@@ -331,8 +389,19 @@ export function BackupSettings() {
     } catch (err) {
       toast.error(localize(err))
       setRestoring(false)
+    } finally {
+      transferInFlight.current = false
     }
-  }, [restoreSource, restorePassphrase, buildExternalMode, t, localize])
+  }, [
+    restoreSource,
+    restorePassphrase,
+    buildExternalMode,
+    busy,
+    preview,
+    t,
+    localize,
+    reportStaged,
+  ])
 
   const showProgress = progress && ACTIVE_PHASES.includes(progress.phase)
 
@@ -376,22 +445,6 @@ export function BackupSettings() {
 
           {/* ── Backup ── */}
           <TabsContent value="backup" className="space-y-4 pt-2">
-            <div className="flex items-center justify-between gap-3">
-              <div className="space-y-0.5">
-                <Label className="text-xs font-medium">
-                  {t("export.includeExternal")}
-                </Label>
-                <p className="text-[11px] text-muted-foreground">
-                  {t("export.includeExternalHint")}
-                </p>
-              </div>
-              <Switch
-                checked={includeExternal}
-                onCheckedChange={setIncludeExternal}
-                disabled={busy}
-              />
-            </div>
-
             <div className="space-y-2">
               <Label className="text-xs font-medium">
                 {t("export.passphrase")}
@@ -468,7 +521,7 @@ export function BackupSettings() {
                 {t("restore.selectFile")}
               </Button>
               {restoreSource && (
-                <span className="text-xs text-muted-foreground truncate">
+                <span className="min-w-0 break-all text-xs text-muted-foreground">
                   {restoreSource.name}
                 </span>
               )}
@@ -487,6 +540,19 @@ export function BackupSettings() {
               )}
             </div>
 
+            {uploading && uploadProgress && (
+              <ProgressLine
+                progress={{
+                  opId: "upload",
+                  phase: "extracting",
+                  processedBytes: uploadProgress.loaded,
+                  totalBytes: uploadProgress.total,
+                }}
+                label={t("restore.uploading")}
+                upload
+              />
+            )}
+
             {preview?.needsPassphrase && (
               <div className="space-y-2">
                 <Label className="text-xs font-medium">
@@ -497,14 +563,15 @@ export function BackupSettings() {
                     type="password"
                     value={restorePassphrase}
                     onChange={(e) => setRestorePassphrase(e.target.value)}
-                    disabled={inspecting}
+                    disabled={busy}
+                    autoComplete="off"
                   />
                   <Button
                     type="button"
                     size="sm"
                     variant="secondary"
                     onClick={handleUnlock}
-                    disabled={inspecting || restorePassphrase.length === 0}
+                    disabled={busy || restorePassphrase.length === 0}
                   >
                     {t("restore.unlock")}
                   </Button>
@@ -550,6 +617,17 @@ export function BackupSettings() {
                     {t("restore.preview.incompatibleHint")}
                   </div>
                 )}
+                {(!preview.manifest.includesExternalTranscripts ||
+                  !preview.manifest.entries.some(
+                    (entry) => entry.path === "backup-paths.json"
+                  )) && (
+                  <p className="text-amber-600 dark:text-amber-400">
+                    {t("restore.legacyWarning")}
+                  </p>
+                )}
+                <p className="text-muted-foreground">
+                  {t("restore.projectNote")}
+                </p>
               </div>
             )}
 
@@ -565,6 +643,7 @@ export function BackupSettings() {
                 </div>
                 <Select
                   value={externalChoice}
+                  disabled={busy}
                   onValueChange={(v) =>
                     void handleExternalChoice(v as ExternalChoice)
                   }
@@ -646,7 +725,12 @@ export function BackupSettings() {
               size="sm"
               variant="destructive"
               disabled={
-                busy || !preview?.manifest || !preview.compatible || inspecting
+                busy ||
+                !preview?.manifest ||
+                !preview.compatible ||
+                (hasExternal &&
+                  externalChoice === "original" &&
+                  conflicts === null)
               }
               onClick={() => setConfirmOpen(true)}
             >
@@ -684,30 +768,45 @@ export function BackupSettings() {
 function ProgressLine({
   progress,
   label,
+  upload = false,
 }: {
   progress: BackupProgress
   label: string
+  upload?: boolean
 }) {
+  const t = useTranslations("BackupSettings")
   const pct =
     progress.totalBytes && progress.totalBytes > 0
       ? Math.min(100, (progress.processedBytes / progress.totalBytes) * 100)
       : null
   return (
-    <div className="space-y-1">
+    <div className="space-y-1" role="status">
       <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-        <span>{label}</span>
-        <span>{formatMb(progress.processedBytes)}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+          {upload ? label : t(`progress.${progress.phase}`)}
+        </span>
+        {(progress.processedBytes > 0 || pct !== null) && (
+          <span className="shrink-0 tabular-nums">
+            {formatMb(progress.processedBytes)}
+          </span>
+        )}
       </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+      {pct !== null && (
         <div
-          className={
-            pct === null
-              ? "h-full w-1/3 animate-pulse bg-primary"
-              : "h-full bg-primary transition-all"
-          }
-          style={pct === null ? undefined : { width: `${pct}%` }}
-        />
-      </div>
+          className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-label={label}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(pct)}
+        >
+          <div
+            className="h-full bg-primary transition-all"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
     </div>
   )
 }

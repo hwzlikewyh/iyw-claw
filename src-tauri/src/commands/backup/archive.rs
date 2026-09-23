@@ -192,6 +192,7 @@ pub fn validate_manifest(manifest: &BackupManifest) -> Result<(), AppCommandErro
         let p = Path::new(&e.path);
         let safe = !e.path.is_empty()
             && e.path != MANIFEST_ENTRY_NAME
+            && e.path != super::external_restore::PLAN_FILE
             && !p.is_absolute()
             && p.components().all(|c| matches!(c, Component::Normal(_)));
         if !safe {
@@ -202,6 +203,9 @@ pub fn validate_manifest(manifest: &BackupManifest) -> Result<(), AppCommandErro
         }
     }
     if !seen.contains("db/iyw-claw.db") {
+        return Err(corrupted_error());
+    }
+    if manifest.format_version >= 2 && !seen.contains(super::portable::PATHS_ENTRY) {
         return Err(corrupted_error());
     }
     Ok(())

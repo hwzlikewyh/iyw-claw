@@ -5041,6 +5041,18 @@
       "backup": "Backup",
       "restore": "Restore"
     },
+    "progress": {
+      "snapshotting": "Taking a data snapshot…",
+      "archiving": "Archiving conversations and attachments…",
+      "encrypting": "Encrypting backup…",
+      "decrypting": "Decrypting backup…",
+      "extracting": "Extracting backup…",
+      "verifying": "Verifying and preparing restore…",
+      "swapping": "Applying restore…",
+      "done": "Complete",
+      "cancelled": "Cancelled",
+      "error": "Failed"
+    },
     "export": {
       "includeExternal": "Include conversation content",
       "includeExternalHint": "Also archive agent CLI transcripts (Claude, Codex, Gemini, …). Increases size.",
@@ -5057,6 +5069,10 @@
     },
     "restore": {
       "selectFile": "Select backup file",
+      "uploading": "Uploading backup…",
+      "legacyWarning": "This backup does not contain complete migration data. Missing conversation content or attachments cannot be recovered.",
+      "projectNote": "Project source files are not included. Move your projects to their corresponding directories before continuing project conversations.",
+      "skippedFiles": "{count} existing session files on this machine will be kept instead of being replaced by the backup.",
       "passphrasePrompt": "This backup is encrypted. Enter its passphrase.",
       "unlock": "Unlock",
       "preview": {
@@ -5075,7 +5091,7 @@
       "staged": "Restore staged. Restarting…",
       "restarting": "Restore staged. Restarting the server…",
       "restartTimeout": "The server did not come back in time. Reload the page once it is up.",
-      "externalSideLocation": "Conversation transcripts were restored to {path}",
+      "externalSideLocation": "Conversation transcripts will be saved to {path} after restart",
       "confirmTitle": "Replace all data?",
       "confirmBody": "This will replace your current 原助理 database and uploads with the backup, then restart. Your current data is snapshotted first.",
       "cancel": "Cancel",
@@ -5085,7 +5101,7 @@
         "hint": "This backup includes agent CLI transcripts. Choose where to restore them.",
         "modeSkip": "Don't restore",
         "modeSide": "Restore to a safe side folder",
-        "modeOriginal": "Restore to original CLI locations",
+        "modeOriginal": "Restore to this machine's session directories",
         "forceOverwrite": "Overwrite existing files",
         "forceOverwriteHint": "Replace files that already exist in the agent CLI folders.",
         "scanning": "Checking for conflicts…",

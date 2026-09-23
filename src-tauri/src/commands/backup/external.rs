@@ -8,7 +8,7 @@
 //! (OriginalLocations), where any file that already exists is skipped unless
 //! the user authorized overwriting.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
@@ -17,11 +17,56 @@ use tokio_util::sync::CancellationToken;
 use zip::ZipArchive;
 
 use crate::app_error::AppCommandError;
-use crate::parsers::{external_transcript_sources, ExternalSource};
+use crate::parsers::ExternalSource;
 
 use super::archive::{ArchiveBuilder, ProgressFn};
 use super::restore::ConflictPolicy;
 use super::{cancelled_error, unknown_format_error};
+
+pub(super) fn sources() -> Vec<ExternalSource> {
+    let mut sources = crate::parsers::external_transcript_sources();
+    let home = crate::parsers::codex::resolve_codex_home_dir();
+    sources.push(ExternalSource {
+        agent: "codex-archived",
+        root: home.join("archived_sessions"),
+        is_file: false,
+        include_top: None,
+    });
+    sources.push(ExternalSource {
+        agent: "codex-index",
+        root: home.join("session_index.jsonl"),
+        is_file: true,
+        include_top: None,
+    });
+    sources
+}
+
+pub(super) fn staged_conflicts(
+    root: &Path,
+    sources: &[ExternalSource],
+) -> Result<Vec<String>, AppCommandError> {
+    let mut conflicts = Vec::new();
+    if !root.is_dir() {
+        return Ok(conflicts);
+    }
+    for entry in walkdir::WalkDir::new(root).follow_links(false) {
+        let entry = entry.map_err(|error| AppCommandError::io_error(error.to_string()))?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let relative = entry
+            .path()
+            .strip_prefix(root)
+            .map_err(|_| unknown_format_error())?;
+        let path = format!("external/{}", to_slash(relative));
+        let (_, _, target) =
+            map_external_to_target(&path, sources).ok_or_else(unknown_format_error)?;
+        if std::fs::symlink_metadata(&target).is_ok() {
+            conflicts.push(target.to_string_lossy().into_owned());
+        }
+    }
+    Ok(conflicts)
+}
 
 /// A staged external file whose target already exists on disk.
 #[derive(Debug, Clone, Serialize)]
@@ -39,11 +84,12 @@ pub struct ExternalConflict {
 /// was added (drives the manifest's `includes_external_transcripts`).
 pub fn add_external_sources(
     builder: &mut ArchiveBuilder,
+    sources: Vec<ExternalSource>,
     cancel: &CancellationToken,
     progress: &mut ProgressFn<'_>,
 ) -> Result<bool, AppCommandError> {
     let mut packed = false;
-    for src in external_transcript_sources() {
+    for src in sources {
         if cancel.is_cancelled() {
             return Err(cancelled_error());
         }
@@ -84,7 +130,7 @@ pub fn add_external_sources(
 /// Scan a (plaintext) backup ZIP for external entries whose live target already
 /// exists, so the UI can surface conflicts before any write.
 pub fn scan_external_conflicts(zip_path: &Path) -> Result<Vec<ExternalConflict>, AppCommandError> {
-    scan_external_conflicts_with_sources(zip_path, &external_transcript_sources())
+    scan_external_conflicts_with_sources(zip_path, &sources())
 }
 
 fn scan_external_conflicts_with_sources(
@@ -131,15 +177,10 @@ pub fn restore_external_from_staging(
     policy: ConflictPolicy,
     cancel: &CancellationToken,
 ) -> Result<Vec<String>, AppCommandError> {
-    restore_external_with_sources(
-        staged_external,
-        &external_transcript_sources(),
-        policy,
-        cancel,
-    )
+    restore_external_with_sources(staged_external, &sources(), policy, cancel)
 }
 
-fn restore_external_with_sources(
+pub(super) fn restore_external_with_sources(
     staged_external: &Path,
     sources: &[ExternalSource],
     policy: ConflictPolicy,
@@ -169,118 +210,18 @@ fn restore_external_with_sources(
         // oauth_creds.json`) is dropped here rather than written to a live
         // config path.
         let Some((_agent, base, target)) = map_external_to_target(&archive_path, sources) else {
-            continue;
+            return Err(unknown_format_error());
         };
-        match restore_one(entry.path(), &base, &target, policy) {
-            FileOutcome::Written => {}
-            FileOutcome::Skipped => skipped.push(target.to_string_lossy().into_owned()),
-            FileOutcome::Failed => { /* logged in restore_one; non-fatal */ }
+        let written = super::external_write::restore_file(entry.path(), (&base, &target), policy)
+            .map_err(|error| {
+                tracing::error!(agent = %_agent, error = %error, detail = error.detail.as_deref().unwrap_or_default(), "[RESTORE] native session file restore failed");
+                error
+            })?;
+        if !written {
+            skipped.push(target.to_string_lossy().into_owned());
         }
     }
     Ok(skipped)
-}
-
-enum FileOutcome {
-    Written,
-    Skipped,
-    Failed,
-}
-
-/// Place one staged file at `target` (which must live under `base`), never
-/// leaving a partial file at the final path, never clobbering an existing file
-/// under `SkipExisting`, and never following a symlinked parent component out
-/// of `base`.
-fn restore_one(src: &Path, base: &Path, target: &Path, policy: ConflictPolicy) -> FileOutcome {
-    let exists = std::fs::symlink_metadata(target).is_ok();
-    if exists && policy == ConflictPolicy::SkipExisting {
-        return FileOutcome::Skipped;
-    }
-    let Some(parent) = target.parent() else {
-        return FileOutcome::Failed;
-    };
-    // Refuse to write if any existing component between `base` and the target's
-    // parent is a symlink — otherwise `create_dir_all`/rename would follow it
-    // and write outside the agent's tree.
-    if !parent_chain_is_safe(base, parent) {
-        tracing::warn!(
-            "[RESTORE] external: symlinked parent under {}, skipping {}",
-            base.display(),
-            target.display()
-        );
-        return FileOutcome::Failed;
-    }
-    if let Err(e) = std::fs::create_dir_all(parent) {
-        tracing::error!("[RESTORE] external: mkdir {} failed: {e}", parent.display());
-        return FileOutcome::Failed;
-    }
-
-    match policy {
-        ConflictPolicy::SkipExisting => {
-            // Atomic no-clobber: `create_new` fails if the path appeared in a
-            // race. On a copy failure, remove the partial file we just created
-            // so no half-written transcript is left at the live path.
-            match OpenOptions::new().write(true).create_new(true).open(target) {
-                Ok(mut out) => {
-                    match File::open(src).and_then(|mut i| std::io::copy(&mut i, &mut out)) {
-                        Ok(_) => FileOutcome::Written,
-                        Err(e) => {
-                            tracing::error!(
-                                "[RESTORE] external: write {} failed: {e}",
-                                target.display()
-                            );
-                            let _ = std::fs::remove_file(target);
-                            FileOutcome::Failed
-                        }
-                    }
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => FileOutcome::Skipped,
-                Err(e) => {
-                    tracing::error!(
-                        "[RESTORE] external: create {} failed: {e}",
-                        target.display()
-                    );
-                    FileOutcome::Failed
-                }
-            }
-        }
-        ConflictPolicy::Overwrite => {
-            // Write to a same-dir temp file, then publish by rename so the final
-            // path never holds a partially-written file. The temp is cleaned up
-            // on any failure.
-            let tmp = parent.join(format!(
-                ".iyw-claw-ext-{}.part",
-                uuid::Uuid::new_v4().simple()
-            ));
-            let write = (|| -> std::io::Result<()> {
-                let mut out = OpenOptions::new().write(true).create_new(true).open(&tmp)?;
-                let mut input = File::open(src)?;
-                std::io::copy(&mut input, &mut out)?;
-                Ok(())
-            })();
-            if let Err(e) = write {
-                tracing::error!(
-                    "[RESTORE] external: stage temp for {} failed: {e}",
-                    target.display()
-                );
-                let _ = std::fs::remove_file(&tmp);
-                return FileOutcome::Failed;
-            }
-            // rename() can't replace an existing file on Windows; remove the
-            // existing entry (file or symlink) first.
-            if exists {
-                let _ = std::fs::remove_file(target);
-            }
-            if let Err(e) = std::fs::rename(&tmp, target) {
-                tracing::error!(
-                    "[RESTORE] external: publish {} failed: {e}",
-                    target.display()
-                );
-                let _ = std::fs::remove_file(&tmp);
-                return FileOutcome::Failed;
-            }
-            FileOutcome::Written
-        }
-    }
 }
 
 /// Map an `external/<agent>/<rest>` archive path to `(agent, base, live_target)`,
@@ -300,7 +241,10 @@ fn map_external_to_target(
 
     // Reject traversal / non-normal components up front.
     let segs: Vec<&str> = sub.split('/').collect();
-    if segs.iter().any(|s| s.is_empty() || *s == "." || *s == "..") {
+    if segs
+        .iter()
+        .any(|s| s.is_empty() || *s == "." || *s == ".." || s.contains([':', '\\']))
+    {
         return None;
     }
 
@@ -326,29 +270,6 @@ fn map_external_to_target(
         target.push(seg);
     }
     Some((agent.to_string(), base, target))
-}
-
-/// True if no existing component between `base` (exclusive) and `dir`
-/// (inclusive) is a symlink, and `dir` is actually under `base`. Used to refuse
-/// writing through a symlinked parent that escapes the agent's tree.
-fn parent_chain_is_safe(base: &Path, dir: &Path) -> bool {
-    let Ok(rel) = dir.strip_prefix(base) else {
-        return false;
-    };
-    let mut cur = base.to_path_buf();
-    for comp in rel.components() {
-        match comp {
-            std::path::Component::Normal(s) => cur.push(s),
-            // Any non-normal component (shouldn't occur post-mapping) is unsafe.
-            _ => return false,
-        }
-        if let Ok(meta) = std::fs::symlink_metadata(&cur) {
-            if meta.file_type().is_symlink() {
-                return false;
-            }
-        }
-    }
-    true
 }
 
 fn to_slash(rel: &Path) -> String {

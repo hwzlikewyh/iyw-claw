@@ -10,11 +10,18 @@ pub mod archive;
 pub mod core;
 pub mod crypto;
 pub mod external;
+mod external_restore;
+mod external_snapshot;
+mod external_write;
 pub mod manifest;
+mod portable;
+mod portable_database;
+mod portable_transcripts;
 pub mod restore;
 mod user_memory;
 
 pub(crate) const USER_MEMORY_ARCHIVE_DIR: &str = "user-memory";
+pub(super) const PROGRESS_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 pub(crate) const USER_MEMORY_BACKUP_FILES: [&str; 5] = [
     "user-memory.md",
     "user-profile.md",

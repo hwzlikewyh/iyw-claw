@@ -58,6 +58,16 @@ pub(crate) async fn create_backup_core(
     op_id: &str,
     cancel: &CancellationToken,
 ) -> Result<BackupManifest, AppCommandError> {
+    tracing::info!(
+        op_id,
+        format_version = BACKUP_FORMAT_VERSION,
+        include_external = options.include_external_transcripts,
+        encrypted = options
+            .passphrase
+            .as_ref()
+            .is_some_and(|pass| !pass.is_empty()),
+        "[BACKUP] creating portable archive"
+    );
     let work = tempfile::tempdir().map_err(AppCommandError::io)?;
     let db_snapshot = work.path().join("iyw-claw.db");
     let zip_tmp = work.path().join("payload.zip");
@@ -103,6 +113,13 @@ pub(crate) async fn create_backup_core(
     let tokens_json = inputs.data_dir.join("tokens.json");
     let prefs_json = crate::paths::iyw_claw_home_dir().join("preferences.json");
     let include_external = options.include_external_transcripts;
+    let host_roots = super::portable::host_roots(inputs.data_dir);
+    let paths_file = super::portable::capture(inputs.data_dir, work.path())?;
+    let external_sources = if include_external {
+        super::external_snapshot::snapshot_sources(work.path()).await?
+    } else {
+        Vec::new()
+    };
 
     let zip_tmp_c = zip_tmp.clone();
     let db_snapshot_c = db_snapshot.clone();
@@ -114,7 +131,12 @@ pub(crate) async fn create_backup_core(
     let manifest =
         tokio::task::spawn_blocking(move || -> Result<BackupManifest, AppCommandError> {
             let mut builder = ArchiveBuilder::create(&zip_tmp_c)?;
+            let mut last_progress = std::time::Instant::now();
             let mut prog = |path: &str, processed: u64| {
+                if last_progress.elapsed() < super::PROGRESS_INTERVAL {
+                    return;
+                }
+                last_progress = std::time::Instant::now();
                 emit(
                     &emitter_c,
                     &op_id_c,
@@ -132,6 +154,17 @@ pub(crate) async fn create_backup_core(
                 &cancel_c,
                 &mut prog,
             )?;
+            builder.add_file(
+                super::portable::PATHS_ENTRY,
+                &paths_file,
+                &cancel_c,
+                &mut prog,
+            )?;
+            for (name, root) in host_roots {
+                if name != "uploads" {
+                    builder.add_dir(&name, &root, &is_excluded_upload, &cancel_c, &mut prog)?;
+                }
+            }
             if tokens_json.is_file() {
                 builder.add_file("tokens.json", &tokens_json, &cancel_c, &mut prog)?;
             }
@@ -144,7 +177,12 @@ pub(crate) async fn create_backup_core(
             }
             let mut manifest = manifest_template;
             let packed_external = if include_external {
-                external::add_external_sources(&mut builder, &cancel_c, &mut prog)?
+                external::add_external_sources(
+                    &mut builder,
+                    external_sources,
+                    &cancel_c,
+                    &mut prog,
+                )?
             } else {
                 false
             };
@@ -188,6 +226,12 @@ pub(crate) async fn create_backup_core(
         .map_err(AppCommandError::io)?;
 
     let total = manifest.total_bytes();
+    tracing::info!(
+        op_id,
+        entries = manifest.entries.len(),
+        total_bytes = total,
+        "[BACKUP] archive created"
+    );
     emit(emitter, op_id, BackupPhase::Done, total, Some(total), None);
     Ok(manifest)
 }
@@ -273,13 +317,15 @@ pub(crate) async fn snapshot_db_to(
             .await
             .map_err(AppCommandError::io)?;
     }
-    let dest_lit = dest.to_string_lossy().replace('\'', "''");
-    let sql = format!("VACUUM INTO '{dest_lit}';");
-    conn.execute(Statement::from_string(DbBackend::Sqlite, sql))
-        .await
-        .map_err(|e| {
-            AppCommandError::database_error("VACUUM INTO failed").with_detail(e.to_string())
-        })?;
+    conn.execute(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "VACUUM INTO ?",
+        [dest.to_string_lossy().into_owned().into()],
+    ))
+    .await
+    .map_err(|e| {
+        AppCommandError::database_error("VACUUM INTO failed").with_detail(e.to_string())
+    })?;
     Ok(())
 }
 
@@ -349,7 +395,7 @@ fn with_part_suffix(dest: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-fn emit(
+pub(super) fn emit(
     emitter: &EventEmitter,
     op_id: &str,
     phase: BackupPhase,
