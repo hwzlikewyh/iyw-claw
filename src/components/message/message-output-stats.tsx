@@ -9,6 +9,7 @@ import { getLiveToolCallCount } from "./message-output-metrics"
 import { useLiveTurnDuration, useLiveTurnUsage } from "./use-live-turn-usage"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { resolveTurnDuration } from "@/lib/turn-duration"
+import { useRecentOutputRate } from "@/hooks/use-recent-output-rate"
 import {
   firstTokenElapsed,
   recordedFirstTokenTime,
@@ -72,6 +73,10 @@ export const MessageOutputStats = memo(function MessageOutputStats(
   const durationMs = isStreaming
     ? elapsed
     : completedDuration(props, liveUsage?.startedAt)
+  const recentOutputRate = useRecentOutputRate(
+    isStreaming ? (props.liveMessage?.id ?? null) : null,
+    usage?.output_tokens ?? 0
+  )
   const firstTokenMs = props.liveMessage
     ? firstTokenElapsed(props.liveMessage)
     : recordedFirstTokenTime(props.messageId)
@@ -81,7 +86,11 @@ export const MessageOutputStats = memo(function MessageOutputStats(
   }, [props.messageId, firstTokenMs])
   return (
     <OutputStatsView
-      rate={formatOutputRate(usage?.output_tokens, durationMs)}
+      rate={
+        isStreaming
+          ? (recentOutputRate?.toFixed(1) ?? "--")
+          : formatOutputRate(usage?.output_tokens, durationMs)
+      }
       firstToken={
         firstTokenMs == null
           ? t(isStreaming ? "metricsPending" : "metricsUnavailable")
@@ -118,7 +127,9 @@ function OutputStatsView({
   const pointsT = useTranslations("UsagePoints")
   return (
     <div className="mt-3 flex min-h-5 flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground tabular-nums">
-      <span title={t("outputRateHint")}>{t("outputRate", { rate })}</span>
+      <span title={t(isStreaming ? "recentOutputRateHint" : "outputRateHint")}>
+        {t("outputRate", { rate })}
+      </span>
       <span>{t("firstToken", { time: firstToken })}</span>
       <span>{t("toolUseCount", { count: toolCallCount })}</span>
       {usage ? (

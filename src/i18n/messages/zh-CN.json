@@ -3510,6 +3510,7 @@
         "toolUseCount": "{count} 次工具调用",
         "outputRate": "平均输出 {rate} tok/s",
         "outputRateHint": "已上报的输出 Token / 本轮总耗时（含思考和工具等待）；用量随代理上报更新",
+        "recentOutputRateHint": "按最近 1 秒内已上报的输出 Token 计算；用量每秒刷新",
         "reportedUsage": "已上报用量",
         "firstToken": "首字耗时 {time}",
         "metricsPending": "待统计",

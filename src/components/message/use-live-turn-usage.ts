@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import type { TurnUsage } from "@/lib/types"
 import { loadLiveTurnUsage } from "./live-turn-usage"
 
-const USAGE_REFRESH_MS = 3_000
+const USAGE_REFRESH_MS = 1_000
 const ELAPSED_REFRESH_MS = 1_000
 const MAX_CACHED_TURNS = 1_000
 interface UsageSnapshot {
