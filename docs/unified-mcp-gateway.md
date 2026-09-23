@@ -6,8 +6,28 @@ MCP 注入。不支持宿主网关的 Agent 保留既有原生远程入口；用
 
 ## Agent 发现与使用
 
+主进程启动时在后台读取远端 `tools/list`，此后每 **15 分钟**主动刷新。业务简介直接
+来自远端搜索工具的 description，工具名称、参数和分类不在客户端维护固定清单。
+缓存仅保存在当前账户内存中，不落盘；创建会话和发送回合会唤醒刷新任务，新账户按需
+立即获取，未到刷新周期的成功缓存不重复请求。冷启动不等待远端 HTTP，明确报告
+pending；同账户失败或过期为 stale，未登录为 signed_out，不能据此声称没有能力。
+
+本地 tools/list 将最新简介附在统一搜索工具上，真实用户回合也通过已有私有上下文
+携带当前快照。刷新后向已连接客户端发送 tools/list_changed；不支持工具热更新的
+适配器仍能从下一回合快照获得最新目录信息。
+
+远端与 search/read/invoke 同层的其他顶层工具动态保留为直接工具，完整复制描述、
+inputSchema、outputSchema 和 annotations 等元数据。只改调用名称，加账户和定义
+相关的不透明摘要避免重名和旧 schema 静默复用。远端三件套继续映射为本地三件套，
+分组中的隐藏成员不会全部展开。未能热加载直接工具的适配器可使用快照明确给出的
+capability_id，先 read 再 invoke；不能从名称推导。任务扩展式调用仍不受支持，
+普通同步调用保留结果与错误，未知执行结果不得换入口重放。
+
 - 查：search_iyw_capabilities，source=local|remote|all，默认 all。
   local 不访问远程；limit 为每个来源的候选上限。已有完整 schema 的直接工具优先。
+- 浏览：source=remote、mode=browse，无需 query。用户问“有哪些能力”时跟随
+  next_cursor 直到空；只浏览某组时传其 capability_id 为 group_id，分页保持同组。
+  游标按账户和分组隔离并有容量限制，不依赖语义索引；失效后重新浏览。
 - 读：read_iyw_capability。远程分组保留工作流说明，items 提供成员 capability_id、
   完整 input_schema、usage、参数来源和结果解释。读过完整成员后不用再次读取。
 - 执行：invoke_iyw_capability。业务参数仍放 arguments；宿主转发当前目录给出的
@@ -27,6 +47,8 @@ MCP 注入。不支持宿主网关的 Agent 保留既有原生远程入口；用
 execution_status=unknown，需要原任务状态或幂等证据再决定后续操作。
 TOOL_CHANGED 且 not_started 可重读旧 capability_id，并使用新返回的成员 ID。
 远程目录失败返回 remote_catalog.status=unavailable，同时保留可用的本地搜索结果。
+远端顶层工具变更或下架后旧直接工具身份返回 remote_tool_changed/not_started，读取
+最新快照后选择当前入口；该错误不授权重放此前结果未知的业务操作。
 
 ## 服务端配合
 

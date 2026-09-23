@@ -1799,6 +1799,14 @@ impl ConnectionManager {
         let memory_context =
             memory_context::prepare(self.user_memory_service.get(), &state_arc, &blocks).await;
         let memory_prepare_ms = memory_started.elapsed().as_millis();
+        let remote_context = if crate::acp::connection::agent_supports_builtin_mcp(agent_type) {
+            match self.builtin_mcp.get().filter(|client| client.is_ready()) {
+                Some(client) => Some(client.remote_overview_context().await),
+                None => None,
+            }
+        } else {
+            None
+        };
         // Concurrency gate: reject a second prompt while a turn is already in
         // flight on this connection. Reserve channel capacity FIRST — that
         // `reserve().await` is the only point that can block or be cancelled.
@@ -1861,7 +1869,9 @@ impl ConnectionManager {
                 combine_prompt_context(launch, combine_prompt_context(memory_context, reminder)),
             )
         };
-        let user_context = combine_prompt_context(launch_context, private_context);
+        let user_context = combine_prompt_context(
+            launch_context, combine_prompt_context(remote_context, private_context),
+        );
         permit.send(ConnectionCommand::Prompt {
             blocks,
             user_context,

@@ -1,4 +1,4 @@
-use rmcp::model::CallToolResult;
+use rmcp::model::{CallToolRequestParams, CallToolResult};
 use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
@@ -11,11 +11,13 @@ const DEFAULT_SEARCH_LIMIT: usize = 8;
 impl RemoteGateway {
     pub(super) async fn search(
         &self,
-        arguments: Value,
+        mut arguments: Value,
         context: RemoteContext<'_>,
     ) -> Result<Value, ErrorData> {
         let (account, connection) = self.ready_for(context).await?;
         self.ensure_current(&account).await?;
+        let group = arguments.get("group_id").and_then(Value::as_str).map(str::to_owned);
+        account.browse_arguments(&mut arguments)?;
         let result = request::call(
             &connection,
             RemoteRequest {
@@ -35,6 +37,8 @@ impl RemoteGateway {
             "status": if payload.get("degraded") == Some(&Value::Bool(true)) { "degraded" } else { "available" },
             "directory_version": payload.get("directory_version"),
             "match_status": payload.get("match_status"), "reason_code": payload.get("reason_code"),
+            "search_mode": payload.get("search_mode"),
+            "next_cursor": account.project_cursor(&payload, group),
         }))
     }
 
@@ -43,6 +47,9 @@ impl RemoteGateway {
         capability_id: &str,
         context: RemoteContext<'_>,
     ) -> Result<CallToolResult, ErrorData> {
+        if let Some(name) = capability_id.strip_prefix(super::direct::CAPABILITY_PREFIX) {
+            return self.read_direct(name, context).await;
+        }
         let (account, connection) = self.ready_for(context).await?;
         let route = account.route(capability_id)?;
         self.ensure_current(&account).await?;
@@ -83,6 +90,9 @@ impl RemoteGateway {
         call: (&str, Map<String, Value>),
         context: RemoteContext<'_>,
     ) -> Result<CallToolResult, ErrorData> {
+        if let Some(name) = call.0.strip_prefix(super::direct::CAPABILITY_PREFIX) {
+            return self.invoke_direct(CallToolRequestParams::new(name.to_owned()).with_arguments(call.1), context).await;
+        }
         let (account, connection) = self.ready_for(context).await?;
         let route = account.route(call.0)?;
         if route.group {
@@ -130,8 +140,10 @@ impl RemoteGateway {
         if source == "remote" {
             payload["capabilities"] = json!([]);
         }
-        let query = json!({"query": arguments.get("query"),
-            "limit": arguments.get("limit").cloned().unwrap_or(json!(DEFAULT_SEARCH_LIMIT))});
+        let mut query = json!({"limit": arguments.get("limit").filter(|value| !value.is_null()).cloned().unwrap_or(json!(DEFAULT_SEARCH_LIMIT))});
+        for key in ["query", "mode", "group_id", "cursor"] {
+            if let Some(value) = arguments.get(key).filter(|value| !value.is_null()) { query[key] = value.clone(); }
+        }
         match self.search(query, context).await {
             Ok(mut remote) => {
                 if let Some(version) = remote["directory_version"].as_str() {
@@ -149,6 +161,7 @@ impl RemoteGateway {
                 remote
                     .as_object_mut()
                     .map(|object| object.remove("capabilities"));
+                payload["next_cursor"] = remote["next_cursor"].clone();
                 payload["remote_catalog"] = remote;
             }
             Err(error) => {

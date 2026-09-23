@@ -33,6 +33,7 @@ pub(super) struct BuiltinMcpHandler {
     receipts: DeliveryReceiptRegistry,
     lifecycle: Arc<Mutex<()>>,
     iyw: Arc<IywGatewayService>,
+    remote_updates: Arc<server::RemoteUpdates>,
 }
 
 impl BuiltinMcpHandler {
@@ -49,6 +50,7 @@ impl BuiltinMcpHandler {
             receipts,
             lifecycle,
             iyw,
+            remote_updates: Arc::new(server::RemoteUpdates::default()),
         }
     }
 
@@ -77,6 +79,15 @@ impl BuiltinMcpHandler {
         let trace = GatewayCallTrace::new(&authority, &request, route);
         trace.log_received();
         authorize_request(&authority, &context.ct, &trace).await?;
+        if let Some(name) = super::remote_mcp::direct_identity(request.name.as_ref(), authority.gateway_server_name()) {
+            let mut forwarded = request.clone();
+            forwarded.name = name.to_owned().into();
+            let result = self.iyw.remote.invoke_direct(forwarded, super::remote_mcp::RemoteContext {
+                request_cancel: &context.ct, authority_cancel: authority.cancellation(),
+            }).await;
+            log_direct_result(&trace, &result);
+            return result;
+        }
         let Some(route) = route else {
             let error = ErrorData::invalid_params(
                 "unknown MCP gateway tool",

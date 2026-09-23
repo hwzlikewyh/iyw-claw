@@ -53,6 +53,10 @@ impl BuiltinMcpClient {
         &self.capability_tools
     }
 
+    pub(crate) async fn remote_overview_context(&self) -> Arc<str> {
+        Arc::from(self.remote.overview_context().await)
+    }
+
     pub async fn issue(
         &self,
         authority: SessionAuthority,
@@ -116,6 +120,7 @@ impl BuiltinMcpService {
             iyw,
             &shutdown,
         );
+        client.remote.prewarm();
         let joins = spawn_tasks(tcp, router, client.clone(), shutdown.clone());
         tracing::info!(
             target: "builtin_mcp",

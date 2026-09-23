@@ -14,7 +14,7 @@ const INVOKE_TIMEOUT: Duration = Duration::from_secs(120);
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub(super) struct RemoteRequest<'a> {
-    pub name: &'static str,
+    pub name: &'a str,
     pub arguments: Value,
     pub context: RemoteContext<'a>,
     pub account_cancel: &'a CancellationToken,
@@ -63,7 +63,7 @@ async fn send(
             false,
         )
     })?;
-    let params = CallToolRequestParams::new(request.name).with_arguments(arguments);
+    let params = CallToolRequestParams::new(request.name.to_owned()).with_arguments(arguments);
     let send = connection.peer.send_cancellable_request(
         CallToolRequest::new(params).into(),
         PeerRequestOptions::no_options(),
