@@ -71,14 +71,16 @@ impl UserMemoryService {
             started_at,
             scope,
         };
-        let timeout = if self.index_verified_for_process() {
+        let timeout = if prefetch || self.index_verified_for_process() {
             LOCAL_RECALL_TIMEOUT
         } else {
             COLD_RECALL_TIMEOUT
         };
-        match tokio::time::timeout(timeout, self.recall_normalized(attempt)).await {
+        match tokio::time::timeout(timeout, self.recall_normalized(attempt, !prefetch)).await {
+            // 自动注入只消费本地结果；完整语义检索由显式记忆调用按需执行。
+            Ok(Ok(result)) if prefetch => Ok(result),
             Ok(Ok(result)) => Ok(self
-                .augment_semantic_recall(result, (semantic_scope, limit, prefetch))
+                .augment_semantic_recall(result, (semantic_scope, limit, false))
                 .await),
             Ok(Err(error)) => Err(error),
             Err(_) => {
@@ -96,6 +98,7 @@ impl UserMemoryService {
     async fn recall_normalized(
         &self,
         attempt: RecallAttempt,
+        allow_refresh: bool,
     ) -> Result<UserMemoryRecallResult, AppCommandError> {
         match self.memory_read_enabled().await {
             Ok(true) => {}
@@ -114,7 +117,7 @@ impl UserMemoryService {
                 ));
             }
         }
-        match self.ready_recall_context(attempt).await {
+        match self.ready_recall_context(attempt, allow_refresh).await {
             Ok(context) => self.recall_ready(context).await,
             Err(result) => Ok(result),
         }
@@ -128,8 +131,9 @@ impl UserMemoryService {
     async fn ready_recall_context(
         &self,
         attempt: RecallAttempt,
+        allow_refresh: bool,
     ) -> Result<ReadyRecall, UserMemoryRecallResult> {
-        let (attempt, checkpoint) = self.ready_recall_checkpoint(attempt).await?;
+        let (attempt, checkpoint) = self.ready_recall_checkpoint(attempt, allow_refresh).await?;
         let source_digest = match self.read_index_source_digest_fast().await {
             Ok(digest) => digest,
             Err(_) => {
@@ -147,9 +151,10 @@ impl UserMemoryService {
             self.mark_recall_checkpoint_stale(&checkpoint, "index_stale_source")
                 .await;
             self.schedule_index_refresh_if_due();
-            if tokio::time::timeout(COLD_RECALL_TIMEOUT, self.refresh_index())
-                .await
-                .is_ok_and(|result| result.is_ok())
+            if allow_refresh
+                && tokio::time::timeout(COLD_RECALL_TIMEOUT, self.refresh_index())
+                    .await
+                    .is_ok_and(|result| result.is_ok())
             {
                 if let Ok(current) = self.index_status().await {
                     if current.status == "ready"
@@ -179,12 +184,13 @@ impl UserMemoryService {
     async fn ready_recall_checkpoint(
         &self,
         attempt: RecallAttempt,
+        allow_refresh: bool,
     ) -> Result<(RecallAttempt, UserMemoryIndexStatus), UserMemoryRecallResult> {
         if !self.recall_index_enabled {
             return Err(unavailable_attempt(attempt, None, "index_recall_disabled"));
         }
         if !self.index_verified_for_process()
-            && !self.ensure_recall_ready(COLD_RECALL_TIMEOUT).await
+            && (!allow_refresh || !self.ensure_recall_ready(COLD_RECALL_TIMEOUT).await)
         {
             self.ensure_index_refresh();
             return Err(unavailable_attempt(attempt, None, "index_unverified"));

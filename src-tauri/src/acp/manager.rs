@@ -665,11 +665,7 @@ impl ConnectionManager {
         let Some(service) = self.user_memory_service.get() else {
             return crate::user_memory::UserMemoryContextSnapshot::pending(origin);
         };
-        if origin != crate::user_memory::UserMemoryOrigin::Probe {
-            service
-                .ensure_recall_ready(std::time::Duration::from_secs(8))
-                .await;
-        }
+        // 启动快照会按需调度后台索引刷新，建连不等待索引重建。
         match service.launch_context_for(agent_type, origin).await {
             Ok(snapshot) => snapshot,
             Err(error) => {
