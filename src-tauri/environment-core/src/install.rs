@@ -53,7 +53,13 @@ fn prepare_with_verification(app_version: &str, full_check: bool) -> Result<Stri
     let state = context.prepare(plan)?;
     let transaction_dir = layout.transaction_dir(&transaction)?;
     inventory::write_json(&transaction_dir.join("prepared.json"), &state)?;
-    fs::write(layout.pending_transaction(), &transaction)?;
+    let pending = layout.pending_transaction();
+    fs::write(&pending, &transaction).with_context(|| {
+        format!(
+            "write pending environment transaction: {}",
+            pending.display()
+        )
+    })?;
     emit("environment", "prepared", 0, 0);
     Ok(transaction)
 }
@@ -191,9 +197,14 @@ fn environment_lock(layout: &Layout) -> Result<File> {
         .create(true)
         .read(true)
         .write(true)
-        .open(path)?;
-    file.try_lock_exclusive()
-        .context("another environment operation is running")?;
+        .open(&path)
+        .with_context(|| format!("open environment writer lock: {}", path.display()))?;
+    file.try_lock_exclusive().with_context(|| {
+        format!(
+            "lock environment writer (another operation may be running): {}",
+            path.display()
+        )
+    })?;
     Ok(file)
 }
 
@@ -206,6 +217,7 @@ fn installation_id(layout: &Layout) -> Result<String> {
         }
     }
     let value = uuid::Uuid::new_v4().to_string();
-    fs::write(path, &value)?;
+    fs::write(&path, &value)
+        .with_context(|| format!("write installation identity: {}", path.display()))?;
     Ok(value)
 }

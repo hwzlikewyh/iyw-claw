@@ -3,6 +3,9 @@
 !define MUI_CUSTOMFUNCTION_GUIINIT IywClawRestoreLogicalInstallRoot
 Var IywClawRoot
 Var IywClawInstallRegistryKey
+Var IywClawElevated
+Var IywClawPermissionError
+Var IywClawElevationRolledBack
 
 !include "${__FILEDIR__}\installer-process-control.nsh"
 !include "${__FILEDIR__}\installer-app-transaction.nsh"
@@ -11,6 +14,7 @@ Var IywClawInstallRegistryKey
 !include "${__FILEDIR__}\installer-desktop-shortcut.nsh"
 !include "${__FILEDIR__}\installer-failure.nsh"
 !include "${__FILEDIR__}\installer-environment.nsh"
+!include "${__FILEDIR__}\installer-permissions.nsh"
 
 Function IywClawIsMainProcessRunning
   ; 仅检查当前用户、本安装目录且真实路径匹配的主进程。
@@ -30,6 +34,7 @@ Function IywClawRestoreLogicalInstallRoot
   Quit
 
   iyw_installer_mode_valid:
+  Call IywClawValidateElevationIdentity
   Call IywClawNormalizeLegacyInstallRoot
   ; Older installers persisted root\app as MUI's default directory while the
   ; product-specific InstallRoot value already held the user-selected root.
@@ -59,6 +64,7 @@ Function IywClawRestoreLogicalInstallRoot
     GetFullPathName $INSTDIR "$LOCALAPPDATA\iyw-claw"
 
   iyw_guiinit_done:
+    StrCmp $IywClawOriginalSid "" 0 iyw_restore_elevated_root
     ; 测试模式不得检查或重启生产进程；应用内 updater 已携带 /UPDATE 时
     ; 继续当前 NSIS 流程，避免递归启动安装器。
     StrCmp $IywClawInstallerTestMode "1" iyw_guiinit_return 0
@@ -99,6 +105,8 @@ Function IywClawRestoreLogicalInstallRoot
     SetErrorLevel $R6
     Quit
 
+  iyw_restore_elevated_root:
+    StrCpy $INSTDIR "$IywClawSelectedRoot"
   iyw_guiinit_return:
 FunctionEnd
 
@@ -129,6 +137,7 @@ Function IywClawResolveInstallRoot
     Abort
 
   iyw_root_scope_validated:
+    Call IywClawCheckInstallPermissions
     CreateDirectory "$IywClawRoot"
     ClearErrors
     FileOpen $R0 "$IywClawRoot\.iyw-claw-install-probe" w
@@ -168,6 +177,7 @@ FunctionEnd
   Abort
 
   iyw_test_root_prevalidated:
+  Call IywClawValidateElevationIdentity
   Call IywClawResolveInstallRoot
   StrCmp $IywClawInstallerTestMode "1" 0 iyw_test_root_validated
   Call IywClawValidateTestRoot

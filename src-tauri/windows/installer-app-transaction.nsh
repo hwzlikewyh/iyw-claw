@@ -306,6 +306,8 @@ FunctionEnd
 
 Function IywClawRestartOldAppIfRequested
   StrCmp $IywClawRestartOnFailure "1" 0 restart_old_app_done
+  ; 回滚后的应用不能继承安装器的管理员权限；由外层普通权限安装器恢复。
+  StrCmp $IywClawElevated "1" restart_old_app_manual 0
   ; 旧版本可能早于 browser sidecar 完整性规则；回滚重启只要求主程序可用。
   Push "$IywClawAppDir\iyw-claw.exe"
   Call IywClawIsNonEmptyFile
@@ -321,6 +323,10 @@ Function IywClawRestartOldAppIfRequested
   ; ShellExecute keeps this current-user installer flow out of the plugin path
   ; and lets the Windows shell launch the restored app without blocking rollback.
   ExecShell "open" "$IywClawAppDir\iyw-claw.exe" "$IywClawRestartArgs"
+  Goto restart_old_app_done
+
+  restart_old_app_manual:
+    DetailPrint "旧版本已恢复，请通过桌面快捷方式以普通权限重新打开。"
 
   restart_old_app_done:
 FunctionEnd

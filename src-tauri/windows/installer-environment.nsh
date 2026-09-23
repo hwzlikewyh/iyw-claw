@@ -1,8 +1,10 @@
 Var IywClawEnvironmentError
 Var IywClawEnvironmentVersion
+Var IywClawEnvironmentPrepareCode
 
 Function IywClawInstallEnvironment
   StrCpy $IywClawEnvironmentError ""
+  StrCpy $IywClawEnvironmentPrepareCode ""
   StrCmp $IywClawInstallerTestMode "1" environment_test_mode
   IfFileExists "$IywClawAppDir\iyw-environment.exe" 0 environment_helper_missing
 
@@ -11,6 +13,7 @@ Function IywClawInstallEnvironment
   DetailPrint "正在从 Fusion 准备用户运行环境..."
   nsExec::ExecToLog /TIMEOUT=1200000 '"$IywClawAppDir\iyw-environment.exe" install --phase prepare --app-version "$IywClawEnvironmentVersion" --json'
   Pop $R0
+  StrCpy $IywClawEnvironmentPrepareCode $R0
   StrCmp $R0 "0" environment_prepared 0
   StrCpy $IywClawEnvironmentError "环境下载或校验失败（退出码=$R0）"
   Goto environment_failed
@@ -46,6 +49,14 @@ Function IywClawInstallEnvironment
     DetailPrint "$IywClawEnvironmentError"
     Push "environment: $IywClawEnvironmentError"
     Call IywClawAppendInstallerLog
+    StrCmp $IywClawEnvironmentPrepareCode "31" 0 environment_show_error
+    StrCpy $IywClawPermissionError "$IywClawEnvironmentError"
+    Call IywClawTryElevatedInstall
+    StrCpy $IywClawEnvironmentError "$IywClawEnvironmentError$\r$\n$IywClawPermissionError"
+    ; 提权前可能已恢复旧 app；此时不能从旧 helper 继续当前版本的安装。
+    StrCmp $IywClawElevationRolledBack "failed" environment_cancelled 0
+    StrCmp $IywClawElevationRolledBack "1" environment_cancelled environment_show_error
+  environment_show_error:
     IfSilent environment_cancelled
     StrCmp $PassiveMode "1" environment_cancelled
     MessageBox MB_RETRYCANCEL|MB_ICONSTOP "$IywClawEnvironmentError$\r$\n$\r$\n修复网络、磁盘或权限问题后可重试。$\r$\n日志：$PROFILE\.iyw-claw\logs\environment\last-error.log" IDRETRY environment_retry

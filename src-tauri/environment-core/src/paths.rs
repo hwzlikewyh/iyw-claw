@@ -3,6 +3,18 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
+pub fn require_space(path: &Path, required: u64) -> Result<()> {
+    let available = fs2::available_space(path)
+        .with_context(|| format!("read available disk space: {}", path.display()))?;
+    if available < required {
+        anyhow::bail!(
+            "insufficient disk space: {}; required={required} bytes; available={available} bytes",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 pub struct Layout {
     pub root: PathBuf,
     pub runtime: PathBuf,
