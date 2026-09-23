@@ -7065,14 +7065,30 @@ async fn run_conversation_loop<'a>(
                                 .await;
                             }
                             let raw_reason_str = stop_reason_to_str(reason);
-                            // Adapters may disguise a typed terminal AIR error
-                            // as end_turn. Its banner is authoritative, so do
-                            // not stack a generic empty-turn diagnosis on it.
-                            let (base_reason, empty_report) = if terminal_failure
+                            // 保留原始错误横幅，同时阻止失败的 end_turn 被结算为成功。
+                            let (base_reason, empty_report) = if let Some(record) = terminal_failure
                                 .as_ref()
-                                .is_some_and(|record| record.severity == "error")
+                                .filter(|record| record.severity.eq_ignore_ascii_case("error"))
                             {
-                                (raw_reason_str, None)
+                                tracing::warn!(
+                                    connection_id = conn_id,
+                                    session_id = %sid.0,
+                                    raw_stop_reason = raw_reason_str,
+                                    category = %record.category,
+                                    title = %crate::acp::stderr_tail::sanitize_diagnostic(
+                                        &safe_error_detail(&record.title),
+                                    ),
+                                    detail = %crate::acp::stderr_tail::sanitize_diagnostic(
+                                        &safe_error_detail(record.details.as_deref().unwrap_or_default()),
+                                    ),
+                                    "[ACP] prompt returned a terminal session failure"
+                                );
+                                let failed_reason = if raw_reason_str == "end_turn" {
+                                    "prompt_error"
+                                } else {
+                                    raw_reason_str
+                                };
+                                (failed_reason, None)
                             } else {
                                 finish_turn_reason(
                                     &output_probe,
@@ -7200,8 +7216,13 @@ async fn run_conversation_loop<'a>(
                                     .await;
                                 }
                             } else if auto_attempted {
+                                let succeeded = reason_str == "end_turn";
                                 let evidence = AutoContinuationEvidence {
-                                    reason_code: "auto_continuation_completed",
+                                    reason_code: if succeeded {
+                                        "auto_continuation_completed"
+                                    } else {
+                                        "continuation_failed"
+                                    },
                                     evidence_kind: "continuation",
                                     auto_run: false,
                                 };
@@ -7210,7 +7231,11 @@ async fn run_conversation_loop<'a>(
                                     emitter,
                                     source_generation,
                                     &evidence,
-                                    "completed",
+                                    if succeeded {
+                                        "completed"
+                                    } else {
+                                        "needs_user_action"
+                                    },
                                 )
                                 .await;
                             }
