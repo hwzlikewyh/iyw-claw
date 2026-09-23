@@ -48,12 +48,14 @@ pub(super) fn values() -> [Value; 12] {
 fn search_tool() -> Value {
     json!({
         "name": SEARCH_TOOL,
-        "description": "Discover local host and signed-in remote business capabilities through one catalog. Use source=local for sessions, history, browser/media, channels, automation or delegation; source=remote for enterprise search/profile, prospecting/email, customs/trade, ecommerce products, brand reviews, copyright, product tags/patterns, web search, speech or document retrieval; omit source when unsure. Prefer an already advertised direct tool with a complete matching schema, including image, knowledge, memory, questions, HTML and artifacts. Search a concrete subgoal with 2-5 Chinese/English action/object terms before claiming a capability unavailable. Results are candidates, not business data: read a plausible capability_id, inspect applicability and parameter sources, then invoke. A group read includes full member schemas and usage; invoke a member, never the group. Reuse definitions already read. remote_catalog.status=unavailable does not mean no remote capability exists; local matches remain usable. Do not discover tools for greetings or self-contained local work. Never guess IDs or change callable namespaces after a routing failure.",
+        "description": "Discover local host and signed-in remote capabilities. The attached remote overview and top-level tools come from the live server and refresh every 15 minutes; capability categories are not fixed. For a capability introduction or unknown scope use source=remote, mode=browse, omit query and follow next_cursor until null. To browse a group's members pass its returned capability_id as group_id; keep it unchanged while paging. For a concrete task use mode=search with focused query keywords: source=local for host work, remote for remote business, all when unsure. Prefer an advertised direct tool with a complete matching schema. Results are metadata, not business data: read a plausible capability_id and invoke a member, never a group. A full group read includes member schemas and usage; reuse definitions. Remote unavailable/degraded or empty search does not prove absence; browse needs no semantic index. Do not discover tools for greetings or unrelated local work. Never guess IDs or callable namespaces.",
         "inputSchema": {
             "type": "object",
-            "required": ["query"],
             "properties": {
-                "query": {"type": "string", "minLength": 1, "maxLength": 256, "description": "Two to five action/object keywords for the needed host capability, for example list scheduled tasks. Search capabilities here; use search_iyw_knowledge for document content."},
+                "query": {"type": "string", "minLength": 1, "maxLength": 256, "description": "Required in search mode: focused action/object keywords. Omit in browse mode. Search capabilities here; use search_iyw_knowledge for document content."},
+                "mode": {"type": "string", "enum": ["search", "browse"], "default": "search", "description": "browse requires source=remote and no query; use for capability introductions or unknown scope."},
+                "group_id": {"type": "string", "minLength": 1, "maxLength": CAPABILITY_ID_MAX_CHARS, "description": "Browse only: exact opaque capability_id of a returned remote group. Never supply the raw remote ID."},
+                "cursor": {"type": "string", "minLength": 1, "maxLength": 128, "description": "Browse only: copy next_cursor from the previous page with the same group_id. Account/catalog changes may require restarting browse."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 20, "default": 8, "description": "Maximum candidates per selected source; all may return up to twice this number. Prefer a small precise result set."},
                 "source": {"type": "string", "enum": ["all", "local", "remote"], "default": "all", "description": "local never waits for the network; remote discovers signed-in business capabilities; all searches both."}
             },
@@ -72,7 +74,7 @@ fn read_tool() -> Value {
             "properties": {"capability_id": {
                 "type": "string", "minLength": 1,
                 "maxLength": CAPABILITY_ID_MAX_CHARS,
-                "description": "Copy an opaque capability_id exactly from this session's search result or advertised memory operation mapping. Never derive an ID from a tool name, add .v1, or put a direct tool's name here."
+                "description": "Copy an opaque capability_id exactly from this session's search/group result, current remote overview or advertised memory mapping. Never derive an ID from a tool name, add .v1, or put a direct tool's name here."
             }},
             "additionalProperties": false
         }

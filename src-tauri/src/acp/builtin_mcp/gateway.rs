@@ -16,6 +16,7 @@ use super::features::FeatureSnapshot;
 use super::gateway_tools;
 use super::plugin_catalog::PluginCapabilityRegistry;
 use super::plugin_control::{self, PluginControlRequest};
+use super::search_params::SearchParams;
 use super::tool_identity::{GatewayTool, CAPABILITY_ID_MAX_CHARS};
 
 pub(super) enum GatewayAction {
@@ -172,6 +173,20 @@ fn search(
     session: &GatewaySession<'_>,
 ) -> Result<GatewayAction, ErrorData> {
     let params = parse::<SearchParams>(arguments)?;
+    params.validate()?;
+    if params.remote_only() {
+        return Ok(GatewayAction::Return(CallToolResult::structured(json!({
+            "capabilities": [], "catalog_digest": catalog_digest(catalog),
+        }))));
+    }
+    search_local(params, catalog, session)
+}
+
+fn search_local(
+    params: SearchParams,
+    catalog: &CapabilityCatalog,
+    session: &GatewaySession<'_>,
+) -> Result<GatewayAction, ErrorData> {
     let mut capabilities = catalog
         .search(session.features, &params.query, params.limit)
         .map_err(|error| ErrorData::invalid_params(error.to_string(), None))?;
@@ -451,23 +466,6 @@ fn resolve_error(error: ResolveError) -> ErrorData {
         _ => None,
     };
     ErrorData::invalid_params(message, data)
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SearchParams {
-    query: String,
-    limit: Option<usize>,
-    #[serde(rename = "source")]
-    _source: Option<SearchSource>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum SearchSource {
-    All,
-    Local,
-    Remote,
 }
 
 #[derive(Deserialize)]

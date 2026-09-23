@@ -148,7 +148,7 @@ fn transport(token: &str) -> Result<StreamableHttpClientTransport<reqwest_mcp::C
     Ok(StreamableHttpClientTransport::with_client(client, config))
 }
 
-async fn list_tools(peer: &Peer<RoleClient>) -> Result<Vec<Tool>, ErrorData> {
+pub(super) async fn list_tools(peer: &Peer<RoleClient>) -> Result<Vec<Tool>, ErrorData> {
     let mut cursor = None;
     let mut tools = Vec::new();
     for _ in 0..MAX_TOOL_PAGES {

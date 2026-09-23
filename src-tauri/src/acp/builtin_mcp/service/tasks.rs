@@ -32,6 +32,7 @@ async fn run_server(
     client
         .ready
         .store(false, std::sync::atomic::Ordering::Release);
+    client.remote.stop_refresh();
     shutdown.cancel();
     if expected_shutdown && matches!(&result, Ok(Ok(()))) {
         return;
