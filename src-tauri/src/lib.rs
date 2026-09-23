@@ -1629,6 +1629,7 @@ mod tauri_app {
                 crate::commands::user_memory_entries::preview_memory_governance,
                 crate::commands::user_memory_entries::apply_memory_governance,
                 crate::commands::user_memory_entries::forget_user_memory,
+                crate::commands::user_memory_entries::clear_user_memory,
                 crate::commands::user_memory_entries::get_user_memory_semantic_status,
                 crate::commands::user_memory_entries::get_user_memory_retrieval_models,
                 crate::commands::user_memory_entries::set_user_memory_cloud_config,

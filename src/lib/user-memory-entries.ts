@@ -76,3 +76,21 @@ export function forgetUserMemory(request: {
 }): Promise<ForgetUserMemoryResult> {
   return getTransport().call("forget_user_memory", { request })
 }
+
+export type ClearUserMemoryScope = "memory" | "all"
+
+export interface ClearUserMemoryResult {
+  clearedRecords: number
+  purgedBackupPaths: string[]
+  residualBackupPaths: string[]
+  residualFilePaths: string[]
+}
+
+export function clearUserMemory(request: {
+  scope: ClearUserMemoryScope
+  expectedRevision: string
+  purgeBackups: boolean
+  confirmation: string
+}): Promise<ClearUserMemoryResult> {
+  return getTransport().call("clear_user_memory", { request })
+}

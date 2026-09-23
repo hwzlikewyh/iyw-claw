@@ -25,6 +25,8 @@ mod candidate_store;
 mod candidate_types;
 mod capabilities;
 mod capability_types;
+mod clear;
+mod clear_sources;
 mod context;
 mod correction;
 mod entry_catalog;
@@ -138,6 +140,7 @@ pub use candidate_api_types::*;
 pub use candidate_types::*;
 pub use capabilities::*;
 pub use capability_types::*;
+pub use clear::{ClearUserMemoryRequest, ClearUserMemoryResult, ClearUserMemoryScope};
 pub use context::{
     memory_policy_digest, strip_user_context, MEMORY_POLICY_DOCUMENT, MEMORY_POLICY_REFERENCE,
     MEMORY_POLICY_REVISION, MEMORY_POLICY_SUMMARY, USER_CONTEXT_END, USER_CONTEXT_START,

@@ -15,17 +15,33 @@ pub(super) struct BackupForgetResult {
     pub residual: Vec<String>,
 }
 
-pub(super) async fn process(
+pub(super) async fn prepare(
     service: &UserMemoryService,
     target: (&str, &[String]),
-    purge: bool,
-) -> Result<BackupForgetResult, AppCommandError> {
-    let paths = matching_paths(service, target).await?;
+) -> Result<BTreeSet<PathBuf>, AppCommandError> {
+    matching_paths(service, target).await
+}
+
+pub(super) async fn prepare_clear(
+    service: &UserMemoryService,
+    needles: &[String],
+    all: bool,
+) -> Result<BTreeSet<PathBuf>, AppCommandError> {
+    if all {
+        return Ok(backup_files(service).await?.into_iter().collect());
+    }
+    if needles.is_empty() {
+        return Ok(BTreeSet::new());
+    }
+    matching_paths(service, ("", needles)).await
+}
+
+pub(super) fn finish(paths: BTreeSet<PathBuf>, purge: bool) -> BackupForgetResult {
     if !purge {
-        return Ok(BackupForgetResult {
+        return BackupForgetResult {
             purged: Vec::new(),
             residual: display(paths),
-        });
+        };
     }
     let mut purged = Vec::new();
     let mut residual = Vec::new();
@@ -36,16 +52,14 @@ pub(super) async fn process(
             Err(_) => residual.push(path.to_string_lossy().into_owned()),
         }
     }
-    Ok(BackupForgetResult { purged, residual })
+    BackupForgetResult { purged, residual }
 }
 
 async fn matching_paths(
     service: &UserMemoryService,
     target: (&str, &[String]),
 ) -> Result<BTreeSet<PathBuf>, AppCommandError> {
-    let mut files = root_backup_files(service.resolved_root()?)?;
-    files.extend(restore_backup_files(service).await?);
-    files.truncate(MAX_BACKUP_FILES);
+    let files = backup_files(service).await?;
     let mut matched = BTreeSet::new();
     for path in files {
         let contains = if path.extension().is_some_and(|value| value == "db") {
@@ -58,6 +72,17 @@ async fn matching_paths(
         }
     }
     Ok(matched)
+}
+
+async fn backup_files(service: &UserMemoryService) -> Result<Vec<PathBuf>, AppCommandError> {
+    let mut files = root_backup_files(service.resolved_root()?)?;
+    files.extend(restore_backup_files(service).await?);
+    if files.len() > MAX_BACKUP_FILES {
+        return Err(AppCommandError::configuration_invalid(
+            "Too many memory backups to inspect safely",
+        ));
+    }
+    Ok(files)
 }
 
 fn root_backup_files(root: &Path) -> Result<Vec<PathBuf>, AppCommandError> {
@@ -167,7 +192,10 @@ async fn database_contains_open<C: ConnectionTrait>(
     .into_iter()
     .filter_map(|row| sql::field::<String>(&row, "name").ok())
     .collect::<BTreeSet<_>>();
-    for needle in std::iter::once(target.0).chain(target.1.iter().map(String::as_str)) {
+    for needle in std::iter::once(target.0)
+        .chain(target.1.iter().map(String::as_str))
+        .filter(|text| !text.is_empty())
+    {
         if tables.contains("memory_authority")
             && !sql::rows(
                 db,

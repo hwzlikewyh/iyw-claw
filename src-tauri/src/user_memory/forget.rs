@@ -43,6 +43,7 @@ impl UserMemoryService {
         request: ForgetUserMemoryRequest,
     ) -> Result<ForgetUserMemoryResult, AppCommandError> {
         validate_request(&request)?;
+        self.ensure_forget_authority(&request.expected_revision).await?;
         self.semantic.generation.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         // 与后台刷新保持先索引、后事实锁的顺序，防止旧任务重新写回被删除的内容。
         let _semantic = self
@@ -60,14 +61,12 @@ impl UserMemoryService {
             )
         })?;
         let prepared = self.prepare_forget(&request, &authority).await?;
+        let backup_paths = super::forget_backups::prepare(
+            self, (&request.id, &prepared.forgotten_contents),
+        ).await?;
         self.clear_forgotten_vector_projection().await?;
         self.commit_forget(request.document, &prepared).await?;
-        let backups = super::forget_backups::process(
-            self,
-            (&request.id, &prepared.forgotten_contents),
-            request.purge_backups,
-        )
-        .await?;
+        let backups = super::forget_backups::finish(backup_paths, request.purge_backups);
         self.schedule_index_refresh();
         let revision = self.current_catalog_revision().await?;
         tracing::info!(
@@ -142,8 +141,13 @@ impl UserMemoryService {
             .iter()
             .map(|content| forgotten_hash(content))
             .collect::<Vec<_>>();
-        self.save_authority_forget_transaction(&snapshot, &prepared.stable_id, &tombstones)
-            .await?;
+        let purge = super::authority_commit::AuthorityPurge {
+            record_ids: vec![prepared.stable_id.clone()],
+            tombstones,
+            harvest_cutoff: None,
+            pending_harvest: Vec::new(),
+        };
+        self.save_authority_forget_transaction(&snapshot, &purge).await?;
         *self
             .authority
             .write()
@@ -163,7 +167,7 @@ impl UserMemoryService {
         Ok(!rows.is_empty())
     }
 
-    async fn current_catalog_revision(&self) -> Result<String, AppCommandError> {
+    pub(super) async fn current_catalog_revision(&self) -> Result<String, AppCommandError> {
         let policy = self.load_policy_unrecovered().await?;
         let settings = self.snapshot_locked(&policy)?;
         let learning = self.read_learning_state()?;
@@ -305,6 +309,6 @@ fn document_kind(document: UserMemoryDocumentId) -> &'static str {
     }
 }
 
-fn forgotten_hash(content: &str) -> String {
+pub(super) fn forgotten_hash(content: &str) -> String {
     super::helpers::hash_parts(&[b"forgotten-content-v1", content.trim().as_bytes()])
 }

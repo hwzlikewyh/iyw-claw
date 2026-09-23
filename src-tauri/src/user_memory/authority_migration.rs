@@ -7,6 +7,37 @@ use crate::app_error::AppCommandError;
 use sea_orm::TransactionTrait;
 
 impl UserMemoryService {
+    pub(super) async fn ensure_forget_authority(
+        &self,
+        expected_revision: &str,
+    ) -> Result<(), AppCommandError> {
+        {
+            let (_guard, _file) = self.acquire_locks().await?;
+            self.recover_pending_transaction().await?;
+            if self.current_catalog_revision().await? != expected_revision {
+                return Err(super::helpers::conflict(
+                    "Memory changed; refresh before deleting",
+                ));
+            }
+            if self.active_authority().is_some() {
+                return Ok(());
+            }
+        }
+        // 用户已确认删除；复用既有备份与迁移，删除本身仍再次校验原始 revision。
+        let prepared = self.prepare_memory_authority().await?;
+        let revision = prepared.revision.ok_or_else(|| {
+            AppCommandError::configuration_invalid(
+                "Memory authority preparation returned no revision",
+            )
+        })?;
+        self.activate_memory_authority(ActivateMemoryAuthorityRequest {
+            expected_revision: revision,
+        })
+        .await?;
+        tracing::info!("[memory-forget] legacy memory authority prepared for user deletion");
+        Ok(())
+    }
+
     pub async fn prepare_memory_authority(&self) -> Result<MemoryAuthorityStatus, AppCommandError> {
         let (_guard, _file) = self.acquire_locks().await?;
         self.recover_pending_transaction().await?;

@@ -513,6 +513,7 @@ impl UserMemoryService {
         request: &MemoryHarvestRequest,
     ) -> Result<String, AppCommandError> {
         let (_io_guard, _file_guard) = self.acquire_locks().await?;
+        self.ensure_harvest_not_cleared(request, &content).await?;
         let mut state = self.read_learning_state()?;
         let digest = experience_digest(&content);
         let scope_key = self
