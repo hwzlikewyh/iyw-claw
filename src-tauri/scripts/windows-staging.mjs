@@ -12,12 +12,7 @@ import {
 import { isAbsolute, join, relative, resolve, sep } from "node:path"
 
 const WORKER_ROOT = "src-tauri/resources/xinghe-worker"
-const WORKER_FILES = [
-  "iyw_xinghe_worker.dll",
-  "iyw-xinghe-helper.exe",
-  "xinghe-command-runner.exe",
-  "xinghe-windows-sandbox-setup.exe",
-]
+const WORKER_FILES = ["runtime.json"]
 
 export function windowsLayout(target) {
   if (target !== "x86_64-pc-windows-msvc") {

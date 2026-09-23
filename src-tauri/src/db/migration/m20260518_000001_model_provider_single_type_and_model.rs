@@ -34,7 +34,7 @@ impl MigrationTrait for Migration {
         let conn = manager.get_connection();
         let sql = "UPDATE model_provider \
             SET agent_type = COALESCE(json_extract(agent_types_json, '$[0]'), '')";
-        conn.execute(Statement::from_string(DbBackend::Sqlite, sql.to_string()))
+        conn.execute_raw(Statement::from_string(DbBackend::Sqlite, sql.to_string()))
             .await?;
 
         Ok(())

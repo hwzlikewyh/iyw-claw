@@ -140,6 +140,7 @@ pub fn hash_file(path: &Path) -> Result<String> {
 }
 
 pub fn emit(component: &str, phase: &str, downloaded: u64, total: u64) {
+    crate::progress::event(component, phase, downloaded, total);
     println!(
         "{}",
         serde_json::json!({

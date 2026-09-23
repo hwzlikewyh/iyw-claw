@@ -30,7 +30,7 @@ impl MigrationTrait for Migration {
             WHERE inner_f.last_opened_at > folder.last_opened_at \
                OR (inner_f.last_opened_at = folder.last_opened_at AND inner_f.id < folder.id) \
         ) + 1";
-        conn.execute(Statement::from_string(DbBackend::Sqlite, sql.to_string()))
+        conn.execute_raw(Statement::from_string(DbBackend::Sqlite, sql.to_string()))
             .await?;
 
         manager

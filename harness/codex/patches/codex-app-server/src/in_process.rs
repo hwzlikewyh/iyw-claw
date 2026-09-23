@@ -89,13 +89,18 @@ use codex_core::config::Config;
 use codex_core::resolve_installation_id;
 use codex_exec_server::EnvironmentManager;
 use codex_feedback::CodexFeedback;
-use codex_login::AuthManager;
+#[path = "in_process_auth.rs"]
+mod host_auth;
+#[path = "in_process_environment.rs"]
+mod host_environment;
+pub use host_environment::apply_host_environment;
 use codex_protocol::protocol::SessionSource;
 pub use codex_rollout::StateDbHandle;
 pub use codex_state::log_db::LogDbLayer;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
+use tokio_util::task::AbortOnDropHandle;
 use toml::Value as TomlValue;
 use tracing::warn;
 
@@ -160,6 +165,9 @@ pub struct InProcessStartArgs {
     pub session_source: SessionSource,
     /// Whether auth loading should honor the `CODEX_API_KEY` environment variable.
     pub enable_codex_api_key_env: bool,
+    /// Optional auth supplied by an embedding host without process globals.
+    pub api_key: Option<String>,
+    pub runtime_environment: HashMap<String, String>,
     /// Initialize params used for initial handshake.
     pub initialize: InitializeParams,
     /// Capacity used for all runtime queues (clamped to at least 1).
@@ -336,7 +344,8 @@ impl InProcessClientHandle {
     ///
     /// Shutdown is bounded by internal timeouts and may abort background tasks
     /// if graceful drain does not complete in time.
-    pub async fn shutdown(self) -> IoResult<()> {
+    pub async fn shutdown(mut self) -> IoResult<()> {
+        self.event_rx.close();
         let mut runtime_handle = self.runtime_handle;
         let (done_tx, done_rx) = oneshot::channel();
 
@@ -421,10 +430,9 @@ async fn start_uninitialized(args: InProcessStartArgs) -> IoResult<InProcessClie
     args.config.auth_config().validate()?;
     let channel_capacity = args.channel_capacity.max(1);
     let installation_id = resolve_installation_id(&args.config.codex_home).await?;
-    let auth_manager =
-        AuthManager::shared_from_config(args.config.as_ref(), args.enable_codex_api_key_env)
-            .await
-            .map_err(IoError::other)?;
+    let auth_manager = host_auth::manager(
+        args.config.as_ref(), args.api_key, args.enable_codex_api_key_env,
+    ).await?;
     let (client_tx, mut client_rx) = mpsc::channel::<InProcessClientMessage>(channel_capacity);
     let (event_tx, event_rx) = mpsc::channel::<InProcessServerEvent>(channel_capacity);
 
@@ -455,11 +463,11 @@ async fn start_uninitialized(args: InProcessStartArgs) -> IoResult<InProcessClie
             ),
         );
         let (outbound_shutdown_tx, outbound_shutdown_rx) = oneshot::channel();
-        let mut outbound_handle = tokio::spawn(run_outbound_router(
+        let mut outbound_handle = AbortOnDropHandle::new(tokio::spawn(run_outbound_router(
             outgoing_rx,
             outbound_connections,
             outbound_shutdown_rx,
-        ));
+        )));
 
         let processor_outgoing = Arc::clone(&outgoing_message_sender);
         let config_manager = ConfigManager::new(
@@ -470,9 +478,9 @@ async fn start_uninitialized(args: InProcessStartArgs) -> IoResult<InProcessClie
             args.cloud_config_bundle,
             args.arg0_paths.clone(),
             args.thread_config_loader,
-        );
+        ).with_runtime_environment(args.runtime_environment);
         let (processor_tx, mut processor_rx) = mpsc::channel::<ProcessorCommand>(channel_capacity);
-        let mut processor_handle = tokio::spawn(async move {
+        let mut processor_handle = AbortOnDropHandle::new(tokio::spawn(async move {
             let processor = Arc::new(MessageProcessor::new(MessageProcessorArgs {
                 outgoing: Arc::clone(&processor_outgoing),
                 analytics_events_client,
@@ -576,13 +584,14 @@ async fn start_uninitialized(args: InProcessStartArgs) -> IoResult<InProcessClie
             processor.clear_all_thread_listeners().await;
             processor.drain_background_tasks().await;
             processor.shutdown_threads().await;
-        });
+        }));
         let mut pending_request_responses =
             HashMap::<RequestId, oneshot::Sender<PendingClientRequestResponse>>::new();
         let mut shutdown_ack = None;
 
         loop {
             tokio::select! {
+                _ = event_tx.closed() => break,
                 message = client_rx.recv() => {
                     match message {
                         Some(InProcessClientMessage::Request { request, response_tx, cancellation }) => {

@@ -13,10 +13,16 @@ use codex_exec_server::{run_fs_helper_main, CODEX_FS_HELPER_ARG1, LOCAL_FS};
 
 #[cfg(target_os = "windows")]
 use codex_windows_sandbox::{run_windows_sandbox_wrapper_main, CODEX_WINDOWS_SANDBOX_ARG1};
+#[cfg(target_os = "windows")]
+use codex_sandboxing::{run_windows_mxc_main, CODEX_WINDOWS_MXC_ARG1};
 
 /// Returns `false` during a normal iyw-claw startup. A recognized helper mode
 /// never returns because the helper owns the child process exit status.
 pub fn dispatch_from_process_args() -> bool {
+    #[cfg(all(windows, feature = "bundled-host"))]
+    if codex_windows_sandbox::dispatch_embedded_role() {
+        return true;
+    }
     let mut args = std::env::args_os();
     let program = args.next();
     let argv1 = args.next();
@@ -33,6 +39,8 @@ pub fn dispatch_from_process_args() -> bool {
         Some(HelperMode::ApplyPatchHelper) => run_apply_patch(args.next()),
         #[cfg(target_os = "windows")]
         Some(HelperMode::WindowsSandbox) => run_windows_sandbox_wrapper_main(),
+        #[cfg(target_os = "windows")]
+        Some(HelperMode::WindowsMxc) => run_windows_mxc_main(),
         None => false,
     }
 }
@@ -51,6 +59,8 @@ enum HelperMode {
     ApplyPatchHelper,
     #[cfg(target_os = "windows")]
     WindowsSandbox,
+    #[cfg(target_os = "windows")]
+    WindowsMxc,
 }
 
 fn helper_mode(program: Option<&OsStr>, value: Option<&OsStr>) -> Option<HelperMode> {
@@ -87,6 +97,10 @@ fn helper_mode(program: Option<&OsStr>, value: Option<&OsStr>) -> Option<HelperM
         #[cfg(target_os = "windows")]
         Some(value) if value == OsStr::new(CODEX_WINDOWS_SANDBOX_ARG1) => {
             Some(HelperMode::WindowsSandbox)
+        }
+        #[cfg(target_os = "windows")]
+        Some(value) if value == OsStr::new(CODEX_WINDOWS_MXC_ARG1) => {
+            Some(HelperMode::WindowsMxc)
         }
         _ => None,
     }

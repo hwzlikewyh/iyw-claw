@@ -103,6 +103,8 @@ Function IywClawTryElevatedInstall
 FunctionEnd
 
 Function IywClawLaunchElevatedInstaller
+  ; 旧 app 已回滚；等待提权子安装器期间必须让出互斥锁。
+  Call IywClawReleaseInstallLock
   ${GetParameters} $R0
   System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_ARGUMENTS", w "$R0")'
   System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_EXECUTABLE", w "$EXEPATH")'

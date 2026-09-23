@@ -500,7 +500,7 @@ pub(crate) fn verify_agent_installed(
     runtime_env: &BTreeMap<String, String>,
 ) -> Result<(), AcpError> {
     if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
-        return crate::internal_xinghe_worker::resolve_library()
+        return crate::internal_xinghe_worker::resolve_helper_path()
             .map(|_| ())
             .map_err(AcpError::SdkNotInstalled);
     }
@@ -8772,7 +8772,7 @@ async fn build_runtime_env_for_launch(
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
     let worker_version = if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
-        crate::internal_xinghe_worker::resolve_library().map_err(AcpError::SdkNotInstalled)?;
+        crate::internal_xinghe_worker::resolve_helper_path().map_err(AcpError::SdkNotInstalled)?;
         Some(crate::internal_xinghe_worker::RUNTIME_VERSION)
     } else {
         None

@@ -62,7 +62,7 @@ impl PublicRecallBench {
         let row = self
             .service
             .db
-            .query_one(Statement::from_string(
+            .query_one_raw(Statement::from_string(
                 DbBackend::Sqlite,
                 "SELECT COUNT(*) AS row_count FROM memory_item_current".to_string(),
             ))

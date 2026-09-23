@@ -15,6 +15,7 @@ Var IywClawElevationRolledBack
 !include "${__FILEDIR__}\installer-failure.nsh"
 !include "${__FILEDIR__}\installer-environment.nsh"
 !include "${__FILEDIR__}\installer-permissions.nsh"
+!include "${__FILEDIR__}\installer-lock.nsh"
 
 Function IywClawIsMainProcessRunning
   ; 仅检查当前用户、本安装目录且真实路径匹配的主进程。
@@ -84,10 +85,12 @@ Function IywClawRestoreLogicalInstallRoot
     StrCmp $R5 "0" iyw_relaunch_stopped_app iyw_relaunch_query_failed
 
   iyw_relaunch_stopped_app:
+    SetOutPath "$TEMP"
     ExecWait '"$EXEPATH" /P /UPDATE' $R6
     Goto iyw_relaunch_finished
 
   iyw_relaunch_running_app:
+    SetOutPath "$TEMP"
     DetailPrint "检测到正在运行的 iyw-claw，安装完成后将恢复原页面。"
     ExecWait '"$EXEPATH" /P /R /UPDATE /ARGS --restore-installer-session' $R6
     Goto iyw_relaunch_finished
@@ -177,6 +180,7 @@ FunctionEnd
   Abort
 
   iyw_test_root_prevalidated:
+  Call IywClawAcquireInstallLock
   Call IywClawValidateElevationIdentity
   Call IywClawResolveInstallRoot
   StrCmp $IywClawInstallerTestMode "1" 0 iyw_test_root_validated
@@ -219,6 +223,7 @@ FunctionEnd
       Abort
 
   iyw_app_transaction_ready:
+  !insertmacro IywClawStartEnvironmentPreparation
   Goto iyw_preinstall_done
 
   iyw_invalid_install_test_mode:
@@ -260,6 +265,7 @@ FunctionEnd
   Abort
 
   iyw_app_transaction_committed:
+  Call IywClawFinishProgress
   ; Tauri persists the internal app directory as the next installer location.
   ; Expose the logical root in the directory page while keeping binaries
   ; isolated below root\app.
@@ -269,7 +275,7 @@ FunctionEnd
   ${If} $UpdateMode = 1
     DetailPrint "已保留运行环境、受管组件、配置、数据和日志。"
   ${Else}
-    DetailPrint "基础运行环境已从 Fusion 下载并安装到用户目录 .iyw-claw。"
+    DetailPrint "初始化完成。"
   ${EndIf}
 !macroend
 
@@ -286,6 +292,7 @@ FunctionEnd
   Abort
 
   iyw_uninstall_test_root_validated:
+  Call un.IywClawAcquireInstallLock
   StrCmp $IywClawInstallerTestMode "1" iyw_uninstall_processes_stopped 0
   Call un.IywClawStopKnownProcesses
   Pop $R0
@@ -323,11 +330,11 @@ FunctionEnd
 
   iyw_keep_user_data:
     DetailPrint "正在删除 iyw-claw 程序数据并保留用户数据..."
-    RMDir /r "$IywClawRoot\app"
+    ; Tauri 随后按安装清单删除程序文件，保留 app 内未知的用户工作文件。
     RMDir /r "$IywClawRoot\runtime"
     RMDir /r "$IywClawRoot\agents"
     RMDir /r "$IywClawRoot\inventory"
-    RMDir /r "$IywClawRoot\staging"
+    ; staging 中可能保存升级恢复备份，保留数据卸载不得删除这些副本。
     RMDir /r "$IywClawRoot\plugins"
     RMDir /r "$IywClawRoot\logs"
     DeleteRegKey SHCTX "$IywClawInstallRegistryKey"

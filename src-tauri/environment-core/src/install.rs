@@ -41,6 +41,7 @@ fn prepare_with_verification(app_version: &str, full_check: bool) -> Result<Stri
     let client = FusionClient::new()?;
     let plan = client.resolve(&request)?;
     validate_plan(&plan, app_version, &target, &arch)?;
+    crate::progress::plan(&plan.actions);
     let transaction = uuid::Uuid::new_v4().simple().to_string();
     let context = preparation::Context {
         layout: &layout,
@@ -61,6 +62,7 @@ fn prepare_with_verification(app_version: &str, full_check: bool) -> Result<Stri
         )
     })?;
     emit("environment", "prepared", 0, 0);
+    crate::progress::prepared(&transaction);
     Ok(transaction)
 }
 
@@ -143,6 +145,7 @@ pub fn commit(transaction: Option<&str>) -> Result<()> {
     }
     crate::paths::safe_segment(&transaction, "transaction")?;
     let state = inventory::read_prepared(&layout, &transaction)?;
+    crate::progress::committing(state.components.len());
     if state.transaction_id != transaction {
         bail!("prepared environment transaction identity does not match")
     }
@@ -162,7 +165,9 @@ pub fn commit(transaction: Option<&str>) -> Result<()> {
             .collect(),
     };
     activation::commit(&layout, &state, &snapshot)?;
-    let _ = fs::remove_file(layout.pending_transaction());
+    if fs::read_to_string(layout.pending_transaction()).is_ok_and(|id| id.trim() == transaction) {
+        let _ = fs::remove_file(layout.pending_transaction());
+    }
     emit("environment", "committed", 0, 0);
     Ok(())
 }

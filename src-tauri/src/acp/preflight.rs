@@ -65,7 +65,7 @@ pub fn clear_npm_env_cache() {
 
 pub async fn run_preflight(agent_type: AgentType) -> PreflightResult {
     if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
-        let result = crate::internal_xinghe_worker::resolve_library();
+        let result = crate::internal_xinghe_worker::resolve_helper_path();
         let passed = result.is_ok();
         return PreflightResult {
             agent_type,

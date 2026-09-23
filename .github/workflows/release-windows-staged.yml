@@ -203,6 +203,7 @@ jobs:
           name: windows-installer-verification-${{ inputs.target }}
           overwrite: true
           path: |
+            src-tauri/target/${{ inputs.target }}/release/iyw-claw.exe
             src-tauri/target/${{ inputs.target }}/release/bundle/nsis/*-setup.exe
             src-tauri/resources/xinghe-worker/*
             src-tauri/binaries/iyw-environment-${{ inputs.target }}.exe

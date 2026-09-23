@@ -2,7 +2,7 @@
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-protocol"
-version = "0.155.0"
+version = "0.156.1"
 autobins = false
 autotests = false
 autobenches = false
@@ -21,43 +21,43 @@ features = [ "serde",]
 
 [dependencies.codex-async-utils]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-execpolicy]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-extension-items]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-network-proxy]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-utils-image]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-utils-redacted-string]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-utils-string]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.encoding_rs]
 version = "0.8.35"

@@ -89,6 +89,7 @@ pub enum LineDirection {
 /// [`sacp_conductor::Conductor`]: https://docs.rs/sacp-conductor/latest/sacp_conductor/struct.Conductor.html
 pub struct AcpAgent {
     server: sacp::schema::McpServer,
+    in_process: Option<(sacp::Channel, futures::future::BoxFuture<'static, Result<(), sacp::Error>>)>,
     debug_callback: Option<Arc<dyn Fn(&str, LineDirection) + Send + Sync + 'static>>,
     spawned_pid_callback: Option<Arc<dyn Fn(u32) + Send + Sync + 'static>>,
     current_dir: Option<PathBuf>,
@@ -114,11 +115,22 @@ impl AcpAgent {
     pub fn new(server: sacp::schema::McpServer) -> Self {
         Self {
             server,
+            in_process: None,
             debug_callback: None,
             spawned_pid_callback: None,
             current_dir: None,
             removed_envs: Vec::new(),
         }
+    }
+
+    /// Owns an embedded agent through SACP message channels. Startup remains
+    /// lazy, and dropping this connection cancels its embedded bridge.
+    pub fn in_process(agent: impl sacp::ConnectTo<Client>) -> Self {
+        let mut host = Self::new(sacp::schema::McpServer::Stdio(
+            sacp::schema::McpServerStdio::new("in-process", "in-process"),
+        ));
+        host.in_process = Some(agent.into_channel_and_future());
+        host
     }
 
     /// Create an ACP agent for Zed Industries' Claude Code tool.
@@ -367,9 +379,16 @@ impl AcpAgentCounterpartRole for Conductor {}
 
 impl<Counterpart: AcpAgentCounterpartRole> sacp::ConnectTo<Counterpart> for AcpAgent {
     async fn connect_to(
-        self,
+        mut self,
         client: impl sacp::ConnectTo<Counterpart::Counterpart>,
     ) -> Result<(), sacp::Error> {
+        if let Some((channel, embedded)) = self.in_process.take() {
+            tokio::select! {
+                result = embedded => return result,
+                result = sacp::ConnectTo::<Counterpart>::connect_to(channel, client) => return result,
+            }
+        }
+
         use futures::io::BufReader;
         use futures::AsyncBufReadExt;
         use futures::AsyncWriteExt;
@@ -535,6 +554,7 @@ impl AcpAgent {
                     .args(cmd_args)
                     .env(env),
             ),
+            in_process: None,
             debug_callback: None,
             spawned_pid_callback: None,
             current_dir: None,
@@ -581,6 +601,7 @@ impl FromStr for AcpAgent {
                 .map_err(|e| sacp::util::internal_error(format!("Failed to parse JSON: {}", e)))?;
             return Ok(Self {
                 server,
+                in_process: None,
                 debug_callback: None,
                 spawned_pid_callback: None,
                 current_dir: None,

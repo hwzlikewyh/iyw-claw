@@ -66,35 +66,10 @@ pub fn connector_auth_failure_from_tool_result(
     connector_name: Option<&str>,
     install_url: Option<String>,
 ) -> Option<CodexAppsConnectorAuthFailure> {
-    if result.is_error != Some(true) {
-        return None;
-    }
-
-    let auth_failure = result
-        .meta
-        .as_ref()?
-        .as_object()?
-        .get(MCP_TOOL_CODEX_APPS_META_KEY)?
-        .as_object()?
-        .get(CONNECTOR_AUTH_FAILURE_META_KEY)?
-        .as_object()?;
-    if auth_failure
-        .get(CONNECTOR_AUTH_FAILURE_IS_AUTH_FAILURE_KEY)
-        .and_then(serde_json::Value::as_bool)
-        != Some(true)
-    {
-        return None;
-    }
-
     let connector_id = connector_id
         .map(str::trim)
         .filter(|connector_id| !connector_id.is_empty())?;
-    if let Some(auth_failure_connector_id) =
-        string_auth_failure_field(auth_failure, CONNECTOR_AUTH_FAILURE_CONNECTOR_ID_KEY)
-        && auth_failure_connector_id != connector_id
-    {
-        return None;
-    }
+    let auth_failure = connector_auth_failure_metadata(result, connector_id)?;
     let connector_name = connector_name
         .map(str::trim)
         .filter(|name| !name.is_empty())
@@ -119,6 +94,49 @@ pub fn connector_auth_failure_from_tool_result(
             CONNECTOR_AUTH_FAILURE_ERROR_ACTION_KEY,
         ),
     })
+}
+
+pub fn is_connector_auth_failure_from_tool_result(
+    result: &CallToolResult,
+    connector_id: Option<&str>,
+) -> bool {
+    connector_id
+        .map(str::trim)
+        .filter(|connector_id| !connector_id.is_empty())
+        .is_some_and(|connector_id| connector_auth_failure_metadata(result, connector_id).is_some())
+}
+
+fn connector_auth_failure_metadata<'a>(
+    result: &'a CallToolResult,
+    connector_id: &str,
+) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+    if result.is_error != Some(true) {
+        return None;
+    }
+
+    let auth_failure = result
+        .meta
+        .as_ref()?
+        .as_object()?
+        .get(MCP_TOOL_CODEX_APPS_META_KEY)?
+        .as_object()?
+        .get(CONNECTOR_AUTH_FAILURE_META_KEY)?
+        .as_object()?;
+    if auth_failure
+        .get(CONNECTOR_AUTH_FAILURE_IS_AUTH_FAILURE_KEY)
+        .and_then(serde_json::Value::as_bool)
+        != Some(true)
+    {
+        return None;
+    }
+    if let Some(auth_failure_connector_id) =
+        string_auth_failure_field(auth_failure, CONNECTOR_AUTH_FAILURE_CONNECTOR_ID_KEY)
+        && auth_failure_connector_id != connector_id
+    {
+        return None;
+    }
+
+    Some(auth_failure)
 }
 
 pub fn build_auth_elicitation_plan(

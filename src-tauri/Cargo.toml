@@ -1,6 +1,6 @@
 [package]
 name = "iyw-claw"
-version = "0.1.239"
+version = "0.1.240"
 description = "Agent Code Generation App"
 authors = ["feitao"]
 edition = "2021"
@@ -13,7 +13,7 @@ default-run = "iyw-claw"
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "iyw_claw_lib"
-# 桌面和服务器只链接 Rust 库；星河动态库由独立 worker crate 构建。
+# 桌面和服务器只链接 Rust 库；星河 harness 直接静态链接进主程序。
 crate-type = ["rlib"]
 
 [features]
@@ -97,8 +97,9 @@ regex = "1"
 portable-pty = "0.8"
 urlencoding = "2"
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs", version = "0.0.0", optional = true }
-sea-orm = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros"] }
-sea-orm-migration = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
+sea-orm = { version = "2.0.3", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros"] }
+sea-orm-migration = { version = "2.0.3", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
+iyw-codex-harness = { path = "../harness/codex", default-features = false, features = ["bundled-host"] }
 toml = "0.8"
 serde_yaml = "0.9"
 notify = "6"
@@ -125,7 +126,6 @@ rand = "0.8"
 qrcode = "0.14"
 image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 include_dir = "0.7"
-libloading = "0.8.9"
 sha2 = "0.10"
 aes-gcm = { version = "0.10", features = ["stream"] }
 argon2 = "0.5"
@@ -186,3 +186,41 @@ axum-test = { version = "17", features = ["ws"] }
 
 [patch.crates-io]
 sacp-tokio = { path = "vendor/sacp-tokio" }
+# qdrant-edge enables parking_lot deadlock detection, which conflicts with
+# Codex's required send_guard feature in the combined in-process graph. The
+# embedded index does not call the optional deadlock API, so keep its source
+# with that diagnostic feature disabled.
+qdrant-edge = { path = "../harness/codex/patches/qdrant-edge" }
+aws-config = { path = "../harness/codex/patches/aws-config" }
+crossterm = { git = "https://github.com/openai-oss-forks/crossterm", rev = "45fecb9508105988f42fe6ff0441783ed3717f92", version = "0.29.0" }
+tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186" }
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "4fffad30fe373adbdcffab9545e9e9bf4f2fc19f" }
+
+[patch."ssh://git@github.com/openai-oss-forks/tungstenite-rs.git"]
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "4fffad30fe373adbdcffab9545e9e9bf4f2fc19f" }
+
+[patch."https://github.com/openai/codex.git"]
+codex-chatgpt = { path = "../harness/codex/patches/codex-chatgpt" }
+codex-state = { path = "../harness/codex/patches/codex-state" }
+codex-protocol = { path = "../harness/codex/patches/codex-protocol" }
+codex-app-server-protocol = { path = "../harness/codex/patches/codex-app-server-protocol" }
+codex-app-server-client = { path = "../harness/codex/patches/codex-app-server-client" }
+codex-app-server = { path = "../harness/codex/patches/codex-app-server" }
+codex-thread-store = { path = "../harness/codex/patches/codex-thread-store" }
+codex-utils-pty = { path = "../harness/codex/patches/codex-utils-pty" }
+codex-shell-command = { path = "../harness/codex/patches/codex-shell-command" }
+codex-windows-sandbox = { path = "../harness/codex/patches/codex-windows-sandbox" }
+codex-git-utils = { path = "../harness/codex/patches/codex-git-utils" }
+codex-core-plugins = { path = "../harness/codex/patches/codex-core-plugins" }
+codex-core = { path = "../harness/codex/patches/codex-core" }
+codex-mcp = { path = "../harness/codex/patches/codex-mcp" }
+codex-exec-server = { path = "../harness/codex/patches/codex-exec-server" }
+codex-hooks = { path = "../harness/codex/patches/codex-hooks" }
+codex-rmcp-client = { path = "../harness/codex/patches/codex-rmcp-client" }
+codex-rollout = { path = "../harness/codex/patches/codex-rollout" }
+codex-login = { path = "../harness/codex/patches/codex-login" }
+codex-model-provider = { path = "../harness/codex/patches/codex-model-provider" }
+codex-code-mode = { path = "../harness/codex/patches/codex-code-mode" }
+
+[patch."https://github.com/microsoft/mxc"]
+appcontainer_common = { path = "../harness/codex/patches/appcontainer-common" }

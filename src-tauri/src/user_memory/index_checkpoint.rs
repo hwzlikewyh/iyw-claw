@@ -54,7 +54,7 @@ pub(super) async fn mark_stale_if_current(
     reason: &str,
 ) -> Result<bool, sea_orm::DbErr> {
     let result = conn
-        .execute(Statement::from_sql_and_values(
+        .execute_raw(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             "UPDATE memory_source_checkpoint SET status = 'stale', last_error = ? WHERE source_key = ? AND source_digest = ? AND index_generation = ? AND status IN ('ready', 'ready_fallback')",
             [
@@ -73,7 +73,7 @@ async fn update_status(
     source_key: &str,
     state: CheckpointState<'_>,
 ) -> Result<(), sea_orm::DbErr> {
-    conn.execute(Statement::from_sql_and_values(
+    conn.execute_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         "UPDATE memory_source_checkpoint SET status = ?, last_error = ? WHERE source_key = ?",
         [
@@ -104,7 +104,7 @@ pub(super) async fn write_ready_checkpoint<C: ConnectionTrait>(
     .flatten()
     .collect::<Vec<_>>()
     .join(",");
-    conn.execute(Statement::from_sql_and_values(
+    conn.execute_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         "INSERT INTO memory_source_checkpoint (source_key, source_digest, index_generation, indexed_at, status, fts_unicode_status, fts_trigram_status, last_error) \
          VALUES (?, ?, 1, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?, ?, ?, NULLIF(?, '')) \

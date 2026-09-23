@@ -536,6 +536,14 @@ mod tauri_app {
                                 None,
                             )
                         {
+                            tauri::async_runtime::block_on(crate::acp::agent_storage::migrate_legacy_codex_profile(
+                                &paths,
+                                &config,
+                                Some(&database.conn),
+                            ))
+                            .map_err(|error| {
+                                format!("failed to migrate Xinghe profile directory: {error}")
+                            })?;
                             crate::acp::agent_storage::activate_startup_profile_env(
                                 &paths,
                                 &config,

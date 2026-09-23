@@ -98,7 +98,7 @@ pub(super) async fn collect_exact<C: ConnectionTrait>(
     push_query_at(&mut values, query.query_at);
     values.push((MAX_LANE_CANDIDATES as i64).into());
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             sql,
             values,
@@ -143,7 +143,7 @@ pub(super) async fn collect_alias<C: ConnectionTrait>(
     push_query_at(&mut values, query.query_at);
     values.push((MAX_LANE_CANDIDATES as i64).into());
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             sql,
             values,
@@ -189,7 +189,7 @@ pub(super) async fn collect_relations<C: ConnectionTrait>(
     push_query_at(&mut values, query.query_at);
     values.push((MAX_RELATION_CANDIDATES as i64).into());
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             sql,
             values,

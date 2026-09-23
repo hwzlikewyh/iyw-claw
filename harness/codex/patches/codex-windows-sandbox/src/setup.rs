@@ -1,3 +1,4 @@
+pub use crate::runtime_ownership::SetupRuntime;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -17,6 +18,7 @@ use std::sync::OnceLock;
 
 use crate::allow::AllowDenyPaths;
 use crate::allow::compute_allow_paths_for_permissions;
+use crate::app_package::registered_core_requested;
 use crate::deny_read_resolver::resolve_windows_deny_read_paths;
 use crate::helper_materialization::bundled_executable_path_for_exe;
 use crate::helper_materialization::helper_bin_dir;
@@ -33,7 +35,6 @@ use crate::setup_error::extract_failure;
 use crate::setup_error::failure;
 use crate::setup_error::read_setup_error_report;
 use crate::ssh_config_dependencies::ssh_config_dependency_paths;
-use crate::winutil::current_account_name;
 use anyhow::Result;
 use anyhow::anyhow;
 use base64::Engine;
@@ -252,6 +253,7 @@ pub fn run_setup_refresh(
             ..SetupRootOverrides::default()
         },
         /*offline_proxy_settings_override*/ None,
+        current_setup_runtime(),
     )
 }
 
@@ -260,7 +262,12 @@ pub(crate) fn run_setup_refresh_with_overrides_and_proxy_settings(
     overrides: SetupRootOverrides,
     offline_proxy_settings: &OfflineProxySettings,
 ) -> Result<()> {
-    run_setup_refresh_inner(request, overrides, Some(offline_proxy_settings))
+    run_setup_refresh_inner(
+        request,
+        overrides,
+        Some(offline_proxy_settings),
+        current_setup_runtime(),
+    )
 }
 
 pub fn run_setup_refresh_with_extra_read_roots(
@@ -283,7 +290,8 @@ pub fn run_setup_refresh_with_extra_read_roots(
     permissions.validate_elevated_filesystem_policy(command_cwd)?;
     let deny_read_paths =
         setup_refresh_deny_read_paths(permission_profile, workspace_roots, command_cwd)?;
-    let mut read_roots = gather_read_roots(command_cwd, &permissions, env_map, codex_home);
+    let runtime = current_setup_runtime();
+    let mut read_roots = gather_read_roots(command_cwd, &permissions, env_map, codex_home, runtime);
     read_roots.extend(extra_read_roots);
     run_setup_refresh_inner(
         SandboxSetupRequest {
@@ -301,6 +309,7 @@ pub fn run_setup_refresh_with_extra_read_roots(
             deny_write_paths: None,
         },
         /*offline_proxy_settings_override*/ None,
+        runtime,
     )
 }
 
@@ -327,11 +336,12 @@ fn run_setup_refresh_inner(
     request: SandboxSetupRequest<'_>,
     overrides: SetupRootOverrides,
     offline_proxy_settings_override: Option<&OfflineProxySettings>,
+    runtime: SetupRuntime,
 ) -> Result<()> {
     request
         .permissions
         .validate_elevated_filesystem_policy(request.command_cwd)?;
-    let (read_roots, write_roots) = build_payload_roots(&request, &overrides);
+    let (read_roots, write_roots) = build_payload_roots(&request, &overrides, runtime);
     let deny_read_paths = build_payload_deny_read_paths(overrides.deny_read_paths);
     let deny_write_paths = build_payload_deny_write_paths(&request, overrides.deny_write_paths);
     let offline_proxy_settings =
@@ -349,8 +359,9 @@ fn run_setup_refresh_inner(
         proxy_ports: offline_proxy_settings.proxy_ports,
         allow_local_binding: offline_proxy_settings.allow_local_binding,
         otel: None,
-        real_user: current_account_name()?,
+        real_user: crate::runtime_ownership::current_setup_user()?,
         mode: SetupMode::Full,
+        runtime,
         refresh_only: true,
     };
     let json = serde_json::to_vec(&payload)?;
@@ -376,6 +387,7 @@ fn run_setup_refresh_payload(b64: &str, codex_home: &Path) -> Result<()> {
     };
     // Refresh should never request elevation; ensure verb isn't set and we don't trigger UAC.
     let mut cmd = Command::new(&exe);
+    cmd.args(crate::embedded_roles::setup_args());
     cmd.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
     cmd.arg(b64)
         .stdin(Stdio::null())
@@ -554,7 +566,18 @@ fn profile_read_roots(user_profile: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn gather_helper_read_roots(codex_home: &Path) -> Vec<PathBuf> {
+pub(crate) fn current_setup_runtime() -> SetupRuntime {
+    if registered_core_requested() {
+        SetupRuntime::Registered
+    } else {
+        SetupRuntime::Legacy
+    }
+}
+
+fn gather_helper_read_roots(codex_home: &Path, runtime: SetupRuntime) -> Vec<PathBuf> {
+    if runtime == SetupRuntime::Registered {
+        return Vec::new();
+    }
     let helper_dir = helper_bin_dir(codex_home);
     let _ = std::fs::create_dir_all(&helper_dir);
     vec![helper_dir]
@@ -565,8 +588,9 @@ fn gather_full_read_roots_for_permissions(
     permissions: &ResolvedWindowsSandboxPermissions,
     env_map: &HashMap<String, String>,
     codex_home: &Path,
+    runtime: SetupRuntime,
 ) -> Vec<PathBuf> {
-    let mut roots = gather_helper_read_roots(codex_home);
+    let mut roots = gather_helper_read_roots(codex_home, runtime);
     roots.extend(
         WINDOWS_PLATFORM_DEFAULT_READ_ROOTS
             .iter()
@@ -596,6 +620,7 @@ pub(crate) fn gather_read_roots(
     permissions: &ResolvedWindowsSandboxPermissions,
     env_map: &HashMap<String, String>,
     codex_home: &Path,
+    runtime: SetupRuntime,
 ) -> Vec<PathBuf> {
     if permissions.has_symbolic_root_read_access(command_cwd) {
         return gather_full_read_roots_for_permissions(
@@ -603,10 +628,11 @@ pub(crate) fn gather_read_roots(
             permissions,
             env_map,
             codex_home,
+            runtime,
         );
     }
 
-    let mut roots = gather_helper_read_roots(codex_home);
+    let mut roots = gather_helper_read_roots(codex_home, runtime);
     if permissions.include_platform_defaults() {
         roots.extend(
             WINDOWS_PLATFORM_DEFAULT_READ_ROOTS
@@ -692,6 +718,8 @@ struct ElevationPayload {
     otel: Option<codex_otel::StatsigMetricsSettings>,
     real_user: String,
     mode: SetupMode,
+    #[serde(default, skip_serializing_if = "SetupRuntime::is_legacy")]
+    runtime: SetupRuntime,
     #[serde(default)]
     refresh_only: bool,
 }
@@ -858,12 +886,17 @@ fn quote_arg(arg: &str) -> String {
 }
 
 fn find_setup_exe() -> PathBuf {
+    #[cfg(feature = "bundled-host")]
+    return std::env::current_exe().expect("embedded sandbox host has no executable path");
+    #[cfg(not(feature = "bundled-host"))]
+    {
     if let Ok(exe) = std::env::current_exe()
         && let Some(setup_exe) = find_setup_exe_for_current_exe(&exe)
     {
         return setup_exe;
     }
     PathBuf::from(SETUP_EXE_FILENAME)
+    }
 }
 
 fn find_setup_exe_for_current_exe(exe: &Path) -> Option<PathBuf> {
@@ -953,6 +986,7 @@ fn run_setup_exe_payload(
     if !needs_elevation {
         let status = if retained_handles.is_empty() {
             Command::new(&exe)
+                .args(crate::embedded_roles::setup_args())
                 .arg(payload_b64)
                 .creation_flags(0x08000000) // CREATE_NO_WINDOW
                 .stdin(Stdio::null())
@@ -960,11 +994,10 @@ fn run_setup_exe_payload(
                 .stderr(Stdio::null())
                 .status()
         } else {
-            crate::setup_launch::spawn_with_retained_handles(
-                Command::new(&exe).arg(payload_b64),
-                retained_handles,
-            )
-            .and_then(|mut child| child.wait())
+            let mut command = Command::new(&exe);
+            command.args(crate::embedded_roles::setup_args()).arg(payload_b64);
+            crate::setup_launch::spawn_with_retained_handles(&mut command, retained_handles)
+                .and_then(|mut child| child.wait())
         }
         .map_err(|err| {
             failure(
@@ -992,7 +1025,10 @@ fn run_setup_exe_payload(
     }
 
     let exe_w = crate::winutil::to_wide(&exe);
-    let params = quote_arg(payload_b64);
+    let params = crate::embedded_roles::setup_args()
+        .map(quote_arg)
+        .chain(std::iter::once(quote_arg(payload_b64)))
+        .collect::<Vec<_>>().join(" ");
     let params_w = crate::winutil::to_wide(params);
     let verb_w = crate::winutil::to_wide("runas");
     let mut sei: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
@@ -1049,6 +1085,35 @@ pub(crate) fn run_elevated_setup_with_proxy_settings(
     request: SandboxSetupRequest<'_>,
     offline_proxy_settings: &OfflineProxySettings,
 ) -> Result<()> {
+    if registered_core_requested() {
+        request
+            .permissions
+            .validate_elevated_filesystem_policy(request.command_cwd)?;
+        // Reconcile the effective command settings through the same authenticated service as setup.
+        // A filtered shell environment may differ from the app's startup environment.
+        let settings = crate::WindowsSandboxProvisioningSettings {
+            proxy_ports: offline_proxy_settings.proxy_ports.clone(),
+            allow_local_binding: offline_proxy_settings.allow_local_binding,
+        };
+        let mut listeners =
+            crate::WindowsSandboxProxyListeners::from_proxy_environment(request.env_map);
+        listeners
+            .http_ports
+            .retain(|port| settings.proxy_ports.contains(port));
+        listeners
+            .socks_ports
+            .retain(|port| settings.proxy_ports.contains(port));
+        let outcome = crate::provisioning_client::provision_windows_sandbox_via_service(
+            request.codex_home,
+            settings,
+            listeners,
+        )?;
+        anyhow::ensure!(
+            outcome == crate::WindowsSandboxProvisioningOutcome::Provisioned,
+            "registered Core reconciliation requires the sandbox service"
+        );
+        return Ok(());
+    }
     run_elevated_setup_inner(request, Some(offline_proxy_settings))
 }
 
@@ -1056,6 +1121,10 @@ fn run_elevated_setup_inner(
     request: SandboxSetupRequest<'_>,
     offline_proxy_settings_override: Option<&OfflineProxySettings>,
 ) -> Result<()> {
+    anyhow::ensure!(
+        !registered_core_requested(),
+        "registered Core requires the sandbox service; retry service setup"
+    );
     request
         .permissions
         .validate_elevated_filesystem_policy(request.command_cwd)?;
@@ -1067,7 +1136,11 @@ fn run_elevated_setup_inner(
             format!("failed to create sandbox dir {}: {err}", sbx_dir.display()),
         )
     })?;
-    let payload = elevated_provisioning_payload(&request, offline_proxy_settings_override)?;
+    let payload = elevated_provisioning_payload(
+        &request,
+        offline_proxy_settings_override,
+        crate::runtime_ownership::current_setup_user()?,
+    );
     let needs_elevation = !is_elevated().map_err(|err| {
         failure(
             SetupErrorCode::OrchestratorElevationCheckFailed,
@@ -1080,10 +1153,11 @@ fn run_elevated_setup_inner(
 fn elevated_provisioning_payload(
     request: &SandboxSetupRequest<'_>,
     offline_proxy_settings_override: Option<&OfflineProxySettings>,
-) -> Result<ElevationPayload> {
+    real_user: String,
+) -> ElevationPayload {
     let offline_proxy_settings =
         offline_proxy_settings_for_request(request, offline_proxy_settings_override);
-    Ok(ElevationPayload {
+    ElevationPayload {
         version: SETUP_VERSION,
         offline_username: OFFLINE_USERNAME.to_string(),
         online_username: ONLINE_USERNAME.to_string(),
@@ -1095,11 +1169,12 @@ fn elevated_provisioning_payload(
         deny_write_paths: Vec::new(),
         proxy_ports: offline_proxy_settings.proxy_ports,
         allow_local_binding: offline_proxy_settings.allow_local_binding,
-        real_user: current_account_name()?,
+        real_user,
         otel: codex_otel::global_statsig_metrics_settings(),
         mode: SetupMode::InteractiveProvision,
+        runtime: SetupRuntime::Legacy,
         refresh_only: false,
-    })
+    }
 }
 
 pub fn run_elevated_provisioning_setup(
@@ -1107,15 +1182,23 @@ pub fn run_elevated_provisioning_setup(
     real_user: &str,
     settings: crate::WindowsSandboxProvisioningSettings,
 ) -> Result<()> {
-    run_elevated_provisioning_setup_with_retained_handles(codex_home, real_user, settings, &[])
+    run_elevated_provisioning_setup_with_retained_handles(
+        codex_home,
+        real_user,
+        settings,
+        current_setup_runtime(),
+        &[],
+    )
 }
 
 /// Runs service provisioning with directory protections retained by the helper
 /// itself, so they survive an unexpected exit of the provisioning service.
+/// The runtime must describe the authenticated client, not the shared service image.
 pub fn run_elevated_provisioning_setup_with_retained_handles(
     codex_home: &Path,
     real_user: &str,
     settings: crate::WindowsSandboxProvisioningSettings,
+    runtime: SetupRuntime,
     retained_handles: &[BorrowedHandle<'_>],
 ) -> Result<()> {
     if !codex_home.is_absolute()
@@ -1169,6 +1252,7 @@ pub fn run_elevated_provisioning_setup_with_retained_handles(
         otel: codex_otel::global_statsig_metrics_settings(),
         real_user: real_user.to_string(),
         mode: SetupMode::ProvisionOnly,
+        runtime,
         refresh_only: false,
     };
     run_setup_exe(
@@ -1182,6 +1266,7 @@ pub fn run_elevated_provisioning_setup_with_retained_handles(
 pub(crate) fn build_payload_roots(
     request: &SandboxSetupRequest<'_>,
     overrides: &SetupRootOverrides,
+    runtime: SetupRuntime,
 ) -> (Vec<PathBuf>, Vec<PathBuf>) {
     let write_roots = effective_write_roots_for_setup(
         request.permissions,
@@ -1193,7 +1278,7 @@ pub(crate) fn build_payload_roots(
     let mut read_roots = if let Some(roots) = overrides.read_roots.as_deref() {
         // An explicit override is the split policy's complete readable set. Keep only the
         // helper/platform roots the elevated setup needs; do not re-add legacy cwd/full-read roots.
-        let mut read_roots = gather_helper_read_roots(request.codex_home);
+        let mut read_roots = gather_helper_read_roots(request.codex_home, runtime);
         if overrides.read_roots_include_platform_defaults {
             read_roots.extend(
                 WINDOWS_PLATFORM_DEFAULT_READ_ROOTS
@@ -1209,6 +1294,7 @@ pub(crate) fn build_payload_roots(
             request.permissions,
             request.env_map,
             request.codex_home,
+            runtime,
         )
     };
     read_roots = expand_user_profile_root(read_roots);

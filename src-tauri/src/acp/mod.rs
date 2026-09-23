@@ -25,6 +25,7 @@ pub mod channel_tools;
 mod media_tool;
 mod worker_content_recovery;
 pub(crate) mod xinghe_runtime_config;
+mod xinghe_profile;
 pub use channel_confirmation_manager::ConnectionManagerChannelConfirmationLookup;
 pub(crate) mod background_watch;
 pub mod binary_cache;

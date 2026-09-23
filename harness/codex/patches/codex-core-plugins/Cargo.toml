@@ -2,7 +2,7 @@
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-core-plugins"
-version = "0.155.0"
+version = "0.156.1"
 
 [lib]
 doctest = false
@@ -14,87 +14,87 @@ version = "1"
 
 [dependencies.codex-analytics]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-app-server-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-config]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-connectors]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-exec-server]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-git-utils]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-hooks]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-login]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-mcp]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-model-provider]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-otel]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-plugin]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-skills]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-shell-command]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-tools]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-utils-path]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.codex-utils-plugins]
 git = "https://github.com/openai/codex.git"
-rev = "f0a1b8f0849d90960bc406b848f32e5a129b0457"
+rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
 
 [dependencies.chrono]
 version = "0.4.43"
@@ -135,7 +135,10 @@ version = "0.9"
 version = "0.10"
 
 [dependencies.tar]
-version = "=0.4.45"
+# The host application uses qdrant-edge, which resolves tar 0.4.46. The
+# upstream plugin only needs the stable tar API, so keep one version in the
+# combined iyw-claw dependency graph.
+version = "=0.4.46"
 default-features = false
 
 [dependencies.tempfile]

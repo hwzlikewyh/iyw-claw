@@ -153,7 +153,7 @@ async fn execute_fts_query<C: ConnectionTrait>(
     table: &str,
     lane: &str,
 ) -> Result<Vec<QueryResult>, String> {
-    db.query_all(statement).await.map_err(|error| {
+    db.query_all_raw(statement).await.map_err(|error| {
         tracing::debug!(table, error = %error, "[memory-recall] FTS lane unavailable");
         format!("fts_{lane}_error")
     })

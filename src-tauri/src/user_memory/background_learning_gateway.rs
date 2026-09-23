@@ -42,7 +42,7 @@ impl UserMemoryService {
         };
         let row = self
             .db
-            .query_one(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DbBackend::Sqlite,
                 "SELECT c.id FROM conversation c WHERE c.id = ? AND c.parent_id IS NULL AND c.deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM automation_run a WHERE a.conversation_id = c.id)",
                 [id.into()],

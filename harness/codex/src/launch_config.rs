@@ -4,16 +4,21 @@ use crate::UpstreamError;
 
 /// 与外置适配器使用同一主进程配置投影，但不修改工作进程的全局环境。
 pub(super) fn environment_overrides(
+    config_json: Option<&str>,
     home: Option<&std::path::Path>,
 ) -> Result<Value, UpstreamError> {
-    let Some(raw) = std::env::var_os("CODEX_CONFIG") else {
-        return Ok(json!([]));
+    let raw = match config_json {
+        Some(raw) => raw.to_string(),
+        None => match std::env::var("CODEX_CONFIG") {
+            Ok(raw) => raw,
+            Err(_) => return Ok(json!([])),
+        },
     };
-    let raw = raw
-        .to_str()
-        .ok_or_else(|| invalid("CODEX_CONFIG is not UTF-8"))?;
+    if raw.is_empty() {
+        return Ok(json!([]));
+    }
     let mut value: Value =
-        serde_json::from_str(raw).map_err(|_| invalid("CODEX_CONFIG is not valid JSON"))?;
+        serde_json::from_str(&raw).map_err(|_| invalid("CODEX_CONFIG is not valid JSON"))?;
     if let Some(home) = home {
         let config = serde_json::from_value(normalize(&value))
             .map_err(|_| invalid("CODEX_CONFIG has unsupported TOML values"))?;

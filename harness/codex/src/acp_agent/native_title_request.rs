@@ -131,7 +131,7 @@ async fn start_temporary(
     let response = call(
         handle,
         "thread/start",
-        temporary_params(input, &config["config"]),
+        temporary_params(input, &config["config"])?,
     )
     .await?;
     let temporary = response
@@ -146,7 +146,7 @@ async fn start_temporary(
     Ok(temporary)
 }
 
-fn temporary_params(input: &TitleInput, settings: &Value) -> Value {
+fn temporary_params(input: &TitleInput, settings: &Value) -> Result<Value, String> {
     let mut config = serde_json::Map::new();
     for feature in TITLE_DISABLED_FEATURES {
         config.insert(format!("features.{feature}"), json!(false));
@@ -163,19 +163,15 @@ fn temporary_params(input: &TitleInput, settings: &Value) -> Value {
         "enabled": false, "use_history_notes_extension": false,
     }));
     config.insert("web_search".into(), json!("disabled"));
-    let servers = settings
-        .get("mcp_servers")
-        .and_then(Value::as_object)
-        .into_iter()
-        .flat_map(|servers| servers.keys())
-        .map(|name| (name.clone(), json!({"enabled": false})))
-        .collect::<serde_json::Map<_, _>>();
-    config.insert("mcp_servers".into(), json!(servers));
-    json!({"model": input.model.as_ref().map(|s| json!(s)).unwrap_or_else(|| settings["model"].clone()),
+    config.insert(
+        "mcp_servers".into(),
+        super::super::isolated_config::disabled_mcp_servers(settings)?,
+    );
+    Ok(json!({"model": input.model.as_ref().map(|s| json!(s)).unwrap_or_else(|| settings["model"].clone()),
         "modelProvider": settings["model_provider"], "cwd": input.cwd, "approvalPolicy": "never",
         "sandbox": "read-only", "runtimeWorkspaceRoots": [], "ephemeral": true,
         "threadSource": "feature:system", "environments": [], "dynamicTools": [],
-        "selectedCapabilityRoots": [], "config": config})
+        "selectedCapabilityRoots": [], "config": config}))
 }
 
 async fn collect(mut events: mpsc::Receiver<Value>, turn_id: &str) -> Result<String, String> {

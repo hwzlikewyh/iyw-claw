@@ -1,5 +1,49 @@
 # Local Upstream Patches
 
+## Embedded Desktop Integration
+
+The desktop now links the pinned 0.156.1 runtime into its executable. The local
+`codex-app-server-client` production sources pass host credentials and runtime
+environment to the in-process server; no process-global credential mutation is
+required. The app-server reapplies tool environment on config reload and closes
+its tasks when the owning event receiver is dropped. Explicit shutdown remains
+bounded; router and processor tasks are aborted when their owner is dropped.
+
+The model-provider patch supplies the host key to request authentication, model
+catalog identity, and realtime authentication. It preserves the managed gateway
+`token` header without persisting the key in Codex configuration or auth files.
+
+`codex-windows-sandbox` adds `bundled-host`: setup and command-runner entry points
+are dispatched by internal flags of the main EXE. Restricted token, sandbox user,
+ACL, Job Object, ConPTY and setup protocol logic remain upstream-owned. The main
+EXE uses an asInvoker manifest; release UI startup explicitly requests elevation
+after internal role dispatch, preserving the existing administrator UI launch.
+
+`qdrant-edge` 0.8.0 is copied from the published crate with only its incompatible
+`parking_lot/deadlock_detection` feature disabled; see `qdrant-edge/PATCH.md`.
+The plugin crate's `tar` pin is 0.4.46 to match Qdrant in the combined graph.
+SeaORM 2.0.3 and SQLx 0.9 share `libsqlite3-sys` 0.37.0. This dependency upgrade
+does not introduce schema, file-path, session-ID, or migration-SQL changes.
+
+The older worker/helper packaging descriptions below are historical. Normal
+desktop builds prepare only `runtime.json`, then validate the embedded identity
+and static CRT imports in the linked executable.
+
+The 0.156.1 refresh uses commit `b412ff32c417f855c2b2d1581b77058eed87c84b`.
+Production source changes were merged against the prior 0.155.0 base, keeping
+host auth/environment, command-description, SQLite checksum and retry patches.
+New upstream child launching is centralized in `codex-utils-pty::child_command`;
+its Windows constructor retains `CREATE_NO_WINDOW`. The new sandbox setup
+library replaces the old embedded copy of the setup binary source. The helper
+copy path uses upstream's new copy module with the statically linked host.
+Protocol exports are refreshed from upstream with the optional command
+description reapplied; the removed `thread/rollback` exports remain removed.
+
+`codex-chatgpt` contains the pinned production source with a crate recursion
+limit of 256. The combined desktop graph exceeds Rust's default query depth
+when computing the connector-list future layout; this is a compile-time limit
+adjustment with no runtime behavior change. Test sources are omitted.
+
 The command-purpose display extension and its upgrade checklist are documented
 in [COMMAND_DESCRIPTION.md](COMMAND_DESCRIPTION.md).
 
@@ -11,7 +55,7 @@ background command can settle after its originating turn without entering a
 new turn's transcript. Recheck this path, including approval placeholders, when
 upgrading the upstream protocol.
 
-`codex-mcp` retains the production sources of pinned 0.155.0 (`f0a1b8f`), with
+`codex-mcp` retains the production sources of pinned 0.156.1 (`b412ff3`), with
 test-only modules omitted and standalone dependency metadata. Its status inspection
 reads one published runtime generation without starting/reconnecting clients.
 Thread-scoped `mcpServerStatus/list` uses that view through `codex-core`; global
@@ -25,7 +69,7 @@ compile the locked Codex release. It is part of the harness source and must not
 depend on a developer-machine path.
 
 `codex-state` contains the production sources and migrations from pinned
-0.155.0, with test-only items omitted. Migration SQL is stored with LF endings.
+0.156.1, with test-only items omitted. Migration SQL is stored with LF endings.
 Before migration, the runtime accepts an applied checksum only when it matches
 the exact embedded SQL or its LF/CRLF variant. It adjusts the in-memory migrator,
 preserving database migration records, locking and rejection of other changes.
@@ -61,7 +105,7 @@ and `send_message`, independently of `fork_turns`. Collaboration guidance keeps
 the parent working after dispatch and bounds missing-task recovery to one resend.
 Review this classification and guidance on upstream upgrades.
 
-`codex-utils-pty` is copied from the locked `rust-v0.155.0` source tree. Local
+`codex-utils-pty` is copied from the locked `rust-v0.156.1` source tree. Local
 source deltas retain explicit pointer casts in `src/win/conpty.rs` and
 `src/win/procthreadattr.rs`, plus hidden-window creation flags in `src/pipe.rs`,
 `src/win/mod.rs`, and `src/win/psuedocon.rs`. Its `Cargo.toml` is standalone
@@ -72,7 +116,7 @@ when starting internal Git and MCP subprocesses. Assigning the process to a job
 must not undo the hidden-window setting.
 
 `codex-shell-command` contains the production sources from the same locked
-`rust-v0.155.0` commit. Its only runtime change is setting `CREATE_NO_WINDOW`
+`rust-v0.156.1` commit. Its only runtime change is setting `CREATE_NO_WINDOW`
 on the two PowerShell detection commands in `src/powershell.rs`. Detection calls
 `pwsh` directly instead of adding an intermediate `cmd /C` process. The standalone
 manifest resolves the original workspace dependencies at the same pin. Upstream

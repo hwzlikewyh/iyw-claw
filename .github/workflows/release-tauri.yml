@@ -449,6 +449,7 @@ jobs:
           name: windows-installer-verification-${{ matrix.target }}
           overwrite: true
           path: |
+            src-tauri/target/${{ matrix.target }}/release/iyw-claw.exe
             src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
             src-tauri/resources/xinghe-worker/*
             src-tauri/binaries/iyw-environment-${{ matrix.target }}.exe

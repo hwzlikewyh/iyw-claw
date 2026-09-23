@@ -168,7 +168,7 @@ pub async fn reorder(conn: &DatabaseConnection, agent_types: &[AgentType]) -> Re
         Ok(()) => Ok(()),
         Err(err) if is_sqlite_full_error(&err) => {
             // Try truncating WAL once to reclaim space and retry.
-            conn.execute(Statement::from_string(
+            conn.execute_raw(Statement::from_string(
                 DbBackend::Sqlite,
                 "PRAGMA wal_checkpoint(TRUNCATE);".to_owned(),
             ))

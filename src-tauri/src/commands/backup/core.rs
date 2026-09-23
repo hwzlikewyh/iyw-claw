@@ -317,7 +317,7 @@ pub(crate) async fn snapshot_db_to(
             .await
             .map_err(AppCommandError::io)?;
     }
-    conn.execute(Statement::from_sql_and_values(
+    conn.execute_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         "VACUUM INTO ?",
         [dest.to_string_lossy().into_owned().into()],

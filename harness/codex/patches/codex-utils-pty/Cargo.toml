@@ -2,7 +2,7 @@
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-utils-pty"
-version = "0.155.0"
+version = "0.156.1"
 
 [lib]
 doctest = false
@@ -15,7 +15,7 @@ version = "0.9.0"
 
 [dependencies.tokio]
 version = "1"
-features = [ "io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time",]
+features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time", "signal"]
 
 [target."cfg(windows)".dependencies.filedescriptor]
 version = "0.8.3"

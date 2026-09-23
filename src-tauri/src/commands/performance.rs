@@ -26,7 +26,8 @@ mod performance_sessions;
 pub(crate) mod performance_windows;
 
 pub use performance_models::{
-    AppAgentSessionInfo, AppPerformanceStats, AppProcessInfo, AppSystemMemoryInfo, OsInfo,
+    AppAgentSessionInfo, AppEmbeddedRuntimeInfo, AppPerformanceStats, AppProcessInfo,
+    AppSystemMemoryInfo, OsInfo,
 };
 use performance_processes::{classify_processes, ProcessClassification, ProcessRecord};
 pub use performance_service::get_performance_stats_core;
@@ -222,6 +223,7 @@ pub(super) fn collect_stats(
     }
     let private_memory_used_bytes = complete_private_memory(processes.iter());
     let agent_sessions = collect_agent_sessions(&processes, sessions);
+    let embedded_runtimes = collect_embedded_runtimes(&agent_sessions);
     AppPerformanceStats {
         cpu_usage: processes.iter().map(|process| process.cpu_usage).sum(),
         memory_used_bytes: processes.iter().map(|process| process.memory_bytes).sum(),
@@ -232,8 +234,34 @@ pub(super) fn collect_stats(
         },
         processes,
         agent_sessions,
+        embedded_runtimes,
         system_memory,
     }
+}
+
+fn collect_embedded_runtimes(
+    sessions: &[AppAgentSessionInfo],
+) -> Vec<AppEmbeddedRuntimeInfo> {
+    #[cfg(not(feature = "tauri-runtime"))]
+    let _ = sessions;
+    #[cfg(feature = "tauri-runtime")]
+    {
+        let count = sessions
+            .iter()
+            .filter(|session| {
+                session.agent_type == crate::models::agent::AgentType::Codex
+                    && session.launcher_pid.is_none()
+            })
+            .count();
+        if count > 0 {
+            return vec![AppEmbeddedRuntimeInfo {
+                agent_type: crate::models::agent::AgentType::Codex,
+                session_count: count,
+                main_process_id: std::process::id(),
+            }];
+        }
+    }
+    Vec::new()
 }
 
 pub async fn end_agent_runtime_session_core(

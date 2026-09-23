@@ -14,6 +14,7 @@ import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 import { verifyArtifacts } from "./verify-signatures.mjs"
+import { verifyWorkerBundle } from "./verify-xinghe-worker-bundle.mjs"
 import {
   environmentHelperHostTarget,
   helperExecutableName,
@@ -160,6 +161,9 @@ function resolveInstalledApp(directory) {
 }
 
 function verifyInstalledSidecars(appDirectory, target, version) {
+  const resourceRoot = target.includes("apple-darwin")
+    ? join(appDirectory, "../Resources") : appDirectory
+  verifyWorkerBundle(resourceRoot, target)
   if ((process.env.IYW_CLAW_SIGN_MODE ?? "none") !== "none") {
     verifyArtifacts([
       join(

@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Component, Path};
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use flate2::read::GzDecoder;
@@ -9,6 +10,7 @@ use xz2::read::XzDecoder;
 use zip::ZipArchive;
 
 const MAX_EXPANDED_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
 
 pub fn unpack(archive: &Path, destination: &Path, kind: &str, file_name: &str) -> Result<()> {
     create_directory(destination)?;
@@ -49,8 +51,9 @@ fn validate_binary_name(value: &str) -> Result<()> {
 
 fn unpack_zip(archive: &Path, destination: &Path) -> Result<()> {
     let mut archive = ZipArchive::new(open_archive(archive)?).context("open ZIP artifact")?;
-    check_zip_space(&mut archive, destination)?;
+    let total = check_zip_space(&mut archive, destination)?;
     let mut expanded = 0_u64;
+    let mut reported = Instant::now();
     for index in 0..archive.len() {
         let mut entry = archive.by_index(index).context("read ZIP entry")?;
         let enclosed = entry.enclosed_name().context("ZIP entry path is unsafe")?;
@@ -69,7 +72,12 @@ fn unpack_zip(archive: &Path, destination: &Path) -> Result<()> {
         expanded = checked_expanded(expanded, entry.size())?;
         write_entry(&output, &mut entry)?;
         apply_mode(&output, entry.unix_mode())?;
+        if reported.elapsed() >= PROGRESS_INTERVAL {
+            crate::progress::extracted(expanded, total);
+            reported = Instant::now();
+        }
     }
+    crate::progress::extracted(expanded, total);
     Ok(())
 }
 
@@ -128,13 +136,14 @@ fn write_entry(path: &Path, entry: &mut impl Read) -> Result<()> {
     Ok(())
 }
 
-fn check_zip_space(archive: &mut ZipArchive<File>, destination: &Path) -> Result<()> {
+fn check_zip_space(archive: &mut ZipArchive<File>, destination: &Path) -> Result<u64> {
     let mut expanded = 0;
     for index in 0..archive.len() {
         let entry = archive.by_index(index).context("read ZIP entry size")?;
         expanded = checked_expanded(expanded, entry.size())?;
     }
-    crate::paths::require_space(destination, expanded)
+    crate::paths::require_space(destination, expanded)?;
+    Ok(expanded)
 }
 
 fn validate_link_target(root: &Path, link: &Path, target: &Path) -> Result<()> {
