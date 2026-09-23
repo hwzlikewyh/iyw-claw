@@ -37,6 +37,8 @@ jobs:
       asset_id: ${{ steps.upload.outputs.asset_id }}
       sha256: ${{ steps.upload.outputs.sha256 }}
     env:
+      CARGO_HOME: 'C:\c'
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "64"
       CARGO_PROFILE_RELEASE_LTO: "off"
       RUSTC_WRAPPER: sccache
@@ -46,6 +48,7 @@ jobs:
     steps:
       - name: Initialize build paths
         run: |
+          git config --global core.longpaths true
           "IYW_CLAW_STAGING_DIR=$env:RUNNER_TEMP/staging-$env:TAURI_TARGET_TRIPLE" >> $env:GITHUB_ENV
           "STAGING_ARCHIVE=$env:RUNNER_TEMP/iyw-staging-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$env:TAURI_TARGET_TRIPLE.zip" >> $env:GITHUB_ENV
       - uses: actions/checkout@v4
