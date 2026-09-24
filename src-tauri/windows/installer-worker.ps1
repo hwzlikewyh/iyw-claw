@@ -2,7 +2,8 @@ param(
     [Parameter(Mandatory = $true)][string]$Directory,
     [Parameter(Mandatory = $true)][string]$AppVersion,
     [Parameter(Mandatory = $true)][int]$InstallerPid,
-    [long]$OriginalBar = 0, [long]$ProgressBar = 0, [long]$StatusText = 0
+    [long]$OriginalBar = 0, [long]$ProgressBar = 0, [long]$StatusText = 0,
+    [long]$StageText = 0
 )
 $ErrorActionPreference = 'Stop'
 $phaseTimeout = [TimeSpan]::FromMinutes(20)
@@ -16,6 +17,7 @@ $parent = $null
 $child = $null
 $script:displayed = 0
 $script:environmentProgress = 0
+$script:progressWarning = $false
 
 function Write-State([string]$State, [int]$Code) {
     $text = "[result]`r`nState=$State`r`nCode=$Code`r`n"
@@ -40,7 +42,18 @@ function Update-Progress {
     if ([IO.File]::Exists($commitRequest)) { $appProgress = 1 }
     $combined = [int](3500 * $appProgress + 0.6 * $script:environmentProgress)
     $script:displayed = [Math]::Max($script:displayed, [Math]::Min(9500, $combined))
-    [IywInstallerNative]::Show($ProgressBar, $StatusText, $script:displayed)
+    $phase = [IywInstallerNative]::Read($progressPath, 'Phase')
+    $stage = if ($phase -in @('commit', 'committed')) { 'complete' }
+        elseif ($script:environmentProgress -gt 0 -or $appProgress -gt 0) { 'initialize' }
+        else { 'prepare' }
+    $updated = [IywInstallerNative]::Stage($StageText, $stage)
+    $updated = [IywInstallerNative]::Show($ProgressBar, $StatusText, $script:displayed) -and $updated
+    if (-not $updated -and -not $script:progressWarning) {
+        $warning = 'Progress control update timed out or failed; retrying on the next poll.'
+        if ($null -ne $child) { $child.WriteDiagnostic($warning) }
+        else { [IO.File]::AppendAllText($logPath, $warning + "`r`n") }
+        $script:progressWarning = $true
+    }
 }
 
 function Invoke-Phase([string]$Phase, [string]$Transaction = '') {
@@ -69,7 +82,7 @@ try {
     $null = $parent.Handle
     Assert-Running
     Add-Type -Path (Join-Path $Directory 'installer-worker-native.cs')
-    foreach ($window in @($OriginalBar, $ProgressBar, $StatusText)) {
+    foreach ($window in @($OriginalBar, $ProgressBar, $StatusText, $StageText)) {
         if ($window -eq 0) { continue }
         [uint32]$owner = 0
         [void][IywInstallerNative]::GetWindowThreadProcessId([IntPtr]$window, [ref]$owner)

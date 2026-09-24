@@ -8,8 +8,8 @@ Var IywClawProgressText
   !macroundef MUI_PAGE_INSTFILES
   !macro MUI_PAGE_INSTFILES
     !define MUI_PAGE_CUSTOMFUNCTION_SHOW IywClawCreateProgress
-    !define MUI_INSTFILESPAGE_FINISHHEADER_TEXT "初始化完成"
-    !define MUI_INSTFILESPAGE_FINISHHEADER_SUBTEXT "原助理已准备就绪。"
+    !define MUI_INSTFILESPAGE_FINISHHEADER_TEXT "原助理"
+    !define MUI_INSTFILESPAGE_FINISHHEADER_SUBTEXT "安装完成"
     !insertmacro MUI_PAGE_INIT
     !insertmacro MUI_PAGEDECLARATION_INSTFILES
   !macroend
@@ -46,6 +46,8 @@ Function IywClawFinishProgress
   StrCmp $IywClawProgressBar "" progress_finished 0
   SendMessage $IywClawProgressBar 0x402 10000 0
   SendMessage $IywClawProgressHeading ${WM_SETTEXT} 0 "STR:初始化完成"
+  SendMessage $IywClawProgressStage ${WM_SETTEXT} 0 "STR:原助理已准备就绪"
   SendMessage $IywClawProgressText ${WM_SETTEXT} 0 "STR:100%"
+  Call IywClawCompleteSteps
   progress_finished:
 FunctionEnd

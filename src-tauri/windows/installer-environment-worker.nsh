@@ -34,12 +34,14 @@ Function IywClawLaunchEnvironmentWorker
     StrCpy $IywClawProgressBar "0"
   StrCmp $IywClawProgressText "" 0 +2
     StrCpy $IywClawProgressText "0"
+  StrCmp $IywClawProgressStage "" 0 +2
+    StrCpy $IywClawProgressStage "0"
   Delete "$PLUGINSDIR\environment.status.ini"
   Delete "$PLUGINSDIR\environment.progress.ini"
   Delete "$PLUGINSDIR\environment.commit"
   Delete "$PLUGINSDIR\environment.cancel"
   System::Call 'kernel32::GetCurrentProcessId() i.R0'
-  nsExec::ExecToStack /TIMEOUT=10000 '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$PLUGINSDIR\installer-worker-launch.ps1" -Directory "$PLUGINSDIR" -AppVersion "$IywClawEnvironmentVersion" -InstallerPid $R0 -OriginalBar "$IywClawOriginalProgress" -ProgressBar "$IywClawProgressBar" -StatusText "$IywClawProgressText"'
+  nsExec::ExecToStack /TIMEOUT=10000 '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$PLUGINSDIR\installer-worker-launch.ps1" -Directory "$PLUGINSDIR" -AppVersion "$IywClawEnvironmentVersion" -InstallerPid $R0 -OriginalBar "$IywClawOriginalProgress" -ProgressBar "$IywClawProgressBar" -StatusText "$IywClawProgressText" -StageText "$IywClawProgressStage"'
   Pop $R0
   Pop $R1
   StrCmp $R0 "0" 0 environment_worker_launch_failed
