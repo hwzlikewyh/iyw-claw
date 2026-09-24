@@ -40,6 +40,8 @@ Function IywClawBackupCurrentAppWithRetry
     Return
   backup_current_app_failed:
     DetailPrint "旧 app 原子备份失败：source=$IywClawAppDir; target=$IywClawBackupDir; target_exists=0; attempts=$R2; win32_error=$IywClawAppRenameError"
+    Push "app rename failed: source=$IywClawAppDir; target=$IywClawBackupDir; attempts=$R2; win32_error=$IywClawAppRenameError"
+    Call IywClawAppendInstallerLog
     StrCpy $IywClawTransactionError "无法原子备份旧 app：Windows 错误 $IywClawAppRenameError"
     StrCmp $IywClawAppRenameError "5" backup_current_app_inspect 0
     StrCmp $IywClawAppRenameError "32" backup_current_app_inspect backup_current_app_return_failed

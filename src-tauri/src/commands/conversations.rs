@@ -1092,6 +1092,18 @@ pub async fn get_folder_conversation(
         force_refresh.unwrap_or(false),
     )
     .await
+    .inspect_err(|error| {
+        let pool = db.conn.get_sqlite_connection_pool();
+        tracing::warn!(
+            conversation_id,
+            pool_size = pool.size(),
+            pool_idle = pool.num_idle(),
+            code = ?error.code,
+            error = %error.message,
+            detail = ?error.detail,
+            "[conversation-history] detail request failed"
+        );
+    })
 }
 
 pub struct ContextPrimerSource<'a> {

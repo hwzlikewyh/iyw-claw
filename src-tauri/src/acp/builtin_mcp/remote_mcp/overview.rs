@@ -107,7 +107,12 @@ impl RemoteGateway {
     }
 
     pub(in crate::acp::builtin_mcp) async fn overview_context(self: &Arc<Self>) -> String {
-        self.advertised_catalog().await.0
+        format!(
+            "{}\n{}\n{}",
+            crate::user_memory::USER_CONTEXT_START,
+            self.advertised_catalog().await.0,
+            crate::user_memory::USER_CONTEXT_END,
+        )
     }
 
     pub(in crate::acp::builtin_mcp) async fn advertised_catalog(

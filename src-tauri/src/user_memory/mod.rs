@@ -28,6 +28,7 @@ mod capability_types;
 mod clear;
 mod clear_sources;
 mod context;
+mod context_remote;
 mod correction;
 mod entry_catalog;
 mod forget;
