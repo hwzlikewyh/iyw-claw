@@ -1971,7 +1971,6 @@ export function SidebarConversationList({
         onRename={handleRename}
         onDelete={handleDelete}
         onStatusChange={handleStatusChange}
-        onNewConversation={handleNewConversationForFolder}
         onTogglePin={handleTogglePin}
         onAddToAutomation={handleAddToAutomation}
         depth={row.depth}
