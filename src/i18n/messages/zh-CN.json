@@ -5452,6 +5452,17 @@
     "retry": "重试"
   },
   "StartupCodex": {
+    "setupBrand": "原助理",
+    "setupLabel": "初始化向导",
+    "setupTitle": "正在初始化",
+    "setupFailed": "初始化未完成",
+    "setupFailureHint": "请检查网络连接和可用空间后重试。已有数据会保留。",
+    "setupDetails": "诊断详情",
+    "setupStages": {
+      "prepare": "准备安装",
+      "initialize": "初始化组件",
+      "finish": "完成设置"
+    },
     "checkingTitle": "正在准备内核中",
     "checkingDescription": "首次启动需要准备运行环境，请稍候。",
     "runtimeTitle": "正在准备基础运行环境",

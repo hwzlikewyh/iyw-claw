@@ -559,13 +559,17 @@ pub async fn get_folder_conversation_core(
     conn: &sea_orm::DatabaseConnection,
     conversation_id: i32,
 ) -> Result<(DbConversationDetail, Option<String>), AppCommandError> {
-    let summary = conversation_service::get_by_id(conn, conversation_id)
+    let summary = super::history_read::read(conn, conversation_id, || {
+        conversation_service::get_by_id(conn, conversation_id)
+    })
         .await
         .map_err(AppCommandError::from)?;
     let segment_specs =
-        conversation_session_segment_service::list_for_conversation(conn, conversation_id)
+        super::history_read::read(conn, conversation_id, || {
+            conversation_session_segment_service::list_for_conversation(conn, conversation_id)
+        })
             .await
-            .unwrap_or_default()
+            .map_err(AppCommandError::from)?
             .into_iter()
             .filter_map(|segment| {
                 segment.external_id.map(|external_id| {
@@ -1010,7 +1014,9 @@ pub async fn get_folder_conversation_page_core(
     force_refresh: bool,
 ) -> Result<DbConversationDetail, AppCommandError> {
     let started_at = std::time::Instant::now();
-    let summary = conversation_service::get_by_id(conn, conversation_id)
+    let summary = super::history_read::read(conn, conversation_id, || {
+        conversation_service::get_by_id(conn, conversation_id)
+    })
         .await
         .map_err(AppCommandError::from)?;
     let cache_revision = crate::commands::conversation_history_cache::revision(

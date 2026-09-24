@@ -146,6 +146,7 @@ pub fn emit(component: &str, phase: &str, downloaded: u64, total: u64) {
         serde_json::json!({
             "componentId": component,
             "phase": phase,
+            "percent": crate::progress::percent(),
             "downloaded": downloaded,
             "total": total
         })

@@ -13,7 +13,7 @@ const EXTRACTION_SHARE: u32 = 2_500;
 static STATE: OnceLock<Mutex<Progress>> = OnceLock::new();
 
 struct Progress {
-    path: PathBuf,
+    path: Option<PathBuf>,
     phase: &'static str,
     value: u32,
     components: BTreeMap<String, (u64, u32)>,
@@ -24,9 +24,8 @@ struct Progress {
 }
 
 pub fn configure(path: Option<String>) -> Result<()> {
-    let Some(path) = path else { return Ok(()) };
-    let path = PathBuf::from(path);
-    ensure!(path.is_absolute(), "progress path must be absolute");
+    let path = path.map(PathBuf::from);
+    ensure!(path.as_ref().is_none_or(|path| path.is_absolute()), "progress path must be absolute");
     let _ = STATE.set(Mutex::new(Progress {
         path,
         phase: "prepare",
@@ -53,6 +52,10 @@ pub fn plan(actions: &[EnvironmentAction]) {
             })
             .collect();
     });
+}
+
+pub fn percent() -> Option<u32> {
+    STATE.get()?.lock().ok().map(|state| state.value / (SCALE / 100))
 }
 
 pub fn event(component: &str, phase: &str, done: u64, total: u64) {
@@ -145,12 +148,13 @@ impl Progress {
     }
 
     fn persist(&self) -> std::io::Result<()> {
-        let temporary = self.path.with_extension("new");
+        let Some(path) = self.path.as_ref() else { return Ok(()) };
+        let temporary = path.with_extension("new");
         let text = format!(
             "[progress]\nPhase={}\nValue={}\nTransaction={}\n",
             self.phase, self.value, self.transaction
         );
         std::fs::write(&temporary, text)?;
-        std::fs::rename(temporary, &self.path)
+        std::fs::rename(temporary, path)
     }
 }

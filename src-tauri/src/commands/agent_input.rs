@@ -122,7 +122,9 @@ pub async fn list_agent_inputs_core(
             "Conversation id must be positive",
         ));
     }
-    agent_input_outbox_service::list_visible(db, conversation_id)
+    super::history_read::read(db, conversation_id, || {
+        agent_input_outbox_service::list_visible(db, conversation_id)
+    })
         .await
         .map(client_items)
         .map_err(AppCommandError::from)

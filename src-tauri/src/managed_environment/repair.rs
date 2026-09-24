@@ -16,6 +16,8 @@ struct Progress {
     component_id: String,
     phase: String,
     #[serde(default)]
+    percent: Option<u32>,
+    #[serde(default)]
     downloaded: u64,
     #[serde(default)]
     total: u64,
@@ -87,12 +89,23 @@ async fn forward_progress(
             emitter,
             "app://bootstrap-init",
             serde_json::json!({
-                "taskId": task_id, "phase": event.phase, "component": component,
+                "taskId": task_id, "phase": bootstrap_phase(&event.phase), "component": component,
+                "percent": event.percent,
                 "downloaded": event.downloaded, "total": event.total, "message": event.message,
             }),
         );
     }
     Ok(())
+}
+
+fn bootstrap_phase(phase: &str) -> &str {
+    match phase {
+        "downloaded" | "cached" | "extracting" | "reused" | "component-prepared"
+        | "optional-skipped" | "prepared" => "staging",
+        "verified" => "health_check",
+        "committed" => "ready",
+        phase => phase,
+    }
 }
 
 async fn error_tail(mut stream: impl AsyncRead + Unpin) -> io::Result<String> {
