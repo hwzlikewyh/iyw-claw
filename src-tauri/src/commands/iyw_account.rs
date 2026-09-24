@@ -466,9 +466,14 @@ async fn fetch_profile_with_token(
 
     match points::fetch(&client, token).await {
         Ok(balance) => profile.balance_points = Some(balance),
-        Err(error) if error.code == AppErrorCode::AuthenticationFailed => return Err(error),
         Err(error) => {
-            tracing::warn!(code = ?error.code, "[iyw-account] points unavailable");
+            // 用户身份已由资料接口确认，积分服务失败不能使有效会话失效。
+            tracing::warn!(
+                stage = "points",
+                code = ?error.code,
+                detail = ?error.detail,
+                "[iyw-account] points unavailable; retaining authenticated profile"
+            );
         }
     }
     Ok(profile)
