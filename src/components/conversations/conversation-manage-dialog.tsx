@@ -1,40 +1,30 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useState } from "react"
 import { useTranslations } from "next-intl"
-import { toast } from "sonner"
 import {
-  CheckSquare,
+  Check,
   ChevronDown,
-  ListChecks,
   Loader2,
-  Square,
+  Pin,
+  RefreshCw,
   Trash2,
 } from "lucide-react"
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { STATUS_ORDER } from "@/lib/types"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,473 +35,236 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { AgentIcon } from "@/components/agent-icon"
-import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
-import { useTabActions } from "@/contexts/tab-context"
+import { Button } from "@/components/ui/button"
+import { useSidebarContext } from "@/contexts/sidebar-context"
+import { useIsMobile } from "@/hooks/use-mobile"
 import {
-  deleteConversation,
-  listAllConversations,
-  updateConversationStatus,
-} from "@/lib/api"
-import type {
-  AgentType,
-  ConversationStatus,
-  DbConversationSummary,
-} from "@/lib/types"
-import {
-  ALL_AGENT_TYPES,
-  STATUS_ORDER,
-  compareAgentType,
-  isAgentType,
-} from "@/lib/types"
-import { useAcpAgents } from "@/hooks/use-acp-agents"
-import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
-import { cn } from "@/lib/utils"
-import { formatConversationTitle } from "@/lib/conversation-title"
-import { toErrorMessage } from "@/lib/app-error"
-import { ConversationStatusDot } from "@/components/conversations/conversation-status-dot"
-import { resolveConversationFolderScope } from "./conversation-folder-scope"
+  useConversationManager,
+  type ConversationManager,
+} from "./use-conversation-manager"
+import { ConversationManagerFilters } from "./conversation-manager-filters"
+import { ConversationManagerTable } from "./conversation-manager-table"
 
 interface ConversationManageDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  folderId: number
-  folderName: string
+  folderId?: number
+  folderName?: string
 }
 
-function parseTimestamp(value: string): number {
-  const ts = Date.parse(value)
-  return Number.isNaN(ts) ? 0 : ts
-}
-
-function formatRelative(iso: string): string {
-  const ts = parseTimestamp(iso)
-  if (!ts) return ""
-  const diff = Math.max(0, Date.now() - ts)
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return "now"
-  if (m < 60) return `${m}m`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h`
-  const d = Math.floor(h / 24)
-  if (d < 30) return `${d}d`
-  const mo = Math.floor(d / 30)
-  if (mo < 12) return `${mo}mo`
-  const y = Math.floor(mo / 12)
-  return `${y}y`
-}
-
-export function ConversationManageDialog({
-  open,
-  onOpenChange,
-  folderId,
-  folderName,
-}: ConversationManageDialogProps) {
-  const t = useTranslations("Folder.sidebar.manageConversations")
-  const tCommon = useTranslations("Folder.common")
-  const tStatus = useTranslations("Folder.statusLabels")
-
-  const refreshConversations = useAppWorkspaceStore(
-    (s) => s.refreshConversations
-  )
-  const allFolders = useAppWorkspaceStore((s) => s.allFolders)
-  const { closeConversationTab } = useTabActions()
-  const { agents: availableAgents } = useAcpAgents()
-
-  const queryFolderIds = useMemo(
-    () => resolveConversationFolderScope(folderId, allFolders),
-    [allFolders, folderId]
-  )
-
-  const [search, setSearch] = useState("")
-  const [agentFilter, setAgentFilter] = useState<AgentType | "all">("all")
-  const [statusFilter, setStatusFilter] = useState<ConversationStatus | "all">(
-    "all"
-  )
-  const [rows, setRows] = useState<DbConversationSummary[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [pending, setPending] = useState(false)
-  const [refreshKey, setRefreshKey] = useState(0)
-  const [confirmDelete, setConfirmDelete] = useState(false)
-
-  const agentFilterOptions = useMemo(() => {
-    const options = new Set<AgentType>(ALL_AGENT_TYPES)
-    for (const agent of availableAgents) options.add(agent.agent_type)
-    for (const row of rows) options.add(row.agent_type)
-    if (agentFilter !== "all") options.add(agentFilter)
-    return [...options].sort(compareAgentType)
-  }, [agentFilter, availableAgents, rows])
-
-  // Reset state on open/close transitions
-  useEffect(() => {
-    if (!open) {
-      setSearch("")
-      setAgentFilter("all")
-      setStatusFilter("all")
-      setSelected(new Set())
-      setConfirmDelete(false)
-      setError(null)
-    }
-  }, [open])
-
-  // Debounced data fetch
-  useEffect(() => {
-    if (!open) return
-    const timer = setTimeout(async () => {
-      setLoading(true)
-      try {
-        const data = await listAllConversations({
-          folder_ids: queryFolderIds,
-          search: search.trim() || null,
-          agent_type: agentFilter === "all" ? null : agentFilter,
-          status: statusFilter === "all" ? null : statusFilter,
-        })
-        const sorted = [...data].sort(
-          (a, b) => parseTimestamp(b.created_at) - parseTimestamp(a.created_at)
-        )
-        setRows(sorted)
-        setError(null)
-      } catch (e) {
-        setError(toErrorMessage(e))
-      } finally {
-        setLoading(false)
-      }
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [open, queryFolderIds, search, agentFilter, statusFilter, refreshKey])
-
-  const toggleOne = useCallback((id: number) => {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
-
-  const allVisibleSelected = useMemo(
-    () => rows.length > 0 && rows.every((r) => selected.has(r.id)),
-    [rows, selected]
-  )
-
-  const toggleSelectAll = useCallback(() => {
-    if (allVisibleSelected) {
-      setSelected((prev) => {
-        const next = new Set(prev)
-        for (const r of rows) next.delete(r.id)
-        return next
-      })
-    } else {
-      setSelected((prev) => {
-        const next = new Set(prev)
-        for (const r of rows) next.add(r.id)
-        return next
-      })
-    }
-  }, [allVisibleSelected, rows])
-
-  const afterBulkOp = useCallback(() => {
-    setSelected(new Set())
-    setRefreshKey((k) => k + 1)
-    refreshConversations()
-  }, [refreshConversations])
-
-  const selectedIds = useMemo(() => [...selected], [selected])
-  const selectedCount = selected.size
-
-  const handleBulkDelete = useCallback(async () => {
-    if (selectedIds.length === 0) return
-    setPending(true)
-    try {
-      const affected = rows.filter((r) => selected.has(r.id))
-      await Promise.all(selectedIds.map((id) => deleteConversation(id)))
-      for (const conv of affected) {
-        closeConversationTab(conv.folder_id, conv.id, conv.agent_type)
-      }
-      toast.success(t("toastDeleted", { count: selectedIds.length }))
-      afterBulkOp()
-    } catch (e) {
-      toast.error(
-        t("toastOpFailed", {
-          message: toErrorMessage(e),
-        })
-      )
-    } finally {
-      setPending(false)
-      setConfirmDelete(false)
-    }
-  }, [selectedIds, rows, selected, closeConversationTab, t, afterBulkOp])
-
-  const handleBulkStatus = useCallback(
-    async (status: ConversationStatus) => {
-      if (selectedIds.length === 0) return
-      setPending(true)
-      try {
-        await Promise.all(
-          selectedIds.map((id) => updateConversationStatus(id, status))
-        )
-        toast.success(t("toastStatusUpdated", { count: selectedIds.length }))
-        afterBulkOp()
-      } catch (e) {
-        toast.error(
-          t("toastOpFailed", {
-            message: toErrorMessage(e),
-          })
-        )
-      } finally {
-        setPending(false)
-      }
-    },
-    [selectedIds, t, afterBulkOp]
-  )
-
+export function ConversationManageDialog(props: ConversationManageDialogProps) {
+  const manager = useConversationManager(props)
+  const t = useTranslations("SidebarDesign")
+  const tm = useTranslations("Folder.sidebar.manageConversations")
+  const mobile = useIsMobile()
+  const sidebar = useSidebarContext()
   return (
-    <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>{t("title", { name: folderName })}</DialogTitle>
-          </DialogHeader>
-
-          {/* Filter row */}
-          <div className="flex items-center justify-between gap-2">
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t("searchPlaceholder")}
-              className="h-9 w-64"
-            />
-            <div className="flex items-center gap-2">
-              <Select
-                value={agentFilter}
-                onValueChange={(value) => {
-                  if (value === "all" || isAgentType(value)) {
-                    setAgentFilter(value)
-                  }
-                }}
-              >
-                <SelectTrigger className="h-9 w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t("agentFilterAll")}</SelectItem>
-                  {agentFilterOptions.map((at) => (
-                    <SelectItem key={at} value={at}>
-                      <span className="flex items-center gap-2">
-                        <AgentIcon agentType={at} className="h-3.5 w-3.5" />
-                        {getAgentDisplayName(at)}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={statusFilter}
-                onValueChange={(v) =>
-                  setStatusFilter(v as ConversationStatus | "all")
-                }
-              >
-                <SelectTrigger className="h-9 w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t("statusFilterAll")}</SelectItem>
-                  {STATUS_ORDER.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      <span className="flex items-center gap-2">
-                        <ConversationStatusDot status={s} />
-                        {tStatus(s)}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* List container: select-all header + scrollable list */}
-          <div className="flex flex-col rounded-md border border-border/50 overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-border/50 bg-muted/20">
-              <button
-                type="button"
-                onClick={toggleSelectAll}
-                disabled={rows.length === 0}
-                className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
-              >
-                <span className="flex h-5 w-5 items-center justify-center">
-                  {allVisibleSelected ? (
-                    <CheckSquare className="h-4 w-4 text-primary" />
-                  ) : (
-                    <Square className="h-4 w-4" />
-                  )}
-                </span>
-                {allVisibleSelected ? t("deselectAll") : t("selectAllVisible")}
-              </button>
-              <span className="text-xs text-muted-foreground">
-                {t("matchedCount", { count: rows.length })}
-              </span>
-            </div>
-            <ScrollArea className="h-[26rem]">
-              <div className="flex flex-col gap-0.5 p-1">
-                {loading ? (
-                  Array.from({ length: 6 }).map((_, i) => (
-                    <Skeleton key={i} className="h-9 w-full rounded-md" />
-                  ))
-                ) : error ? (
-                  <p className="text-destructive text-sm px-3 py-6 text-center">
-                    {error}
-                  </p>
-                ) : rows.length === 0 ? (
-                  <p className="text-muted-foreground text-sm px-3 py-6 text-center">
-                    {search.trim() ||
-                    agentFilter !== "all" ||
-                    statusFilter !== "all"
-                      ? t("noMatchingConversations")
-                      : t("noConversations")}
-                  </p>
-                ) : (
-                  rows.map((conv) => {
-                    const checked = selected.has(conv.id)
-                    return (
-                      <div
-                        key={conv.id}
-                        onClick={() => toggleOne(conv.id)}
-                        className={cn(
-                          "flex items-center gap-2 rounded-md px-2 py-1.5 cursor-pointer border border-transparent",
-                          "hover:bg-accent/50",
-                          checked && "bg-accent/40 border-accent/60"
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            toggleOne(conv.id)
-                          }}
-                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground"
-                          aria-pressed={checked}
-                        >
-                          {checked ? (
-                            <CheckSquare className="h-4 w-4 text-primary" />
-                          ) : (
-                            <Square className="h-4 w-4" />
-                          )}
-                        </button>
-                        <AgentIcon
-                          agentType={conv.agent_type}
-                          className="h-4 w-4 shrink-0"
-                        />
-                        <span className="flex-1 min-w-0 truncate text-sm">
-                          {formatConversationTitle(conv.title) ||
-                            t("untitledConversation")}
-                        </span>
-                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums w-14 text-right">
-                          {t("messagesShort", { count: conv.message_count })}
-                        </span>
-                        <span className="shrink-0 text-xs text-muted-foreground w-10 text-right">
-                          {formatRelative(conv.created_at)}
-                        </span>
-                        <ConversationStatusDot
-                          status={conv.status as ConversationStatus}
-                          title={
-                            STATUS_ORDER.includes(
-                              conv.status as ConversationStatus
-                            )
-                              ? tStatus(conv.status as ConversationStatus)
-                              : conv.status
-                          }
-                        />
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            </ScrollArea>
-          </div>
-
-          {/* Footer: bulk actions */}
-          <DialogFooter className="flex items-center justify-between gap-2 sm:justify-between">
-            <span className="text-xs text-muted-foreground">
-              {t("selectedCount", { count: selectedCount })}
-            </span>
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Set status */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={selectedCount === 0 || pending}
-                  >
-                    <ListChecks className="h-3.5 w-3.5 mr-1" />
-                    {t("setStatus")}
-                    <ChevronDown className="h-3 w-3 ml-1 opacity-60" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {STATUS_ORDER.map((s) => (
-                    <DropdownMenuItem
-                      key={s}
-                      onSelect={() => handleBulkStatus(s)}
-                    >
-                      <ConversationStatusDot status={s} />
-                      {tStatus(s)}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              {/* Delete */}
-              <Button
-                size="sm"
-                variant="destructive"
-                disabled={selectedCount === 0 || pending}
-                onClick={() => setConfirmDelete(true)}
-              >
-                {pending ? (
-                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                ) : (
-                  <Trash2 className="h-3.5 w-3.5 mr-1" />
-                )}
-                {t("deleteSelected")}
-              </Button>
-
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-              >
-                {tCommon("close")}
-              </Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete confirmation */}
-      <AlertDialog
-        open={confirmDelete}
-        onOpenChange={(o) => !o && setConfirmDelete(false)}
+    <Dialog
+      open={props.open}
+      onOpenChange={(open) => {
+        if (!manager.pending) props.onOpenChange(open)
+      }}
+    >
+      <DialogContent
+        className="flex h-[min(48rem,calc(100dvh-2rem))] max-w-[min(64rem,calc(100vw-2rem))] flex-col gap-4 overflow-hidden rounded-lg p-4 sm:p-6"
+        onEscapeKeyDown={(event) => {
+          if (manager.pending) event.preventDefault()
+        }}
+        onInteractOutside={(event) => {
+          if (manager.pending) event.preventDefault()
+        }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("confirmDeleteTitle", { count: selectedCount })}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("confirmDeleteDescription")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{tCommon("cancel")}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleBulkDelete}>
-              {tCommon("confirm")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
+        <DialogHeader>
+          <DialogTitle>
+            {props.folderName
+              ? tm("title", { name: props.folderName })
+              : t("sessions")}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("sessions")}
+          </DialogDescription>
+        </DialogHeader>
+        <ConversationManagerFilters
+          manager={manager}
+          scoped={props.folderId !== undefined}
+        />
+        <ManagerToolbar manager={manager} />
+        {(manager.error || manager.incomplete) && (
+          <div
+            role="alert"
+            className="flex items-center gap-2 text-xs text-destructive"
+          >
+            <span className="min-w-0 flex-1 break-words">
+              {manager.error || t("incomplete")}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={manager.pending || manager.loading}
+              onClick={manager.refresh}
+            >
+              {t("retry")}
+            </Button>
+          </div>
+        )}
+        <ConversationManagerTable
+          manager={manager}
+          onOpen={async (row) => {
+            if (!(await manager.navigate(row))) return
+            props.onOpenChange(false)
+            if (mobile && sidebar.isOpen) sidebar.toggle()
+          }}
+        />
+        <DialogFooter className="flex-row items-center justify-between gap-2 sm:justify-between">
+          <span className="text-xs text-muted-foreground">
+            {tm("matchedCount", { count: manager.rows.length })}
+          </span>
+          {manager.cursor && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={manager.loading || manager.pending}
+              onClick={manager.loadMore}
+            >
+              {manager.loading && <Loader2 className="size-3 animate-spin" />}
+              {t("loadMore")}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function ManagerToolbar({ manager }: { manager: ConversationManager }) {
+  const t = useTranslations("SidebarDesign")
+  const tm = useTranslations("Folder.sidebar.manageConversations")
+  const ts = useTranslations("Folder.statusLabels")
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const disabled =
+    manager.loading || manager.pending || !manager.selectedRows.length
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="mr-auto text-xs text-muted-foreground">
+        {tm("selectedCount", { count: manager.selectedRows.length })}
+      </span>
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={disabled}
+        onClick={() => void manager.run("pin")}
+      >
+        <Pin className="size-3.5" />
+        {t("batchPin")}
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={disabled}
+        onClick={() => void manager.run("complete")}
+      >
+        <Check className="size-3.5" />
+        {t("batchComplete")}
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-8"
+            disabled={disabled}
+            title={tm("setStatus")}
+            aria-label={tm("setStatus")}
+          >
+            <ChevronDown className="size-3" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {STATUS_ORDER.map((status) => (
+            <DropdownMenuItem
+              key={status}
+              onSelect={() => void manager.run(status)}
+            >
+              {ts(status)}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="text-destructive"
+        disabled={disabled}
+        onClick={() => setConfirmDelete(true)}
+      >
+        <Trash2 className="size-3.5" />
+        {tm("deleteSelected")}
+      </Button>
+      <Button
+        size="icon"
+        variant="ghost"
+        className="size-8"
+        disabled={manager.pending || manager.loading}
+        onClick={manager.refresh}
+        title={t("refresh")}
+        aria-label={t("refresh")}
+      >
+        <RefreshCw
+          className={manager.loading ? "size-3.5 animate-spin" : "size-3.5"}
+        />
+      </Button>
+      <ManagerDeleteConfirmation
+        manager={manager}
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+      />
+    </div>
+  )
+}
+
+function ManagerDeleteConfirmation({
+  manager,
+  open,
+  onClose,
+}: {
+  manager: ConversationManager
+  open: boolean
+  onClose: () => void
+}) {
+  const tm = useTranslations("Folder.sidebar.manageConversations")
+  const common = useTranslations("Folder.common")
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !manager.pending) onClose()
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {tm("confirmDeleteTitle", { count: manager.selectedRows.length })}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {tm("confirmDeleteDescription")}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={manager.pending}>
+            {common("cancel")}
+          </AlertDialogCancel>
+          <AlertDialogAction
+            disabled={manager.pending || !manager.selectedRows.length}
+            onClick={(event) => {
+              event.preventDefault()
+              void manager.run("delete").then(onClose)
+            }}
+          >
+            {manager.pending && <Loader2 className="size-3 animate-spin" />}
+            {common("confirm")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

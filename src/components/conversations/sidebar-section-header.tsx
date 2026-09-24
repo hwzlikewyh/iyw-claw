@@ -55,6 +55,7 @@ export const SidebarSectionHeader = memo(function SidebarSectionHeader({
   topGap?: boolean
 }) {
   const t = useTranslations("Folder.sidebar")
+  const td = useTranslations("SidebarDesign")
   // Tooltips/aria-labels for the folders-section action reuse the existing
   // top-of-page Open Folder string, so no new locale key is introduced. Owned
   // here (not received) to preserve the memo, same as `t`.
@@ -63,8 +64,8 @@ export const SidebarSectionHeader = memo(function SidebarSectionHeader({
     section === "pinned"
       ? t("sectionPinned")
       : section === "chats"
-        ? t("sectionChats")
-        : t("sectionFolders")
+        ? td("chats")
+        : td("projects")
   const showNewChat = section === "chats" && onNewChat != null
   const showFolderActions = section === "folders" && onOpenFolder != null
   // Shared styling for the right-edge hover-revealed action buttons (New chat on
@@ -116,20 +117,16 @@ export const SidebarSectionHeader = memo(function SidebarSectionHeader({
             "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
           )}
         >
-          <span className="text-[0.6875rem] font-semibold uppercase tracking-[0.04em]">
-            {label}
-          </span>
           <ChevronRight
             aria-hidden
             className={cn(
               "h-3 w-3 shrink-0 transition-[transform,opacity] duration-200 ease-out",
               // Collapsed: always show the chevron (the only affordance that the
               // section can be reopened). Expanded: reveal on hover/focus only.
-              expanded
-                ? "rotate-90 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-                : "opacity-100"
+              expanded ? "rotate-90" : ""
             )}
           />
+          <span className="text-[0.6875rem] font-medium">{label}</span>
         </button>
         {showNewChat && (
           <button

@@ -122,14 +122,14 @@ export function saveSortMode(value: SidebarSortMode): void {
 }
 
 export function loadSectionOrder(): SidebarSectionOrder {
-  if (typeof window === "undefined") return "chats-first"
+  if (typeof window === "undefined") return "folders-first"
   try {
     const raw = localStorage.getItem(SECTION_ORDER_KEY)
     if (raw === "folders-first" || raw === "chats-first") return raw
   } catch {
     /* ignore */
   }
-  return "chats-first"
+  return "folders-first"
 }
 
 export function saveSectionOrder(value: SidebarSectionOrder): void {

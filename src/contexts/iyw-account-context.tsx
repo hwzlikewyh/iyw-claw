@@ -194,7 +194,7 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
           "[iyw-account] Profile refresh failed; retaining last successful profile",
           toErrorMessage(reason)
         )
-        setError(null)
+        setError(toErrorMessage(reason))
         setStatus("authenticated")
         return
       }

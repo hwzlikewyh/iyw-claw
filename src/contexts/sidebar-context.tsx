@@ -16,7 +16,7 @@ import {
 
 const STORAGE_KEY = "workspace:left-sidebar"
 
-const DEFAULT_WIDTH = 200
+const DEFAULT_WIDTH = 280
 const LEGACY_DEFAULT_WIDTH = 320
 const MIN_WIDTH = 200
 const MAX_WIDTH = 900

@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -11,58 +12,51 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Crosshair,
-  LibraryBig,
-  PackageCheck,
-  Settings,
+  Folder,
   SquarePen,
-  CalendarClock,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useSidebarContext } from "@/contexts/sidebar-context"
 import { useSidebarViewOptions } from "@/contexts/sidebar-view-options-context"
 import { useTabActions } from "@/contexts/tab-context"
-import { useAutomationsView } from "@/contexts/automations-view-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import {
   SidebarConversationList,
   type SidebarConversationListHandle,
 } from "@/components/conversations/sidebar-conversation-list"
-import { NewFolderDropdown } from "@/components/layout/new-folder-dropdown"
-import { SidebarAccountSettings } from "@/components/layout/sidebar-account-settings"
+import {
+  DEFAULT_SIDEBAR_FILTERS,
+  SidebarFilterControl,
+  type SidebarFilters,
+} from "@/components/conversations/sidebar-filters"
+import { SidebarAccountSettings } from "./sidebar-account-settings"
+import { SidebarProjectActions } from "./sidebar-project-actions"
+import { SidebarWorkbench } from "./sidebar-workbench"
 import {
   focusSidebarToggleAfterCollapse,
   resolveSidebarPresentation,
-} from "@/components/layout/sidebar-presentation"
+} from "./sidebar-presentation"
 import {
   SidebarNavButton,
   SidebarRailButton,
   SidebarToggleButton,
-} from "@/components/layout/sidebar-nav-button"
+} from "./sidebar-nav-button"
 import { Button } from "@/components/ui/button"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useZoomLevel } from "@/hooks/use-appearance"
 import { useIsMac } from "@/hooks/use-is-mac"
 import { useShortcutSettings } from "@/hooks/use-shortcut-settings"
 import { formatShortcutLabel } from "@/lib/keyboard-shortcuts"
-import { openSettingsWindow } from "@/lib/api"
 import { scalePanelPixels } from "@/lib/panel-sizing"
 import { cn } from "@/lib/utils"
 
-const PRIMARY_SHORTCUT_BADGE_CLASS = cn(
-  "ml-auto inline-flex h-[0.9375rem] shrink-0 items-center justify-center",
-  "rounded-[0.3125rem] border border-primary-foreground/25 bg-primary-foreground/15 px-[0.25rem]",
-  "font-mono text-[0.625rem] font-medium leading-none text-primary-foreground/85",
-  "opacity-0 transition-opacity duration-150",
-  "group-hover:opacity-100 group-focus-visible:opacity-100"
-)
-
 export function Sidebar() {
   const t = useTranslations("Folder.sidebar")
+  const td = useTranslations("SidebarDesign")
   const tTitleBar = useTranslations("Folder.folderTitleBar")
   const { isOpen, toggle, width } = useSidebarContext()
   const { openChatModeTab } = useTabActions()
-  const { unseenFailures } = useAutomationsView()
-  const { routeId, setRoute, openConversations } = useWorkbenchRoute()
+  const { openConversations } = useWorkbenchRoute()
   const isMac = useIsMac()
   const { shortcuts } = useShortcutSettings()
   const isMobile = useIsMobile()
@@ -70,12 +64,12 @@ export function Sidebar() {
   const listRef = useRef<SidebarConversationListHandle>(null)
   const expandedLayerRef = useRef<HTMLDivElement>(null)
   const toggleButtonRef = useRef<HTMLButtonElement>(null)
-
-  const { showCompleted, sortMode, sectionOrder } = useSidebarViewOptions()
+  const { showCompleted, setShowCompleted, sortMode, sectionOrder } =
+    useSidebarViewOptions()
+  const [locateRequest, setLocateRequest] = useState(0)
   const [allExpanded, setAllExpanded] = useState(true)
-  const newConversationShortcutLabel = formatShortcutLabel(
-    shortcuts.new_conversation,
-    isMac
+  const [filters, setFilters] = useState<SidebarFilters>(
+    DEFAULT_SIDEBAR_FILTERS
   )
   const toggleExpandLabel = allExpanded
     ? t("collapseAllGroups")
@@ -86,40 +80,32 @@ export function Sidebar() {
   })
   const presentation = resolveSidebarPresentation(isOpen, isMobile)
   const expandedLayerWidth = scalePanelPixels(width, zoomLevel)
-
   useLayoutEffect(() => {
-    if (!isOpen) {
+    if (!isOpen)
       focusSidebarToggleAfterCollapse(
         expandedLayerRef.current,
         toggleButtonRef.current
       )
-    }
   }, [isOpen])
-
-  const handleToggleExpandAll = useCallback(() => {
-    if (allExpanded) {
-      listRef.current?.collapseAll()
-      setAllExpanded(false)
-    } else {
-      listRef.current?.expandAll()
-      setAllExpanded(true)
-    }
-  }, [allExpanded])
-
   const handleNewConversation = useCallback(() => {
-    // A new conversation always returns to the conversation workspace.
     openConversations()
     openChatModeTab()
-  }, [openChatModeTab, openConversations])
-
-  const handleOpenSettings = useCallback(() => {
-    openSettingsWindow("appearance").catch((error) => {
-      console.error("[Sidebar] failed to open settings:", error)
-    })
-  }, [])
-
+    if (isMobile && isOpen) toggle()
+  }, [openChatModeTab, openConversations, isMobile, isOpen, toggle])
+  const handleToggleExpandAll = () => {
+    if (allExpanded) listRef.current?.collapseAll()
+    else listRef.current?.expandAll()
+    setAllExpanded(!allExpanded)
+  }
+  useEffect(() => {
+    if (locateRequest > 0) listRef.current?.scrollToActive()
+  }, [locateRequest])
+  const locateActive = () => {
+    setFilters(DEFAULT_SIDEBAR_FILTERS)
+    setShowCompleted(true)
+    setLocateRequest((value) => value + 1)
+  }
   if (!presentation.renderExpanded && !presentation.renderRail) return null
-
   return (
     <aside className="@container/sidebar relative h-full min-h-0 w-full overflow-hidden border-r border-sidebar-border/70 bg-sidebar text-sidebar-foreground select-none">
       <SidebarToggleButton
@@ -127,9 +113,9 @@ export function Sidebar() {
         isOpen={isOpen}
         label={toggleSidebarLabel}
         onClick={toggle}
-        className="absolute top-2 right-3 z-30"
+        className="absolute right-3 top-3 z-30"
       />
-      {presentation.renderExpanded ? (
+      {presentation.renderExpanded && (
         <div
           ref={expandedLayerRef}
           inert={!presentation.expandedInteractive || undefined}
@@ -139,7 +125,7 @@ export function Sidebar() {
             isMobile
               ? undefined
               : ({
-                  "--sidebar-expanded-width": `${expandedLayerWidth}px`,
+                  "--sidebar-expanded-width": expandedLayerWidth + "px",
                 } as CSSProperties)
           }
           className={cn(
@@ -152,173 +138,109 @@ export function Sidebar() {
                 : "pointer-events-none -translate-x-1 opacity-0")
           )}
         >
-          <div className="flex h-11 shrink-0 items-center justify-between border-b border-sidebar-border/70 px-3">
-            <span className="text-xs font-semibold text-sidebar-foreground">
-              {t("title")}
+          <div className="flex h-14 shrink-0 items-center gap-2 px-4 pr-12">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-background">
+              <Folder className="size-3.5" />
             </span>
-            <div className="mr-8 flex items-center">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0 rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
-                onClick={handleToggleExpandAll}
-                title={toggleExpandLabel}
-                aria-label={toggleExpandLabel}
-              >
-                {allExpanded ? (
-                  <ChevronsDownUp aria-hidden="true" className="h-3.5 w-3.5" />
-                ) : (
-                  <ChevronsUpDown aria-hidden="true" className="h-3.5 w-3.5" />
-                )}
-              </Button>
-            </div>
+            <span className="truncate text-xs font-semibold">
+              {td("workspace")}
+            </span>
           </div>
-
-          <div className="grid shrink-0 gap-1.5 border-b border-sidebar-border/60 px-3 py-3">
+          <div className="grid shrink-0 gap-2 px-3 pb-4 pt-1">
             <SidebarNavButton
               icon={SquarePen}
               label={t("newChat")}
               onClick={handleNewConversation}
               tone="primary"
-              trailing={
-                newConversationShortcutLabel ? (
-                  <kbd className={PRIMARY_SHORTCUT_BADGE_CLASS}>
-                    {newConversationShortcutLabel}
-                  </kbd>
-                ) : null
-              }
             />
-            <NewFolderDropdown
-              showLabel
-              buttonClassName="h-9 w-full justify-start rounded-md border border-sidebar-border/80 bg-sidebar text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-            />
+            <SidebarProjectActions />
           </div>
-
-          <nav className="grid shrink-0 gap-0.5 border-b border-sidebar-border/60 px-2 py-2">
-            <SidebarNavButton
-              icon={CalendarClock}
-              label={t("automations")}
-              active={routeId === "automations"}
-              onClick={() => setRoute("automations")}
-              trailing={
-                unseenFailures > 0 ? (
-                  <span className="ml-auto inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive/15 px-1 font-mono text-[0.625rem] font-medium leading-none text-destructive">
-                    {unseenFailures}
-                  </span>
-                ) : null
-              }
-            />
-            <SidebarNavButton
-              icon={PackageCheck}
-              label={t("skillsMarket")}
-              active={routeId === "skills"}
-              onClick={() => setRoute("skills")}
-            />
-            <SidebarNavButton
-              icon={LibraryBig}
-              label={t("resources")}
-              active={routeId === "resources"}
-              onClick={() => {
-                setRoute("resources")
-                if (isMobile) toggle()
-              }}
-            />
-          </nav>
-
+          <SidebarWorkbench />
+          <div className="flex h-10 shrink-0 items-center justify-between px-3">
+            <span className="text-xs font-medium">{t("title")}</span>
+            <div className="flex gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 text-muted-foreground"
+                title={toggleExpandLabel}
+                aria-label={toggleExpandLabel}
+                onClick={handleToggleExpandAll}
+              >
+                {allExpanded ? (
+                  <ChevronsDownUp className="size-3.5" />
+                ) : (
+                  <ChevronsUpDown className="size-3.5" />
+                )}
+              </Button>
+              <SidebarFilterControl value={filters} onChange={setFilters} />
+            </div>
+          </div>
           <div
             className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
             onClick={
               isMobile
                 ? (event) => {
-                    const target = event.target as HTMLElement
-                    if (target.closest("[data-conversation-id]")) toggle()
+                    if (
+                      (event.target as HTMLElement).closest(
+                        "[data-conversation-id]"
+                      )
+                    )
+                      toggle()
                   }
                 : undefined
             }
           >
             <SidebarConversationList
               ref={listRef}
-              showCompleted={showCompleted}
+              showCompleted={filters.status === "all" ? showCompleted : true}
               sortMode={sortMode}
               sectionOrder={sectionOrder}
+              filters={filters}
             />
             <Button
               variant="ghost"
               size="icon"
-              className={cn(
-                "absolute right-3 bottom-3 z-20 h-8 w-8 rounded-full",
-                "border border-sidebar-border/80 bg-sidebar/90 text-muted-foreground shadow-md shadow-black/10 backdrop-blur",
-                "hover:bg-sidebar-accent hover:text-sidebar-foreground"
-              )}
-              onClick={(event) => {
-                event.stopPropagation()
-                listRef.current?.scrollToActive()
-              }}
+              className="absolute bottom-3 right-3 z-20 size-8 rounded-md border border-sidebar-border/80 bg-sidebar/95 text-muted-foreground shadow-sm hover:bg-sidebar-accent"
+              onClick={locateActive}
               title={t("locateActiveConversation")}
               aria-label={t("locateActiveConversation")}
             >
-              <Crosshair aria-hidden="true" className="h-3.5 w-3.5" />
+              <Crosshair className="size-3.5" />
             </Button>
           </div>
-
           <div className="shrink-0 border-t border-sidebar-border/70 px-2 py-1">
             <SidebarAccountSettings />
           </div>
         </div>
-      ) : null}
-
-      {presentation.renderRail ? (
+      )}
+      {presentation.renderRail && (
         <div
           inert={!presentation.railInteractive || undefined}
           aria-hidden={!presentation.railInteractive}
           className={cn(
-            "absolute inset-y-0 left-0 flex w-full flex-col items-center bg-sidebar",
-            "transition-opacity duration-150 ease-out motion-reduce:transition-none",
+            "absolute inset-y-0 left-0 flex w-full flex-col items-center bg-sidebar transition-opacity duration-150 motion-reduce:transition-none",
             presentation.railInteractive
               ? "opacity-100"
               : "pointer-events-none opacity-0"
           )}
         >
-          <div className="h-11 w-full shrink-0 border-b border-sidebar-border/70" />
-          <div className="flex shrink-0 flex-col items-center gap-1.5 py-2">
+          <div className="h-14 w-full shrink-0" />
+          <div className="flex shrink-0 flex-col items-center gap-2 py-2">
             <SidebarRailButton
               icon={SquarePen}
               label={t("newChat")}
               onClick={handleNewConversation}
               tone="primary"
             />
-            <NewFolderDropdown buttonClassName="h-9 w-9 rounded-md text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground" />
+            <SidebarProjectActions compact />
           </div>
-          <div className="h-px w-7 shrink-0 bg-sidebar-border/70" />
-          <nav className="flex shrink-0 flex-col items-center gap-1.5 py-2">
-            <SidebarRailButton
-              icon={CalendarClock}
-              label={t("automations")}
-              active={routeId === "automations"}
-              onClick={() => setRoute("automations")}
-            />
-            <SidebarRailButton
-              icon={PackageCheck}
-              label={t("skillsMarket")}
-              active={routeId === "skills"}
-              onClick={() => setRoute("skills")}
-            />
-            <SidebarRailButton
-              icon={LibraryBig}
-              label={t("resources")}
-              active={routeId === "resources"}
-              onClick={() => setRoute("resources")}
-            />
-          </nav>
-          <div className="mt-auto flex w-full justify-center border-t border-sidebar-border/70 py-2">
-            <SidebarRailButton
-              icon={Settings}
-              label={tTitleBar("openSettings")}
-              onClick={handleOpenSettings}
-            />
+          <SidebarWorkbench compact />
+          <div className="mt-auto w-full border-t border-sidebar-border/70 py-2">
+            <SidebarAccountSettings compact />
           </div>
         </div>
-      ) : null}
+      )}
     </aside>
   )
 }

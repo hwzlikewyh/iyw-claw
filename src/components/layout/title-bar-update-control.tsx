@@ -28,6 +28,7 @@ import {
   usesTauriUpdater,
 } from "@/lib/updater"
 import { cn } from "@/lib/utils"
+import { OPEN_APP_UPDATE_EVENT } from "./sidebar-update-event"
 
 const BADGE_STATUSES = new Set<AppUpdateState["status"]>([
   "available",
@@ -224,6 +225,11 @@ function UpdateTriggerIcon({
 function TitleBarUpdateControlInner({ update, mobile }: ControlProps) {
   const t = useTranslations("SystemSettings")
   const [open, setOpen] = useState(false)
+  useEffect(() => {
+    const handleOpen = () => setOpen(true)
+    window.addEventListener(OPEN_APP_UPDATE_EVENT, handleOpen)
+    return () => window.removeEventListener(OPEN_APP_UPDATE_EVENT, handleOpen)
+  }, [])
   const { details, applyCheckDetails } = useUpdateDetails(open)
   const manualCheck = useManualUpdateCheck(update, applyCheckDetails)
   useCheckOnOpen(open, update, details, manualCheck.runCheck)
