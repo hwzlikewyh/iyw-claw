@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { Progress } from "@/components/ui/progress"
 import { useBootstrapInit } from "@/hooks/use-bootstrap-init"
@@ -44,6 +44,27 @@ export function BootstrapInitStatus({
   className?: string
 }) {
   const { state, percent, start, refreshStatus } = useBootstrapInit(taskId)
+  const [displayPercent, setDisplayPercent] = useState(0)
+  const targetPercentRef = useRef<number | null>(percent)
+  targetPercentRef.current = percent
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setDisplayPercent((current) => {
+        const targetPercent = targetPercentRef.current
+        if (targetPercent == null) return 0
+        if (current === targetPercent) return current
+
+        const distance = Math.abs(targetPercent - current)
+        const step = Math.max(1, Math.ceil(distance / 10))
+        return current < targetPercent
+          ? Math.min(targetPercent, current + step)
+          : Math.max(targetPercent, current - step)
+      })
+    }, 30)
+
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     void start()
@@ -67,8 +88,7 @@ export function BootstrapInitStatus({
     return `${current.toFixed(current >= 100 || index === 0 ? 0 : 1)} ${units[index]}`
   }
 
-  const rate =
-    state.rateBps != null ? `${formatBytes(state.rateBps)}/s` : null
+  const rate = state.rateBps != null ? `${formatBytes(state.rateBps)}/s` : null
   const eta =
     state.etaSecs != null && state.etaSecs > 0
       ? `≈${Math.ceil(state.etaSecs / 60)}m`
@@ -92,7 +112,9 @@ export function BootstrapInitStatus({
           {eta ? ` · ${eta}` : null}
         </span>
       </div>
-      {percent != null ? <Progress value={percent} className="h-1.5" /> : null}
+      {percent != null ? (
+        <Progress value={displayPercent} className="h-1.5" />
+      ) : null}
       {state.offline || state.writerBusy || state.lastError ? (
         <p className="text-xs text-amber-600">
           {state.writerBusy
