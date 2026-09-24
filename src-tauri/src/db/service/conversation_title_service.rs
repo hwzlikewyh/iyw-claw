@@ -54,7 +54,7 @@ pub async fn refresh(
 ) -> Result<bool, DbError> {
     let title = update.title.trim();
     let source = update.source;
-    if title.is_empty() {
+    if title.is_empty() || crate::acp::conversation_title_summary::is_private_title_candidate(title) {
         return Ok(false);
     }
     let mut query = conversation::Entity::update_many()
