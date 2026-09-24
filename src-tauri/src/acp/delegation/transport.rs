@@ -282,6 +282,8 @@ pub struct BrokerArtifactsRequest {
     pub files: Vec<String>,
     #[serde(default)]
     pub display_names: Vec<Option<String>>,
+    #[serde(default)]
+    pub notification: crate::chat_channel::artifact_notification_policy::ArtifactNotificationOptions,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

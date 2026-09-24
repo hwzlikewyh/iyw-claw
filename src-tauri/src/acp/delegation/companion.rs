@@ -957,10 +957,12 @@ async fn dispatch_artifacts_tool(bridge: CompanionBridge, call: ToolInvocation) 
         Ok(ArtifactCall::Present {
             files,
             display_names,
+            notification,
         }) => BrokerMessage::Artifacts(BrokerArtifactsRequest {
             token: bridge.context.token,
             files,
             display_names,
+            notification,
         }),
         Ok(ArtifactCall::Manage(operation)) => {
             BrokerMessage::ArtifactManagement(super::transport::BrokerArtifactManagementRequest {
@@ -2298,10 +2300,13 @@ pub fn render_artifacts_result(outcome: &Value) -> Value {
         .get("rejected")
         .and_then(Value::as_array)
         .map_or(0, Vec::len);
-    let text = error.map_or_else(
+    let mut text = error.map_or_else(
         || format!("Presented {accepted} task artifact(s); rejected {rejected}."),
         |code| format!("Task artifact registration failed: {code}."),
     );
+    if let Some(notification) = outcome.get("notification") {
+        text.push_str(&format!("\nChannel notification: {notification}"));
+    }
     json!({
         "content": [{ "type": "text", "text": text }],
         "isError": error.is_some(),

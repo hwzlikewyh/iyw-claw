@@ -11,6 +11,7 @@ import {
   MessageSquarePlus,
   PanelsTopLeft,
   Save,
+  Send,
   TextCursorInput,
   Waypoints,
   type LucideIcon,
@@ -18,6 +19,7 @@ import {
 import { useTranslations } from "next-intl"
 
 import type { TaskArtifactActions } from "@/components/layout/task-artifact-actions"
+import { useArtifactChannelMenu } from "./use-artifact-channel-menu"
 import {
   ContextMenuItem,
   ContextMenuSeparator,
@@ -30,7 +32,7 @@ import {
 
 interface ArtifactMenuEntry {
   id: string
-  section: "preview" | "clipboard" | "system"
+  section: "preview" | "clipboard" | "system" | "channels"
   label: string
   icon: LucideIcon
   onSelect: () => void
@@ -211,9 +213,15 @@ function ArtifactMenuEntries({
   renderItem: (entry: ArtifactMenuEntry) => ReactNode
   renderSeparator: (id: string) => ReactNode
 }) {
-  const entries = useArtifactMenuEntries(actions).filter(
-    (entry) => includePreview || entry.id !== "preview"
-  )
+  const channelEntries = useArtifactChannelMenu(actions.channelArtifact)
+  const entries: ArtifactMenuEntry[] = [
+    ...useArtifactMenuEntries(actions),
+    ...channelEntries.map((entry) => ({
+      ...entry,
+      section: "channels" as const,
+      icon: Send,
+    })),
+  ].filter((entry) => includePreview || entry.id !== "preview")
   return entries.map((entry, index) => {
     const previous = entries[index - 1]
     return (
@@ -245,7 +253,9 @@ export function TaskArtifactContextMenuItems({
           disabled={entry.disabled}
         >
           <entry.icon />
-          {entry.label}
+          <span className="max-w-[min(18rem,calc(100vw-4rem))] whitespace-normal break-words">
+            {entry.label}
+          </span>
         </ContextMenuItem>
       )}
       renderSeparator={(id) => <ContextMenuSeparator key={id} />}
@@ -271,7 +281,9 @@ export function TaskArtifactDropdownMenuItems({
           disabled={entry.disabled}
         >
           <entry.icon />
-          {entry.label}
+          <span className="max-w-[min(18rem,calc(100vw-4rem))] whitespace-normal break-words">
+            {entry.label}
+          </span>
         </DropdownMenuItem>
       )}
       renderSeparator={(id) => <DropdownMenuSeparator key={id} />}

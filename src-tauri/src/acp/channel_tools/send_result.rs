@@ -41,7 +41,12 @@ fn rich_message(input: &RichMessageInput) -> Result<RichMessage, String> {
 
 pub(super) fn map_send_error(error: crate::chat_channel::error::ChatChannelError) -> String {
     let value = error.to_string();
-    if value.contains("TARGET_CONTEXT_EXPIRED") {
+    if matches!(
+        error,
+        crate::chat_channel::error::ChatChannelError::DeliveryDeferred(_)
+    ) {
+        "CHANNEL_DELIVERY_QUEUED".to_string()
+    } else if value.contains("TARGET_CONTEXT_EXPIRED") {
         "TARGET_CONTEXT_EXPIRED".to_string()
     } else if matches!(
         error,
@@ -73,18 +78,33 @@ pub(super) fn result_index(value: &Value) -> u64 {
 }
 
 pub(super) fn batch_status(items: &[Value]) -> &'static str {
+    if items.is_empty() {
+        return "skipped";
+    }
     if items
         .iter()
         .all(|item| item.get("status").and_then(Value::as_str) == Some("sent"))
     {
         return "success";
     }
+    if items.iter().all(|item| item["status"] == "queued") {
+        return "queued";
+    }
+    if items.iter().any(|item| item["status"] == "processing") {
+        return "processing";
+    }
+    if items.iter().any(|item| item["status"] == "unknown") {
+        return "unknown";
+    }
+    if items.iter().all(|item| item["status"] == "skipped") {
+        return "skipped";
+    }
     let delivered = items
         .iter()
         .filter(|item| {
             matches!(
                 item.get("status").and_then(Value::as_str),
-                Some("sent" | "partial_success")
+                Some("sent" | "partial_success" | "queued")
             )
         })
         .count();

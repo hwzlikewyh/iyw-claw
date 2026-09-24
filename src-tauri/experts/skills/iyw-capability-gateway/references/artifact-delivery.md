@@ -58,6 +58,25 @@ that deliverable. Keep image registration enabled when the images themselves
 are the final result. In a batch, the top-level `delivery` applies to every item;
 separate intermediate assets from final-image deliveries when they differ.
 
+## Channel Notifications
+
+For `action: present`, set `notify: true` when the task warrants notifying the
+user (for example, a requested reminder or completion of a long task). Optionally
+include `notification_message`, a concise message of at most 2000 characters.
+The host enforces each channel's own setting: `off` (default) never notifies that
+channel, `auto` follows `notify`, and `always` notifies that channel even when
+`notify` is false or omitted. A disabled channel never receives notifications.
+Do not change a channel's notification setting to enable a send.
+
+Delivery uses one registered default recipient per selected channel, never all
+known contacts. Inspect `notification.items` for each channel: queued, partial,
+failed, processing and unknown outcomes are not completed delivery. Registration
+remains successful when notification fails. Identical artifact batches are
+deduplicated separately for each channel; delivery to one channel does not block
+another channel's eligible notification. Do not repeatedly register the same
+batch to retry notification.
+Use the existing `send_channel_messages` for authorized text-only notifications.
+
 ## Query and Manage
 
 Use the same `present_task_files` tool with an `action`:

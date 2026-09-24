@@ -16,6 +16,7 @@ pub struct ChannelView {
     pub last_error: Option<String>,
     pub last_connected_at: Option<String>,
     pub daily_report_enabled: bool,
+    pub artifact_notification_mode: crate::chat_channel::artifact_notification_policy::ArtifactNotificationMode,
     pub daily_report_time: Option<String>,
     pub credential_configured: bool,
     pub default_target: Option<DefaultTargetView>,
@@ -31,6 +32,8 @@ impl ChannelView {
         wecom_authorized: Option<bool>,
     ) -> Result<Self, String> {
         let config = safe_config(&model);
+        let artifact_notification_mode = crate::chat_channel::artifact_notification_policy::from_config(&model.config_json)
+            .unwrap_or_default();
         let credential_configured = credential_status(&model, wecom_authorized);
         let default_target = default_target(db, model.id).await?;
         let capabilities = capabilities(&model.channel_type);
@@ -56,6 +59,7 @@ impl ChannelView {
             last_error: model.last_error.as_deref().map(safe_error),
             last_connected_at: model.last_connected_at.map(|value| value.to_rfc3339()),
             daily_report_enabled: model.daily_report_enabled,
+            artifact_notification_mode,
             daily_report_time: model.daily_report_time,
             credential_configured,
             default_target,
