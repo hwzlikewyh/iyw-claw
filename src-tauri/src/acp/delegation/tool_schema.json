@@ -927,6 +927,17 @@
           "items": { "type": "string", "minLength": 1, "maxLength": 255 },
           "description": "present only: optional display names corresponding to files by index. When provided, the array length must match files and every name must be nonblank. Names change only the displayed labels, not the source filenames. Omit to use each file or URL name."
         },
+        "notify": {
+          "type": "boolean",
+          "default": false,
+          "description": "present only: request a notification with the accepted artifacts. Each enabled channel has its own notification setting: off never sends to that channel; auto respects notify; always sends to that channel even when notify is omitted or false. In auto mode decide based on the user's task, such as completion of a long task or a requested reminder. The host sends to each selected channel's default recipient and deduplicates repeated delivery separately per channel. Inspect notification.items; queued, partial_success and unknown do not mean delivered."
+        },
+        "notification_message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "present only: optional concise completion message accompanying the artifacts. Does not enable sending by itself. Omit for the host's default message."
+        },
         "scope": {
           "type": "string",
           "enum": ["current", "all"],
@@ -980,7 +991,9 @@
           "properties": {
             "action": { "enum": ["present"] },
             "files": {},
-            "display_names": {}
+            "display_names": {},
+            "notify": {},
+            "notification_message": {}
           },
           "additionalProperties": false
         },

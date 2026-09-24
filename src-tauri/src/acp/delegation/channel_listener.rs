@@ -197,7 +197,7 @@ impl DelegationListener {
     }
 }
 
-fn channel_caller(entry: &TokenEntry) -> ChannelCaller {
+pub(super) fn channel_caller(entry: &TokenEntry) -> ChannelCaller {
     ChannelCaller {
         agent_type: entry.agent_type.to_string(),
         session_ref: entry.opaque_source_id.clone(),

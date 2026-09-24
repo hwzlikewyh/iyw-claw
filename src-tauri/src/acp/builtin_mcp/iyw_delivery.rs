@@ -39,7 +39,7 @@ async fn register_artifacts(
         .parent_lookup
         .current_assistant_message_id(authority.connection_id())
         .await;
-    listener
+    let mut result = listener
         .artifacts
         .register_task_artifacts(
             authority.connection_id(),
@@ -50,5 +50,16 @@ async fn register_artifacts(
             urls.to_vec(),
             vec![None; urls.len()],
         )
-        .await
+        .await;
+    let caller = crate::acp::channel_tools::ChannelCaller {
+        agent_type: authority.agent_type().to_string(),
+        session_ref: authority.connection_id().to_owned(),
+        caller_scope: "artifact-notifications".into(),
+        working_dir: authority.cwd().to_path_buf(),
+    };
+    result["notification"] = listener
+        .channel_tools
+        .notify_artifacts(caller, &result, Default::default())
+        .await;
+    result
 }

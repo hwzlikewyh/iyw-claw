@@ -160,12 +160,20 @@ impl ChannelToolService {
         } else {
             None
         };
-        let status = send_status(
+        let mut status = send_status(
             message_requested,
             sent.delivered,
             &file_results,
             item.files.is_empty(),
         )?;
+        let message_queued = sent.error.as_deref() == Some("CHANNEL_DELIVERY_QUEUED");
+        if message_queued {
+            status = if item.files.is_empty() {
+                "queued"
+            } else {
+                "partial_success"
+            };
+        }
         let file_error = first_file_error(&file_results);
         let file_log_error = file_results.iter().find_map(|file| file.log_error);
         Ok(json!({
@@ -174,6 +182,7 @@ impl ChannelToolService {
             "target_id": target_id,
             "message_id": sent.message_id.map(|id| format!("cm_{id}")),
             "message_error": sent.error,
+            "message_status": if sent.delivered { "sent" } else if message_queued { "queued" } else if message_requested { "failed" } else { "skipped" },
             "log_error": sent.log_error.or(file_log_error),
             "target_error": target_error,
             "files": file_results,
@@ -186,6 +195,9 @@ impl ChannelToolService {
             .await
             .map_err(|_| "CHANNEL_QUERY_FAILED".to_string())?
             .ok_or_else(|| "CHANNEL_NOT_FOUND".to_string())?;
+        if !channel.enabled {
+            return Err("CHANNEL_DISABLED".to_string());
+        }
         if channel.runtime_status != "connected" || !self.manager.is_connected(channel_id).await {
             return Err("CHANNEL_NOT_CONNECTED".to_string());
         }
