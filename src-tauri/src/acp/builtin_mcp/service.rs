@@ -53,10 +53,6 @@ impl BuiltinMcpClient {
         &self.capability_tools
     }
 
-    pub(crate) async fn remote_overview_context(&self) -> Arc<str> {
-        Arc::from(self.remote.overview_context().await)
-    }
-
     pub async fn issue(
         &self,
         authority: SessionAuthority,
