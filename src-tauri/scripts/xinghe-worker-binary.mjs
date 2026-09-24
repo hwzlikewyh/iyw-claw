@@ -79,6 +79,10 @@ export function verifyWindowsHelper(bytes, target) {
     throw new Error("invalid Windows helper optional header")
   if (bytes.readUInt16LE(optional + subsystemOffset) !== windowsGui)
     throw new Error("Windows helper must use the non-console subsystem")
+  if (windowsImports(bytes, target).includes("api-ms-win-core-apiquery-l2-1-0.dll"))
+    throw new Error(
+      "Windows application statically imports optional API query; rebuild with the MXC compatibility patch"
+    )
 }
 
 export function verifyWorkerBinary(bytes, target, pin) {
@@ -155,6 +159,12 @@ function verifyPe(bytes, machine) {
 }
 
 export function windowsRuntimeImports(bytes, target) {
+  return windowsImports(bytes, target).filter((name) =>
+    /^(?:vcruntime|msvcp|concrt|vcomp|vccorlib)\d[^\\/]*\.dll$/i.test(name)
+  )
+}
+
+export function windowsImports(bytes, target) {
   const DIRECTORY_BYTES = 8
   const IMPORT_BYTES = 20
   const MAX_DLL_NAME = 256
@@ -196,8 +206,7 @@ export function windowsRuntimeImports(bytes, target) {
     if (end < 0 || end - start > MAX_DLL_NAME)
       throw new Error("invalid Windows runtime import name")
     const name = bytes.toString("ascii", start, end)
-    if (/^(?:vcruntime|msvcp|concrt|vcomp)\d[^\\/]*\.dll$/i.test(name))
-      imports.push(name.toLowerCase())
+    imports.push(name.toLowerCase())
   }
   throw new Error("unterminated Windows runtime import table")
 }

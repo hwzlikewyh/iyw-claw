@@ -126,6 +126,21 @@ impl StartupTrace {
 }
 
 impl StartupStage {
+    pub(crate) fn finish_error(self, error: &crate::acp::error::AcpError) {
+        let detail = crate::acp::stderr_tail::sanitize_diagnostic(&error.to_string());
+        tracing::warn!(
+            startup_trace_id = self.trace.inner.id,
+            agent = %self.trace.inner.agent_type,
+            resumed = self.trace.inner.resumed,
+            source = self.trace.inner.source,
+            stage = self.name,
+            error_code = error.code(),
+            detail,
+            "[ACP][startup] stage failed"
+        );
+        self.finish("error");
+    }
+
     pub(crate) fn finish(mut self, outcome: &'static str) {
         self.trace
             .log(self.name, outcome, self.started_at.elapsed());

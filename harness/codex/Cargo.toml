@@ -95,3 +95,4 @@ codex-code-mode = { path = "patches/codex-code-mode" }
 
 [patch."https://github.com/microsoft/mxc"]
 appcontainer_common = { path = "patches/appcontainer-common" }
+learning_mode_windows = { path = "patches/learning-mode-windows" }

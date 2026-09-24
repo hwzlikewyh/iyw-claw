@@ -88,7 +88,7 @@ pub async fn acp_connect(
             Some(path)
         }
         Err(error) => {
-            working_dir_stage.finish("error");
+            working_dir_stage.finish_error(&error);
             return Err(AppCommandError::task_execution_failed(error.to_string()));
         }
     };

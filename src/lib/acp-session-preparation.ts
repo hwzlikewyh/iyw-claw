@@ -28,6 +28,7 @@ interface Entry {
   createdAt: number
   promise: Promise<Handle | null>
   timer: ReturnType<typeof setTimeout>
+  reservedWorkingDir?: string
 }
 
 const entries = new Map<string, Entry>()
@@ -123,34 +124,41 @@ export async function reservePreparedChatDir(
   if (!entry || entry.transport !== getTransport()) return null
   const handle = await entry.promise
   if (!handle) return null
-  return entry.transport
+  const workingDir = await entry.transport
     .call<string | null>("acp_reserve_prepared_workspace", {
       preparationId: handle.id,
     })
     .catch(() => null)
+  if (workingDir) entry.reservedWorkingDir = workingDir
+  return workingDir
+}
+
+function matchesPreparation(entry: Entry, target: Target): boolean {
+  if (
+    entry.transport !== getTransport() ||
+    entry.target.agentType !== target.agentType
+  ) {
+    return false
+  }
+  if (entry.target.conversationId != null || target.conversationId != null) {
+    return entry.target.conversationId === target.conversationId
+  }
+  return (
+    (entry.target.sessionId ?? null) === (target.sessionId ?? null) &&
+    (entry.target.workingDir ?? entry.reservedWorkingDir) === target.workingDir
+  )
 }
 
 export async function awaitAcpPreparation(target: Target): Promise<void> {
-  const transport = getTransport()
-  const matches = [...entries.values()].filter(
-    (entry) =>
-      entry.transport === transport &&
-      entry.target.agentType === target.agentType &&
-      (entry.target.conversationId === target.conversationId ||
-        (!entry.target.conversationId && !target.conversationId))
+  const matches = [...entries.values()].filter((entry) =>
+    matchesPreparation(entry, target)
   )
   await Promise.all(matches.map((entry) => entry.promise))
 }
 
 export function consumeAcpPreparation(target: Target) {
   for (const entry of entries.values()) {
-    if (
-      entry.transport === getTransport() &&
-      entry.target.agentType === target.agentType &&
-      entry.target.conversationId === target.conversationId &&
-      (entry.target.workingDir == null ||
-        entry.target.workingDir === target.workingDir)
-    ) {
+    if (matchesPreparation(entry, target)) {
       retire(entry)
     }
   }

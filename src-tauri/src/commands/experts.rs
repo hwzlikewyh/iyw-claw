@@ -544,12 +544,14 @@ fn ensure_dependency_not_in_use(
     agent_type: AgentType,
 ) -> Result<(), ExpertsError> {
     for metadata in active_metadata() {
-        if metadata.id == expert_id || !expert_enabled_for_agent(&metadata.id, agent_type) {
+        if metadata.id == expert_id || metadata.dependencies.is_empty() {
             continue;
         }
+        // 先筛选依赖关系，避免每次启动为无关 Skill 遍历磁盘链接。
         if dependency_order(&metadata.id)?
             .iter()
             .any(|dependency| dependency == expert_id)
+            && expert_enabled_for_agent(&metadata.id, agent_type)
         {
             return Err(ExpertsError::DependencyInUse {
                 dependency: expert_id.to_string(),
@@ -2218,15 +2220,27 @@ fn managed_expert_target_results(
 pub(crate) async fn reconcile_managed_experts(
     targets: &[(AgentType, String, bool)],
 ) -> Vec<LinkOpResult> {
-    let _guard = mutation_lock().lock().await;
+    let guard = mutation_lock().lock().await;
     let mut ordered = targets.iter().cloned().enumerate().collect::<Vec<_>>();
-    sort_link_operations(&mut ordered, |value| (&value.1, value.2));
-    ordered
-        .into_iter()
-        .flat_map(|(_, (agent_type, expert_id, enable))| {
-            managed_expert_target_results(&expert_id, agent_type, enable)
-        })
-        .collect()
+    // 写入锁随阻塞任务持有，调用者取消时也不能与下一次对账交错。
+    tokio::task::spawn_blocking(move || {
+        let _guard = guard;
+        sort_link_operations(&mut ordered, |value| (&value.1, value.2));
+        ordered
+            .into_iter()
+            .flat_map(|(_, (agent_type, expert_id, enable))| {
+                managed_expert_target_results(&expert_id, agent_type, enable)
+            })
+            .collect()
+    })
+    .await
+    .unwrap_or_else(|error| {
+        tracing::error!(%error, "[skills] managed skill reconciliation task failed");
+        targets
+            .iter()
+            .map(|(agent, id, _)| link_failure(id, *agent, error.to_string()))
+            .collect()
+    })
 }
 
 /// Apply a batch of enable/disable operations under a single lock acquisition.

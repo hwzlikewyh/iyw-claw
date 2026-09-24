@@ -230,3 +230,4 @@ codex-code-mode = { path = "../harness/codex/patches/codex-code-mode" }
 
 [patch."https://github.com/microsoft/mxc"]
 appcontainer_common = { path = "../harness/codex/patches/appcontainer-common" }
+learning_mode_windows = { path = "../harness/codex/patches/learning-mode-windows" }

@@ -202,7 +202,7 @@ export function useConnectionLifecycle({
   // infinite reconnect loops on transient errors.
   useEffect(() => {
     if (!isActive) return
-    if (!workingDir) return
+    if (!workingDir?.trim()) return
     let cancelled = false
     connConnectRef
       .current(
@@ -370,6 +370,8 @@ export function useConnectionLifecycle({
     // set isActive=false until the session's external_id resolves, to
     // avoid connecting with sessionId=undefined and orphaning context.
     if (!isActive) return
+    // 聊天目录异步创建；焦点和发送入口也等待目录就绪后的自动连接。
+    if (!workingDir?.trim()) return
     touchActivity(contextKey)
     const matchesTarget =
       conn.connectionId != null &&

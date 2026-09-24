@@ -1756,13 +1756,25 @@ fn office_link_failure(skill_id: &str, agent_type: AgentType, error: String) -> 
 pub(crate) async fn reconcile_managed_office_tools(
     targets: &[(AgentType, String, bool)],
 ) -> Vec<LinkOpResult> {
-    let _guard = mutation_lock().lock().await;
-    targets
-        .iter()
-        .filter_map(|(agent_type, skill_id, enable)| {
-            managed_office_pair_result(skill_id, *agent_type, *enable)
-        })
-        .collect()
+    let guard = mutation_lock().lock().await;
+    let operations = targets.to_vec();
+    tokio::task::spawn_blocking(move || {
+        let _guard = guard;
+        operations
+            .iter()
+            .filter_map(|(agent_type, skill_id, enable)| {
+                managed_office_pair_result(skill_id, *agent_type, *enable)
+            })
+            .collect()
+    })
+    .await
+    .unwrap_or_else(|error| {
+        tracing::error!(%error, "[skills] office skill reconciliation task failed");
+        targets
+            .iter()
+            .map(|(agent, id, _)| office_link_failure(id, *agent, error.to_string()))
+            .collect()
+    })
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]

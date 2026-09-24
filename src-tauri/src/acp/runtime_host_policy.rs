@@ -1,6 +1,4 @@
-use crate::acp::capability_policy::{
-    runtime_enforcer, Capability, CapabilityDecision, CapabilityEnforcer,
-};
+use crate::acp::capability_policy::{evaluate, runtime_enforcer, Capability, CapabilityEnforcer};
 use crate::models::agent::AgentType;
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -79,40 +77,18 @@ pub(super) async fn resolve_with_enforcer(
     let view = enforcer.policy_view().await;
     let revision = view.snapshot.as_ref().map(|snapshot| snapshot.revision);
     let mut capabilities = RuntimeHostCapabilities::none();
-    let host_execution = decision_for(enforcer, agent_type, Capability::HostExecution, &view)
-        .await?
-        .enabled;
-    if host_execution {
-        capabilities.enable(Capability::HostExecution);
-        for capability in [
-            Capability::HostRead,
-            Capability::HostWrite,
-            Capability::Terminal,
-        ] {
-            if decision_for(enforcer, agent_type, capability, &view)
-                .await?
-                .enabled
-            {
-                capabilities.enable(capability);
-            }
+    for request in enforcer.host_requests(agent_type).await? {
+        if request.capability.requires_host_execution()
+            && !capabilities.contains(Capability::HostExecution)
+        {
+            continue;
+        }
+        if evaluate(&request, &view, chrono::Utc::now()).enabled {
+            capabilities.enable(request.capability);
         }
     }
     Ok(RuntimeHostPolicy {
         revision,
         capabilities,
     })
-}
-
-async fn decision_for(
-    enforcer: &CapabilityEnforcer,
-    agent_type: AgentType,
-    capability: Capability,
-    view: &crate::acp::capability_policy::PolicySnapshotView,
-) -> Result<CapabilityDecision, crate::app_error::AppCommandError> {
-    let request = enforcer.agent_request(agent_type, capability, true).await?;
-    Ok(crate::acp::capability_policy::evaluate(
-        &request,
-        view,
-        chrono::Utc::now(),
-    ))
 }

@@ -7412,8 +7412,12 @@ pub(crate) async fn reconcile_shared_market_skills_for_agent(
 ) -> Result<(), AcpError> {
     require_private_agent_storage_for_write()?;
     let policies = requested_global_skill_states(conn, agent_type).await?;
-    let _guard = shared_skill_mutation_guard();
-    reconcile_shared_market_skills_for_agent_locked(agent_type, &policies)
+    tokio::task::spawn_blocking(move || {
+        let _guard = shared_skill_mutation_guard();
+        reconcile_shared_market_skills_for_agent_locked(agent_type, &policies)
+    })
+    .await
+    .map_err(|error| AcpError::protocol(format!("Shared skill reconciliation task failed: {error}")))?
 }
 
 pub(crate) async fn reconcile_shared_skills_for_agent_state(
@@ -9245,7 +9249,7 @@ pub async fn acp_connect(
             Some(path)
         }
         Err(error) => {
-            working_dir_stage.finish("error");
+            working_dir_stage.finish_error(&error);
             return Err(error);
         }
     };

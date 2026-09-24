@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>iyw-claw · 工作空间</title>
+  <link rel="stylesheet" href="sidebar-preview.css" />
+  <link rel="stylesheet" href="sidebar-preview-manager.css" />
+  <script defer src="sidebar-preview.js"></script>
+  <script defer src="sidebar-preview-manager.js"></script>
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="titlebar">
+      <div class="wordmark"><img src="public/icon-32x32.png" alt="" /><span>iyw-claw</span><span class="version">工作空间</span></div>
+      <div class="title-actions"><span class="connected"><span class="dot green"></span>本地已连接</span><button class="icon-button" id="search-trigger" aria-label="搜索会话" title="搜索会话"><i data-icon="Search"></i></button></div>
+    </header>
+    <aside class="sidebar" aria-label="工作空间导航">
+      <div class="workspace-heading"><div class="workspace-mark"><i data-icon="Folder"></i></div><span class="label workspace-copy"><strong>工作空间</strong><small>本地 · 2 个项目</small></span><button class="icon-button" id="toggle" aria-label="收起侧栏" title="收起侧栏" aria-expanded="true"><i data-icon="PanelLeftClose"></i></button></div>
+      <div class="create-area"><button class="new-chat" id="new-chat" title="新建会话" aria-label="新建会话"><i data-icon="SquarePen"></i><span class="label">新建会话</span><i class="trailing label" data-icon="Plus"></i></button><div class="project-actions label"><button id="new-project" title="新建项目" aria-label="新建项目"><i data-icon="Plus"></i><span>新建项目</span></button><button id="open-folder" title="选择文件夹" aria-label="选择文件夹"><i data-icon="Folder"></i><span>选择文件夹</span></button></div></div>
+      <section class="workbench-section" id="workbench-section">
+        <button class="workbench-heading" id="workbench-toggle" aria-expanded="true" aria-controls="workbench-nav"><i class="workbench-chevron" data-icon="ChevronDown"></i><span class="label">工作台</span><small class="label">常用工具</small></button>
+        <nav class="utilities" id="workbench-nav" aria-label="工作台工具"><button class="utility" data-view="automations" title="自动化" aria-label="自动化"><i data-icon="CalendarClock"></i><span class="label">自动化</span><span class="failure-count">2</span></button><button class="utility" data-view="skills" title="技能中心" aria-label="技能中心"><i data-icon="Layers"></i><span class="label">技能中心</span></button><button class="utility" data-view="resources" title="资源库" aria-label="资源库"><i data-icon="BookOpen"></i><span class="label">资源库</span></button></nav>
+      </section>
+      <button class="icon-button rail-chat" id="rail-chat" title="展开会话列表" aria-label="展开会话列表"><i data-icon="MessageSquare"></i></button>
+      <div class="list-toolbar"><span>会话 <span class="total" id="total"></span></span><button class="filter-trigger" id="filter-trigger" title="筛选会话" aria-label="筛选会话" aria-expanded="false" aria-haspopup="dialog" aria-controls="filter-panel"><i data-icon="ListFilter"></i><span id="filter-label">筛选</span><span class="filter-dot" hidden></span></button></div>
+      <div class="filter-summary" id="filter-summary" hidden><span></span><button class="icon-button" id="clear-filter" title="清除筛选" aria-label="清除筛选"><i data-icon="X"></i></button></div>
+      <nav class="conversation-list" id="conversation-list" aria-label="会话列表"></nav>
+      <footer class="sidebar-footer">
+        <div class="account-dock"><button class="account-trigger" id="account-trigger" title="账户与偏好设置" aria-label="账户与偏好设置" aria-expanded="false" aria-haspopup="dialog" aria-controls="account-panel"><span class="avatar">YW</span><span class="account-label"><strong id="dock-name">iyw</strong><small id="dock-plan">1,240 积分</small></span><i class="account-chevron" data-icon="ChevronsUpDown"></i></button><button class="icon-button settings-trigger" data-detail="settings" title="设置" aria-label="设置"><i data-icon="Settings2"></i></button></div>
+      </footer>
+    </aside>
+    <main class="main">
+      <header class="main-header"><div class="breadcrumb"><span id="breadcrumb">iyw-claw</span><span class="slash">/</span><h1 id="view-title">优化工作空间导航</h1></div><span class="header-state" id="header-state"><span class="dot green"></span>进行中</span></header>
+      <div class="main-scroll"><article class="thread" id="thread" aria-live="polite"></article></div>
+      <form class="composer" id="composer"><textarea id="message-input" rows="2" aria-label="继续对话" placeholder="继续对话，或交代一个新任务..."></textarea><div class="composer-footer"><span class="composer-context"><i data-icon="Folder"></i>iyw-claw</span><span class="draft-state" id="draft-state"></span><button type="submit" class="send-button" title="保存到当前会话" aria-label="保存到当前会话"><i data-icon="ArrowRight"></i></button></div></form>
+      <div class="context-footer"><span class="dot green"></span><span>本地工作空间</span><span class="footer-agent">iyw-claw</span></div>
+    </main>
+  </div>
+  <section class="popover filter-panel" id="filter-panel" role="dialog" aria-label="筛选会话" hidden>
+    <div class="popover-heading"><strong>筛选会话</strong><button class="icon-button" data-close-popover title="关闭筛选" aria-label="关闭筛选"><i data-icon="X"></i></button></div>
+    <div class="filter-columns"><fieldset><legend>状态</legend><div id="status-options" class="option-list"></div></fieldset><fieldset><legend>更新时间</legend><div id="time-options" class="option-list"></div></fieldset></div>
+    <button class="reset-filter" id="reset-filter" disabled><i data-icon="RefreshCw"></i>重置筛选条件</button>
+  </section>
+  <section class="popover project-panel" id="project-panel" role="dialog" aria-label="项目操作" hidden>
+    <div class="popover-heading"><strong>项目</strong><button class="icon-button" data-close-popover title="关闭项目菜单" aria-label="关闭项目菜单"><i data-icon="X"></i></button></div>
+    <button class="project-menu-row" id="project-create-action"><span class="project-menu-icon"><i data-icon="Plus"></i></span><span><strong>新建项目</strong><small>创建一个新的代码工作空间</small></span></button>
+    <button class="project-menu-row" id="project-folder-action"><span class="project-menu-icon"><i data-icon="Folder"></i></span><span><strong>选择文件夹</strong><small>打开本地已有项目目录</small></span></button>
+    <div class="project-recent"><span>最近打开</span><button data-project-recent="iyw-claw"><i data-icon="Folder"></i>iyw-claw</button><button data-project-recent="iyw-fusion-api"><i data-icon="Folder"></i>iyw-fusion-api</button></div>
+  </section>
+  <section class="popover account-panel" id="account-panel" role="dialog" aria-label="账户与偏好设置" hidden>
+    <div class="account-hero"><div class="profile-heading"><span class="avatar large">YW</span><div class="profile-copy"><strong>iyw <span class="plan-badge">已登录</span></strong><div class="account-id"><span>IYW-0826</span><button class="icon-button" id="copy-id" title="复制账户 ID" aria-label="复制账户 ID"><i data-icon="Copy"></i></button></div></div><button class="icon-button hero-close" data-close-popover title="关闭账户菜单" aria-label="关闭账户菜单"><i data-icon="X"></i></button></div></div>
+    <div class="membership"><div><div class="balance-heading"><span><i data-icon="Coins"></i>积分余额</span></div><div class="balance">1,240<span>积分</span></div></div><div class="balance-actions"><button class="icon-button" data-detail="refresh" title="刷新余额" aria-label="刷新余额"><i data-icon="RefreshCw"></i></button><button class="text-action" data-detail="profile">账户资料<i data-icon="ArrowUpRight"></i></button></div></div>
+    <div class="quick-grid"><button class="quick-action" data-detail="settings"><span class="quick-icon"><i data-icon="Settings2"></i></span><span><strong>设置</strong></span></button><button class="quick-action" data-detail="usage"><span class="quick-icon"><i data-icon="ChartNoAxesCombined"></i></span><span><strong>使用统计</strong></span></button><button class="quick-action" data-detail="connectors"><span class="quick-icon"><i data-icon="Plus"></i></span><span><strong>连接器</strong></span></button><button class="quick-action" data-detail="memory"><span class="quick-icon"><i data-icon="Brain"></i></span><span><strong>个人记忆</strong></span></button></div>
+    <div class="appearance-strip"><div><span class="appearance-icon"><i data-icon="Sun"></i></span><span><strong>外观</strong></span></div><div class="theme-switch" role="group" aria-label="外观主题"><button data-theme-choice="light" title="浅色" aria-label="浅色" aria-pressed="true"><i data-icon="Sun"></i></button><button data-theme-choice="dark" title="深色" aria-label="深色" aria-pressed="false"><i data-icon="Moon"></i></button><button data-theme-choice="system" title="跟随系统" aria-label="跟随系统" aria-pressed="false"><i data-icon="Monitor"></i></button></div></div>
+    <div class="account-links"><span class="account-version">iyw-claw · v0.1.237</span><button class="text-action" data-view="sessions"><i data-icon="ListTodo"></i>会话管理器</button><button class="text-action" data-detail="update"><i data-icon="RefreshCw"></i>检查更新</button></div>
+    <button class="logout-action" id="logout-trigger"><i data-icon="LogOut"></i><span>退出登录</span><small>iyw</small></button>
+  </section>
+  <dialog class="search-dialog" id="search-dialog" aria-label="搜索会话"><div class="search-input-row"><i data-icon="Search"></i><input id="search-input" type="search" placeholder="搜索会话..." aria-label="搜索会话" autocomplete="off" /><button class="icon-button" data-close-dialog title="关闭搜索" aria-label="关闭搜索"><i data-icon="X"></i></button></div><div class="search-results" id="search-results"></div><div class="search-footnote" id="search-count"></div></dialog>
+  <dialog class="detail-dialog" id="detail-dialog" aria-labelledby="detail-title"><div class="detail-heading"><h2 id="detail-title"></h2><button class="icon-button" data-close-dialog title="关闭" aria-label="关闭"><i data-icon="X"></i></button></div><div id="detail-body"></div></dialog>
+  <dialog class="logout-dialog" id="logout-dialog" aria-labelledby="logout-title"><div class="logout-symbol"><i data-icon="LogOut"></i></div><h2 id="logout-title">退出当前账户？</h2><p>退出后需要重新登录才能使用账户服务。<br />本地会话和项目将保留。</p><div class="dialog-actions"><button class="secondary-button" data-close-dialog>取消</button><button class="danger-button" id="confirm-logout">退出登录</button></div></dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

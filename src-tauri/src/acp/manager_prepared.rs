@@ -52,8 +52,11 @@ impl ConnectionManager {
             return Ok(None);
         }
         let _spawn = self.connection_tasks.begin_spawn().await?;
+        let Ok(_budget) = self.speculative_runtime_gate.try_lock() else {
+            return Ok(None);
+        };
         let (owner, emitter) = context;
-        let mut pool = self.prepared_sessions.lock().await;
+        let pool = self.prepared_sessions.lock().await;
         if let Some(entry) = pool
             .entries
             .values()
@@ -61,6 +64,11 @@ impl ConnectionManager {
         {
             return Ok(Some(entry.handle()));
         }
+        drop(pool);
+        if self.speculative_runtime_capacity().await? == 0 {
+            return Ok(None);
+        }
+        let mut pool = self.prepared_sessions.lock().await;
         if !pool.has_capacity_for(&request) {
             return Ok(None);
         }

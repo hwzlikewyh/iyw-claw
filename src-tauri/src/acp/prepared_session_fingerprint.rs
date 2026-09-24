@@ -1,12 +1,21 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use sea_orm::EntityTrait;
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter};
 use sha2::{Digest, Sha256};
 
 use super::ConnectionManager;
 use crate::acp::error::AcpError;
 use crate::acp::prepared_session::PrepareSessionRequest;
+
+const METADATA_PREFIXES: [&str; 6] = [
+    "managed_skills.",
+    "user_memory.",
+    "agent_storage.",
+    "feedback.",
+    "question.",
+    "session_info.",
+];
 
 impl ConnectionManager {
     pub(super) async fn prepared_environment_fingerprint(
@@ -14,24 +23,27 @@ impl ConnectionManager {
         request: &PrepareSessionRequest,
         environment: &mut BTreeMap<String, String>,
     ) -> Result<String, AcpError> {
-        crate::acp::provider_overlay::apply_preferred_model_runtime_env(
-            request.agent_type,
-            environment,
-            request
-                .preferred_config_values
-                .get("model")
-                .map(String::as_str),
+        project_fingerprint_environment(request, environment);
+        let file_request = request.clone();
+        let file_environment = environment.clone();
+        let file_snapshot = tokio::task::spawn_blocking(move || {
+            let native = crate::commands::acp::fingerprint_config(
+                file_request.agent_type,
+                &file_environment,
+            );
+            let mcp = crate::commands::mcp::read_servers_for_agent_type(file_request.agent_type)
+                .map_err(|error| AcpError::protocol(error.to_string()))?;
+            Ok::<_, AcpError>((native, mcp, instruction_revisions(&file_request)))
+        });
+        let (policy, settings, files) = tokio::join!(
+            crate::acp::runtime_host_policy::resolve(request.agent_type),
+            self.prepared_settings_revision(request),
+            file_snapshot,
         );
-        crate::acp::trusted_agents::restrict_configured_runtime_env(
-            request.agent_type,
-            environment,
-        );
-        let policy = crate::acp::runtime_host_policy::resolve(request.agent_type).await;
-        let native = crate::commands::acp::fingerprint_config(request.agent_type, environment);
-        let mcp = crate::commands::mcp::read_servers_for_agent_type(request.agent_type)
-            .map_err(|error| AcpError::protocol(error.to_string()))?;
-        let settings = self.prepared_settings_revision(request).await?;
-        let files = instruction_revisions(request);
+        let settings = settings?;
+        let (native, mcp, files) = files.map_err(|error| {
+            AcpError::protocol(format!("Prepared file snapshot failed: {error}"))
+        })??;
         let bytes = serde_json::to_vec(&(
             environment,
             native,
@@ -76,32 +88,47 @@ impl ConnectionManager {
     }
 
     async fn prepared_metadata_revision(&self) -> Result<BTreeMap<String, String>, AcpError> {
+        use crate::db::entities::app_metadata::{Column, Entity};
+
         let db = self.preparation_db()?;
         let mut values = BTreeMap::new();
-        let metadata = crate::db::entities::app_metadata::Entity::find()
+        let relevant = METADATA_PREFIXES
+            .iter()
+            .fold(Condition::any(), |condition, prefix| {
+                condition.add(Column::Key.starts_with(*prefix))
+            });
+        let metadata = Entity::find()
+            .filter(Column::DeletedAt.is_null())
+            .filter(relevant)
             .all(&db.conn)
             .await
             .map_err(|error| AcpError::protocol(error.to_string()))?;
-        for value in metadata
-            .into_iter()
-            .filter(|value| value.deleted_at.is_none())
-        {
-            if [
-                "managed_skills.",
-                "user_memory.",
-                "agent_storage.",
-                "feedback.",
-                "question.",
-                "session_info.",
-            ]
-            .iter()
-            .any(|prefix| value.key.starts_with(prefix))
+        for value in metadata {
+            // SQL LIKE 的大小写及下划线语义不同，保留原来的精确前缀判断。
+            if METADATA_PREFIXES
+                .iter()
+                .any(|prefix| value.key.starts_with(prefix))
             {
                 values.insert(value.key, value.value);
             }
         }
         Ok(values)
     }
+}
+
+fn project_fingerprint_environment(
+    request: &PrepareSessionRequest,
+    environment: &mut BTreeMap<String, String>,
+) {
+    crate::acp::provider_overlay::apply_preferred_model_runtime_env(
+        request.agent_type,
+        environment,
+        request
+            .preferred_config_values
+            .get("model")
+            .map(String::as_str),
+    );
+    crate::acp::trusted_agents::restrict_configured_runtime_env(request.agent_type, environment);
 }
 
 fn instruction_revisions(request: &PrepareSessionRequest) -> Vec<(PathBuf, Option<(u64, u128)>)> {

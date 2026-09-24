@@ -633,6 +633,7 @@ const ConversationTabView = memo(function ConversationTabView({
   const createConversationPendingRef = useRef(false)
   // Single-flight guard for the eager scratch-dir prepare (on chat-mode select).
   const prepareChatDirPendingRef = useRef(false)
+  const [chatDirRetry, setChatDirRetry] = useState(0)
   const sessionIdRef = useRef<string | null>(null)
   const syncCancelRef = useRef<(() => void) | null>(null)
   const messageScrollPositionRef = useRef<MessageScrollPosition | null>(null)
@@ -676,7 +677,7 @@ const ConversationTabView = memo(function ConversationTabView({
   // self-disarming: once workingDir lands the guard flips false. openChatModeTab
   // clears workingDir on re-entry, so a fresh dir is prepared each time.
   useEffect(() => {
-    if (!isActive || !isChatDraft || workingDir) return
+    if (!isActive || !isChatDraft || workingDir?.trim()) return
     if (prepareChatDirPendingRef.current) return
     prepareChatDirPendingRef.current = true
     void (async () => {
@@ -708,6 +709,7 @@ const ConversationTabView = memo(function ConversationTabView({
     tabId,
     setChatDraftWorkingDir,
     tWelcome,
+    chatDirRetry,
   ])
 
   // Sync the agentType prop into draftAgentType for draft tabs. The prop
@@ -818,8 +820,8 @@ const ConversationTabView = memo(function ConversationTabView({
 
   const {
     conn,
-    ensureConnected,
-    handleFocus,
+    ensureConnected: ensureLifecycleConnected,
+    handleFocus: handleLifecycleFocus,
     handleSend: lifecycleSend,
     handleSetConfigOption,
     handleCancel,
@@ -843,13 +845,26 @@ const ConversationTabView = memo(function ConversationTabView({
     ),
     silentReconnect: modelReapplyAttempt !== null,
   })
+  const retryChatDirectory = useCallback(() => {
+    if (!isChatDraft || workingDir?.trim()) return false
+    // 失败后由下一次聚焦或发送触发重试，避免无界自动重试。
+    if (!prepareChatDirPendingRef.current) setChatDirRetry((value) => value + 1)
+    return true
+  }, [isChatDraft, workingDir])
+  const ensureConnected = useCallback(async () => {
+    if (retryChatDirectory()) return
+    await ensureLifecycleConnected()
+  }, [retryChatDirectory, ensureLifecycleConnected])
+  const handleFocus = useCallback(() => {
+    if (!retryChatDirectory()) handleLifecycleFocus()
+  }, [retryChatDirectory, handleLifecycleFocus])
   const { status: connStatus, sessionId: connSessionId } = conn
   useEffect(() => {
     if (
       !isActive ||
       !isDocumentVisible ||
       !conn.selectorsReady ||
-      !hasPersistedConversation
+      conn.isViewer
     )
       return
     const isChat = ownTab?.isChat || folder?.kind === "chat"
@@ -862,7 +877,7 @@ const ConversationTabView = memo(function ConversationTabView({
     isActive,
     isDocumentVisible,
     conn.selectorsReady,
-    hasPersistedConversation,
+    conn.isViewer,
     selectedAgent,
     workingDirForConnection,
     ownTab?.isChat,

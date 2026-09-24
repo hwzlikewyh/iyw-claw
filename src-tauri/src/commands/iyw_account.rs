@@ -13,17 +13,15 @@ use crate::db::AppDatabase;
 use crate::models::agent::AgentType;
 
 mod token_file;
+mod points;
 
 const IYW_ACCOUNT_SESSION_KEY: &str = "iyw_account_session";
 const ACCOUNT_BASE_URL: &str = "https://account.iyw.cn";
 const TOKEN_RENEW_PATH: &str = "/api/sso/web/renewToken";
 const GATEWAY_BASE_URL: &str = "https://gateway.iyw.cn";
+const FUSION_API_BASE_URL: &str = "https://gateway.iyw.cn/iyw-fusion-api";
 const DEFAULT_AVATAR_URL: &str =
     "https://chdesign.oss-cn-shanghai.aliyuncs.com/static/avatar/default.png";
-const T34_AUTH_CODE: &str = "T34";
-const AUTH_CODES: [&str; 15] = [
-    "T33", "T34", "A1", "A2", "T29", "I6", "I1", "I2", "I5", "I8", "I3", "I10", "I11", "S2", "I12",
-];
 
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -44,7 +42,7 @@ pub struct IywAccountProfile {
     pub avatar_url: Option<String>,
     pub org_name: Option<String>,
     pub org_logo_url: Option<String>,
-    pub balance_points: Option<i64>,
+    pub balance_points: Option<f64>,
     pub balance_expiry_time: Option<String>,
 }
 
@@ -167,20 +165,6 @@ struct OrgInfo {
     logo: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AuthListRequest<'a> {
-    auth_codes: &'a [&'a str],
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct AuthItem {
-    auth_code: String,
-    status: i32,
-    expiry_time: Option<String>,
-    remain: i64,
-}
 
 fn http_client() -> Result<reqwest::Client, AppCommandError> {
     reqwest::Client::builder()
@@ -480,53 +464,13 @@ async fn fetch_profile_with_token(
         return Ok(profile);
     }
 
-    let auth_response = client
-        .post(format!(
-            "{GATEWAY_BASE_URL}/member/api/v2/MemberAuth/GetAuthList"
-        ))
-        .header("Accept", "application/json, text/plain, */*")
-        .header("Content-Type", "application/json")
-        .header("Origin", "https://ai.iyw.cn")
-        .header("Referer", "https://ai.iyw.cn/")
-        .header("token", token)
-        .json(&AuthListRequest {
-            auth_codes: &AUTH_CODES,
-        })
-        .send()
-        .await
-        .map_err(|err| {
-            AppCommandError::network("Failed to load iyw account balance")
-                .with_detail(err.to_string())
-        })?;
-
-    let auth = auth_response
-        .json::<IywApiResponse<serde_json::Value>>()
-        .await
-        .map_err(|err| {
-            AppCommandError::network("Failed to parse iyw account balance")
-                .with_detail(err.to_string())
-        })?;
-    if auth.code != 1 {
-        return Err(
-            AppCommandError::network("Failed to load iyw account balance").with_detail(
-                auth.message
-                    .unwrap_or_else(|| "balance service rejected the request".to_string()),
-            ),
-        );
-    }
-    let auth_data = serde_json::from_value::<Vec<AuthItem>>(auth.data).map_err(|err| {
-        AppCommandError::network("Failed to parse iyw account balance").with_detail(err.to_string())
-    })?;
-    if let Some(item) = auth_data
-        .into_iter()
-        .find(|item| item.auth_code == T34_AUTH_CODE)
-    {
-        if item.status == 1 {
-            profile.balance_points = Some(item.remain);
-            profile.balance_expiry_time = item.expiry_time;
+    match points::fetch(&client, token).await {
+        Ok(balance) => profile.balance_points = Some(balance),
+        Err(error) if error.code == AppErrorCode::AuthenticationFailed => return Err(error),
+        Err(error) => {
+            tracing::warn!(code = ?error.code, "[iyw-account] points unavailable");
         }
     }
-
     Ok(profile)
 }
 

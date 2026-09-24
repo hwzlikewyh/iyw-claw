@@ -4,6 +4,7 @@ mod dto;
 mod enforcement;
 mod error;
 mod evaluator;
+mod host_requests;
 mod refresh;
 mod revocation;
 mod store;
