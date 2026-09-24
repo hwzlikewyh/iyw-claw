@@ -102,6 +102,11 @@ import {
 } from "./sidebar-conversation-grouping"
 import { useSubsessionSync } from "@/hooks/use-subsession-sync"
 import { SidebarSectionHeader } from "./sidebar-section-header"
+import {
+  DEFAULT_SIDEBAR_FILTERS,
+  useFilteredSidebarConversations,
+  type SidebarFilters,
+} from "./sidebar-filters"
 import { ConversationManageDialog } from "./conversation-manage-dialog"
 import { DirectoryBrowserDialog } from "@/components/shared/directory-browser-dialog"
 import { Button } from "@/components/ui/button"
@@ -550,6 +555,7 @@ export interface SidebarConversationListProps {
   showCompleted?: boolean
   sortMode?: SidebarSortMode
   sectionOrder?: SidebarSectionOrder
+  filters?: SidebarFilters
 }
 
 export function SidebarConversationList({
@@ -557,6 +563,7 @@ export function SidebarConversationList({
   showCompleted = true,
   sortMode = "updated",
   sectionOrder = "chats-first",
+  filters = DEFAULT_SIDEBAR_FILTERS,
 }: SidebarConversationListProps & {
   ref?: Ref<SidebarConversationListHandle>
 }) {
@@ -570,7 +577,11 @@ export function SidebarConversationList({
   useZoomLevel()
   const folders = useAppWorkspaceStore((s) => s.folders)
   const allFolders = useAppWorkspaceStore((s) => s.allFolders)
-  const conversations = useAppWorkspaceStore((s) => s.conversations)
+  const allConversations = useAppWorkspaceStore((s) => s.conversations)
+  const conversations = useFilteredSidebarConversations(
+    allConversations,
+    filters
+  )
   const loading = useAppWorkspaceStore((s) => s.conversationsLoading)
   const error = useAppWorkspaceStore((s) => s.conversationsError)
   const refreshConversations = useAppWorkspaceStore(
@@ -1034,6 +1045,8 @@ export function SidebarConversationList({
       scrollToActiveRef.current()
     },
     expandAll() {
+      setSectionCollapsed({})
+      saveSectionCollapsed({})
       setFolderExpanded((prev) => {
         const next: Record<number, boolean> = { ...prev }
         for (const id of orderedFolderIds) next[id] = true
@@ -1042,6 +1055,9 @@ export function SidebarConversationList({
       })
     },
     collapseAll() {
+      const collapsed = { pinned: true, folders: true, chats: true }
+      setSectionCollapsed(collapsed)
+      saveSectionCollapsed(collapsed)
       setFolderExpanded((prev) => {
         const next: Record<number, boolean> = { ...prev }
         for (const id of orderedFolderIds) next[id] = false
@@ -1803,7 +1819,7 @@ export function SidebarConversationList({
   )
 
   const showEmptyWorkspaceActions =
-    folders.length === 0 && conversations.length === 0
+    folders.length === 0 && allConversations.length === 0
 
   const folderThemeColor = (folderId: number): FolderThemeColor =>
     normalizeFolderThemeColor(folderIndex.get(folderId)?.color)
@@ -1910,9 +1926,11 @@ export function SidebarConversationList({
           className="py-[0.375rem] text-[0.75rem] text-muted-foreground/70"
           style={{ paddingLeft: "calc(var(--conv-rail-axis) + 0.875rem)" }}
         >
-          {row.totalConversationCount === 0
-            ? t("emptyFolderHint")
-            : t("noUnfinishedConversations")}
+          {filters.status !== "all" || filters.period !== "all"
+            ? t("noMatchingConversations")
+            : row.totalConversationCount === 0
+              ? t("emptyFolderHint")
+              : t("noUnfinishedConversations")}
         </div>
       )
     }
@@ -1921,7 +1939,9 @@ export function SidebarConversationList({
       // section header's text inset (px-[0.5rem]) rather than the folder rail.
       return (
         <div className="px-[0.5rem] py-[0.375rem] text-[0.75rem] text-muted-foreground/70">
-          {t("noChats")}
+          {filters.status !== "all" || filters.period !== "all"
+            ? t("noMatchingConversations")
+            : t("noChats")}
         </div>
       )
     }

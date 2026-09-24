@@ -1,140 +1,172 @@
 "use client"
 
-import { useCallback, useMemo, useState } from "react"
-import { Settings } from "lucide-react"
+import { ChevronsUpDown, Loader2, Settings } from "lucide-react"
 import { useTranslations } from "next-intl"
-
-import { AccountLoginPanel } from "@/components/account/account-login-panel"
 import {
   AccountAvatar,
-  AccountProfilePanel,
   balancePoints,
   displayName,
 } from "@/components/account/account-profile-panel"
 import { Button } from "@/components/ui/button"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { useIywAccount } from "@/contexts/iyw-account-context"
-import { openSettingsWindow } from "@/lib/api"
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
+import { useSidebarAccount } from "./use-sidebar-account"
+import { SidebarAccountActions } from "./sidebar-account-actions"
+import { SidebarAccountDialogs } from "./sidebar-account-dialogs"
 
 export { normalizeAvatarUrl } from "@/components/account/account-profile-panel"
 
-export function SidebarAccountSettings() {
+export function SidebarAccountSettings({
+  compact = false,
+}: {
+  compact?: boolean
+}) {
   const t = useTranslations("SidebarAccount")
-  const startupT = useTranslations("StartupLogin")
-  const [open, setOpen] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
-  const { status, profile, actionLoading, refreshProfile, logout } =
-    useIywAccount()
-
-  const handleRefreshProfile = useCallback(async () => {
-    setRefreshing(true)
-    try {
-      await refreshProfile()
-    } finally {
-      setRefreshing(false)
-    }
-  }, [refreshProfile])
-
-  const handleOpenSettings = useCallback(() => {
-    setOpen(false)
-    openSettingsWindow("appearance").catch((error) => {
-      console.error("[SidebarAccountSettings] failed to open settings:", error)
-    })
-  }, [])
-
-  const title = displayName(profile, t("notSignedIn"))
-  const subtitle = profile?.logged_in
-    ? balancePoints(profile, t("balanceUnknown"))
-    : t("clickToOpen")
-  const description = useMemo(
-    () => (profile?.logged_in ? t("signedInDescription") : t("dialogHint")),
-    [profile?.logged_in, t]
-  )
-
+  const account = useSidebarAccount()
   return (
     <>
       <div
         className={cn(
-          "group flex min-h-12 w-full items-center gap-2.5 rounded-md",
-          "px-1.5 py-1.5 transition-colors hover:bg-sidebar-accent/70"
+          "flex min-w-0 items-center gap-1 py-1",
+          compact && "flex-col"
         )}
       >
-        <button
-          type="button"
-          aria-haspopup="dialog"
-          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => setOpen(true)}
-        >
-          <AccountAvatar profile={profile} className="h-8 w-8" />
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[0.8125rem] font-semibold leading-4 text-sidebar-foreground">
-              {status === "checking" ? t("loading") : title}
-            </div>
-            <div className="mt-1 flex items-center gap-1.5 text-[0.6875rem] leading-none text-muted-foreground">
-              {profile?.logged_in ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src="/iyw-points-icon.png" alt="" className="h-4 w-4" />
-              ) : (
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+        <Popover open={account.open} onOpenChange={account.setOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              title={t("dialogTitle")}
+              aria-label={t("dialogTitle")}
+              className={cn(
+                "flex min-w-0 flex-1 items-center gap-2 rounded-md p-1.5 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring",
+                compact && "flex-none"
               )}
-              <span
-                className={cn("truncate", profile?.logged_in && "font-mono")}
+            >
+              <AccountAvatar
+                profile={account.profile}
+                className="size-8 shrink-0"
+              />
+              {!compact && <AccountTriggerText account={account} />}
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            side="top"
+            align="start"
+            sideOffset={10}
+            onCloseAutoFocus={(event) => {
+              if (account.dialog !== null) event.preventDefault()
+            }}
+            className="w-[21rem] max-w-[calc(100vw-1rem)] max-h-[var(--radix-popover-content-available-height)] gap-0 overflow-y-auto rounded-lg border p-0"
+          >
+            {account.error && account.profile?.logged_in && (
+              <p
+                role="alert"
+                className="break-words border-b p-3 text-xs text-destructive"
               >
-                {subtitle}
-              </span>
-            </div>
-          </div>
-        </button>
-        <button
-          type="button"
-          aria-label={t("openSettings")}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-sidebar hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={handleOpenSettings}
-        >
-          <Settings className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg overflow-hidden rounded-lg p-0">
-          <DialogHeader className="px-5 pt-5">
-            <DialogTitle>{t("dialogTitle")}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
-          </DialogHeader>
-          <div className="min-h-[24rem] border-t">
-            {status === "error" ? (
-              <div className="grid min-h-80 place-items-center p-6 text-center">
-                <div className="grid gap-3">
-                  <p className="font-medium">{startupT("errorTitle")}</p>
-                  <Button size="sm" onClick={() => void refreshProfile()}>
-                    {startupT("retry")}
-                  </Button>
-                </div>
-              </div>
-            ) : profile?.logged_in ? (
-              <AccountProfilePanel
-                profile={profile}
-                loading={actionLoading}
-                refreshing={refreshing}
-                onRefresh={() => void handleRefreshProfile()}
-                onLogout={() => void logout()}
+                {account.error}
+              </p>
+            )}
+            {account.profile?.logged_in ? (
+              <SidebarAccountActions
+                profile={account.profile}
+                pending={account.actionLoading}
+                refreshing={account.refreshing}
+                onRefresh={() => void account.refresh()}
+                onLogout={() => account.showDialog("logout")}
+                onManage={() => account.showDialog("manager")}
+                onProfile={() => account.showDialog("profile")}
+                onClose={() => account.setOpen(false)}
               />
             ) : (
-              <AccountLoginPanel
-                active={open}
-                onAuthenticated={() => setOpen(false)}
-              />
+              <AccountUnavailable account={account} />
             )}
-          </div>
-        </DialogContent>
-      </Dialog>
+          </PopoverContent>
+        </Popover>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 shrink-0 rounded-md text-muted-foreground"
+          title={t("openSettings")}
+          aria-label={t("openSettings")}
+          onClick={() => void account.settings()}
+        >
+          <Settings className="size-3.5" />
+        </Button>
+      </div>
+      <SidebarAccountDialogs account={account} />
     </>
+  )
+}
+
+function AccountTriggerText({
+  account,
+}: {
+  account: ReturnType<typeof useSidebarAccount>
+}) {
+  const t = useTranslations("SidebarAccount")
+  return (
+    <>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-semibold">
+          {account.status === "checking"
+            ? t("loading")
+            : displayName(account.profile, t("notSignedIn"))}
+        </span>
+        <span className="mt-0.5 block truncate text-[0.6875rem] text-muted-foreground">
+          {account.profile?.logged_in
+            ? t("balancePoints") +
+              " · " +
+              balancePoints(account.profile, t("balanceUnknown"))
+            : t("clickToOpen")}
+        </span>
+      </span>
+      <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground" />
+    </>
+  )
+}
+
+function AccountUnavailable({
+  account,
+}: {
+  account: ReturnType<typeof useSidebarAccount>
+}) {
+  const t = useTranslations("SidebarAccount")
+  const td = useTranslations("SidebarDesign")
+  return (
+    <div className="grid gap-3 p-4">
+      <div className="flex items-center gap-2 text-sm">
+        {account.status === "checking" && (
+          <Loader2 className="size-4 animate-spin" />
+        )}
+        {t(account.status === "checking" ? "loading" : "notSignedIn")}
+      </div>
+      {account.error && (
+        <p role="alert" className="break-words text-xs text-destructive">
+          {account.error}
+        </p>
+      )}
+      <Button
+        size="sm"
+        disabled={account.status === "checking"}
+        onClick={() =>
+          account.status === "error"
+            ? void account.refresh()
+            : account.showDialog("login")
+        }
+      >
+        {account.status === "error" ? td("retry") : t("signIn")}
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => account.showDialog("manager")}
+      >
+        {td("sessions")}
+      </Button>
+    </div>
   )
 }
