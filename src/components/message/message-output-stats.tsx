@@ -75,7 +75,7 @@ export const MessageOutputStats = memo(function MessageOutputStats(
     : completedDuration(props, liveUsage?.startedAt)
   const recentOutputRate = useRecentOutputRate(
     isStreaming ? (props.liveMessage?.id ?? null) : null,
-    usage?.output_tokens ?? 0
+    usage?.output_tokens ?? null
   )
   const firstTokenMs = props.liveMessage
     ? firstTokenElapsed(props.liveMessage)
