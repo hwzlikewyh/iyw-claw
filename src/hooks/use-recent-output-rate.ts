@@ -11,14 +11,14 @@ interface Sample {
 }
 
 function createSampler(
-  readCount: () => number,
+  readCount: () => number | null,
   publish: (value: number | null) => void
 ) {
   let samples: Sample[] = []
   return () => {
     const now = performance.now()
     const count = readCount()
-    if (!Number.isFinite(count) || count < 0) {
+    if (count == null || !Number.isFinite(count) || count < 0) {
       samples = []
       publish(null)
       return
@@ -40,7 +40,7 @@ function createSampler(
   }
 }
 
-export function useRecentOutputRate(key: string | null, count: number) {
+export function useRecentOutputRate(key: string | null, count: number | null) {
   const source = useRef({ key, count })
   const [rate, setRate] = useState<{
     key: string | null

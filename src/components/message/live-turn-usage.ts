@@ -37,19 +37,31 @@ export async function loadLiveTurnUsage(
   isCurrent: () => boolean
 ): Promise<TurnUsage | null> {
   const first = await getFolderConversation(conversationId, undefined, true)
-  const boundary = first.in_flight_user_turn_id
-  if (!boundary || !isCurrent()) return null
+  const boundary = first.in_flight_user_turn_id ?? null
+  if (!isCurrent()) return null
   let page = first
   let usage: TurnUsage | null = null
-  // 使用后端关联的本轮用户消息作为边界，避免客户端时钟偏差和历史消耗串轮。
+  let turnBoundary = boundary
+
+  // 后端写入 in_flight_user_turn_id 有短暂延迟。边界尚未出现时，临时以
+  // 最近一条用户消息作为本轮起点；边界出现后仍使用后端关联 ID 严格截断。
   while (isCurrent()) {
+    if (turnBoundary == null) {
+      for (let index = page.turns.length - 1; index >= 0; index -= 1) {
+        if (page.turns[index].role === "user") {
+          turnBoundary = page.turns[index].id
+          break
+        }
+      }
+    }
     for (let index = page.turns.length - 1; index >= 0; index -= 1) {
       const turn = page.turns[index]
-      if (turn.id === boundary) return usage
+      if (turn.id === turnBoundary) return usage
       if (turn.role === "assistant" && turn.usage) {
         usage = mergeUsage(usage, turn.usage)
       }
     }
+    if (boundary == null) return usage
     if (page.history_start === 0) return null
     const before = page.history_start
     page = await getFolderConversation(conversationId, before, true)
