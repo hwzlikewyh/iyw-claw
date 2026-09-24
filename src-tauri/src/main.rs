@@ -18,5 +18,14 @@ fn main() {
         return;
     }
 
+    #[cfg(all(windows, not(debug_assertions)))]
+    match iyw_codex_harness::elevate_desktop() {
+        Ok(true) => return,
+        Ok(false) => {},
+        Err(error) => {
+            eprintln!("Desktop elevation failed: {error}");
+            std::process::exit(1);
+        },
+    }
     iyw_claw_lib::run()
 }

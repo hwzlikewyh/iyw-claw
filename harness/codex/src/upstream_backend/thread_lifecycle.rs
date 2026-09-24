@@ -36,6 +36,7 @@ impl UpstreamClient {
             .validate_session_capabilities(capabilities)?;
         let mut request = request;
         options.apply(&mut request);
+        self.workspace.apply(&mut request);
         let response = self.send(request).await?;
         let forked = thread_id_from_response(&response)?;
         if forked == source_id {

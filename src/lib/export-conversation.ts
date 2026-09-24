@@ -479,9 +479,9 @@ ${header}
 // Public export functions
 // ---------------------------------------------------------------------------
 
-export async function exportAsMarkdown(
+export function formatConversationMarkdown(
   data: ExportConversationData
-): Promise<ExportResult> {
+): string {
   const { summary, turns, sessionStats, labels } = data
   const parts: string[] = []
 
@@ -504,9 +504,15 @@ export async function exportAsMarkdown(
   parts.push("---")
   parts.push("*原助理*")
 
+  return parts.join("\n")
+}
+
+export async function exportAsMarkdown(
+  data: ExportConversationData
+): Promise<ExportResult> {
   return saveTextFile({
-    content: parts.join("\n"),
-    suggestedName: makeExportFilename(summary.title, "md"),
+    content: formatConversationMarkdown(data),
+    suggestedName: makeExportFilename(data.summary.title, "md"),
     mimeType: "text/markdown",
     filterName: "Markdown",
     ext: "md",

@@ -43,6 +43,7 @@ import type {
   ChannelType,
 } from "@/lib/types"
 import { DeleteChannelDialog } from "./delete-channel-dialog"
+import { ArtifactNotificationSettings } from "./artifact-notification-settings"
 
 export function ChannelConnectedList({
   channels,
@@ -159,6 +160,7 @@ export function ChannelConnectedList({
                   )}
                 </div>
               </div>
+              <ArtifactNotificationSettings channelId={channel.id} />
               <div className="flex shrink-0 items-center justify-end gap-1.5">
                 <Switch
                   checked={channel.enabled}

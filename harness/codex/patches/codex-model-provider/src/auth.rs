@@ -23,6 +23,10 @@ use http::HeaderValue;
 
 use crate::bearer_auth_provider::BearerAuthProvider;
 
+#[path = "host_auth.rs"]
+mod host_auth;
+pub use host_auth::api_key as host_api_key;
+
 const BEDROCK_API_KEY_UNSUPPORTED_MESSAGE: &str =
     "Bedrock API key auth is only supported by the Amazon Bedrock model provider";
 
@@ -198,6 +202,9 @@ pub(crate) fn resolve_provider_auth(
     auth: Option<&CodexAuth>,
     provider: &ModelProviderInfo,
 ) -> codex_protocol::error::Result<SharedAuthProvider> {
+    if let Some(host_auth) = host_auth::resolve(auth, provider) {
+        return Ok(host_auth);
+    }
     if let Some(auth) = bearer_auth_for_provider(provider)? {
         return Ok(Arc::new(auth));
     }

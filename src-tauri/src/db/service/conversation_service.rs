@@ -435,7 +435,7 @@ async fn fill_child_count_batch(
         std::collections::HashMap::with_capacity(pairs.len());
     for (parent_id, cnt) in pairs {
         if let Some(pid) = parent_id {
-            counts.insert(pid, cnt.max(0) as u32);
+            counts.insert(pid, std::cmp::Ord::max(cnt, 0) as u32);
         }
     }
     for s in summaries.iter_mut() {

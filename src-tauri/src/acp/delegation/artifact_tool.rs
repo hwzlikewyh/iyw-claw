@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::chat_channel::artifact_notification_policy::ArtifactNotificationOptions;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -57,6 +58,7 @@ pub enum ArtifactCall {
     Present {
         files: Vec<String>,
         display_names: Vec<Option<String>>,
+        notification: ArtifactNotificationOptions,
     },
     Manage(ArtifactOperation),
 }
@@ -68,19 +70,16 @@ struct PresentParams {
     action: Option<String>,
     #[serde(default)]
     display_names: Option<Vec<String>>,
+    #[serde(default)]
+    notify: bool,
+    notification_message: Option<String>,
 }
 
 pub fn parse_call(arguments: &Value) -> Result<ArtifactCall, String> {
     match arguments.get("action") {
-        None => parse_present(arguments).map(|(files, display_names)| ArtifactCall::Present {
-            files,
-            display_names,
-        }),
+        None => parse_present(arguments),
         Some(Value::String(action)) if action == "present" => {
-            parse_present(arguments).map(|(files, display_names)| ArtifactCall::Present {
-                files,
-                display_names,
-            })
+            parse_present(arguments)
         }
         _ => {
             let mut operation: ArtifactOperation = serde_json::from_value(arguments.clone())
@@ -91,7 +90,7 @@ pub fn parse_call(arguments: &Value) -> Result<ArtifactCall, String> {
     }
 }
 
-fn parse_present(arguments: &Value) -> Result<(Vec<String>, Vec<Option<String>>), String> {
+fn parse_present(arguments: &Value) -> Result<ArtifactCall, String> {
     let mut params: PresentParams = serde_json::from_value(arguments.clone())
         .map_err(|error| format!("Invalid artifact registration: {error}"))?;
     let _ = params.action;
@@ -125,7 +124,12 @@ fn parse_present(arguments: &Value) -> Result<(Vec<String>, Vec<Option<String>>)
             Ok::<String, String>(reference)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    Ok((files, display_names))
+    let mut notification = ArtifactNotificationOptions {
+        notify: params.notify,
+        notification_message: params.notification_message,
+    };
+    notification.validate()?;
+    Ok(ArtifactCall::Present { files, display_names, notification })
 }
 
 impl ArtifactOperation {

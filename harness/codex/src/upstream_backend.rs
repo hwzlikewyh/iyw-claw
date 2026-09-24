@@ -13,6 +13,7 @@ mod child_snapshot;
 mod queued_prompt;
 mod history;
 mod cancel_tree;
+mod thread_workspace;
 
 use codex_app_server_client::{InProcessAppServerClient, InProcessAppServerRequestHandle};
 use codex_app_server_protocol::{ClientRequest, RequestId};
@@ -32,6 +33,7 @@ pub struct UpstreamClient {
     event_client: tokio::sync::Mutex<InProcessAppServerClient>,
     harness: tokio::sync::Mutex<CodexHarness>,
     runtime_fingerprint: String,
+    workspace: thread_workspace::ThreadWorkspace,
     next_request_id: AtomicI64,
     child_parents: tokio::sync::Mutex<std::collections::HashMap<String, String>>,
 }
@@ -126,6 +128,10 @@ impl UpstreamClient {
         let capabilities = args.capabilities;
         let mut harness = CodexHarness::new(args.harness.clone())
             .map_err(|error| UpstreamError::Io(error.to_string()))?;
+        let workspace = thread_workspace::ThreadWorkspace {
+            cwd: args.cwd.clone(),
+            roots: args.workspace_roots.clone(),
+        };
         let client = args.build_client().await?;
         let request_handle = client.request_handle();
         harness
@@ -136,6 +142,7 @@ impl UpstreamClient {
             event_client: tokio::sync::Mutex::new(client),
             harness: tokio::sync::Mutex::new(harness),
             runtime_fingerprint,
+            workspace,
             next_request_id: AtomicI64::new(1),
             child_parents: Default::default(),
         })
@@ -167,6 +174,7 @@ impl UpstreamClient {
             .await
             .validate_session_capabilities(capabilities)?;
         options.apply(&mut request);
+        self.workspace.apply(&mut request);
         let response = self.send(request).await?;
         let thread_id = thread_id_from_response(&response)?;
         self.harness.lock().await.bind_session(
@@ -211,6 +219,7 @@ impl UpstreamClient {
             .await
             .validate_session_binding(&binding, capabilities)?;
         options.apply(&mut request);
+        self.workspace.apply(&mut request);
         let response = self.send(request).await?;
         let response_thread_id = thread_id_from_response(&response)?;
         if response_thread_id != thread_id {

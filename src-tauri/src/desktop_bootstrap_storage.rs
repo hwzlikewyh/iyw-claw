@@ -7,7 +7,11 @@ use crate::acp::agent_storage::{load_config, save_config, AgentStorageConfig, Ag
 
 const APP_DIR_NAME: &str = "app";
 const INSTALL_ROOT_METADATA_KEY: &str = "desktop.install_root.v1";
-const REBASED_PROFILE_FILES: [&str; 2] = ["config/codex/config.toml", "config/hermes/config.yaml"];
+const REBASED_PROFILE_FILES: [&str; 3] = [
+    "config/xinghe/config.toml",
+    "config/codex/config.toml",
+    "config/hermes/config.yaml",
+];
 
 pub async fn reconcile(
     conn: &DatabaseConnection,
@@ -91,7 +95,11 @@ fn discover_stale_profile_root(selected_root: &Path) -> Option<PathBuf> {
 }
 
 fn stale_roots_from_codex(selected_root: &Path) -> Vec<PathBuf> {
-    let path = selected_root.join("config/codex/config.toml");
+    let path = ["config/xinghe/config.toml", "config/codex/config.toml"]
+        .iter()
+        .map(|relative| selected_root.join(relative))
+        .find(|path| path.is_file())
+        .unwrap_or_else(|| selected_root.join("config/xinghe/config.toml"));
     let Ok(raw) = std::fs::read_to_string(path) else {
         return Vec::new();
     };
@@ -131,7 +139,10 @@ fn yaml_value<'a>(value: &'a serde_yaml::Value, key: &str) -> Option<&'a serde_y
 fn root_from_catalog_path(value: &str) -> Option<PathBuf> {
     let path = Path::new(value);
     if path.file_name()? != OsStr::new("iyw-claw-models.json")
-        || path.parent()?.file_name()? != OsStr::new("codex")
+        || !matches!(
+            path.parent()?.file_name()?.to_str(),
+            Some("codex" | "xinghe")
+        )
         || path.parent()?.parent()?.file_name()? != OsStr::new("config")
     {
         return None;

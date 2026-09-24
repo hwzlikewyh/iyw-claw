@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use codex_exec_server_protocol::JSONRPCErrorError;
+use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::permissions::FileSystemAccessMode;
 use codex_protocol::permissions::FileSystemPath;
@@ -16,17 +17,25 @@ use codex_sandboxing::SandboxExecRequest;
 use codex_sandboxing::SandboxManager;
 use codex_sandboxing::SandboxTransformRequest;
 use codex_sandboxing::SandboxType;
-use codex_sandboxing::SandboxablePreference;
 use codex_utils_absolute_path::AbsolutePathBuf;
 #[cfg(not(target_os = "linux"))]
 use codex_utils_absolute_path::canonicalize_preserving_symlinks;
+#[cfg(any(windows, test))]
+use codex_utils_path_uri::LegacyAppPathString;
+#[cfg(any(windows, test))]
+use codex_utils_path_uri::PathConvention;
 use codex_utils_path_uri::PathUri;
+use codex_utils_pty::Child;
+use codex_utils_pty::ChildStdin;
+use codex_utils_pty::Command;
+#[cfg(target_os = "macos")]
+use codex_utils_pty::DescriptorPolicy;
+use codex_utils_pty::SpawnFallback;
 #[cfg(any(windows, test))]
 use tokio::io::AsyncBufReadExt;
 #[cfg(any(windows, test))]
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
 
 use crate::ExecServerRuntimePaths;
 use crate::FileSystemSandboxContext;
@@ -34,7 +43,6 @@ use crate::fs_helper::CODEX_FS_HELPER_ARG1;
 use crate::fs_helper::FsHelperPayload;
 use crate::fs_helper::FsHelperRequest;
 use crate::fs_helper::FsHelperResponse;
-use crate::local_file_system::current_sandbox_cwd;
 use crate::rpc::internal_error;
 use crate::rpc::invalid_request;
 
@@ -100,12 +108,13 @@ impl FileSystemSandboxRunner {
             .map(native_workspace_root)
             .collect::<Result<Vec<_>, _>>()?;
         let workspace_roots = native_workspace_roots.as_slice();
-        let native_permissions: PermissionProfile =
-            sandbox.permissions.clone().try_into().map_err(|err| {
-                invalid_request(format!("invalid sandbox permission path URI: {err}"))
-            })?;
-        let native_permissions =
-            native_permissions.materialize_project_roots_with_workspace_roots(workspace_roots);
+        sandbox
+            .validate_file_system_paths_for_current_host()
+            .map_err(|err| invalid_request(err.to_string()))?;
+        let native_permissions = sandbox
+            .permissions
+            .clone()
+            .materialize_project_roots_with_workspace_roots(workspace_roots);
         let mut file_system_policy = native_permissions.file_system_sandbox_policy();
         tracing::Span::current().record("permission_entries", file_system_policy.entries.len());
         let helper_read_roots = if sandbox.use_legacy_landlock {
@@ -122,6 +131,8 @@ impl FileSystemSandboxRunner {
         // unrelated permission roots synchronously on the executor's runtime thread.
         #[cfg(not(target_os = "linux"))]
         normalize_file_system_policy_root_aliases(&mut file_system_policy);
+        #[cfg(windows)]
+        bind_windows_cwd_relative_deny_read_globs(&mut file_system_policy, &cwd.uri)?;
         let network_policy = NetworkSandboxPolicy::Restricted;
         let permission_profile = PermissionProfile::from_runtime_permissions_with_enforcement(
             native_permissions.enforcement(),
@@ -144,10 +155,10 @@ impl FileSystemSandboxRunner {
         let sandbox_manager = sandbox_manager.with_allowed_symlinked_codex_home(
             self.runtime_paths.allowed_symlinked_codex_home.clone(),
         );
-        let sandbox = sandbox_manager.select_initial(
+        let (sandbox, windows_sandbox_level) = crate::sandbox_selection::select_sandbox(
+            &sandbox_manager,
             permission_profile,
-            SandboxablePreference::Require,
-            sandbox_context.windows_sandbox_level,
+            sandbox_context,
             /*has_managed_network_requirements*/ false,
         );
         if sandbox == SandboxType::None {
@@ -155,10 +166,17 @@ impl FileSystemSandboxRunner {
                 "filesystem sandbox cannot be enforced on this executor".to_string(),
             ));
         }
+        // Requests use absolute paths; the helper can start at the filesystem root even if
+        // the policy cwd was removed. Keep its drive or share for Windows `:root` rules.
+        let helper_cwd = cwd
+            .native
+            .ancestors()
+            .last()
+            .ok_or_else(|| invalid_request("filesystem sandbox cwd has no root".to_string()))?;
         let command = SandboxCommand {
             program: helper.as_path().as_os_str().to_owned(),
             args: vec![CODEX_FS_HELPER_ARG1.to_string()],
-            cwd: cwd.uri.clone(),
+            cwd: PathUri::from_abs_path(&helper_cwd),
             env: self.helper_env.clone(),
             managed_network: None,
             additional_permissions: None,
@@ -176,11 +194,14 @@ impl FileSystemSandboxRunner {
                     environment_id: None,
                     network: None,
                     sandbox_policy_cwd: &cwd.uri,
-                    codex_linux_sandbox_exe: self.runtime_paths.codex_linux_sandbox_exe.as_deref(),
+                    sandbox_exe: if cfg!(windows) {
+                        Some(self.runtime_paths.codex_self_exe.as_path())
+                    } else {
+                        self.runtime_paths.codex_linux_sandbox_exe.as_deref()
+                    },
                     use_legacy_landlock: sandbox_context.use_legacy_landlock,
-                    windows_sandbox_level: sandbox_context.windows_sandbox_level,
-                    windows_sandbox_private_desktop: sandbox_context
-                        .windows_sandbox_private_desktop,
+                    windows_sandbox_level: windows_sandbox_level
+                        .unwrap_or(WindowsSandboxLevel::Disabled),
                 },
             })
             .map_err(|err| invalid_request(format!("failed to prepare fs sandbox: {err}")))
@@ -188,23 +209,10 @@ impl FileSystemSandboxRunner {
 }
 
 fn sandbox_cwd(sandbox: &FileSystemSandboxContext) -> Result<SandboxCwd, JSONRPCErrorError> {
-    if let Some(uri) = &sandbox.cwd {
-        return Ok(SandboxCwd {
-            native: native_sandbox_cwd(uri)?,
-            uri: uri.clone(),
-        });
-    }
-
-    if sandbox.has_cwd_dependent_permissions() {
-        return Err(invalid_request(
-            "file system sandbox context with dynamic permissions requires cwd".to_string(),
-        ));
-    }
-
-    let native = AbsolutePathBuf::from_absolute_path(current_sandbox_cwd().map_err(io_error)?)
-        .map_err(|err| invalid_request(format!("current directory is not absolute: {err}")))?;
-    let uri = PathUri::from_abs_path(&native);
-    Ok(SandboxCwd { uri, native })
+    Ok(SandboxCwd {
+        native: native_sandbox_cwd(&sandbox.cwd)?,
+        uri: sandbox.cwd.clone(),
+    })
 }
 
 fn native_sandbox_cwd(cwd: &PathUri) -> Result<AbsolutePathBuf, JSONRPCErrorError> {
@@ -257,6 +265,34 @@ fn add_helper_runtime_permissions(
             FileSystemAccessMode::Read,
         ));
     }
+}
+
+#[cfg(any(windows, test))]
+fn bind_windows_cwd_relative_deny_read_globs(
+    file_system_policy: &mut FileSystemSandboxPolicy,
+    cwd: &PathUri,
+) -> Result<(), JSONRPCErrorError> {
+    // The Windows direct-spawn wrapper reevaluates the profile using the helper cwd.
+    // Bind cwd-relative denials before moving the helper to the filesystem root.
+    for entry in &mut file_system_policy.entries {
+        if let FileSystemPath::GlobPattern { pattern } = &mut entry.path
+            && entry.access == FileSystemAccessMode::Deny
+            && PathConvention::Windows
+                .home_relative_suffix(pattern)
+                .is_none()
+            && LegacyAppPathString::from_string(pattern.as_str())
+                .to_path_uri(PathConvention::Windows)
+                .is_err()
+        {
+            cwd.validate_glob_directory(PathConvention::Windows)
+                .map_err(|err| invalid_request(err.to_string()))?;
+            *pattern = cwd
+                .join(pattern.as_str())
+                .map_err(|err| invalid_request(err.to_string()))?
+                .inferred_native_path_string();
+        }
+    }
+    Ok(())
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -336,7 +372,7 @@ async fn run_command(
     command: SandboxExecRequest,
     request_json: Vec<u8>,
 ) -> Result<FsHelperPayload, JSONRPCErrorError> {
-    let mut child = spawn_command(command, std::process::Stdio::piped())?;
+    let mut child = spawn_command(command, ChildStdin::Piped)?;
     let mut stdin = child
         .stdin
         .take()
@@ -395,7 +431,7 @@ pub(crate) async fn read_helper_response(
 
 #[cfg(any(windows, test))]
 pub(crate) fn drain_helper_stderr(
-    child: &mut tokio::process::Child,
+    child: &mut Child,
 ) -> tokio::task::JoinHandle<Result<Vec<u8>, std::io::Error>> {
     let stderr_pipe = child.stderr.take();
     tokio::spawn(async move {
@@ -413,7 +449,7 @@ pub(crate) fn drain_helper_stderr(
 
 #[cfg(any(windows, test))]
 pub(crate) async fn reap_helper_after_response(
-    mut child: tokio::process::Child,
+    mut child: Child,
     stderr: tokio::task::JoinHandle<Result<Vec<u8>, std::io::Error>>,
 ) -> Result<(), JSONRPCErrorError> {
     let (status, stderr) = match tokio::time::timeout(FS_HELPER_EXIT_TIMEOUT, async {
@@ -446,7 +482,7 @@ pub(crate) async fn reap_helper_after_response(
 
 #[cfg(not(windows))]
 pub(crate) async fn wait_for_helper_output(
-    child: tokio::process::Child,
+    child: Child,
 ) -> Result<std::process::Output, JSONRPCErrorError> {
     let output = child.wait_with_output().await.map_err(io_error)?;
     if !output.status.success() {
@@ -467,17 +503,12 @@ pub(crate) fn spawn_command(
         arg0,
         ..
     }: SandboxExecRequest,
-    stdin: std::process::Stdio,
-) -> Result<tokio::process::Child, JSONRPCErrorError> {
+    stdin: ChildStdin,
+) -> Result<Child, JSONRPCErrorError> {
     let Some((program, args)) = argv.split_first() else {
         return Err(invalid_request("fs sandbox command was empty".to_string()));
     };
     let mut command = Command::new(program);
-    #[cfg(windows)]
-    {
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
     #[cfg(unix)]
     if let Some(arg0) = arg0 {
         command.arg0(arg0);
@@ -489,21 +520,13 @@ pub(crate) fn spawn_command(
     let cwd = cwd.to_abs_path().map_err(io_error)?;
     command.current_dir(cwd.as_path());
     env.retain(|name, _| !codex_protocol::shell_environment::is_non_inheritable_env_var(name));
-    command.env_clear();
     command.envs(env);
     command.stdin(stdin);
-    command.stdout(std::process::Stdio::piped());
-    command.stderr(std::process::Stdio::piped());
-    command.kill_on_drop(true);
+    // A helper is a known executable: native launch errors must not retry through fork.
+    command.fallback(SpawnFallback::ReturnError);
     // macOS cannot receive passed fds with close-on-exec set atomically.
     #[cfg(target_os = "macos")]
-    // SAFETY: Descriptor cleanup only uses fork-safe system calls.
-    unsafe {
-        command.pre_exec(|| {
-            codex_utils_pty::pty::close_inherited_fds_except(&[]);
-            Ok(())
-        });
-    }
+    command.descriptor_policy(DescriptorPolicy::StdioOnly);
     command.spawn().map_err(io_error)
 }
 

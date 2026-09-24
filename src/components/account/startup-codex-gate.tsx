@@ -1,38 +1,21 @@
 "use client"
 
-import { Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
-import { Progress } from "@/components/ui/progress"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { OverlayWindowControls } from "@/components/layout/overlay-window-controls"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
-import {
-  acpDetectAgentLocalVersion,
-  acpListAgents,
-  acpPrepareNpxAgent,
-  officecliBootstrap,
-} from "@/lib/api"
+import { officecliBootstrap } from "@/lib/api"
 import { isLocalDesktop, subscribe } from "@/lib/platform"
-import { prepareStartupRuntime } from "@/lib/startup-runtime"
-import type { BootstrapComponentStatus, BootstrapInitEvent } from "@/lib/types"
+import type { BootstrapInitEvent } from "@/lib/types"
 import { randomUUID } from "@/lib/utils"
 import {
   type BootstrapStep,
+  executeCodexBootstrap,
 } from "./startup-codex-bootstrap"
-import {
-  StartupFailureDetails,
-  StartupRuntimeStatus,
-  updateRuntimeComponent,
-} from "./startup-runtime-status"
+import { StartupInitializationPanel } from "./startup-initialization-panel"
 
 const BOOTSTRAP_INIT_EVENT = "app://bootstrap-init"
 const CHECKING_VISIBILITY_DELAY_MS = 800
@@ -51,8 +34,8 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
   const { refresh: refreshAgents } = useAcpAgents()
   const [state, setState] = useState<CodexBootstrapState>("idle")
   const [bootstrapPercent, setBootstrapPercent] = useState<number | null>(null)
-  const [components, setComponents] = useState<BootstrapComponentStatus[]>([])
-  const [message, setMessage] = useState("")
+  const [stage, setStage] = useState(0)
+  const [waiting, setWaiting] = useState(false)
   const controllerRef = useRef<AbortController | null>(null)
   const [failure, setFailure] = useState<{
     step: BootstrapStep
@@ -83,25 +66,23 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
     void subscribe<BootstrapInitEvent>(BOOTSTRAP_INIT_EVENT, (event) => {
       if (event.taskId !== runtimeTaskIdRef.current) return
       if (!runningRef.current) return
-      setMessage(event.message)
-      if (event.component) {
-        setComponents((current) => updateRuntimeComponent(current, event))
-      }
       const activePhase = [
         "downloading",
         "staging",
         "activating",
         "health_check",
+        "verifying",
+        "ready",
       ].includes(event.phase)
       if (!activePhase) return
       setState((current) => (current === "checking" ? "runtime" : current))
-      if (event.phase === "downloading" && event.total && event.total > 0) {
-        setBootstrapPercent(
-          Math.min(
-            100,
-            Math.max(0, ((event.downloaded ?? 0) / event.total) * 100)
-          )
-        )
+      const completing = ["activating", "health_check", "ready"].includes(
+        event.phase
+      )
+      setStage((current) => Math.max(current, completing ? 2 : 1))
+      if (typeof event.percent === "number" && Number.isFinite(event.percent)) {
+        const percent = Math.max(0, Math.min(95, Math.floor(event.percent)))
+        setBootstrapPercent((current) => Math.max(current ?? 0, percent))
       }
     })
       .then((fn) => {
@@ -139,7 +120,8 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
       setState("checking")
       setBootstrapPercent(null)
       setFailure(null)
-      setMessage("")
+      setStage(0)
+      setWaiting(false)
       const controller = new AbortController()
       controllerRef.current = controller
       const visibilityTimer = setTimeout(() => {
@@ -148,66 +130,30 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
       void bootstrapOfficeCli()
       let step: BootstrapStep = "registry"
       try {
-        const agents = await acpListAgents().catch((error) => {
-          console.warn(
-            "[StartupCodexGate] Agent registry unavailable; continuing fail-closed:",
-            error
-          )
-          return []
-        })
-        const codex = agents.find((agent) => agent.agent_type === "codex")
-        if (!codex) {
-          await refreshAgents()
-          setState("ready")
-          return
-        }
-
-        step = "runtime"
-        const runtimeReport = await prepareStartupRuntime({
+        await executeCodexBootstrap({
           repair,
-          taskId: runtimeTaskIdRef.current,
+          runtimeTaskId: runtimeTaskIdRef.current,
+          installTaskId: taskIdRef.current,
           signal: controller.signal,
-          onStatus: (report) => {
-            setComponents(report.components)
-            if (report.writerBusy) setMessage(t("waitingForWriter"))
+          messages: {
+            componentPending: t("componentPending"),
+            repairCore: t("repairCore"),
           },
+          onStep: (next) => {
+            step = next
+            if (next === "detect") setStage(2)
+          },
+          onStatus: (report) => {
+            setWaiting(report.writerBusy)
+          },
+          onInstalling: () => {
+            setState("installing")
+            setStage(1)
+          },
+          refreshAgents,
         })
-        const requiredComponents = ["node", "git", "uv"]
-        const components = new Map(
-          runtimeReport.components.map((component) => [
-            component.componentId,
-            component,
-          ])
-        )
-        const failures = requiredComponents.flatMap((componentId) => {
-          const component = components.get(componentId)
-          if (!component) return [`${componentId}: ${t("componentPending")}`]
-          if (!component.installed || !component.active) {
-            return [`${componentId}: ${component.lastError ?? component.phase}`]
-          }
-          return []
-        })
-        if (failures.length > 0) {
-          throw new Error(failures.join("\n"))
-        }
-        step = "detect"
-        const installed =
-          codex.installed_version ?? (await acpDetectAgentLocalVersion("codex"))
-        if (installed) {
-          await refreshAgents()
-          setState("ready")
-          return
-        }
-        if (isLocalDesktop()) throw new Error(t("repairCore"))
-        setState("installing")
-        step = "install"
-        await acpPrepareNpxAgent(
-          "codex",
-          codex.registry_version,
-          taskIdRef.current,
-          false
-        )
-        await refreshAgents()
+        setBootstrapPercent(100)
+        setStage(2)
         setState("ready")
       } catch (error) {
         if (controller.signal.aborted) {
@@ -227,21 +173,8 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
   )
 
   useEffect(() => {
-    if (status === "authenticated" && state === "idle") void bootstrap(false)
-  }, [bootstrap, state, status])
-
-  const title =
-    state === "runtime"
-      ? t("runtimeTitle")
-      : state === "installing"
-        ? t("installingTitle")
-        : t("checkingTitle")
-  const description =
-    state === "runtime"
-      ? t("runtimeDescription")
-      : state === "installing"
-        ? t("installingDescription")
-        : t("checkingDescription")
+    if (shouldCheck && state === "idle") void bootstrap(false)
+  }, [bootstrap, state, shouldCheck])
 
   return (
     <>
@@ -249,51 +182,21 @@ export function StartupCodexGate({ children }: { children: ReactNode }) {
       <OverlayWindowControls visible={blocked} />
       <Dialog open={blocked} onOpenChange={() => {}}>
         <DialogContent
-          className="max-w-md rounded-lg"
+          className="max-h-[calc(100dvh-6rem)] gap-0 overflow-y-auto rounded-lg p-0 sm:max-w-[560px]"
           showCloseButton={false}
           onEscapeKeyDown={(event) => event.preventDefault()}
           onPointerDownOutside={(event) => event.preventDefault()}
           onInteractOutside={(event) => event.preventDefault()}
         >
-          <DialogHeader className="text-center">
-            {state !== "error" ? (
-              <Loader2 className="mx-auto mb-2 h-7 w-7 animate-spin text-muted-foreground" />
-            ) : null}
-            <DialogTitle>
-              {state === "error" ? t("errorTitle") : title}
-            </DialogTitle>
-            <DialogDescription>
-              {state === "error" ? t("errorDescription") : description}
-            </DialogDescription>
-          </DialogHeader>
-          {components.length > 0 ? (
-            <StartupRuntimeStatus components={components} />
-          ) : null}
-          {message && state !== "error" ? (
-            <p role="status" className="text-xs text-muted-foreground">
-              {message}
-            </p>
-          ) : null}
-          {state !== "error" ? (
-            <Progress
-              value={
-                state === "runtime"
-                  ? (bootstrapPercent ?? 5)
-                  : state === "installing"
-                    ? 75
-                    : 30
-              }
-              aria-label={title}
-              className="h-2"
-            />
-          ) : null}
-          {state === "error" && failure ? (
-            <StartupFailureDetails
-              step={t(`steps.${failure.step}`)}
-              detail={failure.detail}
-              onRetry={() => void bootstrap(true)}
-            />
-          ) : null}
+          <StartupInitializationPanel
+            stage={stage}
+            percent={bootstrapPercent}
+            waiting={waiting}
+            failure={
+              state === "error" ? (failure?.detail ?? t("setupFailed")) : null
+            }
+            onRetry={() => void bootstrap(true)}
+          />
         </DialogContent>
       </Dialog>
     </>

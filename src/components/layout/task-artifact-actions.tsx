@@ -35,6 +35,7 @@ interface UseTaskArtifactActionsOptions {
 }
 
 export interface TaskArtifactActions extends ArtifactCommonActions {
+  channelArtifact?: TaskArtifactInfo
   kind: TaskArtifactInfo["kind"]
   target: TaskArtifactTarget | null
   canOpenWorkspace: boolean
@@ -158,7 +159,7 @@ export function useTaskArtifactActions({
     revealFailed: t("revealFailed"),
     openWorkspaceFailed: t("openWorkspaceFailed"),
   })
-  return { ...actions, ...commonActions }
+  return { ...actions, ...commonActions, channelArtifact: artifact }
 }
 
 interface ArtifactActionFactoryOptions extends UseTaskArtifactActionsOptions {

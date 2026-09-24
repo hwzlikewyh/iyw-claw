@@ -14,6 +14,7 @@ pub(crate) mod agent_version_operations;
 #[cfg(feature = "tauri-runtime")]
 pub mod app_update;
 pub mod automation;
+pub mod artifact_notifications;
 pub mod automation_draft;
 pub mod backup;
 #[cfg(feature = "tauri-runtime")]
@@ -34,6 +35,7 @@ mod conversation_history_cache_prune;
 mod conversation_points;
 pub(crate) mod conversation_title;
 pub mod conversations;
+mod history_read;
 pub mod delegation;
 #[cfg(feature = "tauri-runtime")]
 pub mod desktop;

@@ -178,7 +178,7 @@ async fn unresolved_conflict_ids<C: ConnectionTrait>(
     push_query_at(&mut values, query.query_at);
     push_query_at(&mut values, query.query_at);
     let rows = db
-        .query_all(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             sql,
             values,

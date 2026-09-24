@@ -6,6 +6,9 @@ on:
       source_ref:
         required: true
         type: string
+      artifact_run_id:
+        required: false
+        type: string
 
 jobs:
   verify:
@@ -37,7 +40,7 @@ jobs:
           name: windows-installer-verification-${{ matrix.target }}
           path: src-tauri
           github-token: ${{ github.token }}
-          run-id: ${{ github.run_id }}
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
 
       - name: Verify installed NSIS sidecars
         env:
@@ -54,7 +57,7 @@ jobs:
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           $root = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.iyw-claw'
           if (Test-Path -LiteralPath $root) { throw 'Refusing to modify an existing user environment' }
-          $installers = @(Get-ChildItem 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -Filter '*-setup.exe')
+          $installers = @(Get-ChildItem 'src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis' -Filter "*_$($version)_x64-setup.exe")
           if ($installers.Count -ne 1) { throw 'Expected exactly one signed installer' }
           $installRoot = Join-Path $env:RUNNER_TEMP 'iyw-environment-live-install'
           if (Test-Path -LiteralPath $installRoot) { throw 'Live installation root already exists' }

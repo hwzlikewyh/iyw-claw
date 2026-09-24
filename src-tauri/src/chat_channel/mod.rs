@@ -1,4 +1,5 @@
 pub mod attachments;
+pub mod artifact_notification_policy;
 pub mod backends;
 mod channel_config_types;
 mod channel_context;

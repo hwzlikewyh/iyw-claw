@@ -1,8 +1,21 @@
 param([string]$ExpectedRoot, [string]$SignedRoot, [string]$Thumbprint)
 $ErrorActionPreference = 'Stop'
 
-function Get-UnsignedPayload([string]$Path) {
+function Get-UnsignedPayload([string]$Path, [switch]$ForNsis) {
     $bytes = [IO.File]::ReadAllBytes($Path)
+    if ($ForNsis) {
+        # Tauri 将编译产物的唯一 UNK 标记改成 NSS，再执行签名。
+        $marker = '__TAURI_BUNDLE_TYPE_VAR_UNK'
+        $text = [Text.Encoding]::ASCII.GetString($bytes)
+        $offset = $text.IndexOf($marker, [StringComparison]::Ordinal)
+        if ($offset -ge 0) {
+            if ($text.IndexOf($marker, $offset + $marker.Length, [StringComparison]::Ordinal) -ge 0) {
+                throw 'Ambiguous Tauri bundle marker'
+            }
+            [Array]::Copy([Text.Encoding]::ASCII.GetBytes('NSS'), 0, $bytes, $offset + $marker.Length - 3, 3)
+        }
+        $text = $null
+    }
     $stream = [IO.MemoryStream]::new($bytes, $false)
     $reader = [System.Reflection.PortableExecutable.PEReader]::new($stream)
     try {
@@ -24,14 +37,14 @@ function Get-UnsignedPayload([string]$Path) {
     } finally { $reader.Dispose(); $stream.Dispose() }
 }
 
-foreach ($name in @('iyw-xinghe-helper.exe','xinghe-command-runner.exe','xinghe-windows-sandbox-setup.exe','iyw_xinghe_worker.dll')) {
+foreach ($name in @('iyw-claw.exe')) {
     $expected = Join-Path $ExpectedRoot $name
     $signed = Join-Path $SignedRoot $name
     $signature = Get-AuthenticodeSignature -LiteralPath $signed
-    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $Thumbprint) { throw "Invalid helper signature: $name" }
-    $before = Get-UnsignedPayload $expected
+    if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $Thumbprint) { throw "Invalid application signature: $name" }
+    $before = Get-UnsignedPayload $expected -ForNsis
     $after = Get-UnsignedPayload $signed
-    if ($before.Length -ne $after.Length -or $before.Hash -ne $after.Hash) { throw "Helper program changed beyond Authenticode metadata: $name" }
+    if ($before.Length -ne $after.Length -or $before.Hash -ne $after.Hash) { throw "Application changed beyond Authenticode metadata: $name" }
     Copy-Item -LiteralPath $signed -Destination $expected -Force
     Write-Output "Verified unchanged PE payload and expected signer: $name"
 }

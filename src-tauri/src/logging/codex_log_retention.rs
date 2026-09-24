@@ -2,7 +2,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use sea_orm::sqlx::sqlite::{SqliteConnectOptions, SqliteConnection};
-use sea_orm::sqlx::{self, ConnectOptions, Connection};
+use sea_orm::sqlx::{self, AssertSqlSafe, ConnectOptions, Connection};
 
 use super::agent_retention::RETENTION_DAYS;
 use super::agent_retention_policy::AgentLogTarget;
@@ -124,7 +124,9 @@ async fn reclaim_pages(
             break;
         }
         // PRAGMA 不支持绑定参数；这里只使用固定的内部批量上限。
-        sqlx::query(&format!("PRAGMA incremental_vacuum({VACUUM_BATCH_PAGES})"))
+        sqlx::query(AssertSqlSafe(format!(
+            "PRAGMA incremental_vacuum({VACUUM_BATCH_PAGES})"
+        )))
             .fetch_all(&mut *connection)
             .await?;
         let after: i64 = sqlx::query_scalar("PRAGMA freelist_count")

@@ -3155,6 +3155,8 @@ export type BootstrapInitPhase =
 export interface BootstrapInitEvent {
   taskId: string
   phase: BootstrapInitPhase
+  /** Aggregated environment preparation progress, when supplied by the helper. */
+  percent?: number | null
   component?: string | null
   downloaded?: number | null
   total?: number | null

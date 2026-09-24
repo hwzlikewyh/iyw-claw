@@ -41,6 +41,7 @@ mod readiness;
 mod receipt;
 mod remote_mcp;
 mod result;
+mod search_params;
 mod runtime;
 mod service;
 mod session;

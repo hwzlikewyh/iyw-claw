@@ -10,6 +10,7 @@ Var IywClawRecoveryDir
 Var IywClawAppCheckError
 !include "${__FILEDIR__}\installer-app-backup.nsh"
 !include "${__FILEDIR__}\installer-file-check.nsh"
+!include "${__FILEDIR__}\installer-journal.nsh"
 
 Function IywClawConfigureAppTransaction
   StrCpy $IywClawAppDir "$IywClawRoot\app"
@@ -40,6 +41,7 @@ Function IywClawAppendInstallerLog
   ClearErrors
   FileOpen $1 "$IywClawRoot\logs\installer.log" a
   IfErrors installer_log_done 0
+  FileSeek $1 0 END
   FileWrite $1 "$0$\r$\n"
   FileClose $1
 
@@ -90,6 +92,9 @@ Function IywClawValidateTransactionPaths
 FunctionEnd
 
 Function IywClawReconcileHistoricalBackup
+  Call IywClawReconcilePendingTransaction
+  Pop $R0
+  StrCmp $R0 "1" 0 historical_restore_failed
   IfFileExists "$IywClawBackupDir" 0 no_historical_backup
   Push "$IywClawAppDir"
   Call IywClawIsAppComplete
@@ -109,8 +114,9 @@ Function IywClawReconcileHistoricalBackup
 
   restore_historical_backup:
     DetailPrint "当前 app 不完整，正在恢复上次 installer backup..."
-    RMDir /r "$IywClawAppDir"
-    IfFileExists "$IywClawAppDir" historical_restore_failed 0
+    Call IywClawPreservePartialApp
+    Pop $R0
+    StrCmp $R0 "1" 0 historical_restore_failed
     ClearErrors
     Rename "$IywClawBackupDir" "$IywClawAppDir"
     IfErrors historical_restore_failed 0
@@ -144,6 +150,9 @@ Function IywClawBeginAppTransaction
   Pop $R0
   StrCmp $R0 "1" 0 begin_transaction_failed
   CreateDirectory "$IywClawRoot\staging"
+  Call IywClawWritePendingTransaction
+  Pop $R0
+  StrCmp $R0 "1" 0 begin_transaction_failed
   IfFileExists "$IywClawAppDir\*.*" backup_current_app remove_empty_app
 
   backup_current_app:
@@ -193,6 +202,9 @@ Function IywClawCommitAppTransaction
   app_legacy_check_complete:
     ; 新 app 完整即成为可恢复版本。backup 删除不是原子操作，优先清理，失败时
     ; 隔离到 recovery 目录；只有清理和隔离都失败才阻断成功。
+    Call IywClawClearPendingTransaction
+    Pop $R0
+    StrCmp $R0 "1" 0 commit_transaction_failed
     StrCpy $IywClawTransactionActive "0"
     Call IywClawCleanupOrIsolateHistoricalBackup
     Pop $R0
@@ -277,8 +289,9 @@ Function IywClawRollbackAppTransaction
   StrCmp $R0 "1" 0 rollback_failed
   SetOutPath "$IywClawRoot"
   DetailPrint "安装失败，正在恢复旧 app..."
-  RMDir /r "$IywClawAppDir"
-  IfFileExists "$IywClawAppDir" rollback_failed 0
+  Call IywClawPreservePartialApp
+  Pop $R0
+  StrCmp $R0 "1" 0 rollback_failed
   IfFileExists "$IywClawBackupDir\*.*" restore_transaction_backup rollback_without_backup
 
   restore_transaction_backup:
@@ -291,6 +304,9 @@ Function IywClawRollbackAppTransaction
     CreateDirectory "$IywClawAppDir"
 
   rollback_done:
+    Call IywClawClearPendingTransaction
+    Pop $R0
+    StrCmp $R0 "1" 0 rollback_failed
     StrCpy $IywClawTransactionActive "0"
     StrCpy $INSTDIR "$IywClawAppDir"
     Push "1"

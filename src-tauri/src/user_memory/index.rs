@@ -218,7 +218,7 @@ async fn write_index_transaction<C: ConnectionTrait>(
         "memory_alias_current",
         "memory_item_current",
     ] {
-        conn.execute(Statement::from_string(
+        conn.execute_raw(Statement::from_string(
             DbBackend::Sqlite,
             format!("DELETE FROM {table}"),
         ))
@@ -286,7 +286,7 @@ async fn record_refresh_error(service: &UserMemoryService, error: &AppCommandErr
 }
 
 async fn insert_item<C: ConnectionTrait>(conn: &C, item: &IndexItem) -> Result<(), sea_orm::DbErr> {
-    conn.execute(Statement::from_sql_and_values(
+    conn.execute_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         "INSERT INTO memory_item_current (id, kind, trust_class, scope_type, scope_key, content, content_digest, confidence, importance, valid_from, valid_to, source_revision, sensitive, superseded_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
         [
@@ -318,7 +318,7 @@ async fn insert_aliases<C: ConnectionTrait>(
         if normalized.is_empty() {
             continue;
         }
-        conn.execute(Statement::from_sql_and_values(
+        conn.execute_raw(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             "INSERT INTO memory_alias_current (memory_id, alias_kind, alias, normalized_alias, scope_type, scope_key) VALUES (?, ?, ?, ?, ?, ?)",
             [
@@ -340,7 +340,7 @@ async fn insert_evidence<C: ConnectionTrait>(
     item: &IndexItem,
 ) -> Result<(), sea_orm::DbErr> {
     for evidence in &item.evidence {
-        conn.execute(Statement::from_sql_and_values(
+        conn.execute_raw(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             "INSERT INTO memory_evidence (memory_id, source_kind, source_id, conversation_id, turn_nonce, excerpt_digest, observed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
             [
@@ -362,7 +362,7 @@ async fn insert_relation<C: ConnectionTrait>(
     conn: &C,
     relation: &IndexRelation,
 ) -> Result<(), sea_orm::DbErr> {
-    conn.execute(Statement::from_sql_and_values(
+    conn.execute_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         "INSERT INTO memory_relation_current (source_id, relation, target_id, confidence, created_at) VALUES (?, ?, ?, ?, ?)",
         [

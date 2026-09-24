@@ -10,7 +10,7 @@ pub(super) async fn execute<C: ConnectionTrait, const N: usize>(
     sql: &str,
     values: [Value; N],
 ) -> Result<sea_orm::ExecResult, AppCommandError> {
-    conn.execute(Statement::from_sql_and_values(
+    conn.execute_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         sql,
         values,
@@ -24,7 +24,7 @@ pub(super) async fn query_one<C: ConnectionTrait, const N: usize>(
     sql: &str,
     values: [Value; N],
 ) -> Result<Option<QueryResult>, AppCommandError> {
-    conn.query_one(Statement::from_sql_and_values(
+    conn.query_one_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         sql,
         values,
@@ -38,7 +38,7 @@ pub(super) async fn query_all<C: ConnectionTrait, const N: usize>(
     sql: &str,
     values: [Value; N],
 ) -> Result<Vec<QueryResult>, AppCommandError> {
-    conn.query_all(Statement::from_sql_and_values(
+    conn.query_all_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         sql,
         values,

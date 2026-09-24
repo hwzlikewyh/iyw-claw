@@ -15,6 +15,7 @@ import {
   buildProcessGroups,
   ProcessGroupList,
   type AppAgentSessionInfo,
+  type AppEmbeddedRuntimeInfo,
   type AppProcessInfo,
   type ProcessGroup,
 } from "@/components/settings/performance-process-groups"
@@ -29,6 +30,7 @@ interface AppPerformanceStats {
   privateMemoryUsedBytes?: number
   processes: AppProcessInfo[]
   agentSessions: AppAgentSessionInfo[]
+  embeddedRuntimes?: AppEmbeddedRuntimeInfo[]
   systemMemory?: AppSystemMemoryInfo
 }
 
@@ -150,8 +152,12 @@ function usePerformanceData(): PerformanceData {
   }, [fetchStats])
   const groups = useMemo(
     () =>
-      buildProcessGroups(stats?.processes ?? [], stats?.agentSessions ?? []),
-    [stats?.agentSessions, stats?.processes]
+      buildProcessGroups(
+        stats?.processes ?? [],
+        stats?.agentSessions ?? [],
+        stats?.embeddedRuntimes ?? []
+      ),
+    [stats?.agentSessions, stats?.processes, stats?.embeddedRuntimes]
   )
   useAutoRefresh(autoRefresh, fetchStats)
   return {

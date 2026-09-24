@@ -40,6 +40,8 @@ pub(crate) async fn collect_published_status(
         }
     }
     McpServerStatusSnapshot {
+        server_capabilities: connections.list_available_server_capabilities().into_iter()
+            .filter(|(name, _)| matching.contains(name)).collect(),
         server_infos,
         tools_by_server,
         tools_errors,

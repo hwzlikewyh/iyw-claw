@@ -146,7 +146,10 @@ async fn fetch_page(
     let page_size = pagination.1.clamp(1, MAX_PAGE_SIZE);
     let total = query.clone().count(conn).await?;
     let total_pages = total.saturating_add(page_size - 1) / page_size;
-    let page = pagination.0.max(1).min(total_pages.max(1));
+    let page = std::cmp::Ord::min(
+        std::cmp::Ord::max(pagination.0, 1),
+        std::cmp::Ord::max(total_pages, 1),
+    );
     let rows = query
         .select_also(conversation::Entity)
         .paginate(conn, page_size)

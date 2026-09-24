@@ -2000,7 +2000,10 @@ impl DelegationListener {
         self.user_profile.current_profile().await
     }
 
-    async fn process_artifacts(&self, req: BrokerArtifactsRequest) -> Value {
+    async fn process_artifacts(&self, mut req: BrokerArtifactsRequest) -> Value {
+        if let Err(error) = req.notification.validate() {
+            return serde_json::json!({"accepted": [], "rejected": [], "error": error});
+        }
         let Some(entry) = self.tokens.lookup(&req.token).await else {
             return serde_json::json!({
                 "accepted": [],
@@ -2036,7 +2039,7 @@ impl DelegationListener {
                 })).collect::<Vec<_>>()
             });
         };
-        self.artifacts
+        let mut result = self.artifacts
             .register_task_artifacts(
                 &entry.parent_connection_id,
                 conversation_id,
@@ -2050,7 +2053,11 @@ impl DelegationListener {
                 req.files,
                 req.display_names,
             )
-            .await
+            .await;
+        let caller = super::channel_listener::channel_caller(&entry);
+        result["notification"] = self.channel_tools
+            .notify_artifacts(caller, &result, req.notification).await;
+        result
     }
     async fn process(&self, req: BrokerRequest) -> DelegationTaskReport {
         // 1. Token + parent_connection_id consistency check. Treat both as

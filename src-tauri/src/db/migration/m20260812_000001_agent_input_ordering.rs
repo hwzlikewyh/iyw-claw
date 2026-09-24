@@ -110,7 +110,7 @@ async fn backfill_sort_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     );
     manager
         .get_connection()
-        .execute(Statement::from_string(DbBackend::Sqlite, sql))
+        .execute_raw(Statement::from_string(DbBackend::Sqlite, sql))
         .await?;
     Ok(())
 }

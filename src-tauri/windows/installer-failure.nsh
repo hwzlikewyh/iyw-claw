@@ -6,6 +6,9 @@ Var IywClawRecoveryStatus
 Function IywClawHandleInstallFailure
   StrCmp $IywClawFailureHandled "1" iyw_failure_done 0
   StrCpy $IywClawFailureHandled "1"
+  Call IywClawStopEnvironmentWorker
+  Pop $R0
+  StrCmp $R0 "1" 0 iyw_failure_worker_active
   StrCpy $IywClawFailureReason "$IywClawTransactionError"
   StrCpy $IywClawFailureHadTransaction "$IywClawTransactionActive"
   StrCmp $IywClawElevationRolledBack "1" 0 +2
@@ -28,6 +31,10 @@ Function IywClawHandleInstallFailure
     Goto iyw_failure_report
   iyw_failure_no_transaction:
     StrCpy $IywClawRecoveryStatus "应用替换事务未开始或已提交，本次未执行回滚。"
+    Goto iyw_failure_report
+  iyw_failure_worker_active:
+    StrCpy $IywClawFailureReason "$IywClawTransactionError"
+    StrCpy $IywClawRecoveryStatus "后台任务未确认退出，未移动应用或删除备份。"
   iyw_failure_report:
     DetailPrint "$IywClawFailureReason"
     DetailPrint "$IywClawRecoveryStatus"

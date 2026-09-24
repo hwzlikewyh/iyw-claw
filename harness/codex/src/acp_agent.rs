@@ -32,6 +32,7 @@ mod interaction_registry;
 mod item_mapping;
 mod model_settings;
 mod native_title;
+mod isolated_config;
 mod permission_profile;
 mod prompt_mapping;
 mod session_options;
@@ -43,7 +44,7 @@ mod subagent_items;
 mod tool_content;
 mod thinking_projection;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CodexAcpAgent {
     args: UpstreamStartArgs,
     owner: SessionOwner,

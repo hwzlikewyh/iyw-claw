@@ -116,6 +116,7 @@ impl BuiltinMcpService {
             iyw,
             &shutdown,
         );
+        client.remote.prewarm();
         let joins = spawn_tasks(tcp, router, client.clone(), shutdown.clone());
         tracing::info!(
             target: "builtin_mcp",

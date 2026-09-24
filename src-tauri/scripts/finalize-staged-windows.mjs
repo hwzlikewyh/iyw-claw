@@ -6,6 +6,7 @@
  */
 
 import {
+  copyFileSync,
   cpSync,
   mkdirSync,
   readFileSync,
@@ -19,6 +20,7 @@ import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 import { windowsLayout, verifyWindowsStaging } from "./windows-staging.mjs"
+import { discoverSigntool } from "./sign-windows.mjs"
 
 const TOOL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..")
 const ROOT = resolve(process.env.IYW_CLAW_BUILD_ROOT ?? TOOL_ROOT)
@@ -74,13 +76,21 @@ function restoreStaging(includesFrontend) {
 
 function preflightToken() {
   const probe = join(tmpdir(), `iyw-signing-preflight-${process.pid}.exe`)
-  // Probe with a copy of node.exe. It must be a file that is NOT already
-  // signed: borrowing a system DLL looked cheaper, but those carry a valid
-  // Microsoft signature, so signtool reported "Successfully signed" while the
-  // resulting SignerCertificate stayed Microsoft's -- the thumbprint check
-  // then failed on every attempt and the job looked like a token fault.
-  const probeImage = readFileSync(process.execPath)
+  // 在副本上移除原签名，再验证当前发布证书，原 Node 可执行文件保持不变。
   try {
+    copyFileSync(process.execPath, probe)
+    const unsigned = spawnSync(
+      discoverSigntool(process.env),
+      ["remove", "/s", probe],
+      {
+        cwd: ROOT,
+        stdio: "inherit",
+        windowsHide: true,
+        timeout: UNLOCK_TIMEOUT_MS,
+      }
+    )
+    if (unsigned.error) throw unsigned.error
+    if (unsigned.status !== 0) fail("could not prepare unsigned signing probe")
     unlockToken()
     const result = spawnSync(
       process.execPath,
@@ -91,10 +101,13 @@ function preflightToken() {
       {
         cwd: ROOT,
         stdio: "inherit",
-        windowsHide: false,
+        windowsHide: true,
         timeout: PREFLIGHT_TIMEOUT_MS,
       }
     )
+    if (result.error) throw result.error
+    if (result.status !== 0)
+      fail(`signing preflight failed with exit code ${result.status}`)
   } finally {
     rmSync(probe, { force: true })
   }
@@ -207,7 +220,16 @@ function bundleArgs(signingConfig, bundleConfig) {
 
 function bundle(version) {
   const output = join(ROOT, TARGET_RELEASE, "bundle", "nsis")
-  rmSync(output, { recursive: true, force: true })
+  const suffix = `_${version}_${LAYOUT.arch}-setup.exe`
+  mkdirSync(output, { recursive: true })
+  // 保留其它版本及目录，旧安装器可能仍在使用其安装包。
+  for (const entry of readdirSync(output, { withFileTypes: true })) {
+    if (
+      entry.isFile() &&
+      (entry.name.endsWith(suffix) || entry.name.endsWith(`${suffix}.sig`))
+    )
+      rmSync(join(output, entry.name), { force: true })
+  }
   const signingConfig = prepareSigningConfig()
   const bundleConfig = prepareBundleConfig()
   try {
@@ -229,7 +251,7 @@ function bundle(version) {
     if (result.status !== 0)
       fail(`NSIS bundle failed with exit code ${result.status}`)
     const installers = readdirSync(output).filter((name) =>
-      name.endsWith("-setup.exe")
+      name.endsWith(suffix)
     )
     if (installers.length !== 1)
       fail(`expected one final installer, found ${installers.length}`)

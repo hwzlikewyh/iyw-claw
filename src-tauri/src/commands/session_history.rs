@@ -65,7 +65,7 @@ async fn query_rows(
     sql: &str,
     values: Vec<Value>,
 ) -> Result<Vec<QueryResult>, AppCommandError> {
-    conn.query_all(Statement::from_sql_and_values(
+    conn.query_all_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         sql,
         values,

@@ -9,8 +9,8 @@ description: >-
   任意文件上传(1GiB)、fetch_iyw_url。按关键词索引逐层读取参数，剩余业务统一用
   fetch_iyw_url，图片用generate_iyw_image，上传用upload_iyw_file。视频生成优先走本 Skill
   的 generate_iyw_image/fetch_iyw_url，按视频专篇匹配当前工具与页面契约。
-  Also discover signed-in enterprise/profile/prospecting/email, customs/trade,
-  ecommerce/brand review and other remote business tools when direct routes do not cover the task.
+  Also discover current signed-in remote business tools from the live overview
+  and directory; business categories are published by the remote server and may change.
   Also route iyw-claw memory/learning, session/profile/history, artifacts,
   browser/web evidence, audio, image understanding, channels/messages,
   automation, interaction and delegation through the matching reference and
@@ -35,9 +35,17 @@ authoritative for current capability IDs, schemas, required inputs, availability
 permissions, and schema digests.
 
 The same search/read/invoke trio includes signed-in remote business capabilities.
-Use search `source=local` for host actions, `source=remote` for enterprise/profile/
-prospecting/email, customs/trade, ecommerce products, brand reviews, copyright,
-product tags/patterns, web search, speech or retrieval; omit source when unsure.
+The host fetches the remote overview and top-level tool definitions at startup
+and every 15 minutes. Use the latest account-scoped overview supplied with the
+search tool or current turn, not a fixed list from this Skill. For a capability
+introduction browse with `source=remote, mode=browse`, omit query and follow
+`next_cursor` until null. Optionally use a returned group `capability_id` as
+`group_id`, keeping that group while paging. Browse does not need semantic search.
+Use search `source=local` for host actions, `source=remote` for remote tasks;
+omit source when unsure. Other remote top-level tools retain their full schemas
+as directly advertised tools. If an adapter has not loaded one, read then invoke
+the exact `capability_id` explicitly supplied in the latest overview; never infer
+IDs or tool names. Pending/stale/unavailable metadata does not prove absence.
 Existing direct tools and documented business API routes keep their priority.
 Use remote discovery when those routes do not cover the requested subgoal,
 before claiming it unsupported.

@@ -1,4 +1,8 @@
 mod authorization;
+mod artifact_delivery;
+mod artifact_content;
+mod artifact_archive;
+mod artifact_targets;
 mod channel_config;
 pub mod confirmation;
 mod confirmation_prepare;
@@ -19,4 +23,6 @@ pub mod types;
 mod views;
 
 pub use service::ChannelToolService;
+pub use artifact_delivery::ArtifactDeliveryRequest;
+pub use artifact_targets::ArtifactChannelTarget;
 pub use types::{ChannelCaller, ChannelToolRequest, CHANNEL_TOOL_NAMES};

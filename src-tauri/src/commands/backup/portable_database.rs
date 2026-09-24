@@ -76,7 +76,7 @@ async fn relocate_native_fields(
         relocate_column(&transaction, *field, mappings).await?;
     }
     transaction.commit().await.map_err(database_error)?;
-    conn.execute(Statement::from_string(
+    conn.execute_raw(Statement::from_string(
         DbBackend::Sqlite,
         "PRAGMA wal_checkpoint(TRUNCATE)",
     ))
@@ -98,7 +98,7 @@ async fn prepare_database(
     }
     transaction.commit().await.map_err(database_error)?;
     staged
-        .execute(Statement::from_string(
+        .execute_raw(Statement::from_string(
             DbBackend::Sqlite,
             "PRAGMA wal_checkpoint(TRUNCATE)",
         ))
@@ -131,7 +131,7 @@ async fn copy_machine_settings(
             .await
             .map_err(AppCommandError::from)?;
         staged
-            .execute(Statement::from_sql_and_values(
+            .execute_raw(Statement::from_sql_and_values(
                 DbBackend::Sqlite,
                 "DELETE FROM app_metadata WHERE key = ?",
                 [key.into()],
@@ -158,7 +158,7 @@ async fn relocate_column(
     }
     // 表和列只取本模块常量，值全部使用绑定参数。
     let rows = conn
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             DbBackend::Sqlite,
             format!("SELECT rowid AS row_id, {column} AS value FROM {table}"),
         ))
@@ -175,7 +175,7 @@ async fn relocate_column(
         let Some(next) = rebase_value(&value, mappings).filter(|next| next != &value) else {
             continue;
         };
-        conn.execute(Statement::from_sql_and_values(
+        conn.execute_raw(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             format!("UPDATE {table} SET {column} = ? WHERE rowid = ?"),
             [next.into(), id.into()],
@@ -192,7 +192,7 @@ async fn column_exists(
 ) -> Result<bool, AppCommandError> {
     let (table, column) = field;
     let columns = conn
-        .query_all(Statement::from_string(
+        .query_all_raw(Statement::from_string(
             DbBackend::Sqlite,
             format!("PRAGMA table_info({table})"),
         ))

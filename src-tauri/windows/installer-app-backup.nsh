@@ -1,13 +1,53 @@
 !define IYW_CLAW_APP_RENAME_ATTEMPTS 5
 !define IYW_CLAW_APP_RENAME_WAIT_MS 500
+!define IYW_CLAW_APP_RELEASE_ATTEMPTS 25
 !define IYW_CLAW_BACKUP_REMOVE_ATTEMPTS 5
 !define IYW_CLAW_BACKUP_REMOVE_WAIT_MS 500
 !define IYW_CLAW_RECOVERY_TARGET_ATTEMPTS 10
 !define IYW_CLAW_RECOVERY_RENAME_ATTEMPTS 3
 
 Var IywClawAppRenameError
+Var IywClawAppLockChecked
+Var IywClawAppRenameMaxAttempts
+!include "${__FILEDIR__}\installer-app-locks.nsh"
+!include "${__FILEDIR__}\installer-app-content.nsh"
 
 Function IywClawBackupCurrentAppWithRetry
+  backup_current_app_restart:
+  StrCpy $IywClawTransactionError ""
+  StrCpy $IywClawAppLockChecked "0"
+  StrCpy $IywClawAppRenameMaxAttempts ${IYW_CLAW_APP_RENAME_ATTEMPTS}
+  backup_current_app_attempt:
+    Call IywClawTryAppBackup
+    Pop $R0
+    StrCmp $R0 "1" backup_current_app_ready 0
+    IfFileExists "$IywClawBackupDir" backup_current_app_return_failed 0
+    StrCmp $IywClawAppRenameError "5" backup_current_app_inspect 0
+    StrCmp $IywClawAppRenameError "32" backup_current_app_inspect backup_current_app_return_failed
+  backup_current_app_inspect:
+    ; 导航确认之后仍需重试实际改名，等待目录句柄释放。
+    StrCmp $IywClawAppLockChecked "1" backup_current_app_prompt 0
+    StrCpy $IywClawAppLockChecked "1"
+    Call IywClawReportAppLocks
+    StrCpy $IywClawAppRenameMaxAttempts ${IYW_CLAW_APP_RELEASE_ATTEMPTS}
+    Goto backup_current_app_attempt
+  backup_current_app_prompt:
+    StrCpy $IywClawTransactionError "$IywClawTransactionError。app 或其子目录可能仍被占用，也可能缺少目录权限。请关闭该目录下的资源管理器窗口、终端及文件预览后重试。"
+    IfSilent backup_current_app_return_failed 0
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$IywClawTransactionError$\r$\n$\r$\n目录：$IywClawAppDir$\r$\n旧版本尚未替换。关闭占用后点击重试；取消则保留旧版本并停止安装。" IDRETRY backup_current_app_restart
+  backup_current_app_return_failed:
+    Push "0"
+    Return
+  backup_current_app_ready:
+    StrCpy $IywClawTransactionError ""
+    StrCmp $IywClawAppLockChecked "1" 0 backup_current_app_done
+    Push "app rename recovered after lock inspection: source=$IywClawAppDir; target=$IywClawBackupDir; attempts=$R2"
+    Call IywClawAppendInstallerLog
+  backup_current_app_done:
+    Push "1"
+FunctionEnd
+
+Function IywClawTryAppBackup
   StrCpy $R2 1
   backup_current_app_retry:
     ClearErrors
@@ -20,9 +60,9 @@ Function IywClawBackupCurrentAppWithRetry
 
   backup_current_app_retry_failed:
     IfFileExists "$IywClawBackupDir" backup_current_app_target_exists 0
-    IntCmp $R2 ${IYW_CLAW_APP_RENAME_ATTEMPTS} backup_current_app_failed backup_current_app_wait backup_current_app_failed
+    IntCmp $R2 $IywClawAppRenameMaxAttempts backup_current_app_failed backup_current_app_wait backup_current_app_failed
   backup_current_app_wait:
-    DetailPrint "旧 app 原子备份失败，等待后重试（$R2/${IYW_CLAW_APP_RENAME_ATTEMPTS}）：$IywClawAppDir -> $IywClawBackupDir; win32_error=$IywClawAppRenameError"
+    DetailPrint "旧 app 原子备份失败，等待后重试（$R2/$IywClawAppRenameMaxAttempts）：$IywClawAppDir -> $IywClawBackupDir; win32_error=$IywClawAppRenameError"
     IntOp $R2 $R2 + 1
     Sleep ${IYW_CLAW_APP_RENAME_WAIT_MS}
     Goto backup_current_app_retry
@@ -34,11 +74,22 @@ Function IywClawBackupCurrentAppWithRetry
     Return
   backup_current_app_failed:
     DetailPrint "旧 app 原子备份失败：source=$IywClawAppDir; target=$IywClawBackupDir; target_exists=0; attempts=$R2; win32_error=$IywClawAppRenameError"
-    StrCpy $IywClawTransactionError "无法原子备份旧 app：Windows 错误 $IywClawAppRenameError（32=文件或目录被占用，5=拒绝访问）"
+    Push "app rename failed: source=$IywClawAppDir; target=$IywClawBackupDir; attempts=$R2; win32_error=$IywClawAppRenameError"
+    Call IywClawAppendInstallerLog
+    StrCpy $IywClawTransactionError "无法原子备份旧 app：Windows 错误 $IywClawAppRenameError"
     Push "0"
 FunctionEnd
 
 Function IywClawCleanupOrIsolateHistoricalBackup
+  IfFileExists "$IywClawBackupDir" 0 backup_cleanup_success
+  Call IywClawInspectBackupContent
+  Pop $R0
+  StrCmp $R0 "0" backup_cleanup_begin 0
+  StrCmp $R0 "1" backup_cleanup_isolate 0
+  StrCpy $IywClawTransactionError "无法确认旧 app 内容，已保留备份并停止清理"
+  Push "0"
+  Return
+  backup_cleanup_begin:
   StrCpy $R2 1
   backup_cleanup_retry:
     ClearErrors
@@ -81,7 +132,9 @@ Function IywClawIsolateHistoricalBackup
     ClearErrors
     Rename "$IywClawBackupDir" "$IywClawRecoveryDir"
     IfErrors backup_recovery_rename_failed 0
-    DetailPrint "历史 installer backup 无法删除，已隔离到：$IywClawRecoveryDir"
+    DetailPrint "旧 app 备份已保留到恢复目录：$IywClawRecoveryDir"
+    Push "retained app backup: $IywClawRecoveryDir"
+    Call IywClawAppendInstallerLog
     Push "1"
     Return
   backup_recovery_rename_failed:

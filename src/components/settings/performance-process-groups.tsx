@@ -34,6 +34,12 @@ export interface AppAgentSessionInfo {
   canEnd: boolean
 }
 
+export interface AppEmbeddedRuntimeInfo {
+  agentType: string
+  sessionCount: number
+  mainProcessId: number
+}
+
 export interface ProcessGroup {
   id: string
   displayName: string
@@ -43,6 +49,9 @@ export interface ProcessGroup {
   privateMemoryBytes?: number
   isAgentSession: boolean
   session?: AppAgentSessionInfo
+  embeddedRuntime?: AppEmbeddedRuntimeInfo
+  embeddedSessions?: AppAgentSessionInfo[]
+  resourceAttribution?: string
   processes: AppProcessInfo[]
 }
 
@@ -73,7 +82,8 @@ function groupRank(group: ProcessGroup): number {
 
 export function buildProcessGroups(
   processes: AppProcessInfo[],
-  sessions: AppAgentSessionInfo[] = []
+  sessions: AppAgentSessionInfo[] = [],
+  embeddedRuntimes: AppEmbeddedRuntimeInfo[] = []
 ): ProcessGroup[] {
   const sessionsByGroup = new Map(
     sessions.map((session) => [`connection-${session.connectionId}`, session])
@@ -120,6 +130,13 @@ export function buildProcessGroups(
   for (const session of sessions) {
     const id = `connection-${session.connectionId}`
     if (groups.has(id)) continue
+    if (
+      session.launcherPid == null &&
+      embeddedRuntimes.some(
+        (runtime) => runtime.agentType === session.agentType
+      )
+    )
+      continue
     groups.set(id, {
       id,
       displayName: agentDisplayName(session.agentType),
@@ -129,6 +146,25 @@ export function buildProcessGroups(
       privateMemoryBytes: session.privateMemoryBytes,
       isAgentSession: true,
       session,
+      processes: [],
+    })
+  }
+  for (const runtime of embeddedRuntimes) {
+    const id = `embedded-${runtime.agentType}`
+    groups.set(id, {
+      id,
+      displayName: agentDisplayName(runtime.agentType),
+      rootPid: runtime.mainProcessId,
+      cpuUsage: 0,
+      memoryBytes: 0,
+      privateMemoryBytes: undefined,
+      isAgentSession: true,
+      embeddedRuntime: runtime,
+      embeddedSessions: sessions.filter(
+        (session) =>
+          session.agentType === runtime.agentType && session.launcherPid == null
+      ),
+      resourceAttribution: "主进程内",
       processes: [],
     })
   }
@@ -179,6 +215,7 @@ export function ProcessGroupList({
             endingConnectionIds?.has(group.session.connectionId)
           )}
           onEndSession={onEndSession}
+          endingConnectionIds={endingConnectionIds}
         />
       ))}
     </div>

@@ -536,6 +536,14 @@ mod tauri_app {
                                 None,
                             )
                         {
+                            tauri::async_runtime::block_on(crate::acp::agent_storage::migrate_legacy_codex_profile(
+                                &paths,
+                                &config,
+                                Some(&database.conn),
+                            ))
+                            .map_err(|error| {
+                                format!("failed to migrate Xinghe profile directory: {error}")
+                            })?;
                             crate::acp::agent_storage::activate_startup_profile_env(
                                 &paths,
                                 &config,
@@ -1618,6 +1626,10 @@ mod tauri_app {
                 session_info_commands::get_session_info_settings,
                 session_info_commands::set_session_info_settings,
                 task_artifact_commands::list_task_artifacts,
+                crate::commands::artifact_notifications::get_artifact_notification_mode,
+                crate::commands::artifact_notifications::set_artifact_notification_mode,
+                crate::commands::artifact_notifications::list_artifact_channel_targets,
+                crate::commands::artifact_notifications::send_artifact_to_channels,
                 task_artifact_commands::copy_file_to_clipboard,
                 task_artifact_commands::open_path_with_picker,
                 session_config_commands::get_session_config_reconcile_diagnostics,

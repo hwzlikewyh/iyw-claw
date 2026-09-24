@@ -1,5 +1,9 @@
 # 构建缓存与耗时
 
+2026-09-23 起，星河通过源码链接进主程序。独立 worker 的成品缓存与 artifact
+流程已停用；下面相关批次保留作历史记录。当前 prepare-worker action 只准备
+版本元数据，星河编译使用应用的 Cargo/sccache 缓存。
+
 ## 引擎成品缓存
 
 `prepare-xinghe-worker.mjs` 将编译和资源组装分开。各 CI 入口统一使用
@@ -79,8 +83,8 @@ artifact 只复用本仓库默认分支上 `push` / `workflow_dispatch` 运行�
 
 第三批本身不删除远端旧缓存、不改变编译参数、签名机调度或发布顺序。旧缓存由 GitHub
 自然淘汰；worker 源码、工具链或 runner 镜像变化仍会产生新键并重新编译。
-macOS Intel 和 Apple Silicon 仍打包 `libiyw_xinghe_worker.dylib` 与
-`iyw-xinghe-helper`，并在 app/DMG 验证中检查 worker。
+macOS Intel 和 Apple Silicon 将星河代码直接链接到应用本体；发布校验检查
+主程序中的锁定版本标记和 `runtime.json`，不再打包 worker 动态库或 helper。
 
 验收时应分别记录首次构建、相同引擎输入的再次发布，以及 Actions Cache 未命中但
 artifact 命中的构建耗时。2026-09-17 的 v0.1.211 中，macOS worker 准备约
@@ -89,8 +93,8 @@ artifact 命中的构建耗时。2026-09-17 的 v0.1.211 中，macOS worker 准�
 ## 第四批：编译速度优先与缩短发布等待
 
 桌面应用库改为只生成 `rlib`，由桌面/服务器二进制链接，不再生成未分发的
-`staticlib` 和 `cdylib`。独立星河 worker 仍是 `cdylib`，Windows 的 DLL、macOS
-的 dylib 和 Linux 的 so 均继续随包分发。当前项目发布桌面与服务器；将来若增加
+`staticlib` 和 `cdylib`。星河代码直接链接进桌面程序，不分发 DLL、dylib 或 so。
+当前项目发布桌面与服务器；将来若增加
 Tauri Android/iOS，需要单独配置它们要求的库产物。
 
 正常桌面发布、候选版、修复和托管/自托管打包检查统一使用

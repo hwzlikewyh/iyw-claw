@@ -72,7 +72,8 @@ impl CodexParser {
                 .get("thread_name")
                 .and_then(serde_json::Value::as_str)
                 .map(str::trim)
-                .filter(|name| !name.is_empty());
+                .filter(|name| !name.is_empty())
+                .filter(|name| !crate::acp::conversation_title_summary::is_private_title_candidate(name));
             if let (Some(id), Some(name)) = (session_id, thread_name) {
                 titles.insert(id.to_string(), truncate_str(name, 100));
             }
@@ -2212,7 +2213,8 @@ fn is_codex_internal_context_message(input: &str) -> bool {
 }
 
 fn extract_codex_title_candidate(input: &str, fallback_attached: bool) -> Option<String> {
-    let trimmed = input.trim();
+    let visible = crate::user_memory::strip_user_context(input);
+    let trimmed = visible.trim();
     if trimmed.is_empty()
         || is_agents_instruction_message(trimmed)
         || is_environment_context_message(trimmed)

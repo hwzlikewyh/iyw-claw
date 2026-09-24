@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
+use std::future::Future;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
@@ -490,15 +491,6 @@ impl ThreadEnvironments {
             .collect()
     }
 
-    pub(crate) fn primary_workspace_roots(&self) -> Vec<AbsolutePathBuf> {
-        self.environments
-            .load()
-            .first()
-            .map_or_else(Vec::new, |environment| {
-                Self::primary_workspace_roots_for(std::slice::from_ref(&environment.selection))
-            })
-    }
-
     /// Returns installed owner configuration without treating pending attachments as ready.
     pub(crate) fn primary_config_for(
         selections: &[TurnEnvironmentSelection],
@@ -806,45 +798,55 @@ impl ThreadEnvironments {
         })
     }
 
+    /// Captures the selected list immediately, then returns a future that may wait for setup.
+    /// This lets callers release their locks before waiting without accidentally using a newer
+    /// selection. The trace still covers the setup wait itself.
     #[tracing::instrument(
         name = "environments.snapshot",
         skip_all,
         fields(
-            environment_count = self.environments.load().len(),
-            non_blocking = self.non_blocking_snapshots,
+            environment_count = selected.len(),
+            non_blocking = non_blocking_snapshots,
         )
     )]
-    pub(crate) async fn snapshot(&self) -> TurnEnvironmentSnapshot {
+    pub(crate) fn snapshot(
+        &self,
+    ) -> impl Future<Output = TurnEnvironmentSnapshot> + Send + 'static {
         let selected = self.environments.load_full();
-        let mut environments = Vec::with_capacity(selected.len());
-        for environment in selected.iter() {
-            if let EnvironmentConfigState::Failed(error) = &environment.selection.config {
-                environments.push(TurnEnvironmentState::Failed {
+        let non_blocking_snapshots = self.non_blocking_snapshots;
+        async move {
+            let mut environments = Vec::with_capacity(selected.len());
+            for environment in selected.iter() {
+                if let EnvironmentConfigState::Failed(error) = &environment.selection.config {
+                    environments.push(TurnEnvironmentState::Failed {
+                        selection: environment
+                            .config_origin
+                            .into_input_selection(environment.selection.clone()),
+                        error: error.clone(),
+                    });
+                    continue;
+                }
+                let pending = matches!(
+                    environment.selection.config,
+                    EnvironmentConfigState::Pending
+                );
+                let starting = StartingTurnEnvironment {
                     selection: environment.selection.clone(),
-                    error: error.clone(),
-                });
-                continue;
+                    config_origin: environment.config_origin,
+                    resolution: environment.resolution.clone(),
+                };
+                let resolved = if non_blocking_snapshots || pending {
+                    starting.resolution.clone().now_or_never()
+                } else {
+                    Some(match starting.wait_until_ready().await {
+                        Ok(()) => starting.resolution.clone().await,
+                        Err(error) => Err(error),
+                    })
+                };
+                environments.push(TurnEnvironmentState::from_resolution(starting, resolved));
             }
-            let pending = matches!(
-                environment.selection.config,
-                EnvironmentConfigState::Pending
-            );
-            let starting = StartingTurnEnvironment {
-                selection: environment.selection.clone(),
-                config_origin: environment.config_origin,
-                resolution: environment.resolution.clone(),
-            };
-            let resolved = if self.non_blocking_snapshots || pending {
-                starting.resolution.clone().now_or_never()
-            } else {
-                Some(match starting.wait_until_ready().await {
-                    Ok(()) => starting.resolution.clone().await,
-                    Err(error) => Err(error),
-                })
-            };
-            environments.push(TurnEnvironmentState::from_resolution(starting, resolved));
+            TurnEnvironmentSnapshot { environments }
         }
-        TurnEnvironmentSnapshot { environments }
     }
 
     pub(crate) fn environment_manager(&self) -> Arc<EnvironmentManager> {
@@ -858,6 +860,7 @@ pub(crate) enum TurnEnvironmentState {
     Starting(StartingTurnEnvironment),
     /// Unavailable for execution, but still selected when evaluating permissions.
     Failed {
+        // Keep the input form so connection failure doesn't hide whether config comes from the thread.
         selection: TurnEnvironmentSelection,
         error: String,
     },
@@ -874,7 +877,7 @@ impl TurnEnvironmentState {
                 if matches!(selection.config, EnvironmentConfigState::Pending) {
                     let Some(config) = environment.installed_config else {
                         return Self::Failed {
-                            selection,
+                            selection: starting.config_origin.into_input_selection(selection),
                             error: "Environment configuration was not supplied.".to_string(),
                         };
                     };
@@ -903,7 +906,9 @@ impl TurnEnvironmentState {
                     "skipping failed turn environment: {err}"
                 );
                 Self::Failed {
-                    selection: starting.selection,
+                    selection: starting
+                        .config_origin
+                        .into_input_selection(starting.selection),
                     error: err.to_string(),
                 }
             }
@@ -980,6 +985,17 @@ impl TurnEnvironmentSnapshot {
         })
     }
 
+    pub(crate) fn ready_environment_handles(&self) -> HashMap<String, Arc<Environment>> {
+        self.turn_environments()
+            .map(|environment| {
+                (
+                    environment.selection.environment_id.clone(),
+                    Arc::clone(&environment.environment),
+                )
+            })
+            .collect()
+    }
+
     /// Maps each captured environment to its exact ready handle, or `None` when it was starting.
     pub(crate) fn captured_environments(&self) -> HashMap<String, Option<Arc<Environment>>> {
         self.turn_environments()
@@ -998,6 +1014,25 @@ impl TurnEnvironmentSnapshot {
 
     pub(crate) fn primary(&self) -> Option<&TurnEnvironment> {
         self.turn_environments().next()
+    }
+
+    /// Returns the first selected environment's host folders, even if setup is not ready yet.
+    pub(crate) fn primary_workspace_roots(&self) -> Vec<AbsolutePathBuf> {
+        self.primary_workspace_root_uris()
+            .iter()
+            .filter_map(|root| root.to_abs_path().ok())
+            .collect()
+    }
+
+    /// Returns the first selection's executor paths, even when setup is not ready yet.
+    pub(crate) fn primary_workspace_root_uris(&self) -> &[PathUri] {
+        let selection = match self.environments.first() {
+            Some(TurnEnvironmentState::Ready(environment)) => &environment.selection,
+            Some(TurnEnvironmentState::Starting(environment)) => &environment.selection,
+            Some(TurnEnvironmentState::Failed { selection, .. }) => selection,
+            None => return &[],
+        };
+        &selection.workspace_roots
     }
 
     /// Returns the primary environment's resolved permissions, or the provided fallback.
@@ -1039,6 +1074,20 @@ impl TurnEnvironmentSnapshot {
     pub(crate) fn to_selections(&self) -> Vec<TurnEnvironmentSelection> {
         self.turn_environments()
             .map(TurnEnvironment::selection)
+            .collect()
+    }
+
+    /// Returns every captured selection, including those still starting or unable to connect.
+    pub(crate) fn all_selections(&self) -> Vec<TurnEnvironmentSelection> {
+        self.environments
+            .iter()
+            .map(|environment| match environment {
+                TurnEnvironmentState::Ready(environment) => environment.selection(),
+                TurnEnvironmentState::Starting(environment) => environment
+                    .config_origin
+                    .into_input_selection(environment.selection.clone()),
+                TurnEnvironmentState::Failed { selection, .. } => selection.clone(),
+            })
             .collect()
     }
 

@@ -155,6 +155,11 @@ fn append_write_guidance(body: &mut String, append: bool, proposal: bool) {
 }
 
 pub fn strip_user_context(input: &str) -> String {
+    let visible = strip_marked_user_context(input);
+    super::context_remote::strip_legacy_remote_context(&visible).to_string()
+}
+
+fn strip_marked_user_context(input: &str) -> String {
     let Some(start) = input.find(USER_CONTEXT_START) else {
         return input.to_string();
     };
@@ -181,7 +186,7 @@ pub fn strip_user_context(input: &str) -> String {
     }
 
     let prefix = input[..start].trim_end();
-    let suffix = strip_user_context(input[cursor..].trim_start());
+    let suffix = strip_marked_user_context(input[cursor..].trim_start());
     let mut output = String::with_capacity(prefix.len() + suffix.len() + 1);
     output.push_str(prefix);
     if !output.is_empty() && !suffix.is_empty() {

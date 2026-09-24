@@ -32,6 +32,9 @@ fn configured_server_token() -> Option<String> {
 }
 
 fn main() -> ExitCode {
+    if iyw_claw_lib::internal_xinghe_worker::dispatch_early() {
+        return ExitCode::SUCCESS;
+    }
     // Capture our own executable path before anything can rename it (an
     // in-place upgrade swaps the binary mid-run; `current_exe()` would then
     // resolve to a `" (deleted)"` path on Linux). Cheap, single-shot.
@@ -112,6 +115,17 @@ fn main() -> ExitCode {
         iyw_claw_lib::acp::agent_storage::AgentStorageConfig::confirmed(agent_storage_root.clone());
     let agent_storage_paths =
         iyw_claw_lib::acp::agent_storage::AgentStoragePaths::new(agent_storage_root);
+    tokio::runtime::Builder::new_current_thread().enable_all().build()
+    .expect("Xinghe profile migration executor")
+    .block_on(iyw_claw_lib::acp::agent_storage::migrate_legacy_codex_profile(
+        &agent_storage_paths,
+        &agent_storage_config,
+        None,
+    ))
+    .unwrap_or_else(|error| {
+        eprintln!("failed to migrate Xinghe profile directory: {error}");
+        std::process::exit(1);
+    });
     iyw_claw_lib::acp::agent_storage::activate_startup_profile_env(
         &agent_storage_paths,
         &agent_storage_config,

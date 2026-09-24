@@ -37,6 +37,8 @@ jobs:
       asset_id: ${{ steps.upload.outputs.asset_id }}
       sha256: ${{ steps.upload.outputs.sha256 }}
     env:
+      CARGO_HOME: 'C:\c'
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "64"
       CARGO_PROFILE_RELEASE_LTO: "off"
       RUSTC_WRAPPER: sccache
@@ -46,6 +48,7 @@ jobs:
     steps:
       - name: Initialize build paths
         run: |
+          git config --global core.longpaths true
           "IYW_CLAW_STAGING_DIR=$env:RUNNER_TEMP/staging-$env:TAURI_TARGET_TRIPLE" >> $env:GITHUB_ENV
           "STAGING_ARCHIVE=$env:RUNNER_TEMP/iyw-staging-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$env:TAURI_TARGET_TRIPLE.zip" >> $env:GITHUB_ENV
       - uses: actions/checkout@v4
@@ -165,6 +168,7 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($env:IYW_CLAW_SAFENET_PIN)) { throw 'Signing requires IYW_CLAW_SAFENET_PIN; interactive login is disabled in CI' }
           if (($env:IYW_CLAW_SIGN_THUMBPRINT -replace '[\s:]', '') -notmatch '^[a-fA-F0-9]{40}$') { throw 'Signing requires a valid WINDOWS_SIGN_THUMBPRINT' }
           "IYW_CLAW_STAGING_DIR=$env:RUNNER_TEMP/sign-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT-$env:TAURI_TARGET_TRIPLE" >> $env:GITHUB_ENV
+          "RELEASE_VERSION=$($env:RELEASE_TAG.Substring(1))" >> $env:GITHUB_ENV
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.source_ref }}
@@ -203,7 +207,8 @@ jobs:
           name: windows-installer-verification-${{ inputs.target }}
           overwrite: true
           path: |
-            src-tauri/target/${{ inputs.target }}/release/bundle/nsis/*-setup.exe
+            src-tauri/target/${{ inputs.target }}/release/iyw-claw.exe
+            src-tauri/target/${{ inputs.target }}/release/bundle/nsis/*_${{ env.RELEASE_VERSION }}_x64-setup.exe
             src-tauri/resources/xinghe-worker/*
             src-tauri/binaries/iyw-environment-${{ inputs.target }}.exe
           compression-level: 1

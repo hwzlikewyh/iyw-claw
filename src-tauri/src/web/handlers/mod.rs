@@ -6,6 +6,7 @@ pub mod agent_storage;
 pub mod agent_version_center;
 pub mod app_update;
 pub mod automation;
+pub mod artifact_notifications;
 pub mod backup;
 pub mod capability_policy;
 pub mod chat_channel;

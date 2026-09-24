@@ -2,35 +2,20 @@
 
 import { memo, useState, useCallback, type CSSProperties } from "react"
 import {
-  Pencil,
-  Trash2,
-  Circle,
-  SquarePen,
+  Star,
   Loader2,
   XCircle,
   Pin,
   PinOff,
   CheckCircle2,
-  Info,
   ChevronRight,
-  CalendarClock,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useSessionPreparation } from "@/hooks/use-session-preparation"
 import type { DbConversationSummary, ConversationStatus } from "@/lib/types"
-import { STATUS_ORDER } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { formatConversationTitle } from "@/lib/conversation-title"
-import {
-  ContextMenu,
-  ContextMenuTrigger,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSub,
-  ContextMenuSubTrigger,
-  ContextMenuSubContent,
-  ContextMenuSeparator,
-} from "@/components/ui/context-menu"
+import { ContextMenu, ContextMenuTrigger } from "@/components/ui/context-menu"
 import {
   Dialog,
   DialogContent,
@@ -50,7 +35,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ConversationStatusDot } from "./conversation-status-dot"
+import { ConversationMenu } from "./conversation-menu"
+import { useConversationFavorite } from "./use-conversation-favorite"
 import { SessionDetailsDialog } from "./session-details-dialog"
 import { SessionUsageChip } from "@/components/layout/status-bar-tokens"
 import { useConversationRuntimeStore } from "@/stores/conversation-runtime-store"
@@ -109,7 +95,6 @@ interface SidebarConversationCardProps {
   onRename: (id: number, newTitle: string) => Promise<void>
   onDelete: (id: number, agentType: string, folderId: number) => Promise<void>
   onStatusChange: (id: number, status: ConversationStatus) => Promise<void>
-  onNewConversation?: (folderId: number) => void
   onTogglePin?: (id: number, nextPinned: boolean) => void
   openContextKey?: string | null
   runtimeConversationId?: number | null
@@ -135,7 +120,6 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
   onRename,
   onDelete,
   onStatusChange,
-  onNewConversation,
   onTogglePin,
   openContextKey,
   runtimeConversationId,
@@ -147,8 +131,8 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
 }: SidebarConversationCardProps) {
   const t = useTranslations("Folder.conversationCard")
   const tSidebar = useTranslations("Folder.sidebar")
-  const tStatus = useTranslations("Folder.statusLabels")
-  const tDetails = useTranslations("Folder.sessionDetails")
+  const tMenu = useTranslations("Folder.conversationMenu")
+  const favorite = useConversationFavorite(conversation)
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
@@ -295,6 +279,12 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
                   {formatConversationTitle(conversation.title) ||
                     t("untitledConversation")}
                 </span>
+                {favorite.favorite && (
+                  <Star
+                    aria-label={tMenu("favorite")}
+                    className="mr-1 size-3 shrink-0 fill-amber-400/20 text-amber-600 dark:text-amber-400"
+                  />
+                )}
               </button>
 
               {/* Expand/collapse affordance for delegation children. It overlays
@@ -475,75 +465,16 @@ export const SidebarConversationCard = memo(function SidebarConversationCard({
             </div>
           </div>
         </ContextMenuTrigger>
-        <ContextMenuContent>
-          {onNewConversation && (
-            <>
-              <ContextMenuItem
-                onSelect={() => onNewConversation(conversation.folder_id)}
-              >
-                <SquarePen className="h-4 w-4" />
-                {t("newConversation")}
-              </ContextMenuItem>
-              <ContextMenuSeparator />
-            </>
-          )}
-          <ContextMenuItem onSelect={handleRenameOpen}>
-            <Pencil className="h-4 w-4" />
-            {t("rename")}
-          </ContextMenuItem>
-          {onTogglePin && (
-            <ContextMenuItem
-              onSelect={() => onTogglePin(conversation.id, !isPinned)}
-            >
-              {isPinned ? (
-                <PinOff className="h-4 w-4" />
-              ) : (
-                <Pin className="h-4 w-4" />
-              )}
-              {isPinned ? t("unpin") : t("pin")}
-            </ContextMenuItem>
-          )}
-          <ContextMenuItem onSelect={() => setDetailsOpen(true)}>
-            <Info className="h-4 w-4" />
-            {tDetails("menuLabel")}
-          </ContextMenuItem>
-          {onAddToAutomation && !isSubsession ? (
-            <ContextMenuItem
-              onSelect={() => onAddToAutomation(conversation.id)}
-            >
-              <CalendarClock className="h-4 w-4" />
-              {t("addToAutomation")}
-            </ContextMenuItem>
-          ) : null}
-          <ContextMenuSeparator />
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>
-              <Circle className="h-4 w-4" />
-              {t("status")}
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent>
-              {STATUS_ORDER.filter((s) => s !== conversation.status).map(
-                (s) => (
-                  <ContextMenuItem
-                    key={s}
-                    onSelect={() => onStatusChange(conversation.id, s)}
-                  >
-                    <ConversationStatusDot status={s} />
-                    {tStatus(s)}
-                  </ContextMenuItem>
-                )
-              )}
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            variant="destructive"
-            onSelect={() => setDeleteOpen(true)}
-          >
-            <Trash2 className="h-4 w-4" />
-            {t("delete")}
-          </ContextMenuItem>
-        </ContextMenuContent>
+        <ConversationMenu
+          conversation={conversation}
+          {...favorite}
+          onRename={handleRenameOpen}
+          onDelete={() => setDeleteOpen(true)}
+          onDetails={() => setDetailsOpen(true)}
+          onTogglePin={onTogglePin}
+          onStatusChange={onStatusChange}
+          onAddToAutomation={onAddToAutomation}
+        />
       </ContextMenu>
 
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>

@@ -1,4 +1,5 @@
 use sea_orm::sea_query::Expr;
+use sea_orm::ExprTrait;
 use sea_orm::{
     ColumnTrait, DatabaseConnection, DbErr, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
     QueryResult, QuerySelect, Select,

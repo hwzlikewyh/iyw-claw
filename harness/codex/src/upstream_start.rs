@@ -16,7 +16,7 @@ use codex_utils_absolute_path::AbsolutePathBuf;
 use crate::diagnostics::StartupStage;
 use crate::{CapabilitySet, HarnessConfig, UpstreamError};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct UpstreamStartArgs {
     pub harness: HarnessConfig,
     pub runtime_fingerprint: String,
@@ -28,6 +28,9 @@ pub struct UpstreamStartArgs {
     pub linux_sandbox_executable: Option<PathBuf>,
     pub main_execve_wrapper_executable: Option<PathBuf>,
     pub enable_codex_api_key_env: bool,
+    pub api_key: Option<String>,
+    pub config_json: Option<String>,
+    pub runtime_environment: std::collections::HashMap<String, String>,
     pub mcp_server_openai_form_elicitation: bool,
     pub opt_out_notification_methods: Vec<String>,
 }
@@ -42,12 +45,15 @@ impl UpstreamStartArgs {
             main_execve_wrapper_exe: self.main_execve_wrapper_executable.clone(),
         };
         let launch_overrides = crate::launch_config::environment_overrides(
-            self.enable_codex_api_key_env
+            self.config_json.as_deref(),
+            (self.config_json.is_some() || self.enable_codex_api_key_env)
                 .then_some(self.codex_home.as_path()),
         )?;
         let stage = StartupStage::new("load_config");
-        let config = stage
+        let mut config = stage
             .finish(build_config(&self, &arg0_paths, (workspace_roots, &launch_overrides)).await)
+            .map_err(start_error)?;
+        codex_app_server_client::apply_host_environment(&mut config, &self.runtime_environment)
             .map_err(start_error)?;
         let args = self
             .client_start_args(config, (arg0_paths, launch_overrides))
@@ -99,6 +105,8 @@ impl UpstreamStartArgs {
             config_warnings,
             session_source: SessionSource::Custom("iyw-claw".to_string()),
             enable_codex_api_key_env: self.enable_codex_api_key_env,
+            api_key: self.api_key.clone(),
+            runtime_environment: self.runtime_environment.clone(),
             client_name: self.harness.client_name.clone(),
             client_version: self.harness.client_version.clone(),
             experimental_api: self.harness.experimental_api,
@@ -165,7 +173,7 @@ async fn build_config(
 
 fn loader_overrides(args: &UpstreamStartArgs) -> LoaderOverrides {
     LoaderOverrides {
-        ignore_user_config: args.enable_codex_api_key_env,
+        ignore_user_config: args.config_json.is_some() || args.enable_codex_api_key_env,
         ..LoaderOverrides::default()
     }
 }

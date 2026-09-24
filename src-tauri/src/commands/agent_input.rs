@@ -122,7 +122,9 @@ pub async fn list_agent_inputs_core(
             "Conversation id must be positive",
         ));
     }
-    agent_input_outbox_service::list_visible(db, conversation_id)
+    super::history_read::read(db, conversation_id, || {
+        agent_input_outbox_service::list_visible(db, conversation_id)
+    })
         .await
         .map(client_items)
         .map_err(AppCommandError::from)
@@ -252,7 +254,20 @@ pub async fn list_agent_inputs(
 ) -> Result<Vec<AgentInputItem>, AppCommandError> {
     #[cfg(feature = "tauri-runtime")]
     {
-        list_agent_inputs_core(&db.conn, conversation_id).await
+        list_agent_inputs_core(&db.conn, conversation_id)
+            .await
+            .inspect_err(|error| {
+                let pool = db.conn.get_sqlite_connection_pool();
+                tracing::warn!(
+                    conversation_id,
+                    pool_size = pool.size(),
+                    pool_idle = pool.num_idle(),
+                    code = ?error.code,
+                    error = %error.message,
+                    detail = ?error.detail,
+                    "[conversation-history] input request failed"
+                );
+            })
     }
     #[cfg(not(feature = "tauri-runtime"))]
     {

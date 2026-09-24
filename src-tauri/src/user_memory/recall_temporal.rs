@@ -52,7 +52,7 @@ async fn collect_latest_timestamp<C: ConnectionTrait>(
     query.scope().push_bind(&mut values);
     push_query_at(&mut values, query.query_at());
     values.push((MAX_TEMPORAL_CANDIDATES as i64).into());
-    db.query_all(Statement::from_sql_and_values(
+    db.query_all_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         sql,
         values,
@@ -75,7 +75,7 @@ async fn collect_temporal_range<C: ConnectionTrait>(
     query.scope().push_bind(&mut values);
     push_query_at(&mut values, query.query_at());
     values.push((MAX_TEMPORAL_CANDIDATES as i64).into());
-    db.query_all(Statement::from_sql_and_values(
+    db.query_all_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         sql,
         values,

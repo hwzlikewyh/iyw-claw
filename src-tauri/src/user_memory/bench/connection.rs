@@ -50,9 +50,9 @@ impl ConnectionTrait for CountingConnection<'_> {
         self.inner.get_database_backend()
     }
 
-    async fn execute(&self, statement: Statement) -> Result<ExecResult, DbErr> {
+    async fn execute_raw(&self, statement: Statement) -> Result<ExecResult, DbErr> {
         self.record(&statement);
-        self.inner.execute(statement).await
+        self.inner.execute_raw(statement).await
     }
 
     async fn execute_unprepared(&self, sql: &str) -> Result<ExecResult, DbErr> {
@@ -60,14 +60,14 @@ impl ConnectionTrait for CountingConnection<'_> {
         self.inner.execute_unprepared(sql).await
     }
 
-    async fn query_one(&self, statement: Statement) -> Result<Option<QueryResult>, DbErr> {
+    async fn query_one_raw(&self, statement: Statement) -> Result<Option<QueryResult>, DbErr> {
         self.record(&statement);
-        self.inner.query_one(statement).await
+        self.inner.query_one_raw(statement).await
     }
 
-    async fn query_all(&self, statement: Statement) -> Result<Vec<QueryResult>, DbErr> {
+    async fn query_all_raw(&self, statement: Statement) -> Result<Vec<QueryResult>, DbErr> {
         self.record(&statement);
-        self.inner.query_all(statement).await
+        self.inner.query_all_raw(statement).await
     }
 }
 
@@ -124,7 +124,7 @@ async fn explain_statement(
         values: statement.values.clone(),
         db_backend: statement.db_backend,
     };
-    match conn.query_all(explain).await {
+    match conn.query_all_raw(explain).await {
         Ok(rows) => plan_from_rows(lane, statement.sql, rows),
         Err(error) => BenchQueryPlan {
             required_index: required_index(&lane).map(str::to_string),
@@ -156,7 +156,7 @@ fn plan_from_rows(lane: String, sql: String, rows: Vec<QueryResult>) -> BenchQue
 
 pub(super) async fn fts_storage_bytes(conn: &DatabaseConnection) -> Result<u64, String> {
     let row = conn
-        .query_one(Statement::from_string(
+        .query_one_raw(Statement::from_string(
             DbBackend::Sqlite,
             "SELECT COALESCE(SUM(pgsize), 0) AS bytes FROM dbstat WHERE name LIKE 'memory_item_fts_%'",
         ))
@@ -193,7 +193,7 @@ pub(super) async fn apply_superseded(
         let Some(target) = &item.superseded_by else {
             continue;
         };
-        conn.execute(Statement::from_sql_and_values(
+        conn.execute_raw(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             "UPDATE memory_item_current SET superseded_by = ? WHERE id = ?",
             [target.clone().into(), item.id.clone().into()],

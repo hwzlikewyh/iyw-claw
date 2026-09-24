@@ -106,6 +106,20 @@ business discovery, or `all` when unsure. `limit` applies per selected source.
 Remote search discovers tools, not business records or web pages. It uses the
 current signed-in account; unavailable metadata does not prove absence.
 
+For “what can you do” or an unknown capability scope, read the current remote
+overview in the tool definition/turn context and browse using source=remote,
+mode=browse, no query. Follow next_cursor until null; group_id accepts an exact
+returned group capability_id and must stay unchanged while paging. Do not use
+a generic question as a semantic search or introduce capabilities from this
+Skill's static reference list alone. Browse remains available without the index.
+
+The host fetches the remote top-level definitions at startup and every 15 minutes.
+Remote tools at the same level as the directory trio remain directly callable
+with their advertised complete schemas. A top_level_tools capability_id explicitly
+provided in the current overview may be read/invoked when an adapter has not
+loaded that direct tool yet. Never derive the ID. Hidden members are not promoted.
+Account changes invalidate old identities; pending/stale metadata is not absence.
+
 For `kind=group`, read its workflow and relevant `items`. Members already include
 complete `input_schema` and `usage`: inspect `use_when`, `argument_sources`,
 `result_summary`, required fields and constraints, then invoke the member's
@@ -131,7 +145,8 @@ Account switching invalidates the previous remote catalog.
 2. Search with 2-5 discriminating action/object terms in Chinese or English,
    such as `读取 网页`, `会议 音频 转写`, `提交 成果`, or `send channel message`.
    Do not search greetings, trivial self-contained requests, current-turn-only
-   context, or merely to enumerate tools.
+   context, or enumerate unrelated tools. An explicit capability-list request
+   uses the browse sequence above instead of keyword search.
 3. Treat results as the current catalog index. Compare the returned summary,
    aliases, `when_to_use`, status, required inputs, and schema digest. Read the
    best matching stable ID and its full description/schema; read at most one
