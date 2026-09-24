@@ -38,8 +38,14 @@ pub async fn skill_inventory_list_core(
     workspace_path: Option<&str>,
 ) -> Result<SkillInventorySnapshot, AcpError> {
     ensure_legacy_policy_migrated(conn).await?;
-    let observations = scan::scan_observations(workspace_path)?;
-    let mut skills = group::group_logical_skills(observations);
+    let scan_workspace = workspace_path.map(str::to_owned);
+    // 目录遍历与内容哈希属于阻塞 I/O，不能占住 Agent 启动和握手的异步线程。
+    let mut skills = tokio::task::spawn_blocking(move || {
+        let observations = scan::scan_observations(scan_workspace.as_deref())?;
+        Ok::<_, AcpError>(group::group_logical_skills(observations))
+    })
+    .await
+    .map_err(|error| AcpError::protocol(format!("Skill inventory scan task failed: {error}")))??;
     apply_activation_policies(conn, workspace_path, &mut skills).await?;
     resolver::apply_effective_states(conn, &mut skills).await?;
     for skill in &mut skills {
