@@ -22,15 +22,21 @@ export function requestConversationHistory(
     batch = new Map()
     batches.set(transport, batch)
   }
-  const key = JSON.stringify(request)
+  const key = JSON.stringify([
+    request.conversationId,
+    request.before ?? null,
+    request.forceRefresh,
+  ])
   const existing = batch.get(key)
   if (existing) return existing
   const pending = loadHistory(transport, request)
   batch.set(key, pending)
-  // 只合并当前批次，后续实时事件触发的强制刷新必须读取新状态。
-  queueMicrotask(() => {
+  const clear = () => {
     if (batch.get(key) === pending) batch.delete(key)
-  })
+  }
+  // 实时事件的强制刷新必须取新状态；普通历史加载复用仍在进行的请求。
+  if (request.forceRefresh) queueMicrotask(clear)
+  else void pending.then(clear, clear)
   return pending
 }
 

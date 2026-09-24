@@ -215,13 +215,26 @@ pub async fn bootstrap_initialize(
     repair: Option<bool>,
     app: tauri::AppHandle,
 ) -> Result<crate::managed_environment::ManagedEnvironmentStatusReport, String> {
+    static INITIALIZATION: Mutex<()> = Mutex::const_new(());
+    let report = bootstrap_init_status().await?;
+    let repair = repair.unwrap_or(false)
+        || report.components.iter().any(|component| {
+            component.component_id != "builtin-agent" && !component.active
+        });
     tracing::info!(
         task_id,
-        repair = repair.unwrap_or(false),
+        repair,
         "environment status requested"
     );
-    if repair.unwrap_or(false) {
+    if repair {
+        let Ok(_guard) = INITIALIZATION.try_lock() else {
+            return Ok(crate::managed_environment::ManagedEnvironmentStatusReport {
+                writer_busy: true,
+                ..report
+            });
+        };
         crate::managed_environment::repair(&task_id, &EventEmitter::Tauri(app)).await?;
+        return bootstrap_init_status().await;
     }
-    bootstrap_init_status().await
+    Ok(report)
 }

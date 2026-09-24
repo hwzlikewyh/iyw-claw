@@ -5452,6 +5452,17 @@
     "retry": "Retry"
   },
   "StartupCodex": {
+    "setupBrand": "IYW Assistant",
+    "setupLabel": "Setup",
+    "setupTitle": "Initializing",
+    "setupFailed": "Setup incomplete",
+    "setupFailureHint": "Check your connection and available space, then retry. Your existing data is preserved.",
+    "setupDetails": "Diagnostics",
+    "setupStages": {
+      "prepare": "Getting ready",
+      "initialize": "Initializing",
+      "finish": "Finishing setup"
+    },
     "checkingTitle": "Preparing the core",
     "checkingDescription": "The runtime is being prepared for first launch. Please wait.",
     "runtimeTitle": "Preparing the base environment",
