@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react"
 import { useTranslations } from "next-intl"
 import type { ToolCallInfo } from "@/contexts/acp-connections-context"
 import { useSessionActivity } from "@/hooks/use-session-activity"
-import { activityTimings } from "@/lib/session-activity"
+import { activityAge, activityTimings } from "@/lib/session-activity"
+import { useVisibleNow } from "@/hooks/use-visible-now"
 import {
   inferLiveToolName,
   normalizeToolName,
@@ -32,6 +33,7 @@ type TurnSummary = ReturnType<typeof summarizeLiveTurn>
 type SessionActivity = ReturnType<typeof useSessionActivity>
 
 const ACTIVITY_RECENCY_WINDOW_MS = 5_000
+const MILLISECONDS_PER_SECOND = 1_000
 
 function useActivityNow(activity: SessionActivity, enabled: boolean) {
   const [now, setNow] = useState(Date.now)
@@ -147,6 +149,7 @@ export function useTurnActivity(
     ? "awaitingUser"
     : selectPhase(input.summary, activity, now)
   const tool = useToolPresentation(input.summary.activeTool)
+  const toolDetail = useToolWaitDetail(activity, phase)
   const icon = PHASE_ICONS[phase] ?? tool.icon
   const step = input.summary.planEntries.find(
     (entry) => entry.status === "in_progress"
@@ -158,7 +161,7 @@ export function useTurnActivity(
       : t(`detail.${phase}` as never)
   return {
     phase: t(phase, { model: "原助理", tool: tool.name }),
-    detail,
+    detail: toolDetail ?? detail,
     icon,
     waiting: [
       "awaitingUser",
@@ -169,4 +172,19 @@ export function useTurnActivity(
     ].includes(phase),
     attention: phase === "awaitingUser" || phase === "runtimeRetrying",
   }
+}
+
+function useToolWaitDetail(activity: SessionActivity, phase: string) {
+  const t = useTranslations("Folder.chat.liveTurnStats")
+  const enabled = phase === "runningTool" || phase === "waitingProcess"
+  const clock = useVisibleNow(enabled && activity !== null)
+  if (!enabled || !activity) return null
+  const now = Math.max(clock, activity.receivedAt)
+  const elapsed = activityAge(activity, activity.snapshot.tool_started_at, now)
+  const timing = activityTimings(activity, { now, hasActiveTool: true })
+  if (elapsed === null || timing.silence === null) return null
+  return t("toolWaitProgress", {
+    elapsed: Math.floor(elapsed / MILLISECONDS_PER_SECOND),
+    silence: Math.floor(timing.silence / MILLISECONDS_PER_SECOND),
+  })
 }

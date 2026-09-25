@@ -30,8 +30,8 @@ import {
 } from "@/stores/turn-metadata"
 import { completeTurnTiming } from "@/lib/turn-duration"
 import {
-  firstTokenElapsed,
-  rememberFirstTokenTime,
+  measuredTurnTimings,
+  rememberTurnTimings,
 } from "@/lib/turn-performance"
 import {
   BACKGROUND_TASK_MARKER,
@@ -1395,9 +1395,9 @@ function reducer(
           : current.liveMessage
 
       if (sourceLiveMessage) {
-        rememberFirstTokenTime(
+        rememberTurnTimings(
           `live-${current.conversationId}-${sourceLiveMessage.id}`,
-          firstTokenElapsed(sourceLiveMessage)
+          measuredTurnTimings(sourceLiveMessage)
         )
       }
 

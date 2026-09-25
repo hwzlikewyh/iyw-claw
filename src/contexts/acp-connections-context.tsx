@@ -22,6 +22,7 @@ import type {
   EventStreamSubscription,
 } from "@/lib/transport/types"
 import { randomUUID } from "@/lib/utils"
+import { observeTurnTiming } from "@/lib/turn-performance"
 import { settleLiveBackgroundTask } from "@/lib/background-agent"
 import { inferLiveToolName } from "@/lib/tool-call-normalization"
 import {
@@ -195,6 +196,8 @@ export interface LiveMessage {
   role: "assistant" | "tool"
   content: LiveContentBlock[]
   startedAt: number
+  firstActivityAt?: number | null
+  firstThinkingAt?: number | null
   firstTextAt?: number | null
   recoveredVersion?: number
   completedAt?: number | null
@@ -1139,7 +1142,10 @@ function applyStreamingAction(
   // redact thinking text entirely, keeping the empty block as the signal).
   if (action.type === "CONTENT_DELTA" && action.text.length === 0) return null
 
-  const prev = ensureLiveMessage(conn.liveMessage)
+  const prev = observeTurnTiming(
+    ensureLiveMessage(conn.liveMessage),
+    action.type === "CONTENT_DELTA" ? "text" : "thinking"
+  )
   const lastBlock = prev.content[prev.content.length - 1]
   let newContent: LiveContentBlock[] | null = null
 
@@ -1173,15 +1179,6 @@ function applyStreamingAction(
     liveMessage: {
       ...prev,
       content: newContent,
-      firstTextAt:
-        prev.firstTextAt == null &&
-        !prev.content.some(
-          (block) =>
-            block.type === "thinking" ||
-            (block.type === "text" && block.text.length > 0)
-        )
-          ? Date.now()
-          : prev.firstTextAt,
     },
     // Streaming content implies the SDK has recovered from any in-flight
     // Claude API retry, so hide the retry banner immediately instead of
@@ -1444,6 +1441,8 @@ function connectionsReducer(
         current.liveMessage
           ? {
               ...snapshotLiveMessage,
+              firstActivityAt: current.liveMessage.firstActivityAt,
+              firstThinkingAt: current.liveMessage.firstThinkingAt,
               firstTextAt: current.liveMessage.firstTextAt,
             }
           : snapshotLiveMessage
@@ -1875,7 +1874,10 @@ function connectionsReducer(
           },
         ]
       }
-      const nextLiveMessage = { ...prev, content: newContent }
+      const nextLiveMessage = {
+        ...observeTurnTiming(prev, "tool_call"),
+        content: newContent,
+      }
       const nextInfo = findLiveToolCallInfo(newContent, action.tool_call_id)
       const next = new Map(state)
       next.set(action.contextKey, {
@@ -2027,7 +2029,10 @@ function connectionsReducer(
         ]
       }
 
-      const nextLiveMessage = { ...prev, content: newContent }
+      const nextLiveMessage = {
+        ...observeTurnTiming(prev, "tool_call"),
+        content: newContent,
+      }
       const nextInfo = findLiveToolCallInfo(newContent, action.tool_call_id)
       const next = new Map(state)
       next.set(action.contextKey, {
@@ -2495,7 +2500,7 @@ function connectionsReducer(
       const next = new Map(state)
       next.set(action.contextKey, {
         ...conn,
-        liveMessage: { ...prev, content: newContent },
+        liveMessage: { ...observeTurnTiming(prev, "plan"), content: newContent },
         claudeApiRetry: null,
       })
       return next

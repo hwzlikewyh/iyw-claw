@@ -117,13 +117,13 @@ const TurnActivity = memo(function TurnActivity({
         waiting={waiting}
         attention={attention}
       />
-      <div
-        className="min-w-0 pt-px"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        <div className="break-words text-sm leading-6 font-semibold text-foreground @[28rem]/turnstats:text-[15px]">
+      <div className="min-w-0 pt-px">
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="break-words text-sm leading-6 font-semibold text-foreground @[28rem]/turnstats:text-[15px]"
+        >
           {phase}
         </div>
         <p

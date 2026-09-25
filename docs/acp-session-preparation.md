@@ -1,5 +1,31 @@
 # ACP 会话预准备
 
+## 2026-09-25 对话等待与计时口径
+
+界面分别记录本轮开始后的首次活动、首次思考和正文首字。思考占位或工具调用
+只推进对应时间，不再提前填入正文首字；历史恢复缺失的时间保持“未记录”。
+工具处理阶段显示已运行时长与距上次输出时间，使用已有活动快照和可见界面的
+本地时钟，不增加模型请求或网络轮询。状态变化会提示辅助技术，秒数刷新不反复播报。
+当前用量契约未区分正文、思考与工具 token，因此原“平均输出”仍按上报用量/
+整轮时间展示，不伪称为纯正文生成速度。
+
+环境准备日志新增 `[ACP][runtime-env] stage`，以 runtime_trace_id 关联一次准备，
+分别记录 storage_settings、agent_settings、platform_policy、profile_layout、
+central_skills、managed_skills、shared_skills、provider_projection、session_migration、
+runtime_credentials、xinghe_preferences、mcp_projection、tool_environment 和 node_preflight。
+步骤失败或取消保留阶段；已有 best-effort 失败标为 degraded。日志不包含凭证或配置正文。
+正常业务准备顺序和权限校验不变。
+
+`scripts/analyze-agent-startup.mjs` 同时输出 runtimeEnvironmentStages 和 turnLatency，
+后者区分 turn_first_event、turn_first_thinking、turn_first_content。统计旧版本日志时，
+不能将工具等待或准备完成后用户停留的时长当成初始化耗时。
+
+本轮全量 TypeScript、定向 ESLint、Rust 桌面可执行构建及运行时信息入口通过；
+组件浏览器预览覆盖思考/工具/正文、计时与390px布局。尚未完成真实桌面新建/恢复
+各5次验证：Windows known-folder API 忽略 USERPROFILE 覆盖，项目用户级文件仍会
+共享系统账户目录；现有机器未安装 Windows Sandbox。需要独立系统账户或由用户
+另行允许共享目录验证后才能继续，不能据此声明启动长尾已经消除。
+
 ## 目标与边界
 
 星河与远山使用现有 ConnectionManager 提前完成原生新建/恢复、必需 MCP 目录和模型/模式确认。

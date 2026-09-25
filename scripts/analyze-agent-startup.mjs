@@ -67,6 +67,36 @@ function collectStage(state, fields) {
   }
 }
 
+function collectDiagnosticStage(state, fields) {
+  if (
+    fields?.message === "[ACP][runtime-env] stage" &&
+    fields.outcome !== "started"
+  ) {
+    addSample(
+      state.runtimeStages,
+      {
+        version: state.version,
+        agent: fields.agent,
+        resumed: fields.resumed,
+        stage: fields.stage,
+        outcome: fields.outcome,
+      },
+      fields.duration_ms
+    )
+  }
+  if (fields?.message === "[ACP][turn-timing] stage") {
+    addSample(
+      state.turnLatency,
+      {
+        version: state.version,
+        agent: fields.agent,
+        stage: fields.stage,
+      },
+      fields.duration_ms
+    )
+  }
+}
+
 async function readLog(path, state) {
   state.version = "unknown"
   let lines = 0
@@ -91,6 +121,7 @@ async function readLog(path, state) {
     if (fields?.message === STAGE_MESSAGE && fields.startup_trace_id) {
       collectStage(state, fields)
     }
+    collectDiagnosticStage(state, fields)
   }
   return { file: basename(path), lines, invalidLines }
 }
@@ -127,6 +158,8 @@ async function main(paths) {
     stages: new Map(),
     ready: new Map(),
     firstContent: new Map(),
+    runtimeStages: new Map(),
+    turnLatency: new Map(),
   }
   const files = []
   for (const path of paths) {
@@ -141,6 +174,8 @@ async function main(paths) {
         failedTraceCount: state.failed.size,
         readiness: summarize(state.ready),
         firstContentAfterSend: summarize(state.firstContent),
+        runtimeEnvironmentStages: summarize(state.runtimeStages),
+        turnLatency: summarize(state.turnLatency),
         stages: summarize(state.stages),
       },
       null,

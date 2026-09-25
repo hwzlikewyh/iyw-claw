@@ -11,9 +11,10 @@ import { TooltipProvider } from "@/components/ui/tooltip"
 import { resolveTurnDuration } from "@/lib/turn-duration"
 import { useRecentOutputRate } from "@/hooks/use-recent-output-rate"
 import {
-  firstTokenElapsed,
-  recordedFirstTokenTime,
-  rememberFirstTokenTime,
+  measuredTurnTimings,
+  recordedTurnTimings,
+  rememberTurnTimings,
+  type TurnTimings,
 } from "@/lib/turn-performance"
 
 interface MessageOutputStatsProps {
@@ -54,6 +55,27 @@ function completedDuration(props: MessageOutputStatsProps, startedAt?: number) {
   )
 }
 
+function useMeasuredTurnTimings(props: MessageOutputStatsProps) {
+  const timings = props.liveMessage
+    ? measuredTurnTimings(props.liveMessage)
+    : recordedTurnTimings(props.messageId)
+  const { firstActivityMs, firstThinkingMs, firstTextMs } = timings ?? {}
+  useEffect(() => {
+    if (
+      firstActivityMs == null &&
+      firstThinkingMs == null &&
+      firstTextMs == null
+    )
+      return
+    rememberTurnTimings(props.messageId, {
+      firstActivityMs: firstActivityMs ?? null,
+      firstThinkingMs: firstThinkingMs ?? null,
+      firstTextMs: firstTextMs ?? null,
+    })
+  }, [props.messageId, firstActivityMs, firstThinkingMs, firstTextMs])
+  return timings
+}
+
 export const MessageOutputStats = memo(function MessageOutputStats(
   props: MessageOutputStatsProps
 ) {
@@ -77,13 +99,7 @@ export const MessageOutputStats = memo(function MessageOutputStats(
     isStreaming ? (props.liveMessage?.id ?? null) : null,
     usage?.output_tokens ?? null
   )
-  const firstTokenMs = props.liveMessage
-    ? firstTokenElapsed(props.liveMessage)
-    : recordedFirstTokenTime(props.messageId)
-  const t = useTranslations("Folder.chat.liveTurnStats")
-  useEffect(() => {
-    rememberFirstTokenTime(props.messageId, firstTokenMs)
-  }, [props.messageId, firstTokenMs])
+  const timings = useMeasuredTurnTimings(props)
   return (
     <OutputStatsView
       rate={
@@ -91,11 +107,7 @@ export const MessageOutputStats = memo(function MessageOutputStats(
           ? (recentOutputRate?.toFixed(1) ?? "--")
           : formatOutputRate(usage?.output_tokens, durationMs)
       }
-      firstToken={
-        firstTokenMs == null
-          ? t(isStreaming ? "metricsPending" : "metricsUnavailable")
-          : `${(firstTokenMs / MILLISECONDS_PER_SECOND).toFixed(2)} s`
-      }
+      timings={timings}
       toolCallCount={
         props.liveMessage
           ? getLiveToolCallCount(props.liveMessage)
@@ -108,16 +120,43 @@ export const MessageOutputStats = memo(function MessageOutputStats(
   )
 })
 
+function TurnTimingStats({
+  timings,
+  isStreaming,
+}: {
+  timings: TurnTimings | null
+  isStreaming: boolean
+}) {
+  const t = useTranslations("Folder.chat.liveTurnStats")
+  const format = (value: number | null | undefined) =>
+    value == null
+      ? t(isStreaming ? "metricsPending" : "metricsUnavailable")
+      : `${(value / MILLISECONDS_PER_SECOND).toFixed(2)} s`
+  return (
+    <>
+      <span>
+        {t("firstActivity", { time: format(timings?.firstActivityMs) })}
+      </span>
+      {timings?.firstThinkingMs != null && (
+        <span>
+          {t("firstThinking", { time: format(timings.firstThinkingMs) })}
+        </span>
+      )}
+      <span>{t("firstToken", { time: format(timings?.firstTextMs) })}</span>
+    </>
+  )
+}
+
 function OutputStatsView({
   rate,
-  firstToken,
+  timings,
   toolCallCount,
   usage,
   isStreaming,
   isReportedUsage,
 }: {
   rate: string
-  firstToken: string
+  timings: TurnTimings | null
   toolCallCount: number
   usage?: TurnUsage | null
   isStreaming: boolean
@@ -130,7 +169,7 @@ function OutputStatsView({
       <span title={t(isStreaming ? "recentOutputRateHint" : "outputRateHint")}>
         {t("outputRate", { rate })}
       </span>
-      <span>{t("firstToken", { time: firstToken })}</span>
+      <TurnTimingStats timings={timings} isStreaming={isStreaming} />
       <span>{t("toolUseCount", { count: toolCallCount })}</span>
       {usage ? (
         <TooltipProvider delayDuration={150}>

@@ -42,6 +42,8 @@ use crate::db::AppDatabase;
 use crate::models::agent::AgentType;
 use crate::web::event_bridge::EventEmitter;
 
+mod runtime_timing;
+
 const ACP_AGENTS_UPDATED_EVENT: &str = "app://acp-agents-updated";
 const CODEX_MODEL_CATALOG_FILE: &str = "iyw-claw-models.json";
 const CODEX_MODEL_CONTEXT_WINDOW: u64 = 128_000;
@@ -8662,11 +8664,17 @@ pub async fn acp_preflight(
     Ok(preflight::run_preflight(agent_type).await)
 }
 
-async fn reconcile_agent_skills_before_launch(db: &AppDatabase, agent_type: AgentType) {
+async fn reconcile_agent_skills_before_launch(
+    db: &AppDatabase,
+    agent_type: AgentType,
+    timing: &mut runtime_timing::RuntimeTiming,
+) {
+    timing.next("profile_layout");
     if let Err(error) =
         crate::commands::agent_storage::ensure_active_agent_profile_layout(&db.conn, agent_type)
             .await
     {
+        timing.degraded();
         tracing::warn!(
             agent_type = %agent_type,
             error = %error,
@@ -8675,24 +8683,30 @@ async fn reconcile_agent_skills_before_launch(db: &AppDatabase, agent_type: Agen
     }
     // 网关就绪校验统一在 manager 和预热的最终启动门执行；这里不再
     // 提前重复扫描。下面仍完整对账系统/市场 Skill，不跳过配置变化。
+    timing.next("central_skills");
     let install_report = crate::commands::experts::ensure_central_experts_installed().await;
     if !install_report.errors.is_empty() {
+        timing.degraded();
         tracing::warn!(
             agent_type = %agent_type,
             errors = ?install_report.errors,
             "[skills] central skill installation before Agent launch was incomplete"
         );
     }
+    timing.next("managed_skills");
     if let Err(error) =
         crate::commands::managed_skills::reconcile_agent_core(&db.conn, agent_type, true).await
     {
+        timing.degraded();
         tracing::warn!(
             agent_type = %agent_type,
             error = %error,
             "[skills] managed skill reconcile before Agent launch failed"
         );
     }
+    timing.next("shared_skills");
     if let Err(error) = reconcile_shared_market_skills_for_agent(&db.conn, agent_type).await {
+        timing.degraded();
         tracing::warn!(
             agent_type = %agent_type,
             error = %error,
@@ -8750,6 +8764,7 @@ async fn build_runtime_env_for_launch(
 ) -> Result<BTreeMap<String, String>, AcpError> {
     let (db, data_dir) = context;
     let (agent_type, session_id) = target;
+    let mut timing = runtime_timing::RuntimeTiming::new(agent_type, session_id.is_some());
     let paths = active_agent_storage_paths()?;
     if !crate::acp::agent_storage::startup_profile_env_is_complete(&paths, |key| {
         std::env::var_os(key)
@@ -8772,6 +8787,7 @@ async fn build_runtime_env_for_launch(
             ));
         }
     }
+    timing.next("agent_settings");
     let setting = agent_setting_service::get_by_agent_type(&db.conn, agent_type)
         .await
         .map_err(|e| AcpError::protocol(e.to_string()))?;
@@ -8792,6 +8808,7 @@ async fn build_runtime_env_for_launch(
         .ok_or_else(|| AcpError::SdkNotInstalled(format!("{agent_type} is not installed")))?;
     crate::acp::deepseek_config::validate_tool_version(agent_type, installed_version)
         .map_err(AcpError::protocol)?;
+    timing.next("platform_policy");
     let platform = crate::acp::version_center::platform_projection(&db.conn, agent_type).await;
     if !platform.launch_allowed() {
         return Err(AcpError::protocol(format!(
@@ -8809,12 +8826,14 @@ async fn build_runtime_env_for_launch(
     }
 
     if prepare_resources {
-        reconcile_agent_skills_before_launch(db, agent_type).await;
+        reconcile_agent_skills_before_launch(db, agent_type, &mut timing).await;
     }
 
+    timing.next("provider_projection");
     crate::acp::provider_overlay::enforce_active_provider_overlay(agent_type)
         .map_err(AcpError::protocol)?;
     if agent_type == AgentType::Codex {
+        timing.next("session_migration");
         if worker_version.is_none() {
             ensure_codex_model_catalog()?;
         }
@@ -8842,6 +8861,7 @@ async fn build_runtime_env_for_launch(
         }
     }
 
+    timing.next("runtime_credentials");
     let local_config_json = if worker_version.is_some() {
         None
     } else {
@@ -8858,6 +8878,7 @@ async fn build_runtime_env_for_launch(
     )
     .await?;
     if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        timing.next("xinghe_preferences");
         let native = crate::acp::xinghe_runtime_config::load_preferences(
             &db.conn,
             setting.as_ref(),
@@ -8869,9 +8890,11 @@ async fn build_runtime_env_for_launch(
         let previous = fs::read_to_string(&catalog_path).unwrap_or_default();
         crate::acp::provider_overlay::write_if_changed(&catalog_path, &previous, &catalog)
             .map_err(AcpError::protocol)?;
+        timing.next("mcp_projection");
         let native = super::mcp::project_xinghe_preferences(&db.conn, &native).await?;
         crate::acp::xinghe_runtime_config::project(&mut runtime_env, &native, &catalog_path)?;
     }
+    timing.next("tool_environment");
     crate::acp::runtime_context::prepend_tool_dirs(Some(&paths), &mut runtime_env);
     let legacy_wecom_enabled = crate::commands::managed_skills::enabled_legacy_wecom(&db.conn)
         .await
@@ -8940,6 +8963,7 @@ async fn build_runtime_env_for_launch(
         );
     }
 
+    timing.next("node_preflight");
     // 所有环境投影完成后再探测，后续相同启动环境才可复用校验结果。
     if let Some(required) =
         crate::acp::trusted_agents::minimum_node_version(agent_type).filter(|_| {
@@ -8955,6 +8979,7 @@ async fn build_runtime_env_for_launch(
             })?;
     }
 
+    timing.finish();
     Ok(runtime_env)
 }
 
