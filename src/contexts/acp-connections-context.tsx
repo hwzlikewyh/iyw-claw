@@ -93,6 +93,7 @@ import {
   isModelConfigOption,
 } from "@/lib/model-config-groups"
 import { CONNECTION_KEEPALIVE_INTERVAL_MS } from "@/lib/constants"
+import { notifyConversationUsage } from "@/lib/conversation-usage-events"
 import { sendSystemNotification } from "@/lib/notification"
 import {
   formatAgentRuntimeError,
@@ -4383,6 +4384,11 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           })
           break
       }
+      notifyConversationUsage(
+        e,
+        runtimeConversationIdsRef.current.get(contextKey),
+        storeRef.current.connections.get(contextKey)?.sessionId
+      )
     },
     [
       dispatch,

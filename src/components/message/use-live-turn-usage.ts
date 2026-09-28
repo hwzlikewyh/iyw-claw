@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react"
 import type { TurnUsage } from "@/lib/types"
-import { loadLiveTurnUsage } from "./live-turn-usage"
+import { subscribeLiveTurnUsage } from "./live-turn-usage"
 
-const USAGE_REFRESH_MS = 1_000
 const ELAPSED_REFRESH_MS = 1_000
 const MAX_CACHED_TURNS = 1_000
 interface UsageSnapshot {
@@ -18,44 +17,6 @@ function rememberUsage(snapshot: UsageSnapshot) {
   reportedUsage.set(snapshot.scope, snapshot)
   if (reportedUsage.size > MAX_CACHED_TURNS) {
     reportedUsage.delete(reportedUsage.keys().next().value!)
-  }
-}
-
-function subscribeUsage(
-  conversationId: number,
-  onUsage: (usage: TurnUsage) => void
-) {
-  let cancelled = false
-  let pending = false
-  let failed = false
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const isCurrent = () => !cancelled && !document.hidden
-  const refresh = async () => {
-    clearTimeout(timer)
-    if (!isCurrent() || pending) return
-    pending = true
-    try {
-      const usage = await loadLiveTurnUsage(conversationId, isCurrent)
-      if (isCurrent() && usage) onUsage(usage)
-      failed = false
-    } catch (error) {
-      if (!cancelled && !failed)
-        console.warn("[live-turn-usage] refresh failed", {
-          conversationId,
-          error,
-        })
-      failed = true
-    } finally {
-      pending = false
-      if (isCurrent()) timer = setTimeout(refresh, USAGE_REFRESH_MS)
-    }
-  }
-  void refresh()
-  document.addEventListener("visibilitychange", refresh)
-  return () => {
-    cancelled = true
-    clearTimeout(timer)
-    document.removeEventListener("visibilitychange", refresh)
   }
 }
 
@@ -80,7 +41,7 @@ export function useLiveTurnUsage({
       startedAt == null
     )
       return
-    return subscribeUsage(conversationId, (usage) => {
+    return subscribeLiveTurnUsage(conversationId, (usage) => {
       const next = { scope, usage, startedAt }
       rememberUsage(next)
       setSnapshot(next)
