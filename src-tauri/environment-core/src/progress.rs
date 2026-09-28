@@ -192,37 +192,8 @@ impl Progress {
         );
         std::fs::write(&temporary, text)?;
         crate::retry::file("publish environment progress", path, || {
-            replace_file(&temporary, path)
+            std::fs::rename(&temporary, path)
         })?;
         Ok(())
     }
-}
-
-#[cfg(not(windows))]
-fn replace_file(source: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
-    std::fs::rename(source, destination)
-}
-
-#[cfg(windows)]
-fn replace_file(source: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::{
-        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-    };
-
-    let source = source
-        .as_os_str()
-        .encode_wide()
-        .chain(Some(0))
-        .collect::<Vec<_>>();
-    let destination = destination
-        .as_os_str()
-        .encode_wide()
-        .chain(Some(0))
-        .collect::<Vec<_>>();
-    let flags = MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH;
-    if unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), flags) } == 0 {
-        return Err(std::io::Error::last_os_error());
-    }
-    Ok(())
 }

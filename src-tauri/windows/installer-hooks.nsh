@@ -202,6 +202,8 @@ FunctionEnd
   Call IywClawStopKnownProcesses
   Pop $R0
   StrCmp $R0 "0" iyw_begin_app_transaction 0
+  Push "process control failed: $IywClawProcessError"
+  Call IywClawAppendInstallerLog
   IfSilent iyw_abort_install_for_processes 0
   ${If} $PassiveMode != 1
     MessageBox MB_OK|MB_ICONSTOP \
