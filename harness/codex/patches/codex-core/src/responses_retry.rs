@@ -22,6 +22,9 @@ pub(crate) fn is_request_too_large(err: &CodexErr) -> bool {
 }
 
 pub(crate) fn is_retryable_response_error(err: &CodexErr) -> bool {
+    if is_output_limit_stream_error(err) {
+        return false;
+    }
     if let CodexErrorDetails::UnexpectedStatus(response) = err.details() {
         if response.status.is_client_error() {
             return matches!(
@@ -33,6 +36,12 @@ pub(crate) fn is_retryable_response_error(err: &CodexErr) -> bool {
         }
     }
     err.retry_delay(1).is_some()
+}
+
+fn is_output_limit_stream_error(err: &CodexErr) -> bool {
+    matches!(err.details(), CodexErrorDetails::Stream(detail) if detail
+        .to_ascii_lowercase()
+        .contains("max_output_tokens"))
 }
 
 #[derive(Debug, Clone, Copy)]
