@@ -98,3 +98,18 @@ ANSI 编码误读。用户路径和结果文件仍支持 Unicode。
 没有实测故障机、受限账户、文件占用注入或安全软件拦截；没有统计安装成功率。
 已存在的显式拒绝 ACL、持续拦截、磁盘不足仍可能使安装失败，重试不改变这些限制。
 更改需要重新构建并签名安装包后交付，现有安装包不会随源码修改而更新。
+
+## 0.1.245 复现
+
+- 下载包 `iyw-claw_0.1.245_x64-setup.exe` 的 Authenticode 签名有效，SHA-256 为
+  `AAF4BB0592ED3C5BAD4C31F7B4DFDB2D1A1AE3D9F9BC05B5F8C4180993D8E7BB`。
+- GitHub `v0.1.245` 指向提交 `6eabde46`，该提交只将版本号从 `0.1.244` 改为
+  `0.1.245`，安装器代码来自此前主分支。
+- 在隔离的 NSIS 测试根目录复现：新 app 顶层只有 `iyw-claw.exe`、
+  `iyw-environment.exe`、许可证和卸载程序，没有 `iyw-claw-mcp*` 文件；安装器仍报告
+  “新 app 仍包含旧 iyw-claw-mcp 文件”，随后恢复旧 app。
+- 构建期清理和验证本身已经存在，误报发生在安装器提交校验：旧 MCP 检查通过临时
+  PowerShell 子进程返回 `0/1/2`，该制品中出现了假阳性。
+- 安装器提交校验已改为 NSIS 原生 `FindFirst/FindNext`，只匹配 app 或 backup
+  顶层真正存在的 `iyw-claw-mcp*` 文件，并把文件路径写入错误信息；不再依赖该
+  PowerShell 检查的退出码。
