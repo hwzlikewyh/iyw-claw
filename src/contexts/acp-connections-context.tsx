@@ -23,6 +23,7 @@ import type {
 } from "@/lib/transport/types"
 import { randomUUID } from "@/lib/utils"
 import { observeTurnTiming } from "@/lib/turn-performance"
+import { completeLiveTurnTiming } from "@/lib/turn-duration"
 import { settleLiveBackgroundTask } from "@/lib/background-agent"
 import { inferLiveToolName } from "@/lib/tool-call-normalization"
 import {
@@ -70,6 +71,7 @@ import type {
   PendingQuestionState,
   QuestionAnswer,
   SessionConfigOptionInfo,
+  SessionActivitySnapshot,
   SessionFailureRecord,
   SessionModeStateInfo,
   SessionUsageUpdateInfo,
@@ -419,6 +421,7 @@ type Action =
       type: "STATUS_CHANGED"
       contextKey: string
       status: ConnectionStatus
+      completedActivity?: SessionActivitySnapshot | null
     }
   | {
       type: "SESSION_FAILURE"
@@ -1678,12 +1681,12 @@ function connectionsReducer(
           "all"
         )
         updated.outOfTurnToolCalls = null
-      } else if (conn.status === "prompting") {
+      } else if (conn.status === "prompting" || action.completedActivity) {
         if (conn.liveMessage) {
-          updated.liveMessage = {
-            ...conn.liveMessage,
-            completedAt: conn.liveMessage.completedAt ?? Date.now(),
-          }
+          updated.liveMessage = completeLiveTurnTiming(
+            conn.liveMessage,
+            action.completedActivity
+          )
         }
         // Prompt cycle ended: clear in-flight Claude API retry banner.
         updated.claudeApiRetry = null
@@ -4078,6 +4081,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             type: "STATUS_CHANGED",
             contextKey,
             status: "connected",
+            completedActivity: e.activity,
           })
           // Detect pending question from tool calls in the completed turn
           const turnConn = storeRef.current.connections.get(contextKey)

@@ -15,10 +15,12 @@ use crate::parsers::{
 
 mod command_descriptions;
 mod paginated_messages;
+mod timing;
 mod usage;
 
 use command_descriptions::command_input_preview;
 use paginated_messages::PaginatedMessages;
+use timing::TurnTimingTracker;
 use usage::{
     extract_usage as extract_turn_usage_from_codex_usage,
     total_tokens as extract_total_tokens_from_usage, TaskUsageTracker, UsageTracker,
@@ -947,7 +949,7 @@ impl CodexParser {
         // persisted the `/goal` text as the opening `user_message`, which arrives
         // BEFORE the goal — there the flag stays false and nothing is synthesized.
         let mut goal_opens_session = false;
-        let mut last_turn_context_ts: Option<DateTime<Utc>> = None;
+        let mut turn_timing_tracker = TurnTimingTracker::default();
         let mut turn_model_contexts: Vec<(DateTime<Utc>, String)> = Vec::new();
         let mut context_window_used_tokens: Option<u64> = None;
         let mut context_window_max_tokens: Option<u64> = None;
@@ -1056,14 +1058,12 @@ impl CodexParser {
                     }
                 }
                 "turn_context" => {
-                    // A new API turn means any prior agent lifecycle is complete.
-                    if let Some(previous_start) = last_turn_context_ts {
-                        assign_codex_turn_duration(
-                            &mut messages,
-                            previous_start,
-                            parse_codex_timestamp(&value),
-                        );
-                    }
+                    flush_pending_reasoning(
+                        &mut messages,
+                        &mut pending_reasoning,
+                        pending_reasoning_ts,
+                    );
+                    turn_timing_tracker.context(&mut messages, &value);
                     active_agent_count = 0;
                     final_answer_index = None;
                     let turn_model = value
@@ -1075,8 +1075,8 @@ impl CodexParser {
                     if model.is_none() {
                         model = turn_model.map(str::to_owned);
                     }
-                    last_turn_context_ts = parse_codex_timestamp(&value);
-                    if let (Some(timestamp), Some(turn_model)) = (last_turn_context_ts, turn_model)
+                    if let (Some(timestamp), Some(turn_model)) =
+                        (parse_codex_timestamp(&value), turn_model)
                     {
                         turn_model_contexts.push((timestamp, turn_model.to_owned()));
                     }
@@ -1102,7 +1102,8 @@ impl CodexParser {
                         }
 
                         match payload_type {
-                            "task_started" => {
+                            "task_started" | "turn_started" => {
+                                turn_timing_tracker.begin(&mut messages, &value);
                                 task_usage_tracker.begin(payload, &mut messages);
                                 if context_window_max_tokens.is_none() {
                                     context_window_max_tokens = payload
@@ -1110,8 +1111,9 @@ impl CodexParser {
                                         .and_then(|v| v.as_u64());
                                 }
                             }
-                            "task_complete" | "turn_aborted" => {
+                            "task_complete" | "turn_complete" | "turn_aborted" => {
                                 task_usage_tracker.finish(&mut messages);
+                                turn_timing_tracker.finish(&mut messages, Some(&value));
                             }
                             "user_message" => {
                                 active_agent_count = 0;
@@ -1888,9 +1890,7 @@ impl CodexParser {
 
         // 思考内容先落盘，再把本轮用量和耗时归到最后一条助手消息。
         task_usage_tracker.finish(&mut messages);
-        if let Some(start_ts) = last_turn_context_ts {
-            assign_codex_turn_duration(&mut messages, start_ts, last_timestamp);
-        }
+        turn_timing_tracker.finish(&mut messages, None);
 
         // Fill in subagent tool call stats (and, only as a fallback, the result)
         // on each spawn execution capsule.
@@ -2155,27 +2155,6 @@ fn flush_pending_reasoning(
         model: None,
         completed_at: Some(timestamp),
     });
-}
-
-fn assign_codex_turn_duration(
-    messages: &mut [UnifiedMessage],
-    start: DateTime<Utc>,
-    end: Option<DateTime<Utc>>,
-) {
-    let Some(end) = end else {
-        return;
-    };
-    let duration = (end - start).num_milliseconds();
-    if duration <= 0 {
-        return;
-    }
-    if let Some(last) = messages
-        .iter_mut()
-        .rev()
-        .find(|message| matches!(message.role, MessageRole::Assistant))
-    {
-        last.duration_ms = Some(duration as u64);
-    }
 }
 
 fn agents_instructions_regex() -> &'static Regex {
@@ -2500,9 +2479,7 @@ fn group_into_turns(messages: Vec<UnifiedMessage>) -> Vec<MessageTurn> {
                 if turn_model.is_none() {
                     turn_model = messages[i].model.clone();
                 }
-                if messages[i].completed_at.is_some() {
-                    completed_at = messages[i].completed_at;
-                }
+                completed_at = completed_at.max(messages[i].completed_at);
                 i += 1;
             }
 
