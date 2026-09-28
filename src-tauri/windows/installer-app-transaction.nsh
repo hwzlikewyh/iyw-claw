@@ -8,6 +8,7 @@ Var IywClawRestartOnFailure
 Var IywClawRestartArgs
 Var IywClawRecoveryDir
 Var IywClawAppCheckError
+Var IywClawLegacyFilePath
 !include "${__FILEDIR__}\installer-app-backup.nsh"
 !include "${__FILEDIR__}\installer-file-check.nsh"
 !include "${__FILEDIR__}\installer-journal.nsh"
@@ -89,6 +90,34 @@ Function IywClawValidateTransactionPaths
   invalid_transaction_paths:
     StrCpy $IywClawTransactionError "事务目录校验失败"
     Push "0"
+FunctionEnd
+
+Function IywClawCheckLegacyMcpFiles
+  Exch $0
+  StrCpy $IywClawLegacyFilePath ""
+  IfFileExists "$0" 0 legacy_mcp_check_clear
+  FindFirst $R0 $R1 "$0\iyw-claw-mcp*"
+  StrCmp $R1 "" legacy_mcp_check_close
+
+  legacy_mcp_check_item:
+    ; FindFirst also returns directories; only reject actual legacy files.
+    IfFileExists "$0\$R1\*.*" legacy_mcp_check_next
+    StrCpy $IywClawLegacyFilePath "$0\$R1"
+    FindClose $R0
+    StrCpy $0 "1"
+    Goto legacy_mcp_check_return
+
+  legacy_mcp_check_next:
+    FindNext $R0 $R1
+    StrCmp $R1 "" legacy_mcp_check_close legacy_mcp_check_item
+
+  legacy_mcp_check_close:
+    FindClose $R0
+  legacy_mcp_check_clear:
+    StrCpy $0 "0"
+
+  legacy_mcp_check_return:
+    Exch $0
 FunctionEnd
 
 Function IywClawReconcileHistoricalBackup
@@ -210,14 +239,13 @@ Function IywClawCommitAppTransaction
     Pop $R0
     StrCmp $R0 "1" 0 backup_cleanup_failed
     Push "$IywClawBackupDir"
-    Push "check-legacy-files"
-    Call IywClawRunKnownProcessCommandAt
+    Call IywClawCheckLegacyMcpFiles
     Pop $R0
     StrCmp $R0 "0" backup_legacy_check_complete 0
     StrCmp $R0 "1" backup_legacy_found backup_legacy_check_failed
 
   backup_legacy_found:
-    StrCpy $IywClawTransactionError "installer backup 仍包含旧 iyw-claw-mcp 文件"
+    StrCpy $IywClawTransactionError "installer backup 仍包含旧 iyw-claw-mcp 文件：$IywClawLegacyFilePath"
     Goto commit_transaction_failed
   backup_legacy_check_failed:
     StrCpy $IywClawTransactionError "无法复核 installer backup 的旧 MCP 文件"
@@ -261,14 +289,13 @@ Function IywClawValidateNewApp
 
   app_install_valid:
     Push "$IywClawAppDir"
-    Push "check-legacy-files"
-    Call IywClawRunKnownProcessCommandAt
+    Call IywClawCheckLegacyMcpFiles
     Pop $R0
-  StrCmp $R0 "0" app_legacy_check_complete 0
-  StrCmp $R0 "1" app_legacy_found app_legacy_check_failed
+    StrCmp $R0 "0" app_legacy_check_complete 0
+    StrCmp $R0 "1" app_legacy_found app_legacy_check_failed
 
   app_legacy_found:
-    StrCpy $IywClawTransactionError "新 app 仍包含旧 iyw-claw-mcp 文件"
+    StrCpy $IywClawTransactionError "新 app 仍包含旧 iyw-claw-mcp 文件：$IywClawLegacyFilePath"
     Goto validate_new_app_failed
   app_legacy_check_failed:
     StrCpy $IywClawTransactionError "无法复核新 app 的旧 MCP 文件"
