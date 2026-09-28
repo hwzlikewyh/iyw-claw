@@ -11,6 +11,8 @@
 - 兼容安装目录外围的一对引号，保留中文和空格；拒绝内部非法字符与相对路径。
 - 目录预检及文件操作遇到 Windows 错误 5、32、33 时退避重试。
 - 单个组件准备失败只重试该组件，保留当前事务内其他已准备组件和校验过的缓存。
+- 备份旧 app 前通过 Windows Restart Manager 按实际 `exe/dll/node/ocx` 文件查询占用进程；
+  只停止当前用户且身份校验通过的安装实例进程。
 - 必需组件未就绪不能报告成功；最终失败提供原因，保留原有回滚和人工重试入口。
 
 ## 一手资料与取舍
@@ -47,6 +49,20 @@
 用户点击最终弹窗的“重试”仍会重新准备整个环境事务，复用下载缓存；
 组件内自动重试则保留同一事务中此前准备完成的组件。
 
+### app 目录占用
+
+Windows 错误 32 (`ERROR_SHARING_VIOLATION`) 说明目录内至少一个文件仍被打开。
+仅按进程名或可执行文件目录筛选无法覆盖 WebView2、插件宿主和从 app 目录加载 DLL
+但自身位于系统目录的进程。安装器现在把 app 下的二进制文件注册到 Windows
+[Restart Manager](https://learn.microsoft.com/en-us/windows/win32/api/restartmanager/nf-restartmanager-rmregisterresources)，
+用 `RmGetList` 获取实际 PID，再复用已有的 owner、启动时间、路径和脚本身份校验。
+只有同一当前用户且被确认属于本安装实例的 PID 才会停止；系统进程、其他用户进程、
+身份变化的 PID 和无法确认归属的进程继续阻断并显示重试。
+
+第一次改名失败后会重新扫描并停止一轮，覆盖进程在安装开始后才加载 DLL 的竞态；
+进程等待预算由 5 秒增加到约 10 秒。关闭资源管理器目录、终端、文件预览和第三方
+工具仍是必要的人工兜底，持续被安全软件拦截时不会强行删除或覆盖文件。
+
 worker 以 UTF-8 读取 helper 输出，将本轮错误写入状态文件供 NSIS 展示。
 错误弹窗分类显示网络、完整性或访问拒绝，日志保留完整错误链和每次重试。
 
@@ -68,6 +84,9 @@ ANSI 编码误读。用户路径和结果文件仍支持 Unicode。
 - 两个修改的 PowerShell 脚本通过 Windows PowerShell 5.1 语法解析。
 - 只读调用路径规范化函数：中文、空格和外围引号可解析；内部引号、相对路径被拒绝。
 - `installer-worker-native.cs` 在 PowerShell 5.1 / .NET Framework 下编译通过。
+- `installer-restart-manager.cs` 在 PowerShell 5.1 / .NET Framework 下编译通过，
+  对未被占用的文件探测返回 0 个进程；保持文件句柄打开的模拟场景能返回当前
+  PowerShell 进程 PID。
 - NSIS 3.11 使用本机 Tauri 生成模板编译当前 hooks 通过，输出 manifest 为
   `<requestedExecutionLevel level="asInvoker" uiAccess="false"/>`。
   模板版本为 0.1.237，省略应用 payload，仅核对 hooks，不能当成 0.1.243 发布包。

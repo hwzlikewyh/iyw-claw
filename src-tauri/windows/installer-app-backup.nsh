@@ -28,7 +28,12 @@ Function IywClawBackupCurrentAppWithRetry
     ; 导航确认之后仍需重试实际改名，等待目录句柄释放。
     StrCmp $IywClawAppLockChecked "1" backup_current_app_prompt 0
     StrCpy $IywClawAppLockChecked "1"
+    ; 先让资源管理器离开 app 目录；Restart Manager 识别到的其他当前用户进程
+    ; 再经过身份校验停止，避免直接结束 Explorer shell。
     Call IywClawReportAppLocks
+    Call IywClawStopKnownProcesses
+    Pop $R4
+    DetailPrint "重新检查 app 进程占用（结果=$R4）。"
     StrCpy $IywClawAppRenameMaxAttempts ${IYW_CLAW_APP_RELEASE_ATTEMPTS}
     Goto backup_current_app_attempt
   backup_current_app_prompt:
