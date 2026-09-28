@@ -23,11 +23,11 @@ use crate::commands::idle_agent_settings::{
 /// keepalives renew separate short leases, so they protect a live surface
 /// without corrupting LRU.
 pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 1800;
-/// Default prompt-stall recovery threshold (10 minutes without a single agent
+/// Default prompt-stall recovery threshold (2 minutes without a single agent
 /// event while `Prompting`). Recovery requests one safe cancellation and never
 /// replays the prompt.
 /// Override via `IYW_CLAW_ACP_PROMPT_STALL_TIMEOUT_SECS` (`0` disables).
-pub const DEFAULT_PROMPT_STALL_TIMEOUT_SECS: u64 = 600;
+pub const DEFAULT_PROMPT_STALL_TIMEOUT_SECS: u64 = 120;
 /// Sweep cadence — runs once per minute. Each tick is a brief lock on the
 /// connections map plus per-state `try_read`s, so a 1-minute interval is
 /// trivially cheap relative to the wall-clock idle threshold.

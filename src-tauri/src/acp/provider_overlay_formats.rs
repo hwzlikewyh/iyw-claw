@@ -130,7 +130,7 @@ pub(crate) fn patch_codex_toml(raw: &str, base_url: &str) -> Result<String, Stri
     provider.insert("wire_api".into(), toml::Value::String("responses".into()));
     provider.insert("requires_openai_auth".into(), toml::Value::Boolean(true));
     provider.insert("request_max_retries".into(), toml::Value::Integer(10));
-    provider.insert("stream_max_retries".into(), toml::Value::Integer(10));
+    provider.insert("stream_max_retries".into(), toml::Value::Integer(3));
     toml::to_string_pretty(&value).map_err(|error| error.to_string())
 }
 
