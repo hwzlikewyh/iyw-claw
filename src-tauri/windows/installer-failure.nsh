@@ -11,8 +11,6 @@ Function IywClawHandleInstallFailure
   StrCmp $R0 "1" 0 iyw_failure_worker_active
   StrCpy $IywClawFailureReason "$IywClawTransactionError"
   StrCpy $IywClawFailureHadTransaction "$IywClawTransactionActive"
-  StrCmp $IywClawElevationRolledBack "1" 0 +2
-  StrCpy $IywClawFailureHadTransaction "1"
   StrCmp $IywClawFailureReason "" 0 iyw_failure_reason_ready
   StrCpy $IywClawFailureReason "安装文件写入失败或安装被中止，请查看安装详情。"
   iyw_failure_reason_ready:

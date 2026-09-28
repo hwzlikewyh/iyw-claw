@@ -90,6 +90,7 @@ public sealed class IywInstallerChild : IDisposable {
     readonly Process process;
     bool disposed;
     IntPtr job;
+    public string FailureMessage { get; private set; }
     public IywInstallerChild(string executable, string arguments, string logPath) {
         log = new StreamWriter(logPath, true, new UTF8Encoding(false));
         log.AutoFlush = true;
@@ -106,6 +107,7 @@ public sealed class IywInstallerChild : IDisposable {
         process.StartInfo = new ProcessStartInfo(executable, arguments) {
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true,
+            StandardOutputEncoding = new UTF8Encoding(false), StandardErrorEncoding = new UTF8Encoding(false),
             WorkingDirectory = Path.GetDirectoryName(executable)
         };
         process.OutputDataReceived += OnOutput;
@@ -121,7 +123,12 @@ public sealed class IywInstallerChild : IDisposable {
     }
     void OnOutput(object sender, DataReceivedEventArgs args) {
         if (args.Data == null) return;
-        lock (gate) { if (!disposed) log.WriteLine(args.Data); }
+        lock (gate) {
+            if (disposed) return;
+            log.WriteLine(args.Data);
+            if (args.Data.StartsWith("iyw-environment: ", StringComparison.Ordinal))
+                FailureMessage = args.Data.Substring("iyw-environment: ".Length);
+        }
     }
     public void WriteDiagnostic(string message) {
         lock (gate) { if (!disposed) log.WriteLine(message); }

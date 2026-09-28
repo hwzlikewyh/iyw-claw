@@ -1,7 +1,6 @@
 Var IywClawPermissionAction
 Var IywClawPermissionResult
 Var IywClawOriginalSid
-Var IywClawPermissionLaunched
 Var IywClawElevationChecked
 Var IywClawSelectedRoot
 
@@ -9,13 +8,17 @@ Function IywClawRunPermissionCheck
   InitPluginsDir
   File /oname=$PLUGINSDIR\iyw-permissions.ps1 "${__FILEDIR__}\installer-permissions.ps1"
   Delete "$PLUGINSDIR\iyw-permissions.ini"
-  System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_ROOT", w "$IywClawRoot")'
+  ; 通过栈传递路径，避免路径内的引号被 System 插件再次解析。
+  Push $IywClawRoot
+  System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_ROOT", w s)'
   System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_EXPECTED_SID", w "$IywClawOriginalSid")'
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$PLUGINSDIR\iyw-permissions.ps1" -Action "$IywClawPermissionAction"'
   Pop $IywClawPermissionResult
   StrCpy $IywClawPermissionError "权限检查程序执行失败（退出码=$IywClawPermissionResult）。"
   ReadINIStr $IywClawElevated "$PLUGINSDIR\iyw-permissions.ini" "result" "Elevated"
-  ReadINIStr $IywClawPermissionLaunched "$PLUGINSDIR\iyw-permissions.ini" "result" "Launched"
+  ReadINIStr $R0 "$PLUGINSDIR\iyw-permissions.ini" "result" "Root"
+  StrCmp $R0 "" +2 0
+  StrCpy $IywClawRoot $R0
   ReadINIStr $R0 "$PLUGINSDIR\iyw-permissions.ini" "result" "Error"
   StrCmp $R0 "" +2 0
   StrCpy $IywClawPermissionError $R0
@@ -69,7 +72,7 @@ Function IywClawCheckInstallPermissions
   System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_REQUIRED_KB", p 0)'
   StrCmp $IywClawPermissionResult "0" permissions_ready 0
   StrCmp $IywClawPermissionResult "31" 0 permissions_failed
-  Call IywClawTryElevatedInstall
+  StrCpy $IywClawPermissionError "$IywClawPermissionError 当前用户无法写入目录，请选择有写入权限的安装目录（默认位于当前用户的 LocalAppData），并检查用户环境目录的权限。"
   permissions_failed:
   StrCpy $IywClawTransactionError "$IywClawPermissionError"
   DetailPrint "$IywClawPermissionError"
@@ -79,50 +82,4 @@ Function IywClawCheckInstallPermissions
   SetErrorLevel 1
   Abort
   permissions_ready:
-FunctionEnd
-
-Function IywClawTryElevatedInstall
-  StrCmp $IywClawInstallerTestMode "1" elevation_unavailable 0
-  StrCmp $IywClawElevated "0" 0 elevation_unavailable
-  StrCmp $IywClawOriginalSid "" 0 elevation_unavailable
-  IfSilent elevation_silent 0
-  ; 必须先回滚；提权后的安装器会重新走权限检查及正常安装事务。
-  StrCpy $IywClawElevationRolledBack $IywClawTransactionActive
-  Call IywClawRollbackAppTransaction
-  Pop $R0
-  StrCmp $R0 "1" 0 elevation_rollback_failed
-  Call IywClawLaunchElevatedInstaller
-  Return
-  elevation_silent:
-  StrCpy $IywClawPermissionError "$IywClawPermissionError 静默安装不会请求 UAC，请由原用户以管理员权限启动安装器。"
-  Return
-  elevation_rollback_failed:
-  StrCpy $IywClawElevationRolledBack "failed"
-  StrCpy $IywClawPermissionError "提权前恢复旧版本失败，已停止重试并保留备份。"
-  elevation_unavailable:
-FunctionEnd
-
-Function IywClawLaunchElevatedInstaller
-  ; 旧 app 已回滚；等待提权子安装器期间必须让出互斥锁。
-  Call IywClawReleaseInstallLock
-  ${GetParameters} $R0
-  System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_ARGUMENTS", w "$R0")'
-  System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_EXECUTABLE", w "$EXEPATH")'
-  SetOutPath "$TEMP"
-  DetailPrint "目录访问被拒绝，正在申请原用户的管理员权限..."
-  StrCpy $IywClawPermissionAction "elevate"
-  Call IywClawRunPermissionCheck
-  System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_ARGUMENTS", p 0)'
-  System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_EXECUTABLE", p 0)'
-  StrCmp $IywClawPermissionLaunched "1" elevation_finished 0
-  StrCmp $IywClawPermissionResult "1223" 0 elevation_launch_done
-  StrCpy $IywClawPermissionError "已取消管理员权限授权，安装未继续。"
-  Return
-  elevation_finished:
-  StrCmp $IywClawPermissionResult "0" +2 0
-  Call IywClawRestartOldAppIfRequested
-  StrCpy $IywClawFailureHandled "1"
-  SetErrorLevel $IywClawPermissionResult
-  Quit
-  elevation_launch_done:
 FunctionEnd

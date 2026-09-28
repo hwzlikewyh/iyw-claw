@@ -1,12 +1,15 @@
-param([ValidateSet('identity', 'check', 'elevate')][string]$Action)
+param([ValidateSet('identity', 'check')][string]$Action)
 
 $ErrorActionPreference = 'Stop'
 $resultPath = Join-Path $PSScriptRoot 'iyw-permissions.ini'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 $elevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-$result = [ordered]@{ Sid = $identity.User.Value; Elevated = [int]$elevated; Launched = 0; Error = '' }
+$result = [ordered]@{ Sid = $identity.User.Value; Elevated = [int]$elevated; Root = ''; Error = '' }
 $exitCode = 0
+$fileRetryTimeout = [TimeSpan]::FromSeconds(15)
+$fileRetryInitialDelay = 100
+$fileRetryMaxDelay = 2000
 
 function Assert-OriginalIdentity {
     $expected = $env:IYW_INSTALL_EXPECTED_SID
@@ -15,8 +18,24 @@ function Assert-OriginalIdentity {
     }
 }
 
+function Resolve-InstallRoot {
+    $path = $env:IYW_INSTALL_ROOT
+    if ([string]::IsNullOrWhiteSpace($path)) { throw 'Installation directory is empty. Please select an absolute directory.' }
+    # Windows PowerShell 5.1 reads this script as ANSI; keep source text ASCII.
+    # Unwrap legacy quoted paths, but reject quotes inside the actual path.
+    if ($path.Length -ge 2 -and $path[0] -eq '"' -and $path[$path.Length - 1] -eq '"') {
+        $path = $path.Substring(1, $path.Length - 2)
+    }
+    if ($path.IndexOfAny([IO.Path]::GetInvalidPathChars()) -ge 0 -or $path -notmatch '^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)') {
+        throw 'Installation directory is invalid. Select an absolute path without quotes or control characters.'
+    }
+    try { return [IO.Path]::GetFullPath($path) }
+    catch { throw [IO.IOException]::new('Cannot resolve installation directory. Please select the directory again.', $_.Exception) }
+}
+
 function Assert-PlainPath([string]$Path) {
-    $cursor = [IO.Path]::GetFullPath($Path)
+    try { $cursor = [IO.Path]::GetFullPath($Path) }
+    catch { throw [IO.IOException]::new("Cannot resolve directory for access check: $Path", $_.Exception) }
     while ($cursor) {
         if (Test-Path -LiteralPath $cursor) {
             $item = Get-Item -LiteralPath $cursor -Force
@@ -30,6 +49,30 @@ function Assert-PlainPath([string]$Path) {
 
 function Test-DirectoryAccess([string]$Path) {
     Assert-PlainPath $Path
+    $started = [Diagnostics.Stopwatch]::StartNew()
+    $delay = $fileRetryInitialDelay
+    $attempt = 0
+    while ($true) {
+        $attempt++
+        try {
+            Invoke-DirectoryAccessProbe $Path
+            if ($attempt -gt 1) { Write-Output "Directory access recovered: $Path; attempt=$attempt" }
+            return
+        } catch {
+            $cause = $_.Exception.GetBaseException()
+            $code = $cause.HResult -band 0xFFFF
+            $remaining = $fileRetryTimeout.TotalMilliseconds - $started.Elapsed.TotalMilliseconds
+            if ($code -notin @(5, 32, 33) -or $remaining -le 0) {
+                throw [IO.IOException]::new("Directory create/write/rename/delete check failed: $Path; attempt=$attempt", $_.Exception)
+            }
+            Write-Output "Directory access retry: $Path; attempt=$attempt; win32_error=$code"
+            Start-Sleep -Milliseconds ([int][Math]::Min($delay, $remaining))
+            $delay = [Math]::Min($delay * 2, $fileRetryMaxDelay)
+        }
+    }
+}
+
+function Invoke-DirectoryAccessProbe([string]$Path) {
     $probe = Join-Path $Path ('.iyw-install-probe-' + [guid]::NewGuid().ToString('N'))
     $renamed = $probe + '.renamed'
     try {
@@ -38,8 +81,6 @@ function Test-DirectoryAccess([string]$Path) {
         try { $stream.WriteByte(0); $stream.Flush($true) } finally { $stream.Dispose() }
         [IO.File]::Move($probe, $renamed)
         [IO.File]::Delete($renamed)
-    } catch {
-        throw [IO.IOException]::new("Directory create/write/rename/delete check failed: $Path", $_.Exception)
     } finally {
         foreach ($temporary in @($probe, $renamed)) {
             if ([IO.File]::Exists($temporary)) {
@@ -72,7 +113,8 @@ public static class IywInstallDisk {
 }
 
 function Test-InstallAccess {
-    $root = [IO.Path]::GetFullPath($env:IYW_INSTALL_ROOT)
+    $root = Resolve-InstallRoot
+    $result.Root = $root
     $profileRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
     $environmentRoot = Join-Path $profileRoot '.iyw-claw'
     $directories = @($root, (Join-Path $root 'app'), (Join-Path $root 'staging'), (Join-Path $root 'logs'))
@@ -84,25 +126,10 @@ function Test-InstallAccess {
     Write-Output 'Installation directory access and application disk-space checks passed.'
 }
 
-function Start-ElevatedInstaller {
-    if ($elevated -or $env:IYW_INSTALL_EXPECTED_SID) { throw 'An elevated installation has already been attempted.' }
-    $root = [IO.Path]::GetFullPath($env:IYW_INSTALL_ROOT)
-    $arguments = '/IYW_ORIGINAL_SID=' + $identity.User.Value + ' /IYW_SELECTED_ROOT="' + $root + '" ' + $env:IYW_INSTALL_ARGUMENTS
-    # Pass arguments directly to ShellExecute; do not evaluate them as PowerShell.
-    $child = Start-Process -FilePath $env:IYW_INSTALL_EXECUTABLE -Verb RunAs -ArgumentList $arguments -WorkingDirectory $env:TEMP -WindowStyle Normal -PassThru
-    $result.Launched = 1
-    # Wait only for the installer, not the application it may start afterwards.
-    $child.WaitForExit()
-    $child.Refresh()
-    if ($null -eq $child.ExitCode) { throw 'The elevated installer did not return an exit code.' }
-    return $child.ExitCode
-}
-
 try {
     Assert-OriginalIdentity
     switch ($Action) {
         'check' { Test-InstallAccess }
-        'elevate' { $exitCode = Start-ElevatedInstaller }
     }
 } catch {
     $messages = @()
