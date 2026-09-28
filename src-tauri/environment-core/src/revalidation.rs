@@ -33,7 +33,7 @@ pub fn verify(layout: &Layout, state: &PreparedState, installation_id: String) -
             })
             .collect(),
     };
-    crate::download::emit("environment", "revalidating", (0, 0));
+    crate::download::emit("environment", "revalidating", 0, 0);
     let plan = FusionClient::new()?.resolve(&request)?;
     validate_plan(
         &plan,

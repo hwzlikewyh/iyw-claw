@@ -47,10 +47,26 @@ public static class IywInstallerNative {
         if (!Text(label, (value / 100) + "%")) return false;
         return PostMessageW(new IntPtr(bar), SetProgressMessage, new UIntPtr((uint)value), IntPtr.Zero);
     }
+    static string CurrentStage(string phase, int current) {
+        switch (phase) {
+            case "checking": return "\u68c0\u67e5\u5df2\u5b89\u88c5\u7ec4\u4ef6";
+            case "resolving": return "\u8fde\u63a5\u73af\u5883\u670d\u52a1";
+            case "planning": return "\u751f\u6210\u73af\u5883\u8ba1\u5212";
+            case "downloading": return "\u4e0b\u8f7d\u73af\u5883\u7ec4\u4ef6";
+            case "extracting": return "\u89e3\u538b\u73af\u5883\u7ec4\u4ef6";
+            case "verifying": return "\u6821\u9a8c\u73af\u5883\u7ec4\u4ef6";
+            case "commit": return "\u5b8c\u6210\u8bbe\u7f6e";
+            default: return StageNames[current - 1];
+        }
+    }
     public static bool Stage(long window, string phase) {
         if (window == 0) return true;
-        int current = phase == "complete" ? 3 : phase == "initialize" ? 2 : 1;
-        bool updated = Text(window, current + " / 3   " + StageNames[current - 1]);
+        bool complete = phase == "complete" || phase == "commit" || phase == "committed";
+        bool initialize = phase == "downloading" || phase == "downloaded" ||
+            phase == "extracting" || phase == "preparing" || phase == "prepared" ||
+            phase == "verifying" || phase == "revalidating";
+        int current = complete ? 3 : initialize ? 2 : 1;
+        bool updated = Text(window, current + " / 3   " + CurrentStage(phase, current));
         IntPtr parent = GetParent(new IntPtr(window));
         for (int step = 1; step <= StageNames.Length; step++) {
             string prefix = step < current ? "\u2713" : step.ToString("00");

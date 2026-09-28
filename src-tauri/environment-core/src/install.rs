@@ -25,6 +25,7 @@ fn prepare_with_verification(app_version: &str, full_check: bool) -> Result<Stri
     let layout = Layout::resolve()?;
     layout.ensure()?;
     let _lock = environment_lock(&layout)?;
+    crate::progress::phase("checking");
     let current = inventory::load_current(&layout)?;
     let (target, arch, platform) = platform();
     let request = ResolveRequest {
@@ -40,6 +41,7 @@ fn prepare_with_verification(app_version: &str, full_check: bool) -> Result<Stri
     };
     let client = FusionClient::new()?;
     let plan = client.resolve(&request)?;
+    crate::progress::phase("planning");
     validate_plan(&plan, app_version, &target, &arch)?;
     crate::progress::plan(&plan.actions);
     let transaction = uuid::Uuid::new_v4().simple().to_string();
