@@ -1,4 +1,4 @@
-!define IYW_CLAW_PROCESS_WAIT_ATTEMPTS 10
+!define IYW_CLAW_PROCESS_WAIT_ATTEMPTS 20
 !define IYW_CLAW_PROCESS_WAIT_MS 500
 !define IYW_CLAW_PROCESS_EXIT_WAIT_MS 15000
 
@@ -38,6 +38,7 @@ Function ${Prefix}IywClawRunKnownProcessCommandAt
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\iyw-claw-process-control.ps1" -Action "$R8" -InstallDir "$R9"'
   Pop $R0
   Delete "$PLUGINSDIR\iyw-claw-process-control.ps1"
+  Delete "$PLUGINSDIR\iyw-restart-manager.cs"
   StrCmp $R0 "0" known_process_command_result_ready 0
   StrCmp $R0 "1" known_process_command_result_ready 0
   StrCmp $R0 "2" known_process_command_result_ready 0
@@ -49,17 +50,22 @@ Function ${Prefix}IywClawRunKnownProcessCommandAt
 
   known_process_command_failed:
     Delete "$PLUGINSDIR\iyw-claw-process-control.ps1"
+    Delete "$PLUGINSDIR\iyw-restart-manager.cs"
     Push "2"
 FunctionEnd
 
 Function ${Prefix}IywClawWriteKnownProcessScript
   InitPluginsDir
+  File /oname=$PLUGINSDIR\iyw-restart-manager.cs "${__FILEDIR__}\installer-restart-manager.cs"
   ClearErrors
   FileOpen $R0 "$PLUGINSDIR\iyw-claw-process-control.ps1" w
   IfErrors known_process_script_write_failed 0
   FileWriteUTF16LE /BOM $R0 `param([ValidateSet('kill', 'check', 'check-main', 'check-legacy-files')][string]$$Action, [Parameter(Mandatory = $$true)][string]$$InstallDir)$\r$\n`
   FileWriteUTF16LE $R0 `try {$\r$\n`
   FileWriteUTF16LE $R0 `  $$ErrorActionPreference = 'Stop'$\r$\n`
+  ; Restart Manager reports processes that hold app DLL/EXE handles even when
+  ; their executable lives outside the install directory (for example WebView2).
+  FileWriteUTF16LE $R0 `  Add-Type -Path (Join-Path $$PSScriptRoot \"iyw-restart-manager.cs\")$\r$\n`
   FileWriteUTF16LE $R0 `  function Normalize-Directory([string]$$Path) {$\r$\n`
   FileWriteUTF16LE $R0 `    $$full = [IO.Path]::GetFullPath($$Path)$\r$\n`
   FileWriteUTF16LE $R0 `    $$root = [IO.Path]::GetPathRoot($$full)$\r$\n`
@@ -129,7 +135,7 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `    if ($$changed) { throw "Process identity changed before stop for PID $$processId" }$\r$\n`
   FileWriteUTF16LE $R0 `    $$sameOwner = [string]::Equals($$actual.OwnerSid, $$CurrentSid, [StringComparison]::OrdinalIgnoreCase)$\r$\n`
   FileWriteUTF16LE $R0 `    $$sameParent = [string]::Equals($$actual.ParentPath, $$Target, [StringComparison]::OrdinalIgnoreCase)$\r$\n`
-  FileWriteUTF16LE $R0 `    $$inScope = $$sameParent -or (Test-ManagedProcessPath $$actual.ExecutablePath) -or -not [string]::IsNullOrWhiteSpace($$actual.ScriptPath)$\r$\n`
+  FileWriteUTF16LE $R0 `    $$inScope = $$sameParent -or (Test-ManagedProcessPath $$actual.ExecutablePath) -or ($$resourcePids -contains $$actual.ProcessId) -or -not [string]::IsNullOrWhiteSpace($$actual.ScriptPath)$\r$\n`
   FileWriteUTF16LE $R0 `    if (-not ($$sameOwner -and $$inScope)) { throw "Process scope changed before stop for PID $$processId" }$\r$\n`
   FileWriteUTF16LE $R0 `    return $$actual.RuntimeProcess$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
@@ -144,9 +150,18 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `  $$targetItem = Get-Item -LiteralPath $$InstallDir -Force -ErrorAction Stop; if (-not $$targetItem.PSIsContainer) { throw 'Install path is not a directory' }$\r$\n`
   FileWriteUTF16LE $R0 `  $$target = Normalize-Directory (Get-SafeCanonicalPath $$InstallDir)$\r$\n`
   FileWriteUTF16LE $R0 `  $$managedRoots = @()$\r$\n`
+  FileWriteUTF16LE $R0 `  $$resourcePids = @()$\r$\n`
+  FileWriteUTF16LE $R0 `  if ($$Action -ne \"check-main\" -and $$Action -ne \"check-legacy-files\") {$\r$\n`
+  FileWriteUTF16LE $R0 `    $$managedRoots += $$target$\r$\n`
+  FileWriteUTF16LE $R0 `    try {$\r$\n`
+  FileWriteUTF16LE $R0 `      $$resourceFiles = @(Get-ChildItem -LiteralPath $$target -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $$_.Extension -match \"(?i)^\.(exe|dll|node|ocx|cpl|bin)$\" })$\r$\n`
+  FileWriteUTF16LE $R0 `      if ($$resourceFiles.Count -gt 0) { $$resourcePids = @([IywRestartManager]::FindPids([string[]]$$resourceFiles.FullName)) }$\r$\n`
+  FileWriteUTF16LE $R0 `      foreach ($$pid in $$resourcePids) { Write-Output (\"Restart Manager found resource holder: pid={0}\" -f $$pid) }$\r$\n`
+  FileWriteUTF16LE $R0 `    } catch { Write-Warning (\"Restart Manager resource scan failed: {0}\" -f $$_.Exception.Message) }$\r$\n`
+  FileWriteUTF16LE $R0 `  }$\r$\n`
   FileWriteUTF16LE $R0 `  if ($$Action -ne 'check-main' -and [IO.Path]::GetFileName($$target) -ieq 'app') {$\r$\n`
   FileWriteUTF16LE $R0 `    $$installRoot = [IO.Path]::GetDirectoryName($$target)$\r$\n`
-  FileWriteUTF16LE $R0 `    $$managedRoots = @('runtime', 'agents', 'data\runtime', 'data\browser\chromium') | ForEach-Object { [IO.Path]::Combine($$installRoot, $$_) }$\r$\n`
+  FileWriteUTF16LE $R0 `    $$managedRoots += @(\"runtime\", \"agents\", \"data\runtime\", \"data\browser\chromium\") | ForEach-Object { [IO.Path]::Combine($$installRoot, $$_) }$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
   ; Shared runtimes live in the user profile, while agent runtimes may use a
   ; configured storage root. Include those roots so their Node entry scripts
@@ -169,7 +184,7 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `  }$\r$\n`
   FileWriteUTF16LE $R0 `  $$managedRoots = @($$normalizedManagedRoots | Select-Object -Unique)$\r$\n`
   FileWriteUTF16LE $R0 `  $$currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value; if ([string]::IsNullOrWhiteSpace($$currentSid)) { throw 'Current user SID is unavailable' }$\r$\n`
-  FileWriteUTF16LE $R0 `  $$isCandidate = { param([object]$$Process) if ($$Action -eq 'check-main') { return $$Process.Name -ieq 'iyw-claw.exe' }; return $$Process.Name -ieq 'iyw-claw.exe' -or $$Process.Name -ieq 'agent-browser.exe' -or $$Process.Name -match $$pattern -or (Test-ManagedProcessPath $$Process.ExecutablePath) -or -not [string]::IsNullOrWhiteSpace((Get-ManagedNodeScript $$Process)) }$\r$\n`
+  FileWriteUTF16LE $R0 `  $$isCandidate = { param([object]$$Process) if ($$Action -eq 'check-main') { return $$Process.Name -ieq 'iyw-claw.exe' }; return (($$resourcePids -contains [int]$$Process.ProcessId) -and $$Process.Name -ine 'explorer.exe') -or $$Process.Name -ieq 'iyw-claw.exe' -or $$Process.Name -ieq 'agent-browser.exe' -or $$Process.Name -match $$pattern -or (Test-ManagedProcessPath $$Process.ExecutablePath) -or -not [string]::IsNullOrWhiteSpace((Get-ManagedNodeScript $$Process)) }$\r$\n`
   FileWriteUTF16LE $R0 `  $$processSnapshots = @()$\r$\n`
   FileWriteUTF16LE $R0 `  Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object {$\r$\n`
   FileWriteUTF16LE $R0 `    if (-not (& $$isCandidate $$_)) { return }$\r$\n`
@@ -177,7 +192,7 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `    try { $$identity = Get-ProcessIdentity $$candidate } catch {$\r$\n`
   FileWriteUTF16LE $R0 `      $$stillThere = @(Get-CimInstance Win32_Process -Filter "ProcessId = $$candidatePid" -ErrorAction Stop)$\r$\n`
   FileWriteUTF16LE $R0 `      if ($$stillThere.Count -eq 0) { return }$\r$\n`
-  FileWriteUTF16LE $R0 `      if ($$Action -eq 'check-main' -or $$candidate.Name -ieq 'iyw-claw.exe' -or $$candidate.Name -ieq 'node.exe' -or (Test-ManagedProcessPath $$candidate.ExecutablePath)) { throw ('Unable to verify installer-scoped process: pid={0}; error={1}' -f $$candidatePid, $$_) }$\r$\n`
+  FileWriteUTF16LE $R0 `      if ($$Action -eq 'check-main' -or $$resourcePids -contains $$candidatePid -or $$candidate.Name -ieq 'iyw-claw.exe' -or $$candidate.Name -ieq 'node.exe' -or (Test-ManagedProcessPath $$candidate.ExecutablePath)) { throw ('Unable to verify installer-scoped process: pid={0}; error={1}' -f $$candidatePid, $$_) }$\r$\n`
   FileWriteUTF16LE $R0 `      Write-Warning ('Skipping auxiliary process {0} (PID {1}): {2}' -f $$candidate.Name, $$candidatePid, $$_)$\r$\n`
   FileWriteUTF16LE $R0 `      return$\r$\n`
   FileWriteUTF16LE $R0 `    }$\r$\n`
