@@ -209,7 +209,7 @@ export function Sidebar() {
               <Crosshair className="size-3.5" />
             </Button>
           </div>
-          <div className="shrink-0 border-t border-sidebar-border/70 px-2 py-1">
+          <div className="shrink-0 border-t border-sidebar-border/70 px-2 py-0.5">
             <SidebarAccountSettings />
           </div>
         </div>

@@ -40,7 +40,9 @@ export function SidebarProjectActions({
     <>
       <div
         className={
-          compact ? "flex flex-col gap-1" : "grid min-w-0 grid-cols-2 gap-1.5"
+          compact
+            ? "flex flex-col gap-1"
+            : "grid min-w-0 grid-cols-[minmax(0,5fr)_minmax(0,6fr)] gap-1.5"
         }
       >
         <Button
@@ -50,11 +52,17 @@ export function SidebarProjectActions({
           aria-label={t("newProject")}
           onClick={() => setOpen(true)}
           className={
-            compact ? "size-9 p-0" : "h-8 min-w-0 gap-1 px-1 text-[0.6875rem]"
+            compact
+              ? "size-9 p-0"
+              : "h-auto min-h-8 w-full min-w-0 gap-1 rounded-md px-1 py-1 text-xs"
           }
         >
           <FolderPlus className="size-3.5 shrink-0" />
-          {!compact && <span className="truncate">{t("newProject")}</span>}
+          {!compact && (
+            <span className="min-w-0 whitespace-normal break-words leading-4">
+              {t("newProject")}
+            </span>
+          )}
         </Button>
         <NewFolderDropdown
           showLabel={!compact}
@@ -67,7 +75,7 @@ export function SidebarProjectActions({
           buttonClassName={
             compact
               ? "size-9 p-0"
-              : "h-8 min-w-0 justify-center gap-1 rounded-md border px-1 text-[0.6875rem]"
+              : "h-auto min-h-8 w-full min-w-0 justify-center gap-1 rounded-md px-1 py-1 text-xs"
           }
         />
       </div>
