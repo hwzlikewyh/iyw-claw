@@ -124,9 +124,7 @@ export function AppWorkspaceProvider({ children }: AppWorkspaceProviderProps) {
     }
   }, [])
 
-  // Branch polling: only poll the active folder. Subscribes to the resolved
-  // path (a primitive) rather than `allFolders`, so folder-list churn doesn't
-  // restart the poll — only an actual active-folder change does.
+  // Resolve the active folder's HEAD when the active folder changes.
   const activeFolderId = useAppWorkspaceStore((s) => s.activeFolderId)
   const activeFolderPath = useAppWorkspaceStore((s) =>
     s.activeFolderId == null
@@ -136,30 +134,17 @@ export function AppWorkspaceProvider({ children }: AppWorkspaceProviderProps) {
   useEffect(() => {
     if (activeFolderId == null || activeFolderPath == null) return
     const folderId = activeFolderId
-
     let cancelled = false
-    let timer: ReturnType<typeof setTimeout> | null = null
-
-    const poll = async () => {
-      try {
-        const head = await getGitHead(activeFolderPath)
-        if (cancelled) return
-        useAppWorkspaceStore.getState().applyGitHead(folderId, head)
-        // Poll a repo briskly to catch branch switches; back off otherwise.
-        const delay = head.is_repo ? 10_000 : 60_000
-        timer = setTimeout(poll, delay)
-      } catch {
+    void getGitHead(activeFolderPath)
+      .then((head) => {
         if (!cancelled) {
-          timer = setTimeout(poll, 60_000)
+          useAppWorkspaceStore.getState().applyGitHead(folderId, head)
         }
-      }
-    }
-
-    void poll()
+      })
+      .catch(() => {})
 
     return () => {
       cancelled = true
-      if (timer) clearTimeout(timer)
     }
   }, [activeFolderId, activeFolderPath])
 

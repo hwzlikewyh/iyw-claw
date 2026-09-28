@@ -19,6 +19,7 @@ pub async fn runtime_bootstrap(
 pub async fn bootstrap_init_status(
     Extension(_state): Extension<Arc<AppState>>,
 ) -> Result<Json<ManagedEnvironmentStatusReport>, AppCommandError> {
+    let _guard = managed_environment::lock_writer().await;
     status().await.map(Json)
 }
 
@@ -26,12 +27,25 @@ pub async fn bootstrap_initialize(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<BootstrapInitializeParams>,
 ) -> Result<Json<ManagedEnvironmentStatusReport>, AppCommandError> {
-    if params.repair.unwrap_or(false) {
+    let _guard = managed_environment::lock_writer().await;
+    let mut report = status().await?;
+    let explicit_repair = params.repair.unwrap_or(false);
+    let repair = if explicit_repair {
+        true
+    } else if managed_environment::core_components_need_repair(&report) {
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        report = status().await?;
+        managed_environment::core_components_need_repair(&report)
+    } else {
+        false
+    };
+    if repair {
         managed_environment::repair(&params.task_id, &state.emitter)
             .await
             .map_err(AppCommandError::task_execution_failed)?;
+        report = status().await?;
     }
-    status().await.map(Json)
+    Ok(Json(report))
 }
 
 async fn status() -> Result<ManagedEnvironmentStatusReport, AppCommandError> {

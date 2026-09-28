@@ -70,7 +70,7 @@ function assertRequiredComponents(
   const environmentError = components.get("environment")?.lastError
   if (environmentError) throw new Error(environmentError)
   const required = isLocalDesktop()
-    ? [...components.keys(), "builtin-agent"]
+    ? ["node", "git", "uv", "chromix", "agent-browser", "builtin-agent"]
     : ["node", "git", "uv"]
   const failures = required.flatMap((componentId) => {
     const component = components.get(componentId)

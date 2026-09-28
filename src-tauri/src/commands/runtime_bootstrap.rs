@@ -196,11 +196,12 @@ pub async fn runtime_bootstrap(
     Ok(runtime_bootstrap_core(task_id, &emitter).await)
 }
 
-/// 受管初始化状态查询（只读，不取写入锁）。供前端 `bootstrapInitStatus` 调用。
+/// 受管初始化状态查询。与修复串行，避免读取到激活中的中间状态。
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 pub async fn bootstrap_init_status(
 ) -> Result<crate::managed_environment::ManagedEnvironmentStatusReport, String> {
+    let _guard = crate::managed_environment::lock_writer().await;
     tokio::task::spawn_blocking(crate::managed_environment::init_status_report)
         .await
         .map_err(|error| format!("环境检测任务异常：{error}"))
@@ -215,26 +216,30 @@ pub async fn bootstrap_initialize(
     repair: Option<bool>,
     app: tauri::AppHandle,
 ) -> Result<crate::managed_environment::ManagedEnvironmentStatusReport, String> {
-    static INITIALIZATION: Mutex<()> = Mutex::const_new(());
-    let report = bootstrap_init_status().await?;
-    let repair = repair.unwrap_or(false)
-        || report.components.iter().any(|component| {
-            component.component_id != "builtin-agent" && !component.active
-        });
-    tracing::info!(
-        task_id,
-        repair,
-        "environment status requested"
-    );
+    let _guard = crate::managed_environment::lock_writer().await;
+    let mut report = tokio::task::spawn_blocking(crate::managed_environment::init_status_report)
+        .await
+        .map_err(|error| format!("环境检测任务异常：{error}"))?;
+    let explicit_repair = repair.unwrap_or(false);
+    let repair = if explicit_repair {
+        true
+    } else if crate::managed_environment::core_components_need_repair(&report) {
+        // 激活期间旧目录可能已移走而新目录尚未切换；短暂复检避免把
+        // 这种瞬时窗口误判成损坏并启动一次昂贵的修复。
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        report = tokio::task::spawn_blocking(crate::managed_environment::init_status_report)
+            .await
+            .map_err(|error| format!("环境检测任务异常：{error}"))?;
+        crate::managed_environment::core_components_need_repair(&report)
+    } else {
+        false
+    };
+    tracing::info!(task_id, repair, "environment status requested");
     if repair {
-        let Ok(_guard) = INITIALIZATION.try_lock() else {
-            return Ok(crate::managed_environment::ManagedEnvironmentStatusReport {
-                writer_busy: true,
-                ..report
-            });
-        };
         crate::managed_environment::repair(&task_id, &EventEmitter::Tauri(app)).await?;
-        return bootstrap_init_status().await;
+        return tokio::task::spawn_blocking(crate::managed_environment::init_status_report)
+            .await
+            .map_err(|error| format!("环境检测任务异常：{error}"));
     }
     Ok(report)
 }

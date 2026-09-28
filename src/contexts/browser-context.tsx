@@ -26,7 +26,8 @@ import {
 } from "@/hooks/use-browser-visibility"
 import { useBrowserWindowRequests } from "@/hooks/use-browser-window-requests"
 
-const POLL_INTERVAL_MS = 800
+const ACTIVE_POLL_INTERVAL_MS = 2_000
+const IDLE_POLL_INTERVAL_MS = 10_000
 const DETACHED_HOST_TIMEOUT_MS = 10_000
 
 interface BrowserContextValue {
@@ -97,6 +98,23 @@ export function BrowserProvider({
     refreshPromiseRef.current = request
     return request
   }, [acceptState])
+
+  const browserBusy =
+    isOpen ||
+    state?.runtime.status === "starting" ||
+    state?.runtime.status === "recovering" ||
+    state?.runtime.status === "stopping" ||
+    state?.tabs.some((tab) =>
+      ["agent_running", "agent_waiting", "user_active", "user_held"].includes(
+        tab.controlStatus
+      )
+    ) ||
+    !!state?.dialogs.length ||
+    !!state?.fileChoosers.length ||
+    !!state?.downloads.some((download) => download.status === "in_progress") ||
+    !!state?.userActionRequests.length ||
+    !!state?.windowOpenRequests.length ||
+    !!state?.windowCloseRequests.length
 
   const run = useCallback(
     async (operation: () => Promise<BrowserStateSnapshot>) => {
@@ -185,41 +203,34 @@ export function BrowserProvider({
     let cancelled = false
     let polling = false
     let timer: number | null = null
-    const schedule = (delay: number) => {
-      if (
-        cancelled ||
-        (!allowWindowRequests && document.visibilityState !== "visible")
-      )
-        return
+    const schedule = () => {
+      if (cancelled || document.visibilityState !== "visible") return
+      const delay = browserBusy
+        ? ACTIVE_POLL_INTERVAL_MS
+        : IDLE_POLL_INTERVAL_MS
       timer = window.setTimeout(poll, delay)
     }
     const poll = async () => {
       timer = null
-      if (
-        cancelled ||
-        polling ||
-        (!allowWindowRequests && document.visibilityState !== "visible")
-      )
-        return
+      if (cancelled || polling || document.visibilityState !== "visible") return
       polling = true
       await refresh()
       polling = false
-      schedule(POLL_INTERVAL_MS)
+      schedule()
     }
     const handleVisibilityChange = () => {
-      if (allowWindowRequests) return
       if (timer !== null) window.clearTimeout(timer)
       timer = null
       if (document.visibilityState === "visible") void poll()
     }
     document.addEventListener("visibilitychange", handleVisibilityChange)
-    schedule(POLL_INTERVAL_MS)
+    schedule()
     return () => {
       cancelled = true
       if (timer !== null) window.clearTimeout(timer)
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
-  }, [allowWindowRequests, isOpen, refresh])
+  }, [allowWindowRequests, browserBusy, isOpen, refresh])
 
   useBrowserWindowRequests({
     enabled: allowWindowRequests,
