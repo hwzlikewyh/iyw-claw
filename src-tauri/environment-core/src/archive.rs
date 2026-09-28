@@ -130,10 +130,30 @@ fn create_directory(path: &Path) -> Result<()> {
 
 fn write_entry(path: &Path, entry: &mut impl Read) -> Result<()> {
     create_parent(path)?;
-    let mut target = crate::retry::file("create archive file", path, || File::create(path))?;
-    io::copy(entry, &mut target)
-        .with_context(|| format!("write archive file: {}", path.display()))?;
-    Ok(())
+    let temporary = path.with_file_name(format!(
+        ".iyw-extract-{}.part",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let mut target = crate::retry::file("create archive temporary file", &temporary, || {
+        File::create_new(&temporary)
+    })?;
+    // 解压流只能消费一次；关闭完整文件后仅重试就位操作，避免留下半写入的 DLL。
+    let written = io::copy(entry, &mut target)
+        .with_context(|| format!("write archive file: {}", path.display()));
+    drop(target);
+    let result = written.and_then(|_| {
+        crate::retry::file("publish archive file", path, || {
+            fs::rename(&temporary, path)
+        })
+    });
+    if result.is_err() {
+        if let Err(error) = crate::retry::file("remove incomplete archive file", &temporary, || {
+            fs::remove_file(&temporary)
+        }) {
+            eprintln!("archive temporary cleanup failed: {error:#}");
+        }
+    }
+    result
 }
 
 fn check_zip_space(archive: &mut ZipArchive<File>, destination: &Path) -> Result<u64> {

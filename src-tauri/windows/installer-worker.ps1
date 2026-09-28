@@ -8,6 +8,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $phaseTimeout = [TimeSpan]::FromMinutes(20)
 $pollMilliseconds = 250
+$failureDetailLimit = 600
 $statePath = Join-Path $Directory 'environment.status.ini'
 $progressPath = Join-Path $Directory 'environment.progress.ini'
 $logPath = Join-Path $Directory 'environment-worker.log'
@@ -18,9 +19,12 @@ $child = $null
 $script:displayed = 0
 $script:environmentProgress = 0
 $script:progressWarning = $false
+$script:failureDetail = ''
 
 function Write-State([string]$State, [int]$Code) {
-    $text = "[result]`r`nState=$State`r`nCode=$Code`r`n"
+    $detail = $script:failureDetail.Replace("`r", ' ').Replace("`n", ' ')
+    if ($detail.Length -gt $failureDetailLimit) { $detail = $detail.Substring(0, $failureDetailLimit) + '...' }
+    $text = "[result]`r`nState=$State`r`nCode=$Code`r`nDetail=$detail`r`n"
     # A partial snapshot read is not a completion signal.
     [IO.File]::WriteAllText($statePath, $text, [Text.Encoding]::Unicode)
 }
@@ -70,6 +74,7 @@ function Invoke-Phase([string]$Phase, [string]$Transaction = '') {
             Start-Sleep -Milliseconds $pollMilliseconds
         }
         $code = $child.Finish()
+        if ($code -ne 0 -and $child.FailureMessage) { $script:failureDetail = $child.FailureMessage }
         Update-Progress
         return $code
     } finally { $child.Dispose(); $script:child = $null }
@@ -109,6 +114,7 @@ try {
 } catch [OperationCanceledException] {
     Write-State 'cancelled' 1
 } catch {
+    $script:failureDetail = $_.Exception.Message
     [IO.File]::AppendAllText($logPath, $_.Exception.ToString() + [Environment]::NewLine)
     Write-State 'failed' 1
 } finally {

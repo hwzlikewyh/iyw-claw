@@ -1,13 +1,12 @@
 ; Capture source paths while NSIS includes this file.
 !define IYW_CLAW_INSTALL_REGISTRY_KEY "Software\iywclaw\iyw-claw"
-; 安装器启动即请求管理员权限，避免在安装事务或环境解压阶段才遇到 ACL 拒绝。
-RequestExecutionLevel admin
+; 应用和环境均属于当前用户；安装与重试不申请管理员权限。
+RequestExecutionLevel user
 !define MUI_CUSTOMFUNCTION_GUIINIT IywClawRestoreLogicalInstallRoot
 Var IywClawRoot
 Var IywClawInstallRegistryKey
 Var IywClawElevated
 Var IywClawPermissionError
-Var IywClawElevationRolledBack
 
 !include "${__FILEDIR__}\installer-process-control.nsh"
 !include "${__FILEDIR__}\installer-app-transaction.nsh"

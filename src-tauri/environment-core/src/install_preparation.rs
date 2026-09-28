@@ -31,8 +31,7 @@ impl Context<'_> {
             if !seen.insert(&action.component_id) {
                 bail!("environment plan contains a duplicate component")
             }
-            match self
-                .prepare_action(action)
+            match crate::retry::component(&action.component_id, || self.prepare_action(action))
                 .with_context(|| format!("prepare environment component: {}", action.component_id))
             {
                 Ok(component) => {
