@@ -47,9 +47,9 @@ function Update-Progress {
     $combined = [int](3500 * $appProgress + 0.6 * $script:environmentProgress)
     $script:displayed = [Math]::Max($script:displayed, [Math]::Min(9500, $combined))
     $phase = [IywInstallerNative]::Read($progressPath, 'Phase')
-    $stage = if ($phase -in @('commit', 'committed')) { 'complete' }
-        elseif ($script:environmentProgress -gt 0 -or $appProgress -gt 0) { 'initialize' }
-        else { 'prepare' }
+    $stage = if ($phase -eq 'committed') { 'complete' }
+        elseif ([string]::IsNullOrWhiteSpace($phase)) { 'prepare' }
+        else { $phase }
     $updated = [IywInstallerNative]::Stage($StageText, $stage)
     $updated = [IywInstallerNative]::Show($ProgressBar, $StatusText, $script:displayed) -and $updated
     if (-not $updated -and -not $script:progressWarning) {

@@ -29,6 +29,7 @@ impl FusionClient {
     }
 
     pub fn resolve(&self, request: &ResolveRequest) -> Result<EnvironmentPlan> {
+        crate::progress::phase("resolving");
         crate::retry::run("环境计划", || self.resolve_once(request))
     }
 

@@ -21,11 +21,15 @@ struct Progress {
     verified: usize,
     verify_total: usize,
     transaction: String,
+    persist_warning: bool,
 }
 
 pub fn configure(path: Option<String>) -> Result<()> {
     let path = path.map(PathBuf::from);
-    ensure!(path.as_ref().is_none_or(|path| path.is_absolute()), "progress path must be absolute");
+    ensure!(
+        path.as_ref().is_none_or(|path| path.is_absolute()),
+        "progress path must be absolute"
+    );
     let _ = STATE.set(Mutex::new(Progress {
         path,
         phase: "prepare",
@@ -35,6 +39,7 @@ pub fn configure(path: Option<String>) -> Result<()> {
         verified: 0,
         verify_total: 0,
         transaction: String::new(),
+        persist_warning: false,
     }));
     with_state(|_| {});
     Ok(())
@@ -54,20 +59,41 @@ pub fn plan(actions: &[EnvironmentAction]) {
     });
 }
 
+pub fn phase(value: &'static str) {
+    with_state(|state| state.phase = value);
+}
+
 pub fn percent() -> Option<u32> {
-    STATE.get()?.lock().ok().map(|state| state.value / (SCALE / 100))
+    STATE
+        .get()?
+        .lock()
+        .ok()
+        .map(|state| state.value / (SCALE / 100))
 }
 
 pub fn event(component: &str, phase: &str, done: u64, total: u64) {
     with_state(|state| match phase {
-        "downloading" => state.component(component, fraction(done, total, DOWNLOAD_SHARE)),
-        "downloaded" | "cached" => state.component(component, DOWNLOAD_SHARE),
+        "checking" => state.phase = "checking",
+        "revalidating" => state.phase = "revalidating",
+        "downloading" => {
+            state.phase = "downloading";
+            state.component(component, fraction(done, total, DOWNLOAD_SHARE));
+        }
+        "downloaded" | "cached" => {
+            state.phase = "downloaded";
+            state.component(component, DOWNLOAD_SHARE);
+        }
         "extracting" => {
+            state.phase = "extracting";
             state.active = component.into();
             state.component(component, DOWNLOAD_SHARE);
         }
-        "reused" | "component-prepared" | "optional-skipped" => state.component(component, SCALE),
+        "reused" | "component-prepared" | "optional-skipped" => {
+            state.phase = "preparing";
+            state.component(component, SCALE);
+        }
         "verified" => {
+            state.phase = "verifying";
             state.verified += 1;
             state.value = PREPARE_SHARE
                 + fraction(
@@ -86,6 +112,7 @@ pub fn event(component: &str, phase: &str, done: u64, total: u64) {
 
 pub fn extracted(done: u64, total: u64) {
     with_state(|state| {
+        state.phase = "extracting";
         let active = state.active.clone();
         state.component(
             &active,
@@ -122,7 +149,14 @@ fn with_state(change: impl FnOnce(&mut Progress)) {
     let Ok(mut state) = lock.lock() else { return };
     change(&mut state);
     // 进度写入失败不能破坏已有环境；安装结果由子进程退出码确认。
-    let _ = state.persist();
+    match state.persist() {
+        Ok(()) => state.persist_warning = false,
+        Err(error) if !state.persist_warning => {
+            eprintln!("environment progress publish failed: {error:#}");
+            state.persist_warning = true;
+        }
+        Err(_) => {}
+    }
 }
 
 impl Progress {
@@ -147,14 +181,48 @@ impl Progress {
         self.value = self.value.max(percent);
     }
 
-    fn persist(&self) -> std::io::Result<()> {
-        let Some(path) = self.path.as_ref() else { return Ok(()) };
+    fn persist(&self) -> anyhow::Result<()> {
+        let Some(path) = self.path.as_ref() else {
+            return Ok(());
+        };
         let temporary = path.with_extension("new");
         let text = format!(
             "[progress]\nPhase={}\nValue={}\nTransaction={}\n",
             self.phase, self.value, self.transaction
         );
         std::fs::write(&temporary, text)?;
-        std::fs::rename(temporary, path)
+        crate::retry::file("publish environment progress", path, || {
+            replace_file(&temporary, path)
+        })?;
+        Ok(())
     }
+}
+
+#[cfg(not(windows))]
+fn replace_file(source: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
+    std::fs::rename(source, destination)
+}
+
+#[cfg(windows)]
+fn replace_file(source: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let source = source
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let flags = MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH;
+    if unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), flags) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
 }
