@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef, useState } from "react"
-import { FolderPlus } from "lucide-react"
+import { FolderOpen } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import { isDesktop, openFileDialog } from "@/lib/platform"
@@ -83,7 +83,7 @@ export function NewFolderDropdown({
   return (
     <>
       <Button
-        variant="ghost"
+        variant={showLabel ? "outline" : "ghost"}
         size="icon"
         className={cn(
           showLabel
@@ -97,9 +97,11 @@ export function NewFolderDropdown({
         disabled={pending}
         onClick={handleOpenFolder}
       >
-        <FolderPlus className="h-3.5 w-3.5" />
+        <FolderOpen className="h-3.5 w-3.5" />
         {showLabel ? (
-          <span className="truncate">{label || t("openFolder")}</span>
+          <span className="min-w-0 whitespace-normal break-words leading-4">
+            {label || t("openFolder")}
+          </span>
         ) : null}
       </Button>
       <DirectoryBrowserDialog

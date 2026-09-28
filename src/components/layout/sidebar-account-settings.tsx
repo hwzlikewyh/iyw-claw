@@ -1,6 +1,6 @@
 "use client"
 
-import { ChevronsUpDown, Loader2, Settings } from "lucide-react"
+import { Loader2, Settings } from "lucide-react"
 import { useTranslations } from "next-intl"
 import {
   AccountAvatar,
@@ -31,7 +31,7 @@ export function SidebarAccountSettings({
     <>
       <div
         className={cn(
-          "flex min-w-0 items-center gap-1 py-1",
+          "flex min-w-0 items-center gap-1 py-0.5",
           compact && "flex-col"
         )}
       >
@@ -42,13 +42,13 @@ export function SidebarAccountSettings({
               title={t("dialogTitle")}
               aria-label={t("dialogTitle")}
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-2 rounded-md p-1.5 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring",
+                "flex min-w-0 flex-1 items-center gap-1.5 rounded-md p-1 text-left outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring",
                 compact && "flex-none"
               )}
             >
               <AccountAvatar
                 profile={account.profile}
-                className="size-8 shrink-0"
+                className="size-7 shrink-0"
               />
               {!compact && <AccountTriggerText account={account} />}
             </button>
@@ -89,7 +89,7 @@ export function SidebarAccountSettings({
         <Button
           variant="ghost"
           size="icon"
-          className="size-8 shrink-0 rounded-md text-muted-foreground"
+          className="size-7 shrink-0 rounded-md text-muted-foreground"
           title={t("openSettings")}
           aria-label={t("openSettings")}
           onClick={() => void account.settings()}
@@ -111,20 +111,17 @@ function AccountTriggerText({
   return (
     <>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-xs font-semibold">
+        <span className="block break-all text-xs font-semibold leading-4">
           {account.status === "checking"
             ? t("loading")
             : displayName(account.profile, t("notSignedIn"))}
         </span>
-        <span className="mt-0.5 block truncate text-[0.6875rem] text-muted-foreground">
+        <span className="block break-all text-[0.6875rem] leading-4 text-muted-foreground">
           {account.profile?.logged_in
-            ? t("balancePoints") +
-              " · " +
-              balancePoints(account.profile, t("balanceUnknown"))
+            ? balancePoints(account.profile, t("balanceUnknown"))
             : t("clickToOpen")}
         </span>
       </span>
-      <ChevronsUpDown className="size-3 shrink-0 text-muted-foreground" />
     </>
   )
 }

@@ -70,7 +70,7 @@ export function SidebarNavButton({
         "transition-[background-color,color,box-shadow] duration-150",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
         isPrimary
-          ? "h-10 bg-foreground text-background shadow-sm hover:bg-foreground/90"
+          ? "h-10 bg-sidebar-primary text-sidebar-primary-foreground shadow-sm hover:bg-sidebar-primary/90"
           : "h-9 text-sidebar-foreground/70 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground",
         active &&
           !isPrimary &&
@@ -81,7 +81,9 @@ export function SidebarNavButton({
       <Icon
         className={cn(
           "h-[0.875rem] w-[0.875rem] shrink-0",
-          isPrimary ? "text-background" : "text-muted-foreground",
+          isPrimary
+            ? "text-sidebar-primary-foreground"
+            : "text-muted-foreground",
           active && !isPrimary && "text-primary"
         )}
       />
@@ -122,7 +124,7 @@ export function SidebarRailButton({
         "transition-[background-color,color,box-shadow] duration-150",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
         isPrimary
-          ? "bg-foreground text-background shadow-sm hover:bg-foreground/90"
+          ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm hover:bg-sidebar-primary/90"
           : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
         active && !isPrimary && "bg-primary/10 text-primary"
       )}
