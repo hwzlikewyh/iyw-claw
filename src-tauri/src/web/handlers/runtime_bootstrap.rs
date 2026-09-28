@@ -57,7 +57,7 @@ pub async fn runtime_bootstrap(
     Json(report)
 }
 
-/// 受管初始化状态查询（只读，不取写入锁）；对应 Tauri command bootstrap_init_status。
+/// 受管初始化状态查询；与修复串行，避免读取到激活中的中间状态。
 #[cfg(not(feature = "tauri-runtime"))]
 pub async fn bootstrap_init_status(
     Extension(state): Extension<Arc<AppState>>,

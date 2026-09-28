@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::path::{Component, Path, PathBuf};
+use std::time::Duration;
 
 use serde::Deserialize;
 
@@ -9,8 +10,26 @@ mod snapshot;
 mod status;
 mod verification_cache;
 
+static WRITER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 pub use repair::repair;
 pub use status::{init_status_report, ManagedEnvironmentStatusReport};
+
+pub async fn lock_writer() -> tokio::sync::MutexGuard<'static, ()> {
+    WRITER.lock().await
+}
+
+pub fn core_components_need_repair(report: &ManagedEnvironmentStatusReport) -> bool {
+    ["node", "git", "uv", "chromix", "agent-browser"]
+        .iter()
+        .any(|component_id| {
+            report
+                .components
+                .iter()
+                .find(|component| component.component_id == *component_id)
+                .map_or(true, |component| !component.active)
+        })
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,14 +66,27 @@ struct ManagedFile {
 }
 
 pub fn entrypoint(component: &str, name: &str) -> Option<PathBuf> {
+    const RETRIES: usize = 3;
     let root = crate::paths::iyw_claw_user_dir();
-    let snapshot = snapshot::load(&root).ok()?;
+    for attempt in 0..RETRIES {
+        if let Some(path) = entrypoint_once(&root, component, name) {
+            return Some(path);
+        }
+        if attempt + 1 < RETRIES {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+    None
+}
+
+fn entrypoint_once(root: &Path, component_id: &str, name: &str) -> Option<PathBuf> {
+    let snapshot = snapshot::load(root).ok()?;
     let component = snapshot
         .components
         .iter()
-        .find(|item| item.component_id == component)?;
+        .find(|item| item.component_id == component_id)?;
     let relative = component.entrypoints.get(name)?;
-    let component_root = snapshot::component_path(&root, &component.relative_path)?;
+    let component_root = snapshot::component_path(root, &component.relative_path)?;
     let candidate = managed_path(&component_root, relative)?;
     let record = component.files.iter().find(|file| file.path == *relative)?;
     verify_file(&component_root, &candidate, record).then_some(candidate)
