@@ -45,7 +45,7 @@ export function ChannelConfirmationCard({
     <div
       role="alertdialog"
       aria-labelledby={`${confirmation.confirmation_id}-title`}
-      className="mb-2 rounded-lg border border-destructive/30 bg-card p-3 shadow-lg"
+      className="mb-2 min-w-0 rounded-lg border border-destructive/30 bg-card p-3 wrap-anywhere shadow-lg"
     >
       <div className="flex items-start gap-2.5">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
@@ -79,7 +79,7 @@ export function ChannelConfirmationCard({
           </dl>
         </div>
       </div>
-      <div className="mt-3 flex items-center justify-end gap-2">
+      <div className="mt-3 flex min-w-0 flex-wrap items-center justify-end gap-2 [&>button]:h-auto [&>button]:min-h-8 [&>button]:max-w-full [&>button]:whitespace-normal">
         {failed && (
           <span role="alert" className="mr-auto text-xs text-destructive">
             {t("submitError")}

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef } from "react"
+import { cn } from "@/lib/utils"
 import { useAskQuestion, type QuestionCardProps } from "./use-ask-question"
 import { QuestionCardContent } from "./question-card-content"
 import {
@@ -42,7 +43,10 @@ function QuestionCard(props: QuestionCardProps) {
     <section
       ref={container}
       aria-label={props.title}
-      className="@container mb-2 flex max-h-[70svh] min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm"
+      className={cn(
+        "@container mb-2 flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm",
+        props.readOnly && "max-h-[70svh]"
+      )}
     >
       <QuestionHeader props={props} state={state} />
       <QuestionNavigation props={props} state={state} />

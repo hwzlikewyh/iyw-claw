@@ -364,8 +364,8 @@ function SubAgentSessionBody({
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-3 px-5 py-2.5 border-b border-border pr-12">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+      <div className="flex shrink-0 items-center gap-3 px-5 py-2.5 border-b border-border pr-12">
         <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-foreground">
           {agentType ? (
             <AgentIcon agentType={agentType} className="h-4 w-4" />
@@ -377,37 +377,39 @@ function SubAgentSessionBody({
           {agentType ? getAgentDisplayName(agentType) : t("unknownAgent")}
         </span>
       </div>
-      {childPendingPermission && (
-        <div className="border-b border-border px-4 py-3">
-          <PermissionDialog
-            permission={childPendingPermission}
-            onRespond={onRespondPermission}
-          />
-        </div>
-      )}
-      <InteractiveHtmlPages
-        pages={childConn?.interactiveHtml ?? []}
-        connectionId={childConnectionId ?? null}
-      />
-      {childConnectionId && childChannelConfirmation && (
-        <div className="border-b border-border px-4 py-3">
-          <ChannelConfirmationCard
-            confirmation={childChannelConfirmation}
-            onRespond={onRespondChannelConfirmation}
-          />
-        </div>
-      )}
-      {childConnectionId &&
-        childPendingAskQuestion &&
-        childPendingAskQuestion.questions.length > 0 && (
+      <div className="max-h-[50%] min-h-0 min-w-0 shrink-0 overflow-y-auto overscroll-contain">
+        {childPendingPermission && (
           <div className="border-b border-border px-4 py-3">
-            <AskQuestionCard
-              question={childPendingAskQuestion}
-              onAnswer={onAnswerAskQuestion}
+            <PermissionDialog
+              permission={childPendingPermission}
+              onRespond={onRespondPermission}
             />
           </div>
         )}
-      <div className="flex-1 min-h-0 px-4 py-3">
+        <InteractiveHtmlPages
+          pages={childConn?.interactiveHtml ?? []}
+          connectionId={childConnectionId ?? null}
+        />
+        {childConnectionId && childChannelConfirmation && (
+          <div className="border-b border-border px-4 py-3">
+            <ChannelConfirmationCard
+              confirmation={childChannelConfirmation}
+              onRespond={onRespondChannelConfirmation}
+            />
+          </div>
+        )}
+        {childConnectionId &&
+          childPendingAskQuestion &&
+          childPendingAskQuestion.questions.length > 0 && (
+            <div className="border-b border-border px-4 py-3">
+              <AskQuestionCard
+                question={childPendingAskQuestion}
+                onAnswer={onAnswerAskQuestion}
+              />
+            </div>
+          )}
+      </div>
+      <div className="flex-1 min-h-24 overflow-auto px-4 py-3">
         <MessageListView
           conversationId={childConversationId}
           agentType={agentType ?? "claude_code"}
