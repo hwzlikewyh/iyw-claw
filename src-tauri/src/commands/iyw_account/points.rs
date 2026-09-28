@@ -1,6 +1,8 @@
 use super::{AppCommandError, FUSION_API_BASE_URL};
 use serde::Deserialize;
 
+const BALANCE_DECIMAL_FACTOR: f64 = 100.0;
+
 #[derive(Deserialize)]
 struct PointsEnvelope {
     code: i32,
@@ -58,6 +60,9 @@ pub(super) async fn fetch(client: &reqwest::Client, token: &str) -> Result<f64, 
         .data
         .available_points
         .filter(|value| value.is_finite() && *value >= 0.0)
+        // 兼容尚未升级的 Fusion，资料接口也只输出两位精度的余额。
+        .map(|value| (value * BALANCE_DECIMAL_FACTOR).round() / BALANCE_DECIMAL_FACTOR)
+        .filter(|value| value.is_finite())
         .ok_or_else(|| unavailable().with_detail("stage=balance_decode missing or invalid balance"))
 }
 

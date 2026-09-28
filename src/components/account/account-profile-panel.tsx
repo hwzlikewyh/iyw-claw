@@ -30,7 +30,7 @@ export function balancePoints(
   return profile?.balance_points === null ||
     profile?.balance_points === undefined
     ? fallback
-    : String(profile.balance_points)
+    : profile.balance_points.toFixed(2)
 }
 
 export function normalizeAvatarUrl(value: string | null | undefined) {
