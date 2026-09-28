@@ -203,7 +203,7 @@ export function ConversationShell({
 
   return (
     <div className="flex h-full min-h-0 min-w-0">
-      <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">
+      <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
         {topBanner}
         {onSideQuestion && (
           <div className="flex justify-end px-4 py-1">
@@ -216,32 +216,28 @@ export function ConversationShell({
             </Button>
           </div>
         )}
-        <div className="flex-1 min-h-0">{children}</div>
+        <div className="min-h-24 flex-1 overflow-auto">{children}</div>
 
-        <PermissionDialog
-          permission={pendingPermission}
-          onRespond={onRespondPermission}
-        />
+        {/* 待处理卡片共享高度上限，为状态栏和输入框留出空间；输入框菜单可向上展开。 */}
+        <div className="max-h-[50%] min-h-0 min-w-0 shrink-0 overflow-y-auto overscroll-contain">
+          <PermissionDialog
+            permission={pendingPermission}
+            onRespond={onRespondPermission}
+          />
 
-        <QuestionDialog
-          question={pendingQuestion}
-          onAnswer={onAnswerQuestion}
-        />
-        {interactiveHtml}
-
-        {/* Composer dock. The ask-question card sits in normal flow just above the
-          feedback list and input — like the permission/question dialogs — so it
-          shrinks the message list instead of covering it, while staying aligned
-          to the input width. */}
-        <div>
+          <QuestionDialog
+            question={pendingQuestion}
+            onAnswer={onAnswerQuestion}
+          />
+          {interactiveHtml}
           {autoContinuation &&
             autoContinuation.phase === "needs_user_action" && (
               <div className="mx-auto w-full max-w-4xl px-4 pb-2">
-                <div className="flex items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
                   <span className="min-w-0 text-amber-700 dark:text-amber-300">
                     {tAcp("autoContinuation.needsUserAction")}
                   </span>
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <Button
                       type="button"
                       size="sm"
@@ -281,7 +277,9 @@ export function ConversationShell({
               />
             </div>
           )}
+        </div>
 
+        <div className="shrink-0">
           {!hideInput && feedbackList && (
             <div className="mx-auto w-full max-w-4xl px-4">{feedbackList}</div>
           )}

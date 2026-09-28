@@ -26,7 +26,7 @@ export function QuestionFooter(view: QuestionCardViewProps) {
   const t = useTranslations("Folder.chat.askQuestion")
   const { state } = view
   return (
-    <footer className="shrink-0 border-t border-border/60 p-4">
+    <footer className="shrink-0 border-t border-border/60 p-4 wrap-anywhere [&_button]:h-auto [&_button]:min-h-8 [&_button]:max-w-full [&_button]:whitespace-normal">
       {state.error && (
         <p role="alert" className="mb-3 text-xs text-destructive">
           {state.error === "submitError" ? t("submitError") : state.error}

@@ -17,7 +17,7 @@ export function QuestionHeader({ props, state }: QuestionCardViewProps) {
       <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
         <MessageCircleQuestionMark className="size-4.5" />
       </span>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 wrap-anywhere">
         <h3 className="text-sm font-semibold">
           {state.review ? t("reviewTitle") : (props.title ?? t("title"))}
         </h3>
@@ -96,7 +96,7 @@ export function DeferredQuestion({ props, state }: QuestionCardViewProps) {
   return (
     <section className="mb-2 flex flex-wrap items-center gap-3 rounded-lg border bg-card p-4">
       <MessageCircleQuestionMark className="size-4 text-emerald-600" />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 wrap-anywhere">
         <h3 className="text-sm font-medium">
           {props.title ?? t("savedTitle")}
         </h3>

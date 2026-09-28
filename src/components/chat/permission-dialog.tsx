@@ -49,7 +49,7 @@ function PermissionCard({
       className="mx-4 mb-3 min-w-0 shrink-0 overflow-hidden rounded-lg border border-border bg-card shadow-sm"
     >
       <PermissionHeader permission={permission} kind={parsed.normalizedKind} />
-      <div className="max-h-[min(36vh,18rem)] min-w-0 space-y-3 overflow-y-auto overscroll-contain px-4 pb-4">
+      <div className="min-w-0 space-y-3 px-4 pb-4">
         <p className="text-sm font-medium [overflow-wrap:anywhere]">
           {parsed.command
             ? (permissionSummary(permission.tool_call) ?? t("commandRequest"))
