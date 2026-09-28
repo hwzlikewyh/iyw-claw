@@ -47,12 +47,11 @@ function formatOutputRate(
 }
 
 function completedDuration(props: MessageOutputStatsProps, startedAt?: number) {
-  return (
-    resolveTurnDuration({
-      startedAt: startedAt == null ? null : new Date(startedAt).toISOString(),
-      completedAt: props.completedAt,
-    }) ?? props.durationMs
-  )
+  return resolveTurnDuration({
+    duration_ms: props.durationMs,
+    startedAt: startedAt == null ? null : new Date(startedAt).toISOString(),
+    completedAt: props.completedAt,
+  })
 }
 
 function useMeasuredTurnTimings(props: MessageOutputStatsProps) {
