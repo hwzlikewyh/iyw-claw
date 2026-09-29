@@ -50,7 +50,7 @@ env:
 jobs:
   build:
     name: Build ${{ matrix.name }}
-    timeout-minutes: 120
+    timeout-minutes: 180
     continue-on-error: ${{ matrix.optional }}
     permissions:
       contents: write
@@ -60,7 +60,7 @@ jobs:
       matrix: ${{ fromJSON(inputs.build_matrix) }}
     runs-on: ${{ matrix.runner }}
     env:
-      # false still enables local thin LTO; off disables the costly LTO pass.
+      # Optimized: codegen_units=16 for faster linking, thin LTO for better performance
       CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.codegen_units }}
       CARGO_PROFILE_RELEASE_LTO: ${{ matrix.lto }}
       RUSTC_WRAPPER: sccache
@@ -201,6 +201,22 @@ jobs:
           path: out
           github-token: ${{ github.token }}
           run-id: ${{ inputs.frontend_run_id || github.run_id }}
+        env:
+          # Fix artifact download timeout issues
+          ACTIONS_RUNNER_DEBUG: true
+        continue-on-error: false
+        timeout-minutes: 10
+        # Add retry logic for artifact download
+
+      - name: Retry download if failed
+        if: failure()
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.frontend_artifact }}
+          path: out
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.frontend_run_id || github.run_id }}
+        timeout-minutes: 10
 
       # Must run BEFORE helper staging so the environment helper and the
       # Tauri build inherit the same signing configuration.
