@@ -4453,7 +4453,7 @@ async fn run_connection(
                         _ => {}
                     }
                 }
-                return Err(error);
+                return Err(AcpError::from(error));
             }
             Err(ConnectionAttemptError::BuiltinMcp(error)) => return Err(error),
         }
