@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use crate::model::PreparedState;
-use crate::paths::{ensure_within, safe_segment, Layout};
+use crate::paths::{safe_segment, Layout};
 
 pub fn install(layout: &Layout, state: &PreparedState) -> Result<()> {
     safe_segment(&state.pc_version, "application version")?;
@@ -15,16 +15,34 @@ pub fn install(layout: &Layout, state: &PreparedState) -> Result<()> {
     let root = layout.root.join("maintenance");
     ensure_within(&layout.root, &root)?;
     let directory = root.join(&relative);
-    fs::create_dir_all(&directory)?;
+    ensure_within(&layout.root, &directory)?;
+    crate::retry::file("create repair helper directory", &directory, || {
+        fs::create_dir_all(&directory)
+    })?;
     let name = format!("iyw-environment{}", std::env::consts::EXE_SUFFIX);
     let target = directory.join(&name);
     if !crate::download::valid_file(&target, source.metadata()?.len(), &digest)? {
-        fs::copy(&source, &target).context("安装独立环境修复程序失败")?;
+        crate::retry::file("copy repair helper", &target, || fs::copy(&source, &target))
+            .context("安装独立环境修复程序失败")?;
         if crate::download::hash_file(&target)? != digest {
             anyhow::bail!("环境修复程序复制校验失败")
         }
     }
     write_launcher(&root, &format!("{relative}/{name}"))
+}
+
+fn ensure_within(root: &Path, path: &Path) -> Result<()> {
+    let canonical_root = root.canonicalize()?;
+    let mut existing = path;
+    while !existing.exists() {
+        existing = existing
+            .parent()
+            .context("managed path has no existing parent")?;
+    }
+    if !existing.canonicalize()?.starts_with(canonical_root) {
+        anyhow::bail!("managed path resolves outside the environment root")
+    }
+    Ok(())
 }
 
 fn source_executable(layout: &Layout, state: &PreparedState) -> Result<std::path::PathBuf> {
@@ -69,14 +87,19 @@ fn write_launcher(root: &Path, relative: &str) -> Result<()> {
     {
         let executable = relative.replace('/', "\\");
         let text = format!("@echo off\r\n\"%~dp0{executable}\" repair\r\npause\r\n");
-        fs::write(root.join("repair.cmd"), text)?;
+        let target = root.join("repair.cmd");
+        crate::retry::file("write repair launcher", &target, || {
+            fs::write(&target, &text)
+        })?;
     }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let text = format!("#!/bin/sh\nset -eu\nbase=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)\nexec \"$base/{relative}\" repair\n");
         let target = root.join("repair.sh");
-        fs::write(&target, text)?;
+        crate::retry::file("write repair launcher", &target, || {
+            fs::write(&target, &text)
+        })?;
         fs::set_permissions(target, fs::Permissions::from_mode(0o755))?;
     }
     Ok(())
