@@ -1,0 +1,18 @@
+# Cargo 构建配置 - 链接器优化
+
+# macOS arm64 - 使用 lld 链接器加速
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+# macOS x64 - 使用 lld 链接器加速
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+# Linux x64 - 使用 lld 链接器加速
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+# Windows MSVC - 使用内置 lld 链接器
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"
