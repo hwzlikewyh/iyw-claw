@@ -22,6 +22,10 @@ on:
         description: "Verify the real Windows installer from a prior hosted packaging run"
         required: false
         type: string
+      installer_artifact_name:
+        description: "Installer artifact name for installer_only verification"
+        required: false
+        type: string
       frontend_run_id:
         description: "Reuse release-frontend-out from this run of the same source"
         required: false
@@ -66,7 +70,8 @@ jobs:
           node-version: 24
       - uses: actions/download-artifact@v4
         with:
-          name: github-hosted-x86_64-pc-windows-msvc-${{ inputs.version }}
+          name: >-
+            ${{ inputs.installer_artifact_name || format('github-hosted-x86_64-pc-windows-msvc-{0}', inputs.version) }}
           path: ${{ runner.temp }}/environment-installer-input
           github-token: ${{ github.token }}
           run-id: ${{ inputs.installer_run_id }}
@@ -74,6 +79,17 @@ jobs:
         env:
           INSTALLER_INPUT: ${{ runner.temp }}/environment-installer-input
         run: node src-tauri/scripts/verify-managed-installer.mjs "$env:INSTALLER_INPUT"
+      - name: Show installer failure logs
+        if: failure()
+        shell: pwsh
+        run: |
+          $environment = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.iyw-claw'
+          Get-Content (Join-Path $environment 'logs/environment/last-error.log') -ErrorAction SilentlyContinue
+          Get-ChildItem $env:RUNNER_TEMP -Directory -Filter 'iyw-environment-installer-*' |
+            ForEach-Object {
+              Get-Content (Join-Path $_.FullName 'logs/installer.log') -ErrorAction SilentlyContinue
+              Get-Content (Join-Path $_.FullName 'logs/installer-initialization.log') -Tail 30 -ErrorAction SilentlyContinue
+            }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

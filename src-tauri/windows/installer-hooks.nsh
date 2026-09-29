@@ -37,6 +37,7 @@ Function IywClawRestoreLogicalInstallRoot
 
   iyw_installer_mode_valid:
   Call IywClawValidateElevationIdentity
+  Call IywClawRecoverSmokeInstallRoot
   Call IywClawNormalizeLegacyInstallRoot
   ; Older installers persisted root\app as MUI's default directory while the
   ; product-specific InstallRoot value already held the user-selected root.
@@ -44,6 +45,14 @@ Function IywClawRestoreLogicalInstallRoot
   ; old uninstaller has finished using its internal root\app working directory.
   ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
   StrCmp $R8 "" iyw_set_default_install_root 0
+  Push "$INSTDIR"
+  Call IywClawIsSmokeInstallRoot
+  Pop $R5
+  StrCmp $R5 "1" 0 iyw_check_legacy_app_dir
+  GetFullPathName $INSTDIR "$R8"
+  Goto iyw_guiinit_done
+
+  iyw_check_legacy_app_dir:
   GetFullPathName $R9 "$R8\app"
   GetFullPathName $R7 "$INSTDIR"
   StrCmp $R7 $R9 0 iyw_guiinit_done
@@ -141,6 +150,16 @@ Function IywClawResolveInstallRoot
     Abort
 
   iyw_root_scope_validated:
+    StrCmp $IywClawInstallerTestMode "1" iyw_root_allowed
+    Push "$IywClawRoot"
+    Call IywClawIsSmokeInstallRoot
+    Pop $R0
+    StrCmp $R0 "1" 0 iyw_root_allowed
+    DetailPrint "正式安装不能使用临时 smoke 目录：$IywClawRoot"
+    SetErrorLevel 2
+    Abort
+
+  iyw_root_allowed:
     Call IywClawCheckInstallPermissions
     CreateDirectory "$IywClawRoot"
     ClearErrors

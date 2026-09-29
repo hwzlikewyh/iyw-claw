@@ -181,6 +181,12 @@ function verifyInstalledSidecars(appDirectory, target, version) {
 
 function logInstallRoot(root) {
   try {
+    const installerLog = join(root, "logs", "installer.log")
+    if (existsSync(installerLog)) {
+      log(
+        `NSIS installer log: ${readFileSync(installerLog, "utf8").slice(-4000)}`
+      )
+    }
     const entries = readdirSync(root, { recursive: true })
     if (entries.length === 0) {
       log("NSIS temporary root is empty after installer failure")
