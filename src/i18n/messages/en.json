@@ -3020,6 +3020,7 @@
           "serviceUnavailable": "The service is temporarily unavailable. Try again later.",
           "requestFailed": "The request failed. Try again later.",
           "modelStreamInterrupted": "The model service disconnected mid-response, so this turn didn't finish. The connection is still usable, so you can retry or continue. If it keeps happening, try another model or try again later.",
+          "sessionRebindRequired": "The runtime exited unexpectedly right after this conversation forked. The assistant couldn't determine which session to restore, so it didn't reconnect automatically. Reopen the conversation to continue.",
           "workerContentRecoveryFailed": "This turn has ended, but the complete output could not be verified. Open the conversation history to check the result.",
           "currentModel": "The current model",
           "initializeTimeout": "{agent} local initialization timed out. Open Settings to check the Agent configuration and startup logs.",
@@ -3648,6 +3649,13 @@
         "metricsPending": "Pending",
         "metricsUnavailable": "Not recorded",
         "runtimeRetrying": "Something went wrong, retrying",
+        "runtimeRetryingWithAttempt": "Retrying (attempt {attempt}/{max})",
+        "retryReason": {
+          "streamDisconnected": "Model service disconnected mid-response",
+          "rateLimited": "Model service is busy (rate limited)",
+          "serverError": "Model service temporarily unavailable",
+          "networkError": "Network connection failed"
+        },
         "waitingProcess": "Waiting for the command to finish",
         "waitingOutput": "Waiting for the assistant to continue",
         "activityUnknown": "Waiting for the assistant to respond",

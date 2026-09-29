@@ -21,6 +21,9 @@ pub enum AcpError {
     /// message queue above the input box instead of surfacing an error.
     #[error("turn already in progress for this connection")]
     TurnInProgress,
+    /// 运行时在对话分叉后异常退出，原助理无法确定该恢复哪个会话，未自动重连。
+    #[error("runtime exited after fork before the new session was confirmed")]
+    SessionRebindRequired,
     /// Live feedback was submitted while no turn was in flight. Feedback only
     /// makes sense while the agent is working (it is pulled mid-turn via the
     /// `check_user_feedback` MCP tool); with no active turn there is nothing to
@@ -104,6 +107,7 @@ impl AcpError {
             Self::ProcessExited => Some("process_exited"),
             Self::CapabilityDenied(_) => Some("capability_denied"),
             Self::TurnInProgress => Some("turn_in_progress"),
+            Self::SessionRebindRequired => Some("session_rebind_required"),
             Self::NoActiveTurn => Some("no_active_turn"),
             Self::FeedbackDisabled => Some("feedback_disabled"),
             Self::InvalidFeedback(_) => Some("invalid_feedback"),

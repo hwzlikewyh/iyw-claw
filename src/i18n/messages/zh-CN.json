@@ -3020,6 +3020,7 @@
           "serviceUnavailable": "服务暂时不可用，请稍后重试。",
           "requestFailed": "请求失败，请稍后重试。",
           "modelStreamInterrupted": "模型服务中途断开，这一轮没有完成。连接仍可使用，可以重试或继续；如果反复出现，请换个模型或稍后再试。",
+          "sessionRebindRequired": "运行时在对话分叉后异常退出，原助理无法确定该恢复哪个会话，未自动重连。请重新打开对话以继续。",
           "workerContentRecoveryFailed": "本轮已结束，但未能核对完整输出，请打开会话历史查看结果。",
           "currentModel": "当前模型",
           "initializeTimeout": "{agent} 本地初始化超时。请前往设置检查智能体配置和启动日志。",
@@ -3648,6 +3649,13 @@
         "metricsPending": "待统计",
         "metricsUnavailable": "未记录",
         "runtimeRetrying": "遇到问题，正在重试",
+        "runtimeRetryingWithAttempt": "正在重试（第 {attempt}/{max} 次）",
+        "retryReason": {
+          "streamDisconnected": "模型服务中途断开",
+          "rateLimited": "模型服务繁忙（限流）",
+          "serverError": "模型服务暂时不可用",
+          "networkError": "网络连接失败"
+        },
         "waitingProcess": "等待命令执行结果",
         "waitingOutput": "等待原助理继续",
         "activityUnknown": "等待原助理响应",

@@ -2852,6 +2852,12 @@ impl ConnectionManager {
                 )
                 .await?;
 
+                state_arc
+                    .write()
+                    .await
+                    .fork_reconnect
+                    .confirm(forked_session_id.clone());
+
                 // Fork mutates the sidebar in two ways the rest of the system
                 // never sees otherwise: the current row's title (`[Fork] …`) and
                 // external_id (→ S2) changed, and a brand-new sibling row now

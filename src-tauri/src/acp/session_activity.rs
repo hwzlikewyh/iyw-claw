@@ -33,6 +33,9 @@ pub struct SessionActivitySnapshot {
     pub tool_output_at: Option<DateTime<Utc>>,
     pub tool_started_at: Option<DateTime<Utc>>,
     pub retrying_since: Option<DateTime<Utc>>,
+    pub retry_attempt: Option<u32>,
+    pub retry_max_attempts: Option<u32>,
+    pub retry_reason: Option<String>,
     pub processes: Vec<ProcessObservation>,
     pub sampled_at: DateTime<Utc>,
 }
@@ -121,6 +124,9 @@ impl SessionActivity {
             );
             self.urgent = true;
         }
+        self.snapshot.retry_attempt = None;
+        self.snapshot.retry_max_attempts = None;
+        self.snapshot.retry_reason = None;
     }
 
     fn mark_processes_unknown(&mut self) {
@@ -140,11 +146,14 @@ impl SessionActivity {
         now: DateTime<Utc>,
     ) -> bool {
         match observation {
-            RuntimeObservation::Retry => {
+            RuntimeObservation::Retry(progress) => {
                 if self.snapshot.retrying_since.is_none() {
                     self.snapshot.retrying_since = Some(now);
                     tracing::info!("[ACP] runtime reported retrying the active turn");
                 }
+                self.snapshot.retry_attempt = progress.attempt;
+                self.snapshot.retry_max_attempts = progress.max_attempts;
+                self.snapshot.retry_reason = progress.reason.clone();
             }
             RuntimeObservation::TerminalPoll {
                 item_id,

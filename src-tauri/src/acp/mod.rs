@@ -56,6 +56,7 @@ pub mod event_stream;
 pub mod feedback;
 pub mod file_system_runtime;
 pub mod fork;
+pub mod fork_reconnect;
 pub mod fork_target;
 pub mod grok;
 mod hermes_model;

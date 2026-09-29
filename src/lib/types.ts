@@ -1689,6 +1689,9 @@ export interface SessionActivitySnapshot {
   tool_output_at: string | null
   tool_started_at: string | null
   retrying_since: string | null
+  retry_attempt: number | null
+  retry_max_attempts: number | null
+  retry_reason: string | null
   processes: ProcessObservation[]
   sampled_at: string
 }

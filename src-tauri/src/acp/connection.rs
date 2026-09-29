@@ -3511,6 +3511,7 @@ async fn run_connection(
         let authority_parent_cancellation = attempt_cancellation.clone();
         let reconnect_session_id = session_id.clone();
         let reconnect_host_health = Arc::clone(&host_health);
+        let mut attempt_session_id = session_id.clone();
         let continuation_from_session_id = continuation_from_session_id.clone();
         let continuation_attempt_id = continuation_attempt_id.clone();
         let continuation_activated = Arc::clone(&continuation_activated);
@@ -3521,6 +3522,8 @@ async fn run_connection(
                 crate::acp::opencode_fork::OpenCodeForkClient::from_env(&agent_rebuild.runtime_env)
             })
             .transpose()?;
+        let continuation_from_session_id = continuation_from_session_id.clone();
+        let session_id = attempt_session_id.take();
         let connection = async move {
             let state = state_outer;
             if dedicated_worker {
@@ -4402,34 +4405,55 @@ async fn run_connection(
         match result {
             Ok(()) => return Ok(()),
             Err(ConnectionAttemptError::Protocol(error)) => {
-                let can_reconnect = reconnect_session_id.is_some()
+                use crate::acp::fork_reconnect::{reconnect_target, ReconnectTarget};
+                let state_snapshot = state.read().await;
+                let target = reconnect_target(
+                    &state_snapshot.fork_reconnect,
+                    reconnect_session_id.as_deref(),
+                    state_snapshot.external_id.as_deref(),
+                    state_snapshot.recoverable_session,
+                );
+                drop(state_snapshot);
+                let can_retry = !matches!(target, ReconnectTarget::Unavailable)
                     && !cancellation.is_cancelled()
                     && !reconnect_host_health.load(Ordering::Acquire)
                     && reconnect_attempts < 1;
-                if can_reconnect {
-                    reconnect_attempts += 1;
-                    tracing::warn!(
-                        connection_id,
-                        agent = %agent_type,
-                        attempt = reconnect_attempts,
-                        session_id = reconnect_session_id.as_deref().unwrap_or(""),
-                        error = %safe_error_detail(&error.to_string()),
-                        "[ACP] reconnecting after runtime Host failure"
-                    );
-                    emit_with_state(
-                        &state,
-                        &emitter,
-                        AcpEvent::StatusChanged {
-                            status: ConnectionStatus::Connecting,
-                        },
-                    )
-                    .await;
-                    attempt_agent =
-                        Some(rebuild_agent(&agent_rebuild, &attempt_stderr_tail).await?);
-                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-                    continue;
+                if can_retry {
+                    match target {
+                        ReconnectTarget::Session(next_session_id) => {
+                            reconnect_attempts += 1;
+                            attempt_session_id = Some(next_session_id);
+                            tracing::warn!(
+                                connection_id,
+                                agent = %agent_type,
+                                attempt = reconnect_attempts,
+                                target_session_id = ?attempt_session_id,
+                                "[ACP] reconnecting after runtime Host failure"
+                            );
+                            emit_with_state(
+                                &state,
+                                &emitter,
+                                AcpEvent::StatusChanged {
+                                    status: ConnectionStatus::Connecting,
+                                },
+                            )
+                            .await;
+                            attempt_agent =
+                                Some(rebuild_agent(&agent_rebuild, &attempt_stderr_tail).await?);
+                            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                            continue;
+                        }
+                        ReconnectTarget::RebindRequired => {
+                            tracing::warn!(
+                                connection_id,
+                                "[ACP] runtime exited after fork before session was confirmed; cannot auto-reconnect"
+                            );
+                            return Err(AcpError::SessionRebindRequired);
+                        }
+                        _ => {}
+                    }
                 }
-                return Err(AcpError::protocol(safe_error_detail(&error.to_string())));
+                return Err(error);
             }
             Err(ConnectionAttemptError::BuiltinMcp(error)) => return Err(error),
         }
@@ -5789,6 +5813,9 @@ async fn handle_fork_or_exit(
             return Err(error);
         }
     };
+
+    state.write().await.fork_reconnect.begin_switch();
+
     let initial_config_options = fork_resp.config_options.clone();
     let new_resp = NewSessionResponse::new(fork_resp.session_id)
         .modes(fork_resp.modes)

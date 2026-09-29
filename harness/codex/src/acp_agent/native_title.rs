@@ -17,6 +17,8 @@ const TITLE_INPUT_CHARS: usize = 960;
 pub(super) struct NativeTitle {
     attempted: bool,
     hidden_thread: Arc<Mutex<Option<String>>>,
+    lane: Arc<Mutex<request::TitleLane>>,
+    handle: Option<InProcessAppServerRequestHandle>,
     events: Option<mpsc::Sender<Value>>,
     task: Option<JoinHandle<Result<(), String>>>,
 }
@@ -33,9 +35,10 @@ impl NativeTitle {
         self.attempted = true;
         let (events, receiver) = mpsc::channel(TITLE_EVENT_CAPACITY);
         self.events = Some(events);
-        let hidden_thread = Arc::clone(&self.hidden_thread);
+        self.handle = Some(handle.clone());
+        let lanes = (Arc::clone(&self.hidden_thread), Arc::clone(&self.lane));
         self.task = Some(tokio::spawn(async move {
-            request::generate(handle, input, (hidden_thread, receiver)).await
+            request::generate(handle, input, lanes, receiver).await
         }));
     }
 
@@ -83,9 +86,23 @@ impl NativeTitle {
 
 impl Drop for NativeTitle {
     fn drop(&mut self) {
-        if let Some(task) = self.task.take() {
-            task.abort();
+        let Some(task) = self.task.take() else {
+            return;
+        };
+        if task.is_finished() {
+            return;
         }
+        task.abort();
+        // 会话结束时标题请求还没收尾：在后台补一次停止这一轮和退订，不让上游继续重试。
+        let Some(handle) = self.handle.take() else {
+            return;
+        };
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let hidden = Arc::clone(&self.hidden_thread);
+        let lane = Arc::clone(&self.lane);
+        runtime.spawn(async move { request::cleanup(&handle, &hidden, &lane).await });
     }
 }
 

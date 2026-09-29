@@ -4228,6 +4228,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                 })
               case "model_stream_interrupted":
                 return t("backendErrors.modelStreamInterrupted")
+              case "session_rebind_required":
+                return t("backendErrors.sessionRebindRequired")
               case "grok_model_switch_incompatible_agent":
                 return t("backendErrors.grokModelSwitchIncompatibleAgent", {
                   agent: agentLabel,
