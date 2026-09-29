@@ -6070,8 +6070,11 @@ fn is_stream_disconnected_error(error: &sacp::Error) -> bool {
             .is_some_and(|detail| detail.starts_with("stream disconnected before completion:"))
 }
 
+/// A model stream that ends early fails only the current turn: the Codex
+/// harness clears its active turn before returning the error, so the
+/// transport and thread stay usable for the next prompt.
 fn should_terminate_prompt_error(error: &sacp::Error, host_healthy: bool) -> bool {
-    !host_healthy || is_prompt_transport_error(error) || is_stream_disconnected_error(error)
+    !host_healthy || is_prompt_transport_error(error)
 }
 
 fn prompt_error_kind(error: &sacp::Error) -> &'static str {
@@ -6938,11 +6941,16 @@ async fn run_conversation_loop<'a>(
                                         return Err(error);
                                     }
                                     let detail = safe_error_detail(&error.to_string());
+                                    let error_code = if is_stream_disconnected_error(&error) {
+                                        "model_stream_interrupted"
+                                    } else {
+                                        "acp_prompt_request_failed"
+                                    };
                                     tracing::warn!(
                                         connection_id = conn_id,
                                         session_id = %sid.0,
                                         agent_type = %agent_type,
-                                        error_kind = "acp_prompt_request_failed",
+                                        error_kind = error_code,
                                         error = %detail,
                                         tool_call_count,
                                         "[ACP] prompt RPC failed; keeping connection alive"
@@ -6953,7 +6961,7 @@ async fn run_conversation_loop<'a>(
                                         AcpEvent::Error {
                                             message: detail.clone(),
                                             agent_type: agent_type.to_string(),
-                                            code: Some("acp_prompt_request_failed".into()),
+                                            code: Some(error_code.into()),
                                             details: Some(detail),
                                             terminal: false,
                                         },

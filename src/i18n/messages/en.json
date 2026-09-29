@@ -3019,6 +3019,7 @@
           "networkError": "Network connection failed. Check your connection and try again.",
           "serviceUnavailable": "The service is temporarily unavailable. Try again later.",
           "requestFailed": "The request failed. Try again later.",
+          "modelStreamInterrupted": "The model service disconnected mid-response, so this turn didn't finish. The connection is still usable, so you can retry or continue. If it keeps happening, try another model or try again later.",
           "workerContentRecoveryFailed": "This turn has ended, but the complete output could not be verified. Open the conversation history to check the result.",
           "currentModel": "The current model",
           "initializeTimeout": "{agent} local initialization timed out. Open Settings to check the Agent configuration and startup logs.",

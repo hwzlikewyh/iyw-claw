@@ -4226,6 +4226,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                 return t("backendErrors.promptStallDisconnect", {
                   agent: agentLabel,
                 })
+              case "model_stream_interrupted":
+                return t("backendErrors.modelStreamInterrupted")
               case "grok_model_switch_incompatible_agent":
                 return t("backendErrors.grokModelSwitchIncompatibleAgent", {
                   agent: agentLabel,
