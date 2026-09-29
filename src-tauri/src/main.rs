@@ -18,14 +18,7 @@ fn main() {
         return;
     }
 
-    #[cfg(all(windows, not(debug_assertions)))]
-    match iyw_codex_harness::elevate_desktop() {
-        Ok(true) => return,
-        Ok(false) => {},
-        Err(error) => {
-            eprintln!("Desktop elevation failed: {error}");
-            std::process::exit(1);
-        },
-    }
+    // 桌面程序保持当前用户权限启动。需要创建 Windows sandbox 账户时，
+    // 由 sandbox setup 流程按需请求权限，不让每次打开应用都触发 UAC。
     iyw_claw_lib::run()
 }

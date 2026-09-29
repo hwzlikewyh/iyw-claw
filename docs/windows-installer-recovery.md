@@ -145,3 +145,25 @@ ANSI 编码误读。用户路径和结果文件仍支持 Unicode。
   因此新包的完整生产安装还需单独验证。
 - 环境 helper 静态 MSVC 运行库检查通过；机器上旧 0.1.239 安装进程持有互斥锁，
   首次测试返回 1618，清理两个已确认的旧安装进程后重试成功。
+
+## 启动 UAC 排查
+
+- 截图中的 UAC 不是安装器请求，而是 staging 内的 `iyw-claw.exe` 入口无条件调用
+  Codex Windows sandbox 的 `ShellExecuteEx("runas")`。即使 NSIS 使用
+  `RequestExecutionLevel user`，启动已安装应用仍会再次提权。
+- 已移除桌面启动时的无条件提权；sandbox setup 仍保留按需提权路径，只在确实需要
+  创建或修复 Windows sandbox 账户时请求权限。需要重新编译主程序，旧 staging
+  以及刚生成的测试包不会自动获得这个修复。
+- 实测旧 exe 的嵌入 manifest 只有 Common Controls，未包含链接参数所声明的
+  UAC level。改用 Tauri `WindowsAttributes.app_manifest` 官方入口嵌入
+  `requestedExecutionLevel="asInvoker"`，保留原 Common Controls 依赖。
+- 使用项目 Tauri 发布配置编译新的 Windows x64 主程序，旧 staging 仅用于复用前端和
+  其他资源；新 exe SHA-256 为
+  `9C21DD2803DF494C1160B16177C9303421828770EBC4D7CEBC693F00F932D469`。
+  生成安装包后，已安装 exe 的嵌入 manifest 确认 `asInvoker`、`uiAccess=false`。
+- 新包 `D:\Users\iyw\Downloads\iyw-claw_0.1.247_x64-setup-no-uac-20260929.exe`
+  SHA-256 为 `C2072DD624AE81029993553784015F8E7D4FFED4F82310ABE90A52D609A4ECA8`，
+  未签名，仅供安装验证。隔离 NSIS 安装退出 0（约 5 秒），主程序及 helper 均落盘。
+- `runas /trustlevel:0x20000` 启动隔离实例：启动器确认非管理员，主程序持续运行，
+  检查时无 `consent.exe`。测试进程已停止，隔离目录和对应测试注册表已清理。
+  smoke 模式跳过联网环境初始化，完整普通用户环境安装仍未由此验证。
