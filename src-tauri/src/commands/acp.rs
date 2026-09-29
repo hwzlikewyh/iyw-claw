@@ -42,8 +42,6 @@ use crate::db::AppDatabase;
 use crate::models::agent::AgentType;
 use crate::web::event_bridge::EventEmitter;
 
-mod runtime_timing;
-
 const ACP_AGENTS_UPDATED_EVENT: &str = "app://acp-agents-updated";
 const CODEX_MODEL_CATALOG_FILE: &str = "iyw-claw-models.json";
 const CODEX_MODEL_CONTEXT_WINDOW: u64 = 128_000;
