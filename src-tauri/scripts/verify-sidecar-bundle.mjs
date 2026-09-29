@@ -119,11 +119,14 @@ function rejectLegacyMcpSidecars(directory) {
 function verifyStagedSidecars(target, version) {
   verifyConfiguredExternalBins()
   rejectLegacyMcpSidecars(join(SRC_TAURI, "binaries"))
-  verifyEnvironmentHelper(
-    join(SRC_TAURI, "binaries", helperFileName(target)),
-    target,
-    version
-  )
+  const helper = join(SRC_TAURI, "binaries", helperFileName(target))
+  verifyEnvironmentHelper(helper, target, version)
+  if (
+    target.endsWith("-windows-msvc") &&
+    (process.env.IYW_CLAW_SIGN_MODE ?? "none") !== "none"
+  ) {
+    verifyArtifacts([helper])
+  }
 }
 
 function resolveInstallerPath(args, target, version) {
@@ -172,11 +175,14 @@ function verifyInstalledSidecars(appDirectory, target, version) {
       ),
     ])
   }
-  verifyEnvironmentHelper(
-    join(appDirectory, helperExecutableName(target)),
-    target,
-    version
-  )
+  const helper = join(appDirectory, helperExecutableName(target))
+  verifyEnvironmentHelper(helper, target, version)
+  if (
+    target.endsWith("-windows-msvc") &&
+    (process.env.IYW_CLAW_SIGN_MODE ?? "none") !== "none"
+  ) {
+    verifyArtifacts([helper])
+  }
 }
 
 function logInstallRoot(root) {
