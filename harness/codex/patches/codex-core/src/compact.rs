@@ -271,6 +271,7 @@ async fn run_compact_task_inner_impl(
     let max_retries = turn_context.provider.info().stream_max_retries();
     let request_budget = request_budget::RequestBudget::new();
     let mut retries = 0;
+    let compaction_start = std::time::Instant::now();
     let mut client_session = sess.services.model_client.new_session();
     // Reuse one client session so turn-scoped state (sticky routing, websocket incremental
     // request tracking)
@@ -306,6 +307,12 @@ async fn run_compact_task_inner_impl(
 
         match attempt_result {
             Ok(response) => {
+                let elapsed = compaction_start.elapsed();
+                tracing::info!(
+                    elapsed_ms = elapsed.as_millis(),
+                    retries = retries,
+                    "compaction completed successfully"
+                );
                 break response;
             }
             Err(err)
@@ -333,6 +340,7 @@ async fn run_compact_task_inner_impl(
                 return Err(e);
             }
             Err(e) => {
+                let elapsed = compaction_start.elapsed();
                 if crate::responses_retry::is_retryable_response_error(&e)
                     && !crate::responses_retry::is_request_too_large(&e)
                     && !request_budget.is_exhausted()
@@ -340,6 +348,13 @@ async fn run_compact_task_inner_impl(
                 {
                     retries += 1;
                     let delay = backoff(retries);
+                    tracing::warn!(
+                        elapsed_ms = elapsed.as_millis(),
+                        retries = retries,
+                        max_retries = max_retries,
+                        error = %e,
+                        "compaction attempt failed, retrying after delay"
+                    );
                     sess.notify_stream_error(
                         turn_context.as_ref(),
                         format!("Reconnecting... {retries}/{max_retries}"),
@@ -349,6 +364,13 @@ async fn run_compact_task_inner_impl(
                     tokio::time::sleep(request_budget.retry_delay(delay)).await;
                     continue;
                 } else {
+                    tracing::error!(
+                        elapsed_ms = elapsed.as_millis(),
+                        retries = retries,
+                        budget_exhausted = request_budget.is_exhausted(),
+                        error = %e,
+                        "compaction failed permanently"
+                    );
                     return Err(e);
                 }
             }
