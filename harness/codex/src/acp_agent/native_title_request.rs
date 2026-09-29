@@ -13,6 +13,25 @@ const TITLE_TIMEOUT: Duration = Duration::from_secs(30);
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_TITLE_CHARS: usize = 36;
 const MAX_RESPONSE_BYTES: usize = 8 * 1024;
+// collect() 在模型服务拒绝 outputSchema 时返回的内部标记，run() 据此去掉 schema 重试一次。
+const SCHEMA_UNSUPPORTED: &str = "Codex title output schema is unsupported";
+// 结构化输出被拒绝时，失败文本同时包含格式字段和不可用描述。
+const SCHEMA_MARKERS: &[&str] = &[
+    "text.format",
+    "json_schema",
+    "response_format",
+    "output_schema",
+];
+const UNSUPPORTED_MARKERS: &[&str] = &["unavailable", "unsupported", "not supported"];
+// 无 schema 回复中可能包裹标题的成对引号。
+const TITLE_QUOTES: &[(char, char)] = &[
+    ('"', '"'),
+    ('\'', '\''),
+    ('“', '”'),
+    ('‘', '’'),
+    ('「', '」'),
+    ('『', '』'),
+];
 const TITLE_DISABLED_FEATURES: &[&str] = &[
     "apps",
     "code_mode",
@@ -76,18 +95,21 @@ async fn run(
     if has_name(handle, &input.source_thread).await? {
         return Ok(());
     }
-    let (hidden, events) = channels;
+    let (hidden, mut events) = channels;
     let temporary = start_temporary(handle, input, hidden).await?;
-    let turn = call(handle, "turn/start", json!({
-        "threadId": temporary, "input": [{"type": "text", "text": title_prompt(&input.prompt)}],
-        "outputSchema": {"type": "object", "additionalProperties": false,
-            "required": ["title"], "properties": {"title": {"type": "string", "minLength": 1, "maxLength": MAX_TITLE_CHARS}}}
-    })).await?;
-    let turn_id = turn
-        .pointer("/turn/id")
-        .and_then(Value::as_str)
-        .ok_or("Codex title turn has no id")?;
-    let title = collect(events, turn_id).await?;
+    let turn_id = start_turn(handle, &temporary, &input.prompt, true).await?;
+    let first = collect(&mut events, &turn_id, true).await;
+    let title = match first {
+        // 模型服务不支持 outputSchema 时，在同一临时线程中去掉 schema 重试一次。
+        Err(error) if error == SCHEMA_UNSUPPORTED => {
+            eprintln!(
+                "[internal-codex-worker] stage=native_title status=retry reason=schema_unsupported"
+            );
+            let turn_id = start_turn(handle, &temporary, &input.prompt, false).await?;
+            collect(&mut events, &turn_id, false).await?
+        }
+        result => result?,
+    };
     // 生成期间可能发生手动命名，写入前再次核对。
     if has_name(handle, &input.source_thread).await? {
         return Ok(());
@@ -174,7 +196,36 @@ fn temporary_params(input: &TitleInput, settings: &Value) -> Result<Value, Strin
         "selectedCapabilityRoots": [], "config": config}))
 }
 
-async fn collect(mut events: mpsc::Receiver<Value>, turn_id: &str) -> Result<String, String> {
+async fn start_turn(
+    handle: &InProcessAppServerRequestHandle,
+    thread_id: &str,
+    prompt: &str,
+    structured: bool,
+) -> Result<String, String> {
+    let mut params = json!({
+        "threadId": thread_id, "input": [{"type": "text", "text": title_prompt(prompt)}]
+    });
+    if structured {
+        params["outputSchema"] = json!({
+            "type": "object", "additionalProperties": false, "required": ["title"],
+            "properties": {
+                "title": {"type": "string", "minLength": 1, "maxLength": MAX_TITLE_CHARS}
+            }
+        });
+    }
+    let turn = call(handle, "turn/start", params).await?;
+    let turn_id = turn
+        .pointer("/turn/id")
+        .and_then(Value::as_str)
+        .ok_or("Codex title turn has no id")?;
+    Ok(turn_id.to_string())
+}
+
+async fn collect(
+    events: &mut mpsc::Receiver<Value>,
+    turn_id: &str,
+    structured: bool,
+) -> Result<String, String> {
     let mut text = None;
     while let Some(event) = events.recv().await {
         let params = &event["params"];
@@ -191,20 +242,19 @@ async fn collect(mut events: mpsc::Receiver<Value>, turn_id: &str) -> Result<Str
         }
         if event["method"] == "turn/completed" && params["turn"]["id"] == turn_id {
             if params["turn"]["status"] != "completed" {
+                if structured && output_schema_unsupported(&params["turn"]["error"]) {
+                    return Err(SCHEMA_UNSUPPORTED.into());
+                }
                 return Err("Codex title turn failed".into());
             }
-            let value: Value =
-                serde_json::from_str(text.as_deref().ok_or("Codex title response is empty")?)
+            let reply = text.as_deref().ok_or("Codex title response is empty")?;
+            let title = if structured {
+                let value: Value = serde_json::from_str(reply)
                     .map_err(|_| "Codex title response is not valid JSON")?;
-            let title = value["title"]
-                .as_str()
-                .unwrap_or_default()
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" ")
-                .chars()
-                .take(MAX_TITLE_CHARS)
-                .collect::<String>();
+                normalize_title(value["title"].as_str().unwrap_or_default())
+            } else {
+                plain_title(reply)
+            };
             return if title.is_empty() {
                 Err("Codex title response has no title".into())
             } else {
@@ -213,6 +263,55 @@ async fn collect(mut events: mpsc::Receiver<Value>, turn_id: &str) -> Result<Str
         }
     }
     Err("Codex title notification channel closed".into())
+}
+
+fn normalize_title(raw: &str) -> String {
+    raw.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(MAX_TITLE_CHARS)
+        .collect()
+}
+
+// 无 schema 回复：先去掉 ``` 围栏行；以 { 开头时只接受带字符串 title 的 JSON 对象，
+// 其余取首个非空行并去掉成对引号。
+fn plain_title(reply: &str) -> String {
+    let body = reply
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("```"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let body = body.trim();
+    if body.starts_with('{') {
+        // JSON 解析失败或没有 title 时不产出标题，避免把 "{" 这类片段当成标题。
+        return serde_json::from_str::<Value>(body)
+            .ok()
+            .and_then(|value| value.get("title")?.as_str().map(normalize_title))
+            .unwrap_or_default();
+    }
+    let line = body
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default();
+    normalize_title(strip_quotes(line))
+}
+
+fn strip_quotes(line: &str) -> &str {
+    TITLE_QUOTES
+        .iter()
+        .find_map(|&(open, close)| line.strip_prefix(open)?.strip_suffix(close))
+        .unwrap_or(line)
+}
+
+fn output_schema_unsupported(error: &Value) -> bool {
+    let detail = error["message"]
+        .as_str()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    SCHEMA_MARKERS.iter().any(|m| detail.contains(m))
+        && UNSUPPORTED_MARKERS.iter().any(|m| detail.contains(m))
 }
 
 async fn call(
