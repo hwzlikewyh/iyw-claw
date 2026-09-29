@@ -1,0 +1,43 @@
+# CI 缓存优化补丁
+# 用于加速 codex 依赖编译
+
+# 在 release-tauri.yml 的 Setup Node 步骤之后添加：
+
+      - name: Cache codex Git dependencies
+        if: "!contains(toJSON(matrix.runner), 'self-hosted')"
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/git/db
+            ~/.cargo/git/checkouts
+          key: cargo-codex-git-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-codex-git-${{ runner.os }}-
+
+      - name: Cache cargo registry
+        if: "!contains(toJSON(matrix.runner), 'self-hosted')"
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+          key: cargo-registry-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            cargo-registry-${{ runner.os }}-
+
+      - name: Cache codex patches build
+        if: "!contains(toJSON(matrix.runner), 'self-hosted')"
+        uses: actions/cache@v4
+        with:
+          path: |
+            target/release/deps
+            target/release/build
+          key: cargo-patches-${{ runner.os }}-${{ matrix.target }}-${{ hashFiles('harness/codex/patches/**/*.rs', 'harness/codex/patches/**/Cargo.toml') }}
+          restore-keys: |
+            cargo-patches-${{ runner.os }}-${{ matrix.target }}-
+
+# 预期效果：
+# - codex Git checkout: 减少 ~5 分钟
+# - Cargo registry: 减少 ~3 分钟
+# - patches 增量编译: 减少 ~7-10 分钟
+# 总计: 减少 15-18 分钟（首次无效果，二次构建生效）
