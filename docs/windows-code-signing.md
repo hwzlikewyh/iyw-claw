@@ -100,8 +100,8 @@ signtool 命令），所以覆盖层里不写这两项，摘要和时间戳统�
 - `WINDOWS_SIGN_AZURE_METADATA` + `WINDOWS_SIGN_AZURE_DLIB`（Azure Artifact Signing）
 - 可选变量 `WINDOWS_SIGN_TIMESTAMP_URL`
 
-都没配置时，构建照常进行但产物无签名，并在 job summary 里留一条 warning。
-`Verify Authenticode signatures` 步骤在未配置时是 advisory（`--warn`），配置后转为强制失败。
+Windows 发布没有配置签名凭据时会直接失败，不再上传无法确认发布者的安装包。
+环境 helper 会和主程序使用同一条 Authenticode 签名链，并在暂存、安装包和安装后分别复核。
 
 USB token 无法在 GitHub 托管 runner 上使用（需要物理设备）。Windows release 矩阵通过
 `iyw-signing` 标签固定到装有 SafeNet 客户端并插入 token 的 self-hosted runner，使用

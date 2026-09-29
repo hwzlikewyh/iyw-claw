@@ -281,12 +281,35 @@ function verify(installer) {
     fail("final installer Authenticode verification failed")
 }
 
+function signEnvironmentHelper() {
+  const helper = join(
+    ROOT,
+    "src-tauri",
+    "binaries",
+    `iyw-environment-${TARGET}.exe`
+  )
+  const result = spawnSync(
+    process.execPath,
+    [join(ROOT, "src-tauri", "scripts", "sign-staged-windows.mjs"), helper],
+    {
+      cwd: ROOT,
+      stdio: "inherit",
+      windowsHide: false,
+      timeout: PREFLIGHT_TIMEOUT_MS,
+    }
+  )
+  if (result.error) throw result.error
+  if (result.status !== 0)
+    fail(`environment helper signing failed with exit code ${result.status}`)
+}
+
 function main() {
   if (process.platform !== "win32")
     fail("staged Windows signing requires Windows")
   const { version, includesFrontend } = verifyManifest()
   restoreStaging(includesFrontend)
   preflightToken()
+  signEnvironmentHelper()
   verify(bundle(version))
 }
 

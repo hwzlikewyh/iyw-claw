@@ -146,6 +146,8 @@ jobs:
             New-Item -ItemType Directory -Force -Path $directory | Out-Null
             Copy-Item -Path (Join-Path $expanded "$directory/*") -Destination $directory -Recurse -Force
           }
+          node src-tauri/scripts/sign-staged-windows.mjs "src-tauri/binaries/iyw-environment-$env:BUILD_TARGET.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Environment helper signing failed' }
           $targetRoot = "src-tauri/target/$env:BUILD_TARGET/release"
           New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
           Copy-Item -LiteralPath (Join-Path $expanded "$targetRoot/iyw-claw.exe") -Destination (Join-Path $targetRoot 'iyw-claw.exe') -Force
@@ -177,6 +179,8 @@ jobs:
           $targetRoot = "src-tauri/target/$env:BUILD_TARGET/release"
           New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
           Copy-Item -LiteralPath (Join-Path $env:STAGING_INPUT "$targetRoot/iyw-claw.exe") -Destination (Join-Path $targetRoot 'iyw-claw.exe') -Force
+          node src-tauri/scripts/sign-staged-windows.mjs "src-tauri/binaries/iyw-environment-$env:BUILD_TARGET.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Environment helper signing failed' }
           $configuration = (node src-tauri/scripts/prepare-signing-config.mjs).Trim()
           if ($LASTEXITCODE -ne 0) { throw 'Signing configuration failed' }
           $updaterConfig = Join-Path $env:RUNNER_TEMP 'finish-no-updater.json'
