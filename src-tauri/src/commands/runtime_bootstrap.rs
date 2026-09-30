@@ -223,20 +223,35 @@ pub async fn bootstrap_initialize(
     let explicit_repair = repair.unwrap_or(false);
     let repair = if explicit_repair {
         true
-    } else if crate::managed_environment::core_components_need_repair(&report) {
+    } else if crate::managed_environment::components_need_repair(&report) {
         // 激活期间旧目录可能已移走而新目录尚未切换；短暂复检避免把
         // 这种瞬时窗口误判成损坏并启动一次昂贵的修复。
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         report = tokio::task::spawn_blocking(crate::managed_environment::init_status_report)
             .await
             .map_err(|error| format!("环境检测任务异常：{error}"))?;
-        crate::managed_environment::core_components_need_repair(&report)
+        crate::managed_environment::components_need_repair(&report)
     } else {
         false
     };
-    tracing::info!(task_id, repair, "environment status requested");
+    tracing::info!(
+        task_id,
+        repair,
+        explicit_repair,
+        environment_phase = %report.phase,
+        unavailable_components = ?report.components.iter()
+            .filter(|component| !component.active)
+            .map(|component| component.component_id.as_str())
+            .collect::<Vec<_>>(),
+        "environment status requested"
+    );
     if repair {
-        crate::managed_environment::repair(&task_id, &EventEmitter::Tauri(app)).await?;
+        crate::managed_environment::repair_startup(
+            &task_id,
+            &EventEmitter::Tauri(app),
+            explicit_repair,
+        )
+        .await?;
         return tokio::task::spawn_blocking(crate::managed_environment::init_status_report)
             .await
             .map_err(|error| format!("环境检测任务异常：{error}"));

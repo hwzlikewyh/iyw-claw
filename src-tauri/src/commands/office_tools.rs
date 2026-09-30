@@ -37,6 +37,8 @@ use crate::models::agent::AgentType;
 use crate::process::tokio_command;
 use crate::web::event_bridge::EventEmitter;
 
+mod managed_install;
+
 // ─── Error type ─────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -798,10 +800,7 @@ pub async fn officecli_install(
     officecli_install_core(&data_dir, task_id, &EventEmitter::Tauri(app)).await
 }
 
-/// Run the vendor's official installer script (mirror-first, GitHub fallback),
-/// streaming its output to the UI as `app://officecli-install` log events. The
-/// script owns the download, checksum, install location, and — on Windows — the
-/// persistent User-PATH registration. See `officecli_install_command`.
+/// 桌面版通过统一环境修复安装，服务器版使用官方安装脚本；均转发安装进度。
 pub(crate) async fn officecli_install_core(
     data_dir: &Path,
     task_id: String,
@@ -852,18 +851,7 @@ async fn officecli_install_locked(
     emitter: &EventEmitter,
 ) -> Result<OfficecliInfo, OfficeToolsError> {
     if cfg!(feature = "tauri-runtime") {
-        let info = officecli_detect().await;
-        if info.installed && info.runtime_error.is_none() && info.compatible {
-            return Ok(info);
-        }
-        let message = "OfficeCLI 由安装环境统一管理，请运行 iyw-environment repair 修复环境";
-        emit_officecli_install_event(
-            emitter,
-            &task_id,
-            OfficecliInstallEventKind::Failed,
-            message,
-        );
-        return Err(OfficeToolsError::CommandFailed(message.to_string()));
+        return managed_install::install(&task_id, emitter).await;
     }
     emit_officecli_install_event(
         emitter,
