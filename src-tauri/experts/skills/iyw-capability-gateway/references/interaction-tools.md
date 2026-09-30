@@ -31,6 +31,12 @@ External downloads, host credentials, filesystem operations and tool calls are
 not available inside the page. Make the page responsive and keyboard accessible.
 Use actual task data or label illustrative data clearly.
 
+For typography, do not name proprietary system fonts such as Microsoft YaHei or
+Segoe UI. Prefer open-source fonts with commercial-use licenses, such as Noto
+Sans SC or Source Han Sans, followed by a generic `sans-serif` fallback. Do not
+fetch remote fonts; if a page must carry its own font files, include the font's
+license information.
+
 `wait_for_response` defaults to false: show the page, let the user explore and
 continue your work. The result `presented` means the host accepted the document;
 it is not evidence that the browser finished rendering. Display pages remain
