@@ -90,15 +90,35 @@ shared_library!(Ntdll,
 );
 
 lazy_static! {
-    static ref CONPTY: ConPtyFuncs = ConPtyFuncs::open(Path::new("kernel32.dll")).expect(
-        "this system does not support conpty.  Windows 10 October 2018 or newer is required",
-    );
+    static ref CONPTY: Option<ConPtyFuncs> = ConPtyFuncs::open(Path::new("kernel32.dll")).ok();
     static ref CONPTY_RELEASE: Option<ConPtyReleaseFuncs> =
         ConPtyReleaseFuncs::open(Path::new("kernel32.dll")).ok();
 }
 
 pub fn conpty_supported() -> bool {
-    windows_build_number().is_some_and(|build| build >= MIN_CONPTY_BUILD)
+    windows_build_number().is_some_and(|build| build >= MIN_CONPTY_BUILD) && CONPTY.is_some()
+}
+
+fn conpty() -> Result<&'static ConPtyFuncs, Error> {
+    CONPTY.as_ref().ok_or_else(|| anyhow::anyhow!(
+        "ConPTY is unavailable; use pipe execution on Windows older than 10 version 1809"
+    ))
+}
+
+/// Resize a ConPTY through the runtime-resolved API table.
+///
+/// # Safety
+/// `hpc` must refer to a live pseudoconsole and remain open during the call.
+pub unsafe fn resize_pseudo_console(hpc: HPCON, cols: i16, rows: i16) -> Result<(), Error> {
+    let result = unsafe { (conpty()?.ResizePseudoConsole)(hpc, COORD { X: cols, Y: rows }) };
+    ensure!(
+        result == S_OK,
+        "failed to resize console to {}x{}: HRESULT: {}",
+        cols,
+        rows,
+        result
+    );
+    Ok(())
 }
 
 fn windows_build_number() -> Option<u32> {
@@ -125,7 +145,9 @@ unsafe impl Sync for PsuedoCon {}
 
 impl Drop for PsuedoCon {
     fn drop(&mut self) {
-        unsafe { (CONPTY.ClosePseudoConsole)(self.con) };
+        if let Some(api) = CONPTY.as_ref() {
+            unsafe { (api.ClosePseudoConsole)(self.con) };
+        }
     }
 }
 
@@ -137,7 +159,7 @@ impl PsuedoCon {
     pub fn new(size: COORD, input: FileDescriptor, output: FileDescriptor) -> Result<Self, Error> {
         let mut con: HPCON = INVALID_HANDLE_VALUE;
         let result = unsafe {
-            (CONPTY.CreatePseudoConsole)(
+            (conpty()?.CreatePseudoConsole)(
                 size,
                 input.as_raw_handle() as _,
                 output.as_raw_handle() as _,
@@ -156,15 +178,7 @@ impl PsuedoCon {
     }
 
     pub fn resize(&self, size: COORD) -> Result<(), Error> {
-        let result = unsafe { (CONPTY.ResizePseudoConsole)(self.con, size) };
-        ensure!(
-            result == S_OK,
-            "failed to resize console to {}x{}: HRESULT: {}",
-            size.X,
-            size.Y,
-            result
-        );
-        Ok(())
+        unsafe { resize_pseudo_console(self.con, size.X, size.Y) }
     }
 
     pub fn spawn_command(&mut self, cmd: CommandBuilder) -> anyhow::Result<WinChild> {

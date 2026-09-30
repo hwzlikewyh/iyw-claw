@@ -15,7 +15,9 @@ const WORKER_ROOT = "src-tauri/resources/xinghe-worker"
 const WORKER_FILES = ["runtime.json"]
 
 export function windowsLayout(target) {
-  if (target !== "x86_64-pc-windows-msvc") {
+  if (
+    !["x86_64-pc-windows-msvc", "x86_64-win7-windows-msvc"].includes(target)
+  ) {
     throw new Error(`unsupported Windows staging target: ${target}`)
   }
   const binary = `src-tauri/target/${target}/release/iyw-claw.exe`

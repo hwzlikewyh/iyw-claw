@@ -11,9 +11,13 @@ use super::error::TerminalError;
 use super::types::{TerminalEvent, TerminalInfo};
 use crate::web::event_bridge::EventEmitter;
 
+#[cfg(windows)]
+#[path = "windows_pipe.rs"]
+mod windows_pipe;
+
 struct TerminalInstance {
     write_tx: mpsc::Sender<Vec<u8>>,
-    master: Box<dyn MasterPty + Send>,
+    master: Option<Box<dyn MasterPty + Send>>,
     _child: Box<dyn portable_pty::Child + Send>,
     title: String,
     owner_window_label: String,
@@ -210,6 +214,49 @@ fn configure_shell_command(cmd: &mut CommandBuilder, shell: &str, initial_comman
     }
 }
 
+fn spawn_terminal(
+    cmd: CommandBuilder,
+) -> Result<
+    (
+        Box<dyn Write + Send>,
+        Box<dyn Read + Send>,
+        Option<Box<dyn MasterPty + Send>>,
+        Box<dyn portable_pty::Child + Send + Sync>,
+    ),
+    TerminalError,
+> {
+    #[cfg(windows)]
+    if !windows_pipe::conpty_supported() {
+        let (writer, reader, child) = windows_pipe::spawn(cmd)
+            .map_err(|error| TerminalError::SpawnFailed(error.to_string()))?;
+        return Ok((writer, reader, None, child));
+    }
+
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|error| TerminalError::SpawnFailed(error.to_string()))?;
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|error| TerminalError::SpawnFailed(error.to_string()))?;
+    drop(pair.slave);
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|error| TerminalError::SpawnFailed(error.to_string()))?;
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|error| TerminalError::SpawnFailed(error.to_string()))?;
+    Ok((writer, reader, Some(pair.master), child))
+}
+
 /// Options for spawning a new terminal session.
 pub struct SpawnOptions {
     pub terminal_id: String,
@@ -252,17 +299,6 @@ impl TerminalManager {
             }
         }
 
-        let pty_system = native_pty_system();
-
-        let pair = pty_system
-            .openpty(PtySize {
-                rows: 24,
-                cols: 80,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| TerminalError::SpawnFailed(e.to_string()))?;
-
         let shell = opts
             .shell
             .as_deref()
@@ -270,9 +306,6 @@ impl TerminalManager {
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned)
             .unwrap_or_else(resolve_shell);
-        let mut cmd = CommandBuilder::new(&shell);
-        configure_shell_command(&mut cmd, &shell, opts.initial_command.as_deref());
-        cmd.cwd(&opts.working_dir);
 
         // Inject extra environment variables (e.g. git credential helper config)
         let mut environment = opts
@@ -285,26 +318,14 @@ impl TerminalManager {
             crate::acp::agent_storage::AgentStoragePaths::active().as_ref(),
             &mut environment,
         );
+
+        let mut cmd = CommandBuilder::new(&shell);
+        configure_shell_command(&mut cmd, &shell, opts.initial_command.as_deref());
+        cmd.cwd(&opts.working_dir);
         for (key, value) in environment {
             cmd.env(key, value);
         }
-
-        let child = pair
-            .slave
-            .spawn_command(cmd)
-            .map_err(|e| TerminalError::SpawnFailed(e.to_string()))?;
-
-        drop(pair.slave);
-
-        let writer = pair
-            .master
-            .take_writer()
-            .map_err(|e| TerminalError::SpawnFailed(e.to_string()))?;
-
-        let reader = pair
-            .master
-            .try_clone_reader()
-            .map_err(|e| TerminalError::SpawnFailed(e.to_string()))?;
+        let (writer, reader, master, child) = spawn_terminal(cmd)?;
 
         let terminal_id = opts.terminal_id;
         // Boundary-, length-, and NUL-safe prefix for the PTY thread names; see
@@ -315,7 +336,7 @@ impl TerminalManager {
 
         let instance = TerminalInstance {
             write_tx,
-            master: pair.master,
+            master,
             _child: child,
             title: "Terminal".to_string(),
             owner_window_label: opts.owner_window_label,
@@ -365,15 +386,16 @@ impl TerminalManager {
         let instance = terminals
             .get(terminal_id)
             .ok_or_else(|| TerminalError::NotFound(terminal_id.to_string()))?;
-        instance
-            .master
-            .resize(PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(|e| TerminalError::ResizeFailed(e.to_string()))?;
+        if let Some(master) = &instance.master {
+            master
+                .resize(PtySize {
+                    rows,
+                    cols,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                })
+                .map_err(|e| TerminalError::ResizeFailed(e.to_string()))?;
+        }
         Ok(())
     }
 

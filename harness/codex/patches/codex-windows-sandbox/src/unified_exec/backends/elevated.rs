@@ -21,6 +21,7 @@ use codex_protocol::models::PermissionProfile;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_pty::ProcessDriver;
 use codex_utils_pty::SpawnedProcess;
+use codex_utils_pty::conpty_supported;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
@@ -167,6 +168,7 @@ pub(crate) async fn spawn_windows_sandbox_session_elevated_for_permission_profil
     stdin_open: bool,
     private_desktop_name: Option<String>,
 ) -> Result<SpawnedProcess> {
+    let use_conpty = tty && conpty_supported();
     let deny_read_paths_override = deny_read_paths_override
         .iter()
         .map(AbsolutePathBuf::to_path_buf)
@@ -213,7 +215,7 @@ pub(crate) async fn spawn_windows_sandbox_session_elevated_for_permission_profil
             cap_sids: elevated.cap_sids,
             network_proxy_restricting_sid,
             timeout_ms,
-            tty,
+            tty: use_conpty,
             stdin_open,
             private_desktop_name,
         },
@@ -230,7 +232,7 @@ pub(crate) async fn spawn_windows_sandbox_session_elevated_for_permission_profil
 
     let (writer_tx, writer_rx) = mpsc::channel::<Vec<u8>>(128);
     let (stdout_tx, stdout_rx) = broadcast::channel::<Vec<u8>>(256);
-    let stderr_rx = if tty {
+    let stderr_rx = if use_conpty {
         None
     } else {
         Some(broadcast::channel::<Vec<u8>>(256))
@@ -238,7 +240,8 @@ pub(crate) async fn spawn_windows_sandbox_session_elevated_for_permission_profil
     let (exit_tx, exit_rx) = oneshot::channel::<i32>();
 
     let outbound_tx = start_runner_pipe_writer(pipe_write);
-    let writer_handle = start_runner_stdin_writer(writer_rx, outbound_tx.clone(), tty, stdin_open);
+    let writer_handle =
+        start_runner_stdin_writer(writer_rx, outbound_tx.clone(), use_conpty, stdin_open);
     let terminator = {
         let outbound_tx = outbound_tx.clone();
         Some(Box::new(move || {
@@ -266,12 +269,12 @@ pub(crate) async fn spawn_windows_sandbox_session_elevated_for_permission_profil
             exit_rx,
             terminator,
             writer_handle: Some(writer_handle),
-            resizer: if tty {
+            resizer: if use_conpty {
                 Some(make_runner_resizer(outbound_tx))
             } else {
                 None
             },
-            tty,
+            tty: use_conpty,
         },
         stdin_open,
     ))

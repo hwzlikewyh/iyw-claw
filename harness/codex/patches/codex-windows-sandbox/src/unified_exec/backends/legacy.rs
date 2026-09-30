@@ -27,6 +27,8 @@ use codex_utils_pty::ProcessDriver;
 use codex_utils_pty::SpawnedProcess;
 use codex_utils_pty::TerminalSize;
 use codex_utils_pty::WindowsTtyInputNormalizer;
+use codex_utils_pty::conpty_supported;
+use codex_utils_pty::resize_pseudo_console;
 use std::collections::HashMap;
 use std::path::Path;
 use std::ptr;
@@ -40,8 +42,6 @@ use windows_sys::Win32::Foundation::GetLastError;
 use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
 use windows_sys::Win32::Storage::FileSystem::WriteFile;
-use windows_sys::Win32::System::Console::COORD;
-use windows_sys::Win32::System::Console::ResizePseudoConsole;
 use windows_sys::Win32::System::Threading::GetExitCodeProcess;
 use windows_sys::Win32::System::Threading::INFINITE;
 use windows_sys::Win32::System::Threading::PROCESS_INFORMATION;
@@ -89,7 +89,8 @@ fn spawn_legacy_process(
             logs_base_dir,
         )?,
     };
-    let (pi, job, output_join, writer_handle, hpc, conpty_owner, desktop) = if tty {
+    let use_conpty = tty && conpty_supported();
+    let (pi, job, output_join, writer_handle, hpc, conpty_owner, desktop) = if use_conpty {
         let (pi, mut conpty) =
             spawn_conpty_process_as_user(h_token, command, cwd, env_map, launch_desktop)?;
         let job = conpty
@@ -295,22 +296,8 @@ fn resize_conpty_handle(hpc: &Arc<StdMutex<Option<HANDLE>>>, size: TerminalSize)
         .as_ref()
         .copied()
         .ok_or_else(|| anyhow::anyhow!("process is not attached to a PTY"))?;
-    let result = unsafe {
-        ResizePseudoConsole(
-            hpc,
-            COORD {
-                X: size.cols as i16,
-                Y: size.rows as i16,
-            },
-        )
-    };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(anyhow::anyhow!(
-            "failed to resize console: HRESULT {result}"
-        ))
-    }
+    // 持有锁期间句柄不会被退出线程关闭。
+    unsafe { resize_pseudo_console(hpc as _, size.cols as i16, size.rows as i16) }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -382,7 +369,8 @@ pub(crate) async fn spawn_windows_sandbox_session_legacy(
 
     let (writer_tx, writer_rx) = mpsc::channel::<Vec<u8>>(128);
     let (stdout_tx, stdout_rx) = broadcast::channel::<Vec<u8>>(256);
-    let stderr_rx = if tty {
+    let use_conpty = tty && conpty_supported();
+    let stderr_rx = if use_conpty {
         None
     } else {
         Some(broadcast::channel::<Vec<u8>>(256))
@@ -406,7 +394,7 @@ pub(crate) async fn spawn_windows_sandbox_session_legacy(
         cwd,
         &env_map,
         private_desktop_name.as_deref(),
-        tty,
+        use_conpty,
         stdin_open,
         stdout_tx,
         stderr_rx.as_ref().map(|(tx, _rx)| tx.clone()),
@@ -482,7 +470,7 @@ pub(crate) async fn spawn_windows_sandbox_session_legacy(
             Box::new(move |size| resize_conpty_handle(&hpc, size))
                 as Box<dyn FnMut(TerminalSize) -> Result<()> + Send>
         }),
-        tty,
+        tty: use_conpty,
     };
 
     Ok(finish_driver_spawn(driver, stdin_open))

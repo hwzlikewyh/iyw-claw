@@ -37,6 +37,8 @@ pub use contracts::{
 pub use helper_dispatch::dispatch_from_process_args as dispatch_upstream_helper;
 #[cfg(all(windows, feature = "bundled-host"))]
 pub use codex_windows_sandbox::elevate_desktop;
+#[cfg(all(windows, feature = "bundled-host"))]
+pub use codex_windows_sandbox::JobObject;
 #[cfg(not(feature = "upstream"))]
 pub const fn dispatch_upstream_helper() -> bool {
     false
