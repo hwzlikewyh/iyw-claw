@@ -9,10 +9,10 @@ import {
 
 const UPLOAD_TIMEOUT = 20 * 60 * 1000
 const ROLLOUT_PERCENT = 1
-// 由 release.yml 的桌面构建矩阵决定；Windows x86 已停止发版，不能再作为 Fusion 制品。
+// 由 release.yml 的桌面构建矩阵决定；Windows x86 与 Linux 桌面构建已暂停，
+// 不能再作为 Fusion 的必需制品，否则会因缺少 AppImage 而整体阻塞发布。
 const PLATFORMS = [
   ["windows", "x86_64", "nsis", "x64-setup.exe"],
-  ["linux", "x86_64", "appimage", "amd64.AppImage"],
   ["darwin", "x86_64", "app_tar_gz", "x64.app.tar.gz"],
   ["darwin", "aarch64", "app_tar_gz", "aarch64.app.tar.gz"],
 ]
