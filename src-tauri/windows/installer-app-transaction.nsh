@@ -92,6 +92,34 @@ Function IywClawValidateTransactionPaths
     Push "0"
 FunctionEnd
 
+; `IfFileExists "$dir\*.*"` 只判断目录是否存在。首次安装在事务开始前
+; 会创建空 app 目录，不能把它当成旧版本应用。
+Function IywClawAppHasEntries
+  Exch $0
+  Push $1
+  Push $2
+  StrCpy $2 "0"
+  FindFirst $1 $R1 "$0\*"
+  StrCmp $R1 "" app_entries_done
+
+  app_entries_scan:
+    StrCmp $R1 "." app_entries_next
+    StrCmp $R1 ".." app_entries_next
+    StrCpy $2 "1"
+    Goto app_entries_done
+
+  app_entries_next:
+    FindNext $1 $R1
+    StrCmp $R1 "" app_entries_done app_entries_scan
+
+  app_entries_done:
+    FindClose $1
+    StrCpy $0 $2
+    Pop $2
+    Pop $1
+    Exch $0
+FunctionEnd
+
 Function IywClawCheckLegacyMcpFiles
   Exch $0
   StrCpy $IywClawLegacyFilePath ""
@@ -182,7 +210,10 @@ Function IywClawBeginAppTransaction
   Call IywClawWritePendingTransaction
   Pop $R0
   StrCmp $R0 "1" 0 begin_transaction_failed
-  IfFileExists "$IywClawAppDir\*.*" backup_current_app remove_empty_app
+  Push "$IywClawAppDir"
+  Call IywClawAppHasEntries
+  Pop $R0
+  StrCmp $R0 "1" backup_current_app remove_empty_app
 
   backup_current_app:
     Call IywClawBackupCurrentAppWithRetry

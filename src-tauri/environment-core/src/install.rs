@@ -166,6 +166,7 @@ pub fn commit(transaction: Option<&str>) -> Result<()> {
             .map(|value| value.component.clone())
             .collect(),
     };
+    crate::maintenance::install(&layout, &state)?;
     activation::commit(&layout, &state, &snapshot)?;
     if fs::read_to_string(layout.pending_transaction()).is_ok_and(|id| id.trim() == transaction) {
         let _ = fs::remove_file(layout.pending_transaction());

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
-import { dirname, join, resolve, sep } from "node:path"
+import { basename, dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
-import { assertCleanInstallState, assertDisposableRunner } from "./nsis-smoke-windows.mjs"
+import { assertCleanInstallState, assertDisposableRunner, commandDiagnostic } from "./nsis-smoke-windows.mjs"
 
 const srcTauri = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const environment = join(homedir(), ".iyw-claw")
@@ -13,13 +13,20 @@ const installRoot = join(tmpdir(), `iyw-environment-installer-${randomUUID()}`)
 const currentPath = join(environment, "inventory/environment-current.json")
 const installedHelper = join(installRoot, "app/iyw-environment.exe")
 const reportDir = join(srcTauri, "target/environment-installer-acceptance")
-const report = { checks: [] }
+const report = { checks: [], commands: [] }
 const timeoutMs = 35 * 60 * 1000
 
 function execute(file, args, env = process.env) {
+  const started = Date.now()
   const result = spawnSync(file, args, {
     encoding: "utf8", windowsHide: true, timeout: timeoutMs,
     maxBuffer: 8 * 1024 * 1024, env,
+  })
+  report.commands.push({
+    executable: basename(file),
+    action: args[0],
+    exitCode: result.status,
+    durationMs: Date.now() - started,
   })
   assert.ifError(result.error)
   return result
@@ -27,7 +34,7 @@ function execute(file, args, env = process.env) {
 
 function success(file, args) {
   const result = execute(file, args)
-  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.status, 0, commandDiagnostic(basename(file), result))
   return result.stdout
 }
 
@@ -72,7 +79,16 @@ function verifyInstall(installer, sentinels) {
 function uninstall() {
   const uninstaller = files(installRoot).find((path) => /[\\/]uninstall\.exe$/i.test(path))
   assert.ok(uninstaller, "Installed uninstaller is missing")
-  success(uninstaller, ["/S", `_?=${dirname(uninstaller)}`])
+  // _?= disables NSIS self-copying; run outside app and wait for actual completion.
+  const temporaryUninstaller = join(tmpdir(), `iyw-uninstaller-${randomUUID()}.exe`)
+  copyFileSync(uninstaller, temporaryUninstaller)
+  try {
+    success(temporaryUninstaller, ["/S", `_?=${dirname(uninstaller)}`])
+  } finally {
+    rmSync(temporaryUninstaller, { force: true })
+  }
+  assert.ok(!existsSync(join(installRoot, "app/iyw-claw.exe")), "Uninstall left the main executable")
+  assertCleanInstallState()
   const independent = files(join(environment, "maintenance"))
     .find((path) => /[\\/]iyw-environment\.exe$/i.test(path))
   assert.ok(independent, "Independent repair helper is missing")
@@ -112,6 +128,17 @@ try {
 } catch (error) {
   report.status = "failed"
   report.error = error.message.replaceAll(homedir(), "<user>")
+  report.logs = {}
+  for (const path of [
+    join(installRoot, "logs/installer.log"),
+    join(installRoot, "logs/installer-initialization.log"),
+    join(environment, "logs/environment/last-error.log"),
+  ]) {
+    if (!existsSync(path)) continue
+    const tail = readFileSync(path, "utf8").slice(-4000).replaceAll(homedir(), "<user>")
+    report.logs[basename(path)] = tail
+    console.error(`[installer-acceptance] ${basename(path)}\n${tail}`)
+  }
   throw error
 } finally {
   mkdirSync(reportDir, { recursive: true })

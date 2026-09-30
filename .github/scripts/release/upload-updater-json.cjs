@@ -7,7 +7,9 @@ const PLATFORM_PATTERNS = [
   { platform: "windows-x86_64", pattern: /x64-setup\.exe$/ },
   { platform: "darwin-x86_64", pattern: /x64\.app\.tar\.gz$/ },
   { platform: "darwin-aarch64", pattern: /aarch64\.app\.tar\.gz$/ },
-  { platform: "linux-x86_64", pattern: /amd64\.AppImage$/ },
+  // Linux desktop builds are paused in release.yml; publish the platform only
+  // when an AppImage was actually uploaded.
+  { platform: "linux-x86_64", pattern: /amd64\.AppImage$/, optional: true },
 ]
 async function fetchAssetText({ github, owner, repo, assetId }) {
   const response = await github.request(
@@ -123,7 +125,11 @@ async function resolveUpdaterPlatform({
 async function resolveUpdaterPlatforms({ github, owner, repo, assets, core }) {
   const platforms = {}
   const errors = []
-  for (const { platform, pattern } of PLATFORM_PATTERNS) {
+  for (const { platform, pattern, optional } of PLATFORM_PATTERNS) {
+    if (optional && !assets.some((asset) => pattern.test(asset.name))) {
+      core.info(`${platform}: no installer uploaded, skipped`)
+      continue
+    }
     const resolved = await resolveUpdaterPlatform({
       github,
       owner,

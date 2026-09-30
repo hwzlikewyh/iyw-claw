@@ -5,16 +5,22 @@ use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
 use tokio::time::Instant;
 
-const COMPACTION_REQUEST_BUDGET: Duration = Duration::from_secs(300);
+const COMPACTION_REQUEST_BUDGET: Duration = Duration::from_secs(600); // 增加到10分钟以应对复杂任务的压缩
 
 pub(crate) struct RequestBudget {
     deadline: Instant,
+    budget: Duration,
 }
 
 impl RequestBudget {
     pub(crate) fn new() -> Self {
+        Self::with_budget(COMPACTION_REQUEST_BUDGET)
+    }
+
+    pub(crate) fn with_budget(budget: Duration) -> Self {
         Self {
-            deadline: Instant::now() + COMPACTION_REQUEST_BUDGET,
+            deadline: Instant::now() + budget,
+            budget,
         }
     }
 
@@ -42,12 +48,12 @@ impl RequestBudget {
 
     fn exhausted_error(&self) -> CodexErr {
         tracing::warn!(
-            budget_seconds = COMPACTION_REQUEST_BUDGET.as_secs(),
+            budget_seconds = self.budget.as_secs(),
             "compaction request budget exhausted; stopping retries"
         );
         CodexErr::Stream(format!(
             "Context compaction exceeded its {} second request budget; retries stopped before replacing history.",
-            COMPACTION_REQUEST_BUDGET.as_secs()
+            self.budget.as_secs()
         ))
     }
 }

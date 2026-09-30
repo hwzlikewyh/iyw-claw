@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url"
 import process from "node:process"
 
 import { prepareEnvironmentHelper } from "./prepare-environment-helper.mjs"
+import { resolveSignMode, signFiles } from "./sign-windows.mjs"
 
 const SRC_TAURI = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -93,7 +94,15 @@ async function main() {
   const hostTarget = resolveHostTriple()
   const target = configuredTarget || hostTarget
   log(`target triple: ${target}`)
-  prepareEnvironmentHelper(target)
+  const helper = prepareEnvironmentHelper(target)
+  if (
+    process.platform === "win32" &&
+    target.endsWith("-windows-msvc") &&
+    resolveSignMode() !== "none"
+  ) {
+    log(`signing environment helper: ${helper}`)
+    signFiles([helper])
+  }
 }
 
 if (

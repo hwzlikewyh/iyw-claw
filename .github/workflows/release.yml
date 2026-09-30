@@ -285,7 +285,7 @@ jobs:
       source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
       prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
       parallel_worker: true
-      build_matrix: '{"include":[{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"64","lto":"off","optional":false},{"name":"Linux x64","runner":"ubuntu-22.04","target":"x86_64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":false}]}'
+      build_matrix: '{"include":[{"name":"macOS arm64","runner":"macos-latest","target":"aarch64-apple-darwin","codegen_units":"64","lto":"off","optional":false}]}'
     secrets: inherit
 
   build-macos-x64:
@@ -358,6 +358,7 @@ jobs:
       - build-windows
       - verify-windows-installers
       - verify-macos-x64-installer
+    # Only require Windows and macOS builds to succeed (Linux builds disabled)
     if: ${{ needs.build-tauri.result == 'success' && needs.build-macos-x64.result == 'success' && needs.build-windows.result == 'success' && needs.verify-windows-installers.result == 'success' && needs.verify-macos-x64-installer.result == 'success' }}
     runs-on: ubuntu-22.04
     permissions:
@@ -429,21 +430,22 @@ jobs:
 
             core.info(`Published release #${releaseId}`);
 
-  build-tauri-linux-arm64:
-    needs:
-      - create-draft-release
-      - prepare-frontend
-    permissions:
-      contents: write
-      actions: read
-    uses: ./.github/workflows/release-tauri.yml
-    with:
-      release_id: ${{ needs.create-draft-release.outputs.release_id }}
-      release_tag: ${{ needs.create-draft-release.outputs.release_tag }}
-      release_body: ${{ needs.create-draft-release.outputs.release_body }}
-      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
-      prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
-      parallel_worker: true
-      release_draft: true
-      build_matrix: '{"include":[{"name":"Linux arm64 (optional)","runner":"ubuntu-22.04-arm","target":"aarch64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":true}]}'
-    secrets: inherit
+  # Disabled Linux builds for faster release cycle - Windows and macOS only
+  # build-tauri-linux-arm64:
+  #   needs:
+  #     - create-draft-release
+  #     - prepare-frontend
+  #   permissions:
+  #     contents: write
+  #     actions: read
+  #   uses: ./.github/workflows/release-tauri.yml
+  #   with:
+  #     release_id: ${{ needs.create-draft-release.outputs.release_id }}
+  #     release_tag: ${{ needs.create-draft-release.outputs.release_tag }}
+  #     release_body: ${{ needs.create-draft-release.outputs.release_body }}
+  #     source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
+  #     prerelease: ${{ needs.create-draft-release.outputs.prerelease == 'true' }}
+  #     parallel_worker: true
+  #     release_draft: true
+  #     build_matrix: '{"include":[{"name":"Linux arm64 (optional)","runner":"ubuntu-22.04-arm","target":"aarch64-unknown-linux-gnu","codegen_units":"64","lto":"off","optional":true}]}'
+  #   secrets: inherit

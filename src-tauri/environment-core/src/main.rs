@@ -5,6 +5,7 @@ mod download;
 mod failure;
 mod install;
 mod inventory;
+mod maintenance;
 mod model;
 mod paths;
 mod progress;

@@ -443,6 +443,8 @@ pub struct SessionState {
     pub recoverable_session: bool,
     /// Set after a resume/load failure proves the advertised capability unusable.
     pub recovery_failed: bool,
+    /// 分叉后的重连目标：只有数据库确认过的会话才可以安全重连。
+    pub fork_reconnect: crate::acp::fork_reconnect::ForkReconnect,
     /// Shared counter for ACP terminal processes that have not exited yet.
     /// A terminal may outlive the turn that created it, so tool-call state alone
     /// is not sufficient to decide whether this connection is reclaimable.
@@ -703,6 +705,7 @@ impl SessionState {
             agent_pid: None,
             recoverable_session: false,
             recovery_failed: false,
+            fork_reconnect: Default::default(),
             active_terminal_count: Arc::new(AtomicUsize::new(0)),
             visible_lease_until: None,
             pending_input_lease_until: None,

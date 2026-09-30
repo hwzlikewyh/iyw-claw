@@ -41,12 +41,28 @@ export function environmentHelperBuildOptions(
 }
 
 export function verifyEnvironmentRuntime(path, target) {
-  if (!target.endsWith("-windows-msvc")) return
-  const imports = windowsRuntimeImports(readFileSync(path), target)
-  if (imports.length > 0) {
-    throw new Error(
-      `environment helper must use static MSVC runtime: ${path}; imports=${imports.join(", ")}`
-    )
+  if (target.endsWith("-windows-msvc")) {
+    const imports = windowsRuntimeImports(readFileSync(path), target)
+    if (imports.length > 0) {
+      throw new Error(
+        `environment helper must use static MSVC runtime: ${path}; imports=${imports.join(", ")}`
+      )
+    }
+    return
+  }
+  if (target.endsWith("-apple-darwin") && process.platform === "darwin") {
+    const dependencies = execFileSync("otool", ["-L", path], {
+      encoding: "utf8",
+    })
+    const hostLibraries = dependencies
+      .split(/\r?\n/)
+      .slice(1)
+      .filter((line) => /\/(?:opt\/homebrew|usr\/local\/opt)\//.test(line))
+    if (hostLibraries.length > 0) {
+      throw new Error(
+        `environment helper must not link Homebrew libraries: ${path}; imports=${hostLibraries.join(" | ")}`
+      )
+    }
   }
 }
 

@@ -113,3 +113,57 @@ ANSI 编码误读。用户路径和结果文件仍支持 Unicode。
 - 安装器提交校验已改为 NSIS 原生 `FindFirst/FindNext`，只匹配 app 或 backup
   顶层真正存在的 `iyw-claw-mcp*` 文件，并把文件路径写入错误信息；不再依赖该
   PowerShell 检查的退出码。
+
+## 0.1.247 实际安装验收
+
+- 对下载的签名包执行本机静默安装和可见更新：静默安装约 105 秒退出 0，
+  可见更新约 30 秒完成；环境诊断返回 `healthy`，8 个受管组件均有清单记录，
+  主应用窗口能启动并响应。
+- 干净的 GitHub Windows runner 使用同一签名包完成首次安装、离线重装回滚、
+  在线重装与用户数据保留；没有在验收中重新构建应用。
+- 首轮验收的卸载器退出 `4294967295`：从 `app` 内执行的卸载器被本项目的
+  进程清理逻辑识别为当前安装实例进程。NSIS 官方文档确认 `_?=` 会禁用卸载器
+  自动复制到临时目录；验收现在显式复制到临时目录并等待执行完成。
+- 清理逻辑现在传递安装器 PID，并排除调用方自身。独立 NSIS 探针验证：
+  单独运行时 `check=0`，同目录另一个进程仍运行时 `check=1`。
+- 本机曾发现生产安装根目录的注册表值误指向旧 smoke 目录；安装器初始化时
+  已增加恢复逻辑。该源码修复和进程清理修复均不在已下载的 0.1.247 制品内。
+- 本机终端为管理员高完整性令牌；目前不能据此声称普通用户完整安装已验证。
+- 第二轮干净机器验收确认卸载成功，但找不到 `.iyw-claw/maintenance`：
+  环境修复工具的部署模块在旧版重构后未再被引用。现已恢复在环境提交前
+  安装独立修复工具；安装成功不应留下没有独立修复入口的环境。
+
+## 0.1.247 staging 重打测试包
+
+- 使用 `iyw-staging-36458055855-1-x86_64-pc-windows-msvc.zip` 中的已编译主程序、
+  前端和资源，只重新编译环境 helper、运行 Tauri `bundle` 生成 NSIS；主程序未重新编译。
+- 测试包在 `D:\Users\iyw\Downloads\iyw-claw_0.1.247_x64-setup-test-8074b87b.exe`，
+  SHA-256 为 `02CCEAAA5F5874F4A08BBDDA25C5CB159BFE0B58B4638C3D6122D12F5D1FB599`。
+  该包未签名，仅供安装验证，不作为正式发布件。
+- 本机独立 smoke 根目录实际安装退出 0，约 5.7 秒，主程序和环境 helper 均落盘；
+  测试卸载后临时安装目录及对应注册表项均不存在。smoke 模式跳过联网环境初始化，
+  因此新包的完整生产安装还需单独验证。
+- 环境 helper 静态 MSVC 运行库检查通过；机器上旧 0.1.239 安装进程持有互斥锁，
+  首次测试返回 1618，清理两个已确认的旧安装进程后重试成功。
+
+## 启动 UAC 排查
+
+- 截图中的 UAC 不是安装器请求，而是 staging 内的 `iyw-claw.exe` 入口无条件调用
+  Codex Windows sandbox 的 `ShellExecuteEx("runas")`。即使 NSIS 使用
+  `RequestExecutionLevel user`，启动已安装应用仍会再次提权。
+- 已移除桌面启动时的无条件提权；sandbox setup 仍保留按需提权路径，只在确实需要
+  创建或修复 Windows sandbox 账户时请求权限。需要重新编译主程序，旧 staging
+  以及刚生成的测试包不会自动获得这个修复。
+- 实测旧 exe 的嵌入 manifest 只有 Common Controls，未包含链接参数所声明的
+  UAC level。改用 Tauri `WindowsAttributes.app_manifest` 官方入口嵌入
+  `requestedExecutionLevel="asInvoker"`，保留原 Common Controls 依赖。
+- 使用项目 Tauri 发布配置编译新的 Windows x64 主程序，旧 staging 仅用于复用前端和
+  其他资源；新 exe SHA-256 为
+  `9C21DD2803DF494C1160B16177C9303421828770EBC4D7CEBC693F00F932D469`。
+  生成安装包后，已安装 exe 的嵌入 manifest 确认 `asInvoker`、`uiAccess=false`。
+- 新包 `D:\Users\iyw\Downloads\iyw-claw_0.1.247_x64-setup-no-uac-20260929.exe`
+  SHA-256 为 `C2072DD624AE81029993553784015F8E7D4FFED4F82310ABE90A52D609A4ECA8`，
+  未签名，仅供安装验证。隔离 NSIS 安装退出 0（约 5 秒），主程序及 helper 均落盘。
+- `runas /trustlevel:0x20000` 启动隔离实例：启动器确认非管理员，主程序持续运行，
+  检查时无 `consent.exe`。测试进程已停止，隔离目录和对应测试注册表已清理。
+  smoke 模式跳过联网环境初始化，完整普通用户环境安装仍未由此验证。

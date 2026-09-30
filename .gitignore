@@ -13,6 +13,10 @@ dist-ssr
 *.local
 tsconfig.tsbuildinfo
 
+# Rust build artifacts
+target/
+**/target/
+
 # Next.js
 .next/
 out/

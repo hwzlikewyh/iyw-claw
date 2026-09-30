@@ -4,7 +4,10 @@ fn main() {
     #[cfg(feature = "tauri-runtime")]
     {
         ensure_sidecar_placeholders();
-        tauri_build::build();
+        let windows = tauri_build::WindowsAttributes::new()
+            .app_manifest(include_str!("windows/application.manifest"));
+        tauri_build::try_build(tauri_build::Attributes::new().windows_attributes(windows))
+            .expect("Tauri build failed");
         link_windows_test_manifest();
     }
 }
@@ -25,11 +28,6 @@ fn link_windows_test_manifest() {
         name='Microsoft.Windows.Common-Controls' version='6.0.0.0' \
         processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'";
     println!("cargo:rustc-link-arg={dependency}");
-
-    // 正常桌面入口显式提权；同 EXE 的受限沙箱角色必须按调用者身份启动。
-    println!(
-        "cargo:rustc-link-arg-bin=iyw-claw=/MANIFESTUAC:level='asInvoker' uiAccess='false'"
-    );
 }
 
 /// Tauri's bundler validates that every `bundle.externalBin` path resolves

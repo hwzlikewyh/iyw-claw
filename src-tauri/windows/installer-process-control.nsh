@@ -12,7 +12,8 @@ Function ${Prefix}IywClawIssueKnownProcessKills
   Call ${Prefix}IywClawRunKnownProcessCommand
   Pop $R0
   StrCmp $R0 "0" known_process_kill_ready 0
-  StrCpy $IywClawProcessError "当前安装目录的进程查询或终止失败"
+  StrCmp $IywClawProcessError "" 0 +2
+    StrCpy $IywClawProcessError "当前安装目录的进程查询或终止失败"
   Push "1"
   Return
 
@@ -35,8 +36,13 @@ Function ${Prefix}IywClawRunKnownProcessCommandAt
   StrCmp $R0 "0" known_process_script_ready known_process_command_failed
 
   known_process_script_ready:
-  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\iyw-claw-process-control.ps1" -Action "$R8" -InstallDir "$R9"'
+  ; 排除调用方本身，避免从 app 目录运行的卸载器被清理逻辑终止。
+  System::Call 'kernel32::GetCurrentProcessId() i.R7'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\iyw-claw-process-control.ps1" -Action "$R8" -InstallDir "$R9" -InstallerProcessId $R7'
   Pop $R0
+  Pop $R1
+  StrCmp $R0 "2" 0 +2
+    StrCpy $IywClawProcessError "$R1" 1500
   Delete "$PLUGINSDIR\iyw-claw-process-control.ps1"
   Delete "$PLUGINSDIR\iyw-restart-manager.cs"
   StrCmp $R0 "0" known_process_command_result_ready 0
@@ -60,12 +66,12 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   ClearErrors
   FileOpen $R0 "$PLUGINSDIR\iyw-claw-process-control.ps1" w
   IfErrors known_process_script_write_failed 0
-  FileWriteUTF16LE /BOM $R0 `param([ValidateSet('kill', 'check', 'check-main', 'check-legacy-files')][string]$$Action, [Parameter(Mandatory = $$true)][string]$$InstallDir)$\r$\n`
+  FileWriteUTF16LE /BOM $R0 `param([ValidateSet('kill', 'check', 'check-main', 'check-legacy-files')][string]$$Action, [Parameter(Mandatory = $$true)][string]$$InstallDir, [Parameter(Mandatory = $$true)][ValidateRange(1, 2147483647)][int]$$InstallerProcessId)$\r$\n`
   FileWriteUTF16LE $R0 `try {$\r$\n`
   FileWriteUTF16LE $R0 `  $$ErrorActionPreference = 'Stop'$\r$\n`
   ; Restart Manager reports processes that hold app DLL/EXE handles even when
   ; their executable lives outside the install directory (for example WebView2).
-  FileWriteUTF16LE $R0 `  Add-Type -Path (Join-Path $$PSScriptRoot \"iyw-restart-manager.cs\")$\r$\n`
+  FileWriteUTF16LE $R0 `  Add-Type -Path (Join-Path $$PSScriptRoot 'iyw-restart-manager.cs')$\r$\n`
   FileWriteUTF16LE $R0 `  function Normalize-Directory([string]$$Path) {$\r$\n`
   FileWriteUTF16LE $R0 `    $$full = [IO.Path]::GetFullPath($$Path)$\r$\n`
   FileWriteUTF16LE $R0 `    $$root = [IO.Path]::GetPathRoot($$full)$\r$\n`
@@ -151,17 +157,17 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `  $$target = Normalize-Directory (Get-SafeCanonicalPath $$InstallDir)$\r$\n`
   FileWriteUTF16LE $R0 `  $$managedRoots = @()$\r$\n`
   FileWriteUTF16LE $R0 `  $$resourcePids = @()$\r$\n`
-  FileWriteUTF16LE $R0 `  if ($$Action -ne \"check-main\" -and $$Action -ne \"check-legacy-files\") {$\r$\n`
+  FileWriteUTF16LE $R0 `  if ($$Action -ne 'check-main' -and $$Action -ne 'check-legacy-files') {$\r$\n`
   FileWriteUTF16LE $R0 `    $$managedRoots += $$target$\r$\n`
   FileWriteUTF16LE $R0 `    try {$\r$\n`
-  FileWriteUTF16LE $R0 `      $$resourceFiles = @(Get-ChildItem -LiteralPath $$target -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $$_.Extension -match \"(?i)^\.(exe|dll|node|ocx|cpl|bin)$\" })$\r$\n`
+  FileWriteUTF16LE $R0 `      $$resourceFiles = @(Get-ChildItem -LiteralPath $$target -Recurse -File -Force -ErrorAction SilentlyContinue | Where-Object { $$_.Extension -match '(?i)^\.(exe|dll|node|ocx|cpl|bin)$$' })$\r$\n`
   FileWriteUTF16LE $R0 `      if ($$resourceFiles.Count -gt 0) { $$resourcePids = @([IywRestartManager]::FindPids([string[]]$$resourceFiles.FullName)) }$\r$\n`
-  FileWriteUTF16LE $R0 `      foreach ($$pid in $$resourcePids) { Write-Output (\"Restart Manager found resource holder: pid={0}\" -f $$pid) }$\r$\n`
-  FileWriteUTF16LE $R0 `    } catch { Write-Warning (\"Restart Manager resource scan failed: {0}\" -f $$_.Exception.Message) }$\r$\n`
+  FileWriteUTF16LE $R0 `      foreach ($$resourcePid in $$resourcePids) { Write-Output ('Restart Manager found resource holder: pid={0}' -f $$resourcePid) }$\r$\n`
+  FileWriteUTF16LE $R0 `    } catch { Write-Warning ('Restart Manager resource scan failed: {0}' -f $$_.Exception.Message) }$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
   FileWriteUTF16LE $R0 `  if ($$Action -ne 'check-main' -and [IO.Path]::GetFileName($$target) -ieq 'app') {$\r$\n`
   FileWriteUTF16LE $R0 `    $$installRoot = [IO.Path]::GetDirectoryName($$target)$\r$\n`
-  FileWriteUTF16LE $R0 `    $$managedRoots += @(\"runtime\", \"agents\", \"data\runtime\", \"data\browser\chromium\") | ForEach-Object { [IO.Path]::Combine($$installRoot, $$_) }$\r$\n`
+  FileWriteUTF16LE $R0 `    $$managedRoots += @('runtime', 'agents', 'data\runtime', 'data\browser\chromium') | ForEach-Object { [IO.Path]::Combine($$installRoot, $$_) }$\r$\n`
   FileWriteUTF16LE $R0 `  }$\r$\n`
   ; Shared runtimes live in the user profile, while agent runtimes may use a
   ; configured storage root. Include those roots so their Node entry scripts
@@ -187,6 +193,7 @@ Function ${Prefix}IywClawWriteKnownProcessScript
   FileWriteUTF16LE $R0 `  $$isCandidate = { param([object]$$Process) if ($$Action -eq 'check-main') { return $$Process.Name -ieq 'iyw-claw.exe' }; return (($$resourcePids -contains [int]$$Process.ProcessId) -and $$Process.Name -ine 'explorer.exe') -or $$Process.Name -ieq 'iyw-claw.exe' -or $$Process.Name -ieq 'agent-browser.exe' -or $$Process.Name -match $$pattern -or (Test-ManagedProcessPath $$Process.ExecutablePath) -or -not [string]::IsNullOrWhiteSpace((Get-ManagedNodeScript $$Process)) }$\r$\n`
   FileWriteUTF16LE $R0 `  $$processSnapshots = @()$\r$\n`
   FileWriteUTF16LE $R0 `  Get-CimInstance Win32_Process -ErrorAction Stop | ForEach-Object {$\r$\n`
+  FileWriteUTF16LE $R0 `    if ([int]$$_.ProcessId -eq $$InstallerProcessId) { return }$\r$\n`
   FileWriteUTF16LE $R0 `    if (-not (& $$isCandidate $$_)) { return }$\r$\n`
   FileWriteUTF16LE $R0 `    $$candidate = $$_; $$candidatePid = [int]$$candidate.ProcessId$\r$\n`
   FileWriteUTF16LE $R0 `    try { $$identity = Get-ProcessIdentity $$candidate } catch {$\r$\n`
@@ -245,7 +252,8 @@ Function ${Prefix}IywClawAnyKnownProcessRunning
     Return
 
   process_check_failed:
-    StrCpy $IywClawProcessError "进程状态检查失败"
+    StrCmp $IywClawProcessError "" 0 +2
+      StrCpy $IywClawProcessError "进程状态检查失败"
     Push "2"
     Return
 

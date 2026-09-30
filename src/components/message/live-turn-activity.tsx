@@ -155,12 +155,43 @@ export function useTurnActivity(
     (entry) => entry.status === "in_progress"
   )
   const stepText = step ? readableStatusText(step.content) : null
+
+  const retryLabel = useMemo(() => {
+    if (
+      phase === "runtimeRetrying" &&
+      activity?.snapshot.retry_attempt &&
+      activity?.snapshot.retry_max_attempts
+    ) {
+      return t("runtimeRetryingWithAttempt", {
+        attempt: activity.snapshot.retry_attempt,
+        max: activity.snapshot.retry_max_attempts,
+      })
+    }
+    return null
+  }, [phase, activity, t])
+
+  const retryDetail = useMemo(() => {
+    if (phase !== "runtimeRetrying" || !activity?.snapshot.retry_reason)
+      return null
+    const reason = activity.snapshot.retry_reason
+    const knownReasons = [
+      "streamDisconnected",
+      "rateLimited",
+      "serverError",
+      "networkError",
+    ]
+    if (knownReasons.includes(reason)) {
+      return t(`retryReason.${reason}` as any)
+    }
+    return null
+  }, [phase, activity, t])
+
   const detail =
     stepText && (phase === "runningTool" || phase === "thinking")
       ? t("currentStep", { step: stepText })
-      : t(`detail.${phase}` as never)
+      : retryDetail ?? toolDetail ?? t(`detail.${phase}` as never)
   return {
-    phase: t(phase, { model: "原助理", tool: tool.name }),
+    phase: retryLabel ?? t(phase, { model: "原助理", tool: tool.name }),
     detail: toolDetail ?? detail,
     icon,
     waiting: [
