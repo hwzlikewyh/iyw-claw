@@ -12,14 +12,23 @@ mod verification_cache;
 
 static WRITER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-pub use repair::repair;
+pub use repair::{repair_startup, repair_with_progress};
 pub use status::{init_status_report, ManagedEnvironmentStatusReport};
 
 pub async fn lock_writer() -> tokio::sync::MutexGuard<'static, ()> {
     WRITER.lock().await
 }
 
-pub fn core_components_need_repair(report: &ManagedEnvironmentStatusReport) -> bool {
+pub fn components_need_repair(report: &ManagedEnvironmentStatusReport) -> bool {
+    core_components_need_repair(report)
+        // 清单中包含已选装的可选组件；内置 Agent 只能通过应用安装包修复。
+        || report
+            .components
+            .iter()
+            .any(|component| !component.active && component.component_id != "builtin-agent")
+}
+
+fn core_components_need_repair(report: &ManagedEnvironmentStatusReport) -> bool {
     ["node", "git", "uv", "chromix", "agent-browser"]
         .iter()
         .any(|component_id| {

@@ -32,15 +32,26 @@ pub async fn bootstrap_initialize(
     let explicit_repair = params.repair.unwrap_or(false);
     let repair = if explicit_repair {
         true
-    } else if managed_environment::core_components_need_repair(&report) {
+    } else if managed_environment::components_need_repair(&report) {
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         report = status().await?;
-        managed_environment::core_components_need_repair(&report)
+        managed_environment::components_need_repair(&report)
     } else {
         false
     };
+    tracing::info!(
+        task_id = %params.task_id,
+        repair,
+        explicit_repair,
+        environment_phase = %report.phase,
+        unavailable_components = ?report.components.iter()
+            .filter(|component| !component.active)
+            .map(|component| component.component_id.as_str())
+            .collect::<Vec<_>>(),
+        "environment status requested"
+    );
     if repair {
-        managed_environment::repair(&params.task_id, &state.emitter)
+        managed_environment::repair_startup(&params.task_id, &state.emitter, explicit_repair)
             .await
             .map_err(AppCommandError::task_execution_failed)?;
         report = status().await?;
