@@ -98,3 +98,4 @@ iyw-claw（Code Generation）是一个多智能体编码工作台，它将多个
 - ESLint：next/core-web-vitals + typescript + prettier
 - TypeScript：strict 模式，启用 `noUnusedLocals` 和 `noUnusedParameters`
 - Rust：2021 edition，使用 `thiserror` 定义错误类型
+- 生成 HTML/CSS 时不显式使用微软雅黑、Segoe UI 等非开源字体；优先使用 Noto Sans SC、Source Han Sans 等开源商用许可字体，并提供 `sans-serif` 回退。需要随文件稳定呈现字体时，只能附带许可证允许商用的字体文件及其许可信息。
