@@ -219,7 +219,13 @@ export function ConversationShell({
         <div className="min-h-24 flex-1 overflow-auto">{children}</div>
 
         {/* 待处理卡片共享高度上限，为状态栏和输入框留出空间；输入框菜单可向上展开。 */}
-        <div className="max-h-[50%] min-h-0 min-w-0 shrink-0 overflow-y-auto overscroll-contain">
+        <div
+          className={
+            pendingAskQuestion
+              ? "max-h-[min(70svh,calc(100dvh-17rem))] min-h-0 min-w-0 shrink-0 overflow-hidden"
+              : "max-h-[50%] min-h-0 min-w-0 shrink-0 overflow-y-auto overscroll-contain"
+          }
+        >
           <PermissionDialog
             permission={pendingPermission}
             onRespond={onRespondPermission}
