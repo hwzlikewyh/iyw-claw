@@ -52,7 +52,10 @@ const GENERIC_ACTIONS: ReadonlyArray<readonly [RegExp, string]> = [
   [/(?:^|_)(?:wait|poll)(?:_|$)/, "wait"],
 ]
 
-type TranslateToolLabel = (key: string) => string | null
+type TranslateToolLabel = (
+  key: string,
+  values?: Record<string, unknown>
+) => string | null
 
 interface ToolDisplayInput {
   toolName: string
@@ -107,6 +110,13 @@ export function getToolDisplayName(
   const description = getIywToolDescription(tool.toolName, tool.input)
   if (description) return description
   const builtin = getBuiltinToolDisplay(tool.toolName, tool.input)
+  if (builtin?.fallbackName) {
+    return (
+      translate("builtinTool.dynamicCapability", {
+        name: builtin.fallbackName,
+      }) ?? builtin.fallbackName
+    )
+  }
   const builtinLabel = builtin && translate(`builtinTool.${builtin.toolName}`)
   if (builtinLabel) return builtinLabel
   const known =

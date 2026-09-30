@@ -3816,6 +3816,10 @@
           "search_iyw_capabilities": "查找可用工具",
           "read_iyw_capability": "查看工具用法",
           "invoke_iyw_capability": "调用工具",
+          "dynamicCapability": "执行 {name}",
+          "get_user_memory_maintenance": "查看记忆维护任务",
+          "resolve_user_memory_review": "处理记忆复核",
+          "get_agent_reach_status": "查看联网渠道状态",
           "list_scheduled_task_projects": "查看计划任务项目",
           "list_scheduled_tasks": "查看计划任务",
           "create_scheduled_task": "创建定时任务",
@@ -3880,7 +3884,8 @@
           "rebuild_user_memory_candidate_index": "重建记忆索引",
           "get_user_memory_settings": "查看记忆设置",
           "update_user_memory_documents": "更新记忆文档",
-          "correct_user_memory": "更正记忆"
+          "correct_user_memory": "更正记忆",
+          "retire_user_memory": "废弃记忆"
         },
         "toolAction": {
           "command": "执行命令",
