@@ -1,18 +1,65 @@
 "use client"
 
-import { Files, PackageOpen } from "lucide-react"
+import { ArrowLeft, Files, PackageOpen, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { useAuxPanelContext } from "@/contexts/aux-panel-context"
 import { cn } from "@/lib/utils"
 import { TaskArtifactsTab } from "./aux-panel-artifacts-tab"
 import { FileTreeTab } from "./aux-panel-file-tree-tab"
+import { TaskArtifactPreview } from "./task-artifact-preview"
+import { Button } from "@/components/ui/button"
 
 export function AuxPanel() {
   const t = useTranslations("Folder.auxPanel.tabs")
-  const { isOpen, activeTab, setActiveTab } = useAuxPanelContext()
+  const tArtifacts = useTranslations("Folder.taskArtifacts")
+  const {
+    isOpen,
+    activeTab,
+    setActiveTab,
+    setOpen,
+    artifactPreview,
+    closeArtifactPreview,
+  } = useAuxPanelContext()
 
   if (!isOpen) return null
+  if (artifactPreview) {
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="flex h-10 shrink-0 items-center gap-1 border-b px-2">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={closeArtifactPreview}
+            aria-label={tArtifacts("backToList")}
+            title={tArtifacts("backToList")}
+          >
+            <ArrowLeft className="size-4" />
+          </Button>
+          <span className="min-w-0 flex-1 truncate text-xs font-medium">
+            {artifactPreview.displayName}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => {
+              closeArtifactPreview()
+              setOpen(false)
+            }}
+            aria-label={tArtifacts("backToList")}
+            title={tArtifacts("backToList")}
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
+        <TaskArtifactPreview
+          artifact={artifactPreview}
+          className="min-h-0 flex-1"
+          onOpenWorkspace={closeArtifactPreview}
+        />
+      </div>
+    )
+  }
   const selected = activeTab === "artifacts" ? "artifacts" : "file_tree"
 
   return (

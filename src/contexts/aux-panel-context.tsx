@@ -14,6 +14,7 @@ import {
   savePersistedPanelState,
 } from "@/lib/panel-state-storage"
 import { useActiveFolder } from "@/contexts/active-folder-context"
+import type { TaskArtifactInfo } from "@/lib/api"
 
 export type AuxPanelTab = "file_tree" | "artifacts"
 
@@ -31,12 +32,15 @@ interface AuxPanelContextValue {
   minWidth: number
   maxWidth: number
   activeTab: AuxPanelTab
+  artifactPreview: TaskArtifactInfo | null
   toggle: () => void
   /** Imperatively set the panel open/closed (used by the chat-mode auto-hide). */
   setOpen: (open: boolean) => void
   setWidth: (w: number) => void
   setActiveTab: (tab: AuxPanelTab) => void
   openTab: (tab: AuxPanelTab) => void
+  openArtifactPreview: (artifact: TaskArtifactInfo) => void
+  closeArtifactPreview: () => void
   pendingRevealPath: string | null
   revealInFileTree: (path: string) => void
   consumePendingRevealPath: () => void
@@ -70,6 +74,8 @@ export function AuxPanelProvider({ children }: AuxPanelProviderProps) {
   const [pendingRevealPath, setPendingRevealPath] = useState<string | null>(
     null
   )
+  const [artifactPreview, setArtifactPreview] =
+    useState<TaskArtifactInfo | null>(null)
 
   const toggle = useCallback(() => setIsOpen((prev) => !prev), [])
 
@@ -82,6 +88,16 @@ export function AuxPanelProvider({ children }: AuxPanelProviderProps) {
   const openTab = useCallback((tab: AuxPanelTab) => {
     setActiveTab(tab)
     setIsOpen(true)
+  }, [])
+
+  const openArtifactPreview = useCallback((artifact: TaskArtifactInfo) => {
+    setArtifactPreview(artifact)
+    setActiveTab("artifacts")
+    setIsOpen(true)
+  }, [])
+
+  const closeArtifactPreview = useCallback(() => {
+    setArtifactPreview(null)
   }, [])
 
   const revealInFileTree = useCallback((path: string) => {
@@ -126,11 +142,14 @@ export function AuxPanelProvider({ children }: AuxPanelProviderProps) {
       minWidth: MIN_WIDTH,
       maxWidth: MAX_WIDTH,
       activeTab,
+      artifactPreview,
       toggle,
       setOpen,
       setWidth,
       setActiveTab,
       openTab,
+      openArtifactPreview,
+      closeArtifactPreview,
       pendingRevealPath,
       revealInFileTree,
       consumePendingRevealPath,
@@ -140,10 +159,13 @@ export function AuxPanelProvider({ children }: AuxPanelProviderProps) {
       restored,
       width,
       activeTab,
+      artifactPreview,
       toggle,
       setOpen,
       setWidth,
       openTab,
+      openArtifactPreview,
+      closeArtifactPreview,
       pendingRevealPath,
       revealInFileTree,
       consumePendingRevealPath,

@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect } from "react"
 import {
   Dialog,
   DialogContent,
@@ -8,6 +9,8 @@ import {
 } from "@/components/ui/dialog"
 import { TaskArtifactPreview } from "@/components/layout/task-artifact-preview"
 import type { TaskArtifactInfo } from "@/lib/api"
+import { useAuxPanelContext } from "@/contexts/aux-panel-context"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 interface TaskArtifactDialogProps {
   artifact: TaskArtifactInfo | null
@@ -21,6 +24,29 @@ export function TaskArtifactDialog({
   onOpenChange,
 }: TaskArtifactDialogProps) {
   if (!artifact) return null
+  return (
+    <TaskArtifactDialogContent
+      artifact={artifact}
+      open={open}
+      onOpenChange={onOpenChange}
+    />
+  )
+}
+
+function TaskArtifactDialogContent({
+  artifact,
+  open,
+  onOpenChange,
+}: TaskArtifactDialogProps & { artifact: TaskArtifactInfo }) {
+  const isMobile = useIsMobile()
+  const { openArtifactPreview } = useAuxPanelContext()
+  useEffect(() => {
+    if (!isMobile && open) {
+      openArtifactPreview(artifact)
+      onOpenChange(false)
+    }
+  }, [artifact, isMobile, onOpenChange, open, openArtifactPreview])
+  if (!isMobile) return null
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
