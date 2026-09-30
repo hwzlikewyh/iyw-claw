@@ -6,6 +6,9 @@ use crate::acp::types::PlanEntryInfo;
 pub(crate) const AUTO_CONTINUATION_PROMPT: &str =
     "继续完成当前用户请求。不要复述计划；执行尚未完成且已获授权的步骤。\n如果需要新的用户授权、选择或信息，明确说明阻塞并停止。";
 
+pub(crate) const INTERRUPTED_CONTINUATION_PROMPT: &str =
+    "上一轮因输出预算中断。先检查最近工具调用结果和工作区状态，不要重复已经成功的操作；从未完成的位置继续。大文件或补丁拆成多个小操作，每次完成后再继续。";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AutoContinuationEvidence {
     pub reason_code: &'static str,
@@ -46,6 +49,25 @@ pub(crate) fn evaluate(
     is_action_promise(&text).then_some(AutoContinuationEvidence {
         reason_code: "action_promise_without_tool",
         evidence_kind: "commitment_text",
+        auto_run: true,
+    })
+}
+
+pub(crate) fn evaluate_interrupted(
+    state: &SessionState,
+    reason_code: &'static str,
+    had_output: bool,
+) -> Option<AutoContinuationEvidence> {
+    if !had_output
+        || !is_direct_user_session(state)
+        || has_blocking_work(state)
+        || state.auto_continuation.is_some()
+    {
+        return None;
+    }
+    Some(AutoContinuationEvidence {
+        reason_code,
+        evidence_kind: "budget",
         auto_run: true,
     })
 }

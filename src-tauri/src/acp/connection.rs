@@ -6097,6 +6097,18 @@ fn is_stream_disconnected_error(error: &sacp::Error) -> bool {
             .is_some_and(|detail| detail.starts_with("stream disconnected before completion:"))
 }
 
+fn is_max_output_tokens_error(error: &sacp::Error) -> bool {
+    matches!(error.code, sacp::schema::ErrorCode::InternalError)
+        && error
+            .data
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|detail| {
+                detail.starts_with("stream disconnected before completion:")
+                    && detail.contains("reason: max_output_tokens")
+            })
+}
+
 /// A model stream that ends early fails only the current turn: the Codex
 /// harness clears its active turn before returning the error, so the
 /// transport and thread stay usable for the next prompt.
@@ -6105,7 +6117,9 @@ fn should_terminate_prompt_error(error: &sacp::Error, host_healthy: bool) -> boo
 }
 
 fn prompt_error_kind(error: &sacp::Error) -> &'static str {
-    if is_stream_disconnected_error(error) {
+    if is_max_output_tokens_error(error) {
+        "max_tokens"
+    } else if is_stream_disconnected_error(error) {
         "stream_disconnected"
     } else {
         "acp_prompt_request_failed"
@@ -6772,7 +6786,14 @@ async fn run_conversation_loop<'a>(
                                         sid.0.as_ref(),
                                     )
                                     .await;
-                                    let auto_evidence = if reason_str == "end_turn" {
+                                    let auto_evidence = if reason_str == "max_tokens" {
+                                        let snapshot = state.read().await;
+                                        auto_continuation::evaluate_interrupted(
+                                            &snapshot,
+                                            "max_output_tokens",
+                                            output_probe.saw_agent_output(),
+                                        )
+                                    } else if reason_str == "end_turn" {
                                         let snapshot = state.read().await;
                                         auto_continuation::evaluate(
                                             &snapshot,
@@ -6818,14 +6839,22 @@ async fn run_conversation_loop<'a>(
                                                     cx.clone()
                                                         .send_request_to(
                                                             Agent,
-                                                            crate::acp::runtime_host_worker_turn::prompt_request(state, PromptRequest::new(
-                                                                sid.clone(),
-                                                                vec![ContentBlock::Text(
-                                                                    TextContent::new(
-                                                                        auto_continuation::AUTO_CONTINUATION_PROMPT,
-                                                                    ),
-                                                                )],
-                                                            )).await,
+                                                            crate::acp::runtime_host_worker_turn::prompt_request(
+                                                                state,
+                                                                PromptRequest::new(
+                                                                    sid.clone(),
+                                                                    vec![ContentBlock::Text(
+                                                                        TextContent::new(
+                                                                            if evidence.evidence_kind == "budget" {
+                                                                                auto_continuation::INTERRUPTED_CONTINUATION_PROMPT
+                                                                            } else {
+                                                                                auto_continuation::AUTO_CONTINUATION_PROMPT
+                                                                            },
+                                                                        ),
+                                                                    )],
+                                                                ),
+                                                            )
+                                                            .await,
                                                         )
                                                         .block_task(),
                                                 );
@@ -6967,8 +6996,80 @@ async fn run_conversation_loop<'a>(
                                         .await;
                                         return Err(error);
                                     }
+                                    let max_output_tokens = is_max_output_tokens_error(&error);
+                                    if max_output_tokens {
+                                        let evidence = {
+                                            let snapshot = state.read().await;
+                                            auto_continuation::evaluate_interrupted(
+                                                &snapshot,
+                                                "max_output_tokens",
+                                                output_probe.saw_agent_output(),
+                                            )
+                                        };
+                                        if let Some(evidence) = evidence {
+                                            let source_generation = state.read().await.turn_generation;
+                                            let started = emit_with_state_gated(
+                                                state,
+                                                emitter,
+                                                AcpEvent::AutoContinuation {
+                                                    source_generation,
+                                                    attempt: 1,
+                                                    reason_code: evidence.reason_code.to_string(),
+                                                    evidence_kind: evidence.evidence_kind.to_string(),
+                                                    phase: "started".into(),
+                                                },
+                                                |snapshot| {
+                                                    snapshot.turn_generation == source_generation
+                                                        && snapshot.auto_continuation.is_none()
+                                                },
+                                            )
+                                            .await;
+                                            if started {
+                                                tracing::info!(
+                                                    connection_id = conn_id,
+                                                    source_generation,
+                                                    attempt = 1,
+                                                    reason_code = evidence.reason_code,
+                                                    evidence_kind = evidence.evidence_kind,
+                                                    is_auto_continuation = true,
+                                                    "[ACP] recovering turn after output budget interruption"
+                                                );
+                                                terminal_runtime
+                                                    .release_all_for_session(sid.0.as_ref())
+                                                    .await;
+                                                tracked_terminal_tool_calls.clear();
+                                                native_background_updates.clear();
+                                                output_probe = TurnOutputProbe::new(stderr_tail.mark());
+                                                tool_call_count = 0;
+                                                cb_state.open_subagents.clear();
+                                                cb_state.closed_subagents.clear();
+                                                prompt_response = Box::pin(
+                                                    cx.clone()
+                                                        .send_request_to(
+                                                            Agent,
+                                                            crate::acp::runtime_host_worker_turn::prompt_request(
+                                                                state,
+                                                                PromptRequest::new(
+                                                                    sid.clone(),
+                                                                    vec![ContentBlock::Text(
+                                                                        TextContent::new(
+                                                                            auto_continuation::INTERRUPTED_CONTINUATION_PROMPT,
+                                                                        ),
+                                                                    )],
+                                                                ),
+                                                            )
+                                                            .await,
+                                                        )
+                                                        .block_task(),
+                                                );
+                                                continue;
+                                            }
+                                        }
+                                    }
                                     let detail = safe_error_detail(&error.to_string());
-                                    let error_code = if is_stream_disconnected_error(&error) {
+                                    let error_code = if max_output_tokens {
+                                        "turn_failed_max_tokens"
+                                    } else if is_stream_disconnected_error(&error) {
                                         "model_stream_interrupted"
                                     } else {
                                         "acp_prompt_request_failed"
@@ -7003,7 +7104,12 @@ async fn run_conversation_loop<'a>(
                                             "prompt_error",
                                             AcpEvent::TurnComplete {
                                                 session_id: sid.0.to_string(),
-                                                stop_reason: "prompt_error".into(),
+                                                stop_reason: (if max_output_tokens {
+                                                    "max_tokens"
+                                                } else {
+                                                    "prompt_error"
+                                                })
+                                                .into(),
                                                 agent_type: agent_type.to_string(),
                                             },
                                         )
@@ -7097,7 +7203,14 @@ async fn run_conversation_loop<'a>(
                                 sid.0.as_ref(),
                             )
                             .await;
-                            let auto_evidence = if reason_str == "end_turn" {
+                            let auto_evidence = if reason_str == "max_tokens" {
+                                let snapshot = state.read().await;
+                                auto_continuation::evaluate_interrupted(
+                                    &snapshot,
+                                    "max_output_tokens",
+                                    output_probe.saw_agent_output(),
+                                )
+                            } else if reason_str == "end_turn" {
                                 let snapshot = state.read().await;
                                 auto_continuation::evaluate(
                                     &snapshot,
@@ -7146,7 +7259,11 @@ async fn run_conversation_loop<'a>(
                                                     crate::acp::runtime_host_worker_turn::prompt_request(state, PromptRequest::new(
                                                         sid.clone(),
                                                         vec![ContentBlock::Text(TextContent::new(
-                                                            auto_continuation::AUTO_CONTINUATION_PROMPT,
+                                                            if evidence.evidence_kind == "budget" {
+                                                                auto_continuation::INTERRUPTED_CONTINUATION_PROMPT
+                                                            } else {
+                                                                auto_continuation::AUTO_CONTINUATION_PROMPT
+                                                            },
                                                         ))],
                                                     )).await,
                                                 )

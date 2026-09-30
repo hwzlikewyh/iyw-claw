@@ -2026,6 +2026,12 @@ fn load_codex_model_catalog_ids() -> Vec<String> {
 const CODEX_DEFAULT_BASE_INSTRUCTIONS: &str =
     "你是爱原物原助理。你和用户共享一个工作区，请持续协作，直到用户的目标真正完成。";
 
+const CODEX_TOOL_EXECUTION_INSTRUCTIONS: &str = r###"工具执行规则：
+- 大文件、长 HTML、数据脚本和代码修改必须拆成多个小工具调用；不要一次生成超长 `apply_patch`。
+- `apply_patch` 每次只处理一个文件或一小段，补丁必须完整包含 `*** End Patch` 结束标记。
+- 工具调用失败后先检查工作区和工具结果，确认已成功的操作，不要重复有副作用的操作。
+- 任务因输出限制中断后，从最近一个已完成工具调用继续；不要复述整份文件或重放整个任务。"###;
+
 const CODEX_IMAGE_FALLBACK_INSTRUCTIONS: &str = r###"图片理解规则：
 - 当当前任务需要识别、读取、比较或判断图片内容时，先确认当前可用工具中存在名称后缀为 `analyze_image` 的工具，再对每个相关图片来源调用它，即使上下文已经包含原生图片输入或上游图片描述。将图片路径、file URI、HTTPS URL、Data URI 或 Base64 传入 `source`，将当前任务需要确认的视觉信息写入 `question`。
 - 只有现有 `analyze_image` 结果已经足以回答同一问题时才不要重复调用。
@@ -2069,13 +2075,17 @@ fn base_instructions_for(agent_type: AgentType) -> &'static str {
 }
 
 fn codex_base_instructions_for_model(model: &str) -> String {
-    let base = base_instructions_for(AgentType::Codex);
+    let base = format!(
+        "{}\n\n{}",
+        base_instructions_for(AgentType::Codex),
+        CODEX_TOOL_EXECUTION_INSTRUCTIONS
+    );
     let uses_vision_fallback =
         crate::acp::model_catalog::model_capabilities(model).is_some_and(|capability| {
             capability.image_input_mode == crate::acp::model_catalog::ImageInputMode::Fallback
         });
     if !uses_vision_fallback {
-        return base.to_string();
+        return base;
     }
     format!("{base}\n\n{CODEX_IMAGE_FALLBACK_INSTRUCTIONS}")
 }
