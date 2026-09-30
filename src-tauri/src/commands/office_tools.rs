@@ -116,6 +116,48 @@ pub struct SkillSyncReport {
     pub errors: Vec<String>,
 }
 
+const OFFICE_FONT_POLICY_MARKER: &str = "## iyw-claw managed office typography";
+const OFFICE_FONT_POLICY: &str = r#"## iyw-claw managed office typography
+
+When creating a new document without an existing template or an explicit user font request, use this open-source commercial-use font default:
+
+- Latin, ASCII, Western, Chinese, Japanese, Korean, and other East-Asian text: `Noto Sans SC`.
+
+Apply the font explicitly instead of relying on the Office theme defaults (`Calibri`, `等线`, or `Times New Roman`). Preserve an existing template's typography and always honor an explicit user font request.
+
+Format-specific rules:
+
+- PPTX: set `font.latin=Noto Sans SC` and `font.ea=Noto Sans SC` on every text shape, run, table cell, and chart label that you create.
+- DOCX: set `font.latin=Noto Sans SC` and `font.ea=Noto Sans SC` on new paragraphs, styles, runs, and table-cell text.
+- XLSX: set `font=Noto Sans SC` on every new cell that contains text.
+
+Before PDF export or visual delivery, confirm that `Noto Sans SC` is installed and available to the rendering process. If it is unavailable, report the limitation instead of silently claiming that the output uses the requested font."#;
+
+fn office_font_policy(skill_id: &str) -> Option<&'static str> {
+    match skill_id {
+        "officecli-pptx"
+        | "officecli-pitch-deck"
+        | "morph-ppt"
+        | "morph-ppt-3d"
+        | "officecli-docx"
+        | "officecli-academic-paper"
+        | "officecli-xlsx"
+        | "officecli-financial-model"
+        | "officecli-data-dashboard" => Some(OFFICE_FONT_POLICY),
+        _ => None,
+    }
+}
+
+fn append_office_font_policy(skill_id: &str, content: &str) -> String {
+    let Some(policy) = office_font_policy(skill_id) else {
+        return content.to_owned();
+    };
+    if content.contains(OFFICE_FONT_POLICY_MARKER) {
+        return content.to_owned();
+    }
+    format!("{}\n\n{}\n", content.trim_end(), policy.trim())
+}
+
 // ─── Skill metadata (hardcoded — OfficeCLI has no list command) ────────
 
 struct SkillDef {
@@ -336,9 +378,15 @@ fn officecli_bootstrap_assets_complete(info: &OfficecliInfo, skill_root: &Path) 
     info.installed
         && info.runtime_error.is_none()
         && info.compatible
-        && skill_defs()
-            .iter()
-            .all(|skill| skill_root.join(skill.id).join("SKILL.md").is_file())
+        && skill_defs().iter().all(|skill| {
+            office_skill_policy_is_current(&skill_root.join(skill.id).join("SKILL.md"))
+        })
+}
+
+fn office_skill_policy_is_current(skill_path: &Path) -> bool {
+    fs::read_to_string(skill_path)
+        .map(|content| content.contains(OFFICE_FONT_POLICY_MARKER))
+        .unwrap_or(false)
 }
 
 fn mark_officecli_bootstrap_disabled(data_dir: &Path) -> Result<(), OfficeToolsError> {
@@ -1369,10 +1417,11 @@ pub(crate) async fn ensure_managed_office_skill_ready(
         })?;
         needs_sync = true;
     }
-    if needs_sync || !skill_central_path(skill_id).join("SKILL.md").is_file() {
+    let skill_path = skill_central_path(skill_id).join("SKILL.md");
+    if needs_sync || !office_skill_policy_is_current(&skill_path) {
         officecli_sync_skills_core().await?;
     }
-    if skill_central_path(skill_id).join("SKILL.md").is_file() {
+    if office_skill_policy_is_current(&skill_path) {
         Ok(())
     } else {
         Err(OfficeToolsError::SkillNotFound(skill_id.to_string()))
@@ -1444,7 +1493,8 @@ async fn officecli_sync_skills_locked() -> Result<SkillSyncReport, OfficeToolsEr
                     continue;
                 }
                 fs::create_dir_all(&target_dir)?;
-                fs::write(&skill_md, content.as_ref())?;
+                let managed_content = append_office_font_policy(def.id, content.as_ref());
+                fs::write(&skill_md, managed_content)?;
                 report.synced += 1;
             }
             Ok(out) => {
