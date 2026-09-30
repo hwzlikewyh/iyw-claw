@@ -72,12 +72,16 @@ jobs:
         with:
           targets: ${{ inputs.target }}
       - uses: ./.github/actions/setup-sccache
+      # checkout 会刷新文件修改时间，Cargo 因此整体重编 codex 补丁；固定后按内容哈希区分缓存。
+      - name: Pin path dependency mtimes
+        id: pathdeps
+        run: node .release-tools/.github/scripts/release/pin-path-dep-mtimes.mjs harness/codex
       - uses: swatinem/rust-cache@v2
         with:
           # Worker binaries have their own cache and artifact backup.
           prefix-key: v1-desktop-app
           workspaces: src-tauri -> target
-          shared-key: desktop-${{ inputs.target }}
+          shared-key: desktop-${{ inputs.target }}-${{ steps.pathdeps.outputs.hash }}
           cache-bin: "false"
           cache-workspace-crates: "false"
       - uses: ilammy/setup-nasm@72793074d3c8cdda771dba85f6deafe00623038b
