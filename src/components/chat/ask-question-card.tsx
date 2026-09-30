@@ -44,13 +44,15 @@ function QuestionCard(props: QuestionCardProps) {
       ref={container}
       aria-label={props.title}
       className={cn(
-        "@container mb-2 flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm",
-        props.readOnly && "max-h-[70svh]"
+        "@container mb-2 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-sm",
+        props.readOnly
+          ? "max-h-[70svh]"
+          : "max-h-[min(70svh,calc(100dvh-17rem))]"
       )}
     >
       <QuestionHeader props={props} state={state} />
       <QuestionNavigation props={props} state={state} />
-      <div className="min-h-0 min-w-0 overflow-y-auto overscroll-contain px-4 pb-4">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4">
         <QuestionCardContent props={props} state={state} />
       </div>
       {!props.readOnly && <QuestionFooter props={props} state={state} />}
