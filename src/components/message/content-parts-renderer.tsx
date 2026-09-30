@@ -2133,6 +2133,11 @@ const ToolCallPart = memo(function ToolCallPart({
   const title = useMemo(() => {
     const description = getIywToolDescription(part.toolName, part.input)
     if (description) return description
+    if (builtinTool?.fallbackName) {
+      return t("builtinTool.dynamicCapability", {
+        name: builtinTool.fallbackName,
+      })
+    }
     if (builtinTool && t.has(`builtinTool.${builtinTool.toolName}` as never)) {
       return t(`builtinTool.${builtinTool.toolName}` as never)
     }

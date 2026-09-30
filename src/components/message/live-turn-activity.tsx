@@ -127,7 +127,8 @@ function useToolPresentation(tool: ToolCallInfo | null) {
     return {
       name: getToolDisplayName(
         { toolName: name, input: rawInput, displayTitle: title },
-        (key) => (t.has(key as never) ? t(key as never) : null)
+        (key, values) =>
+          t.has(key as never) ? t(key as never, values as never) : null
       ),
       icon: toolIcon(builtin?.toolName ?? normalizeToolName(name)),
     }
@@ -181,7 +182,7 @@ export function useTurnActivity(
       "networkError",
     ]
     if (knownReasons.includes(reason)) {
-      return t(`retryReason.${reason}` as any)
+      return t(`retryReason.${reason}` as never)
     }
     return null
   }, [phase, activity, t])
@@ -189,7 +190,7 @@ export function useTurnActivity(
   const detail =
     stepText && (phase === "runningTool" || phase === "thinking")
       ? t("currentStep", { step: stepText })
-      : retryDetail ?? toolDetail ?? t(`detail.${phase}` as never)
+      : (retryDetail ?? toolDetail ?? t(`detail.${phase}` as never))
   return {
     phase: retryLabel ?? t(phase, { model: "原助理", tool: tool.name }),
     detail: toolDetail ?? detail,

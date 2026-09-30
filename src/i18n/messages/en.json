@@ -3816,6 +3816,10 @@
           "search_iyw_capabilities": "Find available tools",
           "read_iyw_capability": "Read tool instructions",
           "invoke_iyw_capability": "Call a tool",
+          "dynamicCapability": "Run {name}",
+          "get_user_memory_maintenance": "View memory maintenance",
+          "resolve_user_memory_review": "Resolve memory review",
+          "get_agent_reach_status": "View internet channel status",
           "list_scheduled_task_projects": "List scheduled-task projects",
           "list_scheduled_tasks": "List scheduled tasks",
           "create_scheduled_task": "Create scheduled task",
@@ -3880,7 +3884,8 @@
           "rebuild_user_memory_candidate_index": "Rebuild the memory index",
           "get_user_memory_settings": "View memory settings",
           "update_user_memory_documents": "Update memory documents",
-          "correct_user_memory": "Correct memory"
+          "correct_user_memory": "Correct memory",
+          "retire_user_memory": "Retire memory"
         },
         "toolAction": {
           "command": "Run a command",

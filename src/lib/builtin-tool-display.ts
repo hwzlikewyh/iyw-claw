@@ -7,6 +7,9 @@ const GATEWAY_TOOL_NAMES = [
 ] as const
 
 const CAPABILITY_ID_TO_TOOL: Readonly<Record<string, string>> = {
+  "iyw.memory.maintenance.read.v1": "get_user_memory_maintenance",
+  "iyw.memory.review.resolve.v1": "resolve_user_memory_review",
+  "iyw.internet.agent_reach.status.v1": "get_agent_reach_status",
   "iyw.automation.projects.list.v1": "list_scheduled_task_projects",
   "iyw.automation.tasks.list.v1": "list_scheduled_tasks",
   "iyw.automation.tasks.create.v1": "create_scheduled_task",
@@ -57,6 +60,7 @@ const CAPABILITY_ID_TO_TOOL: Readonly<Record<string, string>> = {
   "iyw.memory.settings.read.v1": "get_user_memory_settings",
   "iyw.memory.documents.update.v1": "update_user_memory_documents",
   "iyw.memory.documents.correct.v1": "correct_user_memory",
+  "iyw.memory.retire.v1": "retire_user_memory",
   "iyw.channels.list.v1": "list_message_channels",
   "iyw.channels.save.v1": "save_message_channel",
   "iyw.channels.delete.v1": "delete_message_channel",
@@ -77,7 +81,12 @@ export interface BuiltinToolDisplay {
   toolName: string
   /** Internal capability inputs are implementation details, not user content. */
   hideInput: true
+  /** Readable name for a capability that is not in the static local catalog. */
+  fallbackName?: string
 }
+
+const DYNAMIC_NAME_KEYS = ["tool_name", "toolName", "name", "operation"]
+const MAX_DYNAMIC_NAME_LENGTH = 80
 
 function canonicalName(value: string): string {
   return value
@@ -126,6 +135,35 @@ function findStringField(
   return null
 }
 
+function findFirstStringField(value: unknown, keys: string[]): string | null {
+  for (const key of keys) {
+    const found = findStringField(value, key)
+    if (found) return found
+  }
+  return null
+}
+
+function readableIdentifier(
+  value: string | null,
+  segmentLimit: number
+): string | null {
+  if (!value) return null
+  const cleaned = value.replace(/[\u0000-\u001f\u007f]/g, " ").trim()
+  if (!cleaned || cleaned.length > MAX_DYNAMIC_NAME_LENGTH) return null
+
+  const segments = cleaned
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .split(/[^a-zA-Z0-9\u3400-\u9fff]+/)
+    .filter(
+      (segment) =>
+        segment.length > 0 &&
+        segment.toLowerCase() !== "iyw" &&
+        !/^v\d+$/i.test(segment)
+    )
+  if (segments.length === 0) return null
+  return segments.slice(-segmentLimit).join(" ")
+}
+
 function matchKnownToolName(toolName: string): string | null {
   const canonical = canonicalName(toolName)
   if (CAPABILITY_TOOL_NAMES.has(canonical)) return canonical
@@ -170,8 +208,20 @@ export function getBuiltinToolDisplay(
   const matchedTool = resolvedTool ?? matchKnownToolName(toolName)
   if (!matchedTool) return null
 
+  const fallbackName =
+    capabilityId && !resolvedTool
+      ? (readableIdentifier(
+          findFirstStringField(
+            input ? parseJson(input) : null,
+            DYNAMIC_NAME_KEYS
+          ),
+          3
+        ) ?? readableIdentifier(capabilityId, 2))
+      : undefined
+
   return {
     toolName: matchedTool,
     hideInput: true,
+    ...(fallbackName ? { fallbackName } : {}),
   }
 }
