@@ -3,6 +3,8 @@ use std::io;
 use std::os::windows::io::AsRawHandle;
 use std::os::windows::io::FromRawHandle;
 use std::os::windows::io::RawHandle;
+use std::os::windows::process::CommandExt;
+use std::process::Command as StdCommand;
 use std::sync::Mutex;
 use tokio::process::Child;
 use tokio::process::Command;
@@ -183,6 +185,22 @@ impl JobObject {
             )));
         }
 
+        Ok(child)
+    }
+
+    /// Starts a synchronous Windows process suspended, assigns it to this job,
+    /// and resumes it without exposing a console window.
+    pub fn spawn_std_process(&self, command: &mut StdCommand) -> io::Result<std::process::Child> {
+        command.creation_flags(CREATE_SUSPENDED | super::CREATE_NO_WINDOW);
+        let child = command.spawn()?;
+        let process_handle = child.as_raw_handle();
+        self.assign_process(process_handle)?;
+        let status = unsafe { NtResumeProcess(process_handle.cast()) };
+        if !NT_SUCCESS(status) {
+            return Err(io::Error::other(format!(
+                "failed to resume contained process: NTSTATUS {status:#x}"
+            )));
+        }
         Ok(child)
     }
 

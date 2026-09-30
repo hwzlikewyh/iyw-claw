@@ -27,6 +27,21 @@ iyw-claw 是一个多智能体编码工作台，用于在同一个工作区内�
 - 桌面模式需要安装对应系统的 Tauri 构建依赖
 - macOS 桌面端要求 13.5 或更高版本（与内置 Node.js 24 运行时一致），支持 Intel 和 Apple Silicon
 
+### Windows 7 兼容性
+
+Windows 7 SP1 x64 使用单独的 Rust 目标 `x86_64-win7-windows-msvc`，该目标没有
+Rust 官方预编译标准库，需要在构建机上按 Rust 的 Win7 target 指南构建标准库并配置
+MSVC/Windows SDK。普通 Windows 构建目标仍为 `x86_64-pc-windows-msvc`。
+
+Windows 7 没有 ConPTY。应用会使用管道终端运行 cmd、PowerShell 和外部命令，终端尺寸
+调整不可用；Windows 10 1809 及更新版本继续使用 ConPTY。Microsoft Edge/WebView2
+官方说明 Windows 7 支持到 WebView2 Runtime 109，安装器使用内嵌 bootstrapper 时会由
+系统选择可用的 109 运行时。Win7 构建必须设置
+`IYW_WIN7_WEBVIEW2_FIXED_RUNTIME_PATH`，指向已解压的
+`Microsoft.WebView2.FixedVersionRuntime.109.0.1518.78.x64` 目录，构建器会自动切换到
+fixed runtime，避免启动新版 `MicrosoftEdgeUpdate.exe`。Win7 发布包必须在真实 Win7
+SP1 x64 环境验证安装、WebView2 启动和终端交互。
+
 ## 安装依赖
 
 ```bash

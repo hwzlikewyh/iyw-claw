@@ -15,6 +15,8 @@ mod cwd_junction;
 use anyhow::Context;
 use anyhow::Result;
 use codex_utils_pty::JobObject;
+use codex_utils_pty::conpty_supported;
+use codex_utils_pty::resize_pseudo_console;
 use codex_windows_sandbox::ConsoleMode;
 use codex_windows_sandbox::ErrorPayload;
 use codex_windows_sandbox::ErrorStage;
@@ -64,8 +66,6 @@ use windows_sys::Win32::Storage::FileSystem::CreateFileW;
 use windows_sys::Win32::Storage::FileSystem::FILE_GENERIC_READ;
 use windows_sys::Win32::Storage::FileSystem::FILE_GENERIC_WRITE;
 use windows_sys::Win32::Storage::FileSystem::OPEN_EXISTING;
-use windows_sys::Win32::System::Console::COORD;
-use windows_sys::Win32::System::Console::ResizePseudoConsole;
 use windows_sys::Win32::System::Threading::GetExitCodeProcess;
 use windows_sys::Win32::System::Threading::GetProcessId;
 use windows_sys::Win32::System::Threading::INFINITE;
@@ -303,7 +303,8 @@ fn spawn_ipc_process(req: &SpawnRequest) -> Result<IpcSpawnedProcess> {
     let mut conpty_owner = None;
     let mut hpc_handle: Option<HANDLE> = None;
     let mut pipe_handles = None;
-    let (pi, job, stdout_handle, stderr_handle, stdin_handle) = if req.tty {
+    let use_conpty = req.tty && conpty_supported();
+    let (pi, job, stdout_handle, stderr_handle, stdin_handle) = if use_conpty {
         let (pi, mut conpty) = codex_windows_sandbox::spawn_conpty_process_as_user(
             h_token.raw(),
             &req.command,
@@ -507,14 +508,10 @@ fn spawn_input_loop(
                     if let Ok(guard) = hpc_handle.lock()
                         && let Some(hpc) = guard.as_ref()
                     {
-                        unsafe {
-                            let _ = ResizePseudoConsole(
-                                *hpc,
-                                COORD {
-                                    X: cols as i16,
-                                    Y: rows as i16,
-                                },
-                            );
+                        if let Err(error) = unsafe {
+                            resize_pseudo_console(*hpc as _, cols as i16, rows as i16)
+                        } {
+                            log_note(&format!("runner resize failed: {error:#}"), log_dir.as_deref());
                         }
                     }
                 }

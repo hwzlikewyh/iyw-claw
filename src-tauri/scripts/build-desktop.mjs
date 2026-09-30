@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import { copyFileSync, existsSync, readFileSync, readdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -9,6 +9,34 @@ import { createMacBuildPlan, resolveMacTarget } from "./build-desktop-macos.mjs"
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url)
 const REPO_ROOT = resolve(dirname(SCRIPT_PATH), "..", "..")
+const WIN7_TARGET = "x86_64-win7-windows-msvc"
+
+function resolveDesktopTarget() {
+  if (process.env.TAURI_TARGET_TRIPLE) return process.env.TAURI_TARGET_TRIPLE
+  const output = execFileSync("rustc", ["-vV"], { encoding: "utf8" })
+  return output
+    .split(/\r?\n/)
+    .find((line) => line.startsWith("host:"))
+    ?.slice("host:".length)
+    .trim()
+}
+
+function win7WebviewConfig() {
+  if (resolveDesktopTarget() !== WIN7_TARGET) return null
+  const runtimePath = process.env.IYW_WIN7_WEBVIEW2_FIXED_RUNTIME_PATH
+  if (!runtimePath || !existsSync(runtimePath)) {
+    throw new Error(
+      "Win7 builds require IYW_WIN7_WEBVIEW2_FIXED_RUNTIME_PATH pointing to the extracted WebView2 Runtime 109 directory"
+    )
+  }
+  return JSON.stringify({
+    bundle: {
+      windows: {
+        webviewInstallMode: { type: "fixedRuntime", path: resolve(runtimePath) },
+      },
+    },
+  })
+}
 
 export function brandedInstallerName(fileName) {
   const match = /^(?:iyw-claw|原助理)_([^_]+)_([^-]+)-setup\.exe$/i.exec(
@@ -101,6 +129,7 @@ export function createBuildPlan(tauriCli, options, signingConfigPath = null) {
   if (process.platform === "darwin")
     return createMacBuildPlan(tauriCli, options, resolveMacTarget())
   const env = { ...process.env }
+  const win7Webview = win7WebviewConfig()
   if (options.jobs) {
     env.CARGO_BUILD_JOBS = String(options.jobs)
   }
@@ -112,6 +141,7 @@ export function createBuildPlan(tauriCli, options, signingConfigPath = null) {
   if (signingConfigPath) {
     bundle.args.push("--config", signingConfigPath)
   }
+  if (win7Webview) bundle.args.push("--config", win7Webview)
   if (options.noSign) {
     bundle.args.push("--no-sign")
   }
@@ -140,6 +170,7 @@ export function createBuildPlan(tauriCli, options, signingConfigPath = null) {
   if (signingConfigPath) {
     buildArgs.push("--config", signingConfigPath)
   }
+  if (win7Webview) buildArgs.push("--config", win7Webview)
   if (options.verbose) {
     buildArgs.push("-vv")
   }

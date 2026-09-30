@@ -8,9 +8,8 @@ Function IywClawRunPermissionCheck
   InitPluginsDir
   File /oname=$PLUGINSDIR\iyw-permissions.ps1 "${__FILEDIR__}\installer-permissions.ps1"
   Delete "$PLUGINSDIR\iyw-permissions.ini"
-  ; 通过栈传递路径，避免路径内的引号被 System 插件再次解析。
-  Push $IywClawRoot
-  System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_ROOT", w s)'
+  ; 显式传递逻辑安装根；依赖栈参数在旧版 NSIS/System 插件上会丢失路径。
+  System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_ROOT", w "$IywClawRoot")'
   System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_EXPECTED_SID", w "$IywClawOriginalSid")'
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$PLUGINSDIR\iyw-permissions.ps1" -Action "$IywClawPermissionAction"'
   Pop $IywClawPermissionResult

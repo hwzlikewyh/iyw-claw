@@ -54,4 +54,6 @@ pub use win::PsuedoCon;
 #[cfg(windows)]
 pub use win::conpty::RawConPty;
 #[cfg(windows)]
+pub use win::resize_pseudo_console;
+#[cfg(windows)]
 pub use windows_input::WindowsTtyInputNormalizer;
