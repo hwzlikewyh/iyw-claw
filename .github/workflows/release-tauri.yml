@@ -119,6 +119,13 @@ jobs:
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
 
+      # checkout 会刷新文件修改时间，Cargo 因此整体重编 codex 补丁；固定后按内容哈希区分缓存。
+      - name: Pin path dependency mtimes
+        id: pathdeps
+        if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') }}
+        shell: bash
+        run: node .release-workflow/.github/scripts/release/pin-path-dep-mtimes.mjs harness/codex
+
       - name: Rust cache
         if: ${{ !contains(toJSON(matrix.runner), 'self-hosted') }}
         uses: swatinem/rust-cache@v2
@@ -126,7 +133,7 @@ jobs:
           # Worker binaries have their own cache and artifact backup.
           prefix-key: v1-desktop-app
           workspaces: ./src-tauri -> target
-          shared-key: desktop-${{ matrix.target }}
+          shared-key: desktop-${{ matrix.target }}-${{ steps.pathdeps.outputs.hash }}
           cache-bin: "false"
           cache-workspace-crates: "false"
           cache-on-failure: "true"
