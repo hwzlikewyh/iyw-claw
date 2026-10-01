@@ -477,6 +477,27 @@ pub async fn list_task_artifacts_core(
     }
 }
 
+pub async fn delete_task_artifacts_core(
+    conn: &DatabaseConnection,
+    conversation_id: i32,
+    artifact_ids: Vec<i32>,
+) -> Result<u64, AppCommandError> {
+    if conversation_id <= 0 || artifact_ids.is_empty() || artifact_ids.iter().any(|id| *id <= 0) {
+        return Err(AppCommandError::invalid_input("Invalid artifact deletion request"));
+    }
+    let mut deleted = 0;
+    for artifact_id in artifact_ids {
+        let identity = task_artifact_service::management::ArtifactIdentity {
+            conversation_id,
+            artifact_id,
+        };
+        if task_artifact_service::management::delete_artifact(conn, identity).await? {
+            deleted += 1;
+        }
+    }
+    Ok(deleted)
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListTaskArtifactsParams {
@@ -525,6 +546,23 @@ pub async fn list_task_artifacts(
             page,
             page_size,
         );
+        Err(AppCommandError::configuration_invalid("tauri-only command"))
+    }
+}
+
+#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn delete_task_artifacts(
+    #[cfg(feature = "tauri-runtime")] db: tauri::State<'_, AppDatabase>,
+    conversation_id: i32,
+    artifact_ids: Vec<i32>,
+) -> Result<u64, AppCommandError> {
+    #[cfg(feature = "tauri-runtime")]
+    {
+        delete_task_artifacts_core(&db.conn, conversation_id, artifact_ids).await
+    }
+    #[cfg(not(feature = "tauri-runtime"))]
+    {
+        let _ = (conversation_id, artifact_ids);
         Err(AppCommandError::configuration_invalid("tauri-only command"))
     }
 }

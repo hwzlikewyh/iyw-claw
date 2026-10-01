@@ -352,6 +352,10 @@ pub fn build_router(
             "/list_task_artifacts",
             post(handlers::task_artifacts::list_task_artifacts),
         )
+        .route(
+            "/delete_task_artifacts",
+            post(handlers::task_artifacts::delete_task_artifacts),
+        )
         .route("/get_artifact_notification_mode", post(handlers::artifact_notifications::get_artifact_notification_mode))
         .route("/set_artifact_notification_mode", post(handlers::artifact_notifications::set_artifact_notification_mode))
         .route("/list_artifact_channel_targets", post(handlers::artifact_notifications::list_artifact_channel_targets))

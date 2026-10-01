@@ -2367,6 +2367,7 @@
       "copyLinkFailed": "无法复制成果链接。",
       "openWorkspaceFailed": "无法在工作区中打开该文件。",
       "actionFailed": "文件操作失败。"
+      ,"delete": "删除成果"
     },
     "windowControls": {
       "minimizeWindow": "最小化窗口",

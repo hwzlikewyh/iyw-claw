@@ -4371,6 +4371,16 @@ export async function listAllTaskArtifacts(filters: {
   return items
 }
 
+export async function deleteTaskArtifacts(
+  conversationId: number,
+  artifactIds: number[]
+): Promise<number> {
+  return getTransport().call("delete_task_artifacts", {
+    conversationId,
+    artifactIds,
+  })
+}
+
 /** Live probe — opens a transient ACP connection to `agent_type`, reads what
  * it advertises (modes / config_options), and tears down. Used by the
  * delegation-settings UI so the option set on screen matches exactly what
