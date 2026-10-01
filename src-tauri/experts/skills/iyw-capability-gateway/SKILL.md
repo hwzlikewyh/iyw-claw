@@ -25,14 +25,32 @@ routing:
 
 # IYW Capability Gateway
 
+这是路由索引，不是远程业务工具手册。远程业务能力、分组说明、参数 schema
+和版本以当前账户连接的 `iyw-mcp-gateway` 为准；不要把本 Skill 中的业务关键词、
+示例或历史说明当作固定工具清单。
+
+启动或建立远程 MCP 连接后，先使用连接提供的 `gateway_usage` 总指南。它只负责
+选择能力分组和说明通用调用边界；不要启动时加载全部 `<group-id>-usage`。
+任务需要具体业务时，再按以下顺序渐进读取：
+
+```text
+gateway_usage
+  -> search_iyw_capabilities
+  -> read_iyw_capability(group_id)
+  -> read_iyw_capability(member_id/schema)
+  -> invoke_iyw_capability(member_id)
+```
+
+分组 read 已包含成员的 `input_schema`、`tool_version` 和 `usage` 时，不要重复读取成员。
+只加载当前任务需要的分组和成员；已读取且版本未变化的定义在本会话复用。
+
 记忆相关能力统一使用 `manage_iyw_memory`，不为每个动作寻找一个独立 MCP 工具。
 需要维护记忆、处理纠正或排查失效时，读 [记忆策略](references/memory-and-learning.md)
-和 [调用示例](references/memory-examples.md)。示例覆盖保存、范围例外、旧信息停用、
-候选及后台复核、冲突重读和失败恢复；常规维护由 Agent 在任务中完成。
+和 [调用示例](references/memory-examples.md)。
 
-This Skill is an active routing gate, not a static tool list. The host catalog is
-authoritative for current capability IDs, schemas, required inputs, availability,
-permissions, and schema digests.
+This Skill is an active routing gate, not a static remote tool list. The live host
+catalog and remote gateway prompts are authoritative for capability IDs, schemas,
+required inputs, availability, permissions, and schema digests.
 
 The same search/read/invoke trio includes signed-in remote business capabilities.
 The host fetches the remote overview and top-level tool definitions at startup
