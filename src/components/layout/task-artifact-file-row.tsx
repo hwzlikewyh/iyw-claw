@@ -39,6 +39,8 @@ interface TaskArtifactFileRowProps {
   openOnDoubleClick?: boolean
   onSelect: (item: TaskArtifactInfo) => void
   onOpenWorkspace?: () => void
+  onToggleSelect?: (id: number) => void
+  onDelete?: (items: TaskArtifactInfo[]) => Promise<void>
 }
 
 export function TaskArtifactFileRow({
@@ -47,6 +49,8 @@ export function TaskArtifactFileRow({
   openOnDoubleClick = false,
   onSelect,
   onOpenWorkspace,
+  onToggleSelect,
+  onDelete,
 }: TaskArtifactFileRowProps) {
   const { activeFolder } = useActiveFolder()
   const locale = useLocale()
@@ -55,6 +59,7 @@ export function TaskArtifactFileRow({
     artifact: item,
     onPreview: onSelect,
     onOpenWorkspace,
+    onDelete: async (artifact) => onDelete?.([artifact]),
   })
   const meta = useMemo(
     () =>
@@ -82,6 +87,7 @@ export function TaskArtifactFileRow({
           selected={selected}
           openOnDoubleClick={openOnDoubleClick}
           actions={actions}
+          onToggleSelect={onToggleSelect}
         />
       </ContextMenuTrigger>
       <ContextMenuContent className={TASK_ARTIFACT_MENU_CONTENT_CLASS}>
@@ -98,6 +104,7 @@ function ArtifactRowSurface({
   selected,
   openOnDoubleClick,
   actions,
+  onToggleSelect,
 }: {
   item: TaskArtifactInfo
   meta: string
@@ -105,6 +112,7 @@ function ArtifactRowSurface({
   selected: boolean
   openOnDoubleClick: boolean
   actions: TaskArtifactActions
+  onToggleSelect?: (id: number) => void
 }) {
   return (
     <div
@@ -122,6 +130,16 @@ function ArtifactRowSurface({
         }
         className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left"
       >
+        {onToggleSelect && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect(item.id)}
+            onClick={(event) => event.stopPropagation()}
+            className="size-4"
+            aria-label={`选择 ${item.displayName}`}
+          />
+        )}
         <ArtifactRowLabel item={item} meta={meta} />
         {statusLabel && <ArtifactStatus label={statusLabel} />}
       </button>

@@ -14,6 +14,7 @@ import {
   Send,
   TextCursorInput,
   Waypoints,
+  Trash2,
   type LucideIcon,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
@@ -51,6 +52,7 @@ interface ArtifactMenuLabels {
   sendToChat: string
   copyName: string
   download: string
+  delete: string
 }
 
 function previewMenuEntries(
@@ -189,12 +191,23 @@ function useArtifactMenuEntries(
       sendToChat: t("sendToChat"),
       copyName: t("copyName"),
       download: t(isDesktop() ? "saveAs" : "download"),
+      delete: t("delete"),
     }
-    return [
+    const entries = [
       ...previewMenuEntries(actions, labels),
       ...clipboardMenuEntries(actions, labels),
       ...systemMenuEntries(actions, labels),
     ]
+    if (actions.deleteArtifact) {
+      entries.push({
+        id: "delete",
+        section: "system",
+        label: labels.delete,
+        icon: Trash2,
+        onSelect: () => void actions.deleteArtifact?.(),
+      })
+    }
+    return entries
   }, [actions, t])
 }
 

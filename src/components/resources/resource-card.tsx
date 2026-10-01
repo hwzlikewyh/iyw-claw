@@ -13,6 +13,16 @@ import { TaskArtifactTypeIcon } from "@/components/layout/task-artifact-type-ico
 import type { TaskArtifactInfo } from "@/lib/api"
 import { buildArtifactThumbnailUrl } from "@/lib/artifact-image-thumbnail"
 import { cn } from "@/lib/utils"
+import { useTaskArtifactActions } from "@/components/layout/task-artifact-actions"
+import {
+  TaskArtifactContextMenuItems,
+  TASK_ARTIFACT_MENU_CONTENT_CLASS,
+} from "@/components/layout/task-artifact-menu"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 
 const KIND_LABELS = {
   archive: "currentReplyTypeArchive",
@@ -42,17 +52,38 @@ const COVER_COLORS = {
 export function ResourceCard({
   item,
   onSelect,
+  selected = false,
+  onToggleSelect,
+  onDelete,
 }: {
   item: TaskArtifactInfo
   onSelect: (item: TaskArtifactInfo) => void
+  selected?: boolean
+  onToggleSelect?: (id: number) => void
+  onDelete?: (items: TaskArtifactInfo[]) => Promise<void>
 }) {
+  const actions = useTaskArtifactActions({
+    artifact: item,
+    onPreview: onSelect,
+    onDelete: async (artifact) => onDelete?.([artifact]),
+  })
   return (
-    <button
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <button
       type="button"
-      className="group flex min-w-0 flex-col overflow-hidden rounded-lg border bg-background text-start transition-colors hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group relative flex min-w-0 flex-col overflow-hidden rounded-lg border bg-background text-start transition-colors hover:border-foreground/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       onClick={() => onSelect(item)}
       aria-label={item.displayName}
     >
+      <input
+        type="checkbox"
+        checked={selected ?? false}
+        onChange={() => onToggleSelect?.(item.id)}
+        onClick={(event) => event.stopPropagation()}
+        className="absolute start-2 top-2 z-10 size-4"
+        aria-label={`选择 ${item.displayName}`}
+      />
       <ResourceCover item={item} />
       <span className="block w-full min-w-0 p-4">
         <span
@@ -64,6 +95,11 @@ export function ResourceCard({
         <ResourceMetadata item={item} />
       </span>
     </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent className={TASK_ARTIFACT_MENU_CONTENT_CLASS}>
+        <TaskArtifactContextMenuItems actions={actions} />
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 
