@@ -12,6 +12,7 @@ export type CacheablePreview = Extract<
   PreviewState,
   {
     status: "image" | "text" | "markdown" | "html" | "html-too-large"
+      | "csv"
   }
 >
 
@@ -43,13 +44,20 @@ async function fetchWorkspacePreview(
     }
   }
   const status =
-    renderMarkdown && isMarkdownPath(path) ? "markdown" : html ? "html" : "text"
+    renderMarkdown && isMarkdownPath(path) ? "markdown" : html ? "html" : isDelimitedPath(path) ? "csv" : "text"
+  if (status === "csv") {
+    return { status, path, content: result.content, truncated: result.truncated, delimiter: path.toLowerCase().endsWith(".tsv") ? "\t" : "," }
+  }
   return {
     status,
     path,
     content: result.content,
     truncated: result.truncated,
   }
+}
+
+function isDelimitedPath(path: string): boolean {
+  return /\.(?:csv|tsv)$/i.test(path)
 }
 
 function isMarkdownPath(path: string): boolean {

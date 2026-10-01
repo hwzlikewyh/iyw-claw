@@ -12,6 +12,7 @@ import { joinRootRel } from "@/lib/file-open-target"
 import type { BinaryPreviewKind } from "@/lib/binary-preview"
 import { BinaryFilePreview } from "@/components/files/binary-file-preview"
 import { MediaPreview } from "@/components/files/media-preview"
+import { CsvPreview } from "@/components/files/csv-preview"
 
 const PdfPreview = dynamic(
   () => import("@/components/files/pdf-preview").then((mod) => mod.PdfPreview),
@@ -27,6 +28,7 @@ export type PreviewState =
   | { status: "idle" }
   | { status: "loading"; path: string }
   | { status: "text"; path: string; content: string; truncated: boolean }
+  | { status: "csv"; path: string; content: string; truncated: boolean; delimiter: "," | "\t" }
   | { status: "image"; path: string; content: string }
   | { status: "office"; path: string }
   | { status: "markdown"; path: string; content: string; truncated: boolean }
@@ -142,6 +144,7 @@ export function WorkspaceFilePreview({
       </div>
     )
   }
+  if (state.status === "csv") return <CsvPreview state={state} />
   if (state.status === "office") {
     return <OfficePreview rootPath={rootPath} relPath={state.path} />
   }
