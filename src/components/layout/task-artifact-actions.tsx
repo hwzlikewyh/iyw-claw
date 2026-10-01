@@ -32,6 +32,7 @@ interface UseTaskArtifactActionsOptions {
   artifact: TaskArtifactInfo
   onPreview: (artifact: TaskArtifactInfo) => void
   onOpenWorkspace?: () => void
+  onDelete?: (artifact: TaskArtifactInfo) => Promise<void>
 }
 
 export interface TaskArtifactActions extends ArtifactCommonActions {
@@ -51,6 +52,7 @@ export interface TaskArtifactActions extends ArtifactCommonActions {
   reveal: () => Promise<void>
   copyPath: () => Promise<void>
   sendToChat?: () => void
+  deleteArtifact?: () => Promise<void>
 }
 
 type ArtifactAction =
@@ -124,6 +126,7 @@ export function useTaskArtifactActions({
   artifact,
   onPreview,
   onOpenWorkspace,
+  onDelete,
 }: UseTaskArtifactActionsOptions): TaskArtifactActions {
   const t = useTranslations("Folder.taskArtifacts")
   const { openFilePreview } = useWorkspaceActions()
@@ -158,6 +161,7 @@ export function useTaskArtifactActions({
     openWithFailed: t("openWithFailed"),
     revealFailed: t("revealFailed"),
     openWorkspaceFailed: t("openWorkspaceFailed"),
+    onDelete,
   })
   return { ...actions, ...commonActions, channelArtifact: artifact }
 }
@@ -180,6 +184,7 @@ interface ArtifactActionFactoryOptions extends UseTaskArtifactActionsOptions {
   openWithFailed: string
   revealFailed: string
   openWorkspaceFailed: string
+  onDelete?: (artifact: TaskArtifactInfo) => Promise<void>
 }
 
 function createTaskArtifactActions(
@@ -221,6 +226,9 @@ function createTaskArtifactActions(
         openFilePreview: options.openFilePreview,
         failure: options.openWorkspaceFailed,
       }),
+    deleteArtifact: options.onDelete
+      ? () => options.onDelete?.(artifact) ?? Promise.resolve()
+      : undefined,
   }
 }
 

@@ -2366,7 +2366,8 @@
       "copyFailed": "The artifact path could not be copied.",
       "copyLinkFailed": "The artifact link could not be copied.",
       "openWorkspaceFailed": "The file could not be opened in the workspace.",
-      "actionFailed": "The file action failed."
+      "actionFailed": "The file action failed.",
+      "delete": "Delete artifact"
     },
     "windowControls": {
       "minimizeWindow": "Minimize window",
@@ -4655,7 +4656,7 @@
       "webhooksEmpty": "No webhooks configured yet.",
       "deleteWebhookTitle": "Delete Webhook",
       "deleteWebhookMessage": "Remove this webhook? Events will no longer be delivered to this URL.",
-      "delete": "Delete"
+      "delete": "Delete artifact"
     },
     "language": {
       "title": "Message Language",

@@ -24,6 +24,9 @@ interface ResourceResultsProps {
   onSelect: (item: TaskArtifactInfo) => void
   onClear: () => void
   onPageChange: (page: number) => void
+  selectedIds: Set<number>
+  onToggleSelect: (id: number) => void
+  onDelete: (items: TaskArtifactInfo[]) => Promise<void>
 }
 
 export function ResourceResults(props: ResourceResultsProps) {
@@ -65,7 +68,7 @@ export function ResourceResults(props: ResourceResultsProps) {
   )
 }
 
-function ResourceItems({ query, view, onSelect }: ResourceResultsProps) {
+function ResourceItems({ query, view, onSelect, selectedIds, onToggleSelect, onDelete }: ResourceResultsProps) {
   const { openConversations } = useWorkbenchRoute()
   const t = useTranslations("Folder.taskArtifacts")
   const r = useTranslations("Resources")
@@ -74,7 +77,7 @@ function ResourceItems({ query, view, onSelect }: ResourceResultsProps) {
       {view === "grid" ? (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15rem),1fr))] gap-4">
           {query.items.map((item) => (
-            <ResourceCard key={item.id} item={item} onSelect={onSelect} />
+            <ResourceCard key={item.id} item={item} onSelect={onSelect} selected={selectedIds.has(item.id)} onToggleSelect={onToggleSelect} onDelete={onDelete} />
           ))}
         </div>
       ) : (
@@ -93,6 +96,9 @@ function ResourceItems({ query, view, onSelect }: ResourceResultsProps) {
               <TaskArtifactFileRow
                 item={item}
                 onSelect={onSelect}
+                selected={selectedIds.has(item.id)}
+                onToggleSelect={onToggleSelect}
+                onDelete={onDelete}
                 onOpenWorkspace={openConversations}
               />
             </div>

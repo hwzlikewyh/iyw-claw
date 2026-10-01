@@ -16,10 +16,11 @@ import {
   ResourceHeader,
   ResourceHeading,
 } from "@/components/resources/resource-overview"
-import type { TaskArtifactInfo } from "@/lib/api"
+import { deleteTaskArtifacts, type TaskArtifactInfo } from "@/lib/api"
 import { formatConversationTitle } from "@/lib/conversation-title"
 import type { DbConversationSummary } from "@/lib/types"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
+import { toast } from "sonner"
 
 const RESOURCE_PAGE_SIZE = 24
 
@@ -49,6 +50,8 @@ interface ResourcePageModel {
   displayQuery: ResourceQuery
   sessionOptions: ResourceSessionOption[]
   filteredItems: TaskArtifactInfo[]
+  selectedIds: Set<number>
+  setSelectedIds: Dispatch<SetStateAction<Set<number>>>
 }
 
 function useResourcePageModel(): ResourcePageModel {
@@ -60,6 +63,7 @@ function useResourcePageModel(): ResourcePageModel {
   const [searchInput, setSearchInput] = useState("")
   const [view, setView] = useState<"grid" | "list">("grid")
   const [selected, setSelected] = useState<TaskArtifactInfo | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const conversations = useAppWorkspaceStore((state) => state.conversations)
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -97,6 +101,8 @@ function useResourcePageModel(): ResourcePageModel {
     displayQuery: query,
     sessionOptions,
     filteredItems: query.items,
+    selectedIds,
+    setSelectedIds,
   }
 }
 
@@ -114,6 +120,8 @@ function ResourcePageContent({ model }: { model: ResourcePageModel }) {
     displayQuery,
     sessionOptions,
     filteredItems,
+    selectedIds,
+    setSelectedIds,
   } = model
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-background">
@@ -130,6 +138,25 @@ function ResourcePageContent({ model }: { model: ResourcePageModel }) {
         sessionOptions={sessionOptions}
         filteredItems={filteredItems}
         onSelect={setSelected}
+        selectedIds={selectedIds}
+        onToggleSelect={(id) => setSelectedIds((current) => {
+          const next = new Set(current)
+          if (next.has(id)) next.delete(id)
+          else next.add(id)
+          return next
+        })}
+        onDelete={async (items) => {
+          if (!items.length || !window.confirm(`删除选中的 ${items.length} 项成果？`)) return
+          const conversations = new Set(items.map((item) => item.conversationId))
+          if (conversations.size !== 1) {
+            toast.error("只能批量删除同一会话中的成果")
+            return
+          }
+          await deleteTaskArtifacts(items[0].conversationId, items.map((item) => item.id))
+          setSelectedIds(new Set())
+          await query.refresh()
+          toast.success("成果已删除")
+        }}
       />
       <ResourcePreview artifact={selected} onClose={() => setSelected(null)} />
     </section>
@@ -148,6 +175,9 @@ function ResourcePageBody({
   sessionOptions,
   filteredItems,
   onSelect,
+  selectedIds,
+  onToggleSelect,
+  onDelete,
 }: {
   filters: ResourceFilters
   setFilters: Dispatch<SetStateAction<ResourceFilters>>
@@ -160,6 +190,9 @@ function ResourcePageBody({
   sessionOptions: ResourceSessionOption[]
   filteredItems: TaskArtifactInfo[]
   onSelect: (item: TaskArtifactInfo) => void
+  selectedIds: Set<number>
+  onToggleSelect: (id: number) => void
+  onDelete: (items: TaskArtifactInfo[]) => Promise<void>
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col px-4 sm:px-6 lg:px-8">
@@ -189,12 +222,23 @@ function ResourcePageBody({
         busy={query.loading || query.refreshing}
         onRefresh={() => void query.refresh()}
       />
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between border-b py-2 text-sm">
+          <span>已选择 {selectedIds.size} 项</span>
+          <button type="button" className="text-destructive hover:underline" onClick={() => void onDelete(filteredItems.filter((item) => selectedIds.has(item.id)))}>
+            删除选中
+          </button>
+        </div>
+      )}
       <ResourceResults
         query={displayQuery}
         search={filters.search}
         filtered={filters.session !== "all"}
         view={view}
         onSelect={onSelect}
+        selectedIds={selectedIds}
+        onToggleSelect={onToggleSelect}
+        onDelete={onDelete}
         onClear={() => {
           setSearchInput("")
           setFilters({ search: "", session: "all", page: 1 })

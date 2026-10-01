@@ -1626,6 +1626,7 @@ mod tauri_app {
                 session_info_commands::get_session_info_settings,
                 session_info_commands::set_session_info_settings,
                 task_artifact_commands::list_task_artifacts,
+                task_artifact_commands::delete_task_artifacts,
                 crate::commands::artifact_notifications::get_artifact_notification_mode,
                 crate::commands::artifact_notifications::set_artifact_notification_mode,
                 crate::commands::artifact_notifications::list_artifact_channel_targets,
