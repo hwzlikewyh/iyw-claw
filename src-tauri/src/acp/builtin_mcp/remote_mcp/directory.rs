@@ -2,7 +2,7 @@ use rmcp::model::{CallToolRequestParams, CallToolResult};
 use rmcp::ErrorData;
 use serde_json::{json, Map, Value};
 
-use super::connection::{INVOKE_TOOL, READ_TOOL, SEARCH_TOOL};
+use super::connection::{fetch_prompt, INVOKE_TOOL, READ_TOOL, SEARCH_TOOL};
 use super::request::{self, RemoteRequest};
 use super::{failure, log_failure, RemoteContext, RemoteGateway};
 
@@ -16,7 +16,10 @@ impl RemoteGateway {
     ) -> Result<Value, ErrorData> {
         let (account, connection) = self.ready_for(context).await?;
         self.ensure_current(&account).await?;
-        let group = arguments.get("group_id").and_then(Value::as_str).map(str::to_owned);
+        let group = arguments
+            .get("group_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
         account.browse_arguments(&mut arguments)?;
         let result = request::call(
             &connection,
@@ -77,10 +80,32 @@ impl RemoteGateway {
         .await?;
         self.ensure_current(&account).await?;
         let payload = request::payload(result)?;
+        let group_prompt = if route.group {
+            let prompt_name = payload
+                .get("usage_prompt")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            match prompt_name {
+                Some(name) if connection.prompt_names.contains(&name) => {
+                    match fetch_prompt(&connection.peer, &name).await {
+                        Ok(Some(text)) => {
+                            json!({"name": name, "status": "available", "text": text})
+                        }
+                        Ok(None) => json!({"name": name, "status": "empty"}),
+                        Err(_) => json!({"name": name, "status": "unavailable"}),
+                    }
+                }
+                Some(name) => json!({"name": name, "status": "not_advertised"}),
+                None => Value::Null,
+            }
+        } else {
+            Value::Null
+        };
         Ok(CallToolResult::structured(json!({
             "capability": account.detail(&payload, &route)?,
             "catalog_digest": payload.get("directory_version"),
             "source": "remote", "instructions": connection.instructions,
+            "guidance": group_prompt,
             "routing": "Use only returned capability_id with invoke_iyw_capability. The host supplies remote tool_id/tool_version. Preserve usage, argument_sources, prerequisites and business authorization."
         })))
     }
