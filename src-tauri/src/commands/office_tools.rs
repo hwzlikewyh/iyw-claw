@@ -119,21 +119,8 @@ pub struct SkillSyncReport {
 }
 
 const OFFICE_FONT_POLICY_MARKER: &str = "## iyw-claw managed office typography";
-const OFFICE_FONT_POLICY: &str = r#"## iyw-claw managed office typography
-
-When creating a new document without an existing template or an explicit user font request, use this open-source commercial-use font default:
-
-- Latin, ASCII, Western, Chinese, Japanese, Korean, and other East-Asian text: `Noto Sans SC`.
-
-Apply the font explicitly instead of relying on the Office theme defaults (`Calibri`, `等线`, or `Times New Roman`). Preserve an existing template's typography and always honor an explicit user font request.
-
-Format-specific rules:
-
-- PPTX: set `font.latin=Noto Sans SC` and `font.ea=Noto Sans SC` on every text shape, run, table cell, and chart label that you create.
-- DOCX: set `font.latin=Noto Sans SC` and `font.ea=Noto Sans SC` on new paragraphs, styles, runs, and table-cell text.
-- XLSX: set `font=Noto Sans SC` on every new cell that contains text.
-
-Before PDF export or visual delivery, confirm that `Noto Sans SC` is installed and available to the rendering process. If it is unavailable, report the limitation instead of silently claiming that the output uses the requested font."#;
+const OFFICE_FONT_POLICY_END: &str = "<!-- iyw-claw managed office typography end -->";
+const OFFICE_FONT_POLICY: &str = include_str!("../../resources/office-typography.md");
 
 fn office_font_policy(skill_id: &str) -> Option<&'static str> {
     match skill_id {
@@ -150,14 +137,34 @@ fn office_font_policy(skill_id: &str) -> Option<&'static str> {
     }
 }
 
-fn append_office_font_policy(skill_id: &str, content: &str) -> String {
+fn apply_office_font_policy(skill_id: &str, content: &str) -> String {
     let Some(policy) = office_font_policy(skill_id) else {
         return content.to_owned();
     };
-    if content.contains(OFFICE_FONT_POLICY_MARKER) {
-        return content.to_owned();
+    // 旧规则追加在末尾；新规则用结束标记保留后面的原始技能正文。
+    let content = match content.split_once(OFFICE_FONT_POLICY_MARKER) {
+        Some((before, managed)) => {
+            let after = managed
+                .split_once(OFFICE_FONT_POLICY_END)
+                .map(|(_, after)| after)
+                .unwrap_or_default();
+            format!("{before}{after}")
+        }
+        None => content.to_owned(),
+    };
+    let mut frontmatter_end = 0;
+    if content.lines().next() == Some("---") {
+        let mut offset = 0;
+        for (index, line) in content.split_inclusive('\n').enumerate() {
+            offset += line.len();
+            if index > 0 && line.trim_end() == "---" {
+                frontmatter_end = offset;
+                break;
+            }
+        }
     }
-    format!("{}\n\n{}\n", content.trim_end(), policy.trim())
+    let (frontmatter, body) = content.split_at(frontmatter_end);
+    format!("{frontmatter}\n{}\n\n{}", policy.trim(), body.trim_start())
 }
 
 // ─── Skill metadata (hardcoded — OfficeCLI has no list command) ────────
@@ -387,7 +394,11 @@ fn officecli_bootstrap_assets_complete(info: &OfficecliInfo, skill_root: &Path) 
 
 fn office_skill_policy_is_current(skill_path: &Path) -> bool {
     fs::read_to_string(skill_path)
-        .map(|content| content.contains(OFFICE_FONT_POLICY_MARKER))
+        .map(|content| {
+            let content = content.replace("\r\n", "\n");
+            let policy = OFFICE_FONT_POLICY.replace("\r\n", "\n");
+            content.contains(policy.trim())
+        })
         .unwrap_or(false)
 }
 
@@ -1481,7 +1492,7 @@ async fn officecli_sync_skills_locked() -> Result<SkillSyncReport, OfficeToolsEr
                     continue;
                 }
                 fs::create_dir_all(&target_dir)?;
-                let managed_content = append_office_font_policy(def.id, content.as_ref());
+                let managed_content = apply_office_font_policy(def.id, content.as_ref());
                 fs::write(&skill_md, managed_content)?;
                 report.synced += 1;
             }
@@ -1514,6 +1525,11 @@ async fn officecli_sync_skills_locked() -> Result<SkillSyncReport, OfficeToolsEr
         }
     }
 
+    tracing::info!(
+        synced = report.synced,
+        errors = report.errors.len(),
+        "[office] skill sync completed with current typography policy"
+    );
     Ok(report)
 }
 

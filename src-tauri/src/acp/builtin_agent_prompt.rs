@@ -37,6 +37,10 @@ pub fn render(
         .join("\n");
     let mut sections = vec![COMMON_PROMPT
         .replace("{tools}", &tools)
+        .replace(
+            "{office_typography}",
+            include_str!("../../resources/office-typography.md").trim(),
+        )
         .replace("{skill_runtime}", &crate::shared_runtime::prompt_context())];
     #[cfg(windows)]
     sections.push(super::windows_shell::prompt());
