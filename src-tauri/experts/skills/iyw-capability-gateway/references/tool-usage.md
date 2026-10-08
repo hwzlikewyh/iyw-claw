@@ -226,7 +226,7 @@ advanced command. Request human action only for login, MFA, CAPTCHA, device
 approval, secure payment, or explicit human review.
 
 Choose flash transcription for ordinary short audio (immediate result, up to
-100 MiB/2 hours). Choose durable async transcription for meetings, multiple
+95 MiB/5 minutes). Choose durable async transcription for meetings, multiple
 speakers, channel separation, long/oversized, or resumable work (up to
 512 MiB/5 hours); query a non-terminal result by its returned `job_id`.
 
