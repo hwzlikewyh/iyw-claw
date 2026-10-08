@@ -95,7 +95,7 @@ impl BrowserSessionManager {
             managed_browser_enabled: Arc::new(AtomicBool::new(
                 crate::preferences::load()
                     .builtin_browser_enabled
-                    .unwrap_or(false),
+                    .unwrap_or(true),
             )),
             #[cfg(feature = "tauri-runtime")]
             browser_visibility_lock: Arc::new(Mutex::new(())),

@@ -11,12 +11,13 @@ let synchronization: Promise<void> | null = null
 let eventRevision = 0
 
 export function readBrowserVisibility(): boolean {
-  if (typeof window === "undefined") return false
+  if (typeof window === "undefined") return true
   if (visibility !== undefined) return visibility
   try {
-    return window.localStorage.getItem(STORAGE_KEY) === "true"
+    const stored = window.localStorage.getItem(STORAGE_KEY)
+    return stored === null ? true : stored === "true"
   } catch {
-    return false
+    return true
   }
 }
 
@@ -88,5 +89,5 @@ function subscribe(onChange: () => void) {
 }
 
 export function useBrowserVisibility(): boolean {
-  return useSyncExternalStore(subscribe, readBrowserVisibility, () => false)
+  return useSyncExternalStore(subscribe, readBrowserVisibility, () => true)
 }

@@ -278,7 +278,7 @@ impl BrowserSessionManager {
             managed_browser_enabled: Arc::new(std::sync::atomic::AtomicBool::new(
                 crate::preferences::load()
                     .builtin_browser_enabled
-                    .unwrap_or(false),
+                    .unwrap_or(true),
             )),
             browser_visibility_lock: Arc::new(tokio::sync::Mutex::new(())),
             state: Arc::new(tokio::sync::RwLock::new(BrowserState::new(capability))),
