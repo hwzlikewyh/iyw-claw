@@ -1,6 +1,6 @@
 [package]
 name = "codex-state"
-version = "0.156.1"
+version = "0.161.0"
 edition = "2024"
 license = "Apache-2.0"
 autobins = false
@@ -18,15 +18,18 @@ version = "0.4.43"
 
 [dependencies.codex-history]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
+
+[dependencies.file-id]
+version = "0.2.3"
 
 [dependencies.libsqlite3-sys]
 version = "0.37"
@@ -43,9 +46,19 @@ features = [ "rc", "derive",]
 version = "1"
 
 [dependencies.sqlx]
-version = "0.9.0"
+version = "=0.9.0"
 default-features = false
-features = [ "chrono", "json", "macros", "migrate", "runtime-tokio", "tls-rustls", "sqlite-bundled", "time", "uuid",]
+features = [ "chrono", "json", "migrate", "runtime-tokio", "tls-rustls", "sqlite-bundled", "time", "uuid",]
+
+[dependencies.sqlx-macros]
+version = "=0.9.0"
+default-features = false
+features = [ "derive", "migrate",]
+
+[dependencies.sqlx-sqlite]
+version = "=0.9.0"
+default-features = false
+features = [ "offline",]
 
 [dependencies.strum]
 version = "0.27.2"

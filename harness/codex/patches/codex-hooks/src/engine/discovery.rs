@@ -29,8 +29,8 @@ use super::HookListEntry;
 use super::HookListEntryHandler;
 use super::dispatcher::hook_event_name_label;
 use crate::config_rules::hook_states_from_stack;
+use crate::engine::HookMatcher;
 use crate::events::common::matcher_pattern_for_event;
-use crate::events::common::validate_matcher_pattern;
 use crate::events::session_end::SESSION_END_DEFAULT_TIMEOUT_SEC;
 use crate::events::session_end::SESSION_END_MAX_TIMEOUT_SEC;
 use crate::output_spill::AdditionalContextLimit;
@@ -486,20 +486,22 @@ fn append_matcher_groups(
 ) {
     for (group_index, group) in groups.into_iter().enumerate() {
         let matcher = matcher_pattern_for_event(event_name, group.matcher.as_deref());
-        if let Some(matcher) = matcher
-            && let Err(err) = validate_matcher_pattern(matcher)
-        {
-            let warning = format!(
-                "invalid matcher {matcher:?} in {}: {err}",
-                source.path.display()
-            );
-            if group.hooks.is_empty() {
-                warnings.push(warning);
-            } else {
-                source.record_load_failure(warning, warnings);
+        let compiled_matcher = match matcher.map(HookMatcher::new).transpose() {
+            Ok(matcher) => matcher,
+            Err(err) => {
+                let matcher = matcher.unwrap_or_default();
+                let warning = format!(
+                    "invalid matcher {matcher:?} in {}: {err}",
+                    source.path.display()
+                );
+                if group.hooks.is_empty() {
+                    warnings.push(warning);
+                } else {
+                    source.record_load_failure(warning, warnings);
+                }
+                continue;
             }
-            continue;
-        }
+        };
         for (handler_index, handler) in group.hooks.iter().cloned().enumerate() {
             let normalized = match handler {
                 HookHandlerConfig::Command {
@@ -720,7 +722,7 @@ fn append_matcher_groups(
                 handlers.push(ConfiguredHandler {
                     builtin,
                     event_name,
-                    matcher: matcher.map(ToOwned::to_owned),
+                    matcher: compiled_matcher.clone(),
                     timeout_sec,
                     status_message,
                     additional_context_limit: AdditionalContextLimit::from_config(

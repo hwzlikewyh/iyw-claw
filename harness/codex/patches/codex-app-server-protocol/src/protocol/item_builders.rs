@@ -98,6 +98,7 @@ pub fn build_command_execution_begin_item(payload: &ExecCommandBeginEvent) -> Th
         CommandExecutionPresentation::from_raw(&payload.command, &payload.parsed_cmd, &payload.cwd);
     ThreadItem::CommandExecution {
         model_context: None,
+        sandbox_type: None,
         id: payload.call_id.clone(),
         description: None,
         plugin_id: payload.plugin_id.clone(),
@@ -126,6 +127,7 @@ pub fn build_command_execution_end_item(payload: &ExecCommandEndEvent) -> Thread
 
     ThreadItem::CommandExecution {
         model_context: None,
+        sandbox_type: None,
         id: payload.call_id.clone(),
         description: None,
         plugin_id: payload.plugin_id.clone(),
@@ -205,6 +207,7 @@ pub fn build_item_from_guardian_event(
                 id: id.clone(),
                 description: None,
                 model_context: assessment.model_context.clone(),
+                sandbox_type: None,
                 plugin_id: assessment.plugin_id.clone(),
                 script_path: assessment.script_path.clone(),
                 command,
@@ -245,6 +248,7 @@ pub fn build_item_from_guardian_event(
                 id: id.clone(),
                 description: None,
                 model_context: assessment.model_context.clone(),
+                sandbox_type: None,
                 plugin_id: assessment.plugin_id.clone(),
                 script_path: assessment.script_path.clone(),
                 command,

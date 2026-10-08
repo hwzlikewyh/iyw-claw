@@ -41,17 +41,7 @@ fn spawn_git_command(command: &mut Command) -> Option<(Child, KillGitProcessTree
         .stderr(Stdio::piped());
 
     #[cfg(windows)]
-    let (child, job) = match JobObject::create()
-        .and_then(|job| job.spawn_contained(command).map(|child| (child, job)))
-    {
-        Ok((child, job)) => (child, Some(job)),
-        Err(_) => {
-            // A failed contained spawn leaves CREATE_SUSPENDED on the command.
-            // 只移除挂起标志；即使进程组不可用，也不能弹出控制台窗口。
-            command.creation_flags(crate::hidden_command::CREATE_NO_WINDOW);
-            (command.spawn().ok()?, None)
-        }
-    };
+    let (child, job) = JobObject::spawn_background(command).ok()?;
     #[cfg(not(windows))]
     let child = command.spawn().ok()?;
 

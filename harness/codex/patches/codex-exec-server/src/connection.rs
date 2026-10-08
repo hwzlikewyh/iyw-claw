@@ -30,6 +30,9 @@ use tokio::io::AsyncWriteExt;
 use tokio::io::BufReader;
 use tokio::io::BufWriter;
 
+use crate::client_inbound_request_limit::MAX_CLIENT_INBOUND_REQUEST_LEN;
+use crate::client_inbound_request_limit::client_inbound_message_exceeded_limit;
+
 pub(crate) const CHANNEL_CAPACITY: usize = 128;
 // Match the existing serialized JSON-RPC message ceiling used by Noise and
 // WebSocket transports so stdio has the same per-message bound.
@@ -61,11 +64,14 @@ impl JsonRpcConnectionEvent {
         };
 
         let queued_at = Instant::now();
+        // Record phase offsets from receipt because detached work can keep the span open.
         let request_span = tracing::info_span!(
             "codex.exec_server.request",
             otel.kind = "server",
             otel.name = "unknown",
             method = request.method.as_str(),
+            rpc.dispatch_offset_ns = tracing::field::Empty,
+            rpc.response_enqueue_offset_ns = tracing::field::Empty,
             result = tracing::field::Empty,
         );
         if let Some(trace) = &request.trace
@@ -241,11 +247,8 @@ fn kill_direct_child(child_process: &mut Child, action: &str) {
 
 #[cfg(windows)]
 fn kill_windows_process_tree(pid: u32) -> bool {
-    use std::os::windows::process::CommandExt;
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     let pid = pid.to_string();
-    match std::process::Command::new("taskkill")
-        .creation_flags(CREATE_NO_WINDOW)
+    match codex_utils_process::background_command("taskkill")
         .args(["/PID", pid.as_str(), "/T", "/F"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -285,6 +288,21 @@ impl JsonRpcConnection {
             writer,
             connection_label,
             MAX_STDIO_JSONRPC_MESSAGE_LEN,
+            /*max_inbound_request_len*/ None,
+        )
+    }
+
+    pub(crate) fn client_from_stdio<R, W>(reader: R, writer: W, connection_label: String) -> Self
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+        W: AsyncWrite + Unpin + Send + 'static,
+    {
+        Self::from_stdio_with_max_message_len(
+            reader,
+            writer,
+            connection_label,
+            MAX_STDIO_JSONRPC_MESSAGE_LEN,
+            Some(MAX_CLIENT_INBOUND_REQUEST_LEN),
         )
     }
 
@@ -293,6 +311,7 @@ impl JsonRpcConnection {
         writer: W,
         connection_label: String,
         max_message_len: usize,
+        max_inbound_request_len: Option<usize>,
     ) -> Self
     where
         R: AsyncRead + Unpin + Send + 'static,
@@ -365,7 +384,25 @@ impl JsonRpcConnection {
                         if line.trim().is_empty() {
                             continue;
                         }
-                        match serde_json::from_str::<JSONRPCMessage>(&line) {
+                        let message = serde_json::from_str::<JSONRPCMessage>(&line);
+                        if let Some(max_inbound_request_len) = max_inbound_request_len
+                            && let Some(max_len) = client_inbound_message_exceeded_limit(
+                                message.as_ref(),
+                                line.len(),
+                                max_inbound_request_len,
+                            )
+                        {
+                            send_disconnected(
+                                &incoming_tx_for_reader,
+                                &disconnected_tx_for_reader,
+                                Some(format!(
+                                    "JSON-RPC message from {reader_label} exceeds maximum length of {max_len} bytes"
+                                )),
+                            )
+                            .await;
+                            break;
+                        }
+                        match message {
                             Ok(message) => {
                                 if incoming_tx_for_reader
                                     .send(JsonRpcConnectionEvent::message(message))
@@ -432,17 +469,28 @@ impl JsonRpcConnection {
         T: Sink<Message, Error = E> + Stream<Item = Result<Message, E>> + Unpin + Send + 'static,
         E: std::fmt::Display + Send + 'static,
     {
-        Self::from_websocket_stream(stream, connection_label, /*ping_interval*/ None)
+        Self::from_websocket_stream(
+            stream,
+            connection_label,
+            /*ping_interval*/ None,
+            Some(MAX_CLIENT_INBOUND_REQUEST_LEN),
+        )
     }
 
     pub(crate) fn from_axum_websocket(stream: AxumWebSocket, connection_label: String) -> Self {
-        Self::from_websocket_stream(stream, connection_label, Some(WEBSOCKET_KEEPALIVE_INTERVAL))
+        Self::from_websocket_stream(
+            stream,
+            connection_label,
+            Some(WEBSOCKET_KEEPALIVE_INTERVAL),
+            /*max_inbound_request_len*/ None,
+        )
     }
 
     fn from_websocket_stream<T, M, E>(
         mut websocket: T,
         connection_label: String,
         ping_interval: Option<Duration>,
+        max_inbound_request_len: Option<usize>,
     ) -> Self
     where
         T: Sink<M, Error = E> + Stream<Item = Result<M, E>> + Unpin + Send + 'static,
@@ -500,7 +548,7 @@ impl JsonRpcConnection {
                     }
                     incoming_message = websocket.next() => {
                         match incoming_message {
-                            Some(Ok(message)) => match message.parse_jsonrpc_frame() {
+                            Some(Ok(message)) => match message.parse_jsonrpc_frame(max_inbound_request_len) {
                                 Ok(JsonRpcWebSocketFrame::Message(message)) => {
                                     if incoming_tx
                                         .send(JsonRpcConnectionEvent::message(message))
@@ -515,6 +563,17 @@ impl JsonRpcConnection {
                                         &incoming_tx,
                                         &disconnected_tx,
                                         /*reason*/ None,
+                                    )
+                                    .await;
+                                    break;
+                                }
+                                Ok(JsonRpcWebSocketFrame::OverlongMessage { max_len }) => {
+                                    send_disconnected(
+                                        &incoming_tx,
+                                        &disconnected_tx,
+                                        Some(format!(
+                                            "JSON-RPC message from {connection_label} exceeds maximum length of {max_len} bytes"
+                                        )),
                                     )
                                     .await;
                                     break;
@@ -574,24 +633,35 @@ impl JsonRpcConnection {
 enum JsonRpcWebSocketFrame {
     Message(JSONRPCMessage),
     Close,
+    OverlongMessage { max_len: usize },
     Ignore,
 }
 
 trait JsonRpcWebSocketMessage: Send + 'static {
-    fn parse_jsonrpc_frame(self) -> Result<JsonRpcWebSocketFrame, serde_json::Error>;
+    fn parse_jsonrpc_frame(
+        self,
+        max_inbound_request_len: Option<usize>,
+    ) -> Result<JsonRpcWebSocketFrame, serde_json::Error>;
     fn from_text(text: String) -> Self;
     fn ping() -> Self;
 }
 
 impl JsonRpcWebSocketMessage for Message {
-    fn parse_jsonrpc_frame(self) -> Result<JsonRpcWebSocketFrame, serde_json::Error> {
+    fn parse_jsonrpc_frame(
+        self,
+        max_inbound_request_len: Option<usize>,
+    ) -> Result<JsonRpcWebSocketFrame, serde_json::Error> {
         match self {
-            Message::Text(text) => {
-                serde_json::from_str(text.as_ref()).map(JsonRpcWebSocketFrame::Message)
-            }
-            Message::Binary(bytes) => {
-                serde_json::from_slice(bytes.as_ref()).map(JsonRpcWebSocketFrame::Message)
-            }
+            Message::Text(text) => parse_jsonrpc_message(
+                serde_json::from_str(text.as_ref()),
+                text.len(),
+                max_inbound_request_len,
+            ),
+            Message::Binary(bytes) => parse_jsonrpc_message(
+                serde_json::from_slice(bytes.as_ref()),
+                bytes.len(),
+                max_inbound_request_len,
+            ),
             Message::Close(_) => Ok(JsonRpcWebSocketFrame::Close),
             Message::Ping(_) | Message::Pong(_) | Message::Frame(_) => {
                 Ok(JsonRpcWebSocketFrame::Ignore)
@@ -609,14 +679,21 @@ impl JsonRpcWebSocketMessage for Message {
 }
 
 impl JsonRpcWebSocketMessage for AxumWebSocketMessage {
-    fn parse_jsonrpc_frame(self) -> Result<JsonRpcWebSocketFrame, serde_json::Error> {
+    fn parse_jsonrpc_frame(
+        self,
+        max_inbound_request_len: Option<usize>,
+    ) -> Result<JsonRpcWebSocketFrame, serde_json::Error> {
         match self {
-            AxumWebSocketMessage::Text(text) => {
-                serde_json::from_str(text.as_ref()).map(JsonRpcWebSocketFrame::Message)
-            }
-            AxumWebSocketMessage::Binary(bytes) => {
-                serde_json::from_slice(bytes.as_ref()).map(JsonRpcWebSocketFrame::Message)
-            }
+            AxumWebSocketMessage::Text(text) => parse_jsonrpc_message(
+                serde_json::from_str(text.as_ref()),
+                text.len(),
+                max_inbound_request_len,
+            ),
+            AxumWebSocketMessage::Binary(bytes) => parse_jsonrpc_message(
+                serde_json::from_slice(bytes.as_ref()),
+                bytes.len(),
+                max_inbound_request_len,
+            ),
             AxumWebSocketMessage::Close(_) => Ok(JsonRpcWebSocketFrame::Close),
             AxumWebSocketMessage::Ping(_) | AxumWebSocketMessage::Pong(_) => {
                 Ok(JsonRpcWebSocketFrame::Ignore)
@@ -631,6 +708,23 @@ impl JsonRpcWebSocketMessage for AxumWebSocketMessage {
     fn ping() -> Self {
         Self::Ping(Vec::new().into())
     }
+}
+
+fn parse_jsonrpc_message(
+    message: Result<JSONRPCMessage, serde_json::Error>,
+    encoded_len: usize,
+    max_inbound_request_len: Option<usize>,
+) -> Result<JsonRpcWebSocketFrame, serde_json::Error> {
+    if let Some(max_inbound_request_len) = max_inbound_request_len
+        && let Some(max_len) = client_inbound_message_exceeded_limit(
+            message.as_ref(),
+            encoded_len,
+            max_inbound_request_len,
+        )
+    {
+        return Ok(JsonRpcWebSocketFrame::OverlongMessage { max_len });
+    }
+    message.map(JsonRpcWebSocketFrame::Message)
 }
 
 async fn send_disconnected(

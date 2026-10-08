@@ -159,7 +159,8 @@ pub(super) fn stored_thread_from_rollout_item(
         forked_from_id: None,
         parent_thread_id: item.parent_thread_id,
         preview,
-        name: None,
+        name: codex_state::is_guardian_review_source(&source)
+            .then(|| codex_state::GUARDIAN_THREAD_TITLE.to_string()),
         model_provider: item
             .model_provider
             .filter(|provider| !provider.is_empty())
@@ -241,37 +242,48 @@ pub(super) async fn resolve_thread_names(
     store: &LocalThreadStore,
     thread_history_modes: &HashMap<ThreadId, ThreadHistoryMode>,
 ) -> HashMap<ThreadId, String> {
-    let mut names = HashMap::<ThreadId, String>::with_capacity(thread_history_modes.len());
     let legacy_thread_ids = thread_history_modes
         .iter()
         .filter_map(|(&thread_id, &history_mode)| {
             (history_mode == ThreadHistoryMode::Legacy).then_some(thread_id)
         })
         .collect::<HashSet<_>>();
+    let mut names = find_thread_names_by_ids(store.config.codex_home.as_path(), &legacy_thread_ids)
+        .await
+        .unwrap_or_default();
     if let Some(state_db_ctx) = store.state_db().await {
+        let thread_ids = thread_history_modes.keys().copied().collect::<Vec<_>>();
+        let metadata_by_id = state_db_ctx
+            .get_threads(&thread_ids)
+            .await
+            .unwrap_or_default();
         for (&thread_id, &history_mode) in thread_history_modes {
-            let Ok(Some(metadata)) = state_db_ctx.get_thread(thread_id).await else {
+            let Some(metadata) = metadata_by_id.get(&thread_id) else {
                 continue;
             };
             let name = match history_mode {
-                ThreadHistoryMode::Legacy => distinct_thread_metadata_title(&metadata),
-                ThreadHistoryMode::Paginated => sqlite_thread_name(&metadata),
+                ThreadHistoryMode::Legacy => distinct_thread_metadata_title(metadata),
+                ThreadHistoryMode::Paginated => sqlite_thread_name(metadata),
             };
             if let Some(name) = name {
-                names.insert(thread_id, name);
+                if history_mode == ThreadHistoryMode::Legacy && has_guardian_default_title(metadata)
+                {
+                    names.entry(thread_id).or_insert(name);
+                } else {
+                    names.insert(thread_id, name);
+                }
             }
         }
     }
-    if let Ok(legacy_names) =
-        find_thread_names_by_ids(store.config.codex_home.as_path(), &legacy_thread_ids).await
-    {
-        // Legacy titles remain authoritative when present; the index only fills
-        // names for threads whose SQLite title is still derived from the preview.
-        for (thread_id, name) in legacy_names {
-            names.entry(thread_id).or_insert(name);
-        }
-    }
     names
+}
+
+/// Identifies the derived Guardian label, which must yield to legacy indexed names.
+pub(super) fn has_guardian_default_title(metadata: &ThreadMetadata) -> bool {
+    metadata.title.trim() == codex_state::GUARDIAN_THREAD_TITLE
+        && serde_json::from_str::<SessionSource>(&metadata.source)
+            .as_ref()
+            .is_ok_and(codex_state::is_guardian_review_source)
 }
 
 pub(super) fn distinct_thread_metadata_title(metadata: &ThreadMetadata) -> Option<String> {

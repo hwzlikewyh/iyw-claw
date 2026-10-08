@@ -44,6 +44,7 @@ pub(super) fn truncate_rejection_message(message: &str) -> String {
 
 #[derive(Clone, Copy)]
 pub(crate) struct ToolEventCtx<'a> {
+    pub sandbox_type: Option<codex_protocol::sandbox::SandboxType>,
     pub model_context: Option<&'a ModelInvocationContext>,
     pub session: &'a Session,
     pub turn: &'a TurnContext,
@@ -63,6 +64,7 @@ impl<'a> ToolEventCtx<'a> {
     ) -> Self {
         Self {
             model_context: None,
+            sandbox_type: None,
             session,
             turn,
             model_info,
@@ -149,6 +151,7 @@ async fn emit_exec_command_begin(ctx: ToolEventCtx<'_>, exec_input: &ExecCommand
                     ctx.session.thread_id.to_string(),
                     ctx.turn.sub_id.clone(),
                     ctx.turn.originator.clone(),
+                    /*turn_metadata*/ None,
                 ),
                 ArtifactOperation {
                     item_id: ctx.call_id.to_string(),
@@ -173,6 +176,7 @@ async fn emit_exec_command_begin(ctx: ToolEventCtx<'_>, exec_input: &ExecCommand
                 id: ctx.call_id.to_string(),
                 description: ctx.turn.command_description(ctx.call_id),
                 model_context: ctx.model_context.cloned(),
+                sandbox_type: ctx.sandbox_type,
                 plugin_id,
                 script_path,
                 process_id: exec_input.process_id.map(str::to_owned),
@@ -588,6 +592,7 @@ async fn emit_exec_end(
                 id: ctx.call_id.to_string(),
                 description: ctx.turn.command_description(ctx.call_id),
                 model_context: ctx.model_context.cloned(),
+                sandbox_type: ctx.sandbox_type,
                 plugin_id,
                 script_path,
                 process_id: exec_input.process_id.map(str::to_owned),

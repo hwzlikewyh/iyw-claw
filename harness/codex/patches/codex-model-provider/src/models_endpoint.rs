@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
@@ -181,6 +182,17 @@ impl OpenAiModelsEndpoint {
         })
         .await
         .map_err(|_| CodexErr::RequestTimeout)??;
+        if self.provider_info.model_catalog_url.is_some() {
+            let mut slugs = HashSet::new();
+            if models
+                .iter()
+                .any(|model| model.slug.trim().is_empty() || !slugs.insert(&model.slug))
+            {
+                return Err(CodexErr::InvalidRequest(
+                    "model catalog must contain unique, non-empty model slugs".to_string(),
+                ));
+            }
+        }
         Ok(ModelsEndpointResponse {
             models,
             etag,

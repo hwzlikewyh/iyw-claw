@@ -30,6 +30,9 @@ use toml::Value as TomlValue;
 use tracing::instrument;
 use tracing::warn;
 
+#[path = "application_network.rs"]
+pub(crate) mod application_network;
+
 #[derive(Debug, thiserror::Error)]
 #[error(
     "Your organization's required model provider settings changed. Restart Codex to apply them; this request was not sent"
@@ -48,6 +51,23 @@ pub(crate) struct ConfigManager {
     arg0_paths: Arg0DispatchPaths,
     thread_config_loader: Arc<dyn ThreadConfigLoader>,
     runtime_environment: Arc<HashMap<String, String>>,
+    network_policy: codex_http_client::NetworkPolicyController,
+    local_network_policy: codex_http_client::NetworkPolicyController,
+    network_policy_reload: Arc<tokio::sync::Semaphore>,
+    network_policy_snapshot: Arc<RwLock<Option<Arc<ApplicationPolicySnapshot>>>>,
+}
+
+/// Configuration and policy must finish loading against the same account and cloud snapshot.
+pub(crate) struct ApplicationPolicyLoad {
+    cloud_config: CloudConfigBundleLoader,
+    snapshot: Arc<ApplicationPolicySnapshot>,
+}
+
+#[derive(PartialEq, Eq)]
+struct ApplicationPolicySnapshot {
+    revision: codex_http_client::NetworkPolicyRevision,
+    policy: codex_http_client::DestinationPolicy,
+    cloud: Option<codex_config::CloudConfigBundle>,
 }
 
 impl ConfigManager {
@@ -60,6 +80,7 @@ impl ConfigManager {
         arg0_paths: Arg0DispatchPaths,
         thread_config_loader: Arc<dyn ThreadConfigLoader>,
     ) -> Self {
+        let network_policy = codex_http_client::NetworkPolicyController::default();
         Self {
             codex_home,
             cli_overrides: Arc::new(RwLock::new(cli_overrides)),
@@ -70,6 +91,10 @@ impl ConfigManager {
             arg0_paths,
             thread_config_loader,
             runtime_environment: Arc::new(HashMap::new()),
+            network_policy,
+            local_network_policy: Default::default(),
+            network_policy_reload: Arc::new(tokio::sync::Semaphore::new(/*permits*/ 1)),
+            network_policy_snapshot: Arc::default(),
         }
     }
 
@@ -80,6 +105,15 @@ impl ConfigManager {
 
     pub(crate) fn codex_home(&self) -> &Path {
         self.codex_home.as_path()
+    }
+
+    pub(crate) fn with_embedded_network_policy(
+        mut self,
+        policy: crate::in_process::EmbeddedNetworkPolicy,
+    ) -> Self {
+        self.network_policy = policy.effective;
+        self.local_network_policy = policy.local;
+        self
     }
 
     pub(crate) fn user_config_path(&self) -> std::io::Result<AbsolutePathBuf> {
@@ -116,6 +150,16 @@ impl ConfigManager {
         chatgpt_base_url: String,
         http_client_factory: codex_http_client::HttpClientFactory,
     ) {
+        let endpoint = codex_backend_client::Client::new(
+            chatgpt_base_url.clone(),
+            http_client_factory.clone(),
+        )
+        .config_bundle_url();
+        let http_client_factory = http_client_factory.with_network_policy(
+            self.local_network_policy
+                .policy()
+                .restrict_to_endpoints(endpoint.parse().into_iter().collect()),
+        );
         let loader = cloud_config_bundle_loader(
             auth_manager,
             chatgpt_base_url,
@@ -123,6 +167,7 @@ impl ConfigManager {
             http_client_factory,
         );
         if let Ok(mut guard) = self.cloud_config_bundle.write() {
+            guard.retire_ema_policy();
             *guard = loader;
         } else {
             warn!("failed to update cloud config bundle loader");
@@ -131,6 +176,7 @@ impl ConfigManager {
 
     pub(crate) fn clear_cloud_config_bundle_loader(&self) {
         if let Ok(mut guard) = self.cloud_config_bundle.write() {
+            guard.retire_ema_policy();
             *guard = CloudConfigBundleLoader::default();
         } else {
             warn!("failed to clear cloud config bundle loader");
@@ -175,19 +221,19 @@ impl ConfigManager {
         session_layers: &ConfigLayerStack,
         cwd: &Path,
     ) -> std::io::Result<Config> {
-        let refreshed_config = self.load_latest_config(Some(cwd.to_path_buf())).await?;
+        let codex_home = AbsolutePathBuf::from_absolute_path(&self.codex_home)?;
+        let layers = self
+            .load_config_layers_for_cwd(AbsolutePathBuf::from_absolute_path(cwd)?)
+            .await?;
         let mut config = Config::rebuild_with_session_layers(
             session_layers,
             cwd.to_path_buf(),
-            &refreshed_config.config_layer_stack,
-            refreshed_config.codex_home.clone(),
-            refreshed_config
-                .zsh_path
-                .clone()
-                .map(AbsolutePathBuf::try_from)
-                .transpose()?,
+            &layers,
+            codex_home,
+            /*default_zsh_path*/ None,
         )
         .await?;
+        self.apply_network_policy(&mut config);
         self.apply_runtime_feature_enablement(&mut config);
         self.apply_arg0_paths(&mut config);
         Ok(config)
@@ -213,6 +259,7 @@ impl ConfigManager {
             /*default_zsh_path*/ None,
         )
         .await?;
+        self.apply_network_policy(&mut config);
         self.apply_runtime_feature_enablement(&mut config);
         self.apply_arg0_paths(&mut config);
         crate::in_process::apply_host_environment(&mut config, &self.runtime_environment)?;
@@ -224,6 +271,7 @@ impl ConfigManager {
         &self,
         current: &Config,
     ) -> std::io::Result<()> {
+        let policy_load = self.refresh_application_network_policy().await?;
         // Existing threads retain their session route; only managed
         // requirements can invalidate it.
         let requirements = load_managed_requirements_state(
@@ -232,10 +280,11 @@ impl ConfigManager {
             codex_config::ConfigLoadOptions {
                 loader_overrides: self.loader_overrides.clone(),
                 strict_config: self.strict_config,
-                cloud_config_bundle: self.current_cloud_config_bundle(),
+                cloud_config_bundle: policy_load.cloud_config.clone(),
             },
         )
         .await?;
+        self.check_application_policy_load(&policy_load)?;
         let selection_changed = requirements
             .model_provider
             .as_ref()
@@ -275,9 +324,33 @@ impl ConfigManager {
         Ok(())
     }
 
+    /// Installs local policy before cloud access; failed policy loads block traffic while
+    /// non-strict startup remains available for configuration repair.
+    pub(crate) async fn load_startup_config(
+        &self,
+        fallback_cwd: Option<PathBuf>,
+    ) -> std::io::Result<Config> {
+        match self.load_latest_config(fallback_cwd).await {
+            Ok(config) => Ok(config),
+            Err(error)
+                if self.strict_config
+                    || crate::is_unsupported_untrusted_approval_policy_error(&error) =>
+            {
+                Err(error)
+            }
+            Err(error) => {
+                warn!(%error, "configuration is unavailable; using default settings");
+                self.load_default_config().await
+            }
+        }
+    }
+
     pub(crate) async fn load_default_config(&self) -> std::io::Result<Config> {
         let mut loader_overrides = self.loader_overrides.clone();
         loader_overrides.ignore_user_config = true;
+        loader_overrides.ignore_project_config = true;
+        loader_overrides.ignore_managed_requirements |=
+            self.refresh_local_network_policy().await.is_err();
         let mut config = ConfigBuilder::default()
             .codex_home(self.codex_home.clone())
             .cli_overrides(self.current_cli_overrides())
@@ -286,6 +359,7 @@ impl ConfigManager {
             .cloud_config_bundle(CloudConfigBundleLoader::default())
             .build()
             .await?;
+        self.apply_network_policy(&mut config);
         self.apply_runtime_feature_enablement(&mut config);
         self.apply_arg0_paths(&mut config);
         crate::in_process::apply_host_environment(&mut config, &self.runtime_environment)?;
@@ -368,6 +442,7 @@ impl ConfigManager {
         mut typesafe_overrides: ConfigOverrides,
         fallback_cwd: Option<PathBuf>,
     ) -> std::io::Result<Config> {
+        let policy_load = self.refresh_application_network_policy().await?;
         let mut request_overrides = request_overrides.unwrap_or_default();
         if let Some(value) = request_overrides.remove("bypass_hook_trust") {
             typesafe_overrides.bypass_hook_trust = Some(value.as_bool().ok_or_else(|| {
@@ -386,17 +461,20 @@ impl ConfigManager {
                     .map(|(key, value)| (key, json_to_toml(value))),
             )
             .collect::<Vec<_>>();
-        let mut config = codex_core::config::ConfigBuilder::default()
+        let result = codex_core::config::ConfigBuilder::default()
             .codex_home(self.codex_home.clone())
             .cli_overrides(merged_cli_overrides)
             .loader_overrides(self.loader_overrides.clone())
             .strict_config(self.strict_config)
             .harness_overrides(typesafe_overrides)
             .fallback_cwd(fallback_cwd)
-            .cloud_config_bundle(self.current_cloud_config_bundle())
+            .cloud_config_bundle(policy_load.cloud_config.clone())
             .thread_config_loader(Arc::clone(&self.thread_config_loader))
             .build()
-            .await?;
+            .await;
+        let mut config = result?;
+        self.check_application_policy_load(&policy_load)?;
+        self.apply_network_policy(&mut config);
         self.apply_runtime_feature_enablement(&mut config);
         self.apply_arg0_paths(&mut config);
         crate::in_process::apply_host_environment(&mut config, &self.runtime_environment)?;
@@ -414,7 +492,8 @@ impl ConfigManager {
         &self,
         cwd: Option<AbsolutePathBuf>,
     ) -> std::io::Result<ConfigLayerStack> {
-        load_config_layers_state(
+        let policy_load = self.refresh_application_network_policy().await?;
+        let result = load_config_layers_state(
             LOCAL_FS.as_ref(),
             &self.codex_home,
             cwd,
@@ -422,11 +501,14 @@ impl ConfigManager {
             codex_config::ConfigLoadOptions {
                 loader_overrides: self.loader_overrides.clone(),
                 strict_config: self.strict_config,
-                cloud_config_bundle: self.current_cloud_config_bundle(),
+                cloud_config_bundle: policy_load.cloud_config.clone(),
             },
             self.thread_config_loader.as_ref(),
         )
-        .await
+        .await;
+        let layers = result?;
+        self.check_application_policy_load(&policy_load)?;
+        Ok(layers)
     }
 
     fn apply_runtime_feature_enablement(&self, config: &mut Config) {
@@ -440,6 +522,22 @@ impl ConfigManager {
             .unwrap_or_default()
     }
 
+    fn apply_network_policy(&self, config: &mut Config) {
+        config.application_network_policy = self.network_policy.policy();
+        config.application_auth_route_config = Some(
+            codex_login::AuthRouteConfig::from_http_client_factory(
+                config
+                    .http_client_factory()
+                    .with_network_policy(self.network_policy.policy()),
+            )
+            .with_local_bootstrap_factory(
+                config
+                    .http_client_factory()
+                    .with_network_policy(self.local_network_policy.policy()),
+            ),
+        );
+    }
+
     fn apply_arg0_paths(&self, config: &mut Config) {
         config.codex_self_exe = self.arg0_paths.codex_self_exe.clone();
         config.codex_linux_sandbox_exe = self.arg0_paths.codex_linux_sandbox_exe.clone();
@@ -450,6 +548,8 @@ impl ConfigManager {
 
 
 }
+
+
 
 
 
@@ -476,6 +576,10 @@ pub(crate) fn apply_runtime_feature_enablement(
     config: &mut Config,
     runtime_feature_enablement: &BTreeMap<String, bool>,
 ) {
+    config.runtime_feature_defaults = runtime_feature_enablement
+        .iter()
+        .filter_map(|(name, enabled)| feature_for_key(name).map(|feature| (feature, *enabled)))
+        .collect();
     let protected_features = protected_feature_keys(&config.config_layer_stack);
     for (name, enabled) in runtime_feature_enablement {
         if protected_features.contains(name) {

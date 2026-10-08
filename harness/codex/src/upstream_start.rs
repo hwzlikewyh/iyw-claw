@@ -3,12 +3,14 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use codex_app_server_client::{InProcessAppServerClient, InProcessClientStartArgs};
+use codex_app_server_client::{
+    EmbeddedNetworkPolicy, InProcessAppServerClient, InProcessClientStartArgs,
+};
 use codex_app_server_protocol::ConfigWarningNotification;
 use codex_arg0::Arg0DispatchPaths;
 use codex_config::{CloudConfigBundleLoader, LoaderOverrides};
 use codex_core::config::{ConfigBuilder, ConfigOverrides};
-use codex_exec_server::{EnvironmentManager, ExecServerRuntimePaths};
+use codex_exec_server::{EnvironmentManager, ExecServerRuntimeOptions};
 use codex_feedback::CodexFeedback;
 use codex_protocol::protocol::SessionSource;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -50,13 +52,15 @@ impl UpstreamStartArgs {
                 .then_some(self.codex_home.as_path()),
         )?;
         let stage = StartupStage::new("load_config");
+        let network_policy = EmbeddedNetworkPolicy::load(&loader_overrides(&self)).await;
         let mut config = stage
             .finish(build_config(&self, &arg0_paths, (workspace_roots, &launch_overrides)).await)
             .map_err(start_error)?;
+        network_policy.activate(&mut config);
         codex_app_server_client::apply_host_environment(&mut config, &self.runtime_environment)
             .map_err(start_error)?;
         let args = self
-            .client_start_args(config, (arg0_paths, launch_overrides))
+            .client_start_args(config, (arg0_paths, launch_overrides, network_policy))
             .await?;
         StartupStage::new("app_server")
             .finish(InProcessAppServerClient::start(args).await)
@@ -66,9 +70,9 @@ impl UpstreamStartArgs {
     async fn client_start_args(
         &self,
         config: codex_core::config::Config,
-        launch: (Arg0DispatchPaths, serde_json::Value),
+        launch: (Arg0DispatchPaths, serde_json::Value, EmbeddedNetworkPolicy),
     ) -> Result<InProcessClientStartArgs, UpstreamError> {
-        let (arg0_paths, launch_overrides) = launch;
+        let (arg0_paths, launch_overrides, embedded_network_policy) = launch;
         let environment_manager = build_environment(&config, &arg0_paths).await?;
         let stage = StartupStage::new("state_db");
         let state_db = stage
@@ -98,6 +102,7 @@ impl UpstreamStartArgs {
             loader_overrides: loader_overrides(self),
             strict_config: true,
             cloud_config_bundle: CloudConfigBundleLoader::default(),
+            embedded_network_policy,
             feedback: CodexFeedback::new(),
             log_db: None,
             state_db: Some(state_db),
@@ -124,11 +129,18 @@ async fn build_environment(
     StartupStage::new("environment_manager")
         .finish(
             async {
-                let runtime_paths = ExecServerRuntimePaths::from_optional_paths(
+                let runtime_paths = ExecServerRuntimeOptions::from_optional_paths(
                     arg0_paths.codex_self_exe.clone(),
                     arg0_paths.codex_linux_sandbox_exe.clone(),
                 )
                 .map_err(start_error)?;
+                #[cfg(target_os = "macos")]
+                let runtime_paths = runtime_paths.with_allowed_symlinked_codex_home(
+                    codex_config::allowed_symlinked_codex_home(
+                        &config.config_layer_stack,
+                        &config.codex_home,
+                    ),
+                );
                 EnvironmentManager::from_codex_home(
                     config.codex_home.clone(),
                     Some(runtime_paths),

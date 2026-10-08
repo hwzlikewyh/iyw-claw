@@ -110,8 +110,10 @@ pub(super) fn marketplace_staging_root(install_root: &Path) -> PathBuf {
 }
 
 fn run_git(args: &[&str], cwd: Option<&Path>) -> Result<(), MarketplaceAddError> {
-    let mut command = crate::PluginGitMode::Manual.command(Path::new("git"));
-    command.args(args);
+    let mut command = codex_utils_process::background_command("git");
+    command
+        .args(["-c", codex_git_utils::SAFE_BARE_REPOSITORY_CONFIG])
+        .args(args);
     command.env("GIT_TERMINAL_PROMPT", "0");
     if let Some(cwd) = cwd {
         command.current_dir(cwd);

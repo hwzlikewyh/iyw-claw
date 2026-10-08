@@ -4,7 +4,8 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use http::HeaderMap;
+use crate::RemoteEnvironmentOptions;
+use codex_utils_redacted_string::RedactedString;
 use serde::Deserialize;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
@@ -38,6 +39,7 @@ struct EnvironmentsToml {
 struct EnvironmentToml {
     id: String,
     url: Option<String>,
+    auth_bearer_token: Option<RedactedString>,
     program: Option<String>,
     args: Option<Vec<String>>,
     env: Option<HashMap<String, String>>,
@@ -111,6 +113,7 @@ fn parse_environment_toml(
     let EnvironmentToml {
         id,
         url,
+        auth_bearer_token,
         program,
         args,
         env,
@@ -122,6 +125,11 @@ fn parse_environment_toml(
     if program.is_none() && (args.is_some() || env.is_some() || cwd.is_some()) {
         return Err(ExecServerError::Protocol(format!(
             "environment `{id}` args, env, and cwd require program"
+        )));
+    }
+    if url.is_none() && auth_bearer_token.is_some() {
+        return Err(ExecServerError::Protocol(format!(
+            "environment `{id}` auth_bearer_token requires url"
         )));
     }
     if url.is_none() && connect_timeout_sec.is_some() {
@@ -137,12 +145,28 @@ fn parse_environment_toml(
     let transport_params = match (url, program) {
         (Some(url), None) => {
             let url = validate_websocket_url(url)?;
-            ExecServerTransportParams::WebSocketUrl {
-                websocket_url: url,
-                connect_timeout,
-                initialize_timeout,
-                http_headers: HeaderMap::new(),
+            let options = RemoteEnvironmentOptions {
+                exec_server_url: url,
+                connect_timeout: Some(connect_timeout),
+                http_headers: auth_bearer_token
+                    .into_iter()
+                    .map(|token| {
+                        (
+                            "Authorization".to_string(),
+                            format!("Bearer {}", token.into_inner()),
+                        )
+                    })
+                    .collect(),
+            };
+            let mut transport = options.into_transport_params()?;
+            if let ExecServerTransportParams::WebSocketUrl {
+                initialize_timeout: timeout,
+                ..
+            } = &mut transport
+            {
+                *timeout = initialize_timeout;
             }
+            transport
         }
         (None, Some(program)) => {
             let program = program.trim().to_string();
@@ -301,7 +325,8 @@ fn load_environments_toml(path: &Path) -> Result<Option<EnvironmentsToml>, ExecS
     };
 
     toml::from_str(&contents)
-        .map_err(|err| {
+        .map_err(|mut err| {
+            err.set_input(/*input*/ None);
             ExecServerError::Protocol(format!(
                 "failed to parse environment config `{}`: {err}",
                 path.display()

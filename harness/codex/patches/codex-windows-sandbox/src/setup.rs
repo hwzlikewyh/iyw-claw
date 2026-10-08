@@ -360,6 +360,9 @@ fn run_setup_refresh_inner(
         allow_local_binding: offline_proxy_settings.allow_local_binding,
         otel: None,
         real_user: crate::runtime_ownership::current_setup_user()?,
+        user_profile: std::env::var_os("USERPROFILE")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from),
         mode: SetupMode::Full,
         runtime,
         refresh_only: true,
@@ -386,11 +389,10 @@ fn run_setup_refresh_payload(b64: &str, codex_home: &Path) -> Result<()> {
         }
     };
     // Refresh should never request elevation; ensure verb isn't set and we don't trigger UAC.
-    let mut cmd = Command::new(&exe);
+    let mut cmd = codex_utils_process::background_command(&exe);
     cmd.args(crate::embedded_roles::setup_args());
-    cmd.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
-    cmd.arg(b64)
-        .stdin(Stdio::null())
+    crate::launch_environment::configure_command(&mut cmd, b64)?;
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let cwd = std::env::current_dir().unwrap_or_else(|_| codex_home.to_path_buf());
@@ -717,6 +719,8 @@ struct ElevationPayload {
     allow_local_binding: bool,
     otel: Option<codex_otel::StatsigMetricsSettings>,
     real_user: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    user_profile: Option<PathBuf>,
     mode: SetupMode,
     #[serde(default, skip_serializing_if = "SetupRuntime::is_legacy")]
     runtime: SetupRuntime,
@@ -933,6 +937,8 @@ fn verify_setup_completed(codex_home: &Path) -> Result<()> {
     }
 }
 
+
+
 fn run_setup_exe(
     payload: &ElevationPayload,
     needs_elevation: bool,
@@ -984,18 +990,17 @@ fn run_setup_exe_payload(
     };
 
     if !needs_elevation {
+        let mut command = Command::new(&exe);
+        command.args(crate::embedded_roles::setup_args());
+        crate::launch_environment::configure_command(&mut command, payload_b64)?;
         let status = if retained_handles.is_empty() {
-            Command::new(&exe)
-                .args(crate::embedded_roles::setup_args())
-                .arg(payload_b64)
+            command
                 .creation_flags(0x08000000) // CREATE_NO_WINDOW
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status()
         } else {
-            let mut command = Command::new(&exe);
-            command.args(crate::embedded_roles::setup_args()).arg(payload_b64);
             crate::setup_launch::spawn_with_retained_handles(&mut command, retained_handles)
                 .and_then(|mut child| child.wait())
         }
@@ -1171,6 +1176,7 @@ fn elevated_provisioning_payload(
         allow_local_binding: offline_proxy_settings.allow_local_binding,
         real_user,
         otel: codex_otel::global_statsig_metrics_settings(),
+        user_profile: None,
         mode: SetupMode::InteractiveProvision,
         runtime: SetupRuntime::Legacy,
         refresh_only: false,
@@ -1251,6 +1257,9 @@ pub fn run_elevated_provisioning_setup_with_retained_handles(
         allow_local_binding: settings.allow_local_binding,
         otel: codex_otel::global_statsig_metrics_settings(),
         real_user: real_user.to_string(),
+        user_profile: std::env::var_os("USERPROFILE")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from),
         mode: SetupMode::ProvisionOnly,
         runtime,
         refresh_only: false,

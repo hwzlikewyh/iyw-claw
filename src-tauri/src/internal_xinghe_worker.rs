@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-pub const RUNTIME_VERSION: &str = "0.156.1";
+pub const RUNTIME_VERSION: &str = "0.161.0";
 const RETIRED_WORKER_FLAG: &str = "--internal-xinghe-worker";
 const RUNTIME_INFO_FLAG: &str = "--internal-xinghe-runtime-info";
 const RUNTIME_MARKER: &str = "IYW_XINGHE_IN_PROCESS_V1";
