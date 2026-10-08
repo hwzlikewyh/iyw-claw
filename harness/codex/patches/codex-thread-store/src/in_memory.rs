@@ -147,7 +147,6 @@ impl InMemoryThreadStore {
     }
 
     async fn create_thread(&self, params: CreateThreadParams) -> ThreadStoreResult<()> {
-        reject_paginated_history_mode(params.history_mode)?;
         let mut state = self.state.lock().await;
         state.calls.create_thread += 1;
         let session_meta = SessionMeta {
@@ -164,6 +163,8 @@ impl InMemoryThreadStore {
             agent_role: params.source.get_agent_role(),
             agent_path: params.source.get_agent_path().map(Into::into),
             originator: params.originator.clone(),
+            creator_user_id: params.creator_user_id.clone(),
+            creator_account_id: params.creator_account_id.clone(),
             source: params.source.clone(),
             thread_source: params.thread_source.clone(),
             model_provider: Some(params.metadata.model_provider.clone()),
@@ -191,20 +192,33 @@ impl InMemoryThreadStore {
         Ok(())
     }
 
-    async fn resume_thread(&self, params: ResumeThreadParams) -> ThreadStoreResult<()> {
+    async fn resume_thread(
+        &self,
+        params: ResumeThreadParams,
+    ) -> ThreadStoreResult<Arc<Vec<RolloutItem>>> {
         let mut state = self.state.lock().await;
         state.calls.resume_thread += 1;
         if let Some(history) = params.history {
-            state
-                .histories
-                .insert(params.thread_id, Arc::unwrap_or_clone(history));
+            if matches!(
+                history.first(),
+                Some(RolloutItem::SessionMeta(meta)) if meta.meta.id == params.thread_id
+            ) {
+                state
+                    .histories
+                    .entry(params.thread_id)
+                    .or_insert_with(|| Arc::unwrap_or_clone(history));
+            } else {
+                state
+                    .histories
+                    .insert(params.thread_id, Arc::unwrap_or_clone(history));
+            }
         } else {
             state.histories.entry(params.thread_id).or_default();
         }
         if let Some(rollout_path) = params.rollout_path {
             state.rollout_paths.insert(rollout_path, params.thread_id);
         }
-        Ok(())
+        Ok(Arc::new(state.histories[&params.thread_id].clone()))
     }
 
     async fn append_items(&self, params: AppendThreadItemsParams) -> ThreadStoreResult<()> {
@@ -242,6 +256,7 @@ impl InMemoryThreadStore {
         let history_mode = history_mode_from_state(&state, params.thread_id);
         reject_paginated_history_mode(history_mode)?;
         Ok(StoredThreadHistory {
+            revision: None,
             thread_id: params.thread_id,
             items: items.clone(),
         })
@@ -261,6 +276,7 @@ impl InMemoryThreadStore {
                     thread_id: params.thread_id,
                 })?;
         Ok(StoredModelContext {
+            revision: None,
             thread_id: params.thread_id,
             items: items.clone(),
         })
@@ -475,7 +491,10 @@ impl ThreadStore for InMemoryThreadStore {
         Box::pin(InMemoryThreadStore::create_thread(self, params))
     }
 
-    fn resume_thread(&self, params: ResumeThreadParams) -> ThreadStoreFuture<'_, ()> {
+    fn resume_thread(
+        &self,
+        params: ResumeThreadParams,
+    ) -> ThreadStoreFuture<'_, Arc<Vec<RolloutItem>>> {
         Box::pin(InMemoryThreadStore::resume_thread(self, params))
     }
 
@@ -641,6 +660,7 @@ fn stored_thread_from_state(
         .ok_or(ThreadStoreError::ThreadNotFound { thread_id })?;
     let history_items = state.histories.get(&thread_id).cloned().unwrap_or_default();
     let history = include_history.then(|| StoredThreadHistory {
+        revision: None,
         thread_id,
         items: history_items.clone(),
     });

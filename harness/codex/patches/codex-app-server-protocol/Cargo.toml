@@ -1,6 +1,6 @@
 [package]
 name = "codex-app-server-protocol"
-version = "0.156.1"
+version = "0.161.0"
 edition = "2024"
 license = "Apache-2.0"
 autobins = false
@@ -17,47 +17,47 @@ version = "1"
 
 [dependencies.codex-experimental-api-macros]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-app-server-protocol-noop-macros]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-extension-items]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-history]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-rollout]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-secrets]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-shell-command]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-utils-redacted-string]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.serde]
 version = "1"
@@ -76,7 +76,9 @@ version = "0.28.0"
 version = "2.0.17"
 
 [dependencies.rmcp]
-version = "=3.2.0"
+git = "https://github.com/modelcontextprotocol/rust-sdk"
+rev = "3e636cab26c013eca5131103c03d20237f12c4df"
+version = "=3.3.0"
 default-features = false
 features = [ "base64", "macros", "server",]
 

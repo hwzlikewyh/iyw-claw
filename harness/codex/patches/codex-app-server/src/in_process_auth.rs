@@ -6,14 +6,11 @@ use codex_login::{
     AuthManager, CodexAuth, ExternalAuth, ExternalAuthFuture, ExternalAuthRefreshContext,
 };
 
-pub(super) async fn manager(
-    config: &Config,
-    api_key: Option<String>,
-    enable_env: bool,
+pub(super) async fn attach(
+    manager: Arc<AuthManager>,
+    host: (&Config, Option<String>),
 ) -> io::Result<Arc<AuthManager>> {
-    let manager = AuthManager::shared_from_config(config, api_key.is_none() && enable_env)
-        .await
-        .map_err(io::Error::other)?;
+    let (config, api_key) = host;
     if let Some(key) = api_key {
         if key.trim().is_empty() {
             return Err(io::Error::new(
@@ -21,11 +18,16 @@ pub(super) async fn manager(
                 "empty host API key",
             ));
         }
+        // 上游策略认证继续使用已存储账号；宿主 key 只属于独立 serving 实例。
+        let manager = AuthManager::shared_from_config(config, false)
+            .await
+            .map_err(io::Error::other)?;
         // 沿用上游策略校验与实例认证，不写认证文件或修改进程环境。
         manager
             .set_external_auth(Arc::new(HostApiKey(key)))
             .await
             .map_err(io::Error::other)?;
+        return Ok(manager);
     }
     Ok(manager)
 }

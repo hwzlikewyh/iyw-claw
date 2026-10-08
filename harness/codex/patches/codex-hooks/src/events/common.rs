@@ -127,28 +127,11 @@ pub(crate) fn matcher_pattern_for_event(
     }
 }
 
-pub(crate) fn validate_matcher_pattern(matcher: &str) -> Result<(), regex::Error> {
-    if is_match_all_matcher(matcher) || is_exact_matcher(matcher) {
-        return Ok(());
-    }
-    regex::Regex::new(matcher).map(|_| ())
-}
-
-pub(crate) fn matches_matcher(matcher: Option<&str>, input: Option<&str>) -> bool {
-    match matcher {
-        None => true,
-        Some(matcher) if is_match_all_matcher(matcher) => true,
-        Some(matcher) if is_exact_matcher(matcher) => input
-            .map(|input| matcher.split('|').any(|candidate| candidate == input))
-            .unwrap_or(false),
-        Some(matcher) => input
-            .and_then(|input| {
-                regex::Regex::new(matcher)
-                    .ok()
-                    .map(|regex| regex.is_match(input))
-            })
-            .unwrap_or(false),
-    }
+pub(crate) fn matches_matcher(
+    matcher: Option<&crate::engine::HookMatcher>,
+    input: Option<&str>,
+) -> bool {
+    matcher.is_none_or(|matcher| matcher.matches(input))
 }
 
 pub(crate) fn matcher_inputs<'a>(
@@ -160,14 +143,4 @@ pub(crate) fn matcher_inputs<'a>(
     std::iter::once(tool_name)
         .chain(matcher_aliases.iter().map(String::as_str))
         .collect()
-}
-
-fn is_match_all_matcher(matcher: &str) -> bool {
-    matcher.is_empty() || matcher == "*"
-}
-
-fn is_exact_matcher(matcher: &str) -> bool {
-    matcher
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_' || ch == '|')
 }

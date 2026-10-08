@@ -292,6 +292,10 @@ pub enum ThreadItem {
         #[serde(skip)]
         #[schemars(skip)]
         #[ts(skip)]
+        sandbox_type: Option<codex_protocol::sandbox::SandboxType>,
+        #[serde(skip)]
+        #[schemars(skip)]
+        #[ts(skip)]
         model_context: Option<codex_protocol::items::ModelInvocationContext>,
         id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -923,6 +927,7 @@ impl From<CoreTurnItem> for ThreadItem {
                     id: command.id,
                     description: command.description,
                     model_context: command.model_context,
+                    sandbox_type: command.sandbox_type,
                     plugin_id: command.plugin_id,
                     script_path: command.script_path,
                     command: presentation.command,

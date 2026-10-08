@@ -17,6 +17,25 @@ pub struct ModelAccessPrograms {
     pub cyber: Vec<CyberAccessProgram>,
 }
 
+impl ModelAccessPrograms {
+    /// Select the preferred Daybreak treatment advertised for this model.
+    pub fn daybreak(&self) -> Option<CyberAccessProgram> {
+        [
+            CyberAccessProgram::DaybreakBlue,
+            CyberAccessProgram::DaybreakRed,
+        ]
+        .into_iter()
+        .find(|program| self.cyber.contains(program))
+    }
+
+    /// Select the standard treatment when it is advertised.
+    pub fn standard(&self) -> Option<CyberAccessProgram> {
+        self.cyber
+            .contains(&CyberAccessProgram::Standard)
+            .then_some(CyberAccessProgram::Standard)
+    }
+}
+
 fn deserialize_known_cyber_access_programs<'de, D>(
     deserializer: D,
 ) -> Result<Vec<CyberAccessProgram>, D::Error>

@@ -13,6 +13,7 @@ use crate::shell::Shell;
 use crate::shell::ShellType;
 use codex_apply_patch::CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS_ENV_VAR;
 use codex_core_plugins::PLUGIN_METRICS_OUTPUT_ENV_VAR;
+use codex_file_system::WindowsSandboxSelection;
 #[cfg(unix)]
 use codex_install_context::InstallContext;
 #[cfg(target_os = "macos")]
@@ -25,7 +26,6 @@ use codex_network_proxy::PROXY_ENV_KEYS;
 use codex_network_proxy::PROXY_GIT_SSH_COMMAND_ENV_KEY;
 pub(crate) use codex_network_proxy::is_managed_proxy_env_var;
 pub(crate) use codex_network_proxy::strip_managed_proxy_env;
-use codex_protocol::config_types::WindowsSandboxLevel;
 use codex_protocol::shell_environment::is_non_inheritable_env_var;
 use codex_shell_command::shell_snapshot::posix_env_path_expansion_function;
 use codex_utils_absolute_path::AbsolutePathBuf;
@@ -152,38 +152,37 @@ pub(crate) fn apply_zsh_fork_path_prepend(
     runtime_path_prepends.prepend(env, zsh_bin_dir);
 }
 
-pub(crate) fn prepare_powershell_command_for_elevated_windows_sandbox(
+pub(crate) fn prepare_powershell_command_for_windows_sandbox(
     command: &[String],
     shell_type: Option<&ShellType>,
     sandbox_requested: bool,
-    windows_sandbox_level: WindowsSandboxLevel,
+    windows_sandbox: WindowsSandboxSelection,
     environment_is_remote: bool,
 ) -> Vec<String> {
-    prepare_powershell_command_for_elevated_windows_sandbox_with_fallback(
+    prepare_powershell_command_for_windows_sandbox_with_fallback(
         command,
         shell_type,
         sandbox_requested,
-        windows_sandbox_level,
+        windows_sandbox,
         environment_is_remote,
-        |path| {
-            codex_shell_command::shell_detect::fallback_powershell_shell_for_elevated_windows_sandbox(
-                path,
-            )
-        },
+        codex_shell_command::shell_detect::fallback_powershell_shell_for_windows_sandbox,
     )
 }
 
-fn prepare_powershell_command_for_elevated_windows_sandbox_with_fallback(
+fn prepare_powershell_command_for_windows_sandbox_with_fallback(
     command: &[String],
     shell_type: Option<&ShellType>,
     sandbox_requested: bool,
-    windows_sandbox_level: WindowsSandboxLevel,
+    windows_sandbox: WindowsSandboxSelection,
     environment_is_remote: bool,
     find_fallback: impl FnOnce(&Path) -> Option<codex_shell_command::shell_detect::DetectedShell>,
 ) -> Vec<String> {
     if shell_type != Some(&ShellType::PowerShell)
         || !sandbox_requested
-        || windows_sandbox_level != WindowsSandboxLevel::Elevated
+        || !matches!(
+            windows_sandbox,
+            WindowsSandboxSelection::Elevated | WindowsSandboxSelection::Mxc
+        )
         || command.is_empty()
     {
         return command.to_vec();
@@ -194,9 +193,10 @@ fn prepare_powershell_command_for_elevated_windows_sandbox_with_fallback(
         command[0] = fallback.shell_path.to_string_lossy().to_string();
     }
 
-    if command[1..]
-        .iter()
-        .any(|arg| arg.eq_ignore_ascii_case("-NoProfile"))
+    if windows_sandbox != WindowsSandboxSelection::Elevated
+        || command[1..]
+            .iter()
+            .any(|arg| arg.eq_ignore_ascii_case("-NoProfile"))
     {
         return command;
     }

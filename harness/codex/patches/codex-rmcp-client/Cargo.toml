@@ -1,6 +1,6 @@
 [package]
 name = "codex-rmcp-client"
-version = "0.156.1"
+version = "0.161.0"
 edition = "2024"
 license = "Apache-2.0"
 autobins = false
@@ -25,47 +25,51 @@ version = "0.22.1"
 
 [dependencies.codex-api]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-config]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-exec-server]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-keyring-store]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-network-proxy]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
+
+[dependencies.codex-otel]
+git = "https://github.com/openai/codex.git"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-secrets]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-utils-pty]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-utils-home-dir]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.bytes]
 version = "1.10.1"
@@ -90,9 +94,11 @@ version = "2.7.6"
 version = "5"
 
 [dependencies.rmcp]
-version = "=3.2.0"
+git = "https://github.com/modelcontextprotocol/rust-sdk"
+rev = "3e636cab26c013eca5131103c03d20237f12c4df"
+version = "=3.3.0"
 default-features = false
-features = [ "auth", "base64", "client", "macros", "schemars", "server", "transport-async-rw", "transport-child-process", "transport-streamable-http-client", "transport-streamable-http-server",]
+features = [ "auth-enterprise-managed", "base64", "client", "macros", "schemars", "server", "transport-async-rw", "transport-child-process", "transport-streamable-http-client", "transport-streamable-http-server",]
 
 [dependencies.serde]
 version = "1"
@@ -107,6 +113,9 @@ version = "0.10"
 [dependencies.sse-stream]
 version = "0.2.5"
 
+[dependencies.tempfile]
+version = "3.23.0"
+
 [dependencies.thiserror]
 version = "2.0.17"
 
@@ -116,6 +125,10 @@ version = "0.12"
 [dependencies.tokio]
 version = "1"
 features = [ "io-util", "macros", "process", "signal", "rt-multi-thread", "sync", "io-std", "time",]
+
+[dependencies.tokio-util]
+version = "0.7.18"
+features = [ "rt",]
 
 [dependencies.tracing]
 version = "0.1.44"
@@ -134,7 +147,7 @@ version = "1.2.2"
 version = "8"
 
 [package.metadata.cargo-shear]
-ignored-paths = [ "src/oauth/tests/persistor_tests.rs", "src/oauth/tests/credential_store_tests.rs",]
+ignored-paths = [ "src/oauth/tests/persistor_tests.rs", "src/oauth/tests/credential_store_tests.rs", "src/oauth/tests/telemetry_tests.rs",]
 
 [target."cfg(unix)".dependencies.libc]
 version = "0.2.182"

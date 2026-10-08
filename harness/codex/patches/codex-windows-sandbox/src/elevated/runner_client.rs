@@ -39,6 +39,7 @@ use windows_sys::Win32::Foundation::ERROR_ACCOUNT_DISABLED;
 use windows_sys::Win32::Foundation::ERROR_LOGON_FAILURE;
 use windows_sys::Win32::Foundation::ERROR_NO_SUCH_LOGON_SESSION;
 use windows_sys::Win32::Foundation::ERROR_NOT_FOUND;
+use windows_sys::Win32::Foundation::ERROR_SERVICE_ALREADY_RUNNING;
 use windows_sys::Win32::Foundation::GetLastError;
 use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::System::Diagnostics::Debug::SetErrorMode;
@@ -59,8 +60,8 @@ const RUNNER_ERROR_MODE_FLAGS: u32 = 0x0001 | 0x0002;
 const WAIT_OBJECT_0: u32 = 0;
 
 #[derive(Debug)]
-struct RunnerLogonError {
-    code: u32,
+pub(crate) struct RunnerLogonError {
+    pub(crate) code: u32,
 }
 
 impl std::fmt::Display for RunnerLogonError {
@@ -147,8 +148,16 @@ pub(crate) fn retry_runner_spawn_once<T>(
     mut spawn: impl FnMut(SandboxCreds) -> Result<T>,
     refresh: impl FnOnce() -> Result<SandboxCreds>,
 ) -> Result<T> {
-    let result = match spawn(sandbox_creds) {
+    let result = match spawn(sandbox_creds.clone()) {
         Ok(result) => Ok(result),
+        // No runner (and therefore no user command) started. Keep credentials unchanged.
+        Err(err)
+            if err
+                .downcast_ref::<RunnerLogonError>()
+                .is_some_and(|err| err.code == ERROR_SERVICE_ALREADY_RUNNING) =>
+        {
+            spawn(sandbox_creds)
+        }
         Err(err) if is_refreshable_sandbox_creds_error(&err, command) => refresh().and_then(spawn),
         Err(err) => Err(err),
     };
@@ -416,11 +425,12 @@ pub(crate) fn spawn_runner_transport(
             &mut pi,
         )
     };
+    // Preserve the failure code before SetErrorMode can overwrite it.
+    let spawn_error = (spawn_res == 0).then(|| unsafe { GetLastError() });
     unsafe {
         SetErrorMode(previous_error_mode);
     }
-    if spawn_res == 0 {
-        let err = unsafe { GetLastError() };
+    if let Some(err) = spawn_error {
         return Err(RunnerLogonError { code: err }.into());
     }
     // Keep the process pinned through the entire startup handshake. Pipes close

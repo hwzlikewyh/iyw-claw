@@ -5,7 +5,6 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
-use std::process::Command;
 use tempfile::TempDir;
 
 const NPM_PLUGIN_SOURCE_STAGING_DIR: &str = "plugins/.marketplace-plugin-source-staging";
@@ -87,13 +86,7 @@ fn pack_npm_package(
         || package.to_string(),
         |version| format!("{package}@{version}"),
     );
-    let mut command = Command::new(npm_command);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
+    let mut command = codex_utils_process::background_command(npm_command);
     command
         .current_dir(destination)
         .arg("pack")

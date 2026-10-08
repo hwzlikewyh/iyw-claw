@@ -2,7 +2,7 @@
 
 ## Embedded Desktop Integration
 
-The desktop now links the pinned 0.156.1 runtime into its executable. The local
+The desktop now links the pinned 0.161.0 runtime into its executable. The local
 `codex-app-server-client` production sources pass host credentials and runtime
 environment to the in-process server; no process-global credential mutation is
 required. The app-server reapplies tool environment on config reload and closes
@@ -29,7 +29,21 @@ The older worker/helper packaging descriptions below are historical. Normal
 desktop builds prepare only `runtime.json`, then validate the embedded identity
 and static CRT imports in the linked executable.
 
-The 0.156.1 refresh uses commit `b412ff32c417f855c2b2d1581b77058eed87c84b`.
+The 0.161.0 refresh uses commit `979011409de0a60b52f179721948e65531d26144`.
+Production crates and dependencies are migrated from 0.156.1 using three-way
+source comparison. Upstream `codex-utils-process::background_command` and
+`JobObject::spawn_background` replace equivalent local hidden-window patches.
+The host credential attaches to separate serving auth after upstream policy
+bootstrap, preserving workspace-policy auth; config reloads
+still reapply the host environment. Thread-scoped MCP status reads, including
+server filtering, reuse one published runtime without discovery connections.
+Both precomputed protocol exports retain the optional command description.
+Upstream SQLite migrations 0056-0058 are included without changing host schema.
+Windows setup keeps internal role arguments alongside environment payloads.
+Linux re-exec process setup is registered before desktop or server startup.
+See `docs/xinghe-upgrade-0.161.0.md` at the repository root for validation limits.
+
+The historical 0.156.1 refresh used commit `b412ff32c417f855c2b2d1581b77058eed87c84b`.
 Production source changes were merged against the prior 0.155.0 base, keeping
 host auth/environment, command-description, SQLite checksum and retry patches.
 New upstream child launching is centralized in `codex-utils-pty::child_command`;
@@ -55,7 +69,7 @@ background command can settle after its originating turn without entering a
 new turn's transcript. Recheck this path, including approval placeholders, when
 upgrading the upstream protocol.
 
-`codex-mcp` retains the production sources of pinned 0.156.1 (`b412ff3`), with
+`codex-mcp` retains the production sources of pinned 0.161.0 (`9790114`), with
 test-only modules omitted and standalone dependency metadata. Its status inspection
 reads one published runtime generation without starting/reconnecting clients.
 Thread-scoped `mcpServerStatus/list` uses that view through `codex-core`; global
@@ -69,7 +83,7 @@ compile the locked Codex release. It is part of the harness source and must not
 depend on a developer-machine path.
 
 `codex-state` contains the production sources and migrations from pinned
-0.156.1, with test-only items omitted. Migration SQL is stored with LF endings.
+0.161.0, with test-only items omitted. Migration SQL is stored with LF endings.
 Before migration, the runtime accepts an applied checksum only when it matches
 the exact embedded SQL or its LF/CRLF variant. It adjusts the in-memory migrator,
 preserving database migration records, locking and rejection of other changes.
@@ -89,7 +103,7 @@ failures; 408, 409 and 429 retain retry behavior. Authentication and payment
 failures do not trigger previous-model compaction fallback. The original error
 continues through the existing turn error lifecycle and UI balance handling.
 
-Local and remote-v2 compaction requests share one 300-second wall-clock budget
+Local and remote-v2 compaction requests share one 600-second wall-clock budget
 across retries and existing transport/model fallbacks. This budget does not
 interrupt the history commit after a successful compaction response. It does not
 change normal sampling timeouts, model selection, or compaction thresholds.
@@ -105,9 +119,9 @@ and `send_message`, independently of `fork_turns`. Collaboration guidance keeps
 the parent working after dispatch and bounds missing-task recovery to one resend.
 Review this classification and guidance on upstream upgrades.
 
-`codex-utils-pty` is copied from the locked `rust-v0.156.1` source tree. Local
+`codex-utils-pty` is copied from the locked `rust-v0.161.0` source tree. Local
 source deltas retain explicit pointer casts in `src/win/conpty.rs` and
-`src/win/procthreadattr.rs`, plus hidden-window creation flags in `src/pipe.rs`,
+`src/win/procthreadattr.rs`, plus hidden-window creation flags in
 `src/win/mod.rs`, and `src/win/psuedocon.rs`. Its `Cargo.toml` is standalone
 because Cargo path patches cannot inherit upstream workspace manifest values.
 
@@ -116,7 +130,7 @@ when starting internal Git and MCP subprocesses. Assigning the process to a job
 must not undo the hidden-window setting.
 
 `codex-shell-command` contains the production sources from the same locked
-`rust-v0.156.1` commit. Its only runtime change is setting `CREATE_NO_WINDOW`
+`rust-v0.161.0` commit. Its runtime changes include setting `CREATE_NO_WINDOW`
 on the two PowerShell detection commands in `src/powershell.rs`. Detection calls
 `pwsh` directly instead of adding an intermediate `cmd /C` process. The standalone
 manifest resolves the original workspace dependencies at the same pin. Upstream

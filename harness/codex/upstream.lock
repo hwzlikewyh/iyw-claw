@@ -1,8 +1,8 @@
 {
   "repository": "https://github.com/openai/codex.git",
-  "ref": "rust-v0.156.1",
-  "tagObject": "81e8e29b2956dfe9b092c63953a9ed282781e77c",
-  "commit": "b412ff32c417f855c2b2d1581b77058eed87c84b",
+  "ref": "rust-v0.161.0",
+  "tagObject": "7e21416b38834816c224ea0dfd135c3de94b2f15",
+  "commit": "979011409de0a60b52f179721948e65531d26144",
   "license": "Apache-2.0",
   "components": [
     "codex-rs/app-server",
@@ -12,7 +12,7 @@
   "cargoPatches": [
     {
       "repository": "https://github.com/openai-oss-forks/crossterm",
-      "commit": "45fecb9508105988f42fe6ff0441783ed3717f92"
+      "commit": "efa177859fd9623d57b9fe7ae9bf491ae1ac6ec4"
     },
     {
       "repository": "https://github.com/openai-oss-forks/tokio-tungstenite",

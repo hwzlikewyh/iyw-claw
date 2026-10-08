@@ -1,16 +1,21 @@
+use std::io;
 use std::sync::Arc;
 use std::time::Instant;
 
 use codex_build_info::BuildInfo;
 use codex_exec_server_protocol::JSONRPCMessage;
 use tokio::sync::mpsc;
+use tokio_util::task::AbortOnDropHandle;
 use tracing::debug;
 use tracing::warn;
 
-use crate::ExecServerRuntimePaths;
+use crate::ExecServerRuntimeOptions;
+use crate::LocalFileSystem;
 use crate::connection::CHANNEL_CAPACITY;
 use crate::connection::JsonRpcConnection;
 use crate::connection::JsonRpcConnectionEvent;
+use crate::discover_v2::capability_locations::CapabilityLocationRequest;
+use crate::discover_v2::capability_manager::CapabilityManager;
 use crate::rpc::RpcCallError;
 use crate::rpc::RpcNotificationSender;
 use crate::rpc::RpcServerOutboundMessage;
@@ -26,11 +31,14 @@ use crate::telemetry::ConnectionTransport;
 use crate::telemetry::ExecServerTelemetry;
 use crate::telemetry::ExecutorRegistration;
 use codex_http_client::HttpClientFactory;
+use codex_utils_path_uri::PathUri;
 
 #[derive(Clone)]
 pub(crate) struct ConnectionProcessor {
+    capability_manager: Arc<CapabilityManager>,
+    capability_prewarm: Arc<AbortOnDropHandle<()>>,
     session_registry: Arc<SessionRegistry>,
-    runtime_paths: ExecServerRuntimePaths,
+    runtime_paths: ExecServerRuntimeOptions,
     telemetry: ExecServerTelemetry,
     http_client_factory: HttpClientFactory,
     request_dispatch_mode: RequestDispatchMode,
@@ -39,15 +47,53 @@ pub(crate) struct ConnectionProcessor {
 impl ConnectionProcessor {
 
     pub(crate) fn new_with_telemetry(
-        runtime_paths: ExecServerRuntimePaths,
+        runtime_paths: ExecServerRuntimeOptions,
         telemetry: ExecServerTelemetry,
         http_client_factory: HttpClientFactory,
         request_dispatch_mode: RequestDispatchMode,
     ) -> Self {
+        let request =
+            codex_utils_home_dir::find_codex_home().map(|codex_home| CapabilityLocationRequest {
+                codex_home: PathUri::from_abs_path(&codex_home),
+                user_home: dirs::home_dir()
+                    .and_then(|home| PathUri::from_host_native_path(home).ok()),
+            });
+        Self::new_with_location_request(
+            runtime_paths,
+            telemetry,
+            http_client_factory,
+            request_dispatch_mode,
+            request,
+        )
+    }
+
+    fn new_with_location_request(
+        runtime_paths: ExecServerRuntimeOptions,
+        telemetry: ExecServerTelemetry,
+        http_client_factory: HttpClientFactory,
+        request_dispatch_mode: RequestDispatchMode,
+        request: io::Result<CapabilityLocationRequest>,
+    ) -> Self {
         // Library callers may bypass CLI startup. Capture the version before serving clients.
         let _ = BuildInfo::get();
+        let capability_manager =
+            CapabilityManager::new(LocalFileSystem::with_runtime_paths(runtime_paths.clone()));
+        let manager = Arc::clone(&capability_manager);
+        // Start before any client connects; all sessions share these inert global locations.
+        let prewarm = tokio::spawn(async move {
+            // Home resolution failures are nonfatal, just like scan failures.
+            let result = match request {
+                Ok(request) => manager.prewarm_locations(request).await.map(|_| ()),
+                Err(error) => Err(error),
+            };
+            if let Err(error) = result {
+                tracing::warn!(error_kind = ?error.kind(), "capability location prewarming unavailable");
+            }
+        });
         Self {
             session_registry: SessionRegistry::new(telemetry.clone()),
+            capability_manager,
+            capability_prewarm: Arc::new(AbortOnDropHandle::new(prewarm)),
             runtime_paths,
             telemetry,
             http_client_factory,
@@ -84,6 +130,7 @@ impl ConnectionProcessor {
     }
 
     pub(crate) async fn shutdown(&self) {
+        self.capability_prewarm.abort();
         self.session_registry.shutdown().await;
     }
 }
@@ -95,6 +142,8 @@ async fn run_connection(
     executor_registration: Option<Arc<ExecutorRegistration>>,
 ) {
     let ConnectionProcessor {
+        capability_manager: _capability_manager,
+        capability_prewarm: _capability_prewarm,
         session_registry,
         runtime_paths,
         telemetry,

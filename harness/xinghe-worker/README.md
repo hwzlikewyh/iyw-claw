@@ -28,6 +28,6 @@ The Windows app is built with the static MSVC CRT flag so the embedded runtime
 does not require adjacent Xinghe or CRT DLL files. OS libraries and the normal
 Tauri WebView2 installation remain external platform prerequisites.
 
-The current locked source is Codex 0.156.1. Compilation and bundle checks do not
+The current locked source is Codex 0.161.0. Compilation and bundle checks do not
 prove authenticated end-to-end behavior. Release acceptance must cover the
 compatibility matrix in the harness design before these changes are published.

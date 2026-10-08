@@ -17,7 +17,7 @@ The lock records both the annotated tag object and its peeled source commit.
 Cargo dependencies use the peeled commit; synchronization verifies both values
 so a rewritten release tag cannot silently change the compiled source.
 
-The current pin is `rust-v0.156.1`. It recognizes the managed
+The current pin is `rust-v0.161.0`. It recognizes the managed
 `features.context_management.experimental_mode` configuration that
 `rust-v0.152.1` rejected during session creation and recovery. The feature still
 requires an eligible upstream provider and account; parsing this configuration
@@ -31,15 +31,22 @@ which is optional so an outage cannot prevent session startup. The exception
 requires its exact service name and URL; built-in MCP remains required.
 Tool names retain their saved namespace across resume.
 
-The official release was checked on 2026-09-23: the latest stable tag is
-`rust-v0.156.1`, published on 2026-09-23. Its tag object and source commit
+The official release was checked on 2026-10-08: the latest stable tag is
+`rust-v0.161.0`, published on 2026-10-07 UTC. Its tag object and source commit
 match `upstream.lock`; prereleases remain outside the synchronization policy.
 
-The 0.156.1 update preserves the in-process integration, gateway auth,
-command-description, HTTP retry and hidden-window patches. The Windows setup
-role uses the upstream `setup_helper_main` library entry, and the host also
-dispatches the new native MXC role before desktop startup. Official source:
-https://github.com/openai/codex/releases/tag/rust-v0.156.1
+The 0.161.0 update preserves the in-process integration, gateway auth,
+command-description, bounded compaction and published MCP status patches.
+Embedded startup shares upstream's live network policy with the environment
+manager, then attaches the host API key to a separate serving auth manager
+built from the policy-resolved config. Workspace policy keeps its stored auth.
+Windows setup retains the same-executable role flags while adopting upstream's
+large-payload environment transport. Linux startup registers the new process
+setup helper before application initialization. Official source:
+https://github.com/openai/codex/releases/tag/rust-v0.161.0
+
+Upgrade decisions and validation are recorded in
+[`docs/xinghe-upgrade-0.161.0.md`](../../docs/xinghe-upgrade-0.161.0.md).
 
 Settings commands that change confirmed values wait for a matching
 `thread/settings/updated` notification;

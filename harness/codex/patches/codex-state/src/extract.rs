@@ -4,12 +4,25 @@ use codex_protocol::items::TurnItem;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::SessionMetaLine;
+use codex_protocol::protocol::SessionSource;
+use codex_protocol::protocol::SubAgentSource;
 use codex_protocol::protocol::TurnContextItem;
 use codex_protocol::protocol::UserMessageEvent;
 use codex_protocol::protocol::strip_user_message_prefix;
 use codex_protocol::protocol::user_message_preview;
 use serde::Serialize;
 use serde_json::Value;
+
+pub const GUARDIAN_THREAD_TITLE: &str = "Guardian review";
+pub const GUARDIAN_THREAD_PREVIEW: &str = "Approval review";
+
+/// Identifies internal review threads whose user messages are synthetic approval prompts.
+pub fn is_guardian_review_source(source: &SessionSource) -> bool {
+    matches!(
+        source,
+        SessionSource::SubAgent(SubAgentSource::Other(name)) if name == "guardian"
+    )
+}
 
 /// Apply a rollout item to the metadata structure.
 pub fn apply_rollout_item(
@@ -69,6 +82,14 @@ fn apply_session_meta_from_item(metadata: &mut ThreadMetadata, meta_line: &Sessi
         // e.g., forked rollouts that embed the source session metadata.
         return;
     }
+    metadata.creator_user_id = metadata
+        .creator_user_id
+        .take()
+        .or_else(|| meta_line.meta.creator_user_id.clone());
+    metadata.creator_account_id = metadata
+        .creator_account_id
+        .take()
+        .or_else(|| meta_line.meta.creator_account_id.clone());
     metadata.id = meta_line.meta.id;
     metadata.source = enum_to_string(&meta_line.meta.source);
     if metadata.originator.is_none() && !meta_line.meta.originator.is_empty() {
@@ -113,15 +134,17 @@ fn apply_event_msg(metadata: &mut ThreadMetadata, event: &EventMsg) {
                 metadata.tokens_used = info.total_token_usage.total_tokens.max(0);
             }
         }
-        EventMsg::UserMessage(user) => {
+        EventMsg::UserMessage(user) if !metadata_is_guardian_review(metadata) => {
             apply_user_message(metadata, user);
         }
         EventMsg::ItemCompleted(event) => {
-            if let TurnItem::UserMessage(user) = &event.item {
+            if let TurnItem::UserMessage(user) = &event.item
+                && !metadata_is_guardian_review(metadata)
+            {
                 apply_user_message(metadata, &user.as_legacy_user_message_event());
             }
         }
-        EventMsg::ThreadGoalUpdated(event) => {
+        EventMsg::ThreadGoalUpdated(event) if !metadata_is_guardian_review(metadata) => {
             let objective = event.goal.objective.trim();
             if !objective.is_empty() {
                 set_preview_if_empty(metadata, Some(objective.to_string()));
@@ -142,6 +165,12 @@ fn apply_event_msg(metadata: &mut ThreadMetadata, event: &EventMsg) {
 }
 
 fn apply_response_item(_metadata: &mut ThreadMetadata, _item: &ResponseItem) {}
+
+pub(crate) fn metadata_is_guardian_review(metadata: &ThreadMetadata) -> bool {
+    serde_json::from_str::<SessionSource>(metadata.source.as_str())
+        .as_ref()
+        .is_ok_and(is_guardian_review_source)
+}
 
 fn apply_user_message(metadata: &mut ThreadMetadata, user: &UserMessageEvent) {
     let preview = user_message_preview(user);

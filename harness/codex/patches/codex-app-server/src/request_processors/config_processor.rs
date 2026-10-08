@@ -64,6 +64,7 @@ const BACKGROUND_PAGINATED_ROLLOUT_MIGRATION_FEATURE: &str =
     "background_paginated_rollout_migration";
 
 const SUPPORTED_EXPERIMENTAL_FEATURE_ENABLEMENT: &[&str] = &[
+    "api_key_cyber_access_programs",
     "api_key_model_discovery",
     "auth_elicitation",
     BACKGROUND_PAGINATED_ROLLOUT_MIGRATION_FEATURE,
@@ -357,11 +358,18 @@ pub(super) async fn reload_user_config(
     config_manager: &ConfigManager,
     thread_manager: &ThreadManager,
 ) {
-    if let Err(err) = config_manager
-        .load_latest_config(/*fallback_cwd*/ None)
-        .await
-    {
+    // Reload owns several config snapshots; do not inline that future into dispatch.
+    Box::pin(reload_user_config_inner(config_manager, thread_manager)).await;
+}
+
+async fn reload_user_config_inner(config_manager: &ConfigManager, thread_manager: &ThreadManager) {
+    if let Err(err) = config_manager.load_config_layers(/*cwd*/ None).await {
         tracing::warn!("failed to rebuild user config for runtime refresh: {err}");
+        for thread_id in thread_manager.list_thread_ids().await {
+            if let Ok(thread) = thread_manager.get_thread(thread_id).await {
+                thread.disable_mcp_enterprise_auth().await;
+            }
+        }
         return;
     }
     let thread_ids = thread_manager.list_thread_ids().await;
@@ -369,22 +377,53 @@ pub(super) async fn reload_user_config(
         let Ok(thread) = thread_manager.get_thread(thread_id).await else {
             continue;
         };
-        let current_config = thread.config().await;
-        let next_config = match config_manager
-            .load_latest_config_with_session_layers(
-                &current_config.config_layer_stack,
-                &current_config.cwd,
-            )
-            .await
-        {
-            Ok(config) => config,
-            Err(err) => {
-                tracing::warn!(%thread_id, %err, "failed to reload thread configuration");
-                continue;
+        for attempt in 0..4 {
+            let current_config = thread.config().await;
+            let next_config = match config_manager
+                .load_latest_config_with_session_layers(
+                    &current_config.config_layer_stack,
+                    &current_config.cwd,
+                )
+                .await
+            {
+                Ok(config) => config,
+                Err(err) => {
+                    tracing::warn!(%thread_id, %err, "failed to reload thread configuration");
+                    thread.disable_mcp_enterprise_auth().await;
+                    break;
+                }
+            };
+            let current_requirements = current_config.config_layer_stack.requirements();
+            let next_requirements = next_config.config_layer_stack.requirements();
+            let promote_mcp = current_requirements.mcp_servers != next_requirements.mcp_servers
+                || current_requirements.plugins != next_requirements.plugins
+                || current_requirements.feature_requirements
+                    != next_requirements.feature_requirements;
+            let outcome = if promote_mcp {
+                // Keep the loaded MCP map and its requirements under one owner,
+                // then reload the user update from that owner.
+                Box::pin(thread.refresh_mcp_config(current_config, next_config)).await
+            } else {
+                // Keep runtime refresh state off the request dispatcher's stack.
+                Box::pin(thread.refresh_runtime_config(current_config, next_config)).await
+            };
+            match outcome {
+                codex_core::ConfigRefreshOutcome::Published => {
+                    if !promote_mcp {
+                        break;
+                    }
+                }
+                codex_core::ConfigRefreshOutcome::Stale => {}
+                codex_core::ConfigRefreshOutcome::Rejected => {
+                    tracing::warn!(%thread_id, "stopped user configuration reload after rejected refresh");
+                    break;
+                }
             }
-        };
-        // Keep runtime refresh state off the request dispatcher's stack.
-        Box::pin(thread.refresh_runtime_config(next_config)).await;
+            if attempt == 3 {
+                thread.disable_mcp_enterprise_auth().await;
+                tracing::warn!(%thread_id, "configuration kept changing during user reload; enterprise MCP disabled");
+            }
+        }
     }
 }
 

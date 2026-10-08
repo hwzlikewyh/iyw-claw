@@ -129,7 +129,7 @@ where
         args_vec.push(OsString::from(arg.as_ref()));
     }
     let command_string = build_command_string(&args_vec);
-    let mut command = crate::hidden_command::git();
+    let mut command = codex_utils_process::background_command("git");
     command.current_dir(dir);
     if let Some(envs) = env {
         for (key, value) in envs {

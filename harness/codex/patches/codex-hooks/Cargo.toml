@@ -1,8 +1,8 @@
 [package]
-name = "codex-hooks"
-version = "0.156.1"
 edition = "2024"
 license = "Apache-2.0"
+name = "codex-hooks"
+version = "0.161.0"
 autobins = false
 autotests = false
 autobenches = false
@@ -11,6 +11,10 @@ autobenches = false
 doctest = false
 name = "codex_hooks"
 path = "src/lib.rs"
+
+[dependencies.codex-utils-process]
+git = "https://github.com/openai/codex.git"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.anyhow]
 version = "1"
@@ -24,27 +28,27 @@ features = [ "serde",]
 
 [dependencies.codex-config]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-plugin]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-utils-output-truncation]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"
 
 [dependencies.futures]
 version = "0.3"
@@ -77,4 +81,4 @@ features = [ "v4",]
 
 [target."cfg(any(unix, windows))".dependencies.codex-utils-pty]
 git = "https://github.com/openai/codex.git"
-rev = "b412ff32c417f855c2b2d1581b77058eed87c84b"
+rev = "979011409de0a60b52f179721948e65531d26144"

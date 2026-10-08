@@ -19,6 +19,8 @@ use codex_sandboxing::{run_windows_mxc_main, CODEX_WINDOWS_MXC_ARG1};
 /// Returns `false` during a normal iyw-claw startup. A recognized helper mode
 /// never returns because the helper owns the child process exit status.
 pub fn dispatch_from_process_args() -> bool {
+    #[cfg(target_os = "linux")]
+    codex_utils_pty::init_spawn_helper(std::env::args_os());
     #[cfg(all(windows, feature = "bundled-host"))]
     if codex_windows_sandbox::dispatch_embedded_role() {
         return true;

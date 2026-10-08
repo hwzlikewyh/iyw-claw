@@ -60,11 +60,11 @@ pub(crate) fn select_handlers_for_matcher_inputs(
             | HookEventName::PreCompact
             | HookEventName::PostCompact => {
                 if matcher_inputs.is_empty() {
-                    matches_matcher(handler.matcher.as_deref(), /*input*/ None)
+                    matches_matcher(handler.matcher.as_ref(), /*input*/ None)
                 } else {
                     matcher_inputs
                         .iter()
-                        .any(|input| matches_matcher(handler.matcher.as_deref(), Some(input)))
+                        .any(|input| matches_matcher(handler.matcher.as_ref(), Some(input)))
                 }
             }
             HookEventName::UserPromptSubmit | HookEventName::Stop | HookEventName::Interrupt => {

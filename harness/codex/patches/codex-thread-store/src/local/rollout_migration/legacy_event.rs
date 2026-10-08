@@ -268,6 +268,7 @@ pub(super) fn completed_item(
         EventMsg::ExecCommandEnd(event) => Some((
             TurnItem::CommandExecution(CommandExecutionItem {
                 model_context: None,
+                sandbox_type: None,
                 id: event.call_id.clone(),
                 description: None,
                 plugin_id: event.plugin_id.clone(),

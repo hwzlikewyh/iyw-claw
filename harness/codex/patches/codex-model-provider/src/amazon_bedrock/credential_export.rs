@@ -171,12 +171,7 @@ impl AwsCredentialExport {
             ));
         }
 
-        let mut command = Command::new(program);
-        #[cfg(windows)]
-        {
-            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-            command.creation_flags(CREATE_NO_WINDOW);
-        }
+        let mut command = Command::from(codex_utils_process::background_command(program));
         command
             .args(self.config.args.iter().map(Deref::deref))
             .stdin(Stdio::null())
