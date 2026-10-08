@@ -3162,9 +3162,13 @@
           "starting": "Connecting to voice recognition",
           "stopping": "Finishing voice recognition",
           "autoSend": "Send automatically after stopping",
+          "errorTitle": "Voice input unavailable",
+          "retry": "Retry",
+          "dismiss": "Close",
           "loginRequired": "Sign in to your IYW account before using voice input.",
           "microphoneDenied": "Microphone access was denied. Allow access in system settings.",
           "microphoneUnavailable": "No microphone is available, or voice input is not supported on this device.",
+          "microphoneBusy": "The microphone may be in use by another application. Close it and try again.",
           "serviceUnavailable": "Voice recognition is temporarily unavailable. Text already in the input was kept."
         },
         "skills": "Skills",

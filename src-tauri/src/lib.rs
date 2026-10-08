@@ -55,6 +55,8 @@ pub mod user_memory;
 pub mod web;
 #[cfg(feature = "tauri-runtime")]
 mod webview_memory;
+#[cfg(feature = "tauri-runtime")]
+mod webview_permissions;
 pub mod wecom_ai;
 #[cfg(target_os = "windows")]
 mod windows_file_clipboard;
@@ -1190,6 +1192,14 @@ mod tauri_app {
                             .min_inner_size(400.0, 600.0)
                             .visible(!hide_for_autostart);
                         let window = windows::apply_platform_window_style(builder).build()?;
+                        if let Err(error) =
+                            crate::webview_permissions::install_main_microphone_permission(&window)
+                        {
+                            tracing::warn!(
+                                error = %error,
+                                "main WebView microphone permission setup failed"
+                            );
+                        }
                         windows::post_window_setup(&window);
                         if hide_for_autostart {
                             crate::webview_memory::note_hidden(app.handle());

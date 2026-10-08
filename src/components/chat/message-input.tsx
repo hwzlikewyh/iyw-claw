@@ -179,6 +179,7 @@ import {
   type RichComposerHandle,
 } from "@/components/chat/composer/rich-composer"
 import { RealtimeVoiceButton } from "@/components/chat/realtime-voice-button"
+import { VoiceErrorDialog } from "@/components/chat/voice-error-dialog"
 import {
   composerLeafText,
   docToPromptBlocks,
@@ -3803,11 +3804,13 @@ export function MessageInput({
     editorRef.current?.appendText(text)
   }, [])
 
+  const [voiceErrorKind, setVoiceErrorKind] =
+    useState<RealtimeVoiceErrorKind | null>(null)
   const handleVoiceError = useCallback(
     (kind: RealtimeVoiceErrorKind) => {
-      toast.error(t(`voice.${kind}`))
+      setVoiceErrorKind(kind)
     },
-    [t]
+    []
   )
 
   const voice = useRealtimeVoiceInput({
@@ -3817,6 +3820,16 @@ export function MessageInput({
     onAutoSend: sendCurrentDraft,
     onError: handleVoiceError,
   })
+
+  const handleVoiceToggle = useCallback(() => {
+    setVoiceErrorKind(null)
+    voice.toggle()
+  }, [voice.toggle])
+
+  const handleVoiceRetry = useCallback(() => {
+    setVoiceErrorKind(null)
+    voice.toggle()
+  }, [voice.toggle])
 
   const handleSend = useCallback(() => {
     if (voice.status !== "idle") return
@@ -4757,7 +4770,7 @@ export function MessageInput({
                         voice.status === "stopping" ||
                         (voice.status === "idle" && disabled)
                       }
-                      onToggle={voice.toggle}
+                      onToggle={handleVoiceToggle}
                       onAutoSendChange={voice.setAutoSend}
                     />
                   )}
@@ -4894,6 +4907,13 @@ export function MessageInput({
         rootPath={defaultPath ?? null}
         onSelect={handleProjectReferenceSelect}
         onBrowseFolder={handlePickFolder}
+      />
+      <VoiceErrorDialog
+        kind={voiceErrorKind}
+        onRetry={handleVoiceRetry}
+        onOpenChange={(open) => {
+          if (!open) setVoiceErrorKind(null)
+        }}
       />
     </div>
   )

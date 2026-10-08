@@ -230,6 +230,7 @@ function classifyStartError(error: unknown): RealtimeVoiceErrorKind {
     if (error.name === "NotAllowedError" || error.name === "SecurityError") {
       return "microphoneDenied"
     }
+    if (error.name === "NotReadableError") return "microphoneBusy"
     return "microphoneUnavailable"
   }
   return extractAppCommandError(error)?.code === "authentication_failed"

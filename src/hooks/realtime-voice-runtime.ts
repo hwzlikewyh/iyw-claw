@@ -21,6 +21,7 @@ export type RealtimeVoiceErrorKind =
   | "loginRequired"
   | "microphoneDenied"
   | "microphoneUnavailable"
+  | "microphoneBusy"
   | "serviceUnavailable"
 
 export class VoiceRuntime {

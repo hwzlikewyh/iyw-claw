@@ -3162,9 +3162,13 @@
           "starting": "正在连接语音识别",
           "stopping": "正在完成语音识别",
           "autoSend": "停止后自动发送",
+          "errorTitle": "语音输入不可用",
+          "retry": "重试",
+          "dismiss": "关闭",
           "loginRequired": "请先登录原助理账号，再使用语音输入。",
           "microphoneDenied": "麦克风权限被拒绝，请在系统设置中允许访问。",
           "microphoneUnavailable": "未找到可用麦克风，或当前设备不支持语音输入。",
+          "microphoneBusy": "麦克风可能正被其他程序占用，请关闭占用麦克风的程序后重试。",
           "serviceUnavailable": "语音识别暂时不可用，已保留输入框中的文字。"
         },
         "skills": "技能",
