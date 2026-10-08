@@ -1817,7 +1817,7 @@
     "autostartSaveFailed": "Failed to update startup setting: {message}",
     "browserTitle": "Browser",
     "browserVisible": "Show built-in browser",
-    "browserDescription": "Off by default. When off, agents use the external browser. Enable to allow built-in presentation and user handoff. Changes apply immediately and persist after restart.",
+    "browserDescription": "On by default. When off, agents use the external browser. Enable to allow built-in presentation and user handoff. Changes apply immediately and persist after restart.",
     "browserSaveFailed": "Failed to save browser setting: {message}",
     "skillAutoUpdateTitle": "Skill updates",
     "skillAutoUpdateDescription": "Manage updates for skills installed from Skill Market.",
