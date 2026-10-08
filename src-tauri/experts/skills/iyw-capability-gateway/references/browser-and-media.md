@@ -145,7 +145,7 @@ Choose the route by size, duration, durability, and speaker requirements:
 
 | Audio need | Route | Behavior |
 | --- | --- | --- |
-| Ordinary short audio, immediate text, no diarization or resume requirement | `transcribe_audio_flash` | Synchronous result; up to 100 MiB and 2 hours |
+| Ordinary short audio, immediate text, no resume requirement | `transcribe_audio_flash` | Synchronous result; up to 95 MiB and 5 minutes |
 | Meeting, multiple speakers, channel separation, oversized/long audio, or resumable work | `transcribe_audio` | Durable asynchronous job; up to 512 MiB and 5 hours; save returned `job_id` |
 | An async job is not terminal | `query_audio_transcription` | Query by the exact decimal `job_id`; repeat only according to returned status |
 
@@ -162,8 +162,10 @@ Provide exactly one source for either create route:
 `punctuation`, `wordTimestamps`, `speakerDiarization`, and `channelSplit` are
 schema-controlled. Flash supports WAV/MP3/OGG directly and the host may convert
 M4A or another supported container to WAV when the upstream requires it. Do not
-claim speaker labels, channel separation, or durable recovery when those options
-were not requested or the flash route was used.
+claim speaker labels or channel separation when those options were not requested
+or supported. Bailian Flash supports speaker diarization, but its adapter rejects
+channel separation. The model may polish fillers, repetitions and self-corrections;
+do not promise a verbatim transcript. Flash does not provide durable recovery.
 
 For async transcription, treat the first response as a job acknowledgment when
 it is non-terminal, not as the final transcript. Query with the returned ID and

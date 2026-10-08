@@ -5,7 +5,7 @@ use crate::acp::media_tool::{MediaToolError, MediaToolRunner, ProbeInfo};
 
 use super::{new_temp_path, LoadedAudio};
 
-const FLASH_MAX_DURATION_SECONDS: f64 = 2.0 * 60.0 * 60.0;
+const FLASH_MAX_DURATION_SECONDS: f64 = 5.0 * 60.0;
 const STANDARD_MAX_DURATION_SECONDS: f64 = 5.0 * 60.0 * 60.0;
 
 pub(super) async fn normalize(
