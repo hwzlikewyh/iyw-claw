@@ -4,6 +4,7 @@ Var IywClawPercentFont
 Var IywClawBrandFont
 Var IywClawProgressHeading
 Var IywClawProgressStage
+Var IywClawProgressFeedback
 !include "${__FILEDIR__}\installer-steps.nsh"
 
 !define MUI_HEADERIMAGE
@@ -20,6 +21,7 @@ Function IywClawStyleInitialization
   Call IywClawStyleHeader
   SetCtlColors $IywClawProgressText 137E87 FFFFFF
   SetCtlColors $IywClawProgressStage 525966 FFFFFF
+  SetCtlColors $IywClawProgressFeedback 525966 FFFFFF
   GetDlgItem $R1 $R0 1027
   ShowWindow $R1 0
   GetDlgItem $R1 $R0 1016
@@ -31,7 +33,7 @@ Function IywClawStyleInitialization
   System::Call 'uxtheme::SetWindowTheme(p $IywClawProgressBar, w "", w "")'
   SendMessage $IywClawProgressBar 0x409 0 0x00877E13
   SendMessage $IywClawProgressBar 0x2001 0 0x00F0EEEB
-  SendMessage $IywClawProgressText ${WM_SETTEXT} 0 "STR:0%"
+  SendMessage $IywClawProgressText ${WM_SETTEXT} 0 "STR:准备中"
 FunctionEnd
 
 Function IywClawStyleFonts
@@ -41,6 +43,7 @@ Function IywClawStyleFonts
   CreateFont $IywClawBrandFont "Microsoft YaHei UI" 14 600
   SendMessage $IywClawProgressHeading ${WM_SETFONT} $IywClawHeadingFont 1
   SendMessage $IywClawProgressStage ${WM_SETFONT} $IywClawStatusFont 1
+  SendMessage $IywClawProgressFeedback ${WM_SETFONT} $IywClawStatusFont 1
   SendMessage $IywClawProgressText ${WM_SETFONT} $IywClawPercentFont 1
 FunctionEnd
 
@@ -89,12 +92,12 @@ Function IywClawArrangeInitialization
   IntOp $R4 $R4 - $R3
   System::Call 'kernel32::MulDiv(i 74, i R2, i 96) i.R5'
   System::Call 'kernel32::MulDiv(i 32, i R2, i 96) i.R6'
-  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "正在初始化", i 0x50000000, i R3, i R5, i R4, i R6, p R0, p 0, p 0, p 0) p.R1'
+  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "正在安装", i 0x50000000, i R3, i R5, i R4, i R6, p R0, p 0, p 0, p 0) p.R1'
   StrCpy $IywClawProgressHeading $R1
   SetCtlColors $IywClawProgressHeading 20242C FFFFFF
   System::Call 'kernel32::MulDiv(i 115, i R2, i 96) i.R5'
   System::Call 'kernel32::MulDiv(i 24, i R2, i 96) i.R6'
-  System::Call 'kernel32::MulDiv(i 100, i R2, i 96) i.R7'
+  System::Call 'kernel32::MulDiv(i 116, i R2, i 96) i.R7'
   IntOp $R7 $R4 - $R7
   System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "1 / 3   准备安装", i 0x50000000, i R3, i R5, i R7, i R6, p R0, p 0, p 0, p 0) p.R1'
   StrCpy $IywClawProgressStage $R1
@@ -103,10 +106,14 @@ Function IywClawArrangeInitialization
   System::Call 'user32::SetWindowPos(p $IywClawProgressBar, p 0, i R3, i R5, i R4, i R6, i 0x40)'
   System::Call 'kernel32::MulDiv(i 96, i R2, i 96) i.R5'
   System::Call 'kernel32::MulDiv(i 44, i R2, i 96) i.R6'
-  System::Call 'kernel32::MulDiv(i 96, i R2, i 96) i.R8'
+  System::Call 'kernel32::MulDiv(i 116, i R2, i 96) i.R8'
   IntOp $R9 $R3 + $R4
   IntOp $R9 $R9 - $R8
   System::Call 'user32::SetWindowPos(p $IywClawProgressText, p 0, i R9, i R5, i R8, i R6, i 0x40)'
+  System::Call 'kernel32::MulDiv(i 180, i R2, i 96) i.R5'
+  System::Call 'kernel32::MulDiv(i 30, i R2, i 96) i.R6'
+  System::Call 'user32::CreateWindowExW(i 0, w "STATIC", w "正在检查安装目录和权限...", i 0x50000000, i R3, i R5, i R4, i R6, p R0, p 2420, p 0, p 0) p.R1'
+  StrCpy $IywClawProgressFeedback $R1
   System::Call 'user32::BringWindowToTop(p $IywClawProgressHeading)'
   System::Call 'user32::BringWindowToTop(p $IywClawProgressStage)'
   System::Call 'user32::BringWindowToTop(p $IywClawProgressBar)'

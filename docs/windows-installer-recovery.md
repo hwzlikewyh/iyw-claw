@@ -1,5 +1,23 @@
 # Windows 普通用户安装与失败恢复
 
+## 安装阶段与等待反馈（2026-10-08）
+
+- 验收：进入安装页能看到当前动作；初始化期间持续显示用时；连续 30 秒没有新进度时显示等待提示；失败带原因与日志；只有完整安装成功才显示 100%。
+- WebView2 由 Tauri 的 `WebView2` Section 安装，执行顺序在 `NSIS_HOOK_PREINSTALL` 和环境 worker 之前。原有自定义百分比直到 worker 启动才更新，因此 WebView2 耗时或失败时会停在 0%。
+- 保留 Tauri `embedBootstrapper` 与当前用户安装方式。安装前用滚动活动条和“准备中”表示尚无可量化进度；WebView2 缺失时显示专用安装提示。固定运行时构建不展示 Evergreen 安装提示。
+- 应用准备阶段显示目录检查、进程清理、旧版本备份和任务启动。worker 根据现有进度文件与应用写入进度显示当前动作和用时；文件更新时间、阶段或数值变化会清除等待提示。
+- 30 秒无进度只提示等待，不提前判定失败。阶段变化和进入等待状态各记录一次；20 分钟阶段超时包含停留动作和耗时。完成、失败停止活动条，当前步骤仅在后续步骤开始后标记完成。
+- WebView2 安装失败独立报告 bootstrapper 返回码，写入 `%TEMP%\iyw-claw-webview2-install.log`，提供微软官方 Evergreen Standalone Installer 入口及 `msedge_installer.log`、`MicrosoftEdgeUpdate.log` 的常见位置。应用替换事务此时尚未开始。
+
+### `0x8004070c` 的诊断边界
+
+截图只能确认微软安装器返回该错误，不能单凭错误码认定权限冲突、注册表残留或 VC++ 运行库缺失。
+微软 [WebView2 分发文档](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)明确支持普通用户和机器级安装，并说明少数 Windows 10 设备可能没有运行库。
+官方反馈仓库 [#5491](https://github.com/MicrosoftEdge/WebView2Feedback/issues/5491)记录 Windows 10 22H2 下管理员运行离线安装器仍出现相同错误；[#1863](https://github.com/MicrosoftEdge/WebView2Feedback/issues/1863)中微软要求收集 Edge 安装日志。
+因此优先尝试与系统架构匹配的官方离线安装器，复现后读取失败机器同一时间的日志；不自动删除 Microsoft 目录、注册表或关闭安全软件。
+
+本次按仓库规则不新增或运行测试套件。已完成 PowerShell 5.1 语法解析、.NET Framework C# 编译、普通及固定运行时 NSIS hooks 编译和无系统写入的安装页预览。编译检查省略应用 payload 与快捷方式 COM 宏，不能替代完整发布包验证。未复现故障机器的 WebView2 错误，未生成签名发布包；源码改动需重新打包后生效。
+
 ## 目标与验收
 
 2026-09-28：安装前 `GetFullPath` 报非法路径，Chromix 解压

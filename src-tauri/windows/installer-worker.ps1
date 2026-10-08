@@ -20,6 +20,13 @@ $script:displayed = 0
 $script:environmentProgress = 0
 $script:progressWarning = $false
 $script:failureDetail = ''
+$script:activityClock = [Diagnostics.Stopwatch]::StartNew()
+$script:idleClock = [Diagnostics.Stopwatch]::StartNew()
+$script:lastSignal = ''
+$script:lastStage = ''
+$script:lastFeedback = ''
+$script:slowProgressWarning = $false
+$slowProgressSeconds = 30
 
 function Write-State([string]$State, [int]$Code) {
     $detail = $script:failureDetail.Replace("`r", ' ').Replace("`n", ' ')
@@ -35,6 +42,35 @@ function Assert-Running {
     }
 }
 
+function Write-Diagnostic([string]$Message) {
+    $text = [DateTime]::UtcNow.ToString('o') + ' ' + $Message
+    if ($null -ne $child) { $child.WriteDiagnostic($text) }
+    else { [IO.File]::AppendAllText($logPath, $text + [Environment]::NewLine) }
+}
+
+function Update-Activity([string]$Stage, [string]$Signal) {
+    if ($Signal -ne $script:lastSignal) {
+        $script:lastSignal = $Signal
+        $script:idleClock.Restart()
+        $script:slowProgressWarning = $false
+    }
+    if ($Stage -ne $script:lastStage) {
+        Write-Diagnostic "Initialization activity changed: phase=$Stage; progress=$script:displayed"
+        $script:lastStage = $Stage
+    }
+    $elapsed = [int][Math]::Floor($script:activityClock.Elapsed.TotalSeconds)
+    $idle = [int][Math]::Floor($script:idleClock.Elapsed.TotalSeconds)
+    $text = [IywInstallerNative]::FeedbackText($Stage, $elapsed, $idle)
+    if ($idle -ge $slowProgressSeconds -and -not $script:slowProgressWarning) {
+        Write-Diagnostic "Initialization waiting for progress: phase=$Stage; idleSeconds=$idle; elapsedSeconds=$elapsed"
+        $script:slowProgressWarning = $true
+    }
+    if ($text -eq $script:lastFeedback) { return $true }
+    $updated = [IywInstallerNative]::Feedback($StageText, $text)
+    if ($updated) { $script:lastFeedback = $text }
+    return $updated
+}
+
 function Update-Progress {
     $value = 0
     if ([int]::TryParse([IywInstallerNative]::Read($progressPath, 'Value'), [ref]$value)) {
@@ -47,15 +83,15 @@ function Update-Progress {
     $combined = [int](3500 * $appProgress + 0.6 * $script:environmentProgress)
     $script:displayed = [Math]::Max($script:displayed, [Math]::Min(9500, $combined))
     $phase = [IywInstallerNative]::Read($progressPath, 'Phase')
-    $stage = if ($phase -eq 'committed') { 'complete' }
-        elseif ([string]::IsNullOrWhiteSpace($phase)) { 'prepare' }
+    $stage = if ([string]::IsNullOrWhiteSpace($phase)) { 'starting' }
         else { $phase }
     $updated = [IywInstallerNative]::Stage($StageText, $stage)
+    $stamp = [IO.File]::GetLastWriteTimeUtc($progressPath).Ticks
+    $updated = (Update-Activity $stage "$stage|$stamp|$position|$script:displayed") -and $updated
     $updated = [IywInstallerNative]::Show($ProgressBar, $StatusText, $script:displayed) -and $updated
     if (-not $updated -and -not $script:progressWarning) {
         $warning = 'Progress control update timed out or failed; retrying on the next poll.'
-        if ($null -ne $child) { $child.WriteDiagnostic($warning) }
-        else { [IO.File]::AppendAllText($logPath, $warning + "`r`n") }
+        Write-Diagnostic $warning
         $script:progressWarning = $true
     }
 }
@@ -69,7 +105,9 @@ function Invoke-Phase([string]$Phase, [string]$Transaction = '') {
         $started = [Diagnostics.Stopwatch]::StartNew()
         while (-not $child.HasExited) {
             if ($Phase -eq 'prepare') { Assert-Running }
-            if ($started.Elapsed -gt $phaseTimeout) { throw [TimeoutException]::new('Initialization timed out.') }
+            if ($started.Elapsed -gt $phaseTimeout) {
+                throw [TimeoutException]::new([IywInstallerNative]::TimeoutText($script:lastStage, [int]$started.Elapsed.TotalSeconds))
+            }
             Update-Progress
             Start-Sleep -Milliseconds $pollMilliseconds
         }
@@ -102,7 +140,9 @@ try {
     $waiting = [Diagnostics.Stopwatch]::StartNew()
     while (-not [IO.File]::Exists($commitRequest)) {
         Assert-Running
-        if ($waiting.Elapsed -gt $phaseTimeout) { throw [TimeoutException]::new('Application preparation timed out.') }
+        if ($waiting.Elapsed -gt $phaseTimeout) {
+            throw [TimeoutException]::new([IywInstallerNative]::TimeoutText($script:lastStage, [int]$waiting.Elapsed.TotalSeconds))
+        }
         Update-Progress
         Start-Sleep -Milliseconds $pollMilliseconds
     }

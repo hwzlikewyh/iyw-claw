@@ -34,6 +34,8 @@ Function IywClawHandleInstallFailure
     StrCpy $IywClawFailureReason "$IywClawTransactionError"
     StrCpy $IywClawRecoveryStatus "后台任务未确认退出，未移动应用或删除备份。"
   iyw_failure_report:
+    Push "安装已停止。$\r$\n恢复状态、错误原因和日志位置见错误提示。"
+    Call IywClawFailProgress
     DetailPrint "$IywClawFailureReason"
     DetailPrint "$IywClawRecoveryStatus"
     Push "failure: $IywClawFailureReason; recovery: $IywClawRecoveryStatus"

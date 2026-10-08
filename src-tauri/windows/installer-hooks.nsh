@@ -188,6 +188,9 @@ Function IywClawResolveInstallRoot
 FunctionEnd
 
 !macro NSIS_HOOK_PREINSTALL
+  StrCpy $IywClawApplicationPhaseStarted "1"
+  Push "正在检查安装目录、权限和可用空间..."
+  Call IywClawSetInstallActivity
   Call IywClawConfigureInstallerMode
   StrCmp $IywClawInstallerTestMode "invalid" iyw_invalid_install_test_mode 0
   StrCmp $IywClawInstallerTestMode "1" 0 iyw_test_root_prevalidated
@@ -218,6 +221,8 @@ FunctionEnd
   !endif
   Call IywClawConfigureAppTransaction
   StrCmp $IywClawInstallerTestMode "1" iyw_begin_app_transaction 0
+  Push "正在检查并关闭旧版本的后台进程..."
+  Call IywClawSetInstallActivity
   Call IywClawStopKnownProcesses
   Pop $R0
   StrCmp $R0 "0" iyw_begin_app_transaction 0
@@ -232,6 +237,8 @@ FunctionEnd
     Abort
 
   iyw_begin_app_transaction:
+    Push "正在检查应用文件占用并备份旧版本..."
+    Call IywClawSetInstallActivity
     Call IywClawBeginAppTransaction
     Pop $R0
     StrCmp $R0 "1" iyw_app_transaction_ready 0
@@ -245,6 +252,8 @@ FunctionEnd
       Abort
 
   iyw_app_transaction_ready:
+  Push "正在启动环境初始化任务，首次启动可能需要一些时间..."
+  Call IywClawSetInstallActivity
   !insertmacro IywClawStartEnvironmentPreparation
   Goto iyw_preinstall_done
 
@@ -274,6 +283,8 @@ FunctionEnd
 
   iyw_environment_ready:
   iyw_retry_app_commit:
+  Push "正在校验应用文件并保存安装状态..."
+  Call IywClawSetInstallActivity
   Call IywClawCommitAppTransaction
   Pop $R0
   StrCmp $R0 "1" iyw_app_transaction_committed 0
@@ -382,5 +393,10 @@ FunctionEnd
 !macroend
 
 Function .onInstFailed
+  StrCmp $IywClawApplicationPhaseStarted "1" iyw_install_failure 0
+  StrCmp $IywClawWebViewPending "1" 0 iyw_install_failure
+  Call IywClawReportWebViewFailure
+  Return
+  iyw_install_failure:
   Call IywClawHandleInstallFailure
 FunctionEnd
