@@ -65,3 +65,38 @@
 
 编译保留未使用代码、未使用 patch 和 Rust future-compatibility 警告。
 未对无关业务代码进行警告清理。
+
+## 2026-10-09：补齐线程历史迁移和回合结束语义
+
+供应商中文名任务的日志暴露了升级时遗漏的
+`0007_thread_item_lifecycle_timestamps.sql`。官方锁定源码已有该文件，
+但本地覆盖包仅包含 0001–0006，导致历史读写报
+`table thread_items has no column named started_at_ms`，回合结束后的完整输出
+核验也失败。此前迁移内容核对未覆盖缺失文件，不能证明文件集合完整。
+
+修复原样补回官方迁移，为 `thread_items` 增加可空 `started_at_ms` 和
+`completed_at_ms`，继续通过 SQLx 的既有迁移、校验和与事务机制执行。
+`codex-state/build.rs` 追踪全部六个迁移目录，确保新增文件触发增量重编译。
+升级核对同时比较文件集合和 SQL 内容；本次六套共 73 个迁移均与锁定上游一致。
+
+此次任务提前停止的直接原因仍是模型输出了 `final_answer` 后正常 `end_turn`。
+公共执行指令明确工具发现、文件检查和下一步说明属于中间进度；有授权且可执行的
+工作应继续，最终回复交付结果或说明实际完成范围和具体阻塞。分析、方案、预览、
+暂停和取消的边界保留。该指令沿现有配置路径覆盖新建和恢复会话。
+
+中英文 `processCompleted` 文案改为“本轮回复已结束”，保留耗时参数、工具数和
+错误分支，避免把回合结束等同于业务任务完成。此修复没有引入自动续跑或任务状态推断。
+
+定向验证：只读打开故障机历史库，并通过 SQLite backup API 复制至内存后执行迁移。
+两个字段添加成功，原有 20,702 条历史项、625 个回合和 282 条投影状态记录均保留，
+相关字段读取通过；真实运行库未被修改。JSON 解析、参数核对、Prettier 和新增
+构建脚本 rustfmt 检查通过。按仓库规则未新增或运行测试文件。
+
+桌面 `cargo check --manifest-path src-tauri/Cargo.toml --bin iyw-claw --locked
+--offline --jobs 4` 和服务器 `cargo check --manifest-path src-tauri/Cargo.toml
+--bin iyw-claw-server --no-default-features --features server-runtime --locked
+--offline --jobs 4` 均通过。新增构建脚本后桌面再次检查通过，编译依赖确认包含
+0007，构建输出确认追踪六个迁移目录。现有未使用代码等警告保留。
+
+本次交付为源码修复；未替换安装中的应用，未执行真实账号模型任务或桌面升级。
+新版本运行时才会通过既有迁移机制修复历史库，模型行为改善仍需真实任务观察。

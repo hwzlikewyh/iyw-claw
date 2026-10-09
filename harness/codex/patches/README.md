@@ -92,6 +92,13 @@ the desktop worker reports initialization errors before accepting sessions;
 it must not advertise a working runtime with no state DB. Review these patches
 on upgrades and preserve all production dependencies and migrations.
 
+The state patch's build script tracks all six migration directories so adding
+an upstream migration also invalidates incremental compilation. The 0.161.0
+thread-history migration set includes `0007_thread_item_lifecycle_timestamps.sql`;
+omitting it leaves history readers and writers without the item timing columns.
+Compare migration filenames as well as SQL content against the locked source
+when upgrading.
+
 `codex-core` treats HTTP 413 as a request-size rejection, not a reconnectable
 stream failure. A sampling turn attempts its existing configured compaction
 once before continuing; a repeated rejection or failed compaction surfaces the
