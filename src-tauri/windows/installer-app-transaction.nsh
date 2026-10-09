@@ -316,7 +316,12 @@ Function IywClawValidateNewApp
   Pop $R0
   StrCmp $R0 "1" app_install_valid 0
   StrCpy $IywClawTransactionError "新 app 校验失败：$IywClawAppCheckError"
-  Goto validate_new_app_failed
+  StrCmp $IywClawFileCheckErrorCode "${IYW_CLAW_ERROR_FILE_NOT_FOUND}" validate_new_app_missing_file 0
+  StrCmp $IywClawFileCheckErrorCode "${IYW_CLAW_ERROR_PATH_NOT_FOUND}" validate_new_app_missing_file validate_new_app_failed
+
+  validate_new_app_missing_file:
+    StrCpy $IywClawTransactionError "$IywClawTransactionError$\r$\n$\r$\n文件可能被安全软件隔离，请查看防护记录或隔离区。$\r$\n确认文件来源可信后，恢复上述文件并重试校验；无法恢复时，请取消并重新运行安装包。"
+    Goto validate_new_app_failed
 
   app_install_valid:
     Push "$IywClawAppDir"
@@ -337,6 +342,8 @@ Function IywClawValidateNewApp
     Return
 
   validate_new_app_failed:
+    Push "app validation failed: $IywClawTransactionError"
+    Call IywClawAppendInstallerLog
     Push "0"
 FunctionEnd
 
