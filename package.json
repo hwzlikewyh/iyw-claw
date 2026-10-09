@@ -1,7 +1,7 @@
 {
   "name": "iyw-claw",
   "private": true,
-  "version": "0.1.264",
+  "version": "0.1.265",
   "packageManager": "pnpm@11.9.0",
   "browserslist": ["chrome 109", "edge 109", "firefox 111", "safari 16.4"],
   "scripts": {
