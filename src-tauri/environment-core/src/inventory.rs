@@ -13,6 +13,8 @@ use crate::paths::{from_slash, slash_relative, Layout};
 
 #[path = "inventory_cache.rs"]
 mod cache;
+#[path = "inventory_check.rs"]
+mod check;
 
 pub fn load_current(layout: &Layout) -> Result<Option<EnvironmentSnapshot>> {
     read_json_optional(&layout.current_snapshot())
@@ -31,8 +33,10 @@ pub fn installation_inventory(
     snapshot: Option<&EnvironmentSnapshot>,
     full_check: bool,
 ) -> Vec<InventoryEntry> {
+    let (target, arch, _) = crate::paths::platform();
     snapshot
         .into_iter()
+        .filter(|value| value.target == target && value.arch == arch)
         .flat_map(|value| &value.components)
         .map(|component| inventory_entry(layout, component, full_check))
         .collect()
@@ -42,41 +46,25 @@ pub fn verify_component(layout: &Layout, component: &InstalledComponent) -> Resu
     check_component(layout, component, true)
 }
 
-fn check_component(
+pub fn check_component(
     layout: &Layout,
     component: &InstalledComponent,
     full_check: bool,
 ) -> Result<()> {
-    let root = from_slash(&layout.root, &component.relative_path)?;
-    if !root.is_dir() || component.files.is_empty() || component.entrypoints.is_empty() {
-        bail!("component directory is missing")
+    let started = std::time::Instant::now();
+    let mode = if full_check { "full" } else { "quick" };
+    let result = check::component(layout, component, full_check);
+    match &result {
+        Ok(()) => eprintln!(
+            "environment component check: component={}; mode={mode}; result=ok; elapsed_ms={}",
+            component.component_id, started.elapsed().as_millis()
+        ),
+        Err(error) => eprintln!(
+            "environment component check: component={}; mode={mode}; result=failed; elapsed_ms={}; error={error:#}",
+            component.component_id, started.elapsed().as_millis()
+        ),
     }
-    for record in cache::immutable_records(&component.component_id, &component.files) {
-        let path = from_slash(&root, &record.path)?;
-        if let Some(expected) = &record.link_target {
-            let metadata = fs::symlink_metadata(&path).context("read component link")?;
-            let actual = fs::read_link(&path).context("read component link target")?;
-            if !metadata.file_type().is_symlink()
-                || actual.to_string_lossy().replace('\\', "/") != *expected
-            {
-                bail!("installed component link failed verification")
-            }
-            continue;
-        }
-        let metadata = fs::metadata(&path).context("read installed component file")?;
-        if !metadata.is_file()
-            || metadata.len() != record.size
-            || (full_check && hash_file(&path)? != record.sha256)
-        {
-            bail!("installed component file failed verification")
-        }
-    }
-    for relative in component.entrypoints.values() {
-        if !from_slash(&root, relative)?.is_file() {
-            bail!("installed component entrypoint is missing")
-        }
-    }
-    Ok(())
+    result
 }
 
 fn inventory_entry(
@@ -85,7 +73,7 @@ fn inventory_entry(
     full_check: bool,
 ) -> InventoryEntry {
     crate::download::emit(&component.component_id, "checking", 0, 0);
-    // 普通安装这里只检查文件和大小；提交前统一验摘要，修复则提前验摘要以选择损坏组件。
+    // 普通安装仅检查必要入口，修复先完整校验以选择损坏组件。
     let healthy = check_component(layout, component, full_check).is_ok();
     InventoryEntry {
         component_key: component.component_id.clone(),

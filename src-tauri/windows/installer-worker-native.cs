@@ -30,6 +30,7 @@ public static class IywInstallerNative {
         { "prepared", "\u7b49\u5f85\u5e94\u7528\u6587\u4ef6\u5199\u5165" },
         { "revalidating", "\u6821\u9a8c\u73af\u5883\u7ec4\u4ef6" },
         { "verifying", "\u6821\u9a8c\u73af\u5883\u7ec4\u4ef6" },
+        { "reusing", "\u590d\u7528\u5df2\u5b89\u88c5\u7ec4\u4ef6" },
         { "starting", "\u542f\u52a8\u521d\u59cb\u5316\u4efb\u52a1" },
         { "committed", "\u6821\u9a8c\u5e94\u7528\u6587\u4ef6" },
         { "commit", StageNames[2] }
@@ -118,7 +119,7 @@ public static class IywInstallerNative {
         bool complete = phase == "complete" || phase == "commit" || phase == "committed";
         bool initialize = phase == "downloading" || phase == "downloaded" ||
             phase == "extracting" || phase == "preparing" || phase == "prepared" ||
-            phase == "verifying" || phase == "revalidating";
+            phase == "verifying" || phase == "revalidating" || phase == "reusing";
         int current = complete ? 3 : initialize ? 2 : 1;
         bool updated = Text(window, current + " / 3   " + CurrentStage(phase, current));
         IntPtr parent = GetParent(new IntPtr(window));

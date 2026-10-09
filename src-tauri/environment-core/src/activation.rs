@@ -48,11 +48,7 @@ fn activate_and_publish(
         if prepared.staged {
             activated.push(activate_component(layout, state, prepared)?);
         }
-        crate::download::emit(&prepared.component.component_id, "verifying", 0, 0);
-        inventory::verify_component(layout, &prepared.component).context(
-            "environment integrity check failed; run environment repair before retrying",
-        )?;
-        crate::download::emit(&prepared.component.component_id, "verified", 0, 0);
+        check_activated_component(layout, prepared)?;
     }
     let generation = layout
         .inventory
@@ -60,6 +56,19 @@ fn activate_and_publish(
         .join(format!("{}.json", snapshot.generation));
     inventory::write_json(&generation, snapshot)?;
     inventory::write_json(&layout.current_snapshot(), snapshot)
+}
+
+fn check_activated_component(layout: &Layout, prepared: &PreparedComponent) -> Result<()> {
+    let (started, finished) = if prepared.staged {
+        ("verifying", "verified")
+    } else {
+        ("reuse-checking", "reuse-checked")
+    };
+    crate::download::emit(&prepared.component.component_id, started, 0, 0);
+    inventory::check_component(layout, &prepared.component, prepared.staged)
+        .context("environment component check failed; run environment repair before retrying")?;
+    crate::download::emit(&prepared.component.component_id, finished, 0, 0);
+    Ok(())
 }
 
 fn activate_component(

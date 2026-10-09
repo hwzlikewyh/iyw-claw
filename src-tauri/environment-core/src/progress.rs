@@ -75,6 +75,8 @@ pub fn event(component: &str, phase: &str, done: u64, total: u64) {
     with_state(|state| match phase {
         "checking" => state.phase = "checking",
         "revalidating" => state.phase = "revalidating",
+        "verifying" => state.phase = "verifying",
+        "reuse-checking" => state.phase = "reusing",
         "downloading" => {
             state.phase = "downloading";
             state.component(component, fraction(done, total, DOWNLOAD_SHARE));
@@ -92,16 +94,8 @@ pub fn event(component: &str, phase: &str, done: u64, total: u64) {
             state.phase = "preparing";
             state.component(component, SCALE);
         }
-        "verified" => {
-            state.phase = "verifying";
-            state.verified += 1;
-            state.value = PREPARE_SHARE
-                + fraction(
-                    state.verified as u64,
-                    state.verify_total as u64,
-                    SCALE - PREPARE_SHARE,
-                );
-        }
+        "verified" => state.component_checked("verifying"),
+        "reuse-checked" => state.component_checked("reusing"),
         "committed" => {
             state.phase = "committed";
             state.value = SCALE;
@@ -160,6 +154,17 @@ fn with_state(change: impl FnOnce(&mut Progress)) {
 }
 
 impl Progress {
+    fn component_checked(&mut self, phase: &'static str) {
+        self.phase = phase;
+        self.verified += 1;
+        self.value = PREPARE_SHARE
+            + fraction(
+                self.verified as u64,
+                self.verify_total as u64,
+                SCALE - PREPARE_SHARE,
+            );
+    }
+
     fn component(&mut self, id: &str, value: u32) {
         if let Some((_, completed)) = self.components.get_mut(id) {
             *completed = (*completed).max(value);
