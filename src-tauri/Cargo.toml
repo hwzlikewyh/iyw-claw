@@ -155,6 +155,9 @@ tauri-plugin-single-instance = { version = "2", optional = true }
 mac-notification-sys = "0.6"
 core-foundation = "0.10"
 core-foundation-sys = "0.8"
+objc2 = "0.6.3"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSString"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # 与内置星河统一 Secret Service 后端，独立 I/O 避免嵌套 Tokio 等待。

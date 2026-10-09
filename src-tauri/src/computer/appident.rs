@@ -163,4 +163,7 @@ pub(crate) use windows_names::Com;
 mod windows_names;
 
 #[cfg(target_os = "macos")]
+#[path = "parts/appident/identify_executable_group_16.rs"]
+mod part_16;
+#[cfg(target_os = "macos")]
 use part_16::*;
