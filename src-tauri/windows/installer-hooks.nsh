@@ -267,9 +267,16 @@ FunctionEnd
 !macro NSIS_HOOK_POSTINSTALL
   ; Tauri 在 include hooks 后才定义 VERSION，必须在宏展开时保存版本。
   StrCpy $IywClawEnvironmentVersion "${VERSION}"
+  iyw_retry_new_app_validation:
   Call IywClawValidateNewApp
   Pop $R0
   StrCmp $R0 "1" iyw_new_app_valid 0
+  IfSilent iyw_new_app_failed 0
+  StrCmp $PassiveMode "1" iyw_new_app_failed 0
+  StrCmp $IywClawTransactionActive "1" 0 iyw_new_app_failed
+  MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
+    "$IywClawTransactionError$\r$\n$\r$\n处理上述问题后可重试校验；取消将回滚本次安装，存在旧版本时恢复旧版本。$\r$\n日志：$IywClawRoot\logs\installer.log" IDRETRY iyw_retry_new_app_validation
+  iyw_new_app_failed:
   Call IywClawHandleInstallFailure
   Abort
 

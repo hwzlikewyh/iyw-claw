@@ -9,6 +9,8 @@ Var IywClawFileCheckErrorCode
 !define IYW_CLAW_SHARE_ALL 7
 !define IYW_CLAW_OPEN_EXISTING 3
 !define IYW_CLAW_FILE_ATTRIBUTE_NORMAL 0x80
+!define IYW_CLAW_ERROR_FILE_NOT_FOUND 2
+!define IYW_CLAW_ERROR_PATH_NOT_FOUND 3
 
 Function IywClawCheckFileOnce
   Push $1
@@ -29,8 +31,8 @@ Function IywClawCheckFileOnce
   Goto check_file_done
   check_file_open_failed:
     StrCpy $IywClawFileCheckReason "文件无法读取"
-    StrCmp $IywClawFileCheckErrorCode "2" check_file_missing 0
-    StrCmp $IywClawFileCheckErrorCode "3" check_file_missing check_file_unreadable
+    StrCmp $IywClawFileCheckErrorCode "${IYW_CLAW_ERROR_FILE_NOT_FOUND}" check_file_missing 0
+    StrCmp $IywClawFileCheckErrorCode "${IYW_CLAW_ERROR_PATH_NOT_FOUND}" check_file_missing check_file_unreadable
   check_file_missing:
     StrCpy $IywClawFileCheckReason "文件不存在"
     StrCpy $0 "3"
