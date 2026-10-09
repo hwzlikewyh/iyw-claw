@@ -42,6 +42,8 @@ pub(crate) mod codex_multi_agent;
 pub(crate) mod codex_rollout_migration;
 mod codex_rollout_migration_io;
 pub mod companion_health;
+pub mod computer_tools;
+mod compaction;
 pub mod connection;
 pub(crate) mod connection_tasks;
 pub(crate) mod conversation_title_summary;

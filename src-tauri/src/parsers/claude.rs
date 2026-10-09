@@ -609,6 +609,7 @@ impl ClaudeParser {
         let mut latest_context_tokens = None;
 
         let mut messages = Vec::new();
+        let mut compactions = super::compaction::ClaudeCompactions::default();
         let mut cwd: Option<String> = None;
         let mut git_branch: Option<String> = None;
         let mut model: Option<String> = None;
@@ -656,6 +657,8 @@ impl ClaudeParser {
                     latest_context_tokens = claude_context_window_used_tokens_from_usage(&usage);
                 }
             }
+
+            if compactions.observe(&value, &mut messages) { continue; }
 
             // Resolve a buffered slash command against this entry: emit it only
             // if this entry is its expanded prompt, otherwise drop it (a client

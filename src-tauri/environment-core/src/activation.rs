@@ -28,6 +28,12 @@ pub fn commit(
         return Err(error);
     }
     cleanup(layout, state, activated);
+    let retired = layout.runtime.join("open-computer-use");
+    if retired.is_dir() {
+        if let Err(error) = fs::remove_dir_all(&retired) {
+            eprintln!("retired managed Computer Use cleanup failed: {error}");
+        }
+    }
     write_receipts(layout, state);
     Ok(())
 }

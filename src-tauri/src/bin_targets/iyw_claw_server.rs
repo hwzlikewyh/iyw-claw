@@ -418,6 +418,8 @@ async fn async_main() -> ExitCode {
     );
     connection_manager.install_capability_policy(capability_policy.clone());
     let state = Arc::new(AppState {
+        computer_tools_config: iyw_claw_lib::acp::computer_tools::ComputerToolsRuntimeConfig::new(),
+        computer_service: Arc::new(std::sync::OnceLock::new()),
         db,
         agent_catalog,
         capability_policy,
@@ -497,6 +499,8 @@ async fn async_main() -> ExitCode {
         &session_info_config,
     )
     .await;
+
+    iyw_claw_lib::computer::bootstrap::start_server(&state).await;
 
     // Build process HTTP MCP from the delegation business listener before any
     // Agent-spawning background task starts.
@@ -1015,6 +1019,7 @@ async fn shutdown_server_services_inner(
     state: &Arc<AppState>,
     builtin_mcp: Option<&Arc<iyw_claw_lib::acp::builtin_mcp::BuiltinMcpService>>,
 ) -> bool {
+    iyw_claw_lib::computer::bootstrap::shutdown().await;
     if let Some(service) = builtin_mcp {
         service.quiesce();
     }

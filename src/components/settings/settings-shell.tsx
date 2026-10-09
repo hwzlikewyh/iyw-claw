@@ -193,6 +193,7 @@ export function normalizeSettingsNavPath(path: string): string {
     case "/settings/office-tools":
     case "/settings/internet-tools":
     case "/settings/codex-native":
+    case "/settings/computer-use":
       return "/settings/skills"
     default:
       return normalized

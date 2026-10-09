@@ -54,6 +54,18 @@ export function createMacBuildPlan(tauriCli, options, target) {
       })
     )
   }
+  if (
+    env.APPLE_SIGNING_IDENTITY &&
+    env.APPLE_SIGNING_IDENTITY !== "-" &&
+    !options.noSign
+  ) {
+    args.push(
+      "--config",
+      JSON.stringify({
+        bundle: { macOS: { signingIdentity: env.APPLE_SIGNING_IDENTITY } },
+      })
+    )
+  }
   if (options.verbose) args.push("-vv")
   if (options.noSign) args.push("--no-sign")
   if (!options.bundleOnly) args.push("--", "--timings")

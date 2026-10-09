@@ -259,6 +259,9 @@ impl CompanionFeatures {
 
     /// Whether the named MCP tool is exposed under the enabled feature groups.
     pub fn allows_tool(&self, name: &str) -> bool {
+        if name.starts_with("computer_") {
+            return crate::computer::bootstrap::tools_enabled();
+        }
         match name {
             "check_user_feedback" => self.feedback,
             "ask_user_question" => self.ask,

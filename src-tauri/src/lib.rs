@@ -13,6 +13,7 @@ pub mod automation;
 pub mod browser;
 pub mod chat_channel;
 pub mod commands;
+pub mod computer;
 mod context_governor;
 pub mod db;
 pub mod desktop_bootstrap;
@@ -287,6 +288,7 @@ mod tauri_app {
             }
         }));
 
+        let builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
         let builder = builder.plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--from-autostart"]),
@@ -866,6 +868,7 @@ mod tauri_app {
                 // states so commands (Tauri + web) can resolve them by type.
                 // MUST run before the LifecycleSubscriber spawn below so the
                 // broker handle is available to it.
+                crate::computer::bootstrap::start_desktop(app.handle(), &app.state::<db::AppDatabase>().conn);
                 let broker_for_lifecycle = {
                     let cm_state = app.state::<ConnectionManager>();
                     let db_conn = app.state::<db::AppDatabase>().conn.clone();
@@ -1404,6 +1407,29 @@ mod tauri_app {
                 }
             })
             .invoke_handler(tauri::generate_handler![
+                crate::computer::bootstrap::computer_available,
+                crate::commands::computer::computer_status,
+                crate::commands::computer::computer_request_permission,
+                crate::commands::computer::computer_open_permission_settings,
+                crate::commands::computer::computer_reveal_helper,
+                crate::commands::computer::computer_list_shareable_windows,
+                crate::commands::computer::computer_window_thumbnail,
+                crate::commands::computer::computer_share_window,
+                crate::commands::computer::computer_share_windows,
+                crate::commands::computer::computer_shared_state,
+                crate::commands::computer::computer_share_screen,
+                crate::commands::computer::computer_share_app,
+                crate::commands::computer::computer_revoke_all,
+                crate::commands::computer::computer_stop,
+                crate::commands::computer::computer_stop_key_status,
+                crate::commands::computer::computer_driver_info,
+                crate::commands::computer::computer_driver_install,
+                crate::commands::computer::computer_driver_uninstall,
+                crate::commands::computer::computer_indicator_fit,
+                crate::commands::computer_tools::get_computer_tools_settings,
+                crate::commands::computer_tools::set_computer_tools_settings,
+                crate::commands::computer_tools::set_computer_tools_enabled,
+                crate::commands::computer_tools::set_computer_tools_preferences,
                 conversations::list_conversations,
                 conversations::get_conversation,
                 conversations::list_all_conversations,

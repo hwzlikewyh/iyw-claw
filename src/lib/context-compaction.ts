@@ -26,3 +26,18 @@ export function contextCompactionPayload(
     ? (marker as Record<string, unknown>)
     : null
 }
+
+/** 只有后端明确确认的保留摘要才可展示，兼容上游的历史标记。 */
+export function contextCompactionSummary(
+  meta: unknown,
+  output: string | null | undefined
+): string | null {
+  if (!isContextCompactionMeta(meta)) return null
+  const record = meta as Record<string, unknown>
+  if (
+    record["iyw.compactionSummary"] !== true &&
+    record["codeg.compactionSummary"] !== true
+  )
+    return null
+  return typeof output === "string" && output.trim() ? output : null
+}

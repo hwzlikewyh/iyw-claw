@@ -1,6 +1,24 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 62] = [
+pub(super) const CAPABILITY_BINDINGS: [(&str, &str); 80] = [
+    ("computer_list_apps", "iyw.computer.list.apps.v1"),
+    ("computer_list_windows", "iyw.computer.list.windows.v1"),
+    ("computer_launch_app", "iyw.computer.launch.app.v1"),
+    ("computer_screenshot", "iyw.computer.screenshot.v1"),
+    ("computer_snapshot", "iyw.computer.snapshot.v1"),
+    ("computer_verify", "iyw.computer.verify.v1"),
+    ("computer_click", "iyw.computer.click.v1"),
+    ("computer_drag", "iyw.computer.drag.v1"),
+    ("computer_scroll", "iyw.computer.scroll.v1"),
+    ("computer_type", "iyw.computer.type.v1"),
+    ("computer_press_key", "iyw.computer.press.key.v1"),
+    ("computer_hold_key", "iyw.computer.hold.key.v1"),
+    ("computer_set_value", "iyw.computer.set.value.v1"),
+    ("computer_restore", "iyw.computer.restore.v1"),
+    ("computer_invoke_menu", "iyw.computer.invoke.menu.v1"),
+    ("computer_set_window_frame", "iyw.computer.set.window.frame.v1"),
+    ("computer_clipboard_read", "iyw.computer.clipboard.read.v1"),
+    ("computer_clipboard_write", "iyw.computer.clipboard.write.v1"),
     ("get_user_memory_maintenance", "iyw.memory.maintenance.read.v1"),
     ("resolve_user_memory_review", "iyw.memory.review.resolve.v1"),
     (

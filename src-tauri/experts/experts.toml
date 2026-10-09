@@ -143,15 +143,15 @@ en = "Installs Agent skills from curated or repository sources."
 "zh-CN" = "从精选来源或代码仓库安装 Agent 技能。"
 
 [[expert]]
-id = "open-computer-use"
+id = "computer-use"
 category = "computer_use"
 icon = "MonitorCog"
 sort_order = 500
 
 [expert.display_name]
-en = "Open Computer Use"
+en = "Computer Use"
 "zh-CN" = "电脑操作"
 
 [expert.description]
-en = "Lets an Agent configure and operate the optional Open Computer Use MCP service."
+en = "Operates explicitly shared desktop windows through the native Computer Use tools."
 "zh-CN" = "让 Agent 配置和使用可选的 Open Computer Use MCP 服务。"

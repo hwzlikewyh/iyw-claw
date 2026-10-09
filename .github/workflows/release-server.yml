@@ -104,9 +104,9 @@ jobs:
         run: |
           cargo build \
             --release \
-            --bin iyw-claw-server \
+            --bin iyw-claw-server --bin iyw-computer-helper \
             --no-default-features \
-            --features server-runtime \
+            --features server-runtime,computer-helper \
             --target ${{ matrix.target }}
 
       - name: Package Unix archive
@@ -117,7 +117,9 @@ jobs:
           package="dist/${{ matrix.artifact }}"
           mkdir -p "$package"
           cp "src-tauri/target/${{ matrix.target }}/release/iyw-claw-server" "$package/"
+          cp "src-tauri/target/${{ matrix.target }}/release/iyw-computer-helper" "$package/"
           chmod +x "$package/iyw-claw-server"
+          chmod +x "$package/iyw-computer-helper"
           cp -r out "$package/web"
           tar -C dist -czf "dist/${{ matrix.artifact }}.tar.gz" "${{ matrix.artifact }}"
 
@@ -128,6 +130,7 @@ jobs:
           $package = "dist/${{ matrix.artifact }}"
           New-Item -ItemType Directory -Force -Path $package
           Copy-Item "src-tauri/target/${{ matrix.target }}/release/iyw-claw-server.exe" "$package/"
+          Copy-Item "src-tauri/target/${{ matrix.target }}/release/iyw-computer-helper.exe" "$package/"
           Copy-Item -Recurse out "$package/web"
           Compress-Archive -Path $package -DestinationPath "$package.zip"
 
@@ -137,6 +140,7 @@ jobs:
         run: |
           $package = "dist/${{ matrix.artifact }}"
           $server = "dist/${{ matrix.artifact }}/iyw-claw-server.exe"
+          $helper = "$package/iyw-computer-helper.exe"
           $webIndex = "$package/web/index.html"
           if (-not (Test-Path $server -PathType Leaf)) {
             throw "iyw-claw-server.exe missing from packaged artifact"
@@ -144,13 +148,16 @@ jobs:
           if ((Get-Item -LiteralPath $server).Length -le 0) {
             throw "iyw-claw-server.exe is empty in packaged artifact"
           }
+          if (-not (Test-Path $helper -PathType Leaf) -or (Get-Item -LiteralPath $helper).Length -le 0) {
+            throw "iyw-computer-helper.exe missing or empty in packaged artifact"
+          }
           if (-not (Test-Path $webIndex -PathType Leaf)) {
             throw "web/index.html missing from packaged artifact"
           }
           if ((Get-Item -LiteralPath $webIndex).Length -le 0) {
             throw "web/index.html is empty in packaged artifact"
           }
-          $allowed = @("iyw-claw-server.exe", "web")
+          $allowed = @("iyw-claw-server.exe", "iyw-computer-helper.exe", "web")
           $unexpected = @(Get-ChildItem -LiteralPath $package -Force | Where-Object {
             $_.Name -notin $allowed
           })
@@ -179,12 +186,16 @@ jobs:
             echo "::error::iyw-claw-server missing or empty in packaged artifact"
             exit 1
           fi
+          if [ ! -x "$package/iyw-computer-helper" ] || [ ! -s "$package/iyw-computer-helper" ]; then
+            echo "::error::iyw-computer-helper missing, empty or not executable in packaged artifact"
+            exit 1
+          fi
           if [ ! -s "$package/web/index.html" ]; then
             echo "::error::web/index.html missing or empty in packaged artifact"
             exit 1
           fi
           unexpected="$(find "$package" -mindepth 1 -maxdepth 1 \
-            ! -name iyw-claw-server ! -name web -print)"
+            ! -name iyw-claw-server ! -name iyw-computer-helper ! -name web -print)"
           if [ -n "$unexpected" ]; then
             echo "::error::Unexpected top-level package entries: $unexpected"
             exit 1

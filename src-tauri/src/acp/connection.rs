@@ -8724,6 +8724,7 @@ async fn maybe_emit_claude_sdk_ext_notification(
 fn fix_usage_update_nulls(mut dispatch: Dispatch) -> Dispatch {
     if let Dispatch::Notification(ref mut msg) = dispatch {
         if let Some(update) = msg.params.get_mut("update") {
+            super::compaction::normalize(update);
             if update.get("sessionUpdate").and_then(|v| v.as_str()) == Some("usage_update") {
                 if update.get("used").map(|v| v.is_null()).unwrap_or(false) {
                     update["used"] = serde_json::Value::from(0u64);
@@ -8988,7 +8989,10 @@ async fn emit_conversation_update(
             // with `raw_output_append=true`, collapsing the O(N²) transfer
             // problem to O(N) while capping any single emitted chunk to
             // MAX_SINGLE_EMIT_BYTES.
-            let native_output = (agent_type == AgentType::Codex)
+            let compaction_output = tcu.meta.as_ref()
+                .and_then(|meta| meta.get(crate::parsers::compaction::SUMMARY_META_KEY))
+                .and_then(serde_json::Value::as_bool) == Some(true);
+            let native_output = (agent_type == AgentType::Codex || compaction_output)
                 .then(|| tcu.meta.as_ref()?.get("iyw"))
                 .flatten();
             let native_append = native_output
@@ -9001,7 +9005,7 @@ async fn emit_conversation_update(
             if native_start {
                 raw_output_cache.entries.remove(&tool_call_id);
             }
-            let raw_output_text = if native_append == Some(true) {
+            let raw_output_text = if native_append == Some(true) || compaction_output {
                 json_value_to_text(&tcu.fields.raw_output)
             } else if agent_type == AgentType::Grok {
                 crate::acp::grok::live_tool_output(&content, &tcu.fields.raw_output)
@@ -9032,11 +9036,22 @@ async fn emit_conversation_update(
             let meta_marks_subagent = codebuddy_meta_marks_subagent(agent_type, tcu.meta.as_ref());
             let meta_marks_background =
                 codebuddy_meta_marks_background(agent_type, tcu.meta.as_ref());
+            let summary_chunk = native_append == Some(true)
+                && tcu.meta.as_ref().is_some_and(|meta| {
+                    meta.get(crate::parsers::compaction::SUMMARY_META_KEY) == Some(&serde_json::Value::Bool(true))
+                        && !meta.contains_key("contextCompaction")
+                });
             let meta = crate::acp::plugin_app_events::enrich_tool_meta(
                 crate::acp::plugin_app_events::PluginAppEventInput {
                     state,
                     tool_call_id: &tool_call_id,
-                    meta: tcu.meta.clone().map(serde_json::Value::Object),
+                    // 摘要增量保留开头的计数与触发信息，不替换整条工具 metadata。
+                    meta: if summary_chunk {
+                        super::compaction::chunk_metadata(state, &tool_call_id).await
+                    } else {
+                        super::compaction::preserve_metadata(state, &tool_call_id,
+                            tcu.meta.clone().map(serde_json::Value::Object)).await
+                    },
                     raw_output: tcu.fields.raw_output.as_ref(),
                 },
             )

@@ -34,6 +34,7 @@ pub fn build_router(
     let token_for_ws = token.clone();
 
     let api = Router::new()
+        .merge(handlers::computer_routes::routes())
         .route("/health", post(health_check))
         .route(
             "/fetch_remote_image",

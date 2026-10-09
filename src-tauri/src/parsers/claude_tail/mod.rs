@@ -30,6 +30,7 @@ pub(crate) struct ClaudeTailAccumulator {
     lifecycle: BackgroundLifecycle,
     metadata: ClaudeTailMetadata,
     ai_title: Option<String>,
+    compactions: super::compaction::ClaudeCompactions,
 }
 
 impl ClaudeTailAccumulator {
@@ -48,6 +49,7 @@ impl ClaudeTailAccumulator {
                 last_timestamp: None,
             },
             ai_title: None,
+            compactions: Default::default(),
         }
     }
 
@@ -60,6 +62,7 @@ impl ClaudeTailAccumulator {
             return;
         }
         self.resolve_pending_command(&value);
+        if self.compactions.observe(&value, &mut self.messages) { return; }
         // Claude Code marks the turn completion marker as meta, but it still
         // carries user-visible timing data that must be attached to the last
         // assistant message. Keep all other meta records hidden.

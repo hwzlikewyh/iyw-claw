@@ -56,8 +56,8 @@ static SKILL_CREATOR_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/skill-creator");
 static SKILL_INSTALLER_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/skill-installer");
-static OPEN_COMPUTER_USE_BUNDLE: Dir<'_> =
-    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/open-computer-use");
+static COMPUTER_USE_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/computer-use");
 static EXPERTS_TOML_CONTENT: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/experts/experts.toml"));
 
@@ -68,7 +68,8 @@ const EXPERTS_TOML: &str = "experts.toml";
 const MANAGED_COPY_MARKER_FILE: &str = ".iyw-claw-managed-copy.json";
 const MANAGED_COPY_MARKER_VERSION: u8 = 1;
 pub(crate) const CAPABILITY_GATEWAY_EXPERT_ID: &str = "iyw-capability-gateway";
-pub(crate) const RETIRED_BUNDLED_EXPERT_IDS: [&str; 7] = [
+pub(crate) const RETIRED_BUNDLED_EXPERT_IDS: [&str; 8] = [
+    "open-computer-use",
     "self-improving",
     "lixiao-workflows",
     "iyw-copyright-registration",
@@ -607,7 +608,7 @@ fn bundled_skill_dir(expert_id: &str) -> Option<&'static Dir<'static>> {
         "plugin-creator" => Some(&PLUGIN_CREATOR_BUNDLE),
         "skill-creator" => Some(&SKILL_CREATOR_BUNDLE),
         "skill-installer" => Some(&SKILL_INSTALLER_BUNDLE),
-        "open-computer-use" => Some(&OPEN_COMPUTER_USE_BUNDLE),
+        "computer-use" => Some(&COMPUTER_USE_BUNDLE),
         _ => None,
     }
 }
@@ -1342,6 +1343,9 @@ fn retire_bundled_experts(manifest: &mut Manifest, report: &mut InstallReport) {
 }
 
 fn retired_expert_is_preserved(id: &str, central: &Path, manifest: &Manifest) -> bool {
+    if id == "open-computer-use" && !manifest.experts.contains_key(id) && central.exists() {
+        return true;
+    }
     manifest
         .experts
         .get(id)

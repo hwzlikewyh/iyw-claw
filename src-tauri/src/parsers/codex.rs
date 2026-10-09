@@ -1014,6 +1014,7 @@ impl CodexParser {
         // 同一 API 回合可能写入多次最终答案，只保留最后一次。
         let mut final_answer_index: Option<usize> = None;
         let mut paginated_messages = PaginatedMessages::default();
+        let mut compactions = super::compaction::CodexCompactions::default();
 
         for line in reader.lines() {
             let line = match line {
@@ -1028,6 +1029,7 @@ impl CodexParser {
                 Ok(v) => v,
                 Err(_) => continue,
             };
+            if compactions.observe(&value, &mut messages) { continue; }
             if !paginated_messages.normalize(&mut value) {
                 continue;
             }
@@ -1044,6 +1046,7 @@ impl CodexParser {
             }
 
             match msg_type {
+                "compacted" => super::compaction::codex_divider(&value, &mut messages),
                 "session_meta" => {
                     if let Some(payload) = value.get("payload") {
                         cwd = payload

@@ -13,6 +13,8 @@ use crate::web::WebServerState;
 use crate::workspace_transfer::WorkspaceTransferManager;
 
 pub struct AppState {
+    pub computer_tools_config: crate::acp::computer_tools::ComputerToolsRuntimeConfig,
+    pub computer_service: Arc<std::sync::OnceLock<Arc<crate::commands::computer::ComputerService>>>,
     pub db: AppDatabase,
     pub agent_catalog: crate::acp::version_center::CatalogStore,
     pub capability_policy: crate::acp::capability_policy::CapabilityPolicyStore,
