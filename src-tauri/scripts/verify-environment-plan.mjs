@@ -20,6 +20,7 @@ const allowed = new Set([
   ...required,
   "officecli",
   "agent-reach",
+  "cua-driver",
   "open-computer-use",
   "environment-maintainer",
 ])
@@ -42,7 +43,7 @@ function validatePlan(plan, target, arch) {
   for (const action of plan.actions) {
     assert.ok(
       allowed.has(action.componentId),
-      "unsupported environment component"
+      `unsupported environment component: ${action.componentId}`
     )
     assert.ok(!seen.has(action.componentId), "duplicate environment component")
     seen.add(action.componentId)
