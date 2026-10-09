@@ -7,6 +7,7 @@ import { StatusBarTokens } from "@/components/layout/status-bar-tokens"
 import { StatusBarConnection } from "@/components/layout/status-bar-connection"
 import { StatusBarAlerts } from "@/components/layout/status-bar-alerts"
 import { StatusBarUpdate } from "@/components/layout/status-bar-update"
+import { StatusBarComputer } from "@/components/layout/status-bar-computer"
 import { useIsMobile } from "@/hooks/use-mobile"
 
 export function StatusBar() {
@@ -18,6 +19,7 @@ export function StatusBar() {
         <StatusBarConnection />
         <div className="flex items-center gap-3">
           <StatusBarUpdate />
+          <StatusBarComputer />
           <StatusBarTasks />
           <StatusBarAlerts />
         </div>
@@ -32,6 +34,7 @@ export function StatusBar() {
       </div>
       <div className="flex items-center gap-4">
         <StatusBarUpdate />
+        <StatusBarComputer />
         <StatusBarTasks />
         <StatusBarSessionInfo />
         <StatusBarTokens />

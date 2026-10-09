@@ -1,0 +1,12 @@
+use serde_json::{json, Value};
+include!("tool_render/COMPUTER_DATA_NOT_INSTRUCTIONS.rs");
+include!("tool_render/computer_refusal.rs");
+include!("tool_render/render_computer_apps_result.rs");
+include!("tool_render/computer_input_policy_line.rs");
+include!("tool_render/render_computer_windows_result.rs");
+include!("tool_render/render_computer_capture_result.rs");
+include!("tool_render/render_computer_snapshot_result.rs");
+include!("tool_render/render_computer_verify_result.rs");
+include!("tool_render/render_computer_clipboard_result.rs");
+include!("tool_render/render_computer_launch_result.rs");
+include!("tool_render/render_computer_act_result.rs");

@@ -5,6 +5,7 @@ pub(crate) mod claude_tail;
 pub mod cline;
 pub mod codebuddy;
 pub mod codex;
+pub(crate) mod compaction;
 pub mod deepseek;
 mod factory;
 pub mod gemini;

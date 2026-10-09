@@ -743,6 +743,8 @@ pub(crate) async fn do_start_web_server_tauri(
 
     // Build AppState for the router
     let app_state = Arc::new(AppState {
+        computer_tools_config: app.state::<crate::acp::computer_tools::ComputerToolsRuntimeConfig>().inner().clone(),
+        computer_service: Arc::new(std::sync::OnceLock::new()),
         db: crate::db::AppDatabase {
             conn: app.state::<crate::db::AppDatabase>().conn.clone(),
         },

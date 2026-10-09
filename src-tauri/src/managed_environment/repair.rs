@@ -79,7 +79,7 @@ pub async fn repair_with_progress(
         emitter,
         on_progress: &on_progress,
     };
-    let result = tokio::time::timeout(REPAIR_TIMEOUT, run(sink))
+    let result = tokio::time::timeout(REPAIR_TIMEOUT, run(sink, "repair"))
         .await
         .map_err(|_| "环境修复超时，请检查网络后重试".to_string())
         .and_then(|result| result);
@@ -94,12 +94,42 @@ pub async fn repair_with_progress(
     result
 }
 
-async fn run(sink: ProgressSink<'_>) -> Result<(), String> {
+pub async fn change_computer_driver(
+    install: bool,
+    emitter: &EventEmitter,
+    on_progress: impl Fn(&str) + Send + Sync,
+) -> Result<(), String> {
+    let _writer = super::lock_writer().await;
+    super::snapshot::clear();
+    super::verification_cache::clear();
+    let _cache_guard = RepairCacheGuard;
+    let command = if install {
+        "install-computer-driver"
+    } else {
+        "remove-computer-driver"
+    };
+    let sink = ProgressSink {
+        task_id: command,
+        emitter,
+        on_progress: &on_progress,
+    };
+    tracing::info!(install, "[computer] managed driver change started");
+    let result = tokio::time::timeout(REPAIR_TIMEOUT, run(sink, command))
+        .await
+        .map_err(|_| "驱动组件操作超时".to_string())
+        .and_then(|result| result);
+    if let Err(error) = &result {
+        tracing::error!(install, error, "[computer] managed driver change failed");
+    }
+    result
+}
+
+async fn run(sink: ProgressSink<'_>, command: &str) -> Result<(), String> {
     let helper = super::environment_helper()
         .ok_or_else(|| "安装目录缺少环境修复程序，请重新安装应用".to_string())?;
     let mut child = crate::process::tokio_command(helper)
         .args([
-            "repair",
+            command,
             "--app-version",
             env!("CARGO_PKG_VERSION"),
             "--json",

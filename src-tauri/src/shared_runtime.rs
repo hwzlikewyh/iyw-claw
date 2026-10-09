@@ -56,7 +56,7 @@ pub fn bin_dirs() -> Vec<PathBuf> {
         .filter_map(crate::acp::version_center::managed_tool_executable)
         .filter_map(|path| path.parent().map(ToOwned::to_owned))
         .collect::<Vec<_>>();
-    for name in ["officecli", "agent-reach", "open-computer-use"] {
+    for name in ["officecli", "agent-reach"] {
         if let Some(directory) = crate::managed_environment::tool_entrypoint(name)
             .and_then(|path| path.parent().map(ToOwned::to_owned))
         {

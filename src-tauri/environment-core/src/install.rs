@@ -21,7 +21,15 @@ pub fn prepare_repair(app_version: &str) -> Result<String> {
     prepare_with_verification(app_version, true)
 }
 
+pub fn prepare_computer_driver(app_version: &str) -> Result<String> {
+    prepare_selected(app_version, true, true)
+}
+
 fn prepare_with_verification(app_version: &str, full_check: bool) -> Result<String> {
+    prepare_selected(app_version, full_check, false)
+}
+
+fn prepare_selected(app_version: &str, full_check: bool, computer_driver: bool) -> Result<String> {
     let layout = Layout::resolve()?;
     layout.ensure()?;
     let _lock = environment_lock(&layout)?;
@@ -40,7 +48,15 @@ fn prepare_with_verification(app_version: &str, full_check: bool) -> Result<Stri
         inventory: inventory::installation_inventory(&layout, current.as_ref(), full_check),
     };
     let client = FusionClient::new()?;
-    let plan = client.resolve(&request)?;
+    let mut plan = client.resolve(&request)?;
+    let selected_driver = computer_driver || current.as_ref().is_some_and(|snapshot| {
+        snapshot.components.iter().any(|component| component.component_id == "cua-driver")
+    });
+    plan.actions.retain(|action| action.component_id != "open-computer-use"
+        && (action.component_id != "cua-driver" || selected_driver));
+    if computer_driver && !plan.actions.iter().any(|action| action.component_id == "cua-driver") {
+        bail!("Fusion 当前应用版本尚未发布 cua-driver 组件，请更新环境分发绑定")
+    }
     crate::progress::phase("planning");
     validate_plan(&plan, app_version, &target, &arch)?;
     crate::progress::plan(&plan.actions);

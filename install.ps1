@@ -299,7 +299,7 @@ function Assert-ZipAllowedPath([object]$SafePath, [string]$EntryName) {
         if (-not $SafePath.IsDirectory) { throw "ZIP artifact root is not a directory: $EntryName" }
         return
     }
-    if ($SafePath.Path -eq "$Artifact/iyw-claw-server.exe") {
+    if ($SafePath.Path -in @("$Artifact/iyw-claw-server.exe", "$Artifact/iyw-computer-helper.exe")) {
         if ($SafePath.IsDirectory) { throw "ZIP server executable is a directory: $EntryName" }
         return
     }
@@ -407,7 +407,7 @@ function Assert-ExtractedBundle([string]$Root) {
         throw "Extracted bundle root is not a normal directory: $Root"
     }
     foreach ($item in @(Get-ChildItem -LiteralPath $Root -Force -ErrorAction Stop)) {
-        if ($item.Name -notin @('iyw-claw-server.exe', 'web')) {
+        if ($item.Name -notin @('iyw-claw-server.exe', 'iyw-computer-helper.exe', 'web')) {
             throw "Unexpected extracted bundle entry: $($item.FullName)"
         }
     }
@@ -493,6 +493,15 @@ function Prepare-TargetStaging([string]$BundleRoot) {
         -Destination $newServer
     $stagedVersion = Read-BinVersion $newServer
     if ($stagedVersion -ne $TargetVer) { throw "Staged server version is $stagedVersion; expected $TargetVer" }
+
+    $helper = Join-Path $BundleRoot 'iyw-computer-helper.exe'
+    if (Test-Path -LiteralPath $helper -PathType Leaf) {
+        $newHelper = Join-Path $ServerTxnDir 'new-helper.exe'
+        Copy-Item -LiteralPath $helper -Destination $newHelper
+        if ((Read-BinVersion $newHelper) -ne "iyw-computer-helper $TargetVer") {
+            throw 'Computer helper version does not match the server'
+        }
+    }
 
     $webParent = Split-Path -Parent $WebDir
     Assert-WritableDirectory $webParent
@@ -674,9 +683,38 @@ function Restore-ServerSwap {
     $script:ServerBackedUp = $false
 }
 
+function Restore-HelperSwap {
+    $destination = Join-Path $InstallDir 'iyw-computer-helper.exe'
+    if ($script:HelperSwapped -and (Test-Path -LiteralPath $destination)) {
+        Remove-Item -LiteralPath $destination -Force -ErrorAction Stop
+        $script:HelperSwapped = $false
+    }
+    if ($script:HelperBackedUp) {
+        Move-Item -LiteralPath (Join-Path $ServerTxnDir 'old-helper') -Destination $destination -ErrorAction Stop
+        $script:HelperBackedUp = $false
+    }
+}
+
+function Commit-HelperSwap {
+    $source = Join-Path $ServerTxnDir 'new-helper.exe'
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { return }
+    $destination = Join-Path $InstallDir 'iyw-computer-helper.exe'
+    if (Test-Path -LiteralPath $destination) {
+        $existing = Get-Item -LiteralPath $destination -Force
+        if ($existing.PSIsContainer -or ($existing.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw 'Existing Computer helper is not a regular file'
+        }
+        Move-Item -LiteralPath $destination -Destination (Join-Path $ServerTxnDir 'old-helper') -ErrorAction Stop
+        $script:HelperBackedUp = $true
+    }
+    Move-Item -LiteralPath $source -Destination $destination -ErrorAction Stop
+    $script:HelperSwapped = $true
+}
+
 function Rollback-InstallTransaction {
     $errors = @()
     try { Restore-WebSwap } catch { $errors += "web: $($_.Exception.Message)" }
+    try { Restore-HelperSwap } catch { $errors += "computer helper: $($_.Exception.Message)" }
     try { Restore-ServerSwap } catch { $errors += "server: $($_.Exception.Message)" }
     try { Restore-LegacyMcpQuarantine $InstallDir } catch { $errors += "legacy MCP: $($_.Exception.Message)" }
     if ($errors.Count -gt 0) { throw ($errors -join '; ') }
@@ -685,11 +723,13 @@ function Rollback-InstallTransaction {
 
 function Test-InstallMutationStarted {
     return $script:ServerBackedUp -or $script:ServerSwapped `
+        -or $script:HelperBackedUp -or $script:HelperSwapped `
         -or $script:WebBackedUp -or $script:WebSwapped `
         -or $script:LegacyQuarantine.Count -gt 0
 }
 
 function Commit-StagedBundle {
+    Commit-HelperSwap
     $oldServer = Join-Path $ServerTxnDir 'old-server'
     if (Test-Path -LiteralPath $DestBin) {
         Move-Item -LiteralPath $DestBin -Destination $oldServer -ErrorAction Stop
@@ -962,6 +1002,8 @@ $null = Get-SafeCanonicalPath $TmpDir
 $ZipPath = Join-Path $TmpDir "$Artifact.zip"
 $SignaturePath = "$ZipPath.sig"
 $MiniSigPath = Join-Path $TmpDir "$Artifact.minisig"
+$script:HelperBackedUp = $false
+$script:HelperSwapped = $false
 $script:ServerTxnDir = ""
 $script:WebTxnDir = ""
 $script:ServerBackedUp = $false

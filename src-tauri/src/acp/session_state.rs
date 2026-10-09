@@ -980,13 +980,16 @@ impl SessionState {
                 images,
                 ..
             } => {
-                let native_output = self.agent_type == AgentType::Codex
-                    && (output::is_native(meta.as_ref())
-                        || output::is_native(
-                            self.active_tool_calls
-                                .get(tool_call_id)
-                                .and_then(|tool| tool.meta.as_ref()),
-                        ));
+                let compaction_summary = output::is_compaction_summary(meta.as_ref())
+                    || output::is_compaction_summary(
+                        self.active_tool_calls.get(tool_call_id).and_then(|tool| tool.meta.as_ref()),
+                    );
+                let native_output = compaction_summary
+                    || (self.agent_type == AgentType::Codex
+                        && (output::is_native(meta.as_ref())
+                            || output::is_native(
+                                self.active_tool_calls.get(tool_call_id).and_then(|tool| tool.meta.as_ref()),
+                            )));
                 self.upsert_tool_call(
                     tool_call_id,
                     None,
@@ -1005,11 +1008,15 @@ impl SessionState {
                 );
                 if native_output {
                     if let Some(tool) = self.active_tool_calls.get_mut(tool_call_id) {
-                        output::apply(
-                            tool,
-                            raw_output.as_deref(),
-                            *raw_output_append == Some(true),
-                        );
+                        if compaction_summary {
+                            output::apply_summary(
+                                tool, raw_output.as_deref(), *raw_output_append == Some(true),
+                            );
+                        } else {
+                            output::apply(
+                                tool, raw_output.as_deref(), *raw_output_append == Some(true),
+                            );
+                        }
                     }
                 }
                 // Defensive: if a ToolCallUpdate arrives before its initial

@@ -16,6 +16,11 @@ import process from "node:process"
 import { verifyArtifacts } from "./verify-signatures.mjs"
 import { verifyWorkerBundle } from "./verify-xinghe-worker-bundle.mjs"
 import {
+  computerHelperName,
+  computerSourceFingerprint,
+  verifyComputerHelper,
+} from "./computer-helper-runtime.mjs"
+import {
   environmentHelperHostTarget,
   helperExecutableName,
   helperFileName,
@@ -99,8 +104,12 @@ function verifyConfiguredExternalBins() {
     readFileSync(join(SRC_TAURI, "tauri.conf.json"), "utf8")
   )
   const bins = config.bundle?.externalBin ?? []
-  if (bins.length !== 1 || bins[0] !== "binaries/iyw-environment") {
-    die("Tauri externalBin must contain only the environment helper")
+  if (
+    bins.join(",") !== "binaries/iyw-environment,binaries/iyw-computer-helper"
+  ) {
+    die(
+      "Tauri externalBin must contain the environment and Computer Use helpers"
+    )
   }
 }
 
@@ -121,11 +130,22 @@ function verifyStagedSidecars(target, version) {
   rejectLegacyMcpSidecars(join(SRC_TAURI, "binaries"))
   const helper = join(SRC_TAURI, "binaries", helperFileName(target))
   verifyEnvironmentHelper(helper, target, version)
+  const computer = join(
+    SRC_TAURI,
+    "binaries",
+    `iyw-computer-helper-${target}${target.includes("windows") ? ".exe" : ""}`
+  )
+  verifyComputerHelper(
+    computer,
+    target,
+    version,
+    computerSourceFingerprint(SRC_TAURI)
+  )
   if (
     target.endsWith("-windows-msvc") &&
     (process.env.IYW_CLAW_SIGN_MODE ?? "none") !== "none"
   ) {
-    verifyArtifacts([helper])
+    verifyArtifacts([helper, computer])
   }
 }
 
@@ -165,7 +185,8 @@ function resolveInstalledApp(directory) {
 
 function verifyInstalledSidecars(appDirectory, target, version) {
   const resourceRoot = target.includes("apple-darwin")
-    ? join(appDirectory, "../Resources") : appDirectory
+    ? join(appDirectory, "../Resources")
+    : appDirectory
   verifyWorkerBundle(resourceRoot, target)
   if ((process.env.IYW_CLAW_SIGN_MODE ?? "none") !== "none") {
     verifyArtifacts([
@@ -177,11 +198,18 @@ function verifyInstalledSidecars(appDirectory, target, version) {
   }
   const helper = join(appDirectory, helperExecutableName(target))
   verifyEnvironmentHelper(helper, target, version)
+  const computer = target.includes("apple-darwin")
+    ? join(
+        appDirectory,
+        "../Helpers/iyw-computer-helper.app/Contents/MacOS/iyw-computer-helper"
+      )
+    : join(appDirectory, computerHelperName(target))
+  verifyComputerHelper(computer, target, version)
   if (
     target.endsWith("-windows-msvc") &&
     (process.env.IYW_CLAW_SIGN_MODE ?? "none") !== "none"
   ) {
-    verifyArtifacts([helper])
+    verifyArtifacts([helper, computer])
   }
 }
 

@@ -20,7 +20,7 @@
   "bundle": {
     "active": true,
     "createUpdaterArtifacts": true,
-    "externalBin": ["binaries/iyw-environment"],
+    "externalBin": ["binaries/iyw-environment", "binaries/iyw-computer-helper"],
     "targets": "nsis",
     "icon": [
       "icons/32x32.png",

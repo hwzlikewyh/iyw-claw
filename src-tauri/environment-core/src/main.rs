@@ -1,4 +1,5 @@
 mod activation;
+mod computer_driver;
 mod archive;
 mod client;
 mod download;
@@ -59,6 +60,13 @@ fn run() -> Result<u8> {
         "diagnose" => install::diagnose(),
         "install" => run_install(&args[1..]),
         "repair" => run_repair(&args[1..]),
+        "install-computer-driver" => {
+            let version = option(&args, "--app-version").context("--app-version is required")?;
+            let transaction = install::prepare_computer_driver(&version)?;
+            install::commit(Some(&transaction))?;
+            Ok(0)
+        }
+        "remove-computer-driver" => { computer_driver::remove()?; Ok(0) }
         "--version" | "-V" => {
             println!("iyw-environment {}", env!("CARGO_PKG_VERSION"));
             Ok(0)

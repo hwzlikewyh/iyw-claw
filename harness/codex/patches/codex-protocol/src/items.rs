@@ -516,6 +516,9 @@ pub struct McpToolCallError {
 #[derive(Debug, Clone, Deserialize, Serialize, TS, JsonSchema)]
 pub struct ContextCompactionItem {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub summary: Option<String>,
 }
 
 fn new_item_id() -> String {
@@ -524,7 +527,7 @@ fn new_item_id() -> String {
 
 impl ContextCompactionItem {
     pub fn new() -> Self {
-        Self { id: new_item_id() }
+        Self { id: new_item_id(), summary: None }
     }
 }
 

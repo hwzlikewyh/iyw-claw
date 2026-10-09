@@ -75,6 +75,7 @@ fn server_bin_filename() -> &'static str {
 
 struct Targets {
     server_bin: PathBuf,
+    computer_helper: PathBuf,
     web_dir: PathBuf,
 }
 
@@ -101,6 +102,7 @@ fn resolve_targets() -> Result<Targets, AppCommandError> {
     let web_dir = std::fs::canonicalize(&web_dir).unwrap_or(web_dir);
 
     Ok(Targets {
+        computer_helper: server_bin.with_file_name(crate::computer::local::helper_file_name()),
         server_bin,
         web_dir,
     })
@@ -356,14 +358,17 @@ pub async fn perform_update(
     extract_archive(&archive, &staging, ext)?;
     let bundle_root = find_bundle_root(&staging, asset)?;
     let new_server = bundle_root.join(server_bin_filename());
+    let new_helper = bundle_root.join(crate::computer::local::helper_file_name());
     let new_web = bundle_root.join("web");
     // Require the full bundle before touching any live file. A signed but
     // mis-packaged release that dropped, say, `web/` must not be allowed to
     // install a half-new mixture (new server, stale frontend).
-    if !new_server.is_file() || !new_web.is_dir() || !new_web.join("index.html").is_file() {
+    if !new_server.is_file() || !new_helper.is_file() ||
+        !new_helper.metadata().is_ok_and(|metadata| metadata.len() > 0) ||
+        !new_web.is_dir() || !new_web.join("index.html").is_file() {
         return Err(AppCommandError::new(
             crate::app_error::AppErrorCode::TaskExecutionFailed,
-            "Downloaded update is incomplete (expected iyw-claw-server and web/index.html)",
+            "Downloaded update is incomplete (expected server, computer helper and web/index.html)",
         ));
     }
     reject_legacy_mcp_content(&bundle_root)?;
@@ -371,14 +376,21 @@ pub async fn perform_update(
 
     // 4. Swap web then server. Server stays last because restart relaunches it.
     on_progress(UpdatePhase::Swapping, 0, None);
+    let mut computer_pause = crate::computer::bootstrap::UpdatePause::begin().await;
     if new_web.is_dir() {
         replace_dir(&targets.web_dir, &new_web)?;
     }
+    if let Err(error) = replace_file(&targets.computer_helper, &new_helper) {
+        let _ = restore_dir_from_bak(&targets.web_dir);
+        return Err(error);
+    }
     if let Err(e) = replace_file(&targets.server_bin, &new_server) {
+        let _ = restore_from_bak(&targets.computer_helper);
         let _ = restore_dir_from_bak(&targets.web_dir);
         return Err(e);
     }
     if let Err(error) = remove_legacy_mcp_files(&legacy_mcp) {
+        let _ = restore_from_bak(&targets.computer_helper);
         let _ = restore_from_bak(&targets.server_bin);
         let _ = restore_dir_from_bak(&targets.web_dir);
         return Err(error);
@@ -390,6 +402,7 @@ pub async fn perform_update(
     // upgrade is not safely committed (no probation, no double-perform guard),
     // so undo the swap and surface the error instead of reporting success.
     if let Err(e) = mark_upgrade_staged() {
+        let _ = restore_from_bak(&targets.computer_helper);
         // Undo the swap and make sure no marker survives: a marker without a
         // committed upgrade would refuse every future update as "already
         // staged" until the next restart consumed it.
@@ -399,6 +412,7 @@ pub async fn perform_update(
         return Err(e);
     }
 
+    computer_pause.commit();
     Ok(InstallOutcome {
         version: new_version,
     })
@@ -410,6 +424,7 @@ pub fn rollback() -> Result<(), AppCommandError> {
     let targets = resolve_targets()?;
     let mut restored = false;
     restored |= restore_from_bak(&targets.server_bin)?;
+    restored |= restore_from_bak(&targets.computer_helper)?;
     restored |= restore_dir_from_bak(&targets.web_dir)?;
     if !restored {
         return Err(AppCommandError::not_found(

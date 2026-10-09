@@ -12,7 +12,7 @@ mod verification_cache;
 
 static WRITER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-pub use repair::{repair_startup, repair_with_progress};
+pub use repair::{change_computer_driver, repair_startup, repair_with_progress};
 pub use status::{init_status_report, ManagedEnvironmentStatusReport};
 
 pub async fn lock_writer() -> tokio::sync::MutexGuard<'static, ()> {
@@ -130,6 +130,7 @@ pub fn tool_entrypoint(name: &str) -> Option<PathBuf> {
         "officecli" => entrypoint("officecli", "officecli"),
         "agent-reach" => entrypoint("agent-reach", "agent-reach"),
         "open-computer-use" => entrypoint("open-computer-use", "open-computer-use"),
+        "cua-driver" => entrypoint("cua-driver", "cua-driver"),
         _ => None,
     }
 }

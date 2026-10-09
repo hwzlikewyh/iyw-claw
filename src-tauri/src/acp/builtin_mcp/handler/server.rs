@@ -128,12 +128,19 @@ impl RemoteUpdates {
             return;
         }
         let mut changes = remote.subscribe_catalog();
+        let mut computer = crate::computer::bootstrap::current_service().map(|service| service.settings_changes());
         let cancel = authority.cancellation().clone();
         *slot = Some(tokio::spawn(async move {
             loop {
                 tokio::select! {
                     _ = cancel.cancelled() => return,
                     changed = changes.changed() => { if changed.is_err() { return; } },
+                    changed = async {
+                        match &mut computer {
+                            Some(receiver) => receiver.changed().await,
+                            None => std::future::pending().await,
+                        }
+                    } => { if changed.is_err() { return; } },
                 }
                 if peer.is_transport_closed() {
                     return;

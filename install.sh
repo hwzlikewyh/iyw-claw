@@ -191,7 +191,7 @@ validate_archive_inventory() {
     normalized="${entry%/}"
     normalized_lower="$(printf '%s' "$normalized" | LC_ALL=C tr '[:upper:]' '[:lower:]')"
     case "$normalized_lower" in
-      "$ARTIFACT"|"$ARTIFACT/iyw-claw-server"|"$ARTIFACT/web"|"$ARTIFACT/web/"*) ;;
+      "$ARTIFACT"|"$ARTIFACT/iyw-claw-server"|"$ARTIFACT/iyw-computer-helper"|"$ARTIFACT/web"|"$ARTIFACT/web/"*) ;;
       *) echo "Error: unexpected archive entry: $entry" >&2; return 1 ;;
     esac
     case "/$normalized/" in
@@ -219,7 +219,7 @@ assert_bundle_inventory() {
   for path in "$root"/* "$root"/.[!.]* "$root"/..?*; do
     [ -e "$path" ] || [ -L "$path" ] || continue
     leaf="$(basename "$path")"
-    case "$leaf" in iyw-claw-server|web) ;; *) return 1 ;; esac
+    case "$leaf" in iyw-claw-server|iyw-computer-helper|web) ;; *) return 1 ;; esac
   done
   if find "$root" \( -type l -o -type f -iname 'iyw-claw-mcp*' \) -print | grep -q .; then
     return 1
@@ -666,7 +666,7 @@ validate_target_layout() {
 }
 
 prepare_target_staging() {
-  local install_version web_parent
+  local install_version web_parent helper_version
   resolve_priv "$INSTALL_DIR" || return 1
   priv_run mkdir -p -- "$INSTALL_DIR"
   SERVER_TXN_DIR="$(priv_run mktemp -d "$INSTALL_DIR/.iyw-claw-install.XXXXXX")" || return 1
@@ -677,6 +677,13 @@ prepare_target_staging() {
     echo "Error: staged server version is ${install_version:-missing}; expected $TARGET_VER." >&2
     return 1
   }
+
+  if [ -f "$BUNDLE_ROOT/iyw-computer-helper" ]; then
+    priv_run cp -- "$BUNDLE_ROOT/iyw-computer-helper" "$SERVER_TXN_DIR/new-helper" || return 1
+    priv_run chmod 0755 "$SERVER_TXN_DIR/new-helper" || return 1
+    helper_version="$(priv_run "$SERVER_TXN_DIR/new-helper" --version)" || return 1
+    [ "$helper_version" = "iyw-computer-helper $TARGET_VER" ] || return 1
+  fi
 
   web_parent="$(dirname "$WEB_DIR")"
   resolve_priv "$web_parent" || return 1
@@ -731,10 +738,36 @@ rollback_server_swap() {
   return "$status"
 }
 
+rollback_helper_swap() {
+  local destination="$INSTALL_DIR/iyw-computer-helper"
+  resolve_priv "$INSTALL_DIR" || return 1
+  if [ "$HELPER_SWAPPED" -eq 1 ]; then
+    priv_run rm -f -- "$destination" || return 1
+    HELPER_SWAPPED=0
+  fi
+  if [ "$HELPER_BACKED_UP" -eq 1 ]; then
+    priv_run mv -- "$SERVER_TXN_DIR/old-helper" "$destination" || return 1
+    HELPER_BACKED_UP=0
+  fi
+}
+
+swap_helper_bundle() {
+  local destination="$INSTALL_DIR/iyw-computer-helper"
+  priv_run test -f "$SERVER_TXN_DIR/new-helper" || return 0
+  if priv_run test -e "$destination"; then
+    ! priv_run test -L "$destination" && priv_run test -f "$destination" || return 1
+    priv_run mv -- "$destination" "$SERVER_TXN_DIR/old-helper" || return 1
+    HELPER_BACKED_UP=1
+  fi
+  priv_run mv -- "$SERVER_TXN_DIR/new-helper" "$destination" || return 1
+  HELPER_SWAPPED=1
+}
+
 rollback_install_transaction() {
   local status=0
   rollback_web_swap || status=1
   rollback_server_swap || status=1
+  rollback_helper_swap || status=1
   restore_legacy_quarantine || status=1
   return "$status"
 }
@@ -914,6 +947,7 @@ preserve_server_transaction() {
   [ "$LEGACY_QUARANTINE_CLEANUP_FAILED" -eq 1 ] && return 0
   [ "$LIVE_BUNDLE_VERIFIED" -eq 0 ] || return 1
   [ "$SERVER_BACKED_UP" -eq 1 ] || [ "$SERVER_SWAPPED" -eq 1 ] \
+    || [ "$HELPER_BACKED_UP" -eq 1 ] || [ "$HELPER_SWAPPED" -eq 1 ] \
     || [ "$LEGACY_QUARANTINED" -eq 1 ]
 }
 

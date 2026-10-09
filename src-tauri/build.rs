@@ -1,5 +1,9 @@
+mod build_computer;
+
 fn main() {
+    build_computer::export_identity();
     export_target_triple();
+    place_computer_helper_for_development();
 
     #[cfg(feature = "tauri-runtime")]
     {
@@ -72,6 +76,20 @@ fn ensure_sidecar_placeholders() {
             | "aarch64-unknown-linux-gnu"
     ) {
         ensure_sidecar_placeholder(&dir, "iyw-environment", &triple, ext);
+        ensure_sidecar_placeholder(&dir, "iyw-computer-helper", &triple, ext);
+    }
+}
+
+fn place_computer_helper_for_development() {
+    if std::env::var("PROFILE").as_deref() != Ok("debug") { return; }
+    let triple = std::env::var("TARGET").unwrap_or_default();
+    let ext = if triple.contains("windows") { ".exe" } else { "" };
+    let staged = std::path::PathBuf::from(format!("binaries/iyw-computer-helper-{triple}{ext}"));
+    println!("cargo:rerun-if-changed={}", staged.display());
+    if !std::fs::metadata(&staged).is_ok_and(|meta| meta.len() > 0) { return; }
+    let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR missing"));
+    if let Some(profile) = out.ancestors().nth(3) {
+        std::fs::copy(staged, profile.join(format!("iyw-computer-helper{ext}"))).expect("stage development computer helper");
     }
 }
 

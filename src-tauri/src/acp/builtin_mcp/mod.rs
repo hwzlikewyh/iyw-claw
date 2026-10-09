@@ -10,6 +10,7 @@ mod capability_registry;
 mod capability_response;
 mod capability_schema;
 mod credential;
+mod computer;
 mod delivery;
 mod diagnostics;
 mod features;

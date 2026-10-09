@@ -12,6 +12,12 @@ export type ShortcutActionId =
   | "send_message"
   | "newline_in_message"
 
+let shortcutRecorderArmed = false
+
+export function setShortcutRecorderArmed(armed: boolean): void {
+  shortcutRecorderArmed = armed
+}
+
 export interface ShortcutDefinition {
   id: ShortcutActionId
 }
@@ -268,6 +274,7 @@ export function matchShortcutEvent(
   >,
   shortcut: string
 ): boolean {
+  if (shortcutRecorderArmed) return false
   const normalized = normalizeShortcut(shortcut)
   if (!normalized) return false
 

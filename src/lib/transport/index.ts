@@ -7,6 +7,14 @@ export type { RemoteTransportConfig, Transport, UnsubscribeFn } from "./types"
 let _shellTransport: Transport | null = null
 let _remoteTransport: Transport | null = null
 let _remoteConfig: RemoteTransportConfig | null = null
+const transportListeners = new Set<() => void>()
+
+export function onTransportChange(listener: () => void): () => void {
+  transportListeners.add(listener)
+  return () => {
+    transportListeners.delete(listener)
+  }
+}
 
 function createTauriTransport(): Transport {
   // Use dynamic require to avoid bundling tauri deps in web mode.
@@ -46,12 +54,14 @@ export function configureRemoteDesktopTransport(
     RemoteDesktopTransport: new (config: RemoteTransportConfig) => Transport
   }
   _remoteTransport = new RemoteDesktopTransport(config)
+  for (const listener of transportListeners) listener()
 }
 
 export function clearRemoteDesktopTransport(): void {
   _remoteTransport?.destroy?.()
   _remoteTransport = null
   _remoteConfig = null
+  for (const listener of transportListeners) listener()
 }
 
 export function getActiveRemoteConnectionId(): number | null {

@@ -1,8 +1,10 @@
 {
   "bundle": {
+    "externalBin": ["binaries/iyw-environment"],
     "targets": ["app", "dmg"],
     "macOS": {
       "minimumSystemVersion": "13.5",
+      "files": {"Helpers/iyw-computer-helper.app": "macos/iyw-computer-helper.app"},
       "signingIdentity": "-"
     }
   }

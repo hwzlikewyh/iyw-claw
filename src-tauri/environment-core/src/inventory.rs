@@ -192,6 +192,7 @@ fn add_entrypoint(
             Some("agent-reach")
         }
         "open-computer-use" if is_open_computer_use_entrypoint(lower) => Some("open-computer-use"),
+        "cua-driver" if matches!(file, "cua-driver" | "cua-driver.exe") => Some("cua-driver"),
         _ => None,
     };
     if let Some(name) = name {
@@ -222,6 +223,7 @@ fn validate_entrypoints(component: &str, values: &BTreeMap<String, String>) -> R
         "officecli" => &["officecli"],
         "agent-reach" => &["agent-reach"],
         "open-computer-use" => &["open-computer-use"],
+        "cua-driver" => &["cua-driver"],
         _ => &[],
     };
     if required.iter().all(|name| values.contains_key(*name)) {

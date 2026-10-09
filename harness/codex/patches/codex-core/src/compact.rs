@@ -413,6 +413,10 @@ async fn run_compact_task_inner_impl(
             Some(step_context.to_turn_context_item())
         }
     };
+    let mut compaction_item = compaction_item;
+    if let TurnItem::ContextCompaction(ref mut item) = compaction_item {
+        item.summary = (!summary_text.trim().is_empty()).then(|| summary_text.clone());
+    }
     sess.replace_compacted_history(
         new_history,
         reference_context_item,

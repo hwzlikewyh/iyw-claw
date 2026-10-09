@@ -118,6 +118,7 @@ fn item_update(params: &Value, completed: bool) -> Option<Update> {
     if completed {
         let status = completed_status(item);
         let mut update = tool_update(id, Some(status), completed_output(item));
+        if kind == "contextCompaction" { enrich_compaction(item, &mut update.params); }
         if kind == "commandExecution" && item.get("description").and_then(Value::as_str).is_some() {
             update.params["rawInput"] = item.clone();
         }
@@ -136,7 +137,16 @@ fn item_update(params: &Value, completed: bool) -> Option<Update> {
         }),
     };
     super::tool_content::enrich(item, &mut update.params);
+    if kind == "contextCompaction" { enrich_compaction(item, &mut update.params); }
     Some(update)
+}
+
+fn enrich_compaction(item: &Value, params: &mut Value) {
+    params["_meta"]["contextCompaction"] = json!({"version": 1});
+    if let Some(summary) = item.get("summary").and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
+        params["_meta"]["iyw.compactionSummary"] = json!(true);
+        params["rawOutput"] = json!(summary);
+    }
 }
 
 pub(super) fn is_tool_item(item: &Value) -> bool {

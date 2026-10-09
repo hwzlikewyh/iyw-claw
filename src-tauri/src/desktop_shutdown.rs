@@ -144,6 +144,7 @@ fn run_on_shutdown_thread(app: tauri::AppHandle, reason: ShutdownReason) -> bool
 }
 
 async fn shutdown_resources(app: &tauri::AppHandle, reason: ShutdownReason) -> bool {
+    crate::computer::bootstrap::shutdown().await;
     let live_agent_connections = snapshot_live_agent_connections(app).await;
     let entrypoints_completed = stop_entrypoints(app, reason).await;
     maintain_agent_logs(app, reason, live_agent_connections).await;

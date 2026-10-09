@@ -113,6 +113,7 @@ pub(super) fn required_entrypoints(component: &str) -> &'static [&'static str] {
         "officecli" => &["officecli"],
         "agent-reach" => &["agent-reach"],
         "open-computer-use" => &["open-computer-use"],
+        "cua-driver" => &["cua-driver"],
         "environment-maintainer" => &["environment-maintainer"],
         _ => &[],
     }

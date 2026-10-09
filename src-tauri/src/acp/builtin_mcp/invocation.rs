@@ -83,7 +83,7 @@ pub(super) async fn execute_invocation(
         rewrite_delegation_guidance,
     } = prepared;
     let cancellation_policy = run.cancellation_policy;
-    let result = run_invocation(&bridge, run, authority.cancellation().clone())
+    let result = run_invocation(&bridge, run, &authority)
         .await
         .map_err(|error| {
             post_ack_error(
@@ -202,15 +202,21 @@ async fn bridge_after_ack(
 async fn run_invocation(
     bridge: &CompanionBridge,
     request: InvocationRun,
-    authority_cancel: CancellationToken,
+    authority: &SessionContext,
 ) -> Result<SpawnResult, ErrorData> {
+    if request.tool_name.starts_with("computer_") {
+        return super::computer::run(super::computer::ComputerInvocation {
+            request_id: request.request_id, tool_name: request.tool_name,
+            arguments: request.arguments, cancellation: request.request_cancel,
+        }, authority).await;
+    }
     run_call_with_cancellation(
         bridge,
         request.request_id,
         request.tool_name,
         request.arguments,
         request.request_cancel,
-        authority_cancel,
+        authority.cancellation().clone(),
         request.cancellation_policy,
     )
     .await

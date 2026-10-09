@@ -181,6 +181,7 @@ pub const FEEDBACK_SETTINGS_CHANGED_EVENT: &str = "feedback-settings://changed";
 /// only via this backend broadcast. Payload: `QuestionSettings` (`{ "enabled":
 /// bool }`).
 pub const QUESTION_SETTINGS_CHANGED_EVENT: &str = "question-settings://changed";
+pub const COMPUTER_TOOLS_SETTINGS_CHANGED_EVENT: &str = "computer-tools-settings://changed";
 
 /// Global side-channel announcing a `get_session_info` enable/disable. Same
 /// cross-window rationale as [`QUESTION_SETTINGS_CHANGED_EVENT`]: the settings UI
