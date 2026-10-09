@@ -37,10 +37,14 @@ permissions, and schema digests.
 The same search/read/invoke trio includes signed-in remote business capabilities.
 The host fetches the remote overview and top-level tool definitions at startup
 and every 15 minutes. Use the latest account-scoped overview supplied with the
-search tool or current turn, not a fixed list from this Skill. For a capability
-introduction browse with `source=remote, mode=browse`, omit query and follow
-`next_cursor` until null. Optionally use a returned group `capability_id` as
-`group_id`, keeping that group while paging. Browse does not need semantic search.
+search tool or current turn, not a fixed list from this Skill. For a general capability
+introduction, answer directly from this overview and visible local/direct tools;
+do not search, browse or read member schemas. Explain pending/stale/unavailable
+metadata honestly without waiting for or exhausting the catalog. Browse with
+`source=remote, mode=browse` and no query only for an explicitly requested complete
+current list or relevant group members. Follow `next_cursor` only within that
+requested scope; keep a returned group `capability_id` unchanged as `group_id`.
+Listing capabilities needs no member schema reads or semantic search.
 Use search `source=local` for host actions, `source=remote` for remote tasks;
 omit source when unsure. Other remote top-level tools retain their full schemas
 as directly advertised tools. If an adapter has not loaded one, read then invoke

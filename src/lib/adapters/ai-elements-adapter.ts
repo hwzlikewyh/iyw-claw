@@ -36,6 +36,7 @@ import {
 } from "@/lib/agent-runtime-error"
 import { normalizeToolResultError } from "@/lib/memory-policy-error"
 import { extractDeliveredImage } from "@/lib/image-delivery"
+import { resolveRemoteToolDisplayNames } from "@/lib/remote-tool-display"
 
 const AGENT_LESSON_START = "<!-- IYW_CLAW_AGENT_LESSON_V1 "
 const AGENT_LESSON_END = " -->"
@@ -2158,12 +2159,14 @@ export function adaptMessageTurns(
   streamingIndices?: Set<number>,
   inProgressToolCallIdsByIndex?: Map<number, Set<string>>
 ): AdaptedMessage[] {
-  return turns.map((turn, i) =>
-    adaptMessageTurn(
-      turn,
-      text,
-      streamingIndices?.has(i) ?? false,
-      inProgressToolCallIdsByIndex?.get(i)
+  return resolveRemoteToolDisplayNames(
+    turns.map((turn, i) =>
+      adaptMessageTurn(
+        turn,
+        text,
+        streamingIndices?.has(i) ?? false,
+        inProgressToolCallIdsByIndex?.get(i)
+      )
     )
   )
 }
@@ -2303,7 +2306,7 @@ export function createMessageTurnAdapter(): MessageTurnAdapter {
         }
       }
 
-      return out
+      return resolveRemoteToolDisplayNames(out)
     },
     clear() {
       cache.clear()

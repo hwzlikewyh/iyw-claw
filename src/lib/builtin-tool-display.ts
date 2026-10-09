@@ -143,6 +143,25 @@ function findFirstStringField(value: unknown, keys: string[]): string | null {
   return null
 }
 
+export function getIywCapabilityId(
+  input: string | null | undefined
+): string | null {
+  return input ? findStringField(input, "capability_id") : null
+}
+
+function readableRemoteName(value: string | null | undefined): string | null {
+  const name = value?.replace(/[\u0000-\u001f\u007f]/g, " ").trim()
+  if (
+    !name ||
+    name.length > MAX_DYNAMIC_NAME_LENGTH ||
+    /^iyw[._]remote(?:[._]|$)/i.test(name) ||
+    /(?:^|[\s._:-])[a-f0-9]{24,}(?:$|[\s._:-])/i.test(name)
+  ) {
+    return null
+  }
+  return name
+}
+
 function readableIdentifier(
   value: string | null,
   segmentLimit: number
@@ -199,17 +218,19 @@ export function getIywToolDescription(
  */
 export function getBuiltinToolDisplay(
   toolName: string,
-  input: string | null | undefined
+  input: string | null | undefined,
+  displayTitle?: string | null
 ): BuiltinToolDisplay | null {
-  const capabilityId = input ? findStringField(input, "capability_id") : null
+  const capabilityId = getIywCapabilityId(input)
   const resolvedTool = capabilityId
     ? CAPABILITY_ID_TO_TOOL[capabilityId]
     : undefined
   const matchedTool = resolvedTool ?? matchKnownToolName(toolName)
   if (!matchedTool) return null
 
-  const fallbackName =
-    capabilityId && !resolvedTool
+  const fallbackName = capabilityId?.startsWith("iyw.remote.")
+    ? readableRemoteName(displayTitle)
+    : capabilityId && !resolvedTool
       ? (readableIdentifier(
           findFirstStringField(
             input ? parseJson(input) : null,
