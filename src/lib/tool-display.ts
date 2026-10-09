@@ -109,8 +109,16 @@ export function getToolDisplayName(
 ): string {
   const description = getIywToolDescription(tool.toolName, tool.input)
   if (description) return description
-  const builtin = getBuiltinToolDisplay(tool.toolName, tool.input)
+  const builtin = getBuiltinToolDisplay(
+    tool.toolName,
+    tool.input,
+    tool.displayTitle
+  )
   if (builtin?.fallbackName) {
+    if (builtin.toolName === "read_iyw_capability") {
+      const label = translate("builtinTool.read_iyw_capability")
+      return label ? `${label}: ${builtin.fallbackName}` : builtin.fallbackName
+    }
     return (
       translate("builtinTool.dynamicCapability", {
         name: builtin.fallbackName,

@@ -2101,8 +2101,9 @@ const ToolCallPart = memo(function ToolCallPart({
     [part.toolName]
   )
   const builtinTool = useMemo(
-    () => getBuiltinToolDisplay(normalizedToolName, part.input),
-    [normalizedToolName, part.input]
+    () =>
+      getBuiltinToolDisplay(normalizedToolName, part.input, part.displayTitle),
+    [normalizedToolName, part.input, part.displayTitle]
   )
   const toolNameLower = normalizedToolName.toLowerCase()
   const isShellCommandTool =
@@ -2135,9 +2136,15 @@ const ToolCallPart = memo(function ToolCallPart({
     const description = getIywToolDescription(part.toolName, part.input)
     if (description) return description
     if (builtinTool?.fallbackName) {
-      return t("builtinTool.dynamicCapability", {
-        name: builtinTool.fallbackName,
-      })
+      return getToolDisplayName(
+        {
+          toolName: part.toolName,
+          input: part.input,
+          displayTitle: part.displayTitle,
+        },
+        (key, values) =>
+          t.has(key as never) ? t(key as never, values as never) : null
+      )
     }
     if (builtinTool && t.has(`builtinTool.${builtinTool.toolName}` as never)) {
       return t(`builtinTool.${builtinTool.toolName}` as never)

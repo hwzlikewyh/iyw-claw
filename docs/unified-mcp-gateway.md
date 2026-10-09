@@ -25,8 +25,12 @@ capability_id，先 read 再 invoke；不能从名称推导。任务扩展式调
 
 - 查：search_iyw_capabilities，source=local|remote|all，默认 all。
   local 不访问远程；limit 为每个来源的候选上限。已有完整 schema 的直接工具优先。
-- 浏览：source=remote、mode=browse，无需 query。用户问“有哪些能力”时跟随
-  next_cursor 直到空；只浏览某组时传其 capability_id 为 group_id，分页保持同组。
+- 介绍：用户问“有哪些能力”时直接依据本回合的远程概览与可见本地/直接工具回答，
+  不为普通介绍搜索、分页浏览或读取成员 schema。概览 pending/stale/unavailable 时
+  如实说明状态，不等待远程目录，也不将其解释为没有能力。
+- 浏览：仅在用户明确要求完整当前工具清单或相关分组成员时使用 source=remote、
+  mode=browse，无需 query；按请求范围跟随 next_cursor。只浏览某组时传其
+  capability_id 为 group_id，分页保持同组。清单介绍不需要逐个读取成员 schema。
   游标按账户和分组隔离并有容量限制，不依赖语义索引；失效后重新浏览。
 - 读：read_iyw_capability。远程分组保留工作流说明，items 提供成员 capability_id、
   完整 input_schema、usage、参数来源和结果解释。读过完整成员后不用再次读取。
@@ -35,6 +39,24 @@ capability_id，先 read 再 invoke；不能从名称推导。任务扩展式调
 
 工具描述、MCP initialize instructions、主提示词和内置 gateway Skill 均声明这些规则。
 本轮仅更新应用内置 Skill，不同步独立 skill 仓库。
+
+## 对话中的工具名称
+
+前端从当前会话成功的 search/read 输出提取远程 capability_id 与 name，包含分组
+items 和 MCP 文本/structuredContent 包装。跨回合的执行卡片复用这些名称，运行中
+与历史显示一致；read 卡片使用“查看工具用法”标签，invoke 卡片显示实际工具名称。
+名称缺失或输出无法解析时使用通用调用标签，不将不透明 remote ID 或摘要当作名称。
+
+名称仅写入现有 displayTitle 展示字段，不改写原始参数、结果、路由 ID 或版本。
+映射每次由当前会话构造，不跨会话复用；WeakMap 缓存目录解析和已标注的显示对象，
+保持未变化历史消息的引用稳定，避免每个流式增量重复解析完整目录。
+
+2026-10-09 调整只减少普通能力介绍的目录调用，并改善卡片名称；实际耗时与 Agent
+是否遵循指引仍需在更新后的桌面/服务器环境观察，不能据此推导固定提速幅度。
+
+本轮 TypeScript 类型检查、五个改动文件的定向 lint、三个 Rust 提示词文件的解析
+和 diff 检查通过。默认 lint 首轮因既有 CRLF 换行报错，按原换行格式检查后无错误；
+未修改 lint 配置。遵循 AGENTS.md，未新增或运行测试，未做桌面/服务器实机验证。
 
 ## 生命周期和恢复
 
