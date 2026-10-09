@@ -3,4 +3,4 @@
 use super::*;
 
 /// A Core Foundation object this module owns, released on drop.
-pub(super) struct Owned(CFTypeRef);
+pub(super) struct Owned(pub(super) CFTypeRef);
