@@ -8,6 +8,7 @@ import {
 import { execFileSync } from "node:child_process"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { isWin7Target } from "../../../src-tauri/scripts/build-desktop-windows.mjs"
 import {
   windowsLayout,
   createWindowsStaging,
@@ -121,7 +122,8 @@ async function finalize() {
   ])
   const assets = join(process.env.RUNNER_TEMP, `release-assets-${TARGET}`)
   mkdirSync(assets, { recursive: true })
-  const name = `iyw-claw_${version()}_${layout.arch}-setup.exe`
+  const platform = isWin7Target(TARGET) ? "win7-" : ""
+  const name = `iyw-claw_${version()}_${platform}${layout.arch}-setup.exe`
   copyFileSync(installer, join(assets, name))
   copyFileSync(`${installer}.sig`, join(assets, `${name}.sig`))
   await uploadDraftFile(context, join(assets, name))

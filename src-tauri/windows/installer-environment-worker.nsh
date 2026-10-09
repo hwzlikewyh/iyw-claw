@@ -14,7 +14,9 @@ Var IywClawEnvironmentHandle
   StrCmp $IywClawInstallerTestMode "1" iyw_environment_background_ready 0
   InitPluginsDir
   SetDetailsPrint none
-  !if "${ARCH}" == "arm64"
+  !ifdef IYW_CLAW_ENVIRONMENT_TARGET
+    File /oname=$PLUGINSDIR\iyw-environment.exe "${IYW_CLAW_ENVIRONMENT_SOURCE}\..\binaries\iyw-environment-${IYW_CLAW_ENVIRONMENT_TARGET}.exe"
+  !else if "${ARCH}" == "arm64"
     File /oname=$PLUGINSDIR\iyw-environment.exe "${IYW_CLAW_ENVIRONMENT_SOURCE}\..\binaries\iyw-environment-aarch64-pc-windows-msvc.exe"
   !else
     File /oname=$PLUGINSDIR\iyw-environment.exe "${IYW_CLAW_ENVIRONMENT_SOURCE}\..\binaries\iyw-environment-x86_64-pc-windows-msvc.exe"

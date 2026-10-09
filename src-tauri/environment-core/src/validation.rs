@@ -46,10 +46,11 @@ pub fn validate_action(action: &EnvironmentAction) -> Result<()> {
 }
 
 pub fn validate_platform() -> Result<()> {
-    if !matches!(
+    let supported = matches!(
         (std::env::consts::OS, std::env::consts::ARCH),
         ("windows", "x86_64") | ("macos" | "linux", "x86_64" | "aarch64")
-    ) {
+    ) || cfg!(all(windows, target_vendor = "win7", target_arch = "x86"));
+    if !supported {
         return Err(crate::failure::Failure::permanent(
             "UNSUPPORTED",
             format!(

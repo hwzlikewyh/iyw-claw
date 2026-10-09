@@ -59,6 +59,16 @@ packages.
 
 ## Microsoft Visual C++ Runtime
 
+Win7 builds include local patches of Microsoft's `windows-link` 0.1.3 and 0.2.1
+(https://github.com/microsoft/windows-rs), licensed under MIT or Apache 2.0.
+The patch imports classic COM functions from `ole32.dll` on the Win7 Rust target.
+Original license texts are retained in `src-tauri/vendor/windows-link/` and
+`src-tauri/vendor/windows-link-01/`. Optional WinRT and capability functions
+are resolved at runtime and report failure when unavailable.
+Win7 also uses `windows-targets` 0.48.5 with its existing raw DLL import mode
+enabled for the Win7 target. Its original licenses are retained in
+`src-tauri/vendor/windows-targets-048/`.
+
 Windows release builds use the static MSVC CRT for the application and embedded
 runtime. WebView2 and other operating-system components remain governed by their
 own platform installation and license terms.

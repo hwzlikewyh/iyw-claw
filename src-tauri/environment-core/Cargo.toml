@@ -27,3 +27,6 @@ codegen-units = 1
 lto = "thin"
 opt-level = "s"
 strip = true
+
+[patch.crates-io]
+windows-link = { path = "../vendor/windows-link" }

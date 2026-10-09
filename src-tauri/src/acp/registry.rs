@@ -108,6 +108,13 @@ fn platform_for(os: &str, arch: &str) -> Option<&'static str> {
 }
 
 pub fn current_platform() -> &'static str {
+    if cfg!(all(windows, target_vendor = "win7")) {
+        return if cfg!(target_arch = "x86") {
+            "windows7-i686"
+        } else {
+            "windows7-x86_64"
+        };
+    }
     platform_for(std::env::consts::OS, std::env::consts::ARCH).unwrap_or_else(|| {
         panic!(
             "unsupported platform: {}-{}",
@@ -122,7 +129,8 @@ pub fn binary_platform_supported(agent_type: AgentType, platforms: &[PlatformBin
         .iter()
         .any(|platform| platform.platform == current_platform())
         || (platforms.is_empty()
-            && current_platform() == TRUSTED_MANAGED_BINARY_PLATFORM
+            && (current_platform() == TRUSTED_MANAGED_BINARY_PLATFORM
+                || cfg!(all(windows, target_vendor = "win7")))
             && trusted_agents::definition_for_agent(agent_type).is_some_and(|definition| {
                 definition.delivery == trusted_agents::DeliveryKind::ManagedBinary
             }))

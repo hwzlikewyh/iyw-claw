@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.262",
   "packageManager": "pnpm@11.9.0",
+  "browserslist": ["chrome 109", "edge 109", "firefox 111", "safari 16.4"],
   "scripts": {
     "predev": "node scripts/prepare-preview-assets.mjs",
     "prebuild": "node scripts/prepare-preview-assets.mjs",
@@ -14,6 +15,7 @@
     "tauri:build:local": "tauri build --debug",
     "tauri:build:test": "tauri build --features test-gateway",
     "tauri:build:prod": "node src-tauri/scripts/build-desktop.mjs",
+    "tauri:build:win7": "node src-tauri/scripts/build-windows7.mjs",
     "tauri:build:signed": "node src-tauri/scripts/build-desktop.mjs --authenticode",
     "sign:verify": "node src-tauri/scripts/verify-signatures.mjs",
     "tauri:build:fast": "node src-tauri/scripts/build-desktop.mjs --reuse-assets --no-sign",

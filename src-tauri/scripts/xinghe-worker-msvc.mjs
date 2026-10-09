@@ -6,6 +6,7 @@ import { helperNames, windowsRuntimeImports } from "./xinghe-worker-binary.mjs"
 const ARCHITECTURES = {
   "x86_64-pc-windows-msvc": "x64",
   "i686-pc-windows-msvc": "x86",
+  "i686-win7-windows-msvc": "x86",
   "aarch64-pc-windows-msvc": "arm64",
 }
 // 与沙箱辅助程序的运行库复制白名单保持一致。

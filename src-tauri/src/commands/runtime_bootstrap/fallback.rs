@@ -54,7 +54,7 @@ pub(crate) async fn download_pinned(
 
 pub(crate) fn availability_failure(error: &crate::app_error::AppCommandError) -> bool {
     use crate::app_error::AppErrorCode;
-    cfg!(windows)
+    cfg!(all(windows, not(target_vendor = "win7")))
         && (error.code == AppErrorCode::NetworkError
             || (error.code == AppErrorCode::InvalidInput
                 && matches!(

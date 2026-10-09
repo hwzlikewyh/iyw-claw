@@ -22,6 +22,8 @@ mod desktop_shutdown;
 #[cfg(all(target_os = "windows", not(debug_assertions)))]
 mod desktop_startup_gate;
 pub mod display_assets;
+#[path = "../distribution-platform.rs"]
+mod distribution_platform;
 pub mod git_credential;
 pub mod git_repo;
 pub mod github_mirror;
@@ -295,7 +297,7 @@ mod tauri_app {
         ));
 
         let build_stage = crate::logging::emergency::StartupStage::new("tauri-build");
-        let app = builder
+        let builder = builder
             // Persist every window flag EXCEPT decorations and visibility.
             // Decorations are a
             // per-platform decision made by `apply_platform_window_style`
@@ -319,8 +321,11 @@ mod tauri_app {
             .plugin(tauri_plugin_opener::init())
             .plugin(tauri_plugin_dialog::init())
             .plugin(tauri_plugin_updater::Builder::new().build())
-            .plugin(tauri_plugin_process::init())
-            .plugin(tauri_plugin_notification::init())
+            .plugin(tauri_plugin_process::init());
+        // Win7 没有 WinRT toast；普通平台保持原有插件注册顺序。
+        #[cfg(not(all(windows, target_vendor = "win7")))]
+        let builder = builder.plugin(tauri_plugin_notification::init());
+        let app = builder
             .manage(ConnectionManager::new())
             .manage(TerminalManager::new())
             .manage(ChatChannelManager::new())

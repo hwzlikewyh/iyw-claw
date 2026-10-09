@@ -1,6 +1,7 @@
 const MACHINE = {
   "x86_64-pc-windows-msvc": ["pe", 0x8664],
   "x86_64-win7-windows-msvc": ["pe", 0x8664],
+  "i686-win7-windows-msvc": ["pe", 0x014c],
   "i686-pc-windows-msvc": ["pe", 0x014c],
   "aarch64-pc-windows-msvc": ["pe", 0xaa64],
   "x86_64-unknown-linux-gnu": ["elf", 62],

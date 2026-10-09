@@ -9,7 +9,10 @@ import {
 } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { environmentHelperBuildOptions } from "./environment-helper-runtime.mjs"
+import {
+  environmentHelperBuildOptions,
+  verifyEnvironmentRuntime,
+} from "./environment-helper-runtime.mjs"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const NAME = "iyw-computer-helper"
@@ -44,6 +47,7 @@ export function prepareComputerHelper(target, debug = false) {
   )
   if (!existsSync(executable) || statSync(executable).size === 0)
     throw new Error("Computer helper was not built")
+  verifyEnvironmentRuntime(executable, target)
   const binaries = join(ROOT, "binaries")
   mkdirSync(binaries, { recursive: true })
   const staged = join(binaries, `${NAME}-${target}${extension}`)

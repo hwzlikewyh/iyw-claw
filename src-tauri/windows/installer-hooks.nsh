@@ -29,6 +29,17 @@ Function IywClawIsMainProcessRunning
   Push $R5
 FunctionEnd
 Function IywClawRestoreLogicalInstallRoot
+  !ifdef IYW_CLAW_ENVIRONMENT_TARGET
+    nsExec::ExecToStack /TIMEOUT=10000 '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -Command "if ($$PSVersionTable.PSVersion -ge [version]$\'5.1$\') { exit 0 } else { exit 1 }"'
+    Pop $R0
+    Pop $R1
+    StrCmp $R0 "0" iyw_win7_powershell_ready 0
+    MessageBox MB_OK|MB_ICONSTOP \
+      "Windows 7 专用版需要 Windows PowerShell 5.1。请先安装 Windows Management Framework 5.1 及其 .NET 前置组件，再运行安装包。"
+    SetErrorLevel 2
+    Quit
+    iyw_win7_powershell_ready:
+  !endif
   Call IywClawConfigureInstallerMode
   StrCmp $IywClawInstallerTestMode "invalid" 0 iyw_installer_mode_valid
   DetailPrint "测试模式参数无效，安装已取消。"

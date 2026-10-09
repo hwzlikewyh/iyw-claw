@@ -96,13 +96,11 @@ pub fn safe_segment<'a>(value: &'a str, label: &str) -> Result<&'a str> {
 }
 
 pub fn platform() -> (String, String, String) {
-    let target = match std::env::consts::OS {
-        "macos" => "darwin",
-        other => other,
-    };
-    let arch = match std::env::consts::ARCH {
-        "aarch64" => "aarch64",
-        "x86" => "x86",
+    let target = crate::distribution_platform::TARGET;
+    let arch = match (target, std::env::consts::ARCH) {
+        ("windows7", "x86") => "i686",
+        (_, "aarch64") => "aarch64",
+        (_, "x86") => "x86",
         _ => "x86_64",
     };
     (

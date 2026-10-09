@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { lstatSync, readFileSync, readdirSync } from "node:fs"
 import { join } from "node:path"
+import { isWin7Target } from "./build-desktop-windows.mjs"
 import {
   environmentHelperHostTarget,
   verifyEnvironmentRuntime,
@@ -41,7 +42,7 @@ export function verifyComputerHelper(path, target, version, source = null) {
   if (!stat.isFile() || !stat.size)
     throw new Error(`Computer helper is missing or empty: ${path}`)
   verifyEnvironmentRuntime(path, target)
-  if (target !== environmentHelperHostTarget()) return
+  if (!isWin7Target(target) && target !== environmentHelperHostTarget()) return
   const identity = JSON.parse(
     execFileSync(path, ["--identity"], { encoding: "utf8", timeout: 10000 })
   )

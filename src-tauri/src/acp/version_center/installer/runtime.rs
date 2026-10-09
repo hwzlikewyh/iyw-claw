@@ -197,6 +197,8 @@ fn pointer_path(data_dir: &Path, tool_id: &str) -> Result<PathBuf, AppCommandErr
 
 pub(super) fn platform_dir_name() -> &'static str {
     match (capability::current_target(), capability::current_arch()) {
+        ("windows7", "x86_64") => "win7-x64",
+        ("windows7", "i686") => "win7-x86",
         ("windows", "x86_64") => "win-x64",
         ("windows", "aarch64") => "win-arm64",
         ("windows", "x86") => "win-x86",

@@ -1,12 +1,13 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import "@/lib/pdf-compatibility.mjs"
 import {
   AnnotationEditorType,
   AnnotationMode,
   type PDFDocumentProxy,
-} from "pdfjs-dist"
-import { EventBus, PDFViewer } from "pdfjs-dist/web/pdf_viewer.mjs"
+} from "pdfjs-dist/legacy/build/pdf.mjs"
+import { EventBus, PDFViewer } from "pdfjs-dist/legacy/web/pdf_viewer.mjs"
 
 const MAX_CANVAS_PIXELS = 8_000_000
 const PAGE_PADDING = 40

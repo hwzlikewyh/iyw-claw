@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
 
 const version =
-  process.argv[2] ||
+  process.argv.slice(2).find((argument) => !argument.startsWith("--")) ||
   JSON.parse(
     readFileSync(new URL("../../package.json", import.meta.url), "utf8")
   ).version
@@ -15,6 +15,14 @@ const platforms = [
   ["linux", "x86_64"],
   ["linux", "aarch64"],
 ]
+if (process.argv.includes("--win7")) {
+  platforms.splice(
+    0,
+    platforms.length,
+    ["windows7", "x86_64"],
+    ["windows7", "i686"]
+  )
+}
 const required = ["node", "git", "uv", "chromix", "agent-browser"]
 const allowed = new Set([
   ...required,

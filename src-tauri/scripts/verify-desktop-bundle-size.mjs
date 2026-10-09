@@ -2,12 +2,16 @@ import { readdir, stat } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseTarget, targetInfo } from "./runtime-seed-config.mjs"
+import { isWin7Target } from "./build-desktop-windows.mjs"
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 const MIB = 1024 * 1024
 // 内置 worker 也随 32 位安装包分发；含运行时种子的其他平台需要更高预算。
 const BUDGETS = {
   "x86_64-pc-windows-msvc": 620,
+  // 固定 WebView2 额外增加约 250 MiB，不捆绑普通 Windows 运行环境。
+  "x86_64-win7-windows-msvc": 900,
+  "i686-win7-windows-msvc": 900,
   "i686-pc-windows-msvc": 160,
   "x86_64-apple-darwin": 620,
   "aarch64-apple-darwin": 600,
@@ -35,7 +39,7 @@ function extensions(target) {
 }
 
 async function verifyBundleSize(target = parseTarget()) {
-  const info = targetInfo(target)
+  const info = isWin7Target(target) ? { skipped: true } : targetInfo(target)
   const root = bundleRoot(target)
   const allowed = extensions(target)
   const artifacts = await files(root, (name) =>

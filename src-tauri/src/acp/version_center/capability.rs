@@ -6,8 +6,12 @@ use crate::acp::version_center::types::{AgentOffer, CatalogSnapshot, ToolOffer, 
 
 pub const CATALOG_SCHEMA_VERSION: u32 = 1;
 pub const RUNTIME: &str = "desktop";
-pub const TARGET: &str = "windows";
-pub const ARCH: &str = "x86_64";
+pub const TARGET: &str = crate::distribution_platform::TARGET;
+pub const ARCH: &str = if cfg!(all(windows, target_vendor = "win7", target_arch = "x86")) {
+    "i686"
+} else {
+    "x86_64"
+};
 pub const TARGET_TRIPLE: &str = env!("IYW_CLAW_TARGET_TRIPLE");
 
 pub const TOOL_IDS: [&str; 4] = ["git", "node", "uv", "browser-engine"];
@@ -17,13 +21,7 @@ pub fn known_tool(tool_id: &str) -> bool {
 }
 
 pub fn current_target() -> &'static str {
-    if cfg!(windows) {
-        TARGET
-    } else if cfg!(target_os = "macos") {
-        "darwin"
-    } else {
-        std::env::consts::OS
-    }
+    TARGET
 }
 
 pub fn current_target_triple() -> &'static str {
@@ -34,6 +32,7 @@ pub fn current_arch() -> &'static str {
     match std::env::consts::ARCH {
         "x86_64" => ARCH,
         "aarch64" => "aarch64",
+        "x86" if cfg!(all(windows, target_vendor = "win7")) => "i686",
         "x86" => "x86",
         other => other,
     }

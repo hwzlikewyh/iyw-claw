@@ -97,6 +97,13 @@ fn active_uv_version_dir(uv_root: &Path) -> Option<PathBuf> {
 }
 
 fn managed_runtime_platform() -> &'static str {
+    if cfg!(all(windows, target_vendor = "win7")) {
+        return if cfg!(target_arch = "x86") {
+            "win7-x86"
+        } else {
+            "win7-x64"
+        };
+    }
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("windows", "x86_64") => "win-x64",
         ("windows", "aarch64") => "win-arm64",

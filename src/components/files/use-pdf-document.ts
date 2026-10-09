@@ -1,13 +1,14 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import "@/lib/pdf-compatibility.mjs"
 import {
   getDocument,
   GlobalWorkerOptions,
   TextLayer,
   type PDFDocumentLoadingTask,
   type PDFDocumentProxy,
-} from "pdfjs-dist"
+} from "pdfjs-dist/legacy/build/pdf.mjs"
 import { acquirePreviewSlot } from "./preview-task-slots"
 
 GlobalWorkerOptions.workerSrc = "/preview-assets/pdf/pdf.worker.min.mjs"

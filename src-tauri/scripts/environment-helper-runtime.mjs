@@ -2,6 +2,11 @@ import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { lstatSync, readFileSync } from "node:fs"
 import { windowsRuntimeImports } from "./xinghe-worker-binary.mjs"
+import {
+  windowsBuildEnvironment,
+  verifyWin7Imports,
+  isWin7Target,
+} from "./build-desktop-windows.mjs"
 
 const STATIC_CRT_FLAGS = ["-C", "target-feature=+crt-static"]
 
@@ -16,33 +21,31 @@ export function environmentHelperBuildOptions(
   target,
   environment = process.env
 ) {
-  const env = { ...environment }
+  const env = windowsBuildEnvironment(target, environment)
   const args = []
   if (!target.endsWith("-windows-msvc")) return { args, env }
+  const flags =
+    isWin7Target(target)
+      ? [...STATIC_CRT_FLAGS, "--cfg", "windows_slim_errors"]
+      : STATIC_CRT_FLAGS
   // Cargo 优先采用环境变量中的 flags；仅对本次 helper 构建追加静态运行库。
   if (env.CARGO_ENCODED_RUSTFLAGS !== undefined) {
-    env.CARGO_ENCODED_RUSTFLAGS = [
-      env.CARGO_ENCODED_RUSTFLAGS,
-      ...STATIC_CRT_FLAGS,
-    ]
+    env.CARGO_ENCODED_RUSTFLAGS = [env.CARGO_ENCODED_RUSTFLAGS, ...flags]
       .filter(Boolean)
       .join("\x1f")
   } else if (env.RUSTFLAGS !== undefined) {
-    env.RUSTFLAGS = [env.RUSTFLAGS, ...STATIC_CRT_FLAGS]
-      .filter(Boolean)
-      .join(" ")
+    env.RUSTFLAGS = [env.RUSTFLAGS, ...flags].filter(Boolean).join(" ")
   } else {
-    args.push(
-      "--config",
-      `target.${target}.rustflags=${JSON.stringify(STATIC_CRT_FLAGS)}`
-    )
+    args.push("--config", `target.${target}.rustflags=${JSON.stringify(flags)}`)
   }
   return { args, env }
 }
 
 export function verifyEnvironmentRuntime(path, target) {
   if (target.endsWith("-windows-msvc")) {
-    const imports = windowsRuntimeImports(readFileSync(path), target)
+    const bytes = readFileSync(path)
+    verifyWin7Imports(bytes, target)
+    const imports = windowsRuntimeImports(bytes, target)
     if (imports.length > 0) {
       throw new Error(
         `environment helper must use static MSVC runtime: ${path}; imports=${imports.join(", ")}`
@@ -89,4 +92,20 @@ export function verifyEnvironmentHelper(path, target, version) {
   }).trim()
   if (!/^iyw-environment \d+\.\d+\.\d+$/.test(output))
     throw new Error(`environment helper returned an invalid version: ${output}`)
+  if (isWin7Target(target)) {
+    const identity = JSON.parse(
+      execFileSync(path, ["--identity"], {
+        encoding: "utf8",
+        windowsHide: true,
+        timeout: 10_000,
+      })
+    )
+    if (
+      identity.target !== target ||
+      identity.distributionTarget !== "windows7"
+    )
+      throw new Error(
+        "environment helper was not compiled for the Win7 distribution"
+      )
+  }
 }

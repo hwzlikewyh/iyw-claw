@@ -80,14 +80,16 @@ fn read_snapshot(
 fn parse(raw: &[u8]) -> Result<Snapshot, String> {
     let snapshot: Snapshot =
         serde_json::from_slice(raw).map_err(|_| "环境清单格式错误，请运行环境修复".to_string())?;
-    let target = match std::env::consts::OS {
-        "macos" => "darwin",
-        value => value,
-    };
+    let target = crate::distribution_platform::TARGET;
     if snapshot.schema_version != 1
         || snapshot.pc_version != env!("CARGO_PKG_VERSION")
         || snapshot.target != target
-        || snapshot.arch != std::env::consts::ARCH
+        || snapshot.arch
+            != if cfg!(all(windows, target_vendor = "win7", target_arch = "x86")) {
+                "i686"
+            } else {
+                std::env::consts::ARCH
+            }
         || snapshot.catalog_revision == 0
     {
         return Err("环境与当前应用版本或系统架构不匹配，请运行环境修复".into());

@@ -29,18 +29,26 @@ iyw-claw 是一个多智能体编码工作台，用于在同一个工作区内�
 
 ### Windows 7 兼容性
 
-Windows 7 SP1 x64 使用单独的 Rust 目标 `x86_64-win7-windows-msvc`，该目标没有
+Windows 7 SP1 x64 和 32 位 x86 使用单独的 Rust 目标
+`x86_64-win7-windows-msvc` 与 `i686-win7-windows-msvc`，这些目标没有
 Rust 官方预编译标准库，需要在构建机上按 Rust 的 Win7 target 指南构建标准库并配置
 MSVC/Windows SDK。普通 Windows 构建目标仍为 `x86_64-pc-windows-msvc`。
+安装目标机还需 Windows PowerShell 5.1（WMF 5.1 及其 .NET 前置组件），
+因为现有安装事务使用 PowerShell 5 的构造语法和 CIM；Win7 自带 PowerShell 2 不满足要求。
 
 Windows 7 没有 ConPTY。应用会使用管道终端运行 cmd、PowerShell 和外部命令，终端尺寸
 调整不可用；Windows 10 1809 及更新版本继续使用 ConPTY。Microsoft Edge/WebView2
-官方说明 Windows 7 支持到 WebView2 Runtime 109，安装器使用内嵌 bootstrapper 时会由
-系统选择可用的 109 运行时。Win7 构建必须设置
-`IYW_WIN7_WEBVIEW2_FIXED_RUNTIME_PATH`，指向已解压的
-`Microsoft.WebView2.FixedVersionRuntime.109.0.1518.78.x64` 目录，构建器会自动切换到
-fixed runtime，避免启动新版 `MicrosoftEdgeUpdate.exe`。Win7 发布包必须在真实 Win7
-SP1 x64 环境验证安装、WebView2 启动和终端交互。
+官方说明 Windows 7 支持到 WebView2 Runtime 109。当前 Evergreen 引导安装器可能调用
+Win7 不支持的接口，Win7 构建不使用该安装路径，必须设置
+`IYW_WIN7_WEBVIEW2_FIXED_RUNTIME_PATH`，指向已解压的 WebView2 Runtime 109 目录
+（x64 使用 `Microsoft.WebView2.FixedVersionRuntime.109.0.1518.78.x64`，x86 使用对应的
+`.x86` 目录），构建器会自动切换到 fixed runtime，避免启动新版
+`MicrosoftEdgeUpdate.exe`。使用
+`pnpm tauri:build:win7 --no-sign` 构建候选包；需要 Rust
+`nightly-2026-04-15` 与 `rust-src`。Win7 的 Fusion 环境、代理和更新目标为
+`windows7/x86_64` 或 `windows7/i686`，缺少专用组件或绑定时明确失败，不回退普通 Windows 制品。
+候选包尚须在真实 Win7 SP1 x64 和 32 位环境验证安装、界面、终端、环境组件和升级，
+验证前不视为正式支持。准备及验证清单见 [Windows 7 专用构建](docs/windows7-compatibility.md)。
 
 ## 安装依赖
 

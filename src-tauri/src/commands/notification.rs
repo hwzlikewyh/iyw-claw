@@ -25,11 +25,21 @@ pub async fn send_notification(
             .send();
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(not(target_os = "macos"), not(target_vendor = "win7")))]
     {
         use tauri_plugin_notification::NotificationExt;
         let _ = app.notification().builder().title(title).body(body).show();
     }
 
+    #[cfg(all(windows, target_vendor = "win7"))]
+    {
+        let _ = (title, body);
+        tracing::debug!("Win7 does not support Windows toast notifications");
+        Err(AppCommandError::configuration_invalid(
+            "Windows 7 不支持系统 Toast 通知",
+        ))
+    }
+
+    #[cfg(not(all(windows, target_vendor = "win7")))]
     Ok(())
 }

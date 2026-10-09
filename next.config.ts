@@ -17,6 +17,8 @@ const withNextIntl = createNextIntlPlugin({
 
 const nextConfig: NextConfig = {
   output: "export",
+  // PDF.js 的 legacy viewer 仍含 Unicode sets 正则，须按 109 浏览器目标转译。
+  transpilePackages: ["pdfjs-dist"],
   images: {
     unoptimized: true,
   },

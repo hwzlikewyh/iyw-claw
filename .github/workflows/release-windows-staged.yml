@@ -69,8 +69,14 @@ jobs:
           node-version: 24
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
+        if: ${{ !contains(inputs.target, '-win7-') }}
         with:
           targets: ${{ inputs.target }}
+      - uses: dtolnay/rust-toolchain@master
+        if: contains(inputs.target, '-win7-')
+        with:
+          toolchain: nightly-2026-04-15
+          components: rust-src
       - uses: ./.github/actions/setup-sccache
       # checkout 会刷新文件修改时间，Cargo 因此整体重编 codex 补丁；固定后按内容哈希区分缓存。
       - name: Pin path dependency mtimes
@@ -85,43 +91,77 @@ jobs:
           cache-bin: "false"
           cache-workspace-crates: "false"
       - uses: ilammy/setup-nasm@72793074d3c8cdda771dba85f6deafe00623038b
-        if: inputs.target == 'i686-pc-windows-msvc'
+        if: startsWith(inputs.target, 'i686-')
         with:
           version: 2.16.03
           platform: win64
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Prepare archived Win7 WebView2 Runtime
+        if: contains(inputs.target, '-win7-')
+        env:
+          WEBVIEW2_CAB_URL: ${{ secrets[startsWith(inputs.target, 'i686-') && 'WIN7_WEBVIEW2_X86_CAB_URL' || 'WIN7_WEBVIEW2_X64_CAB_URL'] }}
+          WEBVIEW2_CAB_SHA256: ${{ secrets[startsWith(inputs.target, 'i686-') && 'WIN7_WEBVIEW2_X86_CAB_SHA256' || 'WIN7_WEBVIEW2_X64_CAB_SHA256'] }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WEBVIEW2_CAB_URL)) { throw 'Win7 release requires the matching WebView2 Runtime 109 CAB URL secret' }
+          if ($env:WEBVIEW2_CAB_SHA256 -notmatch '^[a-fA-F0-9]{64}$') { throw 'Win7 release requires the matching WebView2 Runtime 109 CAB SHA-256 secret' }
+          $url = [Uri]$env:WEBVIEW2_CAB_URL
+          if ($url.Scheme -ne 'https' -or $url.UserInfo) { throw 'CAB URL must use HTTPS without embedded credentials' }
+          $cab = Join-Path $env:RUNNER_TEMP 'webview2-109.cab'
+          Invoke-WebRequest -Uri $url -OutFile $cab
+          if ((Get-FileHash -LiteralPath $cab -Algorithm SHA256).Hash -ne $env:WEBVIEW2_CAB_SHA256) { throw 'WebView2 CAB integrity check failed' }
+          $runtime = Join-Path $env:RUNNER_TEMP 'webview2-109'
+          New-Item -ItemType Directory -Path $runtime -Force | Out-Null
+          expand.exe $cab '-F:*' $runtime
+          if ($LASTEXITCODE -ne 0) { throw 'WebView2 CAB extraction failed' }
+          $executables = @(Get-ChildItem -LiteralPath $runtime -Recurse -File -Filter msedgewebview2.exe)
+          if ($executables.Count -ne 1) { throw 'Expected one WebView2 Runtime executable' }
+          "IYW_WIN7_WEBVIEW2_FIXED_RUNTIME_PATH=$($executables[0].DirectoryName)" >> $env:GITHUB_ENV
+      - name: Configure Win7 release toolchain
+        if: contains(inputs.target, '-win7-')
+        run: |
+          "RUSTUP_TOOLCHAIN=nightly-2026-04-15" >> $env:GITHUB_ENV
+          "CARGO_UNSTABLE_BUILD_STD=std,panic_abort" >> $env:GITHUB_ENV
       - uses: actions/download-artifact@v4
         with:
           name: ${{ inputs.frontend_artifact }}
           path: out
       - name: Stage sidecars
         run: pnpm tauri:prepare-sidecars --target $env:TAURI_TARGET_TRIPLE
+      - name: Stage verified WebView2 Runtime
+        if: contains(inputs.target, '-win7-')
+        run: |
+          $config = Join-Path $env:RUNNER_TEMP 'tauri-win7-build.json'
+          node src-tauri/scripts/prepare-win7-webview.mjs --config $config
+          if ($LASTEXITCODE -ne 0) { throw 'Win7 WebView2 configuration failed' }
+          "IYW_WIN7_BUILD_CONFIG=$config" >> $env:GITHUB_ENV
       - name: Compile application alongside worker
-        if: inputs.parallel_worker
+        if: inputs.parallel_worker && !contains(inputs.target, '-win7-')
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
         run: |
           pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings
           if ($LASTEXITCODE -ne 0) { throw 'Parallel Windows compilation failed' }
       - name: Receive independently compiled worker
-        if: inputs.parallel_worker
+        if: inputs.parallel_worker && !contains(inputs.target, '-win7-')
         uses: ./.github/actions/receive-worker
         with:
           target: ${{ inputs.target }}
       - uses: ./.github/actions/prepare-worker
-        if: ${{ !inputs.parallel_worker && hashFiles('.github/actions/prepare-worker/action.yml') != '' }}
+        if: ${{ (!inputs.parallel_worker || contains(inputs.target, '-win7-')) && hashFiles('.github/actions/prepare-worker/action.yml') != '' }}
         with:
           target: ${{ inputs.target }}
       - name: Prepare legacy worker
-        if: ${{ !inputs.parallel_worker && hashFiles('.github/actions/prepare-worker/action.yml') == '' }}
+        if: ${{ (!inputs.parallel_worker || contains(inputs.target, '-win7-')) && hashFiles('.github/actions/prepare-worker/action.yml') == '' }}
         run: pnpm tauri:prepare-xinghe-worker --target $env:TAURI_TARGET_TRIPLE
       - name: Compile unsigned application only
-        if: ${{ !inputs.parallel_worker }}
+        if: ${{ !inputs.parallel_worker || contains(inputs.target, '-win7-') }}
         env:
           IYW_CLAW_SKIP_SIDECAR: "1"
         run: |
-          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --no-bundle --no-sign -- --timings
+          $win7Config = @()
+          if ($env:TAURI_TARGET_TRIPLE -like '*-win7-*') { $win7Config = @('--config', $env:IYW_WIN7_BUILD_CONFIG) }
+          pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json @win7Config --no-bundle --no-sign -- --timings
           if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
       - name: Package verified signing input
         run: |
@@ -139,6 +179,10 @@ jobs:
   sign:
     needs: build
     runs-on: [self-hosted, Windows, X64, iyw-signing]
+    concurrency:
+      group: windows-signing-${{ github.repository }}
+      queue: max
+      cancel-in-progress: false
     timeout-minutes: 60
     permissions:
       contents: write
@@ -184,6 +228,20 @@ jobs:
           sparse-checkout: |
             .github/scripts/release
             src-tauri/scripts
+      - uses: dtolnay/rust-toolchain@stable
+        if: ${{ !contains(inputs.target, '-win7-') }}
+        with:
+          targets: ${{ inputs.target }}
+      - uses: dtolnay/rust-toolchain@master
+        if: contains(inputs.target, '-win7-')
+        with:
+          toolchain: nightly-2026-04-15
+          components: rust-src
+      - name: Configure Win7 signing toolchain
+        if: contains(inputs.target, '-win7-')
+        run: |
+          "RUSTUP_TOOLCHAIN=nightly-2026-04-15" >> $env:GITHUB_ENV
+          "CARGO_UNSTABLE_BUILD_STD=std,panic_abort" >> $env:GITHUB_ENV
       - uses: pnpm/action-setup@v4
         with:
           run_install: false
@@ -212,7 +270,7 @@ jobs:
           overwrite: true
           path: |
             src-tauri/target/${{ inputs.target }}/release/iyw-claw.exe
-            src-tauri/target/${{ inputs.target }}/release/bundle/nsis/*_${{ env.RELEASE_VERSION }}_x64-setup.exe
+            src-tauri/target/${{ inputs.target }}/release/bundle/nsis/*_${{ env.RELEASE_VERSION }}_${{ startsWith(inputs.target, 'i686-') && 'x86' || 'x64' }}-setup.exe
             src-tauri/resources/xinghe-worker/*
             src-tauri/binaries/iyw-environment-${{ inputs.target }}.exe
           compression-level: 1

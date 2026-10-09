@@ -3,6 +3,8 @@ mod computer_driver;
 mod archive;
 mod client;
 mod download;
+#[path = "../../distribution-platform.rs"]
+mod distribution_platform;
 mod failure;
 mod install;
 mod inventory;
@@ -69,6 +71,14 @@ fn run() -> Result<u8> {
         "remove-computer-driver" => { computer_driver::remove()?; Ok(0) }
         "--version" | "-V" => {
             println!("iyw-environment {}", env!("CARGO_PKG_VERSION"));
+            Ok(0)
+        }
+        "--identity" => {
+            println!("{}", serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "target": env!("IYW_ENVIRONMENT_TARGET_TRIPLE"),
+                "distributionTarget": distribution_platform::TARGET,
+            }));
             Ok(0)
         }
         _ => bail!("unsupported command: {command}"),

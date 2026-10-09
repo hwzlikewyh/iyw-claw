@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url"
 import process from "node:process"
 import { windowsLayout, verifyWindowsStaging } from "./windows-staging.mjs"
 import { discoverSigntool } from "./sign-windows.mjs"
+import { win7WebviewConfig } from "./build-desktop-windows.mjs"
 
 const TOOL_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..")
 const ROOT = resolve(process.env.IYW_CLAW_BUILD_ROOT ?? TOOL_ROOT)
@@ -35,7 +36,6 @@ const PREFLIGHT_TIMEOUT_MS = 12 * 60_000
 const UNLOCK_TIMEOUT_MS = 90_000
 const BUNDLE_TIMEOUT_MS = 30 * 60_000
 const VERIFY_TIMEOUT_MS = 2 * 60_000
-const WIN7_TARGET = "x86_64-win7-windows-msvc"
 
 function fail(message) {
   throw new Error(message)
@@ -169,17 +169,8 @@ function unlockToken() {
 function prepareBundleConfig() {
   const config = join(tmpdir(), `iyw-staged-bundle-${process.pid}.json`)
   const bundle = { createUpdaterArtifacts: false }
-  if (TARGET === WIN7_TARGET) {
-    const runtimePath = process.env.IYW_WIN7_WEBVIEW2_FIXED_RUNTIME_PATH
-    if (!runtimePath) {
-      fail(
-        "Win7 staged signing requires IYW_WIN7_WEBVIEW2_FIXED_RUNTIME_PATH pointing to WebView2 Runtime 109"
-      )
-    }
-    bundle.windows = {
-      webviewInstallMode: { type: "fixedRuntime", path: resolve(runtimePath) },
-    }
-  }
+  const webview = win7WebviewConfig(TARGET)
+  if (webview) Object.assign(bundle, webview.bundle)
   writeFileSync(config, JSON.stringify({ bundle }) + "\n", "utf8")
   return config
 }

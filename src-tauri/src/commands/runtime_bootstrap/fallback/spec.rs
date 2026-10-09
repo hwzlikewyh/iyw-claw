@@ -82,6 +82,9 @@ pub(super) fn for_tool(tool_id: &str) -> Result<ComponentSpec, String> {
     if !cfg!(windows) {
         return Err("pinned runtime fallback is only available on Windows".to_string());
     }
+    if cfg!(target_vendor = "win7") {
+        return Err("Windows 7 requires dedicated managed runtime artifacts".to_string());
+    }
     let (node, git, uv) = specs_for_current_arch().ok_or_else(|| {
         "pinned runtime fallback does not support this CPU architecture".to_string()
     })?;

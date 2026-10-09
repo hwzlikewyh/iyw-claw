@@ -178,6 +178,10 @@ junction = "1"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(all(windows, target_vendor = "win7"))'.dependencies]
+# 无预编译 std 的目标不能由 indexmap 1 的 autocfg 探测标准库。
+indexmap-win7 = { package = "indexmap", version = "1.9.3", features = ["std"] }
+
 [target.'cfg(target_pointer_width = "64")'.dependencies]
 qdrant-edge = { version = "=0.8.0", optional = true }
 
@@ -208,6 +212,9 @@ insta = { version = "1", features = ["json", "redactions"] }
 axum-test = { version = "17", features = ["ws"] }
 
 [patch.crates-io]
+windows-link = { path = "vendor/windows-link" }
+windows-link-01 = { package = "windows-link", path = "vendor/windows-link-01" }
+windows-targets = { path = "vendor/windows-targets-048" }
 sacp-tokio = { path = "vendor/sacp-tokio" }
 # qdrant-edge enables parking_lot deadlock detection, which conflicts with
 # Codex's required send_guard feature in the combined in-process graph. The

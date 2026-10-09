@@ -1,0 +1,103 @@
+name: Build Windows 7 Candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      webview2_cab_url:
+        description: HTTPS URL of an archived Microsoft WebView2 Runtime 109 x64 CAB
+        required: true
+        type: string
+      webview2_cab_sha256:
+        description: Verified SHA-256 of the original WebView2 Runtime 109 x64 CAB
+        required: true
+        type: string
+      webview2_x86_cab_url:
+        description: HTTPS URL of an archived Microsoft WebView2 Runtime 109 x86 CAB
+        required: true
+        type: string
+      webview2_x86_cab_sha256:
+        description: Verified SHA-256 of the original WebView2 Runtime 109 x86 CAB
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-win7-windows-msvc
+            architecture: x64
+            cab_url: ${{ inputs.webview2_cab_url }}
+            cab_sha256: ${{ inputs.webview2_cab_sha256 }}
+          - target: i686-win7-windows-msvc
+            architecture: x86
+            cab_url: ${{ inputs.webview2_x86_cab_url }}
+            cab_sha256: ${{ inputs.webview2_x86_cab_sha256 }}
+    runs-on: windows-2022
+    timeout-minutes: 150
+    env:
+      CARGO_HOME: 'C:\c'
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "64"
+      CARGO_PROFILE_RELEASE_LTO: "off"
+      RUSTUP_TOOLCHAIN: nightly-2026-04-15
+      CARGO_UNSTABLE_BUILD_STD: std,panic_abort
+      TAURI_TARGET_TRIPLE: ${{ matrix.target }}
+    steps:
+      - name: Enable long source paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-04-15
+          components: rust-src
+      - uses: ilammy/setup-nasm@72793074d3c8cdda771dba85f6deafe00623038b
+        if: matrix.architecture == 'x86'
+        with:
+          version: 2.16.03
+          platform: win64
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: windows7-${{ matrix.architecture }}-nightly-2026-04-15
+          cache-workspace-crates: false
+      - name: Prepare archived WebView2 Runtime
+        env:
+          WEBVIEW2_CAB_URL: ${{ matrix.cab_url }}
+          WEBVIEW2_CAB_SHA256: ${{ matrix.cab_sha256 }}
+        run: |
+          $url = [Uri]$env:WEBVIEW2_CAB_URL
+          if ($url.Scheme -ne 'https' -or $url.UserInfo) { throw 'CAB URL must use HTTPS without embedded credentials' }
+          if ($env:WEBVIEW2_CAB_SHA256 -notmatch '^[a-fA-F0-9]{64}$') { throw 'CAB SHA-256 is required' }
+          $cab = Join-Path $env:RUNNER_TEMP 'webview2-109.cab'
+          Invoke-WebRequest -Uri $url -OutFile $cab
+          if ((Get-FileHash -LiteralPath $cab -Algorithm SHA256).Hash -ne $env:WEBVIEW2_CAB_SHA256) { throw 'WebView2 CAB integrity check failed' }
+          $runtime = Join-Path $env:RUNNER_TEMP 'webview2-109'
+          New-Item -ItemType Directory -Path $runtime -Force | Out-Null
+          expand.exe $cab '-F:*' $runtime
+          if ($LASTEXITCODE -ne 0) { throw 'WebView2 CAB extraction failed' }
+          $executables = @(Get-ChildItem -LiteralPath $runtime -Recurse -File -Filter msedgewebview2.exe)
+          if ($executables.Count -ne 1) { throw 'Expected one WebView2 Runtime executable' }
+          "IYW_WIN7_WEBVIEW2_FIXED_RUNTIME_PATH=$($executables[0].DirectoryName)" >> $env:GITHUB_ENV
+      - name: Install build dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build dedicated Win7 installer
+        run: pnpm tauri:build:win7 --no-sign
+      - name: Upload candidate for Win7 machine verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows7-${{ matrix.architecture }}-candidate-${{ github.sha }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14

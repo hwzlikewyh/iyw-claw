@@ -16,10 +16,12 @@ use windows_sys::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
 use windows_sys::Win32::Foundation::ERROR_SUCCESS;
 use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::NetworkManagement::NetManagement::UF_ACCOUNTDISABLE;
+#[cfg(not(target_vendor = "win7"))]
 use windows_sys::Win32::Storage::Packaging::Appx::GetPackageFullName;
 use windows_sys::Win32::System::Threading::GetCurrentProcess;
 use windows_sys::Win32::System::Threading::QueryFullProcessImageNameW;
 
+#[cfg(not(target_vendor = "win7"))]
 #[link(name = "kernel32")]
 unsafe extern "system" {
     fn GetStagedPackagePathByFullName(
@@ -46,6 +48,12 @@ fn current_package_full_name() -> Result<Option<String>> {
 }
 
 fn process_package_name(process: HANDLE) -> Result<Option<String>> {
+    #[cfg(target_vendor = "win7")]
+    {
+        let _ = process;
+        return Ok(None);
+    }
+    #[cfg(not(target_vendor = "win7"))]
     query_package_name(
         |length, buffer| unsafe { GetPackageFullName(process, length, buffer) },
         /*max_length*/ 32768,
@@ -89,6 +97,17 @@ pub(crate) fn current_process_has_package_identity() -> Result<bool> {
 }
 
 fn staged_package_root(name: &[u16]) -> Result<PathBuf> {
+    #[cfg(target_vendor = "win7")]
+    {
+        let _ = name;
+        bail!("Windows 7 does not support registered package sandbox runners");
+    }
+    #[cfg(not(target_vendor = "win7"))]
+    staged_package_root_supported(name)
+}
+
+#[cfg(not(target_vendor = "win7"))]
+fn staged_package_root_supported(name: &[u16]) -> Result<PathBuf> {
     let mut staged = vec![0u16; 32768];
     let mut length = staged.len() as u32;
     let status =

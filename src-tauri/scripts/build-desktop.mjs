@@ -1,52 +1,33 @@
 #!/usr/bin/env node
 
-import { execFileSync, spawnSync } from "node:child_process"
+import { spawnSync } from "node:child_process"
 import { copyFileSync, existsSync, readFileSync, readdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 import { createMacBuildPlan, resolveMacTarget } from "./build-desktop-macos.mjs"
+import {
+  createWindowsBuildPlan,
+  resolveWindowsTarget,
+  isWin7Target,
+} from "./build-desktop-windows.mjs"
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url)
 const REPO_ROOT = resolve(dirname(SCRIPT_PATH), "..", "..")
-const WIN7_TARGET = "x86_64-win7-windows-msvc"
 
-function resolveDesktopTarget() {
-  if (process.env.TAURI_TARGET_TRIPLE) return process.env.TAURI_TARGET_TRIPLE
-  const output = execFileSync("rustc", ["-vV"], { encoding: "utf8" })
-  return output
-    .split(/\r?\n/)
-    .find((line) => line.startsWith("host:"))
-    ?.slice("host:".length)
-    .trim()
-}
-
-function win7WebviewConfig() {
-  if (resolveDesktopTarget() !== WIN7_TARGET) return null
-  const runtimePath = process.env.IYW_WIN7_WEBVIEW2_FIXED_RUNTIME_PATH
-  if (!runtimePath || !existsSync(runtimePath)) {
-    throw new Error(
-      "Win7 builds require IYW_WIN7_WEBVIEW2_FIXED_RUNTIME_PATH pointing to the extracted WebView2 Runtime 109 directory"
-    )
-  }
-  return JSON.stringify({
-    bundle: {
-      windows: {
-        webviewInstallMode: { type: "fixedRuntime", path: resolve(runtimePath) },
-      },
-    },
-  })
-}
-
-export function brandedInstallerName(fileName) {
+export function brandedInstallerName(fileName, target = null) {
   const match = /^(?:iyw-claw|原助理)_([^_]+)_([^-]+)-setup\.exe$/i.exec(
     fileName
   )
   if (!match) throw new Error(`unrecognized NSIS installer name: ${fileName}`)
-  return `原助理-v${match[1]}-${match[2]}-setup.exe`
+  const platform = isWin7Target(target) ? "win7-" : ""
+  return `原助理-v${match[1]}-${platform}${match[2]}-setup.exe`
 }
 
-export function stageBrandedInstallerArtifacts(repoRoot = REPO_ROOT) {
+export function stageBrandedInstallerArtifacts(
+  repoRoot = REPO_ROOT,
+  target = resolveWindowsTarget()
+) {
   const packageJson = JSON.parse(
     readFileSync(join(repoRoot, "package.json"), "utf8")
   )
@@ -54,6 +35,7 @@ export function stageBrandedInstallerArtifacts(repoRoot = REPO_ROOT) {
     repoRoot,
     "src-tauri",
     "target",
+    target,
     "release",
     "bundle",
     "nsis"
@@ -76,7 +58,7 @@ export function stageBrandedInstallerArtifacts(repoRoot = REPO_ROOT) {
   }
   for (const installer of installers) {
     const source = join(outputDir, installer)
-    const branded = join(outputDir, brandedInstallerName(installer))
+    const branded = join(outputDir, brandedInstallerName(installer, target))
     copyFileSync(source, branded)
     if (existsSync(`${source}.sig`)) {
       copyFileSync(`${source}.sig`, `${branded}.sig`)
@@ -128,64 +110,7 @@ export function parseBuildOptions(argv) {
 export function createBuildPlan(tauriCli, options, signingConfigPath = null) {
   if (process.platform === "darwin")
     return createMacBuildPlan(tauriCli, options, resolveMacTarget())
-  const env = { ...process.env }
-  const win7Webview = win7WebviewConfig()
-  if (options.jobs) {
-    env.CARGO_BUILD_JOBS = String(options.jobs)
-  }
-
-  const bundle = {
-    label: "NSIS bundle",
-    args: [tauriCli, "bundle", "--bundles", "nsis"],
-  }
-  if (signingConfigPath) {
-    bundle.args.push("--config", signingConfigPath)
-  }
-  if (win7Webview) bundle.args.push("--config", win7Webview)
-  if (options.noSign) {
-    bundle.args.push("--no-sign")
-  }
-  const prepareSidecars = {
-    label: "sidecar preparation",
-    args: [join(REPO_ROOT, "src-tauri", "scripts", "prepare-sidecars.mjs")],
-  }
-  const prepareWorker = {
-    label: "embedded runtime metadata",
-    args: [join(REPO_ROOT, "src-tauri", "scripts", "prepare-xinghe-worker.mjs")],
-  }
-  const verifyEmbedded = {
-    label: "embedded runtime verification",
-    args: [join(REPO_ROOT, "src-tauri", "scripts", "verify-xinghe-worker-bundle.mjs")],
-  }
-  if (options.bundleOnly) {
-    return { env, steps: [prepareSidecars, prepareWorker, bundle, verifyEmbedded] }
-  }
-
-  const buildArgs = [tauriCli, "build"]
-  if (options.reuseAssets) {
-    buildArgs.push("--config", '{"build":{"beforeBuildCommand":null}}')
-  }
-  // Later --config wins on conflict, and this one only sets bundle.windows
-  // keys, so it composes with the --reuse-assets overlay above.
-  if (signingConfigPath) {
-    buildArgs.push("--config", signingConfigPath)
-  }
-  if (win7Webview) buildArgs.push("--config", win7Webview)
-  if (options.verbose) {
-    buildArgs.push("-vv")
-  }
-  if (options.noSign) {
-    buildArgs.push("--no-sign")
-  }
-  buildArgs.push("--", "--timings")
-  return {
-    env,
-    steps: [
-      ...(options.reuseAssets ? [prepareSidecars, prepareWorker] : []),
-      { label: "release build and bundle", args: buildArgs },
-      verifyEmbedded,
-    ],
-  }
+  return createWindowsBuildPlan(tauriCli, options, signingConfigPath)
 }
 
 function runStep(step, env) {
@@ -244,7 +169,7 @@ function finalizeWindowsBuild(env) {
     },
     env
   )
-  stageBrandedInstallerArtifacts()
+  stageBrandedInstallerArtifacts(REPO_ROOT, env.TAURI_TARGET_TRIPLE)
 }
 
 function main() {
@@ -276,7 +201,7 @@ function main() {
   if (process.platform !== "darwin") finalizeWindowsBuild(plan.env)
   if (!options.bundleOnly) {
     console.log(
-      "[desktop-build] Cargo timing report: src-tauri/target/cargo-timings/cargo-timing.html"
+      `[desktop-build] Cargo timing report: src-tauri/target/${plan.env.TAURI_TARGET_TRIPLE}/cargo-timings/cargo-timing.html`
     )
   }
 }

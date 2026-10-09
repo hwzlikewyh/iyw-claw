@@ -36,8 +36,7 @@
     },
     "windows": {
       "webviewInstallMode": {
-        "type": "embedBootstrapper",
-        "silent": true
+        "type": "embedBootstrapper"
       },
       "nsis": {
         "compression": "zlib",

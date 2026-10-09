@@ -4,7 +4,8 @@ import { useImperativeHandle, type Ref } from "react"
 import { useTranslations } from "next-intl"
 import type { PDFDocumentProxy } from "pdfjs-dist"
 import { usePdfViewer } from "./use-pdf-viewer"
-import "pdfjs-dist/web/pdf_viewer.css"
+import "pdfjs-dist/legacy/web/pdf_viewer.css"
+import "./pdf-legacy-colors.css"
 
 export interface PdfPagesHandle {
   goToPage: (pageNumber: number) => void

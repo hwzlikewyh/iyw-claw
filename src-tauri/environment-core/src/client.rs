@@ -56,12 +56,14 @@ impl FusionClient {
                 .and_then(|value| value.get("errorCode"))
                 .and_then(|value| value.as_str())
                 .unwrap_or("UNKNOWN");
+            let message = if request.target == "windows7" {
+                format!("Win7 专用环境计划不可用；不会下载普通 Windows 组件。Fusion 返回 {code}：{}", body.message)
+            } else {
+                format!("Fusion 环境计划失败（{code}，HTTP {status}）：{}", body.message)
+            };
             return Err(Failure::permanent(
                 "PLAN",
-                format!(
-                    "Fusion 环境计划失败（{code}，HTTP {status}）：{}",
-                    body.message
-                ),
+                message,
             )
             .into());
         }

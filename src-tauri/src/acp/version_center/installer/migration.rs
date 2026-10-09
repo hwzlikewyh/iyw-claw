@@ -201,6 +201,10 @@ pub async fn run_legacy_migration(
 
 /// 定位 `<version>/<platform>` 层：Windows 平台目录名为 `win-x64` 等。
 async fn legacy_platform_dir(version_dir: &Path, tool: &str) -> Option<PathBuf> {
+    // 旧 Windows 布局无 Win7 兼容证据，不能改写成 Win7 的受管库存。
+    if cfg!(all(windows, target_vendor = "win7")) {
+        return None;
+    }
     let platform = match capability::current_arch() {
         "x86_64" => "win-x64",
         "aarch64" => "win-arm64",

@@ -1,11 +1,16 @@
 //! Queries held process package identities without trusting routing hints or environment state.
 
+#[cfg(not(target_vendor = "win7"))]
 use anyhow::Context;
 use anyhow::Result;
+#[cfg(not(target_vendor = "win7"))]
 use anyhow::bail;
+#[cfg(not(target_vendor = "win7"))]
 use std::io;
+#[cfg(not(target_vendor = "win7"))]
 use windows_sys::Win32::Foundation as foundation;
 use windows_sys::Win32::Foundation::HANDLE;
+#[cfg(not(target_vendor = "win7"))]
 use windows_sys::Win32::Storage::Packaging::Appx::GetPackageFamilyName;
 
 /// Reads a process's OS package family. Absence is not authorization.
@@ -13,6 +18,20 @@ use windows_sys::Win32::Storage::Packaging::Appx::GetPackageFamilyName;
 /// # Safety
 /// The caller must keep the process handle valid throughout the query.
 pub unsafe fn process_package_family(process: HANDLE) -> Result<Option<String>> {
+    #[cfg(target_vendor = "win7")]
+    {
+        let _ = process;
+        // Win7 没有 OS package identity；返回缺失不能授予注册包权限。
+        return Ok(None);
+    }
+    #[cfg(not(target_vendor = "win7"))]
+    unsafe {
+        process_package_family_supported(process)
+    }
+}
+
+#[cfg(not(target_vendor = "win7"))]
+unsafe fn process_package_family_supported(process: HANDLE) -> Result<Option<String>> {
     let mut length = 0;
     let status = unsafe { GetPackageFamilyName(process, &mut length, std::ptr::null_mut()) };
     if status == foundation::APPMODEL_ERROR_NO_PACKAGE {

@@ -193,7 +193,9 @@ fn add_entrypoint(
 fn is_open_computer_use_entrypoint(path: &str) -> bool {
     match (std::env::consts::OS, std::env::consts::ARCH) {
         ("windows", "aarch64") => path.ends_with("dist/windows/arm64/open-computer-use.exe"),
-        ("windows", _) => path.ends_with("dist/windows/amd64/open-computer-use.exe"),
+        ("windows", "x86_64") => path.ends_with("dist/windows/amd64/open-computer-use.exe"),
+        // No verified 32-bit open-computer-use artifact is currently published.
+        ("windows", "x86") => false,
         ("linux", "aarch64") => path.ends_with("dist/linux/arm64/open-computer-use"),
         ("linux", _) => path.ends_with("dist/linux/amd64/open-computer-use"),
         ("macos", _) => path.ends_with("open computer use.app/contents/macos/opencomputeruse"),

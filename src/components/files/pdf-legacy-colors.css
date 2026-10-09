@@ -1,0 +1,38 @@
+/* PDF.js 的 legacy JS 保留现代 CSS；为 WebView2 109 提供交互颜色。 */
+@supports not (color: color-mix(in srgb, black, transparent)) {
+  .textLayer ::selection {
+    background: rgba(48, 128, 255, 0.5);
+  }
+
+  .toggle-button {
+    --toggle-background-color: rgba(0, 0, 0, 0.07);
+    --toggle-background-color-hover: rgba(0, 0, 0, 0.14);
+    --toggle-background-color-active: rgba(0, 0, 0, 0.21);
+  }
+
+  .popupMenu {
+    --menuitem-active-bg: rgba(0, 0, 0, 0.21);
+    --menuitem-focus-bg: rgba(0, 0, 0, 0.07);
+    --menuitem-hover-bg: rgba(0, 0, 0, 0.14);
+  }
+
+  #viewsManager {
+    --button-focus-no-bg: rgba(0, 0, 0, 0.07);
+  }
+
+  .dark .toggle-button {
+    --toggle-background-color: rgba(255, 255, 255, 0.07);
+    --toggle-background-color-hover: rgba(255, 255, 255, 0.14);
+    --toggle-background-color-active: rgba(255, 255, 255, 0.21);
+  }
+
+  .dark .popupMenu {
+    --menuitem-active-bg: rgba(255, 255, 255, 0.21);
+    --menuitem-focus-bg: rgba(255, 255, 255, 0.07);
+    --menuitem-hover-bg: rgba(255, 255, 255, 0.14);
+  }
+
+  .dark #viewsManager {
+    --button-focus-no-bg: rgba(255, 255, 255, 0.07);
+  }
+}

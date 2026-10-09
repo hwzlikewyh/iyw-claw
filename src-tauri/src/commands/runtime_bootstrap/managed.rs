@@ -97,7 +97,7 @@ pub(super) async fn ensure_component(
             }
             Err(error) => {
                 let allowed = fallback_allowed(&error);
-                let fallback_supported = cfg!(windows);
+                let fallback_supported = cfg!(all(windows, not(target_vendor = "win7")));
                 tracing::warn!(
                     decision = "managed_install_failed",
                     managed_error_code = ?error.code,

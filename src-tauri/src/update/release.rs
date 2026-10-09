@@ -109,8 +109,13 @@ pub fn configured_base_url() -> String {
 }
 
 pub fn endpoint(preferences: &UpdatePreferences, reason: CheckReason) -> String {
+    let target = if cfg!(all(windows, target_vendor = "win7")) {
+        crate::distribution_platform::TARGET
+    } else {
+        "{{target}}"
+    };
     format!(
-        "{}/app-updates/v1/tauri/check/{{{{target}}}}/{{{{arch}}}}/{{{{current_version}}}}?product=iyw-claw&runtime=desktop&channel={}&reason={}",
+        "{}/app-updates/v1/tauri/check/{target}/{{{{arch}}}}/{{{{current_version}}}}?product=iyw-claw&runtime=desktop&channel={}&reason={}",
         configured_base_url(),
         preferences.channel.as_str(),
         reason.as_str()

@@ -1,10 +1,21 @@
 const UPDATER_FILENAME = "latest.json"
 const LEGACY_MCP_ASSET_PATTERN = /^iyw-claw-mcp(?:-|\.|$)/i
+const WIN7_REQUIRED = process.env.IYW_WIN7_RELEASE_ENABLED === "true"
 const replaceReleaseAsset = require("./replace-release-asset.cjs")
 // Match installers by suffix: the product name is non-ASCII ("原助理") and
 // gets sanitized away in uploaded asset names, so never match on the prefix.
 const PLATFORM_PATTERNS = [
-  { platform: "windows-x86_64", pattern: /x64-setup\.exe$/ },
+  { platform: "windows-x86_64", pattern: /(?<!win7-)x64-setup\.exe$/ },
+  {
+    platform: "windows7-x86_64",
+    pattern: /win7-x64-setup\.exe$/,
+    optional: !WIN7_REQUIRED,
+  },
+  {
+    platform: "windows7-i686",
+    pattern: /win7-x86-setup\.exe$/,
+    optional: !WIN7_REQUIRED,
+  },
   { platform: "darwin-x86_64", pattern: /x64\.app\.tar\.gz$/ },
   { platform: "darwin-aarch64", pattern: /aarch64\.app\.tar\.gz$/ },
   // Linux desktop builds are paused in release.yml; publish the platform only

@@ -16,16 +16,27 @@ const WORKER_FILES = ["runtime.json"]
 
 export function windowsLayout(target) {
   if (
-    !["x86_64-pc-windows-msvc", "x86_64-win7-windows-msvc"].includes(target)
+    ![
+      "x86_64-pc-windows-msvc",
+      "i686-pc-windows-msvc",
+      "x86_64-win7-windows-msvc",
+      "i686-win7-windows-msvc",
+    ].includes(target)
   ) {
     throw new Error(`unsupported Windows staging target: ${target}`)
   }
   const binary = `src-tauri/target/${target}/release/iyw-claw.exe`
   const helper = `src-tauri/binaries/iyw-environment-${target}.exe`
+  const win7 = target.includes("-win7-")
   return {
-    arch: "x64",
+    arch: target.startsWith("i686-") ? "x86" : "x64",
     binary,
-    directories: ["out", WORKER_ROOT, "src-tauri/binaries"],
+    directories: [
+      "out",
+      WORKER_ROOT,
+      "src-tauri/binaries",
+      ...(win7 ? ["src-tauri/resources/webview2-win7"] : []),
+    ],
     files: [binary],
     required: [
       binary,

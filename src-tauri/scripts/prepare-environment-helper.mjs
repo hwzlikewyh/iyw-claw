@@ -1,13 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process"
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readdirSync,
-  rmSync,
-} from "node:fs"
+import { copyFileSync, existsSync, mkdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import process from "node:process"
@@ -53,9 +47,6 @@ export function prepareEnvironmentHelper(target = null) {
     throw new Error(`environment helper missing: ${source}`)
   verifyEnvironmentRuntime(source, resolvedTarget)
   mkdirSync(BINARIES, { recursive: true })
-  for (const entry of readdirSync(BINARIES)) {
-    if (/^iyw-environment-/.test(entry)) rmSync(join(BINARIES, entry))
-  }
   const destination = join(BINARIES, helperFileName(resolvedTarget))
   copyFileSync(source, destination)
   console.log(`[prepare-environment-helper] staged ${destination}`)

@@ -23,13 +23,22 @@ const endpoint = new URL(
 assert.equal(endpoint.protocol, "https:")
 assert.ok(!endpoint.username && !endpoint.password)
 
-const targets = [
+const platforms = [
   ["windows", "x86_64"],
   ["darwin", "x86_64"],
   ["darwin", "aarch64"],
   ["linux", "x86_64"],
   ["linux", "aarch64"],
-].map(([target, arch]) => ({ target, arch }))
+]
+if (process.argv.includes("--win7")) {
+  platforms.splice(
+    0,
+    platforms.length,
+    ["windows7", "x86_64"],
+    ["windows7", "i686"]
+  )
+}
+const targets = platforms.map(([target, arch]) => ({ target, arch }))
 
 const response = await fetch(endpoint, {
   method: "POST",

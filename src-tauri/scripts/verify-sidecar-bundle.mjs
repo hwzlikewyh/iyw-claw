@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url"
 import process from "node:process"
 import { verifyArtifacts } from "./verify-signatures.mjs"
 import { verifyWorkerBundle } from "./verify-xinghe-worker-bundle.mjs"
+import { isWin7Target } from "./build-desktop-windows.mjs"
 import {
   computerSourceFingerprint,
   verifyComputerExecutor,
@@ -152,7 +153,9 @@ function resolveInstallerPath(args, target, version) {
   const architecture = target.startsWith("i686") ? "x86" : "x64"
   const directories = [
     join(SRC_TAURI, "target", target, "release", "bundle", "nsis"),
-    join(SRC_TAURI, "target", "release", "bundle", "nsis"),
+    ...(isWin7Target(target)
+      ? []
+      : [join(SRC_TAURI, "target", "release", "bundle", "nsis")]),
   ]
   for (const directory of directories) {
     if (!existsSync(directory)) continue

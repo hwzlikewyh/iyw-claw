@@ -56,6 +56,7 @@ jobs:
           IYW_FUSION_ADMIN_TOKEN: ${{ secrets.FUSION_ADMIN_TOKEN }}
           IYW_FUSION_GATEWAY_TOKEN: ${{ secrets.FUSION_ACCESS_TOKEN }}
           IYW_CLAW_FUSION_API_BASE_URL: https://gateway.iyw.cn/iyw-fusion-api
+          IYW_WIN7_RELEASE_ENABLED: ${{ vars.IYW_WIN7_RELEASE_ENABLED }}
         run: |
           set -euo pipefail
 
@@ -77,6 +78,10 @@ jobs:
 
           node src-tauri/scripts/prepare-environment-binding.mjs "$version"
           node src-tauri/scripts/verify-environment-plan.mjs "$version"
+          if [[ "$IYW_WIN7_RELEASE_ENABLED" == "true" ]]; then
+            node src-tauri/scripts/prepare-environment-binding.mjs "$version" --win7
+            node src-tauri/scripts/verify-environment-plan.mjs "$version" --win7
+          fi
 
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
 
@@ -328,6 +333,28 @@ jobs:
       release_tag: ${{ needs.create-draft-release.outputs.release_tag }}
     secrets: inherit
 
+  build-windows7:
+    if: ${{ vars.IYW_WIN7_RELEASE_ENABLED == 'true' }}
+    needs: [create-draft-release, prepare-frontend]
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - target: x86_64-win7-windows-msvc
+          - target: i686-win7-windows-msvc
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/release-windows-staged.yml
+    with:
+      parallel_worker: false
+      target: ${{ matrix.target }}
+      source_ref: ${{ needs.create-draft-release.outputs.source_ref }}
+      release_id: ${{ needs.create-draft-release.outputs.release_id }}
+      release_tag: ${{ needs.create-draft-release.outputs.release_tag }}
+    secrets: inherit
+
   verify-windows-installers:
     needs:
       - create-draft-release
@@ -356,11 +383,14 @@ jobs:
       - build-tauri
       - build-macos-x64
       - build-windows
+      - build-windows7
       - verify-windows-installers
       - verify-macos-x64-installer
     # Only require Windows and macOS builds to succeed (Linux builds disabled)
-    if: ${{ needs.build-tauri.result == 'success' && needs.build-macos-x64.result == 'success' && needs.build-windows.result == 'success' && needs.verify-windows-installers.result == 'success' && needs.verify-macos-x64-installer.result == 'success' }}
+    if: ${{ !cancelled() && needs.build-tauri.result == 'success' && needs.build-macos-x64.result == 'success' && needs.build-windows.result == 'success' && needs.verify-windows-installers.result == 'success' && needs.verify-macos-x64-installer.result == 'success' && (vars.IYW_WIN7_RELEASE_ENABLED != 'true' || needs.build-windows7.result == 'success') }}
     runs-on: ubuntu-22.04
+    env:
+      IYW_WIN7_RELEASE_ENABLED: ${{ vars.IYW_WIN7_RELEASE_ENABLED }}
     permissions:
       contents: write
     steps:

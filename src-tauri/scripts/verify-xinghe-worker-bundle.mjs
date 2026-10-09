@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseTarget } from "./prepare-xinghe-worker.mjs"
+import { isWin7Target, verifyWin7Imports } from "./build-desktop-windows.mjs"
 import {
   verifyHelperBinary,
   windowsRuntimeImports,
@@ -44,7 +45,9 @@ function executableFor(resourceRoot, target) {
   if (resolve(resourceRoot) === join(ROOT, "src-tauri"))
     candidates.unshift(
       join(ROOT, "src-tauri/target", target, "release", name),
-      join(ROOT, "src-tauri/target/release", name)
+      ...(isWin7Target(target)
+        ? []
+        : [join(ROOT, "src-tauri/target/release", name)])
     )
   const executable = candidates.find(existsSync)
   if (!executable)
@@ -62,6 +65,9 @@ export function verifyWorkerBundle(resourceRoot, target) {
   const manifest = verifyRuntimeManifest(directory, target)
   const executable = executableFor(resourceRoot, target)
   const bytes = readFileSync(executable)
+  if (isWin7Target(target) && !bytes.includes(Buffer.from(target)))
+    throw new Error("Win7 application is missing its compiled target identity")
+  verifyWin7Imports(bytes, target)
   verifyHelperBinary(bytes, target)
   if (
     !bytes.includes(Buffer.from(manifest.commit)) ||
