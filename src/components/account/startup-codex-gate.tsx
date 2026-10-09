@@ -1,7 +1,14 @@
 "use client"
 
 import { useTranslations } from "next-intl"
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react"
 
 import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { OverlayWindowControls } from "@/components/layout/overlay-window-controls"
@@ -9,6 +16,7 @@ import { useIywAccount } from "@/contexts/iyw-account-context"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
 import { officecliBootstrap } from "@/lib/api"
 import { isLocalDesktop, subscribe } from "@/lib/platform"
+import { onTransportChange } from "@/lib/transport"
 import type { BootstrapInitEvent } from "@/lib/types"
 import { randomUUID } from "@/lib/utils"
 import {
@@ -16,6 +24,7 @@ import {
   executeCodexBootstrap,
 } from "./startup-codex-bootstrap"
 import { StartupInitializationPanel } from "./startup-initialization-panel"
+import { DesktopRuntimeMonitor } from "./desktop-runtime-monitor"
 
 const BOOTSTRAP_INIT_EVENT = "app://bootstrap-init"
 const CHECKING_VISIBILITY_DELAY_MS = 800
@@ -29,6 +38,25 @@ type CodexBootstrapState =
   | "error"
 
 export function StartupCodexGate({ children }: { children: ReactNode }) {
+  const localDesktop = useSyncExternalStore<boolean | null>(
+    onTransportChange,
+    isLocalDesktop,
+    () => null
+  )
+  if (localDesktop === null) return null
+  // 桌面环境由安装引导准备；刷新仅后台检测，不再阻塞工作区或自动修复。
+  if (localDesktop) {
+    return (
+      <>
+        {children}
+        <DesktopRuntimeMonitor />
+      </>
+    )
+  }
+  return <ServerStartupCodexGate>{children}</ServerStartupCodexGate>
+}
+
+function ServerStartupCodexGate({ children }: { children: ReactNode }) {
   const t = useTranslations("StartupCodex")
   const { status } = useIywAccount()
   const { refresh: refreshAgents } = useAcpAgents()
