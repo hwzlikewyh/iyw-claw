@@ -56,8 +56,8 @@
 | diff | `git diff --check` 通过 |
 
 整理前 helper 源码指纹：`6ecd673595654ba5c1d53dc1d154a7db6879df13f52d0d7b1b34dd47354cf91e`。
-当前待构建源码指纹：`5833d121b366f9ea8b4ee2ed38120f966ef6c321f9c7596e98ac35f70b978101`。
-上述当前指纹已由最终 helper 构建与 `--identity` 校验确认。
+原工作树收尾源码指纹：`5833d121b366f9ea8b4ee2ed38120f966ef6c321f9c7596e98ac35f70b978101`。
+上述指纹已由原工作树最终 helper 构建与 `--identity` 校验确认。
 最终前端修复按宿主隔离设置、权限、窗口列表、缩略图和共享面板的状态，
 并阻止旧宿主权限请求随后在新宿主打开设置；这些修改之后已重新执行类型/lint。
 
@@ -100,3 +100,24 @@ async closure 有两处误报，与 HEAD 一致，本轮没有新增解析错误
 - 新版本门槛对应的 Fusion 相关回归、vet/build 和 diff 检查通过；测试库同步 0.1.260
   兼容下限但继续保持草稿。临时发布进程已停止、仓库临时源码已清理；临时脚本、
   二进制和字节码删除被自动审批拒绝（blocked by policy），这些文件仍保留。
+
+## 2026-10-09 主分支集成
+
+用户已要求提交、推送并合并至主分支。Claw 本次改动单独迁移到最新 `origin/main`
+集成，没有带入原功能分支的其他未合并提交；应用版本沿用主分支 `0.1.259`，
+新功能的正式应用发布仍使用 `0.1.260` 或更新未占用版本。
+Fusion 原生驱动分发已合并并推送到 `master`，合并后的相关回归、vet/build 通过。
+
+集成工作树的 helper 源码指纹为 `4043d7ed39589b0f8b681ffab46767969430df60ebfb6eb7a43a8ecf5595354f`。
+Git checkout 的换行字节会影响该指纹，正式 helper 必须从同一发布工作树重新构建并核验。
+此前 `0.1.256` 的 debug helper 与构建记录保留为原工作树证据，不能直接作为主分支安装包。
+
+集成后的 TypeScript 检查通过；本次 62 个前端文件的 ESLint 通过，摘要渲染 JSX
+格式已修正。桌面 `cargo check --bin iyw-claw --locked --offline --jobs 4` 通过，
+有既有 Rust warning。复用之前生成的本地 frontend/worker 资源完成检查，未把资源
+或 cargo check 的零字节 sidecar 占位文件提交为制品。
+`server-runtime,computer-helper` 全 bin 的 locked/offline cargo check 也通过，
+有 Rust warning。后续 main 合并须核对合并树与已验证功能分支一致。
+JSON、脚本、安装脚本、diff 和凭据模式检查通过；原有 62 个工具 schema 保持一致，
+新增 18 个电脑工具，Claw 与 Fusion 六平台归档摘要一致。本轮按仓库规则未运行
+Claw 自动化测试，正式安装包、签名及真实桌面操作继续作为后续发布门禁。

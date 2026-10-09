@@ -2273,8 +2273,13 @@ const ToolCallPart = memo(function ToolCallPart({
       isFileTool) &&
     !part.errorText
   if (isContextCompactionMeta(part.meta)) {
-    return <ContextCompactionCard state={part.state} meta={part.meta}
-      summary={contextCompactionSummary(part.meta, part.output)} />
+    return (
+      <ContextCompactionCard
+        state={part.state}
+        meta={part.meta}
+        summary={contextCompactionSummary(part.meta, part.output)}
+      />
+    )
   }
 
   // Agent/subagent tools get a dedicated container rendering
