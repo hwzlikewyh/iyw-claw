@@ -3,6 +3,22 @@
 //! Windows/Linux 使用私有管道；执行器只接受固定操作，驱动保持版本与摘要校验。
 //! 独立服务端保留旧执行器发布契约。
 
+pub mod act;
+#[cfg(target_os = "macos")]
+pub mod axwin;
+pub mod clipboard;
+pub mod driver_proc;
+#[cfg(windows)]
+pub mod hwnd;
+pub mod keystate;
+pub mod mcp;
+pub mod ops;
+pub mod screen;
+pub mod session;
+pub mod tree;
+#[cfg(all(target_os = "linux", feature = "computer-executor"))]
+pub mod x11win;
+
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
