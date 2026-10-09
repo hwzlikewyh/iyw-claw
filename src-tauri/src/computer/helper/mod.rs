@@ -1,45 +1,7 @@
-//! `iyw-computer-helper`: the process that holds the OS permissions for
-//! computer use, and runs the driver as its child.
-//!
-//! On macOS the helper is launched by iyw-claw as its own TCC responsible
-//! process, so Accessibility and Screen Recording are granted to it and not to
-//! iyw-claw — where every agent's shell would inherit them. That makes the helper
-//! the thing an agent would most like to drive itself: any process can launch
-//! a copy of it the same way iyw-claw does. So **before it reads a byte, the
-//! helper checks that the process on the other end of its stdin is iyw-claw** —
-//! by the audit token the kernel attached to the socket, against iyw-claw's
-//! designated requirement compiled into this binary — and exits, having done
-//! nothing, if it is not.
-//!
-//! The requirement is compiled in (`IYW_CLAW_COMPUTER_PEER_REQUIREMENT`, set by
-//! the release build) rather than read from anywhere at run time: the app
-//! bundle both binaries ship in is owned by the user and writable by any of
-//! their processes. A build without it is a development build. Development
-//! builds skip the peer check and say so in their first frame — tolerable only
-//! because such a build is ad-hoc signed, so the permissions granted to it are
-//! keyed to that one build's cdhash. **A helper that carries a Team ID and no
-//! requirement refuses to start**: that would be a helper matching the release
-//! signing identity with no check in front of it, a standing key to whatever
-//! the user granted.
-//!
-//! On Windows and Linux there is no TCC to guard and no code signature to
-//! check; the helper serves its stdin, which is the pipe iyw-claw gave it.
-
-pub mod act;
-#[cfg(target_os = "macos")]
-pub mod axwin;
-pub mod clipboard;
-pub mod driver_proc;
-#[cfg(windows)]
-pub mod hwnd;
-pub mod keystate;
-pub mod mcp;
-pub mod ops;
-pub mod screen;
-pub mod session;
-pub mod tree;
-#[cfg(all(target_os = "linux", feature = "computer-helper"))]
-pub mod x11win;
+//! 电脑操作执行器。桌面端运行在同一主程序文件的后台子进程中。
+//! macOS 权限归主应用，签名包通过 socket 审计令牌校验调用方。
+//! Windows/Linux 使用私有管道；执行器只接受固定操作，驱动保持版本与摘要校验。
+//! 独立服务端保留旧执行器发布契约。
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

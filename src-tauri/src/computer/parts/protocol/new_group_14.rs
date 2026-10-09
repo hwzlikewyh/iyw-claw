@@ -22,7 +22,7 @@ impl HelperError {
         };
         Self {
             code: HelperErrorCode::PermissionMissing,
-            message: format!("iyw-computer-helper has not been granted {what}"),
+            message: format!("电脑操作尚未获得 {what} 权限，请在系统设置中授权原助理"),
             permission: Some(permission),
         }
     }

@@ -8,6 +8,7 @@ pub(super) fn spawn_helper(
 ) -> Result<(HelperChild, Io, PeerFd), BackendError> {
     let mut command = tokio::process::Command::new(path);
     command
+        .args(crate::computer::entry::launch_args())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

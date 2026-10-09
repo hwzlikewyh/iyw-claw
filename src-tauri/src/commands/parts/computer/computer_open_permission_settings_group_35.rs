@@ -18,8 +18,7 @@ pub async fn computer_open_permission_settings(
         .map_err(|e| AppCommandError::configuration_invalid(e.to_string()))
 }
 
-/// Show iyw-computer-helper in the Finder — for dragging it into System
-/// Settings' list by hand, should it not be listed there after a request.
+/// 在访达定位主应用，供用户手动添加到系统权限列表；命令名保留兼容。
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
 pub async fn computer_reveal_helper(app: AppHandle) -> Result<(), AppCommandError> {

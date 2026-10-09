@@ -60,7 +60,13 @@ fn export_signing_requirements() {
         ("IYW_CLAW_COMPUTER_TEAM_ID", team.clone()),
         (
             "IYW_CLAW_COMPUTER_HELPER_REQUIREMENT",
-            requirement("app.iywclaw.computer-helper"),
+            requirement(
+                if std::env::var_os("CARGO_FEATURE_TAURI_RUNTIME").is_some() {
+                    "app.iywclaw"
+                } else {
+                    "app.iywclaw.computer-helper"
+                },
+            ),
         ),
         (
             "IYW_CLAW_COMPUTER_PEER_REQUIREMENT",

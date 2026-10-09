@@ -1,18 +1,5 @@
-//! The two read-only TCC questions: does *this* process have Accessibility,
-//! and does it have Screen Recording.
-//!
-//! Neither raises a dialog. They are the only TCC-related calls allowed in
-//! iyw-claw's own binary, and iyw-claw asks them about itself for one reason: a
-//! person who once granted iyw-claw either permission — by hand, or following
-//! an old guide — has handed it to every agent's shell, and should be told.
-//! The helper never asks them about itself: macOS keeps a process's first
-//! "not granted" for its whole life, and the helper makes Accessibility calls
-//! of its own. It asks a process started for the purpose (see
-//! `helper::driver_proc::probe_permissions`).
-//!
-//! The calls that *ask* for a permission are not here: they belong to the
-//! helper binary alone, so that nothing iyw-claw links can raise a permission
-//! request in iyw-claw's name.
+//! 查询当前 macOS 应用的辅助功能与屏幕录制权限，不弹出请求。
+//! 桌面端权限属于主应用；授权请求通过临时后台角色执行。
 
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {

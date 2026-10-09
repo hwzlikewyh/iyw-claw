@@ -19,6 +19,7 @@ crate-type = ["rlib"]
 [features]
 default = ["tauri-runtime", "memory-semantic"]
 tauri-runtime = [
+    "computer-executor",
     "dep:tauri",
     "dep:tauri-plugin-opener",
     "dep:tauri-plugin-dialog",
@@ -42,7 +43,8 @@ test-gateway = []
 # entry point enables only the feature it needs.
 server-runtime = ["memory-semantic"]
 memory-bench = []
-computer-helper = ["dep:x11rb"]
+computer-executor = ["dep:x11rb"]
+computer-helper = ["computer-executor"]
 memory-semantic = ["dep:qdrant-edge"]
 
 [[bin]]

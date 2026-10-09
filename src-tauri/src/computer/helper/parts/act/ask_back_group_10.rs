@@ -57,7 +57,7 @@ pub(super) async fn ask_back(
 /// where it cannot be asked.
 #[cfg(not(any(target_os = "macos", windows)))]
 pub(super) async fn minimized_on_x11(window_id: u64) -> Option<bool> {
-    #[cfg(all(target_os = "linux", feature = "computer-helper"))]
+    #[cfg(all(target_os = "linux", feature = "computer-executor"))]
     {
         tokio::task::spawn_blocking(move || {
             crate::computer::helper::x11win::window_states(&[window_id])
@@ -68,7 +68,7 @@ pub(super) async fn minimized_on_x11(window_id: u64) -> Option<bool> {
         .ok()
         .flatten()
     }
-    #[cfg(not(all(target_os = "linux", feature = "computer-helper")))]
+    #[cfg(not(all(target_os = "linux", feature = "computer-executor")))]
     {
         let _ = window_id;
         None

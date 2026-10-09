@@ -55,3 +55,30 @@ export function verifyComputerHelper(path, target, version, source = null) {
     )
   }
 }
+
+// 只查询主程序内部身份，不启动 GUI、驱动或请求系统权限。
+export function verifyComputerExecutor(
+  path,
+  { target, version, source = null }
+) {
+  const stat = lstatSync(path)
+  if (!stat.isFile() || !stat.size)
+    throw new Error(`Application executable is missing or empty: ${path}`)
+  verifyEnvironmentRuntime(path, target)
+  if (target !== environmentHelperHostTarget()) return
+  const identity = JSON.parse(
+    execFileSync(path, ["--internal-computer-helper", "--identity"], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 10000,
+    })
+  )
+  if (
+    identity.mode !== "same-executable" ||
+    identity.version !== version ||
+    identity.target !== target ||
+    (source && identity.source !== source)
+  ) {
+    throw new Error(`Built-in computer executor identity mismatch: ${path}`)
+  }
+}

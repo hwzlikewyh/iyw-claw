@@ -25,16 +25,20 @@ pub(super) fn helper_for(exe: &Path, mac: bool) -> Option<PathBuf> {
     })
 }
 
-/// The helper to start: on macOS, when the shipped helper app sits inside
-/// iyw-claw's bundle, its copy outside it — made or brought up to date first —
-/// and the shipped helper itself otherwise.
+/// 桌面端执行当前主程序；仅独立服务端沿用 macOS helper app 副本。
 pub(super) async fn helper_to_run() -> Result<PathBuf, BackendError> {
     let shipped = locate_helper_binary().ok_or_else(|| {
+        if cfg!(feature = "tauri-runtime") {
+            return BackendError::Unavailable("内置电脑操作主程序不可用，请修复应用安装".into());
+        }
         BackendError::Unavailable(format!(
             "{} is missing from this installation",
             helper_file_name()
         ))
     })?;
+    if cfg!(feature = "tauri-runtime") {
+        return Ok(shipped);
+    }
     #[cfg(target_os = "macos")]
     if let Some(app) = nested_helper_app(&shipped).map(Path::to_path_buf) {
         let home = crate::computer::helper::driver_proc::helper_data_dir().ok_or_else(|| {

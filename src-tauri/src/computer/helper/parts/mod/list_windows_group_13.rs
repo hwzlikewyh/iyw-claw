@@ -47,11 +47,11 @@ impl HelperState {
         if self.permissions(false).await.accessibility {
             ops::mark_out_of_sight(&mut windows).await;
         }
-        #[cfg(all(target_os = "linux", feature = "computer-helper"))]
+        #[cfg(all(target_os = "linux", feature = "computer-executor"))]
         ops::mark_out_of_sight(&mut windows).await;
         #[cfg(not(any(
             target_os = "macos",
-            all(target_os = "linux", feature = "computer-helper")
+            all(target_os = "linux", feature = "computer-executor")
         )))]
         let _ = &mut windows;
         windows

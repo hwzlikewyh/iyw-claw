@@ -10,15 +10,13 @@ pub fn helper_file_name() -> &'static str {
     }
 }
 
-/// The helper that shipped with the running executable: inside
-/// [`HELPER_APP`] when iyw-claw runs from an app bundle on macOS, next to it
-/// otherwise — the install directory, or `target/<profile>/` in development
-/// (the build copies it there). Deliberately no `PATH` lookup: a helper found
-/// somewhere else is not the one that shipped. A debug build also honours
-/// `IYW_CLAW_COMPUTER_HELPER_BIN`, for running a freshly built helper; a release
-/// build ignores it, since the variable can be set for iyw-claw by anything that
-/// can set a launch environment.
+/// 桌面端直接使用当前主程序；独立服务端保留旧安装布局。
+/// 正式版本不从 PATH 或用户指定位置寻找可执行文件。
 pub fn locate_helper_binary() -> Option<PathBuf> {
+    if cfg!(feature = "tauri-runtime") {
+        let path = crate::update::runtime::self_exe();
+        return (path.is_absolute() && path.is_file()).then_some(path);
+    }
     if cfg!(debug_assertions) {
         if let Some(raw) = std::env::var_os("IYW_CLAW_COMPUTER_HELPER_BIN") {
             let path = PathBuf::from(raw);

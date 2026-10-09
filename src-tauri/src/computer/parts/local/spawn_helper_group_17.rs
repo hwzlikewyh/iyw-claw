@@ -18,14 +18,14 @@ pub(super) fn spawn_helper(
     let requirement = helper_launch_requirement();
     let child = spawn(&SpawnSpec {
         program: path,
-        args: &[],
+        args: crate::computer::entry::launch_args(),
         env: &env,
         stdio: [
             ChildFd::Inherit(theirs.as_raw_fd()),
             ChildFd::Inherit(theirs.as_raw_fd()),
             ChildFd::Inherit(err_theirs.as_raw_fd()),
         ],
-        disclaim: true,
+        disclaim: !cfg!(feature = "tauri-runtime"),
         suspended: false,
         launch_requirement: requirement.as_deref(),
     })
@@ -70,11 +70,7 @@ pub(super) fn helper_launch_requirement() -> Option<Vec<u8>> {
         .map(|team| crate::computer::launch_req::signed_by(team, HELPER_SIGNING_ID))
 }
 
-/// Have a helper started for the purpose ask macOS for `permission`, and say
-/// whether the system put up its own dialog. Started exactly as the serving
-/// helper is — its own TCC principal, under the same launch requirement — so
-/// the request names the helper and lists it in System Settings; it serves
-/// no one and exits once it has answered.
+/// 为用户点击的单项授权启动临时进程；桌面端使用主应用权限身份。
 #[cfg(target_os = "macos")]
 pub(super) async fn ask_for_permission(
     path: &std::path::Path,
@@ -91,16 +87,18 @@ pub(super) async fn ask_for_permission(
     let (ours, theirs) = UnixStream::pair().map_err(|e| unavailable("socketpair", e))?;
     let env = helper_environment();
     let requirement = helper_launch_requirement();
+    let mut args = crate::computer::entry::launch_args().to_vec();
+    args.extend([REQUEST_PERMISSION_ARG, permission.arg()]);
     let child = spawn(&SpawnSpec {
         program: path,
-        args: &[REQUEST_PERMISSION_ARG, permission.arg()],
+        args: &args,
         env: &env,
         stdio: [
             ChildFd::Null,
             ChildFd::Inherit(theirs.as_raw_fd()),
             ChildFd::Null,
         ],
-        disclaim: true,
+        disclaim: !cfg!(feature = "tauri-runtime"),
         suspended: false,
         launch_requirement: requirement.as_deref(),
     })

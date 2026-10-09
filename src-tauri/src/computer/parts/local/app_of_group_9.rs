@@ -6,7 +6,13 @@ use super::*;
 pub(super) fn app_of(helper: PathBuf) -> PathBuf {
     helper
         .ancestors()
-        .find(|p| p.file_name().is_some_and(|n| n == HELPER_APP))
+        .find(|p| {
+            if cfg!(feature = "tauri-runtime") {
+                p.extension().is_some_and(|extension| extension == "app")
+            } else {
+                p.file_name().is_some_and(|name| name == HELPER_APP)
+            }
+        })
         .map_or_else(|| helper.clone(), Path::to_path_buf)
 }
 

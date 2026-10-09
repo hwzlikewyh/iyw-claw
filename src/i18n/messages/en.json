@@ -6651,25 +6651,25 @@
       "stop": "Stop sharing",
       "stopWithKey": "Stop sharing every window ({key})"
     },
-    "hostGranted": "原助理 itself has Accessibility or Screen Recording, so agents' shells can use it without anything being shared. Unless you need it, turn it off for 原助理 in System Settings.",
+    "hostGranted": "原助理 has system permissions. Window sharing limits apply to built-in computer tools; scripts launched by the app may also inherit system permissions.",
     "backend": {
       "idle": "Not started",
       "downloading": "Downloading the driver…",
-      "starting": "Starting the helper…",
+      "starting": "Starting computer use…",
       "ready": "Ready",
       "failed": "Failed"
     },
     "driver": "cua-driver {version}",
-    "devBuild": "Development build: the helper doesn't check which program calls it.",
+    "devBuild": "This build has no caller signature verification configured.",
     "devTag": "development build",
     "permissions": {
       "accessibility": "Accessibility",
       "screenRecording": "Screen Recording",
       "granted": "Granted",
       "request": "Grant…",
-      "why": "Turn on iyw-computer-helper in System Settings — not 原助理. Screen Recording lets it see windows; Accessibility lets it read and act on them.",
-      "devRebuild": "Each rebuild of the helper voids its old grant: remove the old iyw-computer-helper from the list first, then grant again.",
-      "notListed": "If iyw-computer-helper isn't in the list, drag it in from the Finder:",
+      "why": "Enable Screen Recording and Accessibility for 原助理 in System Settings. Screen Recording provides window images; Accessibility reads and controls windows.",
+      "devRebuild": "After rebuilding a development app or changing its signature, you may need to remove the old grant and authorize 原助理 again.",
+      "notListed": "If 原助理 is not listed, drag the app in from Finder:",
       "reveal": "Show in Finder"
     },
     "shared": {
@@ -6725,7 +6725,7 @@
       "loading": "Loading windows…",
       "refresh": "Refresh",
       "empty": "No windows found. If you expected some, check the permissions in the Computer use panel.",
-      "noScreenRecording": "iyw-computer-helper doesn't have Screen Recording yet: window titles and pictures can't be shown, and agents can't read windows.",
+      "noScreenRecording": "原助理 does not have Screen Recording permission: window titles and images are unavailable to agents.",
       "unnamedApp": "Unknown app",
       "untitled": "Untitled window",
       "minimized": "Minimized",
@@ -6790,7 +6790,7 @@
       },
       "permissions": {
         "title": "Permissions",
-        "description": "macOS asks for these for iyw-computer-helper. Grant one in System Settings and come back: this updates by itself.",
+        "description": "Authorize 原助理 in macOS System Settings, then return here. Status refreshes automatically; quit and reopen the app if it has not taken effect.",
         "off": "Switch computer use on to check and grant permissions.",
         "accessibilityHint": "Read windows' contents and act on them.",
         "screenRecordingHint": "Take screenshots and read window titles."
@@ -6871,7 +6871,7 @@
         "label": "Offer the entire screen",
         "hint": "With this on, the share picker offers the entire screen: agents see one picture of all of it and can click anywhere on it, and every window you can share goes with it, along with the desktop's own shortcuts. 原助理's windows and the never-share list stay painted over. Turning this off ends the screen's sharing."
       },
-      "boundary": "On macOS the permissions go to iyw-computer-helper, which only 原助理 can use, so agents' shells can't. Windows and Linux have no such separation: there these settings decide what agents get through 原助理, not what programs on your computer can do.",
+      "boundary": "System permissions belong to 原助理. Shared windows, Read, Control and Stop Sharing govern built-in computer tools; scripts launched by the app may also inherit system permissions.",
       "save": "Save",
       "saving": "Saving…",
       "saved": "Computer use settings saved",

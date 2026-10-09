@@ -16,12 +16,8 @@ pub const EXIT_UNANCHORED: i32 = 3;
 /// module note.
 pub const PEER_REQUIREMENT: Option<&str> = option_env!("IYW_CLAW_COMPUTER_PEER_REQUIREMENT");
 
-/// The helper's whole life: check the peer, serve it, exit when it goes away.
-///
-/// (Asking macOS for a permission is not part of it: iyw-claw starts a helper
-/// of its own for each request — see `REQUEST_PERMISSION_ARG` — and the
-/// binary answers that before it gets here, so nothing iyw-claw itself links
-/// can raise a request in iyw-claw's name.)
+/// 校验调用方，执行固定操作，并在通信结束时退出。
+/// 权限请求由入口单独处理，正常服务过程不弹出授权请求。
 pub fn run() -> i32 {
     let _ = tracing_subscriber::fmt()
         .with_writer(std::io::stderr)

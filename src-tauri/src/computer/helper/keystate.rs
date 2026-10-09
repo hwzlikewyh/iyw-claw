@@ -89,7 +89,7 @@ mod imp {
 /// X11: the keyboard as the server has it at this moment, read through its
 /// modifier map (see `super::x11win`). Not on Wayland, which tells no client
 /// what keys are down.
-#[cfg(all(target_os = "linux", feature = "computer-helper"))]
+#[cfg(all(target_os = "linux", feature = "computer-executor"))]
 mod imp {
     pub fn held_modifiers() -> Option<Vec<&'static str>> {
         super::super::x11win::held_modifiers()
@@ -100,7 +100,7 @@ mod imp {
 #[cfg(not(any(
     windows,
     target_os = "macos",
-    all(target_os = "linux", feature = "computer-helper")
+    all(target_os = "linux", feature = "computer-executor")
 )))]
 mod imp {
     pub fn held_modifiers() -> Option<Vec<&'static str>> {

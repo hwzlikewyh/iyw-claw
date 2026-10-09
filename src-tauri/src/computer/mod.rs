@@ -7,37 +7,10 @@
 //! unless the person lets agents bring a window to the front for an action,
 //! and a Stop the person can press at any moment.
 //!
-//! The shape of this module is decided by one fact about macOS: TCC charges
-//! "Accessibility" and "Screen Recording" to a process's *responsible*
-//! process, and every process in an agent's tree (the ACP adapter, the agent
-//! CLI, its shell, the scripts it runs) reports iyw-claw as its responsible
-//! process. A grant given to iyw-claw would therefore be given to every agent's
-//! shell, where `screencapture` and `osascript` walk straight past every gate
-//! in here. So:
-//!
-//! * **iyw-claw never holds either grant, and never calls an API governed by
-//!   them.** Nothing in this crate that links into the main binary touches
-//!   Accessibility, event posting or screen capture. The two read-only
-//!   preflight queries in [`tcc`] are the only exception, and they exist so
-//!   iyw-claw can notice that it *has* been granted one by mistake.
-//! * **The executor is `iyw-computer-helper`**, a separately signed binary
-//!   that iyw-claw launches as its own responsible process and that refuses to
-//!   serve anything but a code-signature-verified iyw-claw ([`helper`]). On
-//!   macOS it is an app of its own, run from a copy outside iyw-claw's bundle:
-//!   Screen Recording is charged to the outermost app of the same team around
-//!   an executable, which inside the bundle is iyw-claw (`helper_app`).
-//! * **The driver (cua-driver) runs as the helper's child** without
-//!   disclaiming, so its TCC requests are charged to the helper. It lives in a
-//!   user-writable cache, so the helper launches it under a launch requirement
-//!   built from pins compiled into it — the kernel will not run any other
-//!   image at that path — and checks the running image again before letting
-//!   it start ([`driver`], [`launch_req`]).
-//!
-//! On Windows and X11 none of this is a boundary against an agent with a
-//! shell — any process of the user's can inject input and capture the screen
-//! there — and the settings copy says so. The helper still owns the driver on
-//! those platforms, because the gates below are about what the *tool surface*
-//! lets a model do, which is the same question everywhere.
+//! 桌面执行器与主程序共用文件，在后台子进程中执行截图和输入。
+//! macOS 的辅助功能与屏幕录制授权属于主应用，其子进程可能沿用权限。
+//! 窗口共享和停止仅约束本应用的电脑工具，不声称隔离智能体 shell。
+//! 签名包保留调用方校验，cua-driver 保持固定摘要及映像验证。
 //!
 //! Module map:
 //! - `types`     — wire types shared with the companion and the frontend
@@ -60,8 +33,8 @@
 //! - `appident`  — which application a process is, read off the process; a
 //!   frame on Windows is the one drawing inside it
 //! - `helper`    — the helper process's own logic (runs in the helper binary)
-//! - `helper_app` — the helper app's copy outside iyw-claw's bundle, which is
-//!   what iyw-claw runs on macOS
+//! - `helper_app` — 独立服务端执行器的兼容 app 布局，
+//!   桌面端不再使用此副本
 //! - `local`     — iyw-claw's side of the helper: launch, verify, talk
 //! - `events`    — what the frontend is told
 //! - `driver_admin` — the driver as Settings manages it: install, clear, remove
@@ -75,9 +48,11 @@ pub mod backend;
 pub mod bootstrap;
 pub mod driver;
 mod driver_cache;
+pub mod entry;
 pub mod grants;
 pub mod helper;
 pub mod keys;
+pub mod permission_request;
 pub mod procinfo;
 pub mod protocol;
 pub mod stop_shortcut;

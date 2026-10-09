@@ -21,7 +21,9 @@ pub fn runtime_supported() -> bool {
         && std::env::var("XDG_SESSION_TYPE").is_ok_and(|kind| kind == "x11");
     #[cfg(target_os = "macos")]
     return super::launch_req::supported()
-        && (cfg!(debug_assertions) || super::local::HELPER_REQUIREMENT.is_some());
+        && (cfg!(feature = "tauri-runtime")
+            || cfg!(debug_assertions)
+            || super::local::HELPER_REQUIREMENT.is_some());
     #[cfg(windows)]
     return sysinfo::System::kernel_version()
         .and_then(|version| version.split('.').next()?.parse::<u32>().ok())

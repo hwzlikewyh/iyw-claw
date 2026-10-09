@@ -133,10 +133,10 @@ mod part_22;
 #[cfg(target_os = "macos")]
 pub use part_22::*;
 
-#[cfg(all(target_os = "linux", feature = "computer-helper"))]
+#[cfg(all(target_os = "linux", feature = "computer-executor"))]
 #[path = "parts/ops/mark_out_of_sight_group_23.rs"]
 mod part_23;
-#[cfg(all(target_os = "linux", feature = "computer-helper"))]
+#[cfg(all(target_os = "linux", feature = "computer-executor"))]
 pub use part_23::*;
 
 #[cfg(any(test, target_os = "macos"))]

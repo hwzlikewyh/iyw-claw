@@ -15,7 +15,7 @@ pub(super) const READY_TIMEOUT: Duration = Duration::from_secs(15);
 /// iyw-claw lives on another disk — until the person answers it.
 pub(super) const NOT_STARTED: &str = if cfg!(target_os = "macos") {
     "the helper did not start in time — if macOS is asking about \
-     iyw-computer-helper, answer it and try again"
+     原助理, answer it and try again"
 } else {
     "the helper did not start in time"
 };

@@ -1,32 +1,7 @@
-//! iyw-claw's side of the helper: find it, launch it as its own TCC principal,
-//! check that it is our helper, and talk to it.
-//!
-//! **Launch.** On macOS the helper is spawned with responsibility disclaimed,
-//! so it is the TCC principal and iyw-claw is not — from a copy of its app
-//! outside iyw-claw's bundle, since inside it macOS would charge its Screen
-//! Recording to iyw-claw all the same (`helper_app`) — over a socketpair duplicated
-//! onto its stdin and stdout — the only rendezvous there is, with no path in
-//! the filesystem for another process to get to first. Its other descriptors
-//! are closed on exec, its environment is a fixed few variables. Elsewhere it
-//! is an ordinary child on pipes.
-//!
-//! **Check.** A release iyw-claw launches the helper under a launch requirement
-//! (this build's Team ID and the helper's identifier), so the kernel runs
-//! nothing else from that path — the bundle is writable by the user, and a
-//! wrapper started in the helper's place could keep a copy of the socket. The
-//! helper then speaks first; on macOS iyw-claw asks the kernel who is on the
-//! other end of its socket and checks that process against the helper's
-//! designated requirement (`IYW_CLAW_COMPUTER_HELPER_REQUIREMENT`), and every
-//! later frame against the process it verified. A development iyw-claw checks
-//! instead that the helper was built from its own sources (the fingerprint
-//! `build.rs` compiles into both): `pnpm tauri dev` rebuilds only iyw-claw after
-//! an edit — and not the helper at all under `IYW_CLAW_SKIP_SIDECAR=1` — and a
-//! helper left over would answer with the old code.
-//!
-//! **Life.** One helper per iyw-claw, started on first use, restarted on the next
-//! call after it dies, stopped when computer use is switched off — and not
-//! started again until it is switched back on, whatever call was already on
-//! its way. It exits on its own when iyw-claw does: its stdin closes.
+//! 桌面电脑操作复用主程序可执行文件，通过内部参数启动后台子进程。
+//! macOS 使用主应用权限身份与 socketpair，其他平台使用隐藏进程和管道。
+//! 签名包继续检查通信双方身份；退出、关闭开关及停止共享沿用现有协议。
+//! 独立服务端仍使用兼容执行器布局。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

@@ -5,7 +5,7 @@ use super::*;
 /// X11: mark which of `windows` the window manager has minimized (iconified),
 /// and which are on another of its desktops — neither of which the driver's
 /// listing says: to it all of them are only not mapped.
-#[cfg(all(target_os = "linux", feature = "computer-helper"))]
+#[cfg(all(target_os = "linux", feature = "computer-executor"))]
 pub async fn mark_out_of_sight(windows: &mut [RawWindow]) {
     let open: Vec<u64> = windows
         .iter()

@@ -16,9 +16,8 @@ import process from "node:process"
 import { verifyArtifacts } from "./verify-signatures.mjs"
 import { verifyWorkerBundle } from "./verify-xinghe-worker-bundle.mjs"
 import {
-  computerHelperName,
   computerSourceFingerprint,
-  verifyComputerHelper,
+  verifyComputerExecutor,
 } from "./computer-helper-runtime.mjs"
 import {
   environmentHelperHostTarget,
@@ -104,12 +103,8 @@ function verifyConfiguredExternalBins() {
     readFileSync(join(SRC_TAURI, "tauri.conf.json"), "utf8")
   )
   const bins = config.bundle?.externalBin ?? []
-  if (
-    bins.join(",") !== "binaries/iyw-environment,binaries/iyw-computer-helper"
-  ) {
-    die(
-      "Tauri externalBin must contain the environment and Computer Use helpers"
-    )
+  if (bins.join(",") !== "binaries/iyw-environment") {
+    die("Tauri externalBin must contain only the environment helper")
   }
 }
 
@@ -130,22 +125,25 @@ function verifyStagedSidecars(target, version) {
   rejectLegacyMcpSidecars(join(SRC_TAURI, "binaries"))
   const helper = join(SRC_TAURI, "binaries", helperFileName(target))
   verifyEnvironmentHelper(helper, target, version)
-  const computer = join(
+  const application = join(
     SRC_TAURI,
-    "binaries",
-    `iyw-computer-helper-${target}${target.includes("windows") ? ".exe" : ""}`
-  )
-  verifyComputerHelper(
-    computer,
+    "target",
     target,
-    version,
-    computerSourceFingerprint(SRC_TAURI)
+    "release",
+    target.includes("windows") ? "iyw-claw.exe" : "iyw-claw"
   )
+  if (existsSync(application)) {
+    verifyComputerExecutor(application, {
+      target,
+      version,
+      source: computerSourceFingerprint(SRC_TAURI),
+    })
+  }
   if (
     target.endsWith("-windows-msvc") &&
     (process.env.IYW_CLAW_SIGN_MODE ?? "none") !== "none"
   ) {
-    verifyArtifacts([helper, computer])
+    verifyArtifacts([helper])
   }
 }
 
@@ -198,18 +196,20 @@ function verifyInstalledSidecars(appDirectory, target, version) {
   }
   const helper = join(appDirectory, helperExecutableName(target))
   verifyEnvironmentHelper(helper, target, version)
-  const computer = target.includes("apple-darwin")
-    ? join(
-        appDirectory,
-        "../Helpers/iyw-computer-helper.app/Contents/MacOS/iyw-computer-helper"
-      )
-    : join(appDirectory, computerHelperName(target))
-  verifyComputerHelper(computer, target, version)
+  const application = join(
+    appDirectory,
+    target.includes("windows") ? "iyw-claw.exe" : "iyw-claw"
+  )
+  verifyComputerExecutor(application, {
+    target,
+    version,
+    source: computerSourceFingerprint(SRC_TAURI),
+  })
   if (
     target.endsWith("-windows-msvc") &&
     (process.env.IYW_CLAW_SIGN_MODE ?? "none") !== "none"
   ) {
-    verifyArtifacts([helper, computer])
+    verifyArtifacts([helper])
   }
 }
 
