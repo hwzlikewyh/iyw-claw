@@ -23,11 +23,9 @@
 //!   satisfies it — which is what the cdhash is for.
 //!
 //! Upgrading the driver is a code change to this file: new digests, new
-//! cdhashes, reviewed like any other. What a person can do from Settings is
-//! fetch this pinned release and remove the driver altogether — never pick
-//! another release. An older release left by an earlier iyw-claw stays until
-//! then: the cache is shared with any other iyw-claw on the machine, which may
-//! still run it.
+//! cdhashes, reviewed like any other. The managed environment prepares this
+//! pinned release at startup. Settings repairs it through the environment
+//! transaction; it never lets a person choose another release.
 
 use crate::acp::error::AcpError;
 
@@ -187,9 +185,7 @@ pub async fn ensure_driver(on_progress: impl Fn(&str)) -> Result<std::path::Path
     let _files = FILES.lock().await;
     if cfg!(feature = "tauri-runtime") {
         let path = managed_driver_path().ok_or_else(|| {
-            AcpError::DownloadFailed(
-                "cua-driver 缺失或版本不匹配，请在电脑操作设置中安装或修复环境".into(),
-            )
+            AcpError::DownloadFailed("电脑操作组件缺失或版本不匹配，请修复应用环境后重试".into())
         })?;
         super::driver_cache::verify(&path, artifact.executable_sha256)?;
         return Ok(path);

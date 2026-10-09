@@ -1,4 +1,40 @@
 {
+  "RuntimeEnvironmentSettings": {
+    "title": "运行环境",
+    "description": "检测并修复当前连接宿主所需的运行组件。",
+    "check": "重新检测",
+    "checking": "正在检测运行环境…",
+    "unknown": "暂时无法获取运行环境状态。",
+    "healthy": "运行环境已就绪。",
+    "degraded": "部分组件需要处理，可修复环境后重试。",
+    "repairTitle": "修复运行环境",
+    "repairDescription": "校验已安装组件，恢复缺失或损坏的工具，复用校验通过的组件。工作区、设置、对话及桌面共享授权会保留。",
+    "repair": "修复运行环境",
+    "repairing": "正在修复运行环境…",
+    "success": "运行环境已修复并通过检测。",
+    "writerBusy": "另一个窗口正在准备运行环境，完成后可重新检测。",
+    "offline": "当前离线，正在使用最近可用的环境。",
+    "componentsTitle": "环境组件",
+    "empty": "未检测到已安装的组件，可修复环境以准备运行组件。",
+    "ready": "已就绪",
+    "needsRepair": "需要处理",
+    "computer": "电脑操作组件",
+    "builtinAgent": "星河运行组件",
+    "phases": {
+      "not_started": "等待开始",
+      "checking": "正在检测",
+      "resolving": "正在解析版本",
+      "downloading": "正在下载",
+      "verifying": "正在校验",
+      "staging": "正在准备组件",
+      "activating": "正在激活",
+      "health_check": "正在检查组件",
+      "ready": "已就绪",
+      "degraded": "部分组件需要处理",
+      "retryable": "正在重试",
+      "blocked": "修复失败"
+    }
+  },
   "SidebarDesign": {
     "workspace": "工作空间",
     "workbench": "工作台",
@@ -229,7 +265,8 @@
       "logs": "运行日志",
       "usage": "用量",
       "user_memory": "用户记忆",
-      "performance": "性能监控"
+      "performance": "性能监控",
+      "runtime_environment": "运行环境"
     }
   },
   "SkillPacksSettings": {
@@ -6676,6 +6713,9 @@
       }
     },
     "share": "共享窗口…",
+    "manageShared": "管理共享窗口（{count}）…",
+    "sharingTitle": "共享窗口",
+    "sharingHint": "在窗口卡片选择「可读取」或「可操作」。开启电脑操作后，对话输入框的「＋」菜单也可以选择共享窗口，授权对当前宿主的智能体生效。",
     "openSettings": "打开详细设置",
     "picker": {
       "title": "把窗口共享给智能体",

@@ -48,16 +48,11 @@ pub fn init_status_report() -> ManagedEnvironmentStatusReport {
         })
         .unwrap_or_default();
     components.push(builtin_agent_status());
+    if let Some(component) = missing_computer_status(&components) {
+        components.push(component);
+    }
     if let Some(error) = error {
-        components.push(ManagedComponentStatus {
-            component_id: "environment".into(),
-            component_kind: "runtime".into(),
-            version: String::new(),
-            installed: false,
-            active: false,
-            phase: "degraded".into(),
-            last_error: Some(error),
-        });
+        components.push(unavailable_component("environment", "runtime", error));
     }
     let ready = components.iter().all(|item| item.active);
     ManagedEnvironmentStatusReport {
@@ -69,6 +64,37 @@ pub fn init_status_report() -> ManagedEnvironmentStatusReport {
         manifest_generation: snapshot.map_or(0, |value| value.catalog_revision),
         digest: format!("{:x}", Sha256::digest(&raw)),
         migrated: false,
+    }
+}
+
+fn missing_computer_status(
+    components: &[ManagedComponentStatus],
+) -> Option<ManagedComponentStatus> {
+    if !crate::computer::bootstrap::runtime_supported()
+        || components
+            .iter()
+            .any(|item| item.component_id == "cua-driver")
+    {
+        return None;
+    }
+    let mut component = unavailable_component(
+        "cua-driver",
+        "cli",
+        "电脑操作组件尚未准备，请修复运行环境".into(),
+    );
+    component.version = crate::computer::driver::DRIVER_VERSION.into();
+    Some(component)
+}
+
+fn unavailable_component(id: &str, kind: &str, error: String) -> ManagedComponentStatus {
+    ManagedComponentStatus {
+        component_id: id.into(),
+        component_kind: kind.into(),
+        version: String::new(),
+        installed: false,
+        active: false,
+        phase: "degraded".into(),
+        last_error: Some(error),
     }
 }
 

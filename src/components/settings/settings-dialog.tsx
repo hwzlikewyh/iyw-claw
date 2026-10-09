@@ -9,6 +9,7 @@ import { GeneralSettings } from "@/components/settings/general-settings"
 import { LogsSettings } from "@/components/settings/logs-settings"
 import { McpSettings } from "@/components/settings/mcp-settings"
 import { PerformanceSettings } from "@/components/settings/performance-settings"
+import { RuntimeEnvironmentSettings } from "@/components/settings/runtime-environment-settings"
 import { SkillPacksSettings } from "@/components/settings/skill-packs-settings"
 import { QuickMessagesSettings } from "@/components/settings/quick-messages-settings"
 import { ShortcutSettings } from "@/components/settings/shortcut-settings"
@@ -72,6 +73,8 @@ function SettingsDialogBody({ section, agentType }: SettingsDialogState) {
       return <ChatChannelSettings />
     case "system":
       return <SystemNetworkSettings />
+    case "runtime-environment":
+      return <RuntimeEnvironmentSettings />
     case "logs":
       return <LogsSettings />
     case "general":

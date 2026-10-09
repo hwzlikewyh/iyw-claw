@@ -13,6 +13,9 @@ import {
 import { isDesktop, openFileDialog } from "@/lib/platform"
 import { useLocale, useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
+import { ComputerSharingMenuItems } from "@/components/computer/computer-sharing-actions"
+import { ComputerWindowPicker } from "@/components/computer/computer-window-picker"
+import { useComputerSharing } from "@/lib/computer/use-computer-sharing"
 import {
   BookOpenText,
   Check,
@@ -901,6 +904,7 @@ export function MessageInput({
   // controls whether selected paths belong to the local agent or must be
   // streamed to the workspace. Both desktop variants use the native picker;
   // remote desktop paths are handed to the remote upload proxy before sending.
+  const computerSharing = useComputerSharing()
   const showNativePaperclip = useMemo(
     () => desktopMode && getActiveRemoteConnectionId() === null,
     [desktopMode]
@@ -4297,6 +4301,14 @@ export function MessageInput({
       onDragLeave={handleContainerDragLeave}
       onDrop={handleContainerDrop}
     >
+      <ComputerWindowPicker
+        open={
+          computerSharing.open &&
+          computerSharing.enabled === true &&
+          computerSharing.available
+        }
+        onOpenChange={computerSharing.setOpen}
+      />
       {slashMenuOpen && slashAutocompleteCount > 0 && (
         <div className="absolute bottom-full left-0 right-0 mb-1 z-50 flex max-h-[min(16rem,40dvh)] flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-lg">
           {/* No search box: the user types the filter inline after `/` (like the
@@ -4503,6 +4515,7 @@ export function MessageInput({
                         <FolderSearch className="size-4" />
                         {t("projectReference.menuLabel")}
                       </DropdownMenuItem>
+                      <ComputerSharingMenuItems control={computerSharing} />
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger>
                           <MessageSquareText className="size-4" />

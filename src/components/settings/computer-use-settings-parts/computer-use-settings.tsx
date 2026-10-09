@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl"
 import { Monitor } from "lucide-react"
 import { toast } from "sonner"
 import { ComputerSettingsSection } from "@/components/settings/computer-settings"
+import { ComputerSharingSection } from "@/components/computer/computer-sharing-actions"
 import { SettingsSection } from "@/components/computer/settings-layout"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Switch } from "@/components/ui/switch"
@@ -14,7 +15,6 @@ import {
   useComputerAvailable,
 } from "@/lib/computer/computer-api"
 import { useComputerEnabled } from "@/lib/computer/use-computer-enabled"
-import { DriverSection } from "./driver-section"
 import { PermissionsSection } from "./permissions-section"
 
 export function ComputerUseSettings() {
@@ -66,9 +66,9 @@ export function ComputerUseSettings() {
           <p className="text-xs text-muted-foreground">{t("unavailable")}</p>
         )}
 
-        {desktop && <DriverSection />}
-
         {desktop && <PermissionsSection enabled={enabled === true} />}
+
+        {desktop && <ComputerSharingSection />}
 
         <ComputerSettingsSection />
       </div>

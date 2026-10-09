@@ -21,6 +21,7 @@ export type SettingsSection =
   | "version-control"
   | "chat-channels"
   | "system"
+  | "runtime-environment"
   | "skills"
   | "model-providers"
   | "logs"
@@ -57,6 +58,7 @@ export function normalizeSettingsSection(
     case "version-control":
     case "chat-channels":
     case "system":
+    case "runtime-environment":
     case "skills":
     case "model-providers":
     case "logs":

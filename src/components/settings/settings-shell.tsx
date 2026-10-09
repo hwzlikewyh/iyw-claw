@@ -25,6 +25,7 @@ import {
   SendHorizontal,
   Settings,
   SlidersHorizontal,
+  Wrench,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { usePathname } from "next/navigation"
@@ -52,6 +53,7 @@ export interface SettingsNavItem {
     | "version_control"
     | "chat_channels"
     | "system"
+    | "runtime_environment"
     | "logs"
     | "performance"
   icon: ComponentType<{ className?: string }>
@@ -129,6 +131,11 @@ const NAV_SYSTEM: SettingsNavItem = {
   labelKey: "system",
   icon: Settings,
 }
+const NAV_RUNTIME_ENVIRONMENT: SettingsNavItem = {
+  href: "/settings/runtime-environment",
+  labelKey: "runtime_environment",
+  icon: Wrench,
+}
 const NAV_LOGS: SettingsNavItem = {
   href: "/settings/logs",
   labelKey: "logs",
@@ -165,6 +172,7 @@ const NAV_GROUPS_BASE: SettingsNavGroup[] = [
       NAV_PERFORMANCE,
       NAV_USAGE,
       NAV_SYSTEM,
+      NAV_RUNTIME_ENVIRONMENT,
       ...(SHOW_RUNTIME_LOGS_SETTINGS ? [NAV_LOGS] : []),
       ...(SHOW_VERSION_CONTROL_SETTINGS ? [NAV_VERSION_CONTROL] : []),
     ],

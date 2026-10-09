@@ -1,4 +1,40 @@
 {
+  "RuntimeEnvironmentSettings": {
+    "title": "Runtime environment",
+    "description": "Check and repair the tools required by the connected host.",
+    "check": "Check again",
+    "checking": "Checking runtime environment…",
+    "unknown": "Runtime environment status is unavailable.",
+    "healthy": "The runtime environment is ready.",
+    "degraded": "Some components need attention. Repair the environment to try again.",
+    "repairTitle": "Repair runtime environment",
+    "repairDescription": "Verify installed components and restore missing or damaged tools. Verified components are reused. Workspaces, settings, conversations and shared desktop permissions are preserved.",
+    "repair": "Repair environment",
+    "repairing": "Repairing environment…",
+    "success": "Runtime environment repaired and checked.",
+    "writerBusy": "Another window is preparing the environment. Check again after it finishes.",
+    "offline": "Using the last available environment while offline.",
+    "componentsTitle": "Environment components",
+    "empty": "No installed components were detected. Repair the environment to prepare them.",
+    "ready": "Ready",
+    "needsRepair": "Needs attention",
+    "computer": "Desktop automation",
+    "builtinAgent": "星河 runtime",
+    "phases": {
+      "not_started": "Waiting to start",
+      "checking": "Checking",
+      "resolving": "Resolving versions",
+      "downloading": "Downloading",
+      "verifying": "Verifying",
+      "staging": "Preparing components",
+      "activating": "Activating",
+      "health_check": "Checking components",
+      "ready": "Ready",
+      "degraded": "Some components need attention",
+      "retryable": "Retrying",
+      "blocked": "Repair failed"
+    }
+  },
   "SidebarDesign": {
     "workspace": "Workspace",
     "workbench": "Workbench",
@@ -229,7 +265,8 @@
       "logs": "Runtime Logs",
       "usage": "Usage",
       "user_memory": "User Memory",
-      "performance": "Performance"
+      "performance": "Performance",
+      "runtime_environment": "Runtime environment"
     }
   },
   "SkillPacksSettings": {
@@ -6676,6 +6713,9 @@
       }
     },
     "share": "Share a window…",
+    "manageShared": "Manage shared windows ({count})…",
+    "sharingTitle": "Share windows",
+    "sharingHint": "Choose Read or Control on each window. After enabling computer use, you can also share from the conversation's + menu. Grants apply to agents on the connected host.",
     "openSettings": "Open full settings",
     "picker": {
       "title": "Share a window with agents",

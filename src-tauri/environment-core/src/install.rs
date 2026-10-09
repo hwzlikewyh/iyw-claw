@@ -49,11 +49,8 @@ fn prepare_selected(app_version: &str, full_check: bool, computer_driver: bool) 
     };
     let client = FusionClient::new()?;
     let mut plan = client.resolve(&request)?;
-    let selected_driver = computer_driver || current.as_ref().is_some_and(|snapshot| {
-        snapshot.components.iter().any(|component| component.component_id == "cua-driver")
-    });
-    plan.actions.retain(|action| action.component_id != "open-computer-use"
-        && (action.component_id != "cua-driver" || selected_driver));
+    plan.actions
+        .retain(|action| action.component_id != "open-computer-use");
     if computer_driver && !plan.actions.iter().any(|action| action.component_id == "cua-driver") {
         bail!("Fusion 当前应用版本尚未发布 cua-driver 组件，请更新环境分发绑定")
     }
