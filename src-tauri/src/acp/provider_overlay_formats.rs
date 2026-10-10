@@ -290,8 +290,9 @@ pub(crate) fn patch_json_config(
                 default_model,
             );
             set_json(root, &["env"], "ANTHROPIC_DEFAULT_HAIKU_MODEL", &haiku);
-            let context = model_context_limit(agent_type, &model, 1_000_000).unwrap_or(1_000_000);
-            let threshold = model_compaction_limit(agent_type, &model, context).unwrap_or(context * 9 / 10);
+            let context = model_context_limit(agent, &model, 1_000_000).unwrap_or(1_000_000);
+            let threshold =
+                model_compaction_limit(agent, &model, context).unwrap_or(context * 9 / 10);
             root.insert("autoCompactEnabled".into(), serde_json::Value::Bool(true));
             root.insert(
                 "autoCompactWindow".into(),
@@ -327,8 +328,9 @@ pub(crate) fn patch_json_config(
                 &model_ids,
                 default_model,
             );
-            let context = model_context_limit(agent_type, &model, 1_000_000).unwrap_or(1_000_000);
-            let threshold = model_compaction_limit(agent_type, &model, context).unwrap_or(context / 2);
+            let context = model_context_limit(agent, &model, 1_000_000).unwrap_or(1_000_000);
+            let threshold =
+                model_compaction_limit(agent, &model, context).unwrap_or(context / 2);
             let ratio = (threshold as f64 / context as f64).clamp(0.01, 0.99);
             let model_config = ensure_json_object(root, &["model"]);
             if let Some(value) = serde_json::Number::from_f64(ratio) {
@@ -407,7 +409,7 @@ pub(crate) fn patch_json_config(
                 "api".into(),
                 serde_json::Value::String("openai-responses".into()),
             );
-            provider.insert("models".into(), managed_model_array(agent_type, &model_ids));
+            provider.insert("models".into(), managed_model_array(agent, &model_ids));
         }
         AgentType::Cline => {
             let selected = selected_model_or_default(
