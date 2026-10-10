@@ -3,6 +3,7 @@ import type {
   AgentType,
   SessionStats,
   SessionUsageUpdateInfo,
+  ConfirmedConsumption,
 } from "@/lib/types"
 
 export type TokenRowKey =
@@ -26,7 +27,8 @@ export interface SessionUsageData {
   contextSource: UsageSource
   rows: { key: TokenRowKey; value: number | null }[]
   total: number | null
-  points: number | null
+  points: string | null
+  consumption: ConfirmedConsumption | null
   model: GatewayModel | null
   threshold: number | null
   hostThreshold: number | null
@@ -115,7 +117,7 @@ export function resolveSessionUsage(
   const context = resolveContext(input)
   const configured = positiveTokenValue(input.model?.compactionAtTokens)
   const host = positiveTokenValue(input.hostThreshold)
-  const threshold = configured ?? host
+  const threshold = host ?? configured
   return {
     modelId: input.modelId,
     contextUsed: context.used,
@@ -127,14 +129,19 @@ export function resolveSessionUsage(
     contextSource: context.source,
     ...usageRows(input.stats, input.agentType),
     points:
-      input.agentType === "grok"
-        ? null
-        : (input.stats?.total_usage?.estimated_points ?? null),
+      (
+        input.stats?.confirmed_consumption ??
+        input.stats?.total_usage?.confirmed_points
+      )?.amount ?? null,
+    consumption:
+      input.stats?.confirmed_consumption ??
+      input.stats?.total_usage?.confirmed_points ??
+      null,
     model: input.model,
     threshold,
     hostThreshold: host,
     thresholdSource:
-      configured !== null ? "catalog" : host !== null ? "host" : "unavailable",
+      host !== null ? "host" : configured !== null ? "catalog" : "unavailable",
     compactionMode: compactionMode(input.agentType),
     configStale: input.configStale === true,
     thresholdReached:

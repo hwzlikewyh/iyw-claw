@@ -565,12 +565,34 @@ pub struct SessionState {
     /// (web reconnect, window refresh, a newly-tiled panel) sees the staleness
     /// the transient event won't replay for it.
     pub config_stale: bool,
+    pub(crate) launch_model_catalog: String,
+    pub(crate) launch_model_budgets: BTreeMap<String, u64>,
     /// Which settings surface drifted, for the banner's wording. `Some` iff
     /// `config_stale`; reset to `None` when staleness clears.
     pub config_stale_kind: Option<ConfigStaleKind>,
 }
 
 impl SessionState {
+    pub(crate) fn apply_launch_model_catalog(&mut self, environment: &BTreeMap<String, String>) {
+        if let Some(revision) = environment.get("IYW_MODEL_CATALOG_REVISION") {
+            self.launch_model_catalog = revision.clone();
+        }
+        let Some(config) = environment.get("CODEX_CONFIG")
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok()) else { return; };
+        let Some(raw) = config.get("model_catalog_json").and_then(serde_json::Value::as_str)
+            .and_then(|path| std::fs::read_to_string(path).ok()) else { return; };
+        let Ok(catalog) = serde_json::from_str::<serde_json::Value>(&raw) else { return; };
+        let override_limit = config.get("model_auto_compact_token_limit").and_then(serde_json::Value::as_u64);
+        self.launch_model_budgets = catalog.get("models").and_then(serde_json::Value::as_array)
+            .into_iter().flatten().filter_map(|model| {
+                let id = model.get("slug")?.as_str()?;
+                let limit = override_limit.or_else(|| model.get("auto_compact_token_limit")?.as_u64())?;
+                // 与原生 ModelInfo::auto_compact_token_limit 的窗口上限一致。
+                let limit = model.get("context_window").and_then(serde_json::Value::as_u64)
+                    .map_or(limit, |context| limit.min(context.saturating_mul(90) / 100));
+                Some((id.to_owned(), limit))
+            }).collect();
+    }
     pub(crate) fn set_agent_pid(&mut self, pid: u32) {
         self.agent_pid = Some(pid);
     }
@@ -646,6 +668,7 @@ impl SessionState {
         owner_window_label: String,
         folder_id: Option<i32>,
     ) -> Self {
+        let (launch_model_catalog, launch_model_budgets) = crate::acp::model_catalog::budget_snapshot_for(agent_type);
         Self {
             connection_id,
             conversation_id: None,
@@ -735,6 +758,8 @@ impl SessionState {
             agent_input_notify: Arc::new(tokio::sync::Notify::new()),
             last_turn_ended_abnormally: false,
             config_stale: false,
+            launch_model_catalog,
+            launch_model_budgets,
             config_stale_kind: None,
         }
     }

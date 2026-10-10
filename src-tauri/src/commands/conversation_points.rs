@@ -4,19 +4,18 @@ use crate::models::{DbConversationDetail, MessageTurn, TurnUsage};
 
 mod catalog;
 mod pricing;
+mod backend;
+mod decimal;
 
 pub(super) fn missing(detail: &DbConversationDetail) -> bool {
-    detail
-        .session_stats
-        .as_ref()
-        .and_then(|stats| stats.total_usage.as_ref())
-        .is_some_and(|usage| usage.estimated_points.is_none())
+    detail.summary.agent_type == crate::models::AgentType::Codex && detail.backend_consumption.is_none()
 }
 
 pub(super) async fn enrich_cached(
     conn: &sea_orm::DatabaseConnection,
     detail: &mut DbConversationDetail,
 ) {
+    if detail.summary.agent_type == crate::models::AgentType::Codex { return; }
     if !missing(detail) {
         return;
     }
@@ -48,6 +47,8 @@ fn unique_model<'a>(turns: &'a [MessageTurn], fallback: Option<&'a str>) -> Opti
 }
 
 pub(super) async fn enrich(conn: &sea_orm::DatabaseConnection, detail: &mut DbConversationDetail) {
+    backend::enrich(conn, detail).await;
+    if detail.summary.agent_type == crate::models::AgentType::Codex { return; }
     if detail
         .session_stats
         .as_ref()

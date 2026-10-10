@@ -22,9 +22,9 @@ pub async fn list_models(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<ListModelsParams>,
 ) -> Result<Json<serde_json::Value>, AppCommandError> {
-    Ok(Json(
-        iyw_account_list_models_core(&state.db.conn, params.agent_type).await?,
-    ))
+    let payload = iyw_account_list_models_core(&state.db.conn, params.agent_type).await?;
+    state.connection_manager.refresh_model_catalog_staleness(&state.db).await;
+    Ok(Json(payload))
 }
 
 #[derive(Deserialize)]

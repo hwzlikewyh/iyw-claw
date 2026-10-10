@@ -68,7 +68,10 @@ function UsageTrigger({
         </span>
         {data.points !== null && (
           <span className="ms-1 border-s border-current/20 ps-1.5">
-            <UsagePointsValue points={data.points} />
+            <UsagePointsValue
+              points={data.points}
+              consumption={data.consumption}
+            />
           </span>
         )}
       </button>

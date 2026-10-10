@@ -5725,13 +5725,19 @@
     "openSettings": "设置"
   },
   "UsagePoints": {
-    "turn": "本轮消耗点数",
-    "session": "当前对话消耗点数",
+    "turn": "本轮消费",
+    "session": "会话累计消费",
+    "partialValue": "已确认 {points} 点",
     "value": "{points} 点",
     "unavailable": "暂不可用",
-    "unavailableHint": "缺少模型价格或完整用量",
+    "unavailableHint": "缺少可核对的后端消费记录",
     "estimateHint": "按记录的 Token 和当前模型单价折算，非账户实际扣款；未提供换算系数时按 1 元 = 10 点计算",
-    "estimateShort": "按用量折算，非实际扣款"
+    "estimateShort": "按用量折算，非实际扣款",
+    "pending": "待确认",
+    "pendingHint": "正在等待后端确认消费记录",
+    "partialHint": "仅显示已确认消费，累计金额尚不完整",
+    "confirmedHint": "来自后端消费记录；小数点数累积后按账户规则结算",
+    "compactionPoints": "其中上下文压缩消费 {points} 点"
   },
   "UsageSettings": {
     "loading": "正在加载用量...",

@@ -1445,7 +1445,22 @@ impl Session {
 
     pub(crate) async fn get_total_token_usage(&self) -> i64 {
         let state = self.state.lock().await;
-        state.get_total_token_usage(state.server_reasoning_included())
+        let used = state.get_total_token_usage(state.server_reasoning_included());
+        if state.history.has_reliable_token_usage() {
+            used
+        } else {
+            used.saturating_add(i64::try_from(codex_utils_output_truncation::approx_token_count(
+                &state.session_configuration.base_instructions,
+            )).unwrap_or(i64::MAX))
+        }
+    }
+
+    pub(crate) async fn context_token_count_source(&self) -> &'static str {
+        if self.state.lock().await.history.has_reliable_token_usage() {
+            "server_usage"
+        } else {
+            "effective_history_estimate"
+        }
     }
 
     pub(crate) async fn auto_compact_window_snapshot(&self) -> AutoCompactWindowSnapshot {

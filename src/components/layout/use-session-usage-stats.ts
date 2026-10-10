@@ -30,6 +30,8 @@ function statsSnapshotKey(stats: SessionStats | null): string {
     stats?.context_window_max_tokens,
     stats?.context_window_usage_percent,
     stats?.total_usage?.estimated_points,
+    stats?.total_usage?.confirmed_points,
+    stats?.confirmed_consumption,
   ])
 }
 
@@ -37,6 +39,13 @@ function preserveUsagePoints(
   stats: SessionStats,
   previous: SessionStats | null
 ): SessionStats {
+  if (
+    !stats.confirmed_consumption &&
+    previous?.confirmed_consumption &&
+    usageSnapshotKey(stats) === usageSnapshotKey(previous)
+  ) {
+    stats = { ...stats, confirmed_consumption: previous.confirmed_consumption }
+  }
   const usage = stats.total_usage
   const points = previous?.total_usage?.estimated_points
   if (

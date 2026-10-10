@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core"
+import { applyBackendConsumption } from "./backend-consumption"
 import { getCurrentEffectiveAppLocale } from "./i18n"
 import {
   normalizeSettingsSection,
@@ -759,7 +760,10 @@ export async function importLocalConversations(
 export async function getFolderConversation(
   conversationId: number
 ): Promise<DbConversationDetail> {
-  return invoke("get_folder_conversation", { conversationId })
+  const detail = await invoke<DbConversationDetail>("get_folder_conversation", {
+    conversationId,
+  })
+  return applyBackendConsumption(detail)
 }
 
 export async function removeFolderFromHistory(path: string): Promise<void> {

@@ -176,15 +176,15 @@ pub(crate) async fn run_turn(
 
     let mut client_session =
         prewarmed_client_session.unwrap_or_else(|| sess.services.model_client.new_session());
-    // TODO(ccunningham): Pre-turn compaction runs before context updates and the
-    // new user message are recorded. Estimate pending incoming items (context
-    // diffs/full reinjection + user input) and trigger compaction preemptively
-    // when they would push the thread over the compaction threshold.
+    // 只预估待发送输入；失败路径仍由现有流程持久化一次。
+    let pending_tokens = estimate_pending_input_tokens(&sess, &input);
+    let history_version_before_compact = sess.clone_history().await.history_version();
     if let Err(err) = run_pre_sampling_compact(
         &sess,
         &turn_context,
         &mut client_session,
         &cancellation_token,
+        pending_tokens,
     )
     .await
     {
@@ -221,6 +221,7 @@ pub(crate) async fn run_turn(
         return Ok(None);
     }
 
+    let mut pre_turn_compacted = sess.clone_history().await.history_version() != history_version_before_compact;
     let user_input = turn_user_input(&input);
     let allow_plugin_mentions =
         !crate::guardian::is_basic_session_source(&turn_context.session_source);
@@ -363,6 +364,30 @@ pub(crate) async fn run_turn(
             codex_guardian_context::HistoryTruncation::Allow,
         )
         .await?;
+        pre_turn_compacted = true;
+    }
+    // 上下文和技能已解析，但新输入尚未入史，压缩不会截短本次文本或丢弃附件。
+    let prepared_tokens = injection_items.iter()
+        .map(crate::context_manager::estimate_item_token_count)
+        .fold(estimate_pending_input_tokens(&sess, &input), i64::saturating_add);
+    let prepared_status = super::context_window::context_window_token_status(&sess, &turn_context).await;
+    if !pre_turn_compacted && (prepared_status.token_limit_reached || prepared_status.base_window_tokens_remaining
+        .is_some_and(|remaining| prepared_tokens >= remaining)) {
+        let compact_result: CodexResult<_> = async {
+            run_auto_compact(&sess, Arc::clone(&first_step_context), None, &mut client_session,
+                InitialContextInjection::DoNotInject, CompactionReason::ContextLimit,
+                CompactionPhase::PreTurn).await?;
+            sess.record_context_updates_and_set_reference_context_item(&first_step_context).await
+        }.await;
+        match compact_result {
+            Ok(updated) => world_state = updated,
+            Err(error) => {
+                run_hooks_and_record_inputs(&sess, &turn_context, &first_step_context.settings.model_info,
+                    &input, PersistContext::Standard).await;
+                return Err(error);
+            }
+        }
+        pre_turn_compacted = true;
     }
     let mut can_drain_pending_input = input.is_empty();
     if run_hooks_and_record_inputs(
@@ -424,6 +449,7 @@ pub(crate) async fn run_turn(
 
     let mut next_step_context = Some(first_step_context);
     let mut guardian_budget_compacted = false;
+    let mut first_sampling = true;
     loop {
         // Note that pending_input would be something like a message the user
         // submitted through the UI while the model was running. Though the UI
@@ -497,6 +523,8 @@ pub(crate) async fn run_turn(
                 .await?
             }
         };
+        let original_prepared_step = first_sampling;
+        first_sampling = false;
         let sampling_request_result: CodexResult<_> = async {
             super::time_reminder::maybe_record_current_time_reminder(
                 sess.as_ref(),
@@ -512,6 +540,18 @@ pub(crate) async fn run_turn(
             // Keep the override after accepted input so history truncation removes them together.
             sess.record_reasoning_effort_override(step_context.as_ref())
                 .await;
+
+            // 上下文重注入、技能和 hooks 均已加入；首次采样前再核对完整预算。
+            if original_prepared_step {
+                let status = super::context_window::context_window_token_status(&sess, &turn_context).await;
+                if status.token_limit_reached {
+                    warn!(thread_id = %sess.thread_id, turn_id = %turn_context.sub_id,
+                        pre_turn_compacted, active_tokens = status.active_context_tokens,
+                        threshold = ?status.auto_compact_scope_limit,
+                        "prepared input exceeds compaction budget; preserving input without sampling");
+                    return Err(CodexErrorDetails::ContextWindowExceeded.into());
+                }
+            }
 
             // Construct the input that we will send to the model.
             let sampling_request_input: Vec<ResponseItem> = async {
@@ -1343,6 +1383,7 @@ async fn run_pre_sampling_compact(
     turn_context: &Arc<TurnContext>,
     client_session: &mut ModelClientSession,
     cancellation_token: &CancellationToken,
+    pending_tokens: i64,
 ) -> CodexResult<()> {
     maybe_run_previous_model_inline_compact(sess, turn_context, client_session, cancellation_token)
         .await?;
@@ -1350,7 +1391,16 @@ async fn run_pre_sampling_compact(
         super::context_window::context_window_token_status(sess.as_ref(), turn_context.as_ref())
             .await;
     // Compact if the configured auto-compaction budget or usable context window is exhausted.
-    if token_status.token_limit_reached {
+    let incoming_reaches_limit = token_status.base_window_tokens_remaining
+        .is_some_and(|remaining| pending_tokens >= remaining);
+    let token_source = sess.context_token_count_source().await;
+    info!(thread_id = %sess.thread_id, turn_id = %turn_context.sub_id,
+        token_source,
+        model = %turn_context.model_info().slug, active_tokens = token_status.active_context_tokens,
+        pending_tokens, threshold = ?token_status.auto_compact_scope_limit,
+        compact = token_status.token_limit_reached || incoming_reaches_limit, "pre-sampling compaction budget");
+    if token_status.token_limit_reached || incoming_reaches_limit {
+        let started = std::time::Instant::now();
         // Pre-turn compaction runs before run_turn creates the normal sampling step.
         let step_context = sess
             .capture_step_context(Arc::clone(turn_context), cancellation_token)
@@ -1365,8 +1415,22 @@ async fn run_pre_sampling_compact(
             CompactionPhase::PreTurn,
         )
         .await?;
+        info!(thread_id = %sess.thread_id, turn_id = %turn_context.sub_id,
+            elapsed_ms = started.elapsed().as_millis(), "pre-sampling compaction completed");
     }
     Ok(())
+}
+
+fn estimate_pending_input_tokens(sess: &Session, input: &[TurnInput]) -> i64 {
+    use crate::context_manager::estimate_item_token_count;
+    input.iter().map(|item| match item {
+        TurnInput::UserInput { content, .. } => estimate_item_token_count(
+            &sess.response_item_from_user_input(content.clone())),
+        TurnInput::ResponseItem(item) | TurnInput::FunctionCallOutput(item) => estimate_item_token_count(&item.item),
+        TurnInput::InterAgentCommunication(message) => serde_json::to_string(message)
+            .map(|text| i64::try_from(codex_utils_output_truncation::approx_token_count(&text)).unwrap_or(i64::MAX))
+            .unwrap_or(i64::MAX),
+    }).fold(0i64, i64::saturating_add)
 }
 
 /// Returns true only when both turns declare compaction compatibility hashes and they differ.

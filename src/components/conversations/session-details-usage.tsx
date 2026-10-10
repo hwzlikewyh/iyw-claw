@@ -2,7 +2,10 @@
 
 import { Coins, Timer } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
-import { UsagePointsValue } from "@/components/message/usage-points"
+import {
+  UsagePointsHint,
+  UsagePointsValue,
+} from "@/components/message/usage-points"
 import {
   formatContextWindowPercent,
   resolveContextWindowPercent,
@@ -42,10 +45,13 @@ export function SessionUsageOverview({
           {pointsT("session")}
         </div>
         <div className="break-words text-2xl font-semibold text-primary">
-          <UsagePointsValue points={usage?.estimated_points} />
+          <UsagePointsValue
+            points={stats?.confirmed_consumption?.amount}
+            consumption={stats?.confirmed_consumption}
+          />
         </div>
         <p className="text-[11px] text-muted-foreground">
-          {pointsT("estimateShort")}
+          <UsagePointsHint consumption={stats?.confirmed_consumption} />
         </p>
       </div>
       <div className="min-w-0 space-y-2">

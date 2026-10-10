@@ -17,6 +17,7 @@ mod command_descriptions;
 mod paginated_messages;
 mod timing;
 mod usage;
+pub(crate) mod billing;
 
 use command_descriptions::command_input_preview;
 use paginated_messages::PaginatedMessages;
@@ -37,6 +38,30 @@ impl Default for CodexParser {
 }
 
 impl CodexParser {
+    pub(crate) fn billing_receipts(&self, session_id: &str) -> Option<billing::Receipts> {
+        let roots = [self.base_dir.clone(), self.base_dir.parent()?.join("archived_sessions")];
+        for root in roots {
+            for entry in WalkDir::new(root).into_iter().filter_map(Result::ok) {
+                let path = entry.path();
+                if path.extension().and_then(|ext| ext.to_str()) == Some("jsonl")
+                    && path.file_name()?.to_str()?.contains(session_id) {
+                    if path.to_string_lossy().ends_with(".billing.jsonl") { continue; }
+                    let mut receipts = billing::read(path, session_id)?;
+                    if receipts.requests.is_empty() {
+                        for entry in WalkDir::new(&self.base_dir).into_iter().filter_map(Result::ok) {
+                            let source = entry.path();
+                            if source.to_string_lossy().ends_with(".billing.jsonl")
+                                && source.file_name().is_some_and(|name| name.to_string_lossy().contains(session_id)) {
+                                billing::read_requests(source, session_id, &mut receipts);
+                            }
+                        }
+                    }
+                    return Some(receipts);
+                }
+            }
+        }
+        None
+    }
     pub fn new() -> Self {
         let base_dir = resolve_codex_home_dir().join("sessions");
         Self { base_dir }
@@ -360,7 +385,7 @@ impl AgentParser for CodexParser {
             .filter_map(|e| e.ok())
         {
             let path = entry.path().to_path_buf();
-            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") || path.to_string_lossy().ends_with(".billing.jsonl") {
                 continue;
             }
             let fname = path.file_name().unwrap_or_default().to_string_lossy();
@@ -398,7 +423,7 @@ impl AgentParser for CodexParser {
             .filter_map(|e| e.ok())
         {
             let path = entry.path().to_path_buf();
-            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            if path.extension().and_then(|e| e.to_str()) != Some("jsonl") || path.to_string_lossy().ends_with(".billing.jsonl") {
                 continue;
             }
             let fname = path.file_name().unwrap_or_default().to_string_lossy();
@@ -755,7 +780,7 @@ fn parse_codex_subagent_stats(
             .ok()?
             .filter_map(|entry| {
                 let path = entry.ok()?.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                if path.extension().and_then(|e| e.to_str()) != Some("jsonl") || path.to_string_lossy().ends_with(".billing.jsonl") {
                     return None;
                 }
                 let stem = path.file_stem()?.to_string_lossy().into_owned();

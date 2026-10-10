@@ -1,7 +1,10 @@
 "use client"
 
 import { useLocale, useTranslations } from "next-intl"
-import { UsagePointsValue } from "@/components/message/usage-points"
+import {
+  UsagePointsHint,
+  UsagePointsValue,
+} from "@/components/message/usage-points"
 import { formatContextWindowPercent } from "@/lib/context-window"
 import { formatTokenThousands } from "@/lib/token-format"
 import { tokenValue, type SessionUsageData } from "@/lib/session-usage-display"
@@ -167,11 +170,17 @@ function CumulativeUsage({ data }: { data: SessionUsageData }) {
         ))}
       </dl>
       <div className="mt-2 flex items-center justify-between gap-4 border-t border-border pt-2 font-medium">
-        <span>{t("estimatedPoints")}</span>
-        <UsagePointsValue points={data.points} />
+        <SessionPointsLabel />
+        <UsagePointsValue points={data.points} consumption={data.consumption} />
       </div>
+      <UsagePointsHint consumption={data.consumption} />
     </section>
   )
+}
+
+function SessionPointsLabel() {
+  const t = useTranslations("UsagePoints")
+  return <span>{t("session")}</span>
 }
 
 export function SessionUsageContent({ data }: { data: SessionUsageData }) {

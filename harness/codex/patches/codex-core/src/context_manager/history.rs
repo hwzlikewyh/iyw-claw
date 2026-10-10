@@ -108,6 +108,9 @@ pub(crate) struct ContextManager {
     /// Process-unique so resumed roots cannot match a worker's cached assistant evidence.
     guardian_review_context_revision: u64,
     token_info: Option<TokenUsageInfo>,
+    /// 服务端计数覆盖的历史代际与位置；恢复的旧日志无法证明覆盖关系。
+    token_usage_anchor: Option<(u64, usize)>,
+    estimated_history_tokens: std::sync::OnceLock<i64>,
     /// Reference context snapshot used for diffing and producing model-visible
     /// settings update items.
     ///
@@ -233,6 +236,8 @@ impl ContextManager {
     pub(crate) fn new() -> Self {
         Self {
             items: Arc::new(Vec::new()),
+            token_usage_anchor: None,
+            estimated_history_tokens: std::sync::OnceLock::new(),
             review_history: None,
             retained_context: Arc::default(),
             guardian_review_mode: GuardianContextMode::ThreadOwned,
@@ -433,6 +438,7 @@ impl ContextManager {
 
     pub(crate) fn set_token_info(&mut self, info: Option<TokenUsageInfo>) {
         self.token_info = info;
+        self.token_usage_anchor = None;
     }
 
     pub(crate) fn set_reference_context_item(&mut self, item: Option<TurnContextItem>) {
@@ -490,6 +496,7 @@ impl ContextManager {
     }
 
     pub(crate) fn set_token_usage_full(&mut self, context_window: i64) {
+        self.token_usage_anchor = Some((self.history_version, self.items.len()));
         match &mut self.token_info {
             Some(info) => info.fill_to_context_window(context_window),
             None => {
@@ -588,6 +595,7 @@ impl ContextManager {
         if let Some(source) = &source {
             processed.metadata.get_or_insert_default().retained_source = Some(source.clone());
         }
+        self.estimated_history_tokens.take();
         Arc::make_mut(&mut self.items).push(processed);
         source
     }
@@ -665,6 +673,8 @@ impl ContextManager {
     }
 
     pub(crate) fn remove_first_item(&mut self) {
+        self.estimated_history_tokens.take();
+        self.token_usage_anchor = None;
         if !self.items.is_empty() {
             // Remove the oldest item (front of the list). Items are ordered from
             // oldest → newest, so index 0 is the first entry recorded.
@@ -680,6 +690,8 @@ impl ContextManager {
 
 
     pub(crate) fn replace_annotated(&mut self, items: Vec<ResponseItemEnvelope>) {
+        self.estimated_history_tokens.take();
+        self.token_usage_anchor = None;
         self.retained_context = Arc::default();
         self.user_message_revision = self.user_message_revision.saturating_add(1);
         if let Some(review_history) = &mut self.review_history {
@@ -701,6 +713,8 @@ impl ContextManager {
         items: Vec<ResponseItemEnvelope>,
         reviewer_compaction_hash: Option<&str>,
     ) -> bool {
+        self.estimated_history_tokens.take();
+        self.token_usage_anchor = None;
         let promoted = self.guardian_review_mode == GuardianContextMode::Legacy
             && GuardianContextMode::for_checkpoint(&items, reviewer_compaction_hash)
                 == GuardianContextMode::ThreadOwned;
@@ -866,6 +880,7 @@ impl ContextManager {
         usage: &TokenUsage,
         model_context_window: Option<i64>,
     ) {
+        self.token_usage_anchor = Some((self.history_version, self.items.len()));
         self.token_info = TokenUsageInfo::new_or_append(
             &self.token_info,
             &Some(usage.clone()),
@@ -915,6 +930,12 @@ impl ContextManager {
     /// When true, the server already accounted for past reasoning tokens and
     /// the client should not re-estimate them.
     pub(crate) fn get_total_token_usage(&self, server_reasoning_included: bool) -> i64 {
+        if !self.has_reliable_token_usage() {
+            return *self.estimated_history_tokens.get_or_init(|| {
+                self.items.iter().map(|entry| estimate_item_token_count(&entry.item))
+                    .fold(0i64, i64::saturating_add)
+            });
+        }
         let last_tokens = self
             .token_info
             .as_ref()
@@ -939,11 +960,19 @@ impl ContextManager {
             .fold(0i64, i64::saturating_add)
     }
 
+    pub(crate) fn has_reliable_token_usage(&self) -> bool {
+        let Some((version, covered)) = self.token_usage_anchor else { return false; };
+        version == self.history_version && covered <= self.items.len()
+            && self.token_info.as_ref().is_some_and(|info| info.last_token_usage.total_tokens > 0)
+            && !self.items[covered..].iter().any(|entry| is_model_generated_item(&entry.item))
+    }
+
     /// This function enforces a couple of invariants on the in-memory history:
     /// 1. every call (function/custom) has a corresponding output entry
     /// 2. every output has a corresponding call entry or names an external tool event
     /// 3. unsupported image and audio content is stripped from messages and tool outputs
     fn normalize_history(&mut self, input_modalities: &[InputModality]) {
+        self.estimated_history_tokens.take();
         let items = Arc::make_mut(&mut self.items);
 
         // all function/tool calls must have a corresponding output

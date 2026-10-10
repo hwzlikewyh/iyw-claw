@@ -91,6 +91,8 @@ pub struct ConversationDetail {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DbConversationDetail {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend_consumption: Option<BackendConsumption>,
     pub summary: DbConversationSummary,
     pub turns: Vec<MessageTurn>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -116,6 +118,23 @@ pub struct DbConversationDetail {
     pub history_assistant_turns_before: usize,
     #[serde(default)]
     pub history_stale: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ConfirmedConsumption {
+    pub amount: Option<String>,
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_points: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<TurnUsage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BackendConsumption {
+    /// 使用原生消息 ID，避免重连片段重复展示编号导致消费串卡。
+    pub turns: std::collections::HashMap<String, ConfirmedConsumption>,
+    pub session: ConfirmedConsumption,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

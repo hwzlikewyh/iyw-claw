@@ -104,6 +104,7 @@ fn page_detail(
     assistants_before: usize,
 ) -> DbConversationDetail {
     DbConversationDetail {
+        backend_consumption: detail.backend_consumption.clone(),
         summary: detail.summary.clone(),
         turns: detail.turns[range.clone()].to_vec(),
         session_stats: detail.session_stats.clone(),

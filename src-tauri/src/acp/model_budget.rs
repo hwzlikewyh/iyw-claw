@@ -2,6 +2,7 @@
 //! runtime diagnostics.
 
 use super::model_catalog::{model_capabilities, ModelLimits};
+use crate::models::agent::AgentType;
 
 const USABLE_CONTEXT_PERCENT: u64 = 95;
 const DEFAULT_AUTO_COMPACT_PERCENT: u64 = 90;
@@ -13,6 +14,16 @@ pub fn limits_for(model: Option<&str>, reported_context_window: u64) -> ModelLim
         .and_then(model_capabilities)
         .map(|snapshot| snapshot.limits)
         .unwrap_or_default();
+    resolve_limits(limits, model, reported_context_window)
+}
+
+pub fn limits_for_agent(agent: AgentType, model: Option<&str>, reported: u64) -> ModelLimits {
+    let limits = model.and_then(|model| super::model_catalog::model_capabilities_for(agent, model))
+        .map(|snapshot| snapshot.limits).unwrap_or_default();
+    resolve_limits(limits, model, reported)
+}
+
+pub(crate) fn resolve_limits(limits: ModelLimits, model: Option<&str>, reported_context_window: u64) -> ModelLimits {
     ModelLimits {
         context_window: positive_option(limits.context_window)
             .or_else(|| positive_value(reported_context_window))
@@ -39,6 +50,14 @@ pub fn max_output_tokens(model: Option<&str>, reported_context_window: u64) -> O
 /// the configured output budget still fits inside the usable context window.
 pub fn compaction_threshold(model: Option<&str>, reported_context_window: u64) -> Option<u64> {
     let limits = limits_for(model, reported_context_window);
+    threshold_for_limits(limits)
+}
+
+pub fn compaction_threshold_for(agent: AgentType, model: Option<&str>, reported: u64) -> Option<u64> {
+    threshold_for_limits(limits_for_agent(agent, model, reported))
+}
+
+pub(crate) fn threshold_for_limits(limits: ModelLimits) -> Option<u64> {
     let context = limits.context_window?;
     let usable = context.saturating_mul(USABLE_CONTEXT_PERCENT) / 100;
     let output_reserve = limits.max_output_tokens.unwrap_or_default();

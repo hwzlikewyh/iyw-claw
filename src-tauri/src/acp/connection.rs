@@ -1462,6 +1462,7 @@ pub(crate) async fn spawn_agent_connection(
         owner_window_label.clone(),
         database_folder_id,
     );
+    initial_state.apply_launch_model_catalog(&runtime_env);
     // 已持久化的会话在 ACP 握手完成前就绑定，冷启动期间进入 durable
     // Agent Input 队列的 Prompt 才能立即解析到正确的会话与目录。
     initial_state.conversation_id = database_conversation_id;
@@ -9170,10 +9171,11 @@ async fn emit_conversation_update(
         SessionUpdate::UsageUpdate(update) => {
             let compaction_at_tokens = {
                 let snapshot = state.read().await;
-                crate::acp::model_catalog::compaction_threshold(
-                    snapshot.current_model.as_deref(),
-                    update.size,
-                )
+                snapshot.current_model.as_ref().and_then(|model| {
+                    snapshot.launch_model_budgets.iter().find_map(|(id, threshold)| {
+                        id.eq_ignore_ascii_case(model).then_some(*threshold)
+                    })
+                })
             };
             let compaction_pending =
                 compaction_at_tokens.is_some_and(|threshold| update.used >= threshold);

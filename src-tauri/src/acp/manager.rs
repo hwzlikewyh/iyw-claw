@@ -1701,6 +1701,27 @@ impl ConnectionManager {
         stale_count
     }
 
+    pub(crate) async fn refresh_model_catalog_staleness(&self, db: &AppDatabase) {
+        let Some(data_dir) = self.version_center_data_dir.get() else { return; };
+        let agents: Vec<_> = self.connections.lock().await.values().map(|connection| connection.agent_type).collect();
+        crate::commands::acp::refresh_config_staleness(self, db, data_dir, &agents, ConfigStaleKind::AgentConfig).await;
+    }
+
+    async fn require_current_model_catalog(&self, conn_id: &str) -> Result<(), AcpError> {
+        let (_, state) = self.wait_for_connection_launch(conn_id).await?;
+        let (agent, launched, stale) = {
+            let snapshot = state.read().await;
+            (snapshot.agent_type, snapshot.launch_model_catalog.clone(), snapshot.config_stale)
+        };
+        if launched == crate::acp::model_catalog::snapshot_for(agent) { return Ok(()); }
+        if !stale {
+            let (_, emitter) = self.get_state_and_emitter(conn_id).await.ok_or_else(|| AcpError::protocol("connection no longer exists"))?;
+            emit_with_state(&state, &emitter, AcpEvent::SessionConfigStale { stale: true, kind: ConfigStaleKind::AgentConfig }).await;
+        }
+        tracing::info!(connection_id = conn_id, agent = %agent, "[ModelCatalog] send awaits reconnect to apply updated model budgets");
+        Err(AcpError::protocol("模型预算已更新，请重新连接应用配置后再发送"))
+    }
+
     /// Look up an existing live connection that we can reuse instead of
     /// spawning a new process. Reuse criteria, ALL must hold:
     /// - `session_id` is Some (we never dedup speculative / fresh connects)
@@ -1786,6 +1807,7 @@ impl ConnectionManager {
             ));
         }
         let preparation_started = Instant::now();
+        self.require_current_model_catalog(conn_id).await?;
         crate::acp::capability_policy::require_prompt_file_upload(&blocks)
             .await
             .map_err(AcpError::from_capability_error)?;
@@ -2051,6 +2073,7 @@ impl ConnectionManager {
         accepted: Option<tokio::sync::oneshot::Sender<()>>,
     ) -> Result<Option<i32>, AcpError> {
         let _operation_guard = self.acquire_operation_read().await?;
+        self.require_current_model_catalog(conn_id).await?;
         let upload_monitor = crate::acp::capability_policy::monitor_prompt_file_upload(&blocks)
             .await
             .map_err(AcpError::from_capability_error)?;

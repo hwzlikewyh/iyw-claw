@@ -92,7 +92,10 @@ function ConversationUsageCells({ row }: { row: ConversationUsageRow }) {
         {total == null ? "--" : formatTokenThousands(total, locale)}
       </td>
       <td className="break-words px-2 py-3 text-right">
-        <UsagePointsValue points={usage?.estimated_points} />
+        <UsagePointsValue
+          points={row.stats?.confirmed_consumption?.amount}
+          consumption={row.stats?.confirmed_consumption}
+        />
       </td>
     </>
   )

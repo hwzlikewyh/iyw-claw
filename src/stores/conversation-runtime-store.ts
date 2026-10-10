@@ -1745,6 +1745,7 @@ function reducer(
         const turn = patchedTurns[patch.index]
         if (!turn) continue
         const newUsage =
+          patch.usage?.confirmed_points != null ||
           patch.usage?.estimated_points != null
             ? patch.usage
             : (turn.usage ?? patch.usage)
@@ -2422,7 +2423,7 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
             )
             if (
               lastLocalAssistantIndex !== undefined &&
-              latestCoverage?.usage?.estimated_points == null &&
+              latestCoverage?.usage?.confirmed_points?.state !== "confirmed" &&
               attempt < 1
             ) {
               trySync(attempt + 1)

@@ -198,6 +198,7 @@ fn session_telemetry_for_request(
 /// configuration is per turn and is passed explicitly to streaming/unary methods.
 #[derive(Debug)]
 struct ModelClientState {
+    billing_receipts: crate::billing_receipts::BillingReceipts,
     thread_id: ThreadId,
     provider: SharedModelProvider,
     workspace_routing: WorkspaceRoutingContext,
@@ -468,6 +469,9 @@ fn sideband_websocket_auth_headers(api_auth: &dyn AuthProvider) -> ApiHeaderMap 
 }
 
 impl ModelClient {
+    pub(crate) fn set_billing_rollout_path(&self, path: &std::path::Path) {
+        self.state.billing_receipts.set_rollout_path(path);
+    }
     #[allow(clippy::too_many_arguments)]
     /// Creates a new session-scoped `ModelClient`.
     ///
@@ -514,6 +518,7 @@ impl ModelClient {
             && !memory_consolidation;
         Self {
             state: Arc::new(ModelClientState {
+                billing_receipts: crate::billing_receipts::BillingReceipts::default(),
                 thread_id,
                 provider: model_provider,
                 workspace_routing,
@@ -1694,6 +1699,16 @@ impl ModelClientSession {
                 RequestRouteTelemetry::for_endpoint("/responses"),
                 self.client.state.auth_env_telemetry.clone(),
             );
+            let failed_request_ids = Arc::new(StdMutex::new(Vec::new()));
+            let billing_guard = BillingRequestGuard {
+                client: Arc::clone(&self.client.state),
+                metadata: responses_metadata.clone(),
+                request_ids: Arc::clone(&failed_request_ids),
+            };
+            let request_telemetry: Arc<dyn RequestTelemetry> = Arc::new(BillingRequestTelemetry {
+                inner: request_telemetry,
+                failed_request_ids: Arc::clone(&failed_request_ids),
+            });
             let compression = self.responses_request_compression(client_setup.auth.as_ref());
             let mut options = self
                 .build_responses_options(
@@ -1770,6 +1785,18 @@ impl ModelClientSession {
                 self.client.state.thread_id.to_string(), "http",
             );
             let stream_result = client.stream_request(request, options).await;
+            let final_request_id = match &stream_result {
+                Ok(stream) => stream.upstream_request_id.clone(),
+                Err(error) => extract_response_debug_context_from_api_error(error).request_id,
+            };
+            billing_guard.track(final_request_id.as_deref());
+            let ids = failed_request_ids
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
+            for id in ids {
+                billing_guard.record(&id).await;
+            }
 
             match stream_result {
                 Ok(stream) => {
@@ -2804,6 +2831,81 @@ fn api_error_http_status(error: &ApiError) -> Option<u16> {
     match error {
         ApiError::Transport(TransportError::Http { status, .. }) => Some(status.as_u16()),
         _ => None,
+    }
+}
+
+struct BillingRequestTelemetry {
+    inner: Arc<dyn RequestTelemetry>,
+    failed_request_ids: Arc<StdMutex<Vec<String>>>,
+}
+
+struct BillingRequestGuard {
+    client: Arc<ModelClientState>,
+    metadata: CodexResponsesMetadata,
+    request_ids: Arc<StdMutex<Vec<String>>>,
+}
+
+impl BillingRequestGuard {
+    fn track(&self, request_id: Option<&str>) {
+        let Some(id) = request_id.filter(|id| !id.is_empty() && id.len() <= 64) else {
+            return;
+        };
+        let mut ids = self.request_ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !ids.iter().any(|value| value == id) {
+            ids.push(id.to_owned());
+        }
+    }
+
+    async fn record(&self, id: &str) {
+        self.client.billing_receipts.record(&self.metadata, Some(id)).await;
+        self.request_ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(|value| value != id);
+    }
+}
+
+impl Drop for BillingRequestGuard {
+    fn drop(&mut self) {
+        let ids = std::mem::take(&mut *self.request_ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner));
+        if ids.is_empty() {
+            return;
+        }
+        let client = Arc::clone(&self.client);
+        let metadata = self.metadata.clone();
+        // 请求在重试等待中被取消时，保留已经收到的服务端请求身份。
+        tokio::spawn(async move {
+            for id in ids {
+                client.billing_receipts.record(&metadata, Some(&id)).await;
+            }
+        });
+    }
+}
+
+const MAX_BILLING_RETRY_REQUEST_IDS: usize = 32;
+
+impl RequestTelemetry for BillingRequestTelemetry {
+    fn on_request(
+        &self,
+        attempt: u64,
+        status: Option<StatusCode>,
+        error: Option<&TransportError>,
+        duration: Duration,
+    ) {
+        self.inner.on_request(attempt, status, error, duration);
+        let Some(id) = error.and_then(|error| extract_response_debug_context(error).request_id) else {
+            return;
+        };
+        let mut ids = self.failed_request_ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if id.len() <= 64 && ids.len() < MAX_BILLING_RETRY_REQUEST_IDS && !ids.contains(&id) {
+            ids.push(id);
+        }
     }
 }
 
