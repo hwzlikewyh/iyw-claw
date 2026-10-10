@@ -28,14 +28,35 @@ Break the topic into 3–5 answerable sub-questions. For each, prepare 2–3 que
 variants covering terminology, counterarguments, geography/date, and the user's
 decision criteria. For current events, include a news/current-date variant.
 
-Use an advertised search, content reader, code, video, or platform tool directly
-when it covers the task. Use gateway discovery only for a missing host capability;
-read its schema once and reuse it. Public information does not require a browser
+For social evidence, follow `internet-routing.md`: use remote platform tools
+first, including within a broader all-web investigation. Discover with
+`search_iyw_capabilities(source=remote)` when no current matching remote
+definition has been read; read the returned ID, then invoke its member with
+the actual business query. Local Agent Reach/CLI/browser tools are fallbacks
+only for the affected platform with a stated, evidenced reason.
+
+For other evidence, use an advertised search, content reader, code, video, or
+platform tool when it covers the task; discover missing capabilities through
+the gateway. Read schemas once and reuse them. Public information does not require a browser
 unless login state, dynamic content, or interaction requires one. A focused
 lookup needs only the queries and sources needed to establish the answer; use
 the broader research sequence for substantial research tasks.
 
 ## 3. Collect sources
+
+For a request such as “调研永安主要口腔医院这一周的新闻、动态、促销、团购，
+包括抖音、小红书、视频号、专业社区和本地社区”，state the actual weekly date
+range and resolve the intended city when ambiguous. Establish hospital names
+from verifiable sources, then split queries by hospital/platform and aliases.
+Use remote Douyin, Xiaohongshu and WeChat Channels search/list tools first;
+complete detail reads using real returned IDs/tokens. Use official sites,
+professional and local communities as additional source families through
+suitable search/read tools. Keep other platforms remote if one fails.
+Distinguish publication date, event date and offer validity. Verify seller,
+location, price, package conditions and expiry from original promotion pages;
+old or undated offers are leads, not confirmed current discounts. Track each
+requested source family as verified, empty, unavailable or not covered; do not
+claim complete all-web coverage from social results alone.
 
 Search each sub-question, combine multiple sources, and deduplicate by canonical
 URL. Maintain a source ledger with:

@@ -25,6 +25,8 @@ pub(super) use direct::direct_identity;
 
 const FAILURE_COOLDOWN: Duration = Duration::from_secs(15);
 pub(super) const REMOTE_PREFIX: &str = "iyw.remote.";
+pub(super) const SOCIAL_ROUTING_INSTRUCTIONS: &str =
+    include_str!("../../../resources/social-research-routing.md");
 pub(super) const AGENT_INSTRUCTIONS: &str = "The same search/read/invoke trio includes signed-in remote business capabilities. Read the account-scoped remote overview attached to search_iyw_capabilities or this turn's context. It comes from the remote server, not a fixed capability list. For general capability introductions, answer directly from the supplied overview and visible local/direct tools without search, browse or schema reads. State pending/stale/unavailable metadata honestly. Browse with source=remote, mode=browse and no query only for an explicitly requested complete current list or relevant group members; paginate only within that requested scope. Listing capabilities needs no member schema reads. For a concrete task search its intent with source=remote, source=local for host work, or all when unsure. Prefer a matching direct tool. Read group workflows and complete item schemas/usage; invoke an item's capability_id, never the group. A member fully described in a group read needs no additional read. The host carries remote IDs and versions. TOOL_CHANGED with not_started requires rereading the old capability_id and using the current ID returned; remote_catalog_expired permits fresh discovery. Pending, stale or unavailable metadata is not evidence of absence. Preserve authorization and original task identity; never replay an uncertain business operation.";
 
 pub(super) struct RemoteGateway {

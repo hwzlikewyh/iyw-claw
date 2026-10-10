@@ -42,6 +42,45 @@ fn copy_dir(source: &Path, target: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub(super) fn ensure_social_routing(central: &Path) -> Result<(), String> {
+    let path = central.join("agent-reach/SKILL.md");
+    if !path.is_file() {
+        return Ok(());
+    }
+    let content = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    let policy = include_str!("../../../resources/social-research-routing.md").trim();
+    if content.contains(policy) {
+        return Ok(());
+    }
+    let mut metadata = crate::acp::skill_routing::read_frontmatter(&content)
+        .ok_or_else(|| "Agent Reach Skill frontmatter is invalid".to_string())?;
+    let mapping = metadata
+        .as_mapping_mut()
+        .ok_or_else(|| "Agent Reach Skill frontmatter must be a mapping".to_string())?;
+    mapping.insert(
+        serde_yaml::Value::String("description".to_string()),
+        serde_yaml::Value::String("联网与社媒调研（小红书、抖音、微信视频号、新闻动态、促销团购）先使用爱原物远程社媒渠道。通过 source=remote 发现、读取并调用真实成员；仅所需远程能力缺失、停用、不适用或实际失败时，说明原因再按平台回退本地 Agent Reach/CLI/浏览器。doctor 仅用于本地回退，不先于远程调用。".to_string()),
+    );
+    let yaml = serde_yaml::to_string(&metadata).map_err(|error| error.to_string())?;
+    let boundary = content
+        .lines()
+        .skip(1)
+        .position(|line| matches!(line.trim(), "---" | "..."))
+        .ok_or_else(|| "Agent Reach Skill frontmatter is not closed".to_string())?;
+    let body = content
+        .lines()
+        .skip(boundary + 2)
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(
+        path,
+        format!("---\n{yaml}---\n\n{policy}\n\n{}\n", body.trim_start()),
+    )
+    .map_err(|error| error.to_string())?;
+    tracing::info!("[internet-tools] applied remote social priority to managed Agent Reach Skill");
+    Ok(())
+}
+
 pub(super) fn sync_packaged_skills(
     agent_reach_skill: &Path,
     opencli_skills: &Path,
@@ -49,6 +88,7 @@ pub(super) fn sync_packaged_skills(
 ) -> Result<Vec<String>, String> {
     fs::create_dir_all(central).map_err(|error| error.to_string())?;
     copy_dir(agent_reach_skill, &central.join("agent-reach"))?;
+    ensure_social_routing(central)?;
     let mut synced = vec!["agent-reach".to_string()];
     sync_opencli_skills(opencli_skills, central, &mut synced)?;
     Ok(synced)
@@ -59,6 +99,7 @@ pub(super) fn sync_installed_skills(paths: &AgentStoragePaths) -> Result<Vec<Str
     let mut synced = Vec::new();
     if let Some(agent_reach_skill) = find_agent_reach_skill(paths) {
         copy_dir(&agent_reach_skill, &central.join("agent-reach"))?;
+        ensure_social_routing(&central)?;
         synced.push("agent-reach".to_string());
     }
     if cfg!(feature = "tauri-runtime") {
