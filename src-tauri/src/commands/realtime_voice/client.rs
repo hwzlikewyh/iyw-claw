@@ -18,6 +18,8 @@ use crate::commands::skill_market::client as fusion_client;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const READY_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_TEXT_EVENT_BYTES: usize = 64 * 1024;
+const FUSION_BASE_URL_ENV: &str = "IYW_CLAW_FUSION_API_BASE_URL";
+const PRODUCTION_REALTIME_URL: &str = "wss://ai.iyw.cn/fusion-api/v1/voice/realtime/connect";
 
 pub(super) type VoiceSocket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
@@ -62,17 +64,36 @@ pub(super) enum GatewayEvent {
 pub(super) async fn connect(token: &str) -> Result<VoiceSocket, AppCommandError> {
     let url = websocket_url()?;
     let request = websocket_request(&url, token)?;
+    tracing::info!(
+        gateway_host = url.host_str().unwrap_or_default(),
+        "[RealtimeVoice] connecting to Fusion WebSocket"
+    );
     let (mut socket, response) = tokio::time::timeout(CONNECT_TIMEOUT, connect_async(request))
         .await
-        .map_err(|_| AppCommandError::network("Realtime voice connection timed out"))?
-        .map_err(connection_error)?;
+        .map_err(|_| AppCommandError::network("Realtime voice connection timed out"))
+        .and_then(|result| result.map_err(connection_error))
+        .map_err(|error| log_start_error("upgrade", error))?;
     tracing::info!(
         status = %response.status(),
         "[RealtimeVoice] Fusion WebSocket connected"
     );
-    send_auth(&mut socket, token).await?;
-    wait_for_ready(&mut socket).await?;
+    send_auth(&mut socket, token)
+        .await
+        .map_err(|error| log_start_error("send_auth", error))?;
+    wait_for_ready(&mut socket)
+        .await
+        .map_err(|error| log_start_error("wait_ready", error))?;
     Ok(socket)
+}
+
+fn log_start_error(stage: &str, error: AppCommandError) -> AppCommandError {
+    tracing::warn!(
+        stage,
+        code = ?error.code,
+        reason = %error.message,
+        "[RealtimeVoice] session startup failed"
+    );
+    error
 }
 
 fn websocket_request(url: &reqwest::Url, token: &str) -> Result<Request<()>, AppCommandError> {
@@ -92,6 +113,7 @@ fn websocket_request(url: &reqwest::Url, token: &str) -> Result<Request<()>, App
 fn connection_error(error: tokio_tungstenite::tungstenite::Error) -> AppCommandError {
     if let tokio_tungstenite::tungstenite::Error::Http(response) = &error {
         let status = response.status();
+        tracing::warn!(status = %status, "[RealtimeVoice] WebSocket upgrade rejected");
         let message = if status.is_success() || status.as_u16() == 400 {
             "Realtime voice gateway did not accept the WebSocket upgrade"
         } else {
@@ -115,6 +137,13 @@ pub(super) fn parse_event(message: Message) -> Result<Option<GatewayEvent>, Stri
 }
 
 fn websocket_url() -> Result<reqwest::Url, AppCommandError> {
+    if use_production_voice_endpoint() {
+        // 正式语音入口支持 WebSocket 升级，不经过普通 HTTP 网关。
+        return reqwest::Url::parse(PRODUCTION_REALTIME_URL).map_err(|error| {
+            AppCommandError::configuration_invalid("Invalid realtime voice gateway URL")
+                .with_detail(error.to_string())
+        });
+    }
     let mut url = fusion_client::endpoint("/v1/voice/realtime/connect")?;
     let scheme = match url.scheme() {
         "https" => "wss",
@@ -129,6 +158,13 @@ fn websocket_url() -> Result<reqwest::Url, AppCommandError> {
         AppCommandError::configuration_invalid("Invalid realtime voice gateway URL")
     })?;
     Ok(url)
+}
+
+fn use_production_voice_endpoint() -> bool {
+    let configured_base = std::env::var(FUSION_BASE_URL_ENV).unwrap_or_default();
+    !cfg!(debug_assertions)
+        && !cfg!(feature = "test-gateway")
+        && configured_base.trim().trim_end_matches('/').is_empty()
 }
 
 async fn send_auth(socket: &mut VoiceSocket, token: &str) -> Result<(), AppCommandError> {
@@ -178,6 +214,7 @@ async fn wait_for_ready_event(socket: &mut VoiceSocket) -> Result<(), AppCommand
                 return Ok(());
             }
             Some(GatewayEvent::Error { code, message }) => {
+                tracing::warn!(gateway_code = %code, "[RealtimeVoice] gateway rejected session startup");
                 let detail = format!("{code}: {message}");
                 return if code == "VOICE_AUTH_FAILED" {
                     Err(AppCommandError::authentication_failed(
