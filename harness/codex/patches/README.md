@@ -69,6 +69,16 @@ background command can settle after its originating turn without entering a
 new turn's transcript. Recheck this path, including approval placeholders, when
 upgrading the upstream protocol.
 
+Empty `write_stdin` polls report the existing `TerminalInteraction` activity at
+the start of output collection and every 30 seconds while that collection is
+pending. The events keep the original command item/process identity and the
+current polling turn, so the ACP turn fence and known-process checks still apply.
+The timer is owned by the polling future and ends on return or cancellation;
+it does not change the requested wait, consume stdin, or protect an unpolled
+background process indefinitely. This prevents the host's 120-second silence
+watchdog from cancelling a valid 180- or 300-second output wait. Recheck this
+patch when upgrading the pinned runtime.
+
 `codex-mcp` retains the production sources of pinned 0.161.0 (`9790114`), with
 test-only modules omitted and standalone dependency metadata. Its status inspection
 reads one published runtime generation without starting/reconnecting clients.
@@ -244,3 +254,21 @@ the official structured tool routing and does not add alias guessing. This
 allows the host to distinguish a provider/relay namespace compatibility error
 from an unavailable business capability. See `docs/runtime-repairs-20260911.md`
 at the repository root for the observed production routing configuration.
+
+## Compaction budgets and consumption correlation
+
+The history patch falls back to a cached estimate of effective history when
+restored token usage has no trustworthy coverage anchor. Pending input and
+resolved context/skills are checked before input is recorded; the first sampling
+gate rejects any remaining overflow without compacting away new text or media.
+The host freezes the current Agent's model directory with each model's own budget.
+Existing connections require the existing reconnect workflow after directory changes.
+
+HTTP Responses headers and retry errors produce a minimal `.billing.jsonl` index
+beside the rollout, linking request IDs to thread, turn and generation/compaction
+purpose. Cancellation makes a bounded best-effort append of IDs already observed.
+No response payload, credentials or local price estimate enters this index.
+Upstream event contracts remain unchanged. Remote stores, Responses WebSockets,
+remote compact endpoints and independently billed tools are outside this index.
+Review both patches on upgrades; desktop compilation and product validation must
+run in the permitted release environment, not on this workstation.

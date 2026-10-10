@@ -1023,7 +1023,18 @@ impl UnifiedExecProcessManager {
         let start = Instant::now();
         let deadline = start + Duration::from_millis(yield_time_ms);
         let collected_output =
-            Self::collect_output_until_deadline(&output, pause_state, deadline).await;
+            super::poll_activity::collect_output(super::poll_activity::PollOutput {
+                output: &output,
+                pause_state,
+                deadline,
+                interaction: request
+                    .interaction_event
+                    .as_ref()
+                    .filter(|_| request.input.is_empty()),
+                call_id: &call_id,
+                process_id: request.process_id,
+            })
+            .await;
         let wall_time = Instant::now().saturating_duration_since(start);
 
         let original_token_count = usize::try_from(approx_tokens_from_byte_count(
