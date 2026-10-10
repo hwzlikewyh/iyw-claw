@@ -46,7 +46,7 @@ pub(super) fn values() -> [Value; 12] {
 }
 
 fn search_tool() -> Value {
-    json!({
+    let mut tool = json!({
         "name": SEARCH_TOOL,
         "description": "Discover local host and signed-in remote capabilities. The attached remote overview and top-level tools come from the live server and refresh every 15 minutes; capability categories are not fixed. For a general capability introduction answer from the attached overview and visible local/direct tools without search, browse or schema reads. Report pending/stale/unavailable metadata honestly. Browse only for an explicitly requested complete current list or a relevant group's members: source=remote, mode=browse, omit query and follow next_cursor within that requested scope. Listing needs no member schema reads. To browse a group's members pass its returned capability_id as group_id; keep it unchanged while paging. For a concrete task use mode=search with focused query keywords: source=local for host work, remote for remote business, all when unsure. Prefer an advertised direct tool with a complete matching schema. Results are metadata, not business data: read a plausible capability_id and invoke a member, never a group. A full group read includes member schemas and usage; reuse definitions. Remote unavailable/degraded or empty search does not prove absence; browse needs no semantic index. Do not discover tools for greetings or unrelated local work. Never guess IDs or callable namespaces.",
         "inputSchema": {
@@ -61,7 +61,13 @@ fn search_tool() -> Value {
             },
             "additionalProperties": false
         }
-    })
+    });
+    tool["description"] = json!(format!(
+        "{}\n\n{}",
+        tool["description"].as_str().unwrap_or_default(),
+        super::remote_mcp::SOCIAL_ROUTING_INSTRUCTIONS.trim()
+    ));
+    tool
 }
 
 fn read_tool() -> Value {

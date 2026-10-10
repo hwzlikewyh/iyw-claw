@@ -26,9 +26,10 @@ impl ServerHandler for BuiltinMcpHandler {
         )
         .with_server_info(Implementation::new("iyw-claw", env!("CARGO_PKG_VERSION")))
         .with_instructions(format!(
-            "{} {}",
+            "{} {}\n\n{}",
             crate::acp::builtin_mcp::service::SERVER_INSTRUCTIONS,
-            super::super::remote_mcp::AGENT_INSTRUCTIONS
+            super::super::remote_mcp::AGENT_INSTRUCTIONS,
+            super::super::remote_mcp::SOCIAL_ROUTING_INSTRUCTIONS.trim()
         ))
     }
 

@@ -39,11 +39,12 @@ fn packaged_opencli_skills_complete(source: &Path, central: &Path) -> bool {
 }
 
 pub async fn bootstrap_core() -> Result<usize, String> {
+    let _guard = bootstrap_lock().lock().await;
+    ensure_social_routing(&central_experts_dir())?;
     if cfg!(feature = "tauri-runtime") {
         // 桌面基础组件已由安装引导准备；启动阶段不安装 OpenCLI 或 Python 包。
         return Ok(0);
     }
-    let _guard = bootstrap_lock().lock().await;
     let Some(paths) = AgentStoragePaths::active() else {
         return Ok(0);
     };

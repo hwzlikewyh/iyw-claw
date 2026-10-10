@@ -1,6 +1,6 @@
 ---
 name: iyw-capability-gateway
-short-description: 爱原物业务接口、图片、视频、商品套图、上传与主机能力的分层调用指南。
+short-description: 社媒调研优先远程渠道；爱原物业务接口、图片、视频、上传与主机能力指南。
 description: >-
   Use for 爱原物/IYW 设计云、AI工作台、图案网的业务接口：产品与标签、客户需求、
   趋势报告、知识库目录、原助理会话、IP/图案/授权、瓶型瓶盖、Temu、会员点数钱包、
@@ -11,16 +11,18 @@ description: >-
   的 generate_iyw_image/fetch_iyw_url，按视频专篇匹配当前工具与页面契约。
   Also discover current signed-in remote business tools from the live overview
   and directory; business categories are published by the remote server and may change.
+  Social research (小红书、抖音、视频号、新闻动态、促销团购) uses source=remote first;
+  agent-reach/local browser/CLI routes are per-platform fallbacks after confirmed gaps or failure.
   Also route iyw-claw memory/learning, session/profile/history, artifacts,
   browser/web evidence, audio, image understanding, channels/messages,
   automation, interaction and delegation through the matching reference and
   live host catalog. Read only relevant references; never guess IDs or schemas.
 routing:
-  capability: IYW business APIs through fetch_iyw_url and iyw-claw host capabilities
-  coreTriggers: [host action, memory, self-learning, session, profile, history, artifact, browser, web, internet, audio, transcription, image understanding, channel, message, automation, scheduled task, feedback, question, clarification, ambiguous requirement, needs decision, 需求不清, 需要选择, delegation, 爱原物, 设计云, 产品, 标签, 客户需求, 趋势报告, 图案, IP授权, 版权, 点数, 钱包, 组织, 店铺, 瓶型, Temu, 视频生成, 电商视频, 产品演绎, 视频复刻, 自动导演, 商品套图, A+, Listing, 爆款复刻, 上传文件, fetch_iyw_url, upload_iyw_file]
+  capability: IYW business APIs, remote social research and iyw-claw host capabilities
+  coreTriggers: [社媒调研, 全网搜索, 小红书, 抖音, 视频号, 新闻动态, 促销团购, host action, memory, self-learning, session, profile, history, artifact, browser, web, internet, audio, transcription, image understanding, channel, message, automation, scheduled task, feedback, question, clarification, ambiguous requirement, needs decision, 需求不清, 需要选择, delegation, 爱原物, 设计云, 产品, 标签, 客户需求, 趋势报告, 图案, IP授权, 版权, 点数, 钱包, 组织, 店铺, 瓶型, Temu, 视频生成, 电商视频, 产品演绎, 视频复刻, 自动导演, 商品套图, A+, Listing, 爆款复刻, 上传文件, fetch_iyw_url, upload_iyw_file]
   exclusions: [trivial request, self-contained explanation]
   aliases: [iyw gateway, host capability, capability catalog, 主机能力, 能力网关, 爱原物接口, 设计云, AI工作台, 图案网, 产品库, 版权登记, 文件上传]
-  invocation: For IYW business tasks load iyw-api-index and the matching domain reference. Prioritize video generation through generate_iyw_image or fetch_iyw_url as documented in iyw-api-ecommerce-video. Images and uploads prefer their direct tools; documented workflow mismatches use fetch_iyw_url. Search/read/invoke covers remaining host and remote business capabilities.
+  invocation: Social research loads internet-routing and research-workflow; use source=remote first and fall back per platform only with evidence. For IYW business tasks load iyw-api-index and the matching domain reference. Prioritize video generation through generate_iyw_image or fetch_iyw_url as documented in iyw-api-ecommerce-video. Images and uploads prefer their direct tools; documented workflow mismatches use fetch_iyw_url. Search/read/invoke covers remaining host and remote business capabilities.
 ---
 
 # IYW Capability Gateway
@@ -50,7 +52,14 @@ omit source when unsure. Other remote top-level tools retain their full schemas
 as directly advertised tools. If an adapter has not loaded one, read then invoke
 the exact `capability_id` explicitly supplied in the latest overview; never infer
 IDs or tool names. Pending/stale/unavailable metadata does not prove absence.
-Existing direct tools and documented business API routes keep their priority.
+For social lookup and multi-platform research, use `source=remote` first, read
+the returned platform/group and invoke a relevant member before local Agent
+Reach, OpenCLI or browser searches. This domain rule takes precedence over
+generic local direct-tool/Skill priority; reuse suitable remote definitions.
+Read [internet-routing.md](references/internet-routing.md) for per-platform
+fallback evidence and [research-workflow.md](references/research-workflow.md)
+for date ranges, official/community sources and promotion verification.
+For other tasks, existing direct tools and documented business API routes keep their priority.
 Use remote discovery when those routes do not cover the requested subgoal,
 before claiming it unsupported.
 
