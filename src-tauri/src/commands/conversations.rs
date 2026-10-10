@@ -711,6 +711,7 @@ pub async fn get_folder_conversation_core(
 
     Ok((
         DbConversationDetail {
+            backend_consumption: None,
             summary,
             turns,
             session_stats,
@@ -1041,6 +1042,8 @@ pub async fn get_folder_conversation_page_core(
             "[conversation-history] cache hit"
         );
         let mut cached = cached;
+        // 后端消费按当前登录身份核对，历史缓存不跨登录复用确认结果。
+        cached.backend_consumption = None;
         let points_missing = super::conversation_points::missing(&cached);
         cached.history_stale = !fresh || points_missing;
         cached

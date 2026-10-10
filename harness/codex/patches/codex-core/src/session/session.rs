@@ -1944,6 +1944,11 @@ impl Session {
 
             // record_initial_history can emit events. We record only after the SessionConfiguredEvent is emitted.
             Box::pin(sess.record_initial_history(initial_history)).await;
+            match sess.current_rollout_path().await {
+                Ok(Some(path)) => sess.services.model_client.set_billing_rollout_path(&path),
+                Ok(None) => {}
+                Err(error) => tracing::warn!(%error, "billing request association path is unavailable"),
+            }
             if restore_child_window {
                 sess.state.lock().await.restore_auto_compact_window(
                     /*window_number*/ 0,

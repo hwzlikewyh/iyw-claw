@@ -74,7 +74,13 @@ function receive(
   if (!current(entry, generation)) return
   publish(entry, snapshot)
   const usage = snapshot.stats?.total_usage
-  if (usage && usage.estimated_points == null) retry(entry)
+  if (
+    (snapshot.stats?.confirmed_consumption ?? usage?.confirmed_points)
+      ?.state === "pending" ||
+    (snapshot.stats?.confirmed_consumption ?? usage?.confirmed_points)
+      ?.state === "partial"
+  )
+    retry(entry)
   if (!snapshot.turnUsage && [...entry.listeners.values()].some(Boolean))
     retry(entry)
   entry.failed = false

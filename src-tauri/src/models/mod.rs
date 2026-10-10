@@ -20,6 +20,7 @@ pub use automation::{
 #[allow(unused_imports)]
 pub use chat_channel::{ChannelStatusInfo, ChatChannelInfo, ChatChannelMessageLogInfo};
 pub use conversation::{
+    BackendConsumption, ConfirmedConsumption,
     AgentConversationCount, AgentStats, ConversationDetail, ConversationSummary,
     DbConversationDetail, DbConversationSummary, FolderInfo, ImportResult, SessionStats,
     SidebarData,

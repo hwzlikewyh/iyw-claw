@@ -1,6 +1,7 @@
 import type { Transport } from "./transport"
 import type { AgentInputItem, DbConversationDetail } from "./types"
 import { mergeAgentInputHistory } from "./agent-input-history"
+import { applyBackendConsumption } from "./backend-consumption"
 
 interface HistoryRequest {
   conversationId: number
@@ -57,5 +58,5 @@ async function loadHistory(
         })
       : Promise.resolve([]),
   ])
-  return mergeAgentInputHistory(detail, inputs)
+  return mergeAgentInputHistory(applyBackendConsumption(detail), inputs)
 }

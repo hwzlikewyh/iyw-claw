@@ -305,6 +305,7 @@ export type ContentBlock =
 export type TurnRole = "user" | "assistant" | "system"
 
 export interface TurnUsage {
+  confirmed_points?: ConfirmedConsumption | null
   estimated_points?: number | null
   input_tokens: number
   output_tokens: number
@@ -313,6 +314,7 @@ export interface TurnUsage {
 }
 
 export interface SessionStats {
+  confirmed_consumption?: ConfirmedConsumption | null
   total_usage: TurnUsage | null
   total_tokens?: number | null
   total_duration_ms: number
@@ -525,6 +527,11 @@ export interface ImportResult {
 }
 
 export interface DbConversationDetail {
+  backend_consumption?: {
+    /** Indexed by native fork_message_id across session segments. */
+    turns: Record<string, ConfirmedConsumption>
+    session: ConfirmedConsumption
+  } | null
   summary: DbConversationSummary
   turns: MessageTurn[]
   session_stats?: SessionStats | null
@@ -541,6 +548,13 @@ export interface DbConversationDetail {
    * mid-stream, which would otherwise double-render against the live reply.
    */
   in_flight_user_turn_id?: string | null
+}
+
+export interface ConfirmedConsumption {
+  amount: string | null
+  state: "confirmed" | "partial" | "pending" | "unavailable"
+  compaction_points?: string | null
+  usage?: TurnUsage | null
 }
 
 export interface ConversationContextPrimer {

@@ -5725,13 +5725,19 @@
     "openSettings": "Settings"
   },
   "UsagePoints": {
-    "turn": "Points used this turn",
-    "session": "Conversation points used",
+    "turn": "Turn consumption",
+    "session": "Session consumption",
+    "partialValue": "Confirmed: {points} points",
     "value": "{points} points",
     "unavailable": "Unavailable",
-    "unavailableHint": "Model pricing or complete usage is unavailable",
+    "unavailableHint": "No verifiable backend consumption record is available.",
     "estimateHint": "Estimated from recorded tokens and current model prices, not actual debits; defaults to 10 points per CNY when no conversion rate is provided",
-    "estimateShort": "Usage estimate, not actual debit"
+    "estimateShort": "Usage estimate, not actual debit",
+    "pending": "Pending confirmation",
+    "pendingHint": "Backend consumption records are still being confirmed.",
+    "partialHint": "Only confirmed consumption is shown; the total is incomplete.",
+    "confirmedHint": "Confirmed by the backend. Fractional points accumulate before account settlement.",
+    "compactionPoints": "Includes {points} points for context compaction."
   },
   "UsageSettings": {
     "loading": "Loading usage...",

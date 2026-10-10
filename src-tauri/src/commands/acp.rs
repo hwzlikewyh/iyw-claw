@@ -2074,33 +2074,25 @@ fn base_instructions_for(agent_type: AgentType) -> &'static str {
     }
 }
 
-fn codex_base_instructions_for_model(model: &str) -> String {
+fn codex_base_instructions_for_model(snapshot: crate::acp::model_catalog::ModelCapabilitySnapshot) -> String {
     let base = format!(
         "{}\n\n{}",
         base_instructions_for(AgentType::Codex),
         CODEX_TOOL_EXECUTION_INSTRUCTIONS
     );
-    let uses_vision_fallback =
-        crate::acp::model_catalog::model_capabilities(model).is_some_and(|capability| {
-            capability.image_input_mode == crate::acp::model_catalog::ImageInputMode::Fallback
-        });
+    let uses_vision_fallback = snapshot.image_input_mode == crate::acp::model_catalog::ImageInputMode::Fallback;
     if !uses_vision_fallback {
         return base;
     }
     format!("{base}\n\n{CODEX_IMAGE_FALLBACK_INSTRUCTIONS}")
 }
 
-fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value {
-    let context_window =
-        crate::acp::model_budget::context_window(Some(model), CODEX_MODEL_CONTEXT_WINDOW)
-            .unwrap_or(CODEX_MODEL_CONTEXT_WINDOW);
-    let auto_compact_token_limit =
-        crate::acp::model_budget::compaction_threshold(Some(model), context_window);
-    let supports_reasoning_summaries = crate::acp::model_catalog::model_capabilities(model)
-        .map(|snapshot| snapshot.supports_reasoning_summary_parameter)
-        .unwrap_or(true);
-    let supports_search_tool = crate::acp::model_catalog::model_capabilities(model)
-        .is_some_and(|snapshot| snapshot.supports_search_tool);
+fn codex_model_catalog_entry(model: &str, priority: usize, snapshot: crate::acp::model_catalog::ModelCapabilitySnapshot) -> serde_json::Value {
+    let limits = crate::acp::model_budget::resolve_limits(snapshot.limits, Some(model), CODEX_MODEL_CONTEXT_WINDOW);
+    let context_window = limits.context_window.unwrap_or(CODEX_MODEL_CONTEXT_WINDOW);
+    let auto_compact_token_limit = crate::acp::model_budget::threshold_for_limits(limits);
+    let supports_reasoning_summaries = snapshot.supports_reasoning_summary_parameter;
+    let supports_search_tool = snapshot.supports_search_tool;
     serde_json::json!({
         "slug": model,
         "display_name": model,
@@ -2116,7 +2108,7 @@ fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value 
         "visibility": "list",
         "supported_in_api": true,
         "priority": priority,
-        "base_instructions": codex_base_instructions_for_model(model),
+        "base_instructions": codex_base_instructions_for_model(snapshot),
         "include_skills_usage_instructions": true,
         "supports_reasoning_summary_parameter": supports_reasoning_summaries,
         "supports_reasoning_summaries": supports_reasoning_summaries,
@@ -2136,14 +2128,17 @@ fn codex_model_catalog_entry(model: &str, priority: usize) -> serde_json::Value 
     })
 }
 
-fn serialize_codex_model_catalog(model_ids: &[String]) -> Result<String, AcpError> {
-    let models = model_ids
-        .iter()
-        .enumerate()
-        .map(|(priority, model)| codex_model_catalog_entry(model, priority))
+fn serialize_codex_model_catalog() -> Result<String, AcpError> {
+    freeze_codex_model_catalog().map(|(catalog, _)| catalog)
+}
+
+fn freeze_codex_model_catalog() -> Result<(String, String), AcpError> {
+    let (revision, models) = crate::acp::model_catalog::frozen_for(AgentType::Codex);
+    let models = models.iter().enumerate()
+        .map(|(priority, (model, snapshot))| codex_model_catalog_entry(model, priority, *snapshot))
         .collect::<Vec<_>>();
     serde_json::to_string_pretty(&serde_json::json!({ "models": models }))
-        .map(|raw| format!("{raw}\n"))
+        .map(|raw| (format!("{raw}\n"), revision))
         .map_err(|e| AcpError::protocol(format!("serialize codex model catalog failed: {e}")))
 }
 
@@ -2218,6 +2213,11 @@ fn load_codex_model_catalog_raw() -> Option<String> {
 }
 
 fn load_codex_model_catalog_raw_for_env(runtime_env: &BTreeMap<String, String>) -> Option<String> {
+    if let Some(path) = runtime_env.get("CODEX_CONFIG")
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+        .and_then(|config| config.get("model_catalog_json").and_then(serde_json::Value::as_str).map(str::to_owned)) {
+        return fs::read_to_string(path).ok();
+    }
     runtime_env
         .get("CODEX_HOME")
         .map(PathBuf::from)
@@ -2622,7 +2622,7 @@ fn prepare_codex_config_files(
         .map_err(|e| AcpError::protocol(format!("invalid codex config.toml: {e}")))?;
     let catalog = model_ids
         .is_some()
-        .then(|| serialize_codex_model_catalog(&managed_codex_model_ids()))
+        .then(serialize_codex_model_catalog)
         .transpose()?;
     Ok((Some(toml_text), catalog))
 }
@@ -8895,14 +8895,17 @@ async fn build_runtime_env_for_launch(
             &codex_home_dir(),
         )
         .await?;
-        let catalog = serialize_codex_model_catalog(&managed_codex_model_ids())?;
-        let catalog_path = codex_model_catalog_path();
+        use sha2::{Digest, Sha256};
+        let (catalog, revision) = freeze_codex_model_catalog()?;
+        let catalog_path = codex_home_dir().join("model-catalogs")
+            .join(format!("{:x}.json", Sha256::digest(catalog.as_bytes())));
         let previous = fs::read_to_string(&catalog_path).unwrap_or_default();
         crate::acp::provider_overlay::write_if_changed(&catalog_path, &previous, &catalog)
             .map_err(AcpError::protocol)?;
         timing.next("mcp_projection");
         let native = super::mcp::project_xinghe_preferences(&db.conn, &native).await?;
         crate::acp::xinghe_runtime_config::project(&mut runtime_env, &native, &catalog_path)?;
+        runtime_env.insert("IYW_MODEL_CATALOG_REVISION".into(), revision);
     }
     timing.next("tool_environment");
     crate::acp::runtime_context::prepend_tool_dirs(Some(&paths), &mut runtime_env);
@@ -9025,6 +9028,9 @@ pub(crate) fn fingerprint_config(
         hasher.update(v.as_bytes());
         hasher.update([0u8]);
     }
+    let catalog_revision = runtime_env.get("IYW_MODEL_CATALOG_REVISION").cloned()
+        .unwrap_or_else(|| crate::acp::model_catalog::snapshot_for(agent_type));
+    hasher.update(catalog_revision.as_bytes());
     hasher.update(b"\x01native\x01");
     let native = if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
         None

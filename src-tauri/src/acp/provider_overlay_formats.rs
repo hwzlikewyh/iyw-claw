@@ -47,16 +47,16 @@ fn selected_provider_model_or_default(
     )
 }
 
-fn model_context_limit(model: &str, fallback: u64) -> Option<u64> {
-    model_budget::context_window(Some(model), fallback)
+fn model_context_limit(agent: AgentType, model: &str, fallback: u64) -> Option<u64> {
+    model_budget::limits_for_agent(agent, Some(model), fallback).context_window
 }
 
-fn model_output_limit(model: &str) -> Option<u64> {
-    model_budget::max_output_tokens(Some(model), 0)
+fn model_output_limit(agent: AgentType, model: &str) -> Option<u64> {
+    model_budget::limits_for_agent(agent, Some(model), 0).max_output_tokens
 }
 
-fn model_compaction_limit(model: &str, fallback: u64) -> Option<u64> {
-    model_budget::compaction_threshold(Some(model), fallback)
+fn model_compaction_limit(agent: AgentType, model: &str, fallback: u64) -> Option<u64> {
+    model_budget::compaction_threshold_for(agent, Some(model), fallback)
 }
 
 pub fn managed_model_ids_for(agent: AgentType) -> Vec<&'static str> {
@@ -167,25 +167,25 @@ pub(crate) fn patch_kimi_toml(raw: &str, base_url: &str) -> Result<String, Strin
             toml::Value::String(MANAGED_PROVIDER_ID.into()),
         );
         model.insert("model".into(), toml::Value::String((*model_id).into()));
-        let context = model_context_limit(model_id, 1_000_000).unwrap_or(1_000_000);
+        let context = model_context_limit(AgentType::KimiCode, model_id, 1_000_000).unwrap_or(1_000_000);
         model.insert(
             "max_context_size".into(),
             toml::Value::Integer(context as i64),
         );
     }
     let loop_control = table_entry(root, "loop_control")?;
-    if let Some(output) = model_output_limit(&selected_model) {
+    if let Some(output) = model_output_limit(AgentType::KimiCode, &selected_model) {
         loop_control.insert(
             "reserved_context_size".into(),
             toml::Value::Integer(output as i64),
         );
     }
-    if let Some(context) = model_context_limit(&selected_model, 1_000_000) {
-        if let Some(threshold) = model_compaction_limit(&selected_model, context) {
+    if let Some(context) = model_context_limit(AgentType::KimiCode, &selected_model, 1_000_000) {
+        if let Some(threshold) = model_compaction_limit(AgentType::KimiCode, &selected_model, context) {
             // Kimi 比例下限为 50%，通过预留条件表达更早的压缩阈值。
             let reserve = context
                 .saturating_sub(threshold)
-                .max(model_output_limit(&selected_model).unwrap_or_default())
+                .max(model_output_limit(AgentType::KimiCode, &selected_model).unwrap_or_default())
                 .max(KIMI_MIN_RESERVED_CONTEXT);
             loop_control.insert(
                 "reserved_context_size".into(),
@@ -230,7 +230,7 @@ pub(crate) fn patch_grok_toml(raw: &str, base_url: &str) -> Result<String, Strin
             "api_backend".into(),
             toml::Value::String("chat_completions".into()),
         );
-        let context = model_context_limit(model_id, 1_000_000).unwrap_or(1_000_000);
+        let context = model_context_limit(AgentType::Grok, model_id, 1_000_000).unwrap_or(1_000_000);
         model.insert(
             "context_window".into(),
             toml::Value::Integer(context as i64),
@@ -290,8 +290,8 @@ pub(crate) fn patch_json_config(
                 default_model,
             );
             set_json(root, &["env"], "ANTHROPIC_DEFAULT_HAIKU_MODEL", &haiku);
-            let context = model_context_limit(&model, 1_000_000).unwrap_or(1_000_000);
-            let threshold = model_compaction_limit(&model, context).unwrap_or(context * 9 / 10);
+            let context = model_context_limit(agent_type, &model, 1_000_000).unwrap_or(1_000_000);
+            let threshold = model_compaction_limit(agent_type, &model, context).unwrap_or(context * 9 / 10);
             root.insert("autoCompactEnabled".into(), serde_json::Value::Bool(true));
             root.insert(
                 "autoCompactWindow".into(),
@@ -327,8 +327,8 @@ pub(crate) fn patch_json_config(
                 &model_ids,
                 default_model,
             );
-            let context = model_context_limit(&model, 1_000_000).unwrap_or(1_000_000);
-            let threshold = model_compaction_limit(&model, context).unwrap_or(context / 2);
+            let context = model_context_limit(agent_type, &model, 1_000_000).unwrap_or(1_000_000);
+            let threshold = model_compaction_limit(agent_type, &model, context).unwrap_or(context / 2);
             let ratio = (threshold as f64 / context as f64).clamp(0.01, 0.99);
             let model_config = ensure_json_object(root, &["model"]);
             if let Some(value) = serde_json::Number::from_f64(ratio) {
@@ -407,7 +407,7 @@ pub(crate) fn patch_json_config(
                 "api".into(),
                 serde_json::Value::String("openai-responses".into()),
             );
-            provider.insert("models".into(), managed_model_array(&model_ids));
+            provider.insert("models".into(), managed_model_array(agent_type, &model_ids));
         }
         AgentType::Cline => {
             let selected = selected_model_or_default(
@@ -466,7 +466,7 @@ pub(crate) fn patch_pi_models_json(
     );
     provider.insert(
         "models".into(),
-        managed_model_array(&managed_model_ids_for(AgentType::Pi)),
+        managed_model_array(AgentType::Pi, &managed_model_ids_for(AgentType::Pi)),
     );
     Ok(value)
 }
@@ -585,18 +585,18 @@ fn managed_model_object(model_ids: &[&str]) -> serde_json::Value {
     )
 }
 
-fn managed_model_array(model_ids: &[&str]) -> serde_json::Value {
+fn managed_model_array(agent: AgentType, model_ids: &[&str]) -> serde_json::Value {
     serde_json::Value::Array(
         model_ids
             .iter()
-            .map(|model| managed_provider_model(model))
+            .map(|model| managed_provider_model(agent, model))
             .collect(),
     )
 }
 
 fn managed_opencode_model(model: &str) -> serde_json::Value {
     let mut value = serde_json::json!({"name": model});
-    let limits = model_budget::limits_for(Some(model), 0);
+    let limits = model_budget::limits_for_agent(AgentType::OpenCode, Some(model), 0);
     let context = limits.context_window;
     let input = limits.max_input_tokens;
     let output = limits.max_output_tokens;
@@ -618,10 +618,10 @@ fn managed_opencode_model(model: &str) -> serde_json::Value {
     value
 }
 
-fn managed_provider_model(model: &str) -> serde_json::Value {
+fn managed_provider_model(agent: AgentType, model: &str) -> serde_json::Value {
     let mut value = serde_json::json!({"id": model, "name": model});
-    let context = model_context_limit(model, 0);
-    let output = model_output_limit(model);
+    let context = model_context_limit(agent, model, 0);
+    let output = model_output_limit(agent, model);
     if let Some(object) = value.as_object_mut() {
         if let Some(context) = context {
             object.insert("contextWindow".into(), serde_json::json!(context));

@@ -9,7 +9,11 @@ import {
 } from "@/components/ui/tooltip"
 import type { TurnUsage } from "@/lib/types"
 import { formatTokenThousands } from "@/lib/token-format"
-import { UsagePointsRow, UsagePointsValue } from "./usage-points"
+import {
+  UsagePointsHint,
+  UsagePointsRow,
+  UsagePointsValue,
+} from "./usage-points"
 
 export function TurnUsageStats({ usage }: { usage: TurnUsage }) {
   const locale = useLocale()
@@ -30,7 +34,10 @@ export function TurnUsageStats({ usage }: { usage: TurnUsage }) {
           aria-label={pointsT("turn")}
         >
           <Coins aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-          <UsagePointsValue points={usage.estimated_points} />
+          <UsagePointsValue
+            points={usage.confirmed_points?.amount}
+            consumption={usage.confirmed_points}
+          />
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="min-w-48 max-w-xs">
@@ -45,10 +52,12 @@ export function TurnUsageStats({ usage }: { usage: TurnUsage }) {
                 </span>
               </div>
             ))}
-          <UsagePointsRow points={usage.estimated_points} scope="turn" />
-          <span className="mt-1 text-[10px] opacity-70">
-            {pointsT("estimateShort")}
-          </span>
+          <UsagePointsRow
+            points={usage.confirmed_points?.amount}
+            consumption={usage.confirmed_points}
+            scope="turn"
+          />
+          <UsagePointsHint consumption={usage.confirmed_points} />
         </div>
       </TooltipContent>
     </Tooltip>

@@ -767,8 +767,11 @@ pub async fn iyw_account_get_profile(
 pub async fn iyw_account_list_models(
     agent_type: Option<AgentType>,
     db: State<'_, AppDatabase>,
+    manager: State<'_, crate::acp::manager::ConnectionManager>,
 ) -> Result<serde_json::Value, AppCommandError> {
-    iyw_account_list_models_core(&db.conn, agent_type).await
+    let payload = iyw_account_list_models_core(&db.conn, agent_type).await?;
+    manager.refresh_model_catalog_staleness(&db).await;
+    Ok(payload)
 }
 
 #[cfg(feature = "tauri-runtime")]

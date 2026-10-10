@@ -2,6 +2,7 @@ import { requestConversationHistory } from "./conversation-history-request"
 import type { Transport } from "./transport"
 import type { DbConversationDetail, SessionStats, TurnUsage } from "./types"
 import { addUsagePoints } from "./usage-points"
+import { mergeConfirmedPoints } from "./point-decimal"
 
 export interface ConversationUsageSnapshot {
   externalId: string | null
@@ -20,6 +21,10 @@ function mergeUsage(total: TurnUsage | null, usage: TurnUsage): TurnUsage {
     cache_creation_input_tokens:
       total.cache_creation_input_tokens + usage.cache_creation_input_tokens,
     estimated_points: addUsagePoints(total, usage),
+    confirmed_points: mergeConfirmedPoints(
+      total.confirmed_points,
+      usage.confirmed_points
+    ),
   }
 }
 

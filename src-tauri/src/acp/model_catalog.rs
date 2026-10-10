@@ -302,11 +302,44 @@ pub fn model_ids_for(agent: AgentType) -> Vec<&'static str> {
         .unwrap_or_else(all_model_ids)
 }
 
+/// 与模型列表使用同一个 Agent 目录；权威空目录也不得退回全局。
+pub fn model_capabilities_for(agent: AgentType, model: &str) -> Option<ModelCapabilitySnapshot> {
+    let current = catalog().read().expect("catalog poisoned");
+    let layer = current.agent_platform_ids.get(registry::registry_id_for(agent))
+        .and_then(|id| current.scoped.get(id)).unwrap_or(&current.complete);
+    layer.capabilities.iter().find_map(|(id, value)| {
+        id.eq_ignore_ascii_case(model.trim()).then_some(*value)
+    })
+}
+
+pub fn snapshot_for(agent: AgentType) -> String {
+    frozen_for(agent).0
+}
+
+pub fn frozen_for(agent: AgentType) -> (String, Vec<(&'static str, ModelCapabilitySnapshot)>) {
+    use sha2::{Digest, Sha256};
+    let current = catalog().read().expect("catalog poisoned");
+    let layer = current.agent_platform_ids.get(registry::registry_id_for(agent))
+        .and_then(|id| current.scoped.get(id)).unwrap_or(&current.complete);
+    let raw = serde_json::to_vec(&persisted_models(layer)).expect("model catalog is serializable");
+    let models = layer.ids.iter().map(|id| (*id, layer.capabilities.get(id).copied().unwrap_or_default())).collect();
+    (format!("{:x}", Sha256::digest(&raw)), models)
+}
+
 pub fn default_model_for(agent: AgentType) -> &'static str {
     model_ids_for(agent)
         .into_iter()
         .next()
         .unwrap_or(MANAGED_MODEL_IDS[0])
+}
+
+pub fn budget_snapshot_for(agent: AgentType) -> (String, std::collections::BTreeMap<String, u64>) {
+    let (revision, models) = frozen_for(agent);
+    let budgets = models.into_iter().filter_map(|(id, snapshot)| {
+        super::model_budget::threshold_for_limits(super::model_budget::resolve_limits(snapshot.limits, Some(id), 0))
+            .map(|threshold| (id.to_string(), threshold))
+    }).collect();
+    (revision, budgets)
 }
 
 pub fn compaction_threshold(model: Option<&str>, context_window: u64) -> Option<u64> {

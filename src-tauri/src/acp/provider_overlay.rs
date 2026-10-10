@@ -175,15 +175,15 @@ fn apply_native_budget_runtime_env(
     match agent_type {
         AgentType::ClaudeCode => {
             apply_tool_search_runtime_env(runtime_env, model);
-            let context = crate::acp::model_budget::context_window(Some(model), 1_000_000)
+            let context = crate::acp::model_budget::limits_for_agent(agent_type, Some(model), 1_000_000).context_window
                 .unwrap_or(1_000_000);
-            let threshold = crate::acp::model_budget::compaction_threshold(Some(model), context)
+            let threshold = crate::acp::model_budget::compaction_threshold_for(agent_type, Some(model), context)
                 .unwrap_or(context * 9 / 10);
             runtime_env.insert(
                 "CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(),
                 threshold.to_string(),
             );
-            let declared_context = crate::acp::model_catalog::model_capabilities(model)
+            let declared_context = crate::acp::model_catalog::model_capabilities_for(AgentType::ClaudeCode, model)
                 .and_then(|snapshot| snapshot.limits.context_window)
                 .filter(|limit| *limit > 0);
             if let Some(declared_context) = declared_context {
@@ -196,7 +196,7 @@ fn apply_native_budget_runtime_env(
             }
         }
         AgentType::KimiCode => {
-            if let Some(context) = crate::acp::model_budget::context_window(Some(model), 0) {
+            if let Some(context) = crate::acp::model_budget::limits_for_agent(agent_type, Some(model), 0).context_window {
                 runtime_env.insert("KIMI_MODEL_MAX_CONTEXT_SIZE".into(), context.to_string());
             }
         }
@@ -216,12 +216,12 @@ pub(crate) fn provider_base_url_env_key(agent_type: AgentType) -> &'static str {
 }
 
 fn apply_tool_search_runtime_env(runtime_env: &mut BTreeMap<String, String>, model: &str) {
-    let supports_default = crate::acp::model_catalog::model_capabilities(model)
+    let supports_default = crate::acp::model_catalog::model_capabilities_for(AgentType::ClaudeCode, model)
         .is_some_and(|snapshot| snapshot.supports_search_tool);
     let supports_catalog = managed_model_ids_for(AgentType::ClaudeCode)
         .iter()
         .all(|candidate| {
-            crate::acp::model_catalog::model_capabilities(candidate)
+            crate::acp::model_catalog::model_capabilities_for(AgentType::ClaudeCode, candidate)
                 .is_some_and(|snapshot| snapshot.supports_search_tool)
         });
     if supports_default && supports_catalog {
