@@ -32,13 +32,24 @@ capability_id，先 read 再 invoke；不能从名称推导。任务扩展式调
   mode=browse，无需 query；按请求范围跟随 next_cursor。只浏览某组时传其
   capability_id 为 group_id，分页保持同组。清单介绍不需要逐个读取成员 schema。
   游标按账户和分组隔离并有容量限制，不依赖语义索引；失效后重新浏览。
-- 读：read_iyw_capability。远程分组保留工作流说明，items 提供成员 capability_id、
-  完整 input_schema、usage、参数来源和结果解释。读过完整成员后不用再次读取。
+- 读：read_iyw_capability。远程分组保留工作流说明；小组可复用 items 中已加载的
+  input_schema、usage、参数来源和结果解释。大组默认返回分页摘要、成员数和
+  capability_facets，schema_loaded=false；只读取要调用的成员，不根据摘要猜参数。
+- 组内搜索：source=remote、mode=search、group_id=返回的分组 capability_id，
+  query 写具体操作。可复制 capability_facets 的键作为 capability_family 过滤。
+  搜索覆盖后代，browse 只列直属成员；分页保持 group_id 和 capability_family，
+  next_cursor 在宿主内映射，不能传原始远程工具 ID 或游标。
 - 执行：invoke_iyw_capability。业务参数仍放 arguments；宿主转发当前目录给出的
   tool_id 和 tool_version。分组不可执行，不从名称推导 ID。
 
 工具描述、MCP initialize instructions、主提示词和内置 gateway Skill 均声明这些规则。
 本轮仅更新应用内置 Skill，不同步独立 skill 仓库。
+
+2026-10-10 云端工具发现兼容：修复大组摘要缺少 schema 时的解析失败，允许远程
+组内搜索与 capability_family 过滤，保留检索来源、置信度和下一步指引。网关使用
+Apollo 配置的 Milvus + 百炼，客户端不保存这些服务凭证，也不加载检索模型。
+本轮客户端仅做调用链静态审查、Rust 语法解析和 diff 检查；按 AGENTS.md 未新增或
+运行客户端测试，未编译桌面/服务器。需与网关配套发布后验证真实 Agent 调用轨迹。
 
 ## 对话中的工具名称
 

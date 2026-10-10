@@ -63,9 +63,12 @@ For other tasks, existing direct tools and documented business API routes keep t
 Use remote discovery when those routes do not cover the requested subgoal,
 before claiming it unsupported.
 
-Read a group's workflow and relevant `items`: members have their own
-`capability_id`, complete `input_schema` and `usage` (`use_when`, `argument_sources`,
-`result_summary`). A fully read member needs no additional read. Invoke its ID,
+Read a group's workflow and relevant `items`. Large groups provide paged
+summaries with `schema_loaded=false`, counts and `capability_facets`; search
+with `source=remote`, `group_id` set to its returned `capability_id` and a focused
+query, optionally copying a `capability_family` facet. Read only selected members.
+Only fully loaded members have complete `input_schema` and `usage` (`use_when`,
+`argument_sources`, `result_summary`) and need no additional read. Invoke its ID,
 never the group; the host carries remote versions. Remote instruction examples
 are usage guidance for this same trio, not permission to invent callable names
 or put routing fields in arguments. `remote_catalog.status=unavailable` is not

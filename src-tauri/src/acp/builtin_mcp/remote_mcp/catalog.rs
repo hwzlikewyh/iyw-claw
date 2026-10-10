@@ -102,13 +102,24 @@ impl RemoteAccount {
         if full {
             detail["description"] = item["description"].clone();
             detail["usage"] = item["usage"].clone();
-            add_schema(&mut detail, item)?;
+            if item.get("kind").and_then(Value::as_str) == Some("tool") {
+                add_schema(&mut detail, item)?;
+            }
         } else {
             detail["summary"] = item["description"].clone();
             detail["required_inputs"] =
                 item.get("required_arguments").cloned().unwrap_or(json!([]));
             detail["match_reason"] = item["match_reason"].clone();
         }
+        project_metadata(&mut detail, item);
+        detail["schema_loaded"] = json!(detail.get("input_schema").is_some());
+        detail["next_action"] = json!(if item["kind"] == "group" {
+            "Read this group or search within it using its capability_id as group_id and source=remote"
+        } else if full {
+            "Use this input_schema and usage with invoke_iyw_capability"
+        } else {
+            "Read this capability_id to obtain its complete input_schema and usage before invocation"
+        });
         Ok(detail)
     }
 
@@ -133,17 +144,41 @@ impl RemoteAccount {
                 .ok_or_else(|| invalid("Read response omits the requested member"))?;
             return self.project(item, true);
         }
+        self.group_detail(payload, items)
+    }
+
+    fn group_detail(&self, payload: &Value, items: &[Value]) -> Result<Value, ErrorData> {
+        let full = payload.get("view").and_then(Value::as_str) != Some("summary")
+            && payload.get("schema_loaded") != Some(&Value::Bool(false));
         let members = items
             .iter()
-            .map(|item| self.project(item, true))
+            .map(|item| self.project(item, full))
             .collect::<Result<Vec<_>, _>>()?;
         let mut group = self.project(payload, false)?;
         group["description"] = payload["description"].clone();
         group.as_object_mut().map(|value| value.remove("summary"));
         group["items"] = json!(members);
         group["invocable"] = json!(false);
-        group["guidance"] = json!("Read this workflow and relevant member schemas/usage. Invoke a member capability_id, never the group. A full member here needs no additional read.");
+        let group_id = group["capability_id"].as_str().map(str::to_owned);
+        group["next_cursor"] = self.project_cursor(payload, group_id);
+        group["guidance"] = json!("Invoke a member capability_id, never the group. Reuse only members with schema_loaded=true. Read a selected summary member before invocation. For focused discovery search with source=remote, group_id=this capability_id and query; optionally copy a capability_family from capability_facets. To page members use mode=browse, the same group_id and next_cursor, without query.");
         Ok(group)
+    }
+}
+
+fn project_metadata(detail: &mut Value, item: &Value) {
+    for field in [
+        "view",
+        "member_count",
+        "direct_member_count",
+        "capability_facets",
+        "capability_family",
+        "confidence",
+        "retrieval_sources",
+    ] {
+        if let Some(value) = item.get(field) {
+            detail[field] = value.clone();
+        }
     }
 }
 

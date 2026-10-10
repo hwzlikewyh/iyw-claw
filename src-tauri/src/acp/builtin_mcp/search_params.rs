@@ -5,6 +5,7 @@ use serde_json::json;
 const MAX_QUERY_CHARS: usize = 256;
 const MAX_CURSOR_CHARS: usize = 128;
 const MAX_LIMIT: usize = 20;
+const MAX_FAMILY_CHARS: usize = 128;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -17,6 +18,7 @@ pub(super) struct SearchParams {
     pub mode: SearchMode,
     group_id: Option<String>,
     cursor: Option<String>,
+    capability_family: Option<String>,
 }
 
 #[derive(Deserialize, PartialEq)]
@@ -55,14 +57,29 @@ impl SearchParams {
         {
             return Err(invalid("group_id or cursor is empty or too long"));
         }
+        self.validate_scope()?;
         if self.mode == SearchMode::Browse {
             if self.source != Some(SearchSource::Remote) || !self.query.trim().is_empty() {
                 return Err(invalid("browse requires source=remote and no query"));
             }
-        } else if self.query.trim().is_empty() || self.group_id.is_some() || self.cursor.is_some() {
+        } else if self.query.trim().is_empty() || self.cursor.is_some() {
             return Err(invalid(
-                "search requires a query; group_id/cursor are only valid in browse mode",
+                "search requires a query; cursor is only valid in browse mode",
             ));
+        }
+        Ok(())
+    }
+
+    fn validate_scope(&self) -> Result<(), ErrorData> {
+        if self.capability_family.as_ref().is_some_and(|family| {
+            family.trim().is_empty() || family.chars().count() > MAX_FAMILY_CHARS
+        }) {
+            return Err(invalid("capability_family is empty or too long"));
+        }
+        if (self.group_id.is_some() || self.capability_family.is_some())
+            && self.source != Some(SearchSource::Remote)
+        {
+            return Err(invalid("group_id and capability_family require source=remote"));
         }
         Ok(())
     }

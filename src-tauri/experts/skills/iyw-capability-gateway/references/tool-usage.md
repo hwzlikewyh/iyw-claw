@@ -125,9 +125,13 @@ provided in the current overview may be read/invoked when an adapter has not
 loaded that direct tool yet. Never derive the ID. Hidden members are not promoted.
 Account changes invalidate old identities; pending/stale metadata is not absence.
 
-For `kind=group`, read its workflow and relevant `items`. Members already include
+For `kind=group`, read its workflow and relevant `items`. Large groups return
+paged summaries with `schema_loaded=false`; these are not callable definitions.
+Search within the group using `source=remote`, its returned `capability_id` as
+`group_id`, a focused query and optional `capability_family` from the facets.
+Read selected summary members before invocation. Reuse members already carrying
 complete `input_schema` and `usage`: inspect `use_when`, `argument_sources`,
-`result_summary`, required fields and constraints, then invoke the member's
+`result_summary`, required fields and constraints, then invoke their
 `capability_id` without another read. Groups cannot execute. The host forwards
 the remote member and version; never add `tool_id` or `tool_version` to business
 arguments. Remote instructions use remote protocol terms; this route always

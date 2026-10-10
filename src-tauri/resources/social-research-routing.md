@@ -12,7 +12,10 @@ search_iyw_capabilities with source=remote and the exact platform name, such as
 content search; music/challenge search or Demo candidates do not cover general
 hospital/merchant research. Use focused action discovery when still needed.
 Read the exact returned capability_id; a parent social group contains platform
-groups that must be read to reach callable members. Invoke a member's returned
+groups. Large groups provide paged summaries without schemas: use source=remote,
+group_id=the returned platform capability_id and a focused query to locate
+content search, optionally capability_family from capability_facets. Read only
+the selected member to load its complete schema before invocation. Invoke its returned
 capability_id with actual business queries and schema-matching arguments. Never
 invent IDs or pass raw remote group IDs to the host wrapper. Without the host
 gateway, use only an actually advertised remote MCP trio and its current IDs.

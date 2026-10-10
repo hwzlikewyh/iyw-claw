@@ -38,6 +38,8 @@ impl RemoteGateway {
             "directory_version": payload.get("directory_version"),
             "match_status": payload.get("match_status"), "reason_code": payload.get("reason_code"),
             "search_mode": payload.get("search_mode"),
+            "policy_version": payload.get("policy_version"),
+            "guidance": "Read a selected member's schema before invocation. An empty or degraded search does not prove absence; narrow the query within a returned group or browse its members.",
             "next_cursor": account.project_cursor(&payload, group),
         }))
     }
@@ -141,7 +143,7 @@ impl RemoteGateway {
             payload["capabilities"] = json!([]);
         }
         let mut query = json!({"limit": arguments.get("limit").filter(|value| !value.is_null()).cloned().unwrap_or(json!(DEFAULT_SEARCH_LIMIT))});
-        for key in ["query", "mode", "group_id", "cursor"] {
+        for key in ["query", "mode", "group_id", "cursor", "capability_family"] {
             if let Some(value) = arguments.get(key).filter(|value| !value.is_null()) { query[key] = value.clone(); }
         }
         match self.search(query, context).await {
