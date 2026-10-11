@@ -1,7 +1,7 @@
 ## IYW social research routing
 
 In iyw-claw, retrieve social content through signed-in remote social tools first,
-including 小红书、抖音、微信视频号 and social sources within all-web research
+including 小红书、抖音、微信公众号文章与评论、微信视频号 and social sources within all-web research
 about news, activity, promotions or group-buying. This host policy takes
 precedence over the upstream local-first descriptions, doctor requirements
 and CLI examples below; those instructions apply only to a chosen local fallback.

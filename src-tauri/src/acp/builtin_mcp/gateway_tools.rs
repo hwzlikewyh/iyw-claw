@@ -64,8 +64,9 @@ fn search_tool() -> Value {
         }
     });
     tool["description"] = json!(format!(
-        "{}\n\n{}",
+        "{}\n\n{}\n\n{}",
         tool["description"].as_str().unwrap_or_default(),
+        super::remote_mcp::CAPABILITY_ROUTING_INSTRUCTIONS.trim(),
         super::remote_mcp::SOCIAL_ROUTING_INSTRUCTIONS.trim()
     ));
     tool
