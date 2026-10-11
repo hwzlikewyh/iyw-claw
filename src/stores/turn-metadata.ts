@@ -1,5 +1,6 @@
 import type { MessageTurn, TurnUsage } from "@/lib/types"
 import { addUsagePoints } from "@/lib/usage-points"
+import { mergeConfirmedPoints } from "@/lib/point-decimal"
 
 export interface TurnMetadataPatch {
   index: number
@@ -43,6 +44,10 @@ function mergeUsage(current: TurnUsage | null | undefined, extra: TurnUsage) {
   if (!current) return { ...extra }
   return {
     estimated_points: addUsagePoints(current, extra),
+    confirmed_points: mergeConfirmedPoints(
+      current.confirmed_points,
+      extra.confirmed_points
+    ),
     input_tokens: current.input_tokens + extra.input_tokens,
     output_tokens: current.output_tokens + extra.output_tokens,
     cache_creation_input_tokens:

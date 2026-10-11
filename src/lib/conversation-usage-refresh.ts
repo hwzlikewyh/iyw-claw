@@ -3,11 +3,11 @@ import {
   readConversationUsage,
   type ConversationUsageSnapshot,
 } from "./conversation-usage-snapshot"
+import { USAGE_RETRY_DELAYS_MS } from "./conversation-usage-retry"
 
 const EVENT_SETTLE_MS = 250
 const MIN_REFRESH_MS = 1_000
 const PERSIST_SETTLE_MS = 1_500
-const RETRY_DELAY_MS = 3_000
 
 type Listener = (snapshot: ConversationUsageSnapshot) => void
 type Timer = ReturnType<typeof setTimeout>
@@ -21,7 +21,7 @@ interface Entry {
   dirty: boolean
   failed: boolean
   generation: number
-  retryAvailable: boolean
+  retryAttempt: number
   startedAt: number
   timer?: Timer
   settleTimer?: Timer
@@ -46,14 +46,19 @@ function schedule(entry: Entry, delay = EVENT_SETTLE_MS) {
 }
 
 function invalidate(entry: Entry, delay = EVENT_SETTLE_MS) {
+  // 新用量信号抢占账单重试的退避等待，避免新回合被旧定时器拖延。
+  if (entry.retryAttempt > 0) {
+    clearTimeout(entry.timer)
+    entry.timer = undefined
+  }
   entry.dirty = true
-  entry.retryAvailable = true
+  entry.retryAttempt = 0
   schedule(entry, delay)
 }
 
 function retry(entry: Entry) {
-  if (!entry.retryAvailable) return
-  entry.retryAvailable = false
+  if (entry.dirty || entry.retryAttempt >= USAGE_RETRY_DELAYS_MS.length) return
+  entry.retryAttempt += 1
   entry.dirty = true
 }
 
@@ -75,10 +80,12 @@ function receive(
   publish(entry, snapshot)
   const usage = snapshot.stats?.total_usage
   if (
-    (snapshot.stats?.confirmed_consumption ?? usage?.confirmed_points)
-      ?.state === "pending" ||
-    (snapshot.stats?.confirmed_consumption ?? usage?.confirmed_points)
-      ?.state === "partial"
+    [
+      snapshot.stats?.confirmed_consumption ?? usage?.confirmed_points,
+      snapshot.turnUsage?.confirmed_points,
+    ].some(
+      (points) => points?.state === "pending" || points?.state === "partial"
+    )
   )
     retry(entry)
   if (!snapshot.turnUsage && [...entry.listeners.values()].some(Boolean))
@@ -114,11 +121,14 @@ async function refresh(entry: Entry) {
     )
     receive(entry, snapshot, generation)
   } catch (error) {
-    failed(entry, error)
+    if (current(entry, generation)) failed(entry, error)
   } finally {
     entry.pending = false
     if (entry.dirty)
-      schedule(entry, entry.retryAvailable ? EVENT_SETTLE_MS : RETRY_DELAY_MS)
+      schedule(
+        entry,
+        USAGE_RETRY_DELAYS_MS[entry.retryAttempt - 1] ?? EVENT_SETTLE_MS
+      )
     release(entry)
   }
 }
@@ -195,7 +205,7 @@ function createEntry(transport: Transport, conversationId: number): Entry {
     dirty: true,
     failed: false,
     generation: 0,
-    retryAvailable: true,
+    retryAttempt: 0,
     startedAt: 0,
     cleanup: () => {},
   }

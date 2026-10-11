@@ -3,6 +3,7 @@ use crate::parsers::codex::billing::Receipt;
 use std::collections::{HashMap, HashSet};
 mod query;
 mod summary;
+mod confirmed_cache;
 use query::query;
 use summary::{summarize, Source};
 

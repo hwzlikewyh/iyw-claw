@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
@@ -8,9 +8,10 @@ use tokio::sync::Mutex;
 const QUERY_BATCH: usize = 100;
 const QUERY_BUDGET: Duration = Duration::from_secs(5);
 const CACHE_LIMIT: usize = 10_000;
-const CACHE_LOOKUP_BUDGET: Duration = Duration::from_millis(50);
+const PENDING_QUERY_INTERVAL: Duration = Duration::from_secs(1);
+const FAILED_QUERY_INTERVAL: Duration = Duration::from_secs(3);
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
 pub(super) struct Record {
     pub(super) request_id: String,
     pub(super) stage_key: String,
@@ -22,7 +23,7 @@ pub(super) struct Record {
     pub(super) cache_write_tokens: u64,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 pub(super) struct RequestRows {
     pub(super) items: Vec<Record>,
     pub(super) pending: bool,
@@ -36,8 +37,9 @@ struct QueryResult {
 
 #[derive(Default)]
 struct Cache {
-    scope: Vec<u8>,
+    scope: String,
     records: HashMap<String, RequestRows>,
+    retry_after: HashMap<String, Instant>,
 }
 
 struct Query<'a> {
@@ -70,19 +72,63 @@ pub(super) async fn query(
         "{}/v1/usage/requests/query",
         base.strip_suffix("/v1").unwrap_or(base)
     );
-    query_with_credentials(Query {
-        url: &url,
-        token: token.expose(),
-        ids,
-    })
+    query_with_credentials(
+        conn,
+        Query {
+            url: &url,
+            token: token.expose(),
+            ids,
+        },
+    )
     .await
 }
 
-async fn query_with_credentials(query: Query<'_>) -> HashMap<String, RequestRows> {
-    let scope = Sha256::digest(format!("{}:{}", query.url, query.token).as_bytes()).to_vec();
-    let Ok(mut cached) = tokio::time::timeout(CACHE_LOOKUP_BUDGET, cache().lock()).await else {
-        return HashMap::new();
+async fn query_with_credentials(
+    conn: &sea_orm::DatabaseConnection,
+    query: Query<'_>,
+) -> HashMap<String, RequestRows> {
+    let scope = format!(
+        "{:x}",
+        Sha256::digest(format!("{}:{}", query.url, query.token).as_bytes())
+    );
+    // 已落库的终态账单直接返回，不等待其它会话的远端请求，也不再次向网关查询。
+    let mut records = match super::confirmed_cache::load(conn, &scope, query.ids).await {
+        Ok(records) => records,
+        Err(error) => {
+            tracing::warn!(%error, "[conversation-points] local consumption cache read failed");
+            HashMap::new()
+        }
     };
+    let missing: Vec<_> = query
+        .ids
+        .iter()
+        .filter(|id| !records.contains_key(*id))
+        .cloned()
+        .collect();
+    if missing.is_empty() {
+        return records;
+    }
+    records.extend(
+        query_missing(
+            conn,
+            Query {
+                ids: &missing,
+                ..query
+            },
+            scope,
+        )
+        .await,
+    );
+    records
+}
+
+async fn query_missing(
+    conn: &sea_orm::DatabaseConnection,
+    query: Query<'_>,
+    scope: String,
+) -> HashMap<String, RequestRows> {
+    // 并发读取共享一次远端查询；后到的读取复用结果，不因锁忙误报待确认。
+    let mut cached = cache().lock().await;
     if cached.scope != scope {
         *cached = Cache {
             scope,
@@ -91,6 +137,7 @@ async fn query_with_credentials(query: Query<'_>) -> HashMap<String, RequestRows
     }
     let ids = query.ids;
     refresh(&mut cached, query).await;
+    persist(conn, &cached, ids).await;
     ids.iter()
         .filter_map(|id| {
             cached
@@ -106,6 +153,12 @@ async fn refresh(cached: &mut Cache, query: Query<'_>) {
         .ids
         .iter()
         .filter(|id| cached.records.get(*id).is_none_or(|rows| rows.pending))
+        .filter(|id| {
+            cached
+                .retry_after
+                .get(*id)
+                .is_none_or(|after| *after <= Instant::now())
+        })
         .cloned()
         .collect();
     let deadline = Instant::now() + QUERY_BUDGET;
@@ -124,12 +177,42 @@ async fn refresh(cached: &mut Cache, query: Query<'_>) {
         )
         .await
         {
-            Ok(result) => store(cached, batch, result),
+            Ok(result) => {
+                store(cached, batch, result);
+                defer_queries(cached, batch, PENDING_QUERY_INTERVAL);
+            }
             Err(error) => {
+                defer_queries(cached, batch, FAILED_QUERY_INTERVAL);
                 tracing::warn!(error = %error, request_count = batch.len(), "[conversation-points] backend query failed");
                 break;
             }
         }
+    }
+}
+
+fn defer_queries(cached: &mut Cache, ids: &[String], delay: Duration) {
+    cached
+        .retry_after
+        .retain(|_, after| *after > Instant::now());
+    let next = Instant::now() + delay;
+    for id in ids {
+        cached.retry_after.insert(id.clone(), next);
+    }
+}
+
+async fn persist(conn: &sea_orm::DatabaseConnection, cached: &Cache, ids: &[String]) {
+    let records: HashMap<_, _> = ids
+        .iter()
+        .filter_map(|id| {
+            cached
+                .records
+                .get(id)
+                .filter(|rows| !rows.pending && !rows.items.is_empty())
+                .map(|rows| (id.clone(), rows.clone()))
+        })
+        .collect();
+    if let Err(error) = super::confirmed_cache::save(conn, &cached.scope, &records).await {
+        tracing::warn!(%error, request_count = records.len(), "[conversation-points] local consumption cache write failed");
     }
 }
 
@@ -160,6 +243,7 @@ async fn fetch(query: Query<'_>, timeout: Duration) -> Result<QueryResult, Strin
 fn store(cached: &mut Cache, ids: &[String], result: QueryResult) {
     if cached.records.len().saturating_add(ids.len()) > CACHE_LIMIT {
         cached.records.clear();
+        cached.retry_after.clear();
     }
     let pending: HashSet<_> = result.pending_request_ids.into_iter().collect();
     for id in ids {
@@ -172,8 +256,8 @@ fn store(cached: &mut Cache, ids: &[String], result: QueryResult) {
         cached.records.insert(
             id.clone(),
             RequestRows {
+                pending: pending.contains(id) || records.is_empty(),
                 items: records,
-                pending: pending.contains(id),
             },
         );
     }

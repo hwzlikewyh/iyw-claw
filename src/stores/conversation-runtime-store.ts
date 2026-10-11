@@ -4,6 +4,11 @@ import type {
   ToolCallInfo,
 } from "@/contexts/acp-connections-context"
 import { getFolderConversation } from "@/lib/api"
+import { getTransport } from "@/lib/transport"
+import {
+  metadataRefreshDelay,
+  USAGE_RETRY_DELAYS_MS,
+} from "@/lib/conversation-usage-retry"
 import { registerBackendScopedStoreReset } from "@/stores/backend-scoped-store-reset"
 import type {
   AgentExecutionStats,
@@ -2362,23 +2367,29 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
     runtimeConversationId?: number
   ): (() => void) => {
     const runtimeId = runtimeConversationId ?? dbConversationId
+    const transport = getTransport()
+    let isCodex =
+      get().byConversationId.get(runtimeId)?.detail?.summary.agent_type ===
+      "codex"
     let cancelled = false
     let timerId: ReturnType<typeof setTimeout> | null = null
+    const isCurrent = () => !cancelled && transport === getTransport()
 
     const trySync = (attempt: number) => {
-      const delay = attempt === 0 ? 1500 : 3000
+      const delay = metadataRefreshDelay(attempt, isCodex)
       timerId = setTimeout(() => {
-        if (cancelled) return
+        if (!isCurrent()) return
         const session = get().byConversationId.get(runtimeId)
         if (!session || session.localTurns.length === 0) return
         if (session.syncState === "awaiting_persist") return
 
         getFolderConversation(dbConversationId, undefined, true)
           .then((parsed) => {
-            if (cancelled) return
+            if (!isCurrent()) return
             const cur = get().byConversationId.get(runtimeId)
             if (!cur || cur.localTurns.length === 0) return
             if (cur.syncState === "awaiting_persist") return
+            isCodex = parsed.summary.agent_type === "codex"
 
             const localAssistantIndices: number[] = []
             for (let i = 0; i < cur.localTurns.length; i++) {
@@ -2424,13 +2435,21 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
             if (
               lastLocalAssistantIndex !== undefined &&
               latestCoverage?.usage?.confirmed_points?.state !== "confirmed" &&
-              attempt < 1
+              attempt < (isCodex ? USAGE_RETRY_DELAYS_MS.length : 1)
             ) {
               trySync(attempt + 1)
             }
           })
-          .catch(() => {
-            if (!cancelled && attempt < 1) trySync(attempt + 1)
+          .catch((error: unknown) => {
+            if (!isCurrent()) return
+            if (attempt === 0) {
+              console.warn("[conversation-usage] metadata refresh failed", {
+                conversationId: dbConversationId,
+                error,
+              })
+            }
+            if (attempt < (isCodex ? USAGE_RETRY_DELAYS_MS.length : 1))
+              trySync(attempt + 1)
           })
       }, delay)
     }
