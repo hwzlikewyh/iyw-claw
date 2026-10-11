@@ -38,6 +38,10 @@ pub fn render(
     let mut sections = vec![COMMON_PROMPT
         .replace("{tools}", &tools)
         .replace(
+            "{capability_routing}",
+            include_str!("../../resources/capability-routing.md").trim(),
+        )
+        .replace(
             "{office_typography}",
             include_str!("../../resources/office-typography.md").trim(),
         )
