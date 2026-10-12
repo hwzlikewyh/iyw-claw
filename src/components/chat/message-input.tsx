@@ -3816,12 +3816,9 @@ export function MessageInput({
 
   const [voiceErrorKind, setVoiceErrorKind] =
     useState<RealtimeVoiceErrorKind | null>(null)
-  const handleVoiceError = useCallback(
-    (kind: RealtimeVoiceErrorKind) => {
-      setVoiceErrorKind(kind)
-    },
-    []
-  )
+  const handleVoiceError = useCallback((kind: RealtimeVoiceErrorKind) => {
+    setVoiceErrorKind(kind)
+  }, [])
 
   const voice = useRealtimeVoiceInput({
     enabled: desktopMode && !isEditingQueueItem,
