@@ -23,6 +23,9 @@ export interface IywAccountSessionDetails {
 export type IywAuthAction =
   | "password"
   | "phone_captcha"
+  | "image_captcha_refresh"
+  | "image_captcha_verify"
+  | "image_captcha_cancel"
   | "phone"
   | "register"
   | "reset_password"
@@ -34,6 +37,13 @@ export type IywAuthAction =
   | "cancel"
   | "switch_workspace"
   | "recover_workspace"
+
+export interface IywImageChallenge {
+  id: string
+  image_data: string
+  coords_x: number
+  coords_y: number
+}
 
 export interface IywLoginResult {
   status:
@@ -52,6 +62,7 @@ export interface IywLoginResult {
   message: string | null
   captcha_key: string | null
   security_verification_required: boolean
+  image_challenge?: IywImageChallenge | null
 }
 
 export function iywAccountAuth(

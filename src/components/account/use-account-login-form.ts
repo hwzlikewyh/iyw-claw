@@ -4,7 +4,12 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { useTranslations } from "next-intl"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import { toErrorMessage } from "@/lib/app-error"
-import type { IywAuthAction } from "@/lib/iyw-account-flow"
+import {
+  iywAccountAuth,
+  type IywAuthAction,
+  type IywImageChallenge,
+  type IywLoginResult,
+} from "@/lib/iyw-account-flow"
 
 export type AccountFormMode =
   | "phone"
@@ -21,7 +26,7 @@ interface FormState {
   captchaKey: string | null
   remaining: number
   error: string | null
-  security: boolean
+  imageChallenge: IywImageChallenge | null
 }
 interface FormScope {
   state: FormState
@@ -43,7 +48,7 @@ export function useAccountLoginForm(mode: AccountFormMode, onDone: () => void) {
     captchaKey: null,
     remaining: 0,
     error: null,
-    security: false,
+    imageChallenge: null,
   })
   const generation = useRef(0)
   const busy = useRef(false)
@@ -66,15 +71,26 @@ export function useAccountLoginForm(mode: AccountFormMode, onDone: () => void) {
   useFormLifecycle(scope)
   return {
     ...state,
+    security: Boolean(state.imageChallenge),
     loading: account.actionLoading,
     setValue: (name: keyof Values, value: string) =>
       changeValue(scope, name, value),
     sendCode: () => sendCode(scope),
+    refreshImage: () => sendCode(scope),
+    verifyImage: (position: number) => verifyImage(scope, position),
+    cancelImage: () => update({ imageChallenge: null, error: null }),
     submit: () => submit(scope),
   }
 }
 
 function useFormLifecycle({ state, update, generation }: FormScope) {
+  const challengeId = state.imageChallenge?.id
+  useEffect(
+    () => () => {
+      if (challengeId) cancelChallenge(challengeId)
+    },
+    [challengeId]
+  )
   useEffect(
     () => () => {
       generation.current += 1
@@ -101,7 +117,7 @@ function changeValue(scope: FormScope, name: keyof Values, value: string) {
       error: null,
       captchaKey: null,
       remaining: 0,
-      security: false,
+      imageChallenge: null,
     })
   } else {
     scope.update({ values, error: null })
@@ -119,22 +135,65 @@ async function sendCode(scope: FormScope) {
   const current = generation.current
   update({ error: null })
   try {
-    const result = await account.authenticate("phone_captcha", {
-      phone: state.values.phone,
-      type: mode === "reset" ? 3 : mode === "register" ? 4 : 1,
-    })
-    if (current !== generation.current) return
-    update({
-      security: result.security_verification_required,
-      captchaKey: result.captcha_key,
-      remaining:
-        result.captcha_key && !result.security_verification_required
-          ? SMS_COOLDOWN_SECONDS
-          : 0,
-    })
+    const result = await account.authenticate(
+      state.imageChallenge ? "image_captcha_refresh" : "phone_captcha",
+      {
+        phone: state.values.phone,
+        type: mode === "reset" ? 3 : mode === "register" ? 4 : 1,
+        challengeId: state.imageChallenge?.id,
+      }
+    )
+    applyCaptchaResult(scope, result, current)
   } catch (reason) {
     if (current === generation.current)
       update({ error: toErrorMessage(reason) })
+  } finally {
+    busy.current = false
+  }
+}
+
+function cancelChallenge(challengeId: string) {
+  void iywAccountAuth("image_captcha_cancel", { challengeId }).catch(() => {})
+}
+
+function applyCaptchaResult(
+  scope: FormScope,
+  result: IywLoginResult,
+  current: number
+) {
+  if (current !== scope.generation.current) {
+    if (result.image_challenge) cancelChallenge(result.image_challenge.id)
+    return
+  }
+  scope.update({
+    imageChallenge: result.image_challenge ?? null,
+    captchaKey: result.captcha_key,
+    remaining:
+      result.captcha_key && !result.security_verification_required
+        ? SMS_COOLDOWN_SECONDS
+        : 0,
+    error: null,
+  })
+}
+
+async function verifyImage(scope: FormScope, position: number) {
+  const { state, account, mode, generation, busy, update } = scope
+  if (busy.current || account.actionLoading || !state.imageChallenge) return
+  busy.current = true
+  const current = generation.current
+  update({ error: null })
+  try {
+    const result = await account.authenticate("image_captcha_verify", {
+      phone: state.values.phone,
+      type: mode === "reset" ? 3 : mode === "register" ? 4 : 1,
+      challengeId: state.imageChallenge.id,
+      coordsX: position,
+    })
+    applyCaptchaResult(scope, result, current)
+  } catch (reason) {
+    if (current === generation.current)
+      update({ error: toErrorMessage(reason) })
+    throw reason
   } finally {
     busy.current = false
   }

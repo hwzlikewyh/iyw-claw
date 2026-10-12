@@ -1,5 +1,13 @@
 {
   "AccountFlow": {
+    "sliderTitle": "请完成安全验证",
+    "sliderRefresh": "换一张验证图片",
+    "sliderDrag": "向右拖动，完成拼图",
+    "sliderChecking": "正在处理安全验证…",
+    "sliderRetry": "未通过，请重新拖动或换图",
+    "sliderImageFailed": "验证图片加载失败，请点击刷新重试",
+    "sliderPosition": "滑块位置 {position}",
+    "sliderHint": "完成后自动发送短信。也可用方向键调整，按 Enter 验证。",
     "availablePoints": "可用点数",
     "pointsUnit": "点",
     "spaceConfirming": "空间确认中",

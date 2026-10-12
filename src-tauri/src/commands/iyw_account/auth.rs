@@ -17,6 +17,9 @@ pub async fn run(
     match action.as_str() {
         "password" => auth_forms::password(conn, data).await,
         "phone_captcha" => auth_forms::captcha(data).await,
+        "image_captcha_refresh" => super::image_captcha::refresh(data).await,
+        "image_captcha_verify" => super::image_captcha::verify(data).await,
+        "image_captcha_cancel" => super::image_captcha::cancel(data).await,
         "phone" => auth_forms::phone_login(conn, data).await,
         "register" => auth_forms::register(conn, data).await,
         "reset_password" => auth_forms::reset_password(data).await,
