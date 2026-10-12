@@ -1,5 +1,7 @@
 "use client"
 
+import { cn } from "@/lib/utils"
+
 const MIN_DECIMAL_MULTIPLIER = 0.000001
 const LARGE_MULTIPLIER = 1000
 const multiplierFormatter = new Intl.NumberFormat("en-US", {
@@ -8,7 +10,13 @@ const multiplierFormatter = new Intl.NumberFormat("en-US", {
   useGrouping: false,
 })
 
-export function ModelPriceMultiplier({ value }: { value?: number | null }) {
+export function ModelPriceMultiplier({
+  value,
+  className,
+}: {
+  value?: number | null
+  className?: string
+}) {
   if (value == null || !Number.isFinite(value) || value < 0) return null
 
   const formatted =
@@ -19,7 +27,10 @@ export function ModelPriceMultiplier({ value }: { value?: number | null }) {
 
   return (
     <span
-      className="inline-flex w-20 shrink-0 justify-end text-xs text-muted-foreground tabular-nums whitespace-nowrap"
+      className={cn(
+        "inline-flex w-20 shrink-0 justify-end text-xs text-muted-foreground tabular-nums whitespace-nowrap",
+        className
+      )}
       title={`${value}x`}
       aria-label={label}
     >

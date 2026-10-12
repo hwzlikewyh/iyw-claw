@@ -1,13 +1,15 @@
 "use client"
 
 import { useCallback, useId, useMemo, useRef, useState } from "react"
-import { Check, Search } from "lucide-react"
+import { Search } from "lucide-react"
 import { Virtualizer, type VirtualizerHandle } from "virtua"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { DropdownRadioItemContent } from "@/components/chat/dropdown-radio-item-content"
-import { ModelIcon } from "@/components/chat/model-icon"
-import { ModelPriceMultiplier } from "@/components/chat/model-price-multiplier"
+import { ModelOptionRow } from "@/components/chat/model-option-row"
+import {
+  ModelFastModeToggle,
+  ModelSettingsLink,
+} from "@/components/chat/model-picker-controls"
 import { ModelBehaviorPreviewPanel } from "@/components/chat/model-behavior-preview-panel"
 import { useModelOptionKeyboard } from "@/components/chat/use-model-option-keyboard"
 import {
@@ -15,7 +17,7 @@ import {
   flattenModelGroups,
   type ModelOptionGroup,
 } from "@/lib/model-config-groups"
-import type { SessionConfigOptionInfo } from "@/lib/types"
+import type { AgentType, SessionConfigOptionInfo } from "@/lib/types"
 import { useModelBehaviorPreview } from "@/components/chat/use-model-behavior-preview"
 
 interface ModelOptionListProps {
@@ -35,9 +37,11 @@ interface ModelOptionListProps {
   compact?: boolean
   /** Focus the search box on mount (the wide popover opens straight into it). */
   autoFocus?: boolean
+  agentType?: AgentType | null
+  onSettingsOpen?: () => void
 }
 
-const ROW_ESTIMATE_PX = 44
+const ROW_ESTIMATE_PX = 32
 const MAX_LIST_HEIGHT_PX = 320
 
 export function ModelOptionList({
@@ -52,9 +56,19 @@ export function ModelOptionList({
   onBehaviorSelect,
   compact = false,
   autoFocus = false,
+  agentType,
+  onSettingsOpen,
 }: ModelOptionListProps) {
   const [query, setQuery] = useState("")
-  const [activeIndex, setActiveIndex] = useState(0)
+  const listRef = useRef<HTMLDivElement>(null)
+  const [previewOffset, setPreviewOffset] = useState(0)
+  const [activeIndex, setActiveIndex] = useState(() => {
+    const options = groups.flatMap((group) => group.options)
+    return Math.max(
+      0,
+      options.findIndex((option) => option.value === currentValue)
+    )
+  })
   const virtualizerRef = useRef<VirtualizerHandle>(null)
   const viewportRef = useRef<HTMLElement | null>(null)
   const [viewportEl, setViewportEl] = useState<HTMLElement | null>(null)
@@ -87,8 +101,13 @@ export function ModelOptionList({
     setBehaviorModelValue,
     behaviorOptionsForModel,
     activeBehaviorOptions,
-    behaviorSummary,
-  } = useModelBehaviorPreview(modelOptions, currentValue, behaviorOptions)
+    activeModel,
+  } = useModelBehaviorPreview(
+    modelOptions,
+    currentValue,
+    behaviorOptions,
+    agentType
+  )
   const optionIndexByRow = useMemo(() => {
     const map = new Map<number, number>()
     optionRowIndices.forEach((rowIndex, optionIndex) =>
@@ -105,11 +124,12 @@ export function ModelOptionList({
       if (optionCount === 0) return
       const clamped = Math.max(0, Math.min(optionCount - 1, next))
       setActiveIndex(clamped)
+      setBehaviorModelValue(modelOptions[clamped].value)
       virtualizerRef.current?.scrollToIndex(optionRowIndices[clamped], {
         align: "nearest",
       })
     },
-    [optionCount, optionRowIndices]
+    [optionCount, optionRowIndices, modelOptions, setBehaviorModelValue]
   )
 
   const handleKeyDown = useModelOptionKeyboard({
@@ -133,16 +153,29 @@ export function ModelOptionList({
 
   return (
     <div
-      className={cn("flex min-w-0 items-start", compact && "w-full flex-col")}
+      ref={listRef}
+      className={cn(
+        "relative flex min-w-0 flex-col",
+        compact && "max-h-[min(60vh,24rem)] w-full overflow-y-auto"
+      )}
       onMouseLeave={() => setBehaviorModelValue(null)}
     >
       <div
         className={cn(
-          "flex min-w-0 flex-col",
-          compact ? "w-full" : "w-[22rem] shrink-0"
+          "flex min-w-0 flex-col overflow-hidden rounded-2xl border border-primary/10 bg-popover text-popover-foreground shadow-lg",
+          compact ? "w-full" : "w-[21rem] max-w-full max-sm:w-full"
         )}
       >
-        <div className="flex items-center gap-2 border-b px-2.5 py-2">
+        <ModelFastModeToggle
+          options={behaviorOptions}
+          onSelect={
+            onBehaviorSelect
+              ? (configId, valueId) =>
+                  onBehaviorSelect(currentValue, configId, valueId)
+              : undefined
+          }
+        />
+        <div className="flex items-center gap-2 border-b border-primary/10 px-3 py-2">
           <Search className="size-4 shrink-0 text-muted-foreground" />
           <input
             type="text"
@@ -205,21 +238,27 @@ export function ModelOptionList({
                       const selected = row.option.value === currentValue
                       const active = optionIndex === activeIndexClamped
                       return (
-                        <button
+                        <ModelOptionRow
                           key={row.key}
-                          type="button"
-                          role="option"
+                          option={row.option}
+                          selected={selected}
+                          active={active}
                           id={optionId(optionIndex)}
-                          aria-selected={selected}
-                          title={row.option.name}
-                          onMouseMove={() => {
+                          onPreview={() => {
                             setActiveIndex(optionIndex)
-                            const options = behaviorOptionsForModel(row.option)
-                            setBehaviorModelValue(
-                              options.length > 0 ? row.option.value : null
+                            setBehaviorModelValue(row.option.value)
+                            const bounds = document
+                              .getElementById(optionId(optionIndex))
+                              ?.getBoundingClientRect()
+                            const listBounds =
+                              listRef.current?.getBoundingClientRect()
+                            setPreviewOffset(
+                              bounds && listBounds
+                                ? bounds.top - listBounds.top
+                                : 0
                             )
                           }}
-                          onClick={() => {
+                          onSelect={() => {
                             const rowBehaviorOptions = behaviorOptionsForModel(
                               row.option
                             )
@@ -229,31 +268,7 @@ export function ModelOptionList({
                             }
                             onSelect(row.option.value)
                           }}
-                          className={cn(
-                            "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-                            active && "bg-accent text-accent-foreground",
-                            selected && !active && "bg-accent/60"
-                          )}
-                        >
-                          <span className="flex size-4 shrink-0 items-center justify-center pt-0.5">
-                            {row.option.iconUrl ? (
-                              <ModelIcon src={row.option.iconUrl} />
-                            ) : selected ? (
-                              <Check className="size-4" />
-                            ) : null}
-                          </span>
-                          <DropdownRadioItemContent
-                            label={row.option.name}
-                            description={
-                              selected && behaviorSummary
-                                ? behaviorSummary
-                                : row.option.description
-                            }
-                          />
-                          <ModelPriceMultiplier
-                            value={row.option.priceMultiplier}
-                          />
-                        </button>
+                        />
                       )
                     })}
                   </Virtualizer>
@@ -262,10 +277,14 @@ export function ModelOptionList({
             </ScrollArea>
           </div>
         )}
+        <ModelSettingsLink agentType={agentType} onOpen={onSettingsOpen} />
       </div>
-      {onBehaviorSelect ? (
+      {activeModel ? (
         <ModelBehaviorPreviewPanel
-          modelValue={behaviorModelValue}
+          key={behaviorModelValue}
+          model={activeModel}
+          agentType={agentType}
+          offset={previewOffset}
           options={activeBehaviorOptions}
           onSelect={onBehaviorSelect}
           compact={compact}

@@ -3286,6 +3286,17 @@
         "searchModelAria": "Search models",
         "modelListLabel": "Models",
         "noModels": "No models found",
+        "modelPicker": {
+          "configure": "Model settings",
+          "settingsFailed": "Could not open model settings. Try again.",
+          "reasoning": "Reasoning",
+          "consumption": "Usage multiplier",
+          "context": "Context window",
+          "auto": "Auto",
+          "behavior": "Model settings",
+          "contextHint": "Applies after the current reply. History is compacted within the selected window, with space reserved for output.",
+          "contextFailed": "Could not apply the context tier. Restored the previous setting."
+        },
         "cancel": "Cancel",
         "send": "Send",
         "stopGeneration": "Stop generation",

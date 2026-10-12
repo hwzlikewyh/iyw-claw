@@ -10,6 +10,7 @@ import { ModelPriceMultiplier } from "@/components/chat/model-price-multiplier"
 import type {
   SessionConfigOptionInfo,
   SessionConfigSelectOptionInfo,
+  AgentType,
 } from "@/lib/types"
 import {
   hasSessionConfigValueIcon,
@@ -55,6 +56,7 @@ export interface SessionSelectorSetting {
    *  of the plain button list — used for long model lists that otherwise jank. */
   search?: SessionSelectorSearch
   modelBehaviorOptions?: SessionConfigOptionInfo[]
+  modelAgentType?: AgentType | null
   onModelBehaviorSelect?: (
     modelValue: string,
     configId: string,
@@ -150,6 +152,8 @@ export function SessionSelectorsPanel({
         <div className="flex min-w-0 flex-1 flex-col pl-1">
           <ModelOptionList
             groups={active.groups}
+            agentType={active.modelAgentType}
+            onSettingsOpen={onAfterSelect}
             currentValue={active.currentValue}
             onSelect={(value) => {
               active.onSelect(value)

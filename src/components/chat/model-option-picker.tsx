@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { ChevronDown } from "lucide-react"
+import { Box, ChevronDown } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import {
@@ -10,11 +10,11 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { ModelOptionList } from "@/components/chat/model-option-list"
-import { ModelPriceMultiplier } from "@/components/chat/model-price-multiplier"
+import { ModelIcon } from "@/components/chat/model-icon"
 import { useScrollbarSafeDismiss } from "@/hooks/use-scrollbar-safe-dismiss"
 import { cn } from "@/lib/utils"
 import type { ModelOptionGroup } from "@/lib/model-config-groups"
-import type { SessionConfigOptionInfo } from "@/lib/types"
+import type { AgentType, SessionConfigOptionInfo } from "@/lib/types"
 
 interface ModelOptionPickerProps {
   option: SessionConfigOptionInfo
@@ -29,6 +29,7 @@ interface ModelOptionPickerProps {
     valueId: string
   ) => void
   onOpen?: () => void
+  agentType?: AgentType | null
 }
 
 // Model picker Popover with the searchable list and model behavior cascade.
@@ -40,6 +41,7 @@ export function ModelOptionPicker({
   onSelect,
   onBehaviorSelect,
   onOpen,
+  agentType,
 }: ModelOptionPickerProps) {
   const t = useTranslations("Folder.chat.messageInput")
   const [open, setOpen] = useState(false)
@@ -75,11 +77,20 @@ export function ModelOptionPicker({
           aria-label={
             currentLabel ? `${option.name}: ${currentLabel}` : option.name
           }
-          className="min-w-0 gap-0.5 px-1 text-muted-foreground"
+          className="min-w-0 gap-1.5 rounded-full bg-primary/10 px-2.5 text-foreground hover:bg-primary/15"
         >
+          {currentOption?.iconUrl ? (
+            <ModelIcon src={currentOption.iconUrl} />
+          ) : (
+            <Box className="size-3.5 shrink-0" />
+          )}
           <span className="max-w-[10rem] truncate">{currentLabel}</span>
-          <ModelPriceMultiplier value={currentOption?.priceMultiplier} />
-          <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+          <ChevronDown
+            className={cn(
+              "size-3 shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-180"
+            )}
+          />
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -88,13 +99,12 @@ export function ModelOptionPicker({
         align="start"
         onPointerDownOutside={onPointerDownOutside}
         onFocusOutside={onFocusOutside}
-        className={cn(
-          "max-w-[calc(100vw-1rem)] overflow-hidden p-0",
-          behaviorOptions.length > 0 ? "w-auto" : "w-[22rem]"
-        )}
+        className="w-auto max-w-[calc(100vw-1rem)] bg-transparent p-0 shadow-none ring-0"
       >
         <ModelOptionList
           groups={groups}
+          agentType={agentType}
+          onSettingsOpen={() => setOpen(false)}
           currentValue={currentValue}
           onSelect={(value) => {
             onSelect(option.id, value)

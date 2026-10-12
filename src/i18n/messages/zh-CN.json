@@ -3286,6 +3286,17 @@
         "searchModelAria": "搜索模型",
         "modelListLabel": "模型",
         "noModels": "未找到模型",
+        "modelPicker": {
+          "configure": "模型配置",
+          "settingsFailed": "无法打开模型配置，请重试。",
+          "reasoning": "支持思考",
+          "consumption": "消耗倍率",
+          "context": "上下文窗口",
+          "auto": "自动",
+          "behavior": "模型设置",
+          "contextHint": "当前回复结束后应用，按所选窗口自动压缩历史，并为输出预留空间。",
+          "contextFailed": "上下文档位应用失败，已恢复之前的设置。"
+        },
         "cancel": "取消",
         "send": "发送",
         "stopGeneration": "停止生成",

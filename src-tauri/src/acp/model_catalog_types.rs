@@ -40,6 +40,8 @@ pub struct ModelLimits {
     #[serde(default)]
     pub context_window: Option<u64>,
     #[serde(default)]
+    pub default_context_window: Option<u64>,
+    #[serde(default)]
     pub max_input_tokens: Option<u64>,
     #[serde(default)]
     pub max_output_tokens: Option<u64>,
@@ -73,6 +75,7 @@ pub(super) struct ModelCatalogLayer {
     pub ids: Vec<&'static str>,
     pub display_names: HashMap<&'static str, &'static str>,
     pub capabilities: HashMap<&'static str, ModelCapabilitySnapshot>,
+    pub context_window_tiers: HashMap<&'static str, Vec<u64>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,6 +124,8 @@ pub(super) struct PersistedModel {
     pub image_input_mode: ImageInputMode,
     #[serde(default)]
     pub limits: ModelLimits,
+    #[serde(default)]
+    pub context_window_tiers: Vec<u64>,
 }
 
 fn default_true() -> bool {

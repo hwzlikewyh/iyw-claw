@@ -11,6 +11,8 @@ export interface GatewayModel {
   capabilities: GatewayModelCapabilities
   imageInputMode: GatewayImageInputMode
   contextWindow: number | null
+  defaultContextWindow?: number | null
+  contextWindowTiers?: number[]
   maxInputTokens: number | null
   maxOutputTokens: number | null
   compactionAtTokens: number | null
@@ -139,6 +141,15 @@ function parseGatewayModel(value: unknown): GatewayModel | null {
     capabilities,
     imageInputMode: parseImageInputMode(raw.image_input, capabilities),
     contextWindow: tokenLimit(limits, "context_window"),
+    defaultContextWindow: tokenLimit(limits, "default_context_window"),
+    contextWindowTiers: Array.isArray(limits.context_window_tiers)
+      ? limits.context_window_tiers.filter(
+          (tokens): tokens is number =>
+            typeof tokens === "number" &&
+            Number.isSafeInteger(tokens) &&
+            tokens > 0
+        )
+      : [],
     maxInputTokens: tokenLimit(limits, "max_input_tokens"),
     maxOutputTokens: tokenLimit(limits, "max_output_tokens"),
     compactionAtTokens: tokenLimit(limits, "compaction_at_tokens"),

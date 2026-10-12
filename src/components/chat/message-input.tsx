@@ -4047,6 +4047,7 @@ export function MessageInput({
                 key={option.id}
                 option={option}
                 groups={modelListGroups(option)}
+                agentType={agentType}
                 behaviorOptions={modelBehaviorOptions}
                 onSelect={(configId, valueId) =>
                   onConfigOptionChange?.(configId, valueId)
@@ -4164,6 +4165,7 @@ export function MessageInput({
           groups,
           onSelect: (value) => onConfigOptionChange?.(option.id, value),
           ...(isModelConfigOption(option) && {
+            modelAgentType: agentType,
             modelBehaviorOptions,
             onModelBehaviorSelect: (
               modelValue: string,
@@ -4187,6 +4189,7 @@ export function MessageInput({
     hasConfigOptions,
     modelBehaviorOptions,
     orderedConfigOptions,
+    agentType,
     showModeSelector,
     availableModes,
     effectiveModeId,
