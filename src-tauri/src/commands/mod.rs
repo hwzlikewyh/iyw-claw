@@ -80,6 +80,7 @@ pub mod remote_proxy;
 pub mod remote_workspace;
 pub mod runtime_bootstrap;
 pub mod scenarios;
+pub mod scenario_cases;
 pub mod session_config;
 pub(crate) mod session_history;
 pub mod session_info;

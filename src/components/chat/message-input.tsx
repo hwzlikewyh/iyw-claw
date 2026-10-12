@@ -244,6 +244,8 @@ import {
  * token).
  */
 export interface ComposerInjectContent {
+  /** 案例指定的逻辑模型，由欢迎页既有模型选择流程处理。 */
+  model?: string
   text: string
   append?: boolean
   skill?: {

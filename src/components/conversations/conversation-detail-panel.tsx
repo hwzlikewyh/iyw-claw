@@ -2848,9 +2848,31 @@ const ConversationTabView = memo(function ConversationTabView({
   const showDraftHeader = !hasPersistedConversation && !hasSentMessage
   const isWelcomeMode = showDraftHeader
 
-  const handleQuickAction = useCallback((payload: ComposerInjectContent) => {
-    setQuickActionInject(payload)
-  }, [])
+  const handleQuickAction = useCallback(
+    (payload: ComposerInjectContent) => {
+      if (payload.model) {
+        const modelOption =
+          fixedOptions.config_options.find(isModelConfigOption)
+        const candidates = modelOption
+          ? [
+              ...modelOption.kind.options,
+              ...modelOption.kind.groups.flatMap((group) => group.options),
+            ]
+          : []
+        const bound = candidates.find((item) => item.value === payload.model)
+        if (!bound) {
+          toast.error("案例指定模型不可用", {
+            description: `当前 Agent 无法使用 ${payload.model}，请检查模型权限或切换 Agent 后重试。`,
+          })
+          return false
+        }
+        handleConfigOptionChange("model", bound.value)
+      }
+      setQuickActionInject(payload)
+      return true
+    },
+    [fixedOptions.config_options, handleConfigOptionChange]
+  )
 
   useEffect(() => {
     if (hasPersistedConversation || !ownTab?.pendingComposerText) return

@@ -29,6 +29,8 @@ import type { Scenario, ScenarioCatalog } from "@/lib/types"
 import type { ComposerInjectContent } from "@/components/chat/message-input"
 import { cn } from "@/lib/utils"
 import { useScenarioPreferences } from "./scenario-preferences"
+import { scenarioContent } from "./scenario-content"
+import { ScenarioCases } from "./scenario-cases"
 
 const ICONS: Record<string, LucideIcon> = {
   barChart3: BarChart3,
@@ -105,7 +107,7 @@ function useOfficialScenarioCatalog(refreshKey?: string | number) {
 }
 
 interface QuickActionsProps {
-  onSelect: (payload: ComposerInjectContent) => void
+  onSelect: (payload: ComposerInjectContent) => boolean | void
   refreshKey?: string | number
 }
 
@@ -184,6 +186,12 @@ export function QuickActions({ onSelect, refreshKey }: QuickActionsProps) {
           <EmptyScenario text="当前分类暂无可用场景，请切换分类。" />
         )}
       </div>
+      <ScenarioCases
+        category={categories.find((item) => item.key === activeCategory)}
+        preferences={preferences}
+        refreshKey={refreshKey}
+        onSelect={onSelect}
+      />
     </section>
   )
 }
@@ -232,29 +240,6 @@ function ScenarioCard({
       </span>
     </button>
   )
-}
-
-function scenarioContent(
-  scenario: Scenario,
-  prompt: string
-): ComposerInjectContent {
-  const content: ComposerInjectContent = {
-    text: prompt,
-    scenario: { variables: scenario.variables ?? [] },
-  }
-  if (scenario.skillPackageId !== "0" && scenario.skillPackageSlug) {
-    content.skill = {
-      id: scenario.skillPackageSlug,
-      label: scenario.displayName,
-      hiddenFromDisplay: scenario.hideSkillReference,
-      package: {
-        id: scenario.skillPackageId,
-        slug: scenario.skillPackageSlug,
-        version: scenario.skillPackageVersion,
-      },
-    }
-  }
-  return content
 }
 
 function ScenarioIcon({

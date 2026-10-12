@@ -1,0 +1,88 @@
+.assets {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.files,
+.steps {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  overflow-x: auto;
+  padding: 0;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+.steps {
+  padding-top: 3px;
+  gap: 12px;
+  margin-bottom: 45px;
+}
+.file,
+.step {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 10px;
+  padding: 16px 20px;
+  border: 1px solid rgb(236 238 243 / 80%);
+  border-radius: 16px;
+  background: white;
+  color: #111827;
+  text-align: left;
+  cursor: pointer;
+}
+.file {
+  width: 278px;
+  min-height: 71px;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 700;
+}
+.file img {
+  flex-shrink: 0;
+}
+.file span {
+  overflow-wrap: anywhere;
+}
+.step {
+  min-width: 122px;
+  height: 46px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+.file[aria-selected="true"],
+.step[aria-selected="true"] {
+  border-color: #2656f6;
+}
+.step[aria-selected="true"] {
+  color: #2656f6;
+}
+.number {
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 4px;
+  background: #f8fafc;
+  color: #111827;
+}
+[aria-selected="true"] .number {
+  background: #2656f6;
+  color: white;
+}
+.arrow {
+  flex-shrink: 0;
+}
+.viewport {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.file:focus-visible,
+.step:focus-visible {
+  outline: 2px solid #2656f6;
+  outline-offset: 2px;
+}

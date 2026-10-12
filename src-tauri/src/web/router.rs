@@ -1275,6 +1275,8 @@ pub fn build_router(
             post(handlers::plugin_apps::teardown),
         )
         .route("/scenarios_catalog", post(handlers::scenarios::catalog))
+        .route("/scenario_cases_catalog", post(handlers::scenarios::cases_catalog))
+        .route("/scenario_case_detail", post(handlers::scenarios::case_detail))
         // ─── Experts ───
         .route("/experts_list", post(handlers::experts::experts_list))
         .route(
