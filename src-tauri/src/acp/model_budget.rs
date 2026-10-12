@@ -30,6 +30,7 @@ pub(crate) fn resolve_limits(limits: ModelLimits, model: Option<&str>, reported_
             .or_else(|| {
                 model.and_then(|model| crate::parsers::infer_context_window_max_tokens(Some(model)))
             }),
+        default_context_window: positive_option(limits.default_context_window),
         max_input_tokens: positive_option(limits.max_input_tokens),
         max_output_tokens: positive_option(limits.max_output_tokens),
         compaction_at_tokens: positive_option(limits.compaction_at_tokens),

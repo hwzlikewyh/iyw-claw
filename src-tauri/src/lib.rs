@@ -1613,6 +1613,7 @@ mod tauri_app {
                 scenarios_commands::scenarios_catalog,
                 scenario_case_commands::scenario_cases_catalog,
                 scenario_case_commands::scenario_case_detail,
+                iyw_account_commands::iyw_account_auth,
                 iyw_account_commands::iyw_account_get_wechat_qrcode,
                 iyw_account_commands::iyw_account_poll_wechat_login,
                 iyw_account_commands::iyw_account_login_with_password,

@@ -53,6 +53,9 @@ fn parse_model(value: &serde_json::Value) -> Option<PersistedModel> {
         supports_search_tool: value["supports_search_tool"].as_bool().unwrap_or(false),
         image_input_mode,
         limits,
+        context_window_tiers: value.pointer("/limits/context_window_tiers")
+            .and_then(serde_json::Value::as_array).into_iter().flatten()
+            .filter_map(serde_json::Value::as_u64).filter(|value| *value > 0).collect(),
     })
 }
 
@@ -60,6 +63,7 @@ fn parse_limits(value: &serde_json::Map<String, serde_json::Value>) -> ModelLimi
     let limit = |key: &str| value.get(key).and_then(serde_json::Value::as_u64);
     ModelLimits {
         context_window: limit("context_window"),
+        default_context_window: limit("default_context_window"),
         max_input_tokens: limit("max_input_tokens"),
         max_output_tokens: limit("max_output_tokens"),
         compaction_at_tokens: limit("compaction_at_tokens"),

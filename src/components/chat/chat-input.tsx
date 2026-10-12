@@ -20,6 +20,7 @@ import {
 } from "@/components/chat/message-input"
 import { MessageQueueDisplay } from "@/components/chat/message-queue-display"
 import { cn } from "@/lib/utils"
+import { useAccountRequestsBlocked } from "@/components/account/use-account-request-guard"
 
 interface ChatInputProps {
   status: ConnectionStatus | null
@@ -137,6 +138,7 @@ export const ChatInput = memo(function ChatInput({
   tall = false,
 }: ChatInputProps) {
   const t = useTranslations("Folder.chat.chatInput")
+  const requestsBlocked = useAccountRequestsBlocked()
   const isConnected = status === "connected"
   const isPrompting = status === "prompting"
   const resolvedAgentName = agentName ?? "Agent"
@@ -167,7 +169,9 @@ export const ChatInput = memo(function ChatInput({
           />
         )}
       <MessageInput
-        onSend={onSend}
+        onSend={(draft, mode) =>
+          requestsBlocked ? false : onSend(draft, mode)
+        }
         promptCapabilities={promptCapabilities}
         onFocus={onFocus}
         defaultPath={defaultPath}
@@ -193,14 +197,24 @@ export const ChatInput = memo(function ChatInput({
         isActive={isActive}
         showActiveFlow={showActiveFlow}
         hasQueuedMessages={(queue?.length ?? 0) > 0}
-        onEnqueue={onEnqueue}
+        onEnqueue={
+          onEnqueue
+            ? (draft, mode) =>
+                requestsBlocked ? false : onEnqueue(draft, mode)
+            : undefined
+        }
         editingItemId={editingItemId}
         editingDraftText={editingDraftText}
         editingDraftBlocks={editingDraftBlocks}
         isEditingQueueItem={isEditingQueueItem}
         onSaveQueueEdit={onSaveQueueEdit}
         onCancelQueueEdit={onCancelQueueEdit}
-        onForkSend={onForkSend}
+        onForkSend={
+          onForkSend
+            ? (draft, mode) =>
+                requestsBlocked ? false : onForkSend(draft, mode)
+            : undefined
+        }
         onSideQuestion={onSideQuestion}
         onAddFeedback={onAddFeedback}
         feedbackAddDisabled={feedbackAddDisabled}

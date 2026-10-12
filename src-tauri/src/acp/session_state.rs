@@ -577,18 +577,27 @@ impl SessionState {
         if let Some(revision) = environment.get("IYW_MODEL_CATALOG_REVISION") {
             self.launch_model_catalog = revision.clone();
         }
+        if let (Some(model), Some(threshold)) = (
+            environment.get(super::context_window_runtime::MODEL_ENV),
+            environment.get(super::context_window_runtime::COMPACT_ENV).and_then(|value| value.parse::<u64>().ok()),
+        ) {
+            self.launch_model_budgets.insert(model.clone(), threshold);
+            return;
+        }
         let Some(config) = environment.get("CODEX_CONFIG")
             .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok()) else { return; };
         let Some(raw) = config.get("model_catalog_json").and_then(serde_json::Value::as_str)
             .and_then(|path| std::fs::read_to_string(path).ok()) else { return; };
         let Ok(catalog) = serde_json::from_str::<serde_json::Value>(&raw) else { return; };
         let override_limit = config.get("model_auto_compact_token_limit").and_then(serde_json::Value::as_u64);
+        let context_override = config.get("model_context_window").and_then(serde_json::Value::as_u64);
         self.launch_model_budgets = catalog.get("models").and_then(serde_json::Value::as_array)
             .into_iter().flatten().filter_map(|model| {
                 let id = model.get("slug")?.as_str()?;
                 let limit = override_limit.or_else(|| model.get("auto_compact_token_limit")?.as_u64())?;
                 // 与原生 ModelInfo::auto_compact_token_limit 的窗口上限一致。
                 let limit = model.get("context_window").and_then(serde_json::Value::as_u64)
+                    .map(|context| context_override.map_or(context, |selected| selected.min(context)))
                     .map_or(limit, |context| limit.min(context.saturating_mul(90) / 100));
                 Some((id.to_owned(), limit))
             }).collect();

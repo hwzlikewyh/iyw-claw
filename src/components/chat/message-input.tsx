@@ -1,5 +1,6 @@
 "use client"
 
+import { useAccountRequestsBlocked } from "@/components/account/use-account-request-guard"
 import { parseSideQuestion } from "@/lib/side-question"
 
 import {
@@ -890,6 +891,7 @@ export function MessageInput({
   onInjectConsumed,
 }: MessageInputProps) {
   const t = useTranslations("Folder.chat.messageInput")
+  const accountRequestsBlocked = useAccountRequestsBlocked()
   const tSide = useTranslations("SideQuestion")
   const [hasSideCommand, setHasSideCommand] = useState(false)
   const { openSkillMarket } = useWorkbenchRoute()
@@ -3668,6 +3670,7 @@ export function MessageInput({
   )
 
   const sendCurrentDraft = useCallback(() => {
+    if (accountRequestsBlocked && !isEditingQueueItem) return
     // The editor stays editable while `disabled` (the agent is busy) so the user
     // can keep typing, but a plain send is blocked — only enqueue / queue-edit
     // save go through. Mirrors the legacy textarea's keydown guard.
@@ -3791,6 +3794,7 @@ export function MessageInput({
         setSendPending(false)
       })
   }, [
+    accountRequestsBlocked,
     disabled,
     buildDraft,
     isEditingQueueItem,
@@ -3816,12 +3820,9 @@ export function MessageInput({
 
   const [voiceErrorKind, setVoiceErrorKind] =
     useState<RealtimeVoiceErrorKind | null>(null)
-  const handleVoiceError = useCallback(
-    (kind: RealtimeVoiceErrorKind) => {
-      setVoiceErrorKind(kind)
-    },
-    []
-  )
+  const handleVoiceError = useCallback((kind: RealtimeVoiceErrorKind) => {
+    setVoiceErrorKind(kind)
+  }, [])
 
   const voice = useRealtimeVoiceInput({
     enabled: desktopMode && !isEditingQueueItem,
@@ -4047,6 +4048,7 @@ export function MessageInput({
                 key={option.id}
                 option={option}
                 groups={modelListGroups(option)}
+                agentType={agentType}
                 behaviorOptions={modelBehaviorOptions}
                 onSelect={(configId, valueId) =>
                   onConfigOptionChange?.(configId, valueId)
@@ -4164,6 +4166,7 @@ export function MessageInput({
           groups,
           onSelect: (value) => onConfigOptionChange?.(option.id, value),
           ...(isModelConfigOption(option) && {
+            modelAgentType: agentType,
             modelBehaviorOptions,
             onModelBehaviorSelect: (
               modelValue: string,
@@ -4187,6 +4190,7 @@ export function MessageInput({
     hasConfigOptions,
     modelBehaviorOptions,
     orderedConfigOptions,
+    agentType,
     showModeSelector,
     availableModes,
     effectiveModeId,
@@ -4223,7 +4227,7 @@ export function MessageInput({
       className="iyw-claw-send-button h-8 w-8"
       title={tSide("ask")}
       aria-label={tSide("ask")}
-      disabled={voice.status !== "idle"}
+      disabled={accountRequestsBlocked || voice.status !== "idle"}
     >
       <Send className="size-4" />
     </Button>
@@ -4243,6 +4247,7 @@ export function MessageInput({
       <Button
         onClick={handleSend}
         disabled={
+          accountRequestsBlocked ||
           sendPending ||
           disabled ||
           voice.status !== "idle" ||
@@ -4259,6 +4264,7 @@ export function MessageInput({
         <DropdownMenuTrigger asChild>
           <Button
             disabled={
+              accountRequestsBlocked ||
               sendPending ||
               disabled ||
               voice.status !== "idle" ||
@@ -4284,6 +4290,7 @@ export function MessageInput({
     <Button
       onClick={handleSend}
       disabled={
+        accountRequestsBlocked ||
         sendPending ||
         disabled ||
         voice.status !== "idle" ||

@@ -3,10 +3,19 @@ import {
   isFastConfigOption,
   isReasoningConfigOption,
 } from "@/lib/model-config-groups"
-import { resolveModelReasoningEffort } from "@/lib/gateway-model-catalog"
+import {
+  getCachedGatewayModels,
+  resolveModelReasoningEffort,
+} from "@/lib/gateway-model-catalog"
+import {
+  buildContextWindowOption,
+  CONTEXT_WINDOW_CONFIG_ID,
+} from "@/lib/model-context-window"
+import { getSavedModelConfigPreferences } from "@/lib/selector-prefs-storage"
 import type {
   SessionConfigOptionInfo,
   SessionConfigSelectOptionInfo,
+  AgentType,
 } from "@/lib/types"
 
 function optionsForModel(
@@ -55,15 +64,44 @@ function optionsForModel(
 export function useModelBehaviorPreview(
   models: SessionConfigSelectOptionInfo[],
   currentValue: string,
-  behaviorOptions: SessionConfigOptionInfo[]
+  behaviorOptions: SessionConfigOptionInfo[],
+  agentType?: AgentType | null
 ) {
   const [behaviorModelValue, setBehaviorModelValue] = useState<string | null>(
     null
   )
   const behaviorOptionsForModel = useCallback(
-    (model: SessionConfigSelectOptionInfo) =>
-      optionsForModel(model, currentValue, behaviorOptions),
-    [behaviorOptions, currentValue]
+    (model: SessionConfigSelectOptionInfo) => {
+      const context = agentType
+        ? buildContextWindowOption({
+            agentType,
+            model: getCachedGatewayModels(agentType ?? undefined).find(
+              (item) => item.id === model.value
+            ),
+            configured:
+              model.value === currentValue
+                ? behaviorOptions.find(
+                    (option) => option.id === CONTEXT_WINDOW_CONFIG_ID
+                  )?.kind.current_value
+                : agentType
+                  ? getSavedModelConfigPreferences(agentType)[model.value]?.[
+                      CONTEXT_WINDOW_CONFIG_ID
+                    ]
+                  : undefined,
+          })
+        : model.value === currentValue
+          ? behaviorOptions.find(
+              (option) => option.id === CONTEXT_WINDOW_CONFIG_ID
+            )
+          : null
+      const options = optionsForModel(
+        model,
+        currentValue,
+        behaviorOptions
+      ).filter((option) => option.id !== CONTEXT_WINDOW_CONFIG_ID)
+      return context ? [...options, context] : options
+    },
+    [agentType, behaviorOptions, currentValue]
   )
   const activeModel = useMemo(
     () => models.find((model) => model.value === behaviorModelValue) ?? null,
@@ -91,5 +129,6 @@ export function useModelBehaviorPreview(
     behaviorOptionsForModel,
     activeBehaviorOptions,
     behaviorSummary,
+    activeModel,
   }
 }

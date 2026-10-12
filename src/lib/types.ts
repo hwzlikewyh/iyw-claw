@@ -1,3 +1,5 @@
+import type { IywAccountSessionDetails } from "./iyw-account-flow"
+
 /** Agent identities with dedicated client-side integration. */
 export type BuiltinAgentType =
   | "claude_code"
@@ -2490,7 +2492,7 @@ export interface SkillAutoUpdateSettings {
 
 // --- iyw Account ---
 
-export interface IywAccountProfile {
+export interface IywAccountProfile extends IywAccountSessionDetails {
   logged_in: boolean
   user_id: string | null
   name: string | null

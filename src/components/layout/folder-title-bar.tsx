@@ -32,6 +32,7 @@ import {
   matchShortcutEvent,
 } from "@/lib/keyboard-shortcuts"
 import { AppTitleBar } from "./app-title-bar"
+import { AccountWorkspaceSwitch } from "@/components/account/account-workspace-switch"
 import { BranchDropdown } from "./branch-dropdown"
 import { NewFolderDropdown } from "./new-folder-dropdown"
 import { TitleBarUpdateControl } from "./title-bar-update-control"
@@ -193,6 +194,7 @@ export function FolderTitleBar() {
         right={
           isMobile ? (
             <div className="flex items-center gap-1">
+              <AccountWorkspaceSwitch mobile />
               <TitleBarUpdateControl mobile />
               {browserVisible &&
               isLocalDesktop() &&
@@ -248,6 +250,7 @@ export function FolderTitleBar() {
             </div>
           ) : (
             <div className="flex items-center gap-2">
+              <AccountWorkspaceSwitch />
               {/* Folderless chat conversations hide the aux panel entirely. */}
               {!isChatMode && (
                 <Button

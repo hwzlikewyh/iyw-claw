@@ -43,6 +43,8 @@ import { useIywAccount } from "@/contexts/iyw-account-context"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { cn, copyTextFromMenu, randomUUID } from "@/lib/utils"
 import { useConnectionLifecycle } from "@/hooks/use-connection-lifecycle"
+import { useContextWindowSync } from "@/hooks/use-context-window-sync"
+import { CONTEXT_WINDOW_CONFIG_ID } from "@/lib/model-context-window"
 import { useDocumentVisibility } from "@/hooks/use-document-visibility"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useMessageQueue, type QueuedMessage } from "@/hooks/use-message-queue"
@@ -1060,11 +1062,6 @@ const ConversationTabView = memo(function ConversationTabView({
   // Present "connecting" to the composer while the session or selectors are
   // still settling. The composer remains usable and the send handler queues
   // submissions until this tab's connection is fully attached.
-  const composerConnStatus = isSilentModelSwitch
-    ? "connected"
-    : connStatus === "connected" && !connectionReady
-      ? "connecting"
-      : connStatus
   const fixedOptions = useMemo(() => {
     void catalogVersion
     return getFixedAgentOptions(
@@ -1079,6 +1076,45 @@ const ConversationTabView = memo(function ConversationTabView({
   )
   // 列表由 SDK 配置与缓存目录决定；ACP 只负责应用确认，不阻塞或裁剪显示。
   const connectionConfigOptions = fixedOptions.config_options
+  const handleContextWindowError = useCallback(
+    (value: string, error: unknown) => {
+      setDraftConfigValues((current) => ({
+        ...current,
+        [CONTEXT_WINDOW_CONFIG_ID]: value,
+      }))
+      const model = draftConfigValues.model
+      if (model)
+        saveModelConfigPreference(
+          selectedAgent,
+          model,
+          CONTEXT_WINDOW_CONFIG_ID,
+          value
+        )
+      console.error("[ConversationTabView] context window apply failed", {
+        agentType: selectedAgent,
+        model,
+        value,
+        error,
+      })
+      toast.error(tConfig("modelPicker.contextFailed"))
+    },
+    [draftConfigValues.model, selectedAgent, tConfig]
+  )
+  const contextWindowPending = useContextWindowSync({
+    connection: conn,
+    desired: connectionConfigOptions.find(
+      (option) => option.id === CONTEXT_WINDOW_CONFIG_ID
+    ),
+    ready: connectionReady && !modelReapplyAttempt,
+    values: draftConfigValues,
+    conversationId: dbConversationId ?? undefined,
+    onError: handleContextWindowError,
+  })
+  const composerConnStatus = isSilentModelSwitch
+    ? "connected"
+    : connStatus === "connected" && (!connectionReady || contextWindowPending)
+      ? "connecting"
+      : connStatus
   const modelRefreshPendingRef = useRef<Promise<unknown> | null>(null)
   const handleModelListOpen = useCallback(() => {
     if (modelRefreshPendingRef.current) return
@@ -1243,7 +1279,14 @@ const ConversationTabView = memo(function ConversationTabView({
     )
     sessionModelSeedTargetRef.current = target
     setDraftConfigValues((current) => {
-      const next: Record<string, string> = { ...current, model: target }
+      const next: Record<string, string> = {
+        ...current,
+        model: target,
+        [CONTEXT_WINDOW_CONFIG_ID]:
+          getSavedModelConfigPreferences(selectedAgent)[target]?.[
+            CONTEXT_WINDOW_CONFIG_ID
+          ] ?? "auto",
+      }
       if (reasoning?.value) next[reasoning.configId] = reasoning.value
       return next
     })
@@ -1338,11 +1381,14 @@ const ConversationTabView = memo(function ConversationTabView({
       return
     }
     const commands = planSessionConfigSync(
-      connectionConfigOptions,
+      connectionConfigOptions.filter(
+        (option) => option.id !== CONTEXT_WINDOW_CONFIG_ID
+      ),
       conn.configOptions ?? [],
       draftConfigValues
     )
     for (const { configId, valueId } of commands) {
+      if (contextWindowPending && configId !== "model") continue
       const live = conn.configOptions?.find((option) => option.id === configId)
       const isModel =
         configId === "model" || (live && isModelConfigOption(live))
@@ -1383,6 +1429,7 @@ const ConversationTabView = memo(function ConversationTabView({
     connectionConfigOptions,
     connectionReady,
     clearRequestedModel,
+    contextWindowPending,
     draftConfigValues,
     fixedOptions,
     failedModel,
@@ -1568,6 +1615,7 @@ const ConversationTabView = memo(function ConversationTabView({
     selectedAgent,
   ])
   const ensureSelectedModelReady = useCallback(() => {
+    if (contextWindowPending) return false
     const target = draftConfigValues.model
     if (!target) return true
     const fixed = fixedOptions.config_options.find(isModelConfigOption)
@@ -1587,6 +1635,7 @@ const ConversationTabView = memo(function ConversationTabView({
     conn.configOptions,
     conn.selectorsReady,
     connectionReady,
+    contextWindowPending,
     draftConfigValues.model,
     failedModel,
     fixedOptions.config_options,
@@ -2701,8 +2750,16 @@ const ConversationTabView = memo(function ConversationTabView({
           fixedOptions.config_options,
           valueId
         )
+        const context =
+          getSavedModelConfigPreferences(selectedAgent)[valueId]?.[
+            CONTEXT_WINDOW_CONFIG_ID
+          ] ?? "auto"
         setDraftConfigValues((current) => {
-          const next: Record<string, string> = { ...current, model: valueId }
+          const next: Record<string, string> = {
+            ...current,
+            model: valueId,
+            [CONTEXT_WINDOW_CONFIG_ID]: context,
+          }
           if (reasoning) {
             if (reasoning.value) next[reasoning.configId] = reasoning.value
             else delete next[reasoning.configId]
@@ -2724,7 +2781,11 @@ const ConversationTabView = memo(function ConversationTabView({
         (fixedModelOption?.kind.type === "select"
           ? fixedModelOption.kind.current_value
           : null)
-      if (option && isReasoningConfigOption(option) && modelId) {
+      if (
+        ((option && isReasoningConfigOption(option)) ||
+          configId === CONTEXT_WINDOW_CONFIG_ID) &&
+        modelId
+      ) {
         saveModelConfigPreference(selectedAgent, modelId, configId, valueId)
       } else {
         saveConfigPreference(selectedAgent, configId, valueId)

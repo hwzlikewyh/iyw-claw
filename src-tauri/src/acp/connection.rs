@@ -1421,9 +1421,18 @@ pub(crate) async fn spawn_agent_connection(
 ) -> Result<tokio::sync::oneshot::Receiver<()>, AcpError> {
     let spawn_gate = connection_tasks.begin_spawn().await?;
     let mut preferred_config_values = preferred_config_values;
+    let mut runtime_env = runtime_env;
+    super::context_window_preferences::resolve(
+        &mut preferred_config_values,
+        (agent_type, version_center_db.as_ref(), database_conversation_id),
+    ).await?;
+    super::provider_overlay::apply_preferred_model_runtime_env(
+        agent_type, &mut runtime_env, preferred_config_values.get("model").map(String::as_str),
+    );
     if is_delegation_child {
         preferred_config_values.remove("__iyw_response_style");
     }
+    let context_window_lease = super::context_window_lease::acquire(agent_type, &preferred_config_values)?;
     // 恢复会话（session_id 为 Some）走 reconcile_resumed_session：保持策略
     // 代际，只刷新允许热更新的安全字段；新建会话走完整 reconcile。两种路径
     // 都先经过 provider overlay 门，失败都会阻止 spawn。
@@ -1454,6 +1463,9 @@ pub(crate) async fn spawn_agent_connection(
         ))
     })?;
 
+    let context_window_option = super::context_window_config::apply(
+        &mut runtime_env, agent_type, &preferred_config_values,
+    )?;
     let hermes_memory = crate::context_governor::diagnose_hermes_memory(agent_type, &runtime_env);
 
     // Create the authoritative session state up front. Subsequent emit_with_state
@@ -1467,6 +1479,7 @@ pub(crate) async fn spawn_agent_connection(
         database_folder_id,
     );
     initial_state.apply_launch_model_catalog(&runtime_env);
+    initial_state.config_options = context_window_option.map(|option| vec![option]);
     // 已持久化的会话在 ACP 握手完成前就绑定，冷启动期间进入 durable
     // Agent Input 队列的 Prompt 才能立即解析到正确的会话与目录。
     initial_state.conversation_id = database_conversation_id;
@@ -1753,6 +1766,7 @@ pub(crate) async fn spawn_agent_connection(
 
     let (task_registered_tx, task_registered_rx) = tokio::sync::oneshot::channel();
     let task = tokio::spawn(async move {
+        let _context_window_lease = context_window_lease;
         let _parent_cancellation_guard = cancellation.clone().drop_guard();
         let connection_started_at = std::time::Instant::now();
         let _completion = ConnectionTaskCompletion {
@@ -2152,6 +2166,12 @@ async fn emit_session_config_options_values(
     if agent_type == AgentType::Codex {
         ensure_codex_mode_option(&mut mapped);
     }
+    if let Some(option) = state.read().await.config_options.as_ref()
+        .and_then(|options| options.iter().find(|option| option.id == super::context_window_config::CONFIG_ID))
+    {
+        mapped.retain(|item| item.id != super::context_window_config::CONFIG_ID);
+        mapped.push(option.clone());
+    }
     emit_with_state(
         state,
         emitter,
@@ -2167,8 +2187,14 @@ async fn emit_session_config_options_info(
     state: &Arc<RwLock<SessionState>>,
     emitter: &EventEmitter,
     agent_type: AgentType,
-    config_options: Vec<SessionConfigOptionInfo>,
+    mut config_options: Vec<SessionConfigOptionInfo>,
 ) {
+    if let Some(option) = state.read().await.config_options.as_ref()
+        .and_then(|options| options.iter().find(|option| option.id == super::context_window_config::CONFIG_ID)).cloned()
+    {
+        config_options.retain(|item| item.id != super::context_window_config::CONFIG_ID);
+        config_options.push(option);
+    }
     let model_switch_capability = ModelSwitchCapability::classify(agent_type, &config_options);
     emit_with_state(
         state,

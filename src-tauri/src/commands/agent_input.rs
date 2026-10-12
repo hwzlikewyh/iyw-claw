@@ -75,6 +75,8 @@ pub async fn submit_agent_input_core(
     payload: AgentInputPayload,
 ) -> Result<AgentInputItem, AcpError> {
     validate_submit(conversation_id, &message_id, &payload)?;
+    crate::commands::iyw_account::iyw_account_ensure_can_consume_core(&db.conn)
+        .await.map_err(|error| AcpError::protocol(error.to_string()))?;
     require_payload_file_upload(&payload).await?;
     manager
         .submit_agent_input(db, &connection_id, conversation_id, message_id, payload)
@@ -90,6 +92,8 @@ pub async fn queue_agent_input_core(
     payload: AgentInputPayload,
 ) -> Result<AgentInputItem, AcpError> {
     validate_submit(conversation_id, &message_id, &payload)?;
+    crate::commands::iyw_account::iyw_account_ensure_can_consume_core(&db.conn)
+        .await.map_err(|error| AcpError::protocol(error.to_string()))?;
     require_payload_file_upload(&payload).await?;
     let started_at = std::time::Instant::now();
     let conversation = conversation_service::get_by_id(&db.conn, conversation_id)

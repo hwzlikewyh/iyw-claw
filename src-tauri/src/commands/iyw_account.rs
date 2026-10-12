@@ -1,8 +1,5 @@
 use sea_orm::DatabaseConnection;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::sync::OnceLock;
-use std::time::Duration;
+use serde_json::json;
 #[cfg(feature = "tauri-runtime")]
 use tauri::State;
 
@@ -12,350 +9,75 @@ use crate::db::service::app_metadata_service;
 use crate::db::AppDatabase;
 use crate::models::agent::AgentType;
 
-mod token_file;
+mod auth;
+mod auth_forms;
+mod balance_cache;
+mod login_flow;
+mod pending;
 mod points;
+mod profile;
+mod session;
+mod spaces;
+mod token_file;
+mod types;
+mod wire;
 
-const IYW_ACCOUNT_SESSION_KEY: &str = "iyw_account_session";
+pub(crate) use session::{
+    iyw_account_memory_credentials_core, iyw_account_product_context_core, workspace_switching,
+    WorkspaceSwitchGuard,
+};
+use types::StoredSession;
+pub use types::{
+    IywAccountAuthRequest, IywAccountProfile, IywAccountToken, IywLoginResult,
+    IywWechatPollingResult, IywWechatPollingStatus, IywWechatQrcode, IywWorkspace,
+};
+use wire::{http_client, normalize_asset_url};
+
+pub(crate) fn iyw_account_switch_guard(
+    action: &str,
+) -> Result<Option<WorkspaceSwitchGuard>, AppCommandError> {
+    if action == "switch_workspace" {
+        Ok(Some(WorkspaceSwitchGuard::begin()?))
+    } else {
+        Ok(None)
+    }
+}
+
 const ACCOUNT_BASE_URL: &str = "https://account.iyw.cn";
-const TOKEN_RENEW_PATH: &str = "/api/sso/web/renewToken";
-const GATEWAY_BASE_URL: &str = "https://gateway.iyw.cn";
 const FUSION_API_BASE_URL: &str = "https://gateway.iyw.cn/iyw-fusion-api";
 const DEFAULT_AVATAR_URL: &str =
     "https://chdesign.oss-cn-shanghai.aliyuncs.com/static/avatar/default.png";
-
-#[derive(Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct IywAccountToken {
-    pub access_token: String,
-    pub refresh_token: String,
-    pub expiration: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-pub struct IywAccountProfile {
-    pub logged_in: bool,
-    pub user_id: Option<String>,
-    pub name: Option<String>,
-    pub nick_name: Option<String>,
-    pub phone: Option<String>,
-    pub avatar_url: Option<String>,
-    pub org_name: Option<String>,
-    pub org_logo_url: Option<String>,
-    pub balance_points: Option<f64>,
-    pub balance_expiry_time: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IywWechatQrcode {
-    pub qrcode_url: String,
-    pub qr_token: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum IywWechatPollingStatus {
-    Pending,
-    Success,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IywWechatPollingResult {
-    pub status: IywWechatPollingStatus,
-    pub profile: Option<IywAccountProfile>,
-}
-
-#[derive(Clone, Serialize, Deserialize, Default)]
-#[serde(default)]
-struct StoredSession {
-    token: Option<IywAccountToken>,
-}
-
-fn session_sync_lock() -> &'static tokio::sync::Mutex<()> {
-    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-}
-
-fn token_renew_lock() -> &'static tokio::sync::Mutex<()> {
-    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-}
-
-#[derive(Debug, Deserialize)]
-struct IywApiResponse<T> {
-    code: i32,
-    message: Option<String>,
-    data: T,
-}
-
-#[derive(Debug, Deserialize)]
-struct IywApiOptionalResponse<T> {
-    code: i32,
-    message: Option<String>,
-    data: Option<T>,
-}
-
-#[derive(Debug, Deserialize)]
-struct QrcodeData {
-    #[serde(rename = "qrcodeUrl")]
-    qrcode_url: String,
-    #[serde(rename = "qrToken")]
-    qr_token: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PollingRequest<'a> {
-    qrcode_token: &'a str,
-    device_type: i32,
-    client_type: i32,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PasswordLoginRequest<'a> {
-    username: &'a str,
-    password: &'a str,
-    platform_type: i32,
-    client_type: i32,
-    device_type: i32,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ExternalToken {
-    access_token: String,
-    refresh_token: String,
-    expiration: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PollingData {
-    token: Option<ExternalToken>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PasswordLoginData {
-    token: ExternalToken,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct MyInfoData {
-    user_info: UserInfo,
-    org_info: Option<OrgInfo>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UserInfo {
-    avatar: Option<String>,
-    name: Option<String>,
-    nick_name: Option<String>,
-    user_id: Option<String>,
-    phone: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OrgInfo {
-    name: Option<String>,
-    logo: Option<String>,
-}
-
-
-fn http_client() -> Result<reqwest::Client, AppCommandError> {
-    reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .user_agent("iyw-claw")
-        .build()
-        .map_err(|err| {
-            AppCommandError::network("Failed to build HTTP client").with_detail(err.to_string())
-        })
-}
 
 fn account_error(message: Option<String>, fallback: &str) -> AppCommandError {
     AppCommandError::authentication_failed(message.unwrap_or_else(|| fallback.to_string()))
 }
 
-fn expiration_from_value(value: serde_json::Value) -> Option<String> {
-    match value {
-        serde_json::Value::String(value) => {
-            let value = value.trim().to_string();
-            (!value.is_empty()).then_some(value)
-        }
-        serde_json::Value::Number(value) => Some(value.to_string()),
-        _ => None,
-    }
-}
-
-fn normalize_asset_url(value: Option<String>) -> Option<String> {
-    let value = value?.trim().to_string();
-    if value.is_empty() {
-        return None;
-    }
-    if value.starts_with("http://") || value.starts_with("https://") {
-        return Some(value);
-    }
-    if value.starts_with("/saas/") {
-        return Some(format!(
-            "https://chdesign.oss-cn-shanghai.aliyuncs.com{value}"
-        ));
-    }
-    if value.trim_start_matches('/') == "static/avatar/default.png" {
-        return Some(DEFAULT_AVATAR_URL.to_string());
-    }
-    Some(format!(
-        "{ACCOUNT_BASE_URL}/{}",
-        value.trim_start_matches('/')
-    ))
-}
-
-async fn load_session(conn: &DatabaseConnection) -> Result<StoredSession, AppCommandError> {
-    let raw = app_metadata_service::get_value(conn, IYW_ACCOUNT_SESSION_KEY)
-        .await
-        .map_err(AppCommandError::from)?;
-
-    let Some(raw) = raw else {
-        return Ok(StoredSession::default());
-    };
-
-    serde_json::from_str::<StoredSession>(&raw).map_err(|error| {
-        AppCommandError::configuration_invalid("Failed to parse stored iyw account session")
-            .with_detail(format!(
-                "invalid session JSON at line {}, column {}",
-                error.line(),
-                error.column()
-            ))
-    })
-}
-
-async fn save_session(
+pub async fn iyw_account_auth_core(
     conn: &DatabaseConnection,
-    session: &StoredSession,
-) -> Result<(), AppCommandError> {
-    let _guard = session_sync_lock().lock().await;
-    let serialized = serde_json::to_string(session).map_err(|err| {
-        AppCommandError::invalid_input("Failed to serialize iyw account session")
-            .with_detail(err.to_string())
-    })?;
-
-    token_file::sync(session.token.as_ref())?;
-    app_metadata_service::upsert_value(conn, IYW_ACCOUNT_SESSION_KEY, &serialized)
-        .await
-        .map_err(AppCommandError::from)
-}
-
-async fn load_synced_session(conn: &DatabaseConnection) -> Result<StoredSession, AppCommandError> {
-    let _guard = session_sync_lock().lock().await;
-    let session = load_session(conn).await?;
-    token_file::sync(session.token.as_ref())?;
-    Ok(session)
-}
-
-async fn renew_token_with_refresh_token(refresh_token: &str) -> Result<String, AppCommandError> {
-    let response = http_client()?
-        .get(format!("{ACCOUNT_BASE_URL}{TOKEN_RENEW_PATH}"))
-        .query(&[("refreshToken", refresh_token)])
-        .header("Accept", "application/json, text/plain, */*")
-        .header("Content-Type", "application/json")
-        .header("Origin", ACCOUNT_BASE_URL)
-        .header("Referer", format!("{ACCOUNT_BASE_URL}/"))
-        .send()
-        .await
-        .map_err(|err| {
-            AppCommandError::network("Failed to renew iyw account token")
-                .with_detail(err.to_string())
-        })?;
-
-    if !response.status().is_success() {
-        return Err(
-            AppCommandError::network("Failed to renew iyw account token")
-                .with_detail(response.status().to_string()),
-        );
-    }
-
-    let body = response
-        .json::<IywApiOptionalResponse<serde_json::Value>>()
-        .await
-        .map_err(|err| {
-            AppCommandError::network("Failed to parse iyw token renewal")
-                .with_detail(err.to_string())
-        })?;
-    if body.code != 1 {
-        return Err(account_error(
-            body.message,
-            "Failed to renew iyw account token",
-        ));
-    }
-
-    body.data.and_then(expiration_from_value).ok_or_else(|| {
-        AppCommandError::network("Failed to parse iyw token renewal")
-            .with_detail("renewal response did not include expiration")
-    })
-}
-
-async fn renew_session(
-    conn: &DatabaseConnection,
-    session: &StoredSession,
-) -> Result<StoredSession, AppCommandError> {
-    let _guard = token_renew_lock().lock().await;
-    let current = load_synced_session(conn).await?;
-    if session_expiration_was_updated(session, &current) {
-        return Ok(current);
-    }
-
-    let refresh_token = current
-        .token
-        .as_ref()
-        .map(|token| token.refresh_token.trim())
-        .filter(|token| !token.is_empty())
-        .ok_or_else(|| {
-            AppCommandError::authentication_failed("IYW account refresh token is missing")
-        })?;
-    let expiration = renew_token_with_refresh_token(refresh_token).await?;
-
-    let mut next = current;
-    if let Some(token) = next.token.as_mut() {
-        token.expiration = expiration;
-    }
-    save_session(conn, &next).await?;
-    tracing::info!("[iyw-account] account token renewal succeeded");
-    Ok(next)
-}
-
-fn session_expiration_was_updated(before: &StoredSession, after: &StoredSession) -> bool {
-    let Some(before) = before.token.as_ref() else {
-        return false;
-    };
-    let Some(after) = after.token.as_ref() else {
-        return false;
-    };
-    before.access_token == after.access_token && before.expiration != after.expiration
+    action: String,
+    data: serde_json::Value,
+) -> Result<IywLoginResult, AppCommandError> {
+    auth::run(conn, action, data).await
 }
 
 pub(crate) async fn iyw_account_access_token_core(
     conn: &DatabaseConnection,
 ) -> Result<Option<crate::acp::account_credentials::AccountAccessToken>, AppCommandError> {
-    let session = load_synced_session(conn).await?;
+    let session = session::fresh_session(conn).await?;
+    if session.workspace_pending {
+        return Err(AppCommandError::permission_denied(
+            "空间切换尚未确认，请刷新账号信息",
+        ));
+    }
     Ok(session.token.and_then(|token| {
         crate::acp::account_credentials::AccountAccessToken::new(token.access_token)
     }))
 }
 
-pub(crate) async fn iyw_account_memory_credentials_core(
+pub(crate) async fn iyw_account_ensure_can_consume_core(
     conn: &DatabaseConnection,
-) -> Result<Option<(crate::acp::account_credentials::AccountAccessToken, String)>, AppCommandError> {
-    use sha2::{Digest, Sha256};
-    let session = load_synced_session(conn).await?;
-    let Some(token) = session.token else { return Ok(None); };
-    // 访问令牌正常续期不触发全量重建；登录会话变化仍隔离派生索引。
-    let identity = if token.refresh_token.is_empty() { &token.access_token } else { &token.refresh_token };
-    let scope = format!("{:x}", Sha256::digest(identity.as_bytes()));
-    Ok(crate::acp::account_credentials::AccountAccessToken::new(token.access_token)
-        .map(|token| (token, scope)))
+) -> Result<(), AppCommandError> {
+    balance_cache::ensure_can_consume(conn).await
 }
 
 pub async fn iyw_account_list_models_core(
@@ -412,210 +134,15 @@ pub async fn iyw_account_list_models_core(
     Ok(payload)
 }
 
-async fn fetch_profile_with_token(
-    token: &str,
-    include_balance: bool,
-) -> Result<IywAccountProfile, AppCommandError> {
-    let client = http_client()?;
-    let info_response = client
-        .post(format!("{GATEWAY_BASE_URL}/user-service/user/getMyInfo"))
-        .header("Accept", "application/json, text/plain, */*")
-        .header("Origin", "https://ai.iyw.cn")
-        .header("Referer", "https://ai.iyw.cn/")
-        .header("token", token)
-        .send()
-        .await
-        .map_err(|err| {
-            AppCommandError::network("Failed to load iyw account profile")
-                .with_detail(err.to_string())
-        })?;
-
-    let info = info_response
-        .json::<IywApiResponse<serde_json::Value>>()
-        .await
-        .map_err(|err| {
-            AppCommandError::network("Failed to parse iyw account profile")
-                .with_detail(err.to_string())
-        })?;
-    if info.code != 1 {
-        return Err(account_error(
-            info.message,
-            "Failed to load iyw account profile",
-        ));
-    }
-    let info_data = serde_json::from_value::<MyInfoData>(info.data).map_err(|err| {
-        AppCommandError::network("Failed to parse iyw account profile").with_detail(err.to_string())
-    })?;
-
-    let mut profile = IywAccountProfile {
-        logged_in: true,
-        user_id: info_data.user_info.user_id,
-        name: info_data.user_info.name,
-        nick_name: info_data.user_info.nick_name,
-        phone: info_data.user_info.phone,
-        avatar_url: normalize_asset_url(info_data.user_info.avatar),
-        org_name: info_data.org_info.as_ref().and_then(|org| org.name.clone()),
-        org_logo_url: normalize_asset_url(info_data.org_info.and_then(|org| org.logo)),
-        balance_points: None,
-        balance_expiry_time: None,
-    };
-
-    if !include_balance {
-        return Ok(profile);
-    }
-
-    match points::fetch(&client, token).await {
-        Ok(balance) => profile.balance_points = Some(balance),
-        Err(error) => {
-            // 用户身份已由资料接口确认，积分服务失败不能使有效会话失效。
-            tracing::warn!(
-                stage = "points",
-                code = ?error.code,
-                detail = ?error.detail,
-                "[iyw-account] points unavailable; retaining authenticated profile"
-            );
-        }
-    }
-    Ok(profile)
-}
-
-async fn fetch_profile_with_session(
-    conn: &DatabaseConnection,
-    session: &StoredSession,
-    include_balance: bool,
-) -> Result<IywAccountProfile, AppCommandError> {
-    let token = session
-        .token
-        .as_ref()
-        .ok_or_else(|| AppCommandError::authentication_failed("Sign in to iyw-claw first"))?;
-
-    match fetch_profile_with_token(&token.access_token, include_balance).await {
-        Ok(profile) => Ok(profile),
-        Err(error) if error.code == AppErrorCode::AuthenticationFailed => {
-            tracing::warn!("[iyw-account] profile authentication failed; attempting token renewal");
-            let refreshed = renew_session(conn, session).await.map_err(|error| {
-                tracing::warn!(
-                    code = ?error.code,
-                    detail = ?error.detail,
-                    "[iyw-account] account token renewal failed"
-                );
-                error
-            })?;
-            let access_token = refreshed
-                .token
-                .as_ref()
-                .map(|token| token.access_token.as_str())
-                .filter(|token| !token.trim().is_empty())
-                .ok_or_else(|| {
-                    AppCommandError::authentication_failed(
-                        "IYW account access token is missing after renewal",
-                    )
-                })?;
-            fetch_profile_with_token(access_token, include_balance).await
-        }
-        Err(error) => Err(error),
-    }
-}
-
 pub async fn iyw_account_get_wechat_qrcode_core() -> Result<IywWechatQrcode, AppCommandError> {
-    let response = http_client()?
-        .get(format!(
-            "{ACCOUNT_BASE_URL}/api/account-admin/wechat/qrcode?type=login"
-        ))
-        .header("Accept", "application/json, text/plain, */*")
-        .header("Referer", format!("{ACCOUNT_BASE_URL}/"))
-        .send()
-        .await
-        .map_err(|err| {
-            AppCommandError::network("Failed to load iyw WeChat qrcode")
-                .with_detail(err.to_string())
-        })?;
-
-    let body = response
-        .json::<IywApiResponse<QrcodeData>>()
-        .await
-        .map_err(|err| {
-            AppCommandError::network("Failed to parse iyw WeChat qrcode")
-                .with_detail(err.to_string())
-        })?;
-    if body.code != 1 {
-        return Err(account_error(
-            body.message,
-            "Failed to load iyw WeChat qrcode",
-        ));
-    }
-
-    Ok(IywWechatQrcode {
-        qrcode_url: body.data.qrcode_url,
-        qr_token: body.data.qr_token,
-    })
+    auth::qrcode().await
 }
 
 pub async fn iyw_account_poll_wechat_login_core(
     conn: &DatabaseConnection,
     qr_token: String,
 ) -> Result<IywWechatPollingResult, AppCommandError> {
-    let trimmed = qr_token.trim();
-    if trimmed.is_empty() {
-        return Err(AppCommandError::invalid_input("QR token cannot be empty"));
-    }
-
-    let response = http_client()?
-        .post(format!(
-            "{ACCOUNT_BASE_URL}/api/account-admin/wechat/polling"
-        ))
-        .header("Accept", "application/json, text/plain, */*")
-        .header("Content-Type", "application/json")
-        .header("Origin", ACCOUNT_BASE_URL)
-        .header("Referer", format!("{ACCOUNT_BASE_URL}/"))
-        .json(&PollingRequest {
-            qrcode_token: trimmed,
-            device_type: 1,
-            client_type: 1,
-        })
-        .send()
-        .await
-        .map_err(|err| {
-            AppCommandError::network("Failed to poll iyw WeChat login").with_detail(err.to_string())
-        })?;
-
-    let body = response
-        .json::<IywApiResponse<PollingData>>()
-        .await
-        .map_err(|err| {
-            AppCommandError::network("Failed to parse iyw WeChat login status")
-                .with_detail(err.to_string())
-        })?;
-    if body.code != 1 {
-        return Err(account_error(
-            body.message,
-            "Failed to poll iyw WeChat login",
-        ));
-    }
-
-    let Some(token) = body.data.token else {
-        return Ok(IywWechatPollingResult {
-            status: IywWechatPollingStatus::Pending,
-            profile: None,
-        });
-    };
-
-    let session = StoredSession {
-        token: Some(IywAccountToken {
-            access_token: token.access_token.clone(),
-            refresh_token: token.refresh_token,
-            expiration: token.expiration,
-        }),
-    };
-    save_session(conn, &session).await?;
-    crate::acp::account_credentials::sync_existing_agent_credentials(conn).await?;
-    let profile = fetch_profile_with_session(conn, &session, true).await?;
-    crate::commands::skill_market::spawn_background_availability_reconcile(conn.clone());
-
-    Ok(IywWechatPollingResult {
-        status: IywWechatPollingStatus::Success,
-        profile: Some(profile),
-    })
+    auth::legacy_poll(conn, qr_token).await
 }
 
 pub async fn iyw_account_login_with_password_core(
@@ -623,120 +150,79 @@ pub async fn iyw_account_login_with_password_core(
     username: String,
     password: String,
 ) -> Result<IywAccountProfile, AppCommandError> {
-    let username = username.trim();
-    if username.is_empty() {
-        return Err(AppCommandError::invalid_input("Username cannot be empty"));
-    }
-    if password.is_empty() {
-        return Err(AppCommandError::invalid_input("Password cannot be empty"));
-    }
+    let result = auth::run(
+        conn,
+        "password".to_string(),
+        json!({"username":username,"password":password}),
+    )
+    .await?;
+    result
+        .profile
+        .ok_or_else(|| AppCommandError::invalid_input("登录需要完成身份或空间选择"))
+}
 
-    let response = http_client()?
-        .post(format!("{ACCOUNT_BASE_URL}/api/account-admin/login/login"))
-        .header("Accept", "application/json, text/plain, */*")
-        .header("Content-Type", "application/json")
-        .header("Origin", ACCOUNT_BASE_URL)
-        .header("Referer", format!("{ACCOUNT_BASE_URL}/"))
-        .json(&PasswordLoginRequest {
-            username,
-            password: &password,
-            platform_type: 1,
-            client_type: 1,
-            device_type: 1,
-        })
-        .send()
-        .await
-        .map_err(|err| {
-            AppCommandError::network("Failed to sign in to iyw account")
-                .with_detail(err.to_string())
-        })?;
-
-    let body = response
-        .json::<IywApiOptionalResponse<PasswordLoginData>>()
-        .await
-        .map_err(|err| {
-            AppCommandError::network("Failed to parse iyw password login")
-                .with_detail(err.to_string())
-        })?;
-    if body.code != 1 {
-        return Err(account_error(
-            body.message,
-            "Failed to sign in to iyw account",
-        ));
+async fn account_profile(
+    conn: &DatabaseConnection,
+    include_balance: bool,
+) -> Result<IywAccountProfile, AppCommandError> {
+    let _guard = session::operation_lock().lock().await;
+    let session = session::fresh_session(conn).await?;
+    if session.token.is_none() {
+        return Ok(IywAccountProfile::default());
     }
-
-    let Some(data) = body.data else {
-        return Err(account_error(
-            body.message,
-            "Failed to sign in to iyw account",
-        ));
-    };
-    let token = data.token;
-    let session = StoredSession {
-        token: Some(IywAccountToken {
-            access_token: token.access_token.clone(),
-            refresh_token: token.refresh_token,
-            expiration: token.expiration,
-        }),
-    };
-    save_session(conn, &session).await?;
-    crate::acp::account_credentials::sync_existing_agent_credentials(conn).await?;
-    let profile = fetch_profile_with_session(conn, &session, true).await?;
-    crate::commands::skill_market::spawn_background_availability_reconcile(conn.clone());
-    Ok(profile)
+    profile::fetch_profile_with_session(conn, &session, include_balance).await
 }
 
 pub async fn iyw_account_get_identity_profile_core(
     conn: &DatabaseConnection,
 ) -> Result<IywAccountProfile, AppCommandError> {
-    let session = load_synced_session(conn).await?;
-    let Some(token) = session.token.as_ref() else {
-        return Ok(IywAccountProfile::default());
-    };
-    if token.access_token.trim().is_empty() {
-        return Ok(IywAccountProfile::default());
-    }
-    fetch_profile_with_session(conn, &session, false).await
+    account_profile(conn, false).await
 }
 
 pub async fn iyw_account_get_profile_core(
     conn: &DatabaseConnection,
 ) -> Result<IywAccountProfile, AppCommandError> {
-    let session = load_synced_session(conn).await?;
-    let Some(token) = session.token.as_ref() else {
-        return Ok(IywAccountProfile::default());
-    };
-    if token.access_token.trim().is_empty() {
-        return Ok(IywAccountProfile::default());
-    }
-
-    fetch_profile_with_session(conn, &session, true).await
+    account_profile(conn, true).await
 }
 
 pub async fn iyw_account_logout_core(conn: &DatabaseConnection) -> Result<(), AppCommandError> {
-    let scrub_result = crate::acp::account_credentials::clear_existing_agent_credentials();
-    iyw_account_logout_after_scrub_core(conn, scrub_result).await
-}
-
-async fn iyw_account_logout_after_scrub_core(
-    conn: &DatabaseConnection,
-    scrub_result: Result<(), String>,
-) -> Result<(), AppCommandError> {
-    scrub_result.map_err(|error| {
+    let _guard = session::operation_lock().lock().await;
+    crate::acp::account_credentials::clear_existing_agent_credentials().map_err(|error| {
         AppCommandError::configuration_invalid("Failed to clear private Agent credentials")
             .with_detail(error)
     })?;
-    save_session(conn, &StoredSession::default()).await
+    pending::clear().await;
+    session::save_session(conn, &StoredSession::default()).await
 }
 
 #[cfg(feature = "tauri-runtime")]
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+#[tauri::command]
+pub async fn iyw_account_auth(
+    request: IywAccountAuthRequest,
+    db: State<'_, AppDatabase>,
+    manager: State<'_, crate::acp::manager::ConnectionManager>,
+) -> Result<IywLoginResult, AppCommandError> {
+    let _switch_guard = if request.action == "switch_workspace" {
+        Some(session::WorkspaceSwitchGuard::begin()?)
+    } else {
+        None
+    };
+    if request.action == "switch_workspace" && manager.has_active_account_turns().await {
+        return Err(AppCommandError::permission_denied(
+            "请先完成或停止正在运行的任务，再切换空间",
+        ));
+    }
+    iyw_account_auth_core(&db.conn, request.action, request.data).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
 pub async fn iyw_account_get_wechat_qrcode() -> Result<IywWechatQrcode, AppCommandError> {
     iyw_account_get_wechat_qrcode_core().await
 }
 
 #[cfg(feature = "tauri-runtime")]
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+#[tauri::command]
 pub async fn iyw_account_poll_wechat_login(
     qr_token: String,
     db: State<'_, AppDatabase>,
@@ -745,7 +231,7 @@ pub async fn iyw_account_poll_wechat_login(
 }
 
 #[cfg(feature = "tauri-runtime")]
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+#[tauri::command]
 pub async fn iyw_account_login_with_password(
     username: String,
     password: String,
@@ -755,7 +241,7 @@ pub async fn iyw_account_login_with_password(
 }
 
 #[cfg(feature = "tauri-runtime")]
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+#[tauri::command]
 pub async fn iyw_account_get_profile(
     db: State<'_, AppDatabase>,
 ) -> Result<IywAccountProfile, AppCommandError> {
@@ -763,7 +249,7 @@ pub async fn iyw_account_get_profile(
 }
 
 #[cfg(feature = "tauri-runtime")]
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+#[tauri::command]
 pub async fn iyw_account_list_models(
     agent_type: Option<AgentType>,
     db: State<'_, AppDatabase>,
@@ -775,7 +261,7 @@ pub async fn iyw_account_list_models(
 }
 
 #[cfg(feature = "tauri-runtime")]
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+#[tauri::command]
 pub async fn iyw_account_logout(db: State<'_, AppDatabase>) -> Result<(), AppCommandError> {
     iyw_account_logout_core(&db.conn).await
 }

@@ -23,6 +23,7 @@ import type {
 import type { QueuedMessage } from "@/hooks/use-message-queue"
 import { Play, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { AccountRequestsBanner } from "@/components/account/account-points-status"
 import { ChatInput } from "@/components/chat/chat-input"
 import { PermissionDialog } from "@/components/chat/permission-dialog"
 import { QuestionDialog } from "@/components/chat/question-dialog"
@@ -205,6 +206,7 @@ export function ConversationShell({
     <div className="flex h-full min-h-0 min-w-0">
       <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
         {topBanner}
+        <AccountRequestsBanner />
         {onSideQuestion && (
           <div className="flex justify-end px-4 py-1">
             <Button

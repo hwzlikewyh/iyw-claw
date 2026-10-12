@@ -11,15 +11,18 @@ import {
   type ReactNode,
 } from "react"
 
-import {
-  iywAccountGetProfile,
-  iywAccountLoginWithPassword,
-  iywAccountLogout,
-} from "@/lib/api"
+import { iywAccountLoginWithPassword, iywAccountLogout } from "@/lib/api"
 import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 import type { IywAccountProfile } from "@/lib/types"
-
-const PROFILE_REFRESH_INTERVAL_MS = 60_000
+import {
+  iywAccountAuth,
+  type IywAuthAction,
+  type IywLoginResult,
+} from "@/lib/iyw-account-flow"
+import {
+  useProfileRequest,
+  usePeriodicProfileRefresh,
+} from "./use-account-profile-refresh"
 
 export type IywAccountStatus =
   | "checking"
@@ -39,104 +42,24 @@ interface IywAccountContextValue {
   }) => Promise<IywAccountProfile>
   completeLogin: (profile: IywAccountProfile) => void
   logout: () => Promise<void>
+  loginFlow: IywLoginResult | null
+  authenticate: (
+    action: IywAuthAction,
+    data?: Record<string, unknown>
+  ) => Promise<IywLoginResult>
+  cancelLogin: () => Promise<void>
+  invalidateLogin: () => void
 }
 
 const IywAccountContext = createContext<IywAccountContextValue | null>(null)
-
-interface ActiveProfileRequest {
-  generation: number
-  request: Promise<IywAccountProfile>
-}
-
-function useProfileRequest() {
-  const activeRequestRef = useRef<ActiveProfileRequest | null>(null)
-
-  return useCallback((generation: number) => {
-    const activeRequest = activeRequestRef.current
-    if (activeRequest?.generation === generation) return activeRequest.request
-
-    const request = iywAccountGetProfile()
-    const clearRequest = () => {
-      if (activeRequestRef.current?.request === request) {
-        activeRequestRef.current = null
-      }
-    }
-    activeRequestRef.current = { generation, request }
-    void request.then(clearRequest, clearRequest)
-    return request
-  }, [])
-}
-
-interface PeriodicProfileRefreshOptions {
-  status: IywAccountStatus
-  requestProfile: (generation: number) => Promise<IywAccountProfile>
-  applyProfile: (profile: IywAccountProfile) => void
-  onAuthenticationFailure: () => void
-  getGeneration: () => number
-  isGenerationCurrent: (generation: number) => boolean
-}
-
-function usePeriodicProfileRefresh({
-  status,
-  requestProfile,
-  applyProfile,
-  onAuthenticationFailure,
-  getGeneration,
-  isGenerationCurrent,
-}: PeriodicProfileRefreshOptions) {
-  useEffect(() => {
-    if (status !== "authenticated") return
-
-    let active = true
-    let refreshPending = false
-    const refresh = async () => {
-      if (refreshPending) return
-      refreshPending = true
-      const generation = getGeneration()
-      try {
-        const next = await requestProfile(generation)
-        if (active && isGenerationCurrent(generation)) applyProfile(next)
-      } catch (reason) {
-        if (active && isGenerationCurrent(generation)) {
-          if (
-            extractAppCommandError(reason)?.code === "authentication_failed"
-          ) {
-            onAuthenticationFailure()
-          } else {
-            console.warn(
-              "[iyw-account] Periodic profile refresh failed",
-              toErrorMessage(reason)
-            )
-          }
-        }
-      } finally {
-        refreshPending = false
-      }
-    }
-    const interval = window.setInterval(
-      () => void refresh(),
-      PROFILE_REFRESH_INTERVAL_MS
-    )
-
-    return () => {
-      active = false
-      window.clearInterval(interval)
-    }
-  }, [
-    applyProfile,
-    getGeneration,
-    isGenerationCurrent,
-    onAuthenticationFailure,
-    requestProfile,
-    status,
-  ])
-}
 
 export function IywAccountProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<IywAccountStatus>("checking")
   const [profile, setProfile] = useState<IywAccountProfile | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
+  const [loginFlow, setLoginFlow] = useState<IywLoginResult | null>(null)
+  const actionPendingRef = useRef(false)
   const requestProfile = useProfileRequest()
   const profileGenerationRef = useRef(0)
   const lastSuccessfulProfileRef = useRef<IywAccountProfile | null>(null)
@@ -157,6 +80,7 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
     if (!mountedRef.current) return
     lastSuccessfulProfileRef.current = null
     setProfile(null)
+    setLoginFlow(null)
     setError(null)
     setStatus("login_required")
   }, [])
@@ -169,6 +93,18 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const applyProfile = useCallback((next: IywAccountProfile) => {
+    const previous = lastSuccessfulProfileRef.current
+    if (next.workspace_pending && previous?.logged_in) {
+      next = {
+        ...next,
+        user_id: next.user_id ?? previous.user_id,
+        name: next.name ?? previous.name,
+        nick_name: next.nick_name ?? previous.nick_name,
+        phone: next.phone ?? previous.phone,
+        avatar_url: next.avatar_url ?? previous.avatar_url,
+        org_list: next.org_list?.length ? next.org_list : previous.org_list,
+      }
+    }
     if (next.logged_in) lastSuccessfulProfileRef.current = next
     setProfile(next)
     setError(null)
@@ -176,6 +112,7 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const refreshProfile = useCallback(async () => {
+    if (loginFlow || actionPendingRef.current) return
     const generation = getGeneration()
     setStatus((current) => (current === "authenticated" ? current : "checking"))
     setError(null)
@@ -208,6 +145,7 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
     isGenerationCurrent,
     markAuthenticationRequired,
     requestProfile,
+    loginFlow,
   ])
 
   useEffect(() => {
@@ -227,7 +165,10 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
     (next: IywAccountProfile) => {
       advanceGeneration()
       lastSuccessfulProfileRef.current = null
-      if (mountedRef.current) applyProfile(next)
+      if (mountedRef.current) {
+        setLoginFlow(null)
+        applyProfile(next)
+      }
     },
     [advanceGeneration, applyProfile]
   )
@@ -246,21 +187,68 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
     [completeLogin]
   )
 
+  const authenticate = useCallback(
+    async (action: IywAuthAction, data: Record<string, unknown> = {}) => {
+      if (actionPendingRef.current)
+        throw new Error("An account operation is already running")
+      actionPendingRef.current = true
+      const generation = advanceGeneration()
+      if (action !== "wechat_poll") setActionLoading(true)
+      try {
+        const result = await iywAccountAuth(action, data)
+        if (!isGenerationCurrent(generation)) return result
+        if (result.profile?.logged_in) {
+          setLoginFlow(null)
+          applyProfile(result.profile)
+        } else if (result.flow_id) {
+          setLoginFlow(result)
+          setStatus("login_required")
+        }
+        return result
+      } catch (reason) {
+        if (
+          isGenerationCurrent(generation) &&
+          extractAppCommandError(reason)?.code === "authentication_failed"
+        ) {
+          markAuthenticationRequired()
+        }
+        throw reason
+      } finally {
+        actionPendingRef.current = false
+        if (mountedRef.current) setActionLoading(false)
+      }
+    },
+    [
+      advanceGeneration,
+      applyProfile,
+      isGenerationCurrent,
+      markAuthenticationRequired,
+    ]
+  )
+
+  const cancelLogin = useCallback(async () => {
+    advanceGeneration()
+    const flowId = loginFlow?.flow_id
+    setLoginFlow(null)
+    if (flowId) await iywAccountAuth("cancel", { flowId })
+  }, [advanceGeneration, loginFlow])
+
   const logout = useCallback(async () => {
     setActionLoading(true)
-    const generation = getGeneration()
+    const generation = advanceGeneration()
     try {
       await iywAccountLogout()
       if (!isGenerationCurrent(generation)) return
       advanceGeneration()
       lastSuccessfulProfileRef.current = null
       setProfile(null)
+      setLoginFlow(null)
       setError(null)
       setStatus("login_required")
     } finally {
       if (mountedRef.current) setActionLoading(false)
     }
-  }, [advanceGeneration, getGeneration, isGenerationCurrent])
+  }, [advanceGeneration, isGenerationCurrent])
 
   const value = useMemo<IywAccountContextValue>(
     () => ({
@@ -272,9 +260,17 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
       loginWithPassword,
       completeLogin,
       logout,
+      loginFlow,
+      authenticate,
+      cancelLogin,
+      invalidateLogin: advanceGeneration,
     }),
     [
       actionLoading,
+      advanceGeneration,
+      loginFlow,
+      authenticate,
+      cancelLogin,
       completeLogin,
       error,
       loginWithPassword,
@@ -299,3 +295,5 @@ export function useIywAccount() {
   }
   return value
 }
+
+export const useOptionalIywAccount = () => useContext(IywAccountContext)

@@ -45,7 +45,10 @@ pub(super) async fn fetch(
 ) -> Result<CallToolResult, ErrorData> {
     let client = http::client()?;
     let mut request = request::prepare(&client, arguments)?;
-    let token = service.token().await.map_err(|error| {
+    let credential = if request.url().host_str() == Some("scm-demo.iyw.cn") {
+        service.product_context().await.map(|(token, org)| (token, Some(org)))
+    } else { service.token().await.map(|token| (token, None)) };
+    let (token, org) = credential.map_err(|error| {
         ErrorData::invalid_request(
             error.message,
             Some(json!({
@@ -57,6 +60,10 @@ pub(super) async fn fetch(
         .map_err(|_| invalid("IYW login token is not a valid HTTP header"))?;
     token_header.set_sensitive(true);
     request.headers_mut().insert("token", token_header);
+    if let Some(org) = org {
+        let header = HeaderValue::from_str(&org).map_err(|_| invalid("Workspace code is not a valid header"))?;
+        request.headers_mut().insert("iywCode", header);
+    }
     add_portal_cookie(&mut request, &token)?;
     tracing::info!(target: "builtin_mcp", host = request.url().host_str(),
         method = request.method().as_str(), "[iyw-fetch] request started");

@@ -22,6 +22,7 @@ import { automaticAgentMode } from "@/lib/automatic-agent-mode"
 import { getAgentModeState } from "@/lib/agent-modes"
 import type { AgentType, SessionModeStateInfo } from "@/lib/types"
 import { loadConversationDisplayPreferences } from "@/lib/conversation-display-preferences"
+import { CONTEXT_WINDOW_CONFIG_ID } from "@/lib/model-context-window"
 
 const STORAGE_KEY = "iyw-claw:selector-prefs"
 
@@ -64,6 +65,7 @@ function withoutSessionModel(
 function isReasoningConfigId(configId: string): boolean {
   const normalized = configId.trim().toLowerCase().replace(/_/g, "-")
   return (
+    configId === CONTEXT_WINDOW_CONFIG_ID ||
     normalized.includes("reasoning") ||
     normalized.includes("thought") ||
     normalized.includes("effort")
@@ -190,9 +192,17 @@ export function getSavedPrefsForConnect(agentType: AgentType): {
   const all = readAll()
   const prefs = normalizeLegacyPrefs(agentType, all[agentType])
 
+  const contextWindows = Object.fromEntries(
+    Object.entries(prefs.modelConfigValues ?? {}).flatMap(([model, values]) =>
+      values[CONTEXT_WINDOW_CONFIG_ID]
+        ? [[model, values[CONTEXT_WINDOW_CONFIG_ID]]]
+        : []
+    )
+  )
   const configValues = {
     ...withoutGlobalReasoning(prefs.configValues),
     __iyw_response_style: loadConversationDisplayPreferences().responseStyle,
+    __iyw_context_windows: JSON.stringify(contextWindows),
   }
   return {
     modeId: resolveModeId(agentType, prefs),

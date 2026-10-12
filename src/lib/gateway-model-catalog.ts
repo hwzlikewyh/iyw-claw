@@ -12,6 +12,10 @@ import type {
 } from "@/lib/types"
 import type { GatewayModel } from "@/lib/gateway-model-parser"
 import {
+  buildContextWindowOption,
+  CONTEXT_WINDOW_CONFIG_ID,
+} from "@/lib/model-context-window"
+import {
   browserPayloadCache,
   createGatewayModelCatalog,
   type GatewayModelCatalog,
@@ -192,6 +196,14 @@ export function buildAgentOptionsSnapshot(
     )
   }
   if (selected) {
+    const contextWindow = buildContextWindowOption({
+      agentType,
+      model: selected,
+      configured:
+        configValues[CONTEXT_WINDOW_CONFIG_ID] ??
+        modelConfigValues[selected.id]?.[CONTEXT_WINDOW_CONFIG_ID],
+    })
+    if (contextWindow) configOptions.push(contextWindow)
     if (behavior.effortConfigId) {
       const configured =
         modelConfigValues[selected.id]?.[behavior.effortConfigId] ??
@@ -222,6 +234,7 @@ export function buildAgentOptionsSnapshot(
 
 const MODEL_CONFIG_IDS = [
   "model",
+  CONTEXT_WINDOW_CONFIG_ID,
   "reasoning_effort",
   "effort",
   "thought_level",
