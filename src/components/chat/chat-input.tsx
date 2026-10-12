@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils"
 import { useAccountRequestsBlocked } from "@/components/account/use-account-request-guard"
 
 interface ChatInputProps {
+  placeholder?: string
   status: ConnectionStatus | null
   promptCapabilities: PromptCapabilitiesInfo
   defaultPath?: string
@@ -136,6 +137,7 @@ export const ChatInput = memo(function ChatInput({
   onInjectConsumed,
   flush = false,
   tall = false,
+  placeholder,
 }: ChatInputProps) {
   const t = useTranslations("Folder.chat.chatInput")
   const requestsBlocked = useAccountRequestsBlocked()
@@ -220,7 +222,7 @@ export const ChatInput = memo(function ChatInput({
         feedbackAddDisabled={feedbackAddDisabled}
         injectContent={injectContent}
         onInjectConsumed={onInjectConsumed}
-        placeholder={activityPlaceholder ?? t("sendMessage")}
+        placeholder={activityPlaceholder ?? placeholder ?? t("sendMessage")}
         className={cn(tall ? "min-h-30" : "min-h-24", "max-h-60")}
       />
     </div>

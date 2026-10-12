@@ -64,6 +64,7 @@ import { AgentSelector } from "@/components/chat/agent-selector"
 import { ChatInput } from "@/components/chat/chat-input"
 import { WelcomeHero } from "@/components/chat/welcome-hero"
 import { QuickActions } from "@/components/chat/quick-actions"
+import welcomeComposerStyles from "@/components/chat/welcome-composer.module.css"
 import type { ComposerInjectContent } from "@/components/chat/message-input"
 import { useSideQuestion } from "@/hooks/use-side-question"
 import { SideQuestionPanel } from "@/components/chat/side-question-panel"
@@ -3204,69 +3205,70 @@ const ConversationTabView = memo(function ConversationTabView({
               onSelect={handleQuickAction}
               refreshKey={`${tabId}:${conversationId ?? "draft"}`}
             />
-            <div className="flex justify-center">
+            <div className={welcomeComposerStyles.group}>
               <AgentSelector
-                align="center"
+                variant="welcome"
                 defaultAgentType={selectedAgent}
                 onSelect={handleAgentSelect}
                 onFallback={handleAgentFallback}
                 onOpenAgentsSettings={handleOpenAgentsSettings}
                 disabled={hasSentMessage || dbConversationId != null}
               />
+              <ChatInput
+                // composerConnStatus (not connStatus): a chat draft mid-reconnect
+                // reads "connecting" until the connection's cwd matches, while
+                // submissions continue entering this tab's queue.
+                status={composerConnStatus}
+                usageStats={effectiveSessionStats}
+                promptCapabilities={conn.promptCapabilities}
+                defaultPath={workingDirForConnection}
+                agentName={getAgentDisplayName(selectedAgent)}
+                onFocus={handleFocus}
+                onSend={handleSend}
+                onCancel={handleCancel}
+                responseStarted={hasLiveResponseContent}
+                modes={connectionModes}
+                configOptions={connectionConfigOptions}
+                selectedModeId={selectedModeId}
+                onModeChange={handleModeChange}
+                onConfigOptionChange={handleConfigOptionChange}
+                onModelListOpen={handleModelListOpen}
+                agentType={selectedAgent}
+                availableCommands={connectionCommands}
+                attachmentTabId={tabId}
+                stageAttachmentsInWorkingDir={ownTab?.isChat === true}
+                draftStorageKey={draftStorageKey}
+                onEphemeralDraftChange={setHasEphemeralDraft}
+                isActive={isActive}
+                showActiveFlow={showActiveFlow}
+                queue={msgQueue}
+                onEnqueue={handlePromptingSubmit}
+                onQueueReorder={mqReorder}
+                onQueueEdit={handleQueueEdit}
+                onQueueDelete={mqRemove}
+                onQueueRetry={handleQueueRetry}
+                editingItemId={mqEditingItemId}
+                editingDraftText={editingQueueDraftText}
+                editingDraftBlocks={editingQueueDraftBlocks}
+                isEditingQueueItem={mqEditingItemId != null}
+                onSaveQueueEdit={handleSaveQueueEdit}
+                onCancelQueueEdit={handleQueueCancelEdit}
+                onSideQuestion={sideEligible ? sideQuestion.ask : undefined}
+                onAddFeedback={
+                  feedback.featureEnabled ? feedback.openDialog : undefined
+                }
+                feedbackAddDisabled={!feedback.canSubmit}
+                injectContent={quickActionInject ?? sideInject}
+                onInjectConsumed={
+                  quickActionInject
+                    ? handleQuickActionConsumed
+                    : consumeSideInject
+                }
+                flush
+                tall
+                placeholder={tWelcome("composerPlaceholder")}
+              />
             </div>
-            <ChatInput
-              // composerConnStatus (not connStatus): a chat draft mid-reconnect
-              // reads "connecting" until the connection's cwd matches, while
-              // submissions continue entering this tab's queue.
-              status={composerConnStatus}
-              usageStats={effectiveSessionStats}
-              promptCapabilities={conn.promptCapabilities}
-              defaultPath={workingDirForConnection}
-              agentName={getAgentDisplayName(selectedAgent)}
-              onFocus={handleFocus}
-              onSend={handleSend}
-              onCancel={handleCancel}
-              responseStarted={hasLiveResponseContent}
-              modes={connectionModes}
-              configOptions={connectionConfigOptions}
-              selectedModeId={selectedModeId}
-              onModeChange={handleModeChange}
-              onConfigOptionChange={handleConfigOptionChange}
-              onModelListOpen={handleModelListOpen}
-              agentType={selectedAgent}
-              availableCommands={connectionCommands}
-              attachmentTabId={tabId}
-              stageAttachmentsInWorkingDir={ownTab?.isChat === true}
-              draftStorageKey={draftStorageKey}
-              onEphemeralDraftChange={setHasEphemeralDraft}
-              isActive={isActive}
-              showActiveFlow={showActiveFlow}
-              queue={msgQueue}
-              onEnqueue={handlePromptingSubmit}
-              onQueueReorder={mqReorder}
-              onQueueEdit={handleQueueEdit}
-              onQueueDelete={mqRemove}
-              onQueueRetry={handleQueueRetry}
-              editingItemId={mqEditingItemId}
-              editingDraftText={editingQueueDraftText}
-              editingDraftBlocks={editingQueueDraftBlocks}
-              isEditingQueueItem={mqEditingItemId != null}
-              onSaveQueueEdit={handleSaveQueueEdit}
-              onCancelQueueEdit={handleQueueCancelEdit}
-              onSideQuestion={sideEligible ? sideQuestion.ask : undefined}
-              onAddFeedback={
-                feedback.featureEnabled ? feedback.openDialog : undefined
-              }
-              feedbackAddDisabled={!feedback.canSubmit}
-              injectContent={quickActionInject ?? sideInject}
-              onInjectConsumed={
-                quickActionInject
-                  ? handleQuickActionConsumed
-                  : consumeSideInject
-              }
-              flush
-              tall
-            />
           </div>
           <div className="flex-[0.82]" />
         </div>

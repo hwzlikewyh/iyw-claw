@@ -3496,6 +3496,7 @@
         "durableQueueFailed": "The message remains in this queue, but durable saving failed. Keep this page open and retry"
       },
       "welcomeInputPanel": {
+        "composerPlaceholder": "What can I help you with today? @ to reference files, / for skills and commands",
         "agentsSettingsPath": "Settings > Agents",
         "agentNotReady": "{agent} is not installed or currently unavailable. Open {path} to install or enable it.",
         "autoConnectFallback": "Click to open {path} and manage installation.",

@@ -3496,6 +3496,7 @@
         "durableQueueFailed": "消息已保留在当前队列，但持久化失败；请保持此页面打开并重试"
       },
       "welcomeInputPanel": {
+        "composerPlaceholder": "今天帮你做些什么？@ 引用对话文件，/ 调用技能与指令",
         "agentsSettingsPath": "设置 > Agents",
         "agentNotReady": "{agent} 尚未安装或当前不可用，请前往 {path} 完成安装或启用。",
         "autoConnectFallback": "点击前往 {path} 管理安装。",

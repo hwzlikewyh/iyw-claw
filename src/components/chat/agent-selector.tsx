@@ -8,8 +8,9 @@ import type { AgentType, AcpAgentInfo } from "@/lib/types"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { AgentIcon } from "@/components/agent-icon"
 import { AgentSelectorSwitcher } from "./agent-selector-switcher"
+import { AgentSelectorTabs } from "./agent-selector-tabs"
 
-type AgentSelectorVariant = "switcher" | "settings"
+type AgentSelectorVariant = "switcher" | "settings" | "welcome"
 
 interface AgentSelectorProps {
   defaultAgentType?: AgentType
@@ -182,6 +183,16 @@ export function AgentSelector({
         agent={current}
         title={t("openAgentsSettings")}
         onOpenSettings={onOpenAgentsSettings}
+      />
+    )
+  }
+  if (variant === "welcome") {
+    return (
+      <AgentSelectorTabs
+        agents={agents}
+        selected={selected}
+        disabled={disabled}
+        onSelect={onSelect}
       />
     )
   }

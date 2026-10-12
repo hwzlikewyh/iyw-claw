@@ -1,0 +1,20 @@
+.group {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.group :global(.iyw-claw-composer-chrome) {
+  min-height: 167px;
+  border-radius: 16px;
+  background: var(--background);
+}
+
+.group :global(.iyw-claw-composer-scroll) {
+  padding: 16px;
+}
+
+.group :global(.ProseMirror p.is-editor-empty:first-child::before) {
+  color: #94a3b8;
+}
