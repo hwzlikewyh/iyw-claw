@@ -60,7 +60,7 @@ export function SidebarAccountSettings({
             onCloseAutoFocus={(event) => {
               if (account.dialog !== null) event.preventDefault()
             }}
-            className="w-[21rem] max-w-[calc(100vw-1rem)] max-h-[var(--radix-popover-content-available-height)] gap-0 overflow-y-auto rounded-lg border p-0"
+            className="w-[21rem] max-w-[calc(100vw-1rem)] max-h-[var(--radix-popover-content-available-height)] gap-0 overflow-y-auto rounded-2xl border border-border/80 p-0 shadow-xl"
           >
             {account.error && account.profile?.logged_in && (
               <p

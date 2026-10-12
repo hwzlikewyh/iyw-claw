@@ -46,6 +46,10 @@ pub fn build_router(
         )
         // ─── iyw account ───
         .route(
+            "/iyw_account_auth",
+            post(handlers::iyw_account::authenticate),
+        )
+        .route(
             "/iyw_account_get_wechat_qrcode",
             post(handlers::iyw_account::get_wechat_qrcode),
         )

@@ -1795,6 +1795,10 @@ impl ConnectionManager {
         accepted: Option<tokio::sync::oneshot::Sender<()>>,
         upload_monitor: Option<&crate::acp::capability_policy::CapabilityRevocationMonitor>,
     ) -> Result<(), AcpError> {
+        if let Some(conn) = self.version_center_db.get() {
+            crate::commands::iyw_account::iyw_account_ensure_can_consume_core(conn)
+                .await.map_err(|error| AcpError::protocol(error.to_string()))?;
+        }
         // Reject an empty prompt BEFORE touching the concurrency gate. An empty
         // prompt produces no turn — and thus no `TurnComplete` to clear the gate
         // — so enqueuing one with the gate set would wedge the connection into
@@ -1850,6 +1854,9 @@ impl ConnectionManager {
         }
         let launch_context = {
             let mut s = state_arc.write().await;
+            if crate::commands::iyw_account::workspace_switching() {
+                return Err(AcpError::protocol("空间正在切换，请稍后再发起新请求"));
+            }
             if let Some(monitor) = upload_monitor {
                 monitor
                     .error_if_revoked()
@@ -3514,6 +3521,16 @@ impl ConnectionManager {
             .filter(|connection| !connection.emitter.is_preparing())
             .map(|connection| connection.info())
             .collect()
+    }
+
+    pub(crate) async fn has_active_account_turns(&self) -> bool {
+        let states = self.connections.lock().await.values()
+            .map(|connection| Arc::clone(&connection.state)).collect::<Vec<_>>();
+        for state in states {
+            let state = state.read().await;
+            if state.turn_in_flight || state.turn_completion_pending { return true; }
+        }
+        false
     }
 
     pub(crate) async fn runtime_session_snapshots(

@@ -73,6 +73,11 @@ impl IywGatewayService {
             })
     }
 
+    pub(super) async fn product_context(&self) -> Result<(String, String), rmcp::ErrorData> {
+        crate::commands::iyw_account::iyw_account_product_context_core(&self.conn).await
+            .map_err(|error| rmcp::ErrorData::invalid_request(error.to_string(), None))
+    }
+
     pub(super) async fn post_gateway(
         &self,
         prefix: &str,
@@ -87,6 +92,8 @@ impl IywGatewayService {
         path: &str,
         body: Value,
     ) -> Result<Value, rmcp::ErrorData> {
+        crate::commands::iyw_account::iyw_account_ensure_can_consume_core(&self.conn)
+            .await.map_err(|error| rmcp::ErrorData::invalid_request(error.to_string(), None))?;
         let token = self.token().await?;
         let response = self
             .client
@@ -121,6 +128,8 @@ impl IywGatewayService {
         path: &str,
         form: reqwest::multipart::Form,
     ) -> Result<Value, rmcp::ErrorData> {
+        crate::commands::iyw_account::iyw_account_ensure_can_consume_core(&self.conn)
+            .await.map_err(|error| rmcp::ErrorData::invalid_request(error.to_string(), None))?;
         let token = self.token().await?;
         let response = self
             .client

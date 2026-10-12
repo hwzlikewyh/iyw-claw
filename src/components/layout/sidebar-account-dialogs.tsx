@@ -36,8 +36,8 @@ export function SidebarAccountDialogs({ account }: { account: Account }) {
           if (!open) account.showDialog(null)
         }}
       >
-        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-lg overflow-y-auto rounded-lg p-0">
-          <DialogHeader className="px-5 pt-5">
+        <DialogContent className="max-h-[calc(100dvh-2rem)] max-w-lg gap-0 overflow-y-auto rounded-2xl p-0">
+          <DialogHeader className="border-b bg-muted/15 px-5 py-5 sm:px-6">
             <DialogTitle>{t("dialogTitle")}</DialogTitle>
             <DialogDescription>
               {account.profile?.logged_in
@@ -85,7 +85,7 @@ function AccountLogout({ account }: { account: Account }) {
         if (!open && !account.actionLoading) account.showDialog(null)
       }}
     >
-      <AlertDialogContent className="max-w-sm rounded-lg">
+      <AlertDialogContent className="max-w-sm rounded-2xl">
         <AlertDialogHeader>
           <AlertDialogTitle>{t("logoutTitle")}</AlertDialogTitle>
           <AlertDialogDescription>

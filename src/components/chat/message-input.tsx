@@ -1,5 +1,6 @@
 "use client"
 
+import { useAccountRequestsBlocked } from "@/components/account/use-account-request-guard"
 import { parseSideQuestion } from "@/lib/side-question"
 
 import {
@@ -890,6 +891,7 @@ export function MessageInput({
   onInjectConsumed,
 }: MessageInputProps) {
   const t = useTranslations("Folder.chat.messageInput")
+  const accountRequestsBlocked = useAccountRequestsBlocked()
   const tSide = useTranslations("SideQuestion")
   const [hasSideCommand, setHasSideCommand] = useState(false)
   const { openSkillMarket } = useWorkbenchRoute()
@@ -3664,6 +3666,7 @@ export function MessageInput({
   )
 
   const sendCurrentDraft = useCallback(() => {
+    if (accountRequestsBlocked && !isEditingQueueItem) return
     // The editor stays editable while `disabled` (the agent is busy) so the user
     // can keep typing, but a plain send is blocked — only enqueue / queue-edit
     // save go through. Mirrors the legacy textarea's keydown guard.
@@ -3787,6 +3790,7 @@ export function MessageInput({
         setSendPending(false)
       })
   }, [
+    accountRequestsBlocked,
     disabled,
     buildDraft,
     isEditingQueueItem,
@@ -4219,7 +4223,7 @@ export function MessageInput({
       className="iyw-claw-send-button h-8 w-8"
       title={tSide("ask")}
       aria-label={tSide("ask")}
-      disabled={voice.status !== "idle"}
+      disabled={accountRequestsBlocked || voice.status !== "idle"}
     >
       <Send className="size-4" />
     </Button>
@@ -4239,6 +4243,7 @@ export function MessageInput({
       <Button
         onClick={handleSend}
         disabled={
+          accountRequestsBlocked ||
           sendPending ||
           disabled ||
           voice.status !== "idle" ||
@@ -4255,6 +4260,7 @@ export function MessageInput({
         <DropdownMenuTrigger asChild>
           <Button
             disabled={
+              accountRequestsBlocked ||
               sendPending ||
               disabled ||
               voice.status !== "idle" ||
@@ -4280,6 +4286,7 @@ export function MessageInput({
     <Button
       onClick={handleSend}
       disabled={
+        accountRequestsBlocked ||
         sendPending ||
         disabled ||
         voice.status !== "idle" ||

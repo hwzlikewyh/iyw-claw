@@ -21,7 +21,6 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
   AccountAvatar,
-  balancePoints,
   displayName,
 } from "@/components/account/account-profile-panel"
 import type { IywAccountProfile } from "@/lib/types"
@@ -30,6 +29,8 @@ import { copyTextFromMenu } from "@/lib/utils"
 import { getCurrentAppVersion } from "@/lib/updater"
 import { toErrorMessage } from "@/lib/app-error"
 import { requestAppUpdateDialog } from "./sidebar-update-event"
+
+import { SidebarAccountBalance } from "./sidebar-account-balance"
 
 interface Props {
   profile: IywAccountProfile
@@ -60,8 +61,11 @@ export function SidebarAccountActions(props: Props) {
   }, [])
   return (
     <>
-      <div className="flex min-w-0 items-center gap-3 p-4">
-        <AccountAvatar profile={props.profile} className="size-10" />
+      <div className="flex min-w-0 items-center gap-3 px-4 pb-4 pt-5">
+        <AccountAvatar
+          profile={props.profile}
+          className="size-10 ring-4 ring-primary/5"
+        />
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold">
             {displayName(props.profile, account("signedIn"))}
@@ -99,7 +103,7 @@ export function SidebarAccountActions(props: Props) {
           <X className="size-3" />
         </Button>
       </div>
-      <AccountBalance {...props} />
+      <SidebarAccountBalance {...props} />
       <AccountShortcuts onClose={props.onClose} />
       <AccountTheme />
       <div className="flex flex-wrap items-center gap-1 border-t px-2 py-2">
@@ -120,58 +124,13 @@ export function SidebarAccountActions(props: Props) {
       <Button
         variant="ghost"
         disabled={props.pending || props.refreshing}
-        className="h-10 justify-start gap-2 rounded-none border-t px-4 text-xs text-destructive hover:bg-destructive/5 hover:text-destructive"
+        className="mx-3 mb-3 h-9 w-[calc(100%-1.5rem)] justify-start gap-2 rounded-xl border border-transparent px-3 text-xs text-destructive/80 hover:border-destructive/10 hover:bg-destructive/5 hover:text-destructive"
         onClick={props.onLogout}
       >
         <LogOut className="size-3.5" />
         {account("logout")}
       </Button>
     </>
-  )
-}
-
-function AccountBalance(props: Props) {
-  const t = useTranslations("SidebarAccount")
-  const td = useTranslations("SidebarDesign")
-  return (
-    <div className="flex items-center justify-between gap-2 border-y bg-muted/30 px-4 py-3">
-      <div className="min-w-0">
-        <div className="text-xs text-muted-foreground">
-          {t("balancePoints")}
-        </div>
-        <div className="break-words font-mono text-2xl font-medium">
-          {balancePoints(props.profile, t("balanceUnknown"))}
-        </div>
-        {props.profile.balance_expiry_time && (
-          <div className="mt-1 text-[0.625rem] text-muted-foreground">
-            {t("balanceExpiry")}: {props.profile.balance_expiry_time}
-          </div>
-        )}
-      </div>
-      <div className="flex shrink-0 flex-col items-end gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          title={t("refreshBalance")}
-          aria-label={t("refreshBalance")}
-          disabled={props.pending || props.refreshing}
-          onClick={props.onRefresh}
-        >
-          <RefreshCw
-            className={props.refreshing ? "size-3.5 animate-spin" : "size-3.5"}
-          />
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 px-1 text-[0.6875rem]"
-          onClick={props.onProfile}
-        >
-          {td("accountProfile")}
-        </Button>
-      </div>
-    </div>
   )
 }
 
@@ -197,13 +156,13 @@ function AccountShortcuts({ onClose }: { onClose: () => void }) {
     }
   }
   return (
-    <div className="grid grid-cols-2 gap-1 p-2">
+    <div className="grid grid-cols-2 gap-2 px-4 py-3">
       {entries.map((entry) => (
         <button
           key={entry.section}
           type="button"
           onClick={() => void open(entry.section)}
-          className="flex min-w-0 items-center gap-2 rounded-md px-2 py-3 text-left text-xs hover:bg-accent focus-visible:outline focus-visible:outline-ring"
+          className="flex min-w-0 items-center gap-2 rounded-xl border border-transparent bg-muted/25 px-2.5 py-3 text-left text-xs transition-colors hover:border-primary/10 hover:bg-primary/5 focus-visible:outline focus-visible:outline-ring"
         >
           <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/5 text-primary">
             <entry.icon className="size-3.5" />
@@ -220,7 +179,7 @@ function AccountTheme() {
   const labels = useTranslations("AppearanceSettings")
   const { theme, setTheme } = useTheme()
   return (
-    <div className="flex items-center justify-between border-t px-4 py-3 text-xs">
+    <div className="flex items-center justify-between mx-4 mb-3 rounded-xl bg-muted/35 px-3 py-2.5 text-[11px]">
       <span>{t("appearance")}</span>
       <div
         className="flex gap-0.5 rounded-md bg-muted p-0.5"

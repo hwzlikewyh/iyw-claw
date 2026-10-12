@@ -41,7 +41,7 @@ export function StartupLoginGate({ children }: { children: ReactNode }) {
       <OverlayWindowControls visible={blocked} />
       <Dialog open={blocked} onOpenChange={() => {}}>
         <DialogContent
-          className="max-w-lg overflow-hidden rounded-lg p-0"
+          className="max-w-lg gap-0 overflow-y-auto rounded-2xl p-0 shadow-2xl"
           showCloseButton={false}
           onEscapeKeyDown={(event) => event.preventDefault()}
           onPointerDownOutside={(event) => event.preventDefault()}
@@ -66,11 +66,11 @@ export function StartupLoginGate({ children }: { children: ReactNode }) {
             />
           ) : (
             <>
-              <DialogHeader className="px-5 pt-5">
+              <DialogHeader className="border-b bg-muted/15 px-5 py-5 sm:px-6">
                 <DialogTitle>{t("title")}</DialogTitle>
                 <DialogDescription>{t("description")}</DialogDescription>
               </DialogHeader>
-              <div className="min-h-[24rem] border-t">
+              <div className="min-h-[24rem]">
                 <AccountLoginPanel />
               </div>
             </>

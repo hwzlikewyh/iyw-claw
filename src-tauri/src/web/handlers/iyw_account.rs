@@ -13,6 +13,34 @@ use crate::commands::iyw_account::{
 use crate::models::agent::AgentType;
 
 #[derive(Deserialize)]
+pub struct AccountAuthParams {
+    pub request: crate::commands::iyw_account::IywAccountAuthRequest,
+}
+
+pub async fn authenticate(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<AccountAuthParams>,
+) -> Result<Json<crate::commands::iyw_account::IywLoginResult>, AppCommandError> {
+    let _switch_guard =
+        crate::commands::iyw_account::iyw_account_switch_guard(&params.request.action)?;
+    if params.request.action == "switch_workspace"
+        && state.connection_manager.has_active_account_turns().await
+    {
+        return Err(AppCommandError::permission_denied(
+            "请先完成或停止正在运行的任务，再切换空间",
+        ));
+    }
+    Ok(Json(
+        crate::commands::iyw_account::iyw_account_auth_core(
+            &state.db.conn,
+            params.request.action,
+            params.request.data,
+        )
+        .await?,
+    ))
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListModelsParams {
     pub agent_type: Option<AgentType>,

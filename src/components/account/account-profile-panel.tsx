@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import type { IywAccountProfile } from "@/lib/types"
+import { AccountPointsStatus } from "./account-points-status"
 
 const DEFAULT_AVATAR_URL =
   "https://chdesign.oss-cn-shanghai.aliyuncs.com/static/avatar/default.png?x-oss-process=image/resize,m_mfit,h_35"
@@ -84,7 +85,7 @@ export function AccountProfilePanel({
 }) {
   const t = useTranslations("SidebarAccount")
   return (
-    <div className="flex min-h-[20rem] flex-col gap-4 p-5">
+    <div className="flex min-h-[20rem] flex-col gap-5 p-5 sm:p-6">
       <div className="flex items-center gap-3">
         <AccountAvatar profile={profile} className="h-11 w-11" />
         <div className="min-w-0 flex-1">
@@ -98,7 +99,7 @@ export function AccountProfilePanel({
           </div>
         </div>
       </div>
-      <div className="grid gap-2 rounded-lg border bg-muted/25 p-3">
+      <div className="grid gap-3 rounded-2xl border border-primary/10 bg-primary/[0.035] p-4">
         <InfoRow
           label={t("balancePoints")}
           value={t("balanceValue", {
@@ -113,7 +114,8 @@ export function AccountProfilePanel({
           />
         ) : null}
       </div>
-      <div className="grid gap-2 rounded-lg border bg-muted/25 p-3">
+      <AccountPointsStatus profile={profile} />
+      <div className="grid gap-3 rounded-xl border bg-muted/20 p-4">
         <InfoRow label={t("userId")} value={profile.user_id} />
         <InfoRow label={t("phone")} value={profile.phone} />
         <InfoRow label={t("organization")} value={profile.org_name} />
