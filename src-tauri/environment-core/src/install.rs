@@ -14,22 +14,66 @@ use crate::paths::{platform, Layout};
 mod preparation;
 
 pub fn prepare(app_version: &str) -> Result<String> {
-    prepare_with_verification(app_version, false)
+    prepare_selected(app_version, PrepareOptions::default())
 }
 
-pub fn prepare_repair(app_version: &str) -> Result<String> {
-    prepare_with_verification(app_version, true)
+pub fn prepare_repair(app_version: &str, components: Option<&[String]>) -> Result<String> {
+    prepare_selected(
+        app_version,
+        PrepareOptions {
+            full_check: true,
+            repair_components: components,
+            ..Default::default()
+        },
+    )
 }
 
 pub fn prepare_computer_driver(app_version: &str) -> Result<String> {
-    prepare_selected(app_version, true, true)
+    prepare_selected(
+        app_version,
+        PrepareOptions {
+            full_check: true,
+            computer_driver: true,
+            ..Default::default()
+        },
+    )
 }
 
-fn prepare_with_verification(app_version: &str, full_check: bool) -> Result<String> {
-    prepare_selected(app_version, full_check, false)
+#[derive(Default)]
+struct PrepareOptions<'a> {
+    full_check: bool,
+    computer_driver: bool,
+    repair_components: Option<&'a [String]>,
 }
 
-fn prepare_selected(app_version: &str, full_check: bool, computer_driver: bool) -> Result<String> {
+impl PrepareOptions<'_> {
+    fn inventory(
+        &self,
+        layout: &Layout,
+        current: Option<&EnvironmentSnapshot>,
+    ) -> Vec<crate::model::InventoryEntry> {
+        match self.repair_components {
+            Some(components) => {
+                inventory::selected_installation_inventory(layout, current, components)
+            }
+            None => inventory::installation_inventory(layout, current, self.full_check),
+        }
+    }
+
+    fn validate_driver(&self, plan: &crate::model::EnvironmentPlan) -> Result<()> {
+        if self.computer_driver
+            && !plan
+                .actions
+                .iter()
+                .any(|action| action.component_id == "cua-driver")
+        {
+            bail!("Fusion 当前应用版本尚未发布 cua-driver 组件，请更新环境分发绑定")
+        }
+        Ok(())
+    }
+}
+
+fn prepare_selected(app_version: &str, options: PrepareOptions<'_>) -> Result<String> {
     let layout = Layout::resolve()?;
     layout.ensure()?;
     let _lock = environment_lock(&layout)?;
@@ -45,15 +89,13 @@ fn prepare_selected(app_version: &str, full_check: bool, computer_driver: bool) 
         runtime: "desktop",
         target: target.clone(),
         arch: arch.clone(),
-        inventory: inventory::installation_inventory(&layout, current.as_ref(), full_check),
+        inventory: options.inventory(&layout, current.as_ref()),
     };
     let client = FusionClient::new()?;
     let mut plan = client.resolve(&request)?;
     plan.actions
         .retain(|action| action.component_id != "open-computer-use");
-    if computer_driver && !plan.actions.iter().any(|action| action.component_id == "cua-driver") {
-        bail!("Fusion 当前应用版本尚未发布 cua-driver 组件，请更新环境分发绑定")
-    }
+    options.validate_driver(&plan)?;
     crate::progress::phase("planning");
     validate_plan(&plan, app_version, &target, &arch)?;
     crate::progress::plan(&plan.actions);
@@ -65,20 +107,9 @@ fn prepare_selected(app_version: &str, full_check: bool, computer_driver: bool) 
         platform: &platform,
         current: current.as_ref(),
         inventory: &request.inventory,
+        repair_components: options.repair_components,
     };
-    let state = context.prepare(plan)?;
-    let transaction_dir = layout.transaction_dir(&transaction)?;
-    inventory::write_json(&transaction_dir.join("prepared.json"), &state)?;
-    let pending = layout.pending_transaction();
-    fs::write(&pending, &transaction).with_context(|| {
-        format!(
-            "write pending environment transaction: {}",
-            pending.display()
-        )
-    })?;
-    emit("environment", "prepared", 0, 0);
-    crate::progress::prepared(&transaction);
-    Ok(transaction)
+    context.prepare_and_publish(plan)
 }
 
 fn validate_action(action: &EnvironmentAction) -> Result<()> {

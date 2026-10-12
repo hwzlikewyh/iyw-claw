@@ -37,7 +37,7 @@ fn entry(path: &Path) -> Verification {
     Arc::clone(cache.entry(path.to_path_buf()).or_default())
 }
 
-pub(super) fn verify(file: &mut File, path: &Path, expected: &ManagedFile) -> bool {
+pub(super) fn verify(file: &mut File, path: &Path, expected: &ManagedFile) -> Result<(), String> {
     let entry = entry(path);
     let mut cached = entry.lock().unwrap_or_else(|error| error.into_inner());
     let before = FileStamp::read(file);
@@ -45,32 +45,34 @@ pub(super) fn verify(file: &mut File, path: &Path, expected: &ManagedFile) -> bo
         .as_ref()
         .is_some_and(|(stamp, digest)| before.as_ref() == Some(stamp) && digest == &expected.sha256)
     {
-        return true;
+        return Ok(());
     }
     *cached = None;
-    if !hash_file(file).is_some_and(|digest| digest == expected.sha256) {
-        return false;
+    if hash_file(file)? != expected.sha256 {
+        return Err("组件文件 SHA-256 与安装记录不符".into());
     }
     let after = FileStamp::read(file);
     if before != after {
-        return false;
+        return Err("组件文件在校验期间发生变化，请重新检测".into());
     }
     // 无可靠文件签名时仍完整校验，但不复用结果。
     if let Some(stamp) = after {
         *cached = Some((stamp, expected.sha256.clone()));
     }
-    true
+    Ok(())
 }
 
-fn hash_file(file: &mut File) -> Option<String> {
+fn hash_file(file: &mut File) -> Result<String, String> {
     let mut hasher = Sha256::new();
     let mut buffer = [0_u8; HASH_BUFFER_BYTES];
     loop {
-        let read = file.read(&mut buffer).ok()?;
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| format!("无法校验组件文件：{error}"))?;
         if read == 0 {
             break;
         }
         hasher.update(&buffer[..read]);
     }
-    Some(format!("{:x}", hasher.finalize()))
+    Ok(format!("{:x}", hasher.finalize()))
 }

@@ -8,7 +8,7 @@
     "healthy": "The runtime environment is ready.",
     "degraded": "Some components need attention. Repair the environment to try again.",
     "repairTitle": "Repair runtime environment",
-    "repairDescription": "Verify installed components and restore missing or damaged tools. Verified components are reused. Workspaces, settings, conversations and shared desktop permissions are preserved.",
+    "repairDescription": "Verify and repair only components with detected problems, preserving tools that are ready. Workspaces, settings, conversations and shared desktop permissions are preserved.",
     "repair": "Repair environment",
     "repairing": "Repairing environment…",
     "success": "Runtime environment repaired and checked.",

@@ -21,9 +21,26 @@ pub(super) struct Context<'a> {
     pub platform: &'a str,
     pub current: Option<&'a EnvironmentSnapshot>,
     pub inventory: &'a [InventoryEntry],
+    pub repair_components: Option<&'a [String]>,
 }
 
 impl Context<'_> {
+    pub fn prepare_and_publish(&self, plan: EnvironmentPlan) -> Result<String> {
+        let state = self.prepare(plan)?;
+        let transaction_dir = self.layout.transaction_dir(self.transaction)?;
+        inventory::write_json(&transaction_dir.join("prepared.json"), &state)?;
+        let pending = self.layout.pending_transaction();
+        fs::write(&pending, self.transaction).with_context(|| {
+            format!(
+                "write pending environment transaction: {}",
+                pending.display()
+            )
+        })?;
+        emit("environment", "prepared", 0, 0);
+        crate::progress::prepared(self.transaction);
+        Ok(self.transaction.to_string())
+    }
+
     pub fn prepare(&self, plan: EnvironmentPlan) -> Result<PreparedState> {
         let mut components = Vec::new();
         let mut seen = BTreeSet::new();
@@ -70,6 +87,24 @@ impl Context<'_> {
 
     fn prepare_action(&self, action: &EnvironmentAction) -> Result<PreparedComponent> {
         super::validate_action(action)?;
+        // 定向修复保留范围外的健康组件，不顺带更新其版本或制品。
+        if self
+            .repair_components
+            .is_some_and(|ids| !ids.contains(&action.component_id))
+        {
+            let component = self
+                .available_current(action)
+                .context("unselected component is unavailable; check the environment again")?;
+            eprintln!(
+                "environment repair: component={}; action=preserve; version={}",
+                component.component_id, component.version
+            );
+            emit(&action.component_id, "reused", 0, 0);
+            return Ok(PreparedComponent {
+                component,
+                staged: false,
+            });
+        }
         if let Some(mut component) = self.available_current(action).filter(|component| {
             component.version == action.version
                 && component.component_kind == action.component_kind

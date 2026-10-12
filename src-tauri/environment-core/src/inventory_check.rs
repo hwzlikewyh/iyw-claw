@@ -4,8 +4,28 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 
 use crate::download::hash_file;
-use crate::model::{FileRecord, InstalledComponent};
+use crate::model::{EnvironmentSnapshot, FileRecord, InstalledComponent, InventoryEntry};
 use crate::paths::{from_slash, Layout};
+
+pub fn selected_installation_inventory(
+    layout: &Layout,
+    snapshot: Option<&EnvironmentSnapshot>,
+    components: &[String],
+) -> Vec<InventoryEntry> {
+    let (target, arch, _) = crate::paths::platform();
+    snapshot
+        .into_iter()
+        .filter(|value| value.target == target && value.arch == arch)
+        .flat_map(|value| &value.components)
+        .map(|component| {
+            let selected = components.contains(&component.component_id);
+            if selected {
+                crate::download::emit(&component.component_id, "checking", 0, 0);
+            }
+            super::inventory_entry(layout, component, selected)
+        })
+        .collect()
+}
 
 pub(super) fn component(
     layout: &Layout,

@@ -62,7 +62,11 @@ async fn ensure_officecli(
         runtime_error = ?info.runtime_error,
         "repairing environment for OfficeCLI"
     );
-    managed_environment::repair_with_progress(task_id, emitter, |message| {
+    let request = managed_environment::RepairRequest {
+        task_id,
+        component: Some("officecli"),
+    };
+    managed_environment::repair_with_progress(request, emitter, |message| {
         emit_officecli_install_event(emitter, task_id, OfficecliInstallEventKind::Log, message);
     })
     .await

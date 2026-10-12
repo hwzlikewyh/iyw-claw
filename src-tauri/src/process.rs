@@ -68,6 +68,9 @@ fn set_utf8_env<C: SetEnv>(command: &mut C) {
 }
 
 fn set_managed_path_env<C: SetEnv>(command: &mut C) {
+    for (key, value) in crate::shared_runtime::managed_tool_environment() {
+        command.env(key, value);
+    }
     for (key, value) in crate::shared_runtime::environment() {
         if std::env::var_os(key).is_none() {
             command.env_os(key, value.as_os_str());

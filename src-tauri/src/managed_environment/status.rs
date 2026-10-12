@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use super::{managed_path, verify_file, ManagedComponent};
+use super::{managed_path, ManagedComponent};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -114,10 +114,11 @@ fn builtin_agent_status() -> ManagedComponentStatus {
 }
 
 fn component_status(root: &Path, component: &ManagedComponent) -> ManagedComponentStatus {
-    let active = !component.files.is_empty()
-        && required_entrypoints(&component.component_id)
-            .iter()
-            .all(|name| component_entrypoint(root, component, name).is_some());
+    let error = component_error(root, component);
+    let active = error.is_none();
+    if let Some(error) = &error {
+        tracing::warn!(component_id = %component.component_id, %error, "environment component unavailable after recheck");
+    }
     ManagedComponentStatus {
         component_id: component.component_id.clone(),
         component_kind: component.component_kind.clone(),
@@ -125,8 +126,25 @@ fn component_status(root: &Path, component: &ManagedComponent) -> ManagedCompone
         installed: active,
         active,
         phase: if active { "ready" } else { "degraded" }.to_string(),
-        last_error: (!active).then(|| "Managed environment requires repair".to_string()),
+        last_error: error,
     }
+}
+
+fn component_error(root: &Path, component: &ManagedComponent) -> Option<String> {
+    const RECHECK_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
+    let check = || {
+        if component.files.is_empty() {
+            return Err("组件安装记录为空".to_string());
+        }
+        for name in required_entrypoints(&component.component_id) {
+            component_entrypoint(root, component, name)?;
+        }
+        Ok(())
+    };
+    // 与工具入口解析一致：短暂读锁或文件变化不能直接判定组件损坏。
+    check().err()?;
+    std::thread::sleep(RECHECK_DELAY);
+    check().err()
 }
 
 pub(super) fn required_entrypoints(component: &str) -> &'static [&'static str] {
@@ -145,10 +163,24 @@ pub(super) fn required_entrypoints(component: &str) -> &'static [&'static str] {
     }
 }
 
-fn component_entrypoint(root: &Path, component: &ManagedComponent, name: &str) -> Option<PathBuf> {
-    let relative = component.entrypoints.get(name)?;
-    let component_root = super::snapshot::component_path(root, &component.relative_path)?;
-    let candidate = managed_path(&component_root, relative)?;
-    let record = component.files.iter().find(|file| file.path == *relative)?;
-    verify_file(&component_root, &candidate, record).then_some(candidate)
+pub(super) fn component_entrypoint(
+    root: &Path,
+    component: &ManagedComponent,
+    name: &str,
+) -> Result<PathBuf, String> {
+    let relative = component
+        .entrypoints
+        .get(name)
+        .ok_or_else(|| format!("缺少组件入口记录：{name}"))?;
+    let component_root = super::snapshot::component_path(root, &component.relative_path)
+        .ok_or("组件目录缺失、不可读或不在受管目录内")?;
+    let candidate = managed_path(&component_root, relative).ok_or("组件入口路径无效")?;
+    let record = component
+        .files
+        .iter()
+        .find(|file| file.path == *relative)
+        .ok_or("组件入口缺少文件校验记录")?;
+    super::verification::verify(&component_root, &candidate, record)
+        .map_err(|error| format!("{name}：{error}"))?;
+    Ok(candidate)
 }

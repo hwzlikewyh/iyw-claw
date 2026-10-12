@@ -128,6 +128,9 @@ fn detect_posix_shell_flavor(shell: &str) -> PosixShellFlavor {
 }
 
 fn configure_shell_command(cmd: &mut CommandBuilder, shell: &str, initial_command: Option<&str>) {
+    for (key, value) in crate::shared_runtime::managed_tool_environment() {
+        cmd.env(key, value);
+    }
     #[cfg(target_os = "windows")]
     {
         // Force UTF-8 output for all Windows shell flavors

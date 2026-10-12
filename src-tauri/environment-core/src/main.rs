@@ -105,7 +105,16 @@ fn run_repair(args: &[String]) -> Result<u8> {
     let version = option(args, "--app-version")
         .or_else(inventory::current_pc_version)
         .context("repair requires an installed environment or --app-version")?;
-    let transaction = install::prepare_repair(&version)?;
+    let components = option(args, "--components")
+        .map(|value| value.split(',').map(str::to_string).collect::<Vec<_>>());
+    if let Some(components) = &components {
+        if components.is_empty()
+            || components.iter().any(|id| paths::safe_segment(id, "component").is_err())
+        {
+            bail!("repair component selection is invalid")
+        }
+    }
+    let transaction = install::prepare_repair(&version, components.as_deref())?;
     install::commit(Some(&transaction))?;
     Ok(0)
 }

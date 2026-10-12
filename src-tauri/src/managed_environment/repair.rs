@@ -1,37 +1,20 @@
-use std::io;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use serde::Deserialize;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, BufReader};
+use crate::web::event_bridge::EventEmitter;
 
-use crate::web::event_bridge::{emit_event, EventEmitter};
+#[path = "repair_progress.rs"]
+mod progress;
+use progress::{error_tail, forward_progress, ProgressSink};
 
 const REPAIR_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-const ERROR_LIMIT: usize = 2_000;
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Progress {
-    component_id: String,
-    phase: String,
-    #[serde(default)]
-    percent: Option<u32>,
-    #[serde(default)]
-    downloaded: u64,
-    #[serde(default)]
-    total: u64,
-    #[serde(default)]
-    message: String,
-}
-
-struct ProgressSink<'a> {
-    task_id: &'a str,
-    emitter: &'a EventEmitter,
-    on_progress: &'a (dyn Fn(&str) + Send + Sync),
-}
 
 struct RepairCacheGuard;
+
+pub struct RepairRequest<'a> {
+    pub task_id: &'a str,
+    pub component: Option<&'a str>,
+}
 
 impl Drop for RepairCacheGuard {
     fn drop(&mut self) {
@@ -45,7 +28,11 @@ pub async fn repair_startup(
     emitter: &EventEmitter,
     explicit_repair: bool,
 ) -> Result<(), String> {
-    let Err(error) = repair_with_progress(task_id, emitter, |_| {}).await else {
+    let request = RepairRequest {
+        task_id,
+        component: None,
+    };
+    let Err(error) = repair_with_progress(request, emitter, |_| {}).await else {
         return Ok(());
     };
     if !explicit_repair {
@@ -65,7 +52,7 @@ pub async fn repair_startup(
 }
 
 pub async fn repair_with_progress(
-    task_id: &str,
+    request: RepairRequest<'_>,
     emitter: &EventEmitter,
     on_progress: impl Fn(&str) + Send + Sync,
 ) -> Result<(), String> {
@@ -73,13 +60,23 @@ pub async fn repair_with_progress(
     super::snapshot::clear();
     super::verification_cache::clear();
     let _cache_guard = RepairCacheGuard;
-    tracing::info!(task_id, "environment repair started");
+    let task_id = request.task_id;
+    let components = repair_selection(&request).await?;
+    if components.as_deref() == Some("") {
+        tracing::info!(
+            task_id,
+            "environment components already healthy; repair skipped"
+        );
+        return Ok(());
+    }
+    tracing::info!(task_id, ?components, "environment repair started");
     let sink = ProgressSink {
         task_id,
         emitter,
         on_progress: &on_progress,
+        components: components.as_deref(),
     };
-    let result = tokio::time::timeout(REPAIR_TIMEOUT, run(sink, "repair"))
+    let result = tokio::time::timeout(REPAIR_TIMEOUT, run(sink, "repair", components.as_deref()))
         .await
         .map_err(|_| "环境修复超时，请检查网络后重试".to_string())
         .and_then(|result| result);
@@ -92,6 +89,32 @@ pub async fn repair_with_progress(
         Err(error) => tracing::error!(task_id, error, "environment repair failed"),
     }
     result
+}
+
+async fn repair_selection(request: &RepairRequest<'_>) -> Result<Option<String>, String> {
+    let report = tokio::task::spawn_blocking(super::init_status_report)
+        .await
+        .map_err(|error| format!("环境检测任务异常：{error}"))?;
+    if report
+        .components
+        .iter()
+        .any(|item| item.component_id == "environment")
+    {
+        // 清单缺失或版本不匹配时无法安全复用，沿用完整环境恢复入口。
+        return Ok(None);
+    }
+    let mut components = report
+        .components
+        .iter()
+        .filter(|item| !item.active && item.component_id != "builtin-agent")
+        .map(|item| item.component_id.clone())
+        .collect::<Vec<_>>();
+    if let Some(component) = request.component {
+        if !components.iter().any(|id| id == component) {
+            components.push(component.to_string());
+        }
+    }
+    Ok(Some(components.join(",")))
 }
 
 pub async fn change_computer_driver(
@@ -112,9 +135,10 @@ pub async fn change_computer_driver(
         task_id: command,
         emitter,
         on_progress: &on_progress,
+        components: None,
     };
     tracing::info!(install, "[computer] managed driver change started");
-    let result = tokio::time::timeout(REPAIR_TIMEOUT, run(sink, command))
+    let result = tokio::time::timeout(REPAIR_TIMEOUT, run(sink, command, None))
         .await
         .map_err(|_| "驱动组件操作超时".to_string())
         .and_then(|result| result);
@@ -124,22 +148,12 @@ pub async fn change_computer_driver(
     result
 }
 
-async fn run(sink: ProgressSink<'_>, command: &str) -> Result<(), String> {
-    let helper = super::environment_helper()
-        .ok_or_else(|| "安装目录缺少环境修复程序，请重新安装应用".to_string())?;
-    let mut child = crate::process::tokio_command(helper)
-        .args([
-            command,
-            "--app-version",
-            env!("CARGO_PKG_VERSION"),
-            "--json",
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()
-        .map_err(|error| format!("无法启动环境修复程序：{error}"))?;
+async fn run(
+    sink: ProgressSink<'_>,
+    command: &str,
+    components: Option<&str>,
+) -> Result<(), String> {
+    let mut child = spawn_helper(command, components)?;
     let stdout = child.stdout.take().ok_or("无法读取修复进度")?;
     let stderr = child.stderr.take().ok_or("无法读取修复错误")?;
     let (progress, detail, status) = tokio::join!(
@@ -165,63 +179,24 @@ async fn run(sink: ProgressSink<'_>, command: &str) -> Result<(), String> {
     progress.map_err(|error| format!("无法读取环境修复进度：{error}"))
 }
 
-async fn forward_progress(
-    stream: impl AsyncRead + Unpin,
-    sink: &ProgressSink<'_>,
-) -> io::Result<()> {
-    let mut lines = BufReader::new(stream).lines();
-    while let Some(line) = lines.next_line().await? {
-        let Ok(event) = serde_json::from_str::<Progress>(&line) else {
-            continue;
-        };
-        if event.phase == "optional-skipped" {
-            tracing::warn!(
-                task_id = sink.task_id,
-                component_id = %event.component_id,
-                "optional environment component skipped during repair"
-            );
-        }
-        let percent = event
-            .percent
-            .map(|value| format!(" ({value}%)"))
-            .unwrap_or_default();
-        (sink.on_progress)(&format!("{}: {}{percent}", event.component_id, event.phase));
-        let component = (event.component_id != "environment").then_some(event.component_id);
-        emit_event(
-            sink.emitter,
-            "app://bootstrap-init",
-            serde_json::json!({
-                "taskId": sink.task_id, "phase": bootstrap_phase(&event.phase), "component": component,
-                "percent": event.percent,
-                "downloaded": event.downloaded, "total": event.total, "message": event.message,
-            }),
-        );
+fn spawn_helper(command: &str, components: Option<&str>) -> Result<tokio::process::Child, String> {
+    let helper = super::environment_helper()
+        .ok_or_else(|| "安装目录缺少环境修复程序，请重新安装应用".to_string())?;
+    let mut process = crate::process::tokio_command(helper);
+    process.args([
+        command,
+        "--app-version",
+        env!("CARGO_PKG_VERSION"),
+        "--json",
+    ]);
+    if let Some(components) = components {
+        process.args(["--components", components]);
     }
-    Ok(())
-}
-
-fn bootstrap_phase(phase: &str) -> &str {
-    match phase {
-        "downloaded" | "cached" | "extracting" | "reused" | "component-prepared"
-        | "optional-skipped" | "prepared" => "staging",
-        "verified" => "health_check",
-        "committed" => "ready",
-        phase => phase,
-    }
-}
-
-async fn error_tail(mut stream: impl AsyncRead + Unpin) -> io::Result<String> {
-    let mut result = Vec::new();
-    let mut buffer = [0_u8; 4096];
-    loop {
-        let count = stream.read(&mut buffer).await?;
-        if count == 0 {
-            break;
-        }
-        result.extend_from_slice(&buffer[..count]);
-        if result.len() > ERROR_LIMIT {
-            result.drain(..result.len() - ERROR_LIMIT);
-        }
-    }
-    Ok(String::from_utf8_lossy(&result).trim().to_string())
+    process
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|error| format!("无法启动环境修复程序：{error}"))
 }

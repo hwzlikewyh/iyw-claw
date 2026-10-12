@@ -16,6 +16,8 @@ mod cache;
 #[path = "inventory_check.rs"]
 mod check;
 
+pub use check::selected_installation_inventory;
+
 pub fn load_current(layout: &Layout) -> Result<Option<EnvironmentSnapshot>> {
     read_json_optional(&layout.current_snapshot())
 }
@@ -38,7 +40,10 @@ pub fn installation_inventory(
         .into_iter()
         .filter(|value| value.target == target && value.arch == arch)
         .flat_map(|value| &value.components)
-        .map(|component| inventory_entry(layout, component, full_check))
+        .map(|component| {
+            crate::download::emit(&component.component_id, "checking", 0, 0);
+            inventory_entry(layout, component, full_check)
+        })
         .collect()
 }
 
@@ -72,7 +77,6 @@ fn inventory_entry(
     component: &InstalledComponent,
     full_check: bool,
 ) -> InventoryEntry {
-    crate::download::emit(&component.component_id, "checking", 0, 0);
     // 普通安装仅检查必要入口，修复先完整校验以选择损坏组件。
     let healthy = check_component(layout, component, full_check).is_ok();
     InventoryEntry {

@@ -268,6 +268,10 @@ fn merge_agent_env(
     }
     ensure_loopback_proxy_bypass(&mut merged);
 
+    for (key, value) in crate::shared_runtime::managed_tool_environment() {
+        merged.insert((*key).to_string(), (*value).to_string());
+    }
+
     // Ensure agent-invoked `officecli …` (from an enabled office skill) resolves
     // even when iyw-claw installed the binary outside the user's shell PATH — the
     // Windows self-managed dir, or `~/.local/bin` under a GUI launch.

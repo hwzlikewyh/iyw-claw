@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
@@ -8,11 +7,12 @@ mod file_stamp;
 mod repair;
 mod snapshot;
 mod status;
+mod verification;
 mod verification_cache;
 
 static WRITER: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-pub use repair::{change_computer_driver, repair_startup, repair_with_progress};
+pub use repair::{change_computer_driver, repair_startup, repair_with_progress, RepairRequest};
 pub use status::{init_status_report, ManagedEnvironmentStatusReport};
 
 pub async fn lock_writer() -> tokio::sync::MutexGuard<'static, ()> {
@@ -94,11 +94,7 @@ fn entrypoint_once(root: &Path, component_id: &str, name: &str) -> Option<PathBu
         .components
         .iter()
         .find(|item| item.component_id == component_id)?;
-    let relative = component.entrypoints.get(name)?;
-    let component_root = snapshot::component_path(root, &component.relative_path)?;
-    let candidate = managed_path(&component_root, relative)?;
-    let record = component.files.iter().find(|file| file.path == *relative)?;
-    verify_file(&component_root, &candidate, record).then_some(candidate)
+    status::component_entrypoint(root, component, name).ok()
 }
 
 pub fn component_root(component: &str) -> Option<PathBuf> {
@@ -177,54 +173,4 @@ fn managed_path(root: &Path, relative: &str) -> Option<PathBuf> {
             )
         })
         .then_some(path)
-}
-
-fn verify_file(root: &Path, path: &Path, record: &ManagedFile) -> bool {
-    if let Some(target) = record.link_target.as_deref() {
-        return verify_link(root, path, target);
-    }
-    verify_regular_file(root, path, record)
-}
-
-fn verify_link(root: &Path, path: &Path, expected: &str) -> bool {
-    let Ok(metadata) = std::fs::symlink_metadata(path) else {
-        return false;
-    };
-    let Ok(target) = std::fs::read_link(path) else {
-        return false;
-    };
-    metadata.file_type().is_symlink()
-        && target.to_string_lossy().replace('\\', "/") == expected
-        && canonical_file_is_within(root, path)
-}
-
-fn verify_regular_file(root: &Path, path: &Path, record: &ManagedFile) -> bool {
-    let Ok(canonical_root) = std::fs::canonicalize(root) else {
-        return false;
-    };
-    let Ok(canonical_path) = std::fs::canonicalize(path) else {
-        return false;
-    };
-    if !canonical_path.starts_with(canonical_root) {
-        return false;
-    }
-    let Ok(mut file) = File::open(&canonical_path) else {
-        return false;
-    };
-    let Ok(metadata) = file.metadata() else {
-        return false;
-    };
-    metadata.is_file()
-        && metadata.len() == record.size
-        && verification_cache::verify(&mut file, &canonical_path, record)
-}
-
-fn canonical_file_is_within(root: &Path, path: &Path) -> bool {
-    let Ok(canonical_root) = std::fs::canonicalize(root) else {
-        return false;
-    };
-    let Ok(canonical_path) = std::fs::canonicalize(path) else {
-        return false;
-    };
-    canonical_path.starts_with(canonical_root) && canonical_path.is_file()
 }

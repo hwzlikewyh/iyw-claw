@@ -5,6 +5,15 @@ use std::path::{Path, PathBuf};
 
 pub const SHARED_TOOLS: [&str; 3] = ["node", "git", "uv"];
 
+pub fn managed_tool_environment() -> &'static [(&'static str, &'static str)] {
+    // 桌面工具由 Fusion 校验和升级，禁止 OfficeCLI 自行替换受管文件。
+    if cfg!(feature = "tauri-runtime") {
+        &[("OFFICECLI_SKIP_UPDATE", "1")]
+    } else {
+        &[]
+    }
+}
+
 pub fn root() -> PathBuf {
     crate::paths::iyw_claw_user_dir().join("runtime")
 }
