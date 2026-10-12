@@ -12,6 +12,7 @@ use crate::models::agent::AgentType;
 mod auth;
 mod auth_forms;
 mod balance_cache;
+mod image_captcha;
 mod login_flow;
 mod pending;
 mod points;

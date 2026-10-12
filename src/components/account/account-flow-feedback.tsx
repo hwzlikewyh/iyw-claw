@@ -1,8 +1,7 @@
 "use client"
 
-import { AlertCircle, ExternalLink, ShieldCheck } from "lucide-react"
+import { AlertCircle } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { Button } from "@/components/ui/button"
 import { openUrl as openExternal } from "@/lib/platform"
 
 export function AccountFlowError({ message }: { message: string | null }) {
@@ -14,31 +13,6 @@ export function AccountFlowError({ message }: { message: string | null }) {
     >
       <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
       <span className="min-w-0 break-words">{message}</span>
-    </div>
-  )
-}
-
-export function AccountSecurityRequired({ binding }: { binding: boolean }) {
-  const t = useTranslations("AccountFlow")
-  return (
-    <div
-      role="status"
-      className="rounded-xl border border-amber-200/70 bg-amber-50/70 p-3 text-xs leading-relaxed text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-200"
-    >
-      <div className="flex gap-2">
-        <ShieldCheck className="mt-0.5 size-3.5 shrink-0" />
-        <p>{t(binding ? "bindingSecurity" : "smsSecurity")}</p>
-      </div>
-      <Button
-        type="button"
-        variant="link"
-        size="sm"
-        className="mt-1 h-7 px-0 text-xs"
-        onClick={() => void openExternal("https://account.iyw.cn")}
-      >
-        {t("officialAccount")}
-        <ExternalLink className="size-3" />
-      </Button>
     </div>
   )
 }

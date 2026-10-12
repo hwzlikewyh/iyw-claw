@@ -19,13 +19,12 @@ pub(super) async fn captcha(data: Value) -> Result<IywLoginResult, AppCommandErr
     let challenge = &response["data"]["processImageCode"];
     let security = challenge.as_bool() == Some(true)
         || scalar(challenge).is_some_and(|flag| flag == "1" || flag == "true");
-    let captcha_key = if security {
-        None
-    } else {
-        let key = field(&response["data"], "captchaKey")
-            .ok_or_else(|| AppCommandError::network("验证码发送结果未确认，请稍后检查"))?;
-        Some(pending::remember_captcha(phone, kind, key).await)
-    };
+    if security {
+        return super::image_captcha::begin(phone, kind).await;
+    }
+    let key = field(&response["data"], "captchaKey")
+        .ok_or_else(|| AppCommandError::network("验证码发送结果未确认，请稍后检查"))?;
+    let captcha_key = Some(pending::remember_captcha(phone, kind, key).await);
     Ok(IywLoginResult {
         status: "captcha".to_string(),
         captcha_key,

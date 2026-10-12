@@ -64,6 +64,14 @@ pub struct IywWechatPollingResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct IywImageChallenge {
+    pub id: String,
+    pub image_data: String,
+    pub coords_x: f64,
+    pub coords_y: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct IywLoginResult {
     pub status: String,
     pub profile: Option<IywAccountProfile>,
@@ -72,6 +80,7 @@ pub struct IywLoginResult {
     pub message: Option<String>,
     pub captcha_key: Option<String>,
     pub security_verification_required: bool,
+    pub image_challenge: Option<IywImageChallenge>,
 }
 
 #[derive(Deserialize)]

@@ -1,5 +1,13 @@
 {
   "AccountFlow": {
+    "sliderTitle": "Complete the security check",
+    "sliderRefresh": "Load another verification image",
+    "sliderDrag": "Drag right to complete the puzzle",
+    "sliderChecking": "Processing the security check…",
+    "sliderRetry": "Try dragging again or refresh the image",
+    "sliderImageFailed": "Could not load the image. Refresh to retry.",
+    "sliderPosition": "Slider position {position}",
+    "sliderHint": "SMS is sent after verification. Arrow keys adjust; Enter verifies.",
     "availablePoints": "Available points",
     "pointsUnit": "points",
     "spaceConfirming": "Confirming space",

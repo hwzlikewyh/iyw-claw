@@ -1,11 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import {
-  AccountAgreement,
-  AccountFlowError,
-  AccountSecurityRequired,
-} from "./account-flow-feedback"
+import { AccountAgreement, AccountFlowError } from "./account-flow-feedback"
+import { AccountImageCaptcha } from "./account-image-captcha"
 import {
   useAccountLoginForm,
   type AccountFormMode,
@@ -55,8 +52,14 @@ export function AccountAuthForm(props: Props) {
       <AccountCaptchaField {...scope} />
       <AccountPasswordField {...scope} />
       <AccountFormLinks {...scope} />
-      {form.security ? (
-        <AccountSecurityRequired binding={props.mode === "binding"} />
+      {form.imageChallenge ? (
+        <AccountImageCaptcha
+          challenge={form.imageChallenge}
+          loading={form.loading}
+          onVerify={form.verifyImage}
+          onRefresh={form.refreshImage}
+          onCancel={form.cancelImage}
+        />
       ) : null}
       <AccountFlowError message={form.error} />
       <AccountSubmitButton {...scope} />

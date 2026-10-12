@@ -188,5 +188,6 @@ pub(super) async fn remember_workspace(id: &str, target: Value) {
 pub(super) async fn clear() {
     flows().lock().await.clear();
     captchas().lock().await.clear();
+    super::image_captcha::clear().await;
     begin_scan();
 }
