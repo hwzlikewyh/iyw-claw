@@ -6898,17 +6898,6 @@ fn shared_copy_marker_matches(path: &Path, source: &Path, skill_id: &str) -> boo
     marker.skill_id == skill_id && marker.source_path == source.to_string_lossy().as_ref()
 }
 
-fn write_shared_copy_marker(path: &Path, source: &Path, skill_id: &str) -> Result<(), AcpError> {
-    let marker = SharedSkillCopyMarker {
-        skill_id: skill_id.to_string(),
-        source_path: source.to_string_lossy().to_string(),
-    };
-    let serialized = serde_json::to_string_pretty(&marker)
-        .map_err(|e| AcpError::protocol(format!("failed to serialize copy marker: {e}")))?;
-    fs::write(shared_copy_marker_path(path), serialized)
-        .map_err(|e| AcpError::protocol(format!("failed to write copy marker: {e}")))
-}
-
 fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
@@ -7267,26 +7256,16 @@ fn create_shared_skill_publication(
     skill_id: &str,
     sync_mode: AgentSkillSyncMode,
 ) -> Result<bool, AcpError> {
-    Ok(match sync_mode {
-        AgentSkillSyncMode::Symlink => match create_link_raw(source, target) {
-            Ok(is_copy) => {
-                if is_copy {
-                    write_shared_copy_marker(target, source, skill_id)?;
-                }
-                is_copy
-            }
-            Err(err) => {
-                return Err(AcpError::protocol(format!(
-                    "failed to link skill into agent directory: {err}"
-                )));
-            }
-        },
-        AgentSkillSyncMode::Copy => {
-            copy_dir_recursive(source, target)
-                .map_err(|e| AcpError::protocol(format!("failed to copy skill: {e}")))?;
-            write_shared_copy_marker(target, source, skill_id)?;
-            true
-        }
+    if sync_mode == AgentSkillSyncMode::Copy {
+        tracing::info!(skill_id, source = %source.display(), target = %target.display(), "[skills] legacy copy publication request migrated to a directory link");
+    }
+    create_link_raw(source, target).map_err(|error| {
+        tracing::error!(skill_id, source = %source.display(), target = %target.display(), error = %error, "[skills] failed to publish central Skill directory link");
+        AcpError::protocol(format!(
+            "failed to link skill '{skill_id}' into agent directory '{}' from '{}': {error}",
+            target.display(),
+            source.display()
+        ))
     })
 }
 

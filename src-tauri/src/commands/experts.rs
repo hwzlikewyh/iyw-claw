@@ -32,6 +32,7 @@ use crate::commands::acp::{
 use crate::models::agent::AgentType;
 
 mod legacy_backups;
+mod skill_link;
 pub(crate) use legacy_backups::is_legacy_skill_backup_name;
 
 // ─── Embedded bundle ────────────────────────────────────────────────────
@@ -735,7 +736,7 @@ fn enable_managed_link_entry(
     link_path: &Path,
 ) -> Result<ManagedLinkChange, ManagedLinkEntryError> {
     if managed_copy_is_owned(expected_target, link_path) {
-        return replace_managed_copy_with_link(expected_target, link_path)
+        return skill_link::replace_managed_copy_with_link(expected_target, link_path)
             .map(|copy_mode| ManagedLinkChange::Linked { copy_mode })
             .map_err(|error| ManagedLinkEntryError::Io(error.to_string()));
     }
@@ -755,17 +756,6 @@ fn enable_managed_link_entry(
     create_link_raw(expected_target, link_path)
         .map(|copy_mode| ManagedLinkChange::Linked { copy_mode })
         .map_err(|error| ManagedLinkEntryError::Io(error.to_string()))
-}
-
-fn replace_managed_copy_with_link(source: &Path, target: &Path) -> io::Result<bool> {
-    if !source.is_dir() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            format!("managed Skill source is unavailable: {}", source.display()),
-        ));
-    }
-    remove_skill_entry(target)?;
-    create_link_raw(source, target)
 }
 
 fn raw_link_targets(link_path: &Path, expected_target: &Path) -> bool {
@@ -886,8 +876,19 @@ pub(crate) fn create_link_raw(src: &Path, dst: &Path) -> io::Result<bool> {
 
 #[cfg(windows)]
 pub(crate) fn create_link_raw(src: &Path, dst: &Path) -> io::Result<bool> {
-    // 链接失败直接返回，避免产生偏离中央来源的技能副本。
-    junction::create(src, dst).map(|_| false)
+    // 两种目录链接都指向中央来源，不能通过复制 Skill 绕过链接限制。
+    skill_link::create_windows_link(src, dst).map_err(|error| {
+        let error = io::Error::new(
+            error.kind(),
+            format!(
+                "failed to create Skill directory link '{}' -> '{}': {error}",
+                dst.display(),
+                src.display()
+            ),
+        );
+        tracing::error!(source = %src.display(), link = %dst.display(), error = %error, "[skills] directory link creation failed");
+        error
+    })
 }
 
 fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
