@@ -5,6 +5,8 @@ import { PdfPreview } from "@/components/files/pdf-preview"
 import { MediaPreview } from "@/components/files/media-preview"
 import type { ScenarioCaseAsset } from "@/lib/scenario-cases"
 import styles from "./scenario-cases.module.css"
+import { ScenarioCaseMarkdown } from "./scenario-case-markdown"
+import { CaseLoadError } from "./scenario-case-error"
 
 export function ScenarioCasePreview({
   asset,
@@ -15,6 +17,8 @@ export function ScenarioCasePreview({
 }) {
   const [failed, setFailed] = useState(false)
   if (failed) return <CaseLoadError onRetry={onRetry} />
+  if (asset.kind === "markdown")
+    return <ScenarioCaseMarkdown asset={asset} onRetry={onRetry} />
   if (asset.kind === "pdf") {
     return (
       <div className={styles.documentPreview}>
@@ -36,18 +40,12 @@ export function ScenarioCasePreview({
       alt={asset.fileName}
       className={styles.previewImage}
       loading="lazy"
-      onError={() => setFailed(true)}
+      onError={() => {
+        console.warn("[scenario-case] image preview failed", {
+          kind: asset.kind,
+        })
+        setFailed(true)
+      }}
     />
-  )
-}
-
-export function CaseLoadError({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className={styles.loadState} role="alert">
-      <p>案例暂时无法读取，请重试。</p>
-      <button type="button" className={styles.viewButton} onClick={onRetry}>
-        重新加载
-      </button>
-    </div>
   )
 }
