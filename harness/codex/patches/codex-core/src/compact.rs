@@ -390,7 +390,8 @@ async fn run_compact_task_inner_impl(
     } else {
         get_last_assistant_message_from_turn(history_snapshot.raw_items()).unwrap_or_default()
     };
-    let summary_text = format!("{SUMMARY_PREFIX}\n{summary_suffix}");
+    let mut summary_text = format!("{SUMMARY_PREFIX}\n{summary_suffix}");
+    crate::client::image_references::append_image_references(history_snapshot.raw_items(), &mut summary_text);
     let user_messages = collect_annotated_user_messages(history_items);
 
     let mut new_history = build_compacted_history(Vec::new(), &user_messages, &summary_text);

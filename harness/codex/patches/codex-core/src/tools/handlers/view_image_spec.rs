@@ -16,7 +16,7 @@ pub struct ViewImageToolOptions {
 pub fn create_view_image_tool(options: ViewImageToolOptions) -> ToolSpec {
     let mut properties = BTreeMap::from([(
         "path".to_string(),
-        JsonSchema::string(Some("Local filesystem path to an image file.".to_string())),
+        JsonSchema::string(Some("Local filesystem path to an image file, or an iyw-image-v1- resource ID retained in conversation history.".to_string())),
     )]);
     if options.can_request_original_image_detail && !options.unified_image_budget {
         properties.insert(
@@ -41,7 +41,7 @@ pub fn create_view_image_tool(options: ViewImageToolOptions) -> ToolSpec {
 
     ToolSpec::Function(ResponsesApiTool {
         name: VIEW_IMAGE_TOOL_NAME.to_string(),
-        description: "View a local image file from the filesystem when visual inspection is needed. Use this for images already available on disk."
+        description: "View a local image file or reload a previously retained iyw-image-v1- image resource when visual inspection is needed."
             .to_string(),
         strict: false,
         defer_loading: None,

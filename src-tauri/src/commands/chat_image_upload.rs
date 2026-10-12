@@ -34,8 +34,22 @@ enum UploadFailure {
 }
 
 pub(super) enum ImageUploadOutcome {
+    Managed,
     Uploaded(String),
     Unavailable(AppCommandError),
+}
+
+pub(super) async fn check_managed_image(conn: &DatabaseConnection, url: &str) -> Result<(), AppCommandError> {
+    let token = crate::commands::iyw_account::iyw_account_access_token_core(conn).await?
+        .ok_or_else(|| AppCommandError::authentication_failed("Sign in to iyw-claw first"))?;
+    let client = Client::builder().timeout(UPLOAD_TIMEOUT).build()
+        .map_err(|_| AppCommandError::network("Failed to initialize image validation"))?;
+    let mut response = post_gateway(&client, token.expose(), "checkImage", json!({"image":url})).await?;
+    response.payload.message = response.payload.message.map(|message| message.replace(url, "[image URL]"));
+    if response.status.is_success() && response.payload.code != 1 {
+        return Err(gateway_error("IYW image service rejected the image", &response.payload));
+    }
+    Ok(())
 }
 
 fn image_extension(mime_type: &str) -> Result<&'static str, AppCommandError> {

@@ -1385,6 +1385,8 @@ async fn run_pre_sampling_compact(
     cancellation_token: &CancellationToken,
     pending_tokens: i64,
 ) -> CodexResult<()> {
+    Box::pin(sess.promote_legacy_images(turn_context.as_ref()))
+        .or_cancel(cancellation_token).await?;
     maybe_run_previous_model_inline_compact(sess, turn_context, client_session, cancellation_token)
         .await?;
     let token_status =

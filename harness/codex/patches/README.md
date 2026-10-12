@@ -1,5 +1,23 @@
 # Local Upstream Patches
 
+## Managed conversation images
+
+The core's existing attachment-store interface now prepares durable image references through
+the managed Fusion provider. It looks up SHA-256 identities before uploading and persists
+the resulting file reference in native thread history. Other providers and disabled routes
+retain inline attachments. Ordinary and remote-v2 compaction keep reloadable image IDs;
+`view_image` can read those resources while its code-mode result retains a Data URL.
+Gateway requests use the existing scoped credential and network-policy path. Fusion resolves
+its private IDs before forwarding and controls URL support per candidate, protocol and image
+role. Keep resource resolution available when switching reuse off. No automatic TOS object
+deletion is introduced. Configuration and rollout are documented in Fusion's
+`docs/conversation-images.md`; real image-quality and GUI validation remain required.
+
+Existing inline images are prepared only when an authorized model turn starts, without
+rewriting the original rollout. The desktop's prepared attachment path carries agent/model
+context so enabled Xinghe attachments reuse the same resource instead of uploading to both
+the legacy public image service and Fusion. External agents keep their original upload path.
+
 ## Embedded Desktop Integration
 
 The desktop now links the pinned 0.161.0 runtime into its executable. The local

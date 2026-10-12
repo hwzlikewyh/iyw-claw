@@ -28,6 +28,10 @@
 use std::collections::HashMap;
 #[path = "client_timing.rs"]
 mod timing;
+#[path = "managed_image_store.rs"]
+pub(crate) mod managed_images;
+#[path = "managed_image_references.rs"]
+pub(crate) mod image_references;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::sync::OnceLock;

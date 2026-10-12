@@ -205,6 +205,7 @@ pub async fn remote_chat_image_upload_finish(
     upload_id: String,
     session_id: Option<String>,
     chat_dir: Option<String>,
+    resource_context: Option<crate::commands::chat_image::ChatImageResourceContext>,
 ) -> Result<Value, AppCommandError> {
     require_file_upload().await?;
     let upload_id = parse_upload_id(&upload_id)?;
@@ -239,6 +240,7 @@ pub async fn remote_chat_image_upload_finish(
                     mime_type: mime_type.clone(),
                     session_id,
                     chat_dir,
+                    resource_context,
                 },
             )
             .await
@@ -251,6 +253,7 @@ pub async fn remote_chat_image_upload_finish(
                     chat_dir: chat_dir.map(PathBuf::from),
                     session_id,
                     display_name: Some(file_name.clone()),
+                    resource_context,
                 },
                 &monitor,
             )

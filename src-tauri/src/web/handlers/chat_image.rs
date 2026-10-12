@@ -17,6 +17,7 @@ pub struct PrepareChatImageParams {
     pub path: String,
     pub chat_dir: Option<String>,
     pub session_id: Option<String>,
+    pub resource_context: Option<crate::commands::chat_image::ChatImageResourceContext>,
 }
 
 pub async fn prepare_chat_image(
@@ -32,6 +33,7 @@ pub async fn prepare_chat_image(
             chat_dir: params.chat_dir.map(PathBuf::from),
             session_id: params.session_id,
             display_name: None,
+            resource_context: params.resource_context,
         },
         &monitor,
     )

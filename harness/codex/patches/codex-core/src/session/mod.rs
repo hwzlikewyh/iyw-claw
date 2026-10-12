@@ -240,6 +240,7 @@ pub(crate) use reasoning_effort::RequestEffortUsage;
 pub(crate) use submission::Submission;
 mod input_queue;
 mod mcp;
+mod managed_images;
 mod mcp_prewarm;
 mod mcp_refresh;
 mod mcp_runtime;
@@ -3322,13 +3323,20 @@ impl Session {
         } else {
             ImageResizeNoticeMode::Disabled
         };
+        let image_store = if crate::client::image_references::contains_inline_images(&items) {
+            self.services.model_client.managed_image_store(
+                &model_info.slug, Arc::clone(&self.services.image_store),
+            ).await
+        } else {
+            Arc::clone(&self.services.image_store)
+        };
         // Keep nested image-upload futures out of every caller's future frame.
         let image_preparations = Box::pin(prepare_image_response_items(
             &self.thread_id.to_string(),
             &mut items,
             image_preparation_mode,
             image_resize_notice_mode,
-            self.services.image_store.as_ref(),
+            image_store.as_ref(),
         ))
         .await;
         prepare_audio_response_items(&mut items);

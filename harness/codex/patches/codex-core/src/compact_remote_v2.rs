@@ -326,8 +326,16 @@ async fn run_remote_compact_task_inner_impl(
     );
     analytics_details.retained_image_count = Some(retained_images);
     let (new_window_number, new_window_ids) = sess.advance_auto_compact_window().await;
-    let (initial_context, world_state_baseline) =
+    let (mut initial_context, world_state_baseline) =
         build_compaction_initial_context(sess.as_ref(), &initial_context_injection).await;
+    let history = sess.clone_history().await;
+    let mut image_references = String::new();
+    crate::client::image_references::append_image_references(history.raw_items(), &mut image_references);
+    if !image_references.is_empty() {
+        initial_context.push(ResponseItemEnvelope::new(crate::context::ContextualUserFragment::into(
+            crate::context::CompactionSummary::new(image_references),
+        )));
+    }
     let new_history =
         insert_initial_context_before_last_real_user_or_summary(compacted_history, initial_context);
 

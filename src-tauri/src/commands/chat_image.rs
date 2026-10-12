@@ -7,12 +7,20 @@ use image::metadata::Orientation;
 use image::{
     DynamicImage, ExtendedColorType, ImageDecoder, ImageEncoder, ImageFormat, ImageReader, Limits,
 };
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
 use crate::app_error::AppCommandError;
 
 mod prepare;
 mod storage;
+mod resource;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatImageResourceContext {
+    pub agent_type: Option<crate::models::AgentType>,
+    pub model_id: Option<String>,
+}
 
 #[cfg(feature = "tauri-runtime")]
 pub(crate) use prepare::effective_app_data_dir;
@@ -272,6 +280,7 @@ pub async fn prepare_chat_image(
     path: String,
     chat_dir: Option<String>,
     session_id: Option<String>,
+    resource_context: Option<ChatImageResourceContext>,
 ) -> Result<PreparedChatImage, AppCommandError> {
     let monitor = crate::acp::capability_policy::monitor_file_upload(None).await?;
     prepare_chat_image_core(
@@ -282,6 +291,7 @@ pub async fn prepare_chat_image(
             chat_dir: chat_dir.map(PathBuf::from),
             session_id,
             display_name: None,
+            resource_context,
         },
         &monitor,
     )

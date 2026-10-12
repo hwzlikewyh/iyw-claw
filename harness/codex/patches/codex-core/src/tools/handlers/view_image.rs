@@ -32,6 +32,9 @@ pub struct ViewImageHandler {
     options: ViewImageToolOptions,
 }
 
+#[path = "view_stored_image.rs"]
+mod stored;
+
 impl Default for ViewImageHandler {
     fn default() -> Self {
         Self {
@@ -141,6 +144,18 @@ impl ViewImageHandler {
                 )));
             }
         };
+
+        if path.starts_with(crate::client::managed_images::IMAGE_ID_PREFIX) {
+            let original = self.options.unified_image_budget ||
+                can_request_original_image_detail(&step_context.settings.model_info)
+                    && matches!(detail, Some(ViewImageDetail::Original));
+            let request = stored::StoredImageRequest {
+                image: ImageReference::File { file_id: path },
+                detail: if original { ImageDetail::Original } else { DEFAULT_IMAGE_DETAIL },
+                unified_image_budget: self.options.unified_image_budget,
+            };
+            return Ok(boxed_tool_output(stored::load(&session, request).await?));
+        }
 
         let Some(turn_environment) =
             resolve_tool_environment(&step_context.environments, environment_id.as_deref())?

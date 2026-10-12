@@ -915,8 +915,12 @@ export function MessageInput({
     () => ({
       sessionId: attachmentTabId ?? null,
       chatDir: stageAttachmentsInWorkingDir ? (defaultPath ?? null) : null,
+      resourceContext: {
+        agentType: agentType ?? null,
+        modelId: configOptions?.find(isModelConfigOption)?.kind.current_value ?? null,
+      },
     }),
-    [attachmentTabId, defaultPath, stageAttachmentsInWorkingDir]
+    [attachmentTabId, defaultPath, stageAttachmentsInWorkingDir, agentType, configOptions]
   )
   // The `$` prefix autocomplete is Codex-only: Codex advertises very few
   // native slash commands, so we augment the dropdown with the agent's

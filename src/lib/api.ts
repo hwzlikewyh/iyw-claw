@@ -2919,6 +2919,7 @@ async function uploadRemoteDesktopChatImage(
         uploadId,
         sessionId: options.sessionId ?? null,
         chatDir: options.chatDir ?? null,
+        resourceContext: options.resourceContext ?? null,
       }
     )
     uploadId = null
@@ -2939,6 +2940,10 @@ export interface ChatImageStorageOptions {
   sessionId?: string | null
   chatDir?: string | null
   mimeType?: string | null
+  resourceContext?: {
+    agentType?: AgentType | null
+    modelId?: string | null
+  } | null
 }
 
 export async function uploadChatImage(
@@ -2962,6 +2967,8 @@ export async function uploadChatImage(
   form.append("file", uploadFile, file.name)
   if (options.sessionId) form.append("session_id", options.sessionId)
   if (options.chatDir) form.append("chat_dir", options.chatDir)
+  if (options.resourceContext)
+    form.append("resource_context", JSON.stringify(options.resourceContext))
   const response = await fetch(
     `${window.location.origin}/api/upload_chat_image`,
     {
@@ -3000,6 +3007,7 @@ export async function uploadLocalChatImagePathToRemote(
       path,
       sessionId: options.sessionId ?? null,
       chatDir: options.chatDir ?? null,
+      resourceContext: options.resourceContext ?? null,
     }
   )
 }
@@ -3079,6 +3087,7 @@ export async function prepareChatImagePath(
     path,
     chatDir: options.chatDir ?? null,
     sessionId: options.sessionId ?? null,
+    resourceContext: options.resourceContext ?? null,
   })
 }
 

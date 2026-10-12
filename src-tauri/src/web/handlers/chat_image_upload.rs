@@ -26,6 +26,7 @@ struct UploadedImage {
     size: u64,
     session_id: Option<String>,
     chat_dir: Option<String>,
+    resource_context: Option<crate::commands::chat_image::ChatImageResourceContext>,
 }
 
 struct ImageStaging<'a> {
@@ -102,6 +103,7 @@ async fn stream_image(
     let mut size = 0;
     let mut session_id = None;
     let mut chat_dir = None;
+    let mut resource_context = None;
     while let Some(mut field) = staging
         .monitor
         .run_until_revoked(multipart.next_field())
@@ -111,6 +113,15 @@ async fn stream_image(
         })?
     {
         match field.name().unwrap_or("") {
+            "resource_context" | "resourceContext" => {
+                let value = staging.monitor.run_until_revoked(field.text()).await?
+                    .map_err(|_| AppCommandError::invalid_input("Invalid image resource context"))?;
+                if value.len() > MAX_SESSION_ID_CHARS * 2 {
+                    return Err(AppCommandError::invalid_input("Image resource context is too long"));
+                }
+                resource_context = Some(serde_json::from_str(&value)
+                    .map_err(|_| AppCommandError::invalid_input("Invalid image resource context"))?);
+            }
             "session_id" | "sessionId" => {
                 let value = staging
                     .monitor
@@ -168,6 +179,7 @@ async fn stream_image(
         size,
         session_id,
         chat_dir,
+        resource_context,
     })
 }
 
@@ -199,6 +211,7 @@ pub async fn upload_chat_image(
                 chat_dir: uploaded.chat_dir.map(Into::into),
                 session_id: uploaded.session_id,
                 display_name: Some(display_name),
+                resource_context: uploaded.resource_context,
             },
             &monitor,
         )

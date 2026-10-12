@@ -631,6 +631,20 @@ impl ContextManager {
         &self.items
     }
 
+    pub(crate) fn promote_image_references(
+        &mut self,
+        references: &std::collections::HashMap<[u8; 32], codex_protocol::models::ImageReference>,
+    ) -> usize {
+        let changed = Arc::make_mut(&mut self.items).iter_mut().map(|envelope|
+            crate::client::image_references::promote_item_images(&mut envelope.item, references)
+        ).sum();
+        if changed > 0 {
+            self.estimated_history_tokens.take();
+            self.token_usage_anchor = None;
+        }
+        changed
+    }
+
     /// Returns annotated history items and consumes the snapshot.
     pub(crate) fn into_annotated_items(self) -> Vec<ResponseItemEnvelope> {
         Arc::unwrap_or_clone(self.into_shared_annotated_items())

@@ -19,6 +19,7 @@ pub(crate) struct PrepareChatImageRequest {
     pub chat_dir: Option<PathBuf>,
     pub session_id: Option<String>,
     pub display_name: Option<String>,
+    pub resource_context: Option<super::ChatImageResourceContext>,
 }
 
 struct CompletedImage {
@@ -80,6 +81,8 @@ fn complete_image(
     upload: chat_image_upload::ImageUploadOutcome,
 ) -> CompletedImage {
     let (url, data, delivery_mode) = match upload {
+        chat_image_upload::ImageUploadOutcome::Managed =>
+            (None, Some(STANDARD.encode(&image.bytes)), "managed-resource"),
         chat_image_upload::ImageUploadOutcome::Uploaded(url) => (Some(url), None, "tos"),
         chat_image_upload::ImageUploadOutcome::Unavailable(error) => {
             tracing::warn!(
@@ -147,7 +150,14 @@ pub(crate) async fn prepare_chat_image_core(
         remove_staged_image(&staged.path).await;
         return Err(error);
     }
-    let upload = match chat_image_upload::upload_prepared(conn, &prepared).await {
+    let operation = async {
+        if super::resource::prepare_managed(conn, &prepared, request.resource_context.as_ref()).await? {
+            Ok(chat_image_upload::ImageUploadOutcome::Managed)
+        } else {
+            chat_image_upload::upload_prepared(conn, &prepared).await
+        }
+    };
+    let upload = match monitor.run_until_revoked(operation).await.and_then(|result| result) {
         Ok(result) => result,
         Err(error) => {
             log_prepare_failure("tos_upload", &prepared, &error);

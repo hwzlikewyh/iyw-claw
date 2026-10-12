@@ -782,6 +782,7 @@ pub(crate) struct RemoteChatImageFile {
     pub mime_type: String,
     pub session_id: Option<String>,
     pub chat_dir: Option<String>,
+    pub resource_context: Option<super::chat_image::ChatImageResourceContext>,
 }
 
 pub(crate) async fn upload_chat_image_file_to_remote(
@@ -801,6 +802,11 @@ pub(crate) async fn upload_chat_image_file_to_remote(
     }
     if let Some(chat_dir) = image.chat_dir.filter(|value| !value.is_empty()) {
         form = form.text("chat_dir", chat_dir);
+    }
+    if let Some(context) = image.resource_context {
+        let value = serde_json::to_string(&context).map_err(|error|
+            AppCommandError::invalid_input("Invalid image resource context").with_detail(error.to_string()))?;
+        form = form.text("resource_context", value);
     }
     let url = format!(
         "{}/api/upload_chat_image",
@@ -832,6 +838,7 @@ pub async fn remote_upload_chat_image_path(
     path: String,
     session_id: Option<String>,
     chat_dir: Option<String>,
+    resource_context: Option<super::chat_image::ChatImageResourceContext>,
 ) -> Result<Value, AppCommandError> {
     let path = PathBuf::from(path);
     let mime_type = supported_chat_image_mime(&path)?;
@@ -849,6 +856,7 @@ pub async fn remote_upload_chat_image_path(
             mime_type,
             session_id,
             chat_dir,
+            resource_context,
         },
     )
     .await
