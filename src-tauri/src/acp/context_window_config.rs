@@ -62,7 +62,8 @@ pub(crate) fn apply(
         value: value.into(),
     };
     super::context_window_runtime::apply(environment, &budget)?;
-    tracing::info!(agent = %agent, model = %budget.model, selected = value, window, compact,
+    tracing::info!(agent = %agent, model = %budget.model, selected = value, maximum, window, compact,
+        max_output_tokens = limits.max_output_tokens,
         "[ACP] applied native SDK context window policy");
     Ok(Some(context_option(&budget, &tiers, automatic)))
 }
@@ -80,8 +81,9 @@ fn compaction_threshold(
     window: u64,
     value: &str,
 ) -> Result<u64, AcpError> {
+    let limits = super::model_budget::limits_for_window(limits, window)
+        .ok_or_else(|| AcpError::protocol("Selected context window exceeds the model limit"))?;
     super::model_budget::threshold_for_limits(super::model_catalog::ModelLimits {
-        context_window: Some(window),
         compaction_at_tokens: if value == "auto" {
             limits.compaction_at_tokens.filter(|value| *value > 0)
         } else {
@@ -89,7 +91,8 @@ fn compaction_threshold(
         },
         ..limits
     })
-    .ok_or_else(|| AcpError::protocol("Context budget is unavailable"))
+    .filter(|threshold| *threshold > 1)
+    .ok_or_else(|| AcpError::protocol("Selected context window has no usable input budget"))
 }
 
 fn selected_window(value: &str, automatic: u64, tiers: &[u64]) -> Result<u64, AcpError> {

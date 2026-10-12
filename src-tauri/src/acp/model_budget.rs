@@ -58,6 +58,22 @@ pub fn compaction_threshold_for(agent: AgentType, model: Option<&str>, reported:
     threshold_for_limits(limits_for_agent(agent, model, reported))
 }
 
+pub(crate) fn limits_for_window(limits: ModelLimits, window: u64) -> Option<ModelLimits> {
+    let maximum = limits.context_window.filter(|maximum| *maximum > 0)?;
+    if window == 0 || window > maximum {
+        return None;
+    }
+    // 最大输出是模型能力上限；缩小会话窗口时按同一比例预留，不能扣掉完整上限。
+    let output_reserve = limits
+        .max_output_tokens
+        .map(|output| (u128::from(output) * u128::from(window) / u128::from(maximum)) as u64);
+    Some(ModelLimits {
+        context_window: Some(window),
+        max_output_tokens: output_reserve,
+        ..limits
+    })
+}
+
 pub(crate) fn threshold_for_limits(limits: ModelLimits) -> Option<u64> {
     let context = limits.context_window?;
     let usable = context.saturating_mul(USABLE_CONTEXT_PERCENT) / 100;

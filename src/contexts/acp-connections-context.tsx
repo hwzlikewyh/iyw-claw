@@ -95,6 +95,7 @@ import {
   isModelConfigOption,
 } from "@/lib/model-config-groups"
 import { CONNECTION_KEEPALIVE_INTERVAL_MS } from "@/lib/constants"
+import { CONTEXT_WINDOW_CONFIG_ID } from "@/lib/model-context-window"
 import { notifyConversationUsage } from "@/lib/conversation-usage-events"
 import { sendSystemNotification } from "@/lib/notification"
 import {
@@ -5693,6 +5694,25 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       // Capture identity BEFORE teardown. `sessionId` is what makes the new
       // process resume this conversation (session/load) rather than start fresh.
       const { agentType, workingDir, sessionId } = conn
+      // 星河空会话尚无持久化记录；切换档位时新建，已有输入或历史继续恢复。
+      const emptyContextChange =
+        agentType === "codex" &&
+        preferredConfigValues?.[CONTEXT_WINDOW_CONFIG_ID] != null &&
+        conversationId == null &&
+        (!sessionId ||
+          getConversationIdByExternalIdFromStore(sessionId) == null) &&
+        conn.agentInputs.length === 0 &&
+        conn.liveMessage == null &&
+        conn.usage == null
+      const resumeSessionId = emptyContextChange
+        ? undefined
+        : (sessionId ?? undefined)
+      console.info("[ACP] reapply session configuration", {
+        agentType,
+        conversationId,
+        contextWindow: preferredConfigValues?.[CONTEXT_WINDOW_CONFIG_ID],
+        resume: Boolean(resumeSessionId),
+      })
       if (forceHostRestart) setReplacementState(contextKey, true)
       const replacement = await acpDisconnectForReplacementDetailed(
         conn.connectionId
@@ -5710,7 +5730,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       const request: ConnectRequest = {
         agentType,
         workingDir: workingDir ?? undefined,
-        sessionId: sessionId ?? undefined,
+        sessionId: resumeSessionId,
         conversationId,
         preferredConfigValues,
         forceHostRestart,
@@ -5729,7 +5749,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         contextKey,
         agentType,
         workingDir ?? undefined,
-        sessionId ?? undefined,
+        resumeSessionId,
         conversationId,
         {
           forceHostRestart,
