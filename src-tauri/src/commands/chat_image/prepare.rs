@@ -1,4 +1,6 @@
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::time::Instant;
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -132,46 +134,65 @@ fn log_prepared(completed: &CompletedImage, started: &Instant) {
     );
 }
 
-pub(crate) async fn prepare_chat_image_core(
-    conn: &sea_orm::DatabaseConnection,
+// 在共享入口装箱，避免图片网络分支放大 Tauri 和 Web 调用方的线程栈。
+pub(crate) fn prepare_chat_image_core<'a>(
+    conn: &'a sea_orm::DatabaseConnection,
     request: PrepareChatImageRequest,
-    monitor: &CapabilityRevocationMonitor,
-) -> Result<PreparedChatImage, AppCommandError> {
-    let started = Instant::now();
-    let name = display_name(&request);
-    monitor.require_current().await?;
-    let mut prepared = monitor
-        .run_until_revoked(encode_chat_image_path(request.path.clone()))
-        .await??;
-    prepared.name = name;
-    monitor.require_current().await?;
-    let staged = stage_prepared_image(&request, &prepared).await?;
-    if let Err(error) = monitor.require_current().await {
-        remove_staged_image(&staged.path).await;
-        return Err(error);
-    }
-    let operation = async {
-        if super::resource::prepare_managed(conn, &prepared, request.resource_context.as_ref()).await? {
-            Ok(chat_image_upload::ImageUploadOutcome::Managed)
-        } else {
-            chat_image_upload::upload_prepared(conn, &prepared).await
-        }
-    };
-    let upload = match monitor.run_until_revoked(operation).await.and_then(|result| result) {
-        Ok(result) => result,
-        Err(error) => {
-            log_prepare_failure("tos_upload", &prepared, &error);
+    monitor: &'a CapabilityRevocationMonitor,
+) -> Pin<Box<dyn Future<Output = Result<PreparedChatImage, AppCommandError>> + Send + 'a>> {
+    Box::pin(async move {
+        let started = Instant::now();
+        let name = display_name(&request);
+        monitor.require_current().await?;
+        tracing::info!(target: "chat.image", "started chat image preparation");
+        let mut prepared = monitor
+            .run_until_revoked(encode_chat_image_path(request.path.clone()))
+            .await??;
+        prepared.name = name;
+        monitor.require_current().await?;
+        let staged = stage_prepared_image(&request, &prepared).await?;
+        if let Err(error) = monitor.require_current().await {
             remove_staged_image(&staged.path).await;
             return Err(error);
         }
-    };
-    if let Err(error) = monitor.require_current().await {
-        remove_staged_image(&staged.path).await;
-        return Err(error);
+        let upload = match monitor
+            .run_until_revoked(Box::pin(upload_prepared_image(conn, &prepared, &request)))
+            .await
+            .and_then(|result| result)
+        {
+            Ok(result) => result,
+            Err(error) => {
+                log_prepare_failure("tos_upload", &prepared, &error);
+                remove_staged_image(&staged.path).await;
+                return Err(error);
+            }
+        };
+        if let Err(error) = monitor.require_current().await {
+            remove_staged_image(&staged.path).await;
+            return Err(error);
+        }
+        let completed = complete_image(prepared, staged.path, upload);
+        log_prepared(&completed, &started);
+        Ok(completed.result)
+    })
+}
+
+async fn upload_prepared_image(
+    conn: &sea_orm::DatabaseConnection,
+    prepared: &EncodedChatImage,
+    request: &PrepareChatImageRequest,
+) -> Result<chat_image_upload::ImageUploadOutcome, AppCommandError> {
+    if Box::pin(super::resource::prepare_managed(
+        conn,
+        prepared,
+        request.resource_context.as_ref(),
+    ))
+    .await?
+    {
+        Ok(chat_image_upload::ImageUploadOutcome::Managed)
+    } else {
+        Box::pin(chat_image_upload::upload_prepared(conn, prepared)).await
     }
-    let completed = complete_image(prepared, staged.path, upload);
-    log_prepared(&completed, &started);
-    Ok(completed.result)
 }
 
 async fn remove_staged_image(path: &str) {

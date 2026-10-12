@@ -17,6 +17,8 @@ pub mod computer;
 mod context_governor;
 pub mod db;
 pub mod desktop_bootstrap;
+#[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
+mod desktop_runtime;
 #[cfg(feature = "tauri-runtime")]
 mod desktop_shutdown;
 #[cfg(all(target_os = "windows", not(debug_assertions)))]
@@ -266,6 +268,12 @@ mod tauri_app {
             restore_installer_session,
             "resolved desktop entry route"
         );
+
+        #[cfg(target_os = "windows")]
+        crate::logging::emergency::run_stage("async-runtime", || {
+            crate::desktop_runtime::install();
+            Ok::<(), std::io::Error>(())
+        }).expect("Desktop async runtime initialization failed");
 
         let builder = tauri::Builder::default();
 

@@ -209,6 +209,7 @@ pub async fn remote_chat_image_upload_finish(
 ) -> Result<Value, AppCommandError> {
     require_file_upload().await?;
     let upload_id = parse_upload_id(&upload_id)?;
+    tracing::info!(target: "chat.image", %upload_id, remote = connection_id.is_some(), "finishing chunked image upload");
     let entry = state
         .uploads
         .lock()
@@ -228,7 +229,7 @@ pub async fn remote_chat_image_upload_finish(
         finished,
         ..
     } = entry;
-    let operation = async {
+    let operation = Box::pin(async {
         if let Some(connection_id) = connection_id {
             remote_proxy::upload_chat_image_file_to_remote(
                 db.inner(),
@@ -263,13 +264,18 @@ pub async fn remote_chat_image_upload_finish(
                     .with_detail(error.to_string())
             })
         }
-    };
+    });
     let result = match monitor.run_until_revoked(operation).await {
         Ok(result) => result,
         Err(error) => Err(error),
     };
     finished.cancel();
     remove_upload_file(upload_id, &path).await;
+    if let Err(error) = &result {
+        tracing::error!(target: "chat.image", %upload_id, %error, "failed to finish chunked image upload");
+    } else {
+        tracing::info!(target: "chat.image", %upload_id, "finished chunked image upload");
+    }
     result
 }
 
