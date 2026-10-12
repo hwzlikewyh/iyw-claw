@@ -92,11 +92,24 @@ function useCaseDialog() {
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<ScenarioCase | null>(null)
   const makingSame = useRef(false)
+  const lastSelectedButton = useRef<HTMLElement | null>(null)
   const clear = () => setSelected(null)
   return {
     open,
     selected,
-    select: setSelected,
+    select: (item: ScenarioCase) => {
+      lastSelectedButton.current =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null
+      setSelected(item)
+    },
+    back: () => {
+      clear()
+      requestAnimationFrame(() =>
+        lastSelectedButton.current?.focus({ preventScroll: true })
+      )
+    },
     close: () => {
       makingSame.current = true
       clear()
@@ -145,6 +158,10 @@ export function useCaseController(props: ScenarioCasesProps) {
     select: (item: ScenarioCase) => {
       request.clear()
       dialog.select(item)
+    },
+    back: () => {
+      request.clear()
+      dialog.back()
     },
     changeOpen: (next: boolean) => {
       if (!next) request.clear()

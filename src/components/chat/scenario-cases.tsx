@@ -1,6 +1,8 @@
 "use client"
 
 import { Dialog as DialogPrimitive } from "radix-ui"
+import { ArrowLeft } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogClose,
@@ -60,21 +62,26 @@ function CaseDialog({ model }: { model: CaseController }) {
             <img src="/scenario-cases/close.svg" alt="" />
           </button>
         </DialogClose>
-        {model.selected ? (
-          <CaseDetailContent model={model} />
-        ) : (
-          <CaseList model={model} />
-        )}
+        <CaseList model={model} hidden={Boolean(model.selected)} />
+        {model.selected && <CaseDetailContent model={model} />}
         {model.selected && <MakeSameButton model={model} />}
       </DialogPrimitive.Content>
     </DialogPortal>
   )
 }
 
-function CaseList({ model }: { model: CaseController }) {
+function CaseList({
+  model,
+  hidden,
+}: {
+  model: CaseController
+  hidden: boolean
+}) {
   return (
-    <>
-      <DialogTitle className={styles.listTitle}>{model.title}</DialogTitle>
+    <div className={hidden ? "hidden" : "contents"}>
+      {!hidden && (
+        <DialogTitle className={styles.listTitle}>{model.title}</DialogTitle>
+      )}
       <div className={styles.grid}>
         {model.items.map((item) => (
           <ScenarioCaseCover
@@ -84,7 +91,7 @@ function CaseList({ model }: { model: CaseController }) {
           />
         ))}
       </div>
-    </>
+    </div>
   )
 }
 
@@ -108,18 +115,7 @@ function CaseDetailContent({ model }: { model: CaseController }) {
   if (!item) return null
   return (
     <>
-      <header
-        className={styles.detailHeader}
-        data-summary={Boolean(item.summary)}
-      >
-        <DialogTitle className={styles.detailTitle}>{item.title}</DialogTitle>
-        {item.summary && (
-          <p id="scenario-case-summary" className={styles.summary}>
-            {item.summary}
-          </p>
-        )}
-        <span className={styles.detailTag}>{item.tag}</span>
-      </header>
+      <CaseDetailHeader model={model} />
       <div
         className={styles.preview}
         data-selectors={Boolean(
@@ -143,5 +139,36 @@ function CaseDetailContent({ model }: { model: CaseController }) {
         )}
       </div>
     </>
+  )
+}
+
+function CaseDetailHeader({ model }: { model: CaseController }) {
+  const item = model.detail ?? model.selected
+  if (!item) return null
+  return (
+    <header
+      className={styles.detailHeader}
+      data-summary={Boolean(item.summary)}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <DialogTitle className={styles.detailTitle}>{item.title}</DialogTitle>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="-mt-1 h-8 shrink-0 gap-1 px-2 text-xs text-[#2656f6]"
+          onClick={model.back}
+        >
+          <ArrowLeft className="size-3" />
+          返回案例列表
+        </Button>
+      </div>
+      {item.summary && (
+        <p id="scenario-case-summary" className={styles.summary}>
+          {item.summary}
+        </p>
+      )}
+      <span className={styles.detailTag}>{item.tag}</span>
+    </header>
   )
 }
