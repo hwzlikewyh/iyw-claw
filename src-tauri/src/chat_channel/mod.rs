@@ -31,6 +31,7 @@ pub mod reconcile;
 mod reconcile_connect;
 mod reconcile_credentials;
 mod runtime_status;
+pub(crate) mod runtime_view;
 pub mod scheduler;
 pub mod session_bridge;
 pub mod session_commands;

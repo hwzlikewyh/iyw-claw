@@ -24,6 +24,7 @@ pub mod capability_policy;
 pub mod capability_policy_tauri;
 pub mod chat_attachments;
 pub mod chat_channel;
+pub mod chat_channel_runtime;
 mod chat_channel_delete;
 mod chat_channel_token;
 pub mod chat_image;

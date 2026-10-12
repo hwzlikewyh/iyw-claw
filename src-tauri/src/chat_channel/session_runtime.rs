@@ -68,19 +68,28 @@ pub(super) async fn spawn_for_conversation(
     Ok((connection_id, folder))
 }
 
-pub(super) async fn send_prompt(
-    connection_manager: &ConnectionManager,
-    connection_id: &str,
-    text: &str,
+pub(super) async fn send_channel_prompt(
+    runtime: (&DatabaseConnection, &ConnectionManager),
+    connection: (&str, i32),
+    blocks: Vec<PromptInputBlock>,
 ) -> Result<(), crate::acp::error::AcpError> {
-    connection_manager
-        .send_prompt(
+    // 复用会话提交入口，确保追问有实时 UserMessage 和持久化状态结算。
+    let (db, manager) = runtime;
+    let (connection_id, conversation_id) = connection;
+    let conversation = crate::db::service::conversation_service::get_by_id(db, conversation_id)
+        .await
+        .map_err(|error| crate::acp::error::AcpError::protocol(error.to_string()))?;
+    manager
+        .send_prompt_linked(
+            &AppDatabase { conn: db.clone() },
             connection_id,
-            vec![PromptInputBlock::Text {
-                text: text.to_string(),
-            }],
+            blocks,
+            Some(conversation.folder_id),
+            Some(conversation.id),
+            None,
         )
         .await
+        .map(|_| ())
 }
 
 pub(super) async fn send_prompt_linked(

@@ -1535,6 +1535,14 @@ pub fn build_router(
             post(handlers::chat_channel::list_chat_channel_messages),
         )
         .route(
+            "/list_chat_channel_conversations",
+            post(handlers::chat_channel_runtime::list_conversations),
+        )
+        .route(
+            "/get_chat_channel_conversation_runtime",
+            post(handlers::chat_channel_runtime::get_runtime),
+        )
+        .route(
             "/get_chat_command_prefix",
             post(handlers::chat_channel::get_chat_command_prefix),
         )

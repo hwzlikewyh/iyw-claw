@@ -10,6 +10,7 @@ pub mod artifact_notifications;
 pub mod backup;
 pub mod capability_policy;
 pub mod chat_channel;
+pub mod chat_channel_runtime;
 pub mod chat_image;
 pub mod chat_image_upload;
 pub mod conversations;

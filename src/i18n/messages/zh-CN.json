@@ -4445,6 +4445,72 @@
     "selectedCount": "已选 {count} 项"
   },
   "ChatChannelSettings": {
+    "runtime": {
+      "title": "对话与运行情况",
+      "channel": "渠道",
+      "transport": "渠道连接",
+      "noChannels": "暂无已接入渠道",
+      "search": "搜索对话标题",
+      "filter": "筛选",
+      "filters": {
+        "all": "全部已加载对话",
+        "active": "执行中",
+        "waiting": "等待用户",
+        "attention": "需要关注"
+      },
+      "counts": "已加载 {count} 个对话 · 执行中 {running} · 等待用户 {waiting}",
+      "refresh": "刷新",
+      "refreshFailed": "状态刷新失败，当前状态待确认",
+      "loading": "正在读取对话",
+      "noConversations": "暂无匹配的对话",
+      "selectConversation": "选择一个对话，查看消息和运行情况",
+      "untitled": "未命名对话",
+      "messageCount": "{count} 条消息",
+      "loadMore": "加载更多对话",
+      "openConversation": "打开原对话",
+      "back": "返回列表",
+      "unknownModel": "模型未知",
+      "elapsed": "已执行 {seconds} 秒",
+      "lastActivity": "最近活动：{seconds} 秒前",
+      "answerInConversation": "请在原对话或消息渠道中确认或补充信息",
+      "deliveries": "本回合发送结果",
+      "noDelivery": "暂无可确认的发送记录",
+      "transcript": "对话内容",
+      "olderMessages": "加载更早的消息",
+      "noMessages": "暂无已记录的消息",
+      "historyUnavailable": "暂时无法读取历史正文，仍可查看上方运行状态",
+      "latest": "回到最新消息",
+      "process": "查看执行过程",
+      "roles": {
+        "user": "用户",
+        "assistant": "助手",
+        "system": "系统",
+        "tool": "工具"
+      },
+      "delivery": {
+        "sent": "已发送（不代表已读）",
+        "failed": "发送失败",
+        "queued": "等待回复上下文",
+        "unknown": "发送状态待确认"
+      },
+      "phases": {
+        "unknown": "状态待确认",
+        "completed": "执行已完成",
+        "stopped": "已停止",
+        "failed": "执行失败",
+        "idle": "等待新消息",
+        "preparing": "正在准备",
+        "waiting_output": "等待模型输出",
+        "replying": "正在生成回复",
+        "running_tool": "正在执行工具",
+        "waiting_confirmation": "等待确认",
+        "waiting_input": "等待补充信息",
+        "retrying": "正在重试",
+        "recovering": "正在恢复空回复",
+        "background": "后台任务执行中",
+        "disconnected": "会话连接已断开"
+      }
+    },
     "artifactNotifications": {
       "title": "成果通知",
       "off": "关闭",
@@ -4579,6 +4645,7 @@
       "description": "管理外部消息入口、连接状态与 Agent 回复。",
       "views": {
         "connected": "已接入 {count}",
+        "runtime": "对话与运行情况",
         "market": "渠道市场"
       },
       "search": "搜索渠道",

@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl"
 
 import { Button } from "@/components/ui/button"
 
-export type ChannelView = "connected" | "market"
+export type ChannelView = "connected" | "market" | "runtime"
 
 export function ChannelViewHeader({
   view,
@@ -19,7 +19,7 @@ export function ChannelViewHeader({
   onViewChange: (view: ChannelView) => void
 }) {
   const t = useTranslations("ChatChannelSettings")
-  const views: ChannelView[] = ["connected", "market"]
+  const views: ChannelView[] = ["connected", "runtime", "market"]
   return (
     <div className="space-y-3">
       <div>
@@ -29,7 +29,7 @@ export function ChannelViewHeader({
         </p>
       </div>
       <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="grid w-full grid-cols-2 rounded-md border bg-muted/40 p-1 sm:w-auto">
+        <div className="grid w-full grid-cols-3 rounded-md border bg-muted/40 p-1 sm:w-auto">
           {views.map((item) => (
             <button
               key={item}

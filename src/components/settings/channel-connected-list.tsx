@@ -5,6 +5,7 @@ import {
   Activity,
   Loader2,
   MoreHorizontal,
+  MessagesSquare,
   Pencil,
   Play,
   RefreshCw,
@@ -52,6 +53,7 @@ export function ChannelConnectedList({
   onReload,
   onEdit,
   onQrAuth,
+  onViewRuntime,
 }: {
   channels: ChatChannelInfo[]
   statuses: ChannelStatusInfo[]
@@ -59,6 +61,7 @@ export function ChannelConnectedList({
   onReload: () => Promise<void>
   onEdit: (channel: ChatChannelInfo) => void
   onQrAuth: (channel: ChatChannelInfo) => void
+  onViewRuntime: (channel: ChatChannelInfo) => void
 }) {
   const t = useTranslations("ChatChannelSettings")
   const [loadingId, setLoadingId] = useState<number | null>(null)
@@ -216,6 +219,10 @@ export function ChannelConnectedList({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => onViewRuntime(channel)}>
+                      <MessagesSquare />
+                      {t("runtime.title")}
+                    </DropdownMenuItem>
                     <DropdownMenuItem
                       onSelect={() =>
                         void run(channel, () => testChatChannel(channel.id))

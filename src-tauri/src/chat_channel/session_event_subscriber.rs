@@ -476,12 +476,14 @@ async fn handle_acp_envelope(
                         .send_to_target(&target, &RichMessage::info(notice.to_string()))
                         .await;
                 } else {
-                    // A turn completed without any assistant text at all — make
-                    // it visible instead of a silent gap.
-                    let notice = match lang {
-                        Lang::ZhCn | Lang::ZhTw => "本回合没有生成内容。",
-                        _ => "This turn produced no content.",
-                    };
+                    tracing::warn!(
+                        connection_id,
+                        channel_id,
+                        conversation_id = conv_id,
+                        stop_reason,
+                        "[SessionEventSub] turn ended without a channel reply"
+                    );
+                    let notice = empty_turn_notice(lang, stop_reason);
                     let _ = manager
                         .send_to_target(&target, &RichMessage::info(notice.to_string()))
                         .await;
@@ -503,7 +505,7 @@ async fn handle_acp_envelope(
                 // explicit failure instead of retrying forever.
                 if let Some(prompt_text) = deferred_kickoff {
                     let blocks = prompt_text.blocks();
-                    if let Err(e) = conn_mgr.send_prompt(connection_id, blocks).await {
+                    if let Err(e) = super::session_runtime::send_channel_prompt((db, conn_mgr), (connection_id, conv_id), blocks).await {
                         if matches!(e, crate::acp::error::AcpError::TurnInProgress) {
                             let mut g = bridge.lock().await;
                             let give_up = if let Some(s) = g.get_mut(connection_id) {
@@ -900,14 +902,14 @@ async fn send_pending_prompt(
             session
                 .pending_prompt
                 .take()
-                .map(|prompt| (prompt, session.target.clone()))
+                .map(|prompt| (prompt, session.target.clone(), session.conversation_id))
         })
     };
-    let Some((prompt, target)) = pending else {
+    let Some((prompt, target, conversation_id)) = pending else {
         return;
     };
     let blocks = prompt.blocks();
-    match conn_mgr.send_prompt(connection_id, blocks).await {
+    match super::session_runtime::send_channel_prompt((db, conn_mgr), (connection_id, conversation_id), blocks).await {
         Ok(()) => {}
         Err(crate::acp::error::AcpError::TurnInProgress) => {
             restore_deferred_prompt(bridge, manager, db, connection_id, prompt, target).await;
@@ -1391,6 +1393,29 @@ fn sanitize_channel_content(content: &str) -> String {
         .join("\n")
         .trim()
         .to_string()
+}
+
+fn empty_turn_notice(lang: Lang, stop_reason: &str) -> &'static str {
+    match (lang, stop_reason) {
+        (Lang::ZhCn | Lang::ZhTw, "cancelled") => "本回合已停止，可以继续发送消息。",
+        (_, "cancelled") => "This turn was stopped. You can send another message.",
+        (Lang::ZhCn | Lang::ZhTw, "prompt_error" | "refusal") => {
+            "本回合执行失败。当前会话已保留，请稍后重试。"
+        }
+        (_, "prompt_error" | "refusal") => {
+            "This turn failed. Your session is preserved; please try again later."
+        }
+        (Lang::ZhCn | Lang::ZhTw, "max_tokens" | "max_turn_requests") => {
+            "本回合达到执行限制。当前会话已保留，可以发送“继续”。"
+        }
+        (_, "max_tokens" | "max_turn_requests") => {
+            "This turn reached an execution limit. Your session is preserved; send \"continue\" to resume."
+        }
+        (Lang::ZhCn | Lang::ZhTw, _) => {
+            "暂时未能生成回复。当前会话已保留，请稍后重试。"
+        }
+        _ => "No reply could be generated. Your session is preserved; please try again later.",
+    }
 }
 
 fn is_internal_process_line(line: &str) -> bool {

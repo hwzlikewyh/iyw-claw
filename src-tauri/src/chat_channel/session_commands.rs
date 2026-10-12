@@ -1072,6 +1072,9 @@ async fn send_followup_prompt(
         }
     }
 
+    let Some(conversation_id) = bridge.lock().await.get(connection_id).map(|session| session.conversation_id) else {
+        return RichMessage::info("");
+    };
     // Send prompt to agent
     let blocks = ChannelPrompt::new(text, media).blocks();
 
@@ -1083,7 +1086,7 @@ async fn send_followup_prompt(
         text.chars().count()
     );
 
-    if let Err(e) = conn_mgr.send_prompt(connection_id, blocks).await {
+    if let Err(e) = session_runtime::send_channel_prompt((db, conn_mgr), (connection_id, conversation_id), blocks).await {
         // A turn is already in flight on this (shared) connection — another
         // client, or a previous prompt still running. This is transient: the
         // connection is alive, so do NOT tear down the bridge/session. Chat

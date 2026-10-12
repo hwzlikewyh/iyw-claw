@@ -1960,6 +1960,8 @@ mod tauri_app {
                 chat_channel_commands::quick_check_chat_channel,
                 chat_channel_commands::full_loop_chat_channel,
                 chat_channel_commands::list_chat_channel_messages,
+                crate::commands::chat_channel_runtime::list_chat_channel_conversations,
+                crate::commands::chat_channel_runtime::get_chat_channel_conversation_runtime,
                 chat_channel_commands::get_chat_command_prefix,
                 chat_channel_commands::set_chat_command_prefix,
                 chat_channel_commands::get_chat_event_filter,

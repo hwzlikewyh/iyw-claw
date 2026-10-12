@@ -5,6 +5,7 @@ use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 
 use super::i18n;
+use super::media_prompt::ChannelPrompt;
 use super::session_bridge::{ActiveSession, SessionBridge, SessionOwnership};
 use super::session_commands::FollowupRequest;
 use super::session_event_subscriber;
@@ -147,6 +148,9 @@ pub(super) async fn handle_followup(req: FollowupRequest<'_>) -> RichMessage {
 }
 
 async fn send_to_session(req: FollowupRequest<'_>, reference: CommandSessionRef) -> RichMessage {
+    let Some(conversation_id) = reference.conversation_id else {
+        return RichMessage::info("");
+    };
     // Stamp the session with this follow-up's trace so the outbound reply
     // links back to the message that triggered it.
     if let Some(trace) = req.trace_id {
@@ -155,7 +159,7 @@ async fn send_to_session(req: FollowupRequest<'_>, reference: CommandSessionRef)
             session.trace_id = Some(trace.to_string());
         }
     }
-    match session_runtime::send_prompt(req.conn_mgr, &reference.connection_id, req.text).await {
+    match session_runtime::send_channel_prompt((req.db, req.conn_mgr), (&reference.connection_id, conversation_id), ChannelPrompt::new(req.text, req.media).blocks()).await {
         Ok(()) | Err(crate::acp::error::AcpError::TurnInProgress) => return RichMessage::info(""),
         Err(error) => {
             tracing::warn!(

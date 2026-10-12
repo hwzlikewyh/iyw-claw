@@ -40,6 +40,7 @@ struct Inner {
     broadcaster: Mutex<Option<Arc<WebEventBroadcaster>>>,
     data_dir: Mutex<Option<PathBuf>>,
     typing: TypingController,
+    session_bridge: Arc<Mutex<SessionBridge>>,
 }
 
 pub struct ChatChannelManager {
@@ -67,6 +68,7 @@ impl ChatChannelManager {
                 broadcaster: Mutex::new(None),
                 data_dir: Mutex::new(None),
                 typing: TypingController::default(),
+                session_bridge: Arc::new(Mutex::new(SessionBridge::new())),
             }),
         }
     }
@@ -80,6 +82,10 @@ impl ChatChannelManager {
 
     pub fn command_sender(&self) -> mpsc::Sender<IncomingCommand> {
         self.inner.command_tx.clone()
+    }
+
+    pub(crate) fn session_bridge(&self) -> Arc<Mutex<SessionBridge>> {
+        Arc::clone(&self.inner.session_bridge)
     }
 
     pub async fn set_data_dir(&self, data_dir: PathBuf) {
@@ -479,7 +485,7 @@ impl ChatChannelManager {
         let db_conn2 = db_conn.clone();
 
         // Create shared session bridge
-        let bridge = Arc::new(Mutex::new(SessionBridge::new()));
+        let bridge = self.session_bridge();
 
         // Spawn event subscriber
         let manager_for_events = self.clone_ref();

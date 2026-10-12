@@ -3,11 +3,16 @@ use std::sync::atomic::Ordering;
 use crate::acp::session_state::{LiveContentBlock, LiveMessage, SessionState, ToolCallStatus};
 use crate::acp::types::PlanEntryInfo;
 
+mod channel_reply;
+
 pub(crate) const AUTO_CONTINUATION_PROMPT: &str =
     "继续完成当前用户请求。不要复述计划；执行尚未完成且已获授权的步骤。\n如果需要新的用户授权、选择或信息，明确说明阻塞并停止。";
 
 pub(crate) const INTERRUPTED_CONTINUATION_PROMPT: &str =
     "上一轮因输出预算中断。先检查最近工具调用结果和工作区状态，不要重复已经成功的操作；从未完成的位置继续。大文件或补丁拆成多个小操作，每次完成后再继续。";
+
+pub(crate) const EMPTY_CHANNEL_CONTINUATION_PROMPT: &str =
+    "上一回合没有生成可发送的回复。先检查最近工具结果和会话状态，不要重复已经成功的操作；继续完成当前已获授权的用户请求，并给出明确回复。需要新的授权、选择或信息时，说明阻塞并停止。";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AutoContinuationEvidence {
@@ -23,6 +28,9 @@ pub(crate) fn evaluate(
     stop_reason: &str,
     had_output: bool,
 ) -> Option<AutoContinuationEvidence> {
+    if let Some(evidence) = channel_reply::evaluate(state, stop_reason) {
+        return Some(evidence);
+    }
     if stop_reason != "end_turn" || !had_output || !is_direct_user_session(state) {
         return None;
     }

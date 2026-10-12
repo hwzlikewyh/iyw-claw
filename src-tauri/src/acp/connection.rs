@@ -6824,7 +6824,7 @@ async fn run_conversation_loop<'a>(
                                             "max_output_tokens",
                                             output_probe.saw_agent_output(),
                                         )
-                                    } else if reason_str == "end_turn" {
+                                    } else if !is_compaction && matches!(reason_str, "end_turn" | "empty") {
                                         let snapshot = state.read().await;
                                         auto_continuation::evaluate(
                                             &snapshot,
@@ -6852,7 +6852,9 @@ async fn run_conversation_loop<'a>(
                                                 },
                                                 |snapshot| {
                                                     snapshot.turn_generation == source_generation
-                                                        && snapshot.auto_continuation.is_none()
+                                                        && snapshot.auto_continuation.as_ref().is_none_or(
+                                                            |info| info.source_generation != source_generation,
+                                                        )
                                                 },
                                             )
                                             .await;
@@ -6876,7 +6878,9 @@ async fn run_conversation_loop<'a>(
                                                                     sid.clone(),
                                                                     vec![ContentBlock::Text(
                                                                         TextContent::new(
-                                                                            if evidence.evidence_kind == "budget" {
+                                                                            if evidence.evidence_kind == "empty_reply" {
+                                                                                auto_continuation::EMPTY_CHANNEL_CONTINUATION_PROMPT
+                                                                            } else if evidence.evidence_kind == "budget" {
                                                                                 auto_continuation::INTERRUPTED_CONTINUATION_PROMPT
                                                                             } else {
                                                                                 auto_continuation::AUTO_CONTINUATION_PROMPT
@@ -7241,7 +7245,7 @@ async fn run_conversation_loop<'a>(
                                     "max_output_tokens",
                                     output_probe.saw_agent_output(),
                                 )
-                            } else if reason_str == "end_turn" {
+                            } else if !is_compaction && matches!(reason_str, "end_turn" | "empty") {
                                 let snapshot = state.read().await;
                                 auto_continuation::evaluate(
                                     &snapshot,
@@ -7269,7 +7273,9 @@ async fn run_conversation_loop<'a>(
                                         },
                                         |snapshot| {
                                             snapshot.turn_generation == source_generation
-                                                && snapshot.auto_continuation.is_none()
+                                                && snapshot.auto_continuation.as_ref().is_none_or(
+                                                    |info| info.source_generation != source_generation,
+                                                )
                                         },
                                     )
                                     .await;
@@ -7290,7 +7296,9 @@ async fn run_conversation_loop<'a>(
                                                     crate::acp::runtime_host_worker_turn::prompt_request(state, PromptRequest::new(
                                                         sid.clone(),
                                                         vec![ContentBlock::Text(TextContent::new(
-                                                            if evidence.evidence_kind == "budget" {
+                                                            if evidence.evidence_kind == "empty_reply" {
+                                                                auto_continuation::EMPTY_CHANNEL_CONTINUATION_PROMPT
+                                                            } else if evidence.evidence_kind == "budget" {
                                                                 auto_continuation::INTERRUPTED_CONTINUATION_PROMPT
                                                             } else {
                                                                 auto_continuation::AUTO_CONTINUATION_PROMPT

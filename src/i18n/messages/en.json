@@ -4445,6 +4445,72 @@
     "selectedCount": "{count} selected"
   },
   "ChatChannelSettings": {
+    "runtime": {
+      "title": "Conversations & activity",
+      "channel": "Channel",
+      "transport": "Channel connection",
+      "noChannels": "No connected channels",
+      "search": "Search conversation titles",
+      "filter": "Show",
+      "filters": {
+        "all": "All loaded conversations",
+        "active": "Running",
+        "waiting": "Waiting for you",
+        "attention": "Needs attention"
+      },
+      "counts": "{count} conversations loaded · {running} running · {waiting} waiting for you",
+      "refresh": "Refresh",
+      "refreshFailed": "Status refresh failed; current activity is unconfirmed",
+      "loading": "Loading conversation",
+      "noConversations": "No matching conversations",
+      "selectConversation": "Select a conversation to view messages and activity",
+      "untitled": "Untitled conversation",
+      "messageCount": "{count} messages",
+      "loadMore": "Load more conversations",
+      "openConversation": "Open conversation",
+      "back": "Back to list",
+      "unknownModel": "Unknown model",
+      "elapsed": "Running for {seconds} seconds",
+      "lastActivity": "Last activity: {seconds} seconds ago",
+      "answerInConversation": "Confirm or provide information in the conversation or message channel",
+      "deliveries": "Delivery results for this turn",
+      "noDelivery": "No confirmed delivery records",
+      "transcript": "Conversation messages",
+      "olderMessages": "Load earlier messages",
+      "noMessages": "No recorded messages yet",
+      "historyUnavailable": "Message history is unavailable; activity is still shown above",
+      "latest": "Jump to latest",
+      "process": "View execution details",
+      "roles": {
+        "user": "User",
+        "assistant": "Assistant",
+        "system": "System",
+        "tool": "Tool"
+      },
+      "delivery": {
+        "sent": "Sent (read status unknown)",
+        "failed": "Delivery failed",
+        "queued": "Waiting for reply context",
+        "unknown": "Delivery unconfirmed"
+      },
+      "phases": {
+        "unknown": "Activity unconfirmed",
+        "completed": "Execution completed",
+        "stopped": "Stopped",
+        "failed": "Execution failed",
+        "idle": "Waiting for a new message",
+        "preparing": "Preparing",
+        "waiting_output": "Waiting for model output",
+        "replying": "Generating reply",
+        "running_tool": "Running a tool",
+        "waiting_confirmation": "Waiting for confirmation",
+        "waiting_input": "Waiting for information",
+        "retrying": "Retrying",
+        "recovering": "Recovering an empty reply",
+        "background": "Background work running",
+        "disconnected": "Session disconnected"
+      }
+    },
     "artifactNotifications": {
       "title": "Artifact notifications",
       "off": "Off",
@@ -4579,6 +4645,7 @@
       "description": "Manage external message entry points, connection state, and Agent replies.",
       "views": {
         "connected": "Connected {count}",
+        "runtime": "Conversations & activity",
         "market": "Channel Market"
       },
       "search": "Search channels",

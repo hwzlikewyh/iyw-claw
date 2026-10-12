@@ -1,6 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useState } from "react"
+import dynamic from "next/dynamic"
 import { Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
@@ -35,9 +36,19 @@ import { ChannelViewHeader, type ChannelView } from "./channel-view-header"
 import { EditChatChannelDialog } from "./edit-chat-channel-dialog"
 import { WecomAgentSetupDialog } from "./wecom-agent-setup-dialog"
 import { WeixinQrcodeDialog } from "./weixin-qrcode-dialog"
+
+const ChannelRuntimeView = dynamic(
+  () =>
+    import("./channel-runtime-view").then(
+      (module) => module.ChannelRuntimeView
+    ),
+  { ssr: false }
+)
+
 export function ChannelListTab() {
   const t = useTranslations("ChatChannelSettings")
   const [view, setView] = useState<ChannelView>("connected")
+  const [runtimeChannelId, setRuntimeChannelId] = useState<number | null>(null)
   const [channels, setChannels] = useState<ChatChannelInfo[]>([])
   const [statuses, setStatuses] = useState<ChannelStatusInfo[]>([])
   const [readiness, setReadiness] = useState<ChannelReadinessReport[]>([])
@@ -232,6 +243,16 @@ export function ChannelListTab() {
           onReload={loadChannels}
           onEdit={handleEdit}
           onQrAuth={setQrReauthTarget}
+          onViewRuntime={(channel) => {
+            setRuntimeChannelId(channel.id)
+            setView("runtime")
+          }}
+        />
+      ) : view === "runtime" ? (
+        <ChannelRuntimeView
+          channels={connected}
+          statuses={statuses}
+          initialChannelId={runtimeChannelId}
         />
       ) : (
         <ChannelMarket
