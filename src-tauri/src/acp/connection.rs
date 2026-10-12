@@ -6201,16 +6201,24 @@ async fn emit_auto_continuation_phase(
     evidence: &AutoContinuationEvidence,
     phase: &str,
 ) {
-    emit_with_state(
+    let attempt = state
+        .read()
+        .await
+        .auto_continuation
+        .as_ref()
+        .filter(|info| info.source_generation == source_generation)
+        .map_or(1, |info| info.attempt);
+    emit_with_state_gated(
         state,
         emitter,
         AcpEvent::AutoContinuation {
             source_generation,
-            attempt: 1,
+            attempt,
             reason_code: evidence.reason_code.to_string(),
             evidence_kind: evidence.evidence_kind.to_string(),
             phase: phase.to_string(),
         },
+        |snapshot| snapshot.turn_generation == source_generation,
     )
     .await;
 }
@@ -6835,26 +6843,30 @@ async fn run_conversation_loop<'a>(
                                         None
                                     };
                                     let source_generation = state.read().await.turn_generation;
-                                    let auto_attempted = state.read().await.auto_continuation.as_ref().is_some_and(
-                                        |info| info.source_generation == source_generation,
-                                    );
+                                    let (auto_attempt, auto_attempted) = {
+                                        let snapshot = state.read().await;
+                                        (
+                                            auto_evidence.as_ref().and_then(|evidence| {
+                                                auto_continuation::next_attempt(&snapshot, evidence.evidence_kind)
+                                            }),
+                                            snapshot.auto_continuation.as_ref().is_some_and(|info| info.source_generation == source_generation),
+                                        )
+                                    };
                                     if let Some(evidence) = auto_evidence.as_ref() {
-                                        if evidence.auto_run && !auto_attempted {
+                                        if let Some(attempt) = auto_attempt.filter(|_| evidence.auto_run) {
                                             let started = emit_with_state_gated(
                                                 state,
                                                 emitter,
                                                 AcpEvent::AutoContinuation {
                                                     source_generation,
-                                                    attempt: 1,
+                                                    attempt,
                                                     reason_code: evidence.reason_code.to_string(),
                                                     evidence_kind: evidence.evidence_kind.to_string(),
                                                     phase: "started".into(),
                                                 },
                                                 |snapshot| {
                                                     snapshot.turn_generation == source_generation
-                                                        && snapshot.auto_continuation.as_ref().is_none_or(
-                                                            |info| info.source_generation != source_generation,
-                                                        )
+                                                        && auto_continuation::next_attempt(snapshot, evidence.evidence_kind) == Some(attempt)
                                                 },
                                             )
                                             .await;
@@ -6862,7 +6874,7 @@ async fn run_conversation_loop<'a>(
                                                 tracing::info!(
                                                     connection_id = conn_id,
                                                     source_generation,
-                                                    attempt = 1,
+                                                    attempt,
                                                     reason_code = evidence.reason_code,
                                                     evidence_kind = evidence.evidence_kind,
                                                     is_auto_continuation = true,
@@ -6951,8 +6963,13 @@ async fn run_conversation_loop<'a>(
                                             .await;
                                         }
                                     } else if auto_attempted {
+                                        let succeeded = reason_str == "end_turn";
                                         let evidence = AutoContinuationEvidence {
-                                            reason_code: "auto_continuation_completed",
+                                            reason_code: if succeeded {
+                                                "auto_continuation_completed"
+                                            } else {
+                                                "continuation_failed"
+                                            },
                                             evidence_kind: "continuation",
                                             auto_run: false,
                                         };
@@ -6961,7 +6978,11 @@ async fn run_conversation_loop<'a>(
                                             emitter,
                                             source_generation,
                                             &evidence,
-                                            "completed",
+                                            if succeeded {
+                                                "completed"
+                                            } else {
+                                                "needs_user_action"
+                                            },
                                         )
                                         .await;
                                     }
@@ -7033,29 +7054,32 @@ async fn run_conversation_loop<'a>(
                                     }
                                     let max_output_tokens = is_max_output_tokens_error(&error);
                                     if max_output_tokens {
-                                        let evidence = {
+                                        let recovery = {
                                             let snapshot = state.read().await;
                                             auto_continuation::evaluate_interrupted(
                                                 &snapshot,
                                                 "max_output_tokens",
                                                 output_probe.saw_agent_output(),
                                             )
+                                            .and_then(|evidence| {
+                                                auto_continuation::next_attempt(&snapshot, evidence.evidence_kind)
+                                                    .map(|attempt| (evidence, snapshot.turn_generation, attempt))
+                                            })
                                         };
-                                        if let Some(evidence) = evidence {
-                                            let source_generation = state.read().await.turn_generation;
+                                        if let Some((evidence, source_generation, attempt)) = recovery {
                                             let started = emit_with_state_gated(
                                                 state,
                                                 emitter,
                                                 AcpEvent::AutoContinuation {
                                                     source_generation,
-                                                    attempt: 1,
+                                                    attempt,
                                                     reason_code: evidence.reason_code.to_string(),
                                                     evidence_kind: evidence.evidence_kind.to_string(),
                                                     phase: "started".into(),
                                                 },
                                                 |snapshot| {
                                                     snapshot.turn_generation == source_generation
-                                                        && snapshot.auto_continuation.is_none()
+                                                        && auto_continuation::next_attempt(snapshot, evidence.evidence_kind) == Some(attempt)
                                                 },
                                             )
                                             .await;
@@ -7063,7 +7087,7 @@ async fn run_conversation_loop<'a>(
                                                 tracing::info!(
                                                     connection_id = conn_id,
                                                     source_generation,
-                                                    attempt = 1,
+                                                    attempt,
                                                     reason_code = evidence.reason_code,
                                                     evidence_kind = evidence.evidence_kind,
                                                     is_auto_continuation = true,
@@ -7256,26 +7280,30 @@ async fn run_conversation_loop<'a>(
                                 None
                             };
                             let source_generation = state.read().await.turn_generation;
-                            let auto_attempted = state.read().await.auto_continuation.as_ref().is_some_and(
-                                |info| info.source_generation == source_generation,
-                            );
+                            let (auto_attempt, auto_attempted) = {
+                                let snapshot = state.read().await;
+                                (
+                                    auto_evidence.as_ref().and_then(|evidence| {
+                                        auto_continuation::next_attempt(&snapshot, evidence.evidence_kind)
+                                    }),
+                                    snapshot.auto_continuation.as_ref().is_some_and(|info| info.source_generation == source_generation),
+                                )
+                            };
                             if let Some(evidence) = auto_evidence.as_ref() {
-                                if evidence.auto_run && !auto_attempted {
+                                if let Some(attempt) = auto_attempt.filter(|_| evidence.auto_run) {
                                     let started = emit_with_state_gated(
                                         state,
                                         emitter,
                                         AcpEvent::AutoContinuation {
                                             source_generation,
-                                            attempt: 1,
+                                            attempt,
                                             reason_code: evidence.reason_code.to_string(),
                                             evidence_kind: evidence.evidence_kind.to_string(),
                                             phase: "started".into(),
                                         },
                                         |snapshot| {
                                             snapshot.turn_generation == source_generation
-                                                && snapshot.auto_continuation.as_ref().is_none_or(
-                                                    |info| info.source_generation != source_generation,
-                                                )
+                                                && auto_continuation::next_attempt(snapshot, evidence.evidence_kind) == Some(attempt)
                                         },
                                     )
                                     .await;
@@ -7283,7 +7311,7 @@ async fn run_conversation_loop<'a>(
                                         tracing::info!(
                                             connection_id = conn_id,
                                             source_generation,
-                                            attempt = 1,
+                                            attempt,
                                             reason_code = evidence.reason_code,
                                             evidence_kind = evidence.evidence_kind,
                                             is_auto_continuation = true,

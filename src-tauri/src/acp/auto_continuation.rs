@@ -11,6 +11,8 @@ pub(crate) const AUTO_CONTINUATION_PROMPT: &str =
 pub(crate) const INTERRUPTED_CONTINUATION_PROMPT: &str =
     "上一轮因输出预算中断。先检查最近工具调用结果和工作区状态，不要重复已经成功的操作；从未完成的位置继续。大文件或补丁拆成多个小操作，每次完成后再继续。";
 
+const MAX_OUTPUT_BUDGET_CONTINUATIONS: u8 = 3;
+
 pub(crate) const EMPTY_CHANNEL_CONTINUATION_PROMPT: &str =
     "上一回合没有生成可发送的回复。先检查最近工具结果和会话状态，不要重复已经成功的操作；继续完成当前已获授权的用户请求，并给出明确回复。需要新的授权、选择或信息时，说明阻塞并停止。";
 
@@ -69,7 +71,7 @@ pub(crate) fn evaluate_interrupted(
     if !had_output
         || !is_direct_user_session(state)
         || has_blocking_work(state)
-        || state.auto_continuation.is_some()
+        || next_attempt(state, "budget").is_none()
     {
         return None;
     }
@@ -78,6 +80,23 @@ pub(crate) fn evaluate_interrupted(
         evidence_kind: "budget",
         auto_run: true,
     })
+}
+
+pub(crate) fn next_attempt(state: &SessionState, evidence_kind: &str) -> Option<u8> {
+    if !state.turn_in_flight || has_blocking_work(state) {
+        return None;
+    }
+    let previous = state
+        .auto_continuation
+        .as_ref()
+        .filter(|info| info.source_generation == state.turn_generation);
+    let Some(previous) = previous else {
+        return Some(1);
+    };
+    (evidence_kind == "budget"
+        && matches!(previous.phase.as_str(), "started" | "in_flight")
+        && previous.attempt < MAX_OUTPUT_BUDGET_CONTINUATIONS)
+        .then(|| previous.attempt.saturating_add(1))
 }
 
 fn is_direct_user_session(state: &SessionState) -> bool {

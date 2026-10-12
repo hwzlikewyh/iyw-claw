@@ -2098,7 +2098,9 @@ fn codex_model_catalog_entry(model: &str, priority: usize, snapshot: crate::acp:
         "display_name": model,
         "description": "Custom model managed by iyw-claw.",
         "default_reasoning_level": "high",
+        // 内核接受 none；用户可选档位仍由后台模型目录决定。
         "supported_reasoning_levels": [
+            { "effort": "none", "description": "Responds without additional reasoning" },
             { "effort": "low", "description": "Fast responses with lighter reasoning" },
             { "effort": "medium", "description": "Balances speed and reasoning depth for everyday tasks" },
             { "effort": "high", "description": "Greater reasoning depth for complex problems" },
