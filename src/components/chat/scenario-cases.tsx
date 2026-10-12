@@ -15,7 +15,7 @@ import {
   type ScenarioCasesProps,
 } from "./scenario-case-state"
 import { CaseEntryThumbnails, ScenarioCaseCover } from "./scenario-case-cover"
-import { CaseLoadError } from "./scenario-case-preview"
+import { CaseLoadError } from "./scenario-case-error"
 import { ScenarioCaseAssets } from "./scenario-case-assets"
 import styles from "./scenario-cases.module.css"
 
@@ -129,7 +129,7 @@ function CaseDetailContent({ model }: { model: CaseController }) {
         )}
       >
         {model.failed ? (
-          <CaseLoadError onRetry={model.retry} />
+          <CaseLoadError onRetry={model.retry} phase="detail" />
         ) : model.detail ? (
           <ScenarioCaseAssets
             key={model.detail.id}

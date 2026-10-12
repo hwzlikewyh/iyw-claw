@@ -5,6 +5,36 @@ import type { ScenarioCaseAsset } from "@/lib/scenario-cases"
 import { ScenarioCasePreview } from "./scenario-case-preview"
 import styles from "./scenario-case-assets.module.css"
 
+interface AssetChoice {
+  name: string
+  assets: ScenarioCaseAsset[]
+}
+
+function groupAssets(assets: ScenarioCaseAsset[], field: "step" | "label") {
+  const result: AssetChoice[] = []
+  for (const asset of assets) {
+    const name = asset[field] || asset.fileName
+    const group = result.find((item) => item.name === name)
+    if (group) group.assets.push(asset)
+    else result.push({ name, assets: [asset] })
+  }
+  return result
+}
+
+function shouldShowFiles(
+  files: AssetChoice[],
+  assets: ScenarioCaseAsset[],
+  hasSteps: boolean
+) {
+  return (
+    files.length > 1 ||
+    (!hasSteps &&
+      assets.some(
+        (item) => item.label || item.kind === "pdf" || item.kind === "markdown"
+      ))
+  )
+}
+
 export function ScenarioCaseAssets({
   assets,
   onRetry,
@@ -12,52 +42,89 @@ export function ScenarioCaseAssets({
   assets: ScenarioCaseAsset[]
   onRetry: () => void
 }) {
-  const [selected, setSelected] = useState(0)
-  const asset = assets[selected] ?? assets[0]
-  const steps = assets.some((item) => item.step)
-  const showFiles =
-    assets.length > 1 ||
-    assets.some((item) => item.kind === "pdf" || item.label || item.step)
-  if (!asset) return null
+  const [stepIndex, setStepIndex] = useState(0)
+  const [fileIndex, setFileIndex] = useState(0)
+  const hasSteps = assets.some((item) => item.step)
+  const steps = hasSteps
+    ? groupAssets(assets, "step")
+    : [{ name: "案例成果", assets }]
+  const step = steps[stepIndex] ?? steps[0]
+  const files = groupAssets(step?.assets ?? [], "label")
+  const file = files[fileIndex] ?? files[0]
+  const showFiles = shouldShowFiles(files, assets, hasSteps)
+  if (!file) return null
   return (
     <div className={styles.assets}>
-      {showFiles && (
-        <div
-          className={steps ? styles.steps : styles.files}
-          role="tablist"
-          aria-label="案例成果"
-        >
-          {assets.map((item, index) => (
-            <AssetTab
-              key={index}
-              item={item}
-              index={index}
-              steps={steps}
-              selected={index === selected}
-              onSelect={() => setSelected(index)}
-            />
-          ))}
-        </div>
+      {hasSteps && (
+        <AssetChoices
+          choices={steps}
+          steps
+          selected={stepIndex}
+          onSelect={(index) => {
+            setStepIndex(index)
+            setFileIndex(0)
+          }}
+        />
       )}
-      <div
-        className={styles.viewport}
-        role="tabpanel"
-        aria-label={asset.step || asset.label || asset.fileName}
-      >
-        <ScenarioCasePreview key={asset.url} asset={asset} onRetry={onRetry} />
+      {showFiles && (
+        <AssetChoices
+          choices={files}
+          selected={fileIndex}
+          onSelect={setFileIndex}
+        />
+      )}
+      <div className={styles.viewport} role="tabpanel" aria-label={file.name}>
+        {file.assets.map((asset) => (
+          <ScenarioCasePreview
+            key={asset.url}
+            asset={asset}
+            onRetry={onRetry}
+          />
+        ))}
       </div>
     </div>
   )
 }
 
+function AssetChoices({
+  choices,
+  steps = false,
+  selected,
+  onSelect,
+}: {
+  choices: AssetChoice[]
+  steps?: boolean
+  selected: number
+  onSelect: (index: number) => void
+}) {
+  return (
+    <div
+      className={steps ? styles.steps : styles.files}
+      role="tablist"
+      aria-label={steps ? "案例步骤" : "案例成果"}
+    >
+      {choices.map((choice, index) => (
+        <AssetTab
+          key={choice.name}
+          choice={choice}
+          index={index}
+          steps={steps}
+          selected={index === selected}
+          onSelect={() => onSelect(index)}
+        />
+      ))}
+    </div>
+  )
+}
+
 function AssetTab({
-  item,
+  choice,
   index,
   steps,
   selected,
   onSelect,
 }: {
-  item: ScenarioCaseAsset
+  choice: AssetChoice
   index: number
   steps: boolean
   selected: boolean
@@ -84,9 +151,16 @@ function AssetTab({
           <span className={styles.number}>{index + 1}</span>
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src="/scenario-cases/file.svg" alt="" />
+          <img
+            src={
+              choice.assets[0]?.kind === "markdown"
+                ? "/scenario-cases/markdown-file.svg"
+                : "/scenario-cases/file.svg"
+            }
+            alt=""
+          />
         )}
-        <span>{item.step || item.label || item.fileName}</span>
+        <span>{choice.name}</span>
       </button>
     </>
   )
