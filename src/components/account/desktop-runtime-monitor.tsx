@@ -32,15 +32,10 @@ export function DesktopRuntimeMonitor() {
     }
     const unavailable =
       report?.components.filter((item) => !item.installed || !item.active) ?? []
-    const labels = {
-      computer: t("computer"),
-      environment: t("title"),
-      agent: t("builtinAgent"),
-    }
     const details = unavailable
       .map(
         (item) =>
-          `${runtimeComponentLabel(item.componentId, labels)}: ${item.lastError ?? t("needsRepair")}`
+          `${runtimeComponentLabel(item.componentId, t("basicComponents"))}: ${item.lastError ?? t("needsRepair")}`
       )
       .join("\n")
     console.warn("[DesktopRuntimeMonitor] Environment needs attention:", {

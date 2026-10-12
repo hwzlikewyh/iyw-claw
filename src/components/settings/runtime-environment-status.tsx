@@ -10,20 +10,49 @@ const COMPONENT_NAMES: Record<string, string> = {
   node: "Node.js",
   git: "Git",
   uv: "uv",
-  chromix: "Chromix",
-  "agent-browser": "agent-browser",
-  officecli: "OfficeCLI",
-  "agent-reach": "Agent Reach",
 }
 
 export function runtimeComponentLabel(
   id: string,
-  labels: { computer: string; environment: string; agent: string }
+  basicComponentsLabel: string
 ) {
-  if (id === "cua-driver") return labels.computer
-  if (id === "environment") return labels.environment
-  if (id === "builtin-agent") return labels.agent
-  return COMPONENT_NAMES[id] ?? id
+  return COMPONENT_NAMES[id] ?? basicComponentsLabel
+}
+
+function runtimeComponentRows(components: BootstrapComponentStatus[]) {
+  const toolIds = Object.keys(COMPONENT_NAMES)
+  const tools = toolIds.flatMap((id) => {
+    const component = components.find((item) => item.componentId === id)
+    return component
+      ? [
+          {
+            componentId: id,
+            ready: component.installed && component.active,
+            description: [component.version, component.lastError]
+              .filter(Boolean)
+              .join(" · "),
+          },
+        ]
+      : []
+  })
+  const basicComponents = components.filter(
+    (component) => !toolIds.includes(component.componentId)
+  )
+  if (basicComponents.length === 0) return tools
+  return [
+    ...tools,
+    {
+      componentId: "basic-components",
+      ready: basicComponents.every(
+        (component) => component.installed && component.active
+      ),
+      description: basicComponents
+        .filter((component) => !component.installed || !component.active)
+        .map((component) => component.lastError)
+        .filter(Boolean)
+        .join(" · "),
+    },
+  ]
 }
 
 export function RuntimeComponentStatus({
@@ -32,26 +61,23 @@ export function RuntimeComponentStatus({
   components: BootstrapComponentStatus[]
 }) {
   const t = useTranslations("RuntimeEnvironmentSettings")
-  const labels = {
-    computer: t("computer"),
-    environment: t("title"),
-    agent: t("builtinAgent"),
-  }
+  const rows = runtimeComponentRows(components)
   return (
     <SettingSection title={t("componentsTitle")}>
       {components.length === 0 ? (
         <p className="px-4 py-3 text-sm text-muted-foreground">{t("empty")}</p>
       ) : (
-        components.map((component) => {
-          const ready = component.installed && component.active
+        rows.map((component) => {
+          const ready = component.ready
           const Icon = ready ? CheckCircle2 : CircleAlert
           return (
             <SettingRow
               key={component.componentId}
-              title={runtimeComponentLabel(component.componentId, labels)}
-              description={[component.version, component.lastError]
-                .filter(Boolean)
-                .join(" · ")}
+              title={runtimeComponentLabel(
+                component.componentId,
+                t("basicComponents")
+              )}
+              description={component.description}
             >
               <span
                 className={`flex items-center gap-1.5 text-xs ${ready ? "text-green-600" : "text-amber-600"}`}
@@ -73,11 +99,6 @@ export function RuntimeRepairProgress({
   progress: BootstrapInitEvent | null
 }) {
   const t = useTranslations("RuntimeEnvironmentSettings")
-  const labels = {
-    computer: t("computer"),
-    environment: t("title"),
-    agent: t("builtinAgent"),
-  }
   const percent =
     typeof progress?.percent === "number" && Number.isFinite(progress.percent)
       ? Math.max(0, Math.min(100, progress.percent))
@@ -86,7 +107,7 @@ export function RuntimeRepairProgress({
     <div className="grid gap-2" role="status" aria-live="polite">
       <p className="text-sm text-muted-foreground">
         {progress?.component
-          ? `${runtimeComponentLabel(progress.component, labels)} · `
+          ? `${runtimeComponentLabel(progress.component, t("basicComponents"))} · `
           : ""}
         {progress && t.has(`phases.${progress.phase}`)
           ? t(`phases.${progress.phase}`)

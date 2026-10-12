@@ -124,6 +124,7 @@
     "empty": "未检测到已安装的组件，可修复环境以准备运行组件。",
     "ready": "已就绪",
     "needsRepair": "需要处理",
+    "basicComponents": "基础组件",
     "computer": "电脑操作组件",
     "builtinAgent": "星河运行组件",
     "phases": {

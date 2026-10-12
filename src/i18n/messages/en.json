@@ -124,6 +124,7 @@
     "empty": "No installed components were detected. Repair the environment to prepare them.",
     "ready": "Ready",
     "needsRepair": "Needs attention",
+    "basicComponents": "Basic components",
     "computer": "Desktop automation",
     "builtinAgent": "星河 runtime",
     "phases": {
