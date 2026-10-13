@@ -36,7 +36,7 @@ export function InteractiveHtmlFrame(props: FrameProps) {
   return (
     <div
       ref={container}
-      className="min-h-40 flex-1 overflow-auto [&>iframe]:w-full [&>iframe]:border-0"
+      className="min-h-40 flex-1 overflow-auto [&>iframe]:min-h-full [&>iframe]:w-full [&>iframe]:border-0"
     />
   )
 }

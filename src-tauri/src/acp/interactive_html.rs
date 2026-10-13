@@ -8,12 +8,14 @@ pub const MAX_HTML_BYTES: usize = 256 * 1024;
 pub const MAX_RESULT_BYTES: usize = 64 * 1024;
 pub const MAX_TITLE_CHARS: usize = 120;
 pub const MAX_OPEN_PAGES: usize = 8;
+pub const MAX_URL_BYTES: usize = 8192;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InteractiveHtmlRequest {
     pub title: String,
-    pub html: String,
+    pub html: Option<String>,
+    pub url: Option<String>,
     #[serde(default)]
     pub wait_for_response: bool,
 }
@@ -25,13 +27,41 @@ impl InteractiveHtmlRequest {
                 "title must contain 1..={MAX_TITLE_CHARS} characters"
             ));
         }
-        if self.html.trim().is_empty() || self.html.len() > MAX_HTML_BYTES {
-            return Err(format!(
-                "html must contain 1..={MAX_HTML_BYTES} UTF-8 bytes"
-            ));
+        match (&self.html, &self.url) {
+            (Some(html), None) => {
+                if html.trim().is_empty() || html.len() > MAX_HTML_BYTES {
+                    return Err(format!(
+                        "html must contain 1..={MAX_HTML_BYTES} UTF-8 bytes"
+                    ));
+                }
+            }
+            (None, Some(url)) => {
+                validate_page_url(url)?;
+                if self.wait_for_response {
+                    return Err(
+                        "URL pages cannot collect feedback; use html with wait_for_response".into(),
+                    );
+                }
+            }
+            _ => return Err("Provide exactly one of html or url".into()),
         }
         Ok(())
     }
+}
+
+fn validate_page_url(value: &str) -> Result<(), String> {
+    if value.len() > MAX_URL_BYTES {
+        return Err("URL exceeds the supported size".into());
+    }
+    let url = reqwest::Url::parse(value).map_err(|_| "Expected an HTTP or HTTPS URL")?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err("Expected an HTTP or HTTPS URL without credentials".into());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +69,8 @@ pub struct InteractiveHtmlState {
     pub interaction_id: String,
     pub title: String,
     pub html: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
     pub wait_for_response: bool,
     #[serde(skip)]
     pub cancellation: tokio_util::sync::CancellationToken,

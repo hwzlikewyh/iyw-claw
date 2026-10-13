@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import {
   respondInteractiveHtml,
   type HtmlErrorKey,
@@ -6,22 +6,11 @@ import {
 import type { HtmlCardProps } from "./interactive-html-card"
 
 export function useHtmlCard({ page, connectionId, preview }: HtmlCardProps) {
-  const [fullscreen, setFullscreen] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!page.url)
   const [error, setError] = useState<HtmlErrorKey | null>(null)
   const [revision, setRevision] = useState(0)
   const response = useHtmlResponse({ page, connectionId, preview }, setError)
-  useEffect(() => {
-    if (!fullscreen) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setFullscreen(false)
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [fullscreen])
   return {
-    fullscreen,
-    setFullscreen,
     loading,
     error,
     setError,

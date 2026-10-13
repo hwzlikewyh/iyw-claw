@@ -1107,6 +1107,7 @@ export interface InteractiveHtmlState {
   interaction_id: string
   title: string
   html: string
+  url?: string | null
   wait_for_response: boolean
 }
 
