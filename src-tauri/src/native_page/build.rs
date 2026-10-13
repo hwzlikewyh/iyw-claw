@@ -190,7 +190,8 @@ fn build_view(
 fn macos_configuration(builder: WebViewBuilder<'_>) -> Result<WebViewBuilder<'_>, String> {
     use tauri_runtime_wry::wry::WebViewBuilderExtMacos;
     let mtm = objc2::MainThreadMarker::new().ok_or("WebView must be created on the main thread")?;
-    let config = objc2_web_kit::WKWebViewConfiguration::new(mtm);
+    // SAFETY: 已确认当前为主线程，配置对象由 WebKit 初始化并交由 WebView 持有。
+    let config = unsafe { objc2_web_kit::WKWebViewConfiguration::new(mtm) };
     unsafe {
         config.setWebsiteDataStore(&objc2_web_kit::WKWebsiteDataStore::nonPersistentDataStore(
             mtm,
