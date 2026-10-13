@@ -1471,7 +1471,7 @@ pub(crate) async fn spawn_agent_connection(
         database_folder_id,
     );
     initial_state.apply_launch_model_catalog(&runtime_env);
-    initial_state.config_options = context_window_option.map(|option| vec![option]);
+    initial_state.config_options = context_window_option;
     // 已持久化的会话在 ACP 握手完成前就绑定，冷启动期间进入 durable
     // Agent Input 队列的 Prompt 才能立即解析到正确的会话与目录。
     initial_state.conversation_id = database_conversation_id;
@@ -2158,11 +2158,11 @@ async fn emit_session_config_options_values(
     if agent_type == AgentType::Codex {
         ensure_codex_mode_option(&mut mapped);
     }
-    if let Some(option) = state.read().await.config_options.as_ref()
-        .and_then(|options| options.iter().find(|option| option.id == super::context_window_config::CONFIG_ID))
+    if let Some(options) = state.read().await.config_options.as_ref()
     {
-        mapped.retain(|item| item.id != super::context_window_config::CONFIG_ID);
-        mapped.push(option.clone());
+        let budgets = options.iter().filter(|option| super::compaction_threshold_config::is_budget_config(&option.id));
+        mapped.retain(|item| !super::compaction_threshold_config::is_budget_config(&item.id));
+        mapped.extend(budgets.cloned());
     }
     emit_with_state(
         state,
@@ -2181,11 +2181,11 @@ async fn emit_session_config_options_info(
     agent_type: AgentType,
     mut config_options: Vec<SessionConfigOptionInfo>,
 ) {
-    if let Some(option) = state.read().await.config_options.as_ref()
-        .and_then(|options| options.iter().find(|option| option.id == super::context_window_config::CONFIG_ID)).cloned()
+    if let Some(options) = state.read().await.config_options.as_ref()
     {
-        config_options.retain(|item| item.id != super::context_window_config::CONFIG_ID);
-        config_options.push(option);
+        let budgets = options.iter().filter(|option| super::compaction_threshold_config::is_budget_config(&option.id));
+        config_options.retain(|item| !super::compaction_threshold_config::is_budget_config(&item.id));
+        config_options.extend(budgets.cloned());
     }
     let model_switch_capability = ModelSwitchCapability::classify(agent_type, &config_options);
     emit_with_state(

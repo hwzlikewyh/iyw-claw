@@ -105,6 +105,7 @@ fn legacy_model(id: String) -> PersistedModel {
         image_input_mode: ImageInputMode::None,
         limits: ModelLimits::default(),
         context_window_tiers: Vec::new(),
+        compaction_threshold_percents: Vec::new(),
     }
 }
 
@@ -113,6 +114,7 @@ pub(super) fn layer_from_models(models: Vec<PersistedModel>) -> ModelCatalogLaye
     let mut display_names = HashMap::new();
     let mut capabilities = HashMap::new();
     let mut context_window_tiers = HashMap::new();
+    let mut compaction_threshold_percents = HashMap::new();
     let mut seen = HashSet::new();
     for model in models {
         let id = model.id.trim();
@@ -121,6 +123,7 @@ pub(super) fn layer_from_models(models: Vec<PersistedModel>) -> ModelCatalogLaye
         }
         let id = intern(id);
         context_window_tiers.insert(id, model.context_window_tiers);
+        compaction_threshold_percents.insert(id, model.compaction_threshold_percents);
         ids.push(id);
         let display_name = model.display_name.trim();
         if !display_name.is_empty() {
@@ -142,6 +145,7 @@ pub(super) fn layer_from_models(models: Vec<PersistedModel>) -> ModelCatalogLaye
         display_names,
         capabilities,
         context_window_tiers,
+        compaction_threshold_percents,
     }
 }
 
@@ -165,6 +169,7 @@ fn persisted_models(layer: &ModelCatalogLayer) -> Vec<PersistedModel> {
                 image_input_mode: snapshot.image_input_mode,
                 limits: snapshot.limits,
                 context_window_tiers: layer.context_window_tiers.get(id).cloned().unwrap_or_default(),
+                compaction_threshold_percents: layer.compaction_threshold_percents.get(id).cloned().unwrap_or_default(),
             }
         })
         .collect()
@@ -327,6 +332,14 @@ pub(crate) fn context_window_tiers_for(agent: AgentType, model: &str) -> Vec<u64
         .and_then(|id| current.scoped.get(id)).unwrap_or(&current.complete);
     layer.context_window_tiers.iter().find_map(|(id, tiers)|
         id.eq_ignore_ascii_case(model.trim()).then(|| tiers.clone())).unwrap_or_default()
+}
+
+pub(crate) fn compaction_threshold_percents_for(agent: AgentType, model: &str) -> Vec<u64> {
+    let current = catalog().read().expect("catalog poisoned");
+    let layer = current.agent_platform_ids.get(registry::registry_id_for(agent))
+        .and_then(|id| current.scoped.get(id)).unwrap_or(&current.complete);
+    layer.compaction_threshold_percents.iter().find_map(|(id, values)|
+        id.eq_ignore_ascii_case(model.trim()).then(|| values.clone())).unwrap_or_default()
 }
 
 pub fn frozen_for(agent: AgentType) -> (String, Vec<(&'static str, ModelCapabilitySnapshot)>) {

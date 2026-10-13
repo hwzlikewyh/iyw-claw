@@ -12,6 +12,8 @@ import type {
 } from "@/lib/types"
 import type { GatewayModel } from "@/lib/gateway-model-parser"
 import {
+  buildCompactionThresholdOption,
+  COMPACTION_THRESHOLD_CONFIG_ID,
   buildContextWindowOption,
   CONTEXT_WINDOW_CONFIG_ID,
 } from "@/lib/model-context-window"
@@ -204,6 +206,14 @@ export function buildAgentOptionsSnapshot(
         modelConfigValues[selected.id]?.[CONTEXT_WINDOW_CONFIG_ID],
     })
     if (contextWindow) configOptions.push(contextWindow)
+    const compaction = buildCompactionThresholdOption({
+      agentType,
+      model: selected,
+      configured:
+        configValues[COMPACTION_THRESHOLD_CONFIG_ID] ??
+        modelConfigValues[selected.id]?.[COMPACTION_THRESHOLD_CONFIG_ID],
+    })
+    if (compaction) configOptions.push(compaction)
     if (behavior.effortConfigId) {
       const configured =
         modelConfigValues[selected.id]?.[behavior.effortConfigId] ??
@@ -235,6 +245,7 @@ export function buildAgentOptionsSnapshot(
 const MODEL_CONFIG_IDS = [
   "model",
   CONTEXT_WINDOW_CONFIG_ID,
+  COMPACTION_THRESHOLD_CONFIG_ID,
   "reasoning_effort",
   "effort",
   "thought_level",

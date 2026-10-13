@@ -95,7 +95,10 @@ import {
   isModelConfigOption,
 } from "@/lib/model-config-groups"
 import { CONNECTION_KEEPALIVE_INTERVAL_MS } from "@/lib/constants"
-import { CONTEXT_WINDOW_CONFIG_ID } from "@/lib/model-context-window"
+import {
+  COMPACTION_THRESHOLD_CONFIG_ID,
+  CONTEXT_WINDOW_CONFIG_ID,
+} from "@/lib/model-context-window"
 import { notifyConversationUsage } from "@/lib/conversation-usage-events"
 import { sendSystemNotification } from "@/lib/notification"
 import {
@@ -5711,6 +5714,8 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         agentType,
         conversationId,
         contextWindow: preferredConfigValues?.[CONTEXT_WINDOW_CONFIG_ID],
+        compactionThreshold:
+          preferredConfigValues?.[COMPACTION_THRESHOLD_CONFIG_ID],
         resume: Boolean(resumeSessionId),
       })
       if (forceHostRestart) setReplacementState(contextKey, true)

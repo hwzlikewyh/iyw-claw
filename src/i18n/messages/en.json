@@ -3301,10 +3301,13 @@
           "reasoning": "Reasoning",
           "consumption": "Usage multiplier",
           "context": "Context window",
+          "compaction": "Auto-compaction threshold",
+          "modelFailed": "Could not apply the selected model. Choose a model again before sending.",
+          "compactionHint": "Applies after the current reply. Available percentages are configured by the administrator and use the selected context window. The threshold preserves space for output.",
           "auto": "Auto",
           "behavior": "Model settings",
           "contextHint": "Applies after the current reply. History is compacted within the selected window, with space reserved for output.",
-          "contextFailed": "Could not apply the context tier. Restored the previous setting."
+          "contextFailed": "Could not apply the context or compaction setting. Restored the previous settings."
         },
         "cancel": "Cancel",
         "send": "Send",

@@ -3301,10 +3301,13 @@
           "reasoning": "支持思考",
           "consumption": "消耗倍率",
           "context": "上下文窗口",
+          "compaction": "自动压缩阈值",
+          "modelFailed": "所选模型应用失败，请重新选择模型后发送。",
+          "compactionHint": "当前回复结束后应用。可选比例由后台配置，按所选上下文窗口计算，并为输出预留空间。",
           "auto": "自动",
           "behavior": "模型设置",
           "contextHint": "当前回复结束后应用，按所选窗口自动压缩历史，并为输出预留空间。",
-          "contextFailed": "上下文档位应用失败，已恢复之前的设置。"
+          "contextFailed": "上下文或压缩阈值应用失败，已恢复之前的设置。"
         },
         "cancel": "取消",
         "send": "发送",

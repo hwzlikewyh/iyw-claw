@@ -42,6 +42,8 @@ interface UseConnectionLifecycleOptions {
   isTransientUnmount?: () => boolean
   /** Hide connection progress while a caller performs a background reconnect. */
   silentReconnect?: boolean
+  /** 当前对话草稿的选择优先于 Agent 默认偏好。 */
+  preferredConfigValues?: Record<string, string>
 }
 
 export interface UseConnectionLifecycleReturn {
@@ -97,6 +99,7 @@ export function useConnectionLifecycle({
   attachOnlyOnActivate = false,
   isTransientUnmount,
   silentReconnect = false,
+  preferredConfigValues,
 }: UseConnectionLifecycleOptions): UseConnectionLifecycleReturn {
   const t = useTranslations("Folder.chat.connectionLifecycle")
   const { setActiveKey, touchActivity } = useAcpActions()
@@ -169,6 +172,10 @@ export function useConnectionLifecycle({
     contextKeyRef.current = contextKey
   }, [contextKey])
   const connConnectRef = useRef(connConnect)
+  const preferredConfigValuesRef = useRef(preferredConfigValues)
+  useEffect(() => {
+    preferredConfigValuesRef.current = preferredConfigValues
+  }, [preferredConfigValues])
   useEffect(() => {
     connConnectRef.current = connConnect
   }, [connConnect])
@@ -210,7 +217,10 @@ export function useConnectionLifecycle({
         workingDir,
         sessionIdRef.current,
         conversationIdRef.current,
-        { attachOnly: attachOnlyOnActivate }
+        {
+          attachOnly: attachOnlyOnActivate,
+          preferredConfigValues: preferredConfigValuesRef.current,
+        }
       )
       .then(() => {
         if (!cancelled) {
@@ -384,7 +394,9 @@ export function useConnectionLifecycle({
       status === "error"
     ) {
       setLastAutoConnectError(null)
-      await connConnect(agentType, workingDir, sessionId, conversationId)
+      await connConnect(agentType, workingDir, sessionId, conversationId, {
+        preferredConfigValues: preferredConfigValuesRef.current,
+      })
     }
   }, [
     isActive,

@@ -3,6 +3,12 @@ import type { AgentType, SessionConfigOptionInfo } from "@/lib/types"
 import { isCustomAgentType } from "@/lib/types"
 
 export const CONTEXT_WINDOW_CONFIG_ID = "context_window"
+export const COMPACTION_THRESHOLD_CONFIG_ID = "compaction_threshold"
+export function isContextBudgetConfigId(id: string): boolean {
+  return (
+    id === CONTEXT_WINDOW_CONFIG_ID || id === COMPACTION_THRESHOLD_CONFIG_ID
+  )
+}
 const TOKENS_PER_K = 1_000
 const TOKENS_PER_M = 1_000_000
 
@@ -53,6 +59,40 @@ export function buildContextWindowOption({
   return {
     id: CONTEXT_WINDOW_CONFIG_ID,
     name: "Context window",
+    category: "model_config",
+    kind: {
+      type: "select",
+      current_value: options.some(({ value }) => value === configured)
+        ? configured!
+        : "auto",
+      options,
+      groups: [],
+    },
+  }
+}
+
+export function buildCompactionThresholdOption({
+  agentType,
+  model,
+  configured,
+}: Parameters<
+  typeof buildContextWindowOption
+>[0]): SessionConfigOptionInfo | null {
+  if (!buildContextWindowOption({ agentType, model })) return null
+  const percents = [...new Set(model?.compactionThresholdPercents ?? [])].sort(
+    (left, right) => left - right
+  )
+  const options = [
+    { value: "auto", name: "Auto", description: model!.id },
+    ...percents.map((percent) => ({
+      value: String(percent),
+      name: `${percent}%`,
+      description: null,
+    })),
+  ]
+  return {
+    id: COMPACTION_THRESHOLD_CONFIG_ID,
+    name: "Auto-compaction threshold",
     category: "model_config",
     kind: {
       type: "select",

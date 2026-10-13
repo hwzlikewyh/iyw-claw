@@ -14,6 +14,7 @@ pub(crate) async fn resolve(
             preferences.insert("model".into(), model);
         }
     }
+    resolve_compaction(preferences, agent)?;
     let saved = preferences.remove("__iyw_context_windows");
     if preferences.contains_key(super::context_window_config::CONFIG_ID) {
         return Ok(());
@@ -40,6 +41,25 @@ pub(crate) async fn resolve(
             super::context_window_config::CONFIG_ID.into(),
             if valid { value.clone() } else { "auto".into() },
         );
+    }
+    Ok(())
+}
+
+fn resolve_compaction(preferences: &mut BTreeMap<String, String>, agent: AgentType) -> Result<(), AcpError> {
+    let saved = preferences.remove("__iyw_compaction_thresholds");
+    let config_id = super::compaction_threshold_config::CONFIG_ID;
+    if preferences.contains_key(config_id) {
+        return Ok(());
+    }
+    let thresholds = saved.as_deref()
+        .map(serde_json::from_str::<BTreeMap<String, String>>).transpose()
+        .map_err(|error| AcpError::protocol(format!("Invalid saved compaction preferences: {error}")))?
+        .unwrap_or_default();
+    let model = preferences.get("model").map(String::as_str)
+        .unwrap_or_else(|| super::model_catalog::default_model_for(agent));
+    if let Some(value) = thresholds.get(model) {
+        let valid = super::compaction_threshold_config::selected_percent(agent, model, value).is_ok();
+        preferences.insert(config_id.into(), if valid { value.clone() } else { "auto".into() });
     }
     Ok(())
 }

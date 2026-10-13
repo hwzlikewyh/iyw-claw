@@ -37,8 +37,10 @@ pub(crate) fn acquire(
         .get(super::context_window_config::CONFIG_ID)
         .map(String::as_str)
         .unwrap_or("auto");
+    let compaction = preferences.get(super::compaction_threshold_config::CONFIG_ID)
+        .map(String::as_str).unwrap_or("auto");
     let signature = format!(
-        "{model}:{window}:{}",
+        "{model}:{window}:{compaction}:{}",
         super::model_catalog::snapshot_for(agent)
     );
     let mut leases = LEASES
@@ -48,8 +50,8 @@ pub(crate) fn acquire(
         .get(&agent)
         .is_some_and(|(current, _)| current != &signature)
     {
-        tracing::warn!(agent = %agent, model, window, "[ACP] rejected conflicting shared SDK context configuration");
-        return Err(AcpError::protocol("This SDK uses a shared native configuration. Close its other active sessions before applying a different model context window."));
+        tracing::warn!(agent = %agent, model, window, compaction, "[ACP] rejected conflicting shared SDK context configuration");
+        return Err(AcpError::protocol("This SDK uses a shared native configuration. Close its other active sessions before applying a different context window or compaction threshold."));
     }
     let lease = leases.entry(agent).or_insert((signature, 0));
     lease.1 += 1;

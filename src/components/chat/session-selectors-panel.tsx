@@ -153,7 +153,6 @@ export function SessionSelectorsPanel({
           <ModelOptionList
             groups={active.groups}
             agentType={active.modelAgentType}
-            onSettingsOpen={onAfterSelect}
             currentValue={active.currentValue}
             onSelect={(value) => {
               active.onSelect(value)

@@ -22,7 +22,11 @@ import { automaticAgentMode } from "@/lib/automatic-agent-mode"
 import { getAgentModeState } from "@/lib/agent-modes"
 import type { AgentType, SessionModeStateInfo } from "@/lib/types"
 import { loadConversationDisplayPreferences } from "@/lib/conversation-display-preferences"
-import { CONTEXT_WINDOW_CONFIG_ID } from "@/lib/model-context-window"
+import {
+  COMPACTION_THRESHOLD_CONFIG_ID,
+  CONTEXT_WINDOW_CONFIG_ID,
+  isContextBudgetConfigId,
+} from "@/lib/model-context-window"
 
 const STORAGE_KEY = "iyw-claw:selector-prefs"
 
@@ -65,7 +69,7 @@ function withoutSessionModel(
 function isReasoningConfigId(configId: string): boolean {
   const normalized = configId.trim().toLowerCase().replace(/_/g, "-")
   return (
-    configId === CONTEXT_WINDOW_CONFIG_ID ||
+    isContextBudgetConfigId(configId) ||
     normalized.includes("reasoning") ||
     normalized.includes("thought") ||
     normalized.includes("effort")
@@ -203,6 +207,16 @@ export function getSavedPrefsForConnect(agentType: AgentType): {
     ...withoutGlobalReasoning(prefs.configValues),
     __iyw_response_style: loadConversationDisplayPreferences().responseStyle,
     __iyw_context_windows: JSON.stringify(contextWindows),
+    __iyw_compaction_thresholds: JSON.stringify(
+      Object.fromEntries(
+        Object.entries(prefs.modelConfigValues ?? {}).flatMap(
+          ([model, values]) =>
+            values[COMPACTION_THRESHOLD_CONFIG_ID]
+              ? [[model, values[COMPACTION_THRESHOLD_CONFIG_ID]]]
+              : []
+        )
+      )
+    ),
   }
   return {
     modeId: resolveModeId(agentType, prefs),

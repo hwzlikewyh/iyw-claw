@@ -8,7 +8,6 @@ use super::types::{
 use crate::models::AgentType;
 
 pub(crate) const CONFIG_ID: &str = "context_window";
-const COMPACT_PERCENT: u64 = 90;
 const TOKENS_PER_K: f64 = 1_000.0;
 const TOKENS_PER_M: f64 = 1_000_000.0;
 
@@ -26,7 +25,7 @@ pub(crate) fn apply(
     environment: &mut BTreeMap<String, String>,
     agent: AgentType,
     preferences: &BTreeMap<String, String>,
-) -> Result<Option<SessionConfigOptionInfo>, AcpError> {
+) -> Result<Option<Vec<SessionConfigOptionInfo>>, AcpError> {
     if !super::context_window_runtime::supports(agent) {
         return Ok(None);
     }
@@ -51,7 +50,10 @@ pub(crate) fn apply(
         .map(String::as_str)
         .unwrap_or("auto");
     let window = selected_window(value, automatic, &tiers)?;
-    let compact = compaction_threshold(limits, window, value)?;
+    let compact_value = preferences.get(super::compaction_threshold_config::CONFIG_ID)
+        .map(String::as_str).unwrap_or("auto");
+    let percent = super::compaction_threshold_config::selected_percent(agent, &model, compact_value)?;
+    let compact = compaction_threshold(limits, window, percent)?;
     let budget = ContextBudget {
         agent,
         model,
@@ -62,10 +64,11 @@ pub(crate) fn apply(
         value: value.into(),
     };
     super::context_window_runtime::apply(environment, &budget)?;
-    tracing::info!(agent = %agent, model = %budget.model, selected = value, maximum, window, compact,
+    tracing::info!(agent = %agent, model = %budget.model, selected = value, compaction_selected = compact_value, maximum, window, compact,
         max_output_tokens = limits.max_output_tokens,
         "[ACP] applied native SDK context window policy");
-    Ok(Some(context_option(&budget, &tiers, automatic)))
+    Ok(Some(vec![context_option(&budget, &tiers, automatic),
+        super::compaction_threshold_config::option(agent, &budget.model, compact_value)]))
 }
 
 fn automatic_window(limits: super::model_catalog::ModelLimits, maximum: u64) -> u64 {
@@ -79,15 +82,15 @@ fn automatic_window(limits: super::model_catalog::ModelLimits, maximum: u64) -> 
 fn compaction_threshold(
     limits: super::model_catalog::ModelLimits,
     window: u64,
-    value: &str,
+    percent: Option<u64>,
 ) -> Result<u64, AcpError> {
     let limits = super::model_budget::limits_for_window(limits, window)
         .ok_or_else(|| AcpError::protocol("Selected context window exceeds the model limit"))?;
     super::model_budget::threshold_for_limits(super::model_catalog::ModelLimits {
-        compaction_at_tokens: if value == "auto" {
-            limits.compaction_at_tokens.filter(|value| *value > 0)
+        compaction_at_tokens: if let Some(percent) = percent {
+            Some(window.saturating_mul(percent) / 100)
         } else {
-            Some(window.saturating_mul(COMPACT_PERCENT) / 100)
+            limits.compaction_at_tokens.filter(|value| *value > 0)
         },
         ..limits
     })

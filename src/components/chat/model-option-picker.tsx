@@ -104,7 +104,6 @@ export function ModelOptionPicker({
         <ModelOptionList
           groups={groups}
           agentType={agentType}
-          onSettingsOpen={() => setOpen(false)}
           currentValue={currentValue}
           onSelect={(value) => {
             onSelect(option.id, value)

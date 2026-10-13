@@ -44,7 +44,11 @@ import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { cn, copyTextFromMenu, randomUUID } from "@/lib/utils"
 import { useConnectionLifecycle } from "@/hooks/use-connection-lifecycle"
 import { useContextWindowSync } from "@/hooks/use-context-window-sync"
-import { CONTEXT_WINDOW_CONFIG_ID } from "@/lib/model-context-window"
+import {
+  COMPACTION_THRESHOLD_CONFIG_ID,
+  CONTEXT_WINDOW_CONFIG_ID,
+  isContextBudgetConfigId,
+} from "@/lib/model-context-window"
 import { useDocumentVisibility } from "@/hooks/use-document-visibility"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useMessageQueue, type QueuedMessage } from "@/hooks/use-message-queue"
@@ -573,6 +577,7 @@ const ConversationTabView = memo(function ConversationTabView({
   } | null>(null)
   const [requestedModel, setRequestedModel] = useState<string | null>(null)
   const requestedModelRef = useRef<string | null>(null)
+  const manualModelSelectionRef = useRef<string | null>(null)
   const updateRequestedModel = useCallback((model: string | null) => {
     requestedModelRef.current = model
     setRequestedModel(model)
@@ -584,6 +589,7 @@ const ConversationTabView = memo(function ConversationTabView({
   }, [])
   const [failedModel, setFailedModel] = useState<string | null>(null)
   useEffect(() => {
+    manualModelSelectionRef.current = null
     updateRequestedModel(null)
     setModelReapplyAttempt(null)
     setFailedModel(null)
@@ -847,6 +853,9 @@ const ConversationTabView = memo(function ConversationTabView({
       [groupId, tabId]
     ),
     silentReconnect: modelReapplyAttempt !== null,
+    preferredConfigValues: draftConfigValues.model
+      ? draftConfigValues
+      : undefined,
   })
   const retryChatDirectory = useCallback(() => {
     if (!isChatDraft || workingDir?.trim()) return false
@@ -872,8 +881,12 @@ const ConversationTabView = memo(function ConversationTabView({
       return
     const isChat = ownTab?.isChat || folder?.kind === "chat"
     const target = isChat
-      ? { agentType: selectedAgent }
-      : { agentType: selectedAgent, workingDir: workingDirForConnection }
+      ? { agentType: selectedAgent, preferredConfigValues: draftConfigValues }
+      : {
+          agentType: selectedAgent,
+          workingDir: workingDirForConnection,
+          preferredConfigValues: draftConfigValues,
+        }
     if (!target.workingDir && !isChat) return
     void prepareAcpSession(target)
   }, [
@@ -882,6 +895,7 @@ const ConversationTabView = memo(function ConversationTabView({
     conn.selectorsReady,
     conn.isViewer,
     selectedAgent,
+    draftConfigValues,
     workingDirForConnection,
     ownTab?.isChat,
     folder?.kind,
@@ -1078,23 +1092,19 @@ const ConversationTabView = memo(function ConversationTabView({
   // 列表由 SDK 配置与缓存目录决定；ACP 只负责应用确认，不阻塞或裁剪显示。
   const connectionConfigOptions = fixedOptions.config_options
   const handleContextWindowError = useCallback(
-    (value: string, error: unknown) => {
+    (values: Record<string, string>, error: unknown) => {
       setDraftConfigValues((current) => ({
         ...current,
-        [CONTEXT_WINDOW_CONFIG_ID]: value,
+        ...values,
       }))
       const model = draftConfigValues.model
       if (model)
-        saveModelConfigPreference(
-          selectedAgent,
-          model,
-          CONTEXT_WINDOW_CONFIG_ID,
-          value
-        )
+        for (const [configId, value] of Object.entries(values))
+          saveModelConfigPreference(selectedAgent, model, configId, value)
       console.error("[ConversationTabView] context window apply failed", {
         agentType: selectedAgent,
         model,
-        value,
+        values,
         error,
       })
       toast.error(tConfig("modelPicker.contextFailed"))
@@ -1103,8 +1113,8 @@ const ConversationTabView = memo(function ConversationTabView({
   )
   const contextWindowPending = useContextWindowSync({
     connection: conn,
-    desired: connectionConfigOptions.find(
-      (option) => option.id === CONTEXT_WINDOW_CONFIG_ID
+    desired: connectionConfigOptions.filter((option) =>
+      isContextBudgetConfigId(option.id)
     ),
     ready: connectionReady && !modelReapplyAttempt,
     values: draftConfigValues,
@@ -1229,6 +1239,7 @@ const ConversationTabView = memo(function ConversationTabView({
       dbConversationId != null ||
       !conn.selectorsReady ||
       requestedModel !== null ||
+      manualModelSelectionRef.current !== null ||
       liveModelOption?.kind.type !== "select"
     ) {
       return
@@ -1268,7 +1279,11 @@ const ConversationTabView = memo(function ConversationTabView({
     if (sessionModelSeedScopeRef.current === scope) return
     sessionModelSeedScopeRef.current = scope
     // 用户可能已在连接完成前选择模型，历史回填不能覆盖该选择。
-    if (requestedModelRef.current !== null) return
+    if (
+      requestedModelRef.current !== null ||
+      manualModelSelectionRef.current !== null
+    )
+      return
     const savedModel = detail.summary.model?.trim()
     const savedModelConfirmed = Boolean(
       savedModel &&
@@ -1296,6 +1311,14 @@ const ConversationTabView = memo(function ConversationTabView({
           )?.kind.current_value ??
           getSavedModelConfigPreferences(selectedAgent)[target]?.[
             CONTEXT_WINDOW_CONFIG_ID
+          ] ??
+          "auto",
+        [COMPACTION_THRESHOLD_CONFIG_ID]:
+          conn.configOptions?.find(
+            (option) => option.id === COMPACTION_THRESHOLD_CONFIG_ID
+          )?.kind.current_value ??
+          getSavedModelConfigPreferences(selectedAgent)[target]?.[
+            COMPACTION_THRESHOLD_CONFIG_ID
           ] ??
           "auto",
       }
@@ -1355,9 +1378,9 @@ const ConversationTabView = memo(function ConversationTabView({
         model: target,
         error,
       })
+      toast.error(tConfig("modelPicker.modelFailed"))
       if (liveModelOption?.kind.type === "select") {
         const actual = liveModelOption.kind.current_value
-        setDraftConfigValues((current) => ({ ...current, model: actual }))
         void persistConfirmedModel(actual).catch((persistError) => {
           console.error("[ConversationTabView] persist actual model failed", {
             model: actual,
@@ -1372,6 +1395,7 @@ const ConversationTabView = memo(function ConversationTabView({
       liveModelOption,
       persistConfirmedModel,
       selectedAgent,
+      tConfig,
     ]
   )
   useEffect(() => {
@@ -1391,7 +1415,7 @@ const ConversationTabView = memo(function ConversationTabView({
     sessionModelSeedTargetRef.current = null
     const commands = planSessionConfigSync(
       connectionConfigOptions.filter(
-        (option) => option.id !== CONTEXT_WINDOW_CONFIG_ID
+        (option) => !isContextBudgetConfigId(option.id)
       ),
       conn.configOptions ?? [],
       draftConfigValues
@@ -1520,6 +1544,7 @@ const ConversationTabView = memo(function ConversationTabView({
     })
     void acpActions
       .reapplyConfig(tabId, true, dbConvIdRef.current ?? undefined, {
+        ...draftConfigValues,
         model: target,
       })
       .catch((error: unknown) => {
@@ -1542,6 +1567,7 @@ const ConversationTabView = memo(function ConversationTabView({
     selectedAgent,
     modelReapplyAttempt,
     requestedModel,
+    draftConfigValues,
     tabId,
   ])
 
@@ -2356,7 +2382,7 @@ const ConversationTabView = memo(function ConversationTabView({
           refreshConversations()
           const confirmedModel = conn.configOptions?.find(isModelConfigOption)
           if (confirmedModel?.kind.type === "select") {
-            void persistConfirmedModel(
+            await persistConfirmedModel(
               confirmedModel.kind.current_value,
               newConversationId
             ).catch((error) => {
@@ -2747,6 +2773,12 @@ const ConversationTabView = memo(function ConversationTabView({
   const handleConfigOptionChange = useCallback(
     (configId: string, valueId: string, behaviorModelId?: string) => {
       if (configId === "model") {
+        manualModelSelectionRef.current = valueId
+        console.info("[ConversationTabView] selected session model", {
+          agentType: selectedAgent,
+          model: valueId,
+          connectionId: conn.connectionId,
+        })
         setFailedModel(null)
         updateRequestedModel(valueId)
         const reasoning = resolveModelReasoningConfig(
@@ -2763,6 +2795,10 @@ const ConversationTabView = memo(function ConversationTabView({
             ...current,
             model: valueId,
             [CONTEXT_WINDOW_CONFIG_ID]: context,
+            [COMPACTION_THRESHOLD_CONFIG_ID]:
+              getSavedModelConfigPreferences(selectedAgent)[valueId]?.[
+                COMPACTION_THRESHOLD_CONFIG_ID
+              ] ?? "auto",
           }
           if (reasoning) {
             if (reasoning.value) next[reasoning.configId] = reasoning.value
@@ -2787,7 +2823,7 @@ const ConversationTabView = memo(function ConversationTabView({
           : null)
       if (
         ((option && isReasoningConfigOption(option)) ||
-          configId === CONTEXT_WINDOW_CONFIG_ID) &&
+          isContextBudgetConfigId(configId)) &&
         modelId
       ) {
         saveModelConfigPreference(selectedAgent, modelId, configId, valueId)
@@ -2797,6 +2833,7 @@ const ConversationTabView = memo(function ConversationTabView({
     },
     [
       draftConfigValues.model,
+      conn.connectionId,
       fixedModelOption,
       fixedOptions.config_options,
       selectedAgent,
