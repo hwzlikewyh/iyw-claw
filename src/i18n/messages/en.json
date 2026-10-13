@@ -2326,7 +2326,12 @@
         "summary": "{conversations} conversations / {messages} messages"
       },
       "tokens": {
-        "details": "Context, compaction and usage details",
+        "details": "Context and usage details",
+        "contextUsage": "Context usage",
+        "usedShort": "Used",
+        "sessionCost": "Session consumption",
+        "usageDetails": "Usage details",
+        "close": "Close",
         "unreported": "Not reported",
         "modelLimits": "Model limits",
         "model": "Current model",

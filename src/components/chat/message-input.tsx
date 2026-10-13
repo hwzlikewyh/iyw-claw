@@ -138,7 +138,7 @@ import {
   ConversationFolderBranchPicker,
   useConversationFolderBranchPickerVisible,
 } from "@/components/chat/conversation-context-bar"
-import { SessionUsageChip } from "@/components/layout/status-bar-tokens"
+import { SessionUsageRing } from "@/components/layout/status-bar-tokens"
 import { InlineModeSelector } from "@/components/chat/mode-selector"
 import { InlineSessionConfigSelector } from "@/components/chat/session-config-selector"
 import { ModelOptionPicker } from "@/components/chat/model-option-picker"
@@ -4781,7 +4781,7 @@ export function MessageInput({
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  <SessionUsageChip
+                  <SessionUsageRing
                     contextKey={attachmentTabId ?? null}
                     agentType={agentType}
                     sessionStats={usageStats}
