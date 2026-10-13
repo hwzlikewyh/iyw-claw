@@ -1647,79 +1647,48 @@ impl ConnectionManager {
         observations
     }
 
-    /// Compare each running connection's spawn-time config fingerprint against a
-    /// freshly recomputed one (keyed by agent type in `fresh`) and notify those
-    /// that drifted. Drives the conversation-side "restart to apply" banner after
-    /// a settings save.
-    ///
-    /// Emit policy, per connection:
-    /// - emit `SessionConfigStale { stale }` only when the current fingerprint
-    ///   differs from the one we last observed for it — a no-op save (identical
-    ///   values) stays silent, while a second real change re-emits so a dismissed
-    ///   banner reappears.
-    /// - `stale = (current != spawn)`, so reverting a setting back to its
-    ///   launch-time value emits `stale = false` and clears the banner.
-    ///
-    /// Returns the count of running connections currently on stale config across
-    /// the affected agents (for the settings-side "N sessions need restart"
-    /// toast). Connections whose agent type isn't in `fresh` are left untouched.
-    ///
-    /// `emit_with_state` is deferred until AFTER the connections-map lock is
-    /// released (we collect targets first) so the SessionState write lock is
-    /// never taken while holding the map lock.
+    /// 保留原公开接口，只按 Agent 清除旧提示，不再比较配置指纹。
     pub async fn refresh_connection_staleness(
         &self,
         fresh: &HashMap<AgentType, String>,
         kind: ConfigStaleKind,
     ) -> usize {
-        let mut targets = Vec::new();
-        let mut stale_count = 0usize;
-        {
-            let mut connections = self.connections.lock().await;
-            for conn in connections.values_mut() {
-                let Some(current) = fresh.get(&conn.agent_type) else {
-                    continue;
-                };
-                let stale = *current != conn.config_fingerprint;
-                if stale {
-                    stale_count += 1;
-                }
-                if *current != conn.last_observed_fingerprint {
-                    conn.last_observed_fingerprint = current.clone();
-                    targets.push((Arc::clone(&conn.state), conn.emitter.clone(), stale));
-                }
-            }
-        }
-        for (state, emitter, stale) in targets {
-            emit_with_state(
-                &state,
-                &emitter,
-                AcpEvent::SessionConfigStale { stale, kind },
-            )
-            .await;
-        }
-        stale_count
+        let agents: Vec<_> = fresh.keys().copied().collect();
+        self.clear_session_config_notices(&agents, kind).await
     }
 
-    pub(crate) async fn refresh_model_catalog_staleness(&self, db: &AppDatabase) {
-        let Some(data_dir) = self.version_center_data_dir.get() else { return; };
-        let agents: Vec<_> = self.connections.lock().await.values().map(|connection| connection.agent_type).collect();
-        crate::commands::acp::refresh_config_staleness(self, db, data_dir, &agents, ConfigStaleKind::AgentConfig).await;
-    }
-
-    async fn require_current_model_catalog(&self, conn_id: &str) -> Result<(), AcpError> {
-        let (_, state) = self.wait_for_connection_launch(conn_id).await?;
-        let (agent, launched, stale) = {
+    /// 存活会话保留启动快照，配置变化在回收后恢复或新建时应用。
+    /// 仅清除兼容状态中的重连提示；返回值保留设置保存接口的约定。
+    pub(crate) async fn clear_session_config_notices(
+        &self,
+        agents: &[AgentType],
+        kind: ConfigStaleKind,
+    ) -> usize {
+        let targets: Vec<_> = self.connections.lock().await.values()
+            .filter(|conn| agents.contains(&conn.agent_type))
+            .map(|conn| (Arc::clone(&conn.state), conn.emitter.clone()))
+            .collect();
+        for (state, emitter) in targets {
             let snapshot = state.read().await;
-            (snapshot.agent_type, snapshot.launch_model_catalog.clone(), snapshot.config_stale)
-        };
-        if launched == crate::acp::model_catalog::snapshot_for(agent) { return Ok(()); }
-        if !stale {
-            let (_, emitter) = self.get_state_and_emitter(conn_id).await.ok_or_else(|| AcpError::protocol("connection no longer exists"))?;
-            emit_with_state(&state, &emitter, AcpEvent::SessionConfigStale { stale: true, kind: ConfigStaleKind::AgentConfig }).await;
+            if !snapshot.config_stale {
+                continue;
+            }
+            tracing::info!(
+                connection_id = %snapshot.connection_id,
+                agent = %snapshot.agent_type,
+                "[ACP] cleared reconnect notice; configuration applies on next session launch"
+            );
+            drop(snapshot);
+            emit_with_state(
+                &state, &emitter, AcpEvent::SessionConfigStale { stale: false, kind },
+            ).await;
         }
-        tracing::info!(connection_id = conn_id, agent = %agent, "[ModelCatalog] send awaits reconnect to apply updated model budgets");
-        Err(AcpError::protocol("模型预算已更新，请重新连接应用配置后再发送"))
+        0
+    }
+
+    pub(crate) async fn refresh_model_catalog_staleness(&self, _db: &AppDatabase) {
+        let agents: Vec<_> = self.connections.lock().await.values().map(|connection| connection.agent_type).collect();
+        self.clear_session_config_notices(&agents, ConfigStaleKind::AgentConfig).await;
     }
 
     /// Look up an existing live connection that we can reuse instead of
@@ -1811,7 +1780,6 @@ impl ConnectionManager {
             ));
         }
         let preparation_started = Instant::now();
-        self.require_current_model_catalog(conn_id).await?;
         crate::acp::capability_policy::require_prompt_file_upload(&blocks)
             .await
             .map_err(AcpError::from_capability_error)?;
@@ -2080,7 +2048,6 @@ impl ConnectionManager {
         accepted: Option<tokio::sync::oneshot::Sender<()>>,
     ) -> Result<Option<i32>, AcpError> {
         let _operation_guard = self.acquire_operation_read().await?;
-        self.require_current_model_catalog(conn_id).await?;
         let upload_monitor = crate::acp::capability_policy::monitor_prompt_file_upload(&blocks)
             .await
             .map_err(AcpError::from_capability_error)?;

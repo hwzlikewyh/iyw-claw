@@ -8985,14 +8985,8 @@ fn is_volatile_fingerprint_key(key: &str) -> bool {
         || key == crate::commands::agent_concurrency::CLAUDE_CONCURRENCY_ENV
 }
 
-/// Fingerprint the effective config a spawned agent process is locked to: the
-/// resolved `runtime_env` (minus per-launch volatile keys) plus the raw content
-/// of the agent's native config file(s). Both surfaces only take effect at
-/// process start, so a change to either is exactly what "this running session is
-/// stale" means. The digest is process-local — never persisted, never sent on
-/// the wire (only the resulting `stale` bool reaches the frontend) — so a
-/// non-cryptographic hash would do; SHA-256 keeps it deterministic and matches
-/// the rest of the codebase.
+/// 启动配置指纹用于运行时与预热会话的复用隔离，不用于要求存活会话重连。
+/// 纳入有效环境和原生配置，排除每次启动变化但不影响复用的键。
 pub(crate) fn fingerprint_config(
     agent_type: AgentType,
     runtime_env: &BTreeMap<String, String>,
@@ -9045,48 +9039,16 @@ pub(crate) fn fingerprint_config(
     format!("{:x}", hasher.finalize())
 }
 
-/// Recompute the canonical config fingerprint for `agent_type` from current
-/// settings (DB + native config files), independent of any running session.
-/// Passes `session_id = None` so the result is session-independent (the only
-/// session-derived key is excluded anyway), making it directly comparable to
-/// the fingerprint `fingerprint_config` produced at spawn time. Propagates the
-/// agent's "disabled in settings" error verbatim.
-pub(crate) async fn compute_session_config_fingerprint(
-    db: &AppDatabase,
-    agent_type: AgentType,
-    data_dir: &Path,
-) -> Result<String, AcpError> {
-    let runtime_env = build_session_runtime_env(db, agent_type, None, data_dir).await?;
-    Ok(fingerprint_config(agent_type, &runtime_env))
-}
-
-/// After a settings save, recompute the effective config fingerprint for each of
-/// `agent_types` and tell every running connection of those agents whether it
-/// has drifted onto stale (launch-time) config. Best-effort: an agent whose
-/// fingerprint can't be recomputed (e.g. it was just disabled) is skipped, not
-/// fatal. Returns the number of running connections currently on stale config
-/// across the affected agents — for the settings-side "N sessions need restart"
-/// toast.
+/// 配置保存后，存活会话继续使用启动快照，恢复或新建时再读取最新配置。
+/// 不在此重建启动环境或对账配置文件；清除旧提示并保留返回计数的接口约定。
 pub(crate) async fn refresh_config_staleness(
     manager: &ConnectionManager,
-    db: &AppDatabase,
-    data_dir: &Path,
+    _db: &AppDatabase,
+    _data_dir: &Path,
     agent_types: &[AgentType],
     kind: ConfigStaleKind,
 ) -> usize {
-    let mut fresh: HashMap<AgentType, String> = HashMap::new();
-    for &agent_type in agent_types {
-        if fresh.contains_key(&agent_type) {
-            continue;
-        }
-        if let Ok(fp) = compute_session_config_fingerprint(db, agent_type, data_dir).await {
-            fresh.insert(agent_type, fp);
-        }
-    }
-    if fresh.is_empty() {
-        return 0;
-    }
-    manager.refresh_connection_staleness(&fresh, kind).await
+    manager.clear_session_config_notices(agent_types, kind).await
 }
 
 /// `acp_update_agent_env_core` followed by a staleness refresh. Shared by the

@@ -21,18 +21,15 @@ interface ContextWindowRequest extends ContextWindowSyncParams {
 }
 
 function contextPolicyMatches(
-  request: Pick<ContextWindowRequest, "live" | "desired" | "values" | "target">
+  request: Pick<ContextWindowRequest, "live" | "values" | "target">
 ) {
   const automatic = request.live.kind.options.find(
     (option) => option.value === "auto"
   )
-  const desiredAuto = request.desired?.kind.options.find(
-    (option) => option.value === "auto"
-  )
+  // 目录中的 Auto 额度变化在下一次启动生效，不重启仍然存活的会话。
   return (
     request.live.kind.current_value === request.target &&
-    automatic?.description === request.values.model &&
-    (request.target !== "auto" || automatic?.name === desiredAuto?.name)
+    automatic?.description === request.values.model
   )
 }
 
@@ -112,7 +109,9 @@ export function useContextWindowSync(params: ContextWindowSyncParams) {
     (option) => option.id === CONTEXT_WINDOW_CONFIG_ID
   )
   const target =
-    params.desired?.kind.current_value ?? (live ? "auto" : undefined)
+    params.values[CONTEXT_WINDOW_CONFIG_ID] ??
+    params.desired?.kind.current_value ??
+    (live ? "auto" : undefined)
   const blocked = Boolean(
     target && live && !contextPolicyMatches({ ...params, live, target })
   )

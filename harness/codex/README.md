@@ -65,7 +65,10 @@ from `CODEX_API_KEY` and `CODEX_CONFIG` into typed instance arguments. Preferenc
 migrate once from the active profile into the existing application settings record. The runtime skips
 user-level config loading and uses ephemeral auth storage. System/project policy,
 session storage, skills and model catalog resources keep their existing paths.
-Configuration changes retain the existing fingerprint and reconnect workflow.
+Live sessions retain their launch configuration. Updated settings and model
+budgets apply when a reclaimed session is resumed or a new session is created;
+catalog refreshes do not require reconnecting or block prompts. Explicit user
+changes continue through the existing confirmed settings workflow.
 
 Unnamed threads use Codex's isolated structured-thread title flow. Generated
 names are persisted through `thread/name/set` and existing title notifications;

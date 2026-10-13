@@ -1163,7 +1163,8 @@ const ConversationTabView = memo(function ConversationTabView({
     hasManagedGatewayModelProjection(selectedAgent) &&
     hasAuthoritativeFixedAgentOptions(selectedAgent)
   useEffect(() => {
-    if (!canReconcileModelConfig) return
+    // 存活会话保留当前选值；新目录只规范化尚未连接的草稿。
+    if (!canReconcileModelConfig || conn.connectionId) return
     const next = reconcileConversationConfigValues(
       fixedOptions,
       draftConfigValues
@@ -1171,7 +1172,13 @@ const ConversationTabView = memo(function ConversationTabView({
     if (next === draftConfigValues) return
     setDraftConfigValues(next)
     replaceConfigPreferences(selectedAgent, next)
-  }, [canReconcileModelConfig, draftConfigValues, fixedOptions, selectedAgent])
+  }, [
+    canReconcileModelConfig,
+    conn.connectionId,
+    draftConfigValues,
+    fixedOptions,
+    selectedAgent,
+  ])
   const connectionCommands = useMemo(
     () => conn.availableCommands ?? [],
     [conn.availableCommands]
@@ -1284,9 +1291,13 @@ const ConversationTabView = memo(function ConversationTabView({
         ...current,
         model: target,
         [CONTEXT_WINDOW_CONFIG_ID]:
+          conn.configOptions?.find(
+            (option) => option.id === CONTEXT_WINDOW_CONFIG_ID
+          )?.kind.current_value ??
           getSavedModelConfigPreferences(selectedAgent)[target]?.[
             CONTEXT_WINDOW_CONFIG_ID
-          ] ?? "auto",
+          ] ??
+          "auto",
       }
       if (reasoning?.value) next[reasoning.configId] = reasoning.value
       return next
@@ -1307,12 +1318,15 @@ const ConversationTabView = memo(function ConversationTabView({
   }, [
     canReconcileModelConfig,
     conn.connectionId,
+    conn.configOptions,
     conn.selectorsReady,
     dbConversationId,
     detail,
     fixedModelOption,
+    fixedOptions.config_options,
     liveModelOption,
     persistConfirmedModel,
+    selectedAgent,
     updateRequestedModel,
   ])
   const handleModelSwitchFailure = useCallback(
@@ -1375,12 +1389,6 @@ const ConversationTabView = memo(function ConversationTabView({
     const seededTarget = sessionModelSeedTargetRef.current
     if (seededTarget && draftConfigValues.model !== seededTarget) return
     sessionModelSeedTargetRef.current = null
-    if (
-      reconcileConversationConfigValues(fixedOptions, draftConfigValues) !==
-      draftConfigValues
-    ) {
-      return
-    }
     const commands = planSessionConfigSync(
       connectionConfigOptions.filter(
         (option) => option.id !== CONTEXT_WINDOW_CONFIG_ID
@@ -1619,27 +1627,22 @@ const ConversationTabView = memo(function ConversationTabView({
     if (contextWindowPending) return false
     const target = draftConfigValues.model
     if (!target) return true
-    const fixed = fixedOptions.config_options.find(isModelConfigOption)
     const live = conn.configOptions?.find(isModelConfigOption)
-    const unavailable =
-      canReconcileModelConfig &&
-      !fixed?.kind.options.some((option) => option.value === target)
     const unconfirmed =
       (connectionReady ||
         conn.selectorsReady ||
         modelReapplyAttempt !== null ||
         failedModel === target) &&
       live?.kind.current_value !== target
-    return !unavailable && !unconfirmed
+    // 已确认的存活会话不受新目录可用性变化拦截，由请求后端返回实际结果。
+    return !unconfirmed
   }, [
-    canReconcileModelConfig,
     conn.configOptions,
     conn.selectorsReady,
     connectionReady,
     contextWindowPending,
     draftConfigValues.model,
     failedModel,
-    fixedOptions.config_options,
     modelReapplyAttempt,
   ])
   const selectedModeId = useMemo(() => {
