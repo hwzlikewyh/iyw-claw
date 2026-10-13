@@ -44,6 +44,7 @@ mod codex_rollout_migration_io;
 pub mod companion_health;
 pub mod computer_tools;
 mod compaction;
+mod compaction_threshold_config;
 mod context_window_config;
 mod context_window_runtime;
 mod context_window_preferences;

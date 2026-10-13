@@ -2,7 +2,7 @@ import type {
   SessionConfigOptionInfo,
   SessionConfigSelectOptionInfo,
 } from "@/lib/types"
-import { CONTEXT_WINDOW_CONFIG_ID } from "@/lib/model-context-window"
+import { isContextBudgetConfigId } from "@/lib/model-context-window"
 
 // A visual group of model options for the composer's model selector. `name`
 // being `null` renders the options with no header — used for the leading
@@ -52,7 +52,7 @@ export function isModelBehaviorConfigOption(
   return (
     isReasoningConfigOption(option) ||
     isFastConfigOption(option) ||
-    option.id === CONTEXT_WINDOW_CONFIG_ID
+    isContextBudgetConfigId(option.id)
   )
 }
 

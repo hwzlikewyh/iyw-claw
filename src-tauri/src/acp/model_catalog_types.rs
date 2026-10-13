@@ -76,6 +76,7 @@ pub(super) struct ModelCatalogLayer {
     pub display_names: HashMap<&'static str, &'static str>,
     pub capabilities: HashMap<&'static str, ModelCapabilitySnapshot>,
     pub context_window_tiers: HashMap<&'static str, Vec<u64>>,
+    pub compaction_threshold_percents: HashMap<&'static str, Vec<u64>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,6 +127,8 @@ pub(super) struct PersistedModel {
     pub limits: ModelLimits,
     #[serde(default)]
     pub context_window_tiers: Vec<u64>,
+    #[serde(default)]
+    pub compaction_threshold_percents: Vec<u64>,
 }
 
 fn default_true() -> bool {

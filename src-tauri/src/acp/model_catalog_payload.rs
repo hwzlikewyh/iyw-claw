@@ -56,6 +56,9 @@ fn parse_model(value: &serde_json::Value) -> Option<PersistedModel> {
         context_window_tiers: value.pointer("/limits/context_window_tiers")
             .and_then(serde_json::Value::as_array).into_iter().flatten()
             .filter_map(serde_json::Value::as_u64).filter(|value| *value > 0).collect(),
+        compaction_threshold_percents: value.pointer("/limits/compaction_threshold_percents")
+            .and_then(serde_json::Value::as_array).into_iter().flatten()
+            .filter_map(serde_json::Value::as_u64).filter(|value| (1..=100).contains(value)).collect(),
     })
 }
 

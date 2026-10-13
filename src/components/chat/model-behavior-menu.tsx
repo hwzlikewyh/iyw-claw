@@ -4,7 +4,11 @@ import { useMemo, useState } from "react"
 import { Check, ChevronRight } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { cn } from "@/lib/utils"
-import { CONTEXT_WINDOW_CONFIG_ID } from "@/lib/model-context-window"
+import {
+  COMPACTION_THRESHOLD_CONFIG_ID,
+  CONTEXT_WINDOW_CONFIG_ID,
+  isContextBudgetConfigId,
+} from "@/lib/model-context-window"
 import { useModelPanePosition } from "@/components/chat/use-model-pane-position"
 import type {
   SessionConfigOptionInfo,
@@ -92,7 +96,7 @@ function BehaviorValues({
           <BehaviorValueButton
             key={value.value}
             value={
-              option.id === CONTEXT_WINDOW_CONFIG_ID
+              isContextBudgetConfigId(option.id)
                 ? { ...value, description: null }
                 : value
             }
@@ -100,9 +104,13 @@ function BehaviorValues({
             onSelect={() => onSelect(option.id, value.value)}
           />
         ))}
-        {option.id === CONTEXT_WINDOW_CONFIG_ID ? (
+        {isContextBudgetConfigId(option.id) ? (
           <p className="border-t px-2 py-2 text-xs leading-5 text-muted-foreground">
-            {t("contextHint")}
+            {t(
+              option.id === COMPACTION_THRESHOLD_CONFIG_ID
+                ? "compactionHint"
+                : "contextHint"
+            )}
           </p>
         ) : null}
       </div>
@@ -124,7 +132,11 @@ export function ModelBehaviorMenu({
   if (visible.length === 0) return null
   const active = visible.find(({ id }) => id === activeId)
   const optionName = (option: SessionConfigOptionInfo) =>
-    option.id === CONTEXT_WINDOW_CONFIG_ID ? t("context") : option.name
+    option.id === CONTEXT_WINDOW_CONFIG_ID
+      ? t("context")
+      : option.id === COMPACTION_THRESHOLD_CONFIG_ID
+        ? t("compaction")
+        : option.name
 
   return (
     <div className={cn("relative bg-popover", compact && "w-full")}>

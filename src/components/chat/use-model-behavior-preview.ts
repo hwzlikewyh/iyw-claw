@@ -1,22 +1,35 @@
 import { useCallback, useMemo, useState } from "react"
+import { useTranslations } from "next-intl"
 import {
   isFastConfigOption,
+  isModelBehaviorConfigOption,
   isReasoningConfigOption,
 } from "@/lib/model-config-groups"
 import {
+  buildAgentOptionsSnapshot,
   getCachedGatewayModels,
   resolveModelReasoningEffort,
 } from "@/lib/gateway-model-catalog"
 import {
-  buildContextWindowOption,
+  localizeSessionConfigOption,
+  type SessionConfigTranslator,
+} from "@/lib/session-config-localization"
+import {
+  COMPACTION_THRESHOLD_CONFIG_ID,
   CONTEXT_WINDOW_CONFIG_ID,
 } from "@/lib/model-context-window"
+
 import { getSavedModelConfigPreferences } from "@/lib/selector-prefs-storage"
 import type {
   SessionConfigOptionInfo,
   SessionConfigSelectOptionInfo,
   AgentType,
 } from "@/lib/types"
+
+function behaviorOrder(option: SessionConfigOptionInfo): number {
+  if (option.id === COMPACTION_THRESHOLD_CONFIG_ID) return 2
+  return option.id === CONTEXT_WINDOW_CONFIG_ID ? 1 : 0
+}
 
 function optionsForModel(
   model: SessionConfigSelectOptionInfo,
@@ -67,41 +80,44 @@ export function useModelBehaviorPreview(
   behaviorOptions: SessionConfigOptionInfo[],
   agentType?: AgentType | null
 ) {
+  const t = useTranslations("Folder.chat.messageInput")
   const [behaviorModelValue, setBehaviorModelValue] = useState<string | null>(
     null
   )
   const behaviorOptionsForModel = useCallback(
     (model: SessionConfigSelectOptionInfo) => {
-      const context = agentType
-        ? buildContextWindowOption({
-            agentType,
-            model: getCachedGatewayModels(agentType ?? undefined).find(
-              (item) => item.id === model.value
-            ),
-            configured:
-              model.value === currentValue
-                ? behaviorOptions.find(
-                    (option) => option.id === CONTEXT_WINDOW_CONFIG_ID
-                  )?.kind.current_value
-                : agentType
-                  ? getSavedModelConfigPreferences(agentType)[model.value]?.[
-                      CONTEXT_WINDOW_CONFIG_ID
-                    ]
-                  : undefined,
-          })
-        : model.value === currentValue
-          ? behaviorOptions.find(
-              (option) => option.id === CONTEXT_WINDOW_CONFIG_ID
+      const catalogModel = getCachedGatewayModels(agentType ?? undefined).find(
+        (item) => item.id === model.value
+      )
+      if (!agentType || !catalogModel)
+        return optionsForModel(model, currentValue, behaviorOptions)
+      const selectedValues =
+        model.value === currentValue
+          ? Object.fromEntries(
+              behaviorOptions.map((option) => [
+                option.id,
+                option.kind.current_value,
+              ])
             )
-          : null
-      const options = optionsForModel(
-        model,
-        currentValue,
-        behaviorOptions
-      ).filter((option) => option.id !== CONTEXT_WINDOW_CONFIG_ID)
-      return context ? [...options, context] : options
+          : {}
+      const saved = getSavedModelConfigPreferences(agentType)
+      const snapshot = buildAgentOptionsSnapshot(
+        agentType,
+        [catalogModel],
+        { ...selectedValues, model: model.value },
+        {
+          ...saved,
+          [model.value]: { ...saved[model.value], ...selectedValues },
+        }
+      )
+      return snapshot.config_options
+        .filter(isModelBehaviorConfigOption)
+        .sort((left, right) => behaviorOrder(left) - behaviorOrder(right))
+        .map((option) =>
+          localizeSessionConfigOption(option, t as SessionConfigTranslator)
+        )
     },
-    [agentType, behaviorOptions, currentValue]
+    [agentType, behaviorOptions, currentValue, t]
   )
   const activeModel = useMemo(
     () => models.find((model) => model.value === behaviorModelValue) ?? null,

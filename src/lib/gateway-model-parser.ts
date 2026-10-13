@@ -13,6 +13,7 @@ export interface GatewayModel {
   contextWindow: number | null
   defaultContextWindow?: number | null
   contextWindowTiers?: number[]
+  compactionThresholdPercents?: number[]
   maxInputTokens: number | null
   maxOutputTokens: number | null
   compactionAtTokens: number | null
@@ -151,6 +152,17 @@ function parseGatewayModel(value: unknown): GatewayModel | null {
         )
       : [],
     maxInputTokens: tokenLimit(limits, "max_input_tokens"),
+    compactionThresholdPercents: Array.isArray(
+      limits.compaction_threshold_percents
+    )
+      ? limits.compaction_threshold_percents.filter(
+          (percent): percent is number =>
+            typeof percent === "number" &&
+            Number.isInteger(percent) &&
+            percent >= 1 &&
+            percent <= 100
+        )
+      : [],
     maxOutputTokens: tokenLimit(limits, "max_output_tokens"),
     compactionAtTokens: tokenLimit(limits, "compaction_at_tokens"),
   }

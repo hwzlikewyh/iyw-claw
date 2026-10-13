@@ -14,6 +14,7 @@ interface Target {
   workingDir?: string
   sessionId?: string
   conversationId?: number
+  preferredConfigValues?: Record<string, string>
 }
 
 interface Handle {
@@ -35,12 +36,16 @@ const entries = new Map<string, Entry>()
 
 function keyFor(target: Target): string {
   const prefs = getSavedPrefsForConnect(target.agentType)
+  const configValues = {
+    ...(prefs.configValues ?? {}),
+    ...(target.preferredConfigValues ?? {}),
+  }
   return JSON.stringify({
     ...(target.conversationId
       ? { agentType: target.agentType, conversationId: target.conversationId }
       : target),
     modeId: prefs.modeId,
-    configValues: Object.entries(prefs.configValues ?? {}).sort(([a], [b]) =>
+    configValues: Object.entries(configValues).sort(([a], [b]) =>
       a.localeCompare(b)
     ),
   })
@@ -102,6 +107,10 @@ export function prepareAcpSession(target: Target): Promise<Handle | null> {
 
 function requestPreparation(target: Target, transport: Transport) {
   const prefs = getSavedPrefsForConnect(target.agentType)
+  const preferredConfigValues = {
+    ...(prefs.configValues ?? {}),
+    ...(target.preferredConfigValues ?? {}),
+  }
   return transport
     .call<Handle | null>("acp_prepare_session", {
       request: {
@@ -110,7 +119,7 @@ function requestPreparation(target: Target, transport: Transport) {
         sessionId: target.sessionId ?? null,
         conversationId: target.conversationId ?? null,
         preferredModeId: prefs.modeId,
-        preferredConfigValues: prefs.configValues ?? {},
+        preferredConfigValues,
       },
     })
     .catch(() => null)

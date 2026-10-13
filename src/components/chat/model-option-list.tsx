@@ -6,10 +6,7 @@ import { Virtualizer, type VirtualizerHandle } from "virtua"
 import { cn } from "@/lib/utils"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { ModelOptionRow } from "@/components/chat/model-option-row"
-import {
-  ModelFastModeToggle,
-  ModelSettingsLink,
-} from "@/components/chat/model-picker-controls"
+import { ModelFastModeToggle } from "@/components/chat/model-picker-controls"
 import { ModelBehaviorPreviewPanel } from "@/components/chat/model-behavior-preview-panel"
 import { useModelOptionKeyboard } from "@/components/chat/use-model-option-keyboard"
 import {
@@ -38,7 +35,6 @@ interface ModelOptionListProps {
   /** Focus the search box on mount (the wide popover opens straight into it). */
   autoFocus?: boolean
   agentType?: AgentType | null
-  onSettingsOpen?: () => void
 }
 
 const ROW_ESTIMATE_PX = 32
@@ -57,7 +53,6 @@ export function ModelOptionList({
   compact = false,
   autoFocus = false,
   agentType,
-  onSettingsOpen,
 }: ModelOptionListProps) {
   const [query, setQuery] = useState("")
   const listRef = useRef<HTMLDivElement>(null)
@@ -277,7 +272,6 @@ export function ModelOptionList({
             </ScrollArea>
           </div>
         )}
-        <ModelSettingsLink agentType={agentType} onOpen={onSettingsOpen} />
       </div>
       {activeModel ? (
         <ModelBehaviorPreviewPanel
