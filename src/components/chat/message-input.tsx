@@ -3090,6 +3090,7 @@ export function MessageInput({
     const handleAttachImage = (event: Event) => {
       const detail = (event as CustomEvent<AttachImageToSessionDetail>).detail
       if (!detail || detail.tabId !== attachmentTabId) return
+      if (disabledRef.current || !editorRef.current?.getEditor()) return
       if (
         !detail.data ||
         !SUPPORTED_IMAGE_MIME_TYPES.has(detail.mimeType.toLowerCase())
@@ -3102,7 +3103,9 @@ export function MessageInput({
         mime_type: detail.mimeType.toLowerCase(),
         name: detail.name || "image.png",
       })
+      if (file.size > CHAT_IMAGE_SOURCE_MAX_BYTES) return
       void appendImageFile(file)
+      event.preventDefault()
       editorRef.current?.focus()
     }
     window.addEventListener(ATTACH_IMAGE_TO_SESSION_EVENT, handleAttachImage)
@@ -3121,9 +3124,11 @@ export function MessageInput({
       const customEvent = event as CustomEvent<AppendTextToSessionDetail>
       if (!customEvent.detail) return
       if (customEvent.detail.tabId !== attachmentTabId) return
+      if (disabledRef.current) return
       const appendText = customEvent.detail.text
       const editor = editorRef.current?.getEditor()
       if (!editor) return
+      event.preventDefault()
       // Append at the very end, separated by a space when the document isn't
       // empty (and doesn't already end in whitespace).
       const ed = editorRef.current

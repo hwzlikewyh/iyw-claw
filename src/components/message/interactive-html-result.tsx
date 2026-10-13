@@ -1,22 +1,34 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo } from "react"
 import { useTranslations } from "next-intl"
 import { CodeXml } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { InteractiveHtmlCard } from "@/components/chat/interactive-html-card"
-import type { InteractiveHtmlState } from "@/lib/types"
+import { normalizePageUrl } from "@/lib/native-page-api"
+import {
+  useInteractivePage,
+  type InteractivePage,
+} from "@/contexts/interactive-page-context"
 
-function parsePage(input?: string | null): InteractiveHtmlState | null {
+function parsePage(input?: string | null): InteractivePage | null {
   try {
     const root = JSON.parse(input ?? "{}")
     const value = root?.arguments ?? root
-    if (typeof value?.html !== "string" || typeof value?.title !== "string")
+    if (
+      (typeof value?.html !== "string" && typeof value?.url !== "string") ||
+      typeof value?.title !== "string"
+    )
+      return null
+    if (
+      value.url &&
+      (!normalizePageUrl(value.url) || typeof value.html === "string")
+    )
       return null
     return {
-      interaction_id: "history-preview",
+      interaction_id: `history-${crypto.randomUUID()}`,
       title: value.title,
-      html: value.html,
+      html: value.html ?? "",
+      url: value.url,
       wait_for_response: false,
     }
   } catch {
@@ -37,7 +49,23 @@ export function InteractiveHtmlResult({
 }) {
   const t = useTranslations("Folder.chat.interactiveHtml")
   const page = useMemo(() => parsePage(input), [input])
-  const [open, setOpen] = useState(false)
+  const { openPreview, select, pages } = useInteractivePage()
+  const liveId = (() => {
+    try {
+      return JSON.parse(output ?? "{}").interaction_id as string | undefined
+    } catch {
+      return undefined
+    }
+  })()
+  const livePage =
+    pages.find((item) => item.interaction_id === liveId) ??
+    pages.find(
+      (item) =>
+        page &&
+        item.title === page.title &&
+        item.html === page.html &&
+        item.url === page.url
+    )
   return (
     <div className="space-y-2 rounded-lg border p-3">
       <div className="flex items-center gap-2 text-sm">
@@ -45,9 +73,15 @@ export function InteractiveHtmlResult({
         <span className="min-w-0 flex-1 truncate">
           {page?.title ?? t("title")}
         </span>
-        {page && !running && (
-          <Button size="sm" variant="ghost" onClick={() => setOpen(!open)}>
-            {t(open ? "close" : "preview")}
+        {page && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() =>
+              livePage ? select(livePage.interaction_id) : openPreview(page)
+            }
+          >
+            {t("preview")}
           </Button>
         )}
       </div>
@@ -58,12 +92,6 @@ export function InteractiveHtmlResult({
         <p role="alert" className="text-xs text-destructive">
           {errorText}
         </p>
-      )}
-      {open && page && (
-        <>
-          <p className="text-xs text-muted-foreground">{t("historyNotice")}</p>
-          <InteractiveHtmlCard page={page} preview />
-        </>
       )}
       {output && <OutputDetails output={output} />}
     </div>

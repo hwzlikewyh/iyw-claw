@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 use std::sync::OnceLock;
 
-use crate::acp::interactive_html::{MAX_HTML_BYTES, MAX_TITLE_CHARS};
+use crate::acp::interactive_html::{MAX_HTML_BYTES, MAX_TITLE_CHARS, MAX_URL_BYTES};
 
 pub(super) const ASK_TOOL: &str = "ask_user_question";
 pub(super) const HTML_TOOL: &str = "show_interactive_html";
@@ -22,14 +22,20 @@ pub(super) fn embedded_tool(name: &str) -> Value {
 pub(super) fn html_tool() -> Value {
     json!({
         "name": HTML_TOOL,
-        "description": "Proactively create and automatically display a freely designed interactive HTML page when seeing, manipulating or experimenting helps the user understand, explore, compare, express preferences or decide. You control the HTML, CSS, JavaScript, SVG, Canvas, layout, visual design, interaction logic and returned JSON data; there is no fixed form or component schema. Examples include interactive explanations, simulations, visual comparisons, design previews, drag-and-drop ordering, annotations, configurable charts and custom mini-tools; these are inspiration, not an exhaustive list. The user does not need to explicitly request HTML. For a concise question or a few choices, prefer ask_user_question. Supply a complete self-contained document with inline scripts/styles and embedded assets; it loads automatically in the current conversation. By default return immediately after presenting so you can continue working. Set wait_for_response=true only when you need the user's result before continuing, and call await iyw.submit(data) from an explicit user action in the page. data may be any JSON value (up to 64 KiB); handle submission errors and keep the user's draft. Do not submit on load. Display-only pages cannot submit feedback. The page runs in a sandbox without host credentials, filesystem access or tool calls. At most eight pages may remain open in one session. A presented result means the host accepted the page, not that browser rendering has been verified.",
+        "description": "Proactively create and automatically display a freely designed interactive HTML page when seeing, manipulating or experimenting helps the user understand, explore, compare, express preferences or decide. You control the HTML, CSS, JavaScript, SVG, Canvas, layout, visual design, interaction logic and returned JSON data; there is no fixed form or component schema. Examples include interactive explanations, simulations, visual comparisons, design previews, drag-and-drop ordering, annotations, configurable charts and custom mini-tools; these are inspiration, not an exhaustive list. The user does not need to explicitly request HTML. For a concise question or a few choices, prefer ask_user_question. Provide exactly one of html or url. URL pages open directly in the right-side native WebView with navigation, screenshots, selection and annotation; they require wait_for_response=false. For html, supply a complete self-contained document with inline scripts/styles and embedded assets; it opens automatically in the right-side panel of the current conversation. By default return immediately after presenting so you can continue working. Set wait_for_response=true only when you need the user's result before continuing, and call await iyw.submit(data) from an explicit user action in the page. data may be any JSON value (up to 64 KiB); handle submission errors and keep the user's draft. Do not submit on load. Display-only pages cannot submit feedback. The page runs in a sandbox without host credentials, filesystem access or tool calls. At most eight pages may remain open in one session. A presented result means the host accepted the page, not that browser rendering has been verified.",
         "inputSchema": {
             "type": "object",
-            "required": ["title", "html"],
+            "required": ["title"],
+            "oneOf": [
+                {"required": ["html"], "not": {"required": ["url"]}},
+                {"required": ["url"], "not": {"required": ["html"]}, "properties": {"wait_for_response": {"const": false}}}
+            ],
             "properties": {
                 "title": {"type": "string", "minLength": 1, "maxLength": MAX_TITLE_CHARS},
                 "html": {"type": "string", "minLength": 1, "maxLength": MAX_HTML_BYTES,
                     "description": "Complete HTML document, at most 256 KiB UTF-8. Design freely using inline CSS/JS, SVG, Canvas and embedded assets. Include accessible controls and responsive layout. The host injects iyw.submit(data); no SDK or local server is needed."},
+                "url": {"type": "string", "format": "uri", "minLength": 1, "maxLength": MAX_URL_BYTES,
+                    "description": "HTTP/HTTPS webpage loaded directly in the right-side native WebView, with navigation, screenshots, selection and annotation. No external browser or separate window is opened. Provide exactly one of html or url. URL pages are display-only; wait_for_response must be false."},
                 "wait_for_response": {"type": "boolean", "default": false,
                     "description": "False for an explanation, visualization or exploratory mini-tool: present and continue. True for design feedback, selections, configuration or other user data needed to continue: wait for page submission or cancellation."}
             },

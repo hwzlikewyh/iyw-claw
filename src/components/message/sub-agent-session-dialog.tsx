@@ -259,6 +259,7 @@ export function SubAgentSessionDialog({
             childConnectionId={childConnectionId}
             agentType={agentType}
             kickoffTask={kickoffTask}
+            onOpenPage={() => onOpenChange(false)}
           />
         ) : null}
       </DialogContent>
@@ -271,11 +272,13 @@ function SubAgentSessionBody({
   childConnectionId,
   agentType,
   kickoffTask,
+  onOpenPage,
 }: {
   childConversationId: number
   childConnectionId: string | null
   agentType: AgentType | null
   kickoffTask?: string | null
+  onOpenPage: () => void
 }) {
   const t = useTranslations("Folder.chat.delegation")
 
@@ -389,6 +392,7 @@ function SubAgentSessionBody({
         <InteractiveHtmlPages
           pages={childConn?.interactiveHtml ?? []}
           connectionId={childConnectionId ?? null}
+          onOpenPage={onOpenPage}
         />
         {childConnectionId && childChannelConfirmation && (
           <div className="border-b border-border px-4 py-3">

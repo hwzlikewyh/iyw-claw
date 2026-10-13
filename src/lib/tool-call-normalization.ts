@@ -239,7 +239,10 @@ function inferFromInput(
   const parsed = tryParseInputObject(rawInput)
   if (!parsed) return null
 
-  if (typeof parsed.html === "string" && typeof parsed.title === "string")
+  if (
+    (typeof parsed.html === "string" || typeof parsed.url === "string") &&
+    typeof parsed.title === "string"
+  )
     return "show_interactive_html"
 
   if (

@@ -31,7 +31,8 @@ impl ConnectionManager {
         let interaction = InteractiveHtmlState {
             interaction_id: uuid::Uuid::new_v4().to_string(),
             title: request.title.trim().to_string(),
-            html: request.html,
+            html: request.html.unwrap_or_default(),
+            url: request.url.map(|url| url.trim().to_string()),
             wait_for_response: request.wait_for_response,
             cancellation: tokio_util::sync::CancellationToken::new(),
         };
@@ -48,6 +49,7 @@ impl ConnectionManager {
             .await;
         tracing::info!(connection_id = %conn_id, interaction_id = %registered.interaction_id,
             waiting = request.wait_for_response, html_bytes = interaction.html.len(),
+            source = if interaction.url.is_some() { "url" } else { "html" },
             "interactive HTML presented");
         Ok(registered)
     }

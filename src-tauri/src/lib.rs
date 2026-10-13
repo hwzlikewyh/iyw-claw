@@ -34,6 +34,8 @@ pub mod keyring_store;
 pub mod logging;
 pub mod managed_environment;
 pub mod models;
+#[cfg(feature = "tauri-runtime")]
+pub mod native_page;
 mod network;
 pub mod office_watch;
 pub mod parsers;
@@ -1410,6 +1412,7 @@ mod tauri_app {
                     }
                 }
                 if matches!(event, tauri::WindowEvent::Destroyed) {
+                    crate::native_page::close_owner(window.label());
                     let app = window.app_handle();
                     if let Some(state) = app.try_state::<realtime_voice_commands::RealtimeVoiceState>() {
                         let state = state.inner().clone();
@@ -1948,6 +1951,7 @@ mod tauri_app {
                 browser_commands::browser_cancel_download,
                 browser_commands::browser_open_download,
                 browser_commands::browser_reveal_download,
+                crate::native_page::native_page_command,
                 backup::backup_create,
                 backup::backup_inspect,
                 backup::backup_scan_external_conflicts,

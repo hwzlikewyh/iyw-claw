@@ -52,6 +52,11 @@ import {
   useWorkspaceView,
 } from "@/contexts/workspace-context"
 import { BrowserProvider, useBrowser } from "@/contexts/browser-context"
+import {
+  InteractivePageProvider,
+  useInteractivePage,
+} from "@/contexts/interactive-page-context"
+import { InteractivePagePanel } from "@/components/chat/interactive-page-panel"
 import { BrowserShell } from "@/components/browser/browser-shell"
 import { RemoteConnectionGate } from "@/contexts/remote-connection-context"
 import { UpdateProvider } from "@/components/providers/update-provider"
@@ -252,14 +257,15 @@ function resolvePanelSizeRange(
 function WorkspaceContent({ children }: { children: React.ReactNode }) {
   const { mode, filesMaximized } = useWorkspaceView()
   const { isOpen: browserOpen } = useBrowser()
+  const { isOpen: pageOpen } = useInteractivePage()
   const { setActivePane } = useWorkspaceActions()
   const panelGroupRef = useRef<ImperativePanelGroupHandle | null>(null)
   const fusionLayoutRef = useRef<[number, number]>(DEFAULT_FUSION_LAYOUT)
   const browserLayoutRef = useRef<[number, number]>([50, 50])
   const desiredLayoutRef = useRef<[number, number]>(DEFAULT_FUSION_LAYOUT)
   const appliedLayoutRef = useRef<[number, number] | null>(null)
-  const fusionVisible = browserOpen || mode === "fusion"
-  const filesOverlay = !browserOpen && filesMaximized
+  const fusionVisible = pageOpen || browserOpen || mode === "fusion"
+  const filesOverlay = !pageOpen && !browserOpen && filesMaximized
   const isConversationSplit = useTabStore(
     (state) => state.groupLayout.type === "split"
   )
@@ -297,10 +303,12 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (fusionVisible) {
       applyLayout(
-        browserOpen ? browserLayoutRef.current : fusionLayoutRef.current
+        pageOpen || browserOpen
+          ? browserLayoutRef.current
+          : fusionLayoutRef.current
       )
     }
-  }, [applyLayout, browserOpen, fusionVisible])
+  }, [applyLayout, browserOpen, fusionVisible, pageOpen])
 
   const handleLayout = useCallback(
     (layout: number[]) => {
@@ -319,15 +327,19 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
 
       const [conversationSize, fileSize] = normalizedLayout
       if (conversationSize <= 0 || fileSize <= 0) return
-      const target = browserOpen ? browserLayoutRef : fusionLayoutRef
+      const target =
+        pageOpen || browserOpen ? browserLayoutRef : fusionLayoutRef
       target.current = [conversationSize, fileSize]
     },
-    [applyLayout, browserOpen, fusionVisible]
+    [applyLayout, browserOpen, fusionVisible, pageOpen]
   )
 
   const { isConversations } = useWorkbenchRoute()
   const fileWorkspaceVisible =
-    isConversations && !browserOpen && (mode !== "conversation" || filesOverlay)
+    isConversations &&
+    !pageOpen &&
+    !browserOpen &&
+    (mode !== "conversation" || filesOverlay)
 
   return (
     <div className="relative h-full min-h-0 overflow-hidden">
@@ -350,7 +362,8 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
             <section
               className={cn(
                 "flex h-full min-h-0 flex-col overflow-hidden",
-                !browserOpen &&
+                !pageOpen &&
+                  !browserOpen &&
                   mode === "conversation" &&
                   "absolute inset-0 z-30 bg-background"
               )}
@@ -396,9 +409,11 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
               )}
               onPointerDownCapture={markFileActive}
               onFocusCapture={markFileActive}
-              aria-hidden={!browserOpen && mode === "conversation"}
+              aria-hidden={!pageOpen && !browserOpen && mode === "conversation"}
             >
-              {browserOpen ? (
+              {pageOpen ? (
+                <InteractivePagePanel />
+              ) : browserOpen ? (
                 <BrowserShell />
               ) : (
                 <>
@@ -424,6 +439,7 @@ function WorkspaceContent({ children }: { children: React.ReactNode }) {
 function MobileWorkspaceContent({ children }: { children: React.ReactNode }) {
   const { mode, activePane } = useWorkspaceView()
   const { isOpen: browserOpen } = useBrowser()
+  const { isOpen: pageOpen } = useInteractivePage()
   const { isConversations } = useWorkbenchRoute()
 
   const showConversation =
@@ -432,7 +448,9 @@ function MobileWorkspaceContent({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative h-full min-h-0 overflow-hidden">
       <div className="h-full min-h-0" inert={!isConversations || undefined}>
-        {browserOpen ? (
+        {pageOpen ? (
+          <InteractivePagePanel />
+        ) : browserOpen ? (
           <BrowserShell />
         ) : showConversation ? (
           <section className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -1081,38 +1099,40 @@ function WorkspaceLayoutInner({ children }: { children: React.ReactNode }) {
                       <ConversationRuntimeProvider>
                         <WorkspaceProvider>
                           <BrowserProvider>
-                            <BrowserFileMutualExclusion />
-                            <TabProvider>
-                              <WorkspaceDocumentTitle />
-                              <TabKeysSync />
-                              <ModelCatalogBootstrap />
-                              <DeepLinkBootstrap />
-                              <SidebarViewOptionsProvider>
-                                <SettingsDialog />
-                                {/* Always mounted: external-change conflicts must be
+                            <InteractivePageProvider>
+                              <BrowserFileMutualExclusion />
+                              <TabProvider>
+                                <WorkspaceDocumentTitle />
+                                <TabKeysSync />
+                                <ModelCatalogBootstrap />
+                                <DeepLinkBootstrap />
+                                <SidebarViewOptionsProvider>
+                                  <SettingsDialog />
+                                  {/* Always mounted: external-change conflicts must be
                             resolvable even with the aux file tree closed. */}
-                                <ExternalConflictDialog />
-                                <SessionStatsProvider>
-                                  <SidebarProvider>
-                                    <AuxPanelProvider>
-                                      <TerminalProvider>
-                                        <SearchDialogProvider>
-                                          <AutomationsViewProvider>
-                                            <WorkbenchRouteProvider>
-                                              <WorkbenchRouteConversationSync />
-                                              <TrayActionBridge />
-                                              <FolderLayoutShell>
-                                                {children}
-                                              </FolderLayoutShell>
-                                            </WorkbenchRouteProvider>
-                                          </AutomationsViewProvider>
-                                        </SearchDialogProvider>
-                                      </TerminalProvider>
-                                    </AuxPanelProvider>
-                                  </SidebarProvider>
-                                </SessionStatsProvider>
-                              </SidebarViewOptionsProvider>
-                            </TabProvider>
+                                  <ExternalConflictDialog />
+                                  <SessionStatsProvider>
+                                    <SidebarProvider>
+                                      <AuxPanelProvider>
+                                        <TerminalProvider>
+                                          <SearchDialogProvider>
+                                            <AutomationsViewProvider>
+                                              <WorkbenchRouteProvider>
+                                                <WorkbenchRouteConversationSync />
+                                                <TrayActionBridge />
+                                                <FolderLayoutShell>
+                                                  {children}
+                                                </FolderLayoutShell>
+                                              </WorkbenchRouteProvider>
+                                            </AutomationsViewProvider>
+                                          </SearchDialogProvider>
+                                        </TerminalProvider>
+                                      </AuxPanelProvider>
+                                    </SidebarProvider>
+                                  </SessionStatsProvider>
+                                </SidebarViewOptionsProvider>
+                              </TabProvider>
+                            </InteractivePageProvider>
                           </BrowserProvider>
                         </WorkspaceProvider>
                       </ConversationRuntimeProvider>

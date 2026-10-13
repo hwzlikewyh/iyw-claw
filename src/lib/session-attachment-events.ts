@@ -32,11 +32,12 @@ export interface AppendTextToSessionDetail {
 
 export function emitAppendTextToSession(
   detail: AppendTextToSessionDetail
-): void {
-  if (typeof window === "undefined") return
-  window.dispatchEvent(
+): boolean {
+  if (typeof window === "undefined") return false
+  return !window.dispatchEvent(
     new CustomEvent<AppendTextToSessionDetail>(APPEND_TEXT_TO_SESSION_EVENT, {
       detail,
+      cancelable: true,
     })
   )
 }
@@ -52,11 +53,12 @@ export interface AttachImageToSessionDetail {
 
 export function emitAttachImageToSession(
   detail: AttachImageToSessionDetail
-): void {
-  if (typeof window === "undefined") return
-  window.dispatchEvent(
+): boolean {
+  if (typeof window === "undefined") return false
+  return !window.dispatchEvent(
     new CustomEvent<AttachImageToSessionDetail>(ATTACH_IMAGE_TO_SESSION_EVENT, {
       detail,
+      cancelable: true,
     })
   )
 }
