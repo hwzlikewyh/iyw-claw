@@ -40,7 +40,8 @@ pub(super) async fn refresh(
     profile.balance_points = cache.amount;
     profile.points_refresh_failures = cache.failures;
     profile.points_stale = cache.failures > 0;
-    profile.points_requests_paused = cache.failures >= FAILURE_LIMIT;
+    // 点数查询只影响展示；实际消费是否获准由请求后端判断。
+    profile.points_requests_paused = false;
     let mut next = session.clone();
     next.org_code = profile.org_code.clone();
     next.balance = Some(cache);
@@ -60,15 +61,6 @@ pub(crate) async fn ensure_can_consume(conn: &DatabaseConnection) -> Result<(), 
     if session.workspace_pending {
         return Err(AppCommandError::permission_denied(
             "空间切换尚未确认，请刷新账号信息后重试",
-        ));
-    }
-    if session
-        .balance
-        .as_ref()
-        .is_some_and(|cache| cache.failures >= FAILURE_LIMIT)
-    {
-        return Err(AppCommandError::permission_denied(
-            "点数连续刷新失败，请刷新点数后再发送新请求",
         ));
     }
     Ok(())

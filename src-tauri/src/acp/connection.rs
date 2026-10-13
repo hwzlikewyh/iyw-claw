@@ -652,17 +652,9 @@ pub struct AgentConnection {
     /// in the same turn.
     pub prompt_lock: Arc<tokio::sync::Mutex<()>>,
 
-    /// Canonical fingerprint of the agent's effective config (env vars + model
-    /// provider creds + native config file content) captured at spawn. The
-    /// running process is locked to THIS config; comparing it against a freshly
-    /// recomputed fingerprint after a settings save tells us whether the session
-    /// has drifted onto stale config. Immutable for the connection's lifetime.
+    /// 启动配置快照，保留公开连接结构的兼容性；不用于要求存活会话重连。
     pub config_fingerprint: String,
-    /// The most recent fingerprint seen by `refresh_connection_staleness`.
-    /// Tracks "did anything change since we last looked" so a second settings
-    /// save re-emits `SessionConfigStale` (re-showing a dismissed banner) while a
-    /// no-op save (identical values) stays silent. Starts equal to
-    /// `config_fingerprint`.
+    /// 保留原指纹观察字段，配置刷新不再改变存活会话的启动快照。
     pub last_observed_fingerprint: String,
     /// Domain-separated identity of the effective Hermes home. Immutable and
     /// content-free; used only to detect unsafe shared-home concurrency.
