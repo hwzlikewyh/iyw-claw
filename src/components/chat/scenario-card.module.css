@@ -1,0 +1,80 @@
+.card {
+  display: flex;
+  min-width: 0;
+  min-height: 103px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid rgb(236 238 243 / 80%);
+  border-radius: 16px;
+  background: #fff;
+  color: #111827;
+  text-align: left;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 4%);
+  transition:
+    border-color 150ms,
+    box-shadow 150ms;
+}
+.card:hover {
+  border-color: #dbe3ef;
+  box-shadow: 0 3px 10px rgb(0 0 0 / 6%);
+}
+.card:focus-visible {
+  outline: 2px solid #2656f6;
+  outline-offset: 2px;
+}
+.header {
+  display: flex;
+  min-width: 0;
+  min-height: 36px;
+  align-items: center;
+  gap: 12px;
+}
+.title {
+  font-size: 15px;
+  line-height: 18px;
+  font-weight: 700;
+}
+.summary {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: #7c8192;
+  font-size: 12px;
+  line-height: 14px;
+}
+.accent {
+  height: 3px;
+  flex-shrink: 0;
+  margin-top: auto;
+  border-radius: 999px;
+  background: #e8eefb;
+}
+.card[data-tone="purple"] .accent {
+  background: #f0e7fb;
+}
+.card[data-tone="blue"] .accent {
+  background: #e8eefb;
+}
+.card[data-tone="green"] .accent {
+  background: #def8eb;
+}
+.card[data-tone="amber"] .accent {
+  background: #fff0e3;
+}
+.card[data-tone="rose"] .accent {
+  background: #ffe9ef;
+}
+.card[data-tone="slate"] .accent {
+  background: #e7edf7;
+}
+:global(.dark) .card {
+  background: var(--background);
+  color: var(--foreground);
+  border-color: var(--border);
+}
+:global(.dark) .summary {
+  color: var(--muted-foreground);
+}

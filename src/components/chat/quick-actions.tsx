@@ -31,6 +31,8 @@ import { cn } from "@/lib/utils"
 import { useScenarioPreferences } from "./scenario-preferences"
 import { scenarioContent } from "./scenario-content"
 import { ScenarioCases } from "./scenario-cases"
+import { ScenarioCardIcon } from "./scenario-card-icon"
+import cardStyles from "./scenario-card.module.css"
 
 const ICONS: Record<string, LucideIcon> = {
   barChart3: BarChart3,
@@ -53,13 +55,6 @@ const ICONS: Record<string, LucideIcon> = {
   sparkles: Sparkles,
   users: Users,
   video: Video,
-}
-const TONES: Record<string, string> = {
-  amber: "border-amber-200 bg-amber-50/55 hover:border-amber-400",
-  blue: "border-blue-200 bg-blue-50/55 hover:border-blue-400",
-  green: "border-emerald-200 bg-emerald-50/55 hover:border-emerald-400",
-  rose: "border-rose-200 bg-rose-50/55 hover:border-rose-400",
-  slate: "border-slate-200 bg-slate-50/60 hover:border-slate-400",
 }
 let cachedCatalog: ScenarioCatalog | null = null
 let catalogRequest: Promise<ScenarioCatalog> | null = null
@@ -169,7 +164,7 @@ export function QuickActions({ onSelect, refreshKey }: QuickActionsProps) {
           ))}
         </div>
       </div>
-      <div className="mx-auto grid w-full gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mx-auto grid w-full gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {scenarios.length ? (
           scenarios.map((scenario) => (
             <ScenarioCard
@@ -217,27 +212,24 @@ function ScenarioCard({
     <button
       type="button"
       onClick={() => onSelect(scenarioContent(scenario, prompt))}
-      className={cn(
-        "group flex min-h-24 flex-col items-start gap-2 rounded-lg border px-4 py-3 text-left transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
-        TONES[scenario.tone ?? "blue"] ?? TONES.blue
-      )}
+      className={cardStyles.card}
+      data-tone={scenario.tone ?? "blue"}
       aria-label={
         scenario.skillPackageSlug
           ? `${scenario.displayName}，使用 ${scenario.skillPackageSlug}`
           : scenario.displayName
       }
     >
-      <span className="flex min-w-0 items-center gap-2">
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-background/80 text-foreground">
-          <ScenarioIcon name={scenario.icon} className="size-4" />
-        </span>
-        <span className="text-sm font-semibold text-foreground">
-          {scenario.displayName}
-        </span>
+      <span className={cardStyles.header}>
+        <ScenarioCardIcon
+          key={scenario.icon}
+          source={scenario.icon}
+          fallback={<ScenarioIcon name={scenario.icon} className="size-4" />}
+        />
+        <span className={cardStyles.title}>{scenario.displayName}</span>
       </span>
-      <span className="line-clamp-2 text-xs leading-5 text-muted-foreground">
-        {scenario.summary}
-      </span>
+      <span className={cardStyles.summary}>{scenario.summary}</span>
+      <span aria-hidden="true" className={cardStyles.accent} />
     </button>
   )
 }

@@ -3199,7 +3199,7 @@ const ConversationTabView = memo(function ConversationTabView({
       {isWelcomeMode ? (
         <div className="relative isolate flex h-full min-h-0 flex-col overflow-x-hidden overflow-y-auto">
           <div className="flex-[1.18]" />
-          <div className="mx-auto flex w-full max-w-4xl shrink-0 flex-col gap-6 px-4 py-4">
+          <div className="mx-auto flex w-full max-w-[1061px] shrink-0 flex-col gap-6 px-4 py-4">
             <WelcomeHero />
             <QuickActions
               onSelect={handleQuickAction}
