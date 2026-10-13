@@ -301,5 +301,18 @@ fn image_transport_error(stage: &'static str, error: &reqwest::Error) -> rmcp::E
         status = error.status().map(|status| status.as_u16()),
         "[iyw-image] image transport failed"
     );
-    rmcp::ErrorData::internal_error(format!("IYW image {stage} failed"), None)
+    let reason = if error.is_timeout() {
+        "timed out"
+    } else {
+        "failed"
+    };
+    rmcp::ErrorData::internal_error(
+        format!("IYW image {stage} {reason}; check any uncertain submission state before retrying"),
+        Some(json!({
+            "stage": stage,
+            "timeout": error.is_timeout(),
+            "connect": error.is_connect(),
+            "status": error.status().map(|status| status.as_u16()),
+        })),
+    )
 }

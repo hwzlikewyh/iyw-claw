@@ -123,7 +123,12 @@ fn server_config(server: &Value) -> Result<Value, UpstreamError> {
         }
     };
     config["enabled"] = json!(true);
-    config["required"] = json!(!is_optional_builtin_mcp(server));
+    let builtin = is_optional_builtin_mcp(server);
+    config["required"] = json!(!builtin);
+    // 内置工具自己处理等待预算，外层 MCP 不提前截断长任务。
+    if builtin {
+        config["tool_timeout_sec"] = json!(0);
+    }
     // 上游校验的错误只返回类型说明，避免输出命令、参数或认证头。
     serde_json::from_value::<codex_config::McpServerConfig>(config.clone())
         .map_err(|_| invalid("MCP configuration failed runtime validation"))?;

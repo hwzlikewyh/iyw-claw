@@ -360,11 +360,11 @@ impl McpConnectionSet {
             let startup_timeout = configured_config
                 .startup_timeout_sec
                 .unwrap_or(DEFAULT_STARTUP_TIMEOUT);
-            let configured_tool_timeout = Some(
-                configured_config
-                    .tool_timeout_sec
-                    .unwrap_or(DEFAULT_TOOL_TIMEOUT),
-            );
+            // 显式 0 关闭外层时限，内置工具由各自参数决定执行预算。
+            let configured_tool_timeout = match configured_config.tool_timeout_sec {
+                Some(timeout) if timeout.is_zero() => None,
+                timeout => Some(timeout.unwrap_or(DEFAULT_TOOL_TIMEOUT)),
+            };
             let resolved_environment =
                 runtime_context.resolve_server_environment(&server_name, &configured_config);
             // For built-in Codex Apps, `CODEX_CONNECTORS_TOKEN` is a debug

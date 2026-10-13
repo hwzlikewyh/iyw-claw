@@ -2,6 +2,8 @@ use serde_json::{json, Map, Value};
 
 use super::{PreparedTask, RunOutcome};
 
+const MAX_ERROR_CHARS: usize = 900;
+
 pub(super) fn aggregate_task(task: &PreparedTask, runs: &[RunOutcome]) -> Value {
     let selected = runs
         .iter()
@@ -49,11 +51,28 @@ fn run_value(run: &RunOutcome) -> Value {
             "status": "failed",
             "task_id": null,
             "images": [],
-            "error": "image execution failed",
+            "error": crate::acp::stderr_tail::sanitize_diagnostic(&error.message)
+                .chars().take(MAX_ERROR_CHARS).collect::<String>(),
             "error_code": error.code.0,
+            "error_details": safe_error_details(error),
             "duration_ms": run.duration_ms,
         }),
     }
+}
+
+fn safe_error_details(error: &rmcp::ErrorData) -> Value {
+    let mut details = Map::new();
+    if let Some(data) = error.data.as_ref().and_then(Value::as_object) {
+        for key in ["status", "code", "timeout", "connect"] {
+            if let Some(value) = data
+                .get(key)
+                .filter(|value| value.is_number() || value.is_boolean())
+            {
+                details.insert(key.to_string(), value.clone());
+            }
+        }
+    }
+    Value::Object(details)
 }
 
 fn safe_metadata(result: &super::ImageResult) -> Value {
