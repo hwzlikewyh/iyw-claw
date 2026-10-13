@@ -1,5 +1,13 @@
 # Local Upstream Patches
 
+## 工具执行等待
+
+`codex-mcp` 将明确配置的 `tool_timeout_sec = 0` 解释为不设置外层执行时限。
+星河桥接层只为内置 MCP 写入该值，让工具自身的执行和等待参数生效，避免
+统一的 300 秒截止时间提前截断长任务。未配置或设置正值的 MCP 保留原有预算，
+初始化和用户主动取消仍独立处理。升级固定版本时须核对零值配置解析、
+`PreparedMcpCall` 和 RMCP 的无截止时间分支，详见仓库的 `docs/runtime-waiting.md`。
+
 ## Managed conversation images
 
 The core's existing attachment-store interface now prepares durable image references through

@@ -70,7 +70,10 @@ impl SessionActivity {
             // 用户等待结束后给运行时一个完整响应窗口。
             AcpEvent::PermissionResolved { .. }
             | AcpEvent::QuestionResolved { .. }
-            | AcpEvent::ChannelConfirmationResolved { .. } => true,
+            | AcpEvent::ChannelConfirmationResolved { .. } => {
+                self.llm_wait_started_at = Some(now);
+                true
+            }
             AcpEvent::UsageUpdate { .. }
             | AcpEvent::ClaudeSdkMessage { .. }
             | AcpEvent::PlanUpdate { .. }
@@ -116,6 +119,10 @@ impl SessionActivity {
         }
         if !context.prompting || !current_turn {
             return false;
+        }
+        // 工具成功或失败后才开始下一次 LLM 等待，工具耗时不占回复窗口。
+        if terminal {
+            self.llm_wait_started_at = Some(now);
         }
         if evidence.started {
             self.snapshot.tool_started_at = Some(now);

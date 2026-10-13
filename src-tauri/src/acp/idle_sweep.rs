@@ -23,9 +23,7 @@ use crate::commands::idle_agent_settings::{
 /// keepalives renew separate short leases, so they protect a live surface
 /// without corrupting LRU.
 pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 1800;
-/// Default prompt-stall recovery threshold (10 minutes without a single agent
-/// event while `Prompting`). Recovery requests one safe cancellation and never
-/// replays the prompt.
+/// LLM 无输出日志阈值（10 分钟）；不包含工具等待，不取消回合或断开连接。
 /// Override via `IYW_CLAW_ACP_PROMPT_STALL_TIMEOUT_SECS` (`0` disables).
 pub const DEFAULT_PROMPT_STALL_TIMEOUT_SECS: u64 = 10 * 60;
 /// Sweep cadence — runs once per minute. Each tick is a brief lock on the
@@ -124,7 +122,7 @@ pub async fn idle_sweep_task(
         if let Some(stall_timeout) = stall_timeout {
             let n = manager.recover_stalled_prompts(stall_timeout).await;
             if n > 0 {
-                tracing::info!("[ACP] stall recovery requested for {n} silent prompt(s)");
+                tracing::info!("[ACP] observed {n} silent LLM wait(s); active turns preserved");
             }
         }
     }

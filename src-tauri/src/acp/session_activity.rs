@@ -43,11 +43,16 @@ pub struct SessionActivitySnapshot {
 #[derive(Debug, Default)]
 pub struct SessionActivity {
     pub(super) snapshot: SessionActivitySnapshot,
+    pub(super) llm_wait_started_at: Option<DateTime<Utc>>,
     last_emitted: Option<Instant>,
     pub(super) urgent: bool,
 }
 
 impl SessionActivity {
+    pub fn llm_wait_started_at(&self) -> Option<DateTime<Utc>> {
+        self.llm_wait_started_at
+    }
+
     pub fn snapshot(&self) -> SessionActivitySnapshot {
         let mut snapshot = self.snapshot.clone();
         snapshot.sampled_at = Utc::now();
@@ -87,12 +92,14 @@ impl SessionActivity {
                 self.observe_runtime(observation, context.tools, now)
             }
             AcpEvent::ContentDelta { text } if context.prompting && !text.is_empty() => {
+                self.llm_wait_started_at = Some(now);
                 self.urgent |= self.snapshot.text_at.is_none();
                 self.snapshot.text_at = Some(now);
                 self.clear_retry();
                 true
             }
             AcpEvent::Thinking { text } if context.prompting && !text.is_empty() => {
+                self.llm_wait_started_at = Some(now);
                 self.urgent |= self.snapshot.thinking_at.is_none();
                 self.snapshot.thinking_at = Some(now);
                 self.clear_retry();
@@ -107,6 +114,7 @@ impl SessionActivity {
             return;
         }
         let processes = std::mem::take(&mut self.snapshot.processes);
+        self.llm_wait_started_at = Some(now);
         self.snapshot = SessionActivitySnapshot {
             turn_generation: generation,
             started_at: Some(now),
@@ -147,6 +155,7 @@ impl SessionActivity {
     ) -> bool {
         match observation {
             RuntimeObservation::Retry(progress) => {
+                self.llm_wait_started_at = Some(now);
                 if self.snapshot.retrying_since.is_none() {
                     self.snapshot.retrying_since = Some(now);
                     tracing::info!("[ACP] runtime reported retrying the active turn");

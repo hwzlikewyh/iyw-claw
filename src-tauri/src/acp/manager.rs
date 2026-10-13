@@ -1445,11 +1445,8 @@ impl ConnectionManager {
         disconnected
     }
 
-    /// Recover prompting connections whose agent has gone silent. A single
-    /// generation gets one cancellation request; no prompt is replayed. If
-    /// the agent does not produce a terminal event within the grace period,
-    /// the connection is disconnected so a late response cannot be reused by
-    /// a subsequent prompt.
+    /// 仅记录 LLM 长时间未输出，不取消回合或断开连接。
+    /// 工具超时由工具层返回给 Agent；保留方法名以兼容现有扫尾入口。
     pub async fn recover_stalled_prompts(&self, stall_timeout: Duration) -> usize {
         let observations = self
             .collect_stalled_prompt_observations(stall_timeout)
@@ -1486,126 +1483,41 @@ impl ConnectionManager {
         agent_pid: Option<u32>,
         assessment: PromptStallAssessment,
     ) {
-        let connection = {
+        let state = {
             let connections = self.connections.lock().await;
-            connections.get(&id).map(|connection| {
-                (
-                    connection.state.clone(),
-                    connection.emitter.clone(),
-                    connection.cmd_tx.clone(),
-                )
-            })
+            connections
+                .get(&id)
+                .map(|connection| connection.state.clone())
         };
-        let Some((state, emitter, cmd_tx)) = connection else {
+        let Some(state) = state else {
             return;
         };
+        let snapshot = state.read().await;
+        let current_assessment = assess_prompt_stall(PromptStallInput {
+            now: chrono::Utc::now(),
+            llm_wait_started_at: snapshot
+                .activity
+                .llm_wait_started_at()
+                .unwrap_or(snapshot.last_agent_event_at),
+            base_timeout: assessment.effective_timeout,
+            active_tool_calls: &snapshot.active_tool_calls,
+        });
+        if snapshot.turn_generation != turn_generation
+            || snapshot.status != ConnectionStatus::Prompting
+            || !current_assessment.stalled
+        {
+            return;
+        }
         tracing::warn!(
             connection_id = %id,
             turn_generation,
             agent_pid = ?agent_pid,
             effective_timeout_secs = assessment.effective_timeout.as_secs(),
             active_foreground_tools = assessment.active_tool_count,
-            timeout_source = assessment.timeout_source.as_str(),
-            longest_tool_runtime_secs = assessment.longest_tool_runtime.as_secs(),
             silent_for_secs = assessment.silent_for.as_secs(),
-            action = "safe_cancel",
-            grace_secs = STALLED_PROMPT_CANCEL_GRACE.as_secs(),
-            "[ACP] prompt is silent; requesting one safe cancellation"
+            action = "observe_only",
+            "[ACP] LLM output is silent; preserving active turn and connection"
         );
-        let agent_type = state.read().await.agent_type.to_string();
-        crate::web::event_bridge::emit_with_state(
-            &state,
-            &emitter,
-            AcpEvent::Error {
-                message: "Agent response timed out while waiting for tool or runtime output".into(),
-                agent_type,
-                code: Some("prompt_stall_timeout".into()),
-                details: Some(format!(
-                    "turn_generation={turn_generation}; silent_for_secs={}",
-                    assessment.silent_for.as_secs()
-                )),
-                terminal: false,
-            },
-        )
-        .await;
-        if cmd_tx
-            .send(ConnectionCommand::SafeCancel {
-                expected_turn_generation: turn_generation,
-            })
-            .await
-            .is_err()
-        {
-            self.stalled_prompt_observations
-                .lock()
-                .await
-                .remove(&(id.clone(), turn_generation));
-            tracing::warn!(
-                connection_id = %id,
-                turn_generation,
-                "[ACP] stalled prompt cancellation command was rejected"
-            );
-            return;
-        }
-        self.schedule_stalled_prompt_disconnect(id, turn_generation);
-    }
-
-    fn schedule_stalled_prompt_disconnect(&self, id: String, turn_generation: i64) {
-        let manager = self.clone_ref();
-        tokio::spawn(async move {
-            tokio::time::sleep(STALLED_PROMPT_CANCEL_GRACE).await;
-            manager
-                .disconnect_unacknowledged_stalled_prompt(&id, turn_generation)
-                .await;
-        });
-    }
-
-    async fn disconnect_unacknowledged_stalled_prompt(&self, id: &str, turn_generation: i64) {
-        let connection = {
-            let connections = self.connections.lock().await;
-            connections.get(id).map(|connection| {
-                (
-                    connection.state.clone(),
-                    connection.emitter.clone(),
-                    connection.disconnect_command_ready.clone(),
-                    connection.cancellation.clone(),
-                    connection.cmd_tx.clone(),
-                )
-            })
-        };
-        let Some((state, emitter, disconnect_ready, cancellation, cmd_tx)) = connection else {
-            return;
-        };
-        let still_active = {
-            let snapshot = state.read().await;
-            snapshot.turn_generation == turn_generation && snapshot.turn_in_flight
-        };
-        if !still_active {
-            return;
-        }
-        tracing::error!(
-            connection_id = id,
-            turn_generation,
-            "[ACP] stalled prompt did not acknowledge cancellation; disconnecting"
-        );
-        let agent_type = state.read().await.agent_type.to_string();
-        crate::web::event_bridge::emit_with_state(
-            &state,
-            &emitter,
-            AcpEvent::Error {
-                message:
-                    "The agent connection was closed because cancellation was not acknowledged"
-                        .into(),
-                agent_type,
-                code: Some("prompt_stall_disconnect".into()),
-                details: Some(format!("turn_generation={turn_generation}")),
-                terminal: true,
-            },
-        )
-        .await;
-        let command_queued = cmd_tx.try_send(ConnectionCommand::Disconnect).is_ok();
-        if !command_queued || !disconnect_ready.load(Ordering::Acquire) {
-            cancellation.cancel();
-        }
     }
 
     async fn collect_stalled_prompt_observations(
@@ -1613,7 +1525,6 @@ impl ConnectionManager {
         stall_timeout: Duration,
     ) -> Vec<StalledPromptObservation> {
         let now = chrono::Utc::now();
-        let monotonic_now = Instant::now();
         let connections = self.connections.lock().await;
         let mut observations = Vec::new();
         for (id, conn) in connections.iter() {
@@ -1630,8 +1541,10 @@ impl ConnectionManager {
             }
             let assessment = assess_prompt_stall(PromptStallInput {
                 now,
-                monotonic_now,
-                last_agent_event_at: state.last_agent_event_at,
+                llm_wait_started_at: state
+                    .activity
+                    .llm_wait_started_at()
+                    .unwrap_or(state.last_agent_event_at),
                 base_timeout: stall_timeout,
                 active_tool_calls: &state.active_tool_calls,
             });
