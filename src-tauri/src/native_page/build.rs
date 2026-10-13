@@ -192,7 +192,9 @@ fn macos_configuration(builder: WebViewBuilder<'_>) -> Result<WebViewBuilder<'_>
     let mtm = objc2::MainThreadMarker::new().ok_or("WebView must be created on the main thread")?;
     let config = objc2_web_kit::WKWebViewConfiguration::new(mtm);
     unsafe {
-        config.setWebsiteDataStore(&objc2_web_kit::WKWebsiteDataStore::nonPersistentDataStore());
+        config.setWebsiteDataStore(&objc2_web_kit::WKWebsiteDataStore::nonPersistentDataStore(
+            mtm,
+        ));
     }
     Ok(builder.with_webview_configuration(config))
 }
