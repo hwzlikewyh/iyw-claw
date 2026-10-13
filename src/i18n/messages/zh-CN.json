@@ -2326,7 +2326,12 @@
         "summary": "{conversations} 个会话 / {messages} 条消息"
       },
       "tokens": {
-        "details": "上下文、压缩与用量详情",
+        "details": "上下文与用量详情",
+        "contextUsage": "上下文用量",
+        "usedShort": "已用",
+        "sessionCost": "会话费用",
+        "usageDetails": "详细用量",
+        "close": "关闭",
         "unreported": "未上报",
         "modelLimits": "模型限制",
         "model": "当前模型",

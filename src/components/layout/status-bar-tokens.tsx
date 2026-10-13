@@ -13,19 +13,54 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { SessionUsageContent } from "./session-usage-content"
+import { SessionUsageProgress } from "./session-usage-progress"
 import {
   useSessionUsage,
   type SessionUsageSourceProps,
 } from "./use-session-usage"
 
 interface SessionUsageButtonProps extends SessionUsageSourceProps {
-  variant?: "status" | "chip"
+  variant?: "status" | "chip" | "ring"
   className?: string
   popoverSide?: "top" | "right" | "bottom" | "left"
   popoverSideOffset?: number
   popoverAvoidCollisions?: boolean
   stopPropagation?: boolean
   showIcon?: boolean
+}
+
+function UsageTriggerContent({
+  props,
+  data,
+}: {
+  props: SessionUsageButtonProps
+  data: ReturnType<typeof useSessionUsage>["data"]
+}) {
+  const locale = useLocale()
+  const Icon = data.contextPercent === null ? Coins : Gauge
+  if (props.variant === "ring") {
+    return <SessionUsageProgress value={data.contextPercent} />
+  }
+  return (
+    <>
+      {props.showIcon !== false && <Icon className="size-3 shrink-0" />}
+      <span>
+        {data.contextPercent !== null
+          ? formatContextWindowPercent(data.contextPercent)
+          : data.total !== null
+            ? formatTokenThousands(data.total, locale)
+            : "--"}
+      </span>
+      {data.points !== null && (
+        <span className="ms-1 border-s border-current/20 ps-1.5">
+          <UsagePointsValue
+            points={data.points}
+            consumption={data.consumption}
+          />
+        </span>
+      )}
+    </>
+  )
 }
 
 function UsageTrigger({
@@ -36,8 +71,6 @@ function UsageTrigger({
   data: ReturnType<typeof useSessionUsage>["data"]
 }) {
   const t = useTranslations("Folder.statusBar.tokens")
-  const locale = useLocale()
-  const Icon = data.contextPercent === null ? Coins : Gauge
   const stop = (event: React.SyntheticEvent) => {
     if (props.stopPropagation) event.stopPropagation()
   }
@@ -45,35 +78,30 @@ function UsageTrigger({
     <PopoverTrigger asChild>
       <button
         type="button"
-        aria-label={t("details")}
-        title={t("details")}
+        aria-label={
+          props.variant === "ring"
+            ? `${t("details")}: ${data.contextPercent === null ? t("unreported") : formatContextWindowPercent(data.contextPercent)}`
+            : t("details")
+        }
+        title={
+          props.variant === "ring" && data.contextPercent === null
+            ? `${t("details")} · ${t("unreported")}`
+            : t("details")
+        }
         onMouseDown={stop}
         onClick={stop}
         onDoubleClick={stop}
         className={cn(
           "inline-flex shrink-0 items-center gap-1 tabular-nums transition-colors",
-          props.variant === "chip"
-            ? "h-[1.125rem] rounded-md border border-sidebar-border/60 bg-sidebar-accent/55 px-1.5 text-[0.625rem] font-medium text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
-            : "hover:text-foreground",
+          props.variant === "ring"
+            ? "size-7 justify-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            : props.variant === "chip"
+              ? "h-[1.125rem] rounded-md border border-sidebar-border/60 bg-sidebar-accent/55 px-1.5 text-[0.625rem] font-medium text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+              : "hover:text-foreground",
           props.className
         )}
       >
-        {props.showIcon !== false && <Icon className="size-3 shrink-0" />}
-        <span>
-          {data.contextPercent !== null
-            ? formatContextWindowPercent(data.contextPercent)
-            : data.total !== null
-              ? formatTokenThousands(data.total, locale)
-              : "--"}
-        </span>
-        {data.points !== null && (
-          <span className="ms-1 border-s border-current/20 ps-1.5">
-            <UsagePointsValue
-              points={data.points}
-              consumption={data.consumption}
-            />
-          </span>
-        )}
+        <UsageTriggerContent props={props} data={data} />
       </button>
     </PopoverTrigger>
   )
@@ -97,9 +125,9 @@ function SessionUsageButton(props: SessionUsageButtonProps) {
         sideOffset={props.popoverSideOffset}
         align="end"
         avoidCollisions={props.popoverAvoidCollisions ?? true}
-        className="max-h-[var(--radix-popover-content-available-height)] w-80 max-w-[calc(100vw-2rem)] gap-2 overflow-y-auto rounded-lg p-3 text-xs"
+        className="max-h-[var(--radix-popover-content-available-height)] w-[18.5rem] max-w-[calc(100vw-2rem)] gap-3 overflow-y-auto rounded-2xl border border-blue-100 p-4 text-xs shadow-lg dark:border-border"
       >
-        <SessionUsageContent data={data} />
+        <SessionUsageContent data={data} onClose={() => setOpened(false)} />
       </PopoverContent>
     </Popover>
   )
@@ -109,21 +137,32 @@ export function StatusBarTokens(props: SessionUsageSourceProps) {
   return <SessionUsageButton {...props} variant="status" />
 }
 
-export function SessionUsageChip({
+function ConversationUsageButton({
   popoverSide = "bottom",
   popoverSideOffset = 4,
   popoverAvoidCollisions = true,
   stopPropagation = true,
   ...props
-}: Omit<SessionUsageButtonProps, "variant">) {
+}: SessionUsageButtonProps) {
   return (
     <SessionUsageButton
       {...props}
-      variant="chip"
       popoverSide={popoverSide}
       popoverSideOffset={popoverSideOffset}
       popoverAvoidCollisions={popoverAvoidCollisions}
       stopPropagation={stopPropagation}
     />
   )
+}
+
+export function SessionUsageChip(
+  props: Omit<SessionUsageButtonProps, "variant">
+) {
+  return <ConversationUsageButton {...props} variant="chip" />
+}
+
+export function SessionUsageRing(
+  props: Omit<SessionUsageButtonProps, "variant">
+) {
+  return <ConversationUsageButton {...props} variant="ring" />
 }
