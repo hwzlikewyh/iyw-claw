@@ -2,17 +2,26 @@
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--welcome-card-gap, 8px);
 }
 
 .group :global(.iyw-claw-composer-chrome) {
-  min-height: 167px;
+  min-height: var(--welcome-composer-height, 167px);
   border-radius: 16px;
   background: var(--background);
 }
 
 .group :global(.iyw-claw-composer-scroll) {
-  padding: 16px;
+  padding: var(--welcome-composer-padding, 16px);
+}
+
+.group [data-slot="agent-selector"] {
+  overflow: visible;
+}
+
+.group [data-slot="agent-selector"] > div {
+  height: auto;
+  flex-wrap: wrap;
 }
 
 .group :global(.ProseMirror p.is-editor-empty:first-child::before) {

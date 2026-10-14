@@ -33,6 +33,7 @@ import { scenarioContent } from "./scenario-content"
 import { ScenarioCases } from "./scenario-cases"
 import { ScenarioCardIcon } from "./scenario-card-icon"
 import cardStyles from "./scenario-card.module.css"
+import layoutStyles from "./welcome-layout.module.css"
 
 const ICONS: Record<string, LucideIcon> = {
   barChart3: BarChart3,
@@ -141,30 +142,29 @@ export function QuickActions({ onSelect, refreshKey }: QuickActionsProps) {
   if (categories.length === 0)
     return <EmptyScenario text="暂无可用场景，请直接输入任务。" />
   return (
-    <section className="flex flex-col gap-3" aria-label="官方场景">
-      <div className="flex items-center justify-center gap-2">
-        <div className="flex min-w-0 justify-center gap-2 overflow-x-auto pb-1">
-          {categories.map((category) => (
-            <button
-              key={category.key}
-              type="button"
-              onClick={() => setCategoryKey(category.key)}
-              className={cn(
-                "flex h-9 shrink-0 items-center gap-2 rounded-md border px-3 text-sm font-medium transition-colors",
-                activeCategory === category.key
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-border bg-muted/45 text-muted-foreground hover:bg-muted"
-              )}
-            >
-              {category.icon ? (
-                <ScenarioIcon name={category.icon} className="size-4" />
-              ) : null}
-              {category.displayName}
-            </button>
-          ))}
-        </div>
+    <section className={layoutStyles.actions} aria-label="官方场景">
+      <div className={layoutStyles.categories}>
+        {categories.map((category) => (
+          <button
+            key={category.key}
+            type="button"
+            onClick={() => setCategoryKey(category.key)}
+            className={cn(
+              "flex shrink-0 items-center rounded-md border font-medium transition-colors",
+              layoutStyles.category,
+              activeCategory === category.key
+                ? "border-primary bg-primary text-primary-foreground"
+                : "border-border bg-muted/45 text-muted-foreground hover:bg-muted"
+            )}
+          >
+            {category.icon ? (
+              <ScenarioIcon name={category.icon} className="size-4" />
+            ) : null}
+            {category.displayName}
+          </button>
+        ))}
       </div>
-      <div className="mx-auto grid w-full gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className={layoutStyles.grid}>
         {scenarios.length ? (
           scenarios.map((scenario) => (
             <ScenarioCard

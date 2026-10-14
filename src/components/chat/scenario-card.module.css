@@ -1,11 +1,11 @@
 .card {
   display: flex;
   min-width: 0;
-  min-height: 103px;
+  min-height: var(--welcome-card-height, 103px);
   flex-direction: column;
   align-items: stretch;
-  gap: 8px;
-  padding: 16px;
+  gap: var(--welcome-card-gap, 8px);
+  padding: var(--welcome-card-padding, 16px);
   border: 1px solid rgb(236 238 243 / 80%);
   border-radius: 16px;
   background: #fff;
@@ -27,13 +27,17 @@
 .header {
   display: flex;
   min-width: 0;
-  min-height: 36px;
+  min-height: var(--welcome-icon-size, 36px);
   align-items: center;
-  gap: 12px;
+  gap: var(--welcome-card-padding, 12px);
+}
+.header > :first-child {
+  width: var(--welcome-icon-size, 36px);
+  height: var(--welcome-icon-size, 36px);
 }
 .title {
-  font-size: 15px;
-  line-height: 18px;
+  font-size: var(--welcome-title-size, 15px);
+  line-height: 1.2;
   font-weight: 700;
 }
 .summary {
@@ -42,8 +46,8 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   color: #7c8192;
-  font-size: 12px;
-  line-height: 14px;
+  font-size: var(--welcome-summary-size, 12px);
+  line-height: 1.2;
 }
 .accent {
   height: 3px;
