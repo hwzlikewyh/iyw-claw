@@ -7123,6 +7123,8 @@
     }
   },
   "IntelligentUI": {
+    "chatLabel": "Intelligent UI",
+    "disable": "Disable Intelligent UI",
     "export": "Export",
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",

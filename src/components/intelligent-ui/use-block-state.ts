@@ -59,7 +59,7 @@ export function useBlockState(input: Input) {
   function update(patch: State | null) {
     const transient = draftSnapshot(draftId)
     const current = (
-      scope?.streaming || !saved.loaded
+      scope?.streaming || !saved.loaded || saved.revision < 0
         ? transient.state
         : (blockSnapshot(key)?.state ?? {})
     ) as State
@@ -68,16 +68,15 @@ export function useBlockState(input: Input) {
       patch,
       input
     )
-    if (saved.loaded && !scope?.streaming) updateBlock(key, next)
+    if (saved.loaded && saved.revision >= 0 && !scope?.streaming)
+      updateBlock(key, next)
     else updateDraft(draftId, next)
   }
   return {
     state,
     update,
     error: saved.error ?? draft.error,
-    ready:
-      (saved.loaded && saved.revision >= 0) ||
-      Boolean(scope?.streaming && input.id),
+    ready: Boolean(scope?.enabled && input.id),
     retry: (reload = false) => retryBlock(key, reload),
   }
 }
@@ -101,7 +100,8 @@ function useSavedBlock(input: Input) {
     () => (scope?.streaming ? "" : sourceHash(input.source)),
     [input.source, scope?.streaming]
   )
-  const key = blockKey(scope?.conversationId ?? 0, input.id, hash)
+  const persistedId = scope?.persistedConversationId
+  const key = blockKey(persistedId ?? 0, input.id, hash)
   const saved = useSyncExternalStore(
     useCallback((fn) => subscribeBlock(key, fn), [key]),
     () => blockSnapshot(key) ?? EMPTY,
@@ -114,11 +114,11 @@ function useSavedBlock(input: Input) {
       !scope?.enabled ||
       saved.loaded ||
       scope.streaming ||
-      scope.conversationId <= 0
+      persistedId == null
     )
       return
     void loadBlock({
-      conversationId: scope.conversationId,
+      conversationId: persistedId,
       blockId: input.id,
       source: input.source,
       hash,
@@ -127,7 +127,7 @@ function useSavedBlock(input: Input) {
     hash,
     input.id,
     input.source,
-    scope?.conversationId,
+    persistedId,
     scope?.streaming,
     scope?.enabled,
     saved.loaded,
@@ -149,7 +149,7 @@ function useDraftTransfer(input: {
       input.streaming
     )
       return
-    updateBlock(input.key, { ...input.saved.state, ...draft.state })
+    updateBlock(input.key, draft.state)
     clearDraft(input.draftId)
   }, [
     input.saved.loaded,

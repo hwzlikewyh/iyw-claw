@@ -976,7 +976,8 @@ pub async fn get_folder_conversation_with_live_core(
                     chat_channel_manager,
                 };
                 let fallback = first_visible_user_title(&detail.turns);
-                let refresh = if fallback.as_deref() == Some(parsed) {
+                let is_fallback = fallback.as_deref() == Some(parsed);
+                let refresh = if is_fallback {
                     conversation_title::refresh_fallback(&title_context, conversation_id, parsed)
                         .await
                 } else {
@@ -985,6 +986,16 @@ pub async fn get_folder_conversation_with_live_core(
                 match refresh {
                     Ok(true) => {
                         detail.summary.title = Some(parsed.to_string());
+                        detail.summary.title_source = if is_fallback {
+                            crate::db::entities::conversation::ConversationTitleSource::UserFallback
+                        } else {
+                            crate::db::entities::conversation::ConversationTitleSource::Agent
+                        };
+                        tracing::info!(
+                            conversation_id,
+                            is_fallback,
+                            "[conversation-title] parsed title refreshed"
+                        );
                     }
                     Ok(false) => {}
                     Err(e) => tracing::error!(

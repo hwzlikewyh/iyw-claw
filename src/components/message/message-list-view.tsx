@@ -1253,7 +1253,11 @@ export function MessageListView({
   }
 
   return (
-    <UiActionsProvider ask={onUiAsk}>
+    <UiActionsProvider
+      ask={onUiAsk}
+      conversationId={conversationId}
+      persistedConversationId={resolvedArtifactConversationId}
+    >
       <BackgroundTaskStatusScope turns={timelineTurns}>
         <MessageThread
           className="flex-1 min-h-0"

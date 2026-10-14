@@ -128,7 +128,12 @@ impl EventState {
             return;
         }
         if self.session.first_user_text.is_none() {
-            self.session.first_user_text = Some(title_from_user_text(text.trim()));
+            let title = title_from_user_text(text.trim());
+            if !title.trim().is_empty()
+                && !crate::acp::conversation_title_summary::is_private_title_candidate(&title)
+            {
+                self.session.first_user_text = Some(title);
+            }
         }
         self.session.content_events += 1;
         self.session.message_count += 1;

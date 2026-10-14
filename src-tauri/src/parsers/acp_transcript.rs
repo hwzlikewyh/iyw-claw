@@ -11,7 +11,10 @@ use crate::models::{
     AgentType, ContentBlock, ConversationDetail, ConversationSummary, MessageTurn, TurnRole,
 };
 
-use super::{compute_session_stats, folder_name_from_path, truncate_str, AgentParser, ParseError};
+use super::{
+    compute_session_stats, folder_name_from_path, title_from_user_text, truncate_str, AgentParser,
+    ParseError,
+};
 
 pub struct AcpTranscriptParser {
     agent_type: AgentType,
@@ -133,14 +136,17 @@ fn valid_transcript(agent_type: AgentType, data: &TranscriptData) -> bool {
 }
 
 fn first_user_title(turns: &[MessageTurn]) -> Option<String> {
-    let text = turns
+    turns
         .iter()
         .filter(|turn| matches!(&turn.role, TurnRole::User))
-        .find_map(|turn| {
-            turn.blocks.iter().find_map(|block| match block {
-                ContentBlock::Text { text } if !text.trim().is_empty() => Some(text.trim()),
-                _ => None,
-            })
-        })?;
-    Some(truncate_str(text, 80))
+        .flat_map(|turn| turn.blocks.iter())
+        .find_map(|block| match block {
+            ContentBlock::Text { text } => {
+                let title = title_from_user_text(text).trim().to_string();
+                (!title.is_empty()
+                    && !crate::acp::conversation_title_summary::is_private_title_candidate(&title))
+                .then(|| truncate_str(&title, 80))
+            }
+            _ => None,
+        })
 }

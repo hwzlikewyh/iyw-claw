@@ -24,7 +24,8 @@ export function Ask({ suggestion }: { suggestion: string }) {
     setSending(true)
     setError(false)
     try {
-      await flushUiStates(scope.conversationId)
+      if (scope.persistedConversationId !== null)
+        await flushUiStates(scope.persistedConversationId)
       await scope.ask(draft.trim())
     } catch {
       setError(true)
