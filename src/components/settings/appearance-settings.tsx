@@ -36,6 +36,7 @@ import {
   type ThemeColor,
   type ZoomLevel,
 } from "@/lib/theme-presets"
+import { IntelligentUiSettings } from "./intelligent-ui-settings"
 import { FontSettingsSection } from "./font-settings-section"
 import {
   SettingsPageLayout,
@@ -299,6 +300,8 @@ export function AppearanceSettings() {
           setAutoOpenErrors={setAutoOpenErrors}
         />
       </SettingSection>
+
+      <IntelligentUiSettings />
 
       {/* Font section */}
       <div className="[&_section]:rounded-xl">

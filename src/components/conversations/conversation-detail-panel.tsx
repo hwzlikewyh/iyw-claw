@@ -3050,6 +3050,13 @@ const ConversationTabView = memo(function ConversationTabView({
 
   const messageListNode = (
     <MessageListView
+      onUiAsk={async (text) => {
+        const accepted = await handleSend({
+          blocks: [{ type: "text", text }],
+          displayText: text,
+        })
+        if (accepted === false) throw new Error("UI follow-up could not be sent")
+      }}
       activityContextKey={tabId}
       conversationId={effectiveConversationId}
       artifactConversationId={dbConversationId}

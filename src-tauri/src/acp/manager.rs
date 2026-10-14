@@ -1707,6 +1707,10 @@ impl ConnectionManager {
         let memory_context =
             memory_context::prepare(self.user_memory_service.get(), &state_arc, &blocks).await;
         let memory_prepare_ms = memory_started.elapsed().as_millis();
+        let ui_context = if let Some(conn) = self.version_center_db.get() {
+            let conversation_id = state_arc.read().await.conversation_id;
+            crate::commands::intelligent_ui::context::prepare(conn, conversation_id).await
+        } else { None };
         // Concurrency gate: reject a second prompt while a turn is already in
         // flight on this connection. Reserve channel capacity FIRST — that
         // `reserve().await` is the only point that can block or be cancelled.
@@ -1772,7 +1776,7 @@ impl ConnectionManager {
                 combine_prompt_context(launch, combine_prompt_context(memory_context, reminder)),
             )
         };
-        let user_context = combine_prompt_context(launch_context, private_context);
+        let user_context = combine_prompt_context(launch_context, combine_prompt_context(private_context, ui_context));
         permit.send(ConnectionCommand::Prompt {
             blocks,
             user_context,
@@ -2829,7 +2833,7 @@ impl ConnectionManager {
         original_session_id: String,
     ) -> Result<i32, AcpError> {
         use sea_orm::sea_query::Expr;
-        use sea_orm::{ColumnTrait, QueryFilter};
+        use sea_orm::{ColumnTrait, ConnectionTrait, QueryFilter};
 
         db_conn
             .transaction::<_, i32, sea_orm::DbErr>(|txn| {
@@ -2922,6 +2926,9 @@ impl ConnectionManager {
                         pinned_at: Set(None),
                     };
                     let inserted = sibling.insert(txn).await?;
+                    txn.execute_raw(sea_orm::Statement::from_sql_and_values(sea_orm::DbBackend::Sqlite,
+                        "INSERT OR IGNORE INTO intelligent_ui_state (conversation_id,turn_id,block_id,source_hash,state_json,revision,updated_at) SELECT ?,turn_id,block_id,source_hash,state_json,revision,updated_at FROM intelligent_ui_state WHERE conversation_id=?",
+                        [inserted.id.into(), conversation_id.into()])).await?;
                     Ok(inserted.id)
                 })
             })

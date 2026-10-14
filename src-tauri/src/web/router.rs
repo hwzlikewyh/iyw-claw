@@ -34,6 +34,10 @@ pub fn build_router(
     let token_for_ws = token.clone();
 
     let api = Router::new()
+        .route("/get_intelligent_ui_settings", post(handlers::intelligent_ui::settings))
+        .route("/set_intelligent_ui_settings", post(handlers::intelligent_ui::set_settings))
+        .route("/read_intelligent_ui_states", post(handlers::intelligent_ui::read))
+        .route("/save_intelligent_ui_state", post(handlers::intelligent_ui::save))
         .merge(handlers::computer_routes::routes())
         .route("/health", post(health_check))
         .route(

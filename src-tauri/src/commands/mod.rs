@@ -1,3 +1,4 @@
+pub mod intelligent_ui;
 pub mod acp;
 pub mod acp_prepared;
 pub mod agent_concurrency;

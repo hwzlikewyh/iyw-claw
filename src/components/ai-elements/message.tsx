@@ -30,6 +30,7 @@ import {
 } from "streamdown"
 import remarkBreaks from "remark-breaks"
 import { markdownLinkComponents } from "./markdown-link"
+import { intelligentUiComponents } from "@/components/intelligent-ui/pre"
 import { localPathCodeBlockComponents } from "./local-path-code-block"
 import { rehypeCommandBadges } from "./rehype-command-badges"
 import { rehypePluginsAllowingIywClaw } from "./rehype-allow-iyw-claw"
@@ -499,6 +500,7 @@ function MessageResponseImpl({
       components={{
         ...props.components,
         ...localPathCodeBlockComponents,
+        ...intelligentUiComponents,
         ...markdownLinkComponents,
       }}
     >
