@@ -257,6 +257,9 @@ export async function acpPrompt(
   conversationId: number | null = null,
   clientMessageId: string | null = null
 ): Promise<void> {
+  const transport = conversationId
+    ? await prepareUiInput(conversationId)
+    : getTransport()
   const agentBlocks = blocks.flatMap((block): PromptInputBlock[] => {
     if (block.type === "text") {
       return [
@@ -270,7 +273,7 @@ export async function acpPrompt(
     return [block]
   })
   try {
-    await getTransport().call("acp_prompt", {
+    await transport.call("acp_prompt", {
       connectionId,
       blocks: agentBlocks,
       folderId,
@@ -306,7 +309,8 @@ export async function submitAgentInput(
   messageId: string,
   payload: AgentInputPayload
 ): Promise<AgentInputItem> {
-  return getTransport().call("submit_agent_input", {
+  const transport = await prepareUiInput(conversationId)
+  return transport.call("submit_agent_input", {
     connectionId,
     conversationId,
     messageId,
@@ -322,7 +326,8 @@ export async function queueAgentInput(
   messageId: string,
   payload: AgentInputPayload
 ): Promise<AgentInputItem> {
-  return getTransport().call("queue_agent_input", {
+  const transport = await prepareUiInput(conversationId)
+  return transport.call("queue_agent_input", {
     conversationId,
     messageId,
     payload: {
@@ -330,6 +335,20 @@ export async function queueAgentInput(
       blocks: normalizeAgentInputBlocks(payload.blocks),
     },
   })
+}
+
+async function prepareUiInput(conversationId: number) {
+  const transport = getTransport()
+  const { uiEnabled } = await import("./intelligent-ui/settings")
+  if (uiEnabled()) {
+    const { flushUiStates } = await import("./intelligent-ui/state-store")
+    await flushUiStates(conversationId).catch((error) => {
+      if (uiEnabled()) throw error
+    })
+  }
+  if (transport !== getTransport())
+    throw new Error("Connection changed while saving UI state")
+  return transport
 }
 
 export async function listAgentInputs(
@@ -450,7 +469,8 @@ export async function acpFork(request: {
   target?: ForkTarget
 }): Promise<ForkResult> {
   try {
-    return await getTransport().call("acp_fork", request)
+    const transport = await prepareUiInput(request.conversationId)
+    return await transport.call("acp_fork", request)
   } catch (e) {
     // A fork is serialized with prompts on the backend: it returns
     // TurnInProgress while a turn is in flight. Surface it as TurnBusyError so

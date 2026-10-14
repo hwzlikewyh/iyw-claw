@@ -112,6 +112,7 @@ export const AssistantTurnContent = memo(function AssistantTurnContent({
       entranceKey={key}
       animationEnabled={animationEnabled}
       conversationId={conversationId}
+      intelligentUiStreaming={!isResponseComplete}
     />
   )
   const processSurface = (

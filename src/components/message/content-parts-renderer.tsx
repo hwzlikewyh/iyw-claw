@@ -30,6 +30,7 @@ import {
   estimateChangedLineStats,
 } from "@/lib/line-change-stats"
 import { MessageResponse } from "@/components/ai-elements/message"
+import { AssistantUiText } from "@/components/intelligent-ui/scope"
 import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog"
 import { toErrorMessage } from "@/lib/app-error"
 import { downloadImage } from "@/lib/image-download"
@@ -2071,9 +2072,13 @@ function parseCliExecutionEnvelope(text: string): {
 const TextPart = memo(function TextPart({
   text,
   isUser = false,
+  uiConversationId,
+  streaming = false,
 }: {
   text: string
   isUser?: boolean
+  uiConversationId?: number
+  streaming?: boolean
 }) {
   if (isUser) {
     return (
@@ -2084,7 +2089,13 @@ const TextPart = memo(function TextPart({
   }
   return (
     <div className='break-words text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside [&_[data-streamdown="code-block-body"]]:max-h-96 [&_[data-streamdown="code-block-body"]]:overflow-auto'>
-      <MessageResponse>{text}</MessageResponse>
+      <AssistantUiText
+        conversationId={uiConversationId}
+        streaming={streaming}
+        markdown={text}
+      >
+        <MessageResponse>{text}</MessageResponse>
+      </AssistantUiText>
     </div>
   )
 })
@@ -2664,6 +2675,7 @@ interface ContentPartsRendererProps {
   entranceKey?: string
   animationEnabled?: boolean
   reasoningPresentation?: "disclosure" | "inline"
+  intelligentUiStreaming?: boolean
 }
 
 export const ContentPartsRenderer = memo(function ContentPartsRenderer({
@@ -2673,6 +2685,7 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
   entranceKey,
   animationEnabled = false,
   reasoningPresentation = "disclosure",
+  intelligentUiStreaming = false,
 }: ContentPartsRendererProps) {
   const renderPart = (part: AdaptedContentPart, keyId: string): ReactNode => {
     if (part.type === "text") {
@@ -2681,6 +2694,8 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
           key={`text-${keyId}`}
           text={part.text}
           isUser={role === "user"}
+          uiConversationId={role === "assistant" ? conversationId : undefined}
+          streaming={intelligentUiStreaming}
         />
       )
     }
