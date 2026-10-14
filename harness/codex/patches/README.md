@@ -1,5 +1,13 @@
 # Local Upstream Patches
 
+## SQLite 启动校验预算
+
+`codex-state` 的启动 `quick_check(1)` 按每个检查步骤调用进度回调，沿用
+100 ms 预算。原来的 1000 步间隔在慢盘上可能积累几十秒 I/O 后才检查时间。
+固定的 SQLite 源码在 `checkProgress(IntegrityCk *)` 中使用相同间隔检查
+完整性遍历；升级时保留逐步截止判断。预算耗尽仍返回 `Incomplete`，已确认
+损坏仍走原有恢复流程。单次阻塞磁盘读取和连接获取不受此回调的时间限制。
+
 ## 工具执行等待
 
 `codex-mcp` 将明确配置的 `tool_timeout_sec = 0` 解释为不设置外层执行时限。

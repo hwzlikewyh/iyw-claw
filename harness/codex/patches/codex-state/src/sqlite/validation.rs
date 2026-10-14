@@ -12,6 +12,8 @@ use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::Mutex;
 
+const QUICK_CHECK_PROGRESS_INTERVAL: i32 = 1;
+
 #[derive(Debug, Eq, PartialEq)]
 pub(super) enum QuickCheckOutcome {
     Complete,
@@ -52,10 +54,13 @@ pub(super) async fn quick_check(
     deadline: Instant,
 ) -> anyhow::Result<QuickCheckOutcome> {
     let mut connection = pool.acquire().await?;
+    // SQLite 完整性检查也按此间隔调用回调；逐步检查避免慢盘累积大量 I/O 后才判断预算。
     connection
         .lock_handle()
         .await?
-        .set_progress_handler(/*num_ops*/ 1_000, move || Instant::now() < deadline);
+        .set_progress_handler(QUICK_CHECK_PROGRESS_INTERVAL, move || {
+            Instant::now() < deadline
+        });
 
     // quick_check(1) returns either "ok" or the first corruption finding
     let result = sqlx::query_scalar::<_, String>("PRAGMA quick_check(1)")
