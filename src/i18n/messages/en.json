@@ -3245,6 +3245,8 @@
         "connecting": "Connecting...",
         "agentResponding": "{agent} is responding...",
         "startingKernel": "Starting the {agent} runtime...",
+        "queuedMessages": "{count, plural, one {# message received} other {# messages received}} · Preparing to send",
+        "queuedKeepTyping": "Keep typing",
         "model": "Model",
         "working": "原助理 is working...",
         "waitingForModel": "Waiting for {model} to respond...",

@@ -1671,6 +1671,29 @@ const ConversationTabView = memo(function ConversationTabView({
     failedModel,
     modelReapplyAttempt,
   ])
+  const selectedModelReady = ensureSelectedModelReady()
+  const selectedModelReadyRef = useRef(selectedModelReady)
+  useEffect(() => {
+    selectedModelReadyRef.current = selectedModelReady
+  }, [selectedModelReady])
+  useEffect(() => {
+    if (
+      !failedModel ||
+      failedModel !== draftConfigValues.model ||
+      msgQueueLength === 0 ||
+      msgQueueHeadBlocked
+    )
+      return
+    const next = mqDequeue()
+    if (next) mqRequeueItemFront({ ...next, blocked: true })
+  }, [
+    failedModel,
+    draftConfigValues.model,
+    msgQueueLength,
+    msgQueueHeadBlocked,
+    mqDequeue,
+    mqRequeueItemFront,
+  ])
   const selectedModeId = useMemo(() => {
     if (connectionModes.length === 0) return null
     if (modeId && connectionModes.some((mode) => mode.id === modeId)) {
@@ -1819,7 +1842,7 @@ const ConversationTabView = memo(function ConversationTabView({
   }, [conn.agentInputs, connStatus, outboxFlushPending])
 
   useEffect(() => {
-    if (!connectionReady) return
+    if (!connectionReady || !selectedModelReady) return
     if (forkPending) return
     if (runtimeSyncState === "awaiting_persist") return
     if (outboxFlushPending) return
@@ -1829,7 +1852,12 @@ const ConversationTabView = memo(function ConversationTabView({
     // a just-bounced retry waits out the backoff window before re-sending.
     const wait = flushRetryDelayMs(Date.now(), lastFlushBounceAtRef.current)
     const timer = setTimeout(() => {
-      if (!connectionReadyRef.current || forkPendingRef.current) return
+      if (
+        !connectionReadyRef.current ||
+        !selectedModelReadyRef.current ||
+        forkPendingRef.current
+      )
+        return
       const next = autoSendQueueRef.current()
       if (next) {
         // Mark this as the queue auto-flush: it sends the dequeued head now and,
@@ -1843,6 +1871,7 @@ const ConversationTabView = memo(function ConversationTabView({
     return () => clearTimeout(timer)
   }, [
     connectionReady,
+    selectedModelReady,
     forkPending,
     forkPendingRef,
     runtimeSyncState,
@@ -1987,12 +2016,6 @@ const ConversationTabView = memo(function ConversationTabView({
     ) => {
       const fromQueueFlush = opts?.fromQueueFlush ?? false
       if (forkPendingRef.current) return false
-      if (!ensureSelectedModelReady()) {
-        if (fromQueueFlush && opts?.queuedMessage) {
-          mqRequeueItemFront({ ...opts.queuedMessage, blocked: true })
-        }
-        return false
-      }
       // Defense in depth for restored queue items or callers bypassing the composer.
       if (parseSideQuestion(draft.displayText) !== null) {
         if (fromQueueFlush && opts?.queuedMessage) {
@@ -2000,6 +2023,31 @@ const ConversationTabView = memo(function ConversationTabView({
         }
         setSideOpen(true)
         return false
+      }
+      if (!ensureSelectedModelReady()) {
+        const modelFailed = failedModel === draftConfigValues.model
+        if (fromQueueFlush && opts?.queuedMessage) {
+          mqRequeueItemFront({ ...opts.queuedMessage, blocked: modelFailed })
+        } else if (!modelFailed) {
+          // 配置准备期间先接收草稿，确认完成后由现有 FIFO 队列自动发送。
+          mqEnqueue(draft, selectedModeIdArg ?? null)
+          setHasSentMessage(true)
+          void ensureConnected().catch((error) => {
+            console.error(
+              "[ConversationTabView] connect while config pending",
+              { error }
+            )
+          })
+        } else {
+          toast.error(tConfig("modelPicker.modelFailed"))
+        }
+        console.info("[ConversationTabView] send waiting for configuration", {
+          connectionId: conn.connectionId,
+          contextWindowPending,
+          modelFailed,
+          fromQueueFlush,
+        })
+        return !modelFailed
       }
       const packageRef = draft.skillPackage
       if (packageRef && !opts?.scenarioPrepared) {
@@ -2451,6 +2499,9 @@ const ConversationTabView = memo(function ConversationTabView({
       effectiveConversationId,
       ensureConnected,
       ensureSelectedModelReady,
+      contextWindowPending,
+      draftConfigValues.model,
+      failedModel,
       forkPendingRef,
       draftStorageKey,
       folderId,
@@ -2479,6 +2530,7 @@ const ConversationTabView = memo(function ConversationTabView({
       persistConfirmedModel,
       setSideOpen,
       t,
+      tConfig,
     ]
   )
 

@@ -3555,16 +3555,18 @@ export function MessageInput({
       `Attached ${attachmentSnapshot.length} attachment${
         attachmentSnapshot.length > 1 ? "s" : ""
       }`
-    console.info("[MessageInput] draft image boundary", {
-      imageCount: imageAttachments.length,
-      imageStates: imageAttachments.map((attachment) => ({
-        attachmentId: attachment.id,
-        hasUrl: isPublicImageUrl(attachment.uri),
-        hasInlineData: attachment.data.length > 0,
-        stagingStatus: attachment.staging?.status ?? "ready",
-      })),
-      resourceCount: blocks.filter((block) => block.type !== "image").length,
-    })
+    if (imageAttachments.length > 0) {
+      console.info("[MessageInput] draft image boundary", {
+        imageCount: imageAttachments.length,
+        imageStates: imageAttachments.map((attachment) => ({
+          attachmentId: attachment.id,
+          hasUrl: isPublicImageUrl(attachment.uri),
+          hasInlineData: attachment.data.length > 0,
+          stagingStatus: attachment.staging?.status ?? "ready",
+        })),
+        resourceCount: blocks.filter((block) => block.type !== "image").length,
+      })
+    }
     const expert = editor ? getExpertReference(editor) : null
     const packageMeta = expert?.meta
     const skillPackage =

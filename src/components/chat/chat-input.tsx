@@ -19,6 +19,7 @@ import {
   type ComposerInjectContent,
 } from "@/components/chat/message-input"
 import { MessageQueueDisplay } from "@/components/chat/message-queue-display"
+import { QueuedSendStatus } from "@/components/chat/queued-send-status"
 import { cn } from "@/lib/utils"
 import { useAccountRequestsBlocked } from "@/components/account/use-account-request-guard"
 
@@ -143,6 +144,7 @@ export const ChatInput = memo(function ChatInput({
   const requestsBlocked = useAccountRequestsBlocked()
   const isConnected = status === "connected"
   const isPrompting = status === "prompting"
+  const waitingMessageCount = queue?.filter((item) => !item.blocked).length ?? 0
   const resolvedAgentName = agentName ?? "Agent"
   const activityPlaceholder =
     status === "connecting"
@@ -156,6 +158,9 @@ export const ChatInput = memo(function ChatInput({
       className={cn("pt-0 pb-1", !flush && "px-4")}
       onContextMenu={(event) => event.stopPropagation()}
     >
+      {!isPrompting && !queue?.[0]?.blocked && waitingMessageCount > 0 && (
+        <QueuedSendStatus count={waitingMessageCount} />
+      )}
       {queue &&
         queue.length > 0 &&
         onQueueReorder &&

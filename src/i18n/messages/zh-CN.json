@@ -3245,6 +3245,8 @@
         "connecting": "连接中...",
         "agentResponding": "{agent} 正在响应...",
         "startingKernel": "正在启动 {agent} 内核...",
+        "queuedMessages": "已接收 {count} 条消息，正在准备发送",
+        "queuedKeepTyping": "可继续输入",
         "model": "模型",
         "working": "原助理正在工作...",
         "waitingForModel": "正在等待 {model} 响应...",
