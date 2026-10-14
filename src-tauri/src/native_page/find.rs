@@ -1,7 +1,7 @@
 use tauri_runtime_wry::wry::WebView;
 
 #[cfg(target_os = "windows")]
-pub(super) fn search(
+pub(crate) fn search(
     view: &WebView,
     query: &str,
     backwards: bool,
@@ -67,7 +67,7 @@ fn start_find(
 }
 
 #[cfg(not(target_os = "windows"))]
-pub(super) fn search(
+pub(crate) fn search(
     view: &WebView,
     query: &str,
     backwards: bool,

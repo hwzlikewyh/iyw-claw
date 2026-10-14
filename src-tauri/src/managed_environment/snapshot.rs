@@ -110,10 +110,7 @@ fn validate_selection(
     ids: &BTreeSet<&str>,
 ) -> Result<(), String> {
     let Some(selected) = &snapshot.selected_components else {
-        if ["node", "git", "uv", "chromix", "agent-browser"]
-            .iter()
-            .all(|id| ids.contains(id))
-        {
+        if ["node", "git", "uv"].iter().all(|id| ids.contains(id)) {
             return Ok(());
         }
         return Err("环境清单缺少组件或安装策略，请运行环境修复".into());

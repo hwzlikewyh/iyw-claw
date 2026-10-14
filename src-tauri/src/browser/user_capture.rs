@@ -45,6 +45,13 @@ impl BrowserSessionManager {
         &self,
         tab_id: &str,
     ) -> Result<BrowserScreenshot, BrowserError> {
+        if self.is_native_browser().await {
+            let value = self
+                .native
+                .command(tab_id, "capture", serde_json::json!({}))
+                .await?;
+            return serde_json::from_value(value).map_err(|_| screenshot_unavailable());
+        }
         let action = self.tabs.action_target(tab_id).await?;
         let path = action
             .cli
@@ -83,6 +90,17 @@ impl BrowserSessionManager {
         x: f64,
         y: f64,
     ) -> Result<BrowserElementSummary, BrowserError> {
+        if self.is_native_browser().await {
+            let value = self
+                .native
+                .command(
+                    tab_id,
+                    "eval",
+                    serde_json::json!({"expression": inspect_script(x, y)}),
+                )
+                .await?;
+            return parse_element_summary(&value).ok_or_else(element_unavailable);
+        }
         let action = self.tabs.action_target(tab_id).await?;
         let script = inspect_script(x, y);
         let response = action

@@ -18,7 +18,7 @@ pub(super) struct FileChooserRecord {
     pub mode: BrowserFileChooserMode,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct DownloadRecord {
     pub id: String,
     pub tab_id: Option<String>,

@@ -3,6 +3,7 @@ import { getShellTransport, isDesktop } from "@/lib/transport"
 import type {
   BrowserFrameSubscriptionSnapshot,
   BrowserElementSummary,
+  BrowserEngineSettings,
   BrowserGenerations,
   BrowserHostRegistration,
   BrowserInputEvent,
@@ -14,6 +15,23 @@ import type {
 const shell = () => getShellTransport()
 
 export const browserApi = {
+  engineSettings: () =>
+    shell().call<BrowserEngineSettings>("browser_get_engine_settings"),
+  setFullEngine: (enabled: boolean) =>
+    shell().call<BrowserEngineSettings>("browser_set_full_engine", { enabled }),
+  installFullEngine: () =>
+    shell().call<BrowserEngineSettings>("browser_install_full_engine"),
+  nativeView: (request: {
+    tabId: string
+    visible: boolean
+    bounds?: { x: number; y: number; width: number; height: number }
+  }) => shell().call<void>("browser_native_view", { request }),
+  nativeAction: (
+    tabId: string,
+    action: string,
+    values: Record<string, unknown> = {}
+  ) =>
+    shell().call<unknown>("browser_native_action", { tabId, action, values }),
   syncVisibility: (visible: boolean, initializeOnly = false) =>
     shell().call<boolean>("browser_set_visibility", {
       request: { visible, initializeOnly },

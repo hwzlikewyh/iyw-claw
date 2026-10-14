@@ -25,6 +25,7 @@ import {
   useBrowserVisibility,
 } from "@/hooks/use-browser-visibility"
 import { useBrowserWindowRequests } from "@/hooks/use-browser-window-requests"
+import { getShellTransport } from "@/lib/transport"
 
 const ACTIVE_POLL_INTERVAL_MS = 2_000
 const IDLE_POLL_INTERVAL_MS = 10_000
@@ -197,6 +198,25 @@ export function BrowserProvider({
     if (!readBrowserVisibility()) void closeBrowser()
     else void refresh()
   }, [closeBrowser, refresh, visible])
+
+  useEffect(() => {
+    if (!isDesktop()) return
+    let disposed = false
+    let stop: (() => void) | undefined
+    void getShellTransport()
+      .subscribe("browser://engine-settings-changed", () => void refresh())
+      .then((unsubscribe) => {
+        if (disposed) unsubscribe()
+        else stop = unsubscribe
+      })
+      .catch((error) =>
+        console.warn("[Browser] engine setting subscription failed", error)
+      )
+    return () => {
+      disposed = true
+      stop?.()
+    }
+  }, [refresh])
 
   useEffect(() => {
     if ((!isOpen && !allowWindowRequests) || !isDesktop()) return

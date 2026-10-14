@@ -202,6 +202,7 @@ impl BrowserSessionManager {
         target_tab_id: Option<&str>,
         output: Option<Value>,
     ) -> Result<Value, BrowserError> {
+        self.refresh_native_tabs().await;
         Ok(project_agent_state(
             self.agent_snapshot_for(context.identity).await,
             target_tab_id,

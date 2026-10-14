@@ -1,4 +1,5 @@
 mod activation;
+mod browser_selection;
 mod computer_driver;
 mod archive;
 mod client;

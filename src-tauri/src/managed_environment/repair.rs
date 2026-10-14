@@ -101,6 +101,9 @@ async fn repair_selection(request: &RepairRequest<'_>) -> Result<Option<String>,
         .any(|item| item.component_id == "environment")
     {
         // 清单缺失或版本不匹配时无法安全复用，沿用完整环境恢复入口。
+        if request.component.is_some_and(|id| matches!(id, "chromix" | "agent-browser")) {
+            return Ok(Some("chromix,agent-browser".to_string()));
+        }
         return Ok(None);
     }
     let mut components = report
@@ -109,6 +112,16 @@ async fn repair_selection(request: &RepairRequest<'_>) -> Result<Option<String>,
         .filter(|item| !item.active && item.component_id != "builtin-agent")
         .map(|item| item.component_id.clone())
         .collect::<Vec<_>>();
+    if request
+        .component
+        .is_some_and(|component| matches!(component, "chromix" | "agent-browser"))
+    {
+        for component in ["chromix", "agent-browser"] {
+            if !components.iter().any(|id| id == component) {
+                components.push(component.to_string());
+            }
+        }
+    }
     if let Some(component) = request.component {
         if !components.iter().any(|id| id == component) {
             components.push(component.to_string());

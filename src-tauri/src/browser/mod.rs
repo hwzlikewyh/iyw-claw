@@ -50,6 +50,8 @@ mod control_waiter;
 mod engine;
 #[cfg(feature = "tauri-runtime")]
 mod engine_prefetch;
+#[cfg(feature = "tauri-runtime")]
+mod engine_settings;
 mod error;
 #[cfg(feature = "tauri-runtime")]
 mod fingerprint;
@@ -66,6 +68,8 @@ mod manager_idle;
 mod manager_recovery;
 #[cfg(feature = "tauri-runtime")]
 mod manager_runtime;
+#[cfg(feature = "tauri-runtime")]
+mod native;
 #[path = "opencli/doctor.rs"]
 mod opencli_doctor;
 mod opencli_failure;
@@ -141,6 +145,8 @@ pub use manager::BrowserSessionManager;
 pub(crate) use opencli_doctor::settings_report as opencli_settings_report;
 #[cfg(feature = "tauri-runtime")]
 mod visibility;
+#[cfg(feature = "tauri-runtime")]
+pub use engine_settings::BrowserEngineSettings;
 #[cfg(feature = "tauri-runtime")]
 pub(crate) use runtime::ManagedBrowserProcessSnapshot;
 #[cfg(feature = "tauri-runtime")]

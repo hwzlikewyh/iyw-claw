@@ -1,7 +1,7 @@
 use tauri_runtime_wry::wry::WebView;
 
 #[cfg(target_os = "windows")]
-pub(super) fn history(view: &WebView) -> (bool, bool) {
+pub(crate) fn history(view: &WebView) -> (bool, bool) {
     use tauri_runtime_wry::wry::WebViewExtWindows;
     use windows::core::BOOL;
     let core = view.webview();
@@ -15,7 +15,7 @@ pub(super) fn history(view: &WebView) -> (bool, bool) {
 }
 
 #[cfg(target_os = "windows")]
-pub(super) fn navigate(view: &WebView, action: &str) -> Result<(), String> {
+pub(crate) fn navigate(view: &WebView, action: &str) -> Result<(), String> {
     use tauri_runtime_wry::wry::WebViewExtWindows;
     let core = view.webview();
     unsafe {
@@ -29,14 +29,14 @@ pub(super) fn navigate(view: &WebView, action: &str) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn history(view: &WebView) -> (bool, bool) {
+pub(crate) fn history(view: &WebView) -> (bool, bool) {
     use tauri_runtime_wry::wry::WebViewExtMacOS;
     let wk = view.webview();
     unsafe { (wk.canGoBack(), wk.canGoForward()) }
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn navigate(view: &WebView, action: &str) -> Result<(), String> {
+pub(crate) fn navigate(view: &WebView, action: &str) -> Result<(), String> {
     use tauri_runtime_wry::wry::WebViewExtMacOS;
     let wk = view.webview();
     unsafe {
@@ -54,7 +54,7 @@ pub(super) fn navigate(view: &WebView, action: &str) -> Result<(), String> {
 }
 
 #[cfg(target_os = "linux")]
-pub(super) fn history(view: &WebView) -> (bool, bool) {
+pub(crate) fn history(view: &WebView) -> (bool, bool) {
     use tauri_runtime_wry::wry::WebViewExtUnix;
     use webkit2gtk::prelude::WebViewExt;
     let wk = view.webview();
@@ -62,7 +62,7 @@ pub(super) fn history(view: &WebView) -> (bool, bool) {
 }
 
 #[cfg(target_os = "linux")]
-pub(super) fn navigate(view: &WebView, action: &str) -> Result<(), String> {
+pub(crate) fn navigate(view: &WebView, action: &str) -> Result<(), String> {
     use tauri_runtime_wry::wry::WebViewExtUnix;
     use webkit2gtk::prelude::WebViewExt;
     let wk = view.webview();

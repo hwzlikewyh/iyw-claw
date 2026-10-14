@@ -55,6 +55,14 @@ fn activate_and_publish(
         .join("environments")
         .join(format!("{}.json", snapshot.generation));
     inventory::write_json(&generation, snapshot)?;
+    let receipt = layout
+        .inventory
+        .join("transactions")
+        .join(format!("{}.json", snapshot.generation));
+    inventory::write_json(
+        &receipt,
+        &serde_json::json!({"generation":snapshot.generation,"state":"committed"}),
+    )?;
     inventory::write_json(&layout.current_snapshot(), snapshot)
 }
 

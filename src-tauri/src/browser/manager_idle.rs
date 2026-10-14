@@ -18,6 +18,17 @@ impl BrowserSessionManager {
         };
         self.finish_shutdown(shutdown_epoch).await;
         log_idle_shutdown_result(shutdown_epoch, reason, &result);
+        if result.is_ok() {
+            let _guard = self.tab_open_lock.lock().await;
+            self.apply_selected_capability().await;
+            if let Some(app) = self.native.app.get() {
+                use tauri::Emitter;
+                let _ = app.emit(
+                    "browser://engine-settings-changed",
+                    self.browser_engine_settings().await,
+                );
+            }
+        }
     }
 
     async fn shutdown_resources_if_idle(&self) -> Option<Result<(), BrowserError>> {

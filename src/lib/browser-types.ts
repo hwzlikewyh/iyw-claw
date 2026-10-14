@@ -47,6 +47,7 @@ export interface BrowserCapability {
   sidecarVerified: boolean
   engine?: {
     kind:
+      | "webview"
       | "chromix"
       | "chrome"
       | "edge"
@@ -56,6 +57,22 @@ export interface BrowserCapability {
       | "chromium"
     version: string
   }
+}
+
+export interface BrowserEngineSettings {
+  fullBrowserEnabled: boolean
+  fullBrowserInstalled: boolean
+  activeEngine:
+    | "webview"
+    | "chromix"
+    | "chrome"
+    | "edge"
+    | "brave"
+    | "vivaldi"
+    | "opera"
+    | "chromium"
+  pending: boolean
+  fullBrowserError: string | null
 }
 
 export interface BrowserScreenshot {
