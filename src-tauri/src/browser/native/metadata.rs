@@ -47,7 +47,7 @@ pub(super) fn message(app: &AppHandle, id: &str, value: Value) {
 }
 
 impl BrowserSessionManager {
-    pub(in crate::browser) async fn refresh_native_tabs(&self) {
+    pub(crate) async fn refresh_native_tabs(&self) {
         if !self.is_native_browser().await {
             return;
         }
