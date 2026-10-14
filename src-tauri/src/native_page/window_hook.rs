@@ -17,7 +17,7 @@ use windows_sys::Win32::{
 // 独立于 Wry 的子类 ID；钩子的过程地址也参与标识。
 const HOOK_ID: usize = 0x495957;
 
-pub(super) fn retain(owner: &WebviewWindow) -> Result<(), String> {
+pub(crate) fn retain(owner: &WebviewWindow) -> Result<(), String> {
     let hwnd = owner.hwnd().map_err(|error| error.to_string())?.0 as usize;
     let label = owner.label().to_string();
     owner

@@ -42,6 +42,25 @@ impl BrowserSessionManager {
         &self,
         tab_id: &str,
     ) -> Result<BrowserStateSnapshot, BrowserError> {
+        if self.is_native_browser().await {
+            if !self.state.read().await.tabs.contains_key(tab_id) {
+                return Ok(self.snapshot().await);
+            }
+            let ticket = self.begin_tab_close(tab_id).await?;
+            let cookies = self.native.command(tab_id, "close", json!({})).await?;
+            self.native
+                .store_cookie_transfer(super::super::types::BrowserEngineKind::Webview, &cookies)
+                .await;
+            self.finish_tab_close(&ticket).await?;
+            self.agent_turn_leases.forget_tab(tab_id).await;
+            self.spawn_runtime_idle_check("native_tab_closed");
+            return Ok(self.snapshot().await);
+        }
+        if let Ok(cookies) = self.cdp_call("Storage.getCookies", json!({}), None).await {
+            self.native
+                .store_cookie_transfer(super::super::types::BrowserEngineKind::Chromix, &cookies)
+                .await;
+        }
         let ticket = match self.begin_tab_close(tab_id).await {
             Ok(ticket) => ticket,
             Err(error) if error.code == BrowserErrorCode::BrowserTabNotFound => {

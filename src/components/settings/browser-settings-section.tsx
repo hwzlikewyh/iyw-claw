@@ -11,6 +11,7 @@ import {
 } from "@/hooks/use-browser-visibility"
 import { toErrorMessage } from "@/lib/app-error"
 import { SettingRow, SettingSection } from "./settings-ui"
+import { BrowserEngineSettingsRows } from "./browser-engine-settings-rows"
 
 export function BrowserSettingsSection() {
   const t = useTranslations("GeneralSettings")
@@ -42,6 +43,7 @@ export function BrowserSettingsSection() {
           aria-label={t("browserVisible")}
         />
       </SettingRow>
+      <BrowserEngineSettingsRows />
     </SettingSection>
   )
 }

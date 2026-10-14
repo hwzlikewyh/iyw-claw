@@ -18,11 +18,19 @@ pub fn prepare(app_version: &str) -> Result<String> {
 }
 
 pub fn prepare_repair(app_version: &str, components: Option<&[String]>) -> Result<String> {
+    let layout = Layout::resolve()?;
+    let current = inventory::load_current(&layout)?;
+    let (target, arch, _) = platform();
+    // 清单不适用时恢复完整环境，同时保留本次显式选装请求。
+    let reusable = current.as_ref().is_some_and(|value| {
+        value.pc_version == app_version && value.target == target && value.arch == arch
+    });
     prepare_selected(
         app_version,
         PrepareOptions {
             full_check: true,
             repair_components: components,
+            restore_all: !reusable,
             ..Default::default()
         },
     )
@@ -44,6 +52,7 @@ struct PrepareOptions<'a> {
     full_check: bool,
     computer_driver: bool,
     repair_components: Option<&'a [String]>,
+    restore_all: bool,
 }
 
 impl PrepareOptions<'_> {
@@ -52,7 +61,7 @@ impl PrepareOptions<'_> {
         layout: &Layout,
         current: Option<&EnvironmentSnapshot>,
     ) -> Vec<crate::model::InventoryEntry> {
-        match self.repair_components {
+        match self.repair_components.filter(|_| !self.restore_all) {
             Some(components) => {
                 inventory::selected_installation_inventory(layout, current, components)
             }
@@ -93,6 +102,12 @@ fn prepare_selected(app_version: &str, options: PrepareOptions<'_>) -> Result<St
     };
     let client = FusionClient::new()?;
     let mut plan = client.resolve(&request)?;
+    crate::browser_selection::apply(
+        &mut plan,
+        &layout,
+        current.as_ref(),
+        options.repair_components,
+    )?;
     plan.actions
         .retain(|action| action.component_id != "open-computer-use");
     options.validate_driver(&plan)?;
@@ -107,7 +122,7 @@ fn prepare_selected(app_version: &str, options: PrepareOptions<'_>) -> Result<St
         platform: &platform,
         current: current.as_ref(),
         inventory: &request.inventory,
-        repair_components: options.repair_components,
+        repair_components: options.repair_components.filter(|_| !options.restore_all),
     };
     context.prepare_and_publish(plan)
 }
@@ -197,13 +212,20 @@ pub fn commit(transaction: Option<&str>) -> Result<()> {
     }
     let snapshot = EnvironmentSnapshot {
         schema_version: 1,
-        generation: uuid::Uuid::new_v4().simple().to_string(),
+        generation: state.transaction_id.clone(),
         pc_version: state.pc_version.clone(),
         catalog_revision: state.catalog_revision,
         binding_revision: state.binding_revision,
         target: state.target.clone(),
         arch: state.arch.clone(),
         created_at: Utc::now().to_rfc3339(),
+        selected_components: Some(
+            state
+                .components
+                .iter()
+                .map(|value| value.component.component_id.clone())
+                .collect(),
+        ),
         components: state
             .components
             .iter()

@@ -23,9 +23,11 @@ if (process.argv.includes("--win7")) {
     ["windows7", "i686"]
   )
 }
-const required = ["node", "git", "uv", "chromix", "agent-browser"]
+const required = ["node", "git", "uv"]
 const allowed = new Set([
   ...required,
+  "chromix",
+  "agent-browser",
   "officecli",
   "agent-reach",
   "cua-driver",

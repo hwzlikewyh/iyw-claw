@@ -2,8 +2,10 @@ use anyhow::{bail, Result};
 
 use crate::model::{EnvironmentAction, EnvironmentPlan, EnvironmentSnapshot};
 
-pub const REQUIRED: &[&str] = &["node", "git", "uv", "chromix", "agent-browser"];
+pub const REQUIRED: &[&str] = &["node", "git", "uv"];
 const OPTIONAL: &[&str] = &[
+    "chromix",
+    "agent-browser",
     "officecli",
     "agent-reach",
     "open-computer-use",

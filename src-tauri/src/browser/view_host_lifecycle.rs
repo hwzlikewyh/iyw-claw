@@ -143,6 +143,16 @@ impl BrowserSessionManager {
         self.cancel_window_open_requests(removed.tab_ids.clone())
             .await;
         for tab_id in &removed.tab_ids {
+            if self.is_native_browser().await {
+                let _ = self
+                    .native
+                    .command(
+                        tab_id,
+                        "view",
+                        serde_json::json!({"owner":"main","visible":false}),
+                    )
+                    .await;
+            }
             let _ = self.set_user_held(tab_id, false).await;
             self.streams.close_tab(tab_id).await;
         }

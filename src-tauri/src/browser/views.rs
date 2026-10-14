@@ -86,6 +86,25 @@ impl BrowserSessionManager {
                 .await
                 .activate_host_tab(host_id, host_generation, tab_id)?;
         if let Some(previous_id) = previous.filter(|id| id != tab_id) {
+            if self.is_native_browser().await {
+                let owner = self
+                    .state
+                    .read()
+                    .await
+                    .hosts
+                    .get(host_id)
+                    .map(|host| host.window_label.clone());
+                if let Some(owner) = owner {
+                    let _ = self
+                        .native
+                        .command(
+                            &previous_id,
+                            "view",
+                            serde_json::json!({"owner":owner,"visible":false}),
+                        )
+                        .await;
+                }
+            }
             self.streams.close_tab(&previous_id).await;
         }
         Ok(self.snapshot().await)
@@ -106,6 +125,38 @@ impl BrowserSessionManager {
             target_host_id,
             target_index,
         )?;
+        if self.is_native_browser().await {
+            let owner = self
+                .state
+                .read()
+                .await
+                .hosts
+                .get(&claim.target_host_id)
+                .map(|host| host.window_label.clone())
+                .ok_or_else(|| BrowserError::tab_not_found(tab_id))?;
+            if let Err(error) = self
+                .native
+                .command(
+                    tab_id,
+                    "view",
+                    serde_json::json!({"owner":owner,"visible":false}),
+                )
+                .await
+            {
+                self.state
+                    .write()
+                    .await
+                    .abort_view_claim(&claim.claim_id, &claim.generations)?;
+                return Err(error);
+            }
+            let mut state = self.state.write().await;
+            state.acknowledge_view_claim(&claim.claim_id, &claim.generations, 1)?;
+            state.commit_view_claim(&claim.claim_id, &claim.generations)?;
+            drop(state);
+            self.cancel_window_open_requests(vec![tab_id.to_string()])
+                .await;
+            return Ok(claim);
+        }
         self.spawn_claim_timeout(claim.claim_id.clone());
         Ok(claim)
     }

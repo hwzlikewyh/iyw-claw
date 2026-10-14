@@ -69,6 +69,8 @@ pub struct BrowserSessionManager {
     #[cfg(feature = "tauri-runtime")]
     pub(super) runtime: Option<Arc<BrowserRuntime>>,
     #[cfg(feature = "tauri-runtime")]
+    pub(super) native: Arc<super::native::NativeBrowser>,
+    #[cfg(feature = "tauri-runtime")]
     pub(super) resource_governor: Option<Arc<super::resource_gate::BrowserResourceGovernor>>,
     #[cfg(feature = "tauri-runtime")]
     pub(super) tabs: Arc<BrowserTabRegistry>,
@@ -122,6 +124,8 @@ impl BrowserSessionManager {
             shutdown_epoch: Arc::new(AtomicU64::new(0)),
             #[cfg(feature = "tauri-runtime")]
             runtime: None,
+            #[cfg(feature = "tauri-runtime")]
+            native: Arc::new(super::native::NativeBrowser::default()),
             #[cfg(feature = "tauri-runtime")]
             resource_governor: None,
             #[cfg(feature = "tauri-runtime")]

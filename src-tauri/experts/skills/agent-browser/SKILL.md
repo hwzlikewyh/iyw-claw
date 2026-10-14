@@ -1,25 +1,26 @@
 ---
 name: agent-browser
-description: Use the iyw-claw managed agent-browser when required login state, unreadable dynamic content, UI interaction, screenshots or page acceptance need a browser and the broker selects the managed provider. Public search/reading and supported platform business use direct tools first.
+description: Use the unified iyw-claw browser when required login state, unreadable dynamic content, UI interaction, screenshots or page acceptance need a browser. The host selects the user's lightweight or full engine. Public search/reading and supported platform business use direct tools first.
 routing:
   capability: managed agent-browser
   coreTriggers: [browser interaction, browser authentication, dynamic page, screenshot, page acceptance]
   exclusions: [desktop app control, local file work, public data covered by a direct reader, platform business covered by a direct tool]
   aliases: [agent browser, managed browser, 浏览器自动化, 网页数据]
-  invocation: Use this Skill when the unified browser broker selects the managed provider; read it for advanced commands and recovery.
+  invocation: Use the unified browser tools without choosing an engine; read this Skill for advanced commands and recovery.
 ---
 
 # Agent Browser
 
-Use the iyw-claw managed `agent-browser` runtime when the unified browser
-broker selects the managed provider. The host pins every operation to a managed
-tab, preserves the user-visible profile and sign-in state, and verifies the
-bundled controller before starting it. Do not install another browser, edit an
-Agent's MCP configuration, or bypass the broker to switch providers.
+Use the iyw-claw unified browser tools. The host selects the user's lightweight
+WebView or full Chromix engine and pins operations to the same tab the user sees.
+Keep using the same tools and returned tab IDs. Never choose, launch, install,
+or switch an engine yourself. Do not edit an Agent's MCP configuration or bypass
+the host. Unsupported advanced commands return an error; do not replay them on
+another browser or claim they succeeded.
 
 ## Managed-provider policy
 
-When the unified broker selects the managed provider:
+When a task requires the built-in browser:
 
 1. Use the available managed browser capability surface first. If the live
    gateway is present, use the exact `iyw.browser.*` stable capability returned
@@ -35,9 +36,8 @@ When the unified broker selects the managed provider:
    a downloaded file, or another explicit success signal. A successful click
    alone is not proof that the business action completed.
 6. If one state check shows that the managed runtime/session/daemon is
-   unavailable, stop and report the managed-browser failure. Provider selection
-   and any OpenCLI-to-managed handoff belong to the unified broker; this Skill
-   must not switch providers on its own.
+   unavailable, stop and report the browser failure. Engine selection belongs
+   to the host program and the user's settings; this Skill must not change it.
 
 Prefer an available reliable API or content reader when it covers the request.
 Missing data alone does not require a browser: identify whether login state,
@@ -214,10 +214,8 @@ permission to start a second browser or alter the managed runtime.
 - `BROWSER_OPERATION_TIMEOUT`: inspect state once; do not repeat blindly.
 - `BROWSER_CONTROL_CHANGED`: handle the visible obstruction, then refresh state.
 - `BROWSER_RUNTIME_UNAVAILABLE`: inspect managed state once and report the
-  failure. The managed provider is the display and human-takeover surface;
-  ordinary page operations remain on the OpenCLI route selected by the unified
-  broker unless the Agent explicitly requests human takeover. A presented page
-  may be copied into the managed browser for viewing.
+  failure. User display, human takeover, and Agent actions use the same tab.
+  Do not open a copy, launch another browser, or select another engine.
 
 An error is not evidence that a click succeeded or failed to have an effect.
 For write operations with `effectMayHaveOccurred`, inspect the page before
@@ -225,7 +223,7 @@ retrying to avoid duplicate submissions.
 
 ## Managed runtime boundary
 
-The host owns the bundled `agent-browser` version, executable integrity,
+The host owns the selected browser engine and, in full mode, the `agent-browser` version, executable integrity,
 profile, CDP endpoint, session socket, download path, screenshot directory,
 shutdown, and recovery. Do not run `npm install -g`, `agent-browser install`,
 `agent-browser upgrade`, `agent-browser mcp`, `agent-browser dashboard`, or

@@ -110,6 +110,8 @@ pub struct EnvironmentSnapshot {
     pub target: String,
     pub arch: String,
     pub created_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_components: Option<Vec<String>>,
     pub components: Vec<InstalledComponent>,
 }
 

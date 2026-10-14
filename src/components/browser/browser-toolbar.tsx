@@ -31,6 +31,7 @@ import type {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { BrowserDownloads } from "./browser-downloads"
+import { BrowserNativeTools } from "./browser-native-tools"
 
 export function BrowserToolbar({
   host,
@@ -207,6 +208,9 @@ export function BrowserToolbar({
         />
       )}
       <BrowserDownloads />
+      {tab && state?.capability.engine?.kind === "webview" ? (
+        <BrowserNativeTools tabId={tab.browserTabId} />
+      ) : null}
       {onClose ? (
         <ToolButton label={t("closeBrowser")} icon={X} onClick={onClose} />
       ) : null}

@@ -73,6 +73,9 @@ impl BrowserSessionManager {
     }
 
     async fn enforce_agent_screenshot_quota(&self) -> Result<(), BrowserError> {
+        if self.is_native_browser().await {
+            return Ok(());
+        }
         let runtime = self.desktop_runtime()?;
         let context = runtime.context().await.ok_or_else(|| {
             BrowserError::new(

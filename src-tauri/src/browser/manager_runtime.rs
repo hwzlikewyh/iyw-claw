@@ -18,7 +18,10 @@ impl BrowserSessionManager {
         connections: crate::acp::manager::ConnectionManager,
     ) -> Self {
         let runtime = Arc::new(BrowserRuntime::new(data_root.clone()));
-        let mut manager = Self::with_runtime(BrowserRuntime::initial_capability(), Some(runtime));
+        let mut manager = Self::with_runtime(
+            super::engine_settings::lightweight_capability(),
+            Some(runtime),
+        );
         manager.resource_governor = Some(Arc::new(
             super::resource_gate::BrowserResourceGovernor::new(connections),
         ));
@@ -30,6 +33,9 @@ impl BrowserSessionManager {
     }
 
     pub fn schedule_engine_prefetch(&self) {
+        if !crate::preferences::load().full_browser_enabled {
+            return;
+        }
         let prefetch = self.browser_engine_prefetch.clone();
         let manager = self.clone();
         tauri::async_runtime::spawn(async move {
@@ -38,14 +44,8 @@ impl BrowserSessionManager {
     }
 
     pub async fn refresh_capability(&self) -> BrowserStateSnapshot {
-        let capability = match self.desktop_runtime() {
-            Ok(runtime) => match runtime.verify().await {
-                Ok(capability) => capability,
-                Err(error) => capability_from_error(&error),
-            },
-            Err(error) => capability_from_error(&error),
-        };
-        self.set_capability(capability).await;
+        let _guard = self.tab_open_lock.lock().await;
+        self.apply_selected_capability().await;
         self.snapshot().await
     }
 
@@ -59,6 +59,9 @@ impl BrowserSessionManager {
         let epoch = self.current_shutdown_epoch();
         let _tab_guard = self.tab_open_lock.lock().await;
         self.ensure_shutdown_epoch(epoch)?;
+        if self.apply_selected_capability().await {
+            return self.start_native_runtime().await;
+        }
         let cancellation = self.shutdown_cancellation().await;
         self.ensure_runtime_running(cancellation).await?;
         Ok(self.snapshot().await)
@@ -232,6 +235,11 @@ impl BrowserSessionManager {
     }
 
     async fn stop_runtime_owners(&self, runtime: &BrowserRuntime) -> Result<(), BrowserError> {
+        if self.native.app.get().is_some() {
+            self.native
+                .command("", "close_all", serde_json::json!({}))
+                .await?;
+        }
         let (_, tabs_result) = tokio::join!(self.streams.close_all(), self.shutdown_tabs());
         let runtime_result = runtime.stop().await;
         let tabs_result = if tabs_result.is_err() && runtime_result.is_ok() {
@@ -304,6 +312,7 @@ impl BrowserSessionManager {
             tab_open_lock: Arc::new(tokio::sync::Mutex::new(())),
             shutdown_epoch: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             runtime,
+            native: Arc::new(super::native::NativeBrowser::default()),
             resource_governor: None,
             tabs: Arc::new(super::tabs::BrowserTabRegistry::default()),
             tab_cleanups: Arc::new(
@@ -364,6 +373,14 @@ impl BrowserSessionManager {
                     Err(error)
                 }
                 Ok(()) => {
+                    if let Err(error) = self.restore_cookies_to_full().await {
+                        self.stop_cdp_observer().await;
+                        let _ = runtime.stop().await;
+                        let _ = self
+                            .fail_runtime_start(&ticket, format!("{:?}", error.code))
+                            .await;
+                        return Err(error);
+                    }
                     self.sync_iyw_login().await;
                     match self.complete_runtime_start(&ticket).await {
                         Ok(()) => {
@@ -437,18 +454,6 @@ fn log_shutdown_result(shutdown_epoch: u64, result: &Result<(), BrowserError>) {
             "browser shutdown failed"
         ),
     }
-}
-
-fn capability_from_error(error: &BrowserError) -> BrowserCapability {
-    let mut capability = BrowserRuntime::initial_capability();
-    capability.status = if error.code == BrowserErrorCode::BrowserUnsupportedRuntime {
-        BrowserRuntimeStatus::Unsupported
-    } else {
-        BrowserRuntimeStatus::Missing
-    };
-    capability.supported = capability.status != BrowserRuntimeStatus::Unsupported;
-    capability.reason = Some(format!("{:?}", error.code));
-    capability
 }
 
 fn runtime_state_mismatch() -> BrowserError {

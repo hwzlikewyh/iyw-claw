@@ -8,7 +8,10 @@ pub fn browser_get_state(
     manager: tauri::State<'_, BrowserSessionManager>,
 ) -> BrowserCommandFuture<BrowserStateSnapshot> {
     let manager = manager.inner().clone();
-    browser_command(async move { Ok(manager.snapshot().await) })
+    browser_command(async move {
+        manager.refresh_native_tabs().await;
+        Ok(manager.snapshot().await)
+    })
 }
 
 #[tauri::command(async)]

@@ -5,6 +5,7 @@ use crate::browser::BrowserError;
 
 mod cdp;
 mod control;
+mod engine;
 mod runtime;
 mod streams;
 mod tabs;
@@ -23,6 +24,7 @@ pub(super) fn browser_command<T>(
 
 pub use cdp::*;
 pub use control::*;
+pub use engine::*;
 pub use runtime::*;
 pub use streams::*;
 pub use tabs::*;

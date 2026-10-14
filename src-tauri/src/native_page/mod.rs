@@ -1,13 +1,13 @@
 //! 交互页面的原生子视图；不启动受管浏览器，也不向网页提供应用 IPC。
 mod actions;
 mod build;
-mod capture;
+pub(crate) mod capture;
 mod downloads;
-mod find;
-mod platform;
+pub(crate) mod find;
+pub(crate) mod platform;
 mod state;
 #[cfg(target_os = "windows")]
-mod window_hook;
+pub(crate) mod window_hook;
 
 use serde_json::Value;
 use tauri::WebviewWindow;

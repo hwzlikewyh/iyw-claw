@@ -37,6 +37,9 @@ impl BrowserSessionManager {
         cancellation: CancellationToken,
     ) -> Result<(BrowserStateSnapshot, String), BrowserError> {
         let url = validated_url(&url)?;
+        if self.apply_selected_capability().await {
+            return self.create_native_tab(url, host_id, cancellation).await;
+        }
         let runtime = self.ensure_runtime_running(cancellation.clone()).await?;
         if let Some(governor) = &self.resource_governor {
             governor.guard_new_tab()?;
@@ -165,6 +168,9 @@ impl BrowserSessionManager {
             .find(|tab| tab.browser_tab_id == tab_id)
             .ok_or_else(|| BrowserError::tab_not_found(tab_id))?;
         super::frame_protocol::ensure_frame_generations(&tab.generations, &expected)?;
+        if self.is_native_browser().await {
+            return Ok(self.snapshot().await);
+        }
         let action = self.tabs.action_target(tab_id).await?;
         let width = width.to_string();
         let height = height.to_string();
@@ -188,6 +194,9 @@ impl BrowserSessionManager {
         args: &[&str],
         cancellation: CancellationToken,
     ) -> Result<BrowserStateSnapshot, BrowserError> {
+        if self.is_native_browser().await {
+            return self.run_native_navigation(tab_id, args, cancellation).await;
+        }
         let action = self.tabs.action_target(tab_id).await?;
         let ticket = self.state.write().await.begin_tab_navigation(tab_id)?;
         if ticket.runtime_generation != action.runtime_generation {

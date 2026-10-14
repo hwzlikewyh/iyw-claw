@@ -284,7 +284,7 @@
   },
   {
     "name": "browser",
-    "description": "Unified managed Chromix browser entry for navigation, reading, interaction, screenshots, waits, and advanced commands. The browser must be enabled by the user; when disabled, stop browser actions and do not launch an external browser. Installation and environment repair are separate user actions, not browser fallbacks. Reuse returned managed browserTabId values; retired external tab IDs and references must not be replayed. Use request_user_action only for genuine human-only steps and verify fresh state afterward. Do not blindly retry failures with effectMayHaveOccurred=true. The legacy browser_* tools remain compatible aliases.",
+    "description": "Unified built-in browser entry for navigation, reading, interaction, screenshots, waits, and advanced commands. The host selects the lightweight or full browser from the user's settings; keep using these same tools and returned browserTabId values without selecting or launching an engine yourself. The browser must be enabled by the user; when disabled, stop browser actions and do not launch an external browser. Installation and environment repair are separate user actions. Retired external tab IDs and references must not be replayed. Use request_user_action only for genuine human-only steps and verify fresh state afterward. Do not blindly retry failures with effectMayHaveOccurred=true. Unsupported engine commands return explicit errors and are never silently replayed on another engine. The legacy browser_* tools remain compatible aliases.",
     "inputSchema": {
       "type": "object",
       "required": ["action"],
@@ -482,7 +482,7 @@
   },
   {
     "name": "browser_open",
-    "description": "Compatibility alias for browser(action=open). Opens an enabled managed Chromix tab using its persistent profile. It does not import external sign-in data or launch external browsers. Set new_tab only when another tab is required. Failures are returned directly.",
+    "description": "Compatibility alias for browser(action=open). Opens a tab in the built-in browser selected by the host, sharing its persistent profile with the user's browser view. Do not select an engine or launch external browsers. Set new_tab only when another tab is required. Failures are returned directly.",
     "inputSchema": {
       "type": "object",
       "required": ["url"],

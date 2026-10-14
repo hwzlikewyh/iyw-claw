@@ -20,24 +20,28 @@ pub async fn lock_writer() -> tokio::sync::MutexGuard<'static, ()> {
 }
 
 pub fn components_need_repair(report: &ManagedEnvironmentStatusReport) -> bool {
+    #[cfg(feature = "tauri-runtime")]
+    let browser_enabled = crate::preferences::load().full_browser_enabled;
+    #[cfg(not(feature = "tauri-runtime"))]
+    let browser_enabled = false;
     core_components_need_repair(report)
         // 清单中包含已选装的可选组件；内置 Agent 只能通过应用安装包修复。
-        || report
-            .components
-            .iter()
-            .any(|component| !component.active && component.component_id != "builtin-agent")
+        || report.components.iter().any(|component| {
+            !component.active
+                && component.component_id != "builtin-agent"
+                && (browser_enabled
+                    || !matches!(component.component_id.as_str(), "chromix" | "agent-browser"))
+        })
 }
 
 fn core_components_need_repair(report: &ManagedEnvironmentStatusReport) -> bool {
-    ["node", "git", "uv", "chromix", "agent-browser"]
-        .iter()
-        .any(|component_id| {
-            report
-                .components
-                .iter()
-                .find(|component| component.component_id == *component_id)
-                .map_or(true, |component| !component.active)
-        })
+    ["node", "git", "uv"].iter().any(|component_id| {
+        report
+            .components
+            .iter()
+            .find(|component| component.component_id == *component_id)
+            .map_or(true, |component| !component.active)
+    })
 }
 
 #[derive(Deserialize)]

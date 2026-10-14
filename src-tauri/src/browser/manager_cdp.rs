@@ -141,6 +141,16 @@ impl BrowserSessionManager {
         &self,
         download_id: &str,
     ) -> Result<BrowserStateSnapshot, BrowserError> {
+        if self.is_native_browser().await {
+            self.native
+                .command("", "cancel_download", json!({"downloadId":download_id}))
+                .await?;
+            if let Some(download) = self.state.write().await.downloads.get_mut(download_id) {
+                download.status = BrowserDownloadStatus::Cancelled;
+            }
+            self.spawn_runtime_idle_check("native_download_cancelled");
+            return Ok(self.snapshot().await);
+        }
         self.cdp_call(
             "Browser.cancelDownload",
             json!({ "guid": download_id }),
@@ -174,14 +184,19 @@ impl BrowserSessionManager {
             .await
             .completed_download_path(download_id)
             .ok_or_else(download_unavailable)?;
-        let root = self
-            .runtime
-            .as_ref()
-            .ok_or_else(download_unavailable)?
-            .context()
-            .await
-            .ok_or_else(download_unavailable)?
-            .download_path;
+        let root = if self.is_native_browser().await {
+            dirs::download_dir()
+                .unwrap_or_else(|| crate::paths::iyw_claw_user_dir().join("browser/downloads"))
+                .join("原助理")
+        } else {
+            self.runtime
+                .as_ref()
+                .ok_or_else(download_unavailable)?
+                .context()
+                .await
+                .ok_or_else(download_unavailable)?
+                .download_path
+        };
         let (root, path) =
             tokio::try_join!(tokio::fs::canonicalize(root), tokio::fs::canonicalize(path))
                 .map_err(|_| download_unavailable())?;

@@ -11,6 +11,7 @@ import { emitAppendTextToSession } from "@/lib/session-attachment-events"
 import { useTabStore } from "@/stores/tab-store"
 import type { BrowserTabSnapshot } from "@/lib/browser-types"
 import { BrowserCanvas } from "./browser-canvas"
+import { BrowserNativeSurface } from "./browser-native-surface"
 import { BrowserPrompts } from "./browser-prompts"
 import { BrowserStatus } from "./browser-status"
 import { BrowserTabStrip } from "./browser-tab-strip"
@@ -35,6 +36,7 @@ export function BrowserShell({
   const hostedTabRef = useRef(false)
   const closingWindowRef = useRef(false)
   const [selecting, setSelecting] = useState(false)
+  const [selectionTabId, setSelectionTabId] = useState<string | undefined>()
   const sessionTabId = useTabStore((store) => store.activeTabId)
   const claim = state?.viewClaims.find(
     (item) => item.targetHostId === host?.hostId
@@ -64,7 +66,10 @@ export function BrowserShell({
   const activeTabId =
     claim?.browserTabId ?? host?.activeTabId ?? tabs[0]?.browserTabId
   const activeTab = tabs.find((tab) => tab.browserTabId === activeTabId) ?? null
-  useEffect(() => setSelecting(false), [activeTabId])
+  if (selectionTabId !== activeTabId) {
+    setSelectionTabId(activeTabId)
+    setSelecting(false)
+  }
   const closeShell =
     kind === "docked"
       ? () => void closeBrowser()
@@ -175,12 +180,21 @@ export function BrowserShell({
         </div>
       ) : null}
       <div className="min-h-0 flex-1">
-        <BrowserCanvas
-          tab={activeTab}
-          claim={claim}
-          selecting={selecting}
-          onSelectPoint={(point) => void selectElement(point)}
-        />
+        {state.capability.engine?.kind === "webview" && activeTab ? (
+          <BrowserNativeSurface
+            key={`${activeTab.browserTabId}:${activeTab.documentEpoch}:${selecting}`}
+            tab={activeTab}
+            selecting={selecting}
+            onSelectPoint={(point) => void selectElement(point)}
+          />
+        ) : (
+          <BrowserCanvas
+            tab={activeTab}
+            claim={claim}
+            selecting={selecting}
+            onSelectPoint={(point) => void selectElement(point)}
+          />
+        )}
       </div>
       <BrowserPrompts
         key={dialog?.dialogId ?? chooser?.chooserId ?? "none"}

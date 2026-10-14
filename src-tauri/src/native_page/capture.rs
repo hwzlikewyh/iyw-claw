@@ -5,7 +5,7 @@ use tauri_runtime_wry::wry::WebView;
 type Callback = Box<dyn FnOnce(Result<Value, String>) + Send>;
 const MAX_CAPTURE_BYTES: usize = 32 * 1024 * 1024;
 
-pub(super) fn start(view: &WebView, done: Callback) -> Result<(), String> {
+pub(crate) fn start(view: &WebView, done: Callback) -> Result<(), String> {
     platform_capture(view, Box::new(move |result| done(result.and_then(encode))))
 }
 

@@ -425,10 +425,13 @@ mod tauri_app {
                 unsafe {
                     std::env::set_var("IYW_CLAW_DATA_DIR", &effective_data_dir);
                 }
-                app.manage(crate::browser::BrowserSessionManager::new_desktop(
-                    paths::iyw_claw_user_dir(),
-                    app.state::<ConnectionManager>().clone_ref(),
-                ));
+                app.manage(
+                    crate::browser::BrowserSessionManager::new_desktop(
+                        paths::iyw_claw_user_dir(),
+                        app.state::<ConnectionManager>().clone_ref(),
+                    )
+                    .with_app_handle(app.handle().clone()),
+                );
 
                 // IR-006：更新后的首次启动对比持久区摘要（一次性记录）。
                 // 更新只替换 `app`，不触碰受管组件/用户数据；摘要变化意味着
@@ -1919,6 +1922,11 @@ mod tauri_app {
                 browser_commands::browser_start_runtime,
                 browser_commands::browser_stop_runtime,
                 browser_commands::browser_create_tab,
+                browser_commands::browser_get_engine_settings,
+                browser_commands::browser_set_full_engine,
+                browser_commands::browser_install_full_engine,
+                browser_commands::browser_native_view,
+                browser_commands::browser_native_action,
                 browser_commands::browser_ensure_initial_tab,
                 browser_commands::browser_close_tab,
                 browser_commands::browser_navigate_tab,

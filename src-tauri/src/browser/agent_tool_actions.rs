@@ -126,6 +126,27 @@ impl BrowserSessionManager {
         let lease = self
             .acquire_agent_lease(request.context, request.tab_id)
             .await?;
+        if self.is_native_browser().await {
+            let changed = lease.cancellation_error();
+            let cancellation = AgentOperationCancellation::new(
+                request.context.cancellation,
+                lease.cancellation_token(),
+            );
+            let result = self
+                .native
+                .execute_cli(super::native::NativeExecution {
+                    id: request.tab_id,
+                    args: &request.args,
+                    timeout: request.timeout,
+                    cancellation: cancellation.token(),
+                })
+                .await;
+            lease.finish().await;
+            if cancellation.token().is_cancelled() {
+                return Err(changed.effect_may_have_occurred(true));
+            }
+            return result;
+        }
         let action = self.tabs.action_target(request.tab_id).await?;
         let changed = lease.cancellation_error();
         let cancellation = AgentOperationCancellation::new(
