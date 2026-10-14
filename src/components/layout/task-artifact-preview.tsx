@@ -205,6 +205,7 @@ function TaskArtifactFilePreview({
   return (
     <WorkspaceFilePreview
       state={preview}
+      displayName={artifact.displayName}
       rootPath={target?.rootPath ?? ""}
       htmlRootPath={htmlRootPath}
       onOpenWorkspace={onOpenWorkspace}

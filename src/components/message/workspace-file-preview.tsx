@@ -112,11 +112,13 @@ function PreviewStatus({ state }: { state: PreviewState }) {
 
 export function WorkspaceFilePreview({
   state,
+  displayName,
   rootPath,
   htmlRootPath,
   onOpenWorkspace,
 }: {
   state: PreviewState
+  displayName?: string
   rootPath: string
   htmlRootPath?: string
   onOpenWorkspace?: () => void
@@ -134,7 +136,7 @@ export function WorkspaceFilePreview({
       <div className="flex h-full items-center justify-center overflow-auto bg-muted/20 p-6">
         <EditableImagePreview
           src={state.content}
-          alt={fileName(state.path)}
+          alt={displayName?.trim() || fileName(state.path)}
           trigger="edit-button"
           className="flex size-full items-center justify-center"
           imageProps={{
