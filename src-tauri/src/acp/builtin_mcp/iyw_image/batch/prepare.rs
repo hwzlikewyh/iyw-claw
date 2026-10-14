@@ -3,32 +3,34 @@ use std::time::Instant;
 
 use super::{ExecutionContext, PreparedTask};
 use crate::acp::builtin_mcp::iyw_image::{
-    preflight_kind, prepare_images, select_kind, upload_images, validate_request,
-    ImageBatchRequest, ImageRequest, PreparedImage,
+    fusion, preflight_kind, prepare_images, recovery, select_kind, upload_images, validate_request,
+    ImageBatchRequest, ImageRequest, ImageSource, PreparedImage,
 };
 use crate::acp::builtin_mcp::iyw_tool_policy::ensure_image_enabled;
 
-const MAX_BATCH_ITEMS: usize = 8;
-const MAX_EXECUTIONS: usize = 16;
+use super::super::limits::{MAX_BATCH_EXECUTIONS, MAX_BATCH_ITEMS};
 const MAX_ID_CHARS: usize = 64;
 
 pub(super) fn validate_batch(request: &ImageBatchRequest) -> Result<(), rmcp::ErrorData> {
     if !(1..=MAX_BATCH_ITEMS).contains(&request.requests.len()) {
-        return Err(super::super::invalid(
-            "requests must contain between 1 and 8 items",
-        ));
+        return Err(super::super::invalid(format!(
+            "requests must contain between 1 and {MAX_BATCH_ITEMS} items"
+        )));
     }
     let mut ids = HashSet::new();
-    let mut executions = 0;
+    let mut executions: usize = 0;
     for item in &request.requests {
         ensure_image_enabled(item.kind.as_deref())?;
         validate_request(item)?;
         validate_batch_item(item, &mut ids)?;
-        executions += item.count();
+        executions = executions.saturating_add(
+            item.count()
+                .saturating_mul(item.fallbacks.len().saturating_add(1)),
+        );
     }
-    if executions > MAX_EXECUTIONS {
+    if executions > MAX_BATCH_EXECUTIONS {
         return Err(super::super::invalid(
-            "the sum of request counts must not exceed 16",
+            format!("planned candidate executions, including count and fallbacks but excluding automatic output retries, must not exceed {MAX_BATCH_EXECUTIONS}; split into multiple batches"),
         ));
     }
     Ok(())
@@ -109,16 +111,7 @@ async fn prepare_task(
         &routing_prompt,
         seed.request.images.len(),
     );
-    preflight_kind(
-        &seed.request,
-        &kind,
-        &placeholder_images(seed.request.images.len()),
-    )?;
-    let mut images = prepare_images(context.authority.cwd(), &seed.request.images).await?;
-    if kind != "edit" {
-        upload_images(context.service, &mut images).await?;
-    }
-    preflight_kind(&seed.request, &kind, &images)?;
+    let (images, candidates) = prepare_inputs(context, &seed.request, &kind).await?;
     tracing::info!(
         requested_type = seed.request.kind.as_deref().unwrap_or("auto"),
         selected_type = %kind,
@@ -133,7 +126,54 @@ async fn prepare_task(
         kind,
         request: seed.request,
         images,
+        candidates,
     })
+}
+
+async fn prepare_inputs(
+    context: ExecutionContext<'_>,
+    request: &ImageRequest,
+    kind: &str,
+) -> Result<(Vec<PreparedImage>, Vec<ImageRequest>), rmcp::ErrorData> {
+    let placeholders = placeholder_images(&request.images);
+    preflight_kind(request, kind, &placeholders)?;
+    let candidates = recovery::prepare_candidates(request, kind, &placeholders)?;
+    recovery::validate_models(
+        context.service,
+        (request, kind),
+        (&candidates, &placeholders),
+    )
+    .await?;
+    let mut images = prepare_images(context.authority.cwd(), &request.images).await?;
+    if kind == "edit"
+        || candidates
+            .iter()
+            .any(|request| request.kind.as_deref() == Some("edit"))
+    {
+        fusion::prepare_edit_images(
+            (context.service, context.authority.cwd()),
+            (request, kind),
+            &mut images,
+        )
+        .await?;
+    }
+    recovery::validate_models(context.service, (request, kind), (&candidates, &images)).await?;
+    if kind != "edit"
+        || candidates
+            .iter()
+            .any(|request| request.kind.as_deref() != Some("edit"))
+    {
+        upload_images(context.service, &mut images).await?;
+    }
+    preflight_kind(request, kind, &images)?;
+    for candidate in &candidates {
+        preflight_kind(
+            candidate,
+            candidate.kind.as_deref().expect("candidate type validated"),
+            &images,
+        )?;
+    }
+    Ok((images, candidates))
 }
 
 struct TaskSeed {
@@ -142,11 +182,12 @@ struct TaskSeed {
     request: ImageRequest,
 }
 
-fn placeholder_images(count: usize) -> Vec<PreparedImage> {
-    (0..count)
-        .map(|_| PreparedImage {
+fn placeholder_images(sources: &[ImageSource]) -> Vec<PreparedImage> {
+    sources
+        .iter()
+        .map(|source| PreparedImage {
             url: "https://preflight.invalid/image.png".to_string(),
-            role: "source".to_string(),
+            role: source.role().to_string(),
             bytes: None,
             mime_type: Some("image/png".to_string()),
         })

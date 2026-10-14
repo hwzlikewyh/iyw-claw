@@ -1,5 +1,15 @@
 # 图片生成与处理工具
 
+## 模型参数能力
+
+`list_iyw_image_models` 的 `image_capabilities` 按 generate/edit 返回参数支持、可用枚举、
+数字范围、固定/自定义尺寸和输入输出限制。version=1；缺失/null 为未知，supported=false 明确不支持。
+先按用户要求选明确支持的 model_ref，再检查每个 fallback 的独立参数；未知只可正常透传，不能保证支持。
+透明任务保留 background=transparent，使用 PNG/WebP；候选不能悄悄删掉透明参数。
+工具在生成前检查每个候选的声明，并在实际调用前再次核对；不满足要求返回 not_started。
+型号名、描述里的“高清”或编辑布尔标志不能代替尺寸、蒙版和透明能力声明。
+
+
 图片生成、编辑和处理优先通过 `generate_iyw_image` 使用平台能力或图片模型；工具契约覆盖任务时不要改用 fetch。仅 [电商视频](iyw-api-ecommerce-video.md) 和 [商品套图](iyw-api-product-kits.md) 明确记录的不匹配或未封装操作用 fetch 调原接口，不为绕过校验虚构参数。任务查询、历史、素材、收藏和其他业务仍走 `fetch_iyw_url`，见 [图片任务管理](iyw-api-image-admin.md)。只读本次 type 对应行和示例；核对来源或契约差异时再读 [图片接口证据](iyw-image-api-source.md)。
 
 视频生成优先使用本 Skill 的 `generate_iyw_image`/`fetch_iyw_url`，按 [视频专篇](iyw-api-ecommerce-video.md) 选择。视频导演返回脚本，生成返回任务，成功后才能交付视频；不要把图片模型目录当成视频模型目录。
@@ -17,7 +27,7 @@
 | 当前情况 | 下一步 |
 | --- | --- |
 | 图片路径或参数错误 | 按 schema 修正输入；带图且选择模型时使用 `edit`，不丢弃参考图 |
-| 单个服务明确失败 | 停止重放同一请求，评估能完成原始目标的其他平台能力或通用编辑模型 |
+| 单个服务明确失败 | 下载/转存 502 由工具自动执行有限同模型重试；其他失败按错误原因恢复，或走已声明候选，不自行无限重放 |
 | 超时、网络异常、执行中或提交结果未知 | 查原任务状态；无法确认时保留未知，不重复提交或据此改为本地生成 |
 | 已完成图片未满足需验收的效果 | 在任务范围和计费授权内优先用适用服务针对性修正，不无限生成或擅自重建图片 |
 
@@ -27,7 +37,7 @@
 
 商品套图/A+ 的完整输入与版本流程见 [套图](iyw-api-product-kits.md)，批量图像任务见 [批量中心](iyw-api-batch-center.md)，枚举按需读 [通道与类型](iyw-image-enums.md)。
 
-`images` 接受 HTTPS URL、工作区本地路径、Data URL，或 `{path|url|base64|data,mimeType,role,name}` 对象；原始 Base64 需 MIME。主机上传本地图片，单图上限 20 MiB，最多 10 张。`prompt` 描述目标，`parameters` 放所选操作的业务字段。新原生操作不同时接受顶层 images 和同名 parameters 图片字段。
+`images` 接受 HTTPS URL、工作区本地路径、Data URL，或 `{path|url|base64|data,mimeType,role,name}` 对象；原始 Base64 需 MIME。单图上限 20 MiB；Fusion 编辑支持最多 16 张 PNG/JPEG/WebP 参考图及额外 1 张 PNG 蒙版，平台操作最多 10 张。编辑输入在执行前读取/下载并校验真实 MIME，重试复用原字节；平台主机上传本地图片。`prompt` 描述目标，`parameters` 放所选操作的业务字段。新原生操作不同时接受顶层 images 和同名 parameters 图片字段。
 
 | type | 后端操作 | 参数与区别 |
 | --- | --- | --- |
@@ -74,9 +84,49 @@
 
 ## 结果与恢复
 
+### Fusion 生成／编辑参数
+
+提示词放在顶层 `prompt`，参考图放在 `images`。`parameters.model` 使用目录中的模型引用。
+常用字段均已列入工具 schema；生成走 JSON，编辑走 multipart，普通可选字段原样传递，
+null 字段在 multipart 中省略，额外的渠道参数保持透传。是否支持某个选项按所选模型契约判断，
+不得把所有模型都当作支持透明、保真或任意尺寸；不固定填充默认质量或尺寸。
+
+| 参数 | 生成／编辑方式 |
+| --- | --- |
+| `quality` | 支持该参数时使用 low／medium／high／auto；旧版模型可有 standard／hd |
+| `size` | auto 或 WIDTHxHEIGHT；灵活大尺寸需当前模型支持，平台工具另按其比例契约 |
+| `n` | 单任务上游输出数量 1–10；不能与 count、requests 或 fallbacks 混用 |
+| `background` | transparent／opaque／auto；透明要求需原样保留在每个回退候选中 |
+| `output_format` | png／jpeg／webp；transparent 只配 png 或 webp |
+| `output_compression` | 0–100，只配明确的 jpeg／webp 输出 |
+| `response_format` | url／b64_json，只在模型支持此字段时传递，与 output_format 不同 |
+| `moderation` | auto／low；编辑是否支持需渠道契约确认 |
+| `input_fidelity` | 编辑模型支持时传 high／low；不是所有图片模型都接受的通用参数 |
+| `mask` | 编辑 PNG 蒙版的工作区路径、HTTPS URL 或 Data URL；或 images 中提供 role=mask，二选一，尺寸与首张参考图一致 |
+| `style` | vivid／natural，仅适用声明支持的生成模型 |
+| `user` | 可选匿名业务标识，不包含个人信息或凭据 |
+| `stream`／`partial_images` | 当前中转仅完整 JSON；stream 只允许 false／null，partial_images 只允许 0／null，不能宣称支持流式出图 |
+
+单图编辑会发送 `image` 文件，多图使用 `image[]`；蒙版作为独立 `mask` 文件发送。
+文件扩展名与 MIME 来自真实字节，Base64 成图转存同样按 PNG/JPEG/WebP 处理。
+模型不支持透明输出时应保留用户要求并报告或选择兼容候选，不把白底成图当作透明 PNG。
+
+高清编辑与透明生成结构示例；须将引用替换为当前目录选中的兼容模型，图片路径位于工作区：
+
+```json
+{"type":"edit","prompt":"将图变高清，清晰描绘所有细节，其他不变","images":["assets/source.png"],"parameters":{"model":"MODEL_REF_FROM_CATALOG","quality":"high","size":"auto","output_format":"png"}}
+```
+
+```json
+{"type":"generate","prompt":"生成完整展示的产品图片，背景透明","parameters":{"model":"TRANSPARENCY_CAPABLE_MODEL_REF","background":"transparent","output_format":"png","quality":"high","size":"1024x1024"}}
+```
+
 - `status/images/task_id/metadata/delivery` 为输出。原生操作完整业务结果在 `metadata.result`，色号、网格、提示词、矢量文件或视频链接不能只看 images。只陈述返回证实的操作或模型；Fusion 的 `metadata.model_name` 是业务展示名称，平台操作成功不证明传入的目录模型已执行。
 - 原生异步任务的 `metadata.query` 给出已知查询路径；恢复查询用 fetch。返回 task_id 但没有已确认查询接口时保留运行中状态，不能宣称成功。
-- 批量 `requests` 最多 8 项，`count` 每项 1-4，总执行次数最多 16；每次执行可能扣点。批量成功和失败分别报告；数据类操作结果保留在各项 `runs[].metadata.result`。
+- 用户需要多张独立图片时使用批量 `requests`，最多 64 项、并发 16 项；更多图片拆成多批。每项的 prompt、images、type、parameters、count、wait 和 fallbacks 可完全不同，不能把第一项参数复制覆盖其他项。`count` 每项 1-4，仅用于重复同一意图；所有项 `count × (1 + fallbacks 数量)` 合计最多 128 次计划候选执行，包含回退。下载/转存 502 每候选最多额外重试 3 次，整个批次最多 512 次实际调用，每次可能扣点。批量成功和失败分别报告；数据类操作结果保留在各项 `runs[].metadata.result`。
+- 单项可提供最多 3 个按顺序执行的 `fallbacks` 候选，每个包含明确 type、完整 parameters 和可选 wait。候选继承原任务提示词和全部参考图；参数整体替换、不继承前一模型专用字段，不能在 parameters 中覆盖 prompt/来源图，带链请求用 count 而非 n/batchSize。模型候选各自在 parameters.model 使用当前目录引用；不自动选模型、不重复相同 type/parameters。
+- 成功、部分成功、取消、运行中、超时、传输异常或查询失败停止链；仅明确终态失败或主机判定可回退的响应进入下一候选。generate/edit 的 HTTP 502 且业务码为 `upstream_image_download_failed` 或 `image_persist_failed` 时，先按 2／4／8 秒间隔重试当前模型，单任务没有 fallbacks 也生效，耗尽后再进入已声明的下一候选。每次重试重新提交生图，前次可能已生成且产生费用，不能说“未生成”或“未扣费”；普通 502 不在此重试范围。鉴权、余额和输入问题先解决，不靠切换模型重放。
+- 返回的安全错误细节包含 HTTP 状态、业务错误码、阶段、可用的 request_id 和 execution_status。链的 metadata.attempts 保留各次实际路线、结果、任务编号、耗时和回退/停止原因，包括 candidate_index、retry_index 和 retry_delay_seconds；批量在各项 runs 的 metadata 或 error_details 中保留这些信息。
 - 超时/取消/查询失败不重新扣点提交，先查原 task_id。原生查询失败时保留任务 ID 和 poll_error。
 - 矢量等文件链接如不在 images 中，通过 metadata.result 读取并按需用 present_task_files 交付。旧 video 封装不保留完整 metadata.result，必要时按 [电商视频](iyw-api-ecommerce-video.md) 用 fetch 查询原始视频 URL；不要声称已在图片预览中展示视频。
 
@@ -86,6 +136,17 @@
 
 ```json
 {"type":"extract-color","images":["assets/palette.png"]}
+```
+
+以下是结构示例；图片路径与模型引用须替换为本次真实输入及目录返回值：
+
+```json
+{
+  "requests": [
+    {"id":"front","type":"edit","prompt":"生成参考摆件的正面视图，保持造型和雕饰","images":["assets/source.png"],"parameters":{"model":"MODEL_REF_FROM_CATALOG_A"},"fallbacks":[{"type":"edit","parameters":{"model":"MODEL_REF_FROM_CATALOG_B"}}]},
+    {"id":"side","type":"variation","prompt":"生成参考摆件的侧面视图，完整展示耳朵和卷鼻","images":["assets/source.png"],"parameters":{}}
+  ]
+}
 ```
 
 ## 既有操作与示例

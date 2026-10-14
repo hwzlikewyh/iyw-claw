@@ -4,7 +4,7 @@ use futures_util::{stream, StreamExt};
 use serde_json::{json, Value};
 
 use super::{
-    execute_kind, DeliveryOptions, ImageBatchRequest, ImageExecution, ImageRequest, ImageResult,
+    recovery, DeliveryOptions, ImageBatchRequest, ImageExecution, ImageRequest, ImageResult,
     IywGatewayService, PreparedImage, SessionContext,
 };
 
@@ -17,7 +17,7 @@ use result::{
     item_statuses, log_batch, task_images, BatchCompletion,
 };
 
-const MAX_CONCURRENT_EXECUTIONS: usize = 3;
+use super::limits::MAX_CONCURRENT_EXECUTIONS;
 
 struct PreparedTask {
     index: usize,
@@ -25,6 +25,7 @@ struct PreparedTask {
     kind: String,
     request: ImageRequest,
     images: Vec<PreparedImage>,
+    candidates: Vec<ImageRequest>,
 }
 
 struct RunOutcome {
@@ -93,7 +94,8 @@ async fn execute_compatible_single(
     delivery: &DeliveryOptions,
     task: &PreparedTask,
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-    let result = execute_kind(context.service, image_execution(task)).await?;
+    let result =
+        recovery::execute(context.service, image_execution(task), &task.candidates).await?;
     let delivered = if matches!(result.status.as_str(), "succeeded" | "partial") {
         deliver(context, delivery, &result.images).await
     } else {
@@ -149,7 +151,7 @@ async fn execute_run(
     run_index: usize,
 ) -> RunOutcome {
     let started = Instant::now();
-    let result = execute_kind(service, image_execution(task)).await;
+    let result = recovery::execute(service, image_execution(task), &task.candidates).await;
     if let Err(error) = &result {
         tracing::warn!(
             task_index = task.index,

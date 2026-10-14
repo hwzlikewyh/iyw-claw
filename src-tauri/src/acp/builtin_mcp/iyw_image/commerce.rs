@@ -128,7 +128,14 @@ pub(super) async fn wait_for_task(
                 "getCommerceTaskDetail",
                 json!({"taskId": task_id}),
             )
-            .await?;
+            .await
+            .map_err(|error| {
+                super::errors::query_failure(
+                    error,
+                    std::slice::from_ref(&task_id),
+                    "/ai-application/api/commerce/getCommerceTaskDetail",
+                )
+            })?;
         let result = result_from_value(operation, task, Some(task_id.clone()));
         if TERMINAL.contains(&result.status.as_str()) || Instant::now() >= deadline {
             return Ok(result);

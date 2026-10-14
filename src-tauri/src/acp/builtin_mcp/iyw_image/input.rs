@@ -13,6 +13,15 @@ pub(super) enum ImageSource {
     Object(ImageSourceObject),
 }
 
+impl ImageSource {
+    pub(super) fn role(&self) -> &str {
+        match self {
+            Self::String(_) => "source",
+            Self::Object(source) => source.role.as_deref().unwrap_or("source"),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ImageSourceObject {

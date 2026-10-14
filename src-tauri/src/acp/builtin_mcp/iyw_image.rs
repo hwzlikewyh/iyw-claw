@@ -1,120 +1,34 @@
 use std::time::{Duration, Instant};
 
-use serde::Deserialize;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use super::authority::SessionContext;
 use super::iyw_service::IywGatewayService;
 
 mod batch;
 mod commerce;
+pub(super) mod errors;
 mod fission;
 mod fusion;
 mod input;
+pub(super) mod limits;
 mod native;
+mod recovery;
+mod request;
 mod result;
 mod studio;
 mod validation;
 mod validation_special;
 
+pub(super) use fusion::parameters_schema;
 use input::{prepare_images, upload_images, ImageSource, PreparedImage};
+use request::ImageToolRequest;
+pub(super) use request::{DeliveryOptions, ImageBatchRequest, ImageRequest, WaitOptions};
 
 pub(super) const DEFAULT_TIMEOUT_SECONDS: u64 = 600;
 pub(super) const FUSION_TIMEOUT_SECONDS: u64 = 300;
 pub(super) const DEFAULT_POLL_SECONDS: f64 = 2.0;
 pub(super) const MAX_PROMPT_CHARS: usize = 12_000;
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct ImageRequest {
-    pub(super) id: Option<String>,
-    #[serde(rename = "type")]
-    pub(super) kind: Option<String>,
-    pub(super) prompt: Option<String>,
-    #[serde(default)]
-    images: Vec<ImageSource>,
-    #[serde(default)]
-    pub(super) parameters: Map<String, Value>,
-    pub(super) count: Option<usize>,
-    #[serde(default)]
-    pub(super) wait: WaitOptions,
-    pub(super) delivery: Option<DeliveryOptions>,
-}
-
-impl ImageRequest {
-    pub(super) fn count(&self) -> usize {
-        self.count.unwrap_or(1)
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct ImageBatchRequest {
-    pub(super) requests: Vec<ImageRequest>,
-    #[serde(default)]
-    pub(super) delivery: DeliveryOptions,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum ImageToolRequest {
-    Batch(ImageBatchRequest),
-    Single(ImageRequest),
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct WaitOptions {
-    pub(super) timeout_seconds: Option<u64>,
-    #[serde(default = "default_poll")]
-    pub(super) poll_interval_seconds: f64,
-}
-
-impl WaitOptions {
-    pub(super) fn platform_timeout(&self) -> Duration {
-        Duration::from_secs(self.timeout_seconds.unwrap_or(DEFAULT_TIMEOUT_SECONDS))
-    }
-
-    fn http_timeout(&self, kind: &str) -> Duration {
-        let default = if matches!(kind, "generate" | "edit") {
-            FUSION_TIMEOUT_SECONDS
-        } else {
-            studio::http_timeout(kind).unwrap_or(DEFAULT_TIMEOUT_SECONDS)
-        };
-        Duration::from_secs(
-            self.timeout_seconds
-                .filter(|seconds| *seconds > 0)
-                .unwrap_or(default),
-        )
-    }
-}
-
-impl Default for WaitOptions {
-    fn default() -> Self {
-        Self {
-            timeout_seconds: None,
-            poll_interval_seconds: DEFAULT_POLL_SECONDS,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct DeliveryOptions {
-    #[serde(default)]
-    pub(super) display: bool,
-    #[serde(default = "default_true")]
-    pub(super) register_artifact: bool,
-}
-
-impl Default for DeliveryOptions {
-    fn default() -> Self {
-        Self {
-            display: false,
-            register_artifact: true,
-        }
-    }
-}
 
 pub(super) struct ImageResult {
     pub(super) operation: String,
@@ -124,6 +38,7 @@ pub(super) struct ImageResult {
     pub(super) metadata: Value,
 }
 
+#[derive(Clone, Copy)]
 struct ImageExecution<'a> {
     request: &'a ImageRequest,
     kind: &'a str,
@@ -153,10 +68,10 @@ fn validate_request(request: &ImageRequest) -> Result<(), rmcp::ErrorData> {
     {
         return Err(invalid("prompt exceeds 12000 characters"));
     }
-    if request.images.len() > 10 {
-        return Err(invalid("images accepts at most 10 items"));
+    if request.images.len() > limits::MAX_IMAGE_INPUTS {
+        return Err(invalid("images accepts at most 16 edit inputs plus one mask; platform operations allow up to 10"));
     }
-    if request.count.is_some() && !(1..=4).contains(&request.count()) {
+    if request.count.is_some() && !(1..=limits::MAX_REQUEST_COUNT).contains(&request.count()) {
         return Err(invalid("count must be between 1 and 4"));
     }
     if request.count.is_some()
@@ -221,6 +136,14 @@ fn preflight_kind(
     kind: &str,
     images: &[PreparedImage],
 ) -> Result<(), rmcp::ErrorData> {
+    if kind != "edit" && images.len() > 10 {
+        return Err(invalid(
+            "platform operations accept at most 10 source images",
+        ));
+    }
+    if kind != "edit" && images.iter().any(|image| image.role == "mask") {
+        return Err(invalid("images with role=mask require type=edit; platform masks use their documented parameters"));
+    }
     if matches!(kind, "generate" | "fission") && !images.is_empty() {
         return Err(invalid(
             "generate and fission do not accept source images. To edit these references with a selected catalog model, use type=edit and keep images, prompt, and parameters.model (image_editing=true). Otherwise choose a suitable variation, extend, mix, or specialized platform operation. Do not discard references or copy a Fusion model selection to a platform type",
@@ -240,7 +163,7 @@ fn preflight_kind(
                 return Err(invalid("edit requires at least one image"));
             }
             fusion::requested_model(&request.parameters)?;
-            Ok(())
+            fusion::validate_parameters(request, kind, images)
         }
         "fission" => fission::validate_request(request),
         _ => commerce::validate_request(request, kind, images),
@@ -272,10 +195,6 @@ async fn execute_kind(
 
 pub(super) const fn default_poll() -> f64 {
     DEFAULT_POLL_SECONDS
-}
-
-const fn default_true() -> bool {
-    true
 }
 
 pub(super) fn invalid(message: impl Into<String>) -> rmcp::ErrorData {

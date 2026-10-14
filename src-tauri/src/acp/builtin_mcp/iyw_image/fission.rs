@@ -58,7 +58,13 @@ async fn wait_for_tasks(
 ) -> Result<ImageResult, rmcp::ErrorData> {
     let deadline = Instant::now() + request.wait.platform_timeout();
     loop {
-        let reports = load_reports(service, &task_ids).await?;
+        let reports = load_reports(service, &task_ids).await.map_err(|error| {
+            super::errors::query_failure(
+                error,
+                &task_ids,
+                "/ai-application/api/microModel/GetDetails",
+            )
+        })?;
         if group_status(&reports) != "running" || Instant::now() >= deadline {
             return Ok(group_result(task_ids, reports));
         }

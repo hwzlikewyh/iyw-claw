@@ -49,7 +49,25 @@ pub(super) async fn materialize_fusion_images(
             let bytes = STANDARD
                 .decode(encoded)
                 .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
-            urls.push(service.upload_bytes(bytes, "image/png", "png").await?);
+            let mime =
+                crate::acp::delegation::image_format::detect_mime(&bytes).ok_or_else(|| {
+                    rmcp::ErrorData::internal_error(
+                        "Fusion image output format is unsupported",
+                        None,
+                    )
+                })?;
+            let extension = match mime {
+                "image/jpeg" => "jpg",
+                "image/webp" => "webp",
+                "image/png" => "png",
+                _ => {
+                    return Err(rmcp::ErrorData::internal_error(
+                        "Fusion image output must be PNG/JPEG/WebP",
+                        None,
+                    ))
+                }
+            };
+            urls.push(service.upload_bytes(bytes, mime, extension).await?);
         }
     }
     if urls.is_empty() {

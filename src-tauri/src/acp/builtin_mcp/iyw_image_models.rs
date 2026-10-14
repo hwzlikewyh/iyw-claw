@@ -4,6 +4,10 @@ use rmcp::model::CallToolResult;
 use rmcp::ErrorData;
 use serde::Deserialize;
 use serde_json::{json, Value};
+
+mod capabilities;
+pub(super) use capabilities::dimensions as image_dimensions;
+pub(super) use capabilities::summary as image_capabilities;
 use sha2::{Digest, Sha256};
 
 use super::iyw_service::IywGatewayService;
@@ -25,9 +29,10 @@ pub(super) fn tool() -> Value {
             "Also evaluate this catalog when no specialized platform operation matches the user's visual transformation or a relevant platform route has confirmed failure. A missing operation name or sparse description is not proof of unsupported editing. ",
             "Choose from returned descriptions, capabilities and user requirements: image_generation=true for generate, image_editing=true for edit. For source images with a selected model use edit and preserve the references. Neither route requires a prior platform attempt or failure. ",
             "Copy the opaque model_ref only into parameters.model; use display_name or a generic image-processing name in user-facing replies, progress, questions and delivery descriptions. Never expose model_ref, prices, currency amounts, provider names, backend names or internal model IDs, even when asked about routing, cost or model choice. Only report points explicitly confirmed by the platform; never calculate points from prices. ",
+            "Read image_capabilities.generate/edit before choosing parameters and fallback models. version=1 declares per-operation supported flags, accepted values, numeric bounds, fixed/custom size rules and input/output limits. Missing/null means unknown; supported=false forbids that parameter. Prefer explicitly supported choices for user requirements, especially transparent output; do not claim unknown support or silently omit a required parameter. " ,
             "Do not guess references or infer technical guarantees from names/flags. Verify constraints such as masks, transparency, bit depth, reference counts and resolution against documentation; do not invent stricter requirements or discard real ones. A supported visual edit may be expressed in the prompt without a same-named API. ",
             "Platform variation, mix and extend need no Fusion catalog; passing a catalog model to those operations does not select that Fusion model. Claim a model only when the actual result confirms it. ",
-            "Reuse the catalog for the same task or batch; refresh when availability changes or a reference is rejected after an application restart. References are stable only within the current host process; raw model IDs and display names are not accepted as references. An empty/failed lookup supplies no model. Before manual processing require concrete limitations of both applicable platform and model routes; do not enumerate unrelated models. ",
+            "Reuse the catalog for the same task or batch, including ordered fallbacks: each generate/edit candidate uses its selected reference in its own parameters.model and its own supported parameters. Do not replace task references or infer route health from capability flags. Refresh when availability changes or a reference is rejected after an application restart. References are stable only within the current host process; raw model IDs and display names are not accepted as references. An empty/failed lookup supplies no model. Before manual processing require concrete limitations of both applicable platform and model routes; do not enumerate unrelated models. ",
             "This read-only tool does not generate images, upload inputs, or need capability search/read."
         ),
         "inputSchema": {
@@ -95,6 +100,7 @@ fn model_summary(model: &Value, catalog: &[Value]) -> Value {
     let mut summary = json!({
         "model_ref": model_ref(model),
         "display_name": display_name(model, catalog),
+        "image_capabilities": image_capabilities(model),
         "capabilities": {
             "image_generation": supports_operation(model, false),
             "image_editing": supports_operation(model, true)

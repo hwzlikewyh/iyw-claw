@@ -61,23 +61,28 @@ fn run_value(run: &RunOutcome) -> Value {
 }
 
 fn safe_error_details(error: &rmcp::ErrorData) -> Value {
-    let mut details = Map::new();
-    if let Some(data) = error.data.as_ref().and_then(Value::as_object) {
-        for key in ["status", "code", "timeout", "connect"] {
-            if let Some(value) = data
-                .get(key)
-                .filter(|value| value.is_number() || value.is_boolean())
-            {
-                details.insert(key.to_string(), value.clone());
+    let mut details = super::super::errors::details(error);
+    if let Some(data) = &error.data {
+        for key in ["attempts", "recovery_stop_reason"] {
+            if let Some(value) = data.get(key) {
+                details[key] = value.clone();
             }
         }
     }
-    Value::Object(details)
+    details
 }
 
 fn safe_metadata(result: &super::ImageResult) -> Value {
     let mut metadata = Map::new();
-    for key in ["result", "query", "poll_error", "batch_id"] {
+    for key in [
+        "result",
+        "request_id",
+        "query",
+        "poll_error",
+        "batch_id",
+        "attempts",
+        "recovery_stop_reason",
+    ] {
         if let Some(value) = result.metadata.get(key) {
             metadata.insert(key.to_string(), value.clone());
         }
