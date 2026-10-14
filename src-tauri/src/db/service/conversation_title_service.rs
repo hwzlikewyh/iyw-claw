@@ -1,5 +1,5 @@
 use sea_orm::sea_query::Expr;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, Condition, DatabaseConnection, EntityTrait, QueryFilter};
 
 use crate::db::entities::conversation::{self, ConversationTitleSource};
 use crate::db::error::DbError;
@@ -54,7 +54,8 @@ pub async fn refresh(
 ) -> Result<bool, DbError> {
     let title = update.title.trim();
     let source = update.source;
-    if title.is_empty() || crate::acp::conversation_title_summary::is_private_title_candidate(title) {
+    if title.is_empty() || crate::acp::conversation_title_summary::is_private_title_candidate(title)
+    {
         return Ok(false);
     }
     let mut query = conversation::Entity::update_many()
@@ -67,8 +68,9 @@ pub async fn refresh(
         .filter(conversation::Column::DeletedAt.is_null())
         .filter(conversation::Column::TitleLocked.eq(false));
     query = match source.clone() {
-        ConversationTitleSource::UserFallback => query
-            .filter(conversation::Column::TitleSource.eq(ConversationTitleSource::UserFallback)),
+        ConversationTitleSource::UserFallback => {
+            query.filter(fallback_title_filter(conn, update.conversation_id).await?)
+        }
         ConversationTitleSource::CodexSummary => query
             .filter(conversation::Column::TitleSource.eq(ConversationTitleSource::UserFallback)),
         ConversationTitleSource::Agent => {
@@ -86,6 +88,37 @@ pub async fn refresh(
         .exec(conn)
         .await?;
     Ok(changed.rows_affected > 0)
+}
+
+async fn fallback_title_filter(
+    conn: &DatabaseConnection,
+    conversation_id: i32,
+) -> Result<Condition, DbError> {
+    let allowed = Condition::any()
+        .add(conversation::Column::TitleSource.eq(ConversationTitleSource::UserFallback));
+    let Some(row) = conversation::Entity::find_by_id(conversation_id)
+        .one(conn)
+        .await?
+    else {
+        return Ok(allowed);
+    };
+    let Some(title) = row
+        .title
+        .as_deref()
+        .filter(|title| crate::acp::conversation_title_summary::is_private_title_candidate(title))
+    else {
+        return Ok(allowed);
+    };
+    // 仅修复仍与读取值相同的异常自动标题，避免覆盖并发生成的新标题或手动标题。
+    tracing::debug!(
+        conversation_id,
+        "[conversation-title] private auto title recovery candidate"
+    );
+    Ok(allowed.add(
+        Condition::all()
+            .add(conversation::Column::Title.eq(title))
+            .add(conversation::Column::TitleSource.ne(ConversationTitleSource::Manual)),
+    ))
 }
 
 pub async fn claim_summary_attempt(

@@ -14,6 +14,7 @@ import {
 import { isDesktop, openFileDialog } from "@/lib/platform"
 import { useLocale, useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
+import { IntelligentUiChatToggle } from "@/components/intelligent-ui/chat-toggle"
 import { ComputerSharingMenuItems } from "@/components/computer/computer-sharing-actions"
 import { ComputerWindowPicker } from "@/components/computer/computer-window-picker"
 import { useComputerSharing } from "@/lib/computer/use-computer-sharing"
@@ -4783,6 +4784,7 @@ export function MessageInput({
                   )}
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
+                  <IntelligentUiChatToggle />
                   <SessionUsageRing
                     contextKey={attachmentTabId ?? null}
                     agentType={agentType}

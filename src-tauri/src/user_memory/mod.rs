@@ -29,6 +29,7 @@ mod clear;
 mod clear_sources;
 mod context;
 mod context_remote;
+mod context_ui;
 mod correction;
 mod entry_catalog;
 mod forget;

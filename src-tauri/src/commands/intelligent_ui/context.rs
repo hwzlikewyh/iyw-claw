@@ -13,11 +13,11 @@ pub async fn prepare(conn: &DatabaseConnection, conversation_id: Option<i32>) ->
         Ok(settings) => settings,
         Err(error) => {
             tracing::warn!(error = %error, "[IntelligentUI] settings unavailable");
-            return Some(Arc::from("Intelligent UI is unavailable for this turn. Use ordinary Markdown; do not emit iyw-ui or iyw-widget fences."));
+            return Some(private_envelope("Intelligent UI is unavailable for this turn. Use ordinary Markdown; do not emit iyw-ui or iyw-widget fences."));
         }
     };
     if !settings.enabled {
-        return Some(Arc::from("Intelligent UI is disabled for this turn. Reply using ordinary Markdown. Do not emit iyw-ui or iyw-widget fences."));
+        return Some(private_envelope("Intelligent UI is disabled for this turn. Reply using ordinary Markdown. Do not emit iyw-ui or iyw-widget fences."));
     }
     let mut context = format!("<iyw_ui_capability version=\"2\">\n{GUIDE}\n</iyw_ui_capability>");
     if let Some(id) = conversation_id {
@@ -28,7 +28,13 @@ pub async fn prepare(conn: &DatabaseConnection, conversation_id: Option<i32>) ->
             }
         }
     }
-    Some(Arc::from(context))
+    Some(private_envelope(&context))
+}
+
+fn private_envelope(body: &str) -> Arc<str> {
+    let start = crate::user_memory::USER_CONTEXT_START;
+    let end = crate::user_memory::USER_CONTEXT_END;
+    Arc::from(format!("{start}\n{body}\n{end}"))
 }
 
 async fn state_context(

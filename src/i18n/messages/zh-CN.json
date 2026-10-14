@@ -7153,6 +7153,8 @@
     }
   },
   "IntelligentUI": {
+    "chatLabel": "智能 UI",
+    "disable": "关闭 Intelligent UI",
     "export": "导出",
     "zoomIn": "放大坐标范围",
     "zoomOut": "缩小坐标范围",

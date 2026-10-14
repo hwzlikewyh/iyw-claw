@@ -10,10 +10,11 @@ import {
 import { retainUiStateEvents } from "@/lib/intelligent-ui/realtime"
 import { useUiSettings } from "@/lib/intelligent-ui/settings"
 import { scanUIBlockFences } from "@/lib/intelligent-ui/engine/fence"
-import { useUiActions } from "./actions"
+import { useUiActions, useUiConversation } from "./actions"
 
 export interface UiScope {
   conversationId: number
+  persistedConversationId: number | null
   streaming: boolean
   enabled: boolean
   closedSources: ReadonlySet<string>
@@ -34,10 +35,18 @@ export function AssistantUiText({
   children: ReactNode
 }) {
   const ask = useUiActions()
+  const conversation = useUiConversation()
+  const persistedConversationId =
+    conversation && conversation.runtimeId === conversationId
+      ? conversation.persistedId
+      : conversationId && conversationId > 0
+        ? conversationId
+        : null
   return conversationId ? (
     <IntelligentUiScope
       key={conversationId}
       conversationId={conversationId}
+      persistedConversationId={persistedConversationId}
       streaming={streaming}
       markdown={markdown}
       ask={ask}
@@ -51,6 +60,7 @@ export function AssistantUiText({
 
 function IntelligentUiScope({
   conversationId,
+  persistedConversationId,
   streaming,
   ask,
   markdown,
@@ -69,10 +79,23 @@ function IntelligentUiScope({
       ),
     [markdown]
   )
-  useEffect(() => retainUiStateEvents(conversationId), [conversationId])
+  useEffect(
+    () =>
+      persistedConversationId !== null
+        ? retainUiStateEvents(persistedConversationId)
+        : undefined,
+    [persistedConversationId]
+  )
   return (
     <Scope.Provider
-      value={{ conversationId, streaming, enabled, closedSources, ask }}
+      value={{
+        conversationId,
+        persistedConversationId,
+        streaming,
+        enabled,
+        closedSources,
+        ask,
+      }}
     >
       {children}
     </Scope.Provider>

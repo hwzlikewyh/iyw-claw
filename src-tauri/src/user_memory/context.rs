@@ -156,7 +156,15 @@ fn append_write_guidance(body: &mut String, append: bool, proposal: bool) {
 
 pub fn strip_user_context(input: &str) -> String {
     let visible = strip_marked_user_context(input);
-    super::context_remote::strip_legacy_remote_context(&visible).to_string()
+    let mut remainder = visible.as_str();
+    loop {
+        let stripped = super::context_remote::strip_legacy_remote_context(remainder);
+        let stripped = super::context_ui::strip_legacy_ui_context(stripped);
+        if stripped.len() == remainder.len() {
+            return stripped.to_string();
+        }
+        remainder = stripped;
+    }
 }
 
 fn strip_marked_user_context(input: &str) -> String {
