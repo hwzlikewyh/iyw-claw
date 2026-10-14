@@ -5,6 +5,16 @@ import { ImageIcon, LoaderCircle } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { artifactVisualKind } from "@/components/layout/task-artifact-type"
+import { useTaskArtifactActions } from "@/components/layout/task-artifact-actions"
+import {
+  TASK_ARTIFACT_MENU_CONTENT_CLASS,
+  TaskArtifactContextMenuItems,
+} from "@/components/layout/task-artifact-menu"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import type { TaskArtifactInfo } from "@/lib/api"
 import { buildArtifactThumbnailUrl } from "@/lib/artifact-image-thumbnail"
 
@@ -24,16 +34,11 @@ export function CompactReplyImageStrip({
   return (
     <div className="flex min-w-max gap-2 px-1">
       {items.map((item) => (
-        <button
+        <ReplyImageArtifact
           key={`${item.id}:${item.lastCheckedAt}`}
-          type="button"
-          className="flex size-20 items-center justify-center overflow-hidden rounded-md border bg-muted/25 p-1 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-24"
-          title={item.displayName}
-          aria-label={item.displayName}
-          onClick={() => onSelect(item)}
-        >
-          <ArtifactImageThumbnail item={item} />
-        </button>
+          item={item}
+          onSelect={onSelect}
+        />
       ))}
       {generatingImages && <PendingReplyImage />}
       {remaining > 0 && (
@@ -46,6 +51,37 @@ export function CompactReplyImageStrip({
         </button>
       )}
     </div>
+  )
+}
+
+function ReplyImageArtifact({
+  item,
+  onSelect,
+}: {
+  item: TaskArtifactInfo
+  onSelect: (item: TaskArtifactInfo) => void
+}) {
+  const actions = useTaskArtifactActions({
+    artifact: item,
+    onPreview: onSelect,
+  })
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex size-20 items-center justify-center overflow-hidden rounded-md border bg-muted/25 p-1 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:size-24"
+          title={item.displayName}
+          aria-label={item.displayName}
+          onClick={() => onSelect(item)}
+        >
+          <ArtifactImageThumbnail item={item} />
+        </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent className={TASK_ARTIFACT_MENU_CONTENT_CLASS}>
+        <TaskArtifactContextMenuItems actions={actions} />
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 

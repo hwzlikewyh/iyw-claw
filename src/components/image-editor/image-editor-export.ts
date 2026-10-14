@@ -3,6 +3,7 @@ import type {
   ImageEditorCanvasHandle,
 } from "./image-editor-model"
 import { fetchRemoteImageBlob, isRemoteImageUrl } from "./remote-image-source"
+import { downloadFilename } from "@/lib/download-filename"
 
 export interface InlineImageData {
   data: string
@@ -27,13 +28,16 @@ export function exportCanvasImage(
   if (outcome.status === "tainted") return { status: "tainted" }
   const comma = outcome.dataUrl.indexOf(",")
   if (comma < 0) return { status: "not-ready" }
-  const base = alt.replace(/\.[^.]+$/, "").trim() || "image"
+  const base = imageBaseName(alt) || "image"
   return {
     status: "ok",
     result: {
       data: outcome.dataUrl.slice(comma + 1),
       mime_type: "image/png",
-      name: `${base}${edited ? "-annotated" : ""}.png`,
+      name: suggestedImageName(
+        `${base}${edited ? "-annotated" : ""}`,
+        "image/png"
+      ),
     },
   }
 }
@@ -45,10 +49,13 @@ function imageExtension(mimeType: string): string {
 
 function suggestedImageName(alt: string, mimeType: string): string {
   const extension = imageExtension(mimeType)
-  const trimmed = alt.trim()
-  if (!trimmed) return `image.${extension}`
-  const base = trimmed.replace(/\.[a-z0-9]{1,10}$/i, "").trim() || "image"
-  return `${base}.${extension}`
+  return downloadFilename(imageBaseName(alt), `image.${extension}`)
+}
+
+function imageBaseName(name: string): string {
+  return name
+    .trim()
+    .replace(/\.(?:apng|avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i, "")
 }
 
 export function parseInlineImage(

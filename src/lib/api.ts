@@ -3418,7 +3418,19 @@ export async function downloadWorkspaceFile(
     path,
     kind: "file",
   })
-  openBrowserDownloadUrl(ticket.url, ticket.filename || fileName)
+  if (!fileName || fileName === ticket.filename) {
+    openBrowserDownloadUrl(ticket.url, ticket.filename || fileName)
+    return { status: "started" }
+  }
+  // 服务端响应头会覆盖下载名称，改用 Blob URL 保留调用方指定的名称。
+  const response = await fetch(ticket.url)
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  const url = URL.createObjectURL(await response.blob())
+  try {
+    openBrowserDownloadUrl(url, fileName)
+  } finally {
+    URL.revokeObjectURL(url)
+  }
   return { status: "started" }
 }
 

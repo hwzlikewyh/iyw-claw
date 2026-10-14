@@ -4,12 +4,16 @@ import { useRef, useState } from "react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 
+import { fetchInlineImage } from "@/components/image-editor/image-editor-export"
+import { artifactVisualKind } from "@/components/layout/task-artifact-type"
 import {
   downloadWorkspaceFile,
   readWorkspaceFileBase64,
   type TaskArtifactInfo,
 } from "@/lib/api"
 import { toErrorMessage } from "@/lib/app-error"
+import { downloadFilename } from "@/lib/download-filename"
+import { downloadImage } from "@/lib/image-download"
 import { splitAbsPath } from "@/lib/file-open-target"
 import { isLocalDesktop } from "@/lib/platform"
 import { getShellTransport } from "@/lib/transport"
@@ -43,13 +47,19 @@ export function useArtifactCommonActions(
   const [downloading, setDownloading] = useState(false)
   const local = artifact.kind !== "url" ? splitAbsPath(artifact.path) : null
   const target = artifact.kind === "file" ? local : null
+  const remoteImage =
+    artifact.kind === "url" && artifactVisualKind(artifact) === "image"
+  const canDownload =
+    Boolean(target || remoteImage) && artifact.status === "available"
   const name = local?.ioPath ?? artifact.displayName
   const download = async () => {
-    if (!target || busy.current || artifact.status !== "available") return
+    if (!canDownload || busy.current) return
     busy.current = true
     setDownloading(true)
     try {
-      const result = await saveArtifactFile(target)
+      const result = target
+        ? await saveArtifactFile(target, artifact.displayName)
+        : await saveRemoteArtifactImage(artifact)
       if (result === "done") toast.success(t("fileSaved"))
     } catch (error) {
       console.error("[task-artifacts] save failed", {
@@ -68,20 +78,27 @@ export function useArtifactCommonActions(
       if (copied) toast.success(t("nameCopied"))
       else toast.error(t("copyNameFailed"))
     },
-    download: target && artifact.status === "available" ? download : undefined,
+    download: canDownload ? download : undefined,
     downloading,
   }
 }
 
-async function saveArtifactFile(target: {
-  rootPath: string
-  ioPath: string
-}): Promise<"started" | "done" | "cancelled"> {
+async function saveRemoteArtifactImage(
+  artifact: TaskArtifactInfo
+): Promise<"done" | "cancelled"> {
+  const image = await fetchInlineImage(artifact.path, artifact.displayName)
+  return (await downloadImage(image)) ? "done" : "cancelled"
+}
+
+async function saveArtifactFile(
+  target: { rootPath: string; ioPath: string },
+  displayName: string
+): Promise<"started" | "done" | "cancelled"> {
   if (!isLocalDesktop()) {
     const result = await downloadWorkspaceFile(
       target.rootPath,
       target.ioPath,
-      target.ioPath
+      downloadFilename(displayName, target.ioPath)
     )
     return result.status
   }
@@ -99,9 +116,12 @@ async function saveArtifactFile(target: {
       ? sourceExtension
       : null) ?? (dataBase64 ? imageExtensionFromBase64(dataBase64) : null)
   const path = await save({
-    defaultPath: imageExtension
-      ? `${target.ioPath}${sourceExtension ? "" : `.${imageExtension}`}`
-      : target.ioPath,
+    defaultPath: downloadFilename(
+      displayName,
+      imageExtension && !sourceExtension
+        ? `${target.ioPath}.${imageExtension}`
+        : target.ioPath
+    ),
     filters: imageExtension
       ? [{ name: imageExtension.toUpperCase(), extensions: [imageExtension] }]
       : undefined,

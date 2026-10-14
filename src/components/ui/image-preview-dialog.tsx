@@ -2,6 +2,14 @@
 
 import { useRef, useState } from "react"
 import { Dialog as DialogPrimitive } from "radix-ui"
+import { Download } from "lucide-react"
+import { useTranslations } from "next-intl"
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu"
 import { ImageEditorDialogContent } from "@/components/image-editor/image-editor-dialog-content"
 import type {
   EditorImageResult,
@@ -14,27 +22,41 @@ import {
 } from "./image-preview-dialog-state"
 
 function ImagePreviewDialogSession(props: ImagePreviewDialogProps) {
+  const t = useTranslations("Folder.chat.messageList")
   const canvasRef = useRef<ImageEditorCanvasHandle>(null)
   const [canvasReady, setCanvasReady] = useState(false)
   const controller = useImagePreviewDialog(props, canvasRef, canvasReady)
   return (
-    <DialogPrimitive.Content
-      className="fixed left-1/2 top-1/2 z-50 grid h-[min(88vh,820px)] w-[min(92vw,1200px)] -translate-x-1/2 -translate-y-1/2 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-white/10 bg-zinc-950/96 text-white shadow-2xl outline-none"
-      aria-describedby={undefined}
-    >
-      <ImageEditorDialogContent
-        state={controller.state}
-        canvasRef={canvasRef}
-        onCanvasReadyChange={setCanvasReady}
-        workspaceRef={controller.workspaceRef}
-        alt={props.alt}
-        navigation={props.navigation}
-        onDownload={controller.onDownload}
-        onSendToChat={controller.sendToChatAction}
-        onApply={props.onApply}
-        onClose={() => props.onOpenChange(false)}
-      />
-    </DialogPrimitive.Content>
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <DialogPrimitive.Content
+          className="fixed left-1/2 top-1/2 z-50 grid h-[min(88vh,820px)] w-[min(92vw,1200px)] -translate-x-1/2 -translate-y-1/2 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-md border border-white/10 bg-zinc-950/96 text-white shadow-2xl outline-none"
+          aria-describedby={undefined}
+        >
+          <ImageEditorDialogContent
+            state={controller.state}
+            canvasRef={canvasRef}
+            onCanvasReadyChange={setCanvasReady}
+            workspaceRef={controller.workspaceRef}
+            alt={props.alt}
+            navigation={props.navigation}
+            onDownload={controller.onDownload}
+            onSendToChat={controller.sendToChatAction}
+            onApply={props.onApply}
+            onClose={() => props.onOpenChange(false)}
+          />
+        </DialogPrimitive.Content>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem
+          disabled={!controller.state.ready || controller.state.busy}
+          onSelect={controller.onDownload}
+        >
+          <Download />
+          {t("downloadImage")}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 
