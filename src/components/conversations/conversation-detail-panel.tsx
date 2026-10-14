@@ -66,6 +66,7 @@ import { useSessionFork } from "@/hooks/use-session-fork"
 import { AgentSelector } from "@/components/chat/agent-selector"
 import { ChatInput } from "@/components/chat/chat-input"
 import { WelcomeHero } from "@/components/chat/welcome-hero"
+import { WelcomeLayout } from "@/components/chat/welcome-layout"
 import { QuickActions } from "@/components/chat/quick-actions"
 import welcomeComposerStyles from "@/components/chat/welcome-composer.module.css"
 import type { ComposerInjectContent } from "@/components/chat/message-input"
@@ -3230,81 +3231,77 @@ const ConversationTabView = memo(function ConversationTabView({
       }
     >
       {isWelcomeMode ? (
-        <div className="relative isolate flex h-full min-h-0 flex-col overflow-x-hidden overflow-y-auto">
-          <div className="flex-[1.18]" />
-          <div className="mx-auto flex w-full max-w-[1061px] shrink-0 flex-col gap-6 px-4 py-4">
-            <WelcomeHero />
-            <QuickActions
-              onSelect={handleQuickAction}
-              refreshKey={`${tabId}:${conversationId ?? "draft"}`}
+        <WelcomeLayout>
+          <WelcomeHero />
+          <QuickActions
+            onSelect={handleQuickAction}
+            refreshKey={`${tabId}:${conversationId ?? "draft"}`}
+          />
+          <div className={welcomeComposerStyles.group}>
+            <AgentSelector
+              variant="welcome"
+              defaultAgentType={selectedAgent}
+              onSelect={handleAgentSelect}
+              onFallback={handleAgentFallback}
+              onOpenAgentsSettings={handleOpenAgentsSettings}
+              disabled={hasSentMessage || dbConversationId != null}
             />
-            <div className={welcomeComposerStyles.group}>
-              <AgentSelector
-                variant="welcome"
-                defaultAgentType={selectedAgent}
-                onSelect={handleAgentSelect}
-                onFallback={handleAgentFallback}
-                onOpenAgentsSettings={handleOpenAgentsSettings}
-                disabled={hasSentMessage || dbConversationId != null}
-              />
-              <ChatInput
-                // composerConnStatus (not connStatus): a chat draft mid-reconnect
-                // reads "connecting" until the connection's cwd matches, while
-                // submissions continue entering this tab's queue.
-                status={composerConnStatus}
-                usageStats={effectiveSessionStats}
-                promptCapabilities={conn.promptCapabilities}
-                defaultPath={workingDirForConnection}
-                agentName={getAgentDisplayName(selectedAgent)}
-                onFocus={handleFocus}
-                onSend={handleSend}
-                onCancel={handleCancel}
-                responseStarted={hasLiveResponseContent}
-                modes={connectionModes}
-                configOptions={connectionConfigOptions}
-                selectedModeId={selectedModeId}
-                onModeChange={handleModeChange}
-                onConfigOptionChange={handleConfigOptionChange}
-                onModelListOpen={handleModelListOpen}
-                agentType={selectedAgent}
-                availableCommands={connectionCommands}
-                attachmentTabId={tabId}
-                stageAttachmentsInWorkingDir={ownTab?.isChat === true}
-                draftStorageKey={draftStorageKey}
-                onEphemeralDraftChange={setHasEphemeralDraft}
-                isActive={isActive}
-                showActiveFlow={showActiveFlow}
-                queue={msgQueue}
-                onEnqueue={handlePromptingSubmit}
-                onQueueReorder={mqReorder}
-                onQueueEdit={handleQueueEdit}
-                onQueueDelete={mqRemove}
-                onQueueRetry={handleQueueRetry}
-                editingItemId={mqEditingItemId}
-                editingDraftText={editingQueueDraftText}
-                editingDraftBlocks={editingQueueDraftBlocks}
-                isEditingQueueItem={mqEditingItemId != null}
-                onSaveQueueEdit={handleSaveQueueEdit}
-                onCancelQueueEdit={handleQueueCancelEdit}
-                onSideQuestion={sideEligible ? sideQuestion.ask : undefined}
-                onAddFeedback={
-                  feedback.featureEnabled ? feedback.openDialog : undefined
-                }
-                feedbackAddDisabled={!feedback.canSubmit}
-                injectContent={quickActionInject ?? sideInject}
-                onInjectConsumed={
-                  quickActionInject
-                    ? handleQuickActionConsumed
-                    : consumeSideInject
-                }
-                flush
-                tall
-                placeholder={tWelcome("composerPlaceholder")}
-              />
-            </div>
+            <ChatInput
+              // composerConnStatus (not connStatus): a chat draft mid-reconnect
+              // reads "connecting" until the connection's cwd matches, while
+              // submissions continue entering this tab's queue.
+              status={composerConnStatus}
+              usageStats={effectiveSessionStats}
+              promptCapabilities={conn.promptCapabilities}
+              defaultPath={workingDirForConnection}
+              agentName={getAgentDisplayName(selectedAgent)}
+              onFocus={handleFocus}
+              onSend={handleSend}
+              onCancel={handleCancel}
+              responseStarted={hasLiveResponseContent}
+              modes={connectionModes}
+              configOptions={connectionConfigOptions}
+              selectedModeId={selectedModeId}
+              onModeChange={handleModeChange}
+              onConfigOptionChange={handleConfigOptionChange}
+              onModelListOpen={handleModelListOpen}
+              agentType={selectedAgent}
+              availableCommands={connectionCommands}
+              attachmentTabId={tabId}
+              stageAttachmentsInWorkingDir={ownTab?.isChat === true}
+              draftStorageKey={draftStorageKey}
+              onEphemeralDraftChange={setHasEphemeralDraft}
+              isActive={isActive}
+              showActiveFlow={showActiveFlow}
+              queue={msgQueue}
+              onEnqueue={handlePromptingSubmit}
+              onQueueReorder={mqReorder}
+              onQueueEdit={handleQueueEdit}
+              onQueueDelete={mqRemove}
+              onQueueRetry={handleQueueRetry}
+              editingItemId={mqEditingItemId}
+              editingDraftText={editingQueueDraftText}
+              editingDraftBlocks={editingQueueDraftBlocks}
+              isEditingQueueItem={mqEditingItemId != null}
+              onSaveQueueEdit={handleSaveQueueEdit}
+              onCancelQueueEdit={handleQueueCancelEdit}
+              onSideQuestion={sideEligible ? sideQuestion.ask : undefined}
+              onAddFeedback={
+                feedback.featureEnabled ? feedback.openDialog : undefined
+              }
+              feedbackAddDisabled={!feedback.canSubmit}
+              injectContent={quickActionInject ?? sideInject}
+              onInjectConsumed={
+                quickActionInject
+                  ? handleQuickActionConsumed
+                  : consumeSideInject
+              }
+              flush
+              tall
+              placeholder={tWelcome("composerPlaceholder")}
+            />
           </div>
-          <div className="flex-[0.82]" />
-        </div>
+        </WelcomeLayout>
       ) : showDraftHeader ? (
         <div className="flex h-full min-h-0 flex-col">
           <div className="px-4 pt-3 pb-2">

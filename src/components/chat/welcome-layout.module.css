@@ -1,0 +1,80 @@
+.viewport {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: clip;
+  padding: clamp(6px, 2%, 16px);
+  container: welcome / size;
+}
+
+.frame {
+  position: relative;
+  width: 100%;
+  max-width: 1029px;
+  flex-shrink: 0;
+  margin: auto;
+}
+
+.content {
+  --welcome-gap: clamp(6px, 2cqh, 24px);
+  --welcome-card-gap: clamp(4px, 1cqh, 8px);
+  --welcome-card-padding: clamp(8px, 2cqh, 16px);
+  --welcome-card-height: clamp(80px, 14cqh, 103px);
+  --welcome-icon-size: clamp(24px, 5cqh, 36px);
+  --welcome-title-size: clamp(12px, 2.3cqh, 15px);
+  --welcome-summary-size: clamp(10px, 1.8cqh, 12px);
+  --welcome-composer-height: clamp(96px, 23cqh, 167px);
+  --welcome-composer-padding: clamp(8px, 2cqh, 16px);
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--welcome-gap);
+  transform-origin: top center;
+}
+
+.content > h1 {
+  font-size: clamp(20px, min(5cqh, 5cqw), 36px);
+  line-height: 1.15;
+}
+
+.actions {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: clamp(4px, 1.6cqh, 12px);
+}
+
+.categories {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: clamp(4px, 1cqh, 8px);
+}
+
+.category {
+  height: clamp(28px, 5cqh, 36px);
+  gap: clamp(4px, 1cqh, 8px);
+  padding-inline: clamp(6px, 1.5cqw, 12px);
+  font-size: clamp(12px, 2cqh, 14px);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(6px, 2cqh, 16px);
+}
+
+.actions > button {
+  height: clamp(24px, 4cqh, 29px);
+  margin-top: 0;
+}
+
+@container welcome (min-width: 640px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
