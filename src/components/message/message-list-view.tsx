@@ -100,7 +100,10 @@ import {
   MessageEntrance,
 } from "@/components/message/message-entrance"
 
+import { UiActionsProvider } from "@/components/intelligent-ui/actions"
+
 interface MessageListViewProps {
+  onUiAsk?: (text: string) => void | Promise<void>
   activityContextKey?: string
   conversationId: number
   /** Persisted DB ID used only for task-artifact queries. */
@@ -698,6 +701,7 @@ const AutoScrollOnSend = memo(function AutoScrollOnSend({
 })
 
 export function MessageListView({
+  onUiAsk,
   activityContextKey,
   conversationId,
   artifactConversationId,
@@ -1249,61 +1253,63 @@ export function MessageListView({
   }
 
   return (
-    <BackgroundTaskStatusScope turns={timelineTurns}>
-      <MessageThread
-        className="flex-1 min-h-0"
-        resize={shouldUseSmoothResize ? "smooth" : undefined}
-      >
-        <AutoScrollOnSend signal={sendSignal} />
-        <VirtualizedMessageThread
-          items={threadItems}
-          getItemKey={getThreadItemKey}
-          renderItem={renderThreadItem}
-          emptyState={emptyState}
-          scrollApiRef={scrollApiRef}
-          scrollPositionRef={scrollPositionRef}
-        />
-        <MessageThreadScrollButton />
-      </MessageThread>
-      {connStatus === "prompting" && (
-        <LiveTurnStats
-          agentType={agentType}
-          contextKey={activityContextKey}
-          message={liveMessage}
-          modelName={modelName}
-          subAgentControl={
-            lastAssistantDelegations.length > 0 ? (
-              <SubAgentDelegationsPopover
-                delegations={lastAssistantDelegations}
-              />
-            ) : null
-          }
-          trailingStatus={liveTrailingStatus}
-          onCancel={onCancel}
-          isAwaitingUserInput={isAwaitingUserInput}
-        />
-      )}
-      {connStatus !== "prompting" && standaloneStatus}
-      {/* Message navigator pinned to the inline-start edge. Live plan and
+    <UiActionsProvider ask={onUiAsk}>
+      <BackgroundTaskStatusScope turns={timelineTurns}>
+        <MessageThread
+          className="flex-1 min-h-0"
+          resize={shouldUseSmoothResize ? "smooth" : undefined}
+        >
+          <AutoScrollOnSend signal={sendSignal} />
+          <VirtualizedMessageThread
+            items={threadItems}
+            getItemKey={getThreadItemKey}
+            renderItem={renderThreadItem}
+            emptyState={emptyState}
+            scrollApiRef={scrollApiRef}
+            scrollPositionRef={scrollPositionRef}
+          />
+          <MessageThreadScrollButton />
+        </MessageThread>
+        {connStatus === "prompting" && (
+          <LiveTurnStats
+            agentType={agentType}
+            contextKey={activityContextKey}
+            message={liveMessage}
+            modelName={modelName}
+            subAgentControl={
+              lastAssistantDelegations.length > 0 ? (
+                <SubAgentDelegationsPopover
+                  delegations={lastAssistantDelegations}
+                />
+              ) : null
+            }
+            trailingStatus={liveTrailingStatus}
+            onCancel={onCancel}
+            isAwaitingUserInput={isAwaitingUserInput}
+          />
+        )}
+        {connStatus !== "prompting" && standaloneStatus}
+        {/* Message navigator pinned to the inline-start edge. Live plan and
           sub-agent controls live in the
           composer status row. */}
-      <div className="pointer-events-none absolute start-0 top-4 z-20 flex max-w-[min(22rem,calc(100%-2rem))] flex-col items-start gap-2">
-        {showMessageNav && userMessageCount > 0 && (
-          <ConversationMessageNav
-            count={userMessageCount}
-            expanded={navExpanded}
-            onToggle={setNavExpanded}
-            entries={navEntries}
-            scrollApiRef={scrollApiRef}
-          />
-        )}
-        {showMessageNav && <WorkspaceFilesDialog />}
-        {showMessageNav && (
-          <TaskArtifactsDialog
-            conversationId={resolvedArtifactConversationId}
-          />
-        )}
-      </div>
-    </BackgroundTaskStatusScope>
+        <div className="pointer-events-none absolute start-0 top-4 z-20 flex max-w-[min(22rem,calc(100%-2rem))] flex-col items-start gap-2">
+          {showMessageNav && userMessageCount > 0 && (
+            <ConversationMessageNav
+              count={userMessageCount}
+              expanded={navExpanded}
+              onToggle={setNavExpanded}
+              entries={navEntries}
+              scrollApiRef={scrollApiRef}
+            />
+          )}
+          {showMessageNav && <WorkspaceFilesDialog />}
+          {showMessageNav && (
+            <TaskArtifactsDialog
+              conversationId={resolvedArtifactConversationId}
+            />
+          )}
+        </div>
+      </BackgroundTaskStatusScope>
+    </UiActionsProvider>
   )
 }

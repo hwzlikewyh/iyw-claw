@@ -97,6 +97,7 @@ function ProcessRows({
           entranceKey={`${entranceKey}:process:${key}`}
           animationEnabled={animationEnabled}
           reasoningPresentation="inline"
+          intelligentUiStreaming={streaming}
         />
       </OnceEntrance>
     )

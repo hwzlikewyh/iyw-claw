@@ -155,3 +155,17 @@ en = "Computer Use"
 [expert.description]
 en = "Operates explicitly shared desktop windows through the native Computer Use tools."
 "zh-CN" = "让 Agent 配置和使用可选的 Open Computer Use MCP 服务。"
+
+[[expert]]
+id = "ui-render"
+category = "workflow"
+icon = "LayoutDashboard"
+sort_order = 230
+
+[expert.display_name]
+en = "Intelligent UI"
+"zh-CN" = "智能交互界面"
+
+[expert.description]
+en = "Renders interactive results, forms, charts and sandboxed illustrations in chat when enabled."
+"zh-CN" = "开启后在对话中呈现交互结果、表单、图表和隔离图解。"
