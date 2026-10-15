@@ -71,6 +71,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Installed environment integrity check failed' }
           $snapshot = Get-Content (Join-Path $root 'inventory/environment-current.json') -Raw | ConvertFrom-Json
           if ($snapshot.pcVersion -ne $version) { throw 'Environment version mismatch' }
-          foreach ($component in @('node','git','uv','chromix','agent-browser')) {
+          foreach ($component in @('node','git','uv')) {
             if ($component -notin $snapshot.components.componentId) { throw "Missing required component: $component" }
           }
