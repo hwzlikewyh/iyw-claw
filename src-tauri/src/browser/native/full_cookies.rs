@@ -52,7 +52,7 @@ impl BrowserSessionManager {
             attempted = cookies.len(),
             complete,
             skipped = source.len().saturating_sub(cookies.len()),
-            stale = stale.len(),
+            stale,
             "browser cookies transferred"
         );
         if !complete {
