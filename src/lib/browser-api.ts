@@ -32,6 +32,12 @@ export const browserApi = {
     values: Record<string, unknown> = {}
   ) =>
     shell().call<unknown>("browser_native_action", { tabId, action, values }),
+  nativePreview: (tabId: string) =>
+    shell().call<BrowserScreenshot>("browser_native_action", {
+      tabId,
+      action: "capture_preview",
+      values: {},
+    }),
   syncVisibility: (visible: boolean, initializeOnly = false) =>
     shell().call<boolean>("browser_set_visibility", {
       request: { visible, initializeOnly },

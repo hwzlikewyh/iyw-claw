@@ -184,13 +184,27 @@ impl BrowserSessionManager {
         action: &str,
         values: Value,
     ) -> Result<Value, BrowserError> {
-        if !matches!(action, "find" | "devtools" | "zoom" | "state" | "stop") {
+        if !matches!(
+            action,
+            "find" | "devtools" | "zoom" | "state" | "stop" | "capture_preview"
+        ) {
             return Err(super::native_error(
                 "Unsupported browser toolbar operation".into(),
             ));
         }
         if !self.is_native_browser().await {
             return Err(super::native_error("Native browser is not active".into()));
+        }
+        // 遮挡预览只读取画面，不获取用户控制权，避免菜单打开时取消 Agent 操作。
+        if action == "capture_preview" {
+            self.ensure_managed_browser_enabled()?;
+            if !self.state.read().await.tabs.contains_key(tab_id) {
+                return Err(BrowserError::tab_not_found(tab_id));
+            }
+            return self
+                .native
+                .command(tab_id, "capture", serde_json::json!({}))
+                .await;
         }
         let lease = self.acquire_user_control(tab_id).await?;
         let result = self.native.command(tab_id, action, values).await;
