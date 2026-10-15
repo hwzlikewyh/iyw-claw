@@ -8,6 +8,10 @@ const MAX_WAIT_TIMEOUT_MS: i64 = 120_000;
 pub(super) fn patch_toml(root: &mut toml::map::Map<String, toml::Value>) -> Result<(), String> {
     root.remove("agents");
     let features = table_entry(root, "features")?;
+    // iyw-claw 通过内置 MCP 和自己的插件运行时提供插件能力；不要启用
+    // Codex 原生插件市场及其 OpenAI/GitHub 同步链路。
+    features.insert("plugins".into(), toml::Value::Boolean(false));
+    features.insert("remote_plugin".into(), toml::Value::Boolean(false));
     let v2 = table_entry(features, "multi_agent_v2")?;
     v2.insert("enabled".into(), toml::Value::Boolean(true));
     v2.insert(
