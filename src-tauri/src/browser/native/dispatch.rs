@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex};
 
-use serde_json::{json, Value};
+#[cfg(not(target_os = "windows"))]
+use serde_json::json;
+use serde_json::Value;
 use tauri::AppHandle;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -22,13 +24,14 @@ pub(super) fn execute(
         }
         "close" => {
             super::downloads::close_tab(&app, id);
-            close(id, sender);
+            let _ = sender.send(super::state::remove(id).map(|_| Value::Null));
         }
+        "export_cookies" => export_cookies(id, sender),
         #[cfg(target_os = "windows")]
-        "import_cookies" => windows_cookies(id, action, values, sender),
+        "apply_cookies" => apply_cookies(id, values, sender),
         #[cfg(target_os = "windows")]
         "cookies" if values["args"][1].as_str().unwrap_or("get") == "get" => {
-            windows_cookies(id, action, values, sender)
+            windows_cookies(id, sender)
         }
         "close_all" => {
             super::downloads::clear(&app);
@@ -58,9 +61,9 @@ pub(super) fn execute(
     }
 }
 
-fn close(id: &str, sender: Reply) {
+fn export_cookies(id: &str, sender: Reply) {
     #[cfg(target_os = "windows")]
-    windows_cookies(id, "close", &Value::Null, sender);
+    windows_cookies(id, sender);
     #[cfg(not(target_os = "windows"))]
     {
         let cookies = super::state::view(id)
@@ -72,49 +75,28 @@ fn close(id: &str, sender: Reply) {
                     .map(super::cookies::to_value)
                     .collect::<Vec<_>>()
             });
-        let _ = sender.send(super::state::remove(id).map(|_| json!({"cookies":cookies})));
+        let _ = sender.send(Ok(json!({"cookies":cookies})));
     }
 }
 
 #[cfg(target_os = "windows")]
-fn windows_cookies(id: &str, action: &str, values: &Value, sender: Reply) {
-    if action == "close" && super::state::view(id).is_err() {
-        let _ = sender.send(super::state::remove(id).map(|_| json!({})));
-        return;
-    }
+fn apply_cookies(id: &str, values: &Value, sender: Reply) {
+    let result = super::state::view(id)
+        .and_then(|view| super::windows_cookies::replace(&view, values, &values["previous"]));
+    let _ = sender.send(result);
+}
+
+#[cfg(target_os = "windows")]
+fn windows_cookies(id: &str, sender: Reply) {
     let reply = Arc::new(Mutex::new(Some(sender)));
     let shared = reply.clone();
-    let id = id.to_string();
-    let fallback_id = id.clone();
-    let closing = action == "close";
-    let action = action.to_string();
-    let values = values.clone();
-    let result = super::state::view(&id).and_then(|view| {
-        let target = view.clone();
+    let result = super::state::view(id).and_then(|view| {
         super::windows_cookies::get(&view, move |result| {
-            let result = match action.as_str() {
-                "close" => {
-                    let cookies = result.ok().and_then(|value| value.get("cookies").cloned());
-                    super::state::remove(&id).map(|_| json!({"cookies":cookies}))
-                }
-                "import_cookies" => result.and_then(|previous| {
-                    super::windows_cookies::replace(&target, &values, &previous)
-                }),
-                _ => result,
-            };
             finish(&shared, result);
         })
     });
     if let Err(error) = result {
-        if closing {
-            tracing::warn!("native cookie export unavailable during tab close");
-            finish(
-                &reply,
-                super::state::remove(&fallback_id).map(|_| json!({})),
-            );
-        } else {
-            finish(&reply, Err(error));
-        }
+        finish(&reply, Err(error));
     }
 }
 

@@ -8,8 +8,8 @@ use windows_sys::Win32::{
     UI::{
         Shell::{DefSubclassProc, GetWindowSubclass, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::{
-            GetClientRect, SetWindowPos, SIZE_MINIMIZED, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE,
-            SWP_NOZORDER, WM_ENTERSIZEMOVE, WM_MOVE, WM_MOVING, WM_NCDESTROY, WM_SETFOCUS, WM_SIZE,
+            GetClientRect, SIZE_MINIMIZED, WM_DESTROY, WM_ENTERSIZEMOVE, WM_MOVE, WM_MOVING,
+            WM_NCDESTROY, WM_SETFOCUS, WM_SIZE,
         },
     },
 };
@@ -47,18 +47,26 @@ unsafe extern "system" fn window_proc(
     if held == 0 {
         return DefSubclassProc(hwnd, message, wparam, lparam);
     }
-    let controller = &*(held as *const ICoreWebView2Controller);
+    if matches!(message, WM_DESTROY | WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, Some(window_proc), HOOK_ID);
+        drop(Box::from_raw(held as *mut ICoreWebView2Controller));
+        return DefSubclassProc(hwnd, message, wparam, lparam);
+    }
+    if !matches!(
+        message,
+        WM_SIZE | WM_SETFOCUS | WM_ENTERSIZEMOVE | WM_MOVE | WM_MOVING
+    ) {
+        return DefSubclassProc(hwnd, message, wparam, lparam);
+    }
+    // COM 调用可能重入窗口销毁；局部引用不能依赖钩子 userdata 继续存活。
+    let controller = (&*(held as *const ICoreWebView2Controller)).clone();
     match message {
-        WM_SIZE if wparam != SIZE_MINIMIZED as usize => resize(hwnd, controller),
+        WM_SIZE if wparam != SIZE_MINIMIZED as usize => resize(hwnd, &controller),
         WM_SETFOCUS | WM_ENTERSIZEMOVE => {
             let _ = controller.MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
         }
         WM_MOVE | WM_MOVING => {
             let _ = controller.NotifyParentWindowPositionChanged();
-        }
-        WM_NCDESTROY => {
-            RemoveWindowSubclass(hwnd, Some(window_proc), HOOK_ID);
-            drop(Box::from_raw(held as *mut ICoreWebView2Controller));
         }
         _ => {}
     }
@@ -77,22 +85,11 @@ unsafe fn resize(hwnd: HWND, controller: &ICoreWebView2Controller) {
     }
     let width = rect.right - rect.left;
     let height = rect.bottom - rect.top;
+    // 只同步主视图，不能用客户区尺寸再次缩放主窗口并触发新的 WM_SIZE。
     let _ = controller.SetBounds(windows::Win32::Foundation::RECT {
         left: 0,
         top: 0,
         right: width,
         bottom: height,
     });
-    let mut host = windows::Win32::Foundation::HWND::default();
-    if controller.ParentWindow(&mut host).is_ok() {
-        SetWindowPos(
-            host.0,
-            std::ptr::null_mut(),
-            0,
-            0,
-            width,
-            height,
-            SWP_ASYNCWINDOWPOS | SWP_NOACTIVATE | SWP_NOZORDER,
-        );
-    }
 }

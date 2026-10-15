@@ -86,7 +86,9 @@ fn current_url(page: &NativePage) -> Option<String> {
 
 pub(super) fn remove(id: &str) -> Result<(), String> {
     let page = PAGES.with(|pages| pages.borrow_mut().remove(id));
-    drop(page);
+    if let Some(page) = page {
+        destroy(id, page);
+    }
     #[cfg(target_os = "linux")]
     super::linux::remove(id);
     Ok(())
@@ -94,14 +96,36 @@ pub(super) fn remove(id: &str) -> Result<(), String> {
 
 pub(super) fn clear() {
     let pages = PAGES.with(|pages| std::mem::take(&mut *pages.borrow_mut()));
-    #[cfg(target_os = "linux")]
-    let ids = pages.keys().cloned().collect::<Vec<_>>();
-    drop(pages);
-    #[cfg(target_os = "linux")]
-    for id in ids {
+    tracing::info!(
+        page_count = pages.len(),
+        "native browser pages cleanup started"
+    );
+    for (id, page) in pages {
+        destroy(&id, page);
+        #[cfg(target_os = "linux")]
         super::linux::remove(&id);
     }
-    CONTEXT.with(|context| {
-        context.borrow_mut().take();
-    });
+    let context = CONTEXT.with(|context| context.borrow_mut().take());
+    drop(context);
+    tracing::info!("native browser pages cleanup completed");
+}
+
+fn destroy(id: &str, page: NativePage) {
+    tracing::info!(
+        browser_tab_id = id,
+        view_references = Rc::strong_count(&page.view),
+        "native browser tab destruction started"
+    );
+    if let Err(error) = page.view.set_visible(false) {
+        tracing::warn!(browser_tab_id = id, %error, "native browser tab hide failed during close");
+    }
+    if let Err(error) = crate::native_page::platform::navigate(&page.view, "stop") {
+        tracing::warn!(browser_tab_id = id, %error, "native browser tab stop failed during close");
+    }
+    // 先从状态表移除并结束借用，再让 Wry 在主线程执行 controller.Close。
+    drop(page);
+    tracing::info!(
+        browser_tab_id = id,
+        "native browser tab destruction completed"
+    );
 }

@@ -8,18 +8,18 @@ impl BrowserSessionManager {
             return;
         }
         let _shutdown_guard = self.shutdown_lock.lock().await;
+        let _tab_guard = self.tab_open_lock.lock().await;
+        let _start_guard = self.runtime_start_lock.lock().await;
         if !self.runtime_is_idle().await {
             return;
         }
         let shutdown_epoch = self.begin_shutdown().await;
-        let Some(result) = self.shutdown_resources_if_idle().await else {
-            self.finish_shutdown(shutdown_epoch).await;
-            return;
-        };
+        self.close_all_controls().await;
+        self.stop_cdp_observer().await;
+        let result = self.stop_runtime_state_and_resources().await;
         self.finish_shutdown(shutdown_epoch).await;
         log_idle_shutdown_result(shutdown_epoch, reason, &result);
         if result.is_ok() {
-            let _guard = self.tab_open_lock.lock().await;
             self.apply_selected_capability().await;
             if let Some(app) = self.native.app.get() {
                 use tauri::Emitter;
@@ -31,22 +31,12 @@ impl BrowserSessionManager {
         }
     }
 
-    async fn shutdown_resources_if_idle(&self) -> Option<Result<(), BrowserError>> {
-        let _tab_guard = self.tab_open_lock.lock().await;
-        let _start_guard = self.runtime_start_lock.lock().await;
-        if !self.runtime_is_idle().await {
-            return None;
-        }
-        self.close_all_controls().await;
-        self.stop_cdp_observer().await;
-        Some(self.stop_runtime_state_and_resources().await)
-    }
-
     async fn runtime_is_idle(&self) -> bool {
         let state_idle = {
             let state = self.state.read().await;
             state.runtime.status == BrowserRuntimeStatus::Running
                 && state.tabs.is_empty()
+                && state.hosts.is_empty()
                 && state.downloads.values().all(|download| {
                     download.status != super::types_cdp::BrowserDownloadStatus::InProgress
                 })

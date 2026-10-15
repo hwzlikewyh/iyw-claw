@@ -3,6 +3,7 @@ mod actions;
 mod agent;
 mod build;
 mod cdp;
+mod close;
 mod cookies;
 mod dispatch;
 mod download_control;
@@ -56,7 +57,30 @@ impl NativeBrowser {
         action: &str,
         values: Value,
     ) -> Result<Value, BrowserError> {
+        if action == "close" {
+            return self.close_tab(id).await;
+        }
+        #[cfg(target_os = "windows")]
+        if action == "import_cookies" {
+            return self.import_cookies(id, values).await;
+        }
         self.request(NativeRequest::new(id, action, values)).await
+    }
+
+    #[cfg(target_os = "windows")]
+    async fn import_cookies(&self, id: &str, values: Value) -> Result<Value, BrowserError> {
+        let previous = self
+            .request(NativeRequest::new(id, "export_cookies", json!({})))
+            .await?;
+        self.request(NativeRequest::new(
+            id,
+            "apply_cookies",
+            json!({
+                "cookies": values["cookies"].clone(),
+                "previous": previous,
+            }),
+        ))
+        .await
     }
 
     pub(super) async fn request(&self, request: NativeRequest<'_>) -> Result<Value, BrowserError> {
