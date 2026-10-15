@@ -140,26 +140,28 @@ fn evaluate(
     use tauri_runtime_wry::wry::WebViewExtMacOS;
     let mtm = objc2::MainThreadMarker::new().ok_or("Browser scripts need the main thread")?;
     let reply = Mutex::new(Some(done));
-    let block = RcBlock::<dyn Fn(*mut AnyObject, *mut NSError)>::new(move |value, error| {
-        let result = unsafe {
-            if !error.is_null() {
-                Err((*error).localizedDescription().to_string())
-            } else if value.is_null() {
-                Err("Browser script returned no result".into())
-            } else {
-                (*value)
-                    .downcast_ref::<NSString>()
-                    .ok_or("Browser script returned an invalid result".to_string())
-                    .and_then(|value| {
-                        serde_json::from_str(&value.to_string()).map_err(|error| error.to_string())
-                    })
-                    .and_then(decode)
+    let block: RcBlock<dyn Fn(*mut AnyObject, *mut NSError)> =
+        RcBlock::new(move |value: *mut AnyObject, error: *mut NSError| {
+            let result = unsafe {
+                if !error.is_null() {
+                    Err((*error).localizedDescription().to_string())
+                } else if value.is_null() {
+                    Err("Browser script returned no result".into())
+                } else {
+                    (*value)
+                        .downcast_ref::<NSString>()
+                        .ok_or("Browser script returned an invalid result".to_string())
+                        .and_then(|value| {
+                            serde_json::from_str(&value.to_string())
+                                .map_err(|error| error.to_string())
+                        })
+                        .and_then(decode)
+                }
+            };
+            if let Some(done) = reply.lock().ok().and_then(|mut reply| reply.take()) {
+                done(result);
             }
-        };
-        if let Some(done) = reply.lock().ok().and_then(|mut reply| reply.take()) {
-            done(result);
-        }
-    });
+        });
     unsafe {
         let world = WKContentWorld::worldWithName(&NSString::from_str("iyw-browser-agent"), mtm);
         view.webview()
