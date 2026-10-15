@@ -374,12 +374,13 @@ impl BrowserSessionManager {
                 }
                 Ok(()) => {
                     if let Err(error) = self.restore_cookies_to_full().await {
-                        self.stop_cdp_observer().await;
-                        let _ = runtime.stop().await;
-                        let _ = self
-                            .fail_runtime_start(&ticket, format!("{:?}", error.code))
-                            .await;
-                        return Err(error);
+                        *self.native.full_error.lock().await =
+                            Some("跨内核 Cookie 同步未完成；完整浏览器仍可使用".to_string());
+                        tracing::warn!(
+                            target: "iyw_claw_browser",
+                            error_code = ?error.code,
+                            "browser cookie transfer failed; continuing runtime start"
+                        );
                     }
                     self.sync_iyw_login().await;
                     match self.complete_runtime_start(&ticket).await {

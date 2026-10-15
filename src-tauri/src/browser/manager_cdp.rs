@@ -217,7 +217,16 @@ impl BrowserSessionManager {
             .await
             .clone()
             .ok_or_else(observer_gone)?;
-        observer.call(method, params, session_id).await
+        let result = observer.call(method, params, session_id).await;
+        if let Err(error) = &result {
+            tracing::warn!(
+                target: "iyw_claw_browser",
+                cdp_method = method,
+                error_code = ?error.code,
+                "browser event command failed"
+            );
+        }
+        result
     }
 }
 

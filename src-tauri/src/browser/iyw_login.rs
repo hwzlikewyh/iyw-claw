@@ -61,8 +61,8 @@ impl BrowserSessionManager {
     async fn write_iyw_cookie(&self, token: &str) -> BrowserIywLoginStatus {
         let result = self
             .cdp_call(
-                "Network.setCookie",
-                json!({
+                "Storage.setCookies",
+                json!({"cookies":[{
                     "name": IYW_COOKIE_NAME,
                     "value": token,
                     "domain": IYW_COOKIE_DOMAIN,
@@ -70,15 +70,11 @@ impl BrowserSessionManager {
                     "secure": true,
                     "httpOnly": true,
                     "sameSite": "Lax"
-                }),
+                }]}),
                 None,
             )
             .await;
-        if result
-            .ok()
-            .and_then(|value| value.get("success").and_then(serde_json::Value::as_bool))
-            == Some(true)
-        {
+        if result.is_ok() {
             BrowserIywLoginStatus::Authenticated
         } else {
             BrowserIywLoginStatus::Unauthenticated

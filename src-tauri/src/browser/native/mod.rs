@@ -9,6 +9,7 @@ mod dispatch;
 mod download_control;
 mod downloads;
 mod eval;
+mod full_cookies;
 mod lifecycle;
 #[cfg(target_os = "linux")]
 mod linux;
