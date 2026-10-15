@@ -171,6 +171,12 @@ pub struct BrowserElementSummary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     pub selector: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub html: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<[f64; 4]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub viewport: Option<[f64; 2]>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

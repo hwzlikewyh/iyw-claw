@@ -4,26 +4,14 @@ import { useState } from "react"
 import {
   ArrowLeft,
   ArrowRight,
-  Camera,
-  CircleAlert,
-  CircleCheck,
-  Hand,
-  MousePointer2,
   PanelTopClose,
   RotateCw,
-  Share2,
   SquareArrowOutUpRight,
   X,
 } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { toast } from "sonner"
 import { useBrowser } from "@/contexts/browser-context"
 import { browserApi } from "@/lib/browser-api"
-import {
-  emitAppendTextToSession,
-  emitAttachImageToSession,
-} from "@/lib/session-attachment-events"
-import { useTabStore } from "@/stores/tab-store"
 import type {
   BrowserHostSnapshot,
   BrowserTabSnapshot,
@@ -32,6 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { BrowserDownloads } from "./browser-downloads"
 import { BrowserNativeTools } from "./browser-native-tools"
+import { BrowserPageActions } from "./browser-page-actions"
 
 export function BrowserToolbar({
   host,
@@ -48,17 +37,6 @@ export function BrowserToolbar({
 }) {
   const t = useTranslations("Browser")
   const { state, run, busy, detachTab, refresh } = useBrowser()
-  const [address, setAddress] = useState(tab?.url ?? "")
-  const [capturing, setCapturing] = useState(false)
-  const sessionTabId = useTabStore((store) => store.activeTabId)
-
-  const navigate = () => {
-    if (!tab) return
-    const url = normalizeAddress(address)
-    setAddress(url)
-    void run(() => browserApi.navigate(tab.browserTabId, url))
-  }
-
   const dock = () => {
     if (!tab) return
     const main = state?.hosts.find((item) => item.windowLabel === "main")
@@ -72,37 +50,6 @@ export function BrowserToolbar({
       )
       .then(() => refresh())
       .catch(() => void refresh())
-  }
-
-  const held = tab?.controlStatus === "user_held"
-
-  const sharePage = () => {
-    if (!tab || !sessionTabId) return
-    const title = tab.title.trim() || tab.url
-    emitAppendTextToSession({
-      tabId: sessionTabId,
-      text: `${title}\n${tab.url}`,
-    })
-    toast.success(t("pageAdded"))
-  }
-
-  const sendScreenshot = async () => {
-    if (!tab || !sessionTabId || capturing) return
-    setCapturing(true)
-    try {
-      const screenshot = await browserApi.captureScreenshot(tab.browserTabId)
-      emitAttachImageToSession({
-        tabId: sessionTabId,
-        data: screenshot.data,
-        mimeType: screenshot.mimeType,
-        name: "browser-screenshot.png",
-      })
-      toast.success(t("screenshotAdded"))
-    } catch {
-      toast.error(t("screenshotFailed"))
-    } finally {
-      setCapturing(false)
-    }
   }
 
   return (
@@ -129,64 +76,11 @@ export function BrowserToolbar({
           tab && void run(() => browserApi.reload(tab.browserTabId))
         }
       />
-      <Input
-        value={address}
-        onChange={(event) => setAddress(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") navigate()
-          if (event.key === "Escape") setAddress(tab?.url ?? "")
-        }}
-        className="h-7 min-w-0 flex-1 rounded-md bg-muted/50 px-3 text-xs"
-        aria-label={t("address")}
-        spellCheck={false}
-      />
-      <ToolButton
-        label={t("sendPage")}
-        icon={Share2}
-        disabled={!tab || !sessionTabId}
-        onClick={sharePage}
-      />
-      <ToolButton
-        label={t("sendScreenshot")}
-        icon={Camera}
-        disabled={!tab || !sessionTabId || busy || capturing}
-        onClick={() => void sendScreenshot()}
-      />
-      <ToolButton
-        label={t("selectElement")}
-        icon={MousePointer2}
-        active={selecting}
-        disabled={!tab || !sessionTabId || busy || capturing}
-        onClick={onToggleSelecting}
-      />
-      <PageErrorIndicator errors={tab?.pageErrorCount ?? 0} />
-      {state?.runtime.iywLoginStatus === "authenticated" ? (
-        <span
-          className="flex size-7 shrink-0 items-center justify-center text-emerald-600"
-          title={t("iywLogin.authenticated")}
-          aria-label={t("iywLogin.authenticated")}
-          role="img"
-        >
-          <CircleCheck className="size-3.5" />
-        </span>
-      ) : state?.runtime.iywLoginStatus === "unauthenticated" ? (
-        <span
-          className="flex size-7 shrink-0 items-center justify-center text-muted-foreground"
-          title={t("iywLogin.unauthenticated")}
-          aria-label={t("iywLogin.unauthenticated")}
-          role="img"
-        >
-          <CircleAlert className="size-3.5" />
-        </span>
-      ) : null}
-      <ToolButton
-        label={held ? t("releaseControl") : t("holdControl")}
-        icon={Hand}
-        active={held}
-        disabled={!tab}
-        onClick={() =>
-          tab && void run(() => browserApi.setUserHeld(tab.browserTabId, !held))
-        }
+      <AddressInput key={tab?.url ?? ""} tab={tab} />
+      <BrowserPageActions
+        tab={tab}
+        selecting={selecting}
+        onToggleSelecting={onToggleSelecting}
       />
       {host.kind === "docked" ? (
         <ToolButton
@@ -218,22 +112,26 @@ export function BrowserToolbar({
   )
 }
 
-function PageErrorIndicator({ errors }: { errors: number }) {
+function AddressInput({ tab }: { tab: BrowserTabSnapshot | null }) {
   const t = useTranslations("Browser")
-  const Icon = errors > 0 ? CircleAlert : CircleCheck
-  const label =
-    errors > 0 ? t("pageErrors", { count: errors }) : t("pageHealthy")
+  const { run } = useBrowser()
+  const [address, setAddress] = useState(tab?.url ?? "")
   return (
-    <span
-      className={`flex size-7 shrink-0 items-center justify-center ${
-        errors > 0 ? "text-amber-600" : "text-emerald-600"
-      }`}
-      title={label}
-      aria-label={label}
-      role="img"
-    >
-      <Icon className="size-3.5" />
-    </span>
+    <Input
+      value={address}
+      onChange={(event) => setAddress(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && tab) {
+          const url = normalizeAddress(address)
+          setAddress(url)
+          void run(() => browserApi.navigate(tab.browserTabId, url))
+        }
+        if (event.key === "Escape") setAddress(tab?.url ?? "")
+      }}
+      className="h-7 min-w-0 flex-1 rounded-md bg-muted/50 px-3 text-xs"
+      aria-label={t("address")}
+      spellCheck={false}
+    />
   )
 }
 

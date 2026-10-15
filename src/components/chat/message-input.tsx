@@ -3137,7 +3137,10 @@ export function MessageInput({
       editor
         .chain()
         .focus("end")
-        .insertContent(`${needsSpace ? " " : ""}${appendText}`)
+        .insertContent({
+          type: "text",
+          text: `${needsSpace ? " " : ""}${appendText}`,
+        })
         .run()
     }
 

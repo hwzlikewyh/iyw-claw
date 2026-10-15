@@ -202,6 +202,7 @@ pub async fn iyw_account_auth(
     request: IywAccountAuthRequest,
     db: State<'_, AppDatabase>,
     manager: State<'_, crate::acp::manager::ConnectionManager>,
+    browser: State<'_, crate::browser::BrowserSessionManager>,
 ) -> Result<IywLoginResult, AppCommandError> {
     let _switch_guard = if request.action == "switch_workspace" {
         Some(session::WorkspaceSwitchGuard::begin()?)
@@ -213,7 +214,11 @@ pub async fn iyw_account_auth(
             "请先完成或停止正在运行的任务，再切换空间",
         ));
     }
-    iyw_account_auth_core(&db.conn, request.action, request.data).await
+    let result = iyw_account_auth_core(&db.conn, request.action, request.data).await?;
+    if result.profile.is_some() {
+        browser.refresh_iyw_browser_login().await;
+    }
+    Ok(result)
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -227,8 +232,13 @@ pub async fn iyw_account_get_wechat_qrcode() -> Result<IywWechatQrcode, AppComma
 pub async fn iyw_account_poll_wechat_login(
     qr_token: String,
     db: State<'_, AppDatabase>,
+    browser: State<'_, crate::browser::BrowserSessionManager>,
 ) -> Result<IywWechatPollingResult, AppCommandError> {
-    iyw_account_poll_wechat_login_core(&db.conn, qr_token).await
+    let result = iyw_account_poll_wechat_login_core(&db.conn, qr_token).await?;
+    if result.profile.is_some() {
+        browser.refresh_iyw_browser_login().await;
+    }
+    Ok(result)
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -237,8 +247,11 @@ pub async fn iyw_account_login_with_password(
     username: String,
     password: String,
     db: State<'_, AppDatabase>,
+    browser: State<'_, crate::browser::BrowserSessionManager>,
 ) -> Result<IywAccountProfile, AppCommandError> {
-    iyw_account_login_with_password_core(&db.conn, username, password).await
+    let profile = iyw_account_login_with_password_core(&db.conn, username, password).await?;
+    browser.refresh_iyw_browser_login().await;
+    Ok(profile)
 }
 
 #[cfg(feature = "tauri-runtime")]
@@ -263,6 +276,11 @@ pub async fn iyw_account_list_models(
 
 #[cfg(feature = "tauri-runtime")]
 #[tauri::command]
-pub async fn iyw_account_logout(db: State<'_, AppDatabase>) -> Result<(), AppCommandError> {
-    iyw_account_logout_core(&db.conn).await
+pub async fn iyw_account_logout(
+    db: State<'_, AppDatabase>,
+    browser: State<'_, crate::browser::BrowserSessionManager>,
+) -> Result<(), AppCommandError> {
+    iyw_account_logout_core(&db.conn).await?;
+    browser.refresh_iyw_browser_login().await;
+    Ok(())
 }

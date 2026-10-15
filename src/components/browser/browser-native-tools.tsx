@@ -57,63 +57,64 @@ export function BrowserNativeTools({ tabId }: { tabId: string }) {
             <Search className="size-3.5" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent
-          align="end"
-          className="flex w-72 flex-row items-center gap-1 p-2"
-        >
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t("browserFindPlaceholder")}
-            aria-label={t("browserFind")}
-            className="h-7 min-w-0 flex-1 text-xs"
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault()
-                run("find", { query, backwards: event.shiftKey })
-              }
-            }}
-          />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-label={t("browserFindPrevious")}
-            onClick={() => run("find", { query, backwards: true })}
-          >
-            <ArrowUp className="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            aria-label={t("browserFindNext")}
-            onClick={() => run("find", { query, backwards: false })}
-          >
-            <ArrowDown className="size-3.5" />
-          </Button>
+        <PopoverContent align="end" className="w-72 p-2">
+          <div className="flex items-center gap-1">
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t("browserFindPlaceholder")}
+              aria-label={t("browserFind")}
+              className="h-7 min-w-0 flex-1 text-xs"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault()
+                  run("find", { query, backwards: event.shiftKey })
+                }
+              }}
+            />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              aria-label={t("browserFindPrevious")}
+              onClick={() => run("find", { query, backwards: true })}
+            >
+              <ArrowUp className="size-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              aria-label={t("browserFindNext")}
+              onClick={() => run("find", { query, backwards: false })}
+            >
+              <ArrowDown className="size-3.5" />
+            </Button>
+          </div>
+          <div className="mt-2 flex justify-end gap-1 border-t pt-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              aria-label={t("browserDevtools")}
+              title={t("browserDevtools")}
+              onClick={() => run("devtools")}
+            >
+              <Bug className="size-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              aria-label={t("browserStopLoading")}
+              title={t("browserStopLoading")}
+              onClick={() => run("stop")}
+            >
+              <Square className="size-3.5" />
+            </Button>
+          </div>
         </PopoverContent>
       </Popover>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-7"
-        aria-label={t("browserDevtools")}
-        title={t("browserDevtools")}
-        onClick={() => run("devtools")}
-      >
-        <Bug className="size-3.5" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-7"
-        aria-label={t("browserStopLoading")}
-        title={t("browserStopLoading")}
-        onClick={() => run("stop")}
-      >
-        <Square className="size-3.5" />
-      </Button>
     </>
   )
 }

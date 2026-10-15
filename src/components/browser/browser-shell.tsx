@@ -1,15 +1,28 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Hand } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { useBrowser } from "@/contexts/browser-context"
 import { useBrowserHost } from "@/hooks/use-browser-host"
 import { browserApi } from "@/lib/browser-api"
-import { emitAppendTextToSession } from "@/lib/session-attachment-events"
+import {
+  emitAppendTextToSession,
+  emitAttachImageToSession,
+} from "@/lib/session-attachment-events"
+import {
+  browserElementImageName,
+  cropBrowserElement,
+  formatBrowserElement,
+} from "@/lib/browser-element-capture"
 import { useTabStore } from "@/stores/tab-store"
-import type { BrowserTabSnapshot } from "@/lib/browser-types"
+import type {
+  BrowserElementSummary,
+  BrowserScreenshot,
+  BrowserTabSnapshot,
+} from "@/lib/browser-types"
+import { BrowserElementPicker } from "./browser-element-picker"
 import { BrowserCanvas } from "./browser-canvas"
 import { BrowserNativeSurface } from "./browser-native-surface"
 import { BrowserPrompts } from "./browser-prompts"
@@ -38,6 +51,15 @@ export function BrowserShell({
   const [selecting, setSelecting] = useState(false)
   const [selectionTabId, setSelectionTabId] = useState<string | undefined>()
   const sessionTabId = useTabStore((store) => store.activeTabId)
+  const selectionTarget = useRef<string | null>(null)
+  const selectionRevision = useRef(0)
+  const nativeSelectionFrame = useRef<BrowserScreenshot | null>(null)
+  const acceptSelectionFrame = useCallback(
+    (frame: BrowserScreenshot | null) => {
+      nativeSelectionFrame.current = frame
+    },
+    []
+  )
   const claim = state?.viewClaims.find(
     (item) => item.targetHostId === host?.hostId
   )
@@ -66,8 +88,9 @@ export function BrowserShell({
   const activeTabId =
     claim?.browserTabId ?? host?.activeTabId ?? tabs[0]?.browserTabId
   const activeTab = tabs.find((tab) => tab.browserTabId === activeTabId) ?? null
-  if (selectionTabId !== activeTabId) {
-    setSelectionTabId(activeTabId)
+  const selectionKey = `${activeTabId}:${activeTab?.documentEpoch}`
+  if (selectionTabId !== selectionKey) {
+    setSelectionTabId(selectionKey)
     setSelecting(false)
   }
   const closeShell =
@@ -79,6 +102,13 @@ export function BrowserShell({
               .closeWindowPreservingTabs(windowLabel)
               .catch(() => {})
         : undefined
+
+  useEffect(
+    () => () => {
+      selectionRevision.current += 1
+    },
+    [selectionKey, enabled]
+  )
 
   useEffect(() => {
     if (kind !== "detached" || !host || !windowLabel) return
@@ -130,26 +160,37 @@ export function BrowserShell({
   const userActionRequest = state.userActionRequests.find(
     (item) => item.browserTabId === activeTab?.browserTabId
   )
-  const selectElement = async (point: { x: number; y: number }) => {
+  const cancelSelection = () => {
+    selectionRevision.current += 1
     setSelecting(false)
-    if (!activeTab || !sessionTabId) return
-    try {
-      const element = await browserApi.inspectElement(
-        activeTab.browserTabId,
-        point.x,
-        point.y
-      )
-      emitAppendTextToSession({
-        tabId: sessionTabId,
-        text: formatSelectedElement(
-          t as unknown as BrowserElementTranslator,
-          element
-        ),
+  }
+  const selectElement = async (element: BrowserElementSummary) => {
+    const target = selectionTarget.current
+    const revision = selectionRevision.current
+    if (!activeTab || !target) return
+    const capture =
+      state.capability.engine?.kind === "webview"
+        ? nativeSelectionFrame.current
+        : await browserApi.captureScreenshot(activeTab.browserTabId)
+    if (!capture) throw new Error(t("selectionCapturing"))
+    const screenshot = await cropBrowserElement(capture, element)
+    if (revision !== selectionRevision.current) return
+    const textAccepted = emitAppendTextToSession({
+      tabId: target,
+      text: formatBrowserElement(element, activeTab.url),
+    })
+    const imageAccepted =
+      textAccepted &&
+      emitAttachImageToSession({
+        tabId: target,
+        ...screenshot,
+        name: browserElementImageName(element.selector),
       })
-      toast.success(t("elementAdded"))
-    } catch {
-      toast.error(t("elementFailed"))
+    if (!imageAccepted) {
+      throw new Error(t("conversationUnavailable"))
     }
+    cancelSelection()
+    toast.success(t("elementAdded"))
   }
 
   return (
@@ -161,11 +202,18 @@ export function BrowserShell({
         claim={claim}
       />
       <BrowserToolbar
-        key={`${activeTab?.browserTabId ?? "empty"}:${activeTab?.url ?? ""}`}
+        key={activeTab?.browserTabId ?? "empty"}
         host={host}
         tab={activeTab}
         selecting={selecting}
-        onToggleSelecting={() => setSelecting((value) => !value)}
+        onToggleSelecting={() => {
+          if (selecting) cancelSelection()
+          else {
+            selectionTarget.current = sessionTabId
+            selectionRevision.current += 1
+            setSelecting(true)
+          }
+        }}
         onClose={closeShell}
       />
       {userActionRequest ? (
@@ -179,22 +227,25 @@ export function BrowserShell({
           </span>
         </div>
       ) : null}
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1">
         {state.capability.engine?.kind === "webview" && activeTab ? (
           <BrowserNativeSurface
-            key={`${activeTab.browserTabId}:${activeTab.documentEpoch}:${selecting}`}
+            key={`${activeTab.browserTabId}:${activeTab.documentEpoch}`}
             tab={activeTab}
             selecting={selecting}
-            onSelectPoint={(point) => void selectElement(point)}
+            onSelectionFrame={acceptSelectionFrame}
           />
         ) : (
-          <BrowserCanvas
-            tab={activeTab}
-            claim={claim}
-            selecting={selecting}
-            onSelectPoint={(point) => void selectElement(point)}
-          />
+          <BrowserCanvas tab={activeTab} claim={claim} selecting={selecting} />
         )}
+        {selecting && activeTab ? (
+          <BrowserElementPicker
+            key={selectionKey}
+            tabId={activeTab.browserTabId}
+            onPick={selectElement}
+            onCancel={cancelSelection}
+          />
+        ) : null}
       </div>
       <BrowserPrompts
         key={dialog?.dialogId ?? chooser?.chooserId ?? "none"}
@@ -204,39 +255,3 @@ export function BrowserShell({
     </section>
   )
 }
-
-function formatSelectedElement(
-  t: BrowserElementTranslator,
-  {
-    tag,
-    role,
-    name,
-    text,
-    selector,
-  }: {
-    tag: string
-    role?: string
-    name?: string
-    text?: string
-    selector: string
-  }
-): string {
-  const details = [
-    t("elementTag", { tag }),
-    role ? t("elementRole", { role }) : null,
-    name ? t("elementName", { name }) : null,
-    text ? t("elementText", { text }) : null,
-    t("elementSelector", { selector }),
-  ].filter((value): value is string => Boolean(value))
-  return details.join("\n")
-}
-
-type BrowserElementTranslator = (
-  key:
-    | "elementTag"
-    | "elementRole"
-    | "elementName"
-    | "elementText"
-    | "elementSelector",
-  values: Record<string, string>
-) => string

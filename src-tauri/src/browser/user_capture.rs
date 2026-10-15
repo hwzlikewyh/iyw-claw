@@ -122,9 +122,10 @@ fn valid_coordinate(value: f64) -> bool {
 }
 
 fn inspect_script(x: f64, y: f64) -> String {
-    format!(
-        r#"(() => {{ const el = document.elementFromPoint({x}, {y}); if (!el) return null; const text = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 256); const name = [el.getAttribute('aria-label'), el.getAttribute('title'), el.getAttribute('name'), el.getAttribute('alt'), el.getAttribute('placeholder'), text].find(Boolean) || null; const selector = el.id ? '#' + CSS.escape(el.id) : el.tagName.toLowerCase() + (el.getAttribute('name') ? '[name="' + CSS.escape(el.getAttribute('name')) + '"]' : ''); return {{ tag: el.tagName.toLowerCase(), role: el.getAttribute('role'), name, text: text || null, selector }}; }})()"#
-    )
+    include_str!("user_inspect.js")
+        .trim_start()
+        .trim_start_matches(';')
+        .replace("__POINT__", &serde_json::json!([x, y]).to_string())
 }
 
 fn parse_element_summary(value: &serde_json::Value) -> Option<BrowserElementSummary> {
@@ -146,6 +147,16 @@ fn parse_element_summary(value: &serde_json::Value) -> Option<BrowserElementSumm
             .and_then(serde_json::Value::as_str)
             .map(str::to_string),
         selector,
+        html: value
+            .get("html")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        bounds: value
+            .get("bounds")
+            .and_then(|value| serde_json::from_value(value.clone()).ok()),
+        viewport: value
+            .get("viewport")
+            .and_then(|value| serde_json::from_value(value.clone()).ok()),
     })
 }
 

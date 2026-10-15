@@ -40,6 +40,7 @@ export interface ImagePreviewDialogProps {
   onExport?: (result: EditorImageResult) => void | Promise<void>
   onApply?: (result: EditorImageResult) => void | Promise<void>
   onSendToChat?: (result: EditorImageResult) => void | Promise<void>
+  initialMode?: ImageViewerMode
 }
 
 const WORKSPACE_PADDING = 96
@@ -156,8 +157,11 @@ function useDialogActions(options: DialogActionOptions) {
   return { handleToolChange, runAction }
 }
 
-function useViewerState(editor: ReturnType<typeof useImageEditor>) {
-  const [mode, setMode] = useState<ImageViewerMode>("view")
+function useViewerState(
+  editor: ReturnType<typeof useImageEditor>,
+  initialMode: ImageViewerMode
+) {
+  const [mode, setMode] = useState<ImageViewerMode>(initialMode)
   const [rotation, setRotation] = useState(0)
   const handleModeChange = useCallback(
     (nextMode: ImageViewerMode) => {
@@ -183,7 +187,7 @@ function useDialogEditorState(
   onError: (error: unknown) => void
 ): ImageEditorDialogState {
   const editor = useImageEditor()
-  const viewer = useViewerState(editor)
+  const viewer = useViewerState(editor, props.initialMode ?? "view")
   const loaded = useLoadedImage(props.src, props.open)
   const [busy, setBusy] = useState(false)
   const image = loaded.image

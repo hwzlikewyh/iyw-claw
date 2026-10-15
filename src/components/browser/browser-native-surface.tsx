@@ -44,23 +44,41 @@ export function BrowserNativeSurface({
   tab,
   selecting = false,
   onSelectPoint,
+  onSelectionFrame,
 }: {
   tab: BrowserTabSnapshot
   selecting?: boolean
   onSelectPoint?: (point: { x: number; y: number }) => void
+  onSelectionFrame?: (frame: BrowserScreenshot | null) => void
 }) {
   const container = useRef<HTMLDivElement>(null)
   const [frame, setFrame] = useState<BrowserScreenshot | null>(null)
+  const [previousSelecting, setPreviousSelecting] = useState(selecting)
+  if (previousSelecting !== selecting) {
+    setPreviousSelecting(selecting)
+    setFrame(null)
+  }
   const [error, setError] = useState<string | null>(null)
   const tabId = tab.browserTabId
   useNativePlacement(container, tabId, selecting && frame !== null, setError)
   useEffect(() => {
-    if (!selecting) return
+    if (!selecting) {
+      onSelectionFrame?.(null)
+      return
+    }
     let disposed = false
+    onSelectionFrame?.(null)
     void browserApi
       .captureScreenshot(tabId)
-      .then((value) => {
-        if (!disposed) setFrame(value)
+      .then(async (value) => {
+        if (disposed) return
+        await enqueue(tabId, () =>
+          browserApi.nativeView({ tabId, visible: false })
+        )
+        if (!disposed) {
+          setFrame(value)
+          onSelectionFrame?.(value)
+        }
       })
       .catch((cause) => {
         if (!disposed) setError(String(cause))
@@ -68,7 +86,7 @@ export function BrowserNativeSurface({
     return () => {
       disposed = true
     }
-  }, [tabId, selecting])
+  }, [tabId, selecting, onSelectionFrame])
   const select = (event: MouseEvent<HTMLDivElement>) => {
     if (!selecting || !frame) return
     const rect = event.currentTarget.getBoundingClientRect()

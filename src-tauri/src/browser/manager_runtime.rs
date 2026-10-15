@@ -60,7 +60,12 @@ impl BrowserSessionManager {
         let _tab_guard = self.tab_open_lock.lock().await;
         self.ensure_shutdown_epoch(epoch)?;
         if self.apply_selected_capability().await {
-            return self.start_native_runtime().await;
+            self.start_native_runtime().await?;
+            let tab_id = self.state.read().await.tabs.keys().next().cloned();
+            if let Some(tab_id) = tab_id {
+                self.sync_native_iyw_login(&tab_id).await;
+            }
+            return Ok(self.snapshot().await);
         }
         let cancellation = self.shutdown_cancellation().await;
         self.ensure_runtime_running(cancellation).await?;
@@ -103,6 +108,7 @@ impl BrowserSessionManager {
         let runtime = self.desktop_runtime()?;
         let status = self.state.read().await.runtime.status;
         if status == BrowserRuntimeStatus::Running {
+            self.sync_iyw_login().await;
             return runtime.context().await.ok_or_else(runtime_state_mismatch);
         }
         if status == BrowserRuntimeStatus::Failed {

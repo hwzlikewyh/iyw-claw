@@ -86,6 +86,9 @@ export interface BrowserElementSummary {
   name?: string
   text?: string
   selector: string
+  html?: string
+  bounds?: [number, number, number, number]
+  viewport?: [number, number]
 }
 
 export interface BrowserTabSnapshot {
