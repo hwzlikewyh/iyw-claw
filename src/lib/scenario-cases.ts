@@ -25,6 +25,7 @@ export interface ScenarioCaseAsset {
 }
 
 export interface ScenarioCaseDetail extends ScenarioCase {
+  promptTemplate?: string
   scenario: Scenario
   assets: ScenarioCaseAsset[]
 }
