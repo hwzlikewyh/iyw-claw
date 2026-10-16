@@ -90,6 +90,7 @@ interface ConversationShellProps {
    *  composer (see `FeedbackNotesDisplay`). Renders nothing when there are no
    *  notes for the current turn. */
   feedbackList?: ReactNode
+  runtimeTasks?: ReactNode
   /** Open the live-feedback dialog from the composer "+" menu (hidden when
    *  omitted / feature off). */
   onAddFeedback?: () => void
@@ -171,6 +172,7 @@ export function ConversationShell({
   onEphemeralDraftChange,
   hideInput = false,
   feedbackList,
+  runtimeTasks,
   onAddFeedback,
   feedbackAddDisabled,
   agentInputs,
@@ -288,6 +290,9 @@ export function ConversationShell({
         </div>
 
         <div className="shrink-0">
+          {runtimeTasks && (
+            <div className="mx-auto w-full max-w-4xl px-4">{runtimeTasks}</div>
+          )}
           {!hideInput && feedbackList && (
             <div className="mx-auto w-full max-w-4xl px-4">{feedbackList}</div>
           )}

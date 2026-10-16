@@ -1,5 +1,7 @@
 "use client"
 
+import { RuntimeTaskPanel } from "@/components/chat/runtime-task-panel"
+
 import {
   prepareAcpSession,
   reservePreparedChatDir,
@@ -460,6 +462,7 @@ const ConversationTabView = memo(function ConversationTabView({
   const t = useTranslations("Folder.conversation")
   const tWelcome = useTranslations("Folder.chat.welcomeInputPanel")
   const tAgentInput = useTranslations("Folder.chat.agentInput")
+  const tRuntimeTasks = useTranslations("RuntimeTasks")
   const tAutoContinuation = useTranslations(
     "Folder.chat.acpConnections.autoContinuation"
   )
@@ -3108,7 +3111,8 @@ const ConversationTabView = memo(function ConversationTabView({
           blocks: [{ type: "text", text }],
           displayText: text,
         })
-        if (accepted === false) throw new Error("UI follow-up could not be sent")
+        if (accepted === false)
+          throw new Error("UI follow-up could not be sent")
       }}
       activityContextKey={tabId}
       conversationId={effectiveConversationId}
@@ -3257,10 +3261,48 @@ const ConversationTabView = memo(function ConversationTabView({
       draftStorageKey={draftStorageKey}
       onEphemeralDraftChange={setHasEphemeralDraft}
       hideInput={isWelcomeMode || Boolean(acpLoadError)}
+      runtimeTasks={
+        <RuntimeTaskPanel
+          connectionId={conn.connectionId}
+          conversationId={effectiveConversationId}
+          onCancelLoop={
+            acpLoadError
+              ? undefined
+              : (task) =>
+                  setPendingSideInject({
+                    scope: sideScope,
+                    content: {
+                      text: tRuntimeTasks(
+                        task.native_id === "dynamic"
+                          ? "cancelDynamicMessage"
+                          : "cancelCronMessage",
+                        { id: task.native_id }
+                      ),
+                      append: true,
+                    },
+                  })
+          }
+          onMessage={
+            acpLoadError
+              ? undefined
+              : (task) =>
+                  setPendingSideInject({
+                    scope: sideScope,
+                    content: {
+                      text:
+                        task.kind === "subagent"
+                          ? tRuntimeTasks("messageToChild", {
+                              title: task.title,
+                            })
+                          : tRuntimeTasks("messageToTask"),
+                      append: true,
+                    },
+                  })
+          }
+        />
+      }
       feedbackList={
-        feedback.showList ? (
-          <FeedbackNotesDisplay notes={feedback.notes} />
-        ) : null
+        feedback.showList && <FeedbackNotesDisplay notes={feedback.notes} />
       }
       onAddFeedback={feedback.featureEnabled ? feedback.openDialog : undefined}
       feedbackAddDisabled={!feedback.canSubmit}

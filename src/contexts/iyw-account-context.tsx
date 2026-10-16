@@ -12,6 +12,7 @@ import {
 } from "react"
 
 import { iywAccountLoginWithPassword, iywAccountLogout } from "@/lib/api"
+import { resetActiveConversationUsage } from "@/lib/conversation-usage-refresh"
 import { extractAppCommandError, toErrorMessage } from "@/lib/app-error"
 import type { IywAccountProfile } from "@/lib/types"
 import {
@@ -79,6 +80,7 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
   const markAuthenticationRequired = useCallback(() => {
     if (!mountedRef.current) return
     lastSuccessfulProfileRef.current = null
+    resetActiveConversationUsage()
     setProfile(null)
     setLoginFlow(null)
     setError(null)
@@ -94,6 +96,12 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
 
   const applyProfile = useCallback((next: IywAccountProfile) => {
     const previous = lastSuccessfulProfileRef.current
+    if (
+      previous?.user_id !== next.user_id ||
+      previous?.org_code !== next.org_code ||
+      previous?.logged_in !== next.logged_in
+    )
+      resetActiveConversationUsage()
     if (next.workspace_pending && previous?.logged_in) {
       next = {
         ...next,

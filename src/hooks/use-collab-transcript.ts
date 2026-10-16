@@ -20,7 +20,11 @@ function reducer(state: TranscriptState, patch: Partial<TranscriptState>) {
   return { ...state, ...patch }
 }
 
-export function useCollabTranscript(threadId: string, active: boolean) {
+export function useCollabTranscript(
+  threadId: string,
+  active: boolean,
+  loader?: () => Promise<ConversationDetail>
+) {
   const [revision, refresh] = useReducer((value: number) => value + 1, 0)
   const [state, dispatch] = useReducer(reducer, {
     detail: null,
@@ -28,18 +32,26 @@ export function useCollabTranscript(threadId: string, active: boolean) {
     error: null,
   })
   useEffect(() => {
-    if (!THREAD_ID.test(threadId)) {
+    if (!loader && !THREAD_ID.test(threadId)) {
       dispatch({ loading: false })
       return
     }
     dispatch({ loading: true })
-    return subscribeTranscript({ threadId, active }, dispatch)
-  }, [threadId, active, revision])
+    return subscribeTranscript({ threadId, active, loader }, dispatch)
+  }, [threadId, active, loader, revision])
   return { ...state, refresh }
 }
 
 function subscribeTranscript(
-  { threadId, active }: { threadId: string; active: boolean },
+  {
+    threadId,
+    active,
+    loader,
+  }: {
+    threadId: string
+    active: boolean
+    loader?: () => Promise<ConversationDetail>
+  },
   dispatch: (patch: Partial<TranscriptState>) => void
 ) {
   let cancelled = false
@@ -48,7 +60,9 @@ function subscribeTranscript(
   let reads = 0
   const load = async () => {
     try {
-      const detail = await getConversation("codex", threadId)
+      const detail = await (loader
+        ? loader()
+        : getConversation("codex", threadId))
       if (cancelled) return
       failures = 0
       dispatch({ detail, loading: false, error: null })

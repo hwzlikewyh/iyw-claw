@@ -328,7 +328,7 @@ async fn initialize_agent(
             serde_json::json!({
                 "air": {
                     "version": 1,
-                    "capabilities": ["sessionFailure"]
+                    "capabilities": if agent_type == AgentType::ClaudeCode { vec!["sessionFailure", "asyncTasks"] } else { vec!["sessionFailure"] }
                 }
             }),
         );

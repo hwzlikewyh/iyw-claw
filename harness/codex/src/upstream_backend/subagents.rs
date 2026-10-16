@@ -4,6 +4,9 @@ use super::{UpstreamClient, UpstreamError};
 use crate::{Capability, SessionBinding, SessionOwner, TurnBinding};
 
 impl UpstreamClient {
+    pub(crate) async fn parent_thread_for(&self, child: &str) -> Option<String> {
+        self.child_parents.lock().await.get(child).cloned()
+    }
     pub(crate) async fn discover_subagents(
         &self,
         method: &str,

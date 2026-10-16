@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
 use sea_orm::{
@@ -7,8 +8,19 @@ use sea_orm::{
 use super::query::RequestRows;
 use crate::db::{entities::app_metadata, error::DbError, service::app_metadata_service};
 
-const KEY_PREFIX: &str = "usage.request.confirmed.v1";
+const KEY_PREFIX: &str = "usage.request.confirmed.v2";
 const READ_BATCH: usize = 100;
+
+pub(super) fn scope(url: &str, token: &str, identity: &str) -> String {
+    format!(
+        "{:x}",
+        Sha256::digest(
+            serde_json::json!([url, token, identity])
+                .to_string()
+                .as_bytes()
+        )
+    )
+}
 
 fn key(scope: &str, request_id: &str) -> String {
     format!("{KEY_PREFIX}.{scope}.{request_id}")
@@ -41,7 +53,7 @@ pub(super) async fn load(
             let Some(first) = rows.items.first() else {
                 continue;
             };
-            if !rows.pending
+            if rows.has_final_cost_rows()
                 && key(scope, &first.request_id) == stored_key
                 && rows
                     .items
@@ -65,7 +77,12 @@ pub(super) async fn save(
     }
     let txn = conn.begin().await?;
     for (id, rows) in records {
-        let value = serde_json::to_string(rows)
+        let mut cost_only = rows.clone();
+        for row in &mut cost_only.items {
+            row.charged_points = None;
+            row.settlement_status.clear();
+        }
+        let value = serde_json::to_string(&cost_only)
             .map_err(|error| DbError::Validation(format!("invalid consumption cache: {error}")))?;
         app_metadata_service::upsert_value(&txn, &key(scope, id), &value).await?;
     }

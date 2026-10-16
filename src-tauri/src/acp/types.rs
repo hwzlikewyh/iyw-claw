@@ -77,6 +77,8 @@ pub struct EventEnvelope {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AcpEvent {
+    RuntimeTasksChanged { revision: u64, persistent: bool },
+    BillingReceipt { receipt: crate::acp::runtime_task_receipts::TaskReceipt },
     /// 上游权威回合内容，修复队列丢失导致的文本缺口和工具顺序。
     ContentRecovered {
         content: Vec<crate::acp::session_state::LiveContentBlock>,

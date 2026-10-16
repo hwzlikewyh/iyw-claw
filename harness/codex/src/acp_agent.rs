@@ -40,6 +40,7 @@ mod settings_mapping;
 mod settings_update;
 mod side_question;
 mod steering;
+mod runtime_tasks;
 mod subagent_items;
 mod tool_content;
 mod thinking_projection;
@@ -519,7 +520,9 @@ async fn handle_command(
             turn_id,
             response,
         } => {
+            let child = match &target { ServerRequestTarget::Session(binding) if Some(binding.external_id.as_str()) != session_id.as_deref() => Some(binding.external_id.clone()), _ => None };
             resolve_server_response(upstream, token, target, &method, turn_id, response).await?;
+            if let Some(child) = child { runtime_tasks::interaction_state(upstream, cx, (session_id, &child, false)).await?; }
         }
     }
     Ok(())
@@ -653,6 +656,9 @@ async fn handle_request(
             *session_id = Some(id.clone());
             Ok(settings_mapping::new_session_response(&id, session_settings))
         }
+        "_session/task/stop" => {
+            runtime_tasks::stop_child(upstream, &params, session_id.as_deref()).await
+        }
         "_session/steering" => {
             steering::handle(upstream, &params, (session_id.as_deref(), session_settings.prompt_capabilities(authority.capabilities))).await
         }
@@ -663,9 +669,12 @@ async fn handle_request(
                 .ok_or_else(|| {
                     UpstreamError::InvalidRequest("goal request has no sessionId".into())
                 })?;
-            upstream
+            let result = upstream
                 .request_json_for_thread(id, acp_mapping::goal_request(method, &params)?)
-                .await
+                .await?;
+            if method == "thread/goal/set" {
+                upstream.request_json_for_thread(id, json!({"method":"thread/goal/get", "params":{"threadId":id}})).await
+            } else { Ok(result) }
         }
         "session/set_mode" | "session/set_config_option" | "session/set_model" => {
             let id = params
@@ -741,6 +750,8 @@ async fn handle_event(event: UpstreamEvent, context: BridgeEventContext<'_>) -> 
                     if !upstream.descendant_of(&binding.external_id, root).await {
                         return reject_server_request(upstream, admission, method).await;
                     }
+                    params["_iywOriginThread"] = json!(binding.external_id);
+                    runtime_tasks::interaction_state(upstream, cx, (session_id, &binding.external_id, true)).await?;
                     params["threadId"] = json!(root);
                 }
             }
@@ -807,10 +818,21 @@ async fn handle_event(event: UpstreamEvent, context: BridgeEventContext<'_>) -> 
                     if let Some(root) = session_id.as_deref() {
                         if upstream.descendant_of(thread_id, root).await {
                             child_events::handle(upstream, &method, &params).await.map_err(to_sacp_error)?;
+                            if let Some(update) = runtime_tasks::child_update(upstream, &method, &params).await {
+                                send_update(cx, session_id, update.method, update.params)?;
+                            }
                         }
                     }
                     return Ok(());
                 }
+            }
+            if method == "thread/goal/updated" {
+                if let Some(root) = session_id.as_deref() {
+                    if !runtime_tasks::publish_goal(upstream, cx, root).await? {
+                        send_update(cx, session_id, "session_info_update", json!({"_meta":{"codex":{"goal":params.get("goal")}}}))?;
+                    }
+                }
+                return Ok(());
             }
             if matches!(method.as_str(), "turn/started" | "turn/completed") && pending_prompt.is_none() {
                 let thread = params.get("threadId").and_then(Value::as_str).ok_or_else(|| to_sacp_error("automatic turn has no thread"))?;
@@ -835,6 +857,11 @@ async fn handle_event(event: UpstreamEvent, context: BridgeEventContext<'_>) -> 
                 send_update(cx, session_id, update.method, update.params)?;
             }
             if method == "item/agentMessage/delta" { return Ok(()); }
+            if method == "item/started" {
+                if let Some(update) = params.get("item").and_then(|item| runtime_tasks::spawned(item, session_id.as_deref().unwrap_or_default())) {
+                    send_update(cx, session_id, update.method, update.params)?;
+                }
+            }
             if let Some(update) = thinking.map(&method, &params).map_err(to_sacp_error)? {
                 send_update(cx, session_id, update.method, update.params)?;
             }

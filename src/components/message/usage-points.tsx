@@ -20,7 +20,7 @@ export function UsagePointsValue({
   return (
     <span
       className="tabular-nums"
-      title={available ? undefined : t("unavailableHint")}
+      title={available ? String(points) : t("unavailableHint")}
     >
       {available ? (
         <>

@@ -239,6 +239,9 @@ pub struct CodexResponsesMetadata {
     pub(crate) thread_id: String,
     pub(crate) agent_name: Option<String>,
     pub(crate) turn_id: Option<String>,
+    /// 仅写入本地请求回执，不投影到供应商元数据。
+    pub(crate) billing_goal_id: Option<String>,
+    pub(crate) billing_goal_known: bool,
     pub(crate) routing_hint: Option<HeaderValue>,
     pub(crate) window_id: String,
     pub(crate) window_number: Option<u64>,
@@ -285,6 +288,8 @@ impl CodexResponsesMetadata {
             thread_id,
             agent_name: None,
             turn_id: None,
+            billing_goal_id: None,
+            billing_goal_known: false,
             routing_hint: None,
             window_id,
             window_number: None,

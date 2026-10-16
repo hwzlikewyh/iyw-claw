@@ -405,6 +405,10 @@ fn prepend_internet_tools_path(env: &mut BTreeMap<String, String>) {
 
 /// Commands sent from Tauri command handlers to the ACP connection loop.
 pub enum ConnectionCommand {
+    RuntimeTaskControl {
+        request: crate::acp::runtime_tasks::control::TaskControl,
+        reply: tokio::sync::oneshot::Sender<Result<(), AcpError>>,
+    },
     Prompt {
         blocks: Vec<PromptInputBlock>,
         /// Private launch context sent only on the ACP wire. Kept separate from
@@ -3587,6 +3591,7 @@ async fn run_connection(
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
             state.write().await.native_steering_available = native_steering_available;
+            state.write().await.runtime_tasks.negotiate(agent_type, init_resp.meta.as_ref());
             tracing::info!(
                 agent_type = %agent_type,
                 native_steering_available,
@@ -7437,6 +7442,12 @@ async fn run_conversation_loop<'a>(
                         }
                         cmd = cmd_rx.recv() => {
                             match cmd {
+                                Some(ConnectionCommand::RuntimeTaskControl { request, reply }) => {
+                                    let result = crate::acp::runtime_tasks::control::execute(
+                                        (&cx, sid.0.as_ref(), agent_type), (state, emitter), request,
+                                    ).await;
+                                    let _ = reply.send(result);
+                                }
                                 Some(ConnectionCommand::SideQuestion { request, reply }) => {
                                     side_lane.dispatch(cx.clone(), sid.0.as_ref(), request, reply);
                                 }
@@ -7798,6 +7809,13 @@ async fn run_conversation_loop<'a>(
                     )
                     .await;
                 }
+            }
+            Some(ConnectionCommand::RuntimeTaskControl { request, reply }) => {
+                let result = crate::acp::runtime_tasks::control::execute(
+                    (&session.connection(), session.session_id().0.as_ref(), agent_type),
+                    (state, emitter), request,
+                ).await;
+                let _ = reply.send(result);
             }
             Some(ConnectionCommand::SideQuestion { request, reply }) => {
                 side_lane.dispatch(
@@ -8770,6 +8788,22 @@ async fn maybe_emit_claude_sdk_ext_notification(
         return;
     };
 
+    if notification.method() == "_claude/sdkMessage" {
+        if let Some((session_id, message)) = parse_claude_sdk_message_params(notification.params()) {
+            let (matches, goal_id) = {
+                let snapshot = state.read().await;
+                (snapshot.agent_type == AgentType::ClaudeCode && snapshot.external_id.as_deref() == Some(session_id.as_str()), snapshot.runtime_tasks.receipt_goal(&message))
+            };
+            if matches {
+                crate::acp::runtime_tasks::observe_sdk((state, emitter), &message).await;
+                if let Some(mut receipt) = crate::acp::runtime_task_receipts::from_sdk(&session_id, &message) {
+                    receipt.task_id = goal_id;
+                    emit_with_state(state, emitter, AcpEvent::BillingReceipt { receipt }).await;
+                }
+            }
+        }
+    }
+
     if let Some(event) = map_claude_sdk_ext_notification(&notification) {
         emit_with_state(state, emitter, event).await;
     }
@@ -8783,6 +8817,10 @@ async fn maybe_emit_claude_sdk_ext_notification(
 fn fix_usage_update_nulls(mut dispatch: Dispatch) -> Dispatch {
     if let Dispatch::Notification(ref mut msg) = dispatch {
         if let Some(update) = msg.params.get_mut("update") {
+            if matches!(update.get("sessionUpdate").and_then(|value| value.as_str()),
+                Some("async_task_spawned" | "async_task_progress" | "async_task_state_update")) {
+                *update = serde_json::json!({"sessionUpdate":"session_info_update", "_meta":{"iyw":{"asyncTask":update.clone()}}});
+            }
             super::compaction::normalize(update);
             if update.get("sessionUpdate").and_then(|v| v.as_str()) == Some("usage_update") {
                 if update.get("used").map(|v| v.is_null()).unwrap_or(false) {
@@ -9339,6 +9377,9 @@ async fn emit_conversation_update(
             // agents don't populate the `codex` key, so this is a no-op for them.
             // Session titles are handled generically above; this branch remains
             // Codex-specific because only Codex populates `_meta.codex.goal`.
+            if let Some(meta) = info.meta.as_ref() {
+                crate::acp::runtime_tasks::observe_meta((state, emitter), agent_type, meta).await;
+            }
             if let Some(goal) = info
                 .meta
                 .as_ref()

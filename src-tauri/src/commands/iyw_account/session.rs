@@ -247,3 +247,38 @@ pub(crate) async fn iyw_account_product_context_core(
         .ok_or_else(|| AppCommandError::permission_denied("当前企业空间尚未确认"))?;
     Ok((token, org))
 }
+
+/// 只读账单不检查可消费余额；缓存身份仍绑定账号会话和企业空间。
+pub(crate) async fn iyw_account_usage_credentials_core(
+    conn: &DatabaseConnection,
+) -> Result<
+    Option<(crate::acp::account_credentials::AccountAccessToken, String)>,
+    AppCommandError,
+> {
+    use sha2::{Digest, Sha256};
+    let session = fresh_session(conn).await?;
+    if workspace_switching() || session.workspace_pending {
+        return Err(AppCommandError::permission_denied(
+            "空间切换尚未确认，请刷新账号信息",
+        ));
+    }
+    let Some(token) = session.token.and_then(|token| {
+        crate::acp::account_credentials::AccountAccessToken::new(token.access_token)
+    }) else {
+        return Ok(None);
+    };
+    let identity = if session.session_id.is_empty() {
+        token.expose()
+    } else {
+        &session.session_id
+    };
+    let scope = format!(
+        "{:x}",
+        Sha256::digest(
+            serde_json::json!([identity, session.org_code])
+                .to_string()
+                .as_bytes()
+        )
+    );
+    Ok(Some((token, scope)))
+}

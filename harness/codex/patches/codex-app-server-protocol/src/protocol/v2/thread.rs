@@ -821,6 +821,10 @@ v2_enum_from_core! {
 #[ts(export_to = "v2/")]
 pub struct ThreadGoal {
     pub thread_id: String,
+    /// 私有宿主对账身份；旧运行时和旧历史可能没有此字段。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub goal_id: Option<String>,
     pub objective: String,
     pub status: ThreadGoalStatus,
     #[ts(type = "number | null")]
@@ -839,6 +843,7 @@ impl From<codex_protocol::protocol::ThreadGoal> for ThreadGoal {
     fn from(value: codex_protocol::protocol::ThreadGoal) -> Self {
         Self {
             thread_id: value.thread_id.to_string(),
+            goal_id: None,
             objective: value.objective,
             status: value.status.into(),
             token_budget: value.token_budget,

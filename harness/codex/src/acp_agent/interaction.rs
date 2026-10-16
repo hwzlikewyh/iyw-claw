@@ -102,6 +102,12 @@ fn prepare_wire(
             params["_meta"] = serde_json::json!({});
         }
         params["_meta"]["iyw"] = serde_json::json!({ "requestKey": key });
+        if let Some(child) = request.params["_iywOriginThread"].as_str() {
+            params["_meta"]["iyw"]["childThreadId"] = serde_json::json!(child);
+            if let Some(title) = params.pointer("/toolCall/title").and_then(Value::as_str) {
+                params["toolCall"]["title"] = serde_json::json!(format!("子代理 {child}：{title}"));
+            }
+        }
         lease = Some(request.registry.register(
             request.request_id.clone(),
             RegisteredInteraction {

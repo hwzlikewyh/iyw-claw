@@ -533,6 +533,8 @@ export interface DbConversationDetail {
     /** Indexed by native fork_message_id across session segments. */
     turns: Record<string, ConfirmedConsumption>
     session: ConfirmedConsumption
+    own?: ConfirmedConsumption | null
+    scopes?: Record<string, ConfirmedConsumption>
   } | null
   summary: DbConversationSummary
   turns: MessageTurn[]
@@ -553,10 +555,22 @@ export interface DbConversationDetail {
 }
 
 export interface ConfirmedConsumption {
+  account_scope?: string | null
   amount: string | null
   state: "confirmed" | "partial" | "pending" | "unavailable"
   compaction_points?: string | null
   usage?: TurnUsage | null
+  charged_points?: string | null
+  settlement_statuses?: Record<string, number>
+  records?: ConsumptionStage[]
+}
+
+export interface ConsumptionStage {
+  request_id: string
+  stage_key: string
+  actual_points: string | null
+  charged_points: string | null
+  settlement_status: string
 }
 
 export interface ConversationContextPrimer {
@@ -1368,6 +1382,8 @@ export interface ToolCallImageWire {
 
 // ACP events pushed from Rust backend (discriminated by "type" field)
 export type AcpEvent =
+  | { type: "runtime_tasks_changed"; revision: number; persistent: boolean }
+  | { type: "billing_receipt"; receipt: unknown }
   | { type: "content_recovered"; content: LiveContentBlock[] }
   | { type: "runtime_observation"; observation: unknown }
   | { type: "content_delta"; text: string }

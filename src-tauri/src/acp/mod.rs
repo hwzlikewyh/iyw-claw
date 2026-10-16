@@ -11,6 +11,8 @@ mod agent_input_resume;
 mod agent_input_worker;
 mod agent_input_worker_dispatch;
 mod agent_input_worker_force;
+pub mod runtime_tasks;
+pub mod runtime_task_receipts;
 pub mod agent_profile;
 pub mod agent_storage;
 pub mod agent_storage_work;
