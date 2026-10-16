@@ -14,8 +14,8 @@ pub mod usage;
 
 pub use agent::AgentType;
 pub use automation::{
-    AutomationConfig, AutomationDraft, AutomationInfo, AutomationRunInfo, AutomationRunStatus,
-    AutomationTemplateInfo, IsolationMode, TriggerKind,
+    AutomationConfig, AutomationDraft, AutomationInfo, AutomationRunInfo, AutomationRunPage,
+    AutomationRunQuery, AutomationRunStatus, AutomationTemplateInfo, IsolationMode, TriggerKind,
 };
 #[allow(unused_imports)]
 pub use chat_channel::{ChannelStatusInfo, ChatChannelInfo, ChatChannelMessageLogInfo};

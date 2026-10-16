@@ -69,7 +69,7 @@ fn to_info(mut m: automation::Model) -> AutomationInfo {
     }
 }
 
-fn run_to_info(m: automation_run::Model) -> AutomationRunInfo {
+pub(super) fn run_to_info(m: automation_run::Model) -> AutomationRunInfo {
     AutomationRunInfo {
         id: m.id,
         automation_id: m.automation_id,
@@ -83,6 +83,12 @@ fn run_to_info(m: automation_run::Model) -> AutomationRunInfo {
         stop_reason: m.stop_reason,
         error: m.error,
         summary: m.summary,
+        retry_of_run_id: m.retry_of_run_id,
+        retry_run_id: None,
+        notification_channel_id: m.notification_channel_id,
+        notification_channel_name: m.notification_channel_name,
+        notification_status: m.notification_status,
+        notification_error: m.notification_error,
         created_at: m.created_at,
     }
 }
@@ -280,7 +286,7 @@ pub async fn list_runs(
         .limit(limit)
         .all(conn)
         .await?;
-    Ok(rows.into_iter().map(run_to_info).collect())
+    super::automation_run_service::with_retry_links(conn, rows).await
 }
 
 pub async fn create(
@@ -289,6 +295,7 @@ pub async fn create(
 ) -> Result<AutomationInfo, DbError> {
     let draft = normalize_draft(draft);
     validate_draft(&draft)?;
+    super::automation_notification_service::validate_channel(conn, &draft.config).await?;
     let now = Utc::now();
     let next_run_at = next_run_for(&draft, now)?;
     let config_str = serde_json::to_string(&draft.config)
@@ -326,6 +333,7 @@ pub async fn update(
 ) -> Result<AutomationInfo, DbError> {
     let draft = normalize_draft(draft);
     validate_draft(&draft)?;
+    super::automation_notification_service::validate_channel(conn, &draft.config).await?;
     let row = find_active(conn, id).await?;
     let now = Utc::now();
     let next_run_at = next_run_for(&draft, now)?;
@@ -441,17 +449,25 @@ pub async fn has_active_run(
 /// Insert a fresh `running` run row at launch.
 pub async fn start_run(
     conn: &DatabaseConnection,
-    automation_id: i32,
-    trigger: &str,
-    scheduled_for: Option<DateTime<Utc>>,
+    auto: &AutomationInfo,
+    launch: super::automation_run_service::RunLaunch,
 ) -> Result<AutomationRunInfo, DbError> {
+    let automation_id = auto.id;
     let now = Utc::now();
+    let notification = super::automation_notification_service::snapshot(conn, &auto.config).await;
     let active = automation_run::ActiveModel {
         id: NotSet,
         automation_id: Set(automation_id),
         status: Set(AutomationRunStatus::Running),
-        trigger: Set(trigger.to_string()),
-        scheduled_for: Set(scheduled_for),
+        trigger: Set(launch.trigger),
+        scheduled_for: Set(launch.scheduled_for),
+        retry_of_run_id: Set(launch.retry_of_run_id),
+        notification_channel_id: Set(notification.channel_id),
+        notification_channel_name: Set(notification.channel_name),
+        notification_target_json: Set(notification.target_json),
+        notification_status: Set(notification.status),
+        notification_error: Set(None),
+        notification_updated_at: Set(Some(now)),
         started_at: Set(Some(now)),
         ended_at: Set(None),
         conversation_id: Set(None),
@@ -461,6 +477,7 @@ pub async fn start_run(
         error: Set(None),
         summary: Set(None),
         created_at: Set(now),
+        ..Default::default()
     };
     let run = active.insert(conn).await?;
     // Reflect the in-flight state on the parent so the list view shows "running"
@@ -500,6 +517,7 @@ pub async fn record_skipped_run(
         error: Set(Some("previous run still active".to_string())),
         summary: Set(None),
         created_at: Set(now),
+        ..Default::default()
     };
     Ok(run_to_info(active.insert(conn).await?))
 }

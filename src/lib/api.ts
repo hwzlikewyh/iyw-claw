@@ -2643,6 +2643,35 @@ export async function automationRunNow(automationId: number): Promise<number> {
   return getTransport().call("automation_run_now", { automationId })
 }
 
+export interface AutomationRunQuery {
+  retryable?: boolean
+  automationId?: number
+  folderId?: number
+  status?: string
+  trigger?: string
+  search?: string
+  offset?: number
+}
+
+export async function automationRunHistory(query: AutomationRunQuery): Promise<{
+  runs: AutomationRun[]
+  total: number
+}> {
+  return getTransport().call("automation_run_history", { query })
+}
+
+export async function automationRetryRun(runId: number): Promise<number> {
+  return getTransport().call("automation_retry_run", { runId })
+}
+
+export async function automationGetRun(runId: number): Promise<AutomationRun> {
+  return getTransport().call("automation_get_run", { runId })
+}
+
+export async function automationRetryRuns(runIds: number[]): Promise<number> {
+  return getTransport().call("automation_retry_runs", { runIds })
+}
+
 /** Cancel an in-flight (or clear a wedged) run. */
 export async function automationCancelRun(runId: number): Promise<void> {
   return getTransport().call("automation_cancel_run", { runId })

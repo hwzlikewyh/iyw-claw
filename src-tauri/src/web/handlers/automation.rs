@@ -216,3 +216,53 @@ pub async fn automation_cancel_run(
         .map_err(AppCommandError::from)?;
     Ok(Json(()))
 }
+
+#[derive(Deserialize)]
+pub struct RunHistoryParams {
+    pub query: crate::models::AutomationRunQuery,
+}
+
+pub async fn automation_run_history(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<RunHistoryParams>,
+) -> Result<Json<crate::models::AutomationRunPage>, AppCommandError> {
+    crate::commands::automation_runs::history_core(&state.db, params.query)
+        .await
+        .map(Json)
+        .map_err(AppCommandError::from)
+}
+
+pub async fn automation_retry_run(
+    Json(params): Json<CancelRunParams>,
+) -> Result<Json<i32>, AppCommandError> {
+    crate::commands::automation_runs::retry_core(params.run_id)
+        .await
+        .map(Json)
+        .map_err(AppCommandError::from)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RetryRunsParams {
+    pub run_ids: Vec<i32>,
+}
+
+pub async fn automation_retry_runs(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<RetryRunsParams>,
+) -> Result<Json<usize>, AppCommandError> {
+    crate::commands::automation_runs::retry_batch_core(&state.db, params.run_ids)
+        .await
+        .map(Json)
+        .map_err(AppCommandError::from)
+}
+
+pub async fn automation_get_run(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<CancelRunParams>,
+) -> Result<Json<crate::models::AutomationRunInfo>, AppCommandError> {
+    crate::commands::automation_runs::get_core(&state.db, params.run_id)
+        .await
+        .map(Json)
+        .map_err(AppCommandError::from)
+}

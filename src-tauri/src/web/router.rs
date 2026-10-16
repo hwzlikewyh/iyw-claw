@@ -1713,6 +1713,22 @@ pub fn build_router(
             "/automation_cancel_run",
             post(handlers::automation::automation_cancel_run),
         )
+        .route(
+            "/automation_run_history",
+            post(handlers::automation::automation_run_history),
+        )
+        .route(
+            "/automation_retry_run",
+            post(handlers::automation::automation_retry_run),
+        )
+        .route(
+            "/automation_retry_runs",
+            post(handlers::automation::automation_retry_runs),
+        )
+        .route(
+            "/automation_get_run",
+            post(handlers::automation::automation_get_run),
+        )
         // ─── Terminal ───
         .route("/terminal_spawn", post(handlers::terminal::terminal_spawn))
         .route("/terminal_write", post(handlers::terminal::terminal_write))
