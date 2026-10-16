@@ -4,6 +4,38 @@
 流程已停用；下面相关批次保留作历史记录。当前 prepare-worker action 只准备
 版本元数据，星河编译使用应用的 Cargo/sccache 缓存。
 
+## 当前桌面发布缓存（2026-10-16）
+
+0.1.285 首轮 Windows 编译约 40 分钟、Intel Mac 约 57 分钟，三个平台的 Cargo
+target 缓存均未命中。Rust 从上一版 1.99.0 随 stable 升到 1.99.1，补丁内容也变化了。
+Intel 的 sccache Rust 命中率为 1.61%，缓存写入错误 584 次；错误统计没有给出具体
+原因，不能据此认定为配额或限流。两台 Mac 只有 7 GiB 内存，swap 峰值约 3.9/4.6 GiB。
+
+正常桌面发布和预热固定使用 Rust 1.99.1；Win7 继续使用原有 nightly。升级编译器时
+同步更新 `release.yml`、`release-tauri.yml`、`release-windows-staged.yml` 和
+`build-cache-probe.yml`，并重新预热。
+
+缓存保留两层：Cargo target 仍使用补丁内容哈希形成精确恢复前缀，保护固定 mtime
+的 path 依赖；sccache 使用按编译器、平台和目标隔离的本地磁盘缓存，按内容复用
+普通依赖和补丁编译对象，每个目标最多 1 GiB。job 开始批量恢复，结束后只在有缓存
+未命中且目录非空时保存一份增量更新后的完整对象缓存。后续源码修订可恢复同一
+编译器/目标的对象集合，由 sccache 校验具体输入；不放宽 target 的恢复范围。
+这会替代正常 hosted 桌面编译中的逐对象远端缓存读写，并增加每次 job 的批量传输。
+安装、恢复和保存失败只影响缓存；真实编译及原有发布门禁仍须通过。
+未指定 `cache-target` 的既有入口和 self-hosted 缓存行为保留。
+
+`build-cache-probe.yml` 现在显示为 **Warm Desktop Build Cache**。main 上依赖、
+补丁、原生 vendor、环境 helper 或缓存实现变化后，会提前构建 Windows x64 和两种
+Mac 目标，也支持手动触发。它使用与发布相同的 Release 参数、features 和编译入口，
+生成实际产物，不只运行 cargo check 或准备元数据；不执行签名和发布。同分支的新
+预热会取消旧预热，主分支产生的缓存供后续发布读取。
+
+日志和 step summary 会报告缓存命中、未命中、读写错误与是否请求保存；Windows
+并行编译也归档 Cargo timings。比较前后时分别记录冷构建、相同输入热构建、补丁
+变化后的构建。新缓存层首次需要建立，不能保证固定提速分钟数。
+本次不更换 runner、不提高并发、不调整业务优化级别、不拆分主库；后续资源和架构
+改动应以新的编译时长、换页与包体积数据决定。
+
 ## 引擎成品缓存
 
 `prepare-xinghe-worker.mjs` 将编译和资源组装分开。各 CI 入口统一使用

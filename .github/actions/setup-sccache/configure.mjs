@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { appendFileSync } from "node:fs"
+import { configureDiskCache } from "./disk-cache.mjs"
 
 const CHECK_TIMEOUT_MS = 10_000
 let wrapper = ""
@@ -28,3 +29,12 @@ appendFileSync(
   process.env.GITHUB_ENV,
   `RUSTC_WRAPPER=${wrapper}\nSCCACHE_IDLE_TIMEOUT=0\nSCCACHE_CLIENT_SIDE=1\n`
 )
+if (wrapper && process.env.SCCACHE_CACHE_TARGET) {
+  try {
+    configureDiskCache(process.env.SCCACHE_CACHE_TARGET)
+  } catch (error) {
+    console.warn(
+      `::warning::Batched compiler cache setup failed (${error.code || error.name}); continuing with the existing compiler cache`
+    )
+  }
+}

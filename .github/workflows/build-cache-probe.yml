@@ -1,11 +1,27 @@
-name: Build Cache Probe
+name: Warm Desktop Build Cache
 
-# 临时验证：固定 path 依赖的修改时间后，缓存能否避免 codex 补丁连锁重编。
-# 编译步骤、环境变量与正式发布一致；只编译，不打包、不签名、不发布。
-# 只在推送 ci/cache-probe 分支时运行，缓存也只属于该分支。
+# 依赖变化后在 main 提前执行真实 Release 编译，缓存可供后续发布复用。
+# 复用正式发布的 target、features、profile 和精确补丁身份；只编译。
 on:
+  workflow_dispatch:
   push:
-    branches: [ci/cache-probe]
+    branches: [main, ci/cache-probe]
+    paths:
+      - harness/codex/**
+      - src-tauri/Cargo.toml
+      - src-tauri/Cargo.lock
+      - src-tauri/vendor/**
+      - src-tauri/environment-core/**
+      - .cargo/**
+      - .github/actions/setup-sccache/**
+      - .github/actions/save-sccache/**
+      - .github/scripts/release/compile-desktop.sh
+      - .github/scripts/release/pin-path-dep-mtimes.mjs
+      - .github/workflows/build-cache-probe.yml
+
+concurrency:
+  group: desktop-cache-warmup-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -64,10 +80,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: ${{ matrix.target }}
       - uses: ./.github/actions/setup-sccache
+        with:
+          cache-target: ${{ matrix.target }}
       - id: pathdeps
         name: Pin path dependency mtimes
         run: node .github/scripts/release/pin-path-dep-mtimes.mjs harness/codex
@@ -99,8 +117,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
       - if: always()
-        continue-on-error: true
-        run: sccache --show-stats
+        uses: ./.github/actions/save-sccache
 
   windows:
     needs: frontend
@@ -126,10 +143,12 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: x86_64-pc-windows-msvc
       - uses: ./.github/actions/setup-sccache
+        with:
+          cache-target: x86_64-pc-windows-msvc
       - id: pathdeps
         name: Pin path dependency mtimes
         run: node .github/scripts/release/pin-path-dep-mtimes.mjs harness/codex
@@ -159,5 +178,4 @@ jobs:
         with:
           target: x86_64-pc-windows-msvc
       - if: always()
-        continue-on-error: true
-        run: sccache --show-stats
+        uses: ./.github/actions/save-sccache
