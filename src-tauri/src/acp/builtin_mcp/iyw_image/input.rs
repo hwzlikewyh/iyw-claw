@@ -57,7 +57,9 @@ pub(super) async fn prepare_images(
     validation: ImageValidation,
 ) -> Result<Vec<PreparedImage>, rmcp::ErrorData> {
     let first_source = sources.iter().position(|image| image.role() != "mask");
-    let results = stream::iter(sources.iter().enumerate())
+    let pending = sources
+        .iter()
+        .enumerate()
         .map(|(index, source)| {
             let inspect = validation == ImageValidation::MaskedEdit
                 && (source.role() == "mask" || Some(index) == first_source);
@@ -67,6 +69,8 @@ pub(super) async fn prepare_images(
                 (validation != ImageValidation::Platform, inspect),
             )
         })
+        .collect::<Vec<_>>();
+    let results = stream::iter(pending)
         .buffered(super::limits::MAX_CONCURRENT_EXECUTIONS)
         .collect::<Vec<_>>()
         .await;

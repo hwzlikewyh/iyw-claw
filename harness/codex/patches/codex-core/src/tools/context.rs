@@ -125,6 +125,7 @@ impl ToolInvocation {
 #[derive(Clone, Debug)]
 pub struct McpToolOutput {
     pub result: CallToolResult,
+    pub(crate) model_result: Option<CallToolResult>,
     pub tool_input: JsonValue,
     // Keep the original metadata for hooks; this flag only controls analytics capture.
     pub(crate) result_metadata_capture_allowed: bool,
@@ -183,7 +184,11 @@ impl ToolOutput for McpToolOutput {
 
 impl McpToolOutput {
     fn response_payload(&self) -> FunctionCallOutputPayload {
-        let mut payload = self.result.as_function_call_output_payload();
+        let mut payload = self
+            .model_result
+            .as_ref()
+            .unwrap_or(&self.result)
+            .as_function_call_output_payload();
         if let Some(items) = payload.content_items_mut() {
             sanitize_original_image_detail(self.original_image_detail_supported, items);
         }

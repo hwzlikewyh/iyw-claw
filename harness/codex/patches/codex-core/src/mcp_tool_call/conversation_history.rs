@@ -162,6 +162,7 @@ impl<'call> ToolExecutor<ToolCall<'call>> for HistoryTool {
                     .await?;
                 Ok(Box::new(McpToolOutput {
                     result,
+                    model_result: None,
                     tool_input: arguments,
                     result_metadata_capture_allowed: false,
                     wall_time: started.elapsed(),

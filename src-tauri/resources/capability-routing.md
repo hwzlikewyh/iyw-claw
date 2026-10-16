@@ -29,3 +29,10 @@ HTML fields and a single channel's no-session response do not establish absent
 capabilities, missing data or disabled comments. Inspect the relevant group once
 when discovery is inconclusive; keep other usable capabilities on their route.
 Respect authorization and verify original outcomes before replaying uncertain work.
+
+Within the same subgoal, reuse complete definitions and already returned candidates.
+After a confirmed failed safe read, inspect an applicable existing alternative before
+searching again. Correct a parameter rejection once from actual schema evidence;
+unchanged failures need a different diagnosis, not another identical call.
+Authentication, quota and rate-limit failures require their documented recovery.
+Unknown outcomes and writes still require status or idempotency evidence before replay.

@@ -18,6 +18,7 @@ const SNAPSHOT_GUIDANCE: &str = "Remote catalog metadata from the current accoun
 #[derive(Default)]
 pub(super) struct RemoteOverview {
     description: Option<String>,
+    instructions: String,
     pub(super) tools: Vec<Tool>,
     refreshed: Option<Instant>,
     attempted: Option<Instant>,
@@ -42,10 +43,13 @@ impl RemoteOverview {
         true
     }
 
-    fn record(&mut self, description: String, tools: Vec<Tool>) -> bool {
-        let changed = self.description.as_ref() != Some(&description) || self.tools != tools;
+    fn record(&mut self, description: String, tools: Vec<Tool>, instructions: String) -> bool {
+        let changed = self.description.as_ref() != Some(&description)
+            || self.tools != tools
+            || self.instructions != instructions;
         let recovered = self.failed;
         self.description = Some(description);
+        self.instructions = instructions;
         self.tools = tools;
         self.refreshed = Some(Instant::now());
         self.fetched_at = SystemTime::now()
@@ -70,7 +74,7 @@ impl RemoteOverview {
             None if self.failed => "unavailable",
             None => "pending",
         };
-        json!({"status": status, "description": self.description,
+        json!({"status": status, "description": self.description, "instructions": self.instructions,
             "fetched_at_unix_seconds": self.fetched_at,
             "refresh_interval_seconds": REFRESH_INTERVAL.as_secs()})
     }
@@ -150,7 +154,7 @@ impl RemoteGateway {
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         let changed = match result {
-            Ok(tools) => overview.record(description(&tools), tools),
+            Ok((tools, instructions)) => overview.record(description(&tools), tools, instructions),
             Err(error) => {
                 let changed = !overview.failed;
                 if !overview.failed {
@@ -167,7 +171,10 @@ impl RemoteGateway {
         Ok(())
     }
 
-    async fn fetch_overview(&self, account: &RemoteAccount) -> Result<Vec<Tool>, ErrorData> {
+    async fn fetch_overview(
+        &self,
+        account: &RemoteAccount,
+    ) -> Result<(Vec<Tool>, String), ErrorData> {
         let (_, connection) = self.ready().await?;
         self.ensure_current(account).await?;
         if account
@@ -177,7 +184,7 @@ impl RemoteGateway {
             .refreshed
             .is_none()
         {
-            return Ok(connection.tools.clone());
+            return Ok((connection.tools.clone(), connection.instructions.clone()));
         }
         let result = tokio::select! {
             _ = account.cancellation.cancelled() => return Err(failure("remote_account_changed", "Account changed", false)),
@@ -205,7 +212,7 @@ impl RemoteGateway {
                 ));
             }
         };
-        Ok(tools)
+        Ok((tools, connection.instructions.clone()))
     }
 }
 
