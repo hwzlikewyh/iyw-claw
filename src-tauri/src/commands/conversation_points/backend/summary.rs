@@ -1,9 +1,9 @@
 use super::super::decimal::Total;
 use super::query::RequestRows;
+use crate::acp::runtime_task_receipts::TaskReceipt as Receipt;
 use crate::models::{
     BackendConsumption, ConfirmedConsumption, DbConversationDetail, TurnRole, TurnUsage,
 };
-use crate::parsers::codex::billing::Receipt;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
@@ -11,10 +11,15 @@ struct Totals {
     total: Total,
     compact: Total,
     usage: [u64; 4],
+    charged: Total,
+    charged_complete: bool,
+    stages: Vec<crate::models::conversation::ConsumptionStage>,
+    settlements: std::collections::BTreeMap<String, u64>,
 }
 
 impl Totals {
     fn add(&mut self, row: &super::query::Record, purpose: &str) -> bool {
+        self.record_stage(row);
         let Some(value) = row.actual_points.as_deref() else {
             return false;
         };
@@ -35,6 +40,25 @@ impl Totals {
         true
     }
 
+    fn record_stage(&mut self, row: &super::query::Record) {
+        *self
+            .settlements
+            .entry(row.settlement_status.clone())
+            .or_default() += 1;
+        self.charged_complete &= row
+            .charged_points
+            .as_deref()
+            .is_some_and(|value| self.charged.add(value).is_some());
+        self.stages
+            .push(crate::models::conversation::ConsumptionStage {
+                request_id: row.request_id.clone(),
+                stage_key: row.stage_key.clone(),
+                actual_points: row.actual_points.clone(),
+                charged_points: row.charged_points.clone(),
+                settlement_status: row.settlement_status.clone(),
+            });
+    }
+
     fn usage(&self) -> TurnUsage {
         TurnUsage {
             estimated_points: None,
@@ -44,13 +68,36 @@ impl Totals {
             cache_creation_input_tokens: self.usage[3],
         }
     }
+    fn finish(self, flags: (bool, bool, bool)) -> ConfirmedConsumption {
+        let (confirmed, pending, unavailable) = flags;
+        let state = match (confirmed, pending, unavailable) {
+            (true, false, false) => "confirmed",
+            (true, _, _) => "partial",
+            (false, true, _) => "pending",
+            _ => "unavailable",
+        };
+        ConfirmedConsumption {
+            account_scope: None,
+            amount: confirmed.then(|| self.total.value()),
+            state: state.into(),
+            compaction_points: Some(self.compact.value()),
+            usage: confirmed.then(|| self.usage()),
+            charged_points: (self.charged_complete && !self.stages.is_empty() && !pending)
+                .then(|| self.charged.value()),
+            settlement_statuses: self.settlements,
+            records: self.stages,
+        }
+    }
 }
 
 fn consumption(
     requests: &[&Receipt],
     records: &HashMap<String, RequestRows>,
 ) -> ConfirmedConsumption {
-    let mut totals = Totals::default();
+    let mut totals = Totals {
+        charged_complete: true,
+        ..Default::default()
+    };
     let mut seen = HashSet::new();
     let mut confirmed = false;
     let mut pending = false;
@@ -74,18 +121,21 @@ fn consumption(
                 row.cost_status == "partial_stream" || row.cost_status == "usage_missing";
         }
     }
-    let state = match (confirmed, pending, unavailable) {
-        (true, false, false) => "confirmed",
-        (true, _, _) => "partial",
-        (false, true, _) => "pending",
-        _ => "unavailable",
-    };
-    ConfirmedConsumption {
-        amount: confirmed.then(|| totals.total.value()),
-        state: state.into(),
-        compaction_points: Some(totals.compact.value()),
-        usage: confirmed.then(|| totals.usage()),
-    }
+    totals.finish((confirmed, pending, unavailable))
+}
+
+pub(super) fn select_consumption(
+    requests: &[Receipt],
+    ids: &HashSet<String>,
+    records: &HashMap<String, RequestRows>,
+) -> ConfirmedConsumption {
+    consumption(
+        &requests
+            .iter()
+            .filter(|receipt| ids.contains(&receipt.request_id))
+            .collect::<Vec<_>>(),
+        records,
+    )
 }
 
 pub(super) fn summarize(detail: &DbConversationDetail, source: Source<'_>) -> BackendConsumption {

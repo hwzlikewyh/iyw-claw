@@ -5,6 +5,8 @@ import { addUsagePoints } from "./usage-points"
 import { mergeConfirmedPoints } from "./point-decimal"
 
 export interface ConversationUsageSnapshot {
+  ledgerExpected?: boolean
+  backendConsumption?: DbConversationDetail["backend_consumption"]
   externalId: string | null
   stats: SessionStats | null
   turnUsage: TurnUsage | null
@@ -88,6 +90,10 @@ export async function readConversationUsage(
       : null
   // 只保留用量，完整正文和工具输出在本次读取结束后释放。
   return {
+    ledgerExpected:
+      first.summary.agent_type === "codex" ||
+      first.summary.agent_type === "claude_code",
+    backendConsumption: first.backend_consumption,
     externalId: first.summary.external_id,
     stats: first.session_stats ?? null,
     turnUsage,

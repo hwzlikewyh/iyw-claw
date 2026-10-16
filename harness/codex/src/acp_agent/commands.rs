@@ -74,6 +74,7 @@ pub(super) async fn publish(
     session: (&str, &std::path::Path),
 ) -> Result<(), sacp::Error> {
     let (id, cwd) = session;
+    super::runtime_tasks::publish_goal(upstream, cx, id).await?;
     let response = upstream
         .request_global_json(json!({ "method": "skills/list", "params": { "cwds": [cwd] } }))
         .await

@@ -684,6 +684,7 @@ impl Session {
             request_kind,
         );
         ExecutionMetadata::from_settings(&step_context.settings).apply_to(&mut responses_metadata);
+        (responses_metadata.billing_goal_id, responses_metadata.billing_goal_known) = self.billing_goal_id().await;
         responses_metadata.tool_namespaces_info = if step_context
             .turn
             .config
@@ -716,25 +717,37 @@ impl Session {
             compaction_metadata,
             self.current_window().await,
         )
+        .await
     }
 
-    pub(crate) fn compaction_responses_metadata_for_window(
+    pub(crate) async fn compaction_responses_metadata_for_window(
         &self,
         turn_context: &TurnContext,
         compaction_metadata: CompactionTurnMetadata,
         (window_id, window_number, context_window_id): (String, u64, uuid::Uuid),
     ) -> CodexResponsesMetadata {
-        let responses_metadata = turn_context.turn_metadata_state.to_responses_metadata(
+        let mut responses_metadata = turn_context.turn_metadata_state.to_responses_metadata(
             self.installation_id.clone(),
             window_id,
             CodexResponsesRequestKind::Compaction(compaction_metadata),
         );
+        (responses_metadata.billing_goal_id, responses_metadata.billing_goal_known) = self.billing_goal_id().await;
         self.with_window_and_fork_metadata(
             turn_context,
             responses_metadata,
             window_number,
             context_window_id,
         )
+    }
+
+    async fn billing_goal_id(&self) -> (Option<String>, bool) {
+        const GOAL_IDENTITY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+        let Some(db) = self.state_db() else { return (None, false); };
+        match tokio::time::timeout(GOAL_IDENTITY_TIMEOUT, db.thread_goals().get_thread_goal(self.thread_id)).await {
+            Ok(Ok(goal)) => (goal.filter(|goal| goal.status == codex_state::ThreadGoalStatus::Active).map(|goal| goal.goal_id), true),
+            Ok(Err(error)) => { tracing::warn!(%error, "goal billing identity lookup failed"); (None, false) }
+            Err(_) => { tracing::warn!("goal billing identity lookup timed out"); (None, false) }
+        }
     }
 
     pub(crate) fn with_window_and_fork_metadata(

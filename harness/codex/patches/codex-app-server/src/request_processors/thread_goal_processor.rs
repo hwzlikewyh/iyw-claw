@@ -267,8 +267,12 @@ impl ThreadGoalRequestProcessor {
             .goal_service
             .get_thread_goal(&state_db, thread_id)
             .await
-            .map_err(goal_service_error)?
-            .map(ThreadGoal::from);
+            .map_err(goal_service_error)?;
+        let goal = if goal.is_some() {
+            state_db.thread_goals().get_thread_goal(thread_id).await
+                .map_err(|error| internal_error(error.to_string()))?
+                .map(api_thread_goal_from_state)
+        } else { None };
         Ok(ThreadGoalGetResponse { goal })
     }
 
@@ -525,6 +529,7 @@ impl ThreadGoalRequestProcessor {
 pub(super) fn api_thread_goal_from_state(goal: codex_state::ThreadGoal) -> ThreadGoal {
     ThreadGoal {
         thread_id: goal.thread_id.to_string(),
+        goal_id: Some(goal.goal_id),
         objective: goal.objective,
         status: api_thread_goal_status_from_state(goal.status),
         token_budget: goal.token_budget,

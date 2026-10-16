@@ -3,6 +3,10 @@ import { invalidateConversationUsage } from "./conversation-usage-refresh"
 import type { EventEnvelope } from "./types"
 
 const UPDATED_EVENTS = new Set<EventEnvelope["type"]>([
+  "billing_receipt",
+  "runtime_tasks_changed",
+  "delegation_started",
+  "delegation_completed",
   "usage_update",
   "session_started",
   "conversation_linked",
@@ -21,6 +25,7 @@ function sdkRefresh(message: unknown) {
 }
 
 function refreshKind(event: EventEnvelope): "updated" | "settled" | null {
+  if (event.type === "runtime_tasks_changed" && !event.persistent) return null
   if (UPDATED_EVENTS.has(event.type)) return "updated"
   if (SETTLED_EVENTS.has(event.type)) return "settled"
   if (event.type === "tool_call" || event.type === "tool_call_update") {

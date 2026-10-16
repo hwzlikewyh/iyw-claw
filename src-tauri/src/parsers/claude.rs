@@ -1,3 +1,6 @@
+#[path = "claude_subagent.rs"]
+mod runtime_subagent;
+
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};

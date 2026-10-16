@@ -122,12 +122,29 @@ pub struct DbConversationDetail {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConfirmedConsumption {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_scope: Option<String>,
     pub amount: Option<String>,
     pub state: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compaction_points: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<TurnUsage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub charged_points: Option<String>,
+    #[serde(default)]
+    pub settlement_statuses: std::collections::BTreeMap<String, u64>,
+    #[serde(default)]
+    pub records: Vec<ConsumptionStage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsumptionStage {
+    pub request_id: String,
+    pub stage_key: String,
+    pub actual_points: Option<String>,
+    pub charged_points: Option<String>,
+    pub settlement_status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -135,6 +152,10 @@ pub struct BackendConsumption {
     /// 使用原生消息 ID，避免重连片段重复展示编号导致消费串卡。
     pub turns: std::collections::HashMap<String, ConfirmedConsumption>,
     pub session: ConfirmedConsumption,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub own: Option<ConfirmedConsumption>,
+    #[serde(default)]
+    pub scopes: std::collections::HashMap<String, ConfirmedConsumption>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

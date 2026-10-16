@@ -36,6 +36,10 @@ export function mergeConfirmedPoints(
   // 同一原生轮次的费用只挂在末尾卡片；其它展示卡片不独立计费。
   if (!left) return right ?? null
   if (!right) return left
+  if ((left.account_scope ?? null) !== (right.account_scope ?? null))
+    return { ...right, state: right.amount == null ? right.state : "partial" }
+  if (left.records !== undefined || right.records !== undefined)
+    return mergeStages(left, right)
   const a = left?.amount == null ? null : units(left.amount)
   const b = right?.amount == null ? null : units(right.amount)
   const hasAmount = a !== null || b !== null
@@ -57,5 +61,64 @@ export function mergeConfirmedPoints(
       : left.state === "pending" || right.state === "pending"
         ? "pending"
         : "unavailable",
+  }
+}
+
+function decimal(amount: bigint): string {
+  const whole = (amount / FACTOR).toString()
+  const fraction = (amount % FACTOR)
+    .toString()
+    .padStart(SCALE, "0")
+    .replace(/0+$/, "")
+  return whole + (fraction ? "." + fraction : "")
+}
+
+function mergeStages(
+  left: ConfirmedConsumption,
+  right: ConfirmedConsumption
+): ConfirmedConsumption {
+  const stages = new Map<
+    string,
+    NonNullable<ConfirmedConsumption["records"]>[number]
+  >()
+  for (const row of [...(left.records ?? []), ...(right.records ?? [])])
+    stages.set(JSON.stringify([row.request_id, row.stage_key]), row)
+  let total = ZERO
+  let charged = ZERO
+  let available = false
+  let complete =
+    left.state === "confirmed" &&
+    right.state === "confirmed" &&
+    left.records !== undefined &&
+    right.records !== undefined
+  let chargedComplete = complete
+  const settlement_statuses: Record<string, number> = {}
+  for (const row of stages.values()) {
+    const actual = row.actual_points == null ? null : units(row.actual_points)
+    const debit = row.charged_points == null ? null : units(row.charged_points)
+    available ||= actual !== null
+    complete &&= actual !== null
+    chargedComplete &&= debit !== null
+    total += actual ?? ZERO
+    charged += debit ?? ZERO
+    settlement_statuses[row.settlement_status] =
+      (settlement_statuses[row.settlement_status] ?? 0) + 1
+  }
+  const amount = available ? decimal(total) : null
+  return {
+    amount,
+    account_scope: right.account_scope,
+    state:
+      amount !== null
+        ? complete
+          ? "confirmed"
+          : "partial"
+        : left.state === "pending" || right.state === "pending"
+          ? "pending"
+          : "unavailable",
+    charged_points:
+      chargedComplete && complete && stages.size > 0 ? decimal(charged) : null,
+    settlement_statuses,
+    records: [...stages.values()],
   }
 }

@@ -36,6 +36,10 @@ impl BillingReceipts {
         let line = serde_json::json!({
             "thread_id": metadata.thread_id, "turn_id": turn_id,
             "request_id": request_id, "purpose": purpose,
+            "task_id": metadata.billing_goal_id,
+            "goal_identity_known": metadata.billing_goal_known,
+            "root_turn_id": metadata.root_turn_id,
+            "parent_thread_id": metadata.parent_thread_id,
         })
         .to_string()
             + "\n";

@@ -1,5 +1,16 @@
 # Local Upstream Patches
 
+## 持续任务请求归属
+
+私有 app-server 的 `thread/goal/get` 快照补充可选 `goalId`，只取状态库真实实例 ID。
+核心公开目标对象及数据库结构保持原样；不能以目标文本或秒级 createdAt 替代实例身份。
+核心在模型/压缩请求发出前捕获 goal_id，只写入本地 billing.jsonl 回执，不投影到供应商元数据。
+回执还携带 root_turn_id 和目标身份是否已确认，供宿主精确归属原生子代理和持续目标消费。
+同一轮次出现多个目标时，不能凭轮次或时间推断子请求归属。
+
+更新固定版本时保留 app-server 快照扩展、两种压缩入口的异步身份捕获和回执字段；
+宿主行为及发布环境验收边界见 `docs/runtime-task-reconciliation.md`（客户端仓库根目录）。
+
 ## MCP output previews
 
 The MCP handler preserves text results above 16 KiB in the selected environment's

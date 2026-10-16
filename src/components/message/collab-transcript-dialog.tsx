@@ -11,12 +11,16 @@ import {
 import { adaptMessageTurns } from "@/lib/adapters/ai-elements-adapter"
 import type { ConversationDetail } from "@/lib/types"
 import { MessageBubble } from "./message-bubble"
+import { Button } from "@/components/ui/button"
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   detail: ConversationDetail | null
   name: string
+  loading?: boolean
+  error?: string | null
+  onRefresh?: () => void
 }
 
 function useTranscriptMessages(detail: ConversationDetail | null) {
@@ -49,6 +53,9 @@ export function CollabTranscriptDialog({
   onOpenChange,
   detail,
   name,
+  loading,
+  error,
+  onRefresh,
 }: Props) {
   const t = useTranslations("Folder.chat.collabAgent")
   const messages = useTranscriptMessages(detail)
@@ -60,6 +67,26 @@ export function CollabTranscriptDialog({
           <DialogDescription>{t("openTranscript")}</DialogDescription>
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
+          {(loading || error || onRefresh) && (
+            <div className="flex flex-wrap items-center gap-2 border-b p-3 text-xs text-muted-foreground">
+              {loading && <span role="status">{t("transcriptLoading")}</span>}
+              {error && (
+                <span role="alert" className="break-all">
+                  {t("transcriptUnavailable")}: {error}
+                </span>
+              )}
+              {onRefresh && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={onRefresh}
+                >
+                  {t("refreshTranscript")}
+                </Button>
+              )}
+            </div>
+          )}
           {messages.length ? (
             messages.map((message) => (
               <MessageBubble key={message.id} message={message} />

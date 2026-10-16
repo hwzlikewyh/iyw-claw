@@ -1,4 +1,6 @@
 import { getTransport, type Transport } from "./transport"
+import type { ConfirmedConsumption } from "./types"
+import { clearConversationConsumption } from "@/stores/conversation-runtime-store"
 import {
   readConversationUsage,
   type ConversationUsageSnapshot,
@@ -71,6 +73,27 @@ function current(entry: Entry, generation: number) {
   return active(entry) && !document.hidden && entry.generation === generation
 }
 
+function needsSettlement(points?: ConfirmedConsumption | null) {
+  if (!points?.amount) return false
+  const statuses = Object.keys(points.settlement_statuses ?? {})
+  return (
+    points.charged_points == null ||
+    statuses.length === 0 ||
+    statuses.some(
+      (status) =>
+        ![
+          "charged",
+          "settled_without_debit",
+          "revoked",
+          "disabled",
+          "identity_missing",
+          "unsupported_currency",
+          "not_billable",
+        ].includes(status)
+    )
+  )
+}
+
 function receive(
   entry: Entry,
   snapshot: ConversationUsageSnapshot,
@@ -78,13 +101,18 @@ function receive(
 ) {
   if (!current(entry, generation)) return
   publish(entry, snapshot)
+  if (snapshot.ledgerExpected && !snapshot.backendConsumption) retry(entry)
   const usage = snapshot.stats?.total_usage
   if (
     [
       snapshot.stats?.confirmed_consumption ?? usage?.confirmed_points,
       snapshot.turnUsage?.confirmed_points,
+      snapshot.backendConsumption?.session,
     ].some(
-      (points) => points?.state === "pending" || points?.state === "partial"
+      (points) =>
+        points?.state === "pending" ||
+        points?.state === "partial" ||
+        needsSettlement(points)
     )
   )
     retry(entry)
@@ -231,4 +259,21 @@ export function invalidateConversationUsage(
     entry.settleTimer = undefined
     invalidate(entry)
   }, PERSIST_SETTLE_MS)
+}
+
+export function resetActiveConversationUsage() {
+  clearConversationConsumption()
+  for (const entry of entries.get(getTransport())?.values() ?? []) {
+    entry.generation += 1
+    clearTimeout(entry.settleTimer)
+    entry.settleTimer = undefined
+    publish(entry, {
+      externalId: entry.snapshot?.externalId ?? null,
+      stats: null,
+      turnUsage: null,
+      inFlightUserTurnId: null,
+      backendConsumption: null,
+    })
+    invalidate(entry)
+  }
 }

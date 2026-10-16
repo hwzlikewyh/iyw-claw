@@ -1,4 +1,9 @@
 import { create } from "zustand"
+import {
+  advanceConsumptionEpoch,
+  consumptionEpoch,
+  clearSessionConsumption,
+} from "./conversation-consumption"
 import type {
   LiveMessage,
   ToolCallInfo,
@@ -2368,12 +2373,16 @@ export const useConversationRuntimeStore = create<ConversationRuntimeStore>()((
   ): (() => void) => {
     const runtimeId = runtimeConversationId ?? dbConversationId
     const transport = getTransport()
+    const moneyEpoch = consumptionEpoch()
     let isCodex =
       get().byConversationId.get(runtimeId)?.detail?.summary.agent_type ===
       "codex"
     let cancelled = false
     let timerId: ReturnType<typeof setTimeout> | null = null
-    const isCurrent = () => !cancelled && transport === getTransport()
+    const isCurrent = () =>
+      !cancelled &&
+      transport === getTransport() &&
+      moneyEpoch === consumptionEpoch()
 
     const trySync = (attempt: number) => {
       const delay = metadataRefreshDelay(attempt, isCodex)
@@ -2598,6 +2607,23 @@ export function selectTimelineTurns(
  *  state slices, never `actions`), so consumers re-render zero times. */
 export function useConversationRuntimeActions(): RuntimeActions {
   return useConversationRuntimeStore((s) => s.actions)
+}
+
+/** 账户改变时仅撤回金额，并使旧身份下的异步读取失效；保留全部对话正文。 */
+export function clearConversationConsumption(): void {
+  advanceConsumptionEpoch()
+  for (const id of useConversationRuntimeStore
+    .getState()
+    .byConversationId.keys())
+    bumpFetchGeneration(id)
+  useConversationRuntimeStore.setState((state) => ({
+    byConversationId: new Map(
+      [...state.byConversationId].map(([id, session]) => [
+        id,
+        clearSessionConsumption(session),
+      ])
+    ),
+  }))
 }
 
 /**

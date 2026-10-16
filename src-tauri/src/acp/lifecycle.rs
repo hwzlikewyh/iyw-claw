@@ -68,6 +68,10 @@ fn is_lifecycle_relevant(event: &AcpEvent) -> bool {
     matches!(
         event,
         AcpEvent::SessionStarted { .. }
+            | AcpEvent::BillingReceipt { .. }
+            | AcpEvent::DelegationStarted { .. }
+            | AcpEvent::DelegationCompleted { .. }
+            | AcpEvent::RuntimeTasksChanged { persistent: true, .. }
             | AcpEvent::SessionTitleUpdated { .. }
             | AcpEvent::TurnComplete { .. }
             | AcpEvent::UserMessage { .. }
@@ -262,6 +266,20 @@ pub(crate) async fn handle_event(
     harvest_service: Option<&Arc<UserMemoryService>>,
 ) -> Result<(), DbError> {
     match &envelope.payload {
+        AcpEvent::BillingReceipt { receipt } => {
+            // 该事件仅由已校验 sessionId 的远山 SDK 路径产生；连接回收不能丢掉末尾回执。
+            super::runtime_task_receipts::save(db_conn, crate::models::AgentType::ClaudeCode, receipt).await
+        }
+        AcpEvent::RuntimeTasksChanged { persistent: true, .. }
+        | AcpEvent::DelegationStarted { .. }
+        | AcpEvent::DelegationCompleted { .. } => {
+            let Some(state) = manager.get_state(&envelope.connection_id).await else { return Ok(()); };
+            let data = {
+                let snapshot = state.read().await;
+                (snapshot.agent_type, snapshot.external_id.clone(), snapshot.runtime_tasks.snapshot())
+            };
+            super::runtime_task_receipts::save_tasks(db_conn, data).await
+        }
         // NOTE: parent-side `delegate_to_agent` tool_call_id capture used to
         // live here (a `ToolCall` arm). It now runs in the dispatcher loop via
         // `register_delegation_tool_call_from_event`, off the DB-coupled worker
@@ -324,6 +342,15 @@ pub(crate) async fn handle_event(
                 );
                 return Ok(());
             };
+            if let Some((agent, previous, tasks)) = transition.runtime_tasks_before.clone() {
+                super::runtime_task_receipts::save_tasks(db_conn, (agent, Some(previous), tasks)).await?;
+            }
+            let current_tasks = {
+                let state = state_arc.read().await;
+                (state.external_id.as_deref() == Some(session_id.as_str()))
+                    .then(|| (state.agent_type, state.external_id.clone(), state.runtime_tasks.snapshot()))
+            };
+            if let Some(tasks) = current_tasks { super::runtime_task_receipts::save_tasks(db_conn, tasks).await?; }
             // Channel sessions commit the external id and durable route in one
             // transaction in `session_event_subscriber`.
             if channel_owned {
@@ -722,6 +749,13 @@ async fn handle_terminal_event(
     let Some(entry) = cache.remove(connection_id) else {
         return Ok(());
     };
+    let task_data = {
+        let state = entry.state.read().await;
+        (state.agent_type, state.external_id.clone(), state.runtime_tasks.snapshot())
+    };
+    if let Err(error) = super::runtime_task_receipts::save_tasks(db_conn, task_data).await {
+        tracing::warn!(%error, connection_id, "[runtime-task] final task snapshot could not be persisted");
+    }
     let cid = entry.conversation_id;
     let changed = conversation_service::update_status_if(
         db_conn,

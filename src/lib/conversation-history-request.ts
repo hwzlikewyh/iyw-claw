@@ -2,6 +2,7 @@ import type { Transport } from "./transport"
 import type { AgentInputItem, DbConversationDetail } from "./types"
 import { mergeAgentInputHistory } from "./agent-input-history"
 import { applyBackendConsumption } from "./backend-consumption"
+import { consumptionEpoch } from "@/stores/conversation-consumption"
 
 interface HistoryRequest {
   conversationId: number
@@ -24,6 +25,7 @@ export function requestConversationHistory(
     batches.set(transport, batch)
   }
   const key = JSON.stringify([
+    consumptionEpoch(),
     request.conversationId,
     request.before ?? null,
     request.forceRefresh,

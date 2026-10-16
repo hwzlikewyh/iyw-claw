@@ -273,6 +273,7 @@ pub struct SessionStartedTransition {
     pub event_seq: u64,
     pub expected_external_id: Option<String>,
     pub session_id: String,
+    pub runtime_tasks_before: Option<(AgentType, String, crate::acp::runtime_tasks::RuntimeTaskSnapshot)>,
 }
 
 /// 后端权威的会话状态。每个 AgentConnection 持有一个 Arc<RwLock<SessionState>>。
@@ -281,6 +282,7 @@ pub struct SessionStartedTransition {
 /// 已完成的 turn 不存在这里——它们由 parser 从 agent JSONL 读。
 #[derive(Debug)]
 pub struct SessionState {
+    pub(crate) runtime_tasks: crate::acp::runtime_tasks::RuntimeTasks,
     // 身份
     pub connection_id: String,
     pub conversation_id: Option<i32>,
@@ -679,6 +681,7 @@ impl SessionState {
     ) -> Self {
         let (launch_model_catalog, launch_model_budgets) = crate::acp::model_catalog::budget_snapshot_for(agent_type);
         Self {
+            runtime_tasks: Default::default(),
             connection_id,
             conversation_id: None,
             requested_external_id: None,
@@ -824,6 +827,7 @@ impl SessionState {
     /// 单一分发器：把一个 AcpEvent 应用到 self。注意此方法**不**自增 event_seq——
     /// seq 由 emit_with_state 在外层管理（这样 apply_event 可独立单元测试）。
     pub fn apply_event(&mut self, payload: &AcpEvent) {
+        self.runtime_tasks.observe_delegation(payload, &self.active_tool_calls);
         let runtime_activity = self.activity.observe(
             payload,
             crate::acp::session_activity::ActivityContext {
@@ -839,8 +843,12 @@ impl SessionState {
             return;
         }
         match payload {
+            AcpEvent::RuntimeTasksChanged { .. } => {}
+            AcpEvent::BillingReceipt { .. } => {}
             AcpEvent::RuntimeObservation { .. } => {}
             AcpEvent::SessionStarted { session_id } => {
+                let runtime_tasks_before = self.external_id.clone().filter(|id| id != session_id)
+                    .map(|id| (self.agent_type, id, self.runtime_tasks.switch_session()));
                 let expected_external_id = self
                     .external_id
                     .clone()
@@ -850,6 +858,7 @@ impl SessionState {
                         event_seq: self.event_seq.saturating_add(1),
                         expected_external_id,
                         session_id: session_id.clone(),
+                        runtime_tasks_before,
                     });
                 const MAX_SESSION_STARTED_TRANSITIONS: usize = 64;
                 while self.session_started_transitions.len() > MAX_SESSION_STARTED_TRANSITIONS {

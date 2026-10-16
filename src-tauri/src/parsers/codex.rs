@@ -18,6 +18,7 @@ mod paginated_messages;
 mod timing;
 mod usage;
 pub(crate) mod billing;
+mod billing_sources;
 
 use command_descriptions::command_input_preview;
 use paginated_messages::PaginatedMessages;

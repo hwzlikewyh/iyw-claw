@@ -11,6 +11,10 @@ export function applyBackendConsumption(
   detail: DbConversationDetail
 ): DbConversationDetail {
   const points = detail.backend_consumption
+  const ledgerOnly =
+    detail.summary.agent_type === "codex" ||
+    detail.summary.agent_type === "claude_code"
+  if (ledgerOnly) detail = clearUnverifiedTurnPoints(detail)
   if (!points) {
     return {
       ...detail,
@@ -50,5 +54,29 @@ export function applyBackendConsumption(
           }
         : null,
     },
+  }
+}
+
+function clearUnverifiedTurnPoints(
+  detail: DbConversationDetail
+): DbConversationDetail {
+  const clear = (usage: TurnUsage): TurnUsage => ({
+    ...usage,
+    estimated_points: null,
+    confirmed_points: { amount: null, state: "unavailable" },
+  })
+  return {
+    ...detail,
+    turns: detail.turns.map((turn) =>
+      turn.usage ? { ...turn, usage: clear(turn.usage) } : turn
+    ),
+    session_stats: detail.session_stats
+      ? {
+          ...detail.session_stats,
+          total_usage: detail.session_stats.total_usage
+            ? clear(detail.session_stats.total_usage)
+            : null,
+        }
+      : detail.session_stats,
   }
 }

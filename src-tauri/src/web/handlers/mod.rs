@@ -1,5 +1,6 @@
 pub mod intelligent_ui;
 pub mod acp;
+pub mod runtime_tasks;
 pub mod acp_prepared;
 pub mod agent_concurrency;
 pub mod agent_input;

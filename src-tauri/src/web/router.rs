@@ -1017,6 +1017,9 @@ pub fn build_router(
             post(handlers::acp::acp_describe_agent_options),
         )
         .route("/acp_cancel", post(handlers::acp::acp_cancel))
+        .route("/acp_runtime_tasks", post(handlers::runtime_tasks::snapshot))
+        .route("/acp_runtime_task_detail", post(handlers::runtime_tasks::detail))
+        .route("/acp_control_runtime_task", post(handlers::runtime_tasks::control))
         .route("/acp_fork", post(handlers::acp::acp_fork))
         .route("/acp_side_question", post(handlers::acp::acp_side_question))
         .route(
