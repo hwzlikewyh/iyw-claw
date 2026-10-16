@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde_json::{json, Map, Value};
 
@@ -13,14 +13,25 @@ pub(super) async fn generate(
 ) -> Result<ImageResult, rmcp::ErrorData> {
     let operation = operation_for(execution.kind)?;
     let payload = prepare_payload(execution.request, execution.kind, execution.images)?;
+    let requested_channel = payload.get("modelChannel").cloned();
+    tracing::info!(
+        image_type = execution.kind,
+        model_channel = requested_channel.as_ref().and_then(Value::as_u64),
+        explicit_channel = execution.request.parameters.contains_key("modelChannel"),
+        "[iyw-image] platform image request channel selected"
+    );
     let created = service
-        .post_gateway(
+        .post_image_gateway(
             "/ai-application/api/commerce",
             &operation,
             Value::Object(payload),
         )
         .await?;
-    wait_for_task(service, &operation, created, &execution.request.wait).await
+    let mut result = wait_for_task(service, &operation, created, &execution.request.wait).await?;
+    if let Some(channel) = requested_channel {
+        result.metadata["requested_model_channel"] = channel;
+    }
+    Ok(result)
 }
 
 pub(super) fn validate_request(
@@ -121,18 +132,34 @@ pub(super) async fn wait_for_task(
     }
     let task_id = task_id.expect("checked above");
     let deadline = Instant::now() + wait.platform_timeout();
-    loop {
-        let task = service
-            .post_gateway(
-                "/ai-application/api/commerce",
-                "getCommerceTaskDetail",
-                json!({"taskId": task_id}),
-            )
-            .await?;
-        let result = result_from_value(operation, task, Some(task_id.clone()));
-        if TERMINAL.contains(&result.status.as_str()) || Instant::now() >= deadline {
-            return Ok(result);
+    let mut result = result_from_value(operation, created, Some(task_id.clone()));
+    while !TERMINAL.contains(&result.status.as_str()) && Instant::now() < deadline {
+        let task = super::poll::query(
+            service,
+            ("/ai-application/api/commerce", "getCommerceTaskDetail"),
+            (json!({"taskId": task_id}), deadline),
+        )
+        .await;
+        let task = match task {
+            Ok(task) => task,
+            Err(error) => {
+                result.metadata["poll_error"] =
+                    super::errors::details(&super::errors::query_failure(
+                        error,
+                        std::slice::from_ref(&task_id),
+                        "/ai-application/api/commerce/getCommerceTaskDetail",
+                    ));
+                break;
+            }
+        };
+        let previous = std::mem::take(&mut result.images);
+        result = result_from_value(operation, task, Some(task_id.clone()));
+        super::result::preserve_images(&previous, &mut result.images);
+        if TERMINAL.contains(&result.status.as_str())
+            || !super::poll::pause(service, wait, deadline).await
+        {
+            break;
         }
-        tokio::time::sleep(Duration::from_secs_f64(wait.poll_interval_seconds)).await;
     }
+    Ok(result)
 }

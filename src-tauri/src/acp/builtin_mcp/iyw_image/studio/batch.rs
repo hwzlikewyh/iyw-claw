@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use serde_json::{json, Value};
 
@@ -14,7 +14,7 @@ pub(super) async fn execute(
 ) -> Result<ImageResult, rmcp::ErrorData> {
     let prefix = format!("/ai-application/api/{operation}");
     tracing::info!(operation, "[iyw-image] batch-center submission started");
-    let created = service.post_gateway(&prefix, "submit", body).await?;
+    let created = service.post_image_gateway(&prefix, "submit", body).await?;
     let id = created
         .get("batchId")
         .and_then(Value::as_str)
@@ -47,13 +47,20 @@ async fn poll(
     while !["succeeded", "partial", "failed", "canceled"].contains(&result.status.as_str())
         && Instant::now() < deadline
     {
-        tokio::time::sleep(Duration::from_secs_f64(wait.poll_interval_seconds)).await;
-        let response = service
-            .post_gateway(&prefix, "status", json!({"batchId": id}))
-            .await;
+        if !super::super::poll::pause(service, wait, deadline).await {
+            break;
+        }
+        let response = super::super::poll::query(
+            service,
+            (&prefix, "status"),
+            (json!({"batchId": id}), deadline),
+        )
+        .await;
         match response {
             Ok(value) if value.get("batchId").and_then(Value::as_str) == Some(id.as_str()) => {
-                result = output::batch_result(operation, value, &id)
+                let previous = std::mem::take(&mut result.images);
+                result = output::batch_result(operation, value, &id);
+                super::super::result::preserve_images(&previous, &mut result.images);
             }
             _ => {
                 tracing::warn!(

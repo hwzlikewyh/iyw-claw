@@ -31,6 +31,16 @@ pub(super) fn aggregate_task(task: &PreparedTask, runs: &[RunOutcome]) -> Value 
 fn run_status(run: &RunOutcome) -> &str {
     match &run.result {
         Ok(result) => result.status.as_str(),
+        Err(error)
+            if error
+                .data
+                .as_ref()
+                .and_then(|data| data.get("execution_status"))
+                .and_then(Value::as_str)
+                == Some("unknown") =>
+        {
+            "unknown"
+        }
         Err(_) => "failed",
     }
 }
@@ -48,8 +58,8 @@ fn run_value(run: &RunOutcome) -> Value {
         }),
         Err(error) => json!({
             "index": run.run_index,
-            "status": "failed",
-            "task_id": null,
+            "status": run_status(run),
+            "task_id": error.data.as_ref().and_then(|data| data.get("task_id")),
             "images": [],
             "error": crate::acp::stderr_tail::sanitize_diagnostic(&error.message)
                 .chars().take(MAX_ERROR_CHARS).collect::<String>(),
@@ -61,23 +71,32 @@ fn run_value(run: &RunOutcome) -> Value {
 }
 
 fn safe_error_details(error: &rmcp::ErrorData) -> Value {
-    let mut details = Map::new();
-    if let Some(data) = error.data.as_ref().and_then(Value::as_object) {
-        for key in ["status", "code", "timeout", "connect"] {
-            if let Some(value) = data
-                .get(key)
-                .filter(|value| value.is_number() || value.is_boolean())
-            {
-                details.insert(key.to_string(), value.clone());
+    let mut details = super::super::errors::details(error);
+    if let Some(data) = &error.data {
+        for key in ["attempts", "recovery_stop_reason", "output_errors"] {
+            if let Some(value) = data.get(key) {
+                details[key] = value.clone();
             }
         }
     }
-    Value::Object(details)
+    details
 }
 
 fn safe_metadata(result: &super::ImageResult) -> Value {
     let mut metadata = Map::new();
-    for key in ["result", "query", "poll_error", "batch_id"] {
+    for key in [
+        "result",
+        "request_id",
+        "requested_model_channel",
+        "query",
+        "poll_error",
+        "output_errors",
+        "batch_id",
+        "task_ids",
+        "tasks",
+        "attempts",
+        "recovery_stop_reason",
+    ] {
         if let Some(value) = result.metadata.get(key) {
             metadata.insert(key.to_string(), value.clone());
         }
@@ -97,11 +116,7 @@ fn safe_metadata(result: &super::ImageResult) -> Value {
 }
 
 fn completed_images(result: &super::ImageResult) -> &[String] {
-    if matches!(result.status.as_str(), "succeeded" | "partial") {
-        &result.images
-    } else {
-        &[]
-    }
+    &result.images
 }
 
 pub(super) fn aggregate_status<'a>(statuses: impl IntoIterator<Item = &'a str>) -> &'static str {
@@ -120,6 +135,8 @@ pub(super) fn aggregate_status<'a>(statuses: impl IntoIterator<Item = &'a str>) 
         "running"
     } else if statuses.iter().all(|status| *status == "canceled") {
         "canceled"
+    } else if statuses.contains(&"unknown") {
+        "unknown"
     } else if statuses.iter().all(|status| *status == "failed") {
         "failed"
     } else {
@@ -179,11 +196,16 @@ pub(super) struct BatchCompletion<'a> {
     pub(super) duration_ms: u128,
 }
 
-pub(super) fn log_batch(items: &[Value], runs: &[RunOutcome], completion: BatchCompletion<'_>) {
-    let statuses = runs.iter().map(run_status).collect::<Vec<_>>();
+pub(super) fn log_batch(items: &[Value], completion: BatchCompletion<'_>) {
+    let statuses = items
+        .iter()
+        .filter_map(|item| item.get("runs").and_then(Value::as_array))
+        .flatten()
+        .filter_map(|run| run.get("status").and_then(Value::as_str))
+        .collect::<Vec<_>>();
     tracing::info!(
         item_count = items.len(),
-        execution_count = runs.len(),
+        execution_count = statuses.len(),
         succeeded = count(&statuses, "succeeded"),
         failed = count(&statuses, "failed"),
         running = statuses

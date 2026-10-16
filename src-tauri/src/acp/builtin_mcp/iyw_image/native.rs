@@ -153,7 +153,7 @@ pub(super) async fn generate(
         operation = op.path,
         "[iyw-image] native operation submitted"
     );
-    let created = service.post_gateway(op.prefix, op.path, body).await?;
+    let created = service.post_image_gateway(op.prefix, op.path, body).await?;
     let result = native_result(&op, created, None);
     if result.task_id.is_none()
         || op.poll.is_none()
@@ -173,26 +173,26 @@ async fn poll(
     while !result::TERMINAL.contains(&current.status.as_str())
         && std::time::Instant::now() < deadline
     {
-        tokio::time::sleep(std::time::Duration::from_secs_f64(
-            wait.poll_interval_seconds,
-        ))
+        if !super::poll::pause(service, wait, deadline).await {
+            break;
+        }
+        let response = super::poll::query(
+            service,
+            (op.prefix, op.poll.expect("polling endpoint checked")),
+            (json!({"taskId": current.task_id}), deadline),
+        )
         .await;
-        let response = service
-            .post_gateway(
-                op.prefix,
-                op.poll.expect("polling endpoint checked"),
-                json!({"taskId": current.task_id}),
-            )
-            .await;
         let value = match response {
             Ok(value) => value,
-            Err(_) => {
-                current.metadata["poll_error"] = json!("Task query failed; preserve task_id and query its status before retrying generation");
+            Err(error) => {
+                current.metadata["poll_error"] = super::errors::details(&error);
                 return Ok(current);
             }
         };
         let task_id = current.task_id.clone();
+        let previous = std::mem::take(&mut current.images);
         current = native_result(op, value, task_id);
+        result::preserve_images(&previous, &mut current.images);
     }
     Ok(current)
 }

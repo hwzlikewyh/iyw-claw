@@ -1,10 +1,11 @@
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use rmcp::model::CallToolResult;
 use rmcp::ErrorData;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use tokio_util::sync::CancellationToken;
 
 use super::iyw_service::IywGatewayService;
 use super::tool_identity::IMAGE_MODELS_TOOL;
@@ -12,6 +13,8 @@ use super::tool_identity::IMAGE_MODELS_TOOL;
 const MODEL_REF_PREFIX: &str = "image_model_";
 const MODEL_REF_DIGEST_LENGTH: usize = 64;
 static MODEL_REF_SALT: OnceLock<uuid::Uuid> = OnceLock::new();
+
+pub(super) mod cache;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -22,12 +25,13 @@ pub(super) fn tool() -> Value {
         "name": IMAGE_MODELS_TOOL,
         "description": concat!(
             "List available Fusion image models with {} before generate_iyw_image type=generate (images/generations), auto without images, or explicit edit (images/edits). ",
-            "Also evaluate this catalog when no specialized platform operation matches the user's visual transformation or a relevant platform route has confirmed failure. A missing operation name or sparse description is not proof of unsupported editing. ",
+            "Use applicable platform features first for customer image work. Evaluate this catalog directly for complex transformations or freer creative control, explicit image-model requests, unmatched platform operations or confirmed platform failures. A missing operation name or sparse description is not proof of unsupported editing. ",
             "Choose from returned descriptions, capabilities and user requirements: image_generation=true for generate, image_editing=true for edit. For source images with a selected model use edit and preserve the references. Neither route requires a prior platform attempt or failure. ",
             "Copy the opaque model_ref only into parameters.model; use display_name or a generic image-processing name in user-facing replies, progress, questions and delivery descriptions. Never expose model_ref, prices, currency amounts, provider names, backend names or internal model IDs, even when asked about routing, cost or model choice. Only report points explicitly confirmed by the platform; never calculate points from prices. ",
             "Do not guess references or infer technical guarantees from names/flags. Verify constraints such as masks, transparency, bit depth, reference counts and resolution against documentation; do not invent stricter requirements or discard real ones. A supported visual edit may be expressed in the prompt without a same-named API. ",
-            "Platform variation, mix and extend need no Fusion catalog; passing a catalog model to those operations does not select that Fusion model. Claim a model only when the actual result confirms it. ",
-            "Reuse the catalog for the same task or batch; refresh when availability changes or a reference is rejected after an application restart. References are stable only within the current host process; raw model IDs and display names are not accepted as references. An empty/failed lookup supplies no model. Before manual processing require concrete limitations of both applicable platform and model routes; do not enumerate unrelated models. ",
+            "This catalog lists Fusion models only. Platform variation/mix/extend model one/two/three use parameters.modelChannel=1/2/3, not the first/second/third catalog entry; no Fusion catalog lookup is needed for those labels. Passing a catalog model to those operations is rejected. Claim a model only when the actual result confirms it. ",
+            "Model listing and generation share a 60-second account/workspace-scoped catalog cache. Calls check its age on demand; concurrent refreshes share one fetch. A missing reference triggers at most one refresh before submission. ",
+            "Reuse the catalog for the same task or batch, including ordered fallbacks: each generate/edit candidate uses its selected reference in its own parameters.model and its own supported parameters. Do not replace task references or infer route health from capability flags. Refresh when availability changes or a reference is rejected after an application restart. References are stable only within the current host process; raw model IDs and display names are not accepted as references. An empty/failed lookup supplies no model. Before manual processing require concrete limitations of both applicable platform and model routes; do not enumerate unrelated models. ",
             "This read-only tool does not generate images, upload inputs, or need capability search/read."
         ),
         "inputSchema": {
@@ -64,14 +68,79 @@ pub(super) async fn list(
     })))
 }
 
-pub(super) async fn load_catalog(service: &IywGatewayService) -> Result<Vec<Value>, ErrorData> {
+pub(super) async fn load_catalog(
+    service: &IywGatewayService,
+) -> Result<Arc<Vec<Value>>, ErrorData> {
+    match &service.image_context {
+        Some(context) => {
+            if let Some(catalog) = context.refreshed_catalog.get() {
+                return catalog.clone();
+            }
+            context
+                .catalog
+                .get_or_init(|| shared_catalog(service, None))
+                .await
+                .clone()
+        }
+        None => shared_catalog(service, None).await,
+    }
+}
+
+pub(super) async fn refresh_catalog(
+    service: &IywGatewayService,
+    previous: &Arc<Vec<Value>>,
+) -> Result<Arc<Vec<Value>>, ErrorData> {
+    match &service.image_context {
+        Some(context) => context
+            .refreshed_catalog
+            .get_or_init(|| shared_catalog(service, Some(previous)))
+            .await
+            .clone(),
+        None => shared_catalog(service, Some(previous)).await,
+    }
+}
+
+async fn shared_catalog(
+    service: &IywGatewayService,
+    previous: Option<&Arc<Vec<Value>>>,
+) -> Result<Arc<Vec<Value>>, ErrorData> {
+    let (_, scope) = service.image_identity().await?;
+    let mut scoped = service.clone();
+    if scoped.image_context.is_none() {
+        scoped.image_context = Some(Arc::new(super::iyw_image::context::ImageContext::new(
+            scope.clone(),
+            CancellationToken::new(),
+            CancellationToken::new(),
+        )));
+    }
+    let models = service
+        .image_io(
+            "catalog",
+            service
+                .image_catalog
+                .read((&scope, previous), fetch_catalog(&scoped)),
+        )
+        .await?;
+    let (_, current) = service.image_identity().await?;
+    if scope != current {
+        return Err(ErrorData::invalid_request(
+            "Account or workspace changed during model lookup",
+            None,
+        ));
+    }
+    Ok(models)
+}
+
+async fn fetch_catalog(service: &IywGatewayService) -> Result<Arc<Vec<Value>>, ErrorData> {
     let catalog = service
         .get_fusion("models", &[("model_type", "image")])
         .await?;
+    service.image_identity().await?;
     catalog
         .get("data")
         .and_then(Value::as_array)
         .cloned()
+        .map(Arc::new)
         .ok_or_else(|| ErrorData::internal_error("Fusion image model catalog is invalid", None))
 }
 

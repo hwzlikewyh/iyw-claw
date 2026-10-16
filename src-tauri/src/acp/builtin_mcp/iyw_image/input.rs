@@ -1,16 +1,33 @@
 use std::path::{Path, PathBuf};
 
+use futures_util::{stream, StreamExt};
 use serde::Deserialize;
 
-use crate::acp::delegation::image_loader::{self, ImageLoadRequest};
-
 use super::{invalid, IywGatewayService};
+
+mod asset;
+
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum ImageValidation {
+    Platform,
+    Edit,
+    MaskedEdit,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 pub(super) enum ImageSource {
     String(String),
     Object(ImageSourceObject),
+}
+
+impl ImageSource {
+    pub(super) fn role(&self) -> &str {
+        match self {
+            Self::String(_) => "source",
+            Self::Object(source) => source.role.as_deref().unwrap_or("source"),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -25,81 +42,64 @@ pub(super) struct ImageSourceObject {
     name: Option<String>,
 }
 
+#[derive(Clone)]
 pub(super) struct PreparedImage {
     pub(super) url: String,
     pub(super) role: String,
-    pub(super) bytes: Option<Vec<u8>>,
     pub(super) mime_type: Option<String>,
+    pub(super) dimensions: Option<(u32, u32)>,
 }
 
 pub(super) async fn prepare_images(
-    cwd: &Path,
+    context: (&IywGatewayService, &Path),
     sources: &[ImageSource],
+    validation: ImageValidation,
 ) -> Result<Vec<PreparedImage>, rmcp::ErrorData> {
-    let mut prepared = Vec::with_capacity(sources.len());
-    for (index, source) in sources.iter().enumerate() {
-        prepared.push(prepare_image(cwd, source, index).await?);
-    }
-    Ok(prepared)
-}
-
-pub(super) async fn upload_images(
-    service: &IywGatewayService,
-    images: &mut [PreparedImage],
-) -> Result<(), rmcp::ErrorData> {
-    for image in images.iter_mut().filter(|image| image.url.is_empty()) {
-        let bytes = image
-            .bytes
-            .as_ref()
-            .ok_or_else(|| invalid("image data is missing"))?;
-        let mime = image
-            .mime_type
-            .as_deref()
-            .ok_or_else(|| invalid("image MIME type is missing"))?;
-        image.url = service
-            .upload_bytes(bytes.clone(), mime, extension_for_mime(mime)?)
-            .await?;
-    }
-    Ok(())
+    let first_source = sources.iter().position(|image| image.role() != "mask");
+    let results = stream::iter(sources.iter().enumerate())
+        .map(|(index, source)| {
+            let inspect = validation == ImageValidation::MaskedEdit
+                && (source.role() == "mask" || Some(index) == first_source);
+            prepare_image(
+                context,
+                (index, source),
+                (validation != ImageValidation::Platform, inspect),
+            )
+        })
+        .buffered(super::limits::MAX_CONCURRENT_EXECUTIONS)
+        .collect::<Vec<_>>()
+        .await;
+    results.into_iter().collect()
 }
 
 async fn prepare_image(
-    cwd: &Path,
-    source: &ImageSource,
-    index: usize,
+    (service, cwd): (&IywGatewayService, &Path),
+    (index, source): (usize, &ImageSource),
+    (editing, inspect): (bool, bool),
 ) -> Result<PreparedImage, rmcp::ErrorData> {
     let (value, mut role, name, mime, encoded) = source_parts(source, index)?;
-    if value.starts_with("https://") {
-        return Ok(PreparedImage {
-            url: credential_free_https(&value)?,
-            role,
-            bytes: None,
-            mime_type: mime,
-        });
-    }
     if value.starts_with("http://") {
         return Err(invalid("image URLs must use HTTPS"));
     }
-    let load_source = local_source(cwd, &value, mime.as_deref(), encoded)?;
-    let loaded = image_loader::load(
-        ImageLoadRequest {
-            source: &load_source,
-            mime_type: mime.as_deref(),
-            allow_http: false,
-        },
-        cwd,
+    let load_source = if value.starts_with("https://") {
+        credential_free_https(&value)?
+    } else {
+        local_source(cwd, &value, mime.as_deref(), encoded)?
+    };
+    let mut prepared = asset::prepare(
+        (service, cwd),
+        (&load_source, mime.as_deref()),
+        (editing, inspect),
     )
-    .await
-    .map_err(|error| invalid(error.safe_message()))?;
+    .await?;
     if role.is_empty() {
         role = name.unwrap_or_else(|| "source".to_string());
     }
-    Ok(PreparedImage {
-        url: String::new(),
-        role,
-        bytes: Some(loaded.bytes),
-        mime_type: Some(loaded.mime_type.to_string()),
-    })
+    if role == "mask" && editing && prepared.mime_type.as_deref() != Some("image/png") {
+        return Err(invalid("Fusion edit masks must be PNG"));
+    }
+    prepared.role = role;
+    Ok(prepared)
 }
 
 fn source_parts(
@@ -161,7 +161,11 @@ fn local_source(
 
 fn credential_free_https(value: &str) -> Result<String, rmcp::ErrorData> {
     let url = reqwest::Url::parse(value).map_err(|_| invalid("image URL is invalid"))?;
-    if url.scheme() != "https" || url.host_str().is_none() || !url.username().is_empty() {
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
         return Err(invalid("image URL must be credential-free HTTPS"));
     }
     Ok(value.to_string())

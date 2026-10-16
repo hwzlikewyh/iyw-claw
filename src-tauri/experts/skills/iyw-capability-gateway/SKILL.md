@@ -86,7 +86,9 @@ These recovery cases take precedence over the generic stop rules below.
 ## 最短适用路径
 
 - 自定义改款优先 `variation`，单基准图系列延伸优先 `extend`，多图融合优先 `mix`，电商视频优先下文平台路线。按真实输入、目标和限制匹配；其他工具按实际功能选择。
-- 仅在用户明确选择其他服务，或优先路线有明确不支持、不可用、确认失败的证据时改用其他路线；已知不兼容无需先试错。上述平台图片工具无需查模型目录。
+- 帮客户解决生图问题优先使用适用的平台功能；复杂、多重视觉约束或需要更自由创作控制时，可以直接选择适用的图片模型，不要求先故意调用不匹配的平台功能制造失败。用户明确要求图片模型时按其要求执行。
+- 用户在自定义改款／系列延伸／多图融合中指定“模型一／二／三”时，分别传 `parameters.modelChannel=1/2/3`，保留原平台路线。它们是平台通道名，不是 Fusion 目录第一／二／三项；不要因此查 Fusion 目录或转 `edit`，也不往 `parameters.model` 放目录引用。只有用户未指定通道时才省略 modelChannel 使用默认；用户锁定模型时不自行声明其他模型回退。
+- 复杂或需要更自由控制的图片任务、用户明确选择其他服务，或优先路线有明确不支持、不可用、确认失败的证据时，选择更适用的路线；已知不兼容无需先试错。上述平台图片工具无需查 Fusion 模型目录。
 - 内置转 3D 已禁用，不调用 `image-to-3d`，不通过 fetch、浏览器或其他封装绕过；不得把具有立体效果的图片当作 3D 模型交付。
 - 已公布且参数明确的工具直接调用；只补读缺失的当前操作说明。复用已读 schema、参考资料、模型目录、素材 URL 和任务 ID，支持的独立操作按授权范围批量执行。
 - 仅使用当前启用目录公布的技能。废弃、停用、移除或仅残留在历史会话/备份中的技能不读取、不执行、不恢复；遇到旧依赖立即选择现有工具，不沿旧依赖链搜索或安装。`iyw-image-workflows` 已废弃。
@@ -151,23 +153,27 @@ follow its workflow**. Do not treat the reference as optional background reading
    `open-computer-use`, `skill-creator`, `skill-installer`, `plugin-creator`,
    `writing-plans`, or `executing-plans`.
    For video generation, apply the video priority and contract routing above.
-   For image generation, editing, and processing, prioritize platform capabilities
-   or image models through the directly advertised `generate_iyw_image` tool.
+   For image generation, editing, and processing, prioritize applicable platform
+   features through the directly advertised `generate_iyw_image` tool. Use image
+   models for complex tasks or freer creative control.
    Before installing image libraries or writing processing code, match the user's
    effect and inputs to a service. A missing specialized operation or sparse
    description does not prove unsupported editing: evaluate prompt-driven editing
    or the image model catalog. Verify technical constraints against documentation;
    broad flags do not guarantee masks, transparency, bit depth, or dimensions.
-   Do not invent requirements or discard real ones. Prefer Fusion `generate`
-   for text-to-image, Fusion `edit` for source images with a selected model,
+   Do not invent requirements or discard real ones. Use platform `micro-generate`
+   for ordinary text-to-image when its contract fits; use Fusion `generate`
+   for text-only image-model tasks, Fusion `edit` for source images with a selected model,
    `variation` for single-image changes, `mix` for multi-image fusion, and
    `extend` for four-panel or same-series extension from one reference.
    Explicit Fusion `edit` requires source images. Before `generate`, `auto`
    without images, or `edit`, call `list_iyw_image_models`, choose a model with
    the required capability, and copy its opaque `model_ref` into `parameters.model`.
    Prefer applicable `variation`, `extend`, and `mix` routes. Use model editing
-   when explicitly selected or the preferred route is demonstrably unsupported,
-   unavailable, or confirmed failed; do not manufacture a failed trial.
+   for complex tasks, freer creative control, explicit user model requests, or
+   platform limitations/unavailability/confirmed failure; do not manufacture a failed trial.
+   A platform model one/two/three selection uses `parameters.modelChannel=1/2/3`
+   for variation/extend/mix, never the first/second/third Fusion catalog entry.
    A catalog model argument on a platform
    type does not select that Fusion model. Correct input errors; evaluate another
    suitable service after confirmed route failure. Timeouts, transport errors,

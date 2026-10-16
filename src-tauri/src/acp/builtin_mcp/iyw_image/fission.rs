@@ -1,5 +1,6 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
+use futures_util::{stream, StreamExt, TryStreamExt};
 use serde_json::{json, Value};
 
 use super::result::{extract_urls, find_task_id, normalize_status};
@@ -22,7 +23,7 @@ pub(super) async fn generate(
     payload.entry("jsonData".to_string()).or_insert(Value::Null);
     payload.insert("models".to_string(), models);
     let created = service
-        .post_gateway(
+        .post_image_gateway(
             "/ai-application/api/microModel",
             "v2/batch",
             Value::Object(payload),
@@ -57,32 +58,46 @@ async fn wait_for_tasks(
     task_ids: Vec<String>,
 ) -> Result<ImageResult, rmcp::ErrorData> {
     let deadline = Instant::now() + request.wait.platform_timeout();
+    let mut reports = Vec::new();
     loop {
-        let reports = load_reports(service, &task_ids).await?;
+        match load_reports(service, &task_ids, deadline).await {
+            Ok(latest) => reports = latest,
+            Err(error) => {
+                let error = super::errors::query_failure(
+                    error,
+                    &task_ids,
+                    "/ai-application/api/microModel/GetDetails",
+                );
+                let mut result = group_result(task_ids, reports);
+                result.metadata["poll_error"] = super::errors::details(&error);
+                return Ok(result);
+            }
+        }
         if group_status(&reports) != "running" || Instant::now() >= deadline {
             return Ok(group_result(task_ids, reports));
         }
-        tokio::time::sleep(Duration::from_secs_f64(request.wait.poll_interval_seconds)).await;
+        if !super::poll::pause(service, &request.wait, deadline).await {
+            return Ok(group_result(task_ids, reports));
+        }
     }
 }
 
 async fn load_reports(
     service: &IywGatewayService,
     task_ids: &[String],
+    deadline: Instant,
 ) -> Result<Vec<Value>, rmcp::ErrorData> {
-    let mut reports = Vec::with_capacity(task_ids.len());
-    for task_id in task_ids {
-        reports.push(
-            service
-                .post_gateway(
-                    "/ai-application/api/microModel",
-                    "GetDetails",
-                    json!({"taskId": task_id}),
-                )
-                .await?,
-        );
-    }
-    Ok(reports)
+    stream::iter(task_ids)
+        .map(|task_id| {
+            super::poll::query(
+                service,
+                ("/ai-application/api/microModel", "GetDetails"),
+                (json!({"taskId": task_id}), deadline),
+            )
+        })
+        .buffered(super::limits::MAX_CONCURRENT_EXECUTIONS)
+        .try_collect()
+        .await
 }
 
 fn group_result(task_ids: Vec<String>, reports: Vec<Value>) -> ImageResult {
@@ -107,7 +122,8 @@ fn group_result(task_ids: Vec<String>, reports: Vec<Value>) -> ImageResult {
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect();
-    let metadata = json!({"task_ids": task_ids, "tasks": tasks});
+    let metadata = json!({"task_ids": task_ids, "tasks": tasks,
+        "query": "/ai-application/api/microModel/GetDetails"});
     ImageResult {
         operation: "fission".to_string(),
         status: status.to_string(),

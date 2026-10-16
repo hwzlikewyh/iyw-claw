@@ -1,9 +1,18 @@
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde_json::Value;
 
-use super::{ImageResult, IywGatewayService};
+use super::ImageResult;
 
 pub(super) const TERMINAL: [&str; 3] = ["succeeded", "failed", "canceled"];
+
+pub(super) fn preserve_images(previous: &[String], images: &mut Vec<String>) {
+    let mut combined = previous.to_vec();
+    for image in images.drain(..) {
+        if !combined.contains(&image) {
+            combined.push(image);
+        }
+    }
+    *images = combined;
+}
 
 pub(super) fn redact_credentials(value: &mut Value) {
     match value {
@@ -31,34 +40,6 @@ pub(super) fn redact_credentials(value: &mut Value) {
         Value::Array(items) => items.iter_mut().for_each(redact_credentials),
         _ => {}
     }
-}
-
-pub(super) async fn materialize_fusion_images(
-    service: &IywGatewayService,
-    response: &Value,
-) -> Result<Vec<String>, rmcp::ErrorData> {
-    let entries = response
-        .get("data")
-        .and_then(Value::as_array)
-        .ok_or_else(|| rmcp::ErrorData::internal_error("Fusion image response is invalid", None))?;
-    let mut urls = Vec::new();
-    for entry in entries {
-        if let Some(url) = entry.get("url").and_then(Value::as_str) {
-            urls.push(clean_url(url)?);
-        } else if let Some(encoded) = entry.get("b64_json").and_then(Value::as_str) {
-            let bytes = STANDARD
-                .decode(encoded)
-                .map_err(|error| rmcp::ErrorData::internal_error(error.to_string(), None))?;
-            urls.push(service.upload_bytes(bytes, "image/png", "png").await?);
-        }
-    }
-    if urls.is_empty() {
-        return Err(rmcp::ErrorData::internal_error(
-            "Fusion image response has no images",
-            None,
-        ));
-    }
-    Ok(urls)
 }
 
 pub(super) fn result_from_value(
@@ -167,20 +148,16 @@ pub(super) fn find_task_id(value: &Value) -> Option<String> {
 pub(super) fn clean_url(value: &str) -> Result<String, rmcp::ErrorData> {
     let mut url = reqwest::Url::parse(value)
         .map_err(|_| rmcp::ErrorData::internal_error("result image URL is invalid", None))?;
-    if url.scheme() != "https" || url.host_str().is_none() || !url.username().is_empty() {
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
         return Err(rmcp::ErrorData::internal_error(
             "result image URL is not a public HTTPS URL",
             None,
         ));
     }
-    url.set_query(None);
     url.set_fragment(None);
     Ok(url.to_string())
-}
-
-pub(super) fn value_to_form_text(value: &Value) -> String {
-    match value {
-        Value::String(value) => value.clone(),
-        _ => serde_json::to_string(value).unwrap_or_default(),
-    }
 }
