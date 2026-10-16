@@ -1,6 +1,7 @@
 import { NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react"
 
 import { ReferenceBadge } from "../badges/reference-badge"
+import { ElementReferenceBadge } from "../badges/element-reference-badge"
 import { isTaskReference } from "../composer-commands"
 import type { ReferenceAttrs } from "../types"
 
@@ -8,11 +9,31 @@ import type { ReferenceAttrs } from "../types"
  * React node view for the `reference` atom. Renders the inline badge and marks
  * the surface non-editable so the caret treats the whole reference as one unit.
  */
-export function ReferenceView({ node }: ReactNodeViewProps) {
+export function ReferenceView({
+  node,
+  deleteNode,
+  editor,
+}: ReactNodeViewProps) {
   const attrs = node.attrs as ReferenceAttrs
   const task = isTaskReference(attrs)
   if (attrs.meta?.hiddenFromDisplay) {
     return <NodeViewWrapper as="span" className="hidden" aria-hidden />
+  }
+  if (attrs.refType === "element") {
+    return (
+      <NodeViewWrapper
+        as="span"
+        className="inline align-middle"
+        contentEditable={false}
+      >
+        <ElementReferenceBadge
+          data={attrs}
+          onRemove={() => {
+            if (editor.isEditable) deleteNode()
+          }}
+        />
+      </NodeViewWrapper>
+    )
   }
   return (
     <NodeViewWrapper

@@ -1,3 +1,5 @@
+import type { ReferenceAttrs } from "@/components/chat/composer/types"
+
 export const ATTACH_FILE_TO_SESSION_EVENT = "iyw-claw:attach-file-to-session"
 
 export interface AttachFileToSessionDetail {
@@ -39,6 +41,26 @@ export function emitAppendTextToSession(
       detail,
       cancelable: true,
     })
+  )
+}
+
+export const INSERT_REFERENCE_TO_SESSION_EVENT =
+  "iyw-claw:insert-reference-to-session"
+
+export interface InsertReferenceToSessionDetail {
+  tabId: string
+  reference: ReferenceAttrs
+}
+
+export function emitInsertReferenceToSession(
+  detail: InsertReferenceToSessionDetail
+): boolean {
+  if (typeof window === "undefined") return false
+  return !window.dispatchEvent(
+    new CustomEvent<InsertReferenceToSessionDetail>(
+      INSERT_REFERENCE_TO_SESSION_EVENT,
+      { detail, cancelable: true }
+    )
   )
 }
 

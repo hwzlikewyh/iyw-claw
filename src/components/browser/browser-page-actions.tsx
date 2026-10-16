@@ -13,13 +13,12 @@ import {
 import { useTranslations } from "next-intl"
 import { toast } from "sonner"
 import { useBrowser } from "@/contexts/browser-context"
-import { useTabStore } from "@/stores/tab-store"
 import { browserApi } from "@/lib/browser-api"
 import type { BrowserScreenshot, BrowserTabSnapshot } from "@/lib/browser-types"
 import {
-  emitAppendTextToSession,
-  emitAttachImageToSession,
-} from "@/lib/session-attachment-events"
+  deliverBrowserSession,
+  getBrowserSessionTarget,
+} from "@/lib/browser-session-handoff"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -42,45 +41,56 @@ export function BrowserPageActions({
 }) {
   const t = useTranslations("Browser")
   const { state, run, busy } = useBrowser()
-  const sessionTabId = useTabStore((store) => store.activeTabId)
   const [capturing, setCapturing] = useState(false)
   const [editing, setEditing] = useState<{
     screenshot: BrowserScreenshot
     target: string
   } | null>(null)
   const held = tab?.controlStatus === "user_held"
-  const deliver = (
+  const deliver = async (
     screenshot: BrowserScreenshot,
     target: string,
     name: string
   ) => {
-    if (!emitAttachImageToSession({ tabId: target, ...screenshot, name })) {
+    if (
+      !(await deliverBrowserSession(target, {
+        kind: "image",
+        image: { ...screenshot, name },
+      }))
+    ) {
       throw new Error(t("conversationUnavailable"))
     }
     toast.success(t("screenshotAdded"))
   }
   const capture = async (annotate: boolean) => {
-    if (!tab || !sessionTabId || capturing) return
-    const target = sessionTabId
+    if (!tab || capturing) return
     setCapturing(true)
     try {
+      const target = await getBrowserSessionTarget()
       const screenshot = await browserApi.captureScreenshot(tab.browserTabId)
       if (annotate) setEditing({ screenshot, target })
-      else deliver(screenshot, target, "browser-screenshot.png")
-    } catch {
+      else await deliver(screenshot, target, "browser-screenshot.png")
+    } catch (error) {
+      console.warn("[Browser] screenshot handoff failed", { error })
       toast.error(t("screenshotFailed"))
     } finally {
       setCapturing(false)
     }
   }
-  const share = () => {
-    if (!tab || !sessionTabId) return
-    const accepted = emitAppendTextToSession({
-      tabId: sessionTabId,
-      text: `${tab.title.trim() || tab.url}\n${tab.url}`,
-    })
-    if (accepted) toast.success(t("pageAdded"))
-    else toast.error(t("conversationUnavailable"))
+  const share = async () => {
+    if (!tab) return
+    try {
+      const target = await getBrowserSessionTarget()
+      const accepted = await deliverBrowserSession(target, {
+        kind: "text",
+        text: `${tab.title.trim() || tab.url}\n${tab.url}`,
+      })
+      if (!accepted) throw new Error("The conversation input is unavailable")
+      toast.success(t("pageAdded"))
+    } catch (error) {
+      console.warn("[Browser] page handoff failed", { error })
+      toast.error(t("conversationUnavailable"))
+    }
   }
   return (
     <>
@@ -113,28 +123,19 @@ export function BrowserPageActions({
             <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
               {t("sendPage")}
             </DropdownMenuLabel>
-            <DropdownMenuItem
-              disabled={!sessionTabId}
-              onSelect={onToggleSelecting}
-            >
+            <DropdownMenuItem onSelect={onToggleSelecting}>
               <MousePointer2 />
               {t("selectElement")}
             </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!sessionTabId}
-              onSelect={() => void capture(false)}
-            >
+            <DropdownMenuItem onSelect={() => void capture(false)}>
               <Camera />
               {t("sendScreenshot")}
             </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!sessionTabId}
-              onSelect={() => void capture(true)}
-            >
+            <DropdownMenuItem onSelect={() => void capture(true)}>
               <PencilLine />
               {t("annotateScreenshot")}
             </DropdownMenuItem>
-            <DropdownMenuItem disabled={!sessionTabId} onSelect={share}>
+            <DropdownMenuItem onSelect={() => void share()}>
               <Share2 />
               {t("sendPage")}
             </DropdownMenuItem>
