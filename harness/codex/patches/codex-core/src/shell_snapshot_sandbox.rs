@@ -27,9 +27,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-#[cfg(all(test, unix))]
-#[path = "shell_snapshot_sandbox_tests.rs"]
-mod tests;
 
 #[derive(Clone)]
 pub(crate) struct ShellSnapshotSandbox {
@@ -197,6 +194,7 @@ impl ShellSnapshotSandbox {
             },
             workspace_roots,
         )
+        .await
         .context("failed to prepare shell snapshot execution")?;
         // Caller cancellation must leave execution alive long enough to clean up its process group.
         let output = tokio::spawn(execute_env(request, /*stdout_stream*/ None))

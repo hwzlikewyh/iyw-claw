@@ -47,7 +47,7 @@ the legacy public image service and Fusion. External agents keep their original 
 
 ## Embedded Desktop Integration
 
-The desktop now links the pinned 0.161.0 runtime into its executable. The local
+The desktop now links the pinned 0.163.0 runtime into its executable. The local
 `codex-app-server-client` production sources pass host credentials and runtime
 environment to the in-process server; no process-global credential mutation is
 required. The app-server reapplies tool environment on config reload and closes
@@ -74,7 +74,20 @@ The older worker/helper packaging descriptions below are historical. Normal
 desktop builds prepare only `runtime.json`, then validate the embedded identity
 and static CRT imports in the linked executable.
 
-The 0.161.0 refresh uses commit `979011409de0a60b52f179721948e65531d26144`.
+The 0.163.0 refresh uses commit `83086188ae0614bd882818ff1aa23f3194962012`.
+Three-way production-source migration retains all existing host and Windows/Win7
+patches. Compaction now uses upstream replacement contexts and prepared prefixes;
+request budgets cover foreground retries/model fallback and background requests,
+while successful history installation stays outside cancellation by that budget.
+Managed image references survive both full and prefix history installation.
+Legacy command descriptions remain durable after the rollout policy was split.
+The production-only `codex-feedback` override changes its `tar` requirement from
+upstream's exact 0.4.45 to 0.4.46, matching Qdrant and the existing plugin override;
+its runtime code matches upstream. SQLite migrations 0059-0061 and thread-history
+migration 0008 are included, with filename sets and LF content checked.
+See `docs/xinghe-upgrade-0.163.0.md` for the static verification and CI boundary.
+
+The historical 0.161.0 refresh used commit `979011409de0a60b52f179721948e65531d26144`.
 Production crates and dependencies are migrated from 0.156.1 using three-way
 source comparison. Upstream `codex-utils-process::background_command` and
 `JobObject::spawn_background` replace equivalent local hidden-window patches.
@@ -124,7 +137,7 @@ background process indefinitely. This prevents the host's 120-second silence
 watchdog from cancelling a valid 180- or 300-second output wait. Recheck this
 patch when upgrading the pinned runtime.
 
-`codex-mcp` retains the production sources of pinned 0.161.0 (`9790114`), with
+`codex-mcp` retains the production sources of pinned 0.163.0 (`8308618`), with
 test-only modules omitted and standalone dependency metadata. Its status inspection
 reads one published runtime generation without starting/reconnecting clients.
 Thread-scoped `mcpServerStatus/list` uses that view through `codex-core`; global
@@ -138,7 +151,7 @@ compile the locked Codex release. It is part of the harness source and must not
 depend on a developer-machine path.
 
 `codex-state` contains the production sources and migrations from pinned
-0.161.0, with test-only items omitted. Migration SQL is stored with LF endings.
+0.163.0, with test-only items omitted. Migration SQL is stored with LF endings.
 Before migration, the runtime accepts an applied checksum only when it matches
 the exact embedded SQL or its LF/CRLF variant. It adjusts the in-memory migrator,
 preserving database migration records, locking and rejection of other changes.
@@ -181,7 +194,7 @@ and `send_message`, independently of `fork_turns`. Collaboration guidance keeps
 the parent working after dispatch and bounds missing-task recovery to one resend.
 Review this classification and guidance on upstream upgrades.
 
-`codex-utils-pty` is copied from the locked `rust-v0.161.0` source tree. Local
+`codex-utils-pty` is copied from the locked `rust-v0.163.0` source tree. Local
 source deltas retain explicit pointer casts in `src/win/conpty.rs` and
 `src/win/procthreadattr.rs`, plus hidden-window creation flags in
 `src/win/mod.rs`, and `src/win/psuedocon.rs`. Its `Cargo.toml` is standalone
@@ -192,7 +205,7 @@ when starting internal Git and MCP subprocesses. Assigning the process to a job
 must not undo the hidden-window setting.
 
 `codex-shell-command` contains the production sources from the same locked
-`rust-v0.161.0` commit. Its runtime changes include setting `CREATE_NO_WINDOW`
+`rust-v0.163.0` commit. Its runtime changes include setting `CREATE_NO_WINDOW`
 on the two PowerShell detection commands in `src/powershell.rs`. Detection calls
 `pwsh` directly instead of adding an intermediate `cmd /C` process. The standalone
 manifest resolves the original workspace dependencies at the same pin. Upstream

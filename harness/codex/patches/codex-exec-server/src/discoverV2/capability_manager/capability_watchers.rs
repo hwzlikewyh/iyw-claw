@@ -46,10 +46,6 @@ impl CapabilityWatchers {
         }
     }
 
-    pub(super) fn has_subscription(&self) -> bool {
-        self.subscription.get().is_some()
-    }
-
     /// Registers fixed roots, including missing ones, without separate watches for symlink targets.
     pub(super) fn register_paths(&self, locations: &CapabilityLocations) -> WatchRegistration {
         let Some(subscription) = self.subscription.get() else {
@@ -82,7 +78,7 @@ impl CapabilityManager {
             dirty: AtomicBool::new(false),
             locations: prewarmed.clone(),
             sandbox_discoveries: Mutex::default(),
-            _registration: registration,
+            registration,
         });
         let mut current_state = self.current_state.lock().await;
         let weak = Arc::downgrade(self);
@@ -127,7 +123,7 @@ impl CapabilityManager {
                 dirty: AtomicBool::new(false),
                 locations,
                 sandbox_discoveries: Mutex::default(),
-                _registration: registration,
+                registration,
             });
             // Requests populate the new cache lazily; in-flight loads retain their old snapshot.
             *self.current_state.lock().await = Some(next);

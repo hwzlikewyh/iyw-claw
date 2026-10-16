@@ -33,6 +33,8 @@ use crate::config_types::Verbosity;
 use crate::protocol::MultiAgentVersion;
 
 mod access_programs;
+mod incremental_tools;
+pub use incremental_tools::IncrementalToolMessages;
 #[path = "openai_models/guardian.rs"]
 mod guardian;
 pub use guardian::GuardianModelPolicy;
@@ -248,7 +250,8 @@ pub struct ModelPreset {
     pub default_reasoning_effort: ReasoningEffort,
     /// Supported reasoning effort options.
     pub supported_reasoning_efforts: Vec<ReasoningEffortPreset>,
-    /// Deprecated catalog field, always false for new model presets.
+    /// Compatibility field retained for consumers of model presets; personality selection is no
+    /// longer supported.
     #[serde(default)]
     pub supports_personality: bool,
     /// Deprecated: use `service_tiers` instead.
@@ -539,8 +542,8 @@ impl ModelInfo {
 
 /// A strongly-typed template for assembling model instructions and developer messages.
 ///
-/// `instructions_template` is literal text. The deprecated `instructions_variables` field is
-/// retained to decode catalogs produced before personality selection was removed.
+/// `instructions_template`: Formerly a personality template, now literal text. The name is
+/// retained for model catalog compatibility.
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, TS, JsonSchema)]
 pub struct ModelMessages {
     /// Developer guidance after a content-filter block. Missing, null, blank, or values over
@@ -554,7 +557,6 @@ pub struct ModelMessages {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<ToolMessages>,
     pub instructions_template: Option<String>,
-    pub instructions_variables: Option<ModelInstructionsVariables>,
     pub approvals: Option<ApprovalMessages>,
     pub collaboration_modes: Option<CollaborationModeMessages>,
     pub auto_review: Option<AutoReviewMessages>,
@@ -580,9 +582,21 @@ pub struct ConfirmationPolicies {
     pub computer_use: Option<String>,
 }
 
-/// Model-owned tool messages and indirect namespace guidance.
+/// Model-owned tool messages and description prefixes.
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, TS, JsonSchema)]
 pub struct ToolMessages {
+    /// Optional wording for incremental catalog notices.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub incremental_tools: Option<IncrementalToolMessages>,
+    /// Prefixes for individual functions in the `functions` namespace, keyed by unqualified name.
+    /// Applies to direct declarations, Code Mode, and tool search, including custom tools.
+    /// Values are trimmed; empty values and unavailable functions add nothing. The trimmed
+    /// values for available functions plus separating blank lines must fit in 256 UTF-8 bytes
+    /// in total. This bounds the added text, not the complete definition or its token count.
+    /// Other namespaces are never affected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub functions_namespace_functions_description_prefixes:
+        Option<std::collections::BTreeMap<String, String>>,
     /// Optional guidance for indirectly presented tools; missing or empty adds no prefix.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub indirect_description_prefixes: Option<IndirectDescriptionPrefixes>,
@@ -597,6 +611,7 @@ pub struct ToolMessages {
 }
 
 /// Plain-text prefixes for Code Mode documentation, ALL_TOOLS, and loaded tool-search namespaces.
+/// Flat indirect entries carry these before any per-function prefix.
 /// Values are trimmed, and selectors for the same final namespace must agree, including empty values.
 /// Empty values add no prefix; unregistered targets are ignored.
 #[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq, TS, JsonSchema)]
@@ -790,13 +805,6 @@ pub struct MultiAgentModeMessages {
     /// an empty string suppresses the mode message. `hint_text` takes precedence.
     pub proactive: Option<String>,
     pub hint_text: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, TS, JsonSchema)]
-pub struct ModelInstructionsVariables {
-    pub personality_default: Option<String>,
-    pub personality_friendly: Option<String>,
-    pub personality_pragmatic: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, TS, JsonSchema)]

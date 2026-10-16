@@ -578,7 +578,9 @@ ON CONFLICT(child_thread_id) DO NOTHING
             },
             matches!(
                 sort_key,
-                crate::SortKey::RecencyAt | crate::SortKey::SectionPosition
+                crate::SortKey::CreatedAt
+                    | crate::SortKey::RecencyAt
+                    | crate::SortKey::SectionPosition
             ),
         );
         push_thread_order_and_limit(
@@ -588,7 +590,9 @@ ON CONFLICT(child_thread_id) DO NOTHING
             OrderByIndex::Enabled,
             matches!(
                 sort_key,
-                crate::SortKey::RecencyAt | crate::SortKey::SectionPosition
+                crate::SortKey::CreatedAt
+                    | crate::SortKey::RecencyAt
+                    | crate::SortKey::SectionPosition
             ),
             limit,
         );
@@ -1194,6 +1198,10 @@ ON CONFLICT(id) DO UPDATE SET
         }
         let mut rows_affected = 0;
         for thread_id_string in &thread_id_strings {
+            sqlx::query("DELETE FROM thread_read_receipts WHERE thread_id = ?")
+                .bind(thread_id_string)
+                .execute(&mut *tx)
+                .await?;
             rows_affected += sqlx::query("DELETE FROM threads WHERE id = ?")
                 .bind(thread_id_string)
                 .execute(&mut *tx)
@@ -1267,7 +1275,7 @@ WITH RECURSIVE subtree(child_thread_id, parent_thread_id) AS (
     let include_thread_id_tiebreaker = relation_filter.is_some()
         || matches!(
             filters.sort_key,
-            SortKey::RecencyAt | SortKey::SectionPosition
+            SortKey::CreatedAt | SortKey::RecencyAt | SortKey::SectionPosition
         );
     push_thread_filters_with_preview(
         builder,
@@ -1509,6 +1517,11 @@ fn push_thread_filters_with_preview<'a>(
             SortDirection::Asc => ">",
             SortDirection::Desc => "<",
         };
+        if include_thread_id_tiebreaker && anchor.id.is_some() {
+            // Keep the timestamp index range despite the UUID tie-breaker's OR predicate.
+            builder.push(format!(" AND {column} {operator}= "));
+            builder.push_bind(anchor_ts);
+        }
         builder.push(" AND (");
         builder.push(column);
         builder.push(" ");

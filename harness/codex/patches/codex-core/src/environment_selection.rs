@@ -16,6 +16,7 @@ use codex_exec_server::ExecServerError;
 use codex_exec_server::ExecutorFileSystem;
 use codex_exec_server::SelectedCapabilityRootsStatus;
 use codex_protocol::capabilities::CapabilityRootLocation;
+use codex_protocol::capabilities::EnvironmentCapabilityRoots;
 use codex_protocol::capabilities::SelectedCapabilityRoot;
 use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
@@ -26,7 +27,9 @@ use codex_protocol::protocol::EnvironmentConfigState;
 use codex_protocol::protocol::EnvironmentConnectionEvent;
 use codex_protocol::protocol::Event;
 use codex_protocol::protocol::EventMsg;
+use codex_protocol::protocol::TurnEnvironmentRequest;
 use codex_protocol::protocol::TurnEnvironmentSelection;
+use codex_skills_extension::EnvironmentSkillRequirements;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::PathUri;
 use futures::FutureExt;
@@ -81,17 +84,13 @@ impl EnvironmentConfigOrigin {
 
 /// Combines persisted thread roots with attachment roots in selection order.
 ///
-/// Thread-owned attachments still rely on roots reported by legacy executors. A matching live root
-/// refreshes the persisted location while explicit owner configuration retains the existing
-/// thread-first collision behavior.
+/// A matching root from the current attachment refreshes its persisted location. Root IDs from
+/// other environments and persisted roots absent from the attachment keep their existing location.
 pub(crate) fn combine_selected_capability_roots(
     thread_roots: &[SelectedCapabilityRoot],
-    sources: impl IntoIterator<Item = (EnvironmentConfigOrigin, Vec<SelectedCapabilityRoot>)>,
+    sources: impl IntoIterator<Item = Vec<SelectedCapabilityRoot>>,
 ) -> Vec<SelectedCapabilityRoot> {
-    let attachment_roots = sources
-        .into_iter()
-        .flat_map(|(config_origin, roots)| roots.into_iter().map(move |root| (config_origin, root)))
-        .collect::<Vec<_>>();
+    let attachment_roots = sources.into_iter().flatten().collect::<Vec<_>>();
     let mut combined_roots = thread_roots
         .iter()
         .map(|thread_root| {
@@ -101,35 +100,33 @@ pub(crate) fn combine_selected_capability_roots(
             } = &thread_root.location;
             attachment_roots
                 .iter()
-                .find_map(|(origin, attachment_root)| {
-                    if *origin != EnvironmentConfigOrigin::Thread
-                        || attachment_root.id != thread_root.id
-                    {
-                        return None;
+                .find(|attachment_root| {
+                    if attachment_root.id != thread_root.id {
+                        return false;
                     }
                     let CapabilityRootLocation::Environment {
                         environment_id: attachment_environment_id,
                         ..
                     } = &attachment_root.location;
-                    (attachment_environment_id == thread_environment_id).then_some(attachment_root)
+                    attachment_environment_id == thread_environment_id
                 })
                 .unwrap_or(thread_root)
                 .clone()
         })
         .collect::<Vec<_>>();
-    combined_roots.extend(attachment_roots.into_iter().map(|(_, root)| root));
+    combined_roots.extend(attachment_roots);
     combined_roots
 }
 
-pub(crate) fn default_thread_environment_selections(
+pub(crate) fn default_thread_environment_requests(
     environment_manager: &EnvironmentManager,
     cwd: &AbsolutePathBuf,
     workspace_roots: &[AbsolutePathBuf],
-) -> Vec<TurnEnvironmentSelection> {
+) -> Vec<TurnEnvironmentRequest> {
     environment_manager
         .default_environment_ids()
         .into_iter()
-        .map(|environment_id| TurnEnvironmentSelection {
+        .map(|environment_id| TurnEnvironmentRequest {
             environment_id,
             cwd: PathUri::from_abs_path(cwd),
             workspace_roots: workspace_roots.iter().map(PathUri::from_abs_path).collect(),
@@ -139,30 +136,26 @@ pub(crate) fn default_thread_environment_selections(
 }
 
 /// Checks that environment IDs are registered and unique and that working directories are not too long.
-pub fn validate_environment_ids_and_cwds(
+pub fn validate_environment_ids_and_cwds<'a>(
     environment_manager: &EnvironmentManager,
-    environments: &[TurnEnvironmentSelection],
+    environments: impl IntoIterator<Item = (&'a str, &'a PathUri)>,
 ) -> CodexResult<()> {
-    let mut environment_ids = HashSet::with_capacity(environments.len());
-    for environment in environments {
-        if environment.cwd.inferred_native_path_string().len() > MAX_TURN_ENVIRONMENT_CWD_BYTES {
+    let mut environment_ids = HashSet::new();
+    for (environment_id, cwd) in environments {
+        if cwd.inferred_native_path_string().len() > MAX_TURN_ENVIRONMENT_CWD_BYTES {
             return Err(CodexErr::InvalidRequest(
                 "turn environment working directory exceeds the maximum size".to_string(),
             ));
         }
-        if !environment_ids.insert(environment.environment_id.as_str()) {
+        if !environment_ids.insert(environment_id) {
             return Err(CodexErr::InvalidRequest(format!(
-                "duplicate turn environment id `{}`",
-                environment.environment_id
+                "duplicate turn environment id `{environment_id}`"
             )));
         }
         environment_manager
-            .get_environment(&environment.environment_id)
+            .get_environment(environment_id)
             .ok_or_else(|| {
-                CodexErr::InvalidRequest(format!(
-                    "unknown turn environment id `{}`",
-                    environment.environment_id
-                ))
+                CodexErr::InvalidRequest(format!("unknown turn environment id `{environment_id}`"))
             })?;
     }
     Ok(())
@@ -420,9 +413,7 @@ impl ThreadEnvironments {
             }
             let previous = current.iter().find(|environment| {
                 let previous = &environment.selection;
-                previous.environment_id == selected_environment.environment_id
-                    && previous.cwd == selected_environment.cwd
-                    && previous.workspace_roots == selected_environment.workspace_roots
+                previous.has_same_workspace(selected_environment)
             });
             let (selected_environment, config_origin) =
                 resolve_selection_config(selected_environment.clone(), thread_defaults);
@@ -718,12 +709,11 @@ impl ThreadEnvironments {
                 let EnvironmentConfigState::Ready(config) = &environment.selection.config else {
                     return None;
                 };
-                Some((
-                    environment.config_origin,
+                Some(
                     environment
                         .config_origin
                         .selected_capability_roots(&environment.environment, config),
-                ))
+                )
             }),
         );
         let mut seen_root_ids = HashSet::with_capacity(selected_capability_roots.len());
@@ -982,6 +972,7 @@ pub(crate) enum TurnEnvironmentState {
     Failed {
         // Keep the input form so connection failure doesn't hide whether config comes from the thread.
         selection: TurnEnvironmentSelection,
+        required_skills: Vec<String>,
         error: String,
     },
 }
@@ -991,9 +982,11 @@ impl TurnEnvironmentState {
         starting: StartingTurnEnvironment,
         resolved: Option<TurnEnvironmentResult>,
     ) -> Self {
+        let required_skills = starting.environment.required_skills().to_vec();
         if let EnvironmentConfigState::Failed(error) = &starting.selection.config {
             let error = error.clone();
             return Self::Failed {
+                required_skills,
                 selection: starting
                     .config_origin
                     .into_input_selection(starting.selection),
@@ -1006,6 +999,7 @@ impl TurnEnvironmentState {
                 if matches!(selection.config, EnvironmentConfigState::Pending) {
                     let Some(config) = environment.installed_config else {
                         return Self::Failed {
+                            required_skills,
                             selection: starting.config_origin.into_input_selection(selection),
                             error: "Environment configuration was not supplied.".to_string(),
                         };
@@ -1035,6 +1029,7 @@ impl TurnEnvironmentState {
                     "skipping failed turn environment: {err}"
                 );
                 Self::Failed {
+                    required_skills,
                     selection: starting
                         .config_origin
                         .into_input_selection(starting.selection),
@@ -1055,6 +1050,18 @@ pub struct TurnEnvironmentSnapshot {
 }
 
 impl TurnEnvironmentSnapshot {
+    /// Keeps the original root order for child threads and saved history.
+    pub(crate) fn selected_capability_roots(&self) -> Vec<SelectedCapabilityRoot> {
+        EnvironmentCapabilityRoots::collect(self.environments.iter().map(|environment| {
+            let selection = match environment {
+                TurnEnvironmentState::Ready(environment) => &environment.selection,
+                TurnEnvironmentState::Starting(environment) => &environment.selection,
+                TurnEnvironmentState::Failed { selection, .. } => selection,
+            };
+            &selection.selected_capability_roots
+        }))
+    }
+
     pub(crate) fn has_full_access(
         &self,
         approval_policy: AskForApproval,
@@ -1204,6 +1211,35 @@ impl TurnEnvironmentSnapshot {
         self.turn_environments()
             .map(TurnEnvironment::selection)
             .collect()
+    }
+
+    /// Captures requirements from the selected registration even when connection setup fails.
+    pub(crate) fn required_skills(&self) -> impl Iterator<Item = EnvironmentSkillRequirements<'_>> {
+        self.environments.iter().filter_map(|environment| {
+            let (selection, required) = match environment {
+                TurnEnvironmentState::Ready(environment) => (
+                    &environment.selection,
+                    environment.environment.required_skills(),
+                ),
+                TurnEnvironmentState::Starting(environment) => (
+                    &environment.selection,
+                    environment.environment.required_skills(),
+                ),
+                TurnEnvironmentState::Failed {
+                    selection,
+                    required_skills,
+                    ..
+                } => (selection, required_skills.as_slice()),
+            };
+            if required.is_empty() {
+                None
+            } else {
+                Some(EnvironmentSkillRequirements {
+                    environment_id: &selection.environment_id,
+                    skill_names: required,
+                })
+            }
+        })
     }
 
     /// Native children retain ready and starting attachments captured by their spawning step.

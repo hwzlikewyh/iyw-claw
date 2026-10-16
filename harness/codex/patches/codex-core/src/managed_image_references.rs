@@ -1,9 +1,30 @@
 //! 保留可回读的图片资源身份，与短期签名地址分离。
 use super::managed_images::IMAGE_ID_PREFIX;
+use codex_history::ResponseItemEnvelope;
 use codex_protocol::models::{
     ContentItem, FunctionCallOutputContentItem, ImageReference, ResponseItem,
 };
 use sha2::{Digest, Sha256};
+
+// 保留可重新加载的托管图片 ID，覆盖前台替换和后台前缀安装。
+pub(crate) async fn retain_in_history(
+    sess: &crate::session::session::Session,
+    history: Vec<ResponseItemEnvelope>,
+) -> Vec<ResponseItemEnvelope> {
+    let current = sess.clone_history().await;
+    let mut references = String::new();
+    append_image_references(current.raw_items(), &mut references);
+    if references.is_empty() {
+        return history;
+    }
+    let summary = crate::context::ContextualUserFragment::into(
+        crate::context::CompactionSummary::new(references),
+    );
+    crate::compact::insert_initial_context_before_last_real_user_or_summary(
+        history,
+        vec![ResponseItemEnvelope::new(summary)],
+    )
+}
 
 pub(crate) fn contains_inline_images(items: &[ResponseItem]) -> bool {
     items.iter().any(|item| match item {

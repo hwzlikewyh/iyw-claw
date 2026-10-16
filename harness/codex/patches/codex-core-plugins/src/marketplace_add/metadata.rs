@@ -5,6 +5,7 @@ use crate::marketplace::validate_marketplace_root;
 use codex_config::CONFIG_TOML_FILE;
 use codex_config::MarketplaceConfigUpdate;
 use codex_config::record_user_marketplace;
+use codex_utils_path::paths_match_after_normalization;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
@@ -77,10 +78,10 @@ pub(super) fn installed_marketplace_root_for_source(
         if !install_metadata.matches_config(marketplace) {
             continue;
         }
-        let Some(root) =
-            resolve_configured_marketplace_root(marketplace_name, marketplace, install_root)
-        else {
-            continue;
+        let root = match &install_metadata.source {
+            // Keep using the resolved request path if the configured alias is retargeted.
+            InstalledMarketplaceSource::Local { path } => PathBuf::from(path),
+            InstalledMarketplaceSource::Git { .. } => install_root.join(marketplace_name),
         };
         if validate_marketplace_root(&root).is_ok() {
             return Ok(Some(root));
@@ -178,8 +179,15 @@ impl MarketplaceInstallMetadata {
     fn matches_config(&self, marketplace: &toml::Value) -> bool {
         marketplace.get("source_type").and_then(toml::Value::as_str)
             == Some(self.config_source_type())
-            && marketplace.get("source").and_then(toml::Value::as_str)
-                == Some(self.config_source().as_str())
+            && marketplace
+                .get("source")
+                .and_then(toml::Value::as_str)
+                .is_some_and(|source| match &self.source {
+                    InstalledMarketplaceSource::Local { path } => {
+                        paths_match_after_normalization(source, path)
+                    }
+                    InstalledMarketplaceSource::Git { url, .. } => source == url,
+                })
             && marketplace.get("ref").and_then(toml::Value::as_str) == self.ref_name()
             && config_sparse_paths(marketplace) == self.sparse_paths()
     }

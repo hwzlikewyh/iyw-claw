@@ -3,6 +3,7 @@
 
 #[path = "review_request.rs"]
 mod request;
+pub(super) use request::ReviewAuthorization;
 
 use codex_analytics::GuardianApprovalRequestSource;
 use codex_analytics::GuardianReviewAnalyticsResult;
@@ -32,7 +33,6 @@ use super::ApprovalRequestReasons;
 
 use super::GUARDIAN_REVIEWER_NAME;
 use super::GuardianApprovalRequest;
-use super::GuardianAssessmentOutcome;
 use super::GuardianReviewContext;
 use super::approval_request::format_guardian_action_pretty;
 use super::approval_request::guardian_assessment_action;
@@ -73,19 +73,6 @@ async fn plugin_attribution_for_guardian_request(
                     .ok()
                     .and_then(|cwd| turn.plugin_attribution_for_command(command, &cwd))
             }
-        }
-        #[cfg(unix)]
-        GuardianApprovalRequest::Execve {
-            program, argv, cwd, ..
-        } => {
-            let command = if argv.is_empty() {
-                vec![program.clone()]
-            } else {
-                std::iter::once(program.clone())
-                    .chain(argv.iter().skip(1).cloned())
-                    .collect()
-            };
-            turn.plugin_attribution_for_command(&command, cwd)
         }
         _ => None,
     }
@@ -170,6 +157,12 @@ pub(super) async fn guardian_review_session_config(
     })
 }
 
+struct ReviewAttemptOptions {
+    authorization: Option<ReviewAuthorization>,
+    external_cancel: Option<CancellationToken>,
+    deadline: Instant,
+}
+
 /// Runs the guardian in a locked-down reusable review session.
 ///
 /// The guardian itself should not mutate state or trigger further approvals, so
@@ -190,8 +183,7 @@ async fn run_guardian_review_session_before_deadline(
     request: GuardianApprovalRequest,
     category: GuardianScope,
     reasons: ApprovalRequestReasons,
-    external_cancel: Option<CancellationToken>,
-    deadline: Instant,
+    options: ReviewAttemptOptions,
 ) -> (GuardianReviewOutcome, GuardianReviewAnalyticsResult) {
     let Some(pool) = session.guardian_review_session() else {
         return (
@@ -222,12 +214,13 @@ async fn run_guardian_review_session_before_deadline(
                 request,
                 category,
                 reasons,
+                authorization: options.authorization,
                 schema: guardian_output_schema(),
                 review_model: session_config.review_model,
                 reasoning_summary: context.reasoning_summary,
                 personality: context.personality,
-                external_cancel,
-                deadline,
+                external_cancel: options.external_cancel,
+                deadline: options.deadline,
             },
         ))
         .await;

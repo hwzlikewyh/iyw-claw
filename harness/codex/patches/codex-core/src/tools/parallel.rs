@@ -14,6 +14,7 @@ use tracing::instrument;
 use tracing::trace_span;
 
 use crate::function_tool::FunctionCallError;
+use crate::function_tool::OrCancelToolExt;
 use crate::session::session::Session;
 use crate::session::step_context::StepContext;
 use crate::tools::call_trace;
@@ -145,7 +146,12 @@ impl ToolCallRuntime {
             .record_tool_call(&call, &source, &step_context);
         let router = &step_context.tool_router;
         let supports_parallel = router.tool_supports_parallel(&call);
-        let tool_runtime = router.tool_runtime(&call.tool_name);
+        let tool_runtime = router
+            .registered_tool(&call.tool_name)
+            .map(|tool| Arc::clone(&tool.runtime));
+        let finishes_on_cancellation = tool_runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.finishes_on_cancellation());
         let router = Arc::clone(router);
         let session = Arc::clone(&self.session);
         let turn = Arc::clone(&step_context.turn);
@@ -203,17 +209,22 @@ impl ToolCallRuntime {
         let mut dispatch_handle = AbortOnDropHandle::new(tokio::spawn(
             async move {
                 let _message_admission = message_admission?;
-                if let Some(tool_runtime) = tool_runtime
-                    && let Some(readiness) = tool_runtime.wait_until_ready(&session)
-                {
-                    readiness.await;
-                }
+                // Readiness and admission remain cancellable even when the handler must finish.
+                let guard = async {
+                    if let Some(tool_runtime) = tool_runtime
+                        && let Some(readiness) = tool_runtime.wait_until_ready(&session)
+                    {
+                        readiness.await;
+                    }
 
-                let guard = if supports_parallel {
-                    Either::Left(lock.read().await)
-                } else {
-                    Either::Right(lock.write().await)
-                };
+                    if supports_parallel {
+                        Either::Left(lock.read().await)
+                    } else {
+                        Either::Right(lock.write().await)
+                    }
+                }
+                .or_cancel_tool(&invocation_cancellation_token)
+                .await?;
                 // Admission through the parallel-execution gate marks the end
                 // of dispatch waiting and the start of handler execution.
                 if let Some(execution_started_at) = execution_started_at {
@@ -256,7 +267,11 @@ impl ToolCallRuntime {
             let mut result = tokio::select! {
                 res = &mut dispatch_handle => res.map_err(Self::tool_task_join_error)?,
                 _ = cancellation_token.cancelled() => {
-                    if call_state.terminal_outcome_reached.load(Ordering::Acquire) || dispatch_handle.is_finished() {
+                    // Dynamic handlers observe the token and publish their terminal item themselves.
+                    if finishes_on_cancellation
+                        || call_state.terminal_outcome_reached.load(Ordering::Acquire)
+                        || dispatch_handle.is_finished()
+                    {
                         dispatch_handle.await.map_err(Self::tool_task_join_error)?
                     } else {
                         let secs = started.elapsed().as_secs_f32().max(0.1);
@@ -273,12 +288,13 @@ impl ToolCallRuntime {
                                     &call.call_id,
                                     trace_source,
                                 );
+                                call_state.terminal_outcome_reached.store(true, Ordering::Release);
                                 notify_tool_aborted(
                                     abort_session.as_ref(),
                                     abort_turn.as_ref(),
                                     call.call_id.as_str(),
                                     &call.tool_name,
-                                    abort_source,
+                                    abort_source.clone(),
                                 )
                                 .await;
                                 Ok(response)
@@ -288,6 +304,25 @@ impl ToolCallRuntime {
                     }
                 },
             };
+            // Cancellation outside the handler can return before the registry reports an outcome.
+            if cancellation_token.is_cancelled()
+                && !call_state
+                    .terminal_outcome_reached
+                    .swap(true, Ordering::AcqRel)
+            {
+                notify_tool_aborted(
+                    abort_session.as_ref(),
+                    abort_turn.as_ref(),
+                    call.call_id.as_str(),
+                    &call.tool_name,
+                    abort_source,
+                )
+                .await;
+                result = Ok(Self::aborted_response(
+                    &call,
+                    started.elapsed().as_secs_f32().max(0.1),
+                ));
+            }
             // Use one completion measurement for logging and response formatting.
             // Measuring inside a handler would omit routing and output processing.
             if let Some(timing) = tool_call_timing_guard.as_mut()

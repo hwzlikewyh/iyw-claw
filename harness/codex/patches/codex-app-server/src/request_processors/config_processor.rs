@@ -143,7 +143,10 @@ impl ConfigRequestProcessor {
             self.thread_manager.auth_manager().allowed_login_methods(),
         );
 
-        Ok(ConfigRequirementsReadResponse { requirements })
+        Ok(ConfigRequirementsReadResponse {
+            supports_independent_speed_modes: Some(true),
+            requirements,
+        })
     }
 
     pub(crate) async fn value_write(
@@ -208,7 +211,6 @@ impl ConfigRequestProcessor {
         let provider = create_model_provider(config.model_provider, /*auth_manager*/ None);
         let capabilities = provider.capabilities();
         Ok(ModelProviderCapabilitiesReadResponse {
-            namespace_tools: capabilities.namespace_tools,
             image_generation: capabilities.image_generation,
             web_search: capabilities.web_search,
         })
@@ -627,6 +629,19 @@ fn map_browser_use_requirements_to_api(
     browser_use: codex_config::BrowserUseRequirementsToml,
 ) -> BrowserUseRequirements {
     BrowserUseRequirements {
+        extension: browser_use.extension.map(|extension| {
+            codex_app_server_protocol::BrowserUseExtensionRequirements {
+                request_headers: extension.request_headers.map(|headers| {
+                    headers
+                        .into_iter()
+                        .map(|header| codex_app_server_protocol::RequestHeader {
+                            name: header.name,
+                            value: header.value,
+                        })
+                        .collect()
+                }),
+            }
+        }),
         allow_webmcp: browser_use.allow_webmcp,
         allow_history_access: browser_use.allow_history_access,
         disable_auto_review: browser_use.disable_auto_review,

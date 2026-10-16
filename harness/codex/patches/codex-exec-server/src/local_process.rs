@@ -19,6 +19,7 @@ use codex_protocol::config_types::ShellEnvironmentPolicy;
 use codex_protocol::exec_output::ExecToolCallOutput;
 use codex_protocol::exec_output::StreamOutput;
 use codex_protocol::shell_environment;
+use codex_protocol::shell_environment::CODEX_THREAD_ID_ENV_VAR;
 use codex_sandboxing::SandboxType;
 use codex_sandboxing::is_likely_sandbox_denied;
 use codex_utils_pty::ExecCommandSession;
@@ -749,7 +750,30 @@ fn child_env(params: &ExecParams) -> HashMap<String, String> {
     };
     env.remove(crate::CODEX_EXEC_SERVER_EXIT_ON_STDIN_CLOSE_ENV_VAR);
     env.retain(|name, _| !shell_environment::is_non_inheritable_env_var(name));
+    apply_exec_metadata(&mut env, params.metadata.as_ref());
     env
+}
+
+pub(crate) fn apply_exec_metadata(
+    env: &mut HashMap<String, String>,
+    metadata: Option<&crate::protocol::ExecMetadata>,
+) {
+    if let Some(metadata) = metadata {
+        #[cfg(windows)]
+        env.retain(|name, _| !name.eq_ignore_ascii_case(CODEX_THREAD_ID_ENV_VAR));
+        match metadata.thread_id {
+            Some(thread_id) => {
+                env.insert(CODEX_THREAD_ID_ENV_VAR.to_string(), thread_id.to_string());
+            }
+            None => {
+                env.remove(CODEX_THREAD_ID_ENV_VAR);
+            }
+        }
+    }
+    shell_environment::set_tool_call_id_env_var(
+        env,
+        metadata.and_then(|metadata| metadata.tool_call_id.as_deref()),
+    );
 }
 
 pub(crate) fn shell_environment_policy(env_policy: &ExecEnvPolicy) -> ShellEnvironmentPolicy {

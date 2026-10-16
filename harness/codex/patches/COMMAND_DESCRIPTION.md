@@ -31,12 +31,13 @@ description. Approval prompts continue to show the actual command.
 Baseline: OpenAI Codex `rust-v0.153.4`, commit
 `3d2ee51ca2d5db578f328aa75e20aa22c0197c9a`.
 
-Current production sources target `rust-v0.161.0` at
-`979011409de0a60b52f179721948e65531d26144`. The patch artifact below retains
+Current production sources target `rust-v0.163.0` at
+`83086188ae0614bd882818ff1aa23f3194962012`. The patch artifact below retains
 the historical baseline for review; use the current patched sources as the
 authority and compare each hunk before reapplication to newer upstream code.
-The 0.161.0 upgrade preserves Rust command items and both precomputed protocol
-exports. See `docs/xinghe-upgrade-0.161.0.md` for validation and limits.
+The 0.163.0 upgrade preserves Rust command items and both precomputed protocol
+exports, including legacy descriptions after upstream's rollout-policy split.
+See `docs/xinghe-upgrade-0.163.0.md` for validation and limits.
 
 The existing `codex-core` and `codex-rollout` overrides are extended. Four
 additional production source copies are required because Rust structs and enum

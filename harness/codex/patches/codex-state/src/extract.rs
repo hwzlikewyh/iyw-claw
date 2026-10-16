@@ -59,7 +59,10 @@ pub fn rollout_item_affects_thread_metadata(item: &RolloutItem) -> bool {
             | EventMsg::ThreadSettingsApplied(_),
         ) => true,
         RolloutItem::EventMsg(EventMsg::ItemCompleted(event))
-            if matches!(event.item, TurnItem::UserMessage(_)) =>
+            if matches!(
+                event.item,
+                TurnItem::UserMessage(_) | TurnItem::FunctionCallOutput(_)
+            ) =>
         {
             true
         }
@@ -142,6 +145,12 @@ fn apply_event_msg(metadata: &mut ThreadMetadata, event: &EventMsg) {
                 && !metadata_is_guardian_review(metadata)
             {
                 apply_user_message(metadata, &user.as_legacy_user_message_event());
+            } else if let TurnItem::FunctionCallOutput(output) = &event.item
+                && !metadata_is_guardian_review(metadata)
+            {
+                // Delegated turns have no user message, but must still be discoverable.
+                let preview = crate::delegated_output_preview(output);
+                set_preview_if_empty(metadata, preview);
             }
         }
         EventMsg::ThreadGoalUpdated(event) if !metadata_is_guardian_review(metadata) => {

@@ -1,6 +1,6 @@
 [package]
 name = "codex-chatgpt"
-version = "0.161.0"
+version = "0.163.0"
 edition = "2024"
 license = "Apache-2.0"
 autobins = false
@@ -20,35 +20,35 @@ features = [ "derive",]
 
 [dependencies.codex-connectors]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-core]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-git-utils]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-login]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-model-provider]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-plugin]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-utils-cli]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.serde]
 version = "1"

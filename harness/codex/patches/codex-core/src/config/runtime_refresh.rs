@@ -1,5 +1,6 @@
 //! Resolves refreshable MCP inputs without rebuilding unrelated session configuration.
 //! Existing sessions refresh ordinary MCP state without gaining enterprise authority.
+//! Validate the retained backend after applying the refreshable requirements.
 
 use crate::config::Config;
 use crate::config::ManagedFeatures;
@@ -28,6 +29,7 @@ pub(crate) enum RuntimeConfigRefresh {
 #[serde(default)]
 struct McpRefreshToml {
     features: Option<FeaturesToml>,
+    plugins: codex_config::types::PluginsConfigToml,
 }
 
 impl Config {
@@ -163,9 +165,11 @@ impl Config {
             config.tool_suggest = resolve_tool_suggest_config_from_layer_stack(&layers);
         }
         config.config_layer_stack = layers;
+        config.plugins = cfg.plugins;
         if enterprise_retired {
             config.disable_mcp_enterprise_auth();
         }
+        config.validate_windows_mxc_requirement()?;
         Ok(config)
     }
 

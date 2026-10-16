@@ -1,6 +1,7 @@
 use super::PreviousSectionState;
 use super::SectionTransition;
 use super::WorldStateSection;
+use super::WorldStateUpdate;
 use crate::context::ContextualUserFragment;
 use crate::context::ModelSwitchInstructions;
 
@@ -56,6 +57,9 @@ impl WorldStateSection for ModelInstructionsState {
                 Box::new(ModelSwitchInstructions::new(self.instructions.clone()))
                     as Box<dyn ContextualUserFragment>
             });
-        (Some(current), fragment)
+        (
+            Some(current),
+            WorldStateUpdate::optional_standalone_boxed_fragment(fragment),
+        )
     }
 }

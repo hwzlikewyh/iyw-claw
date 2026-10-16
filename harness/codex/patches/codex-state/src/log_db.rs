@@ -74,6 +74,8 @@ pub fn default_filter() -> Targets {
         .with_target("codex_otel.log_only", LevelFilter::OFF)
         .with_target("codex_otel.trace_safe", LevelFilter::OFF)
         .with_target("rmcp", LevelFilter::INFO)
+        .with_target("tokio::", LevelFilter::INFO)
+        .with_target("runtime::", LevelFilter::INFO)
         .with_target("tokio_graceful::guard", LevelFilter::DEBUG)
         .with_target("tokio_graceful::trigger", LevelFilter::DEBUG)
         .with_target("codex_api::responses_websocket_timing", LevelFilter::OFF)
@@ -282,6 +284,14 @@ where
             .split("::")
             .next()
             .is_some_and(|target| SQLX_LOG_TARGETS.contains(&target))
+        {
+            return;
+        }
+
+        // Channel sends and timer polls from this sink must not enqueue more
+        // SQLite writes when Tokio runtime tracing is enabled.
+        if *metadata.level() == tracing::Level::TRACE
+            && matches!(target.split("::").next(), Some("tokio" | "runtime"))
         {
             return;
         }

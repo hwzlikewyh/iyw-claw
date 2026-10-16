@@ -2,7 +2,7 @@
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-model-provider"
-version = "0.161.0"
+version = "0.163.0"
 autobins = false
 autotests = false
 autobenches = false
@@ -14,62 +14,62 @@ path = "src/lib.rs"
 
 [dependencies.codex-utils-process]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.chrono]
 version = "0.4.43"
 
 [dependencies.codex-api]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-agent-identity]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-aws-auth]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-feedback]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-login]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-keyring-store]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-model-provider-info]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-models-manager]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-otel]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-response-debug-context]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-secrets]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.http]
 version = "1.3.1"
