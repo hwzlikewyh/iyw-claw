@@ -46,6 +46,13 @@ pub struct Model {
     pub stop_reason: Option<String>,
     pub error: Option<String>,
     pub summary: Option<String>,
+    pub retry_of_run_id: Option<i32>,
+    pub notification_channel_id: Option<i32>,
+    pub notification_channel_name: Option<String>,
+    pub notification_status: Option<String>,
+    pub notification_error: Option<String>,
+    pub notification_target_json: Option<String>,
+    pub notification_updated_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
 }
 

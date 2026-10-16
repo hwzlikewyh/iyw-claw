@@ -15,6 +15,7 @@ pub(crate) mod agent_version_operations;
 #[cfg(feature = "tauri-runtime")]
 pub mod app_update;
 pub mod automation;
+pub mod automation_runs;
 pub mod artifact_notifications;
 pub mod automation_draft;
 pub mod backup;

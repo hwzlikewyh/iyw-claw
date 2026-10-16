@@ -240,6 +240,7 @@ pub async fn run_automation_engine(engine: Arc<AutomationEngine>) {
     }
 
     let mut rx = engine.bus.subscribe();
+    super::retry_queue::spawn(engine.clone(), engine.db.conn.clone());
     let mut reconcile = delay_interval(RECONCILE_INTERVAL_SECS);
     let mut schedule = delay_interval(SCHEDULER_INTERVAL_SECS);
     let mut prune = delay_interval(PRUNE_INTERVAL_SECS);
@@ -308,11 +309,47 @@ impl AutomationEngine {
         trigger: &str,
         scheduled_for: Option<chrono::DateTime<Utc>>,
     ) -> Result<i32, String> {
+        self.run_launch(
+            automation_id,
+            crate::db::service::automation_run_service::RunLaunch {
+                trigger: trigger.to_string(),
+                scheduled_for,
+                retry_of_run_id: None,
+            },
+        )
+        .await
+    }
+
+    pub async fn retry_run(&self, run_id: i32) -> Result<i32, String> {
+        let original = crate::db::service::automation_run_service::get(&self.db.conn, run_id)
+            .await
+            .map_err(|error| error.to_string())?;
+        self.run_launch(
+            original.automation_id,
+            crate::db::service::automation_run_service::RunLaunch {
+                trigger: "retry".to_string(),
+                scheduled_for: original.scheduled_for,
+                retry_of_run_id: Some(run_id),
+            },
+        )
+        .await
+    }
+
+    async fn run_launch(
+        &self,
+        automation_id: i32,
+        launch: crate::db::service::automation_run_service::RunLaunch,
+    ) -> Result<i32, String> {
         // Serialize every fire of this automation: the overlap check + run-row
         // insert below is otherwise a check-then-act race that a manual run-now
         // racing a scheduled fire (or a double-click) defeats, starting two runs.
         let fire_lock = self.fire_lock(automation_id).await;
         let _fire_guard = fire_lock.lock().await;
+        if let Some(source_id) = launch.retry_of_run_id {
+            crate::db::service::automation_run_service::validate_retry(&self.db.conn, source_id)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
 
         let auto = automation_service::get(&self.db.conn, automation_id)
             .await
@@ -326,18 +363,17 @@ impl AutomationEngine {
             let _ = automation_service::record_skipped_run(
                 &self.db.conn,
                 automation_id,
-                trigger,
-                scheduled_for,
+                &launch.trigger,
+                launch.scheduled_for,
             )
             .await;
             self.emit(AutomationChange::Upsert { id: automation_id });
             return Err("previous run still active".to_string());
         }
 
-        let run =
-            automation_service::start_run(&self.db.conn, automation_id, trigger, scheduled_for)
-                .await
-                .map_err(|e| e.to_string())?;
+        let run = automation_service::start_run(&self.db.conn, &auto, launch)
+            .await
+            .map_err(|e| e.to_string())?;
         // Broadcast the running row immediately so every client sees it the
         // instant it exists — `launch` can take seconds (worktree add + agent
         // spawn) before it re-emits RunStarted with the live "View conversation"
