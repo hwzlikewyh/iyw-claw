@@ -21,7 +21,7 @@ pub(super) struct WorkerSnapshot {
     pub(super) folder_id: i32,
     turn_in_flight: bool,
     turn_completion_pending: bool,
-    native_background_active: bool,
+    native_background_blocks_input: bool,
     pub(super) turn_generation: i64,
     launch_finalized: bool,
     launch_ready: tokio::sync::futures::OwnedNotified,
@@ -148,7 +148,10 @@ async fn worker_snapshot(state: &Arc<tokio::sync::RwLock<SessionState>>) -> Opti
         folder_id: snapshot.folder_id?,
         turn_in_flight: snapshot.turn_in_flight,
         turn_completion_pending: snapshot.turn_completion_pending,
-        native_background_active: snapshot.native_background_turn.is_some(),
+        // 已接管的自动回合可复用当前代际的 steering；其余后台回合继续等待。
+        native_background_blocks_input: snapshot.native_background_turn.as_ref().is_some_and(
+            |turn| !turn.automatic || turn.adopted_generation != Some(snapshot.turn_generation),
+        ),
         turn_generation: snapshot.turn_generation,
         launch_finalized: snapshot.launch_finalized,
         launch_ready: snapshot.launch_ready.clone().notified_owned(),
@@ -172,7 +175,7 @@ impl WorkerTracking {
         snapshot: WorkerSnapshot,
     ) {
         self.reset(&item.id, snapshot.turn_generation);
-        if snapshot.native_background_active {
+        if snapshot.native_background_blocks_input {
             snapshot.wake.await;
             return;
         }
@@ -222,7 +225,7 @@ impl WorkerTracking {
         self.reset(&batch_id, snapshot.turn_generation);
         let capabilities = &snapshot.capabilities;
         let had_tools = snapshot.has_tools || self.tool_for.as_deref() == Some(batch_id.as_str());
-        if snapshot.native_background_active {
+        if snapshot.native_background_blocks_input {
             snapshot.wake.await;
             return;
         }
