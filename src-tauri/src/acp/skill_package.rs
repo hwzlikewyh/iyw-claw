@@ -229,7 +229,7 @@ fn validate_skill_entry(files: &[PackageFile]) -> Result<(), AppCommandError> {
     if content.trim().is_empty() {
         return Err(invalid_package("SKILL.md must not be blank"));
     }
-    Ok(())
+    super::skill_routing::validate_skill_description(content).map_err(invalid_package)
 }
 
 fn hash_file_tree(files: &[PackageFile]) -> String {

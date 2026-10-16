@@ -43,6 +43,8 @@ use codex_sandboxing::SandboxablePreference;
 use codex_sandboxing::WindowsSandboxFilesystemOverrides;
 pub(crate) use codex_sandboxing::is_likely_sandbox_denied;
 use codex_sandboxing::record_filesystem_sandbox_violation;
+#[cfg(target_os = "windows")]
+use codex_sandboxing::windows_sandbox_uses_elevated_backend;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::PathUri;
 use codex_utils_pty::DEFAULT_OUTPUT_BYTES_CAP;

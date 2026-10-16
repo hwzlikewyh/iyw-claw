@@ -15,6 +15,12 @@ pub use embedded_roles::{dispatch_embedded_role, elevate_desktop};
 
 #[doc(hidden)]
 pub mod environment_transport;
+#[cfg(any(windows, test))]
+mod launch_environment;
+#[cfg(any(windows, test))]
+mod setup_acl_error;
+#[cfg(any(windows, test))]
+mod ssh_config_dependencies;
 
 use std::fmt;
 use std::sync::Arc;

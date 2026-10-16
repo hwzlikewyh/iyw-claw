@@ -35,8 +35,11 @@ impl Session {
                 Arc::clone(&self.services.image_store),
             )
             .await;
-        let references =
-            upload_legacy_images(&self.thread_id.to_string(), &history, store.as_ref()).await;
+        let references = upload_legacy_images(
+            (&self.thread_id.to_string(), turn.config.ephemeral),
+            &history,
+            store.as_ref(),
+        ).await;
         if references.is_empty() {
             return;
         }
@@ -50,7 +53,7 @@ impl Session {
 }
 
 async fn upload_legacy_images(
-    thread_id: &str,
+    (thread_id, ephemeral): (&str, bool),
     history: &crate::context_manager::ContextManager,
     store: &dyn codex_attachment_store::AttachmentStore,
 ) -> HashMap<[u8; 32], ImageReference> {
@@ -69,6 +72,7 @@ async fn upload_legacy_images(
         match store
             .upload(UploadRequest {
                 thread_id: thread_id.to_owned(),
+                ephemeral,
                 file_name: None,
                 data,
             })

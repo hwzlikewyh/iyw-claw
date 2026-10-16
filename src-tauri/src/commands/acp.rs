@@ -7468,6 +7468,9 @@ fn reconcile_shared_market_skills_for_agent_locked(
         {
             continue;
         }
+        if skill.market_managed {
+            super::skill_metadata::repair_market_skill_description(&skill.id, Path::new(&skill.path));
+        }
         if let Err(error) = reconcile_shared_market_skill_for_agent(
             agent_type,
             &skill,
