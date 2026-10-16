@@ -1,5 +1,9 @@
 name: Setup optional compiler cache
 description: Use sccache when available and fall back to Cargo when setup fails
+inputs:
+  cache-target:
+    description: Optional target for a bounded local cache saved in one batch
+    default: ""
 runs:
   using: composite
   steps:
@@ -15,4 +19,13 @@ runs:
       env:
         SCCACHE_INSTALL_OUTCOME: ${{ steps.install.outcome }}
         SCCACHE_ACTION_PATH: ${{ github.action_path }}
+        SCCACHE_CACHE_TARGET: ${{ inputs.cache-target }}
       run: node "$SCCACHE_ACTION_PATH/configure.mjs"
+    - name: Restore compiler objects across source revisions
+      if: env.IYW_SCCACHE_CACHE_KEY != ''
+      continue-on-error: true
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ env.SCCACHE_DIR }}
+        key: ${{ env.IYW_SCCACHE_CACHE_KEY }}
+        restore-keys: ${{ env.IYW_SCCACHE_CACHE_PREFIX }}

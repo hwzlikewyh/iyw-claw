@@ -39,9 +39,9 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install Rust stable
+      - name: Install pinned desktop Rust
         if: github.event_name == 'workflow_dispatch'
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.99.1
 
       - id: release
         name: Prepare release version and tag
@@ -190,8 +190,8 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned desktop Rust
+        uses: dtolnay/rust-toolchain@1.99.1
 
       - id: resolve
         name: Validate tag and project versions

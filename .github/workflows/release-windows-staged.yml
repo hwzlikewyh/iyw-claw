@@ -68,7 +68,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.1
         if: ${{ !contains(inputs.target, '-win7-') }}
         with:
           targets: ${{ inputs.target }}
@@ -78,6 +78,8 @@ jobs:
           toolchain: nightly-2026-04-15
           components: rust-src
       - uses: ./.github/actions/setup-sccache
+        with:
+          cache-target: ${{ inputs.target }}
       # checkout 会刷新文件修改时间，Cargo 因此整体重编 codex 补丁；固定后按内容哈希区分缓存。
       - name: Pin path dependency mtimes
         id: pathdeps
@@ -172,9 +174,12 @@ jobs:
         name: Transfer staging through draft release
         run: node .release-tools/.github/scripts/release/windows-release.mjs upload
       - uses: ./.github/actions/build-timings
-        if: always() && !inputs.parallel_worker && hashFiles('.github/actions/build-timings/action.yml') != ''
+        if: always() && hashFiles('.github/actions/build-timings/action.yml') != ''
         with:
           target: ${{ inputs.target }}
+      - name: Report and save compiler objects
+        if: always()
+        uses: ./.github/actions/save-sccache
 
   sign:
     needs: build
@@ -228,7 +233,7 @@ jobs:
           sparse-checkout: |
             .github/scripts/release
             src-tauri/scripts
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.99.1
         if: ${{ !contains(inputs.target, '-win7-') }}
         with:
           targets: ${{ inputs.target }}

@@ -111,13 +111,15 @@ jobs:
           fi
           echo "[cache] persistent root: $cache_root"
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install pinned desktop Rust
+        uses: dtolnay/rust-toolchain@1.99.1
         with:
           targets: ${{ matrix.target }}
 
       - name: Setup sccache
         uses: ./.github/actions/setup-sccache
+        with:
+          cache-target: ${{ !contains(toJSON(matrix.runner), 'self-hosted') && matrix.target || '' }}
 
       # checkout 会刷新文件修改时间，Cargo 因此整体重编 codex 补丁；固定后按内容哈希区分缓存。
       - name: Pin path dependency mtimes
@@ -547,8 +549,6 @@ jobs:
         with:
           target: ${{ matrix.target }}
 
-      - name: Show compiler cache statistics
-        if: always() && env.RUSTC_WRAPPER == 'sccache'
-        continue-on-error: true
-        shell: bash
-        run: sccache --show-stats
+      - name: Report and save compiler objects
+        if: always()
+        uses: ./.github/actions/save-sccache
