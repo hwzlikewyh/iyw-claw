@@ -56,21 +56,22 @@ pub(super) fn spawn(
     startup_trace: Option<crate::acp::startup_trace::StartupTrace>,
 ) -> tokio::task::JoinHandle<RuntimeHostDriverOutcome> {
     tokio::spawn(async move {
+        let (initialized, initialization) = tokio::sync::oneshot::channel();
         let client = build_client(
             router.clone(),
             agent_type,
             capabilities,
             Arc::clone(&healthy),
-            ready,
+            initialized,
             startup_trace,
         );
         let connection_shutdown = shutdown.clone();
-        let result = client
+        let connection = client
             .connect_with(agent, async move |_connection| {
                 connection_shutdown.cancelled().await;
                 Ok(())
-            })
-            .await;
+            });
+        let result = forward_startup_result(connection, initialization, ready).await;
         healthy.store(false, Ordering::Release);
         let outcome = RuntimeHostDriverOutcome::from_clean(result.is_ok());
         log_exit(
@@ -83,6 +84,38 @@ pub(super) fn spawn(
         );
         outcome
     })
+}
+
+async fn forward_startup_result(
+    operation: impl std::future::Future<Output = Result<(), sacp::Error>>,
+    initialization: tokio::sync::oneshot::Receiver<Result<HostReady, AcpError>>,
+    ready: tokio::sync::oneshot::Sender<Result<HostReady, AcpError>>,
+) -> Result<(), sacp::Error> {
+    tokio::pin!(operation);
+    let result = tokio::select! {
+        result = &mut operation => result,
+        initialized = initialization => {
+            if let Ok(initialized) = initialized {
+                let _ = ready.send(initialized);
+                return operation.await;
+            }
+            operation.await
+        }
+    };
+    // 内置运行时可能在 initialize 回调前失败，保留根因而非仅返回 channel closed。
+    let detail = result.as_ref().err().map_or_else(
+        || "connection closed".to_string(),
+        |error| crate::acp::stderr_tail::sanitize_diagnostic(&error.to_string()),
+    );
+    let error = if detail.contains(INIT_TIMEOUT_SENTINEL) {
+        AcpError::InitializeTimeout
+    } else {
+        AcpError::protocol(format!(
+            "ACP runtime Host exited before initialization: {detail}"
+        ))
+    };
+    let _ = ready.send(Err(error));
+    result
 }
 
 fn build_client(

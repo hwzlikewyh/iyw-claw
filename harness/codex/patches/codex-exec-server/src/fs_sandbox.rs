@@ -36,6 +36,14 @@ use crate::fs_helper::FsHelperResponse;
 use crate::rpc::internal_error;
 use crate::rpc::invalid_request;
 
+#[cfg(windows)]
+#[path = "fs_sandbox_windows.rs"]
+mod windows;
+#[cfg(windows)]
+use windows::bind_windows_cwd_relative_deny_read_globs;
+#[cfg(windows)]
+pub(crate) use windows::{drain_helper_stderr, read_helper_response, reap_helper_after_response};
+
 const FS_HELPER_ENV_ALLOWLIST: &[&str] = &["PATH", "TMPDIR", "TMP", "TEMP"];
 #[cfg(debug_assertions)]
 const FS_HELPER_BAZEL_BWRAP_ENV_ALLOWLIST: &[&str] = &[

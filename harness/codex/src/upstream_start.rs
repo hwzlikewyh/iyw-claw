@@ -243,10 +243,9 @@ fn workspace_roots(args: &UpstreamStartArgs) -> Result<Vec<AbsolutePathBuf>, Ups
     let roots = args
         .workspace_roots
         .iter()
-        .map(std::fs::canonicalize)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(start_error)?;
-    if roots.iter().any(|root| !root.is_dir()) || !roots.iter().any(|root| cwd.starts_with(root)) {
+        .map(|root| canonical_directory(root, "workspace root"))
+        .collect::<Result<Vec<_>, _>>()?;
+    if !roots.iter().any(|root| cwd.starts_with(root)) {
         return Err(UpstreamError::Start(
             "working directory must be contained by an existing workspace root".to_string(),
         ));
@@ -259,13 +258,18 @@ fn workspace_roots(args: &UpstreamStartArgs) -> Result<Vec<AbsolutePathBuf>, Ups
 }
 
 fn canonical_cwd(args: &UpstreamStartArgs) -> Result<PathBuf, UpstreamError> {
-    let cwd = std::fs::canonicalize(&args.cwd).map_err(start_error)?;
-    if cwd.is_dir() {
-        Ok(cwd)
+    canonical_directory(&args.cwd, "working directory")
+}
+
+fn canonical_directory(path: &std::path::Path, name: &str) -> Result<PathBuf, UpstreamError> {
+    let directory = std::fs::canonicalize(path)
+        .map_err(|error| start_error(format!("{name} cannot be resolved: {error}")))?;
+    if directory.is_dir() {
+        Ok(directory)
     } else {
-        Err(UpstreamError::Start(
-            "working directory must be an existing directory".to_string(),
-        ))
+        Err(UpstreamError::Start(format!(
+            "{name} must be an existing directory"
+        )))
     }
 }
 

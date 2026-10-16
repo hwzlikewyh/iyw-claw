@@ -225,6 +225,19 @@ pub fn prepare_elevated_sandbox(
 }
 
 
+#[cfg(any(target_os = "windows", test))]
+fn provisioning_settings(
+    network: Option<&crate::config::NetworkProxySpec>,
+) -> std::io::Result<codex_windows_sandbox::WindowsSandboxProvisioningSettings> {
+    let Some(network) = network.filter(|network| network.enabled()) else {
+        return Ok(codex_windows_sandbox::WindowsSandboxProvisioningSettings::default());
+    };
+    Ok(codex_windows_sandbox::WindowsSandboxProvisioningSettings {
+        proxy_ports: network.configured_proxy_ports()?,
+        allow_local_binding: network.allow_local_binding(),
+    })
+}
+
 #[cfg(target_os = "windows")]
 pub fn run_elevated_provisioning_setup(
     codex_home: &Path,

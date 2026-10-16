@@ -131,6 +131,20 @@ pub fn read_frontmatter(content: &str) -> Option<serde_yaml::Value> {
     closed.then(|| serde_yaml::from_str(&yaml).ok()).flatten()
 }
 
+pub fn validate_skill_description(content: &str) -> Result<(), String> {
+    let frontmatter = read_frontmatter(content)
+        .ok_or_else(|| "SKILL.md must contain valid YAML frontmatter".to_string())?;
+    if frontmatter
+        .get("description")
+        .and_then(serde_yaml::Value::as_str)
+        .is_some_and(|description| !description.trim().is_empty())
+    {
+        Ok(())
+    } else {
+        Err("SKILL.md must define a non-empty top-level description".to_string())
+    }
+}
+
 fn normalize_list(values: &mut Vec<String>) {
     let mut normalized = Vec::with_capacity(values.len());
     for value in values.drain(..) {

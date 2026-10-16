@@ -1,6 +1,8 @@
 use base64::Engine;
 
-use crate::acp::skill_routing::{parse_skill_routing, read_frontmatter, SkillRoutingError};
+use crate::acp::skill_routing::{
+    parse_skill_routing, validate_skill_description, SkillRoutingError,
+};
 use crate::app_error::AppCommandError;
 
 use super::types::{SkillMarketUploadFile, SkillPackageType};
@@ -35,18 +37,11 @@ fn validate_skill_entry(file: &SkillMarketUploadFile) -> Result<(), AppCommandEr
         .map_err(|error| routing_error(&file.path, "is not valid Base64", error.to_string()))?;
     let content = std::str::from_utf8(&bytes)
         .map_err(|error| routing_error(&file.path, "must be UTF-8", error.to_string()))?;
-    let frontmatter = read_frontmatter(content).ok_or_else(|| {
+    validate_skill_description(content).map_err(|error| {
         routing_error(
             &file.path,
-            "must define a non-empty routing description",
-            "Include capability, core triggers, exclusions, aliases, and invocation when relevant",
-        )
-    })?;
-    frontmatter_description(&frontmatter).ok_or_else(|| {
-        routing_error(
-            &file.path,
-            "must define a non-empty routing description",
-            "Use short-description or top-level description in the Skill frontmatter",
+            error,
+            "Use top-level description; summary and short-description do not replace it",
         )
     })?;
     match parse_skill_routing(content) {
@@ -57,16 +52,6 @@ fn validate_skill_entry(file: &SkillMarketUploadFile) -> Result<(), AppCommandEr
             "Include concise capability, coreTriggers, exclusions, aliases, and invocation fields",
         )),
     }
-}
-
-fn frontmatter_description(value: &serde_yaml::Value) -> Option<String> {
-    value
-        .get("short-description")
-        .or_else(|| value.get("description"))?
-        .as_str()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
 }
 
 fn routing_error(

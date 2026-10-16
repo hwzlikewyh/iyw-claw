@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 
+use futures_util::future::BoxFuture;
 use serde_json::Value;
 
 use super::authority::SessionContext;
@@ -55,9 +56,11 @@ pub(super) async fn generate(
     let request: ImageToolRequest = serde_json::from_value(arguments)
         .map_err(|error| rmcp::ErrorData::invalid_params(error.to_string(), None))?;
     match request {
-        ImageToolRequest::Batch(request) => batch::execute_batch(service, authority, request).await,
+        ImageToolRequest::Batch(request) => {
+            Box::pin(batch::execute_batch(service, authority, request)).await
+        }
         ImageToolRequest::Single(request) => {
-            batch::execute_single(service, authority, request).await
+            Box::pin(batch::execute_single(service, authority, request)).await
         }
     }
 }
@@ -172,27 +175,32 @@ fn preflight_kind(
     }
 }
 
-async fn execute_kind(
-    service: &IywGatewayService,
-    execution: ImageExecution<'_>,
-) -> Result<ImageResult, rmcp::ErrorData> {
-    let mut service = service.clone();
-    let timeout = execution.request.wait.http_timeout(execution.kind);
-    service.image_timeout = Some(timeout);
-    tracing::info!(
-        image_type = execution.kind,
-        timeout_seconds = timeout.as_secs(),
-        custom_timeout_seconds = execution.request.wait.timeout_seconds,
-        "[iyw-image] image execution timeout selected"
-    );
-    match execution.kind {
-        kind if studio::supports(kind) => studio::generate(&service, execution).await,
-        kind if native::operation(kind).is_some() => native::generate(&service, execution).await,
-        "generate" => fusion::generate(&service, execution.request).await,
-        "edit" => fusion::edit(&service, execution.request, execution.images).await,
-        "fission" => fission::generate(&service, execution.request).await,
-        _ => commerce::generate(&service, execution).await,
-    }
+fn execute_kind<'a>(
+    service: &'a IywGatewayService,
+    execution: ImageExecution<'a>,
+) -> BoxFuture<'a, Result<ImageResult, rmcp::ErrorData>> {
+    // 各平台执行状态独立放在堆上，不沿重试和批处理链逐层内嵌。
+    Box::pin(async move {
+        let mut service = service.clone();
+        let timeout = execution.request.wait.http_timeout(execution.kind);
+        service.image_timeout = Some(timeout);
+        tracing::info!(
+            image_type = execution.kind,
+            timeout_seconds = timeout.as_secs(),
+            custom_timeout_seconds = execution.request.wait.timeout_seconds,
+            "[iyw-image] image execution timeout selected"
+        );
+        match execution.kind {
+            kind if studio::supports(kind) => Box::pin(studio::generate(&service, execution)).await,
+            kind if native::operation(kind).is_some() => {
+                Box::pin(native::generate(&service, execution)).await
+            }
+            "generate" => Box::pin(fusion::generate(&service, execution.request)).await,
+            "edit" => Box::pin(fusion::edit(&service, execution.request, execution.images)).await,
+            "fission" => Box::pin(fission::generate(&service, execution.request)).await,
+            _ => Box::pin(commerce::generate(&service, execution)).await,
+        }
+    })
 }
 
 pub(super) const fn default_poll() -> f64 {

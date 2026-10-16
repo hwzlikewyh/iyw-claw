@@ -1,5 +1,6 @@
 use std::{future::Future, sync::Arc, time::Instant};
 
+use futures_util::future::BoxFuture;
 use rmcp::ErrorData;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -11,19 +12,27 @@ use super::{
 };
 
 impl IywGatewayService {
-    pub(in crate::acp::builtin_mcp) async fn generate_image(
-        &self,
-        authority: &SessionContext,
+    pub(in crate::acp::builtin_mcp) fn generate_image<'a>(
+        &'a self,
+        authority: &'a SessionContext,
         arguments: Value,
         request_cancel: CancellationToken,
-    ) -> Result<rmcp::model::CallToolResult, ErrorData> {
-        let mut scoped = self.clone();
-        scoped.image_context = Some(Arc::new(iyw_image::context::ImageContext::new(
-            self.image_identity().await?.1,
-            request_cancel,
-            authority.cancellation().clone(),
-        )));
-        iyw_image::generate(&scoped, authority, arguments).await
+    ) -> BoxFuture<'a, Result<rmcp::model::CallToolResult, ErrorData>> {
+        // 在 MCP 边界装箱，避免图片执行状态放大整个工具处理器的栈帧。
+        Box::pin(async move {
+            tracing::info!(
+                connection_id = authority.connection_id(),
+                stage = "authorize",
+                "[iyw-image] request started"
+            );
+            let mut scoped = self.clone();
+            scoped.image_context = Some(Arc::new(iyw_image::context::ImageContext::new(
+                self.image_identity().await?.1,
+                request_cancel,
+                authority.cancellation().clone(),
+            )));
+            Box::pin(iyw_image::generate(&scoped, authority, arguments)).await
+        })
     }
 
     pub(in crate::acp::builtin_mcp) async fn image_identity(

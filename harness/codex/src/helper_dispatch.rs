@@ -137,10 +137,7 @@ fn run_apply_patch(patch: Option<std::ffi::OsString>) -> ! {
     let mut stderr = std::io::stderr();
     let result = runtime.block_on(codex_apply_patch::apply_patch_with_options(
         &patch,
-        codex_apply_patch::ApplyPatchOptions {
-            update_file_mode: codex_apply_patch::apply_patch_file_update_mode_from_env(),
-            ..Default::default()
-        },
+        codex_apply_patch::ApplyPatchOptions::default(),
         &codex_utils_path_uri::PathUri::from_abs_path(&cwd),
         &mut stdout,
         &mut stderr,
