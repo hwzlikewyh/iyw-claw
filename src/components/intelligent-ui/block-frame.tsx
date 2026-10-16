@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { exportUiSource } from "@/lib/intelligent-ui/export"
+import { UiExportButton } from "./export-button"
 
 export type StateStatus = {
   error: string | null
@@ -88,16 +89,14 @@ export function BlockFrame({
 }
 function BlockToolbar(actions: {
   reset: () => void
-  exportSource: () => void
+  exportSource: () => Promise<boolean>
   source: () => void
   expand: () => void
 }) {
   const t = useTranslations("IntelligentUI")
   return (
     <div className="flex flex-wrap justify-end gap-1 border-t px-2 py-1">
-      <Button variant="ghost" size="sm" onClick={actions.exportSource}>
-        {t("export")}
-      </Button>
+      <UiExportButton exportFile={actions.exportSource} />
       <Button variant="ghost" size="sm" onClick={actions.reset}>
         {t("reset")}
       </Button>

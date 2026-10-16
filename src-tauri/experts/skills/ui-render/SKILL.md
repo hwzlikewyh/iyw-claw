@@ -19,6 +19,8 @@ description: 在 iyw-claw 对话中输出交互式组件、表格、图表、计
 - 展示：text {text,size?:sm|base|lg,tone?}、stat {label,value,unit?,note?,precision?}、badge {text,tone?}、progress {value,max?,label?}、callout {text,title?,tone?}、formula {expr,name?,unit?,precision?,with?}。
 - 输入：slider {bind,label,min,max,step?,unit?}、input {bind,label,type?:text|number,placeholder?}、select/segmented {bind,label?,options:[文字]或[{label,value}]}、switch {bind,label}。bind 指向 state。
 - 操作：button 三选一：ask:"可编辑追问"，set:{state名:值}，copy:"文字"。ask 由宿主显示编辑框，用户发送后才继续代理；不能自动执行工具。
+  每个按钮必须使用支持的动作；不要生成只有 label 的按钮，不要用虚构的 export、download、onclick 等属性模拟操作。
+  表格直接使用内置搜索、排序、分页和 CSV 导出；面板工具栏提供源码与当前状态的 JSON 导出，不必额外生成导出按钮。
 - chart {title?,type:line|bar|area|horizontal-bar|scatter|pie|radar|funnel|radial,x?:(string|number)[],series:[{name,data:number[]}],unit?,stacked?,percent?}。series.data 可以写关于 x/i 的逐点公式。
 - stat-grid {title?,items:[{label,value,unit?,delta?,trend?:up|down|neutral}]}。
 - card-grid {title?,items:[{title,summary?,tag?,source?,url?}],where?}。
@@ -45,3 +47,6 @@ state 是可编辑初始值，computed 是不带花括号的公式或常量；co
 沙箱无网络、无应用/文件权限、无 cookie/localStorage，无外部脚本、字体、图片或 CDN。背景透明，宽度自适应，高度不超过640px；主题颜色用 var(--foreground)、--muted-foreground、--primary、--card、--border、--chart-1..5。提供键盘可用的控件与说明；动画提供暂停，尊重 prefers-reduced-motion。源码最好不超过12KiB。
 
 window.iyw 接口：getState()、onState(fn)、setState({名:JSON值})、suggest("问题")、ask("问题")、onTheme(fn)。只保存用户参数（总计4KiB，值深度4层），不要保存动画帧或图表全部数据。suggest 在宿主显示可编辑追问，ask 也只建议追问；实际发送必须由用户点击宿主按钮。主题切换时更新绘图，卸载时取消动画/监听。
+
+每个可操作控件必须绑定有效的本地事件并产生可见变化，禁止空回调、占位操作和伪造完成结果。
+下载、剪贴板、打开外部链接或调用工具不属于图解接口；需要这些能力时使用结构化组件或文件制品，不要在图解中生成无法执行的按钮。
