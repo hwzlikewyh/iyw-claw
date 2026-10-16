@@ -518,7 +518,7 @@ impl ChatChannelManager {
                 db_conn.clone(),
                 data_dir,
                 conn_mgr,
-                emitter,
+                emitter.clone(),
                 bridge,
             );
         } else {
@@ -534,6 +534,7 @@ impl ChatChannelManager {
         // Reconcile only user- or Agent-created channels. New installations
         // intentionally start with an empty channel list.
         super::reconcile::reconcile_all_enabled(&self.clone_ref(), &db_conn2, "app_start").await;
+        crate::automation::notifications::spawn(self.clone_ref(), db_conn, emitter);
     }
 }
 

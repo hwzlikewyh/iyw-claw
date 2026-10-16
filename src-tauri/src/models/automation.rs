@@ -58,6 +58,12 @@ pub struct AutomationRunInfo {
     pub stop_reason: Option<String>,
     pub error: Option<String>,
     pub summary: Option<String>,
+    pub retry_of_run_id: Option<i32>,
+    pub retry_run_id: Option<i32>,
+    pub notification_channel_id: Option<i32>,
+    pub notification_channel_name: Option<String>,
+    pub notification_status: Option<String>,
+    pub notification_error: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -84,6 +90,8 @@ pub struct AutomationDraft {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AutomationConfig {
     #[serde(default)]
+    pub notification_channel_id: Option<i32>,
+    #[serde(default)]
     pub prompt_blocks: Vec<serde_json::Value>,
     #[serde(default)]
     pub display_text: String,
@@ -93,4 +101,24 @@ pub struct AutomationConfig {
     pub config_values: std::collections::BTreeMap<String, String>,
     #[serde(default)]
     pub label_snapshot: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationRunQuery {
+    #[serde(default)]
+    pub retryable: bool,
+    pub automation_id: Option<i32>,
+    pub folder_id: Option<i32>,
+    pub status: Option<String>,
+    pub trigger: Option<String>,
+    pub search: Option<String>,
+    #[serde(default)]
+    pub offset: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AutomationRunPage {
+    pub runs: Vec<AutomationRunInfo>,
+    pub total: u64,
 }

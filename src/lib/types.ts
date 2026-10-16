@@ -1233,6 +1233,7 @@ export interface AutomationLabelSnapshot {
  *  `config_values` are exactly AgentDelegationDefaults; the model rides inside
  *  `config_values["model"]`, never as its own field. */
 export interface AutomationConfig {
+  notification_channel_id?: number | null
   prompt_blocks: PromptInputBlock[]
   display_text: string
   mode_id?: string | null
@@ -1265,6 +1266,12 @@ export interface Automation {
 }
 
 export interface AutomationRun {
+  retry_of_run_id: number | null
+  retry_run_id: number | null
+  notification_channel_id: number | null
+  notification_channel_name: string | null
+  notification_status: string | null
+  notification_error: string | null
   id: number
   automation_id: number
   status: AutomationRunStatus

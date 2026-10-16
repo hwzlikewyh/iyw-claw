@@ -51,6 +51,7 @@ mod m20260920_000001_memory_lifecycle;
 mod m20260920_000002_conversation_session_segment;
 mod m20260921_000001_chat_channel_outbox;
 mod m20261014_000001_intelligent_ui;
+mod m20261016_000001_automation_delivery;
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -108,6 +109,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260920_000002_conversation_session_segment::Migration),
             Box::new(m20260921_000001_chat_channel_outbox::Migration),
             Box::new(m20261014_000001_intelligent_ui::Migration),
+            Box::new(m20261016_000001_automation_delivery::Migration),
         ]
     }
 }
