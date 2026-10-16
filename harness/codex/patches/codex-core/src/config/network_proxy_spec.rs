@@ -17,8 +17,6 @@ use codex_network_proxy::NetworkProxyHandle;
 use codex_network_proxy::NetworkProxyState;
 use codex_network_proxy::build_config_state;
 use codex_network_proxy::host_and_port_from_network_addr;
-#[cfg(any(target_os = "windows", test))]
-use codex_network_proxy::managed_proxy_ports;
 use codex_network_proxy::normalize_host;
 use codex_network_proxy::validate_policy_against_constraints;
 use codex_protocol::models::PermissionProfile;
@@ -94,7 +92,7 @@ impl NetworkProxySpec {
     }
 
     pub(crate) fn credential_broker_enabled(&self) -> bool {
-        self.config.credential_broker && self.constraints.enabled != Some(false)
+        self.enabled() && self.config.credential_broker && self.constraints.enabled != Some(false)
     }
 
     pub fn proxy_host_and_port(&self) -> String {
@@ -105,15 +103,7 @@ impl NetworkProxySpec {
         self.config.enable_socks5
     }
 
-    #[cfg(any(target_os = "windows", test))]
-    pub(crate) fn configured_proxy_ports(&self) -> std::io::Result<Vec<u16>> {
-        managed_proxy_ports(&self.config).map_err(std::io::Error::other)
-    }
 
-    #[cfg(any(target_os = "windows", test))]
-    pub(crate) fn allow_local_binding(&self) -> bool {
-        self.config.allow_local_binding()
-    }
 
     /// Returns the firewall settings and listener identities used by the Windows provisioning service.
     #[cfg(target_os = "windows")]
@@ -378,9 +368,14 @@ impl NetworkProxySpec {
         &self,
         executor_os: Platform,
     ) -> std::io::Result<ConfigState> {
-        build_config_state(self.config.clone(), self.constraints.clone(), executor_os).map_err(
-            |err| std::io::Error::other(format!("failed to build network proxy state: {err}")),
-        )
+        let mut config = self.config.clone();
+        if !self.enabled() {
+            // Retained managed constraints must not let brokerage activate a disabled proxy.
+            config.set_credential_broker_enabled(/*enabled*/ false);
+        }
+        build_config_state(config, self.constraints.clone(), executor_os).map_err(|err| {
+            std::io::Error::other(format!("failed to build network proxy state: {err}"))
+        })
     }
 
     fn apply_requirements(

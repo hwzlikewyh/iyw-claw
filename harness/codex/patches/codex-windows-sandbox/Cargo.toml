@@ -11,7 +11,7 @@ build = "build.rs"
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-windows-sandbox"
-version = "0.161.0"
+version = "0.163.0"
 
 [lib]
 name = "codex_windows_sandbox"
@@ -23,11 +23,11 @@ bundled-host = []
 
 [dependencies.codex-utils-process]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.anyhow]
 version = "1.0"
@@ -42,19 +42,19 @@ features = [ "clock", "std",]
 
 [dependencies.codex-utils-pty]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-utils-string]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-otel]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.dunce]
 version = "1.0"
@@ -84,9 +84,8 @@ version = "0.58"
 features = [ "Win32_Foundation", "Win32_NetworkManagement_WindowsFirewall", "Win32_System_Com", "Win32_System_Variant",]
 
 [dependencies.codex-protocol]
-package = "codex-protocol"
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.rand]
 default-features = false
@@ -97,5 +96,5 @@ version = "0.8"
 version = "2.0"
 
 [target."cfg(windows)".dependencies.windows-sys]
-features = [ "Win32_Foundation", "Win32_System_Diagnostics_Debug", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_SystemServices", "Win32_System_Environment", "Win32_System_Pipes", "Win32_System_WindowsProgramming", "Win32_System_IO", "Win32_System_Memory", "Win32_System_Kernel", "Win32_System_Console", "Win32_System_RemoteDesktop", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_NetworkManagement_NetManagement", "Win32_NetworkManagement_WindowsFilteringPlatform", "Win32_Networking_WinSock", "Win32_System_LibraryLoader", "Win32_System_Com", "Win32_Security_Cryptography", "Win32_Security_Authentication_Identity", "Win32_System_Rpc", "Win32_Graphics_Gdi", "Win32_System_StationsAndDesktops", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Registry", "Win32_System_Services", "Win32_Storage_Packaging_Appx",]
-version = "0.52"
+version = "0.61.2"
+features = [ "Win32_Foundation", "Win32_System_Diagnostics_Debug", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_SystemServices", "Win32_System_Environment", "Win32_System_Pipes", "Win32_System_WindowsProgramming", "Win32_System_IO", "Win32_System_Memory", "Win32_System_Console", "Win32_System_RemoteDesktop", "Win32_Storage_FileSystem", "Win32_Storage_Packaging_Appx", "Win32_System_Diagnostics_ToolHelp", "Win32_NetworkManagement_NetManagement", "Win32_NetworkManagement_WindowsFilteringPlatform", "Win32_Networking_WinSock", "Win32_System_LibraryLoader", "Win32_System_Com", "Win32_Security_Cryptography", "Win32_Security_Authentication_Identity", "Win32_System_Rpc", "Win32_Graphics_Gdi", "Win32_System_StationsAndDesktops", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_System_Registry", "Win32_System_Services",]

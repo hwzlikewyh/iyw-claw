@@ -623,7 +623,7 @@ impl ExecutorStdioServerLauncher {
                 argv,
                 cwd,
                 shell_snapshot: None,
-                env_policy: Some(Self::remote_env_policy(&remote_env_vars)),
+                env_policy: Some(Self::remote_env_policy(&remote_env_vars, &env)),
                 env,
                 tty: false,
                 pipe_stdin: true,
@@ -679,7 +679,10 @@ impl ExecutorStdioServerLauncher {
             .map_err(|_| anyhow!("{label} must be valid Unicode for remote MCP stdio"))
     }
 
-    fn remote_env_policy(remote_env_vars: &[String]) -> ExecEnvPolicy {
+    fn remote_env_policy(
+        remote_env_vars: &[String],
+        env: &HashMap<String, String>,
+    ) -> ExecEnvPolicy {
         let include_only = if remote_env_vars.is_empty() {
             Vec::new()
         } else {
@@ -687,8 +690,12 @@ impl ExecutorStdioServerLauncher {
             // environment, not copied from Codex. Start from `All` only so the
             // named remote variable is available to the filter below; the
             // effective child env is still limited by `include_only`.
+            // The orchestrator may be Unix while the executor is Windows.
+            // Preserve Windows runtime initialization and temporary-directory
+            // inputs even when explicit remote vars activate this allowlist.
             crate::utils::DEFAULT_ENV_VARS
                 .iter()
+                .chain(["SYSTEMROOT", "TEMP", "TMP", "SYSTEMDRIVE", "LOCALAPPDATA"].iter())
                 .map(|name| (*name).to_string())
                 .chain(remote_env_vars.iter().cloned())
                 .collect()
@@ -701,7 +708,9 @@ impl ExecutorStdioServerLauncher {
             },
             ignore_default_excludes: true,
             exclude: Vec::new(),
-            r#set: HashMap::new(),
+            // Apply overrides through the policy's Windows-aware merge, including
+            // on older executors. Keep the final overlay for names filtered out below.
+            r#set: env.clone(),
             include_only,
         }
     }

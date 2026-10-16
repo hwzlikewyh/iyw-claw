@@ -64,7 +64,7 @@ impl ToolExecutor<ToolInvocation> for ListAvailablePluginsToInstallHandler {
     }
 
     fn supports_parallel_tool_calls(&self) -> bool {
-        false
+        true
     }
 
     fn handle<'a>(&'a self, invocation: ToolInvocation) -> codex_tools::ToolExecutorFuture<'a>

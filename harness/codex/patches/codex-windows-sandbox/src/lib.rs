@@ -12,13 +12,9 @@ mod embedded_roles;
 #[cfg(all(windows, feature = "bundled-host"))]
 pub use embedded_roles::{dispatch_embedded_role, elevate_desktop};
 
-#[cfg(any(target_os = "windows", test))]
-mod ssh_config_dependencies;
 
 #[doc(hidden)]
 pub mod environment_transport;
-#[cfg(any(windows, test))]
-mod launch_environment;
 
 use std::fmt;
 use std::sync::Arc;
@@ -118,6 +114,8 @@ mod provisioning_protocol;
 #[cfg(target_os = "windows")]
 mod runtime_ownership;
 #[cfg(target_os = "windows")]
+mod service_diagnostics;
+#[cfg(target_os = "windows")]
 mod service_identity;
 #[cfg(target_os = "windows")]
 #[doc(hidden)]
@@ -143,6 +141,9 @@ pub use runtime_ownership::remove_installation;
 #[cfg(target_os = "windows")]
 #[doc(hidden)]
 pub use runtime_ownership::save_installation;
+#[cfg(target_os = "windows")]
+#[doc(hidden)]
+pub use service_diagnostics::ServiceStopReason;
 #[cfg(target_os = "windows")]
 mod resolved_permissions;
 #[cfg(target_os = "windows")]
@@ -270,7 +271,9 @@ pub use conpty::spawn_conpty_process_as_user;
 pub use deny_read_acl::apply_deny_read_acls;
 #[cfg(target_os = "windows")]
 pub use deny_read_acl::plan_deny_read_acl_paths;
+pub use deny_read_resolver::GLOB_SCAN_PROGRAM;
 pub use deny_read_resolver::resolve_windows_deny_read_paths;
+pub use deny_read_resolver::resolve_windows_deny_read_paths_in_environment;
 #[cfg(target_os = "windows")]
 pub use deny_read_state::sync_persistent_deny_read_acls;
 #[cfg(target_os = "windows")]
@@ -379,6 +382,8 @@ pub use provisioning_client::refresh_registered_core_via_service;
 #[cfg(target_os = "windows")]
 pub use provisioning_client::register_desktop_installation;
 #[cfg(target_os = "windows")]
+pub use provisioning_client::start_windows_sandbox_service_for_setup;
+#[cfg(target_os = "windows")]
 pub use provisioning_protocol::FramedProvisioningMessage;
 #[cfg(target_os = "windows")]
 pub use provisioning_protocol::PROVISIONING_PROTOCOL_VERSION;
@@ -402,6 +407,8 @@ pub use provisioning_protocol::write_provisioning_frame;
 pub use resolved_permissions::ResolvedWindowsSandboxPermissions;
 #[cfg(target_os = "windows")]
 pub use resolved_permissions::WindowsSandboxTokenMode;
+#[cfg(target_os = "windows")]
+pub use resolved_permissions::resolve_workload_temp_paths;
 #[cfg(target_os = "windows")]
 pub use resolved_permissions::token_mode_for_permission_profile;
 #[cfg(target_os = "windows")]
@@ -495,6 +502,8 @@ pub use unified_exec::spawn_windows_sandbox_session_legacy;
 #[cfg(target_os = "windows")]
 pub use uninstall_windows::PreparedWindowsSandboxCleanup;
 #[cfg(target_os = "windows")]
+pub use uninstall_windows::clean_up_legacy_windows_sandbox;
+#[cfg(target_os = "windows")]
 pub use uninstall_windows::clean_up_packaged_windows_sandbox;
 #[cfg(target_os = "windows")]
 pub use uninstall_windows::prepare_packaged_windows_sandbox_cleanup;
@@ -585,6 +594,18 @@ mod windows_impl {
 
     type PipeHandles = ((HANDLE, HANDLE), (HANDLE, HANDLE), (HANDLE, HANDLE));
 
+    struct NonOwningPipeHandle(HANDLE);
+
+    // SAFETY: Pipe handles are opaque process-wide tokens that may be used from
+    // any thread. This wrapper does not own the handle or extend its lifetime.
+    unsafe impl Send for NonOwningPipeHandle {}
+
+    impl NonOwningPipeHandle {
+        fn raw(&self) -> HANDLE {
+            self.0
+        }
+    }
+
     enum WaitOutcome {
         Exited,
         TimedOut,
@@ -630,12 +651,12 @@ mod windows_impl {
     }
 
     unsafe fn setup_stdio_pipes() -> io::Result<PipeHandles> {
-        let mut in_r: HANDLE = 0;
-        let mut in_w: HANDLE = 0;
-        let mut out_r: HANDLE = 0;
-        let mut out_w: HANDLE = 0;
-        let mut err_r: HANDLE = 0;
-        let mut err_w: HANDLE = 0;
+        let mut in_r: HANDLE = std::ptr::null_mut();
+        let mut in_w: HANDLE = std::ptr::null_mut();
+        let mut out_r: HANDLE = std::ptr::null_mut();
+        let mut out_w: HANDLE = std::ptr::null_mut();
+        let mut err_r: HANDLE = std::ptr::null_mut();
+        let mut err_w: HANDLE = std::ptr::null_mut();
         if CreatePipe(&mut in_r, &mut in_w, ptr::null_mut(), 0) == 0 {
             return Err(io::Error::from_raw_os_error(GetLastError() as i32));
         }
@@ -809,6 +830,8 @@ mod windows_impl {
 
         let (tx_out, rx_out) = std::sync::mpsc::channel::<Vec<u8>>();
         let (tx_err, rx_err) = std::sync::mpsc::channel::<Vec<u8>>();
+        let out_r = NonOwningPipeHandle(out_r);
+        let err_r = NonOwningPipeHandle(err_r);
         let t_out = std::thread::spawn(move || {
             let mut buf = Vec::new();
             let mut tmp = [0u8; 8192];
@@ -816,7 +839,7 @@ mod windows_impl {
                 let mut read_bytes: u32 = 0;
                 let ok = unsafe {
                     windows_sys::Win32::Storage::FileSystem::ReadFile(
-                        out_r,
+                        out_r.raw(),
                         tmp.as_mut_ptr(),
                         tmp.len() as u32,
                         &mut read_bytes,
@@ -837,7 +860,7 @@ mod windows_impl {
                 let mut read_bytes: u32 = 0;
                 let ok = unsafe {
                     windows_sys::Win32::Storage::FileSystem::ReadFile(
-                        err_r,
+                        err_r.raw(),
                         tmp.as_mut_ptr(),
                         tmp.len() as u32,
                         &mut read_bytes,
@@ -887,10 +910,10 @@ mod windows_impl {
         }
 
         unsafe {
-            if pi.hThread != 0 {
+            if !pi.hThread.is_null() {
                 CloseHandle(pi.hThread);
             }
-            if pi.hProcess != 0 {
+            if !pi.hProcess.is_null() {
                 CloseHandle(pi.hProcess);
             }
             CloseHandle(security.h_token);

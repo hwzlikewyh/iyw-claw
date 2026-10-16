@@ -87,7 +87,8 @@ pub(super) async fn list_threads(
         .iter()
         .map(|thread| (thread.thread_id, thread.history_mode))
         .collect::<HashMap<_, _>>();
-    let names = resolve_thread_names(store, &thread_history_modes).await;
+    let names =
+        resolve_thread_names(store, &thread_history_modes, params.use_state_db_only).await?;
     for thread in &mut items {
         if let Some(name) = names.get(&thread.thread_id).cloned() {
             set_thread_name(thread, name);

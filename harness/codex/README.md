@@ -17,7 +17,7 @@ The lock records both the annotated tag object and its peeled source commit.
 Cargo dependencies use the peeled commit; synchronization verifies both values
 so a rewritten release tag cannot silently change the compiled source.
 
-The current pin is `rust-v0.161.0`. It recognizes the managed
+The current pin is `rust-v0.163.0`. It recognizes the managed
 `features.context_management.experimental_mode` configuration that
 `rust-v0.152.1` rejected during session creation and recovery. The feature still
 requires an eligible upstream provider and account; parsing this configuration
@@ -31,9 +31,16 @@ which is optional so an outage cannot prevent session startup. The exception
 requires its exact service name and URL; built-in MCP remains required.
 Tool names retain their saved namespace across resume.
 
-The official release was checked on 2026-10-08: the latest stable tag is
-`rust-v0.161.0`, published on 2026-10-07 UTC. Its tag object and source commit
+The official release was checked on 2026-10-16: the latest stable tag is
+`rust-v0.163.0`, published on 2026-10-15 UTC. Its tag object and source commit
 match `upstream.lock`; prereleases remain outside the synchronization policy.
+
+The 0.163.0 refresh preserves host auth/environment, published MCP status,
+command descriptions, managed image references, bounded compaction requests
+and Windows/Win7 process compatibility. It adopts upstream's replacement-context
+and prepared-prefix compaction APIs. A production-only `codex-feedback` override
+aligns `tar` with the existing 0.4.46 dependency required by Qdrant.
+Official source: https://github.com/openai/codex/releases/tag/rust-v0.163.0
 
 The 0.161.0 update preserves the in-process integration, gateway auth,
 command-description, bounded compaction and published MCP status patches.
@@ -46,7 +53,7 @@ setup helper before application initialization. Official source:
 https://github.com/openai/codex/releases/tag/rust-v0.161.0
 
 Upgrade decisions and validation are recorded in
-[`docs/xinghe-upgrade-0.161.0.md`](../../docs/xinghe-upgrade-0.161.0.md).
+[`docs/xinghe-upgrade-0.163.0.md`](../../docs/xinghe-upgrade-0.163.0.md).
 
 Settings commands that change confirmed values wait for a matching
 `thread/settings/updated` notification;

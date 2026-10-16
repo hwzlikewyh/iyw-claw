@@ -5,3 +5,9 @@ use serde::Serialize;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct ContentItemKind(pub String);
+
+impl ContentItemKind {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}

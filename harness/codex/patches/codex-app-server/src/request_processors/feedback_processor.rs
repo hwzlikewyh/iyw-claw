@@ -145,7 +145,8 @@ impl FeedbackRequestProcessor {
                 },
                 None => Vec::new(),
             };
-            let failures = guardian_review_failures(&feedback_thread_ids);
+            let failures =
+                guardian_review_failures(state_db_ctx.as_deref(), &feedback_thread_ids).await;
             let mut feedback_thread_ids = feedback_thread_ids;
             if let Some(conversation_id) = conversation_id {
                 let index =
@@ -284,7 +285,7 @@ impl FeedbackRequestProcessor {
                     reason: reason.as_deref(),
                     tags,
                     include_logs,
-                    extra_attachments: &extra_attachments,
+                    extra_attachments,
                     extra_attachment_paths: &attachment_paths,
                     session_source: Some(session_source),
                     logs_override: sqlite_feedback_logs,

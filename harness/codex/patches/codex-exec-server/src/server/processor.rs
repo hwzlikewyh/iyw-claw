@@ -1,4 +1,3 @@
-use std::io;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -14,7 +13,6 @@ use crate::LocalFileSystem;
 use crate::connection::CHANNEL_CAPACITY;
 use crate::connection::JsonRpcConnection;
 use crate::connection::JsonRpcConnectionEvent;
-use crate::discover_v2::capability_locations::CapabilityLocationRequest;
 use crate::discover_v2::capability_manager::CapabilityManager;
 use crate::rpc::RpcCallError;
 use crate::rpc::RpcNotificationSender;
@@ -31,7 +29,6 @@ use crate::telemetry::ConnectionTransport;
 use crate::telemetry::ExecServerTelemetry;
 use crate::telemetry::ExecutorRegistration;
 use codex_http_client::HttpClientFactory;
-use codex_utils_path_uri::PathUri;
 
 #[derive(Clone)]
 pub(crate) struct ConnectionProcessor {
@@ -45,34 +42,11 @@ pub(crate) struct ConnectionProcessor {
 }
 
 impl ConnectionProcessor {
-
     pub(crate) fn new_with_telemetry(
         runtime_paths: ExecServerRuntimeOptions,
         telemetry: ExecServerTelemetry,
         http_client_factory: HttpClientFactory,
         request_dispatch_mode: RequestDispatchMode,
-    ) -> Self {
-        let request =
-            codex_utils_home_dir::find_codex_home().map(|codex_home| CapabilityLocationRequest {
-                codex_home: PathUri::from_abs_path(&codex_home),
-                user_home: dirs::home_dir()
-                    .and_then(|home| PathUri::from_host_native_path(home).ok()),
-            });
-        Self::new_with_location_request(
-            runtime_paths,
-            telemetry,
-            http_client_factory,
-            request_dispatch_mode,
-            request,
-        )
-    }
-
-    fn new_with_location_request(
-        runtime_paths: ExecServerRuntimeOptions,
-        telemetry: ExecServerTelemetry,
-        http_client_factory: HttpClientFactory,
-        request_dispatch_mode: RequestDispatchMode,
-        request: io::Result<CapabilityLocationRequest>,
     ) -> Self {
         // Library callers may bypass CLI startup. Capture the version before serving clients.
         let _ = BuildInfo::get();
@@ -82,11 +56,7 @@ impl ConnectionProcessor {
         // Start before any client connects; all sessions share these inert global locations.
         let prewarm = tokio::spawn(async move {
             // Home resolution failures are nonfatal, just like scan failures.
-            let result = match request {
-                Ok(request) => manager.prewarm_locations(request).await.map(|_| ()),
-                Err(error) => Err(error),
-            };
-            if let Err(error) = result {
+            if let Err(error) = manager.prewarm_locations().await {
                 tracing::warn!(error_kind = ?error.kind(), "capability location prewarming unavailable");
             }
         });
@@ -142,7 +112,7 @@ async fn run_connection(
     executor_registration: Option<Arc<ExecutorRegistration>>,
 ) {
     let ConnectionProcessor {
-        capability_manager: _capability_manager,
+        capability_manager,
         capability_prewarm: _capability_prewarm,
         session_registry,
         runtime_paths,
@@ -164,6 +134,7 @@ async fn run_connection(
     let requests = notifications.request_sender();
     let mut handler = ExecServerHandler::new(
         session_registry,
+        capability_manager,
         notifications,
         runtime_paths,
         http_client_factory,

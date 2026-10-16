@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-#[cfg(any(windows, test))]
-use std::time::Duration;
 
 use codex_exec_server_protocol::JSONRPCErrorError;
 use codex_protocol::config_types::WindowsSandboxLevel;
@@ -20,10 +18,6 @@ use codex_sandboxing::SandboxType;
 use codex_utils_absolute_path::AbsolutePathBuf;
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 use codex_utils_absolute_path::canonicalize_preserving_symlinks;
-#[cfg(any(windows, test))]
-use codex_utils_path_uri::LegacyAppPathString;
-#[cfg(any(windows, test))]
-use codex_utils_path_uri::PathConvention;
 use codex_utils_path_uri::PathUri;
 use codex_utils_pty::Child;
 use codex_utils_pty::ChildStdin;
@@ -31,10 +25,6 @@ use codex_utils_pty::Command;
 #[cfg(target_os = "macos")]
 use codex_utils_pty::DescriptorPolicy;
 use codex_utils_pty::SpawnFallback;
-#[cfg(any(windows, test))]
-use tokio::io::AsyncBufReadExt;
-#[cfg(any(windows, test))]
-use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
 use crate::ExecServerRuntimeOptions;
@@ -47,10 +37,6 @@ use crate::rpc::internal_error;
 use crate::rpc::invalid_request;
 
 const FS_HELPER_ENV_ALLOWLIST: &[&str] = &["PATH", "TMPDIR", "TMP", "TEMP"];
-#[cfg(any(windows, test))]
-const FS_HELPER_EXIT_TIMEOUT: Duration = Duration::from_secs(/*secs*/ 2);
-#[cfg(any(windows, test))]
-const MAX_FS_HELPER_STDERR_BYTES: u64 = 4096;
 #[cfg(debug_assertions)]
 const FS_HELPER_BAZEL_BWRAP_ENV_ALLOWLIST: &[&str] = &[
     "CARGO_BIN_EXE_bwrap",
@@ -88,6 +74,7 @@ impl FileSystemSandboxRunner {
         request: FsHelperRequest,
     ) -> Result<FsHelperPayload, JSONRPCErrorError> {
         let command = self.sandbox_command(sandbox)?;
+        crate::run_integrity_checks(&command).await;
         let request_json = serde_json::to_vec(&request).map_err(json_error)?;
         run_command(command, request_json).await
     }
@@ -182,7 +169,7 @@ impl FileSystemSandboxRunner {
             managed_network: None,
             additional_permissions: None,
         };
-        sandbox_manager
+        let mut request = sandbox_manager
             .transform_for_direct_spawn(SandboxDirectSpawnTransformRequest {
                 workspace_roots,
                 windows_sandbox_proxy_settings_mode:
@@ -205,7 +192,9 @@ impl FileSystemSandboxRunner {
                         .unwrap_or(WindowsSandboxLevel::Disabled),
                 },
             })
-            .map_err(|err| invalid_request(format!("failed to prepare fs sandbox: {err}")))
+            .map_err(|err| invalid_request(format!("failed to prepare fs sandbox: {err}")))?;
+        request.sandbox_override = sandbox_context.sandbox_override;
+        Ok(request)
     }
 }
 
@@ -268,33 +257,6 @@ fn add_helper_runtime_permissions(
     }
 }
 
-#[cfg(any(windows, test))]
-fn bind_windows_cwd_relative_deny_read_globs(
-    file_system_policy: &mut FileSystemSandboxPolicy,
-    cwd: &PathUri,
-) -> Result<(), JSONRPCErrorError> {
-    // The Windows direct-spawn wrapper reevaluates the profile using the helper cwd.
-    // Bind cwd-relative denials before moving the helper to the filesystem root.
-    for entry in &mut file_system_policy.entries {
-        if let FileSystemPath::GlobPattern { pattern } = &mut entry.path
-            && entry.access == FileSystemAccessMode::Deny
-            && PathConvention::Windows
-                .home_relative_suffix(pattern)
-                .is_none()
-            && LegacyAppPathString::from_string(pattern.as_str())
-                .to_path_uri(PathConvention::Windows)
-                .is_err()
-        {
-            cwd.validate_glob_directory(PathConvention::Windows)
-                .map_err(|err| invalid_request(err.to_string()))?;
-            *pattern = cwd
-                .join(pattern.as_str())
-                .map_err(|err| invalid_request(err.to_string()))?
-                .inferred_native_path_string();
-        }
-    }
-    Ok(())
-}
 
 #[cfg(not(target_os = "linux"))]
 fn normalize_file_system_policy_root_aliases(
@@ -433,73 +395,8 @@ async fn run_command(
     }
 }
 
-#[cfg(any(windows, test))]
-pub(crate) async fn read_helper_response(
-    stdout: impl tokio::io::AsyncRead + Unpin,
-) -> Result<Vec<u8>, JSONRPCErrorError> {
-    let mut response = Vec::new();
-    let bytes_read = tokio::io::BufReader::new(stdout)
-        .read_until(b'\n', &mut response)
-        .await
-        .map_err(io_error)?;
-    if bytes_read == 0 {
-        return Err(internal_error(
-            "fs sandbox helper closed stdout without responding".to_string(),
-        ));
-    }
-    Ok(response)
-}
 
-#[cfg(any(windows, test))]
-pub(crate) fn drain_helper_stderr(
-    child: &mut Child,
-) -> tokio::task::JoinHandle<Result<Vec<u8>, std::io::Error>> {
-    let stderr_pipe = child.stderr.take();
-    tokio::spawn(async move {
-        let mut stderr = Vec::new();
-        if let Some(mut stderr_pipe) = stderr_pipe {
-            (&mut stderr_pipe)
-                .take(MAX_FS_HELPER_STDERR_BYTES)
-                .read_to_end(&mut stderr)
-                .await?;
-            tokio::io::copy(&mut stderr_pipe, &mut tokio::io::sink()).await?;
-        }
-        Ok::<_, std::io::Error>(stderr)
-    })
-}
 
-#[cfg(any(windows, test))]
-pub(crate) async fn reap_helper_after_response(
-    mut child: Child,
-    stderr: tokio::task::JoinHandle<Result<Vec<u8>, std::io::Error>>,
-) -> Result<(), JSONRPCErrorError> {
-    let (status, stderr) = match tokio::time::timeout(FS_HELPER_EXIT_TIMEOUT, async {
-        tokio::try_join!(child.wait(), async {
-            stderr.await.map_err(std::io::Error::other)?
-        })
-    })
-    .await
-    {
-        Ok(result) => result.map_err(io_error)?,
-        Err(_) => {
-            tokio::time::timeout(FS_HELPER_EXIT_TIMEOUT, child.kill())
-                .await
-                .map_err(|_| {
-                    internal_error("fs sandbox helper did not stop after its response".to_string())
-                })?
-                .map_err(io_error)?;
-            return Ok(());
-        }
-    };
-    if status.success() {
-        return Ok(());
-    }
-
-    Err(internal_error(format!(
-        "fs sandbox helper failed with status {status}: {stderr}",
-        stderr = String::from_utf8_lossy(&stderr).trim()
-    )))
-}
 
 #[cfg(not(windows))]
 pub(crate) async fn wait_for_helper_output(

@@ -126,6 +126,7 @@ impl From<ThreadHistoryTurnMetadata> for Turn {
     fn from(value: ThreadHistoryTurnMetadata) -> Self {
         Self {
             id: value.turn_id,
+            root_turn_id: value.root_turn_id,
             items: Vec::new(),
             items_view: TurnItemsView::NotLoaded,
             error: value.error,
@@ -348,7 +349,7 @@ impl ThreadHistoryBuilder {
     /// tracking used by running thread resume/rejoin.
     ///
     /// This function should handle all EventMsg variants that can be persisted in a rollout file.
-    /// See `should_persist_event_msg` in `codex-rs/core/rollout/policy.rs`.
+    /// See `persisted_rollout_item` in `codex-rs/rollout/src/policy.rs`.
     pub fn handle_event(&mut self, event: &EventMsg) {
         match event {
             EventMsg::UserMessage(payload) => self.handle_user_message(payload),
@@ -1013,6 +1014,8 @@ impl ThreadHistoryBuilder {
         payload: &codex_protocol::protocol::SubAgentActivityEvent,
     ) {
         self.upsert_item_in_current_turn(ThreadItem::SubAgentActivity {
+            model: payload.model.clone(),
+            reasoning_effort: payload.reasoning_effort.clone(),
             id: payload.event_id.clone(),
             kind: payload.kind.into(),
             agent_thread_id: payload.agent_thread_id.to_string(),
@@ -1721,6 +1724,7 @@ impl PendingTurn {
     fn snapshot(&self, items_view: TurnItemsView) -> Turn {
         Turn {
             id: self.id.clone(),
+            root_turn_id: self.root_turn_id.clone(),
             items: items_view.project_items(&self.items),
             items_view,
             error: self.error.clone(),
@@ -1736,6 +1740,7 @@ impl From<PendingTurn> for Turn {
     fn from(value: PendingTurn) -> Self {
         Self {
             id: value.id,
+            root_turn_id: value.root_turn_id,
             items: value.items,
             items_view: TurnItemsView::Full,
             error: value.error,

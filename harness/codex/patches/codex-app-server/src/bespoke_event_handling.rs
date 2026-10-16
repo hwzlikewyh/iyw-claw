@@ -162,6 +162,7 @@ pub(crate) async fn apply_bespoke_event_handling(
                 let state = thread_state.lock().await;
                 let mut turn = state.active_turn_snapshot().unwrap_or_else(|| Turn {
                     id: payload.turn_id.clone(),
+                    root_turn_id: payload.root_turn_id.clone(),
                     items: Vec::new(),
                     items_view: TurnItemsView::NotLoaded,
                     error: None,
@@ -497,7 +498,10 @@ pub(crate) async fn apply_bespoke_event_handling(
                     ))
                     .await;
             }
-            RealtimeEvent::SessionUpdated { .. } => {}
+            RealtimeEvent::SessionUpdated {
+                realtime_session_id,
+                ..
+            } => outgoing.track_realtime_session_updated(realtime_session_id),
             RealtimeEvent::InputAudioSpeechStarted(event) => {
                 let notification = ThreadRealtimeItemAddedNotification {
                     thread_id: conversation_id.to_string(),
@@ -1314,6 +1318,7 @@ async fn handle_turn_plan_update(
 
 struct TurnCompletionMetadata {
     status: TurnStatus,
+    root_turn_id: Option<String>,
     error: Option<TurnError>,
     last_agent_message: Option<ThreadItem>,
     started_at: Option<i64>,
@@ -1335,6 +1340,7 @@ async fn emit_turn_completed_with_status(
         thread_id: conversation_id.to_string(),
         turn: Turn {
             id: event_turn_id,
+            root_turn_id: turn_completion_metadata.root_turn_id,
             items,
             items_view,
             error: turn_completion_metadata.error,
@@ -1524,6 +1530,7 @@ async fn handle_turn_complete(
         event_turn_id,
         TurnCompletionMetadata {
             status,
+            root_turn_id: turn_complete_event.root_turn_id,
             error,
             last_agent_message,
             started_at: turn_summary.started_at,
@@ -1549,6 +1556,7 @@ async fn handle_turn_interrupted(
         event_turn_id,
         TurnCompletionMetadata {
             status: TurnStatus::Interrupted,
+            root_turn_id: turn_aborted_event.root_turn_id,
             error: turn_aborted_event.error.map(|error| TurnError {
                 message: error.message,
                 codex_error_info: error.codex_error_info.map(Into::into),

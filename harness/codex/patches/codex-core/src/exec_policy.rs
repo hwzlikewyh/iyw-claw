@@ -744,17 +744,6 @@ fn dangerous_command_match_for_heuristics(
 }
 
 /// If a command is not matched by any execpolicy rule, derive a [`Decision`].
-#[cfg(any(test, unix))]
-pub(crate) fn render_decision_for_unmatched_command(
-    command: &[String],
-    context: UnmatchedCommandContext<'_>,
-) -> Decision {
-    render_decision_for_unmatched_command_for_platform(
-        command,
-        context,
-        DangerousCommandPlatform::host(),
-    )
-}
 
 fn render_decision_for_unmatched_command_for_platform(
     command: &[String],

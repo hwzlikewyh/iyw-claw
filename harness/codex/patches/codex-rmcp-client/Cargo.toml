@@ -1,6 +1,6 @@
 [package]
 name = "codex-rmcp-client"
-version = "0.161.0"
+version = "0.163.0"
 edition = "2024"
 license = "Apache-2.0"
 autobins = false
@@ -25,51 +25,51 @@ version = "0.22.1"
 
 [dependencies.codex-api]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-config]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-exec-server]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-keyring-store]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-network-proxy]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-otel]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-secrets]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-utils-pty]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.codex-utils-home-dir]
 git = "https://github.com/openai/codex.git"
-rev = "979011409de0a60b52f179721948e65531d26144"
+rev = "83086188ae0614bd882818ff1aa23f3194962012"
 
 [dependencies.bytes]
 version = "1.10.1"
@@ -95,8 +95,8 @@ version = "5"
 
 [dependencies.rmcp]
 git = "https://github.com/modelcontextprotocol/rust-sdk"
-rev = "3e636cab26c013eca5131103c03d20237f12c4df"
-version = "=3.3.0"
+rev = "4048ac40e958fb1a7d614617a2ae8d26666ee2fa"
+version = "=3.5.1"
 default-features = false
 features = [ "auth-enterprise-managed", "base64", "client", "macros", "schemars", "server", "transport-async-rw", "transport-child-process", "transport-streamable-http-client", "transport-streamable-http-server",]
 
@@ -168,7 +168,7 @@ default-features = false
 features = [ "windows-native",]
 
 [target."cfg(target_os = \"windows\")".dependencies.windows-sys]
-version = "0.52"
+version = "0.61.2"
 features = [ "Win32_Storage_FileSystem",]
 
 [target."cfg(any(target_os = \"freebsd\", target_os = \"openbsd\"))".dependencies.keyring]
