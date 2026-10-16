@@ -1,6 +1,6 @@
 "use client"
 
-import { Maximize2, Minus, Plus, RotateCcw } from "lucide-react"
+import { Maximize2, Minimize2, Minus, Plus, RotateCcw } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { createContext, useContext, type ReactNode } from "react"
 import { PreviewAction } from "./preview-action"
@@ -11,37 +11,65 @@ export const PREVIEW_ZOOM_STEP = 0.25
 
 export const PreviewFullscreenContext = createContext(false)
 
+interface PreviewToolbarProps {
+  zoom: number
+  onZoom: (zoom: number) => void
+  onFullscreen?: () => void
+  isFullscreen?: boolean
+  compact?: boolean
+  children?: ReactNode
+}
+
 export function PreviewToolbar({
   zoom,
   onZoom,
   onFullscreen,
+  isFullscreen = false,
+  compact = false,
   children,
-}: {
-  zoom: number
-  onZoom: (zoom: number) => void
-  onFullscreen?: () => void
-  children?: ReactNode
-}) {
-  const full = useTranslations("Folder.taskArtifacts")
-  const hasParentFullscreen = useContext(PreviewFullscreenContext)
+}: PreviewToolbarProps) {
   return (
-    <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b bg-background px-2 py-1">
-      <PreviewZoomControls zoom={zoom} onZoom={onZoom} />
-      {children && (
+    <div
+      className={
+        compact
+          ? "absolute top-2 right-2 z-10 rounded-md bg-background/90 shadow-sm"
+          : "flex min-h-10 shrink-0 flex-wrap items-center gap-2 border-b bg-background px-2 py-1"
+      }
+    >
+      {!compact && <PreviewZoomControls zoom={zoom} onZoom={onZoom} />}
+      {!compact && children && (
         <div className="flex shrink-0 items-center gap-1 border-l pl-2">
           {children}
         </div>
       )}
-      {onFullscreen && !hasParentFullscreen && (
-        <PreviewAction
-          className="ml-auto"
-          label={full("previewFullscreen")}
-          onClick={onFullscreen}
-        >
-          <Maximize2 className="size-4" />
-        </PreviewAction>
-      )}
+      <PreviewFullscreenAction
+        onFullscreen={onFullscreen}
+        isFullscreen={isFullscreen}
+      />
     </div>
+  )
+}
+
+function PreviewFullscreenAction({
+  onFullscreen,
+  isFullscreen,
+}: Pick<PreviewToolbarProps, "onFullscreen" | "isFullscreen">) {
+  const full = useTranslations("Folder.taskArtifacts")
+  const hasParentFullscreen = useContext(PreviewFullscreenContext)
+  if (!onFullscreen || hasParentFullscreen) return null
+  return (
+    <PreviewAction
+      className="ml-auto"
+      label={full(isFullscreen ? "exitPreviewFullscreen" : "previewFullscreen")}
+      aria-pressed={Boolean(isFullscreen)}
+      onClick={onFullscreen}
+    >
+      {isFullscreen ? (
+        <Minimize2 className="size-4" />
+      ) : (
+        <Maximize2 className="size-4" />
+      )}
+    </PreviewAction>
   )
 }
 

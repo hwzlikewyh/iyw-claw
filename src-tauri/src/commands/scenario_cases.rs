@@ -44,6 +44,8 @@ pub struct ScenarioCaseAsset {
 pub struct ScenarioCaseDetail {
     #[serde(flatten)]
     pub case: ScenarioCase,
+    #[serde(default, rename = "promptTemplate")]
+    pub prompt_template: String,
     pub scenario: Scenario,
     pub assets: Vec<ScenarioCaseAsset>,
 }
