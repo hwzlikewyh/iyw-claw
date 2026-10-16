@@ -2,8 +2,9 @@ use std::collections::HashSet;
 use std::time::Instant;
 
 use super::{ExecutionContext, PreparedTask};
+use crate::acp::builtin_mcp::iyw_image::input::ImageValidation;
 use crate::acp::builtin_mcp::iyw_image::{
-    fusion, preflight_kind, prepare_images, recovery, select_kind, upload_images, validate_request,
+    fusion, preflight_kind, prepare_images, recovery, select_kind, validate_request,
     ImageBatchRequest, ImageRequest, ImageSource, PreparedImage,
 };
 use crate::acp::builtin_mcp::iyw_tool_policy::ensure_image_enabled;
@@ -42,25 +43,28 @@ pub(super) async fn prepare_single(
 ) -> Result<PreparedTask, rmcp::ErrorData> {
     ensure_image_enabled(request.kind.as_deref())?;
     validate_request(&request)?;
-    prepare_task(
-        context,
-        TaskSeed {
-            index: 0,
-            id: None,
-            request,
-        },
+    let mut task = plan_task(TaskSeed {
+        index: 0,
+        id: None,
+        request,
+    })?;
+    recovery::validate_models(
+        context.service,
+        (&task.request, &task.kind),
+        (&task.candidates, &placeholder_images(&task.request.images)),
     )
-    .await
+    .await?;
+    prepare_task(context, &mut task).await?;
+    Ok(task)
 }
 
-pub(super) async fn prepare_tasks(
-    context: ExecutionContext<'_>,
+pub(super) fn plan_tasks(
     requests: Vec<ImageRequest>,
 ) -> Result<Vec<PreparedTask>, rmcp::ErrorData> {
     let mut tasks = Vec::with_capacity(requests.len());
     for (index, request) in requests.into_iter().enumerate() {
         let id = request.id.as_deref().map(str::trim).map(str::to_string);
-        tasks.push(prepare_task(context, TaskSeed { index, id, request }).await?);
+        tasks.push(plan_task(TaskSeed { index, id, request })?);
     }
     Ok(tasks)
 }
@@ -94,11 +98,7 @@ fn validate_batch_item(
     Ok(())
 }
 
-async fn prepare_task(
-    context: ExecutionContext<'_>,
-    seed: TaskSeed,
-) -> Result<PreparedTask, rmcp::ErrorData> {
-    let started = Instant::now();
+fn plan_task(seed: TaskSeed) -> Result<PreparedTask, rmcp::ErrorData> {
     let routing_prompt = seed
         .request
         .parameters
@@ -111,69 +111,62 @@ async fn prepare_task(
         &routing_prompt,
         seed.request.images.len(),
     );
-    let (images, candidates) = prepare_inputs(context, &seed.request, &kind).await?;
-    tracing::info!(
-        requested_type = seed.request.kind.as_deref().unwrap_or("auto"),
-        selected_type = %kind,
-        image_count = images.len(),
-        batch_index = seed.index,
-        preparation_ms = started.elapsed().as_millis(),
-        "[iyw-image] image route prepared"
-    );
+    let placeholders = placeholder_images(&seed.request.images);
+    preflight_kind(&seed.request, &kind, &placeholders)?;
+    let candidates = recovery::prepare_candidates(&seed.request, &kind, &placeholders)?;
     Ok(PreparedTask {
         index: seed.index,
         id: seed.id,
         kind,
         request: seed.request,
-        images,
+        images: Vec::new(),
         candidates,
     })
+}
+
+pub(super) async fn prepare_task(
+    context: ExecutionContext<'_>,
+    task: &mut PreparedTask,
+) -> Result<(), rmcp::ErrorData> {
+    let started = Instant::now();
+    task.images = prepare_inputs(context, &task.request, (&task.kind, &task.candidates)).await?;
+    task.request.images.clear();
+    if task.kind == "edit" {
+        task.request.parameters.remove("mask");
+    }
+    tracing::info!(
+        selected_type = %task.kind, image_count = task.images.len(), batch_index = task.index,
+        preparation_ms = started.elapsed().as_millis(),
+        "[iyw-image] image route prepared; generation can start"
+    );
+    Ok(())
 }
 
 async fn prepare_inputs(
     context: ExecutionContext<'_>,
     request: &ImageRequest,
-    kind: &str,
-) -> Result<(Vec<PreparedImage>, Vec<ImageRequest>), rmcp::ErrorData> {
-    let placeholders = placeholder_images(&request.images);
-    preflight_kind(request, kind, &placeholders)?;
-    let candidates = recovery::prepare_candidates(request, kind, &placeholders)?;
-    recovery::validate_models(
-        context.service,
-        (request, kind),
-        (&candidates, &placeholders),
-    )
-    .await?;
-    let mut images = prepare_images(context.authority.cwd(), &request.images).await?;
-    if kind == "edit"
+    (kind, candidates): (&str, &[ImageRequest]),
+) -> Result<Vec<PreparedImage>, rmcp::ErrorData> {
+    let image_context = (context.service, context.authority.cwd());
+    let images = if kind == "edit"
         || candidates
             .iter()
             .any(|request| request.kind.as_deref() == Some("edit"))
     {
-        fusion::prepare_edit_images(
-            (context.service, context.authority.cwd()),
-            (request, kind),
-            &mut images,
-        )
-        .await?;
-    }
-    recovery::validate_models(context.service, (request, kind), (&candidates, &images)).await?;
-    if kind != "edit"
-        || candidates
-            .iter()
-            .any(|request| request.kind.as_deref() != Some("edit"))
-    {
-        upload_images(context.service, &mut images).await?;
-    }
+        fusion::prepare_edit_images(image_context, (request, kind)).await?
+    } else {
+        prepare_images(image_context, &request.images, ImageValidation::Platform).await?
+    };
     preflight_kind(request, kind, &images)?;
-    for candidate in &candidates {
+    recovery::validate_models(context.service, (request, kind), (candidates, &images)).await?;
+    for candidate in candidates {
         preflight_kind(
             candidate,
             candidate.kind.as_deref().expect("candidate type validated"),
             &images,
         )?;
     }
-    Ok((images, candidates))
+    Ok(images)
 }
 
 struct TaskSeed {
@@ -182,14 +175,15 @@ struct TaskSeed {
     request: ImageRequest,
 }
 
-fn placeholder_images(sources: &[ImageSource]) -> Vec<PreparedImage> {
+pub(super) fn placeholder_images(sources: &[ImageSource]) -> Vec<PreparedImage> {
     sources
         .iter()
         .map(|source| PreparedImage {
             url: "https://preflight.invalid/image.png".to_string(),
             role: source.role().to_string(),
-            bytes: None,
             mime_type: Some("image/png".to_string()),
+            dimensions: None,
+            byte_size: None,
         })
         .collect()
 }

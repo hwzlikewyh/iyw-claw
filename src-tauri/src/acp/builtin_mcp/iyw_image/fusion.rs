@@ -1,15 +1,14 @@
-use reqwest::multipart::{Form, Part};
 use serde_json::{json, Map, Value};
 
 use super::super::iyw_image_models::{
-    display_name, is_model_ref, load_catalog, model_ref, supports_operation,
+    display_name, is_model_ref, load_catalog, model_ref, refresh_catalog, supports_operation,
 };
 use super::input::PreparedImage;
-use super::result::{materialize_fusion_images, value_to_form_text};
 use super::{invalid, required_prompt, ImageRequest, ImageResult, IywGatewayService};
 
 mod capabilities;
 mod input;
+mod output;
 mod parameters;
 pub(super) use input::prepare_edit_images;
 pub(in crate::acp::builtin_mcp) use parameters::schema as parameters_schema;
@@ -20,26 +19,18 @@ pub(super) async fn generate(
     request: &ImageRequest,
 ) -> Result<ImageResult, rmcp::ErrorData> {
     let prompt = required_prompt(request.prompt.as_deref())?;
-    let (model_id, model_name) = select_model(service, request, ("generate", &[])).await?;
-    let mut payload = request
-        .parameters
-        .iter()
-        .filter(|(_, value)| !value.is_null())
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect::<Map<_, _>>();
+    let (model_id, model_name) = select_model(service, &request.parameters, false).await?;
+    let models = load_catalog(service).await?;
+    validate_capabilities(&models, request, ("generate", &[]))?;
+    let mut payload = request.parameters.clone();
     payload.insert("model".to_string(), Value::String(model_id));
     payload.insert("prompt".to_string(), Value::String(prompt));
+    payload.entry("n").or_insert(Value::from(1));
     let response = service
         .post_fusion("images/generations", Value::Object(payload))
         .await
         .map_err(|error| super::errors::model_failure(error, &model_name))?;
-    Ok(ImageResult {
-        operation: "generate".to_string(),
-        status: "succeeded".to_string(),
-        task_id: None,
-        images: materialize_fusion_images(service, &response).await?,
-        metadata: json!({"model_name": model_name, "request_id": response.get("_iyw_request_id")}),
-    })
+    output::finish(service, "generate", (&model_name, &response)).await
 }
 
 pub(super) async fn edit(
@@ -51,83 +42,60 @@ pub(super) async fn edit(
     if images.is_empty() {
         return Err(invalid("edit requires at least one image"));
     }
-    let (model_id, model_name) = select_model(service, request, ("edit", images)).await?;
-    let form = build_edit_form(service, (request, images), (model_id, prompt)).await?;
+    let (model_id, model_name) = select_model(service, &request.parameters, true).await?;
+    let models = load_catalog(service).await?;
+    validate_capabilities(&models, request, ("edit", images))?;
+    let payload = build_edit_payload((request, images), (model_id, prompt))?;
+    tracing::info!(
+        image_count = images.iter().filter(|image| image.role != "mask").count(),
+        has_mask = payload.get("mask").is_some(),
+        transport = "json_image_url",
+        "[iyw-image] submitting Fusion edit with image URLs"
+    );
     let response = service
-        .post_fusion_multipart("images/edits", form)
+        .post_fusion("images/edits", payload)
         .await
         .map_err(|error| super::errors::model_failure(error, &model_name))?;
-    Ok(ImageResult {
-        operation: "edit".to_string(),
-        status: "succeeded".to_string(),
-        task_id: None,
-        images: materialize_fusion_images(service, &response).await?,
-        metadata: json!({"model_name": model_name, "request_id": response.get("_iyw_request_id")}),
-    })
+    output::finish(service, "edit", (&model_name, &response)).await
 }
 
-async fn build_edit_form(
-    service: &IywGatewayService,
+fn build_edit_payload(
     (request, images): (&ImageRequest, &[PreparedImage]),
     (model, prompt): (String, String),
-) -> Result<Form, rmcp::ErrorData> {
-    let mut form = Form::new().text("model", model).text("prompt", prompt);
-    let image_count = images.iter().filter(|image| image.role != "mask").count();
-    for (index, image) in images.iter().enumerate() {
-        form = form.part(
-            edit_part_name(image, image_count),
-            image_part(service, image, index).await?,
-        );
-    }
-    for (key, value) in &request.parameters {
-        if !matches!(key.as_str(), "model" | "prompt" | "mask") && !value.is_null() {
-            form = form.text(key.clone(), value_to_form_text(value));
+) -> Result<Value, rmcp::ErrorData> {
+    let mut payload = request.parameters.clone();
+    payload.retain(|key, value| key != "mask" && !value.is_null());
+    payload.insert("model".to_string(), Value::String(model));
+    payload.insert("prompt".to_string(), Value::String(prompt));
+    let mut sources = Vec::new();
+    for image in images {
+        if image.url.is_empty() {
+            return Err(invalid("edit input must be uploaded before generation"));
+        }
+        let reference = json!({"image_url": image.url});
+        if image.role == "mask" {
+            payload.insert("mask".to_string(), reference);
+        } else {
+            sources.push(reference);
         }
     }
-    Ok(form)
+    payload.insert("images".to_string(), Value::Array(sources));
+    Ok(Value::Object(payload))
 }
 
-async fn image_part(
+pub(super) async fn select_model(
     service: &IywGatewayService,
-    image: &PreparedImage,
-    index: usize,
-) -> Result<Part, rmcp::ErrorData> {
-    let bytes = match &image.bytes {
-        Some(bytes) => bytes.clone(),
-        None => service.download_image(&image.url).await?,
-    };
-    let mime = crate::acp::delegation::image_format::detect_mime(&bytes)
-        .ok_or_else(|| invalid("edit input image format is unsupported"))?;
-    let extension = match mime {
-        "image/jpeg" => "jpg",
-        "image/webp" => "webp",
-        _ => "png",
-    };
-    Part::bytes(bytes)
-        .file_name(format!("input-{}.{}", index + 1, extension))
-        .mime_str(mime)
-        .map_err(|error| invalid(error.to_string()))
-}
-
-fn edit_part_name(image: &PreparedImage, image_count: usize) -> &'static str {
-    if image.role == "mask" {
-        "mask"
-    } else if image_count > 1 {
-        "image[]"
-    } else {
-        "image"
-    }
-}
-
-async fn select_model(
-    service: &IywGatewayService,
-    request: &ImageRequest,
-    (kind, images): (&str, &[PreparedImage]),
+    parameters: &Map<String, Value>,
+    editing: bool,
 ) -> Result<(String, String), rmcp::ErrorData> {
-    let models = load_catalog(service).await?;
-    let editing = kind == "edit";
-    let selected = resolve_model(&models, &request.parameters, editing)?;
-    validate_capabilities(&models, request, (kind, images))?;
+    let requested = requested_model(parameters)?;
+    let mut models = load_catalog(service).await?;
+    if !models.iter().any(|item| {
+        supports_operation(item, editing) && model_ref(item).as_deref() == Some(requested)
+    }) {
+        models = refresh_catalog(service, &models).await?;
+    }
+    let selected = resolve_model(&models, parameters, editing)?;
     tracing::info!(target: "builtin_mcp", model_id = selected.0, editing, agent_selected = true,
         "selected Fusion image model");
     Ok(selected)

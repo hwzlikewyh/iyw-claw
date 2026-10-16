@@ -7,12 +7,14 @@ use super::iyw_service::IywGatewayService;
 
 mod batch;
 mod commerce;
+pub(super) mod context;
 pub(super) mod errors;
 mod fission;
 mod fusion;
 mod input;
 pub(super) mod limits;
 mod native;
+mod poll;
 mod recovery;
 mod request;
 mod result;
@@ -21,7 +23,7 @@ mod validation;
 mod validation_special;
 
 pub(super) use fusion::parameters_schema;
-use input::{prepare_images, upload_images, ImageSource, PreparedImage};
+use input::{prepare_images, ImageSource, PreparedImage};
 use request::ImageToolRequest;
 pub(super) use request::{DeliveryOptions, ImageBatchRequest, ImageRequest, WaitOptions};
 

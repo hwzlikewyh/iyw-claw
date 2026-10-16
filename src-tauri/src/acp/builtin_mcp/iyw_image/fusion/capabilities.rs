@@ -136,8 +136,8 @@ fn validate_limits(
     limit(limits, "max_masks", masks + parameter_mask)?;
     limit(limits, "max_images", images.len() - masks)?;
     for image in images {
-        if let Some(bytes) = image.bytes.as_ref() {
-            limit(limits, "max_input_bytes", bytes.len())?;
+        if let Some(byte_size) = image.byte_size {
+            limit(limits, "max_input_bytes", byte_size)?;
             if image.role != "mask" {
                 validate_format(limits, image)?;
             }

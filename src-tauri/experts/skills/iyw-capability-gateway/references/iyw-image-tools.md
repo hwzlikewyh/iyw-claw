@@ -10,17 +10,34 @@
 型号名、描述里的“高清”或编辑布尔标志不能代替尺寸、蒙版和透明能力声明。
 
 
+
 图片生成、编辑和处理优先通过 `generate_iyw_image` 使用平台能力或图片模型；工具契约覆盖任务时不要改用 fetch。仅 [电商视频](iyw-api-ecommerce-video.md) 和 [商品套图](iyw-api-product-kits.md) 明确记录的不匹配或未封装操作用 fetch 调原接口，不为绕过校验虚构参数。任务查询、历史、素材、收藏和其他业务仍走 `fetch_iyw_url`，见 [图片任务管理](iyw-api-image-admin.md)。只读本次 type 对应行和示例；核对来源或契约差异时再读 [图片接口证据](iyw-image-api-source.md)。
 
 视频生成优先使用本 Skill 的 `generate_iyw_image`/`fetch_iyw_url`，按 [视频专篇](iyw-api-ecommerce-video.md) 选择。视频导演返回脚本，生成返回任务，成功后才能交付视频；不要把图片模型目录当成视频模型目录。
 
 自定义改款优先 `variation`，单基准图系列延伸优先 `extend`，多图融合优先 `mix`，无需先查模型目录。内置转 3D 已禁用，不调用 `image-to-3d` 或 `commerce/ImageTo3D`，也不通过浏览器或其他封装绕过。
 
+帮客户生图时，适用的平台功能优先；复杂、多重视觉约束或需要更自由控制的任务可直接用
+图片模型，不要求先制造平台失败。明确选择某平台模型的要求仍须保留。
+普通文生图可用 `micro-generate`，改款／延伸／融合用相应平台 type；选择图片模型后，
+无图用 `generate`、有参考图用 `edit`。用明确 type 表达已选路线，不依赖 auto 猜测服务。
+
+这里的“模型一／二／三”分别选择平台 `parameters.modelChannel=1/2/3`，不是 Fusion
+模型目录的第一／二／三项。用户明确选择时原样传入，不改成默认模型，不切换 `edit`；
+只有未指定通道才省略 modelChannel，沿用默认模型二。`variation/extend/mix` 不接收
+`parameters.model`；用户锁定模型时不自行加入其他模型回退。
+
+例如用户要求“自定义改款、模型一、东方中式”，使用：
+
+```json
+{"type":"variation","prompt":"保留原图主体，改款为东方中式风格","images":["https://example.com/source.png"],"parameters":{"modelChannel":1}}
+```
+
 ## 能力匹配与兜底
 
 1. 安装图像库或写处理脚本前，先按用户所需效果、输入与输出选择平台能力或图片模型。没有同名专用接口、关键词未命中或描述简略，都不等于明确不支持；继续评估单图指令编辑或模型目录。自然语言可描述的视觉变化不要求存在同名 API。
 2. 核对真实技术约束。`image_generation` / `image_editing` 不保证蒙版、透明输出、位深、参考图数量或任意分辨率；按文档使用参数。不得自行添加精确几何或位深要求来排除服务，也不得丢弃用户要求或调用已知不支持的操作来制造失败。
-3. 优先匹配上述平台路线；其他专用操作按实际功能选择。用户明确选择其他服务，或优先路线有明确不支持、不可用、确认失败的证据时，才转向适用模型；已知不兼容无需先试错。有参考图且选择目录中的模型时使用 `edit`，无图创作用 `generate`；同任务复用模型目录。把目录引用放入平台操作参数不代表选中了该模型。目录 `model_ref` 仅用于内部调用，对用户只用业务展示名称；名称缺失时说“通用图片处理”。即使追问价格、型号或锁定模型，也不在正文、表格、括号、代码或错误转述中披露货币价格、真实 ID、目录引用、供应商或后端名称。点数仅用平台明确返回的数据，不换算或猜测；未确认时不报数值。
+3. 优先匹配上述平台路线；其他专用操作按实际功能选择。任务复杂、需要更自由控制、用户明确选择图片模型，或优先路线有明确不支持、不可用、确认失败的证据时，选择适用模型；无需先制造平台失败。有参考图且选择目录中的模型时使用 `edit`，无图创作用 `generate`；同任务复用模型目录。把目录引用放入平台操作参数不代表选中了该模型。目录 `model_ref` 仅用于内部调用，对用户只用业务展示名称；名称缺失时说“通用图片处理”。即使追问价格、型号或锁定模型，也不在正文、表格、括号、代码或错误转述中披露货币价格、真实 ID、目录引用、供应商或后端名称。点数仅用平台明确返回的数据，不换算或猜测；未确认时不报数值。
 4. 按下表恢复失败，重新对照原始用户目标选择适用服务，不能让辅助步骤的失败决定整个任务改写为本地算法。
 5. 仅在适用平台和模型路线均有不可用、文档明确不兼容或有限恢复后确认失败的具体证据时，才可脚本兜底；先说明限制，不遍历无关服务。缺少专用接口、第一张效果不佳或认为本地算法更精确，均不足以回退。
 
@@ -37,7 +54,7 @@
 
 商品套图/A+ 的完整输入与版本流程见 [套图](iyw-api-product-kits.md)，批量图像任务见 [批量中心](iyw-api-batch-center.md)，枚举按需读 [通道与类型](iyw-image-enums.md)。
 
-`images` 接受 HTTPS URL、工作区本地路径、Data URL，或 `{path|url|base64|data,mimeType,role,name}` 对象；原始 Base64 需 MIME。单图上限 20 MiB；Fusion 编辑支持最多 16 张 PNG/JPEG/WebP 参考图及额外 1 张 PNG 蒙版，平台操作最多 10 张。编辑输入在执行前读取/下载并校验真实 MIME，重试复用原字节；平台主机上传本地图片。`prompt` 描述目标，`parameters` 放所选操作的业务字段。新原生操作不同时接受顶层 images 和同名 parameters 图片字段。
+`images` 接受 HTTPS URL、工作区本地路径、Data URL，或 `{path|url|base64|data,mimeType,role,name}` 对象；原始 Base64 需 MIME。Fusion 编辑支持最多 16 张 PNG/JPEG/WebP 参考图及额外 1 张 PNG 蒙版，平台操作最多 10 张。本地路径与编码图片先校验真实 MIME，再上传取得 HTTPS URL；已有 URL 保留完整 query 并直接提交，其内容、格式和大小由上游验证。使用编辑蒙版时，主机只读取蒙版与首张参考图以校验 PNG／尺寸。主机读取的单图上限 20 MiB。重试复用同一组 URL。`prompt` 描述目标，`parameters` 放所选操作的业务字段。新原生操作不同时接受顶层 images 和同名 parameters 图片字段。
 
 | type | 后端操作 | 参数与区别 |
 | --- | --- | --- |
@@ -45,8 +62,8 @@
 | `a-plus-edit` | `commerce/g_tools_generate_image` | 单图 + prompt，固定 A+ 12 类型与变款通道，默认 16:9；生成后按用户要求用 fetch 保存/激活版本 |
 | `batch-*` | 10 个平台批量通道的 submit | 具体 type/字段见批量中心；默认 HTTP 120 秒、等待 600 秒；batchId 与普通 taskId 分开 |
 | `fission` | `microModel/v2/batch` | 文生图；prompt 必填，按现有 `models/jsonData` 契约，非摘要 items[] |
-| `variation` / `extend` | `commerce/g_tools_generate_image` | 单图 + prompt；主机设置 toolName/modelChannel/batchSize |
-| `mix` | `commerce/g_tools_generate_image` | 2-10 图 + prompt；按输入顺序说明角色 |
+| `variation` / `extend` | `commerce/g_tools_generate_image` | 单图 + prompt；modelChannel 保留显式选择，省略才默认 2；toolName/batchSize 由主机设置 |
+| `mix` | `commerce/g_tools_generate_image` | 2-10 图 + prompt；按输入顺序说明角色；modelChannel 保留显式选择，省略才默认 2 |
 | `pattern-apply` / `material-product` / `ip-apply` | `commerce/g_tools_generate_image` | 分别需 product/material 或 product/jsonData；从产品/IP 业务结果取得 |
 | `free-imitation` | `commerce/fission` | 单图；`model:free`，`stats.width/height/strength` 非负 |
 | `outpaint` | `commerce/outpainting` | 单图；`top/right/bottom/left` 各为 0-1 |
@@ -84,11 +101,19 @@
 
 ## 结果与恢复
 
+### 执行速度与稳定性
+
+- 每批仍最多 64 项、16 路生成请求并发，不设跨批共享的 16 路门槛。输入读取／上传也有独立的 16 路并发，各项准备好即开始提交，不等整批素材。异步任务已创建后的轮询和重试退避不占用生成请求名额，可能同时有超过 16 个已创建任务在服务端运行。
+- 同次调用中相同来源和校验方式合并准备，相同内容只上传一次，上传后只保留 URL／校验元数据。不跨调用缓存用户素材或生成结果。Fusion 模型目录由 list 与 generate 共用 60 秒缓存，按账号／工作空间隔离；仅调用时检查时间，过期才请求接口，不运行定时器。并发刷新合并，失败不跨调用缓存；引用缺失时提交前最多刷新一次，仍不支持则明确报错。count、回退和重试复用本次目录快照。
+- 全批参数、路线和模型预检在收费调用前完成；单项文件读取／上传失败只影响该项，其他项继续，结果按原顺序汇总。
+- 停止会中断排队、输入准备、请求等待、轮询和退避；已提交的远程任务不保证被取消，结果未知时不可重复生成。只读任务查询短暂超时或 429／503 可有限恢复原查询，不重提交生成；查询截止时间按剩余 wait 预算执行。
+- 输出中部分图片无法处理时返回 `partial` 并保留成功 URL，细节见 `metadata.output_errors`；已知图片在后续查询为空或失败时仍保留。`unknown` 表示提交结果未确认，不能当作明确失败重提。输入／输出 URL 的签名 query 保留，fragment 不作为输出链接的一部分。
+
 ### Fusion 生成／编辑参数
 
 提示词放在顶层 `prompt`，参考图放在 `images`。`parameters.model` 使用目录中的模型引用。
-常用字段均已列入工具 schema；生成走 JSON，编辑走 multipart，普通可选字段原样传递，
-null 字段在 multipart 中省略，额外的渠道参数保持透传。是否支持某个选项按所选模型契约判断，
+常用字段均已列入工具 schema；生成与编辑都走 JSON，编辑参考图使用 `images[].image_url`，
+普通可选字段保留 JSON 类型，编辑省略 null 字段，额外的渠道参数保持透传。是否支持某个选项按所选模型契约判断，
 不得把所有模型都当作支持透明、保真或任意尺寸；不固定填充默认质量或尺寸。
 
 | 参数 | 生成／编辑方式 |
@@ -107,8 +132,8 @@ null 字段在 multipart 中省略，额外的渠道参数保持透传。是否�
 | `user` | 可选匿名业务标识，不包含个人信息或凭据 |
 | `stream`／`partial_images` | 当前中转仅完整 JSON；stream 只允许 false／null，partial_images 只允许 0／null，不能宣称支持流式出图 |
 
-单图编辑会发送 `image` 文件，多图使用 `image[]`；蒙版作为独立 `mask` 文件发送。
-文件扩展名与 MIME 来自真实字节，Base64 成图转存同样按 PNG/JPEG/WebP 处理。
+单图与多图编辑统一发送 HTTPS URL，蒙版使用 `mask.image_url`；生图请求不发送二进制文件或 Data URL。
+上传扩展名与 MIME 来自真实字节，Base64 成图转存同样按 PNG/JPEG/WebP 处理。
 模型不支持透明输出时应保留用户要求并报告或选择兼容候选，不把白底成图当作透明 PNG。
 
 高清编辑与透明生成结构示例；须将引用替换为当前目录选中的兼容模型，图片路径位于工作区：
@@ -122,6 +147,7 @@ null 字段在 multipart 中省略，额外的渠道参数保持透传。是否�
 ```
 
 - `status/images/task_id/metadata/delivery` 为输出。原生操作完整业务结果在 `metadata.result`，色号、网格、提示词、矢量文件或视频链接不能只看 images。只陈述返回证实的操作或模型；Fusion 的 `metadata.model_name` 是业务展示名称，平台操作成功不证明传入的目录模型已执行。
+- 平台结果 `metadata.requested_model_channel` 记录实际提交的通道参数，批量与回退轨迹保留；它说明请求选择，不单独证明上游最终使用的内部模型。
 - 原生异步任务的 `metadata.query` 给出已知查询路径；恢复查询用 fetch。返回 task_id 但没有已确认查询接口时保留运行中状态，不能宣称成功。
 - 用户需要多张独立图片时使用批量 `requests`，最多 64 项、并发 16 项；更多图片拆成多批。每项的 prompt、images、type、parameters、count、wait 和 fallbacks 可完全不同，不能把第一项参数复制覆盖其他项。`count` 每项 1-4，仅用于重复同一意图；所有项 `count × (1 + fallbacks 数量)` 合计最多 128 次计划候选执行，包含回退。下载/转存 502 每候选最多额外重试 3 次，整个批次最多 512 次实际调用，每次可能扣点。批量成功和失败分别报告；数据类操作结果保留在各项 `runs[].metadata.result`。
 - 单项可提供最多 3 个按顺序执行的 `fallbacks` 候选，每个包含明确 type、完整 parameters 和可选 wait。候选继承原任务提示词和全部参考图；参数整体替换、不继承前一模型专用字段，不能在 parameters 中覆盖 prompt/来源图，带链请求用 count 而非 n/batchSize。模型候选各自在 parameters.model 使用当前目录引用；不自动选模型、不重复相同 type/parameters。
@@ -155,13 +181,14 @@ Choose a route whose documented capabilities cover the task:
 
 | Task | Preferred type |
 | --- | --- |
-| Text-to-image, without source images | `generate` through Fusion `images/generations` |
+| Ordinary text-to-image covered by platform creation | `micro-generate` |
+| Complex or freer text-to-image through an image model | `generate` through Fusion `images/generations` |
 | Redesign or modify one source image | `variation` |
 | Edit source images with a selected catalog model | `edit` through Fusion `images/edits`, preserving source images |
 | Fuse 2-10 reference images | `mix`, preserving input order |
 | Four-panel grids or same-series extension from one base image | `extend` |
 
-Fusion `edit` (`images/edits`) remains available when explicitly selected and
+Fusion `edit` (`images/edits`) is suitable for complex edits, freer control or explicit model selection and
 requires at least one source image. `generate` and `edit` do not require a prior
 platform attempt or failure. `fission` remains an explicitly selectable platform
 operation. Select the matching specialized operation for background, outpaint,

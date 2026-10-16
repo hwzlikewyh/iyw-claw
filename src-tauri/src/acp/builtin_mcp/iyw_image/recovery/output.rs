@@ -55,6 +55,7 @@ pub(super) fn attempt(
             value["task_id"] = json!(result.task_id);
             for key in [
                 "model_name",
+                "requested_model_channel",
                 "request_id",
                 "query",
                 "batch_id",
@@ -98,6 +99,13 @@ pub(super) fn finish(
         }
         Err(mut error) => {
             let mut details = errors::details(&error);
+            if let Some(value) = error
+                .data
+                .as_ref()
+                .and_then(|data| data.get("output_errors"))
+            {
+                details["output_errors"] = value.clone();
+            }
             details["attempts"] = json!(attempts);
             details["recovery_stop_reason"] = json!(reason);
             error.data = Some(details);

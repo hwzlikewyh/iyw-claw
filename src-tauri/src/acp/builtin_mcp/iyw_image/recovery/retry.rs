@@ -38,7 +38,15 @@ pub(super) async fn execute(
         let Some(delay) = delay else {
             return (result, decision);
         };
-        tokio::time::sleep(Duration::from_secs(delay)).await;
+        if let Err(error) = service
+            .image_io("retry_wait", async {
+                tokio::time::sleep(Duration::from_secs(delay)).await;
+                Ok(())
+            })
+            .await
+        {
+            return (Err(error), "stop_uncertain");
+        }
     }
     unreachable!("the retry limit always ends the candidate")
 }

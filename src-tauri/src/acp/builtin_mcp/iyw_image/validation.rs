@@ -3,6 +3,9 @@ use serde_json::{Map, Value};
 use super::invalid;
 use super::validation_special;
 
+const DEFAULT_MODEL_CHANNEL: u64 = 2;
+const MAX_MODEL_CHANNEL: u64 = 4;
+
 pub(super) fn validate_payload(
     kind: &str,
     payload: &mut Map<String, Value>,
@@ -40,7 +43,7 @@ fn validate_g_tool(
     let urls = image_urls(payload, image_count, image_count)?;
     payload.insert("toolName".to_string(), Value::String(tool_name.to_string()));
     if matches!(tool_name, "variation" | "extend" | "mix") {
-        payload.insert("modelChannel".to_string(), Value::from(2));
+        validate_model_channel(payload)?;
     }
     payload.insert("imageUrls".to_string(), Value::String(urls[0].clone()));
     if prompt_required {
@@ -55,12 +58,28 @@ fn validate_g_tool(
 fn validate_mix(payload: &mut Map<String, Value>) -> Result<(), rmcp::ErrorData> {
     let urls = image_urls(payload, 2, 10)?;
     payload.insert("toolName".to_string(), Value::String("mix".to_string()));
-    payload.insert("modelChannel".to_string(), Value::from(2));
+    validate_model_channel(payload)?;
     payload.insert(
         "imageUrls".to_string(),
         Value::Array(urls.into_iter().map(Value::String).collect()),
     );
     required_string(payload, "prompt")?;
+    Ok(())
+}
+
+fn validate_model_channel(payload: &mut Map<String, Value>) -> Result<(), rmcp::ErrorData> {
+    if payload.contains_key("model") {
+        return Err(invalid("variation/extend/mix select a platform model with parameters.modelChannel, not parameters.model or a Fusion catalog position. For platform model one use modelChannel=1; for a Fusion model_ref use type=edit"));
+    }
+    let channel = payload
+        .entry("modelChannel")
+        .or_insert(Value::from(DEFAULT_MODEL_CHANNEL));
+    if !channel
+        .as_u64()
+        .is_some_and(|value| value <= MAX_MODEL_CHANNEL)
+    {
+        return Err(invalid("parameters.modelChannel must be an integer from 0 to 4; copy the platform channel ID and preserve an explicit user selection"));
+    }
     Ok(())
 }
 
