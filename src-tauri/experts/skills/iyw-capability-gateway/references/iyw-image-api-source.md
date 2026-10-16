@@ -11,7 +11,7 @@
 - `SuperResolution` 旧工具用 `reference/upscale`；`EnhanceImage` 旧工具用 `image/enhanceType/model`；保留。
 - `outpainting` 旧工具用 `image/top/right/bottom/left`；`convert` 用 `image/inputFormat/outputFormat`；保留。
 - `ImageTo3D` 仅保留历史接口证据，内置转 3D 已禁用，不得调用或经 fetch/浏览器绕过；`lineExtraction` 用 `reference/model/batch_size/stats.reference`。
-- `g_tools_generate_image` 现有 `variation/extend/mix` 由主机设置 toolName/modelChannel；不与 `g_tools` 通道混用。
+- `g_tools_generate_image` 的 `variation/extend/mix` 由主机设置 toolName，modelChannel 保留调用方显式选择，省略时沿用默认 2；不与 `g_tools` 通道混用。用户提供的 `功能/边款、放大.txt` 中 `ai_gpt_tool_channel` 快照给出“模型一”id=1、“模型二”id=2、“模型三”id=3；这些名称不是 Fusion 目录位置。现有枚举 0–4 不据此宣称全部通道均可用于任意操作，运行可用性仍由平台校验。
 - 出血线和提取色号的旧页面可在本地计算；新文档给出 `bleedLine/extractColor` 服务路径，新增 type 显式走该路径，不暗示所有页面已改用接口。
 - 商品套图旧契约已接入工具；新版 smart/custom 与爆款复刻见 [套图参考](iyw-api-product-kits.md)。蒙版域为 `https://ai.iyw.cn/agent/api/generate_mask`，但区域结构未完整给出。AI 试衣仍缺完整提交契约。详见 [图片补充](iyw-api-image-contract-updates.md)。
 

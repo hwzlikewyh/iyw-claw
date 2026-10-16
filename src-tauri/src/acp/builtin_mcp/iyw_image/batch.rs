@@ -8,10 +8,11 @@ use super::{
     IywGatewayService, PreparedImage, SessionContext,
 };
 
+mod pipeline;
 mod prepare;
 mod result;
 
-use prepare::{prepare_single, prepare_tasks, validate_batch};
+use prepare::{prepare_single, validate_batch};
 use result::{
     aggregate_status, aggregate_task, collect_images, first_operation, first_task_id,
     item_statuses, log_batch, task_images, BatchCompletion,
@@ -62,18 +63,12 @@ pub(super) async fn execute_batch(
     let context = ExecutionContext { service, authority };
     let started = Instant::now();
     validate_batch(&request)?;
-    let tasks = prepare_tasks(context, request.requests).await?;
-    let runs = execute_tasks(service, &tasks).await;
-    let items = tasks
-        .iter()
-        .map(|task| aggregate_task(task, &runs))
-        .collect::<Vec<_>>();
+    let items = pipeline::execute(context, request.requests).await?;
     let images = collect_images(&items);
     let status = aggregate_status(item_statuses(&items));
     let delivery = deliver(context, &request.delivery, &images).await;
     log_batch(
         &items,
-        &runs,
         BatchCompletion {
             status,
             duration_ms: started.elapsed().as_millis(),
@@ -96,7 +91,7 @@ async fn execute_compatible_single(
 ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
     let result =
         recovery::execute(context.service, image_execution(task), &task.candidates).await?;
-    let delivered = if matches!(result.status.as_str(), "succeeded" | "partial") {
+    let delivered = if !result.images.is_empty() {
         deliver(context, delivery, &result.images).await
     } else {
         empty_delivery()

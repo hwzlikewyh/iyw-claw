@@ -1,7 +1,4 @@
-use std::{
-    path::Path,
-    time::{Duration, Instant},
-};
+use std::{path::Path, time::Instant};
 
 use rmcp::ErrorData;
 use serde_json::{json, Value};
@@ -12,27 +9,12 @@ use super::{
     public_url, IywGatewayService,
 };
 
-const UPLOAD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
-
 pub(super) async fn upload(
     service: &IywGatewayService,
     file: UploadFile,
 ) -> Result<Value, ErrorData> {
     validate_size(file.size_bytes)?;
-    let client = reqwest::Client::builder()
-        .timeout(UPLOAD_TIMEOUT)
-        .connect_timeout(CONNECT_TIMEOUT)
-        .redirect(reqwest::redirect::Policy::none())
-        .retry(reqwest::retry::never())
-        .build()
-        .map_err(|_| {
-            error(
-                "Failed to initialize upload client",
-                "client_error",
-                "not_started",
-            )
-        })?;
+    let client = &service.upload_client;
     let started = Instant::now();
     let signed = presign(service, &file).await?;
     let url = public_url(&signed);
