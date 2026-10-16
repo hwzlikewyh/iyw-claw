@@ -8,6 +8,7 @@ import {
   FileImage,
   FileSpreadsheet,
   FileText,
+  Crosshair,
   Folder,
   Focus,
   GitCommit,
@@ -24,6 +25,7 @@ import { cn } from "@/lib/utils"
 
 import type { ReferenceAttrs } from "../types"
 import { isTaskReference } from "../composer-commands"
+import { ElementReferenceBadge } from "./element-reference-badge"
 
 const ICON_CLASS = "size-3.5 shrink-0"
 
@@ -148,6 +150,9 @@ export function ReferenceIcon({
         icon = <Command className={ICON_CLASS} />
       }
       break
+    case "element":
+      icon = <Crosshair className={ICON_CLASS} />
+      break
     default:
       return null
   }
@@ -188,6 +193,8 @@ function badgeColorClass(data: ReferenceAttrs): string {
         return "border-violet-500/25 bg-violet-500/[0.07] text-violet-800 dark:text-violet-300"
       }
       return "border-border/70 bg-muted/45 text-foreground/80"
+    case "element":
+      return "text-muted-foreground"
   }
 }
 
@@ -209,6 +216,9 @@ export interface ReferenceBadgeProps {
  * editor coupling.
  */
 export function ReferenceBadge({ data, className }: ReferenceBadgeProps) {
+  if (data.refType === "element") {
+    return <ElementReferenceBadge data={data} className={className} />
+  }
   const label =
     data.refType === "file" ? data.label || "file" : data.label || data.id
   return (

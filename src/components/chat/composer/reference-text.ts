@@ -125,6 +125,7 @@ export function referenceToMarkdown(attrs: ReferenceAttrs): string {
     }
     case "file":
     case "session":
+    case "element":
     case "commit": {
       const text = collapseNewlines(attrs.label || attrs.id)
       return attrs.uri

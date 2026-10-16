@@ -2,6 +2,7 @@
 
 import { useEffect, type ReactNode } from "react"
 import { useTranslations } from "next-intl"
+import { useBrowserSessionBridge } from "@/hooks/use-browser-session-bridge"
 import { useShallow } from "zustand/react/shallow"
 import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 import { useAcpActions } from "@/contexts/acp-connections-context"
@@ -38,6 +39,7 @@ interface TabProviderProps {
  * store; this component renders nothing but `children`.
  */
 export function TabProvider({ children }: TabProviderProps) {
+  useBrowserSessionBridge()
   const t = useTranslations("Folder.tabContext")
   const { activateConversationPane } = useWorkspaceActions()
   const {

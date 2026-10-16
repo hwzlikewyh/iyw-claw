@@ -272,6 +272,17 @@
     "elementName": "名称：{name}",
     "elementText": "文本：{text}",
     "elementSelector": "选择器：{selector}",
+    "elementTypes": {
+      "button": "按钮",
+      "heading": "标题",
+      "region": "区域",
+      "link": "链接",
+      "input": "输入框",
+      "image": "图片",
+      "text": "文本",
+      "element": "元素"
+    },
+    "removeElement": "移除元素引用：{name}",
     "pageHealthy": "这个页面没有错误",
     "pageErrors": "这个页面有 {count} 个错误",
     "pageAdded": "页面已添加到对话草稿",

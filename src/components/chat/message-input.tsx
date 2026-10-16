@@ -130,9 +130,11 @@ import {
   ATTACH_FILE_TO_SESSION_EVENT,
   ATTACH_IMAGE_TO_SESSION_EVENT,
   APPEND_TEXT_TO_SESSION_EVENT,
+  INSERT_REFERENCE_TO_SESSION_EVENT,
   type AttachFileToSessionDetail,
   type AttachImageToSessionDetail,
   type AppendTextToSessionDetail,
+  type InsertReferenceToSessionDetail,
 } from "@/lib/session-attachment-events"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import {
@@ -3148,6 +3150,33 @@ export function MessageInput({
     return () => {
       window.removeEventListener(APPEND_TEXT_TO_SESSION_EVENT, handleAppendText)
     }
+  }, [attachmentTabId])
+
+  useEffect(() => {
+    if (!attachmentTabId) return
+    const handleInsertReference = (event: Event) => {
+      if (event.defaultPrevented) return
+      const detail = (event as CustomEvent<InsertReferenceToSessionDetail>)
+        .detail
+      if (detail?.tabId !== attachmentTabId) return
+      const editor = editorRef.current?.getEditor()
+      if (disabledRef.current || !editor) return
+      const accepted = editor
+        .chain()
+        .focus()
+        .insertReference(detail.reference)
+        .run()
+      if (accepted) event.preventDefault()
+    }
+    window.addEventListener(
+      INSERT_REFERENCE_TO_SESSION_EVENT,
+      handleInsertReference
+    )
+    return () =>
+      window.removeEventListener(
+        INSERT_REFERENCE_TO_SESSION_EVENT,
+        handleInsertReference
+      )
   }, [attachmentTabId])
 
   useEffect(() => {

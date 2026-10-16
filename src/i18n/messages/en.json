@@ -272,6 +272,17 @@
     "elementName": "Name: {name}",
     "elementText": "Text: {text}",
     "elementSelector": "Selector: {selector}",
+    "elementTypes": {
+      "button": "Button",
+      "heading": "Heading",
+      "region": "Section",
+      "link": "Link",
+      "input": "Input",
+      "image": "Image",
+      "text": "Text",
+      "element": "Element"
+    },
+    "removeElement": "Remove element reference: {name}",
     "pageHealthy": "No page errors detected",
     "pageErrors": "This page has {count} errors",
     "pageAdded": "Page added to the chat draft",

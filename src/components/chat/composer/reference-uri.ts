@@ -2,6 +2,7 @@ import { ALL_AGENT_TYPES, isAgentType } from "@/lib/types"
 import { randomUUID } from "@/lib/utils"
 
 import type { ReferenceAttrs } from "./types"
+import { parseElementReferenceUri } from "./element-reference"
 
 // The reference uri grammar, shared by two consumers: editor draft restore
 // (from-prompt-blocks.ts) and transcript badge rendering
@@ -47,6 +48,9 @@ export function parseIywClawReferenceUri(
   label: string
 ): ReferenceAttrs | null {
   const lower = uri.toLowerCase()
+  if (lower.startsWith("iyw-claw://element/")) {
+    return parseElementReferenceUri(uri, label)
+  }
 
   if (lower.startsWith("file:")) {
     const base = fileBaseName(uri)

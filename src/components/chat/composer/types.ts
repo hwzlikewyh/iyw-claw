@@ -1,7 +1,13 @@
 import type { AgentType } from "@/lib/types"
 
-/** The five kinds of inline reference the composer can embed. */
-export type ReferenceKind = "file" | "agent" | "session" | "commit" | "skill"
+/** 输入框支持的内联引用类型。 */
+export type ReferenceKind =
+  | "file"
+  | "agent"
+  | "session"
+  | "commit"
+  | "skill"
+  | "element"
 
 export const REFERENCE_KINDS: readonly ReferenceKind[] = [
   "file",
@@ -9,6 +15,7 @@ export const REFERENCE_KINDS: readonly ReferenceKind[] = [
   "session",
   "commit",
   "skill",
+  "element",
 ]
 
 /**

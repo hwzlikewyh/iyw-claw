@@ -40,6 +40,7 @@ const DEFAULT_TAB_LABELS: Record<ReferenceKind, string> = {
   session: "Sessions",
   commit: "Commits",
   skill: "Skills",
+  element: "Elements",
 }
 
 // Commit-synchronous in the browser so the panel is positioned before paint (no
