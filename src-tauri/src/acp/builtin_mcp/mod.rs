@@ -3,6 +3,7 @@ mod authority;
 mod binding;
 mod cancellation;
 mod capability;
+mod channel_gateway;
 mod capability_intents;
 mod capability_metadata;
 mod capability_recovery;

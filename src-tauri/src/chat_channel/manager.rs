@@ -508,6 +508,11 @@ impl ChatChannelManager {
             data_dir.clone(),
         );
 
+        // 渠道任务汇报独立于 Agent 事件和命令队列运行。
+        super::task_progress::spawn(super::task_progress::Runtime {
+            channels: self.clone_ref(), connections: conn_mgr.clone_ref(), db: db_conn.clone(),
+        });
+
         // Spawn command dispatcher
         if let Some(command_rx) = self.take_command_receiver().await {
             tracing::info!("[ChatChannel] command dispatcher started");

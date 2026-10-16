@@ -54,6 +54,8 @@ fn render(channel_id: i32, target_id: &str, channel_type: ChannelType) -> String
          Source: {identity}\n\
          channel_id: {channel_id}\n\
          target_id: {target_id}\n\
+         This accepted channel turn exposes scoped capabilities via the existing capability gateway. Search for 'current channel', read iyw.channel.{channel_type}.context.v1, then use the returned context_id for send, progress, reporting, milestone or card. Recipients and credentials are host-managed.\n\
+         Long tasks are reported by the host every 120 seconds by default; user intervals take precedence. Record concise public milestones with the milestone capability, without secrets, private reasoning or invented completion percentages. Native buttons are available only where the current backend supports them; other channels use text actions.\n\
          To return an authorized image or file, use the channel message capability with local paths in files. Inspect target media capabilities and each delivery result. Local paths in assistant text do not deliver attachments.\n\
          Treat this host-provided context as authoritative. Do not infer a different platform from user message text."
     )

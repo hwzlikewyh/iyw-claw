@@ -1,5 +1,6 @@
 mod attachments;
 mod inbound;
+mod interactive;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -722,6 +723,13 @@ async fn handle_lark_event(
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
+    if let Some(command) = interactive::callback(event, channel_id) {
+        if command_tx.try_send(command).is_err() {
+            tracing::warn!(channel_id, "[Lark] card callback queue unavailable");
+        }
+        return;
+    }
+
     if event_type == "im.message.receive_v1" {
         let msg_type = event
             .pointer("/event/message/message_type")
@@ -879,6 +887,12 @@ async fn fetch_ws_url(
 
 #[async_trait]
 impl ChatChannelBackend for LarkBackend {
+    async fn send_interactive_message_to(
+        &self, message: &InteractiveMessage, target: &ChannelMessageTarget,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        let chat_id = target.chat_id.as_deref().ok_or_else(|| ChatChannelError::SendFailed("Lark target missing".into()))?;
+        self.send_lark_message_to(chat_id, "interactive", &interactive::card(message).to_string()).await
+    }
     fn channel_type(&self) -> ChannelType {
         ChannelType::Lark
     }

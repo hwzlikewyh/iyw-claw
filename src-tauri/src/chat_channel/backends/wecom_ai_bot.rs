@@ -4,6 +4,7 @@ mod inbound;
 mod media;
 mod protocol;
 mod runtime;
+mod interactive;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -156,6 +157,20 @@ fn normalize_chat_type(chat_type: u8) -> u8 {
 
 #[async_trait::async_trait]
 impl ChatChannelBackend for WecomAiBotBackend {
+    async fn send_stream_message_to(
+        &self, target: &ChannelMessageTarget, update: crate::chat_channel::streaming::StreamUpdate<'_>,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        let req_id = protocol::target_payload(target, "req_id")
+            .ok_or_else(|| ChatChannelError::SendFailed("WeCom reply context unavailable".into()))?;
+        self.send_frame(serde_json::json!({"cmd":"aibot_respond_msg", "headers":{"req_id":req_id},
+            "body":{"msgtype":"stream","stream":{"id":update.id,"content":update.content,"finish":update.finished}}
+        })).await
+    }
+    async fn send_interactive_message_to(
+        &self, message: &InteractiveMessage, target: &ChannelMessageTarget,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        self.send_interactive(message, target).await
+    }
     fn attachment_capability(&self) -> crate::chat_channel::attachments::AttachmentCapability {
         crate::chat_channel::attachments::AttachmentCapability::for_channel("wecom_ai_bot")
     }

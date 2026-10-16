@@ -1676,6 +1676,7 @@ impl ConnectionManager {
         private_context: Option<Arc<str>>,
         accepted: Option<tokio::sync::oneshot::Sender<()>>,
         upload_monitor: Option<&crate::acp::capability_policy::CapabilityRevocationMonitor>,
+        mut channel_origin: Option<crate::chat_channel::task_context::PreparedOrigin>,
     ) -> Result<(), AcpError> {
         if let Some(conn) = self.version_center_db.get() {
             crate::commands::iyw_account::iyw_account_ensure_can_consume_core(conn)
@@ -1750,6 +1751,13 @@ impl ConnectionManager {
             if s.turn_in_flight || s.turn_completion_pending {
                 return Err(AcpError::TurnInProgress);
             }
+            if let Some(origin) = channel_origin.as_mut() {
+                origin.prior_delegations = s.active_delegations.keys().cloned().collect();
+                origin.accepted_event_seq = s.event_seq;
+            }
+            crate::chat_channel::task_context::accept(
+                conn_id, s.turn_generation.saturating_add(1), channel_origin,
+            ).map_err(AcpError::protocol)?;
             s.turn_in_flight = true;
             s.turn_generation = s.turn_generation.saturating_add(1);
             let turn_nonce = s.memory_turn_tracker.begin_accepted_turn();
@@ -1875,6 +1883,7 @@ impl ConnectionManager {
             None,
             None,
             upload_monitor.as_ref(),
+            None,
         )
         .await
     }
@@ -1918,6 +1927,18 @@ impl ConnectionManager {
         .await
     }
 
+    /// 渠道入口在消息真正被接受时绑定宿主来源，排队和桌面提交不会继承它。
+    pub(crate) async fn send_channel_prompt_linked(
+        &self,
+        db: &AppDatabase,
+        request: crate::chat_channel::task_progress::ChannelSubmission,
+    ) -> Result<Option<i32>, AcpError> {
+        self.send_prompt_linked_with_user_messages(
+            db, &request.connection_id, request.blocks, Some(request.folder_id),
+            Some(request.conversation_id), None, None, None, None, Some(request.origin),
+        ).await
+    }
+
     /// As [`send_prompt_linked`], plus an optional `client_message_id`: the
     /// id the sending UI assigned to its own optimistic user turn. When the
     /// user prompt is broadcast as [`AcpEvent::UserMessage`] (for cross-client
@@ -1947,6 +1968,7 @@ impl ConnectionManager {
             client_message_id,
             None,
             None,
+            None,
         )
         .await
     }
@@ -1963,6 +1985,7 @@ impl ConnectionManager {
         client_message_id: Option<String>,
         user_messages_override: Option<Vec<(String, Vec<crate::acp::UserMessageBlock>)>>,
         accepted: Option<tokio::sync::oneshot::Sender<()>>,
+        channel_origin: Option<crate::chat_channel::task_context::PreparedOrigin>,
     ) -> Result<Option<i32>, AcpError> {
         let _operation_guard = self.acquire_operation_read().await?;
         let upload_monitor = crate::acp::capability_policy::monitor_prompt_file_upload(&blocks)
@@ -2366,6 +2389,7 @@ impl ConnectionManager {
                 image_context,
                 accepted,
                 upload_monitor.as_ref(),
+                channel_origin,
             )
             .await
         {
@@ -2453,6 +2477,7 @@ impl ConnectionManager {
             None,
             Some(user_messages),
             Some(accepted),
+            None,
         )
         .await?;
         acceptance.await.map_err(|_| AcpError::ProcessExited)?;
@@ -2535,6 +2560,24 @@ impl ConnectionManager {
             })?
             .map_err(|_| AcpError::ProcessExited)?
             .map_err(AcpError::protocol)
+    }
+
+    /// 渠道按任务取消时串行核对回合，不能停止同连接后来接受的新任务。
+    pub(crate) async fn cancel_channel_turn(
+        &self,
+        db: &DatabaseConnection,
+        task: &crate::chat_channel::task_context::TaskContext,
+    ) -> Result<(), AcpError> {
+        let prompt_lock = self.clone_prompt_lock(&task.connection_id).await?;
+        let _guard = prompt_lock.lock().await;
+        let state = self.get_state(&task.connection_id).await
+            .ok_or_else(|| AcpError::ConnectionNotFound(task.connection_id.clone()))?;
+        if state.read().await.turn_generation != task.turn_generation {
+            return Err(AcpError::protocol("任务回合已切换，不能取消后来的任务"));
+        }
+        crate::chat_channel::task_context::tracked(&task.id)
+            .ok_or_else(|| AcpError::protocol("渠道任务上下文已失效"))?;
+        self.cancel(db, &task.connection_id).await
     }
 
     pub async fn cancel(&self, db: &DatabaseConnection, conn_id: &str) -> Result<(), AcpError> {

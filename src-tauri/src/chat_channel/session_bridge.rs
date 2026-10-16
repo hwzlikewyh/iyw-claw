@@ -145,6 +145,13 @@ impl SessionBridge {
         self.next_registration = self.next_registration.saturating_add(1);
         let mut session = session;
         session.registration_generation = self.next_registration;
+        super::task_context::bind_route(&connection_id, super::task_context::Route {
+            channel_id: session.channel_id,
+            sender_id: session.sender_id.clone(),
+            target_id: session.target_id.clone(),
+            target: session.target.clone(),
+            generation: session.registration_generation,
+        });
         self.registrations
             .insert(connection_id.clone(), self.next_registration);
         self.sessions.insert(connection_id, session);
@@ -168,6 +175,7 @@ impl SessionBridge {
     }
 
     pub fn remove(&mut self, connection_id: &str) -> Option<ActiveSession> {
+        super::task_context::remove_route(connection_id);
         self.registrations.remove(connection_id);
         self.sessions.remove(connection_id)
     }
@@ -219,6 +227,7 @@ impl SessionBridge {
             .filter_map(|id| self.sessions.remove(id))
             .collect();
         for id in replaced_ids {
+            super::task_context::remove_route(&id);
             self.registrations.remove(&id);
         }
         RouteActivation::Activated(replaced)

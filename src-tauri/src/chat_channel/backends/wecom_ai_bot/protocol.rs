@@ -80,6 +80,7 @@ fn provider_ack(frame: &Value) -> Option<ProviderAck> {
 }
 
 fn parse_callback(frame: &Value, channel_id: i32) -> Option<IncomingCommand> {
+    if let Some(command) = super::interactive::callback(frame, channel_id) { return Some(command); }
     let body = frame.get("body")?;
     let (text, attachments) = super::inbound::content(body)?;
     let (sender_id, chat_id) = callback_address(body)?;

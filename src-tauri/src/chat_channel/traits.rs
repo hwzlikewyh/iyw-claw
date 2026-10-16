@@ -106,9 +106,17 @@ pub trait ChatChannelBackend: Send + Sync + 'static {
     async fn send_interactive_message_to(
         &self,
         message: &InteractiveMessage,
-        _target: &ChannelMessageTarget,
+        target: &ChannelMessageTarget,
     ) -> Result<SentMessageId, ChatChannelError> {
-        self.send_interactive_message(message).await
+        self.send_rich_message_to(&message.to_rich_fallback(), target).await
+    }
+
+    async fn send_stream_message_to(
+        &self,
+        _target: &ChannelMessageTarget,
+        _update: super::streaming::StreamUpdate<'_>,
+    ) -> Result<SentMessageId, ChatChannelError> {
+        Err(ChatChannelError::Unsupported("streaming replies are unavailable".into()))
     }
 
     /// [Phase 2] Update an already-sent message (e.g., permission status change).

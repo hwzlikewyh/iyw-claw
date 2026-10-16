@@ -837,14 +837,20 @@ pub async fn handle_cancel(
 
     // ACP cancel is turn-scoped. Keep the bridge, connection and durable
     // conversation binding so the next message continues this conversation.
-    let _ = conn_mgr.cancel(db, &session_ref.connection_id).await;
+    if let Err(error) = conn_mgr.cancel(db, &session_ref.connection_id).await {
+        tracing::warn!(channel_id, error = %error, "[ChatChannel] cancel request failed");
+        return RichMessage::error("取消请求未能提交，请查询进度后重试。");
+    }
 
     manager
         .typing_controller()
         .stop(manager, channel_id, route_key, &session_ref.connection_id)
         .await;
 
-    RichMessage::info(i18n::task_cancelled_body(lang)).with_title(i18n::task_cancelled_title(lang))
+    RichMessage::info(match lang {
+        Lang::ZhCn | Lang::ZhTw => "已提交取消请求，正在等待任务停止；可发送“查看进度”核对。",
+        _ => "Cancellation requested. Check task progress to confirm it has stopped.",
+    }).with_title(i18n::task_cancelled_title(lang))
 }
 
 // ── /approve, /deny ──

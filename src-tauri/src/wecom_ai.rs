@@ -5,6 +5,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 mod environment;
+pub(crate) mod business_command;
 mod installer;
 pub use environment::{
     inherit_terminal_environment, inject_runtime_environment, reapply_runtime_path,

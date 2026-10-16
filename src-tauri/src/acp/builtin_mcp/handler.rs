@@ -125,6 +125,16 @@ impl BuiltinMcpHandler {
             annotate_lookup_error(error, direct_tool)
         })?;
         match action {
+            GatewayAction::Channel(request) => {
+                super::policy::require_call(&authority).await?;
+                let result = tokio::select! {
+                    result = super::channel_gateway::execute(&self.listener.channel_tools, &authority, request) => result,
+                    _ = context.ct.cancelled() => Err(channel_call_cancelled()),
+                    _ = authority.cancellation().cancelled() => Err(channel_call_cancelled()),
+                };
+                log_direct_result(&trace, &result);
+                result
+            }
             GatewayAction::AgentReachStatus => {
                 let result = super::agent_reach::status(&authority, &context.ct).await;
                 log_direct_result(&trace, &result);
@@ -309,6 +319,11 @@ impl BuiltinMcpHandler {
             lifecycle: &self.lifecycle,
         }
     }
+}
+
+fn channel_call_cancelled() -> ErrorData {
+    ErrorData::invalid_request("Channel operation cancelled; inspect existing delivery before retrying",
+        Some(json!({"code":"channel_call_cancelled","execution_status":"unknown"})))
 }
 
 fn log_direct_result(trace: &GatewayCallTrace, result: &Result<CallToolResult, ErrorData>) {

@@ -20,6 +20,7 @@ use super::search_params::SearchParams;
 use super::tool_identity::{GatewayTool, CAPABILITY_ID_MAX_CHARS};
 
 pub(super) enum GatewayAction {
+    Channel(super::channel_gateway::ChannelRequest),
     AgentReachStatus,
     Html(crate::acp::interactive_html::InteractiveHtmlRequest),
     Return(CallToolResult),
@@ -203,18 +204,22 @@ fn search_local(
         .into_iter()
         .take(limit)
         .collect::<Vec<_>>();
-    let available_slots = limit.saturating_sub(controls.len());
+    let channel_values = if session.features.companion_features().channels {
+        super::channel_gateway::search(session.connection_id, &params.query)
+    } else { vec![] };
+    let mut values = channel_values.into_iter().take(limit.saturating_sub(controls.len())).collect::<Vec<_>>();
+    let available_slots = limit.saturating_sub(controls.len() + values.len());
     let plugin_slots = if plugin_values.is_empty() {
         0
     } else {
         plugin_values.len().min((available_slots + 1) / 2)
     };
     let builtin_slots = available_slots.saturating_sub(plugin_slots);
-    let mut values = capabilities
+    values.extend(capabilities
         .drain(..)
         .take(builtin_slots)
         .map(|value| serde_json::to_value(value).map_err(serialize_error))
-        .collect::<Result<Vec<_>, ErrorData>>()?;
+        .collect::<Result<Vec<_>, ErrorData>>()?);
     values.extend(plugin_values.into_iter().take(plugin_slots));
     values.extend(controls);
     Ok(GatewayAction::Return(CallToolResult::structured(json!({
@@ -230,6 +235,10 @@ fn read(
 ) -> Result<GatewayAction, ErrorData> {
     let params = parse::<CapabilityParams>(arguments)?;
     let capability_id = parse_capability_id(&params.capability_id)?;
+    require_channel_feature(session, capability_id)?;
+    if let Some(detail) = super::channel_gateway::read(session.connection_id, capability_id) {
+        return Ok(GatewayAction::Return(CallToolResult::structured(json!({"capability": detail?}))));
+    }
     if capability_id.starts_with(super::remote_mcp::REMOTE_PREFIX) {
         return Ok(GatewayAction::RemoteRead(capability_id.to_string()));
     }
@@ -263,6 +272,10 @@ fn invoke(
 ) -> Result<GatewayAction, ErrorData> {
     let params = parse::<InvokeParams>(arguments)?;
     let capability_id = parse_capability_id(&params.capability_id)?;
+    require_channel_feature(&session, capability_id)?;
+    if let Some(request) = super::channel_gateway::resolve(session.connection_id, capability_id, Value::Object(params.arguments.clone())) {
+        return request.map(GatewayAction::Channel);
+    }
     if capability_id.starts_with(super::remote_mcp::REMOTE_PREFIX) {
         return Ok(GatewayAction::RemoteInvoke(ResolvedCapability {
             tool_name: capability_id.to_string(),
@@ -319,6 +332,13 @@ fn invoke(
         Err(error) => return Err(resolve_error(error)),
     };
     resolve_plugin_invoke(capability_id, params.arguments, session)
+}
+
+fn require_channel_feature(session: &GatewaySession<'_>, id: &str) -> Result<(), ErrorData> {
+    if id.starts_with("iyw.channel.") && !session.features.companion_features().channels {
+        return Err(ErrorData::invalid_request("Current-channel capabilities are disabled", None));
+    }
+    Ok(())
 }
 
 fn memory_policy_required(

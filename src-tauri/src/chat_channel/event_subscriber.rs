@@ -256,7 +256,7 @@ pub fn spawn_event_subscriber(
 #[allow(clippy::too_many_arguments)]
 async fn process_envelope(
     envelope: &EventEnvelope,
-    bridge: &Arc<Mutex<SessionBridge>>,
+    _bridge: &Arc<Mutex<SessionBridge>>,
     manager: &ChatChannelManager,
     db_conn: &DatabaseConnection,
     config: &EventConfigCache,
@@ -299,8 +299,8 @@ async fn process_envelope(
     // relay, scoped to its owning channel. Suppress the generic global push for
     // those connections so they aren't double-notified — the global event feed
     // exists for the desktop / web sessions the user isn't driving from chat.
-    if event_type == "permission_request"
-        && bridge.lock().await.get(&envelope.connection_id).is_some()
+    if matches!(event_type.as_str(), "permission_request" | "question_request")
+        && super::task_context::current(&envelope.connection_id).is_some()
     {
         return;
     }

@@ -15,7 +15,7 @@ use super::session_topic;
 use crate::acp::internal_bus::InternalEventBus;
 use crate::acp::manager::ConnectionManager;
 use crate::acp::types::{AcpEvent, ConnectionStatus, EventEnvelope};
-use crate::chat_channel::types::{MessageLevel, RichMessage};
+use crate::chat_channel::types::RichMessage;
 use crate::web::event_bridge::EventEmitter;
 
 use crate::db::service::{
@@ -139,8 +139,12 @@ async fn handle_acp_envelope(
     data_dir: &Path,
 ) {
     let connection_id = envelope.connection_id.as_str();
+    super::task_progress::background::observe(envelope);
 
     match &envelope.payload {
+        AcpEvent::DelegationStarted { parent_tool_use_id, .. } => {
+            super::task_context::delegation_started(connection_id, envelope.seq, parent_tool_use_id);
+        }
         AcpEvent::SessionStarted { session_id } => {
             let request = SessionStartRequest {
                 bridge,
@@ -290,8 +294,6 @@ async fn handle_acp_envelope(
             if let Some(session) = guard.get_mut(connection_id) {
                 let channel_id = session.channel_id;
                 let sender_id = session.sender_id.clone();
-                let target = session.target.clone();
-
                 let auto_approve =
                     sender_context_service::get_or_create(db, channel_id, &sender_id)
                         .await
@@ -331,23 +333,12 @@ async fn handle_acp_envelope(
                     .pause(manager, channel_id, &route_key, connection_id)
                     .await;
 
-                let lang = get_lang(db).await;
-                let body = permission_confirmation_body(lang).to_string();
-
-                let msg = RichMessage {
-                    title: Some(match lang {
-                        Lang::ZhCn | Lang::ZhTw => "需要确认".to_string(),
-                        _ => "Confirmation Needed".to_string(),
-                    }),
-                    body,
-                    fields: Vec::new(),
-                    level: MessageLevel::Warning,
-                };
-                let _ = manager.send_to_target(&target, &msg).await;
+                super::interactions::present(manager, connection_id, (envelope.seq, &envelope.payload)).await;
             }
         }
 
         AcpEvent::QuestionRequest { .. } | AcpEvent::ChannelConfirmationRequested { .. } => {
+            super::interactions::present(manager, connection_id, (envelope.seq, &envelope.payload)).await;
             if let Some((channel_id, route_key)) = session_route(bridge, connection_id).await {
                 manager
                     .typing_controller()
@@ -368,6 +359,7 @@ async fn handle_acp_envelope(
         }
 
         AcpEvent::TurnComplete { stop_reason, .. } => {
+            super::task_context::finish_turn(connection_id, envelope.seq);
             let mut guard = bridge.lock().await;
             if let Some(session) = guard.get_mut(connection_id) {
                 let channel_id = session.channel_id;
@@ -1442,13 +1434,6 @@ fn is_internal_process_line(line: &str) -> bool {
         || trimmed.starts_with("我先")
         || trimmed.starts_with("先加载")
         || trimmed.starts_with("我将先")
-}
-
-fn permission_confirmation_body(lang: Lang) -> &'static str {
-    match lang {
-        Lang::ZhCn | Lang::ZhTw => "需要你确认是否允许继续执行。回复“可以”或“拒绝”即可。",
-        _ => "Please confirm whether to continue. Reply \"yes\" or \"no\".",
-    }
 }
 
 /// Title-side match for `delegate_to_agent`. Title is free-form text the

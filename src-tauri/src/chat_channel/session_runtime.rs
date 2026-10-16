@@ -80,13 +80,10 @@ pub(super) async fn send_channel_prompt(
         .await
         .map_err(|error| crate::acp::error::AcpError::protocol(error.to_string()))?;
     manager
-        .send_prompt_linked(
+        .send_channel_prompt_linked(
             &AppDatabase { conn: db.clone() },
-            connection_id,
-            blocks,
-            Some(conversation.folder_id),
-            Some(conversation.id),
-            None,
+            super::task_progress::submission(db,
+                (connection_id, conversation.folder_id, conversation.id), blocks).await?,
         )
         .await
         .map(|_| ())
@@ -101,13 +98,10 @@ pub(super) async fn send_prompt_linked(
     prompt: &ChannelPrompt,
 ) -> Result<(), crate::acp::error::AcpError> {
     connection_manager
-        .send_prompt_linked(
+        .send_channel_prompt_linked(
             &AppDatabase { conn: db.clone() },
-            connection_id,
-            prompt.blocks(),
-            Some(folder_id),
-            Some(conversation_id),
-            None,
+            super::task_progress::submission(db,
+                (connection_id, folder_id, conversation_id), prompt.blocks()).await?,
         )
         .await
         .map(|_| ())

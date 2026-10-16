@@ -173,6 +173,20 @@ pub fn spawn_command_dispatcher(
 
             config.refresh_if_needed(&db_conn).await;
 
+            if let Some(message) = super::task_progress::control(&cmd, &config.prefix).await {
+                send_dispatch_message(&db_conn, &manager, cmd.channel_id,
+                    super::command_response::DispatchMessage::Rich(message),
+                    cmd.target.clone(), Some(&trace_id)).await;
+                continue;
+            }
+
+            if let Some(message) = super::interactions::handle(&cmd, &conn_mgr).await {
+                send_dispatch_message(&db_conn, &manager, cmd.channel_id,
+                    super::command_response::DispatchMessage::Rich(message),
+                    cmd.target.clone(), Some(&trace_id)).await;
+                continue;
+            }
+
             let media = match tokio::time::timeout(
                 MEDIA_PREPARATION_TIMEOUT,
                 media_prompt::prepare(&manager, &cmd, &data_dir),
