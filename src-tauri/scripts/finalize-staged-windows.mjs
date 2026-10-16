@@ -2,7 +2,7 @@
 
 /**
  * Rebuild and sign a Windows NSIS bundle from a hosted-runner staging input.
- * The caller must provide an already authenticated SafeNet session.
+ * CI authenticates the token inside each signing process using the configured PIN.
  */
 
 import {
@@ -33,7 +33,7 @@ const STAGING_ROOT = resolve(
 const CLI = join(ROOT, "node_modules", "@tauri-apps", "cli", "tauri.js")
 const TARGET_RELEASE = join("src-tauri", "target", TARGET, "release")
 const PREFLIGHT_TIMEOUT_MS = 12 * 60_000
-const UNLOCK_TIMEOUT_MS = 90_000
+const PROBE_PREPARE_TIMEOUT_MS = 90_000
 const BUNDLE_TIMEOUT_MS = 30 * 60_000
 const VERIFY_TIMEOUT_MS = 2 * 60_000
 
@@ -76,6 +76,13 @@ function restoreStaging(includesFrontend) {
 }
 
 function preflightToken() {
+  if (
+    process.env.GITHUB_ACTIONS === "true" &&
+    !(process.env.IYW_CLAW_SAFENET_PIN ?? "").trim()
+  )
+    fail(
+      "CI signing requires IYW_CLAW_SAFENET_PIN; interactive signing is disabled"
+    )
   const probe = join(tmpdir(), `iyw-signing-preflight-${process.pid}.exe`)
   // 在副本上移除原签名，再验证当前发布证书，原 Node 可执行文件保持不变。
   try {
@@ -87,12 +94,11 @@ function preflightToken() {
         cwd: ROOT,
         stdio: "inherit",
         windowsHide: true,
-        timeout: UNLOCK_TIMEOUT_MS,
+        timeout: PROBE_PREPARE_TIMEOUT_MS,
       }
     )
     if (unsigned.error) throw unsigned.error
     if (unsigned.status !== 0) fail("could not prepare unsigned signing probe")
-    unlockToken()
     const result = spawnSync(
       process.execPath,
       [
@@ -111,58 +117,6 @@ function preflightToken() {
       fail(`signing preflight failed with exit code ${result.status}`)
   } finally {
     rmSync(probe, { force: true })
-  }
-}
-
-// KSP 与 PKCS#11 会话不等价；解锁后仍由真实签名探针判定是否可用。
-function unlockToken() {
-  const pin = (process.env.IYW_CLAW_SAFENET_PIN ?? "").trim()
-  if (pin === "") {
-    if (process.env.GITHUB_ACTIONS === "true")
-      fail(
-        "CI signing requires IYW_CLAW_SAFENET_PIN; interactive token login is unavailable"
-      )
-    console.log(
-      "[staged-signing] IYW_CLAW_SAFENET_PIN is not set; leaving the token login to signtool"
-    )
-    return
-  }
-  const kspScript = join(
-    TOOL_ROOT,
-    "src-tauri",
-    "scripts",
-    "unlock-signing-ksp.mjs"
-  )
-  const kspResult = spawnSync(process.execPath, [kspScript], {
-    cwd: ROOT,
-    stdio: "inherit",
-    windowsHide: true,
-    timeout: UNLOCK_TIMEOUT_MS,
-  })
-  if (kspResult.error) throw kspResult.error
-  if (kspResult.status !== 0) {
-    fail(
-      "could not unlock the signing token through the CNG KSP with the configured PIN (IYW_CLAW_SAFENET_PIN)"
-    )
-  }
-  // Non-fatal: PKCS#11 is not what signtool reads, and a transient middleware
-  // error here must not fail a job that can already sign through the KSP.
-  const script = join(
-    TOOL_ROOT,
-    "src-tauri",
-    "scripts",
-    "unlock-signing-token.mjs"
-  )
-  const result = spawnSync(process.execPath, [script], {
-    cwd: ROOT,
-    stdio: "inherit",
-    windowsHide: true,
-    timeout: UNLOCK_TIMEOUT_MS,
-  })
-  if (result.error || result.status !== 0) {
-    console.warn(
-      `[staged-signing] PKCS#11 unlock did not complete (${result.error?.code || result.status}); continuing to the real signing probe`
-    )
   }
 }
 
@@ -294,7 +248,10 @@ function signEnvironmentHelper() {
   )
   const result = spawnSync(
     process.execPath,
-    [join(ROOT, "src-tauri", "scripts", "sign-staged-windows.mjs"), helper],
+    [
+      join(TOOL_ROOT, "src-tauri", "scripts", "sign-staged-windows.mjs"),
+      helper,
+    ],
     {
       cwd: ROOT,
       stdio: "inherit",

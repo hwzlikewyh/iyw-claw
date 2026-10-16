@@ -53,6 +53,8 @@ Get-ChildItem Cert:\CurrentUser\My | Select-Object Thumbprint, Subject
 | `IYW_CLAW_SIGN_TIMESTAMP_URL` | RFC 3161 时间戳服务器，默认 `http://timestamp.digicert.com` |
 | `IYW_CLAW_SIGN_DIGEST` | 摘要算法，默认 `sha256` |
 | `IYW_CLAW_SIGNTOOL` | 显式指定 `signtool.exe`，跳过 SDK 自动发现 |
+| `IYW_CLAW_SAFENET_PIN` | 分阶段硬件签名所用 PIN；CI 从同名 Secret 自动注入，不需要每次输入 |
+| `IYW_CLAW_POWERSHELL` | 可选的硬件签名 PowerShell 路径，默认优先使用已安装的 PowerShell 7 |
 
 `mode=pfx` 只适合本地冒烟测试：signtool 通过命令行接收 .pfx 密码，子进程存活期间密码在进程列表里可见。
 真实发布用 `signtool` 或 `azure`。
@@ -111,7 +113,17 @@ USB token 无法在 GitHub 托管 runner 上使用（需要物理设备）。Win
 
 正常 Release 的 `release-windows-staged.yml` 强制要求硬件签名。初始化时检查
 `IYW_CLAW_SAFENET_PIN` 和证书指纹，CI 不等待交互式登录。PIN 不重试、不写入命令行；
-KSP 解锁完成仍必须通过真实签名探针，不能将“解锁返回成功”等同于签名可用。
+每次发布自动复用仓库中同名 Secret，只有 token PIN 更换时需要更新 Secret。
+Secret 只在 CI job 中注入；本地手动构建不能直接读取 CI Secret。
+
+硬件签名通过 `sign-windows-token.ps1` 加载 `windows-token-signer.cs`，从指定证书读取
+实际的 CSP/KSP 和密钥容器，不再依赖独立 KSP/PKCS#11 解锁进程的登录缓存。
+签名进程创建独立的证书上下文，配置禁止弹窗和密钥句柄缓存，在该句柄上通过
+`CryptSetProvParam`（CSP）或 `NCryptSetProperty`（KSP）设置 PIN，再调用
+`SignerSignEx` 完成 Authenticode 签名；证书存储和机器配置不变。
+PIN 通过环境传入，不进入文件或日志，用过的 PIN 字节缓冲区立即清零。
+认证失败直接输出操作名和原生错误码，不回退交互登录，也不重试 PIN。
+真实签名探针和后续证书校验继续作为成功门禁。
 
 签名机的 GitHub checkout、codeload 和资产下载使用现有本地代理；API 和上传域名
 沿用原直连设置。Git 使用 HTTP/1.1。不要把全部 GitHub 下载域名放入 `NO_PROXY`：
@@ -133,9 +145,14 @@ v0.1.215 的实际失败为直连连接重置/超时，发生在签名前。JSON
 时间戳地址支持仓库变量 `WINDOWS_SIGN_TIMESTAMP_URL`，默认仍为 DigiCert。
 所有修改均发生在 updater `.sig` 生成之前，时间戳缺失或校验失败仍阻止发布。
 
-解锁子进程、探针、封装和最终验证均有独立超时，分别为 90 秒、12 分钟、30 分钟、
+探针准备、完整探针、封装和最终验证均有独立超时，分别为 90 秒、12 分钟、30 分钟、
 2 分钟。封装超时会输出已收集的诊断日志。整次签名 job 仍限制为 60 分钟。
 以上是软件容错与诊断改进，不替代真实 CI 会话中的 USB 令牌和中间件验证。
+
+接口依据：[证书提供程序信息](https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/ns-wincrypt-crypt_key_prov_info)、
+[密钥句柄缓存和禁止弹窗](https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-cryptacquirecertificateprivatekey)、
+[CSP PIN 参数](https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-cryptsetprovparam)、
+[SignerSignEx](https://learn.microsoft.com/en-us/windows/win32/seccrypto/signersignex)。
 
 ## 校验产物
 

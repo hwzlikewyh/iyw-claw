@@ -14,6 +14,7 @@ import {
   resolveSignMode,
 } from "./sign-windows.mjs"
 import { verifyStagedSignature } from "./staged-signature-verification.mjs"
+import { signWithToken } from "./sign-windows-token.mjs"
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)))
 const SIGN_TIMEOUT_MS = 180_000
@@ -45,15 +46,27 @@ function splitCommands(args, file) {
 
 function invoke(signtool, args, env) {
   const phase = args[0]
-  console.log(`[sign-staged-windows] ${redactSigntoolArgs(args).join(" ")}`)
-  const result = spawnSync(signtool, args, {
-    cwd: ROOT,
-    env,
-    stdio: "inherit",
-    windowsHide: false,
-    timeout: phase === "sign" ? SIGN_TIMEOUT_MS : TIMESTAMP_TIMEOUT_MS,
-    killSignal: "SIGTERM",
-  })
+  const useTokenHost =
+    phase === "sign" &&
+    resolveSignMode(env) === "signtool" &&
+    (env.IYW_CLAW_SAFENET_PIN ?? "").trim() !== ""
+  if (!useTokenHost)
+    console.log(`[sign-staged-windows] ${redactSigntoolArgs(args).join(" ")}`)
+  const result = useTokenHost
+    ? signWithToken({
+        file: args.at(-1),
+        digest: args[args.indexOf("/fd") + 1],
+        env,
+        timeout: SIGN_TIMEOUT_MS,
+      })
+    : spawnSync(signtool, args, {
+        cwd: ROOT,
+        env,
+        stdio: "inherit",
+        windowsHide: false,
+        timeout: phase === "sign" ? SIGN_TIMEOUT_MS : TIMESTAMP_TIMEOUT_MS,
+        killSignal: "SIGTERM",
+      })
   if (result.error && result.error.code !== "ETIMEDOUT") throw result.error
   return result
 }
@@ -81,6 +94,14 @@ async function sign(file, env = process.env) {
   const thumbprint = (env.IYW_CLAW_SIGN_THUMBPRINT || "").replace(/[\s:]/g, "")
   if (mode === "signtool" && !/^[a-f0-9]{40}$/i.test(thumbprint))
     throw new Error("staged signing requires a valid certificate thumbprint")
+  if (
+    mode === "signtool" &&
+    env.GITHUB_ACTIONS === "true" &&
+    !(env.IYW_CLAW_SAFENET_PIN ?? "").trim()
+  )
+    throw new Error(
+      "CI signing requires IYW_CLAW_SAFENET_PIN; interactive signing is disabled"
+    )
   const context = { signtool: discoverSigntool(env), file, env }
   const commands = splitCommands(buildSigntoolArgs(mode, file, env), file)
   if (mode === "signtool" && verifyStagedSignature(context)) {
