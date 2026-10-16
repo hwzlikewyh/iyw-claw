@@ -13,8 +13,11 @@ pub(super) async fn finish(
         .get("data")
         .and_then(Value::as_array)
         .ok_or_else(|| failure(response))?;
-    let results = stream::iter(entries)
+    let pending = entries
+        .iter()
         .map(|entry| materialize(service, entry))
+        .collect::<Vec<_>>();
+    let results = stream::iter(pending)
         .buffered(super::super::limits::MAX_CONCURRENT_EXECUTIONS)
         .collect::<Vec<_>>()
         .await;

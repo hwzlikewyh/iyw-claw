@@ -1,5 +1,16 @@
 # Local Upstream Patches
 
+## MCP output previews
+
+The MCP handler preserves text results above 16 KiB in the selected environment's
+`.codex/tool-results/` directory through its existing sandboxed filesystem access.
+Model history receives a partial JSON preview and the full result's file path;
+raw results remain available to hooks, UI events and Code Mode. Code Mode skips
+this extra preview path. The capture limit is 16 MiB; denied or failed writes
+retain the normal output flow. Preview omissions never imply zero or absent data.
+Keep this handler integration and `McpToolOutput.model_result` together when
+updating the pinned runtime.
+
 ## SQLite 启动校验预算
 
 `codex-state` 的启动 `quick_check(1)` 按每个检查步骤调用进度回调，沿用

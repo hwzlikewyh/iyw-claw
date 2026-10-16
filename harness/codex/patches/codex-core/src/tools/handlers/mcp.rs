@@ -263,8 +263,19 @@ impl McpHandler {
         )
         .await;
 
+        let model_result = if matches!(&source, ToolCallSource::CodeMode { .. }) {
+            None
+        } else {
+            super::super::mcp_output_preview::prepare(
+                &result.result,
+                &step_context,
+                truncation_policy,
+            )
+            .await
+        };
         Ok(boxed_tool_output(McpToolOutput {
             result: result.result,
+            model_result,
             tool_input: result.tool_input,
             result_metadata_capture_allowed,
             wall_time: started.elapsed(),

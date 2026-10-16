@@ -16,7 +16,7 @@ pub(super) async fn generate(
     let requested_channel = payload.get("modelChannel").cloned();
     tracing::info!(
         image_type = execution.kind,
-        model_channel = requested_channel.as_ref().and_then(Value::as_u64),
+        model_channel = requested_channel.as_ref().and_then(|value| value.as_u64()),
         explicit_channel = execution.request.parameters.contains_key("modelChannel"),
         "[iyw-image] platform image request channel selected"
     );

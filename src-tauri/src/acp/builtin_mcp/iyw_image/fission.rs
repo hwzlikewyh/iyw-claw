@@ -87,7 +87,8 @@ async fn load_reports(
     task_ids: &[String],
     deadline: Instant,
 ) -> Result<Vec<Value>, rmcp::ErrorData> {
-    stream::iter(task_ids)
+    let pending = task_ids
+        .iter()
         .map(|task_id| {
             super::poll::query(
                 service,
@@ -95,6 +96,8 @@ async fn load_reports(
                 (json!({"taskId": task_id}), deadline),
             )
         })
+        .collect::<Vec<_>>();
+    stream::iter(pending)
         .buffered(super::limits::MAX_CONCURRENT_EXECUTIONS)
         .try_collect()
         .await

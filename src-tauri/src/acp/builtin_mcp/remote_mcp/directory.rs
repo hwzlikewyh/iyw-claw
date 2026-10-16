@@ -82,7 +82,7 @@ impl RemoteGateway {
         Ok(CallToolResult::structured(json!({
             "capability": account.detail(&payload, &route)?,
             "catalog_digest": payload.get("directory_version"),
-            "source": "remote", "instructions": connection.instructions,
+            "source": "remote",
             "routing": "Use only returned capability_id with invoke_iyw_capability. The host supplies remote tool_id/tool_version. Preserve usage, argument_sources, prerequisites and business authorization."
         })))
     }
