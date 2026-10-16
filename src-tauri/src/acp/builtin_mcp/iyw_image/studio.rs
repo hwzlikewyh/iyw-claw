@@ -65,7 +65,7 @@ pub(super) async fn generate(
         operation = path,
         "[iyw-image] studio request started"
     );
-    let result = service.post_gateway(prefix, path, body).await?;
+    let result = service.post_image_gateway(prefix, path, body).await?;
     if execution.kind == "a-plus-edit" {
         return super::commerce::wait_for_task(service, path, result, &execution.request.wait)
             .await;

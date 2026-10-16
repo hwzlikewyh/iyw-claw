@@ -4,9 +4,7 @@ use super::super::{
     fusion, invalid, preflight_kind, validate_request, ImageRequest, IywGatewayService,
     PreparedImage,
 };
-use crate::acp::builtin_mcp::{
-    iyw_image_models::load_catalog, iyw_tool_policy::ensure_image_enabled,
-};
+use crate::acp::builtin_mcp::iyw_tool_policy::ensure_image_enabled;
 
 use super::super::limits::MAX_FALLBACKS;
 const SOURCE_FIELDS: [&str; 9] = [
@@ -116,9 +114,9 @@ pub(in crate::acp::builtin_mcp::iyw_image) async fn validate_models(
     if requests.is_empty() {
         return Ok(());
     }
-    let models: Vec<Value> = load_catalog(service).await?;
     for (request, kind) in requests {
-        fusion::resolve_model(&models, &request.parameters, kind == "edit")?;
+        fusion::select_model(service, &request.parameters, kind == "edit").await?;
+        let models = crate::acp::builtin_mcp::iyw_image_models::load_catalog(service).await?;
         fusion::validate_capabilities(&models, request, (kind, images))?;
     }
     Ok(())

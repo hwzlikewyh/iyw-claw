@@ -225,7 +225,7 @@ impl BuiltinMcpHandler {
                 result
             }
             GatewayAction::Image(arguments) => {
-                let result = self.iyw.generate_image(&authority, arguments).await;
+                let result = self.iyw.generate_image(&authority, arguments, context.ct).await;
                 log_direct_result(&trace, &result);
                 result
             }
