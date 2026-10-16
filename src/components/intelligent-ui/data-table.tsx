@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { downloadUiFile } from "@/lib/intelligent-ui/export"
 import { list, record, text, useViewState } from "./context"
+import { UiExportButton } from "./export-button"
 
 type Column = { key: string; label: string }
 type Order = { key: string; descending: boolean } | null
@@ -146,7 +147,7 @@ function exportTable(columns: Column[], rows: Record<string, unknown>[]) {
       columns.map((column) => cell(row[column.key])).join(",")
     ),
   ].join("\r\n")
-  downloadUiFile({
+  return downloadUiFile({
     name: "table.csv",
     content: "\uFEFF" + content,
     type: "text/csv;charset=utf-8",
@@ -174,13 +175,10 @@ function TableToolbar({
         maxLength={200}
         onChange={(event) => change(event.target.value)}
       />
-      <Button
-        size="sm"
+      <UiExportButton
         variant="outline"
-        onClick={() => exportTable(columns, rows)}
-      >
-        {t("export")}
-      </Button>
+        exportFile={() => exportTable(columns, rows)}
+      />
     </div>
   )
 }
