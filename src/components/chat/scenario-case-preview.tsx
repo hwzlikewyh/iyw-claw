@@ -22,7 +22,7 @@ export function ScenarioCasePreview({
   if (asset.kind === "pdf") {
     return (
       <div className={styles.documentPreview}>
-        <PdfPreview src={asset.url} title={asset.fileName} />
+        <PdfPreview src={asset.url} title={asset.fileName} compact />
       </div>
     )
   }

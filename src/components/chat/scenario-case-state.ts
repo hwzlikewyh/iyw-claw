@@ -142,7 +142,8 @@ export function useCaseController(props: ScenarioCasesProps) {
     const accepted = props.onSelect({
       ...scenarioContent(
         scenario,
-        props.preferences[scenario.id]?.promptOverride ||
+        request.detail.promptTemplate?.trim() ||
+          props.preferences[scenario.id]?.promptOverride ||
           scenario.promptTemplate
       ),
       model: request.detail.model || undefined,
