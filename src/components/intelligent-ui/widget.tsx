@@ -117,7 +117,10 @@ function WidgetSurface({
       )}
       <StateNotice status={block} />
       <WidgetToolbar
-        reset={() => block.update(null)}
+        reset={() => {
+          block.update(null)
+          restart()
+        }}
         source={() => setShowSource(!showSource)}
       />
       {showSource && <SourceView source={source} />}
