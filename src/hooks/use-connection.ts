@@ -1,6 +1,7 @@
 "use client"
 
 import type { InteractiveHtmlState } from "@/lib/types"
+import { runtimeBackgroundState } from "@/lib/runtime-tasks"
 import { useCallback, useMemo, useRef, useSyncExternalStore } from "react"
 import {
   useAcpActions,
@@ -245,8 +246,9 @@ export function useConnection(contextKey: string): UseConnectionReturn {
   const configStaleKind = connection?.configStaleKind ?? null
   const configStaleDismissed = connection?.configStaleDismissed ?? false
   const isDelegationChild = connection?.isDelegationChild ?? false
-  const backgroundOutstanding = connection?.backgroundOutstanding ?? 0
-  const backgroundUncertain = connection?.backgroundUncertain ?? false
+  const background = connection ? runtimeBackgroundState(connection) : null
+  const backgroundOutstanding = background?.outstanding ?? 0
+  const backgroundUncertain = background?.uncertain ?? false
   const backgroundSettleSyncingSince =
     connection?.backgroundSettleSyncingSince ?? null
 

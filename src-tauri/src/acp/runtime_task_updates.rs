@@ -13,13 +13,22 @@ pub(super) fn meta(state: &mut RuntimeTasks, agent: AgentType, meta: &Map<String
         })
         .is_some_and(|value| super::goals::observe(state, value));
     if agent == AgentType::Codex {
+        if meta.get("iyw").is_some_and(|v| v["backgroundTasksUncertain"] == true) {
+            changed |= super::terminals::unavailable(state);
+        }
+        if let Some(tasks) = meta.get("iyw").and_then(|v| v.get("backgroundTasks")) {
+            changed |= super::terminals::reconcile(state, tasks);
+        }
+        if let Some(task) = meta.get("iyw").and_then(|v| v.get("backgroundTask")) {
+            changed |= super::terminals::observe(state, task);
+        }
         if let Some(task) = meta.get("iyw").and_then(|v| v.get("runtimeTask")) {
             changed |= observe_native_task(state, task);
         }
     }
     if agent == AgentType::ClaudeCode {
         if let Some(task) = meta.get("iyw").and_then(|value| value.get("asyncTask")) {
-            changed |= observe_async_task(state, task);
+            changed |= super::background::air(state, task);
         }
     }
     changed
@@ -89,6 +98,9 @@ fn sdk_update(state: &mut RuntimeTasks, message: &Value) -> bool {
         return super::goals::sdk(state, message);
     }
     let mut schedule_changed = super::schedules::observe(state, message);
+    if message["subtype"] == "background_tasks_changed" {
+        return super::background::reconcile_sdk(state, message) || schedule_changed;
+    }
     if (message["type"] == "assistant"
         || matches!(
             message["subtype"].as_str(),
@@ -113,7 +125,7 @@ fn sdk_update(state: &mut RuntimeTasks, message: &Value) -> bool {
         .unwrap_or_default();
     match kind {
         "task_started" | "task_progress" | "task_notification" | "task_updated" => {
-            observe_sdk_task(state, message, kind)
+            observe_sdk_task(state, message, kind) || schedule_changed
         }
         _ => schedule_changed,
     }
@@ -124,6 +136,11 @@ fn observe_sdk_task(state: &mut RuntimeTasks, value: &Value, kind: &str) -> bool
         return false;
     };
     let id = format!("task:{native_id}");
+    let is_subagent = value["task_type"] == "local_agent" || value["subagent_type"].as_str().is_some()
+        || state.tasks.get(&id).is_some_and(|task| task.kind == "subagent");
+    if !is_subagent {
+        return super::background::sdk(state, value, kind);
+    }
     let mut task = state
         .tasks
         .get(&id)
@@ -142,41 +159,6 @@ fn observe_sdk_task(state: &mut RuntimeTasks, value: &Value, kind: &str) -> bool
         task.actions.clear();
     }
     // 仅 asyncTasks 协商出的 canStop 允许显示停止；子代理不能冒用后台任务控制。
-    state.upsert(task)
-}
-
-fn observe_async_task(state: &mut RuntimeTasks, value: &Value) -> bool {
-    let Some(native_id) = text(value, &["asyncTaskId"]) else {
-        return false;
-    };
-    let id = format!("task:{native_id}");
-    let mut task = state
-        .tasks
-        .get(&id)
-        .cloned()
-        .unwrap_or_else(|| RuntimeTask {
-            id,
-            native_id: native_id.clone(),
-            kind: "background".into(),
-            title: native_id,
-            status: "running".into(),
-            ..Default::default()
-        });
-    task.title = text(value, &["name", "description"]).unwrap_or(task.title);
-    task.summary = text(value, &["summary"]).or(task.summary);
-    task.output_file = text(value, &["outputFilePath"]).or(task.output_file);
-    task.tool_call_id = text(value, &["toolCallId"]).or(task.tool_call_id);
-    if let Some(status) = text(value, &["state"]) {
-        task.status = status;
-    }
-    if value.get("canStop").and_then(Value::as_bool) == Some(true) {
-        task.actions = vec!["stop".into()];
-    } else if value.get("canStop").and_then(Value::as_bool) == Some(false) {
-        task.actions.clear();
-    }
-    if is_terminal(&task.status) {
-        task.actions.clear();
-    }
     state.upsert(task)
 }
 
@@ -217,7 +199,7 @@ fn observe_subagent_output(state: &mut RuntimeTasks, value: &Value) -> bool {
 
 fn apply_sdk_details(state: &RuntimeTasks, task: &mut RuntimeTask, value: &Value) {
     if text(value, &["task_type", "taskType"]).as_deref() == Some("local_agent")
-        || value.get("subagent_type").is_some()
+        || value["subagent_type"].as_str().is_some()
     {
         task.kind = "subagent".into();
         task.agent_type = Some(AgentType::ClaudeCode);

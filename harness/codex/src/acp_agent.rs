@@ -20,6 +20,7 @@ mod approval_mapping;
 mod automatic_turn;
 mod child_events;
 mod background_commands;
+mod background_terminals;
 mod commands;
 mod completed_snapshot;
 mod fast_mode;
@@ -259,6 +260,9 @@ async fn run_bridge_loop(
     let mut thinking = thinking_projection::ThinkingProjection::default();
     let mut native_title = native_title::NativeTitle::default();
     let mut side_questions = side_question::SideQuestions::default();
+    let mut background_poll = tokio::time::interval(background_terminals::SYNC_INTERVAL);
+    background_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut background_sync_failed = false;
     loop {
         let settings_deadline = authority.settings_update.deadline();
         if let Some(command) = authority.settings_update.take_prompt() {
@@ -270,6 +274,20 @@ async fn run_bridge_loop(
             }
         }
         tokio::select! {
+            _ = background_poll.tick(), if session_id.is_some() => {
+                if let Some(root) = session_id.as_deref() {
+                    let result = background_terminals::publish(upstream, &cx, root).await;
+                    if let Ok(tasks) = &result {
+                        item_projection.seed_background(root, tasks);
+                    }
+                    if let Err(error) = &result {
+                        if !background_sync_failed {
+                            eprintln!("[星河][worker] background synchronization unavailable: {}", crate::diagnostics::safe_detail(&error.to_string()));
+                        }
+                    }
+                    background_sync_failed = result.is_err();
+                }
+            },
             _ = tokio::time::sleep_until(settings_deadline.unwrap_or_else(tokio::time::Instant::now)), if settings_deadline.is_some() => {
                 authority.settings_update.fail("Timed out waiting for session settings to be applied");
             },
@@ -659,6 +677,9 @@ async fn handle_request(
         "_session/task/stop" => {
             runtime_tasks::stop_child(upstream, &params, session_id.as_deref()).await
         }
+        "_session/background_task/stop" => {
+            background_terminals::stop(upstream, &params, session_id.as_deref()).await
+        }
         "_session/steering" => {
             steering::handle(upstream, &params, (session_id.as_deref(), session_settings.prompt_capabilities(authority.capabilities))).await
         }
@@ -782,6 +803,11 @@ async fn handle_event(event: UpstreamEvent, context: BridgeEventContext<'_>) -> 
             }
         }
         UpstreamEvent::ServerNotification { method, params } => {
+            if params["threadId"].as_str() == session_id.as_deref() && session_id.is_some() {
+                if let Some(update) = item_projection.native_background_update(&method, &params) {
+                    send_update(cx, session_id, update.method, update.params)?;
+                }
+            }
             if method == "turn/completed" {
                 // 完成通知必达；即使单独的 resolved 通知丢失，也撤回本轮残留交互。
                 interactions.complete_turn(cx, &params)?;

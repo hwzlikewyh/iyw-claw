@@ -72,6 +72,10 @@ pub fn client_method_policy(method: &str) -> Result<MethodPolicy, UnsupportedMet
         | "mcpServerStatus/list" => read_only,
         "skills/list" => global_capability(RequestClass::ReadOnly, Capability::Skills),
         "thread/read" | "thread/turns/list" | "thread/items/list" => session_read_only(),
+        "thread/backgroundTerminals/list" => session_read_only(),
+        "thread/backgroundTerminals/terminate" => {
+            session_capability(RequestClass::Cancellation, Capability::Cancellation)
+        }
         "thread/goal/get" => session_capability(RequestClass::ReadOnly, Capability::Goals),
         "thread/goal/set" | "thread/goal/clear" => {
             session_capability(RequestClass::Configuration, Capability::Goals)

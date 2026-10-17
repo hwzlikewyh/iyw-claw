@@ -15,12 +15,16 @@ import {
 } from "@/components/ui/tooltip"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { cn } from "@/lib/utils"
+import { runtimeBackgroundState } from "@/lib/runtime-tasks"
 
 type ConnectionStatusLabelKey =
   | "connected"
   | "connecting"
   | "prompting"
   | "error"
+  | "monitoring"
+  | "background"
+  | "backgroundUnknown"
 
 const STATUS_STYLE: Record<
   string,
@@ -128,7 +132,16 @@ export function StatusBarConnection() {
   if (!style) return null
 
   const label = getAgentDisplayName(agentType)
-  const statusLabel = t(style.labelKey)
+  const background = activeConn ? runtimeBackgroundState(activeConn) : null
+  const backgroundKey =
+    status === "connected" && background && background.outstanding > 0
+      ? background.uncertain
+        ? "backgroundUnknown"
+        : background.monitors > 0
+          ? "monitoring"
+          : "background"
+      : null
+  const statusLabel = t(backgroundKey ?? style.labelKey)
   const tooltipText =
     !isReplacing && status === "error" && activeConn?.error
       ? t("tooltipError", { agent: label, error: activeConn.error })
@@ -144,6 +157,11 @@ export function StatusBarConnection() {
               className={cn("size-3", style.className)}
             />
             {model && <span>{model}</span>}
+            {backgroundKey && (
+              <span className="text-sky-700 dark:text-sky-300" role="status">
+                {statusLabel}
+              </span>
+            )}
           </div>
         </TooltipTrigger>
         <TooltipContent side="top">{tooltipText}</TooltipContent>

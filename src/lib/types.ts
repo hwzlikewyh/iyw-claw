@@ -1382,7 +1382,12 @@ export interface ToolCallImageWire {
 
 // ACP events pushed from Rust backend (discriminated by "type" field)
 export type AcpEvent =
-  | { type: "runtime_tasks_changed"; revision: number; persistent: boolean }
+  | {
+      type: "runtime_tasks_changed"
+      revision: number
+      persistent: boolean
+      activity?: import("./runtime-tasks").RuntimeTaskActivity
+    }
   | { type: "billing_receipt"; receipt: unknown }
   | { type: "content_recovered"; content: LiveContentBlock[] }
   | { type: "runtime_observation"; observation: unknown }
@@ -1929,6 +1934,7 @@ export interface LiveSessionSnapshot {
   auto_continuation?: AutoContinuationInfo | null
   /** Launched but unresolved Claude background tasks. Absent means zero. */
   background_outstanding?: number
+  runtime_task_activity?: import("./runtime-tasks").RuntimeTaskActivity
   /** True when background task state is unknown and must remain protected. */
   background_uncertain?: boolean
   /** Whether this agent has the `check_user_feedback` tool (fixed at launch).

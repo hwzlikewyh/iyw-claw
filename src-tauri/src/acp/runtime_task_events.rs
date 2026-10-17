@@ -5,6 +5,33 @@ use serde_json::{Map, Value};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+pub(super) async fn confirm_background_stop(
+    context: (&Arc<RwLock<SessionState>>, &EventEmitter),
+    binding: (&str, &super::RuntimeTask),
+) {
+    let update = {
+        let mut state = context.0.write().await;
+        if state.external_id.as_deref() != Some(binding.0) {
+            return;
+        }
+        let Some(mut task) = state.runtime_tasks.get(&binding.1.id).cloned() else {
+            return;
+        };
+        if task.native_id != binding.1.native_id || task.status == "stopped" {
+            return;
+        }
+        task.status = "stopped".into();
+        task.actions.clear();
+        state.runtime_tasks.upsert(task);
+        AcpEvent::RuntimeTasksChanged {
+            revision: state.runtime_tasks.revision,
+            persistent: true,
+            activity: state.runtime_tasks.background_activity(),
+        }
+    };
+    emit_with_state(context.0, context.1, update).await;
+}
+
 pub(super) async fn await_goal_confirmation(
     context: (&Arc<RwLock<SessionState>>, &EventEmitter),
     binding: (&str, &super::RuntimeTask),
@@ -25,12 +52,14 @@ pub(super) async fn await_goal_confirmation(
         state.runtime_tasks.upsert(task);
         state.runtime_tasks.revision
     };
+    let activity = context.0.read().await.runtime_tasks.background_activity();
     emit_with_state(
         context.0,
         context.1,
         AcpEvent::RuntimeTasksChanged {
             revision,
             persistent: true,
+            activity,
         },
     )
     .await;
@@ -50,12 +79,14 @@ pub(crate) async fn observe_meta(
         ))
     };
     if let Some((revision, persistent)) = revision {
+        let activity = context.0.read().await.runtime_tasks.background_activity();
         emit_with_state(
             context.0,
             context.1,
             AcpEvent::RuntimeTasksChanged {
                 revision,
                 persistent,
+                activity,
             },
         )
         .await;
@@ -75,12 +106,14 @@ pub(crate) async fn observe_sdk(
         ))
     };
     if let Some((revision, persistent)) = revision {
+        let activity = context.0.read().await.runtime_tasks.background_activity();
         emit_with_state(
             context.0,
             context.1,
             AcpEvent::RuntimeTasksChanged {
                 revision,
                 persistent,
+                activity,
             },
         )
         .await;

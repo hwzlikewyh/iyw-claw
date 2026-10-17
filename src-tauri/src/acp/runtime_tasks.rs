@@ -8,6 +8,13 @@ use crate::models::agent::AgentType;
 
 #[path = "runtime_task_control.rs"]
 pub mod control;
+#[path = "runtime_task_background.rs"]
+mod background;
+#[path = "runtime_task_background_tools.rs"]
+mod background_tools;
+#[path = "runtime_task_terminals.rs"]
+mod terminals;
+pub use background::{BackgroundInfo, RuntimeTaskActivity};
 #[path = "runtime_task_delegations.rs"]
 mod delegations;
 #[path = "runtime_task_detail.rs"]
@@ -54,6 +61,8 @@ pub struct RuntimeTask {
     pub goal_scope: Option<String>,
     #[serde(default)]
     pub transcript_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<BackgroundInfo>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -79,6 +88,7 @@ pub(crate) struct RuntimeTasks {
     goal_actions: Vec<String>,
     billing_children: BTreeMap<String, Option<String>>,
     billing_incomplete: bool,
+    live_background: BTreeSet<String>,
 }
 
 impl RuntimeTasks {
@@ -160,6 +170,7 @@ impl RuntimeTasks {
                 || previous.agent_type != task.agent_type
                 || previous.child_conversation_id != task.child_conversation_id
                 || previous.child_connection_id != task.child_connection_id
+                || previous.background != task.background
         });
         if let Some(previous) = self.tasks.get(&task.id) {
             task.updated_at.clone_from(&previous.updated_at);
@@ -187,6 +198,7 @@ impl RuntimeTasks {
         terminal.sort();
         let excess = terminal.len().saturating_sub(TERMINAL_TASK_LIMIT);
         for (_, id) in terminal.into_iter().take(excess) {
+            self.live_background.remove(&id);
             self.tasks.remove(&id);
         }
     }

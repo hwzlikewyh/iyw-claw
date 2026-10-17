@@ -19,6 +19,14 @@ pub(super) struct ItemProjection {
 }
 
 impl ItemProjection {
+    pub(super) fn seed_background(&mut self, root: &str, tasks: &[Value]) {
+        self.background_commands.seed(root, tasks);
+    }
+
+    pub(super) fn native_background_update(&mut self, method: &str, params: &Value) -> Option<Update> {
+        self.background_commands.native_update(method, params)
+    }
+
     pub(super) fn configure_output(&mut self, initialize: &Value) {
         self.snapshot_only = initialize
             .pointer("/clientCapabilities/_meta/iyw/rawOutputAppend")

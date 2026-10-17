@@ -1,4 +1,8 @@
 import type { ConnectionStatus } from "@/lib/types"
+import {
+  runtimeBackgroundState,
+  type RuntimeTaskActivity,
+} from "./runtime-tasks"
 
 export const CONVERSATION_COLD_AFTER_MS = 3 * 60 * 60 * 1000
 
@@ -10,6 +14,7 @@ export interface RetentionConnectionState {
   pendingChannelConfirmation: unknown | null
   backgroundOutstanding: number
   backgroundUncertain: boolean
+  runtimeTaskActivity?: RuntimeTaskActivity | null
   isDelegationChild: boolean
 }
 
@@ -30,6 +35,7 @@ export function isRetentionProtected(
   if (connection.status === "disconnected" || connection.status === "error") {
     return false
   }
+  const background = runtimeBackgroundState(connection)
   return (
     connection.status === "prompting" ||
     connection.status === "connecting" ||
@@ -37,8 +43,8 @@ export function isRetentionProtected(
     connection.pendingQuestion != null ||
     connection.pendingAskQuestion != null ||
     connection.pendingChannelConfirmation != null ||
-    connection.backgroundOutstanding > 0 ||
-    connection.backgroundUncertain
+    background.outstanding > 0 ||
+    background.uncertain
   )
 }
 

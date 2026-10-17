@@ -376,6 +376,10 @@ where
         if !gate(&s) {
             return false;
         }
+        let mut payload = payload;
+        if let AcpEvent::RuntimeTasksChanged { activity, .. } = &mut payload {
+            *activity = s.runtime_tasks.background_activity();
+        }
         if matches!(&payload, AcpEvent::ContentDelta { text } if !text.is_empty()) {
             if let Some(trace) = &s.startup_trace {
                 trace.first_content_received();

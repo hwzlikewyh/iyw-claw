@@ -14,7 +14,7 @@ impl ConnectionManager {
             .await
             .ok_or_else(|| AcpError::ConnectionNotFound(id.into()))?;
         self.restore_task_history(&state).await;
-        let (mut result, delegations) = {
+        let (mut result, delegations, connected) = {
             let state = state.read().await;
             (
                 state.runtime_tasks.snapshot(),
@@ -23,8 +23,15 @@ impl ConnectionManager {
                     .values()
                     .cloned()
                     .collect::<Vec<_>>(),
+                !matches!(state.status, crate::acp::ConnectionStatus::Disconnected | crate::acp::ConnectionStatus::Error),
             )
         };
+        if !connected {
+            for task in &mut result.tasks {
+                if !super::is_terminal(&task.status) { task.status = "unknown".into(); }
+                task.actions.clear();
+            }
+        }
         for child in delegations {
             let task_id = format!("delegation:{}", child.parent_tool_use_id);
             let previous = result

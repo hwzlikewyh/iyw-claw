@@ -1,5 +1,9 @@
 {
   "RuntimeTasks": {
+    "monitoring": "监听中",
+    "monitorHint": "监听正在后台等待事件，可以继续对话。结束和超时以运行时通知为准。",
+    "monitorPersistent": "随会话持续监听",
+    "monitorDuration": "监听期限：{seconds} 秒",
     "title": "会话任务",
     "active": "{count} 个任务尚未结束",
     "recordCount": "{count} 个消费阶段（请求 ID / 阶段）",
@@ -24,6 +28,7 @@
       "loop": "循环",
       "subagent": "子代理",
       "background": "后台任务",
+      "monitor": "监听",
       "delegation": "委派任务"
     },
     "status": {
@@ -2416,6 +2421,9 @@
     "statusBar": {
       "connection": {
         "connected": "已连接",
+        "monitoring": "监听中",
+        "background": "后台运行中",
+        "backgroundUnknown": "后台状态待同步",
         "connecting": "连接中...",
         "prompting": "响应中...",
         "error": "连接异常",
@@ -4502,6 +4510,7 @@
         "moreIncidents": "另 {count} 条"
       },
       "backgroundTasks": {
+        "monitoring": "{count} 个监听运行中",
         "processesRunning": "{count} 个命令进程运行中",
         "lastOutputAgo": "距上次输出 {seconds} 秒",
         "running": "{count} 个后台任务运行中",

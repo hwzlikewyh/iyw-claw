@@ -328,6 +328,7 @@ export interface ConnectionState {
    */
   configStaleDismissed: boolean
   backgroundOutstanding: number
+  runtimeTaskActivity?: import("@/lib/runtime-tasks").RuntimeTaskActivity | null
   backgroundUncertain: boolean
   backgroundSettleSyncingSince: number | null
   outOfTurnToolCalls: ReadonlyMap<string, ToolCallInfo> | null
@@ -447,6 +448,11 @@ type Action =
       type: "DISMISS_SESSION_FAILURES"
       contextKey: string
       ids: string[]
+    }
+  | {
+      type: "SET_RUNTIME_TASK_ACTIVITY"
+      contextKey: string
+      activity: import("@/lib/runtime-tasks").RuntimeTaskActivity
     }
   | {
       type: "SET_BACKGROUND_OUTSTANDING"
@@ -1281,6 +1287,7 @@ function connectionsReducer(
         configStaleKind: null,
         configStaleDismissed: false,
         backgroundOutstanding: 0,
+        runtimeTaskActivity: null,
         backgroundUncertain: false,
         backgroundSettleSyncingSince: null,
         outOfTurnToolCalls: null,
@@ -1346,6 +1353,7 @@ function connectionsReducer(
         configStaleKind: null,
         configStaleDismissed: false,
         backgroundOutstanding: 0,
+        runtimeTaskActivity: null,
         backgroundUncertain: false,
         backgroundSettleSyncingSince: null,
         outOfTurnToolCalls: null,
@@ -1489,6 +1497,7 @@ function connectionsReducer(
         configStale: action.patch.configStale,
         configStaleKind: action.patch.configStaleKind,
         backgroundOutstanding: action.patch.backgroundOutstanding,
+        runtimeTaskActivity: action.patch.runtimeTaskActivity,
         backgroundUncertain: action.patch.backgroundUncertain,
         error: action.patch.lastError,
         lastAppliedSeq: action.patch.eventSeq,
@@ -1707,6 +1716,17 @@ function connectionsReducer(
         updated.interactiveHtml = []
       }
       next.set(action.contextKey, updated)
+      return next
+    }
+
+    case "SET_RUNTIME_TASK_ACTIVITY": {
+      const conn = state.get(action.contextKey)
+      if (!conn) return state
+      const next = new Map(state)
+      next.set(action.contextKey, {
+        ...conn,
+        runtimeTaskActivity: action.activity,
+      })
       return next
     }
 
@@ -2309,6 +2329,7 @@ function connectionsReducer(
         ...(conn.sessionId !== action.sessionId
           ? {
               backgroundOutstanding: 0,
+              runtimeTaskActivity: null,
               backgroundUncertain: false,
               backgroundSettleSyncingSince: null,
               activity: null,
@@ -3817,6 +3838,14 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             contextKey,
             confirmationId: e.confirmation_id,
           })
+          break
+        case "runtime_tasks_changed":
+          if (e.activity)
+            dispatch({
+              type: "SET_RUNTIME_TASK_ACTIVITY",
+              contextKey,
+              activity: e.activity,
+            })
           break
         case "background_activity": {
           const sessionId =

@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useSyncExternalStore, useCallback } from "react"
 import { CircleAlert, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { useConnection } from "@/hooks/use-connection"
 import { RuntimeBackgroundStatus } from "./runtime-background-status"
+import { useOptionalConnectionStore } from "@/contexts/acp-connections-context"
 
 const SETTLE_SYNC_DISPLAY_MS = 30_000
 
@@ -19,6 +20,16 @@ export function BackgroundTasksChip({
   inline = false,
 }: BackgroundTasksChipProps) {
   const t = useTranslations("Folder.chat.backgroundTasks")
+  const store = useOptionalConnectionStore()
+  const subscribe = useCallback(
+    (cb: () => void) => store?.subscribeKey(contextKey, cb) ?? (() => {}),
+    [store, contextKey]
+  )
+  const snapshot = useCallback(
+    () => store?.getConnection(contextKey)?.runtimeTaskActivity?.monitors ?? 0,
+    [store, contextKey]
+  )
+  const monitors = useSyncExternalStore(subscribe, snapshot, () => 0)
   const {
     backgroundOutstanding,
     backgroundUncertain,
@@ -57,7 +68,9 @@ export function BackgroundTasksChip({
         {backgroundUncertain
           ? t("unknown")
           : backgroundOutstanding > 0
-            ? t("running", { count: backgroundOutstanding })
+            ? monitors > 0
+              ? t("monitoring", { count: monitors })
+              : t("running", { count: backgroundOutstanding })
             : t("settling")}
       </span>
     </span>
