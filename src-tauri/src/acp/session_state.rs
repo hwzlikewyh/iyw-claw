@@ -1518,6 +1518,9 @@ impl SessionState {
     }
 
     pub fn has_active_background_work(&self, now: DateTime<Utc>) -> bool {
+        if self.runtime_tasks.background_activity().outstanding > 0 {
+            return true;
+        }
         if self.background_uncertain {
             return true;
         }
@@ -1838,6 +1841,7 @@ impl SessionState {
                 .map(crate::acp::AgentInputItem::client_projection)
                 .collect(),
             auto_continuation: self.auto_continuation.clone(),
+            runtime_task_activity: self.runtime_tasks.background_activity(),
             background_outstanding: self.background_outstanding,
             background_uncertain: self.background_uncertain,
             feedback_tool_available: self.feedback_tool_available,
@@ -2008,6 +2012,8 @@ pub struct LiveSessionSnapshot {
     /// True when the watcher lost a terminal heartbeat; task state is unknown.
     #[serde(default, skip_serializing_if = "is_false")]
     pub background_uncertain: bool,
+    #[serde(default)]
+    pub runtime_task_activity: super::runtime_tasks::RuntimeTaskActivity,
     /// Whether this agent has the `check_user_feedback` tool (see
     /// `SessionState.feedback_tool_available`). `#[serde(default)]` so older
     /// payloads deserialize to `false`; the frontend gates the feedback bar on

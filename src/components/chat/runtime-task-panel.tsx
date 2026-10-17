@@ -19,7 +19,11 @@ interface PanelProps {
 }
 
 export function RuntimeTaskPanel(props: PanelProps) {
-  const { connectionId, conversationId, onMessage, onCancelLoop } = props
+  const { connectionId, onMessage, onCancelLoop } = props
+  const conversationId =
+    props.conversationId != null && props.conversationId > 0
+      ? props.conversationId
+      : null
   const t = useTranslations("RuntimeTasks")
   const state = useRuntimeTasks(connectionId, conversationId)
   const consumption = useRuntimeTaskConsumption(
@@ -90,7 +94,10 @@ function TaskPanelHeader({
 }) {
   const t = useTranslations("RuntimeTasks")
   const count = state.tasks.filter(
-    (task) => !isTerminalTask(task.status) && task.status !== "unknown"
+    (task) =>
+      !isTerminalTask(task.status) &&
+      task.status !== "unknown" &&
+      !task.background?.ambient
   ).length
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 px-1">

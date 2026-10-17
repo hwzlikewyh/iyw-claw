@@ -77,6 +77,7 @@ export interface SnapshotPatch {
   configStale: boolean
   configStaleKind: ConfigStaleKind | null
   backgroundOutstanding: number
+  runtimeTaskActivity?: import("./runtime-tasks").RuntimeTaskActivity | null
   backgroundUncertain: boolean
   lastError: string | null
   lastErrorDetails: string | null
@@ -150,6 +151,7 @@ export function denormalizeSnapshot(wire: LiveSessionSnapshot): SnapshotPatch {
     configStale: wire.config_stale ?? false,
     configStaleKind: wire.config_stale_kind ?? null,
     backgroundOutstanding: wire.background_outstanding ?? 0,
+    runtimeTaskActivity: wire.runtime_task_activity ?? null,
     backgroundUncertain: wire.background_uncertain ?? false,
     lastError: normalizeLastError(wire.last_error),
     lastErrorDetails: wire.last_error?.details?.trim()

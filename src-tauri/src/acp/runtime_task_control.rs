@@ -111,7 +111,7 @@ pub(crate) async fn execute(
     }
     let (method, params) = control_request(agent, session_id, (&task, &request.action))?;
     tracing::info!(task_id = %task.id, action = %request.action, method, "[runtime-task] control requested");
-    send_control(connection, (method, params)).await.map_err(|error| {
+    let result = send_control(connection, (method, params)).await.map_err(|error| {
         tracing::warn!(task_id = %task.id, action = %request.action, %error, "[runtime-task] control failed or unconfirmed");
         error
     })?;
@@ -121,6 +121,8 @@ pub(crate) async fn execute(
     drop(current);
     if agent == AgentType::ClaudeCode && task.kind == "goal" {
         super::events::await_goal_confirmation(state, (session_id, &task)).await;
+    } else if matches!(task.kind.as_str(), "background" | "monitor") && result["stopped"] == true {
+        super::events::confirm_background_stop(state, (session_id, &task)).await;
     }
     tracing::info!(task_id = %task.id, action = %request.action, "[runtime-task] control acknowledged");
     Ok(())
@@ -158,7 +160,8 @@ async fn send_control(
     .await
     .map_err(|_| AcpError::protocol("Task control timed out; synchronize status before retrying"))?
     .map_err(|error| AcpError::protocol(error.to_string()))?;
-    if method == "_session/async_task/stop" && result.get("stopped") != Some(&Value::Bool(true)) {
+    if matches!(method, "_session/async_task/stop" | "_session/background_task/stop")
+        && result.get("stopped") != Some(&Value::Bool(true)) {
         return Err(AcpError::protocol(
             "The runtime did not confirm stopping this task",
         ));
@@ -190,10 +193,26 @@ fn control_request(
             "_session/goal",
             json!({"sessionId": session, "action": "clear"}),
         )),
-        (AgentType::ClaudeCode, "background", "stop") => Ok((
+        (_, "background" | "monitor", "stop") => background_control(agent, session, task),
+        _ => Err(AcpError::protocol("Unsupported native task control")),
+    }
+}
+
+fn background_control(
+    agent: AgentType,
+    session: &str,
+    task: &RuntimeTask,
+) -> Result<(&'static str, Value), AcpError> {
+    match (agent, task.kind.as_str()) {
+        (AgentType::Codex, "background") => Ok((
+            "_session/background_task/stop",
+            json!({"sessionId": session, "processId": task.native_id,
+                "itemId": task.id.strip_prefix("terminal:")}),
+        )),
+        (AgentType::ClaudeCode, _) => Ok((
             "_session/async_task/stop",
             json!({"sessionId": session, "asyncTaskId": task.native_id}),
         )),
-        _ => Err(AcpError::protocol("Unsupported native task control")),
+        _ => Err(AcpError::protocol("Unsupported background task control")),
     }
 }

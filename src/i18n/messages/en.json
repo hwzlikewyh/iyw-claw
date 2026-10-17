@@ -1,5 +1,9 @@
 {
   "RuntimeTasks": {
+    "monitoring": "Listening",
+    "monitorHint": "Listening for events in the background. You can continue chatting. The runtime confirms completion and timeout.",
+    "monitorPersistent": "Listening for the session lifetime",
+    "monitorDuration": "Watch duration: {seconds} seconds",
     "pointUnavailable": "No amount can currently be confirmed. Check the backend stage status; missing records, identity, or disabled billing do not imply zero consumption.",
     "parentTask": "Parent task: {title}",
     "recordCount": "{count} consumption stages (request ID / stage)",
@@ -26,6 +30,7 @@
       "loop": "Loop",
       "subagent": "Sub-agent",
       "background": "Background task",
+      "monitor": "Listener",
       "delegation": "Delegated task"
     },
     "status": {
@@ -2415,6 +2420,9 @@
     },
     "statusBar": {
       "connection": {
+        "monitoring": "Listening",
+        "background": "Running in background",
+        "backgroundUnknown": "Background status awaiting sync",
         "connected": "Connected",
         "connecting": "Connecting...",
         "prompting": "Responding...",
@@ -4502,6 +4510,7 @@
         "moreIncidents": "+{count} more"
       },
       "backgroundTasks": {
+        "monitoring": "{count} active listeners",
         "processesRunning": "{count, plural, one {# command process running} other {# command processes running}}",
         "lastOutputAgo": "Last output {seconds}s ago",
         "running": "{count, plural, one {# background task running} other {# background tasks running}}",

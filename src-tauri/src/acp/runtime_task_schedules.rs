@@ -42,6 +42,9 @@ pub(super) fn observe(state: &mut RuntimeTasks, message: &Value) -> bool {
         Some("CronList") => reconcile(state, output),
         Some("ScheduleWakeup") => wakeup(state, &call, output),
         Some("Agent" | "Task") => agent_result(state, &call, output),
+        Some("Monitor" | "Bash" | "PowerShell" | "TaskStop") => {
+            super::background_tools::observe(state, &call, output)
+        }
         _ => false,
     }
 }
@@ -186,6 +189,7 @@ fn capture_tools(state: &mut RuntimeTasks, blocks: &[Value], parent: Option<&str
                 block["name"].as_str(),
                 Some(
                     "CronCreate" | "CronDelete" | "CronList" | "ScheduleWakeup" | "Agent" | "Task"
+                    | "Monitor" | "Bash" | "PowerShell" | "TaskStop"
                 )
             )
     }) {

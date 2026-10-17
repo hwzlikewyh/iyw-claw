@@ -46,7 +46,7 @@ interface RowProps {
 export function RuntimeTaskRow(props: RowProps) {
   const { task, pending } = props
   const t = useTranslations("RuntimeTasks")
-  const statusKey = STATUS_KEYS[task.status as keyof typeof STATUS_KEYS]
+  const statusKey = taskStatusKey(task)
   const status = statusKey ? t(statusKey) : task.status
   return (
     <details className="group rounded-lg border bg-background/70 px-2 py-1.5">
@@ -68,6 +68,7 @@ export function RuntimeTaskRow(props: RowProps) {
       </summary>
       <div className="space-y-2 pt-2">
         <TaskMetadata task={task} parentTitle={props.parentTitle} />
+        <BackgroundMetadata task={task} />
         <TaskPoints task={task} consumption={props.consumption ?? null} />
         <ChildTaskConversation task={task} />
         {task.kind === "subagent" && (
@@ -79,6 +80,35 @@ export function RuntimeTaskRow(props: RowProps) {
         <TaskActions {...props} />
       </div>
     </details>
+  )
+}
+
+function taskStatusKey(task: RuntimeTask) {
+  return task.kind === "monitor" && task.status === "running"
+    ? "monitoring"
+    : STATUS_KEYS[task.status as keyof typeof STATUS_KEYS]
+}
+
+function BackgroundMetadata({ task }: { task: RuntimeTask }) {
+  const t = useTranslations("RuntimeTasks")
+  const background = task.background
+  if (!background) return null
+  return (
+    <div className="space-y-1 text-muted-foreground">
+      {background.command && (
+        <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2">
+          {background.command}
+        </pre>
+      )}
+      {task.kind === "monitor" && <p>{t("monitorHint")}</p>}
+      {task.kind === "monitor" && background.persistent === true ? (
+        <p>{t("monitorPersistent")}</p>
+      ) : task.kind === "monitor" &&
+        background.timeout_ms != null &&
+        background.timeout_ms > 0 ? (
+        <p>{t("monitorDuration", { seconds: background.timeout_ms / 1000 })}</p>
+      ) : null}
+    </div>
   )
 }
 

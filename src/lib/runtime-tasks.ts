@@ -4,7 +4,7 @@ export type RuntimeTaskAction = "pause" | "resume" | "clear" | "stop"
 
 export interface RuntimeTask {
   id: string
-  kind: "goal" | "loop" | "subagent" | "background" | "delegation"
+  kind: "goal" | "loop" | "subagent" | "background" | "monitor" | "delegation"
   native_id: string
   title: string
   status: string
@@ -23,6 +23,41 @@ export interface RuntimeTask {
   child_connection_id: string | null
   agent_type: import("@/lib/types").AgentType | null
   transcript_id?: string | null
+  background?: {
+    task_type: string
+    command: string | null
+    timeout_ms: number | null
+    persistent: boolean | null
+    ambient: boolean
+  } | null
+}
+
+export interface RuntimeTaskActivity {
+  outstanding: number
+  monitors: number
+  uncertain: boolean
+}
+
+export function runtimeBackgroundState(connection: {
+  status?: string | null
+  backgroundOutstanding: number
+  backgroundUncertain: boolean
+  runtimeTaskActivity?: RuntimeTaskActivity | null
+}) {
+  const activity = connection.runtimeTaskActivity
+  return {
+    outstanding: Math.max(
+      connection.backgroundOutstanding,
+      activity?.outstanding ?? 0
+    ),
+    monitors: activity?.monitors ?? 0,
+    uncertain:
+      connection.backgroundUncertain ||
+      activity?.uncertain === true ||
+      ((connection.status === "disconnected" ||
+        connection.status === "error") &&
+        (activity?.outstanding ?? 0) > 0),
+  }
 }
 
 export interface RuntimeTaskSnapshot {
