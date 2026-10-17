@@ -2,6 +2,7 @@ mod auto_update;
 pub(crate) mod client;
 mod install;
 mod install_plan;
+mod office_skills;
 mod plugin_components;
 mod plugin_install;
 mod plugin_install_context;
@@ -485,6 +486,7 @@ pub async fn delete_core(conn: &DatabaseConnection, id: String) -> Result<(), Ap
 /// 未找到安装记录时幂等成功；被其他已启用 expert 包依赖时拒绝。
 pub async fn uninstall_core(conn: &DatabaseConnection, id: String) -> Result<(), AppCommandError> {
     let skill_id = parse_id(&id)?;
+    let office_skills = office_skills::installed_for_root(skill_id);
     if plugin_install::uninstall_plugin(conn, skill_id).await? {
         tracing::info!(skill_id, "[skill-market] Plugin uninstalled");
     } else {
@@ -508,6 +510,7 @@ pub async fn uninstall_core(conn: &DatabaseConnection, id: String) -> Result<(),
         }
     }
     restore_bundled_skills_after_uninstall(conn, skill_id).await?;
+    office_skills::restore_after_uninstall(conn, office_skills).await?;
     Ok(())
 }
 

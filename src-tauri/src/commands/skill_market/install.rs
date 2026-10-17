@@ -57,14 +57,11 @@ pub async fn install_core(
         .to_string();
     let plan = request_install_plan(conn, requested_id, &requested_version).await?;
     validate_install_plan(&plan, requested_id, &requested_version)?;
-    if crate::commands::office_tools::is_officecli_skill_id(&plan.root_slug) {
-        return Err(AppCommandError::invalid_input(
-            "OfficeCLI skills are managed by iyw-claw and cannot be installed from Skill Market",
-        ));
-    }
     let mut managed_office_slugs = BTreeSet::new();
     for item in &plan.items {
-        if crate::commands::office_tools::is_officecli_skill_id(&item.slug) {
+        if item.slug != plan.root_slug
+            && crate::commands::office_tools::is_officecli_skill_id(&item.slug)
+        {
             crate::commands::office_tools::ensure_managed_office_skill_ready(&item.slug)
                 .await
                 .map_err(|error| {
