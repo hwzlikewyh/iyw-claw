@@ -10,6 +10,14 @@ pub(crate) async fn prepare_core(
     input: (PrepareSessionRequest, String, EventEmitter),
 ) -> Result<Option<PreparedSessionHandle>, AcpError> {
     let (mut request, owner, emitter) = input;
+    if request.conversation_id.is_some_and(|id| id <= 0) {
+        tracing::warn!(
+            agent = %request.agent_type,
+            conversation_id = request.conversation_id,
+            "[ACP][prepare] skipped non-persisted conversation target"
+        );
+        return Ok(None);
+    }
     if let Some(id) = request.conversation_id {
         let row = crate::db::service::conversation_service::get_by_id(&db.conn, id)
             .await
