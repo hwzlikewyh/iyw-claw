@@ -1212,6 +1212,17 @@ const TOOL_UPDATE_BATCH_CAP = 256
 const OVERLAY_FOLD_CACHE_CAP = 1_024
 const overlayFoldRefetchAt = new Map<number, number>()
 
+function resolveDatabaseConversationId(
+  conversationId: number | null | undefined
+): number | undefined {
+  if (conversationId == null) return undefined
+  if (conversationId > 0) return conversationId
+  const persistedId = useConversationRuntimeStore
+    .getState()
+    .byConversationId.get(conversationId)?.dbConversationId
+  return persistedId != null && persistedId > 0 ? persistedId : undefined
+}
+
 function rememberOverlayFoldRefetch(conversationId: number, now: number) {
   overlayFoldRefetchAt.delete(conversationId)
   overlayFoldRefetchAt.set(conversationId, now)
@@ -4349,8 +4360,9 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
             message: localizedMessage,
           })
           const failedConnection = storeRef.current.connections.get(contextKey)
-          const conversationId =
-            runtimeConversationIdsRef.current.get(contextKey) ?? null
+          const conversationId = resolveDatabaseConversationId(
+            runtimeConversationIdsRef.current.get(contextKey)
+          )
           const expectedExternalId = failedConnection?.sessionId ?? null
           const canCreateSuccessor =
             e.code === "resource_not_found" || e.code === "session_unavailable"
@@ -5106,6 +5118,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
         continuationContext?: string
       }
     ) => {
+      conversationId = resolveDatabaseConversationId(conversationId)
       const request: ConnectRequest = {
         agentType,
         workingDir,
@@ -5723,6 +5736,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
       // its restart button for them, but guard here too. Return false so the
       // caller doesn't show a false "applied" confirmation on this no-op.
       if (!conn || conn.isViewer || conn.isDelegationChild) return false
+      conversationId = resolveDatabaseConversationId(conversationId)
       // Capture identity BEFORE teardown. `sessionId` is what makes the new
       // process resume this conversation (session/load) rather than start fresh.
       const { agentType, workingDir, sessionId } = conn
