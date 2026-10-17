@@ -11,6 +11,14 @@ impl ConnectionManager {
         request: &PrepareSessionRequest,
         owner: &str,
     ) -> Result<Option<String>, AcpError> {
+        if request.conversation_id.is_some_and(|id| id <= 0) {
+            tracing::warn!(
+                agent = %request.agent_type,
+                conversation_id = request.conversation_id,
+                "[ACP][prepare] skipped non-persisted claim target; using normal startup"
+            );
+            return Ok(None);
+        }
         let entry = self
             .prepared_sessions
             .lock()
