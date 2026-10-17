@@ -5749,7 +5749,7 @@ fn is_reserved_shared_skill_id(skill_id: &str) -> bool {
 }
 
 pub(crate) fn set_shared_skill_read_only(skill: &mut AgentSkillItem) {
-    if is_reserved_shared_skill_id(&skill.id) && !is_bundled_market_override(&skill.id) {
+    if is_reserved_shared_skill_id(&skill.id) && !is_managed_market_override(&skill.id) {
         skill.read_only = true;
     }
 }
@@ -5764,19 +5764,23 @@ fn ensure_shared_skill_writable(skill_id: &str) -> Result<(), AcpError> {
 }
 
 fn ensure_market_install_source_writable(skill_id: &str) -> Result<(), AcpError> {
-    if is_bundled_expert_id(skill_id) {
+    if is_market_overridable_skill_id(skill_id) {
         return Ok(());
     }
     ensure_shared_skill_writable(skill_id)
 }
 
-fn is_bundled_market_override(skill_id: &str) -> bool {
-    is_bundled_expert_id(skill_id)
+fn is_market_overridable_skill_id(skill_id: &str) -> bool {
+    is_bundled_expert_id(skill_id) || crate::commands::office_tools::is_officecli_skill_id(skill_id)
+}
+
+fn is_managed_market_override(skill_id: &str) -> bool {
+    is_market_overridable_skill_id(skill_id)
         && read_market_skill_marker(&shared_skill_path(skill_id)).is_some()
 }
 
 fn ensure_shared_skill_projection_writable(skill_id: &str) -> Result<(), AcpError> {
-    if is_bundled_market_override(skill_id) {
+    if is_managed_market_override(skill_id) {
         return Ok(());
     }
     ensure_shared_skill_writable(skill_id)
@@ -6965,7 +6969,7 @@ fn build_shared_skill_item_for_agent(
     skill.enabled = enabled;
     skill.copy_mode = copy_mode;
     skill.read_only =
-        is_reserved_shared_skill_id(&skill_id) && !is_bundled_market_override(&skill_id);
+        is_reserved_shared_skill_id(&skill_id) && !is_managed_market_override(&skill_id);
     skill.official = is_official_shared_skill(&skill_id);
     Ok(skill)
 }
@@ -6990,7 +6994,7 @@ fn list_market_skills_from_dir(
     )?;
     skills.retain(|skill| {
         !is_reserved_shared_skill_id(&skill.id)
-            || (is_bundled_expert_id(&skill.id) && skill.market_managed)
+            || (is_market_overridable_skill_id(&skill.id) && skill.market_managed)
     });
     for skill in &mut skills {
         let source = PathBuf::from(&skill.path);
@@ -7440,7 +7444,7 @@ fn reconcile_shared_skills_for_agent_state_locked(
     )?;
     for skill in skills {
         if !is_reserved_shared_skill_id(&skill.id)
-            || (is_bundled_expert_id(&skill.id) && skill.market_managed)
+            || (is_market_overridable_skill_id(&skill.id) && skill.market_managed)
         {
             remove_shared_skill_publication_from_agent(agent_type, &skill.id)?;
         }
@@ -7464,7 +7468,7 @@ fn reconcile_shared_market_skills_for_agent_locked(
     let mut errors = Vec::new();
     for skill in skills {
         if is_reserved_shared_skill_id(&skill.id)
-            && !(is_bundled_expert_id(&skill.id) && skill.market_managed)
+            && !(is_market_overridable_skill_id(&skill.id) && skill.market_managed)
         {
             continue;
         }

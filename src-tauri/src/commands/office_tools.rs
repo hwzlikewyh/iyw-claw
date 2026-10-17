@@ -387,9 +387,16 @@ fn officecli_bootstrap_assets_complete(info: &OfficecliInfo, skill_root: &Path) 
     info.installed
         && info.runtime_error.is_none()
         && info.compatible
-        && skill_defs().iter().all(|skill| {
-            office_skill_policy_is_current(&skill_root.join(skill.id).join("SKILL.md"))
-        })
+        && skill_defs()
+            .iter()
+            .all(|skill| office_skill_source_is_ready(&skill_root.join(skill.id)))
+}
+
+fn office_skill_source_is_ready(source: &Path) -> bool {
+    let skill_path = source.join("SKILL.md");
+    skill_path.is_file()
+        && (crate::commands::acp::read_market_skill_marker(source).is_some()
+            || office_skill_policy_is_current(&skill_path))
 }
 
 fn office_skill_policy_is_current(skill_path: &Path) -> bool {
@@ -1314,7 +1321,11 @@ pub(crate) async fn officecli_uninstall_core(
             Err(_) => continue,
         };
         for def in skill_defs() {
+            let _shared_guard = crate::commands::acp::shared_skill_mutation_guard();
             let central = skill_central_path(def.id);
+            if crate::commands::acp::read_market_skill_marker(&central).is_some() {
+                continue;
+            }
             for dir in &dirs {
                 let candidate = dir.join(def.id);
                 if !candidate.exists() && !path_is_symlink(&candidate) {
@@ -1346,7 +1357,11 @@ pub(crate) async fn officecli_uninstall_core(
 
     // Clean up OfficeCLI skills from central store
     for def in skill_defs() {
+        let _shared_guard = crate::commands::acp::shared_skill_mutation_guard();
         let central = skill_central_path(def.id);
+        if crate::commands::acp::read_market_skill_marker(&central).is_some() {
+            continue;
+        }
         if central.exists() {
             if let Err(e) = fs::remove_dir_all(&central) {
                 cleanup_errors.push(format!("failed to remove {}: {e}", central.display()));
@@ -1380,9 +1395,8 @@ pub(crate) async fn officecli_sync_skills_core() -> Result<SkillSyncReport, Offi
     officecli_sync_skills_locked().await
 }
 
-/// Ensure one bundled OfficeCLI skill is available for a market package
-/// dependency. Market packages must not download or overwrite these reserved
-/// IDs; the Office Tools owner updates and synchronizes them instead.
+/// 为市场包准备可用的 OfficeCLI 技能依赖；直接安装市场版本走市场覆盖流程。
+/// 已有市场版本由市场维护，其他 OfficeCLI 技能由 Office Tools 同步。
 pub(crate) async fn ensure_managed_office_skill_ready(
     skill_id: &str,
 ) -> Result<(), OfficeToolsError> {
@@ -1416,11 +1430,11 @@ pub(crate) async fn ensure_managed_office_skill_ready(
         })?;
         needs_sync = true;
     }
-    let skill_path = skill_central_path(skill_id).join("SKILL.md");
-    if needs_sync || !office_skill_policy_is_current(&skill_path) {
+    let source = skill_central_path(skill_id);
+    if needs_sync || !office_skill_source_is_ready(&source) {
         officecli_sync_skills_core().await?;
     }
-    if office_skill_policy_is_current(&skill_path) {
+    if office_skill_source_is_ready(&source) {
         Ok(())
     } else {
         Err(OfficeToolsError::SkillNotFound(skill_id.to_string()))
@@ -1471,7 +1485,18 @@ async fn officecli_sync_skills_locked() -> Result<SkillSyncReport, OfficeToolsEr
 
     for def in skill_defs() {
         let target_dir = skill_central_path(def.id);
-        let skill_md = target_dir.join("SKILL.md");
+        if crate::commands::acp::read_market_skill_marker(&target_dir).is_some() {
+            if target_dir.join("SKILL.md").is_file() {
+                tracing::debug!(skill_id = def.id, "[office] keeping market Skill override");
+                report.synced += 1;
+            } else {
+                report.errors.push(format!(
+                    "{}: market Skill content is missing; reinstall it from Skill Market",
+                    def.id
+                ));
+            }
+            continue;
+        }
 
         // Load skill content from OfficeCLI binary. The CLI keys skills by
         // its own short id (`load_id`), which differs from our invocation
@@ -1491,9 +1516,7 @@ async fn officecli_sync_skills_locked() -> Result<SkillSyncReport, OfficeToolsEr
                         .push(format!("{}: empty skill content", def.id));
                     continue;
                 }
-                fs::create_dir_all(&target_dir)?;
-                let managed_content = apply_office_font_policy(def.id, content.as_ref());
-                fs::write(&skill_md, managed_content)?;
+                write_synced_office_skill(def, content.as_ref())?;
                 report.synced += 1;
             }
             Ok(out) => {
@@ -1531,6 +1554,24 @@ async fn officecli_sync_skills_locked() -> Result<SkillSyncReport, OfficeToolsEr
         "[office] skill sync completed with current typography policy"
     );
     Ok(report)
+}
+
+fn write_synced_office_skill(def: &SkillDef, content: &str) -> Result<(), OfficeToolsError> {
+    let _guard = crate::commands::acp::shared_skill_mutation_guard();
+    let target_dir = skill_central_path(def.id);
+    if crate::commands::acp::read_market_skill_marker(&target_dir).is_some() {
+        tracing::debug!(
+            skill_id = def.id,
+            "[office] market Skill installed during sync; keeping override"
+        );
+        return Ok(());
+    }
+    fs::create_dir_all(&target_dir)?;
+    fs::write(
+        target_dir.join("SKILL.md"),
+        apply_office_font_policy(def.id, content),
+    )?;
+    Ok(())
 }
 
 /// Atomically perform the backend's one-time OfficeCLI install + skill sync.
@@ -1757,7 +1798,11 @@ fn managed_office_pair_result(
     agent_type: AgentType,
     enable: bool,
 ) -> Option<LinkOpResult> {
+    let _shared_guard = crate::commands::acp::shared_skill_mutation_guard();
     let central = skill_central_path(skill_id);
+    if crate::commands::acp::read_market_skill_marker(&central).is_some() {
+        return None;
+    }
     if enable && !central.exists() {
         return None;
     }
