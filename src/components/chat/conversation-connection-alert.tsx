@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl"
 import type { ConnectionStatus } from "@/lib/types"
 import { toErrorMessage } from "@/lib/app-error"
 import { Button } from "@/components/ui/button"
+import { useConversationActivityVisibility } from "@/components/message/conversation-activity-visibility"
 
 export function ConversationConnectionAlert({
   status,
@@ -16,8 +17,15 @@ export function ConversationConnectionAlert({
 }) {
   const t = useTranslations("ConversationPresentation")
   const { reconnecting, error, reconnect } = useReconnect(onReconnect)
+  const { activityVisible } = useConversationActivityVisibility()
   const busy = reconnecting || status === "connecting"
   if (status !== "disconnected" && status !== "error" && !busy) return null
+  if (status === "connecting" && !reconnecting && activityVisible) return null
+  const title = busy
+    ? reconnecting
+      ? "reconnecting"
+      : "initializing"
+    : "disconnected"
   return (
     <section
       role="alert"
@@ -33,19 +41,18 @@ export function ConversationConnectionAlert({
         <AlertCircle aria-hidden="true" className="size-5 shrink-0" />
       )}
       <div className="min-w-0 flex-1">
-        <strong>{t(busy ? "reconnecting" : "disconnected")}</strong>
-        <p>{t(busy ? "reconnectingHint" : "disconnectedHint")}</p>
+        <strong>{t(title)}</strong>
+        <p>{t(`${title}Hint`)}</p>
         {error && <p className="break-words">{error}</p>}
       </div>
-      {onReconnect && (
+      {onReconnect && !busy && (
         <Button
           type="button"
           size="sm"
           variant="outline"
-          disabled={busy}
           onClick={() => void reconnect()}
         >
-          {t(busy ? "reconnecting" : "reconnect")}
+          {t("reconnect")}
         </Button>
       )}
     </section>

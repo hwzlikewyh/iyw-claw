@@ -1055,6 +1055,7 @@ pub async fn get_folder_conversation_page_core(
         let mut cached = cached;
         // 后端消费按当前登录身份核对，历史缓存不跨登录复用确认结果。
         cached.backend_consumption = None;
+        super::conversation_points::enrich_cached(conn, &mut cached).await;
         let points_missing = super::conversation_points::missing(&cached);
         cached.history_stale = !fresh || points_missing;
         cached

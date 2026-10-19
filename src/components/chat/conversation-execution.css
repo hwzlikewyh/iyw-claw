@@ -15,6 +15,86 @@
   border-inline-start: 1px solid var(--border);
   color: var(--muted-foreground);
 }
+.assistant-process-scroll {
+  --process-height: 20rem;
+  height: min(var(--process-height), 50dvh);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  padding-inline-end: 0.5rem;
+}
+.assistant-process-scroll::-webkit-scrollbar {
+  display: none;
+}
+.conversation-assistant-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem 1rem;
+}
+.conversation-assistant-header .conversation-current-activity {
+  min-width: 0;
+  flex: 1 1 15rem;
+  color: var(--foreground);
+  font-size: 0.8125rem;
+}
+.conversation-current-activity > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.conversation-activity-phase {
+  animation: conversation-reveal 120ms ease-out;
+}
+.conversation-assistant-header .conversation-current-activity > svg {
+  color: var(--primary);
+}
+.conversation-current-activity small {
+  color: var(--muted-foreground);
+}
+.conversation-activity-elapsed {
+  margin-inline-start: 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.conversation-waiting-label {
+  animation: conversation-waiting-breathe 2.6s ease-in-out infinite;
+}
+[data-paused="true"] .conversation-waiting-label {
+  animation-play-state: paused;
+}
+@supports ((background-clip: text) or (-webkit-background-clip: text)) {
+  .conversation-waiting-label {
+    background: linear-gradient(
+      105deg,
+      var(--muted-foreground) 30%,
+      var(--primary) 50%,
+      var(--muted-foreground) 70%
+    );
+    background-size: 250% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation-name: conversation-waiting-sweep;
+  }
+}
+@keyframes conversation-waiting-breathe {
+  50% {
+    opacity: 0.65;
+  }
+}
+@keyframes conversation-waiting-sweep {
+  0%,
+  15% {
+    background-position: 100% 0;
+  }
+  85%,
+  100% {
+    background-position: 0% 0;
+  }
+}
 .assistant-process-details :where(p, li, code) {
   overflow-wrap: anywhere;
   white-space: normal;
@@ -71,6 +151,12 @@
   animation-play-state: paused;
 }
 @media (prefers-reduced-motion: reduce) {
+  .conversation-waiting-label {
+    animation: none;
+    background: none;
+    color: inherit;
+    -webkit-text-fill-color: currentColor;
+  }
   .conversation-task-detail,
   .conversation-task-detail * {
     animation: none !important;
@@ -78,6 +164,9 @@
   }
 }
 @media (max-width: 520px) {
+  .assistant-process-scroll {
+    --process-height: 15rem;
+  }
   .conversation-assistant-turn .assistant-turn-summary .prose {
     font-size: 0.875rem;
   }

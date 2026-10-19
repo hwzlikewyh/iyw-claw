@@ -9,11 +9,7 @@ import {
 } from "@/components/ui/tooltip"
 import type { TurnUsage } from "@/lib/types"
 import { formatTokenThousands } from "@/lib/token-format"
-import {
-  UsagePointsHint,
-  UsagePointsRow,
-  UsagePointsValue,
-} from "./usage-points"
+import { UsagePointsRow, UsagePointsValue } from "./usage-points"
 
 export function TurnUsageStats({ usage }: { usage: TurnUsage }) {
   const locale = useLocale()
@@ -37,6 +33,7 @@ export function TurnUsageStats({ usage }: { usage: TurnUsage }) {
           <UsagePointsValue
             points={usage.confirmed_points?.amount}
             consumption={usage.confirmed_points}
+            estimate={usage.estimated_points}
           />
         </button>
       </TooltipTrigger>
@@ -55,9 +52,9 @@ export function TurnUsageStats({ usage }: { usage: TurnUsage }) {
           <UsagePointsRow
             points={usage.confirmed_points?.amount}
             consumption={usage.confirmed_points}
+            estimate={usage.estimated_points}
             scope="turn"
           />
-          <UsagePointsHint consumption={usage.confirmed_points} />
         </div>
       </TooltipContent>
     </Tooltip>

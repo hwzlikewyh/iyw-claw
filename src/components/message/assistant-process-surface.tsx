@@ -2,13 +2,8 @@
 
 import type { Ref } from "react"
 import { MotionConfig } from "motion/react"
-import {
-  Check,
-  ChevronDown,
-  ChevronUp,
-  Clock3,
-  AlertCircle,
-} from "lucide-react"
+import { useStickToBottom } from "use-stick-to-bottom"
+import { Check, ChevronDown, ChevronUp, Clock3 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { ContentPartsRenderer } from "./content-parts-renderer"
 import {
@@ -47,14 +42,11 @@ function processPartKey(part: AdaptedContentPart, index: number): string {
 function ProcessLabel({
   durationMs,
   completed,
-  hasError,
 }: {
   durationMs?: number | null
   completed: number
-  hasError: boolean
 }) {
   const t = useTranslations("ConversationPresentation")
-  const message = useTranslations("Folder.chat.messageList")
   const live = useTranslations("Folder.chat.liveTurnStats")
   const duration =
     typeof durationMs === "number" && durationMs > 0
@@ -67,11 +59,6 @@ function ProcessLabel({
           ? t("completedOperations", { count: completed })
           : t("processRecord")}
       </span>
-      {hasError && (
-        <span className="inline-flex items-center gap-1 text-destructive">
-          {message("processHasErrors")}
-        </span>
-      )}
       {duration && <span className="text-muted-foreground/70">{duration}</span>}
     </span>
   )
@@ -141,25 +128,14 @@ function ProcessTrigger({
   triggerRef: Ref<HTMLButtonElement>
 }) {
   const t = useTranslations("ConversationPresentation")
-  const Icon = props.processHasError
-    ? AlertCircle
-    : completed > 0
-      ? Check
-      : Clock3
+  const Icon = completed > 0 ? Check : Clock3
   return (
     <CollapsibleTrigger
       ref={triggerRef}
       className="assistant-process-trigger group flex min-h-8 min-w-0 max-w-full flex-wrap items-center gap-2 text-left text-xs transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <Icon
-        aria-hidden="true"
-        className={cn(
-          "size-3 shrink-0",
-          props.processHasError && "text-destructive"
-        )}
-      />
+      <Icon aria-hidden="true" className="size-3 shrink-0" />
       <ProcessLabel
-        hasError={props.processHasError}
         completed={completed}
         durationMs={props.isResponseComplete ? props.durationMs : null}
       />
@@ -181,12 +157,24 @@ function ProcessDetails(
   props: AssistantProcessSurfaceProps & { onCollapse: () => void }
 ) {
   const t = useTranslations("ConversationPresentation")
+  const { scrollRef, contentRef } = useStickToBottom({
+    initial: props.isResponseComplete ? false : "instant",
+    resize: "instant",
+  })
   return (
     <div className="assistant-process-details min-w-0">
-      <div className="space-y-3">
-        <MotionConfig reducedMotion="always">
-          <ProcessRows {...props} streaming={!props.isResponseComplete} />
-        </MotionConfig>
+      <div
+        ref={scrollRef}
+        className="assistant-process-scroll focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        role="region"
+        aria-label={t("process")}
+        tabIndex={0}
+      >
+        <div ref={contentRef} className="space-y-3">
+          <MotionConfig reducedMotion="always">
+            <ProcessRows {...props} streaming={!props.isResponseComplete} />
+          </MotionConfig>
+        </div>
       </div>
       <button
         type="button"

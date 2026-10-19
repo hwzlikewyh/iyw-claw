@@ -104,7 +104,9 @@ export const MessageOutputStats = memo(function MessageOutputStats(
     <OutputStatsView
       rate={
         isStreaming
-          ? (recentOutputRate?.toFixed(1) ?? "--")
+          ? recentOutputRate != null && recentOutputRate > 0
+            ? recentOutputRate.toFixed(1)
+            : "--"
           : formatOutputRate(usage?.output_tokens, durationMs)
       }
       timings={timings}
@@ -116,7 +118,6 @@ export const MessageOutputStats = memo(function MessageOutputStats(
       usage={usage}
       outputCharacters={props.outputCharacters}
       isStreaming={isStreaming}
-      isReportedUsage={isStreaming || !props.usage}
     />
   )
 })
@@ -154,7 +155,6 @@ function OutputStatsView({
   toolCallCount,
   usage,
   isStreaming,
-  isReportedUsage,
   outputCharacters,
 }: {
   rate: string
@@ -162,7 +162,6 @@ function OutputStatsView({
   toolCallCount: number
   usage?: TurnUsage | null
   isStreaming: boolean
-  isReportedUsage: boolean
   outputCharacters?: number
 }) {
   const t = useTranslations("Folder.chat.liveTurnStats")
@@ -189,7 +188,6 @@ function OutputStatsView({
           {t(isStreaming ? "metricsPending" : "metricsUnavailable")}
         </span>
       )}
-      {isReportedUsage && usage && <span>{t("reportedUsage")}</span>}
     </div>
   )
 }

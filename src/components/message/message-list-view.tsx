@@ -1031,7 +1031,7 @@ export function MessageListView({
               phase="streaming"
               enabled={animationEnabled}
             >
-              <PendingTypingIndicator />
+              <PendingTypingIndicator agentType={agentType} />
             </MessageEntrance>
           )
         case "compaction":

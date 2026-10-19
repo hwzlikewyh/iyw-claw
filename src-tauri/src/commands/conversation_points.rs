@@ -15,10 +15,7 @@ pub(super) async fn enrich_cached(
     conn: &sea_orm::DatabaseConnection,
     detail: &mut DbConversationDetail,
 ) {
-    if matches!(detail.summary.agent_type, crate::models::AgentType::Codex | crate::models::AgentType::ClaudeCode) { return; }
-    if !missing(detail) {
-        return;
-    }
+    clear_estimates(detail);
     if let Some(prices) = catalog::cached(conn).await {
         apply(&prices, detail);
     }
@@ -47,21 +44,41 @@ fn unique_model<'a>(turns: &'a [MessageTurn], fallback: Option<&'a str>) -> Opti
 }
 
 pub(super) async fn enrich(conn: &sea_orm::DatabaseConnection, detail: &mut DbConversationDetail) {
-    backend::enrich(conn, detail).await;
-    if matches!(detail.summary.agent_type, crate::models::AgentType::Codex | crate::models::AgentType::ClaudeCode) { return; }
-    if detail
+    clear_estimates(detail);
+    let has_usage = detail
         .session_stats
         .as_ref()
         .and_then(|stats| stats.total_usage.as_ref())
-        .is_none()
-        && !detail.turns.iter().any(|turn| turn.usage.is_some())
-    {
-        return;
+        .is_some()
+        || detail.turns.iter().any(|turn| turn.usage.is_some());
+    let (_, prices) = tokio::join!(backend::enrich(conn, detail), async {
+        if has_usage {
+            catalog::load(conn).await
+        } else {
+            None
+        }
+    });
+    if let Some(prices) = prices {
+        apply(&prices, detail);
     }
-    let Some(prices) = catalog::load(conn).await else {
-        return;
-    };
-    apply(&prices, detail);
+}
+
+fn clear_estimates(detail: &mut DbConversationDetail) {
+    // 估值不跨登录身份复用，每次按当前账号的目录重新计算。
+    for usage in detail
+        .turns
+        .iter_mut()
+        .filter_map(|turn| turn.usage.as_mut())
+    {
+        usage.estimated_points = None;
+    }
+    if let Some(usage) = detail
+        .session_stats
+        .as_mut()
+        .and_then(|stats| stats.total_usage.as_mut())
+    {
+        usage.estimated_points = None;
+    }
 }
 
 fn annotate_turns(

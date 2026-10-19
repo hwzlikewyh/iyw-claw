@@ -2,10 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl"
 import { ChevronRight, X } from "lucide-react"
-import {
-  UsagePointsHint,
-  UsagePointsValue,
-} from "@/components/message/usage-points"
+import { UsagePointsValue } from "@/components/message/usage-points"
 import { formatContextWindowPercent } from "@/lib/context-window"
 import { formatTokenCount, formatTokenThousands } from "@/lib/token-format"
 import { tokenValue, type SessionUsageData } from "@/lib/session-usage-display"
@@ -169,18 +166,10 @@ function CumulativeUsage({ data }: { data: SessionUsageData }) {
 
 function SessionPointsSummary({ data }: { data: SessionUsageData }) {
   const t = useTranslations("Folder.statusBar.tokens")
-  const tPoints = useTranslations("UsagePoints")
   return (
     <dl className="flex flex-wrap items-baseline justify-between gap-2 border-t border-border pt-3">
       <dt className="text-muted-foreground">{t("sessionCost")}</dt>
-      <dd
-        className="font-medium"
-        title={
-          data.consumption?.state === "partial"
-            ? tPoints("partialHint")
-            : undefined
-        }
-      >
+      <dd className="font-medium">
         <UsagePointsValue points={data.points} consumption={data.consumption} />
       </dd>
     </dl>
@@ -218,7 +207,6 @@ export function SessionUsageContent({
         <CollapsibleContent className="mt-3 space-y-3">
           <CumulativeUsage data={data} />
           <ModelLimits data={data} />
-          <UsagePointsHint consumption={data.consumption} />
         </CollapsibleContent>
       </Collapsible>
     </>

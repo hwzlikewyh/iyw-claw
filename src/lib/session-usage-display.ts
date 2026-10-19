@@ -27,7 +27,7 @@ export interface SessionUsageData {
   contextSource: UsageSource
   rows: { key: TokenRowKey; value: number | null }[]
   total: number | null
-  points: string | null
+  points: string | number | null
   consumption: ConfirmedConsumption | null
   model: GatewayModel | null
   threshold: number | null
@@ -132,7 +132,9 @@ export function resolveSessionUsage(
       (
         input.stats?.confirmed_consumption ??
         input.stats?.total_usage?.confirmed_points
-      )?.amount ?? null,
+      )?.amount ??
+      input.stats?.total_usage?.estimated_points ??
+      null,
     consumption:
       input.stats?.confirmed_consumption ??
       input.stats?.total_usage?.confirmed_points ??

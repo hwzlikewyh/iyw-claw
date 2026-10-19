@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo } from "react"
 import { useTranslations } from "next-intl"
 import type { ToolCallInfo } from "@/contexts/acp-connections-context"
 import { useSessionActivity } from "@/hooks/use-session-activity"
@@ -12,6 +12,8 @@ import {
 } from "@/lib/tool-call-normalization"
 import { getBuiltinToolDisplay } from "@/lib/builtin-tool-display"
 import { getToolDisplayName } from "@/lib/tool-display"
+import { formatElapsedLabel } from "@/lib/format-elapsed"
+import { isContextCompactionMeta } from "@/lib/context-compaction"
 import { readableStatusText, summarizeLiveTurn } from "./live-turn-summary"
 
 export type ActivityIcon =
@@ -32,40 +34,19 @@ export type ActivityIcon =
 type TurnSummary = ReturnType<typeof summarizeLiveTurn>
 type SessionActivity = ReturnType<typeof useSessionActivity>
 
-const ACTIVITY_RECENCY_WINDOW_MS = 5_000
 const MILLISECONDS_PER_SECOND = 1_000
-
-function useActivityNow(activity: SessionActivity, enabled: boolean) {
-  const [now, setNow] = useState(Date.now)
-  useEffect(() => {
-    if (!enabled || !activity) return
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const schedule = () => {
-      clearTimeout(timer)
-      if (document.hidden) return
-      const timing = activityTimings(activity, {
-        now: Date.now(),
-        hasActiveTool: false,
-      })
-      const ages = [timing.textAge, timing.thinkingAge].filter(
-        (age): age is number => age !== null && age < ACTIVITY_RECENCY_WINDOW_MS
-      )
-      if (ages.length === 0) return
-      const delay = ACTIVITY_RECENCY_WINDOW_MS - Math.max(...ages)
-      timer = setTimeout(() => setNow(Date.now()), delay)
-    }
-    const visible = () => {
-      if (!document.hidden) setNow(Date.now())
-      schedule()
-    }
-    schedule()
-    document.addEventListener("visibilitychange", visible)
-    return () => {
-      clearTimeout(timer)
-      document.removeEventListener("visibilitychange", visible)
-    }
-  }, [activity, enabled, now])
-  return Math.max(now, activity?.receivedAt ?? 0)
+const WAITING_PHASES = new Set([
+  "awaitingUser",
+  "pendingTool",
+  "waitingOutput",
+  "activityUnknown",
+  "waitingProcess",
+])
+interface ActivityInput {
+  summary: TurnSummary
+  awaitingUser?: boolean
+  visible?: boolean
+  startedAt?: number | null
 }
 
 function selectPhase(
@@ -78,18 +59,48 @@ function selectPhase(
     return summary.activeTool.status === "pending"
       ? "pendingTool"
       : "runningTool"
-  const { textAge, thinkingAge, process } = activityTimings(activity, {
+  const { process } = activityTimings(activity, {
     now,
     hasActiveTool: false,
   })
   if (process) return "waitingProcess"
-  if (textAge !== null && textAge < ACTIVITY_RECENCY_WINDOW_MS)
+  // 以真实内容和工具边界推进阶段，不用分片间隔推断工作停止。
+  const latest = summary.latestKind ?? summary.lastContent
+  const { textAge, thinkingAge, toolAge } = observedEventAges(activity, now)
+  if (
+    textAge !== null &&
+    (toolAge === null || textAge < toolAge) &&
+    (thinkingAge === null || textAge <= thinkingAge)
+  )
     return "streaming"
-  if (thinkingAge !== null && thinkingAge < ACTIVITY_RECENCY_WINDOW_MS)
+  if (
+    thinkingAge !== null &&
+    (toolAge === null || thinkingAge < toolAge) &&
+    (textAge === null || thinkingAge < textAge)
+  )
     return "thinking"
-  if (!activity && summary.lastContent)
-    return summary.lastContent === "text" ? "streaming" : "thinking"
+  if (
+    toolAge !== null &&
+    (textAge === null || toolAge < textAge) &&
+    (thinkingAge === null || toolAge < thinkingAge)
+  )
+    return "waitingOutput"
+  if (latest === "thinking" || latest === "plan") return "thinking"
+  if (latest === "text") return "streaming"
+  if (latest === "tool_call") return "waitingOutput"
   return activity ? "waitingOutput" : "activityUnknown"
+}
+
+function observedEventAges(activity: SessionActivity, now: number) {
+  const snapshot = activity?.snapshot
+  const output = activityAge(activity, snapshot?.tool_output_at, now)
+  const start = activityAge(activity, snapshot?.tool_started_at, now)
+  return {
+    textAge: activityAge(activity, snapshot?.text_at, now),
+    thinkingAge: activityAge(activity, snapshot?.thinking_at, now),
+    toolAge:
+      output == null ? start : start == null ? output : Math.min(start, output),
+  }
 }
 
 function toolIcon(name: string): ActivityIcon {
@@ -121,6 +132,11 @@ function useToolPresentation(tool: ToolCallInfo | null) {
   const meta = tool?.meta
   // 输出块变化不重新解析工具输入和名称。
   return useMemo(() => {
+    if (isContextCompactionMeta(meta))
+      return {
+        name: t("contextCompaction.action"),
+        icon: "memory" as ActivityIcon,
+      }
     if (!title && !kind) return { name: "", icon: "tool" as ActivityIcon }
     const name = inferLiveToolName({ title, kind, rawInput, meta })
     const builtin = getBuiltinToolDisplay(name, rawInput)
@@ -137,86 +153,116 @@ function useToolPresentation(tool: ToolCallInfo | null) {
 
 export function useTurnActivity(
   contextKey: string | undefined,
-  input: { summary: TurnSummary; awaitingUser?: boolean }
+  input: ActivityInput
 ) {
   const activity = useSessionActivity(contextKey)
   const t = useTranslations("Folder.chat.liveTurnStats")
-  const enabled =
-    !input.awaitingUser &&
-    !input.summary.activeTool &&
-    !activity?.snapshot.retrying_since
-  const now = useActivityNow(activity, enabled)
+  const clock = useVisibleNow(!input.awaitingUser && input.visible !== false)
+  const now = Math.max(clock, activity?.receivedAt ?? 0)
   const phase = input.awaitingUser
     ? "awaitingUser"
     : selectPhase(input.summary, activity, now)
-  const tool = useToolPresentation(input.summary.activeTool)
-  const toolDetail = useToolWaitDetail(activity, phase)
-  const icon = PHASE_ICONS[phase] ?? tool.icon
-  const step = input.summary.planEntries.find(
-    (entry) => entry.status === "in_progress"
+  const tool = useToolPresentation(
+    input.summary.activeTool ?? input.summary.latestTool ?? null
   )
-  const stepText = step ? readableStatusText(step.content) : null
-
-  const retryLabel = useMemo(() => {
-    if (
-      phase === "runtimeRetrying" &&
-      activity?.snapshot.retry_attempt &&
-      activity?.snapshot.retry_max_attempts
-    ) {
-      return t("runtimeRetryingWithAttempt", {
-        attempt: activity.snapshot.retry_attempt,
-        max: activity.snapshot.retry_max_attempts,
-      })
-    }
-    return null
-  }, [phase, activity, t])
-
-  const retryDetail = useMemo(() => {
-    if (phase !== "runtimeRetrying" || !activity?.snapshot.retry_reason)
-      return null
-    const reason = activity.snapshot.retry_reason
-    const knownReasons = [
-      "streamDisconnected",
-      "rateLimited",
-      "serverError",
-      "networkError",
-    ]
-    if (knownReasons.includes(reason)) {
-      return t(`retryReason.${reason}` as never)
-    }
-    return null
-  }, [phase, activity, t])
-
-  const detail =
-    stepText && (phase === "runningTool" || phase === "thinking")
-      ? t("currentStep", { step: stepText })
-      : (retryDetail ?? toolDetail ?? t(`detail.${phase}` as never))
+  const feedback = useActivityFeedback(activity, {
+    summary: input.summary,
+    phase,
+    tool: tool.name,
+    now,
+    startedAt: input.startedAt,
+  })
+  const retry = useRetryPresentation(activity, phase)
+  const icon = PHASE_ICONS[phase] ?? tool.icon
+  const detail = useStepDescription(input.summary, phase, retry.detail)
   return {
-    phase: retryLabel ?? t(phase, { model: "原助理", tool: tool.name }),
-    detail: toolDetail ?? detail,
+    phase: retry.label ?? t(phase, { model: "原助理", tool: tool.name }),
+    detail: feedback.detail ?? detail,
+    elapsed: feedback.elapsed,
     icon,
-    waiting: [
-      "awaitingUser",
-      "pendingTool",
-      "waitingOutput",
-      "activityUnknown",
-      "waitingProcess",
-    ].includes(phase),
+    waiting: WAITING_PHASES.has(phase),
     attention: phase === "awaitingUser" || phase === "runtimeRetrying",
   }
 }
 
-function useToolWaitDetail(activity: SessionActivity, phase: string) {
+function useStepDescription(
+  summary: TurnSummary,
+  phase: string,
+  fallback: string | null
+) {
   const t = useTranslations("Folder.chat.liveTurnStats")
-  const enabled = phase === "runningTool" || phase === "waitingProcess"
-  const clock = useVisibleNow(enabled && activity !== null)
-  if (!enabled || !activity) return null
-  const now = Math.max(clock, activity.receivedAt)
-  const elapsed = activityAge(activity, activity.snapshot.tool_started_at, now)
-  const timing = activityTimings(activity, { now, hasActiveTool: true })
-  if (elapsed === null || timing.silence === null) return null
-  return t("toolWaitProgress", {
-    elapsed: Math.floor(elapsed / MILLISECONDS_PER_SECOND),
-    silence: Math.floor(timing.silence / MILLISECONDS_PER_SECOND),
+  const step = summary.planEntries.find(
+    (entry) => entry.status === "in_progress"
+  )
+  const text = step ? readableStatusText(step.content) : null
+  return text && (phase === "runningTool" || phase === "thinking")
+    ? t("currentStep", { step: text })
+    : (fallback ?? t(`detail.${phase}` as never))
+}
+
+function useActivityFeedback(
+  activity: SessionActivity,
+  input: {
+    summary: TurnSummary
+    phase: string
+    tool: string
+    now: number
+    startedAt?: number | null
+  }
+) {
+  const t = useTranslations("Folder.chat.liveTurnStats")
+  const elapsed =
+    activityAge(activity, activity?.snapshot.started_at, input.now) ??
+    (input.startedAt == null ? null : Math.max(0, input.now - input.startedAt))
+  const result = {
+    elapsed:
+      elapsed == null
+        ? null
+        : t("elapsed", { elapsed: formatElapsedLabel(elapsed, t) }),
+    detail: null as string | null,
+  }
+  if (input.phase === "waitingOutput" && input.summary.latestTool && input.tool)
+    result.detail = t("recentTool", { tool: input.tool })
+  if (input.phase !== "runningTool" && input.phase !== "waitingProcess")
+    return result
+  const toolAge = activityAge(
+    activity,
+    activity?.snapshot.tool_started_at,
+    input.now
+  )
+  const timing = activityTimings(activity, {
+    now: input.now,
+    hasActiveTool: true,
   })
+  if (toolAge !== null && timing.silence !== null)
+    result.detail = t("toolWaitProgress", {
+      elapsed: Math.floor(toolAge / MILLISECONDS_PER_SECOND),
+      silence: Math.floor(timing.silence / MILLISECONDS_PER_SECOND),
+    })
+  return result
+}
+
+function useRetryPresentation(activity: SessionActivity, phase: string) {
+  const t = useTranslations("Folder.chat.liveTurnStats")
+  const snapshot = activity?.snapshot
+  if (phase !== "runtimeRetrying" || !snapshot)
+    return { label: null, detail: null }
+  const label =
+    snapshot.retry_attempt && snapshot.retry_max_attempts
+      ? t("runtimeRetryingWithAttempt", {
+          attempt: snapshot.retry_attempt,
+          max: snapshot.retry_max_attempts,
+        })
+      : null
+  const known = [
+    "streamDisconnected",
+    "rateLimited",
+    "serverError",
+    "networkError",
+  ]
+  const detail =
+    snapshot.retry_reason && known.includes(snapshot.retry_reason)
+      ? t(`retryReason.${snapshot.retry_reason}` as never)
+      : null
+  return { label, detail }
 }

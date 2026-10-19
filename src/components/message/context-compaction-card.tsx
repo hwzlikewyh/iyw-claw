@@ -1,9 +1,9 @@
 "use client"
 
-import { useId, useState } from "react"
 import { Archive, ChevronDown } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { MessageResponse } from "@/components/ai-elements/message"
+import { Dialog, DialogTrigger } from "@/components/ui/dialog"
+import { CompactionSummaryDialog } from "./compaction-summary-dialog"
 
 import type { ToolCallState } from "@/lib/adapters/ai-elements-adapter"
 import { contextCompactionPayload } from "@/lib/context-compaction"
@@ -45,9 +45,27 @@ export function ContextCompactionCard({
   meta,
   summary,
 }: ContextCompactionCardProps) {
+  const presentation = useCompactionPresentation(state, meta)
+  return (
+    <Dialog>
+      <div>
+        <CompactionMarker {...presentation} hasSummary={Boolean(summary)} />
+        {summary && (
+          <CompactionSummaryDialog
+            summary={summary}
+            running={presentation.running}
+          />
+        )}
+      </div>
+    </Dialog>
+  )
+}
+
+function useCompactionPresentation(
+  state: ToolCallState | undefined,
+  meta: Record<string, unknown> | null | undefined
+) {
   const t = useTranslations("Folder.chat.contentParts.contextCompaction")
-  const [open, setOpen] = useState(false)
-  const summaryId = useId()
   const payload = contextCompactionPayload(meta)
   const before =
     readNumber(meta, "tokensBefore") ?? readNumber(payload, "preTokens")
@@ -69,47 +87,45 @@ export function ContextCompactionCard({
           })
         : t("compacted")
 
+  return { label, running, failed, duration, tooltip }
+}
+
+function CompactionMarker({
+  label,
+  running,
+  failed,
+  duration,
+  tooltip,
+  hasSummary,
+}: ReturnType<typeof useCompactionPresentation> & { hasSummary: boolean }) {
+  const t = useTranslations("Folder.chat.contentParts.contextCompaction")
   return (
-    <div>
-      <div className="flex items-center gap-3 py-1 text-xs text-muted-foreground/80 select-none">
-        <div className="h-px flex-1 bg-gradient-to-r from-transparent to-border/70" />
-        <div
-          className={`flex shrink-0 items-center gap-1.5${failed ? " text-destructive/80" : ""}`}
-          title={tooltip}
-        >
-          <Archive className="size-3.5" />
-          <span className={running ? "animate-pulse" : undefined}>{label}</span>
-          {!failed && !running && duration ? (
-            <span className="text-muted-foreground/60">· {duration}</span>
-          ) : null}
-        </div>
-        {summary ? (
+    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 py-1 text-xs text-muted-foreground/80 select-none">
+      <div className="h-px flex-1 bg-gradient-to-r from-transparent to-border/70" />
+      <div
+        className={`flex min-w-0 items-center gap-1.5${failed ? " text-destructive/80" : ""}`}
+        title={tooltip}
+      >
+        <Archive aria-hidden="true" className="size-3.5 shrink-0" />
+        <span className={running ? "conversation-waiting-label" : undefined}>
+          {label}
+        </span>
+        {!failed && !running && duration ? (
+          <span className="text-muted-foreground/60">· {duration}</span>
+        ) : null}
+      </div>
+      {hasSummary ? (
+        <DialogTrigger asChild>
           <button
             type="button"
-            onClick={() => setOpen((value) => !value)}
-            aria-expanded={open}
-            aria-controls={summaryId}
-            className="flex shrink-0 items-center gap-1 rounded px-1 hover:bg-muted hover:text-foreground"
+            className="flex min-h-7 shrink-0 items-center gap-1 rounded px-1 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            {open ? t("hideSummary") : t("viewSummary")}
-            <ChevronDown
-              className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
-            />
+            {t("viewSummary")}
+            <ChevronDown aria-hidden="true" className="size-3.5" />
           </button>
-        ) : null}
-        <div className="h-px flex-1 bg-gradient-to-l from-transparent to-border/70" />
-      </div>
-      {summary && open ? (
-        <div
-          id={summaryId}
-          tabIndex={0}
-          className="my-2 max-h-96 overflow-auto rounded-md border bg-muted/30 p-3 text-sm break-words"
-        >
-          <MessageResponse mode={running ? "streaming" : "static"}>
-            {summary}
-          </MessageResponse>
-        </div>
+        </DialogTrigger>
       ) : null}
+      <div className="h-px flex-1 bg-gradient-to-l from-transparent to-border/70" />
     </div>
   )
 }

@@ -65,7 +65,12 @@ export const AssistantTurnContent = memo(function AssistantTurnContent(
   } = useAssistantTurnPresentation(props)
   return (
     <div className="conversation-assistant-turn space-y-3">
-      <AssistantIdentity agentType={props.agentType} />
+      <div className="conversation-assistant-header">
+        <AssistantIdentity agentType={props.agentType} />
+        {props.isLatest && !props.isResponseComplete && (
+          <AssistantCurrentActivity conversationId={props.conversationId} />
+        )}
+      </div>
       {showProcess && (
         <AssistantProcessSurface
           key={props.displayMode}
@@ -74,9 +79,6 @@ export const AssistantTurnContent = memo(function AssistantTurnContent(
           processCount={processCount}
           processHasError={processHasError}
         />
-      )}
-      {props.isLatest && !props.isResponseComplete && (
-        <AssistantCurrentActivity conversationId={props.conversationId} />
       )}
       {registrationIssue && (
         <ImageArtifactRegistrationNotice state={registrationIssue} />

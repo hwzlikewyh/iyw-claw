@@ -2,10 +2,7 @@
 
 import { Coins, Timer } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
-import {
-  UsagePointsHint,
-  UsagePointsValue,
-} from "@/components/message/usage-points"
+import { UsagePointsValue } from "@/components/message/usage-points"
 import {
   formatContextWindowPercent,
   resolveContextWindowPercent,
@@ -28,14 +25,7 @@ export function SessionUsageOverview({
   const pointsT = useTranslations("UsagePoints")
   const locale = useLocale()
   const usage = stats?.total_usage
-  const total =
-    stats?.total_tokens ??
-    (usage
-      ? usage.input_tokens +
-        usage.output_tokens +
-        usage.cache_read_input_tokens +
-        usage.cache_creation_input_tokens
-      : null)
+  const total = stats?.total_tokens ?? (usage ? totalUsageTokens(usage) : null)
   const duration = resolveSessionDurationMs(summary, stats)
   return (
     <section className="grid grid-cols-2 gap-5 border-b py-5">
@@ -48,11 +38,9 @@ export function SessionUsageOverview({
           <UsagePointsValue
             points={stats?.confirmed_consumption?.amount}
             consumption={stats?.confirmed_consumption}
+            estimate={usage?.estimated_points}
           />
         </div>
-        <p className="text-[11px] text-muted-foreground">
-          <UsagePointsHint consumption={stats?.confirmed_consumption} />
-        </p>
       </div>
       <div className="min-w-0 space-y-2">
         <div className="text-xs text-muted-foreground">
@@ -68,6 +56,15 @@ export function SessionUsageOverview({
         </div>
       </div>
     </section>
+  )
+}
+
+function totalUsageTokens(usage: NonNullable<SessionStats["total_usage"]>) {
+  return (
+    usage.input_tokens +
+    usage.output_tokens +
+    usage.cache_read_input_tokens +
+    usage.cache_creation_input_tokens
   )
 }
 

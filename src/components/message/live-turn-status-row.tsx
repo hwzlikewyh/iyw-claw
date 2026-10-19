@@ -20,6 +20,7 @@ interface LiveTurnStatusRowProps {
   contextKey?: string
   phase: string
   detail: string
+  elapsed?: string | null
   icon: ActivityIcon
   waiting: boolean
   attention: boolean
@@ -59,7 +60,11 @@ function TurnActivity({
   detail,
   waiting,
   attention,
-}: Pick<LiveTurnStatusRowProps, "phase" | "detail" | "waiting" | "attention">) {
+  elapsed,
+}: Pick<
+  LiveTurnStatusRowProps,
+  "phase" | "detail" | "waiting" | "attention" | "elapsed"
+>) {
   const Icon = waiting ? CircleDot : LoaderCircle
   return (
     <span
@@ -76,11 +81,20 @@ function TurnActivity({
         role="status"
         aria-live="polite"
         aria-atomic="true"
-        className="truncate"
+        className={
+          waiting && !attention
+            ? "conversation-waiting-label truncate"
+            : "truncate"
+        }
       >
         {phase}
       </span>
-      {waiting && (
+      {elapsed && (
+        <span className="shrink-0 text-muted-foreground/70 tabular-nums">
+          {elapsed}
+        </span>
+      )}
+      {detail && (
         <span className="truncate text-muted-foreground/75" title={detail}>
           {detail}
         </span>

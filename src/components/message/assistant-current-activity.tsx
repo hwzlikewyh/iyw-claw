@@ -14,6 +14,7 @@ import {
 import { useTurnActivity } from "./live-turn-activity"
 import { useConversationRuntimeStore } from "@/stores/conversation-runtime-store"
 import { summarizeLiveTurn } from "./live-turn-summary"
+import { ConversationActivityText } from "./conversation-activity-text"
 
 export function AssistantCurrentActivity({
   conversationId,
@@ -47,10 +48,14 @@ function CurrentActivity({
     (store) => store.byConversationId.get(conversationId)?.liveMessage ?? null
   )
   const summary = useMemo(() => summarizeLiveTurn(message), [message])
-  const activity = useTurnActivity(contextKey, { summary })
   const ref = useConversationActivityAnchor("activity")
   const { pageVisible, activityVisible, setOutputStreaming } =
     useConversationActivityVisibility()
+  const activity = useTurnActivity(contextKey, {
+    summary,
+    startedAt: message?.startedAt,
+    visible: pageVisible && activityVisible,
+  })
   useEffect(() => {
     setOutputStreaming(activity.icon === "reply" && !activity.waiting)
     return () => setOutputStreaming(false)
@@ -69,16 +74,7 @@ function CurrentActivity({
           (activity.waiting ? "" : "conversation-working-mark")
         }
       />
-      <span>
-        <strong
-          role="status"
-          aria-live={activityVisible ? "polite" : "off"}
-          aria-atomic="true"
-        >
-          {activity.phase}
-        </strong>
-        {activity.waiting && <small>{activity.detail}</small>}
-      </span>
+      <ConversationActivityText {...activity} visible={activityVisible} />
     </div>
   )
 }

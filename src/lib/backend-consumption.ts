@@ -62,7 +62,6 @@ function clearUnverifiedTurnPoints(
 ): DbConversationDetail {
   const clear = (usage: TurnUsage): TurnUsage => ({
     ...usage,
-    estimated_points: null,
     confirmed_points: { amount: null, state: "unavailable" },
   })
   return {

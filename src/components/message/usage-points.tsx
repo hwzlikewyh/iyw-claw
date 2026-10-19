@@ -8,33 +8,45 @@ import type { ConfirmedConsumption } from "@/lib/types"
 export function UsagePointsValue({
   points,
   consumption,
+  estimate,
 }: {
   points?: string | number | null
   consumption?: ConfirmedConsumption | null
+  estimate?: number | null
 }) {
   const locale = useLocale()
   const t = useTranslations("UsagePoints")
-  const available =
-    (typeof points === "string" && /^\d+(?:\.\d{1,18})?$/.test(points)) ||
-    (typeof points === "number" && Number.isFinite(points) && points >= 0)
+  const confirmed = points ?? consumption?.amount
+  const value = validPoints(confirmed)
+    ? confirmed
+    : validPoints(estimate)
+      ? estimate
+      : null
   return (
     <span
       className="tabular-nums"
-      title={available ? String(points) : t("unavailableHint")}
+      title={value == null ? undefined : String(value)}
     >
-      {available ? (
+      {value != null ? (
         <>
-          {t(consumption?.state === "partial" ? "partialValue" : "value", {
+          {t("value", {
             points:
-              typeof points === "string"
-                ? formatPointDecimal(points, locale)
-                : formatUsagePoints(points as number, locale),
+              typeof value === "string"
+                ? formatPointDecimal(value, locale)
+                : formatUsagePoints(value, locale),
           })}
         </>
       ) : (
-        t(consumption?.state === "pending" ? "pending" : "unavailable")
+        t("pending")
       )}
     </span>
+  )
+}
+
+function validPoints(value: unknown): value is string | number {
+  return (
+    (typeof value === "string" && /^\d+(?:\.\d{1,18})?$/.test(value)) ||
+    (typeof value === "number" && Number.isFinite(value) && value >= 0)
   )
 }
 
@@ -42,48 +54,22 @@ export function UsagePointsRow({
   points,
   scope,
   consumption,
+  estimate,
 }: {
   points?: string | number | null
   scope: "turn" | "session"
   consumption?: ConfirmedConsumption | null
+  estimate?: number | null
 }) {
   const t = useTranslations("UsagePoints")
   return (
     <div className="mt-1 flex items-center justify-between gap-4 border-t border-current/15 pt-1.5 text-xs font-medium">
       <span>{t(scope)}</span>
-      <UsagePointsValue points={points} consumption={consumption} />
+      <UsagePointsValue
+        points={points}
+        consumption={consumption}
+        estimate={estimate}
+      />
     </div>
-  )
-}
-
-export function UsagePointsHint({
-  consumption,
-}: {
-  consumption?: ConfirmedConsumption | null
-}) {
-  const t = useTranslations("UsagePoints")
-  const locale = useLocale()
-  const state = consumption?.state ?? "unavailable"
-  const compact = consumption?.compaction_points
-  return (
-    <span className="mt-1 text-[10px] opacity-70">
-      {t(
-        state === "confirmed"
-          ? "confirmedHint"
-          : state === "partial"
-            ? "partialHint"
-            : state === "pending"
-              ? "pendingHint"
-              : "unavailableHint"
-      )}
-      {compact && compact !== "0" && (
-        <>
-          {" "}
-          {t("compactionPoints", {
-            points: formatPointDecimal(compact, locale),
-          })}
-        </>
-      )}
-    </span>
   )
 }
