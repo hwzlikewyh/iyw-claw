@@ -219,8 +219,11 @@ transport error or uncertain submission, query the original task ID when availab
 do not blindly resubmit or switch routes. Deliver ordinary successful images from
 returned status, URLs and delivery metadata. Inspect visuals for requested review,
 comparison, visual acceptance or integration into a composed deliverable.
-For intermediate images used in a PPT/report/webpage, set
-`delivery.registerArtifact: false` and register only the final deliverable.
+Image artifact registration defaults to off. Keep candidate images unregistered
+while creating, comparing or selecting them. Set `delivery.registerArtifact` to
+`true` only when the image itself is selected as a final file to give the user
+in this conversation. For images used in a PPT/report/webpage, keep registration
+off and register only the completed deliverable after the task is complete.
 
 **Timeouts:** omit `wait.timeoutSeconds` for 600 seconds on ordinary platform requests and
 polling, 650 seconds for product-kit/a-plus HTTP, 120 seconds for batch-center HTTP (polling 600),

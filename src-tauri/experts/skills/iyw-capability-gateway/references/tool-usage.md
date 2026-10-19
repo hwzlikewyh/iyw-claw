@@ -71,13 +71,13 @@ parameters to pass validation or replay uncertain submissions through another to
 | Business API progress | Every new fetch_iyw_url call supplies description naming the current action, plus the exact documented URL and query/body; descriptions never enter the HTTP payload |
 | Upload files | upload_iyw_file with description + readable host file path, including outside the workspace; prefer an absolute path; optional name/mime_type; <=1 GiB, returns a public URL |
 | Fusion image models | Call `list_iyw_image_models` with `{}`; choose a returned model supporting generation or editing as needed |
-| Image generation/editing | Text-to-image: `generate` (`images/generations`); single-image changes: `variation`; multi-image fusion: `mix`; four-panel or same-series extension from one reference: `extend`. Explicit `edit` (`images/edits`) requires source images. `generate`, `auto` without images, and `edit` need the opaque `model_ref` from `list_iyw_image_models` copied into `parameters.model`; model editing follows the platform priority and alternative-route conditions above. Default timeout: platform 600s, Fusion 300s; override with `wait.timeoutSeconds`, including above 600. Set `delivery.registerArtifact=false` for intermediate assets. No generation capability ID exists |
+| Image generation/editing | Text-to-image: `generate` (`images/generations`); single-image changes: `variation`; multi-image fusion: `mix`; four-panel or same-series extension from one reference: `extend`. Explicit `edit` (`images/edits`) requires source images. `generate`, `auto` without images, and `edit` need the opaque `model_ref` from `list_iyw_image_models` copied into `parameters.model`; model editing follows the platform priority and alternative-route conditions above. Default timeout: platform 600s, Fusion 300s; override with `wait.timeoutSeconds`, including above 600. `delivery.registerArtifact` defaults to false; set true only when the image itself is selected as a final deliverable in this conversation. No generation capability ID exists |
 | Document knowledge | `search_iyw_knowledge`: `query`, optional known filters; `folderId` is an integer and `fileId` is a string |
 | Known IYW website API | `fetch_iyw_url`: HTTPS `iyw.cn` and all subdomains; GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS; JSON/form/text bodies and ordinary header overrides; current login token supplied by the host; fixed output envelope |
 | Memory recall / learning / retirement | Call `manage_iyw_memory` directly with `operation` and its inline `parameters`; policy preflight is automatic |
 | Other host capabilities | Search/read once, then `invoke_iyw_capability` with `capability_id` and an `arguments` object |
 | Questions | `ask_user_question` with `questions`; group related questions in one call |
-| Final files | `present_task_files` with one `files` array for the ready deliverables |
+| Final files | After completing the task and selecting the files to give the user in this conversation, call `present_task_files` once with the complete `files` array |
 | Interactive HTML | `show_interactive_html` with `title` and `html`; wait only when its response blocks the next step |
 
 Business fields go directly inside the specified JSON object. Do not stringify
@@ -241,10 +241,11 @@ speakers, channel separation, long/oversized, or resumable work (up to
 
 ## Delivery, Receipts, and Safety
 
-Register every final user-facing file, directory, or public URL with
-`present_task_files` before completion. Do not register source, configuration,
-tests, migrations, build output, caches, logs, temporary files, or internal work
-unless explicitly requested.
+After all task work in this conversation turn is complete, have the agent select
+the final files to give the user and register that complete set with one
+`present_task_files` call before completion. Do not register drafts, candidates,
+previews, tests, migrations, build output, caches, logs, temporary files or
+production materials unless one is itself a requested final deliverable.
 
 If an invocation returns `iyw_delivery_receipt`, preserve it exactly and send it
 as top-level `delivery_ack` on the next real invocation. Never put it inside

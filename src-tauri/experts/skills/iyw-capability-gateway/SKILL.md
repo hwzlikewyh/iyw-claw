@@ -258,14 +258,16 @@ This permits discovery without authorizing guessed endpoints or side effects.
 ## Direct Interaction Tools
 
 `present_task_files` is also directly advertised for final user-facing files,
-directories and public URLs. Register final deliverables in the current
-conversation's Artifacts area with one call, then inspect accepted/rejected
-results. Do not search/read/invoke first when this direct tool is available.
-Select final deliverables from the task without requiring a separate explicit
-request for each file. For a PPT containing images, register the completed PPT,
-not its embedded images or intermediate materials. Generate intermediate images
-with `delivery.registerArtifact: false`; include external companions only when
-the final deliverable requires them to work. The same tool supports `list/get`
+directories and public URLs. Wait until all work in this conversation turn is
+complete; the agent then selects the files to give the user and registers the
+complete set with one call. Inspect accepted/rejected results. Do not
+search/read/invoke first when this direct tool is available. Select final
+deliverables from the task without requiring a separate explicit request for
+each file. For a PPT containing images, register the completed PPT, not its
+embedded images or intermediate materials. Image artifact registration defaults
+to off; enable it only when an image itself is selected as a final deliverable.
+Include external companions only when the final deliverable requires them to
+work. The same tool supports `list/get`
 with `scope=current|all` and current-conversation `update/delete` by artifact ID.
 Read [artifact-delivery.md](references/artifact-delivery.md) for delivery scope.
 
