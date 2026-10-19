@@ -6,6 +6,7 @@ pub mod cline;
 pub mod codebuddy;
 pub mod codex;
 pub(crate) mod compaction;
+mod conversation_title;
 pub mod deepseek;
 mod factory;
 pub mod gemini;
@@ -394,12 +395,10 @@ pub fn fold_reference_links(text: &str) -> String {
     out
 }
 
-/// Derive a conversation title from a user's first message: fold inline
-/// reference links to their labels, then cap the length. Folding first ensures a
-/// `[name](file://<long path>)` mention becomes `name` instead of a raw — and,
-/// once truncated, unterminable — Markdown link.
+/// 先还原正文和文件名、折叠引用链接，再截断标题，避免暴露内部文件提示。
 pub fn title_from_user_text(text: &str) -> String {
     let visible = crate::user_memory::strip_user_context(text);
+    let visible = conversation_title::local_file_title_text(&visible);
     truncate_str(&fold_reference_links(&visible), 100)
 }
 
