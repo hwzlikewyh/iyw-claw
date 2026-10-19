@@ -2132,7 +2132,11 @@
     "skillAutoUpdateDescription": "管理从能力市场安装的技能更新。",
     "skillAutoUpdateLabel": "自动更新已安装技能",
     "skillAutoUpdateHint": "自动更新能力市场中的普通技能和专家包；插件包仍需手动更新。",
-    "skillAutoUpdateSaveFailed": "技能自动更新设置保存失败：{message}"
+    "skillAutoUpdateSaveFailed": "技能自动更新设置保存失败：{message}",
+    "notificationTitle": "系统通知",
+    "notificationDescription": "当你不在原助理界面时，任务完成后显示系统通知。",
+    "taskCompletionNotificationLabel": "任务完成通知",
+    "taskCompletionNotificationHint": "任务完成或后台任务结束时显示系统通知；权限请求和错误通知不受影响。"
   },
   "MainCloseDialog": {
     "title": "关闭原助理",

@@ -2132,7 +2132,11 @@
     "skillAutoUpdateDescription": "Manage updates for skills installed from Skill Market.",
     "skillAutoUpdateLabel": "Automatically update installed skills",
     "skillAutoUpdateHint": "Automatically update regular skills and expert packages; plugins still require manual updates.",
-    "skillAutoUpdateSaveFailed": "Failed to save Skill auto-update setting: {message}"
+    "skillAutoUpdateSaveFailed": "Failed to save Skill auto-update setting: {message}",
+    "notificationTitle": "System notifications",
+    "notificationDescription": "Show a system notification when a task finishes while you are away from 原助理.",
+    "taskCompletionNotificationLabel": "Task completion notifications",
+    "taskCompletionNotificationHint": "Show notifications when a task or background task finishes; permission and error notifications are unaffected."
   },
   "MainCloseDialog": {
     "title": "Close 原助理",

@@ -101,6 +101,7 @@ import {
 } from "@/lib/model-context-window"
 import { notifyConversationUsage } from "@/lib/conversation-usage-events"
 import { sendSystemNotification } from "@/lib/notification"
+import { getTaskCompletionNotificationEnabled } from "@/lib/notification-preferences"
 import {
   formatAgentRuntimeError,
   isInsufficientBalanceError,
@@ -3914,9 +3915,11 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
                 tChat("backgroundTasks.settledFallback", {
                   status: settled.status,
                 })
-              sendSystemNotification(title, `${agentLabel}: ${body}`).catch(
-                () => {}
-              )
+              if (getTaskCompletionNotificationEnabled()) {
+                sendSystemNotification(title, `${agentLabel}: ${body}`).catch(
+                  () => {}
+                )
+              }
             }
             if (conversationId != null) {
               const runtimeActions =
@@ -4159,7 +4162,7 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           // Send OS notification when window is not focused
           {
             const nc = storeRef.current.connections.get(contextKey)
-            if (nc) {
+            if (nc && getTaskCompletionNotificationEnabled()) {
               const agentLabel = getAgentDisplayName(nc.agentType)
               const fn = folderNameRef.current
               const title = fn ? `${fn} - 原助理` : "原助理"
