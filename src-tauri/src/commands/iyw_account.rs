@@ -24,7 +24,8 @@ mod types;
 mod wire;
 
 pub(crate) use session::{
-    iyw_account_memory_credentials_core, iyw_account_product_context_core,
+    initialize_model_gateway_auth, iyw_account_memory_credentials_core,
+    iyw_account_product_context_core,
     iyw_account_usage_credentials_core, workspace_switching,
     WorkspaceSwitchGuard,
 };

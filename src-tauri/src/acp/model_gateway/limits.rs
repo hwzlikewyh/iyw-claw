@@ -1,0 +1,21 @@
+use std::time::Duration;
+
+pub(super) const MEMORY_BODY_BYTES: usize = 256 * 1024;
+pub(super) const IO_BUFFER_BYTES: usize = 64 * 1024;
+pub(super) const MAX_BODY_BYTES: u64 = 128 * 1024 * 1024;
+pub(super) const MAX_IMAGE_BYTES: u64 = 32 * 1024 * 1024;
+pub(super) const MAX_REQUESTS: usize = 64;
+pub(super) const MAX_IMAGE_WORK: usize = 2;
+pub(super) const MAX_BLOCKING_WORK: usize = 2;
+pub(super) const MAX_WEBSOCKETS: usize = 4;
+pub(super) const MAX_IMAGES: usize = 128;
+pub(super) const MAX_JSON_DEPTH: usize = 64;
+pub(super) const MAX_CACHE_ENTRIES: usize = 512;
+pub(super) const MAX_ASSET_LOCKS: usize = 64;
+pub(super) const IDLE_CONNECTIONS: usize = 8;
+pub(super) const MAX_WEBSOCKET_BYTES: usize = 8 * 1024 * 1024;
+pub(super) const METADATA_BYTES: usize = 64 * 1024;
+pub(super) const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+pub(super) const PREPARE_TIMEOUT: Duration = Duration::from_secs(90);
+pub(super) const HEADER_TIMEOUT: Duration = Duration::from_secs(900);
+pub(super) const URL_REUSE: Duration = Duration::from_secs(45 * 60);

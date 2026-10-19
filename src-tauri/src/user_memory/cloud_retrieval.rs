@@ -76,9 +76,7 @@ impl UserMemoryService {
                 .ok_or_else(|| {
                     AppCommandError::authentication_failed("请先登录后使用云端记忆检索")
                 })?;
-        let base = crate::acp::provider_overlay::model_gateway_base_url_for(
-            crate::models::agent::AgentType::Codex,
-        );
+        let base = crate::acp::provider_overlay::cloud_model_gateway_base_url();
         let url =
             crate::chat_channel::natural_router_config::normalize_chat_completions_url(&base)?;
         let base = url.trim_end_matches("/chat/completions").to_string();

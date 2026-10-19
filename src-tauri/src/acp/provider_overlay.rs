@@ -64,6 +64,11 @@ pub(crate) fn production_model_gateway_base_url(agent_type: AgentType) -> &'stat
 }
 
 pub fn model_gateway_base_url_for(agent_type: AgentType) -> String {
+    if uses_managed_gateway(agent_type) {
+        if let Some(base) = super::model_gateway::base_url(agent_type == AgentType::ClaudeCode) {
+            return base;
+        }
+    }
     if let Some(configured) = configured_model_gateway_base_url() {
         return configured;
     }
@@ -71,6 +76,16 @@ pub fn model_gateway_base_url_for(agent_type: AgentType) -> String {
         return production_model_gateway_base_url(agent_type).to_string();
     }
     MODEL_GATEWAY_BASE_URL.to_string()
+}
+
+pub(crate) fn cloud_model_gateway_base_url() -> String {
+    configured_model_gateway_base_url().unwrap_or_else(|| {
+        if MODEL_GATEWAY_BASE_URL == MODEL_GATEWAY_PRODUCTION_URL {
+            MODEL_GATEWAY_PRODUCTION_OPENAI_URL.to_owned()
+        } else {
+            MODEL_GATEWAY_BASE_URL.to_owned()
+        }
+    })
 }
 
 pub fn model_gateway_models_url() -> String {

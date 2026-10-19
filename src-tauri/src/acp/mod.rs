@@ -86,6 +86,7 @@ pub mod model_catalog;
 mod model_catalog_payload;
 mod model_catalog_types;
 pub(crate) mod model_gateway_chat;
+pub(crate) mod model_gateway;
 pub mod npm_runtime;
 pub mod opencode_catalog;
 mod opencode_fork;
