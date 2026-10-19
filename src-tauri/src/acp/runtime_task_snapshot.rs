@@ -3,6 +3,7 @@ use crate::acp::{
     error::AcpError,
     manager::ConnectionManager,
     session_state::{ActiveDelegationState, SessionState},
+    types::ConnectionStatus,
 };
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -23,7 +24,7 @@ impl ConnectionManager {
                     .values()
                     .cloned()
                     .collect::<Vec<_>>(),
-                !matches!(state.status, crate::acp::ConnectionStatus::Disconnected | crate::acp::ConnectionStatus::Error),
+                !matches!(state.status, ConnectionStatus::Disconnected | ConnectionStatus::Error),
             )
         };
         if !connected {
