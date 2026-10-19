@@ -76,14 +76,15 @@ impl IywGatewayService {
         }
     }
 
-    pub(in crate::acp::builtin_mcp) async fn image_io<T>(
-        &self,
-        stage: &str,
-        operation: impl Future<Output = Result<T, ErrorData>>,
-    ) -> Result<T, ErrorData> {
+    pub(in crate::acp::builtin_mcp) fn image_io<'a, T: 'a>(
+        &'a self,
+        stage: &'a str,
+        operation: impl Future<Output = Result<T, ErrorData>> + Send + 'a,
+    ) -> BoxFuture<'a, Result<T, ErrorData>> {
+        // 直接返回已装箱的执行状态，不再给 I/O 叠加内嵌的异步包装。
         match &self.image_context {
-            Some(context) => context.run(stage, operation).await,
-            None => operation.await,
+            Some(context) => context.run(stage, operation),
+            None => Box::pin(operation),
         }
     }
 
