@@ -90,6 +90,11 @@ modules.
 
 ## Current status
 
+Oversized MCP result previews preserve the full JSON under the project's
+`.xinghe/tool-results/` directory, matching the private 星河 runtime name.
+The preview returns the saved file's actual path. Existing `.codex/tool-results/`
+files remain at their original paths for earlier conversation references.
+
 The parent crate is dependency-free by default. The desktop `bundled-host`
 feature enables the in-process app-server and same-executable Windows helper
 roles. `harness/xinghe-worker` remains only as retired source for historical
