@@ -6,7 +6,7 @@ import { Reorder, useDragControls } from "motion/react"
 import {
   CircleAlert,
   GripVertical,
-  LoaderCircle,
+  Clock3,
   LockKeyhole,
   MoreHorizontal,
   RotateCcw,
@@ -25,6 +25,7 @@ import { PlainTextWithBadges } from "@/components/message/plain-text-with-badges
 import { UserResourceLinks } from "@/components/message/user-resource-links"
 import { extractUserResourcesFromDraft } from "@/lib/prompt-draft"
 import type { AgentInputItem, PromptDraft } from "@/lib/types"
+import { inputDeliveryKey } from "./agent-input-delivery-context"
 
 export interface AgentInputWaitingRowProps {
   item: AgentInputItem
@@ -55,24 +56,20 @@ function StatusIcon({ failed, locked }: { failed: boolean; locked: boolean }) {
       <LockKeyhole className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
     )
   }
-  return (
-    <LoaderCircle className="mt-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground" />
-  )
+  return <Clock3 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
 }
 
 function WaitingMessage({ item }: { item: AgentInputItem }) {
-  const t = useTranslations("Folder.chat.agentInput")
+  const t = useTranslations("ConversationPresentation")
   const draft: PromptDraft = {
     blocks: item.payload.blocks,
     displayText: item.payload.display_text,
   }
   const resources = extractUserResourcesFromDraft(draft)
-  const failed = item.status === "failed"
-  const locked = isAgentInputLocked(item)
   return (
     <div className="min-w-0 flex-1 space-y-1">
       <div className="text-[10px] font-medium text-muted-foreground">
-        {failed ? t("failed") : locked ? t("dispatching") : t("waiting")}
+        {t(inputDeliveryKey(item))}
       </div>
       <div className="line-clamp-3 text-xs text-foreground/85">
         {draft.blocks.map((block, index) =>
@@ -108,16 +105,13 @@ function WaitingMessage({ item }: { item: AgentInputItem }) {
   )
 }
 
-function WaitingActions(props: AgentInputWaitingRowProps) {
+export function WaitingActions(props: AgentInputWaitingRowProps) {
   const { item, index, visible, onDelete, onRetry, onForceThrough } = props
   const t = useTranslations("Folder.chat.agentInput")
   const failed = item.status === "failed"
   const locked = isAgentInputLocked(item)
   const prefix = visible.slice(0, index + 1)
-  const cannotForce =
-    props.forceDisabled ||
-    locked ||
-    prefix.some((candidate) => candidate.status === "failed")
+  const cannotForce = forceInputBlocked(props, prefix)
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -159,6 +153,17 @@ function WaitingActions(props: AgentInputWaitingRowProps) {
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+function forceInputBlocked(
+  props: AgentInputWaitingRowProps,
+  prefix: AgentInputItem[]
+) {
+  return (
+    props.forceDisabled ||
+    isAgentInputLocked(props.item) ||
+    prefix.some((candidate) => candidate.status === "failed")
   )
 }
 

@@ -1,100 +1,19 @@
 .status {
-  position: relative;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
-  overflow: hidden;
   margin-bottom: 0.35rem;
-  padding: 0.45rem 0.6rem;
-  border: 1px solid color-mix(in oklab, var(--primary) 12%, transparent);
-  border-radius: 0.6rem;
-  background: color-mix(in oklab, var(--primary) 4%, transparent);
+  padding: 0.35rem 0.1rem;
   color: var(--muted-foreground);
   font-size: 0.75rem;
-  line-height: 1.4;
+  line-height: 1.5;
 }
-
-.status::after {
-  position: absolute;
-  inset: auto 0 0;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent 25%,
-    color-mix(in oklab, var(--primary) 55%, transparent),
-    transparent 75%
-  );
-  content: "";
-  animation: flow 2.8s ease-in-out infinite;
-}
-
-.activity {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 3px;
-  height: 1rem;
-}
-
-.activity span {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--primary);
-  animation: breathe 1.5s ease-in-out infinite;
-}
-
-.activity span:nth-child(2) {
-  animation-delay: 0.15s;
-}
-
-.activity span:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
 .message {
   min-width: 0;
   flex: 1;
 }
-
 .hint {
-  flex-shrink: 0;
-  opacity: 0.65;
-}
-
-@keyframes breathe {
-  0%,
-  100% {
-    opacity: 0.4;
-    transform: translateY(1px);
-  }
-  50% {
-    opacity: 1;
-    transform: translateY(-1px);
-  }
-}
-
-@keyframes flow {
-  0% {
-    opacity: 0;
-    transform: translateX(-65%);
-  }
-  40%,
-  60% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(65%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .status::after {
-    display: none;
-  }
-
-  .activity span {
-    animation: none;
-  }
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
 }

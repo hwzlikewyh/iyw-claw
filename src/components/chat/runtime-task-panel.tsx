@@ -105,6 +105,15 @@ function TaskPopover(props: PopoverProps) {
           tasks={tasks}
           records={Boolean(records)}
           open={open}
+          onView={(task) => {
+            state.inspectTask({
+              task,
+              onMessage: props.onMessage,
+              onCancelLoop: props.onCancelLoop,
+            })
+            setOpen(false)
+            props.onOpenChange?.(false)
+          }}
         />
       </PopoverContent>
     </Popover>
@@ -115,8 +124,14 @@ function TaskRows({
   tasks,
   records,
   open,
+  onView,
   ...actions
-}: TaskActions & { tasks: RuntimeTask[]; records: boolean; open: boolean }) {
+}: TaskActions & {
+  tasks: RuntimeTask[]
+  records: boolean
+  open: boolean
+  onView: (task: RuntimeTask) => void
+}) {
   const state = useConversationPresentation()!
   const p = useTranslations("ConversationPresentation")
   const consumption = useRuntimeTaskConsumption(
@@ -136,17 +151,10 @@ function TaskRows({
         <RuntimeTaskRow
           key={task.id}
           task={controls ? task : { ...task, actions: [] }}
-          parentTitle={
-            state.tasks.find(
-              (parent) =>
-                parent.id === task.parent_id ||
-                parent.native_id === task.parent_id
-            )?.title
-          }
-          consumption={consumption}
           pending={state.pending}
           onControl={state.control}
-          connectionId={state.connectionId}
+          onView={onView}
+          syncing={!controls && !records}
           onMessage={controls ? actions.onMessage : undefined}
           onCancelLoop={controls ? actions.onCancelLoop : undefined}
         />

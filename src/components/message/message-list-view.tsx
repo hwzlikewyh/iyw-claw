@@ -45,10 +45,7 @@ import { useSessionStats } from "@/contexts/session-stats-context"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
 import { isDelegateToAgentToolName } from "@/lib/delegation-card"
 import type { DelegationCardSource } from "@/hooks/use-delegation-card-model"
-import {
-  MessageThread,
-  MessageThreadScrollButton,
-} from "@/components/ai-elements/message-thread"
+import { MessageThread } from "@/components/ai-elements/message-thread"
 import {
   Message,
   MessageContent,
@@ -92,6 +89,9 @@ import { useStickToBottomContext } from "use-stick-to-bottom"
 import { UserMemoryMessageActions } from "@/components/message/user-memory-message-actions"
 import { CurrentReplyArtifacts } from "@/components/message/current-reply-artifacts"
 import { AssistantTurnContent } from "@/components/message/assistant-turn-content"
+import { AgentInputDelivery } from "./agent-input-delivery"
+import { ConversationProgressButton } from "./conversation-progress-button"
+import { PendingReplyIndicator as PendingTypingIndicator } from "./pending-reply-indicator"
 import { useConversationDisplayPreferences } from "@/contexts/conversation-display-context"
 import type { ForkTarget } from "@/lib/api"
 import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
@@ -592,7 +592,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
             </MessageContent>
           </div>
         ) : (
-          <MessageContent>
+          <MessageContent className="overflow-visible">
             <AssistantTurnContent
               agentType={agentType}
               parts={group.parts}
@@ -615,6 +615,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
           timestamp={group.timestamp}
           align={group.role === "user" ? "end" : "start"}
         />
+        {group.role === "user" && <AgentInputDelivery inputId={group.id} />}
       </Message>
       {group.role === "assistant" &&
         (showStats || showCurrentReplyArtifacts) && (
@@ -641,6 +642,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
                 completedAt={group.completed_at}
                 liveMessage={liveMessage}
                 toolCallCount={group.toolCallCount}
+                outputCharacters={group.outputCharacters}
                 isStreaming={isStreaming}
               />
             )}
@@ -662,20 +664,6 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
           </CompletionEntrance>
         )}
     </div>
-  )
-})
-
-const PendingTypingIndicator = memo(function PendingTypingIndicator() {
-  return (
-    <Message from="assistant">
-      <MessageContent>
-        <div className="flex items-center gap-1.5 py-1">
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-[pulse_1.4s_ease-in-out_infinite] motion-reduce:animate-none" />
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-[pulse_1.4s_ease-in-out_0.2s_infinite] motion-reduce:animate-none" />
-          <span className="inline-block h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-[pulse_1.4s_ease-in-out_0.4s_infinite] motion-reduce:animate-none" />
-        </div>
-      </MessageContent>
-    </Message>
   )
 })
 
@@ -1128,8 +1116,7 @@ export function MessageListView({
     const index = threadItems.findIndex(
       (item) => item.key === lastAssistantItem?.key
     )
-    if (index >= 0)
-      scrollApiRef.current?.scrollToIndex(index, { align: "start" })
+    if (index >= 0) scrollApiRef.current?.scrollToIndex(index, { align: "end" })
   }, [threadItems, lastAssistantItem?.key])
   // Collapse state is owned here so the navigator remains stable while the
   // conversation streams.
@@ -1283,7 +1270,13 @@ export function MessageListView({
             scrollApiRef={scrollApiRef}
             scrollPositionRef={scrollPositionRef}
           />
-          <MessageThreadScrollButton />
+          <ConversationProgressButton
+            key={conversationId}
+            version={liveMessage}
+            latestId={lastAssistantGroup?.id}
+            prompting={connStatus === "prompting"}
+            onReturnToReply={returnToActivity}
+          />
         </MessageThread>
         {connStatus === "prompting" && (
           <LiveTurnStats

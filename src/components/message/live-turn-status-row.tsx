@@ -2,7 +2,7 @@
 
 import { memo, type ReactNode } from "react"
 import { useTranslations } from "next-intl"
-import { CircleDot, CornerUpLeft, Square } from "lucide-react"
+import { CircleDot, CornerUpLeft, LoaderCircle, Square } from "lucide-react"
 import type { AgentType, PlanEntryInfo } from "@/lib/types"
 import {
   Tooltip,
@@ -60,12 +60,13 @@ function TurnActivity({
   waiting,
   attention,
 }: Pick<LiveTurnStatusRowProps, "phase" | "detail" | "waiting" | "attention">) {
+  const Icon = waiting ? CircleDot : LoaderCircle
   return (
     <span
       className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
       data-attention={attention}
     >
-      <CircleDot
+      <Icon
         aria-hidden="true"
         className={
           "size-3 shrink-0 " + (waiting ? "" : "conversation-working-mark")
@@ -91,12 +92,16 @@ function TurnActivity({
 export const LiveTurnStatusRow = memo(function LiveTurnStatusRow(
   props: LiveTurnStatusRowProps
 ) {
-  const { activityVisible, pageVisible } = useConversationActivityVisibility()
+  const { activityVisible, outputVisible, outputStreaming, pageVisible } =
+    useConversationActivityVisibility()
   const state = useConversationPresentation()
   const scoped = state != null && state.contextKey === props.contextKey
   const compact =
     scoped &&
-    (activityVisible || state.awaitingInput || state.status !== "prompting")
+    (activityVisible ||
+      (outputVisible && outputStreaming) ||
+      state.awaitingInput ||
+      state.status !== "prompting")
   const childControl =
     scoped &&
     state.tasks.some(
@@ -142,6 +147,7 @@ export const LiveTurnStatusRow = memo(function LiveTurnStatusRow(
 
 function FooterActivity(props: LiveTurnStatusRowProps & { scoped: boolean }) {
   const t = useTranslations("ConversationPresentation")
+  const { unreadProgress } = useConversationActivityVisibility()
   const { scoped } = props
   return (
     <>
@@ -153,6 +159,11 @@ function FooterActivity(props: LiveTurnStatusRowProps & { scoped: boolean }) {
           className="flex min-w-0 items-center gap-2 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <TurnActivity {...props} />
+          {unreadProgress && (
+            <span className="conversation-unread-progress text-[11px] text-primary">
+              {t("newProgress")}
+            </span>
+          )}
           <CornerUpLeft
             aria-hidden="true"
             className="size-3 shrink-0 text-muted-foreground/60"

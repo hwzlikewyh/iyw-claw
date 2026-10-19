@@ -1,258 +1,116 @@
 "use client"
 
-import { useState } from "react"
+import { ListTodo, Radio } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { ChevronDown, LoaderCircle } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { isTerminalTask, type RuntimeTask } from "@/lib/runtime-tasks"
+import type { RuntimeTask } from "@/lib/runtime-tasks"
 import { cn } from "@/lib/utils"
-import type { RuntimeConsumption } from "@/hooks/use-runtime-task-consumption"
-import { TaskPoints } from "./runtime-task-points"
-import { SubAgentSessionDialog } from "@/components/message/sub-agent-session-dialog"
-import { RuntimeTaskTranscript } from "./runtime-task-transcript"
+import {
+  NativeTaskActions,
+  type TaskActionProps,
+} from "./runtime-task-controls"
 
-const STATUS_KEYS = {
-  active: "status.active",
-  running: "status.running",
-  starting: "status.starting",
-  waiting: "status.waiting",
-  paused: "status.paused",
-  blocked: "status.blocked",
-  limited: "status.limited",
-  usage_limited: "status.usage_limited",
-  budget_limited: "status.budget_limited",
-  usageLimited: "status.usageLimited",
-  budgetLimited: "status.budgetLimited",
-  complete: "status.complete",
-  completed: "status.completed",
-  failed: "status.failed",
-  stopped: "status.stopped",
-  cancelled: "status.cancelled",
-  cleared: "status.cleared",
-  unknown: "status.unknown",
-} as const
+const STATUS_KEYS = new Set([
+  "active",
+  "running",
+  "starting",
+  "waiting",
+  "paused",
+  "blocked",
+  "limited",
+  "usage_limited",
+  "budget_limited",
+  "usageLimited",
+  "budgetLimited",
+  "complete",
+  "completed",
+  "failed",
+  "stopped",
+  "cancelled",
+  "cleared",
+  "unknown",
+  "expired",
+  "declined",
+  "canceled",
+])
 
-interface RowProps {
-  parentTitle?: string
-  connectionId: string | null
-  task: RuntimeTask
-  pending: string | null
-  onControl: (id: string, action: string, nativeId: string) => Promise<void>
-  onMessage?: (task: RuntimeTask) => void
-  onCancelLoop?: (task: RuntimeTask) => void
-  consumption?: RuntimeConsumption | null
-}
-
-export function RuntimeTaskRow(props: RowProps) {
-  const { task, pending } = props
-  const t = useTranslations("RuntimeTasks")
-  const statusKey = taskStatusKey(task)
-  const status = statusKey ? t(statusKey) : task.status
-  return (
-    <details className="group rounded-lg border bg-background/70 px-2 py-1.5">
-      <summary className="flex cursor-pointer list-none items-center gap-2">
-        <ChevronDown className="size-3.5 shrink-0 transition-transform group-open:rotate-180" />
-        <span className="shrink-0 text-muted-foreground">
-          {t(`kind.${task.kind}`)}
-        </span>
-        <span className="min-w-0 flex-1 truncate">{task.title}</span>
-        <span
-          className={cn(
-            "shrink-0",
-            task.status === "failed" && "text-destructive"
-          )}
-          role="status"
-        >
-          {pending === task.id ? t("processing") : status}
-        </span>
-      </summary>
-      <div className="space-y-2 pt-2">
-        <TaskMetadata task={task} parentTitle={props.parentTitle} />
-        <BackgroundMetadata task={task} />
-        <TaskPoints task={task} consumption={props.consumption ?? null} />
-        <ChildTaskConversation task={task} />
-        {task.kind === "subagent" && (
-          <RuntimeTaskTranscript
-            task={task}
-            connectionId={props.connectionId}
-          />
-        )}
-        <TaskActions {...props} />
-      </div>
-    </details>
-  )
-}
-
-function taskStatusKey(task: RuntimeTask) {
-  return task.kind === "monitor" && task.status === "running"
-    ? "monitoring"
-    : STATUS_KEYS[task.status as keyof typeof STATUS_KEYS]
-}
-
-function BackgroundMetadata({ task }: { task: RuntimeTask }) {
-  const t = useTranslations("RuntimeTasks")
-  const background = task.background
-  if (!background) return null
-  return (
-    <div className="space-y-1 text-muted-foreground">
-      {background.command && (
-        <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2">
-          {background.command}
-        </pre>
-      )}
-      {task.kind === "monitor" && <p>{t("monitorHint")}</p>}
-      {task.kind === "monitor" && background.persistent === true ? (
-        <p>{t("monitorPersistent")}</p>
-      ) : task.kind === "monitor" &&
-        background.timeout_ms != null &&
-        background.timeout_ms > 0 ? (
-        <p>{t("monitorDuration", { seconds: background.timeout_ms / 1000 })}</p>
-      ) : null}
-    </div>
-  )
-}
-
-function ChildTaskConversation({ task }: { task: RuntimeTask }) {
-  const [open, setOpen] = useState(false)
-  const t = useTranslations("RuntimeTasks")
-  if (task.child_conversation_id == null) return null
-  return (
-    <>
-      <Button
-        type="button"
-        size="sm"
-        variant="ghost"
-        onClick={() => setOpen(true)}
-      >
-        {t("openChild")}
-      </Button>
-      <SubAgentSessionDialog
-        open={open}
-        onOpenChange={setOpen}
-        childConversationId={task.child_conversation_id}
-        childConnectionId={task.child_connection_id}
-        agentType={task.agent_type}
-        kickoffTask={task.objective}
-      />
-    </>
-  )
-}
-
-function TaskActions({
+export function RuntimeTaskStatus({
   task,
   pending,
-  onControl,
-  onMessage,
-  onCancelLoop,
-}: RowProps) {
-  const t = useTranslations("RuntimeTasks")
-  return (
-    <div className="flex flex-wrap items-center gap-1 border-t pt-2">
-      <NativeTaskActions task={task} pending={pending} onControl={onControl} />
-      {onMessage && !isTerminalTask(task.status) && (
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          onClick={() => onMessage(task)}
-        >
-          {t(task.kind === "subagent" ? "askParent" : "addMessage")}
-        </Button>
-      )}
-      {task.kind === "loop" && !isTerminalTask(task.status) && onCancelLoop && (
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => onCancelLoop(task)}
-        >
-          {t("requestCancelLoop")}
-        </Button>
-      )}
-      {task.kind === "loop" && !isTerminalTask(task.status) && (
-        <p className="basis-full text-muted-foreground">
-          {t("cancelLoopHint")}
-        </p>
-      )}
-      {task.status === "unknown" && (
-        <span className="text-muted-foreground">{t("unknownHint")}</span>
-      )}
-    </div>
-  )
-}
-
-function TaskMetadata({
-  task,
-  parentTitle,
+  syncing = false,
 }: {
   task: RuntimeTask
-  parentTitle?: string
+  pending: string | null
+  syncing?: boolean
 }) {
   const t = useTranslations("RuntimeTasks")
+  const p = useTranslations("ConversationPresentation")
+  const key =
+    task.kind === "monitor" && task.status === "running"
+      ? "monitoring"
+      : STATUS_KEYS.has(task.status)
+        ? `status.${task.status}`
+        : null
   return (
-    <>
-      {parentTitle && (
-        <p className="text-muted-foreground">
-          {t("parentTask", { title: parentTitle })}
-        </p>
+    <span
+      role="status"
+      className={cn(
+        "shrink-0 text-[11px] text-muted-foreground",
+        task.status === "failed" && "text-destructive"
       )}
-      <p className="whitespace-pre-wrap break-words">
-        {task.objective ?? task.title}
-      </p>
-      {task.model && (
-        <p className="text-muted-foreground">
-          {t("model")}: {task.model}
-        </p>
-      )}
-      {task.schedule && (
-        <p>
-          {t("schedule")}: {task.schedule}
-        </p>
-      )}
-      {task.next_run && (
-        <p>
-          {t("nextRun")}: {task.next_run}
-        </p>
-      )}
-      {task.summary && (
-        <p className="whitespace-pre-wrap break-words text-muted-foreground">
-          {task.summary}
-        </p>
-      )}
-      {task.output && (
-        <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 font-sans">
-          {task.output}
-        </pre>
-      )}
-    </>
+    >
+      {pending === task.id
+        ? t("processing")
+        : syncing
+          ? p("stateSyncing")
+          : key
+            ? t(key as never)
+            : task.status}
+    </span>
   )
 }
 
-function NativeTaskActions({
-  task,
-  pending,
-  onControl,
-}: Pick<RowProps, "task" | "pending" | "onControl">) {
+export function RuntimeTaskRow(
+  props: TaskActionProps & {
+    onView: (task: RuntimeTask) => void
+    syncing?: boolean
+  }
+) {
+  const { task } = props
   const t = useTranslations("RuntimeTasks")
+  const p = useTranslations("ConversationPresentation")
+  const Icon = task.kind === "monitor" ? Radio : ListTodo
   return (
-    <>
-      {task.actions.map((action) => (
-        <Button
-          key={action}
+    <div className="conversation-task-row border-b py-3 last:border-0">
+      <div className="flex min-w-0 items-start gap-2">
+        <Icon
+          aria-label={t(`kind.${task.kind}`)}
+          className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"
+        />
+        <span className="min-w-0 flex-1 break-words text-xs leading-5">
+          {task.title}
+        </span>
+      </div>
+      <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 ps-5">
+        <RuntimeTaskStatus
+          task={task}
+          pending={props.pending}
+          syncing={props.syncing}
+        />
+        <button
           type="button"
-          size="sm"
-          variant="outline"
-          disabled={pending !== null}
-          onClick={() => void onControl(task.id, action, task.native_id)}
+          onClick={() => props.onView(task)}
+          className="ms-auto text-[11px] text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {pending === task.id && (
-            <LoaderCircle className="size-3 animate-spin" />
-          )}
-          {t(
-            `action.${action === "stop" && task.kind === "subagent" ? "interrupt" : action}`
-          )}
-        </Button>
-      ))}
-    </>
+          {p("viewProgress")}
+        </button>
+        <NativeTaskActions
+          {...props}
+          task={{
+            ...task,
+            actions: task.actions.filter((action) => action === "stop"),
+          }}
+        />
+      </div>
+    </div>
   )
 }

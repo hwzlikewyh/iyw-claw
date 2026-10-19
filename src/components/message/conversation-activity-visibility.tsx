@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from "react"
 
-type AnchorKind = "activity" | "monitor"
+type AnchorKind = "activity" | "monitor" | "output"
 interface AnchorReport {
   id: string
   kind: AnchorKind
@@ -21,12 +21,22 @@ interface AnchorReport {
 interface VisibilityState {
   activityVisible: boolean
   monitorVisible: boolean
+  outputVisible: boolean
+  unreadProgress: boolean
+  setUnreadProgress: (unread: boolean) => void
+  outputStreaming: boolean
+  setOutputStreaming: (streaming: boolean) => void
   pageVisible: boolean
   report: (report: AnchorReport) => void
 }
 const VisibilityContext = createContext<VisibilityState>({
   activityVisible: false,
   monitorVisible: false,
+  outputVisible: false,
+  unreadProgress: false,
+  setUnreadProgress: () => {},
+  outputStreaming: false,
+  setOutputStreaming: () => {},
   pageVisible: true,
   report: () => {},
 })
@@ -37,41 +47,61 @@ function subscribeVisibility(listener: () => void) {
 }
 const pageVisible = () => !document.hidden
 
-export function ConversationActivityVisibility({
-  children,
-}: {
-  children: ReactNode
-}) {
+function useVisibleAnchors() {
   const anchors = useRef(new Map<string, AnchorKind>())
   const [visible, setVisible] = useState({
     activityVisible: false,
     monitorVisible: false,
+    outputVisible: false,
   })
-  const shown = useSyncExternalStore(
-    subscribeVisibility,
-    pageVisible,
-    () => true
-  )
   const report = useCallback(({ id, kind, visible }: AnchorReport) => {
     if (visible) anchors.current.set(id, kind)
     else anchors.current.delete(id)
     const entries = [...anchors.current.values()]
     const activityVisible = entries.some((entry) => entry === "activity")
     const monitorVisible = entries.some((entry) => entry === "monitor")
+    const outputVisible = entries.some((entry) => entry === "output")
     setVisible((previous) =>
       previous.activityVisible === activityVisible &&
-      previous.monitorVisible === monitorVisible
+      previous.monitorVisible === monitorVisible &&
+      previous.outputVisible === outputVisible
         ? previous
-        : { activityVisible, monitorVisible }
+        : { activityVisible, monitorVisible, outputVisible }
     )
   }, [])
+  return { ...visible, report }
+}
+
+export function ConversationActivityVisibility({
+  children,
+}: {
+  children: ReactNode
+}) {
+  const visible = useVisibleAnchors()
+  const [unreadProgress, setUnreadProgress] = useState(false)
+  const [outputStreaming, setOutputStreaming] = useState(false)
+  const shown = useSyncExternalStore(
+    subscribeVisibility,
+    pageVisible,
+    () => true
+  )
   return (
     <VisibilityContext.Provider
-      value={{ ...visible, report, pageVisible: shown }}
+      value={{
+        ...visible,
+        pageVisible: shown,
+        unreadProgress,
+        setUnreadProgress,
+        outputStreaming,
+        setOutputStreaming,
+      }}
     >
       <div
         className="conversation-presentation-root contents"
         data-page-visible={shown}
+        data-activity-visible={visible.activityVisible}
+        data-output-visible={visible.outputVisible}
+        data-output-streaming={outputStreaming}
       >
         {children}
       </div>

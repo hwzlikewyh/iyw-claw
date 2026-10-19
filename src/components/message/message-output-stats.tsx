@@ -25,6 +25,7 @@ interface MessageOutputStatsProps {
   completedAt?: string | null
   liveMessage?: LiveMessage | null
   toolCallCount: number
+  outputCharacters?: number
   isStreaming: boolean
 }
 
@@ -113,6 +114,7 @@ export const MessageOutputStats = memo(function MessageOutputStats(
           : props.toolCallCount
       }
       usage={usage}
+      outputCharacters={props.outputCharacters}
       isStreaming={isStreaming}
       isReportedUsage={isStreaming || !props.usage}
     />
@@ -153,6 +155,7 @@ function OutputStatsView({
   usage,
   isStreaming,
   isReportedUsage,
+  outputCharacters,
 }: {
   rate: string
   timings: TurnTimings | null
@@ -160,15 +163,21 @@ function OutputStatsView({
   usage?: TurnUsage | null
   isStreaming: boolean
   isReportedUsage: boolean
+  outputCharacters?: number
 }) {
   const t = useTranslations("Folder.chat.liveTurnStats")
   const pointsT = useTranslations("UsagePoints")
   return (
     <div className="mt-3 flex min-h-5 flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground tabular-nums">
-      <span title={t(isStreaming ? "recentOutputRateHint" : "outputRateHint")}>
-        {t("outputRate", { rate })}
-      </span>
+      {rate !== "--" && (
+        <span
+          title={t(isStreaming ? "recentOutputRateHint" : "outputRateHint")}
+        >
+          {t("outputRate", { rate })}
+        </span>
+      )}
       <TurnTimingStats timings={timings} isStreaming={isStreaming} />
+      <OutputCharacterStat count={outputCharacters} streaming={isStreaming} />
       <span>{t("toolUseCount", { count: toolCallCount })}</span>
       {usage ? (
         <TooltipProvider delayDuration={150}>
@@ -182,5 +191,23 @@ function OutputStatsView({
       )}
       {isReportedUsage && usage && <span>{t("reportedUsage")}</span>}
     </div>
+  )
+}
+
+function OutputCharacterStat({
+  count,
+  streaming,
+}: {
+  count?: number
+  streaming: boolean
+}) {
+  const t = useTranslations("ConversationPresentation")
+  if (count == null) return null
+  return (
+    <span>
+      {count === 0 && streaming
+        ? t("bodyPending")
+        : t("bodyCharacters", { count })}
+    </span>
   )
 }

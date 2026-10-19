@@ -1,7 +1,7 @@
 "use client"
 
-import { useMemo } from "react"
-import { CircleDot, Radio } from "lucide-react"
+import { useEffect, useMemo } from "react"
+import { CircleDot, LoaderCircle, Radio } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useConversationPresentation } from "@/components/chat/conversation-presentation-context"
 import { RuntimeTaskPopover } from "@/components/chat/runtime-task-panel"
@@ -49,17 +49,23 @@ function CurrentActivity({
   const summary = useMemo(() => summarizeLiveTurn(message), [message])
   const activity = useTurnActivity(contextKey, { summary })
   const ref = useConversationActivityAnchor("activity")
-  const { pageVisible, activityVisible } = useConversationActivityVisibility()
+  const { pageVisible, activityVisible, setOutputStreaming } =
+    useConversationActivityVisibility()
+  useEffect(() => {
+    setOutputStreaming(activity.icon === "reply" && !activity.waiting)
+    return () => setOutputStreaming(false)
+  }, [activity.icon, activity.waiting, setOutputStreaming])
+  const Icon = activity.waiting ? CircleDot : LoaderCircle
   return (
     <div
       ref={ref}
       className="conversation-current-activity"
       data-paused={!pageVisible || !activityVisible}
     >
-      <CircleDot
+      <Icon
         aria-hidden="true"
         className={
-          "size-3 shrink-0 " +
+          "size-4 shrink-0 " +
           (activity.waiting ? "" : "conversation-working-mark")
         }
       />

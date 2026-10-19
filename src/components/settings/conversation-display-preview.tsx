@@ -1,31 +1,14 @@
 "use client"
 
-import {
-  Check,
-  CircleAlert,
-  ListChecks,
-  MessageSquareText,
-  Minimize2,
-  PanelsTopLeft,
-} from "lucide-react"
+import { useId } from "react"
+import { Check, LoaderCircle } from "lucide-react"
 import { useTranslations } from "next-intl"
-
 import type {
   ConversationDisplayMode,
   ConversationResponseStyle,
 } from "@/lib/conversation-display-preferences"
-import { cn } from "@/lib/utils"
-import { SegmentedControl, SettingRow } from "./settings-ui"
+import { SettingRow } from "./settings-ui"
 import { Switch } from "@/components/ui/switch"
-
-const RESPONSE_STYLE_OPTIONS: Array<{
-  id: ConversationResponseStyle
-  icon: typeof Minimize2
-}> = [
-  { id: "concise", icon: Minimize2 },
-  { id: "standard", icon: MessageSquareText },
-  { id: "detailed", icon: PanelsTopLeft },
-]
 
 interface ConversationDisplayPreviewProps {
   responseStyle: ConversationResponseStyle
@@ -38,130 +21,154 @@ interface ConversationDisplayPreviewProps {
   setAutoOpenErrors: (value: boolean) => void
 }
 
-export function ConversationDisplayPreview({
-  responseStyle,
-  setResponseStyle,
-  processMode,
-  collapseCompletedTurn,
-  autoOpenErrors,
-  setProcessMode,
-  setCollapseCompletedTurn,
-  setAutoOpenErrors,
-}: ConversationDisplayPreviewProps) {
+export function ConversationDisplayPreview(
+  props: ConversationDisplayPreviewProps
+) {
   const t = useTranslations("AppearanceSettings")
-  const translate = (key: string) => t(key as never)
-
   return (
     <div className="space-y-5 p-4">
-      <div className="space-y-3">
-        <div>
-          <div className="text-sm font-medium">
-            {t("conversation.responseStyleTitle")}
-          </div>
-          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-            {t("conversation.responseStyleDescription")}
-          </p>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-3">
-          {RESPONSE_STYLE_OPTIONS.map(({ id, icon: Icon }) => {
-            const selected = id === responseStyle
-            const optionKey = `conversation.responseStyles.${id}`
-            return (
-              <button
-                key={id}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => setResponseStyle(id)}
-                className={cn(
-                  "relative flex min-h-24 flex-col items-start gap-2 rounded-lg border p-3 text-left transition-colors",
-                  selected
-                    ? "border-primary bg-primary/[0.06] ring-1 ring-primary/30"
-                    : "hover:bg-muted/60"
-                )}
-              >
-                <span
-                  className={cn(
-                    "flex size-7 items-center justify-center rounded-md",
-                    selected
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground"
-                  )}
-                >
-                  <Icon className="size-4" aria-hidden="true" />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium">
-                    {translate(`${optionKey}.title`)}
-                  </span>
-                  <span className="mt-0.5 block text-[11px] leading-4 text-muted-foreground">
-                    {translate(`${optionKey}.description`)}
-                  </span>
-                </span>
-                {selected ? (
-                  <Check
-                    className="absolute right-2.5 top-2.5 size-3.5 text-primary"
-                    aria-hidden="true"
-                  />
-                ) : null}
-              </button>
-            )
-          })}
-        </div>
-      </div>
+      <ResponseChoices {...props} />
+      <ProcessChoices {...props} />
+      <DisplayExample {...props} />
+      <ProcessBehavior {...props} />
+      <p className="text-xs leading-5 text-muted-foreground">
+        {t("conversation.processSafetyNote")}
+      </p>
+    </div>
+  )
+}
 
-      <div className="space-y-4 border-t pt-5">
-        <div>
-          <div className="text-sm font-medium">
-            {t("conversation.processTitle")}
-          </div>
-          <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-            {t("conversation.processDescription")}
-          </p>
+function ResponseChoices(props: ConversationDisplayPreviewProps) {
+  const t = useTranslations("AppearanceSettings")
+  const group = useId()
+  const options: ConversationResponseStyle[] = [
+    "concise",
+    "standard",
+    "detailed",
+  ]
+  return (
+    <fieldset className="min-w-0 space-y-3">
+      <legend className="text-sm font-medium">
+        {t("conversation.responseStyleTitle")}
+      </legend>
+      <div className="grid grid-cols-3 gap-1 rounded-lg border bg-muted/50 p-1">
+        {options.map((style) => (
+          <label key={style} className="min-w-0 cursor-pointer">
+            <input
+              className="peer sr-only"
+              type="radio"
+              name={group}
+              checked={props.responseStyle === style}
+              onChange={() => props.setResponseStyle(style)}
+            />
+            <span className="block rounded-md px-2 py-2 text-center text-sm text-muted-foreground peer-checked:bg-background peer-checked:text-foreground peer-checked:shadow-sm peer-focus-visible:ring-2 peer-focus-visible:ring-ring">
+              {t(`conversation.responseStyles.${style}.title`)}
+            </span>
+          </label>
+        ))}
+      </div>
+      <p className="text-xs leading-5 text-muted-foreground">
+        {t("conversation.responseStyleDescription")}
+      </p>
+    </fieldset>
+  )
+}
+
+const PROCESS_LABELS = {
+  minimal: "processMinimal",
+  summary: "processSummary",
+  full: "processFull",
+} as const
+
+function ProcessChoices(props: ConversationDisplayPreviewProps) {
+  const t = useTranslations("AppearanceSettings")
+  const p = useTranslations("ConversationPresentation")
+  const group = useId()
+  const options: ConversationDisplayMode[] = ["minimal", "summary", "full"]
+  return (
+    <fieldset className="min-w-0 space-y-3 border-t pt-4">
+      <legend className="text-sm font-medium">
+        {t("conversation.processTitle")}
+      </legend>
+      <div className="space-y-1">
+        {options.map((mode) => (
+          <label
+            key={mode}
+            className="flex min-h-9 cursor-pointer items-center gap-3 text-sm"
+          >
+            <input
+              className="size-3.5 shrink-0 accent-primary"
+              type="radio"
+              name={group}
+              checked={props.processMode === mode}
+              onChange={() => props.setProcessMode(mode)}
+            />
+            {p(PROCESS_LABELS[mode])}
+          </label>
+        ))}
+      </div>
+      <p className="text-xs leading-5 text-muted-foreground">
+        {t("conversation.processDescription")}
+      </p>
+    </fieldset>
+  )
+}
+
+function DisplayExample(props: ConversationDisplayPreviewProps) {
+  const p = useTranslations("ConversationPresentation")
+  return (
+    <div
+      className="space-y-3 rounded-lg border bg-muted/20 p-4"
+      aria-label={p("previewTitle")}
+    >
+      <p className="text-[11px] text-muted-foreground">{p("previewTitle")}</p>
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Check aria-hidden="true" className="size-3" />
+        {props.processMode === "minimal"
+          ? p("processRecord")
+          : p("completedOperations", { count: 2 })}
+      </div>
+      {props.processMode === "full" && (
+        <div aria-hidden="true" className="space-y-2 border-s ps-4">
+          <div className="h-1.5 w-3/4 rounded bg-muted" />
+          <div className="h-1.5 w-1/2 rounded bg-muted" />
         </div>
-        <SegmentedControl<ConversationDisplayMode>
-          value={processMode}
-          onChange={setProcessMode}
-          options={[
-            {
-              value: "minimal",
-              label: t("conversation.processConclusionFirst"),
-            },
-            { value: "summary", label: t("conversation.processSummaryFirst") },
-            { value: "full", label: t("conversation.processFullFirst") },
-          ]}
+      )}
+      <div className="flex items-center gap-2 text-sm font-medium text-primary">
+        <LoaderCircle aria-hidden="true" className="size-3.5" />
+        {p("previewActivity")}
+      </div>
+      <p className="text-sm leading-7">
+        {p(`previewResponse.${props.responseStyle}`)}
+      </p>
+    </div>
+  )
+}
+
+function ProcessBehavior(props: ConversationDisplayPreviewProps) {
+  const t = useTranslations("AppearanceSettings")
+  return (
+    <div className="divide-y border-t">
+      <SettingRow
+        title={t("conversation.collapseCompletedTitle")}
+        description={t("conversation.collapseCompletedDescription")}
+      >
+        <Switch
+          checked={props.collapseCompletedTurn}
+          onCheckedChange={props.setCollapseCompletedTurn}
+          aria-label={t("conversation.collapseCompletedTitle")}
         />
-        <div className="divide-y rounded-lg border">
-          <SettingRow
-            title={t("conversation.collapseCompletedTitle")}
-            description={t("conversation.collapseCompletedDescription")}
-          >
-            <Switch
-              checked={collapseCompletedTurn}
-              onCheckedChange={setCollapseCompletedTurn}
-              aria-label={t("conversation.collapseCompletedTitle")}
-            />
-          </SettingRow>
-          <SettingRow
-            title={t("conversation.autoOpenErrorsTitle")}
-            description={t("conversation.autoOpenErrorsDescription")}
-          >
-            <Switch
-              checked={autoOpenErrors}
-              onCheckedChange={setAutoOpenErrors}
-              aria-label={t("conversation.autoOpenErrorsTitle")}
-            />
-          </SettingRow>
-        </div>
-        <p className="flex items-start gap-1.5 text-[11px] leading-4 text-muted-foreground">
-          <CircleAlert className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
-          {t("conversation.processSafetyNote")}
-        </p>
-      </div>
-
-      <div className="flex items-center gap-2 border-t pt-4 text-[11px] text-muted-foreground">
-        <ListChecks className="size-3.5" aria-hidden="true" />
-        {t("conversation.responseStyleNote")}
-      </div>
+      </SettingRow>
+      <SettingRow
+        title={t("conversation.autoOpenErrorsTitle")}
+        description={t("conversation.autoOpenErrorsDescription")}
+      >
+        <Switch
+          checked={props.autoOpenErrors}
+          onCheckedChange={props.setAutoOpenErrors}
+          aria-label={t("conversation.autoOpenErrorsTitle")}
+        />
+      </SettingRow>
     </div>
   )
 }

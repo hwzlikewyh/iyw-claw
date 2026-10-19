@@ -1,11 +1,16 @@
 "use client"
 
-import { useState } from "react"
+import type { Ref } from "react"
 import { MotionConfig } from "motion/react"
-import { AlertCircle, ArrowDown, ChevronDown } from "lucide-react"
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Clock3,
+  AlertCircle,
+} from "lucide-react"
 import { useTranslations } from "next-intl"
 import { ContentPartsRenderer } from "./content-parts-renderer"
-import { OnceEntrance } from "./message-entrance"
 import {
   Collapsible,
   CollapsibleContent,
@@ -15,7 +20,8 @@ import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
 import { formatElapsedLabel } from "@/lib/format-elapsed"
 import { cn } from "@/lib/utils"
-import { useProcessAutoFollow } from "./use-process-auto-follow"
+import { useProcessDisclosure } from "./process-disclosure"
+import { completedProcessOperations } from "./process-operation-count"
 
 interface AssistantProcessSurfaceProps {
   parts: AdaptedContentPart[]
@@ -40,11 +46,11 @@ function processPartKey(part: AdaptedContentPart, index: number): string {
 
 function ProcessLabel({
   durationMs,
-  processCount,
+  completed,
   hasError,
 }: {
   durationMs?: number | null
-  processCount: number
+  completed: number
   hasError: boolean
 }) {
   const t = useTranslations("ConversationPresentation")
@@ -56,14 +62,16 @@ function ProcessLabel({
       : null
   return (
     <span className="inline-flex min-w-0 flex-wrap gap-x-2">
-      <span>{t("process")}</span>
+      <span>
+        {completed > 0
+          ? t("completedOperations", { count: completed })
+          : t("processRecord")}
+      </span>
       {hasError && (
         <span className="inline-flex items-center gap-1 text-destructive">
-          <AlertCircle aria-hidden="true" className="size-3" />
           {message("processHasErrors")}
         </span>
       )}
-      <span className="text-muted-foreground/70">{processCount}</span>
       {duration && <span className="text-muted-foreground/70">{duration}</span>}
     </span>
   )
@@ -79,42 +87,84 @@ function ProcessRows(
     const key = processPartKey(part, index)
     const entranceKey = props.entranceKey + ":process:" + key
     return (
-      <OnceEntrance
-        key={key}
-        entranceKey={entranceKey}
-        animate={props.animationEnabled && props.streaming}
-        offset={1}
-        duration={120}
-      >
+      <div key={key}>
         <ContentPartsRenderer
           parts={[part]}
           role="assistant"
           conversationId={props.conversationId}
           entranceKey={entranceKey}
-          animationEnabled={props.animationEnabled}
+          animationEnabled={false}
           reasoningPresentation="inline"
           intelligentUiStreaming={props.streaming}
         />
-      </OnceEntrance>
+      </div>
     )
   })
 }
 
 export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
-  const [chosenOpen, setChosenOpen] = useState<boolean | null>(null)
   const preferredOpen =
-    props.displayMode === "full" ||
-    (props.isResponseComplete &&
-      (!props.collapseCompletedTurn ||
-        (props.autoOpenErrors && props.processHasError)))
-  const open = chosenOpen ?? preferredOpen
+    (props.autoOpenErrors && props.processHasError) ||
+    (props.isResponseComplete
+      ? !props.collapseCompletedTurn && props.displayMode !== "minimal"
+      : props.displayMode === "full")
+  const { open, onOpenChange, triggerRef } = useProcessDisclosure(preferredOpen)
+  const completed = completedProcessOperations(props.parts)
   return (
     <Collapsible
       open={open}
-      onOpenChange={setChosenOpen}
+      onOpenChange={onOpenChange}
       className="assistant-process-surface"
     >
-      <CollapsibleTrigger className="assistant-process-trigger group flex min-h-8 min-w-0 max-w-full items-center gap-2 text-left text-xs transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <ProcessTrigger
+        open={open}
+        completed={completed}
+        props={props}
+        triggerRef={triggerRef}
+      />
+      <CollapsibleContent className="assistant-process-content" inert={!open}>
+        <ProcessDetails {...props} onCollapse={() => onOpenChange(false)} />
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+
+function ProcessTrigger({
+  open,
+  completed,
+  props,
+  triggerRef,
+}: {
+  open: boolean
+  completed: number
+  props: AssistantProcessSurfaceProps
+  triggerRef: Ref<HTMLButtonElement>
+}) {
+  const t = useTranslations("ConversationPresentation")
+  const Icon = props.processHasError
+    ? AlertCircle
+    : completed > 0
+      ? Check
+      : Clock3
+  return (
+    <CollapsibleTrigger
+      ref={triggerRef}
+      className="assistant-process-trigger group flex min-h-8 min-w-0 max-w-full flex-wrap items-center gap-2 text-left text-xs transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <Icon
+        aria-hidden="true"
+        className={cn(
+          "size-3 shrink-0",
+          props.processHasError && "text-destructive"
+        )}
+      />
+      <ProcessLabel
+        hasError={props.processHasError}
+        completed={completed}
+        durationMs={props.isResponseComplete ? props.durationMs : null}
+      />
+      <span className="inline-flex items-center gap-1 text-muted-foreground">
+        {t(open ? "collapseProcess" : "process")}
         <ChevronDown
           aria-hidden="true"
           className={cn(
@@ -122,48 +172,30 @@ export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
             !open && "-rotate-90"
           )}
         />
-        <ProcessLabel
-          hasError={props.processHasError}
-          processCount={props.processCount}
-          durationMs={props.isResponseComplete ? props.durationMs : null}
-        />
-      </CollapsibleTrigger>
-      <CollapsibleContent className="assistant-process-content" inert={!open}>
-        <ProcessDetails {...props} open={open} />
-      </CollapsibleContent>
-    </Collapsible>
+      </span>
+    </CollapsibleTrigger>
   )
 }
 
 function ProcessDetails(
-  props: AssistantProcessSurfaceProps & { open: boolean }
+  props: AssistantProcessSurfaceProps & { onCollapse: () => void }
 ) {
-  const t = useTranslations("Folder.chat.messageList")
-  const { handleScroll, isFollowing, scrollToLatest, viewportRef } =
-    useProcessAutoFollow(props.parts, props.open)
+  const t = useTranslations("ConversationPresentation")
   return (
-    <div className="relative">
-      <div
-        ref={viewportRef}
-        onScroll={handleScroll}
-        className="assistant-process-viewport assistant-process-details max-h-[min(18rem,40vh)] overflow-y-auto overscroll-contain pe-2"
-      >
-        <div className="space-y-3">
-          <MotionConfig reducedMotion="always">
-            <ProcessRows {...props} streaming={!props.isResponseComplete} />
-          </MotionConfig>
-        </div>
+    <div className="assistant-process-details min-w-0">
+      <div className="space-y-3">
+        <MotionConfig reducedMotion="always">
+          <ProcessRows {...props} streaming={!props.isResponseComplete} />
+        </MotionConfig>
       </div>
-      {!isFollowing && (
-        <button
-          type="button"
-          onClick={scrollToLatest}
-          className="absolute bottom-2 right-2 inline-flex h-7 items-center gap-1 rounded-full border bg-background/95 px-2 text-[11px] text-muted-foreground shadow-sm hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <ArrowDown aria-hidden="true" className="size-3" />
-          {t("backToLatest")}
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={props.onCollapse}
+        className="mt-3 inline-flex min-h-7 items-center gap-1 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {t("collapseProcess")}
+        <ChevronUp aria-hidden="true" className="size-3" />
+      </button>
     </div>
   )
 }

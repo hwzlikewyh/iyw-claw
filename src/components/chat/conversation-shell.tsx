@@ -29,13 +29,16 @@ import { PermissionDialog } from "@/components/chat/permission-dialog"
 import { QuestionDialog } from "@/components/chat/question-dialog"
 import { AskQuestionCard } from "@/components/chat/ask-question-card"
 import { ChannelConfirmationCard } from "@/components/chat/channel-confirmation-card"
-import { AgentInputWaitingDisplay } from "@/components/chat/agent-input-waiting-display"
+import { AgentInputDeliveryProvider } from "./agent-input-delivery-context"
+import { AgentInputQueueControl } from "./agent-input-queue-control"
 import type { ComposerInjectContent } from "@/components/chat/message-input"
 import { ConversationPresentationProvider } from "./conversation-presentation-context"
 import { ConversationActivityVisibility } from "@/components/message/conversation-activity-visibility"
 import { ConversationConnectionAlert } from "./conversation-connection-alert"
 import { RuntimeTaskPopover } from "./runtime-task-panel"
+import { RuntimeTaskDetailHost } from "./runtime-task-detail-host"
 import "./conversation-presentation.css"
+import "./conversation-execution.css"
 
 interface ConversationShellProps {
   activityContextKey?: string
@@ -151,19 +154,30 @@ export function ConversationShell(props: ConversationShellProps) {
     props.pendingChannelConfirmation
   )
   return (
-    <ConversationPresentationProvider
-      contextKey={props.activityContextKey}
-      connectionId={props.runtimeConnectionId}
-      conversationId={props.conversationId}
+    <AgentInputDeliveryProvider
+      key={props.activityContextKey ?? props.conversationId}
+      items={props.agentInputs}
       status={props.status}
-      awaitingInput={awaitingInput}
+      onDelete={props.onDeleteAgentInput}
+      onRetry={props.onRetryAgentInput}
+      onReorder={props.onReorderAgentInputs}
+      onForceThrough={props.onForceAgentInputsThrough}
     >
-      <ConversationActivityVisibility
-        key={props.activityContextKey ?? props.conversationId}
+      <ConversationPresentationProvider
+        contextKey={props.activityContextKey}
+        connectionId={props.runtimeConnectionId}
+        conversationId={props.conversationId}
+        status={props.status}
+        awaitingInput={awaitingInput}
       >
-        <ConversationShellContent {...props} />
-      </ConversationActivityVisibility>
-    </ConversationPresentationProvider>
+        <ConversationActivityVisibility
+          key={props.activityContextKey ?? props.conversationId}
+        >
+          <ConversationShellContent {...props} />
+          <RuntimeTaskDetailHost active={props.isActive !== false} />
+        </ConversationActivityVisibility>
+      </ConversationPresentationProvider>
+    </AgentInputDeliveryProvider>
   )
 }
 
@@ -209,11 +223,6 @@ function ConversationShellContent({
   runtimeTasks,
   onAddFeedback,
   feedbackAddDisabled,
-  agentInputs,
-  onDeleteAgentInput,
-  onRetryAgentInput,
-  onReorderAgentInputs,
-  onForceAgentInputsThrough,
   isActive,
   showActiveFlow,
   queue,
@@ -338,17 +347,7 @@ function ConversationShellContent({
             <div className="mx-auto w-full max-w-4xl px-4">{feedbackList}</div>
           )}
 
-          {!hideInput && agentInputs && agentInputs.length > 0 && (
-            <div className="mx-auto w-full max-w-4xl px-4">
-              <AgentInputWaitingDisplay
-                items={agentInputs}
-                onDelete={onDeleteAgentInput}
-                onRetry={onRetryAgentInput}
-                onReorder={onReorderAgentInputs}
-                onForceThrough={onForceAgentInputsThrough}
-              />
-            </div>
-          )}
+          {!hideInput && isActive !== false && <AgentInputQueueControl />}
 
           {!hideInput && (
             <div className="mx-auto w-full max-w-4xl">

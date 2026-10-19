@@ -1,0 +1,90 @@
+.conversation-assistant-turn .assistant-process-content[data-state="open"] {
+  height: auto;
+  overflow: visible;
+}
+.conversation-assistant-turn .assistant-process-content[data-state="closed"] {
+  height: 0;
+  overflow: hidden;
+}
+.conversation-assistant-turn .assistant-process-details {
+  max-height: none;
+  min-width: 0;
+  overflow: visible;
+  margin-top: 0.625rem;
+  padding-inline-start: 1rem;
+  border-inline-start: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+.assistant-process-details :where(p, li, code) {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.assistant-process-details :where(pre, pre code) {
+  white-space: pre-wrap;
+}
+.assistant-process-details :where(ul, ol) {
+  padding-inline-start: 1.5em;
+  list-style-position: outside;
+}
+.assistant-process-details :where(pre, table) {
+  max-width: 100%;
+}
+.conversation-assistant-turn .assistant-turn-summary .prose {
+  font-size: 0.9375rem;
+  color: var(--foreground);
+}
+.conversation-input-delivery {
+  align-self: flex-end;
+  flex-wrap: wrap;
+  line-height: 1.7;
+}
+.conversation-output-anchor {
+  height: 1px;
+  position: relative;
+}
+.conversation-progress-button {
+  color: var(--foreground);
+}
+.conversation-unread-progress {
+  white-space: nowrap;
+}
+.conversation-presentation-root .iyw-claw-composer-prompting::before {
+  display: none;
+}
+.conversation-presentation-root[data-output-streaming="true"][data-output-visible="true"][data-activity-visible="false"]
+  .conversation-output-anchor[data-streaming="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  bottom: 0;
+  width: 2px;
+  height: 0.8rem;
+  background: var(--primary);
+  animation: conversation-output-writing 1.2s steps(2, end) infinite;
+}
+@keyframes conversation-output-writing {
+  50% {
+    opacity: 0.2;
+  }
+}
+.conversation-task-detail[data-paused="true"] .animate-spin {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .conversation-task-detail,
+  .conversation-task-detail * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+@media (max-width: 520px) {
+  .conversation-assistant-turn .assistant-turn-summary .prose {
+    font-size: 0.875rem;
+  }
+  .conversation-current-activity {
+    font-size: 0.875rem;
+  }
+  .conversation-assistant-turn .assistant-process-details {
+    padding-inline-start: 0.75rem;
+  }
+}

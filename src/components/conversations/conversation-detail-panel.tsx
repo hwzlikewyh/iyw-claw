@@ -2228,7 +2228,7 @@ const ConversationTabView = memo(function ConversationTabView({
         optimisticTurn,
         optimisticTurn.id
       )
-      setSendSignal((prev) => prev + 1)
+      if (!fromQueueFlush) setSendSignal((prev) => prev + 1)
       setSyncState(effectiveConversationId, "awaiting_persist")
       setHasSentMessage(true)
 
@@ -2527,6 +2527,7 @@ const ConversationTabView = memo(function ConversationTabView({
       usableAgentCount,
       conn.connectionId,
       conn.configOptions,
+      conn.agentInputs,
       conn.promptCapabilities.image,
       workingDirForConnection,
       persistConfirmedModel,

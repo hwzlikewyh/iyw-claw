@@ -1,6 +1,7 @@
 "use client"
 
 import { useTranslations } from "next-intl"
+import { Clock3 } from "lucide-react"
 import styles from "./queued-send-status.module.css"
 
 export function QueuedSendStatus({ count }: { count: number }) {
@@ -8,11 +9,7 @@ export function QueuedSendStatus({ count }: { count: number }) {
 
   return (
     <div role="status" className={styles.status}>
-      <span aria-hidden="true" className={styles.activity}>
-        <span />
-        <span />
-        <span />
-      </span>
+      <Clock3 aria-hidden="true" className="size-3 shrink-0" />
       <span className={styles.message}>{t("queuedMessages", { count })}</span>
       <span aria-hidden="true" className={styles.hint}>
         {t("queuedKeepTyping")}

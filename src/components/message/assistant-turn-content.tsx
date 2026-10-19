@@ -23,6 +23,7 @@ import { ImageArtifactRegistrationNotice } from "./assistant-turn-status"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
 import type { AgentType } from "@/lib/types"
+import { useConversationActivityAnchor } from "./conversation-activity-visibility"
 
 interface AssistantTurnContentProps {
   agentType: AgentType
@@ -65,16 +66,17 @@ export const AssistantTurnContent = memo(function AssistantTurnContent(
   return (
     <div className="conversation-assistant-turn space-y-3">
       <AssistantIdentity agentType={props.agentType} />
-      {props.isLatest && !props.isResponseComplete && (
-        <AssistantCurrentActivity conversationId={props.conversationId} />
-      )}
       {showProcess && (
         <AssistantProcessSurface
+          key={props.displayMode}
           {...props}
           parts={processParts}
           processCount={processCount}
           processHasError={processHasError}
         />
+      )}
+      {props.isLatest && !props.isResponseComplete && (
+        <AssistantCurrentActivity conversationId={props.conversationId} />
       )}
       {registrationIssue && (
         <ImageArtifactRegistrationNotice state={registrationIssue} />
@@ -117,12 +119,7 @@ function useAssistantTurnPresentation(props: AssistantTurnContentProps) {
     () => findImageRegistrationIssue(props.parts),
     [props.parts]
   )
-  const showProcess =
-    processCount > 0 &&
-    (props.displayMode !== "minimal" ||
-      processHasError ||
-      (sections.responseParts.length === 0 &&
-        sections.resultParts.length === 0))
+  const showProcess = processCount > 0
   return {
     sections,
     processParts,
@@ -168,6 +165,23 @@ function AssistantBody(
           />
         </div>
       )}
+      {props.isLatest &&
+        (sections.responseParts.length > 0 ||
+          sections.resultParts.length > 0) && (
+          <AssistantOutputAnchor complete={props.isResponseComplete} />
+        )}
     </>
+  )
+}
+
+function AssistantOutputAnchor({ complete }: { complete: boolean }) {
+  const ref = useConversationActivityAnchor("output")
+  return (
+    <div
+      ref={ref}
+      className="conversation-output-anchor"
+      data-streaming={!complete}
+      aria-hidden="true"
+    />
   )
 }
