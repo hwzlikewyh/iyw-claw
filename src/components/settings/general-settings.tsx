@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react"
 import {
+  Bell,
   Loader2,
   MonitorCog,
   RefreshCw,
@@ -25,6 +26,11 @@ import { toErrorMessage } from "@/lib/app-error"
 import { AutostartSettingsSection } from "@/components/settings/autostart-settings-section"
 import { BrowserSettingsSection } from "@/components/settings/browser-settings-section"
 import { DelegationSettingsSection } from "@/components/settings/delegation-settings"
+import {
+  getTaskCompletionNotificationEnabled,
+  setTaskCompletionNotificationEnabled,
+  subscribeTaskCompletionNotification,
+} from "@/lib/notification-preferences"
 import { Switch } from "@/components/ui/switch"
 import {
   SettingRow,
@@ -60,6 +66,8 @@ export function GeneralSettings() {
   const [skillAutoUpdateEnabled, setSkillAutoUpdateEnabled] = useState(true)
   const [skillAutoUpdateLoading, setSkillAutoUpdateLoading] = useState(true)
   const [skillAutoUpdateSaving, setSkillAutoUpdateSaving] = useState(false)
+  const [taskCompletionNotificationEnabled, setTaskCompletionNotification] =
+    useState(true)
   const [processStartLoaded, setProcessStartLoaded] = useState(
     processStartDisableHwAccel !== null
   )
@@ -122,6 +130,14 @@ export function GeneralSettings() {
     })
   }, [loadSettings])
 
+  useEffect(() => {
+    const syncTaskCompletionNotification = () => {
+      setTaskCompletionNotification(getTaskCompletionNotificationEnabled())
+    }
+    syncTaskCompletionNotification()
+    return subscribeTaskCompletionNotification(syncTaskCompletionNotification)
+  }, [])
+
   const saveRenderingSettings = useCallback(
     async (next: boolean, prev: boolean) => {
       setSavingRendering(true)
@@ -182,6 +198,26 @@ export function GeneralSettings() {
             disabled={skillAutoUpdateLoading || skillAutoUpdateSaving}
             onCheckedChange={(checked) => void saveSkillAutoUpdate(checked)}
             aria-label={t("skillAutoUpdateLabel")}
+          />
+        </SettingRow>
+      </SettingSection>
+
+      <SettingSection
+        icon={Bell}
+        title={t("notificationTitle")}
+        description={t("notificationDescription")}
+      >
+        <SettingRow
+          title={t("taskCompletionNotificationLabel")}
+          description={t("taskCompletionNotificationHint")}
+        >
+          <Switch
+            checked={taskCompletionNotificationEnabled}
+            onCheckedChange={(checked) => {
+              setTaskCompletionNotification(checked)
+              setTaskCompletionNotificationEnabled(checked)
+            }}
+            aria-label={t("taskCompletionNotificationLabel")}
           />
         </SettingRow>
       </SettingSection>
