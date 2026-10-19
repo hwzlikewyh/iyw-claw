@@ -9,6 +9,7 @@ import { formatConversationTitle } from "@/lib/conversation-title"
 import { copyTextToClipboard } from "@/lib/utils"
 import {
   STATUS_ORDER,
+  type ConnectionStatus,
   type DbConversationSummary,
   type ConversationStatus,
 } from "@/lib/types"
@@ -18,13 +19,13 @@ import { ConversationStatusDot } from "./conversation-status-dot"
 export function SessionIdentity({
   summary,
   model,
+  connectionStatus,
 }: {
   summary: DbConversationSummary
   model: string | null
+  connectionStatus?: ConnectionStatus | "unavailable" | null
 }) {
   const t = useTranslations("Folder.sessionDetails")
-  const statusT = useTranslations("Folder.statusLabels")
-  const known = (STATUS_ORDER as string[]).includes(summary.status)
   return (
     <div className="min-w-0 space-y-2.5 border-b pb-4">
       <p
@@ -38,18 +39,41 @@ export function SessionIdentity({
           <AgentIcon agentType={summary.agent_type} className="size-3.5" />
           {getAgentDisplayName(summary.agent_type)}
         </span>
-        <span className="inline-flex items-center gap-1.5">
-          <ConversationStatusDot
-            size="sm"
-            status={known ? (summary.status as ConversationStatus) : null}
-          />
-          {known
-            ? statusT(summary.status as ConversationStatus)
-            : summary.status}
-        </span>
+        <SessionStatus
+          status={summary.status}
+          connectionStatus={connectionStatus}
+        />
         {model && <span className="break-all">{model}</span>}
       </div>
     </div>
+  )
+}
+
+function SessionStatus({
+  status,
+  connectionStatus,
+}: {
+  status: string
+  connectionStatus?: ConnectionStatus | "unavailable" | null
+}) {
+  const t = useTranslations("Folder.sessionDetails")
+  const statusT = useTranslations("Folder.statusLabels")
+  const connectionT = useTranslations("Folder.statusBar.connection")
+  const known = (STATUS_ORDER as string[]).includes(status)
+  const runtime = status === "in_progress" ? connectionStatus : null
+  const showRuntime = runtime != null && runtime !== "prompting"
+  let label = known ? statusT(status as ConversationStatus) : status
+  if (showRuntime) {
+    label = runtime === "unavailable" ? t("loadFailed") : connectionT(runtime)
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <ConversationStatusDot
+        size="sm"
+        status={known && !showRuntime ? (status as ConversationStatus) : null}
+      />
+      {label}
+    </span>
   )
 }
 

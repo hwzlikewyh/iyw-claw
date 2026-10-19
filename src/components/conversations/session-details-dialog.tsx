@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { SessionIdentity, SessionMetadata } from "./session-details-identity"
+import { useSessionDetailsConnection } from "./use-session-details-connection"
 import {
   SessionContextUsage,
   SessionTokenBreakdown,
@@ -26,6 +27,7 @@ export function SessionDetailsDialog(props: SessionDetailsDialogProps) {
   const t = useTranslations("Folder.sessionDetails")
   const refreshT = useTranslations("UsageSettings")
   const data = useSessionDetails(props)
+  const connectionStatus = useSessionDetailsConnection(data.summary, props.open)
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
       <DialogContent className="max-w-xl gap-4 rounded-lg p-5 sm:p-6">
@@ -36,7 +38,11 @@ export function SessionDetailsDialog(props: SessionDetailsDialogProps) {
           </DialogDescription>
         </DialogHeader>
         <div className="min-w-0">
-          <SessionIdentity summary={data.summary} model={data.model} />
+          <SessionIdentity
+            summary={data.summary}
+            model={data.model}
+            connectionStatus={connectionStatus}
+          />
           {data.loading && (
             <div
               role="status"
