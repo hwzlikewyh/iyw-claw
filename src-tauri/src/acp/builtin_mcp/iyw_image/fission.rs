@@ -90,11 +90,11 @@ async fn load_reports(
     let pending = task_ids
         .iter()
         .map(|task_id| {
-            super::poll::query(
+            Box::pin(super::poll::query(
                 service,
                 ("/ai-application/api/microModel", "GetDetails"),
                 (json!({"taskId": task_id}), deadline),
-            )
+            ))
         })
         .collect::<Vec<_>>();
     stream::iter(pending)
