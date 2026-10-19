@@ -79,6 +79,7 @@ interface ChatInputProps {
   feedbackAddDisabled?: boolean
   /** Keep the composer usable while the selected Agent connects silently. */
   allowOfflineCompose?: boolean
+  blockOfflineSend?: boolean
   /** Retained for caller compatibility; the prompting label is phase-neutral. */
   responseStarted?: boolean
   injectContent?: ComposerInjectContent | null
@@ -134,6 +135,7 @@ export const ChatInput = memo(function ChatInput({
   onAddFeedback,
   feedbackAddDisabled,
   allowOfflineCompose = true,
+  blockOfflineSend = false,
   injectContent,
   onInjectConsumed,
   flush = false,
@@ -144,10 +146,12 @@ export const ChatInput = memo(function ChatInput({
   const requestsBlocked = useAccountRequestsBlocked()
   const isConnected = status === "connected"
   const isPrompting = status === "prompting"
+  const sendDisabled = blockOfflineSend && !isConnected && !isPrompting
   const waitingMessageCount = queue?.filter((item) => !item.blocked).length ?? 0
   const resolvedAgentName = agentName ?? "Agent"
-  const activityPlaceholder =
-    status === "connecting"
+  const activityPlaceholder = blockOfflineSend
+    ? null
+    : status === "connecting"
       ? t("startingKernel", { agent: resolvedAgentName })
       : isPrompting
         ? t("working")
@@ -177,12 +181,13 @@ export const ChatInput = memo(function ChatInput({
         )}
       <MessageInput
         onSend={(draft, mode) =>
-          requestsBlocked ? false : onSend(draft, mode)
+          requestsBlocked || sendDisabled ? false : onSend(draft, mode)
         }
         promptCapabilities={promptCapabilities}
         onFocus={onFocus}
         defaultPath={defaultPath}
         disabled={allowOfflineCompose ? false : !isConnected && !isPrompting}
+        sendDisabled={sendDisabled}
         isPrompting={isPrompting}
         animatePlaceholder={activityPlaceholder !== null}
         onCancel={onCancel}
@@ -207,7 +212,7 @@ export const ChatInput = memo(function ChatInput({
         onEnqueue={
           onEnqueue
             ? (draft, mode) =>
-                requestsBlocked ? false : onEnqueue(draft, mode)
+                requestsBlocked || sendDisabled ? false : onEnqueue(draft, mode)
             : undefined
         }
         editingItemId={editingItemId}
@@ -219,7 +224,9 @@ export const ChatInput = memo(function ChatInput({
         onForkSend={
           onForkSend
             ? (draft, mode) =>
-                requestsBlocked ? false : onForkSend(draft, mode)
+                requestsBlocked || sendDisabled
+                  ? false
+                  : onForkSend(draft, mode)
             : undefined
         }
         onSideQuestion={onSideQuestion}

@@ -25,9 +25,13 @@ function playEntrance(
   element: HTMLElement,
   offset: number,
   duration: number
-): void {
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
-  element.animate(
+): Animation | undefined {
+  if (
+    document.hidden ||
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  )
+    return
+  return element.animate(
     [
       { opacity: 0, transform: `translateY(${offset}px)` },
       { opacity: 1, transform: "translateY(0)" },
@@ -35,7 +39,7 @@ function playEntrance(
     {
       duration,
       easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-      fill: "both",
+      fill: "none",
     }
   )
 }
@@ -51,7 +55,15 @@ function useEntrance(
   useLayoutEffect(() => {
     if (!record || !remember(playedEntrances, key)) return
     if (!animate || !ref.current) return
-    playEntrance(ref.current, offset, duration)
+    const animation = playEntrance(ref.current, offset, duration)
+    const stopWhenHidden = () => {
+      if (document.hidden) animation?.cancel()
+    }
+    document.addEventListener("visibilitychange", stopWhenHidden)
+    return () => {
+      animation?.cancel()
+      document.removeEventListener("visibilitychange", stopWhenHidden)
+    }
   }, [animate, duration, key, offset, record, ref])
 }
 
@@ -76,8 +88,8 @@ export function OnceEntrance({
   entranceKey,
   animate,
   children,
-  offset = 3,
-  duration = 220,
+  offset = 1,
+  duration = 120,
 }: OnceEntranceProps) {
   const ref = useRef<HTMLDivElement>(null)
   useEntrance(ref, entranceKey, animate, true, offset, duration)
@@ -95,8 +107,8 @@ export function MessageEntrance({
   const ref = useRef<HTMLDivElement>(null)
   const logicalKey = `${conversationId}:${role}:${messageId}`
   const eligible = phase === "optimistic" || phase === "streaming"
-  const offset = role === "user" ? 6 : 4
-  const duration = role === "user" ? 180 : 210
+  const offset = 2
+  const duration = 140
   useLayoutEffect(() => {
     if (phase === "streaming" && enabled) {
       remember(streamedMessages, logicalKey)

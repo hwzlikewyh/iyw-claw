@@ -926,7 +926,6 @@ const ConversationTabView = memo(function ConversationTabView({
     )
   }, [sideScope])
   const isSilentModelSwitch = modelReapplyAttempt !== null
-  const visibleConnStatus = isSilentModelSwitch ? "connected" : connStatus
   const pendingPromptRecoveryRef = useRef<PendingPromptRecovery | null>(null)
   const [dismissedContinuationGeneration, setDismissedContinuationGeneration] =
     useState<number | null>(null)
@@ -3208,6 +3207,10 @@ const ConversationTabView = memo(function ConversationTabView({
 
   return (
     <ConversationShell
+      activityContextKey={tabId}
+      runtimeConnectionId={conn.connectionId}
+      conversationId={effectiveConversationId}
+      onReconnect={ensureConnected}
       onSideQuestion={sideEligible ? sideQuestion.ask : undefined}
       sideInject={sideInject}
       onSideInjectConsumed={consumeSideInject}
@@ -3229,7 +3232,7 @@ const ConversationTabView = memo(function ConversationTabView({
           <SessionConfigStaleBanner contextKey={tabId} />
         )
       }
-      status={visibleConnStatus}
+      status={connStatus}
       usageStats={effectiveSessionStats}
       promptCapabilities={conn.promptCapabilities}
       defaultPath={workingDirForConnection}

@@ -6,6 +6,8 @@ import { useTranslations } from "next-intl"
 
 import { useConnection } from "@/hooks/use-connection"
 import { RuntimeBackgroundStatus } from "./runtime-background-status"
+import { useConversationPresentation } from "./conversation-presentation-context"
+import { isTaskHistory } from "./runtime-task-presentation"
 import { useOptionalConnectionStore } from "@/contexts/acp-connections-context"
 
 const SETTLE_SYNC_DISPLAY_MS = 30_000
@@ -20,6 +22,7 @@ export function BackgroundTasksChip({
   inline = false,
 }: BackgroundTasksChipProps) {
   const t = useTranslations("Folder.chat.backgroundTasks")
+  const runtime = useConversationPresentation()
   const store = useOptionalConnectionStore()
   const subscribe = useCallback(
     (cb: () => void) => store?.subscribeKey(contextKey, cb) ?? (() => {}),
@@ -54,6 +57,17 @@ export function BackgroundTasksChip({
     backgroundSettleSyncingSince != null &&
     expiredFor !== backgroundSettleSyncingSince
 
+  if (
+    runtime?.contextKey === contextKey &&
+    !runtime.error &&
+    runtime.tasks.some(
+      (task) =>
+        !isTaskHistory(task) &&
+        (task.kind === "monitor" || task.kind === "background")
+    )
+  )
+    return null
+
   if (backgroundOutstanding <= 0 && !backgroundUncertain && !showSyncing)
     return <RuntimeBackgroundStatus contextKey={contextKey} inline={inline} />
 
@@ -62,7 +76,7 @@ export function BackgroundTasksChip({
       {backgroundUncertain ? (
         <CircleAlert className="size-3 shrink-0" />
       ) : (
-        <Loader2 className="size-3 shrink-0 animate-spin" />
+        <Loader2 className="size-3 shrink-0" />
       )}
       <span className="min-w-0 truncate">
         {backgroundUncertain

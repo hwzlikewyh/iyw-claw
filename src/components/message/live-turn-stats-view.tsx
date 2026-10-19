@@ -17,6 +17,7 @@ interface LiveTurnStatsProps {
   subAgentControl?: ReactNode
   trailingStatus?: ReactNode
   onCancel?: () => void
+  onReturnToActivity?: () => void
   isAwaitingUserInput?: boolean
 }
 
@@ -29,6 +30,7 @@ export const LiveTurnStats = memo(function LiveTurnStats({
   subAgentControl,
   trailingStatus,
   onCancel,
+  onReturnToActivity,
   isAwaitingUserInput,
 }: LiveTurnStatsProps) {
   const summary = useMemo(() => summarizeLiveTurn(message), [message])
@@ -42,6 +44,7 @@ export const LiveTurnStats = memo(function LiveTurnStats({
   })
   return (
     <LiveTurnStatusRow
+      contextKey={contextKey}
       agentType={agentType}
       phase={activity.phase}
       detail={activity.detail}
@@ -54,6 +57,7 @@ export const LiveTurnStats = memo(function LiveTurnStats({
       subAgentControl={subAgentControl}
       trailingStatus={trailingStatus}
       onCancel={onCancel}
+      onReturnToActivity={onReturnToActivity}
     />
   )
 })
