@@ -16,6 +16,7 @@ import {
 import {
   downloadReleaseFile,
   requireDraft,
+  requireReleaseSource,
   uploadDraftFile,
 } from "./github-assets.mjs"
 
@@ -62,6 +63,10 @@ async function prepare() {
 }
 
 async function upload() {
+  requireReleaseSource({
+    ...context,
+    sourceRef: process.env.SOURCE_REF,
+  })
   const asset = await uploadDraftFile(context, process.env.STAGING_ARCHIVE)
   output({
     asset_id: asset.id,

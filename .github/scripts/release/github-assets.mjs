@@ -76,6 +76,21 @@ export function requireDraft({ repo, releaseId, tag }) {
   return release
 }
 
+export function requireReleaseSource({ repo, releaseId, tag, sourceRef }) {
+  const release = requireDraft({ repo, releaseId, tag })
+  const ref = github(`repos/${repo}/git/ref/tags/${tag}`)
+  const tagObject =
+    ref.object.type === "tag"
+      ? github(`repos/${repo}/git/tags/${ref.object.sha}`).object
+      : ref.object
+  if (tagObject.type !== "commit" || tagObject.sha !== sourceRef) {
+    throw new Error(
+      `Release source mismatch: ${tag}=${tagObject.sha}, build=${sourceRef}`
+    )
+  }
+  return release
+}
+
 export async function uploadDraftFile(context, path) {
   const release = requireDraft(context)
   const name = basename(path)
