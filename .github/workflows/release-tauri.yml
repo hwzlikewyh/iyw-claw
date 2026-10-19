@@ -90,6 +90,17 @@ jobs:
         with:
           run_install: false
 
+      - name: Validate fixed source and release draft
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+        with:
+          script: |
+            const { assertBuildContext } = require('./.release-workflow/.github/scripts/release/release-context.cjs');
+            await assertBuildContext({github,repository:context.repo,tag:process.env.RELEASE_TAG,releaseId:process.env.RELEASE_ID,sourceRef:process.env.SOURCE_REF});
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -363,6 +374,17 @@ jobs:
       - name: Prepare worker for legacy source
         if: ${{ !inputs.parallel_worker && hashFiles('.github/actions/prepare-worker/action.yml') == '' }}
         run: pnpm tauri:prepare-xinghe-worker --target "${{ matrix.target }}"
+
+      - name: Revalidate draft before bundling and uploading
+        uses: actions/github-script@v7
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+        with:
+          script: |
+            const { assertBuildContext } = require('./.release-workflow/.github/scripts/release/release-context.cjs');
+            await assertBuildContext({github,repository:context.repo,tag:process.env.RELEASE_TAG,releaseId:process.env.RELEASE_ID,sourceRef:process.env.SOURCE_REF});
 
       - name: Build and upload Linux arm64
         if: matrix.target == 'aarch64-unknown-linux-gnu'

@@ -1,23 +1,9 @@
-async function resolveCommitSha(github, owner, repo, tag) {
-  const { data: tagRef } = await github.rest.git.getRef({
-    owner,
-    repo,
-    ref: `tags/${tag}`,
-  })
-  if (tagRef.object.type !== "tag") return tagRef.object.sha
-
-  const { data: annotatedTag } = await github.rest.git.getTag({
-    owner,
-    repo,
-    tag_sha: tagRef.object.sha,
-  })
-  if (annotatedTag.object.type !== "commit") {
-    throw new Error(
-      `Tag ${tag} points to ${annotatedTag.object.type}, not a commit.`
-    )
-  }
-  return annotatedTag.object.sha
-}
+/* eslint-disable @typescript-eslint/no-require-imports -- github-script 使用 CommonJS 扩展点。 */
+const {
+  resolveCommitSha,
+  findRelease,
+  assertDraftContext,
+} = require("./release-context.cjs")
 
 async function loadReleaseBody(github, owner, repo, commitSha) {
   const { data: commit } = await github.rest.repos.getCommit({
@@ -51,29 +37,20 @@ async function updateDraft(github, owner, repo, release, desired) {
   return data
 }
 
-async function findRelease(github, repository, tag) {
-  try {
-    return (await github.rest.repos.getReleaseByTag({ ...repository, tag }))
-      .data
-  } catch (error) {
-    if (error.status !== 404) throw error
-    // 按 tag 查询可能不返回草稿；重试前从分页列表找回同一草稿。
-    const releases = await github.paginate(github.rest.repos.listReleases, {
-      ...repository,
-      per_page: 100,
-    })
-    const matching = releases.filter((release) => release.tag_name === tag)
-    if (matching.length > 1)
-      throw new Error(
-        `Multiple releases exist for ${tag}; refusing to create another draft`
-      )
-    return matching[0]
-  }
-}
-
-async function createOrReuseDraft({ github, context, core, tag, prerelease }) {
+async function createOrReuseDraft({
+  github,
+  context,
+  core,
+  tag,
+  prerelease,
+  sourceRef,
+}) {
   const { owner, repo } = context.repo
-  const commitSha = await resolveCommitSha(github, owner, repo, tag)
+  const commitSha = await resolveCommitSha(github, context.repo, tag)
+  if (commitSha !== sourceRef)
+    throw new Error(
+      `Release source mismatch: ${tag}=${commitSha}, build=${sourceRef}`
+    )
   const body = await loadReleaseBody(github, owner, repo, commitSha)
   const desired = { tag, prerelease, name: `iyw-claw ${tag}`, body }
   let release
@@ -87,6 +64,7 @@ async function createOrReuseDraft({ github, context, core, tag, prerelease }) {
       owner,
       repo,
       tag_name: tag,
+      target_commitish: commitSha,
       name: desired.name,
       body,
       draft: true,
@@ -96,9 +74,20 @@ async function createOrReuseDraft({ github, context, core, tag, prerelease }) {
     core.info(`Created draft release #${release.id}`)
   }
 
+  await validateDraft({ github, context, tag, release, sourceRef })
   core.setOutput("release_id", String(release.id))
   core.setOutput("release_url", release.html_url)
   core.setOutput("release_body", body)
+}
+
+async function validateDraft({ github, context, tag, release, sourceRef }) {
+  await assertDraftContext({
+    github,
+    repository: context.repo,
+    tag,
+    releaseId: release.id,
+    sourceRef,
+  })
 }
 
 module.exports = createOrReuseDraft

@@ -59,7 +59,18 @@ export async function sha256(path) {
 }
 
 export function requireDraft({ repo, releaseId, tag }) {
-  const release = github(`repos/${repo}/releases/${releaseId}`)
+  let release
+  try {
+    release = github(`repos/${repo}/releases/${releaseId}`)
+  } catch (error) {
+    if (!String(error.stderr).includes("HTTP 404")) throw error
+    throw new Error(
+      `Release #${releaseId} for ${tag} is missing or inaccessible. ` +
+        "Run the complete Release workflow to obtain a new shared release ID; " +
+        "do not rerun only failed jobs or recreate drafts during a build.",
+      { cause: error }
+    )
+  }
   if (!release.draft || release.tag_name !== tag)
     throw new Error("expected matching GitHub draft release")
   return release
