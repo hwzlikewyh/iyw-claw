@@ -1,4 +1,20 @@
 {
+  "ConversationPresentation": {
+    "disconnected": "Session disconnected",
+    "disconnectedHint": "Sending is unavailable. Your draft is preserved. Task status will sync automatically after reconnecting.",
+    "reconnecting": "Connecting to session",
+    "reconnectingHint": "Status will sync after connecting. You can keep editing your draft.",
+    "reconnect": "Reconnect",
+    "history": "Task history",
+    "taskCount": "Tasks · {count}",
+    "currentTasks": "Current tasks",
+    "emptyTasks": "No task records",
+    "stateSyncing": "Task status awaiting sync",
+    "monitorStarted": "Monitoring has started. New events will resume processing.",
+    "monitoring": "Monitoring",
+    "process": "View process",
+    "backToActivity": "Return to current step"
+  },
   "RuntimeTasks": {
     "monitoring": "Listening",
     "monitorHint": "Listening for events in the background. You can continue chatting. The runtime confirms completion and timeout.",

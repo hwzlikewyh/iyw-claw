@@ -326,6 +326,7 @@ interface MessageInputProps {
   animatePlaceholder?: boolean
   defaultPath?: string
   disabled?: boolean
+  sendDisabled?: boolean
   autoFocus?: boolean
   onFocus?: () => void
   className?: string
@@ -857,6 +858,7 @@ export function MessageInput({
   animatePlaceholder = false,
   defaultPath,
   disabled = false,
+  sendDisabled = false,
   autoFocus = false,
   onFocus,
   onCancel,
@@ -922,10 +924,17 @@ export function MessageInput({
       chatDir: stageAttachmentsInWorkingDir ? (defaultPath ?? null) : null,
       resourceContext: {
         agentType: agentType ?? null,
-        modelId: configOptions?.find(isModelConfigOption)?.kind.current_value ?? null,
+        modelId:
+          configOptions?.find(isModelConfigOption)?.kind.current_value ?? null,
       },
     }),
-    [attachmentTabId, defaultPath, stageAttachmentsInWorkingDir, agentType, configOptions]
+    [
+      attachmentTabId,
+      defaultPath,
+      stageAttachmentsInWorkingDir,
+      agentType,
+      configOptions,
+    ]
   )
   // The `$` prefix autocomplete is Codex-only: Codex advertises very few
   // native slash commands, so we augment the dropdown with the agent's
@@ -3710,6 +3719,7 @@ export function MessageInput({
   )
 
   const sendCurrentDraft = useCallback(() => {
+    if (sendDisabled && !isEditingQueueItem) return
     if (accountRequestsBlocked && !isEditingQueueItem) return
     // The editor stays editable while `disabled` (the agent is busy) so the user
     // can keep typing, but a plain send is blocked — only enqueue / queue-edit
@@ -3835,6 +3845,7 @@ export function MessageInput({
       })
   }, [
     accountRequestsBlocked,
+    sendDisabled,
     disabled,
     buildDraft,
     isEditingQueueItem,
@@ -3888,6 +3899,7 @@ export function MessageInput({
   }, [sendCurrentDraft, voice.status])
 
   const handleForkSendClick = useCallback(() => {
+    if (sendDisabled) return
     if (voice.status !== "idle") return
     if (!onForkSend) return
     const draft = buildDraft()
@@ -3908,6 +3920,7 @@ export function MessageInput({
     resetComposer()
   }, [
     onForkSend,
+    sendDisabled,
     buildDraft,
     effectiveModeId,
     showModeSelector,
@@ -4267,7 +4280,9 @@ export function MessageInput({
       className="iyw-claw-send-button h-8 w-8"
       title={tSide("ask")}
       aria-label={tSide("ask")}
-      disabled={accountRequestsBlocked || voice.status !== "idle"}
+      disabled={
+        sendDisabled || accountRequestsBlocked || voice.status !== "idle"
+      }
     >
       <Send className="size-4" />
     </Button>
@@ -4288,6 +4303,7 @@ export function MessageInput({
         onClick={handleSend}
         disabled={
           accountRequestsBlocked ||
+          sendDisabled ||
           sendPending ||
           disabled ||
           voice.status !== "idle" ||
@@ -4305,6 +4321,7 @@ export function MessageInput({
           <Button
             disabled={
               accountRequestsBlocked ||
+              sendDisabled ||
               sendPending ||
               disabled ||
               voice.status !== "idle" ||
@@ -4331,6 +4348,7 @@ export function MessageInput({
       onClick={handleSend}
       disabled={
         accountRequestsBlocked ||
+        sendDisabled ||
         sendPending ||
         disabled ||
         voice.status !== "idle" ||

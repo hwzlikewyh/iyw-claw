@@ -4,8 +4,8 @@ import type { MotionProps } from "motion/react"
 import type { CSSProperties, ElementType, JSX } from "react"
 
 import { cn } from "@/lib/utils"
-import { motion, useReducedMotion } from "motion/react"
-import { memo, useMemo } from "react"
+import { motion, MotionConfigContext, useReducedMotion } from "motion/react"
+import { memo, useContext, useMemo } from "react"
 
 type MotionHTMLProps = MotionProps & Record<string, unknown>
 
@@ -46,6 +46,7 @@ const ShimmerComponent = ({
     [Component]
   )
   const reducedMotion = useReducedMotion()
+  const motionConfig = useContext(MotionConfigContext)
 
   const dynamicSpread = useMemo(
     () => (children?.length ?? 0) * spread,
@@ -53,6 +54,15 @@ const ShimmerComponent = ({
   )
 
   const shine = shineColor ?? "var(--color-background)"
+  if (reducedMotion || motionConfig.reducedMotion === "always") {
+    return (
+      <Component
+        className={cn("inline-block text-muted-foreground", className)}
+      >
+        {children}
+      </Component>
+    )
+  }
 
   return (
     // eslint-disable-next-line react-hooks/static-components -- component is cached at module level via motionComponentCache
@@ -62,7 +72,9 @@ const ShimmerComponent = ({
         "relative inline-block bg-[length:250%_100%,auto] bg-clip-text bg-no-repeat text-transparent",
         className
       )}
-      initial={reducedMotion ? undefined : { backgroundPosition: "100% center" }}
+      initial={
+        reducedMotion ? undefined : { backgroundPosition: "100% center" }
+      }
       style={
         {
           "--spread": `${dynamicSpread}px`,

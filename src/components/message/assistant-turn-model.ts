@@ -12,19 +12,16 @@ function isFinalResultPart(part: AdaptedContentPart): boolean {
 
 export function splitAssistantTurnParts(
   parts: AdaptedContentPart[],
-  complete: boolean
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 保留既有调用签名，流式和完成态共用分区。
+  _complete: boolean
 ): AssistantTurnSections {
-  const summaryIndex = complete
-    ? parts.reduce(
-        (last, part, index) =>
-          part.type === "text" && part.text.trim() ? index : last,
-        -1
-      )
-    : -1
+  const summaryIndex = parts.reduce(
+    (last, part, index) =>
+      part.type === "text" && part.text.trim() ? index : last,
+    -1
+  )
 
-  // Keep thinking, body text, and tool events in source order. Once a turn
-  // completes, only the last non-empty text block is promoted to the visible
-  // summary; everything else remains in one collapsible process stream.
+  // 流式和完成态共用正文位置；思考与工具事件保持原顺序收纳到过程。
   const processParts = parts.filter((part, index) => {
     if (isFinalResultPart(part)) return false
     if (part.type === "text") {
@@ -36,7 +33,6 @@ export function splitAssistantTurnParts(
     (part, index): part is Extract<AdaptedContentPart, { type: "text" }> =>
       part.type === "text" &&
       Boolean(part.text.trim()) &&
-      complete &&
       index === summaryIndex
   )
 

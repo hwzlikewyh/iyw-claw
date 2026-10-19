@@ -31,8 +31,17 @@ import { AskQuestionCard } from "@/components/chat/ask-question-card"
 import { ChannelConfirmationCard } from "@/components/chat/channel-confirmation-card"
 import { AgentInputWaitingDisplay } from "@/components/chat/agent-input-waiting-display"
 import type { ComposerInjectContent } from "@/components/chat/message-input"
+import { ConversationPresentationProvider } from "./conversation-presentation-context"
+import { ConversationActivityVisibility } from "@/components/message/conversation-activity-visibility"
+import { ConversationConnectionAlert } from "./conversation-connection-alert"
+import { RuntimeTaskPopover } from "./runtime-task-panel"
+import "./conversation-presentation.css"
 
 interface ConversationShellProps {
+  activityContextKey?: string
+  runtimeConnectionId?: string | null
+  conversationId?: number | null
+  onReconnect?: () => Promise<void>
   status: ConnectionStatus | null
   promptCapabilities: PromptCapabilitiesInfo
   defaultPath?: string
@@ -134,7 +143,32 @@ interface ConversationShellProps {
   onSideInjectConsumed?: () => void
 }
 
-export function ConversationShell({
+export function ConversationShell(props: ConversationShellProps) {
+  const awaitingInput = Boolean(
+    props.pendingPermission ||
+    props.pendingQuestion ||
+    props.pendingAskQuestion ||
+    props.pendingChannelConfirmation
+  )
+  return (
+    <ConversationPresentationProvider
+      contextKey={props.activityContextKey}
+      connectionId={props.runtimeConnectionId}
+      conversationId={props.conversationId}
+      status={props.status}
+      awaitingInput={awaitingInput}
+    >
+      <ConversationActivityVisibility
+        key={props.activityContextKey ?? props.conversationId}
+      >
+        <ConversationShellContent {...props} />
+      </ConversationActivityVisibility>
+    </ConversationPresentationProvider>
+  )
+}
+
+function ConversationShellContent({
+  onReconnect,
   status,
   promptCapabilities,
   defaultPath,
@@ -209,8 +243,9 @@ export function ConversationShell({
       <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
         {topBanner}
         <AccountRequestsBanner />
-        {onSideQuestion && (
-          <div className="flex justify-end px-4 py-1">
+        <div className="flex items-center justify-end gap-3 px-4 py-1">
+          <RuntimeTaskPopover historyOnly />
+          {onSideQuestion && (
             <Button
               variant="ghost"
               size="sm"
@@ -218,8 +253,8 @@ export function ConversationShell({
             >
               {tSide("title")} /btw
             </Button>
-          </div>
-        )}
+          )}
+        </div>
         <div className="min-h-24 flex-1 overflow-auto">{children}</div>
 
         {/* 待处理卡片共享高度上限，为状态栏和输入框留出空间；输入框菜单可向上展开。 */}
@@ -290,6 +325,12 @@ export function ConversationShell({
         </div>
 
         <div className="shrink-0">
+          {!hideInput && (
+            <ConversationConnectionAlert
+              status={status}
+              onReconnect={onReconnect}
+            />
+          )}
           {runtimeTasks && (
             <div className="mx-auto w-full max-w-4xl px-4">{runtimeTasks}</div>
           )}
@@ -312,6 +353,7 @@ export function ConversationShell({
           {!hideInput && (
             <div className="mx-auto w-full max-w-4xl">
               <ChatInput
+                blockOfflineSend
                 status={status}
                 promptCapabilities={promptCapabilities}
                 defaultPath={defaultPath}

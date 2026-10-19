@@ -10,7 +10,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import { Shimmer } from "@/components/ai-elements/shimmer"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
 import { cn } from "@/lib/utils"
 import { ChevronRightIcon } from "lucide-react"
@@ -240,13 +239,14 @@ function GoalCard({
     <Collapsible open={bodyOpen} onOpenChange={setBodyOpen} className="w-full">
       <CollapsibleTrigger
         className={cn(
-          "group inline-flex max-w-full items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-medium transition-colors",
-          "bg-primary/10 text-foreground hover:bg-primary/15",
+          "group inline-flex max-w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors duration-100",
+          "bg-muted/30 text-muted-foreground hover:bg-muted/60 hover:text-foreground",
           tone === "error" &&
             "bg-destructive/10 text-destructive hover:bg-destructive/15",
           tone === "muted" && "bg-muted/70 text-foreground hover:bg-muted"
         )}
         aria-label={headerText}
+        aria-busy={isRunning}
       >
         <ChevronRightIcon
           aria-hidden="true"
@@ -255,25 +255,7 @@ function GoalCard({
             bodyOpen && "rotate-90"
           )}
         />
-        <span className="min-w-0 truncate">
-          {isRunning ? (
-            <Shimmer as="span" duration={1} shineColor="var(--primary)">
-              {headerText}
-            </Shimmer>
-          ) : (
-            headerText
-          )}
-        </span>
-        {tokenSummary && (
-          <span className="shrink-0 text-muted-foreground/60">
-            {tokenSummary}
-          </span>
-        )}
-        {durationSummary && (
-          <span className="shrink-0 text-muted-foreground/60">
-            {durationSummary}
-          </span>
-        )}
+        <span className="min-w-0 line-clamp-2 break-words">{headerText}</span>
       </CollapsibleTrigger>
 
       <CollapsibleContent
@@ -286,15 +268,6 @@ function GoalCard({
       >
         <div className="mt-3 w-full rounded-md border border-border/60 px-3.5 py-3 text-sm">
           <div className="space-y-3">
-            {goal.objective && (
-              <div>
-                <div className="mb-1 text-xs font-medium text-muted-foreground">
-                  {t("objective")}
-                </div>
-                <div className="break-words">{goal.objective}</div>
-              </div>
-            )}
-
             {items.length > 0 && renderPart && (
               <div className="space-y-3">
                 {items.map((item, index) =>

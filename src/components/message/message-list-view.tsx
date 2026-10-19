@@ -533,6 +533,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   conversationDisplayMode,
   collapseCompletedTurn,
   autoOpenErrors,
+  isLatest = false,
   actions,
 }: {
   group: ResolvedMessageGroup
@@ -553,6 +554,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   conversationDisplayMode: ConversationDisplayMode
   collapseCompletedTurn: boolean
   autoOpenErrors: boolean
+  isLatest?: boolean
   actions?: ReactNode
 }) {
   if (group.role === "system") {
@@ -602,6 +604,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
               collapseCompletedTurn={collapseCompletedTurn}
               autoOpenErrors={autoOpenErrors}
               durationMs={durationMs ?? group.duration_ms}
+              isLatest={isLatest}
             />
           </MessageContent>
         )}
@@ -1018,6 +1021,7 @@ export function MessageListView({
                   conversationDisplayMode={conversationDisplayMode}
                   collapseCompletedTurn={collapseCompletedTurn}
                   autoOpenErrors={autoOpenErrors}
+                  isLatest={item.key === lastAssistantItem?.key}
                   actions={
                     item.phase === "persisted" &&
                     (item.group.forkTarget ||
@@ -1120,6 +1124,13 @@ export function MessageListView({
   // Lifted scroll handle so the panel (which lives in the overlay stack, outside
   // the MessageScrollProvider subtree) can drive scrollToIndex.
   const scrollApiRef = useRef<MessageScrollContextValue | null>(null)
+  const returnToActivity = useCallback(() => {
+    const index = threadItems.findIndex(
+      (item) => item.key === lastAssistantItem?.key
+    )
+    if (index >= 0)
+      scrollApiRef.current?.scrollToIndex(index, { align: "start" })
+  }, [threadItems, lastAssistantItem?.key])
   // Collapse state is owned here so the navigator remains stable while the
   // conversation streams.
   const [navExpanded, setNavExpanded] = useState(false)
@@ -1276,6 +1287,7 @@ export function MessageListView({
         </MessageThread>
         {connStatus === "prompting" && (
           <LiveTurnStats
+            onReturnToActivity={returnToActivity}
             agentType={agentType}
             contextKey={activityContextKey}
             message={liveMessage}
