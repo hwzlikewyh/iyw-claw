@@ -13,9 +13,10 @@ pub(super) async fn finish(
         .get("data")
         .and_then(Value::as_array)
         .ok_or_else(|| failure(response))?;
+    // 上传分支的 Future 只在堆上排队，避免迭代器按值搬运大型状态。
     let pending = entries
         .iter()
-        .map(|entry| materialize(service, entry))
+        .map(|entry| Box::pin(materialize(service, entry)))
         .collect::<Vec<_>>();
     let results = stream::iter(pending)
         .buffered(super::super::limits::MAX_CONCURRENT_EXECUTIONS)
