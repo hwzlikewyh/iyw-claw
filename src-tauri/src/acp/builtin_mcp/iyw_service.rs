@@ -123,9 +123,11 @@ impl IywGatewayService {
             .await
             .map_err(|error| rmcp::ErrorData::invalid_request(error.to_string(), None))?;
         let token = self.token().await?;
+        let url = crate::acp::model_gateway::endpoint(path)
+            .unwrap_or_else(|| self.url(FUSION_PREFIX, path));
         let response = self
             .client
-            .post(self.url(FUSION_PREFIX, path))
+            .post(url)
             .timeout(self.image_timeout.unwrap_or(HTTP_TIMEOUT))
             .header("token", &token)
             .json(&body)

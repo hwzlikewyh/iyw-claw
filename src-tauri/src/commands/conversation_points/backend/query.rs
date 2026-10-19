@@ -77,9 +77,7 @@ pub(super) async fn query(
     else {
         return (HashMap::new(), None);
     };
-    let base = crate::acp::provider_overlay::model_gateway_base_url_for(
-        crate::models::agent::AgentType::Codex,
-    );
+    let base = crate::acp::provider_overlay::cloud_model_gateway_base_url();
     let base = base.trim_end_matches('/');
     let base = base.strip_suffix("/v1").unwrap_or(base);
     let base = base.strip_suffix("/anthropic").unwrap_or(base);

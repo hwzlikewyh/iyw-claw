@@ -83,7 +83,7 @@ pub(crate) async fn prepare_prompt_images(
     connection_id: &str,
     blocks: &[PromptInputBlock],
 ) -> Result<Option<Arc<str>>, crate::acp::error::AcpError> {
-    let Some((_, _, accepts_images)) = manager
+    let Some((_, agent_type, accepts_images)) = manager
         .image_analysis_state_for_connection(connection_id)
         .await
     else {
@@ -91,8 +91,22 @@ pub(crate) async fn prepare_prompt_images(
             connection_id.into(),
         ));
     };
+    if accepts_images
+        || !blocks
+            .iter()
+            .any(|block| matches!(block, PromptInputBlock::Image { .. }))
+    {
+        return Ok(None);
+    }
+    if super::provider_overlay::uses_managed_gateway(agent_type)
+        && super::model_gateway::base_url(false).is_some()
+    {
+        return Err(crate::acp::error::AcpError::protocol(
+            "当前智能体或所选模型不支持原生图片输入，请切换支持视觉的模型。",
+        ));
+    }
     let images = prompt_images(blocks);
-    if images.is_empty() || accepts_images {
+    if images.is_empty() {
         return Ok(None);
     }
     if images.len() > MAX_ANALYSIS_IMAGES {

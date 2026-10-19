@@ -7,7 +7,7 @@ use serde::Deserialize;
 use crate::app_error::AppCommandError;
 #[cfg(feature = "tauri-runtime")]
 use crate::db::AppDatabase;
-use crate::models::{AgentType, UsageBreakdown, UsageDailyRow, UsageDashboardStats, UsageModelRow};
+use crate::models::{UsageBreakdown, UsageDailyRow, UsageDashboardStats, UsageModelRow};
 
 const DEFAULT_USAGE_DAYS: usize = 7;
 const MAX_USAGE_DAYS: usize = 100;
@@ -160,7 +160,7 @@ fn non_empty(value: String) -> Option<String> {
 }
 
 fn usage_url(days: usize) -> String {
-    let base = crate::acp::provider_overlay::model_gateway_base_url_for(AgentType::Codex);
+    let base = crate::acp::provider_overlay::cloud_model_gateway_base_url();
     let base = base.trim_end_matches('/');
     if base.ends_with("/v1") {
         format!("{base}/usage/recent?limit={days}")

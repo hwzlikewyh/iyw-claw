@@ -73,12 +73,42 @@ async fn persist(
     conn: &DatabaseConnection,
     session: &StoredSession,
 ) -> Result<(), AppCommandError> {
-    let serialized = serde_json::to_string(session)
-        .map_err(|_| AppCommandError::configuration_invalid("Unable to save account session"))?;
-    token_file::sync(session.token.as_ref())?;
-    app_metadata_service::upsert_value(conn, SESSION_KEY, &serialized)
-        .await
-        .map_err(AppCommandError::from)
+    let result = async {
+        let serialized = serde_json::to_string(session).map_err(|_| {
+            AppCommandError::configuration_invalid("Unable to save account session")
+        })?;
+        token_file::sync(session.token.as_ref())?;
+        app_metadata_service::upsert_value(conn, SESSION_KEY, &serialized)
+            .await
+            .map_err(AppCommandError::from)
+    }
+    .await;
+    if result.is_ok() {
+        publish_gateway_credentials(session);
+    } else {
+        crate::acp::model_gateway::update_credentials(None, None, false);
+    }
+    result
+}
+
+fn publish_gateway_credentials(session: &StoredSession) {
+    crate::acp::model_gateway::update_credentials(
+        session
+            .token
+            .as_ref()
+            .map(|token| token.access_token.as_str()),
+        session.expires_at_ms,
+        !session.workspace_pending,
+    );
+}
+
+pub(crate) async fn initialize_model_gateway_auth(
+    conn: &DatabaseConnection,
+) -> Result<(), AppCommandError> {
+    let _guard = persistence_lock().lock().await;
+    let session = load_session(conn).await?;
+    publish_gateway_credentials(&session);
+    Ok(())
 }
 
 pub(super) async fn save_session(
@@ -123,6 +153,7 @@ pub(super) async fn load_synced_session(
     let _guard = persistence_lock().lock().await;
     let session = load_session(conn).await?;
     token_file::sync(session.token.as_ref())?;
+    publish_gateway_credentials(&session);
     Ok(session)
 }
 
