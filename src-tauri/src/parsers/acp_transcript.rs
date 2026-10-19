@@ -139,14 +139,25 @@ fn first_user_title(turns: &[MessageTurn]) -> Option<String> {
     turns
         .iter()
         .filter(|turn| matches!(&turn.role, TurnRole::User))
-        .flat_map(|turn| turn.blocks.iter())
-        .find_map(|block| match block {
-            ContentBlock::Text { text } => {
-                let title = title_from_user_text(text).trim().to_string();
-                (!title.is_empty()
-                    && !crate::acp::conversation_title_summary::is_private_title_candidate(&title))
-                .then(|| truncate_str(&title, 80))
-            }
-            _ => None,
+        .find_map(|turn| {
+            let text = turn
+                .blocks
+                .iter()
+                .filter_map(|block| match block {
+                    ContentBlock::Text { text }
+                        if !crate::acp::conversation_title_summary::is_private_user_context(
+                            text,
+                        ) =>
+                    {
+                        Some(text.as_str())
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let title = title_from_user_text(&text);
+            (!title.is_empty()
+                && !crate::acp::conversation_title_summary::is_private_title_candidate(&title))
+            .then(|| truncate_str(&title, 80))
         })
 }

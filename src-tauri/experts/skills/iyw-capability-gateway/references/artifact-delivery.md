@@ -1,11 +1,11 @@
 # Artifact Delivery
 
-Load this reference whenever a task creates a final file, directory, or public
-URL. Artifact delivery is a required completion sub-goal, not an optional
-presentation step. Call the directly advertised `present_task_files` using its
-current input schema; no capability search/read/invoke is needed. Only fall back
-to the live catalog when the direct tool is unavailable. The current schema
-overrides this guide.
+Load this reference for file, directory, or public URL delivery. Artifact
+registration is a completion step for the final user-facing set, not a step for
+every file created during work. Call the directly advertised
+`present_task_files` using its current input schema; no capability
+search/read/invoke is needed. Only fall back to the live catalog when the direct
+tool is unavailable. The current schema overrides this guide.
 
 ## What to Register
 
@@ -13,9 +13,12 @@ This places saved deliverables in the conversation's Artifacts area. Use
 `show_interactive_html` for a freely designed page that opens inside the chat;
 displaying an interactive page does not register a saved file or URL as an artifact.
 
-Register only the completed deliverables needed to satisfy the user's task
-through `present_task_files` before the final response. Infer the deliverables
-from the task; no separate explicit request or approval for each file is needed:
+Do not register files while the task is still being created, revised or reviewed.
+After all work in this conversation turn is complete, the agent selects the
+files that will be given to the user and registers that complete final set with
+one `present_task_files` call before the final response. The agent determines
+the set from the task; no separate explicit request or approval for each file
+is needed. This applies to every file type, directory and public URL:
 
 - A working-directory-relative file or directory.
 - An absolute file or directory path when the user explicitly needs that path.
@@ -51,12 +54,14 @@ output, logs, caches and internal working files belong in Artifacts only when
 they themselves are the task's final deliverable. A dirty Git diff is not an
 artifact list.
 
-For images generated as intermediate material, set
-`generate_iyw_image` input `delivery.registerArtifact` to `false`; its default is
-`true`. Embed the needed images in the completed deliverable, then register
-that deliverable. Keep image registration enabled when the images themselves
-are the final result. In a batch, the top-level `delivery` applies to every item;
-separate intermediate assets from final-image deliveries when they differ.
+`generate_iyw_image` defaults `delivery.registerArtifact` to `false`. Keep
+generated outputs unregistered while creating, comparing or selecting
+candidates. Set it to `true` only when the image itself is selected as a final
+file to give the user in this conversation. For images used in a PPT, report,
+webpage or other composed deliverable, leave it false and register the
+completed file after the task is complete. In a batch, the top-level `delivery`
+applies to every item; use separate batches when final images and intermediate
+materials need different registration settings.
 
 ## Channel Notifications
 

@@ -1,21 +1,28 @@
 import { foldReferenceLinks } from "@/lib/reference-link"
+import {
+  localFilePromptLabel,
+  splitLocalFilePrompts,
+} from "@/lib/local-file-prompt"
 
-/**
- * A conversation's auto-title is parsed from the first user message, which since
- * the inline-file-badge work can carry Markdown reference links — a `@`-file
- * mention, a session/commit/agent reference — serialized as `[label](uri)` (see
- * `referenceToMarkdown`). Shown verbatim, a tab or the sidebar reads as raw
- * `[README.md](file:///…)` noise. {@link formatConversationTitle} folds each
- * such link back to just its bracket label (the human-readable badge text),
- * leaving all other title text untouched, so titles display the way the message
- * does. Display-only — the stored title (rename, search, export) is unchanged.
- *
- * The folding itself (a single-pass O(n) scan, ReDoS-safe) lives in the shared
- * {@link foldReferenceLinks} so the title, the transcript extractor and every
- * other reference-link consumer parse `[label](uri)` exactly one way.
- */
+// 历史标题可能在路径中途被截断，无法还原文件名时移除残留的内部提示。
+const INCOMPLETE_LOCAL_FILE_PROMPT =
+  /Local (?:file|directory) path \(use filesystem tools, not MCP resources\):[^\r\n]*/g
+
+/** 优先显示正文，仅有文件时显示文件名；引用链接沿用统一的折叠规则。 */
 export function formatConversationTitle(
   title: string | null | undefined
 ): string {
-  return foldReferenceLinks(title)
+  if (!title) return ""
+  const segments = splitLocalFilePrompts(title)
+  const prose = segments
+    .filter((segment) => segment.type === "text")
+    .map((segment) => segment.value)
+    .join("")
+    .replace(INCOMPLETE_LOCAL_FILE_PROMPT, "")
+    .trim()
+  const files = segments
+    .filter((segment) => segment.type === "file")
+    .map((segment) => localFilePromptLabel(segment.path))
+    .join(" ")
+  return foldReferenceLinks(prose || files)
 }

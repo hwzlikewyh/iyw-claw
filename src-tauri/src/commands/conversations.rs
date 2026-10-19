@@ -780,7 +780,7 @@ fn strip_private_user_context(turns: &mut Vec<MessageTurn>) {
             ContentBlock::Text { text } if matches!(turn.role, TurnRole::User) => {
                 *text = crate::user_memory::strip_user_context(text);
                 !text.is_empty()
-                    && !crate::acp::conversation_title_summary::is_private_title_candidate(text)
+                    && !crate::acp::conversation_title_summary::is_private_user_context(text)
             }
             ContentBlock::Text { text } if matches!(turn.role, TurnRole::Assistant) => {
                 *text = crate::user_memory::strip_agent_lessons(text);
@@ -798,12 +798,18 @@ fn first_visible_user_title(turns: &[MessageTurn]) -> Option<String> {
     turns
         .iter()
         .filter(|turn| matches!(turn.role, TurnRole::User))
-        .flat_map(|turn| turn.blocks.iter())
-        .find_map(|block| match block {
-            ContentBlock::Text { text } if !text.trim().is_empty() => {
-                Some(crate::parsers::title_from_user_text(text.trim()))
-            }
-            _ => None,
+        .find_map(|turn| {
+            let text = turn
+                .blocks
+                .iter()
+                .filter_map(|block| match block {
+                    ContentBlock::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let title = crate::parsers::title_from_user_text(&text);
+            (!title.is_empty()).then_some(title)
         })
 }
 

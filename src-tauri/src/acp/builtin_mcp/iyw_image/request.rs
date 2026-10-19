@@ -117,7 +117,7 @@ impl Default for WaitOptions {
 pub(crate) struct DeliveryOptions {
     #[serde(default)]
     pub(super) display: bool,
-    #[serde(default = "default_true")]
+    #[serde(default = "default_false")]
     pub(super) register_artifact: bool,
 }
 
@@ -125,11 +125,11 @@ impl Default for DeliveryOptions {
     fn default() -> Self {
         Self {
             display: false,
-            register_artifact: true,
+            register_artifact: false,
         }
     }
 }
 
-const fn default_true() -> bool {
-    true
+const fn default_false() -> bool {
+    false
 }
