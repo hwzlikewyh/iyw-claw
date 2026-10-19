@@ -38,7 +38,7 @@ pub(crate) async fn prepare(
         return None;
     }
     let (environment, access) = step.environments().into_iter().next()?;
-    let directory = environment.cwd().join(".codex/tool-results").ok()?;
+    let directory = environment.cwd().join(".xinghe/tool-results").ok()?;
     let file = directory.join(&format!("{}.json", Uuid::new_v4())).ok()?;
     let saved = SavedResult {
         file,
