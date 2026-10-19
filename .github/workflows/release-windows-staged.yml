@@ -64,6 +64,12 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           run_install: false
+      - name: Validate fixed source and release draft
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { assertBuildContext } = require('./.release-tools/.github/scripts/release/release-context.cjs');
+            await assertBuildContext({github,repository:context.repo,tag:process.env.RELEASE_TAG,releaseId:process.env.RELEASE_ID,sourceRef:process.env.SOURCE_REF});
       - uses: actions/setup-node@v4
         with:
           node-version: 24

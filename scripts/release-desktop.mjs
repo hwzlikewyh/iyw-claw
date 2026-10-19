@@ -58,11 +58,9 @@ async function startOrResume(version) {
     runs[0]?.conclusion === "failure" ||
     runs[0]?.conclusion === "cancelled"
   ) {
-    gh(
-      ["run", "rerun", String(runs[0].databaseId), "--failed", "--repo", REPO],
-      { stdio: "inherit" }
+    console.log(
+      `[release] ${runs[0].databaseId} ${runs[0].conclusion}; starting a complete workflow to refresh release context`
     )
-    return runs[0].databaseId
   }
   const oldIds = new Set(runs.map((run) => run.databaseId))
   const text = gh([
