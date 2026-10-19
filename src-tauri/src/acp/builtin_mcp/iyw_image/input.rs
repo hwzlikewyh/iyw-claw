@@ -57,17 +57,18 @@ pub(super) async fn prepare_images(
     validation: ImageValidation,
 ) -> Result<Vec<PreparedImage>, rmcp::ErrorData> {
     let first_source = sources.iter().position(|image| image.role() != "mask");
+    // 队列只移动指针，避免迭代大型 Future 时耗尽 Windows 工作线程栈。
     let pending = sources
         .iter()
         .enumerate()
         .map(|(index, source)| {
             let inspect = validation == ImageValidation::MaskedEdit
                 && (source.role() == "mask" || Some(index) == first_source);
-            prepare_image(
+            Box::pin(prepare_image(
                 context,
                 (index, source),
                 (validation != ImageValidation::Platform, inspect),
-            )
+            ))
         })
         .collect::<Vec<_>>();
     let results = stream::iter(pending)

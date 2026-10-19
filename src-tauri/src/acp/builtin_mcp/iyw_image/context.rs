@@ -1,5 +1,6 @@
 use std::{collections::HashMap, future::Future, sync::Arc, time::Instant};
 
+use futures_util::future::BoxFuture;
 use rmcp::ErrorData;
 use serde_json::{json, Value};
 use tokio::sync::{Mutex, OnceCell, Semaphore};
@@ -41,23 +42,27 @@ impl ImageContext {
         }
     }
 
-    pub async fn run<T>(
-        &self,
-        stage: &str,
-        operation: impl Future<Output = Result<T, ErrorData>>,
-    ) -> Result<T, ErrorData> {
-        tokio::select! {
-            biased;
-            _ = self.request_cancel.cancelled() => Err(cancelled(stage)),
-            _ = self.session_cancel.cancelled() => Err(cancelled(stage)),
-            result = operation => result,
-        }
+    pub fn run<'a, T: 'a>(
+        &'a self,
+        stage: &'a str,
+        operation: impl Future<Output = Result<T, ErrorData>> + Send + 'a,
+    ) -> BoxFuture<'a, Result<T, ErrorData>> {
+        // 先装箱再进入 select，避免取消包装层反复内嵌和搬运大型 I/O 状态。
+        let operation = Box::pin(operation);
+        Box::pin(async move {
+            tokio::select! {
+                biased;
+                _ = self.request_cancel.cancelled() => Err(cancelled(stage)),
+                _ = self.session_cancel.cancelled() => Err(cancelled(stage)),
+                result = operation => result,
+            }
+        })
     }
 
     pub(super) async fn prepare(
         &self,
         key: String,
-        operation: impl Future<Output = Result<PreparedImage, ErrorData>>,
+        operation: impl Future<Output = Result<PreparedImage, ErrorData>> + Send,
     ) -> Result<PreparedImage, ErrorData> {
         let cell = self.sources.lock().await.entry(key).or_default().clone();
         tracing::debug!(
@@ -89,7 +94,7 @@ impl ImageContext {
     pub async fn upload(
         &self,
         key: String,
-        operation: impl Future<Output = Result<String, ErrorData>>,
+        operation: impl Future<Output = Result<String, ErrorData>> + Send,
     ) -> Result<String, ErrorData> {
         let cell = self.uploads.lock().await.entry(key).or_default().clone();
         tracing::debug!(

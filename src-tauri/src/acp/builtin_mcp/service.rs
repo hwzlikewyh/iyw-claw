@@ -89,6 +89,7 @@ pub struct BuiltinMcpService {
     client: BuiltinMcpClient,
     shutdown: CancellationToken,
     joins: Mutex<Vec<JoinHandle<()>>>,
+    model_gateway: crate::acp::model_gateway::ModelGateway,
 }
 
 impl BuiltinMcpService {
@@ -100,12 +101,16 @@ impl BuiltinMcpService {
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         let advertised_tools = gateway_tool_names()?;
         let capability_tools = embedded_tool_names()?;
+        crate::commands::iyw_account::initialize_model_gateway_auth(&db)
+            .await
+            .map_err(|_| io::Error::other("Unable to initialize local model authentication"))?;
         let iyw = IywGatewayService::new(db, listener.clone())
             .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
         let tcp = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         crate::web::socket_inherit::mark_listener_non_inheritable(&tcp)?;
         let authority = tcp.local_addr()?.to_string();
         let endpoint: Arc<str> = format!("http://{authority}/mcp").into();
+        let model_gateway = crate::acp::model_gateway::ModelGateway::start().await?;
         let shutdown = CancellationToken::new();
         let (router, client) = build_runtime(
             listener,
@@ -127,6 +132,7 @@ impl BuiltinMcpService {
             client,
             shutdown,
             joins: Mutex::new(joins),
+            model_gateway,
         }))
     }
 

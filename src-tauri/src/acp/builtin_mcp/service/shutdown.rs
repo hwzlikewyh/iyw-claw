@@ -14,17 +14,19 @@ impl BuiltinMcpService {
         let deadline = Instant::now() + SHUTDOWN_TIMEOUT;
         let prelude = self.begin_cleanup(deadline).await;
         self.shutdown.cancel();
-        let (service_tasks_reaped, mut report, remote_cleanup) = tokio::join!(
+        self.model_gateway.stop();
+        let (service_tasks_reaped, mut report, remote_cleanup, gateway_stopped) = tokio::join!(
             self.reap_service_tasks(deadline),
             self.finish_cleanup(deadline),
             tokio::time::timeout_at(deadline, self.client.remote.shutdown()),
+            self.model_gateway.shutdown(deadline),
         );
         if let (Some(report), Some((revoked, tasks_reaped))) = (&mut report, prelude) {
             report.merge_prelude(revoked, tasks_reaped);
         }
         log_shutdown(
             report.as_ref(),
-            service_tasks_reaped && matches!(remote_cleanup, Ok(true)),
+            service_tasks_reaped && gateway_stopped && matches!(remote_cleanup, Ok(true)),
         )
     }
 
