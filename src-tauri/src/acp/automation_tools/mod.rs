@@ -2,6 +2,13 @@ mod helpers;
 mod types;
 
 pub const LIST_SCHEDULED_TASK_PROJECTS_TOOL: &str = "list_scheduled_task_projects";
+pub const REQUIRED_SCHEDULED_TASK_TOOLS: [&str; 5] = [
+    LIST_SCHEDULED_TASK_PROJECTS_TOOL,
+    "list_scheduled_tasks",
+    "create_scheduled_task",
+    "update_scheduled_task",
+    "delete_scheduled_task",
+];
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,7 +25,7 @@ use crate::db::entities::automation::{IsolationMode, TriggerKind};
 use crate::db::entities::folder::FolderKind;
 use crate::db::service::folder_service;
 use crate::db::AppDatabase;
-use crate::models::{AutomationDraft, FolderDetail};
+use crate::models::{AutomationDraft, AutomationInfo, FolderDetail};
 use crate::web::event_bridge::EventEmitter;
 
 use helpers::*;
@@ -151,50 +158,46 @@ impl AutomationAgentService {
         input: CreateInput,
         caller_agent_type: Option<String>,
     ) -> Result<Value, String> {
-        require_text(&input.name, "name")?;
-        require_text(&input.prompt, "prompt")?;
-        require_text(&input.cron, "cron")?;
         let folders = self.folders().await?;
         let folder_id =
             resolve_project_selection(&folders, input.project.as_deref(), input.project_id)?;
-        let raw_agent = input.agent_type.or(caller_agent_type).ok_or(
-            "agent_type is required when the current Agent identity is unavailable".to_string(),
-        )?;
-        let draft = AutomationDraft {
-            name: input.name,
-            enabled: input.enabled,
-            trigger_kind: TriggerKind::Schedule,
-            cron: Some(input.cron),
-            timezone: input.timezone,
-            agent_type: normalize_agent_type(&raw_agent)?,
-            root_folder_id: folder_id,
-            isolation: IsolationMode::SharedInRoot,
-            branch: None,
-            is_remote_branch: false,
-            config: prompt_config(input.prompt)?,
-        };
+        let draft = create_draft(input, caller_agent_type, folder_id)?;
         let task = automation_create_core(&self.emitter, &self.db, &self.data_dir, draft)
             .await
             .map_err(db_error)?;
+        let persisted = self.verify_created_task(task).await?;
         tracing::info!(
-            task_id = task.id,
-            folder_id = ?task.root_folder_id,
-            agent_type = %task.agent_type,
-            enabled = task.enabled,
-            "[automation-tool] task created"
+            task_id = persisted.id,
+            folder_id = ?persisted.root_folder_id,
+            agent_type = %persisted.agent_type,
+            enabled = persisted.enabled,
+            "[automation-tool] task created and verified"
         );
         let result_folders = match self.folders().await {
             Ok(result_folders) => result_folders,
             Err(error) => {
                 tracing::warn!(
-                    task_id = task.id,
+                    task_id = persisted.id,
                     error = %error,
                     "[automation-tool] task project metadata refresh failed"
                 );
                 folders
             }
         };
-        Ok(json!({ "task": task_view(task, &result_folders) }))
+        Ok(json!({
+            "status": "verified",
+            "verified": true,
+            "task": task_view(persisted, &result_folders)
+        }))
+    }
+
+    async fn verify_created_task(&self, created: AutomationInfo) -> Result<AutomationInfo, String> {
+        let persisted = automation_get_core(&self.db, created.id)
+            .await
+            .map_err(|error| verification_error(created.id, db_error(error)))?;
+        verify_created_task(&created, &persisted)
+            .map_err(|error| verification_error(created.id, error))?;
+        Ok(persisted)
     }
 
     async fn update(&self, input: UpdateInput) -> Result<Value, String> {
@@ -259,4 +262,34 @@ fn parse<T: DeserializeOwned>(input: Value) -> Result<T, String> {
 
 fn parse_empty<T: DeserializeOwned>(input: Value) -> Result<T, String> {
     parse(if input.is_null() { json!({}) } else { input })
+}
+
+fn create_draft(
+    input: CreateInput,
+    caller_agent_type: Option<String>,
+    folder_id: Option<i32>,
+) -> Result<AutomationDraft, String> {
+    require_text(&input.name, "name")?;
+    require_text(&input.prompt, "prompt")?;
+    require_text(&input.cron, "cron")?;
+    let raw_agent = input.agent_type.or(caller_agent_type).ok_or(
+        "agent_type is required when the current Agent identity is unavailable".to_string(),
+    )?;
+    Ok(AutomationDraft {
+        name: input.name,
+        enabled: input.enabled,
+        trigger_kind: TriggerKind::Schedule,
+        cron: Some(input.cron),
+        timezone: input.timezone,
+        agent_type: normalize_agent_type(&raw_agent)?,
+        root_folder_id: folder_id,
+        isolation: IsolationMode::SharedInRoot,
+        branch: None,
+        is_remote_branch: false,
+        config: prompt_config(input.prompt)?,
+    })
+}
+
+fn verification_error(task_id: i32, error: impl std::fmt::Display) -> String {
+    format!("task may exist but verification failed for task_id {task_id}: {error}")
 }

@@ -172,6 +172,29 @@ pub(super) fn ensure_scheduled(task: &AutomationInfo) -> Result<(), String> {
         .ok_or_else(|| format!("scheduled task not found: {}", task.id))
 }
 
+pub(super) fn verify_created_task(
+    created: &AutomationInfo,
+    persisted: &AutomationInfo,
+) -> Result<(), String> {
+    let matches = created.id == persisted.id
+        && created.name == persisted.name
+        && created.enabled == persisted.enabled
+        && created.trigger_kind == TriggerKind::Schedule
+        && persisted.trigger_kind == TriggerKind::Schedule
+        && created.cron == persisted.cron
+        && created.timezone == persisted.timezone
+        && created.next_run_at == persisted.next_run_at
+        && created.agent_type == persisted.agent_type
+        && created.root_folder_id == persisted.root_folder_id
+        && created.isolation == persisted.isolation
+        && created.branch == persisted.branch
+        && created.is_remote_branch == persisted.is_remote_branch
+        && created.config == persisted.config;
+    matches
+        .then_some(())
+        .ok_or_else(|| "database read-back did not match the created task".to_string())
+}
+
 fn paths_equal(left: &str, right: &str) -> bool {
     if cfg!(windows) {
         trim_path(left).eq_ignore_ascii_case(trim_path(right))

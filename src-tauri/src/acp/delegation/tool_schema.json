@@ -123,7 +123,7 @@
   },
   {
     "name": "create_scheduled_task",
-    "description": "Create a global iyw-claw scheduled task. Omit project and project_id to use a dedicated persistent folder, or select a regular project. The current Agent is used by default. This operation executes immediately without a confirmation prompt.",
+    "description": "Create a real global iyw-claw scheduled task, not a schedule document or CSV. Use when the user explicitly asks for recurring execution/publishing and the schedule, timezone, executor, prompt, and project choice are known; ask only for missing choices that materially change execution. Omit project and project_id to use a dedicated persistent folder, or select a regular project. The current Agent is used by default. This operation executes immediately without a confirmation prompt. Success returns status=verified, verified=true, and the task read back from the database; never claim creation without this receipt. If the call errors after returning a task_id, list tasks before retrying to avoid duplicates.",
     "inputSchema": {
       "type": "object",
       "required": ["name", "prompt", "cron"],

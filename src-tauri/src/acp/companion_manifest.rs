@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 
-use crate::acp::automation_tools::LIST_SCHEDULED_TASK_PROJECTS_TOOL;
+use crate::acp::automation_tools::REQUIRED_SCHEDULED_TASK_TOOLS;
 use crate::acp::delegation::transport::COMPANION_PROTOCOL_VERSION;
 use crate::acp::image_analysis::ANALYZE_IMAGE_TOOL;
 use crate::user_memory::{CompanionHealthReason, CompanionHealthSnapshot, CompanionHealthStatus};
@@ -84,8 +84,9 @@ fn apply_compatibility(health: &mut CompanionHealthSnapshot, manifest: Companion
 }
 
 fn missing_required_tool(tools: &[String]) -> Option<&'static str> {
-    [ANALYZE_IMAGE_TOOL, LIST_SCHEDULED_TASK_PROJECTS_TOOL]
+    [ANALYZE_IMAGE_TOOL]
         .into_iter()
+        .chain(REQUIRED_SCHEDULED_TASK_TOOLS)
         .find(|required| !tools.iter().any(|tool| tool == *required))
 }
 

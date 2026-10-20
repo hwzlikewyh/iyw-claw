@@ -30,6 +30,17 @@ it is the user's normal workspace without checking the result.
 
 ## Create
 
+An explicit request to run or publish something on a recurring schedule means
+create an iyw-claw scheduled task. A CSV, calendar, document, or generated
+schedule is only supporting material and does not register the task. Do not
+claim that scheduling is complete until create_scheduled_task returns a verified
+receipt containing the task ID and database-read task record.
+
+When the requested local time has no clear timezone, or the project/executor
+choice materially changes where or how the task runs, ask only for that missing
+choice. When those choices are already explicit, create directly without an
+extra confirmation prompt.
+
 `create_scheduled_task` requires a non-empty display `name`, a non-empty
 execution `prompt`, and a five-field cron expression in this order:
 
@@ -44,10 +55,13 @@ starts immediately and defaults to true. Keep prompts self-contained, safe to
 run repeatedly, and free of credentials, tokens, cookies, or untrusted shell
 fragments.
 
-The operation executes immediately according to the current schema. Verify the
-returned task ID, cron, timezone, project association, executor, and enabled
-state. Do not claim the task has run yet merely because it was created; creation
-and first execution are different results.
+The operation executes immediately according to the current schema. Accept
+success only when the result has status verified, verified true, and a task
+record with a positive ID. Check its cron, timezone, project association,
+executor, enabled state, and prompt. If the result includes a task ID but
+verification failed, call list_scheduled_tasks before retrying. Do not claim the
+task has run yet merely because it was created; creation and first execution are
+different results.
 
 ## List and Inspect
 

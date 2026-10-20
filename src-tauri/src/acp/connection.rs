@@ -6865,7 +6865,9 @@ async fn run_conversation_loop<'a>(
                                                                     sid.clone(),
                                                                     vec![ContentBlock::Text(
                                                                         TextContent::new(
-                                                                            if evidence.evidence_kind == "empty_reply" {
+                                                                            if evidence.evidence_kind == "scheduled_task_create" {
+                                                                                auto_continuation::SCHEDULED_TASK_CONTINUATION_PROMPT
+                                                                            } else if evidence.evidence_kind == "empty_reply" {
                                                                                 auto_continuation::EMPTY_CHANNEL_CONTINUATION_PROMPT
                                                                             } else if evidence.evidence_kind == "budget" {
                                                                                 auto_continuation::INTERRUPTED_CONTINUATION_PROMPT
@@ -7299,7 +7301,9 @@ async fn run_conversation_loop<'a>(
                                                     crate::acp::runtime_host_worker_turn::prompt_request(state, PromptRequest::new(
                                                         sid.clone(),
                                                         vec![ContentBlock::Text(TextContent::new(
-                                                            if evidence.evidence_kind == "empty_reply" {
+                                                            if evidence.evidence_kind == "scheduled_task_create" {
+                                                                auto_continuation::SCHEDULED_TASK_CONTINUATION_PROMPT
+                                                            } else if evidence.evidence_kind == "empty_reply" {
                                                                 auto_continuation::EMPTY_CHANNEL_CONTINUATION_PROMPT
                                                             } else if evidence.evidence_kind == "budget" {
                                                                 auto_continuation::INTERRUPTED_CONTINUATION_PROMPT

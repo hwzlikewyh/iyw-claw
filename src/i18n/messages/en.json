@@ -4572,6 +4572,19 @@
         "declined": "You dismissed this — the agent used its own judgment.",
         "noSelection": "No selection"
       },
+      "scheduledTaskResult": {
+        "creating": "Creating and verifying the scheduled task…",
+        "verifiedTitle": "Scheduled task created and verified",
+        "taskId": "Task ID",
+        "schedule": "Schedule",
+        "timezone": "Timezone",
+        "nextRun": "Next run",
+        "pendingNextRun": "Waiting for scheduler",
+        "status": "Status",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "openTasks": "View scheduled tasks"
+      },
       "configStale": {
         "agentConfigTitle": "Agent settings updated",
         "modelProviderTitle": "Model provider updated",

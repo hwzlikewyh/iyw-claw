@@ -59,6 +59,10 @@ import {
 import { OnceEntrance } from "@/components/message/message-entrance"
 import { AgentToolCallPart } from "./agent-tool-call"
 import { AskQuestionResultCard } from "./ask-question-result-card"
+import {
+  parseScheduledTaskReceipt,
+  ScheduledTaskResultCard,
+} from "./scheduled-task-result-card"
 import { CollabAgentCard } from "./collab-agent-card"
 import {
   ContextCompactionCard,
@@ -2405,6 +2409,19 @@ const ToolCallPart = memo(function ToolCallPart({
         state={part.state}
       />
     )
+  }
+  if (toolNameLower === "create_scheduled_task") {
+    const receipt = parseScheduledTaskReceipt(part.output ?? null)
+    const running =
+      part.state === "input-available" || part.state === "input-streaming"
+    if (receipt || running) {
+      return (
+        <ScheduledTaskResultCard
+          output={part.output ?? null}
+          state={part.state}
+        />
+      )
+    }
   }
 
   // iyw-claw-mcp check_user_feedback: render the received steering notes as a

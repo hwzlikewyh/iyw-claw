@@ -4572,6 +4572,19 @@
         "declined": "你已忽略此问题 — 代理已自行判断。",
         "noSelection": "未选择"
       },
+      "scheduledTaskResult": {
+        "creating": "正在创建并核验定时任务…",
+        "verifiedTitle": "定时任务已创建并核验",
+        "taskId": "任务 ID",
+        "schedule": "执行计划",
+        "timezone": "时区",
+        "nextRun": "下次运行",
+        "pendingNextRun": "等待调度计算",
+        "status": "状态",
+        "enabled": "已启用",
+        "disabled": "未启用",
+        "openTasks": "查看定时任务"
+      },
       "configStale": {
         "agentConfigTitle": "智能体配置已更新",
         "modelProviderTitle": "模型供应商已更新",
