@@ -3484,6 +3484,7 @@
           "context": "上下文窗口",
           "compaction": "自动压缩阈值",
           "modelFailed": "所选模型应用失败，请重新选择模型后发送。",
+          "unavailable": "{model}（不可用）",
           "compactionHint": "当前回复结束后应用。可选比例由后台配置，按所选上下文窗口计算，并为输出预留空间。",
           "auto": "自动",
           "behavior": "模型设置",

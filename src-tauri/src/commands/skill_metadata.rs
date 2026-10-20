@@ -2,6 +2,8 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
 
+use crate::acp::skill_routing::repair_legacy_skill_description_content;
+
 const OPENAI_METADATA_PATH: [&str; 2] = ["agents", "openai.yaml"];
 const MAX_OPENAI_METADATA_BYTES: u64 = 64 * 1024;
 const MAX_SKILL_FRONTMATTER_BYTES: u64 = 64 * 1024;
@@ -22,7 +24,7 @@ pub(super) fn repair_market_skill_description(skill_id: &str, source: &Path) {
 pub(super) fn repair_legacy_skill_description(content_path: &Path) -> Result<bool, String> {
     let content = read_text(content_path, MAX_LEGACY_SKILL_BYTES)
         .ok_or_else(|| "failed to read legacy Skill entry within size limit".to_string())?;
-    let Some(repaired) = legacy_skill_description(&content) else {
+    let Some(repaired) = repair_legacy_skill_description_content(&content) else {
         return Ok(false);
     };
     let parent = content_path.parent().ok_or("Skill entry has no parent")?;
@@ -36,34 +38,6 @@ pub(super) fn repair_legacy_skill_description(content_path: &Path) -> Result<boo
         .persist(content_path)
         .map_err(|error| format!("failed to publish legacy Skill repair: {}", error.error))?;
     Ok(true)
-}
-
-fn legacy_skill_description(content: &str) -> Option<String> {
-    let frontmatter = crate::acp::skill_routing::read_frontmatter(content)?;
-    if frontmatter.get("description").is_some() {
-        return None;
-    }
-    let description = [
-        frontmatter.get("summary"),
-        frontmatter.get("short-description"),
-        frontmatter
-            .get("metadata")
-            .and_then(|value| value.get("short-description")),
-    ]
-    .into_iter()
-    .flatten()
-    .filter_map(serde_yaml::Value::as_str)
-    .find(|value| !value.trim().is_empty())?;
-    let description = serde_json::to_string(description.trim()).ok()?;
-    let (opening, rest) = content.split_once('\n')?;
-    let newline = if opening.ends_with('\r') {
-        "\r\n"
-    } else {
-        "\n"
-    };
-    Some(format!(
-        "{opening}\ndescription: {description}{newline}{rest}"
-    ))
 }
 
 pub(super) fn read_skill_display_name(skill_path: &Path, content_path: &Path) -> Option<String> {

@@ -145,6 +145,39 @@ pub fn validate_skill_description(content: &str) -> Result<(), String> {
     }
 }
 
+pub fn validate_install_skill_description(content: &str) -> Result<(), String> {
+    let repaired = repair_legacy_skill_description_content(content);
+    validate_skill_description(repaired.as_deref().unwrap_or(content))
+}
+
+pub fn repair_legacy_skill_description_content(content: &str) -> Option<String> {
+    let frontmatter = read_frontmatter(content)?;
+    if frontmatter.get("description").is_some() {
+        return None;
+    }
+    let description = [
+        frontmatter.get("summary"),
+        frontmatter.get("short-description"),
+        frontmatter
+            .get("metadata")
+            .and_then(|value| value.get("short-description")),
+    ]
+    .into_iter()
+    .flatten()
+    .filter_map(serde_yaml::Value::as_str)
+    .find(|value| !value.trim().is_empty())?;
+    let description = serde_json::to_string(description.trim()).ok()?;
+    let (opening, rest) = content.split_once('\n')?;
+    let newline = if opening.ends_with('\r') {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    Some(format!(
+        "{opening}\ndescription: {description}{newline}{rest}"
+    ))
+}
+
 fn normalize_list(values: &mut Vec<String>) {
     let mut normalized = Vec::with_capacity(values.len());
     for value in values.drain(..) {
