@@ -6,6 +6,8 @@ pub mod default_folder;
 pub mod default_mode;
 pub mod draft;
 pub mod engine;
+#[cfg(feature = "tauri-runtime")]
+pub(crate) mod keep_awake;
 pub mod project_skill;
 pub mod notifications;
 mod notification_message;
