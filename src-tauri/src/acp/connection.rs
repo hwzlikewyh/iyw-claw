@@ -1718,7 +1718,7 @@ pub(crate) async fn spawn_agent_connection(
     crate::wecom_ai::inherit_terminal_environment(&runtime_env, &mut terminal_base_env);
     terminal_environment_stage.finish("ok");
 
-    let (cmd_tx, cmd_rx) = mpsc::channel::<ConnectionCommand>(32);
+    let (cmd_tx, mut cmd_rx) = mpsc::channel::<ConnectionCommand>(32);
     let cancellation = tokio_util::sync::CancellationToken::new();
     let disconnect_command_ready = Arc::new(AtomicBool::new(false));
     let http_lease_issued = Arc::new(AtomicBool::new(false));
@@ -1792,7 +1792,7 @@ pub(crate) async fn spawn_agent_connection(
                 session_id,
                 database_conversation_id,
                 recovery_in_progress_for_run,
-                cmd_rx,
+                &mut cmd_rx,
                 emitter_clone.clone(),
                 Arc::clone(&state_clone),
                 terminal_base_env,
@@ -1928,6 +1928,8 @@ pub(crate) async fn spawn_agent_connection(
             },
         )
         .await;
+        // 先保存终止原因再关闭命令通道，让等待启动的调用方能读取具体错误。
+        drop(cmd_rx);
         // `_cleanup` is dropped here — removes the connection entry from
         // the manager map. Same drop semantics apply on panic unwinding.
     });
@@ -3333,7 +3335,7 @@ async fn run_connection(
     session_id: Option<String>,
     database_conversation_id: Option<i32>,
     recovery_in_progress: Arc<RecoveryProgress>,
-    mut cmd_rx: mpsc::Receiver<ConnectionCommand>,
+    mut cmd_rx: &mut mpsc::Receiver<ConnectionCommand>,
     emitter: EventEmitter,
     state: Arc<RwLock<SessionState>>,
     terminal_base_env: BTreeMap<String, String>,

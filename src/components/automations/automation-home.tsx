@@ -190,6 +190,7 @@ export function AutomationHome({
               initialStatus={runStatus}
               automations={automations}
               onSelectTask={selectTask}
+              onEditTask={editTask}
               onChanged={refetch}
             />
           )}

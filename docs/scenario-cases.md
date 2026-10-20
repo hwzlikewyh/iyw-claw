@@ -1,5 +1,21 @@
 # 首页场景案例
 
+## 2026-10-20 案例素材扩展
+
+用户已确认扩展格式，并要求复用现有能力。案例支持新增 TXT/CSV/JSON、
+SVG/BMP/AVIF、MOV/M4V、MP3/WAV/OGG/M4A/AAC/FLAC，以及 Office 原文件。
+音视频复用 MediaPreview，PDF 沿用 PdfPreview，纯文本/CSV 复用
+WorkspaceFilePreview。文本与 Markdown 共用原有受 2 MiB 限制的加载流程。
+Office 原文件显示文件名及打开/下载按钮，复用 platform.openUrl；
+音视频播放受文件编码和浏览器支持限制，始终提供原文件入口。
+
+素材类型增加 audio/text/file；Rust 已使用字符串转发，JSON 字段和数据库结构不变。
+需协调更新客户端与 Fusion，旧客户端无法渲染新增类型。Fusion 验收及完整范围见
+`../../iyw-fusion-api/docs/scenario-case-formats.md`。本轮未发布或部署。
+定向 ESLint、TypeScript（无增量缓存）及 diff 检查通过；沿详情读取、素材分组、
+切换、失败重试和资源释放完成静态审查。未运行或新增客户端自动化测试；
+新格式真实云端上传、桌面外部打开及音视频实际编码播放尚未实测。
+
 ## 已确认设计（2026-10-12）
 
 用户已确认开始实现。入口、分类案例列表、详情和一键做同款严格遵循

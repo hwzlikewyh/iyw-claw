@@ -229,7 +229,14 @@ async fn wait_for_launch_finalization(
         };
         tokio::select! {
             _ = notified => {}
-            _ = cmd_tx.closed() => return Err(AcpError::ProcessExited),
+            _ = cmd_tx.closed() => {
+                let snapshot = state.read().await;
+                return Err(snapshot
+                    .last_error
+                    .as_ref()
+                    .map(|error| AcpError::protocol(error.message.clone()))
+                    .unwrap_or(AcpError::ProcessExited));
+            }
         }
     }
 }
