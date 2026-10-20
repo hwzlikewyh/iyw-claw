@@ -20,6 +20,7 @@ import {
 import { useConversationAutomationDraft } from "./use-conversation-automation-draft"
 import { useAutomationChannels } from "./use-automation-channels"
 import { useAutomationHistory } from "./use-automation-history"
+import { useAutomationErrorMessage } from "./automation-run-error"
 
 type View = "tasks" | "runs" | "detail" | "gallery" | "editor"
 type Editing = {
@@ -30,6 +31,7 @@ type Editing = {
 
 export function useAutomationWorkspace() {
   const t = useTranslations("Automations")
+  const errorMessage = useAutomationErrorMessage()
   const { automations, unseenFailures, refetch } = useAutomationsView()
   const folders = useAppWorkspaceStore((store) => store.folders)
   const { channels } = useAutomationChannels()
@@ -83,7 +85,7 @@ export function useAutomationWorkspace() {
       await action()
       await refetch()
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : String(cause))
+      toast.error(errorMessage(cause))
     } finally {
       setBusy(false)
     }

@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { useLocale, useTranslations } from "next-intl"
 import type { Automation, AutomationRun } from "@/lib/types"
 import { AutomationRunNotification } from "./automation-run-actions"
+import { useAutomationErrorMessage } from "./automation-run-error"
 import {
   AutomationStatus,
   dateTime,
@@ -27,6 +28,7 @@ export function AutomationHistoryRows({
 }: HistoryRowsProps) {
   const t = useTranslations("Automations")
   const locale = useLocale()
+  const errorMessage = useAutomationErrorMessage()
   return automation ? (
     <ol className={styles.timeline}>
       {runs.map((run) => (
@@ -64,7 +66,9 @@ export function AutomationHistoryRows({
                   : "my-3 line-clamp-4 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground"
               }
             >
-              {run.error || run.summary || t("runNumber", { id: run.id })}
+              {run.error
+                ? errorMessage(run.error)
+                : run.summary || t("runNumber", { id: run.id })}
             </p>
             <AutomationRunNotification run={run} />
             {actions(run)}
@@ -99,6 +103,11 @@ export function AutomationHistoryRows({
                 >
                   {taskFor(run)?.name || t("taskRemoved")}
                 </button>
+                {run.error && (
+                  <p className="mt-1 max-w-sm whitespace-pre-wrap text-xs text-destructive">
+                    {errorMessage(run.error)}
+                  </p>
+                )}
               </td>
               <td>
                 <AutomationStatus

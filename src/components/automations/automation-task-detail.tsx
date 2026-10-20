@@ -135,6 +135,7 @@ export function AutomationTaskDetail({
         automations={automations}
         onChanged={onChanged}
         onSelectTask={() => {}}
+        onEditTask={onEdit}
       />
     </div>
   )

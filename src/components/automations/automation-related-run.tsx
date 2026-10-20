@@ -11,6 +11,7 @@ import {
 import type { AutomationRun } from "@/lib/types"
 import { AutomationStatus, dateTime } from "./automation-presentation"
 import { AutomationRunNotification } from "./automation-run-actions"
+import { useAutomationErrorMessage } from "./automation-run-error"
 
 export function AutomationRelatedRun({
   run,
@@ -21,6 +22,7 @@ export function AutomationRelatedRun({
 }) {
   const t = useTranslations("Automations")
   const locale = useLocale()
+  const errorMessage = useAutomationErrorMessage()
   return (
     <Dialog
       open
@@ -37,7 +39,9 @@ export function AutomationRelatedRun({
         </DialogHeader>
         <AutomationStatus status={run.status} retry={run.trigger === "retry"} />
         <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
-          {run.error || run.summary || t("noConversation")}
+          {run.error
+            ? errorMessage(run.error)
+            : run.summary || t("noConversation")}
         </p>
         <AutomationRunNotification run={run} />
       </DialogContent>

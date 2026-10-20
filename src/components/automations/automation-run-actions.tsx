@@ -1,9 +1,10 @@
 "use client"
 
-import { RotateCw, SquareArrowOutUpRight, X } from "lucide-react"
+import { Pencil, RotateCw, SquareArrowOutUpRight, X } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import type { AutomationRun } from "@/lib/types"
+import { unavailableAutomationModel } from "./automation-run-error"
 
 export function AutomationRunActions({
   run,
@@ -11,6 +12,7 @@ export function AutomationRunActions({
   active,
   onRetry,
   onCancel,
+  onEdit,
   onOpen,
   onRelated,
 }: {
@@ -19,12 +21,27 @@ export function AutomationRunActions({
   active: boolean
   onRetry: () => void
   onCancel: () => void
+  onEdit?: () => void
   onOpen?: () => void
   onRelated: (id: number) => void
 }) {
   const t = useTranslations("Automations")
   return (
     <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
+      {run.status === "failed" &&
+        unavailableAutomationModel(run.error) &&
+        onEdit && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 text-xs text-primary"
+            disabled={busy || active}
+            onClick={onEdit}
+          >
+            <Pencil className="size-3" />
+            {t("changeModel")}
+          </Button>
+        )}
       {run.retry_of_run_id != null && (
         <Button
           size="sm"

@@ -24,22 +24,26 @@ import { AutomationRetryDialog } from "./automation-retry-dialog"
 import { RUN_PAGE_SIZE, useAutomationHistory } from "./use-automation-history"
 import { AutomationHistoryRows } from "./automation-history-rows"
 import { AutomationRelatedRun } from "./automation-related-run"
+import { useAutomationErrorMessage } from "./automation-run-error"
 import styles from "./automation-workspace.module.css"
 
 export function AutomationHistory({
   automations,
   automation,
   onSelectTask,
+  onEditTask,
   onChanged,
   initialStatus = "all",
 }: {
   automations: Automation[]
   automation?: Automation
   onSelectTask: (task: Automation) => void
+  onEditTask: (task: Automation) => void
   onChanged: () => Promise<void>
   initialStatus?: string
 }) {
   const t = useTranslations("Automations")
+  const errorMessage = useAutomationErrorMessage()
   const { openTab } = useTabActions()
   const { openConversations } = useWorkbenchRoute()
   const [filters, setFilters] = useState<RunFiltersValue>({
@@ -80,7 +84,7 @@ export function AutomationHistory({
       await reload()
       await onChanged()
     } catch (cause) {
-      toast.error(cause instanceof Error ? cause.message : String(cause))
+      toast.error(errorMessage(cause))
     } finally {
       setBusy(false)
     }
@@ -110,6 +114,7 @@ export function AutomationHistory({
       active={taskFor(run)?.last_run_status === "running"}
       onRetry={() => setRetry({ runs: [run], batch: false })}
       onCancel={() => void perform(() => automationCancelRun(run.id))}
+      onEdit={taskFor(run) ? () => onEditTask(taskFor(run)!) : undefined}
       onRelated={related}
       onOpen={
         run.conversation_id != null
