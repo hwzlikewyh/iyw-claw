@@ -30,7 +30,8 @@ function shouldShowFiles(
     files.length > 1 ||
     (!hasSteps &&
       assets.some(
-        (item) => item.label || item.kind === "pdf" || item.kind === "markdown"
+        (item) =>
+          item.label || ["pdf", "markdown", "text", "file"].includes(item.kind)
       ))
   )
 }

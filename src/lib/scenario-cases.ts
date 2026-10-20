@@ -19,7 +19,7 @@ export interface ScenarioCaseAsset {
   label?: string | null
   step?: string | null
   fileName: string
-  kind: "image" | "pdf" | "video" | "markdown"
+  kind: "image" | "pdf" | "video" | "audio" | "markdown" | "text" | "file"
   url: string
   expiresAt: string
 }
