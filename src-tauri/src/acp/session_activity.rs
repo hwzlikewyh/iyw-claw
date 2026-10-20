@@ -44,6 +44,7 @@ pub struct SessionActivitySnapshot {
 pub struct SessionActivity {
     pub(super) snapshot: SessionActivitySnapshot,
     pub(super) llm_wait_started_at: Option<DateTime<Utc>>,
+    pub(super) completed_at: Option<DateTime<Utc>>,
     last_emitted: Option<Instant>,
     pub(super) urgent: bool,
 }
@@ -57,6 +58,13 @@ impl SessionActivity {
         let mut snapshot = self.snapshot.clone();
         snapshot.sampled_at = Utc::now();
         snapshot
+    }
+
+    pub fn completed_snapshot(&self) -> Option<SessionActivitySnapshot> {
+        let mut snapshot = self.snapshot.clone();
+        snapshot.started_at?;
+        snapshot.sampled_at = self.completed_at?;
+        Some(snapshot)
     }
 
     pub fn take_update(&mut self) -> Option<SessionActivitySnapshot> {
@@ -114,6 +122,7 @@ impl SessionActivity {
             return;
         }
         let processes = std::mem::take(&mut self.snapshot.processes);
+        self.completed_at = None;
         self.llm_wait_started_at = Some(now);
         self.snapshot = SessionActivitySnapshot {
             turn_generation: generation,

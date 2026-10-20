@@ -138,6 +138,7 @@ pub mod terminal_runtime;
 pub mod transcript;
 pub mod trusted_agents;
 pub(crate) mod turn_output;
+pub(crate) mod turn_timing;
 pub mod types;
 pub mod version_center;
 #[cfg(windows)]

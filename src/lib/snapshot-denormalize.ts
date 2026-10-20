@@ -1,4 +1,5 @@
 import type { InteractiveHtmlState } from "@/lib/types"
+import { liveTurnStartedAt } from "@/lib/turn-duration"
 import {
   observeSessionActivity,
   type ObservedSessionActivity,
@@ -103,10 +104,20 @@ export function denormalizeSnapshot(wire: LiveSessionSnapshot): SnapshotPatch {
   for (const tc of wire.active_tool_calls) {
     toolMap.set(tc.id, tc)
   }
+  const activity = observeSessionActivity(wire.activity, true)
+  const liveMessage = wire.live_message
+    ? denormalizeLiveMessage(wire.live_message, toolMap)
+    : null
+  if (liveMessage && activity?.snapshot.started_at) {
+    liveMessage.startedAt = liveTurnStartedAt(
+      activity.snapshot,
+      activity.receivedAt
+    )
+  }
 
   return {
     connectionId: wire.connection_id,
-    activity: observeSessionActivity(wire.activity, true),
+    activity,
     status: wire.status,
     sessionId: wire.external_id,
     modes: wire.modes,
@@ -119,9 +130,7 @@ export function denormalizeSnapshot(wire: LiveSessionSnapshot): SnapshotPatch {
     compactionPending:
       wire.compaction_pending === true ||
       wire.usage?.compaction_pending === true,
-    liveMessage: wire.live_message
-      ? denormalizeLiveMessage(wire.live_message, toolMap)
-      : null,
+    liveMessage,
     pendingPermission: wire.pending_permission
       ? {
           request_id: wire.pending_permission.request_id,

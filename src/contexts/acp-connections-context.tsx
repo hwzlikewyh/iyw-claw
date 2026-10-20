@@ -23,7 +23,7 @@ import type {
 } from "@/lib/transport/types"
 import { randomUUID } from "@/lib/utils"
 import { alignTurnTimings, observeTurnTiming } from "@/lib/turn-performance"
-import { completeLiveTurnTiming } from "@/lib/turn-duration"
+import { completeLiveTurnTiming, liveTurnStartedAt } from "@/lib/turn-duration"
 import { settleLiveBackgroundTask } from "@/lib/background-agent"
 import { inferLiveToolName } from "@/lib/tool-call-normalization"
 import {
@@ -427,6 +427,7 @@ type Action =
       type: "STATUS_CHANGED"
       contextKey: string
       status: ConnectionStatus
+      startedAt?: number
       completedActivity?: SessionActivitySnapshot | null
     }
   | {
@@ -1140,13 +1141,16 @@ function dedupeCommandsByName(
  * (status is already prompting in the snapshot), so without this fallback
  * the reducer would drop every subsequent delta / tool call / plan update.
  */
-function ensureLiveMessage(prev: LiveMessage | null): LiveMessage {
+function ensureLiveMessage(
+  prev: LiveMessage | null,
+  activity?: ObservedSessionActivity | null
+): LiveMessage {
   if (prev) return prev
   return {
     id: randomUUID(),
     role: "assistant",
     content: [],
-    startedAt: Date.now(),
+    startedAt: liveTurnStartedAt(activity?.snapshot, activity?.receivedAt),
     firstTextAt: null,
   }
 }
@@ -1162,7 +1166,7 @@ function applyStreamingAction(
   // redact thinking text entirely, keeping the empty block as the signal).
   if (action.type === "CONTENT_DELTA" && action.text.length === 0) return null
 
-  const prev = ensureLiveMessage(conn.liveMessage)
+  const prev = ensureLiveMessage(conn.liveMessage, conn.activity)
   const lastBlock = prev.content[prev.content.length - 1]
   let newContent: LiveContentBlock[] | null = null
 
@@ -1591,7 +1595,7 @@ function connectionsReducer(
             block.type === "user_input" && block.messageId === action.item.id
         )
       ) {
-        const source = liveMessage ?? ensureLiveMessage(null)
+        const source = liveMessage ?? ensureLiveMessage(null, current.activity)
         const blocks: UserMessageBlock[] = action.item.payload.blocks
           .filter(
             (block): block is Extract<PromptInputBlock, { type: "image" }> =>
@@ -1632,7 +1636,7 @@ function connectionsReducer(
     case "TURN_TIMING_OBSERVED": {
       const current = state.get(action.contextKey)
       if (!current || current.status !== "prompting") return state
-      const previous = ensureLiveMessage(current.liveMessage)
+      const previous = ensureLiveMessage(current.liveMessage, current.activity)
       const liveMessage = observeTurnTiming(previous, action.event)
       if (liveMessage === previous) return state
       const next = new Map(state)
@@ -1680,7 +1684,7 @@ function connectionsReducer(
     case "CONTENT_RECOVERED": {
       const conn = state.get(action.contextKey)
       if (!conn) return state
-      const live = conn.liveMessage ?? ensureLiveMessage(null)
+      const live = conn.liveMessage ?? ensureLiveMessage(null, conn.activity)
       const next = new Map(state)
       next.set(action.contextKey, {
         ...conn,
@@ -1703,7 +1707,7 @@ function connectionsReducer(
             id: randomUUID(),
             role: "assistant",
             content: [],
-            startedAt: Date.now(),
+            startedAt: action.startedAt ?? Date.now(),
           }
         }
         updated.pendingQuestion = null
@@ -1863,7 +1867,7 @@ function connectionsReducer(
         })
         return next
       }
-      const prev = ensureLiveMessage(conn.liveMessage)
+      const prev = ensureLiveMessage(conn.liveMessage, conn.activity)
       const existingIndex = prev.content.findIndex(
         (b) =>
           b.type === "tool_call" && b.info.tool_call_id === action.tool_call_id
@@ -1983,7 +1987,7 @@ function connectionsReducer(
         })
         return next
       }
-      const prev = ensureLiveMessage(conn.liveMessage)
+      const prev = ensureLiveMessage(conn.liveMessage, conn.activity)
       const existingIndex = prev.content.findIndex(
         (b) =>
           b.type === "tool_call" && b.info.tool_call_id === action.tool_call_id
@@ -2512,7 +2516,7 @@ function connectionsReducer(
       const conn = state.get(action.contextKey)
       if (!conn) return state
       if (conn.status !== "prompting") return state
-      const prev = ensureLiveMessage(conn.liveMessage)
+      const prev = ensureLiveMessage(conn.liveMessage, conn.activity)
       const nonPlanContent = prev.content.filter(
         (block) => block.type !== "plan"
       )
@@ -3702,7 +3706,15 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
           if (e.status === "disconnected") {
             balanceRefreshConnectionsRef.current.delete(e.connection_id)
           }
-          dispatch({ type: "STATUS_CHANGED", contextKey, status: e.status })
+          dispatch({
+            type: "STATUS_CHANGED",
+            contextKey,
+            status: e.status,
+            startedAt:
+              e.status === "prompting"
+                ? liveTurnStartedAt(e.activity)
+                : undefined,
+          })
           break
         case "content_recovered":
           flushStreamingQueue()
