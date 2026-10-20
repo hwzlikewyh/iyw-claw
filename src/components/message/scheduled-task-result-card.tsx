@@ -132,7 +132,7 @@ function findReceipt(value: unknown, depth: number): Record<string, unknown> | n
 
 function parseJson(value: unknown): unknown {
   if (typeof value !== "string" || !value.trim()) return value
-  const body = value.split(/Output:\r?\n/).at(-1)?.trim() ?? value.trim()
+  const body = value.split(/Output:\r?\n/).pop()?.trim() ?? value.trim()
   try { return JSON.parse(body) } catch { return null }
 }
 

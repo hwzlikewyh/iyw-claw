@@ -33,7 +33,7 @@ pub(super) async fn install(
     let valid =
         tokio::task::spawn_blocking(move || super::market_cache::valid(&cache_path, &cache_digest))
             .await
-            .map_err(|_| AppCommandError::io("连接器文件校验任务失败"))?;
+            .map_err(|_| AppCommandError::io_error("连接器文件校验任务失败"))?;
     if valid {
         return Ok(destination);
     }
@@ -50,7 +50,7 @@ pub(super) async fn install(
     let digest = digest.to_string();
     tokio::task::spawn_blocking(move || activate(&root, &digest, (&filename, bytes)))
         .await
-        .map_err(|_| AppCommandError::io("连接器文件安装任务失败"))?
+        .map_err(|_| AppCommandError::io_error("连接器文件安装任务失败"))?
 }
 
 fn activate(
@@ -166,7 +166,7 @@ fn executable(path: &Path) -> Result<(), AppCommandError> {
 
 fn storage_error(error: std::io::Error) -> AppCommandError {
     tracing::warn!(kind=?error.kind(), os_code=error.raw_os_error(), "[MCP] 写入连接器受管文件失败");
-    AppCommandError::io("无法写入连接器受管文件目录")
+    AppCommandError::io_error("无法写入连接器受管文件目录")
 }
 
 async fn download(
