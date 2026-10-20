@@ -22,6 +22,8 @@
     "createUpdaterArtifacts": true,
     "externalBin": ["binaries/iyw-environment"],
     "targets": "nsis",
+    "publisher": "厦门市虹约产品设计有限公司",
+    "copyright": "Copyright (c) 厦门市虹约产品设计有限公司",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
