@@ -20,6 +20,13 @@ pub(crate) use runtime::refresh_running_sessions;
 #[cfg(feature = "tauri-runtime")]
 pub(crate) use runtime::refresh_tauri;
 pub(crate) use xinghe::project_preferences as project_xinghe_preferences;
+mod market;
+mod market_artifact;
+mod market_cache;
+mod market_install;
+mod market_types;
+mod market_parameters;
+pub(crate) use market_parameters::hydrate_spec as hydrate_market_spec;
 
 const MARKETPLACE_OFFICIAL: &str = "official_registry";
 const MARKETPLACE_SMITHERY: &str = "smithery";
@@ -49,7 +56,7 @@ fn mcp_network(message: impl Into<String>) -> AppCommandError {
     AppCommandError::network(message)
 }
 
-fn require_private_agent_storage_for_write() -> Result<(), AppCommandError> {
+pub(super) fn require_private_agent_storage_for_write() -> Result<(), AppCommandError> {
     let paths = crate::acp::agent_storage::AgentStoragePaths::active().ok_or_else(|| {
         AppCommandError::agent_storage_not_initialized(
             "Agent storage is not initialized. Choose a private storage directory in Agent Settings.",
@@ -197,56 +204,67 @@ pub async fn mcp_scan_local_core(
     Ok(catalog
         .servers
         .into_iter()
-        .map(|(id, entry)| LocalMcpServer {
+        .map(|(id, entry)| {
+            let display_name = entry.display_name.or_else(|| entry.spec["iyw_market"]["name"].as_str().map(str::to_owned));
+            let description = entry.description.or_else(|| entry.spec["iyw_market"]["description"].as_str().map(str::to_owned));
+            LocalMcpServer {
             apps: apps_by_id.get(&id).cloned().unwrap_or_default(),
             id,
             spec: entry.spec,
             enabled: entry.enabled,
-            display_name: entry.display_name,
-            description: entry.description,
+            display_name,
+            description,
             missing_config: entry.missing_config,
             sources: entry.sources.into_values().collect(),
-        })
+        }})
         .collect())
 }
 
 #[cfg_attr(feature = "tauri-runtime", tauri::command)]
 pub async fn mcp_list_marketplaces() -> Result<Vec<McpMarketplaceProvider>, AppCommandError> {
-    Ok(vec![
-        McpMarketplaceProvider {
-            id: MARKETPLACE_OFFICIAL.to_string(),
-            name: "Official MCP Registry".to_string(),
-            description: "registry.modelcontextprotocol.io official MCP server registry"
-                .to_string(),
-        },
-        McpMarketplaceProvider {
-            id: MARKETPLACE_SMITHERY.to_string(),
-            name: "Smithery".to_string(),
-            description: "smithery.ai MCP server marketplace".to_string(),
-        },
-    ])
+    Ok(vec![McpMarketplaceProvider {
+        id: market::PROVIDER.to_string(), name: "爱原物连接器市场".to_string(),
+        description: "由爱原物网关统一发布的连接器和安装资料".to_string(),
+    }])
 }
 
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
 pub async fn mcp_search_marketplace(
     provider_id: String,
     query: Option<String>,
     limit: Option<u32>,
+    db: tauri::State<'_, crate::db::AppDatabase>,
 ) -> Result<Vec<McpMarketplaceItem>, AppCommandError> {
-    let q = query.unwrap_or_default();
-    let max = limit.unwrap_or(30).clamp(1, 100);
-
-    match provider_id.as_str() {
-        MARKETPLACE_OFFICIAL => search_official_registry(&q, max).await,
-        MARKETPLACE_SMITHERY => search_smithery(&q, max).await,
-        _ => Err(mcp_invalid_input(format!(
-            "unsupported marketplace provider: {provider_id}"
-        ))),
-    }
+    mcp_search_marketplace_core(&db.conn, (provider_id, query, limit)).await
 }
 
-#[cfg_attr(feature = "tauri-runtime", tauri::command)]
+pub async fn mcp_search_marketplace_core(
+    conn: &DatabaseConnection,
+    input: (String, Option<String>, Option<u32>),
+) -> Result<Vec<McpMarketplaceItem>, AppCommandError> {
+    if input.0 != market::PROVIDER { return Err(mcp_invalid_input("仅支持爱原物连接器市场")); }
+    market::search(conn, &input.1.unwrap_or_default(), input.2.unwrap_or(100).clamp(1, 1000) as usize).await
+}
+
+#[cfg(feature = "tauri-runtime")]
+#[tauri::command]
 pub async fn mcp_get_marketplace_server_detail(
+    provider_id: String, server_id: String,
+    db: tauri::State<'_, crate::db::AppDatabase>,
+) -> Result<McpMarketplaceServerDetail, AppCommandError> {
+    mcp_get_marketplace_server_detail_core(&db.conn, provider_id, server_id).await
+}
+
+pub async fn mcp_get_marketplace_server_detail_core(
+    conn: &DatabaseConnection, provider_id: String, server_id: String,
+) -> Result<McpMarketplaceServerDetail, AppCommandError> {
+    if provider_id != market::PROVIDER { return Err(mcp_invalid_input("仅支持爱原物连接器市场")); }
+    market::detail(conn, &server_id).await
+}
+
+#[allow(dead_code)]
+async fn legacy_marketplace_server_detail(
     provider_id: String,
     server_id: String,
 ) -> Result<McpMarketplaceServerDetail, AppCommandError> {
@@ -455,26 +473,16 @@ pub async fn mcp_install_from_marketplace_core(
 ) -> Result<LocalMcpServer, AppCommandError> {
     require_private_agent_storage_for_write()?;
     let selection = InstallSelection::new(option_id, protocol, parameter_values)?;
-    let canonical_spec = if let Some(raw_spec) = spec_override.as_ref() {
-        canonicalize_spec(raw_spec, "marketplace install override")?
-    } else {
-        match provider_id.as_str() {
-            MARKETPLACE_OFFICIAL => {
-                let detail = fetch_official_server_detail(&server_id).await?;
-                resolve_official_install_spec_with_selection(&detail.server, &selection)?
-            }
-            MARKETPLACE_SMITHERY => {
-                let detail = fetch_smithery_server_detail(&server_id).await?;
-                resolve_smithery_install_spec_with_selection(&detail, &selection)?
-            }
-            _ => {
-                return Err(mcp_invalid_input(format!(
-                    "unsupported marketplace provider: {provider_id}"
-                )));
-            }
-        }
-    };
+    if provider_id != market::PROVIDER { return Err(mcp_invalid_input("仅支持爱原物连接器市场")); }
+    if spec_override.is_some() { return Err(mcp_invalid_input("市场安装请通过参数表单配置；自定义配置使用手动添加")); }
+    let old_secret = market::require_market_slot(conn, &server_id).await?;
+    let canonical_spec = market_install::install(conn, &server_id, &selection).await?;
     upsert_managed_server_and_reconcile(conn, &server_id, canonical_spec).await?;
+    if let Some(key) = old_secret {
+        if crate::keyring_store::delete_connector_secret(&key).is_err() {
+            tracing::warn!(connector=%server_id, "[MCP] 旧连接器凭据清理失败");
+        }
+    }
     find_managed_server(conn, &server_id).await
 }
 
@@ -544,6 +552,10 @@ pub async fn mcp_remove_server_core(
             .await?;
     if removed.is_none() {
         return Ok(false);
+    }
+    if let Some(key) = removed.as_ref().and_then(|entry| entry.spec["iyw_secret_ref"].as_str()) {
+        crate::keyring_store::delete_connector_secret(key)
+            .map_err(|_| mcp_configuration_invalid("连接器已卸载，但安全存储中的凭据未能清除"))?;
     }
     super::mcp_sync::reconcile_all_managed_mcp_unlocked(conn).await?;
     Ok(true)
@@ -1584,7 +1596,7 @@ fn codex_entry_to_canonical(id: &str, value: &toml::Value) -> Result<Value, AppC
     canonicalize_spec(&Value::Object(spec), "Codex config")
 }
 
-fn canonical_to_codex_entry(spec: &Value) -> Result<toml::Value, AppCommandError> {
+pub(crate) fn canonical_to_codex_entry(spec: &Value) -> Result<toml::Value, AppCommandError> {
     let canonical = canonicalize_spec(spec, "Codex conversion")?;
     let obj = canonical
         .as_object()

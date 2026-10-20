@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useCallback, useState } from "react"
+import { Suspense, useCallback, useEffect, useState } from "react"
 import {
   CapabilityMarketShell,
   type CapabilityMarketSection,
@@ -12,8 +12,13 @@ import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { cn } from "@/lib/utils"
 
 export function SkillMarketPage() {
-  const { skillMarketTarget, consumeSkillMarketTarget, openSkillMarket } =
-    useWorkbenchRoute()
+  const {
+    skillMarketTarget,
+    consumeSkillMarketTarget,
+    openSkillMarket,
+    connectorMarketRequested,
+    consumeConnectorMarket,
+  } = useWorkbenchRoute()
   const [section, setSection] = useState<CapabilityMarketSection>("skills")
   const [visited, setVisited] = useState<Set<CapabilityMarketSection>>(
     () => new Set(["skills"])
@@ -26,6 +31,20 @@ export function SkillMarketPage() {
     })
     setSection(next)
   }, [])
+
+  useEffect(() => {
+    let active = true
+    if (connectorMarketRequested)
+      queueMicrotask(() => {
+        if (active) {
+          openSection("connectors")
+          consumeConnectorMarket()
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [connectorMarketRequested, consumeConnectorMarket, openSection])
 
   return (
     <Suspense fallback={null}>

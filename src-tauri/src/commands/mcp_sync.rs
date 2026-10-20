@@ -54,7 +54,7 @@ where
         if !entry.managed {
             continue;
         }
-        if agent_enabled && entry.enabled {
+        if agent_enabled && entry.enabled && entry.spec.get("iyw_market").is_none() {
             if let Err(error) = upsert(server_id, &entry.spec) {
                 failures.push(format_reconcile_failure("upsert", server_id, &error));
             }
@@ -172,8 +172,10 @@ fn reconcile_agent_with_catalog(
     agent_type: AgentType,
     agent_enabled: bool,
 ) -> Result<(), AppCommandError> {
+    let mut session_catalog = catalog.clone();
+    for entry in session_catalog.servers.values_mut() { entry.enabled = false; }
     reconcile_catalog_for_agent_with(
-        catalog,
+        &session_catalog,
         agent_enabled,
         |server_id, spec| super::mcp::upsert_server_for_agent_type(agent_type, server_id, spec),
         |server_id| super::mcp::remove_server_for_agent_type(agent_type, server_id),

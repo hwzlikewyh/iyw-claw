@@ -69,6 +69,33 @@ pub struct RemoveServerParams {
     pub server_id: String,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OAuthParams {
+    attempt_id: String,
+}
+
+pub async fn mcp_oauth_begin(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<RemoveServerParams>,
+) -> Result<Json<crate::commands::mcp_oauth::OAuthStatus>, AppCommandError> {
+    crate::commands::mcp_oauth::begin(&state.db.conn, params.server_id)
+        .await
+        .map(Json)
+}
+
+pub async fn mcp_oauth_status(
+    Json(params): Json<OAuthParams>,
+) -> Result<Json<crate::commands::mcp_oauth::OAuthStatus>, AppCommandError> {
+    crate::commands::mcp_oauth::status(&params.attempt_id).map(Json)
+}
+
+pub async fn mcp_oauth_cancel(
+    Json(params): Json<OAuthParams>,
+) -> Result<Json<crate::commands::mcp_oauth::OAuthStatus>, AppCommandError> {
+    crate::commands::mcp_oauth::cancel(&params.attempt_id).map(Json)
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -85,21 +112,61 @@ pub async fn mcp_list_marketplaces() -> Result<Json<Vec<McpMarketplaceProvider>>
     Ok(Json(result))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationConnectorQuery {
+    conversation_id: Option<i32>,
+    agent_type: Option<crate::models::AgentType>,
+}
+
+pub async fn mcp_conversation_get(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<ConversationConnectorQuery>,
+) -> Result<Json<crate::commands::mcp_conversation::ConversationConnectors>, AppCommandError> {
+    crate::commands::mcp_conversation::query(
+        &state.db.conn,
+        (params.conversation_id, params.agent_type),
+    )
+    .await
+    .map(Json)
+}
+
+#[derive(Deserialize)]
+pub struct ConversationConnectorUpdate {
+    input: crate::commands::mcp_conversation::UpdateConnectors,
+}
+
+pub async fn mcp_conversation_set(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<ConversationConnectorUpdate>,
+) -> Result<Json<crate::commands::mcp_conversation::ConversationConnectors>, AppCommandError> {
+    crate::commands::mcp_conversation::update(&state.db.conn, params.input)
+        .await
+        .map(Json)
+}
+
 pub async fn mcp_search_marketplace(
+    Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<SearchMarketplaceParams>,
 ) -> Result<Json<Vec<McpMarketplaceItem>>, AppCommandError> {
-    let result =
-        mcp_commands::mcp_search_marketplace(params.provider_id, params.query, params.limit)
-            .await?;
+    let result = mcp_commands::mcp_search_marketplace_core(
+        &state.db.conn,
+        (params.provider_id, params.query, params.limit),
+    )
+    .await?;
     Ok(Json(result))
 }
 
 pub async fn mcp_get_marketplace_server_detail(
+    Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<GetMarketplaceServerDetailParams>,
 ) -> Result<Json<McpMarketplaceServerDetail>, AppCommandError> {
-    let result =
-        mcp_commands::mcp_get_marketplace_server_detail(params.provider_id, params.server_id)
-            .await?;
+    let result = mcp_commands::mcp_get_marketplace_server_detail_core(
+        &state.db.conn,
+        params.provider_id,
+        params.server_id,
+    )
+    .await?;
     Ok(Json(result))
 }
 
@@ -148,8 +215,7 @@ pub async fn mcp_set_server_apps(
     Json(params): Json<SetServerAppsParams>,
 ) -> Result<Json<Option<LocalMcpServer>>, AppCommandError> {
     let result =
-        mcp_commands::mcp_set_server_apps_core(&state.db.conn, params.server_id, params.apps)
-            .await;
+        mcp_commands::mcp_set_server_apps_core(&state.db.conn, params.server_id, params.apps).await;
     refresh_running_sessions(&state).await;
     result.map(Json)
 }
