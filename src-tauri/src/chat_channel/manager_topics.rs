@@ -39,7 +39,10 @@ impl ChatChannelManager {
         &self,
         channel_id: i32,
     ) -> Result<AttachmentCapability, ChatChannelError> {
-        Ok(self.backend_for(channel_id).await?.attachment_capability())
+        if let Ok(backend) = self.backend_for(channel_id).await {
+            return Ok(backend.attachment_capability());
+        }
+        super::outbound::attachment_capability(self, channel_id).await
     }
 
     pub async fn send_attachment_to_target(
@@ -47,10 +50,21 @@ impl ChatChannelManager {
         target: &ChannelMessageTarget,
         attachment: &ChannelAttachment,
     ) -> Result<SentMessageId, ChatChannelError> {
-        self.backend_for(target.channel_id)
-            .await?
-            .send_attachment_to(attachment, target)
-            .await
+        let capability = self.attachment_capability(target.channel_id).await?;
+        if !capability.supported {
+            return Err(ChatChannelError::Unsupported(
+                "Attachments unavailable".into(),
+            ));
+        }
+        if let Some(limit) = capability.max_file_bytes {
+            attachment.validate(limit)?;
+        }
+        super::outbound::send(
+            self,
+            target,
+            super::outbound::Content::File(attachment.clone()),
+        )
+        .await
     }
 
     pub async fn send_to_target(
@@ -58,10 +72,25 @@ impl ChatChannelManager {
         target: &ChannelMessageTarget,
         message: &RichMessage,
     ) -> Result<SentMessageId, ChatChannelError> {
-        self.backend_for(target.channel_id)
-            .await?
-            .send_rich_message_to(message, target)
-            .await
+        super::outbound::send(
+            self,
+            target,
+            super::outbound::Content::Text(message.clone()),
+        )
+        .await
+    }
+
+    pub(crate) async fn send_progress_to_target(
+        &self,
+        target: &ChannelMessageTarget,
+        progress: (&str, Option<String>),
+    ) -> Result<SentMessageId, ChatChannelError> {
+        super::outbound::send(
+            self,
+            target,
+            super::outbound::Content::Progress(RichMessage::info(progress.0), progress.1),
+        )
+        .await
     }
 
     pub async fn send_interactive_to_target(
@@ -69,10 +98,17 @@ impl ChatChannelManager {
         target: &ChannelMessageTarget,
         message: &InteractiveMessage,
     ) -> Result<SentMessageId, ChatChannelError> {
-        self.backend_for(target.channel_id)
-            .await?
-            .send_interactive_message_to(message, target)
-            .await
+        match self.backend_for(target.channel_id).await {
+            Ok(backend)
+                if backend.status().await == super::types::ChannelConnectionStatus::Connected =>
+            {
+                backend.send_interactive_message_to(message, target).await
+            }
+            _ => {
+                self.send_to_target(target, &message.to_rich_fallback())
+                    .await
+            }
+        }
     }
 
     pub async fn create_thread(

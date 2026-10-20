@@ -8,6 +8,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::manager::ChatChannelManager;
 use super::types::ChannelMessageTarget;
+#[path = "typing/presence.rs"]
+mod presence;
 
 const REFRESH_INTERVAL: Duration = Duration::from_secs(2);
 

@@ -41,6 +41,7 @@ struct Inner {
     data_dir: Mutex<Option<PathBuf>>,
     typing: TypingController,
     session_bridge: Arc<Mutex<SessionBridge>>,
+    delivery: std::sync::OnceLock<Arc<super::outbound::Runtime>>,
 }
 
 pub struct ChatChannelManager {
@@ -69,6 +70,7 @@ impl ChatChannelManager {
                 data_dir: Mutex::new(None),
                 typing: TypingController::default(),
                 session_bridge: Arc::new(Mutex::new(SessionBridge::new())),
+                delivery: std::sync::OnceLock::new(),
             }),
         }
     }
@@ -98,6 +100,10 @@ impl ChatChannelManager {
 
     pub(crate) fn typing_controller(&self) -> TypingController {
         self.inner.typing.clone()
+    }
+
+    pub(super) fn delivery_runtime(&self) -> Option<Arc<super::outbound::Runtime>> {
+        self.inner.delivery.get().cloned()
     }
 
     async fn stop_typing_for_channel(&self, channel_id: i32) {
@@ -473,6 +479,13 @@ impl ChatChannelManager {
         emitter: EventEmitter,
     ) {
         self.set_data_dir(data_dir.clone()).await;
+        let delivery = Arc::new(super::outbound::Runtime::new(
+            db_conn.clone(),
+            data_dir.clone(),
+        ));
+        if self.inner.delivery.set(delivery.clone()).is_ok() {
+            super::outbound::spawn(self.clone_ref(), delivery).await;
+        }
         // Store broadcaster for status event emission
         *self.inner.broadcaster.lock().await = Some(broadcaster.clone());
 
@@ -510,7 +523,9 @@ impl ChatChannelManager {
 
         // 渠道任务汇报独立于 Agent 事件和命令队列运行。
         super::task_progress::spawn(super::task_progress::Runtime {
-            channels: self.clone_ref(), connections: conn_mgr.clone_ref(), db: db_conn.clone(),
+            channels: self.clone_ref(),
+            connections: conn_mgr.clone_ref(),
+            db: db_conn.clone(),
         });
 
         // Spawn command dispatcher

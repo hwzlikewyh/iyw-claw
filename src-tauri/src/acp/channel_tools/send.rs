@@ -167,11 +167,12 @@ impl ChannelToolService {
             item.files.is_empty(),
         )?;
         let message_queued = sent.error.as_deref() == Some("CHANNEL_DELIVERY_QUEUED");
-        if message_queued {
-            status = if item.files.is_empty() {
-                "queued"
-            } else {
+        let files_queued = file_results.iter().any(|file| file.status == "queued");
+        if message_queued || files_queued {
+            status = if delivered {
                 "partial_success"
+            } else {
+                "queued"
             };
         }
         let file_error = first_file_error(&file_results);
@@ -197,9 +198,6 @@ impl ChannelToolService {
             .ok_or_else(|| "CHANNEL_NOT_FOUND".to_string())?;
         if !channel.enabled {
             return Err("CHANNEL_DISABLED".to_string());
-        }
-        if channel.runtime_status != "connected" || !self.manager.is_connected(channel_id).await {
-            return Err("CHANNEL_NOT_CONNECTED".to_string());
         }
         Ok(())
     }

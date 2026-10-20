@@ -4,6 +4,7 @@ mod inbound;
 mod media;
 mod protocol;
 mod runtime;
+mod sending;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -136,10 +137,10 @@ impl DingtalkBackend {
         let payload = target.provider_payload.as_ref().ok_or_else(|| {
             ChatChannelError::ConfigurationInvalid("DingTalk reply context is missing".into())
         })?;
-        let webhook = protocol::string_field(payload, "session_webhook")?;
-        if protocol::webhook_expired(payload) {
+        if protocol::webhook_expired(payload) || payload["session_webhook"].as_str().is_none() {
             return self.send_openapi_text(text, target).await;
         }
+        let webhook = protocol::string_field(payload, "session_webhook")?;
         let response = self
             .client
             .post(webhook)
@@ -148,19 +149,15 @@ impl DingtalkBackend {
                 "markdown": { "title": "iyw-claw", "text": text },
             }))
             .send()
-            .await;
-        let response = match response {
-            Ok(response) => response,
-            Err(error) => {
-                tracing::warn!(
-                    channel_id = self.channel_id,
-                    error = %redact_transport_error(&error),
-                    "[DingTalk] session webhook unavailable; falling back to OpenAPI"
-                );
-                return self.send_openapi_text(text, target).await;
-            }
-        };
-        if response.status().is_success() {
+            .await
+            .map_err(|error| {
+                if error.is_connect() {
+                    ChatChannelError::NotConnected
+                } else {
+                    ChatChannelError::SendFailed("DELIVERY_UNKNOWN:DINGTALK_WEBHOOK".into())
+                }
+            })?;
+        if sending::session_accepted(response).await? {
             return Ok(SentMessageId(format!(
                 "dingtalk-session-{}",
                 uuid::Uuid::new_v4()
@@ -168,8 +165,7 @@ impl DingtalkBackend {
         }
         tracing::warn!(
             channel_id = self.channel_id,
-            http_status = %response.status(),
-            "[DingTalk] session webhook failed; falling back to OpenAPI"
+            "[DingTalk] session webhook rejected; falling back to OpenAPI"
         );
         self.send_openapi_text(text, target).await
     }

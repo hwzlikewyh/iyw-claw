@@ -11,7 +11,11 @@ pub fn failure(message: impl Into<String>) -> ChatChannelError {
 }
 
 pub fn transport(error: reqwest::Error) -> ChatChannelError {
-    failure(error.without_url().to_string())
+    if error.is_connect() {
+        ChatChannelError::NotConnected
+    } else {
+        failure(error.without_url().to_string())
+    }
 }
 
 pub async fn json(response: reqwest::Response) -> Result<Value, ChatChannelError> {

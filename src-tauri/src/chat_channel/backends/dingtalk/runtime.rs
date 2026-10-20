@@ -13,7 +13,7 @@ use crate::chat_channel::types::{ChannelConnectionStatus, ChannelRuntimeEvent, I
 const MAX_RECONNECT_DELAY_SECS: u64 = 30;
 const REGISTRATION_TIMEOUT: Duration = Duration::from_secs(15);
 const STABLE_SESSION_DURATION: Duration = Duration::from_secs(30);
-const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(120);
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(60);
 const READ_IDLE_TIMEOUT: Duration = Duration::from_secs(130);
 
 pub(super) type DingTalkSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;

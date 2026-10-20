@@ -152,6 +152,14 @@ impl ChannelToolService {
                 "Attachment delivery timed out".into(),
             ))
         });
+        if matches!(
+            &result,
+            Err(crate::chat_channel::error::ChatChannelError::DeliveryDeferred(_))
+        ) {
+            file.result.status = "queued";
+            file.result.error = Some("CHANNEL_DELIVERY_QUEUED");
+            return Ok(());
+        }
         let receipt = result.map_err(|error| {
             tracing::warn!(channel_id = target.channel_id, mime_type = %file.result.mime_type,
                 bytes = ?file.result.bytes, error_category = error.category(), error = %error,
@@ -188,7 +196,9 @@ fn attachment_error(error: &crate::chat_channel::error::ChatChannelError) -> &'s
         ChatChannelError::NotConnected => "CHANNEL_NOT_CONNECTED",
         _ if message.contains("TARGET_CONTEXT_EXPIRED") => "TARGET_CONTEXT_EXPIRED",
         _ if message.contains("TARGET_NOT_SENDABLE") => "TARGET_NOT_SENDABLE",
-        _ if message.contains("timed out") => "ATTACHMENT_DELIVERY_UNKNOWN",
+        _ if message.contains("timed out") || message.contains("DELIVERY_UNKNOWN") => {
+            "ATTACHMENT_DELIVERY_UNKNOWN"
+        }
         _ => "ATTACHMENT_SEND_FAILED",
     }
 }

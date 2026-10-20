@@ -221,7 +221,11 @@ fn provider_message(value: &str) -> &str {
 }
 
 pub(super) fn transport_error(context: &str, error: reqwest::Error) -> ChatChannelError {
-    ChatChannelError::ConnectionFailed(format!("{context}: {}", error.without_url()))
+    if error.is_connect() {
+        ChatChannelError::NotConnected
+    } else {
+        ChatChannelError::ConnectionFailed(format!("{context}: {}", error.without_url()))
+    }
 }
 
 impl From<SendError> for ChatChannelError {

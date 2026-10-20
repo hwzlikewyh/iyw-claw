@@ -1,6 +1,9 @@
 mod attachments;
+mod heartbeat;
 mod inbound;
 mod interactive;
+mod sending;
+mod upload;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,7 +24,6 @@ use crate::chat_channel::types::*;
 const TOKEN_REFRESH_MARGIN_SECS: u64 = 300;
 const LARK_MAX_FILE_BYTES: u64 = 30 * 1024 * 1024;
 const WS_PING_INTERVAL: Duration = Duration::from_secs(120);
-const WS_READ_IDLE_TIMEOUT: Duration = Duration::from_secs(245);
 
 // ── Lark WebSocket protobuf Frame (pbbp2) ──
 // Source: larksuite/oapi-sdk-go ws/pbbp2.pb.go
@@ -94,29 +96,18 @@ struct SendMessageRequest {
     receive_id: String,
     msg_type: String,
     content: String,
+    uuid: String,
 }
 
 #[derive(Deserialize)]
 struct SendMessageResponse {
     code: i32,
-    msg: String,
     data: Option<SendMessageData>,
 }
 
 #[derive(Deserialize)]
 struct SendMessageData {
     message_id: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct UploadFileResponse {
-    code: i32,
-    data: Option<UploadFileData>,
-}
-
-#[derive(Deserialize)]
-struct UploadFileData {
-    file_key: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -130,6 +121,8 @@ struct WsConnectResponse {
 struct WsConnectData {
     #[serde(rename = "URL")]
     url: Option<String>,
+    #[serde(rename = "ClientConfig", default)]
+    client_config: serde_json::Value,
 }
 
 // ── Token cache ──
@@ -262,72 +255,17 @@ impl LarkBackend {
                 "Lark target chat is empty".to_string(),
             ));
         }
-        let token = self.get_tenant_access_token().await?;
-
-        let resp = self
-            .client
-            .post(format!(
-                "{}/open-apis/im/v1/messages?receive_id_type=chat_id",
-                self.api_base_url
-            ))
-            .header("Authorization", format!("Bearer {}", token))
-            .json(&SendMessageRequest {
-                receive_id: chat_id.to_string(),
-                msg_type: msg_type.to_string(),
-                content: content.to_string(),
-            })
-            .send()
-            .await
-            .map_err(|e| ChatChannelError::SendFailed(e.to_string()))?;
-
-        let result: SendMessageResponse = resp
-            .json()
-            .await
-            .map_err(|e| ChatChannelError::SendFailed(e.to_string()))?;
-
-        if result.code != 0 {
-            return Err(ChatChannelError::SendFailed(format!(
-                "code={}, msg={}",
-                result.code, result.msg
-            )));
-        }
-
-        let message_id = result.data.and_then(|d| d.message_id).unwrap_or_default();
-        Ok(SentMessageId(message_id))
+        self.send_message_request(SendMessageRequest {
+            receive_id: chat_id.to_string(),
+            msg_type: msg_type.to_string(),
+            content: content.to_string(),
+            uuid: uuid::Uuid::new_v4().to_string(),
+        })
+        .await
     }
 
     async fn upload_file(&self, file: &ChannelAttachment) -> Result<String, ChatChannelError> {
-        let token = self.get_tenant_access_token().await?;
-        let part = reqwest::multipart::Part::bytes(file.bytes.to_vec())
-            .file_name(file.name.clone())
-            .mime_str(&file.mime_type)
-            .map_err(|_| ChatChannelError::SendFailed("invalid attachment MIME type".into()))?;
-        let form = reqwest::multipart::Form::new()
-            .text("file_type", "stream")
-            .text("file_name", file.name.clone())
-            .part("file", part);
-        let response = self
-            .client
-            .post(format!("{}/open-apis/im/v1/files", self.api_base_url))
-            .header("Authorization", format!("Bearer {token}"))
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|error| ChatChannelError::SendFailed(error.to_string()))?;
-        let result: UploadFileResponse = response
-            .json()
-            .await
-            .map_err(|error| ChatChannelError::SendFailed(error.to_string()))?;
-        if result.code != 0 {
-            return Err(ChatChannelError::SendFailed(format!(
-                "provider code {}",
-                result.code
-            )));
-        }
-        result
-            .data
-            .and_then(|data| data.file_key)
-            .ok_or_else(|| ChatChannelError::SendFailed("provider file key missing".into()))
+        self.upload_attachment(file, false).await
     }
 
     async fn start_ws_receiver(
@@ -346,15 +284,14 @@ impl LarkBackend {
             &self.app_secret,
         )
         .await?;
-        let (initial_stream, _) =
-            tokio_tungstenite::connect_async(&ws_url)
-                .await
-                .map_err(|error| {
-                    ChatChannelError::ConnectionFailed(format!(
-                        "Lark WebSocket handshake failed: {}",
-                        redact_transport_error(&error)
-                    ))
-                })?;
+        let (initial_stream, _) = tokio_tungstenite::connect_async(&ws_url.url)
+            .await
+            .map_err(|error| {
+                ChatChannelError::ConnectionFailed(format!(
+                    "Lark WebSocket handshake failed: {}",
+                    redact_transport_error(&error)
+                ))
+            })?;
 
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
         *self.shutdown_tx.lock().await = Some(shutdown_tx);
@@ -378,6 +315,7 @@ impl LarkBackend {
         tokio::spawn(async move {
             let mut retry_count = 0u32;
             let mut next_stream = Some(initial_stream);
+            let mut settings = ws_url;
 
             loop {
                 if *shutdown_rx.borrow() {
@@ -411,7 +349,7 @@ impl LarkBackend {
                             }
                         };
                         let connect_result = tokio::select! {
-                            result = tokio_tungstenite::connect_async(&ws_url) => Some(result),
+                            result = tokio_tungstenite::connect_async(&ws_url.url) => Some(result),
                             _ = shutdown_rx.changed() => None,
                         };
                         match connect_result {
@@ -421,6 +359,7 @@ impl LarkBackend {
                                     break;
                                 }
                                 retry_count = 0;
+                                settings = ws_url;
                                 let recovered = set_transport_status(
                                     &status,
                                     ChannelConnectionStatus::Connected,
@@ -461,16 +400,16 @@ impl LarkBackend {
                 let (mut write, mut read) = ws_stream.split();
                 let mut partial_msgs: HashMap<String, PartialMessage> = HashMap::new();
                 let mut last_partial_cleanup = Instant::now();
-                let mut heartbeat = tokio::time::interval(WS_PING_INTERVAL);
+                let mut heartbeat = tokio::time::interval(settings.ping);
                 heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 heartbeat.tick().await;
-                let idle = tokio::time::sleep(WS_READ_IDLE_TIMEOUT);
+                let idle = tokio::time::sleep(settings.idle_timeout());
                 tokio::pin!(idle);
 
                 loop {
                     tokio::select! {
                         msg = read.next() => {
-                            idle.as_mut().reset(tokio::time::Instant::now() + WS_READ_IDLE_TIMEOUT);
+                            idle.as_mut().reset(tokio::time::Instant::now() + settings.idle_timeout());
                             match msg {
                                 Some(Ok(tungstenite::Message::Binary(data))) => {
                                     match Frame::decode(data.as_ref()) {
@@ -478,6 +417,17 @@ impl LarkBackend {
                                             let frame_type = frame.get_header("type").unwrap_or("").to_string();
 
                                             if frame.method == FRAME_METHOD_CONTROL {
+                                                if frame_type == "pong" {
+                                                    if let Ok(config) = serde_json::from_slice(&frame.payload) {
+                                                        if let Some(ping) = heartbeat::interval(&config) {
+                                                            settings.ping = ping;
+                                                            heartbeat = tokio::time::interval(ping);
+                                                            heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                                                            heartbeat.tick().await;
+                                                            idle.as_mut().reset(tokio::time::Instant::now() + settings.idle_timeout());
+                                                        }
+                                                    }
+                                                }
                                                 // Control frame: ping → respond with pong
                                                 if frame_type == "ping" {
                                                     let mut pong = frame.clone();
@@ -588,7 +538,8 @@ impl LarkBackend {
                             }
                         }
                         _ = heartbeat.tick() => {
-                            if let Err(error) = write.send(tungstenite::Message::Ping(Vec::new().into())).await {
+                            let ping = settings.ping_frame().encode_to_vec();
+                            if let Err(error) = write.send(tungstenite::Message::Binary(ping.into())).await {
                                 report_transport_error(
                                     &status,
                                     &runtime_tx,
@@ -856,7 +807,7 @@ async fn fetch_ws_url(
     api_base_url: &str,
     app_id: &str,
     app_secret: &str,
-) -> Result<String, ChatChannelError> {
+) -> Result<heartbeat::Endpoint, ChatChannelError> {
     let resp = client
         .post(format!("{api_base_url}/callback/ws/endpoint"))
         .json(&serde_json::json!({
@@ -879,19 +830,32 @@ async fn fetch_ws_url(
         )));
     }
 
-    ws_resp
+    let data = ws_resp
         .data
-        .and_then(|d| d.url)
-        .ok_or_else(|| ChatChannelError::ConnectionFailed("No WebSocket URL returned".into()))
+        .ok_or_else(|| ChatChannelError::ConnectionFailed("No WebSocket data returned".into()))?;
+    let url = data
+        .url
+        .ok_or_else(|| ChatChannelError::ConnectionFailed("No WebSocket URL returned".into()))?;
+    heartbeat::Endpoint::new(url, &data.client_config)
 }
 
 #[async_trait]
 impl ChatChannelBackend for LarkBackend {
     async fn send_interactive_message_to(
-        &self, message: &InteractiveMessage, target: &ChannelMessageTarget,
+        &self,
+        message: &InteractiveMessage,
+        target: &ChannelMessageTarget,
     ) -> Result<SentMessageId, ChatChannelError> {
-        let chat_id = target.chat_id.as_deref().ok_or_else(|| ChatChannelError::SendFailed("Lark target missing".into()))?;
-        self.send_lark_message_to(chat_id, "interactive", &interactive::card(message).to_string()).await
+        let chat_id = target
+            .chat_id
+            .as_deref()
+            .ok_or_else(|| ChatChannelError::SendFailed("Lark target missing".into()))?;
+        self.send_lark_message_to(
+            chat_id,
+            "interactive",
+            &interactive::card(message).to_string(),
+        )
+        .await
     }
     fn channel_type(&self) -> ChannelType {
         ChannelType::Lark
@@ -1017,7 +981,7 @@ impl ChatChannelBackend for LarkBackend {
             &self.app_secret,
         )
         .await?;
-        let (mut stream, _) = tokio_tungstenite::connect_async(&ws_url)
+        let (mut stream, _) = tokio_tungstenite::connect_async(&ws_url.url)
             .await
             .map_err(|error| {
                 ChatChannelError::ConnectionFailed(format!(

@@ -4,7 +4,7 @@ use tokio::sync::Semaphore;
 
 use super::{snapshot, Runtime};
 use crate::chat_channel::task_context::{self, TaskContext};
-use crate::chat_channel::types::{ChannelMessageTarget, ChannelType, RichMessage};
+use crate::chat_channel::types::{ChannelMessageTarget, ChannelType};
 use crate::db::service::{
     chat_channel_service, chat_channel_target_service, sender_context_service,
 };
@@ -29,6 +29,7 @@ fn terminal(phase: &str) -> bool {
 async fn evaluate(runtime: &Runtime, task: &TaskContext) {
     let view = snapshot::view(runtime, task).await;
     let phase = view["phase"].as_str().unwrap_or("unknown");
+    super::presence::sync(runtime, task, phase).await;
     if terminal(phase) {
         // 普通回合沿用既有结果交付；后台任务在整体结束后追加一次收尾。
         if task.background.detached && phase != "superseded" {
@@ -81,7 +82,7 @@ async fn send(runtime: &Runtime, task: &TaskContext, is_terminal: bool) -> bool 
     if terminal(phase) != is_terminal || phase == "settling" {
         return false;
     }
-    let text = snapshot::text(&fresh);
+    let text = notification(&fresh, &current, is_terminal);
     let target = match delivery_target(runtime, &current, is_terminal).await {
         Ok(target) => target,
         Err(error) => {
@@ -93,7 +94,12 @@ async fn send(runtime: &Runtime, task: &TaskContext, is_terminal: bool) -> bool 
     if task_context::tracked(&task.id).is_none_or(|value| value.revision != task.revision) {
         return false;
     }
-    let outcome = deliver(&runtime.channels, &target, &text).await;
+    let outcome = deliver(
+        &runtime.channels,
+        &target,
+        (&text, (!is_terminal).then(|| task.id.clone())),
+    )
+    .await;
     task_context::update(&task.id, |value| {
         value.next_due = Instant::now() + value.interval;
         value.summary_sent_at = current.summary_at;
@@ -107,14 +113,23 @@ async fn send(runtime: &Runtime, task: &TaskContext, is_terminal: bool) -> bool 
     accepted
 }
 
+fn notification(value: &serde_json::Value, task: &TaskContext, terminal: bool) -> String {
+    if !terminal && task.summary_at.is_some() && task.summary_at != task.summary_sent_at {
+        if let Some(summary) = task.summary.as_deref() {
+            return format!("{}\n{summary}", task.origin.title);
+        }
+    }
+    snapshot::text(value)
+}
+
 async fn deliver(
     manager: &super::ChatChannelManager,
     target: &ChannelMessageTarget,
-    text: &str,
+    progress: (&str, Option<String>),
 ) -> Outcome {
     match tokio::time::timeout(
         SEND_TIMEOUT,
-        manager.send_to_target(target, &RichMessage::info(text)),
+        manager.send_progress_to_target(target, progress),
     )
     .await
     {

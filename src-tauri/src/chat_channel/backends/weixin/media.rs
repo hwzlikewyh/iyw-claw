@@ -65,10 +65,9 @@ impl WeixinBackend {
             .as_deref()
             .filter(|id| !id.is_empty())
             .ok_or_else(|| failure("Weixin media target is missing"))?;
-        let context = self
-            .context_token_for(target, to)
-            .await
-            .ok_or_else(|| failure("TARGET_CONTEXT_EXPIRED: Weixin target has no reply context"))?;
+        let context = self.context_token_for(target, to).await.ok_or_else(|| {
+            ChatChannelError::DeliveryDeferred("TARGET_CONTEXT_UNAVAILABLE".into())
+        })?;
         let upload = Upload::new(to, file)?;
         let url = self.upload_url(&upload).await?;
         let parameter = upload_ciphertext(&url, &upload.ciphertext).await?;
@@ -142,19 +141,17 @@ impl WeixinBackend {
         let bytes = media_http::read_limited(response, 1024 * 1024).await?;
         let result: Value = serde_json::from_slice(&bytes)
             .map_err(|_| failure("Weixin media reply is not JSON"))?;
-        for field in ["ret", "errcode"] {
-            let code = result[field].as_i64().unwrap_or(0);
-            if matches!(code, -2 | -14) {
-                let _ = crate::db::service::sender_context_service::clear_weixin_context_token_if_matches(
-                    &self.database, self.channel_id, to, context).await;
-                return Err(failure("TARGET_CONTEXT_EXPIRED"));
-            }
-            if code != 0 {
-                return Err(failure(format!(
-                    "Weixin media send rejected: {field}={code}"
-                )));
-            }
+        if super::delivery_error::context_expired(&result) {
+            let _ =
+                crate::db::service::sender_context_service::clear_weixin_context_token_if_matches(
+                    &self.database,
+                    self.channel_id,
+                    to,
+                    context,
+                )
+                .await;
         }
+        super::delivery_error::check(&result)?;
         Ok(SentMessageId(String::new()))
     }
 }

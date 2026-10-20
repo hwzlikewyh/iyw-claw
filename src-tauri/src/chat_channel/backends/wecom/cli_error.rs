@@ -11,6 +11,9 @@ pub(super) fn from_process_failure(
     stderr: &str,
     args: &[&str],
 ) -> ChatChannelError {
+    if stdout.contains("853004") || stderr.contains("853004") {
+        return ChatChannelError::DeliveryDeferred("CLI_CREDENTIAL_REFRESH_PENDING".into());
+    }
     let raw_detail = if stderr.trim().is_empty() {
         stdout
     } else {
@@ -37,6 +40,9 @@ pub(super) fn from_process_failure(
 }
 
 pub(super) fn from_provider_failure(code: i64, message: &str, args: &[&str]) -> ChatChannelError {
+    if code == 853004 {
+        return ChatChannelError::DeliveryDeferred("CLI_CREDENTIAL_REFRESH_PENDING".into());
+    }
     if message.contains("该接口不存在") || message.contains("找不到目标方法") {
         return ChatChannelError::ConfigurationInvalid(
             "企业微信 CLI 命令与托管版本不兼容，请更新应用后重新连接渠道".into(),

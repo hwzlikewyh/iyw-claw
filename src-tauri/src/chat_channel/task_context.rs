@@ -25,7 +25,7 @@ pub(crate) struct PreparedOrigin {
     pub route: Route,
     pub channel_type: ChannelType,
     pub title: String,
-    pub report_seconds: u64,
+    pub report_seconds: Option<u64>,
     pub prior_delegations: HashSet<String>,
     pub accepted_event_seq: u64,
 }
@@ -156,7 +156,8 @@ pub(crate) fn accept(
 fn new_task(connection_id: &str, generation: i64, origin: PreparedOrigin) -> TaskContext {
     let id = uuid::Uuid::new_v4().to_string();
     let started = Instant::now();
-    let seconds = origin.report_seconds;
+    let periodic = origin.report_seconds.is_some();
+    let seconds = origin.report_seconds.unwrap_or(DEFAULT_REPORT_SECONDS);
     TaskContext {
         id: id.clone(),
         connection_id: connection_id.to_string(),
@@ -164,7 +165,7 @@ fn new_task(connection_id: &str, generation: i64, origin: PreparedOrigin) -> Tas
         origin,
         started,
         interval: Duration::from_secs(seconds),
-        periodic: true,
+        periodic,
         next_due: started + Duration::from_secs(seconds),
         last_sent: None,
         summary: None,

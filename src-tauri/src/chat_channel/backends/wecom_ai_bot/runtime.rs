@@ -170,9 +170,11 @@ async fn queue_outbound(
         return Ok(());
     };
     if pending.len() >= MAX_PENDING_ACKS || pending.contains_key(&req_id) {
-        let _ = request.result_tx.send(Err(ChatChannelError::SendFailed(
-            "WeCom outbound acknowledgement queue is full".into(),
-        )));
+        let _ = request
+            .result_tx
+            .send(Err(ChatChannelError::DeliveryDeferred(
+                "WeCom outbound acknowledgement queue is full".into(),
+            )));
         return Ok(());
     }
     if let Err(error) = protocol::write_json(write, request.frame).await {
@@ -198,7 +200,9 @@ fn resolve_provider_ack(pending: &mut HashMap<String, PendingAck>, ack: protocol
         return;
     };
     let result = match ack.error {
-        Some(error) => Err(ChatChannelError::SendFailed(error)),
+        Some(error) => Err(ChatChannelError::SendFailed(format!(
+            "PROVIDER_REJECTED:WECOM:{error}"
+        ))),
         None => Ok(ack.body),
     };
     let _ = pending.result_tx.send(result);

@@ -15,6 +15,7 @@ use crate::chat_channel::traits::ChatChannelBackend;
 use crate::chat_channel::types::*;
 use crate::db::service::sender_context_service;
 
+mod delivery_error;
 mod inbound;
 mod media;
 mod media_crypto;
@@ -152,7 +153,9 @@ async fn expire_reply_context(req: &SendRequest<'_>) {
         );
     }
     if let Some(ref mut context) = *req.reply_context.lock().await {
-        context.expired = true;
+        if context.to_user_id == req.to_user_id && context.context_token == req.context_token {
+            context.expired = true;
+        }
     }
 }
 
@@ -539,7 +542,7 @@ impl WeixinBackend {
             .json(&body)
             .send()
             .await
-            .map_err(|e| ChatChannelError::SendFailed(e.to_string()))?;
+            .map_err(crate::chat_channel::media_http::transport)?;
 
         let status_code = resp.status();
         let resp_text = resp.text().await.unwrap_or_default();
@@ -550,25 +553,10 @@ impl WeixinBackend {
 
         let response: serde_json::Value = serde_json::from_str(&resp_text)
             .map_err(|_| ChatChannelError::SendFailed("provider returned invalid JSON".into()))?;
-        let code = response_code(&response).unwrap_or(0);
-        if code == -14 {
-            return Err(ChatChannelError::AuthenticationFailed(
-                "Weixin session expired; re-authentication required".into(),
-            ));
-        }
-        if code == -2 {
+        if delivery_error::context_expired(&response) {
             expire_reply_context(&req).await;
-            return Err(ChatChannelError::DeliveryDeferred(
-                "TARGET_CONTEXT_EXPIRED".to_string(),
-            ));
         }
-        if code != 0 {
-            return Err(ChatChannelError::SendFailed(format!(
-                "provider code {code}"
-            )));
-        }
-
-        Ok(())
+        delivery_error::check(&response)
     }
 
     async fn enqueue_deferred(
@@ -586,8 +574,9 @@ impl WeixinBackend {
         &self,
         to_user_id: &str,
         context_token: &str,
-        text: &str,
+        content: (&str, bool),
     ) -> Result<SentMessageId, ChatChannelError> {
+        let (text, managed) = content;
         let result = Self::do_send(SendRequest {
             client: &self.client,
             base_url: &self.base_url,
@@ -606,7 +595,7 @@ impl WeixinBackend {
                 "weixin-{}",
                 uuid::Uuid::new_v4().simple()
             ))),
-            Err(ChatChannelError::DeliveryDeferred(_)) => {
+            Err(ChatChannelError::DeliveryDeferred(_)) if !managed => {
                 self.enqueue_deferred(to_user_id, text).await
             }
             Err(error) => Err(error),
@@ -640,7 +629,8 @@ impl WeixinBackend {
             "[Weixin] sending message"
         );
 
-        self.send_or_defer(&to_user_id, &context_token, text).await
+        self.send_or_defer(&to_user_id, &context_token, (text, false))
+            .await
     }
 
     async fn send_text_to(
@@ -651,30 +641,24 @@ impl WeixinBackend {
         let to_user_id = target.chat_id.as_deref().ok_or_else(|| {
             ChatChannelError::ConfigurationInvalid("WeChat target user is missing".to_string())
         })?;
-        let target_context_token = target
+        let managed = target
             .provider_payload
             .as_ref()
-            .and_then(|payload| payload.get("context_token"))
-            .and_then(serde_json::Value::as_str)
-            .filter(|token| !token.is_empty());
-        // The in-flight target is the source of truth for a reply. When a
-        // backend has restarted, the sender-scoped persisted token restores
-        // delivery for targets that only retain the recipient id.
-        let context_token = match target_context_token {
-            Some(token) => token.to_string(),
-            None => sender_context_service::get_weixin_context_token(
-                &self.database,
-                self.channel_id,
-                to_user_id,
-            )
+            .is_some_and(|payload| payload["iyw_managed_delivery"] == true);
+        let context_token = self
+            .context_token_for(target, to_user_id)
             .await
-            .map_err(|error| ChatChannelError::SendFailed(error.to_string()))?
-            .unwrap_or_default(),
-        };
+            .unwrap_or_default();
         if context_token.is_empty() {
+            if managed {
+                return Err(ChatChannelError::DeliveryDeferred(
+                    "TARGET_CONTEXT_UNAVAILABLE".into(),
+                ));
+            }
             return self.enqueue_deferred(to_user_id, text).await;
         }
-        self.send_or_defer(to_user_id, &context_token, text).await
+        self.send_or_defer(to_user_id, &context_token, (text, managed))
+            .await
     }
 
     async fn context_token_for(
@@ -682,6 +666,17 @@ impl WeixinBackend {
         target: &ChannelMessageTarget,
         user_id: &str,
     ) -> Option<String> {
+        if let Ok(Some(token)) = sender_context_service::get_weixin_context_token(
+            &self.database,
+            self.channel_id,
+            user_id,
+        )
+        .await
+        {
+            if !token.is_empty() {
+                return Some(token);
+            }
+        }
         if let Some(token) = target
             .provider_payload
             .as_ref()
@@ -758,11 +753,7 @@ impl WeixinBackend {
         if !status.is_success() {
             return Err(ChatChannelError::SendFailed(format!("HTTP {status}")));
         }
-        let code = value
-            .get("ret")
-            .or_else(|| value.get("errcode"))
-            .and_then(serde_json::Value::as_i64)
-            .unwrap_or(0);
+        let code = response_code(&value).unwrap_or(0);
         if code != 0 {
             return Err(ChatChannelError::SendFailed(format!(
                 "provider code {code}"
@@ -830,7 +821,17 @@ impl ChatChannelBackend for WeixinBackend {
         })?;
         let ticket = self.typing_ticket(target, user_id).await?;
         let status = if is_typing { TYPING_START } else { TYPING_STOP };
-        self.send_typing_status(user_id, &ticket, status).await
+        let result = self.send_typing_status(user_id, &ticket, status).await;
+        if result.is_err() {
+            let mut tickets = self.typing_tickets.lock().await;
+            if tickets
+                .get(user_id)
+                .is_some_and(|cached| cached.value == ticket)
+            {
+                tickets.remove(user_id);
+            }
+        }
+        result
     }
 
     async fn start(

@@ -1,6 +1,7 @@
 pub(crate) mod background;
 mod control;
 mod delivery;
+mod presence;
 mod snapshot;
 mod state;
 pub(crate) use control::initial_interval;
@@ -60,7 +61,7 @@ pub(crate) async fn submission(
     let channel_type = serde_json::from_value(json!(channel.channel_type))
         .map_err(|_| crate::acp::error::AcpError::protocol("CHANNEL_TYPE_INVALID"))?;
     let text = prompt_text(&blocks);
-    let report_seconds = initial_interval(text).unwrap_or(task_context::DEFAULT_REPORT_SECONDS);
+    let report_seconds = initial_interval(text);
     let title = text
         .lines()
         .find(|line| !line.trim().is_empty())
@@ -186,8 +187,18 @@ pub(crate) fn record_summary(connection_id: &str, text: &str) -> Result<(), Stri
         return Err("INVALID_PROGRESS_SUMMARY".into());
     }
     task_context::update(&task.id, |task| {
-        task.summary = Some(text.trim().to_string());
-        task.summary_at = Some(Instant::now());
+        if task.summary.as_deref() != Some(text.trim()) {
+            task.summary = Some(text.trim().to_string());
+            task.summary_at = Some(Instant::now());
+        }
     });
     Ok(())
+}
+
+pub(crate) async fn sync_presence(connection_id: &str) {
+    let (Some(runtime), Some(task)) = (RUNTIME.get(), task_context::current(connection_id)) else {
+        return;
+    };
+    let view = snapshot::view(runtime, &task).await;
+    presence::sync(runtime, &task, view["phase"].as_str().unwrap_or("unknown")).await;
 }

@@ -1,10 +1,10 @@
 //! 企业微信智能机器人 WebSocket 长连接后端。
 
 mod inbound;
+mod interactive;
 mod media;
 mod protocol;
 mod runtime;
-mod interactive;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -85,11 +85,13 @@ impl WecomAiBotBackend {
             .ok_or(ChatChannelError::NotConnected)?;
         let (result_tx, result_rx) = oneshot::channel();
         tx.try_send(OutboundRequest { frame, result_tx })
-            .map_err(|_| ChatChannelError::SendFailed("WeCom outbound queue is full".into()))?;
+            .map_err(|_| ChatChannelError::DeliveryDeferred("WECOM_OUTBOUND_QUEUE_FULL".into()))?;
         tokio::time::timeout(START_TIMEOUT, result_rx)
             .await
             .map_err(|_| ChatChannelError::SendFailed("WeCom send timed out".into()))?
-            .map_err(|_| ChatChannelError::NotConnected)?
+            .map_err(|_| {
+                ChatChannelError::SendFailed("DELIVERY_UNKNOWN:WECOM_RESPONSE_LOST".into())
+            })?
     }
 
     async fn start_worker(
@@ -158,16 +160,21 @@ fn normalize_chat_type(chat_type: u8) -> u8 {
 #[async_trait::async_trait]
 impl ChatChannelBackend for WecomAiBotBackend {
     async fn send_stream_message_to(
-        &self, target: &ChannelMessageTarget, update: crate::chat_channel::streaming::StreamUpdate<'_>,
+        &self,
+        target: &ChannelMessageTarget,
+        update: crate::chat_channel::streaming::StreamUpdate<'_>,
     ) -> Result<SentMessageId, ChatChannelError> {
-        let req_id = protocol::target_payload(target, "req_id")
-            .ok_or_else(|| ChatChannelError::SendFailed("WeCom reply context unavailable".into()))?;
+        let req_id = protocol::target_payload(target, "req_id").ok_or_else(|| {
+            ChatChannelError::SendFailed("WeCom reply context unavailable".into())
+        })?;
         self.send_frame(serde_json::json!({"cmd":"aibot_respond_msg", "headers":{"req_id":req_id},
             "body":{"msgtype":"stream","stream":{"id":update.id,"content":update.content,"finish":update.finished}}
         })).await
     }
     async fn send_interactive_message_to(
-        &self, message: &InteractiveMessage, target: &ChannelMessageTarget,
+        &self,
+        message: &InteractiveMessage,
+        target: &ChannelMessageTarget,
     ) -> Result<SentMessageId, ChatChannelError> {
         self.send_interactive(message, target).await
     }
@@ -243,26 +250,18 @@ impl ChatChannelBackend for WecomAiBotBackend {
         target: &ChannelMessageTarget,
     ) -> Result<SentMessageId, ChatChannelError> {
         let text = message.to_plain_text();
-        let req_id = runtime::target_payload(target, "req_id");
         let chatid = target
             .chat_id
             .as_deref()
             .or_else(|| runtime::target_payload(target, "chatid"));
-        let frame = match req_id {
-            Some(req_id) if !req_id.is_empty() => runtime::reply_frame(req_id, &text),
-            _ => {
-                let chatid = chatid.unwrap_or_default();
-                if chatid.trim().is_empty() {
-                    return Err(ChatChannelError::ConfigurationInvalid(
-                        "WeCom AI Bot target chat is empty".to_string(),
-                    ));
-                }
-                let chat_type = runtime::target_chat_type(target)
-                    .map(normalize_chat_type)
-                    .unwrap_or_else(|| normalize_chat_type(self.config.default_chat_type));
-                runtime::proactive_frame(chatid, &text, chat_type)
-            }
-        };
+        let chatid = chatid.filter(|id| !id.trim().is_empty()).ok_or_else(|| {
+            ChatChannelError::ConfigurationInvalid("WeCom AI Bot target chat is empty".into())
+        })?;
+        let chat_type = runtime::target_chat_type(target)
+            .map(normalize_chat_type)
+            .unwrap_or_else(|| normalize_chat_type(self.config.default_chat_type));
+        // 完整正文主动发送，避免长任务继续依赖有时限的回调 req_id；流式仍走专用接口。
+        let frame = runtime::proactive_frame(chatid, &text, chat_type);
         self.send_frame(frame).await
     }
 

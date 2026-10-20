@@ -25,7 +25,10 @@ impl WecomAiBotBackend {
             .filter(|s| !s.is_empty())
             .ok_or_else(|| failure("WeCom media target is missing"))?;
         let kind = media_kind(attachment)?;
-        let media_id = self.upload_media(attachment, kind).await?;
+        let media_id = self
+            .upload_media(attachment, kind)
+            .await
+            .map_err(upload_error)?;
         let mut body = json!({ "chatid": chat_id, "chat_type": protocol::target_chat_type(target).unwrap_or(self.config.default_chat_type), "msgtype": kind });
         body[kind] = json!({ "media_id": media_id });
         self.send_frame(frame("aibot_send_msg", body)).await
@@ -64,6 +67,18 @@ impl WecomAiBotBackend {
             ))
             .await?;
         Ok(required(&result, "media_id")?.to_string())
+    }
+}
+
+fn upload_error(error: ChatChannelError) -> ChatChannelError {
+    match &error {
+        ChatChannelError::SendFailed(message) if !message.contains("PROVIDER_REJECTED") => {
+            ChatChannelError::DeliveryDeferred("WECOM_MEDIA_UPLOAD_RETRY".into())
+        }
+        ChatChannelError::NotConnected | ChatChannelError::ConnectionFailed(_) => {
+            ChatChannelError::DeliveryDeferred("WECOM_MEDIA_UPLOAD_RETRY".into())
+        }
+        _ => error,
     }
 }
 

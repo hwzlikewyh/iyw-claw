@@ -144,6 +144,16 @@ fn parse_period(text: &str) -> Option<Control> {
 
 pub(crate) fn initial_interval(text: &str) -> Option<u64> {
     let start = text.rfind('每')?;
+    let clause = text[..start]
+        .rsplit(['\n', '，', ',', '。', '；', ';'])
+        .next()
+        .unwrap_or_default();
+    if ["不要", "不用", "不需要", "别再", "停止", "关闭"]
+        .iter()
+        .any(|word| clause.contains(word))
+    {
+        return None;
+    }
     let suffix = &text[start..];
     for end in ["汇报一次", "汇报", "报告一次"] {
         if let Some(index) = suffix.find(end) {

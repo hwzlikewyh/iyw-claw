@@ -142,8 +142,14 @@ async fn handle_acp_envelope(
     super::task_progress::background::observe(envelope);
 
     match &envelope.payload {
-        AcpEvent::DelegationStarted { parent_tool_use_id, .. } => {
-            super::task_context::delegation_started(connection_id, envelope.seq, parent_tool_use_id);
+        AcpEvent::DelegationStarted {
+            parent_tool_use_id, ..
+        } => {
+            super::task_context::delegation_started(
+                connection_id,
+                envelope.seq,
+                parent_tool_use_id,
+            );
         }
         AcpEvent::SessionStarted { session_id } => {
             let request = SessionStartRequest {
@@ -333,12 +339,18 @@ async fn handle_acp_envelope(
                     .pause(manager, channel_id, &route_key, connection_id)
                     .await;
 
-                super::interactions::present(manager, connection_id, (envelope.seq, &envelope.payload)).await;
+                super::interactions::present(
+                    manager,
+                    connection_id,
+                    (envelope.seq, &envelope.payload),
+                )
+                .await;
             }
         }
 
         AcpEvent::QuestionRequest { .. } | AcpEvent::ChannelConfirmationRequested { .. } => {
-            super::interactions::present(manager, connection_id, (envelope.seq, &envelope.payload)).await;
+            super::interactions::present(manager, connection_id, (envelope.seq, &envelope.payload))
+                .await;
             if let Some((channel_id, route_key)) = session_route(bridge, connection_id).await {
                 manager
                     .typing_controller()
@@ -374,14 +386,9 @@ async fn handle_acp_envelope(
                 // BEFORE dropping the guard so a second TurnComplete can't
                 // double-send it; retry below once the lock is released.
                 let deferred_kickoff = session.pending_prompt.take();
-                let route_key = session.route_key.clone();
                 drop(guard);
 
-                manager
-                    .typing_controller()
-                    .stop(manager, channel_id, &route_key, connection_id)
-                    .await;
-
+                super::task_progress::sync_presence(connection_id).await;
                 let lang = get_lang(db).await;
                 let body = sanitize_channel_content(&content);
                 let target_id = chat_channel_target_service::find_by_target(db, &target)
@@ -497,7 +504,13 @@ async fn handle_acp_envelope(
                 // explicit failure instead of retrying forever.
                 if let Some(prompt_text) = deferred_kickoff {
                     let blocks = prompt_text.blocks();
-                    if let Err(e) = super::session_runtime::send_channel_prompt((db, conn_mgr), (connection_id, conv_id), blocks).await {
+                    if let Err(e) = super::session_runtime::send_channel_prompt(
+                        (db, conn_mgr),
+                        (connection_id, conv_id),
+                        blocks,
+                    )
+                    .await
+                    {
                         if matches!(e, crate::acp::error::AcpError::TurnInProgress) {
                             let mut g = bridge.lock().await;
                             let give_up = if let Some(s) = g.get_mut(connection_id) {
@@ -901,7 +914,13 @@ async fn send_pending_prompt(
         return;
     };
     let blocks = prompt.blocks();
-    match super::session_runtime::send_channel_prompt((db, conn_mgr), (connection_id, conversation_id), blocks).await {
+    match super::session_runtime::send_channel_prompt(
+        (db, conn_mgr),
+        (connection_id, conversation_id),
+        blocks,
+    )
+    .await
+    {
         Ok(()) => {}
         Err(crate::acp::error::AcpError::TurnInProgress) => {
             restore_deferred_prompt(bridge, manager, db, connection_id, prompt, target).await;

@@ -12,12 +12,12 @@ use crate::chat_channel::media_http::{self, failure, required, transport};
 use crate::chat_channel::types::{ChannelMessageTarget, SentMessageId};
 
 pub(super) struct Token {
-    value: String,
+    pub(super) value: String,
     expires: Instant,
 }
 
 impl DingtalkBackend {
-    async fn access_token(&self) -> Result<String, ChatChannelError> {
+    pub(super) async fn access_token(&self) -> Result<String, ChatChannelError> {
         let mut cache = self.media_token.lock().await;
         if let Some(token) = cache
             .as_ref()
@@ -55,16 +55,7 @@ impl DingtalkBackend {
         body["robotCode"] = json!(self.config.client_id);
         body["msgKey"] = json!("sampleMarkdown");
         body["msgParam"] = json!(json!({ "title": "iyw-claw", "text": text }).to_string());
-        let token = self.access_token().await?;
-        let response = self
-            .client
-            .post(format!("https://api.dingtalk.com/v1.0/robot/{endpoint}"))
-            .header("x-acs-dingtalk-access-token", token)
-            .json(&body)
-            .send()
-            .await
-            .map_err(transport)?;
-        receipt(&media_http::json(response).await?)
+        receipt(&self.post_openapi(endpoint, &body).await?)
     }
 
     pub(super) async fn send_media(
@@ -80,20 +71,20 @@ impl DingtalkBackend {
             file.byte_len(),
         );
         let token = self.access_token().await?;
-        let media_id = self.upload(file, &token, image).await?;
+        let media_id = self
+            .upload(file, &token, image)
+            .await
+            .map_err(|error| match error {
+                ChatChannelError::NotConnected | ChatChannelError::ConnectionFailed(_) => {
+                    ChatChannelError::DeliveryDeferred("DINGTALK_MEDIA_UPLOAD_RETRY".into())
+                }
+                other => other,
+            })?;
         let (key, parameter) = message_parameter(file, &media_id, image);
         body["robotCode"] = json!(self.config.client_id);
         body["msgKey"] = json!(key);
         body["msgParam"] = json!(parameter.to_string());
-        let response = self
-            .client
-            .post(format!("https://api.dingtalk.com/v1.0/robot/{endpoint}"))
-            .header("x-acs-dingtalk-access-token", &token)
-            .json(&body)
-            .send()
-            .await
-            .map_err(transport)?;
-        let result = media_http::json(response).await?;
+        let result = self.post_openapi(endpoint, &body).await?;
         receipt(&result)
     }
 
@@ -154,7 +145,14 @@ fn receipt(result: &Value) -> Result<SentMessageId, ChatChannelError> {
             .as_array()
             .is_some_and(|list| !list.is_empty())
         {
-            return Err(failure(format!("DingTalk media target rejected: {field}")));
+            if field == "flowControlledStaffIdList" {
+                return Err(ChatChannelError::DeliveryDeferred(
+                    "PROVIDER_RATE_LIMIT".into(),
+                ));
+            }
+            return Err(ChatChannelError::ConfigurationInvalid(format!(
+                "DINGTALK_TARGET_REJECTED:{field}"
+            )));
         }
     }
     Ok(SentMessageId(

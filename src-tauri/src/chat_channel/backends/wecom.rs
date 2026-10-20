@@ -660,6 +660,23 @@ pub async fn auth_status(data_dir: &Path) -> Result<bool, ChatChannelError> {
     }
 }
 
+pub(crate) async fn authorized_bot_id(data_dir: &Path) -> Result<String, ChatChannelError> {
+    // 固定 1.1.0 的官方 auth show 提供公开身份投影，不输出凭据。
+    let output = run_cli_raw(data_dir, &["auth", "show"]).await?;
+    output
+        .lines()
+        .find_map(|line| {
+            line.trim()
+                .strip_prefix("Bot ID:")
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string)
+        })
+        .ok_or_else(|| {
+            ChatChannelError::AuthenticationFailed("WECOM_CLI_IDENTITY_UNAVAILABLE".into())
+        })
+}
+
 async fn ensure_authorized(data_dir: &Path) -> Result<(), ChatChannelError> {
     if auth_status(data_dir).await? {
         return Ok(());
