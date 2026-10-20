@@ -2,8 +2,9 @@
 
 import { Maximize2, Minimize2, Minus, Plus, RotateCcw } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { createContext, useContext, type ReactNode } from "react"
+import { createContext, useContext, useRef, type ReactNode } from "react"
 import { PreviewAction } from "./preview-action"
+import { useNativePreviewFullscreen } from "./use-native-preview-fullscreen"
 
 export const PREVIEW_ZOOM_MIN = 0.5
 export const PREVIEW_ZOOM_MAX = 3
@@ -56,15 +57,23 @@ function PreviewFullscreenAction({
 }: Pick<PreviewToolbarProps, "onFullscreen" | "isFullscreen">) {
   const full = useTranslations("Folder.taskArtifacts")
   const hasParentFullscreen = useContext(PreviewFullscreenContext)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const native = useNativePreviewFullscreen({
+    buttonRef,
+    onFullscreen,
+    enabled: Boolean(onFullscreen) && !hasParentFullscreen,
+  })
+  const expanded = isFullscreen || native.fullscreen
   if (!onFullscreen || hasParentFullscreen) return null
   return (
     <PreviewAction
+      ref={buttonRef}
       className="ml-auto"
-      label={full(isFullscreen ? "exitPreviewFullscreen" : "previewFullscreen")}
-      aria-pressed={Boolean(isFullscreen)}
-      onClick={onFullscreen}
+      label={full(expanded ? "exitPreviewFullscreen" : "previewFullscreen")}
+      aria-pressed={Boolean(expanded)}
+      onClick={native.toggleFullscreen}
     >
-      {isFullscreen ? (
+      {expanded ? (
         <Minimize2 className="size-4" />
       ) : (
         <Maximize2 className="size-4" />
