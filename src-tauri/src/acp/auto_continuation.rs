@@ -4,6 +4,7 @@ use crate::acp::session_state::{LiveContentBlock, LiveMessage, SessionState, Too
 use crate::acp::types::PlanEntryInfo;
 
 mod channel_reply;
+mod scheduled_task;
 
 pub(crate) const AUTO_CONTINUATION_PROMPT: &str =
     "继续完成当前用户请求。不要复述计划；执行尚未完成且已获授权的步骤。\n如果需要新的用户授权、选择或信息，明确说明阻塞并停止。";
@@ -15,6 +16,9 @@ const MAX_OUTPUT_BUDGET_CONTINUATIONS: u8 = 3;
 
 pub(crate) const EMPTY_CHANNEL_CONTINUATION_PROMPT: &str =
     "上一回合没有生成可发送的回复。先检查最近工具结果和会话状态，不要重复已经成功的操作；继续完成当前已获授权的用户请求，并给出明确回复。需要新的授权、选择或信息时，说明阻塞并停止。";
+
+pub(crate) const SCHEDULED_TASK_CONTINUATION_PROMPT: &str =
+    "用户明确要求创建真实的 iyw-claw 定时任务，但上一轮没有已验证的创建收据。不要把 CSV、文档或文字承诺当作创建成功。检查时间、时区、项目、执行 Agent 和任务内容；缺少会改变执行结果的选项时只询问缺项，否则调用 create_scheduled_task，确认返回 status=verified、verified=true 和任务 ID，并回读核验任务。";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AutoContinuationEvidence {
@@ -43,10 +47,17 @@ pub(crate) fn evaluate(
         return None;
     };
     let text = assistant_text_after_last_tool(live);
-    if is_explicit_blocker_or_question(&text)
-        || is_explicit_completion(&text)
-        || mentions_sensitive_action(&text)
-    {
+    if is_explicit_blocker_or_question(&text) {
+        return None;
+    }
+    if scheduled_task::create_was_requested(state) && !scheduled_task::has_verified_create(state) {
+        return Some(AutoContinuationEvidence {
+            reason_code: "scheduled_task_create_missing_receipt",
+            evidence_kind: "scheduled_task_create",
+            auto_run: true,
+        });
+    }
+    if is_explicit_completion(&text) || mentions_sensitive_action(&text) {
         return None;
     }
     if has_pending_plan(live) {

@@ -21,7 +21,7 @@ use tokio_util::sync::CancellationToken;
 use crate::acp::audio_transcription::AudioTranscriptionAccess;
 use crate::acp::automation_tools::{
     AutomationAgentService, ScheduledTaskOperation, ScheduledTaskRequest,
-    LIST_SCHEDULED_TASK_PROJECTS_TOOL,
+    REQUIRED_SCHEDULED_TASK_TOOLS,
 };
 use crate::acp::delegation::broker::{DelegationBroker, StatusWait};
 use crate::acp::delegation::mutation_gate::{MutationGate, MutationLease};
@@ -436,10 +436,11 @@ impl CompanionReadyCandidate {
 
     fn required_tools_present(&self) -> bool {
         let missing_image_analysis = !self.tools.iter().any(|tool| tool == ANALYZE_IMAGE_TOOL);
-        let missing_project_listing = !self
-            .tools
+        let missing_automation_tools = REQUIRED_SCHEDULED_TASK_TOOLS
             .iter()
-            .any(|tool| tool == LIST_SCHEDULED_TASK_PROJECTS_TOOL);
+            .copied()
+            .filter(|required| !self.tools.iter().any(|tool| tool == required))
+            .collect::<Vec<_>>();
         let missing_channel_tools = crate::acp::channel_tools::CHANNEL_TOOL_NAMES
             .iter()
             .copied()
@@ -467,7 +468,7 @@ impl CompanionReadyCandidate {
                 .iter()
                 .any(|required| !self.tools.iter().any(|tool| tool == required));
         if missing_image_analysis
-            || missing_project_listing
+            || !missing_automation_tools.is_empty()
             || missing_append
             || missing_proposal
             || missing_recall
@@ -487,7 +488,7 @@ impl CompanionReadyCandidate {
                 missing_documents_read,
                 missing_management,
                 missing_image_analysis,
-                missing_project_listing,
+                missing_automation_tools = ?missing_automation_tools,
                 missing_channel_tools = ?missing_channel_tools,
                 advertised_tools = ?self.tools,
                 "rejected companion readiness report missing required tools"
