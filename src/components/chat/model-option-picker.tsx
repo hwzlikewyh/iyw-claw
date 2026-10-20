@@ -57,7 +57,11 @@ export function ModelOptionPicker({
     }
     return null
   }, [groups, currentValue])
-  const currentLabel = currentOption?.name ?? currentValue
+  const currentLabel =
+    currentOption?.name ??
+    (currentValue
+      ? t("modelPicker.unavailable", { model: currentValue })
+      : t("noModels"))
 
   if (!kind) return null
 

@@ -3484,6 +3484,7 @@
           "context": "Context window",
           "compaction": "Auto-compaction threshold",
           "modelFailed": "Could not apply the selected model. Choose a model again before sending.",
+          "unavailable": "{model} (unavailable)",
           "compactionHint": "Applies after the current reply. Available percentages are configured by the administrator and use the selected context window. The threshold preserves space for output.",
           "auto": "Auto",
           "behavior": "Model settings",
