@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-require-imports -- github-script 使用 CommonJS 扩展点。 */
 const { execFileSync } = require("node:child_process")
 const { readFileSync } = require("node:fs")
+const MAX_DIAGNOSTIC_TAG_LENGTH = 128
 
 async function resolveCommitSha(github, repository, tag) {
   const { data } = await github.rest.git.getRef({
@@ -35,6 +36,18 @@ async function findRelease(github, repository, tag) {
   }
 }
 
+function releaseDetails(release) {
+  return JSON.stringify({
+    type: Array.isArray(release) ? "array" : typeof release,
+    id: typeof release?.id === "number" ? release.id : null,
+    tag:
+      typeof release?.tag_name === "string"
+        ? release.tag_name.slice(0, MAX_DIAGNOSTIC_TAG_LENGTH)
+        : null,
+    draft: typeof release?.draft === "boolean" ? release.draft : null,
+  })
+}
+
 async function assertDraftContext({
   github,
   repository,
@@ -61,8 +74,14 @@ async function assertDraftContext({
       { cause: error }
     )
   }
-  if (!release.draft || release.tag_name !== tag)
-    throw new Error(`Release #${releaseId} must be the draft for ${tag}`)
+  if (
+    release?.draft !== true ||
+    release.tag_name !== tag ||
+    String(release.id) !== String(releaseId)
+  )
+    throw new Error(
+      `Release #${releaseId} must be the draft for ${tag}; received=${releaseDetails(release)}`
+    )
   const tagCommit = await resolveCommitSha(github, repository, tag)
   if (tagCommit !== sourceRef)
     throw new Error(
