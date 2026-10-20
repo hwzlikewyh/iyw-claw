@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { useLocale, useTranslations } from "next-intl"
 import type { Automation, AutomationRun } from "@/lib/types"
 import { AutomationRunNotification } from "./automation-run-actions"
+import { AutomationRunArtifacts } from "./automation-run-artifacts"
 import { useAutomationErrorMessage } from "./automation-run-error"
 import {
   AutomationStatus,
@@ -70,6 +71,10 @@ export function AutomationHistoryRows({
                 ? errorMessage(run.error)
                 : run.summary || t("runNumber", { id: run.id })}
             </p>
+            <AutomationRunArtifacts
+              conversationId={run.conversation_id}
+              status={run.status}
+            />
             <AutomationRunNotification run={run} />
             {actions(run)}
           </article>
@@ -103,6 +108,10 @@ export function AutomationHistoryRows({
                 >
                   {taskFor(run)?.name || t("taskRemoved")}
                 </button>
+                <AutomationRunArtifacts
+                  conversationId={run.conversation_id}
+                  status={run.status}
+                />
                 {run.error && (
                   <p className="mt-1 max-w-sm whitespace-pre-wrap text-xs text-destructive">
                     {errorMessage(run.error)}

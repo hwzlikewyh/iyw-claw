@@ -1242,27 +1242,49 @@ const ConversationTabView = memo(function ConversationTabView({
       !conn.selectorsReady ||
       requestedModel !== null ||
       manualModelSelectionRef.current !== null ||
+      (hasManagedGatewayModelProjection(selectedAgent) &&
+        !canReconcileModelConfig) ||
       liveModelOption?.kind.type !== "select"
     ) {
       return
     }
+    // 新会话只能采纳后台目录内的默认值，不能回填运行时的旧兜底模型。
+    const choices = hasManagedGatewayModelProjection(selectedAgent)
+      ? (fixedModelOption?.kind.options ?? [])
+      : liveModelOption.kind.options
     const selected = draftConfigValues.model
-    if (
-      selected &&
-      liveModelOption.kind.options.some((option) => option.value === selected)
-    ) {
-      return
-    }
     const actual = liveModelOption.kind.current_value
-    setDraftConfigValues((current) => ({ ...current, model: actual }))
-    updateRequestedModel(null)
+    const target = choices.some((option) => option.value === selected)
+      ? selected
+      : choices.some((option) => option.value === actual)
+        ? actual
+        : choices[0]?.value
+    if (
+      !target ||
+      failedModel === target ||
+      (selected === target && actual === target)
+    )
+      return
+    console.info("[ConversationTabView] resolved new session model", {
+      agentType: selectedAgent,
+      runtimeModel: actual,
+      model: target,
+    })
+    if (selected !== target) {
+      setDraftConfigValues((current) => ({ ...current, model: target }))
+    }
+    updateRequestedModel(actual === target ? null : target)
     setFailedModel(null)
   }, [
+    canReconcileModelConfig,
     conn.selectorsReady,
     dbConversationId,
     draftConfigValues.model,
+    failedModel,
+    fixedModelOption,
     liveModelOption,
     requestedModel,
+    selectedAgent,
     updateRequestedModel,
   ])
   useEffect(() => {
@@ -1651,9 +1673,29 @@ const ConversationTabView = memo(function ConversationTabView({
     persistConfirmedModel,
     selectedAgent,
   ])
+  const draftModelUnavailable =
+    dbConversationId == null &&
+    canReconcileModelConfig &&
+    (!fixedModelOption?.kind.options.length ||
+      Boolean(
+        draftConfigValues.model &&
+        !fixedModelOption.kind.options.some(
+          (option) => option.value === draftConfigValues.model
+        )
+      ))
   const ensureSelectedModelReady = useCallback(() => {
     if (contextWindowPending) return false
     const target = draftConfigValues.model
+    if (
+      dbConversationId == null &&
+      hasManagedGatewayModelProjection(selectedAgent) &&
+      (!canReconcileModelConfig ||
+        draftModelUnavailable ||
+        (!target &&
+          (!conn.selectorsReady ||
+            conn.modelSwitchCapability === "interactive")))
+    )
+      return false
     if (!target) return true
     const live = conn.configOptions?.find(isModelConfigOption)
     const unconfirmed =
@@ -1665,13 +1707,18 @@ const ConversationTabView = memo(function ConversationTabView({
     // 已确认的存活会话不受新目录可用性变化拦截，由请求后端返回实际结果。
     return !unconfirmed
   }, [
+    canReconcileModelConfig,
     conn.configOptions,
+    conn.modelSwitchCapability,
     conn.selectorsReady,
     connectionReady,
     contextWindowPending,
+    dbConversationId,
     draftConfigValues.model,
+    draftModelUnavailable,
     failedModel,
     modelReapplyAttempt,
+    selectedAgent,
   ])
   const selectedModelReady = ensureSelectedModelReady()
   const selectedModelReadyRef = useRef(selectedModelReady)
@@ -2027,7 +2074,8 @@ const ConversationTabView = memo(function ConversationTabView({
         return false
       }
       if (!ensureSelectedModelReady()) {
-        const modelFailed = failedModel === draftConfigValues.model
+        const modelFailed =
+          failedModel === draftConfigValues.model || draftModelUnavailable
         if (fromQueueFlush && opts?.queuedMessage) {
           mqRequeueItemFront({ ...opts.queuedMessage, blocked: modelFailed })
         } else if (!modelFailed) {
@@ -2503,6 +2551,7 @@ const ConversationTabView = memo(function ConversationTabView({
       ensureSelectedModelReady,
       contextWindowPending,
       draftConfigValues.model,
+      draftModelUnavailable,
       failedModel,
       forkPendingRef,
       draftStorageKey,

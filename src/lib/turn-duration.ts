@@ -1,10 +1,22 @@
 import type { LiveMessage } from "@/contexts/acp-connections-context"
 import type { MessageTurn, SessionActivitySnapshot } from "@/lib/types"
 
+export function liveTurnStartedAt(
+  activity?: SessionActivitySnapshot | null,
+  now = Date.now()
+): number {
+  const startedAt = Date.parse(activity?.started_at ?? "")
+  const sampledAt = Date.parse(activity?.sampled_at ?? "")
+  const elapsed = sampledAt - startedAt
+  return Number.isFinite(elapsed) && elapsed >= 0 ? now - elapsed : now
+}
+
 export function completeLiveTurnTiming(
   message: LiveMessage,
   activity?: SessionActivitySnapshot | null
 ): LiveMessage {
+  // 完成时间只结算一次，重放或重复通知不能延长已结束的轮次。
+  if (message.completedAt != null) return message
   const startedAt = Date.parse(activity?.started_at ?? "")
   const completedAt = Date.parse(activity?.sampled_at ?? "")
   if (
@@ -46,6 +58,30 @@ export function resolveTurnDuration(input: {
   return Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : null
 }
 
+export function sumTurnDurations(
+  turns: { duration_ms?: number | null; completed_at?: string | null }[]
+): number | null {
+  const intervals: [number, number][] = []
+  let total: number | null = null
+  for (const turn of turns) {
+    const duration = resolveTurnDuration({ duration_ms: turn.duration_ms })
+    if (duration === null) continue
+    total ??= 0
+    const end = Date.parse(turn.completed_at ?? "")
+    if (Number.isFinite(end)) intervals.push([end - duration, end])
+    else total += duration
+  }
+  // 多条消息可能携带同一轮的累计耗时，重叠区间只能计算一次。
+  let previousEnd = Number.NEGATIVE_INFINITY
+  for (const [start, end] of intervals.sort(
+    (left, right) => left[0] - right[0]
+  )) {
+    total = (total ?? 0) + Math.max(0, end - Math.max(start, previousEnd))
+    previousEnd = Math.max(previousEnd, end)
+  }
+  return total
+}
+
 export function completeTurnTiming(
   turns: MessageTurn[],
   timing: { startedAt: number; completedAt: number }
@@ -72,5 +108,18 @@ export function completeTurnTiming(
       }),
       completed_at: turn.completed_at ?? end,
     }
+  })
+}
+
+export function completeHistoryTurnTiming(
+  segments: MessageTurn[],
+  source: MessageTurn
+): MessageTurn[] {
+  const duration = resolveTurnDuration({ duration_ms: source.duration_ms })
+  const completedAt = Date.parse(source.completed_at ?? "")
+  if (duration === null || !Number.isFinite(completedAt)) return segments
+  return completeTurnTiming(segments, {
+    startedAt: completedAt - duration,
+    completedAt,
   })
 }

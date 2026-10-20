@@ -6484,6 +6484,13 @@ fn write_market_skill_directory_files(
         }
         write_staged_skill_file(target, relative, content)?;
     }
+    if super::skill_metadata::repair_legacy_skill_description(&target.join("SKILL.md"))
+        .map_err(AcpError::protocol)?
+    {
+        tracing::info!(
+            "[skill-market] normalized legacy description before publication; original package hash retained"
+        );
+    }
     if skipped_runtime_files > 0 {
         tracing::warn!(
             target = %target.display(),

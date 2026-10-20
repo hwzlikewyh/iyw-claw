@@ -107,7 +107,10 @@ pub async fn install_core(
             object_sha256_present = !item.download.object_sha256.trim().is_empty(),
             "[skill-market] package transfer completed"
         );
-        let (package, plugin) = validate_downloaded_package(&package_bytes, &item)?;
+        let (package, plugin) = validate_downloaded_package(&package_bytes, &item).map_err(|error| {
+            tracing::error!(skill_id = %skill_id, slug = %item.slug, version = %item_version, error = %error, "[skill-market] package validation failed");
+            error
+        })?;
         let marker = market_marker(&item, object_hash, requested_id, agent_types.clone())?;
         if let Some(plugin) = plugin {
             plugins.push(PreparedPluginInstall {

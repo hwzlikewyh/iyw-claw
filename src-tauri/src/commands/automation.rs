@@ -91,6 +91,7 @@ pub async fn automation_create_core(
         }
     }
     let info = automation_service::get(&db.conn, created.id).await?;
+    notify_schedule_changed();
     if let Some(folder) = folder {
         emit_folder_upsert(emitter, folder);
     }
@@ -118,6 +119,7 @@ pub async fn automation_update_core(
         None
     };
     let info = automation_service::update(&db.conn, id, draft).await?;
+    notify_schedule_changed();
     if let Some(folder) = folder {
         emit_folder_upsert(emitter, folder);
     }
@@ -147,6 +149,7 @@ pub async fn automation_set_enabled_core(
     enabled: bool,
 ) -> Result<AutomationInfo, DbError> {
     let info = automation_service::set_enabled(&db.conn, id, enabled).await?;
+    notify_schedule_changed();
     emit_event(
         emitter,
         AUTOMATION_CHANGED_EVENT,
@@ -161,6 +164,7 @@ pub async fn automation_delete_core(
     id: i32,
 ) -> Result<(), DbError> {
     automation_service::delete(&db.conn, id).await?;
+    notify_schedule_changed();
     emit_event(
         emitter,
         AUTOMATION_CHANGED_EVENT,
@@ -171,6 +175,11 @@ pub async fn automation_delete_core(
 
 pub async fn automation_mark_seen_core(db: &AppDatabase) -> Result<(), DbError> {
     automation_service::mark_all_seen(&db.conn).await
+}
+
+fn notify_schedule_changed() {
+    #[cfg(feature = "tauri-runtime")]
+    crate::automation::keep_awake::notify_changed();
 }
 
 /// Editor "next run" preview. Authoritative — shares the exact cron evaluator the

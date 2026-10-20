@@ -221,6 +221,18 @@ pub fn get_channel_target(target_id: &str) -> Option<String> {
     get_secure_value(&channel_target_key(target_id))
 }
 
+pub fn set_connector_secret(id: &str, value: &str) -> Result<(), String> {
+    set_secure_value(&format!("connector:{id}"), value)
+}
+
+pub fn get_connector_secret(id: &str) -> Option<String> {
+    get_secure_value(&format!("connector:{id}"))
+}
+
+pub fn delete_connector_secret(id: &str) -> Result<(), String> {
+    delete_secure_value(&format!("connector:{id}"))
+}
+
 pub fn delete_channel_target(target_id: &str) -> Result<(), String> {
     delete_secure_value(&channel_target_key(target_id))
 }

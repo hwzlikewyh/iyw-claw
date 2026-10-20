@@ -271,6 +271,20 @@ pub async fn list(conn: &DatabaseConnection) -> Result<Vec<AutomationInfo>, DbEr
     Ok(rows.into_iter().map(to_info).collect())
 }
 
+#[cfg(feature = "tauri-runtime")]
+pub async fn has_enabled_schedule(conn: &DatabaseConnection) -> Result<bool, DbError> {
+    Ok(automation::Entity::find()
+        .select_only()
+        .column(automation::Column::Id)
+        .filter(automation::Column::DeletedAt.is_null())
+        .filter(automation::Column::Enabled.eq(true))
+        .filter(automation::Column::TriggerKind.eq(TriggerKind::Schedule))
+        .into_tuple::<i32>()
+        .one(conn)
+        .await?
+        .is_some())
+}
+
 pub async fn get(conn: &DatabaseConnection, id: i32) -> Result<AutomationInfo, DbError> {
     Ok(to_info(find_active(conn, id).await?))
 }

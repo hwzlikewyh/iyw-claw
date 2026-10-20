@@ -390,7 +390,7 @@ export function McpSettings({ embedded = false }: { embedded?: boolean }) {
       setInstalledServers(servers)
       setProviders(marketProviders)
       setSelectedProvider(
-        (current) => current || marketProviders[0]?.id || "official_registry"
+        (current) => current || marketProviders[0]?.id || "iyw_gateway"
       )
 
       if (servers[0]) {

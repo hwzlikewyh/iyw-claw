@@ -1019,6 +1019,7 @@ pub async fn get_folder_conversation_with_live_core(
         detail.in_flight_user_turn_id =
             apply_in_flight_message_id(&mut detail.turns, &pending, started_at);
     }
+    crate::acp::turn_timing::enrich(conn, manager, &mut detail).await?;
     Ok(detail)
 }
 
@@ -1095,6 +1096,7 @@ pub async fn get_folder_conversation_page_core(
         return Ok(page);
     };
     detail.history_stale = detail.history_stale && !force_refresh;
+    crate::acp::turn_timing::enrich(conn, manager, &mut detail).await?;
     Ok(detail)
 }
 

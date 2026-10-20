@@ -1,6 +1,7 @@
 "use client"
 
 import { useAccountRequestsBlocked } from "@/components/account/use-account-request-guard"
+import { ConversationConnectorPicker } from "@/components/chat/conversation-connectors"
 import { parseSideQuestion } from "@/lib/side-question"
 
 import {
@@ -4525,6 +4526,7 @@ export function MessageInput({
               />
               <div className="flex shrink-0 items-center justify-between gap-1 px-2 pb-2">
                 <div className="flex min-w-0 items-center gap-1">
+                  <ConversationConnectorPicker tabId={attachmentTabId} />
                   <DropdownMenu onOpenChange={handleAddMenuOpenChange}>
                     <DropdownMenuTrigger asChild>
                       <Button

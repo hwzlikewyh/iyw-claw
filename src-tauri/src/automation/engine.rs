@@ -225,6 +225,9 @@ fn acquire_engine_ownership(data_dir: &Path) -> Ownership {
 /// each boot path (`lib.rs` setup via `tauri::async_runtime::spawn`, and
 /// `bin/iyw_claw_server.rs` via `tokio::spawn`).
 pub async fn run_automation_engine(engine: Arc<AutomationEngine>) {
+    #[cfg(feature = "tauri-runtime")]
+    let _keep_awake = matches!(&engine.emitter, EventEmitter::Tauri(_))
+        .then(|| super::keep_awake::spawn(engine.db.conn.clone()));
     // Boot recovery: a fresh process has no live connections, so any run still
     // `running` in the DB is an interruption — fail it (never re-fire here). This
     // force-fails EVERY `running` row, which is only correct when this process is

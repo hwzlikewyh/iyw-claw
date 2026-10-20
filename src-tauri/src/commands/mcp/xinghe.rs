@@ -44,22 +44,14 @@ fn merge_catalog(config: &mut toml::Table, catalog: &ManagedMcpCatalog) -> Resul
         .or_insert_with(|| toml::Value::Table(toml::Table::new()))
         .as_table_mut()
         .ok_or_else(|| AcpError::protocol("星河 mcp_servers 必须是配置表"))?;
-    let mut enabled_count = 0;
     let mut removed_count = 0;
-    for (name, entry) in catalog.servers.iter().filter(|(_, entry)| entry.managed) {
-        if entry.enabled {
-            let server = project_server(name, entry)?;
-            servers.insert(name.clone(), server);
-            enabled_count += 1;
-        } else {
-            removed_count += usize::from(servers.remove(name).is_some());
-        }
+    for (name, _) in catalog.servers.iter().filter(|(_, entry)| entry.managed) {
+        removed_count += usize::from(servers.remove(name).is_some());
     }
     for name in &catalog.tombstones {
         removed_count += usize::from(servers.remove(name).is_some());
     }
     tracing::debug!(
-        enabled_count,
         removed_count,
         total_count = servers.len(),
         "[MCP] 星河连接器已合入启动参数"
@@ -84,6 +76,7 @@ fn remove_legacy_managed_servers(config: &mut toml::Table, catalog: &ManagedMcpC
     });
 }
 
+#[allow(dead_code)]
 fn project_server(name: &str, entry: &ManagedMcpCatalogEntry) -> Result<toml::Value, AcpError> {
     if !entry.missing_config.is_empty() {
         tracing::error!(

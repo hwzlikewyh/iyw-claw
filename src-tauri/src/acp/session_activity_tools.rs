@@ -63,6 +63,8 @@ impl SessionActivity {
         }
         match event {
             AcpEvent::TurnComplete { .. } => {
+                // 结束时刻只取第一次通知，后续快照和重复通知不能增加耗时。
+                self.completed_at.get_or_insert(now);
                 self.clear_retry();
                 self.urgent = true;
                 true

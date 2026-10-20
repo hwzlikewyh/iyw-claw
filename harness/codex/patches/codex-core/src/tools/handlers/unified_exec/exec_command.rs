@@ -7,6 +7,7 @@ use crate::exec_policy::prompt_is_rejected_by_policy;
 use crate::function_tool::FunctionCallError;
 use crate::maybe_emit_implicit_skill_invocation;
 use crate::tools::context::ExecCommandToolOutput;
+use crate::tools::context::ToolCallSource;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolPayload;
 use crate::tools::context::boxed_tool_output;
@@ -14,6 +15,7 @@ use crate::tools::handlers::apply_granted_turn_permissions;
 use crate::tools::handlers::apply_patch::intercept_apply_patch;
 use crate::tools::handlers::file_system_sandbox_policy_context_for_cwd;
 use crate::tools::handlers::implicit_granted_permissions;
+use crate::tools::handlers::managed_output_images;
 use crate::tools::handlers::normalize_and_validate_additional_permissions;
 use crate::tools::handlers::parse_arguments;
 use crate::tools::handlers::parse_arguments_with_base_path;
@@ -162,6 +164,7 @@ impl ExecCommandHandler {
             cancellation_token,
             tracker,
             call_id,
+            source,
             payload,
             ..
         } = invocation;
@@ -382,6 +385,8 @@ impl ExecCommandHandler {
                 chunk_id: String::new(),
                 wall_time: std::time::Duration::ZERO,
                 raw_output: output.into_text().into_bytes(),
+                native_image_items: Vec::new(),
+                image_attachment_summary: None,
                 truncation_policy: step_context.settings.model_info.truncation_policy.into(),
                 max_output_tokens,
                 process_id: None,
@@ -431,7 +436,21 @@ impl ExecCommandHandler {
             None => manager.exec_command(request, &context).await,
         };
         match result {
-            Ok(response) => Ok(boxed_tool_output(response)),
+            Ok(mut response) => {
+                if matches!(
+                    &source,
+                    ToolCallSource::Direct | ToolCallSource::DirectPlaintextMessage
+                ) {
+                    let capture = managed_output_images::capture_exec_output(
+                        &response.raw_output,
+                        &turn_environment,
+                    )
+                    .await;
+                    response.image_attachment_summary = capture.summary();
+                    response.native_image_items = capture.into_function_output_items();
+                }
+                Ok(boxed_tool_output(response))
+            }
             Err(UnifiedExecError::SandboxDenied {
                 output,
                 original_token_count,
@@ -446,6 +465,8 @@ impl ExecCommandHandler {
                     chunk_id: generate_chunk_id(),
                     wall_time: output.duration,
                     raw_output: output_text.into_bytes(),
+                    native_image_items: Vec::new(),
+                    image_attachment_summary: None,
                     truncation_policy: step_context.settings.model_info.truncation_policy.into(),
                     max_output_tokens,
                     // Sandbox denial is terminal, so there is no live

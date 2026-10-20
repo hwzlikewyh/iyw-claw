@@ -16,6 +16,7 @@ use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
 use crate::tools::context::boxed_tool_output;
 use crate::tools::flat_tool_name;
+use crate::tools::handlers::managed_output_images;
 use crate::tools::hook_names::HookToolName;
 use crate::tools::lifecycle::notify_tool_start;
 use crate::tools::registry::CoreToolRuntime;
@@ -254,7 +255,7 @@ impl McpHandler {
         )
         .await;
 
-        let model_result = if matches!(&source, ToolCallSource::CodeMode { .. }) {
+        let mut model_result = if matches!(&source, ToolCallSource::CodeMode { .. }) {
             None
         } else {
             super::super::mcp_output_preview::prepare(
@@ -264,9 +265,30 @@ impl McpHandler {
             )
             .await
         };
+        let mut native_image_items = Vec::new();
+        if result.result.success()
+            && matches!(
+                &source,
+                ToolCallSource::Direct | ToolCallSource::DirectPlaintextMessage
+            )
+        {
+            for (environment, _) in step_context.environments() {
+                let capture =
+                    managed_output_images::capture_mcp_result(&result.result, environment).await;
+                if capture.is_empty() {
+                    continue;
+                }
+                let mut presented = model_result.take().unwrap_or_else(|| result.result.clone());
+                capture.append_context_to_mcp_result(&mut presented, &result.result);
+                native_image_items = capture.into_function_output_items();
+                model_result = Some(presented);
+                break;
+            }
+        }
         Ok(boxed_tool_output(McpToolOutput {
             result: result.result,
             model_result,
+            native_image_items,
             tool_input: result.tool_input,
             result_metadata_capture_allowed,
             wall_time: started.elapsed(),

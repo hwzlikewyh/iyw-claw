@@ -8,6 +8,8 @@
 - 点击任务进入该任务的执行时间线，再从具体记录打开应用原有聊天标签。聊天所在目录和智能体从该次会话读取，不依赖任务后来修改的配置。
 - 全局运行记录按任务名称、工作目录、状态、触发方式和任务筛选，每页 50 条。保留原有 30 天清理策略。
 - 启动失败或已跳过的记录可能没有聊天，界面明确显示“未创建聊天”。运行中的记录保留取消入口。
+- 任务详情时间线和全局运行记录均展示每次执行的成果列表，按该次 `conversation_id` 查询，包含子会话成果。成果数量超过接口单页上限时继续读取，列表限制显示高度并滚动；点击条目复用已有预览，缺失或无法访问的条目有状态提示。
+- 成果列表监听成果变更和连接恢复，并在执行状态变化时刷新。无成果时不占用列表空间；读取失败显示就地重试，不改变运行状态。
 - 新建沿用现有模板流程；编辑沿用 RichComposer、引用、命令、技能、动态智能体／模型配置、默认任务目录和结构化计划，采用内容与计划／通知两栏布局。
 
 ## 补跑
@@ -42,6 +44,20 @@
 | `automation_retry_runs` | `runIds` | 新入队数量 |
 
 查询和批量执行共享 core/service，桌面与服务器遵循同一行为。页面继续使用 AutomationsViewProvider、`automation://changed` 事件及重连补取。
+
+## 桌面防休眠
+
+桌面调度引擎启动后，只要存在未删除且启用的 `schedule` 任务，就请求系统阻止自动休眠；手动任务不触发防休眠。任务创建、修改、启停和删除会通知控制器重新查询，同时每 5 秒校准数据库状态及锁的健康情况。全部定时任务禁用或删除后释放；引擎结束时停止控制器，客户端进程退出后系统资源也会释放。服务器运行时不请求防休眠。
+
+- Windows：专用线程调用 `SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)`，线程退出前清除状态。
+- macOS：使用系统 `/usr/bin/caffeinate -i -w <客户端 PID>`，随客户端退出释放。
+- Linux：使用 `systemd-inhibit --what=idle:sleep --mode=block --no-ask-password /bin/cat`，通过客户端持有的 stdin 管道绑定生命周期；客户端退出关闭管道后子命令结束并释放锁。需要系统提供 systemd/logind 及抑制权限。
+
+只阻止系统空闲引起的自动休眠，不保持屏幕常亮；用户主动休眠、合盖和系统电源策略仍由操作系统决定。锁获取失败会记录原因并重试；重复错误抑制日志噪声。数据库查询失败保留已有锁，避免短暂故障导致休眠。
+
+实现依据：[Windows API](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate)、[Apple caffeinate 源码](https://github.com/apple-oss-distributions/PowerManagement/blob/main/caffeinate/caffeinate.c)、[systemd-inhibit](https://www.freedesktop.org/software/systemd/man/latest/systemd-inhibit.html)。
+
+本次成果与防休眠改动的验证：前端 TypeScript 和定向 ESLint 通过；新增电源控制器及实际 SeaORM 查询独立编译通过，macOS/Linux 命令分支通过主机侧类型检查及官方文档核对，未在对应平台运行。完整桌面及服务器 `cargo check` 均被已有 `harness/codex` 类型错误阻断；未运行测试套件、安装包构建或真机休眠检查。
 
 ## 验证与限制
 

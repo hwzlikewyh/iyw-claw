@@ -167,6 +167,7 @@ impl<'call> ToolExecutor<ToolCall<'call>> for HistoryTool {
                 Ok(Box::new(McpToolOutput {
                     result,
                     model_result: None,
+                    native_image_items: Vec::new(),
                     tool_input: arguments,
                     result_metadata_capture_allowed: false,
                     wall_time: started.elapsed(),
