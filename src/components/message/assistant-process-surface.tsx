@@ -98,7 +98,7 @@ export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
     (props.autoOpenErrors && props.processHasError) ||
     (props.isResponseComplete
       ? !props.collapseCompletedTurn && props.displayMode !== "minimal"
-      : props.displayMode === "full")
+      : props.displayMode !== "minimal")
   const { open, onOpenChange, triggerRef } = useProcessDisclosure(preferredOpen)
   const completed = completedProcessOperations(props.parts)
   return (

@@ -2554,15 +2554,18 @@ const ReasoningPart = memo(function ReasoningPart({
   animationEnabled: boolean
 }) {
   const hasContent = part.content.trim().length > 0
-  const expandable = hasContent || part.isStreaming
+  const expandable = hasContent
   const content = (
     <Reasoning
       isStreaming={part.isStreaming}
       expandable={expandable}
       defaultOpen={part.isStreaming ? undefined : false}
+      className="assistant-ordered-reasoning"
     >
       <ReasoningTrigger />
-      {expandable && <ReasoningContent>{part.content}</ReasoningContent>}
+      {expandable && (
+        <ReasoningContent tabIndex={0}>{part.content}</ReasoningContent>
+      )}
     </Reasoning>
   )
   return entranceKey ? (

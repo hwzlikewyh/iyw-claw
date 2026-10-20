@@ -1,6 +1,7 @@
 "use client"
 
 import { memo, useMemo } from "react"
+import { MotionConfig } from "motion/react"
 import { useTranslations } from "next-intl"
 import { AgentIcon } from "@/components/agent-icon"
 import { AssistantProcessSurface } from "./assistant-process-surface"
@@ -9,16 +10,13 @@ import {
   AssistantMonitorStatus,
 } from "./assistant-current-activity"
 import { ContentPartsRenderer } from "./content-parts-renderer"
+import { countProcessItems, processPartHasError } from "./assistant-turn-model"
+import { findImageRegistrationIssue } from "./assistant-turn-process"
 import {
-  countProcessItems,
-  processPartHasError,
-  splitAssistantTurnParts,
-} from "./assistant-turn-model"
-import {
-  findImageRegistrationIssue,
-  hasProcessError,
-  visibleProcessPart,
-} from "./assistant-turn-process"
+  buildAssistantTimeline,
+  hasActiveProcess,
+  type AssistantTimelineSection,
+} from "./assistant-turn-timeline"
 import { ImageArtifactRegistrationNotice } from "./assistant-turn-status"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
@@ -55,35 +53,27 @@ function AssistantIdentity({ agentType }: { agentType: AgentType }) {
 export const AssistantTurnContent = memo(function AssistantTurnContent(
   props: AssistantTurnContentProps
 ) {
-  const {
-    sections,
-    processParts,
-    processCount,
-    processHasError,
-    registrationIssue,
-    showProcess,
-  } = useAssistantTurnPresentation(props)
+  const sections = useMemo(
+    () => buildAssistantTimeline(props.parts, props.isResponseComplete),
+    [props.parts, props.isResponseComplete]
+  )
+  const issue = useMemo(
+    () => findImageRegistrationIssue(props.parts),
+    [props.parts]
+  )
   return (
     <div className="conversation-assistant-turn space-y-3">
       <div className="conversation-assistant-header">
         <AssistantIdentity agentType={props.agentType} />
         {props.isLatest && !props.isResponseComplete && (
-          <AssistantCurrentActivity conversationId={props.conversationId} />
+          <AssistantCurrentActivity
+            conversationId={props.conversationId}
+            animationEnabled={props.animationEnabled}
+          />
         )}
       </div>
-      {showProcess && (
-        <AssistantProcessSurface
-          key={props.displayMode}
-          {...props}
-          parts={processParts}
-          processCount={processCount}
-          processHasError={processHasError}
-        />
-      )}
-      {registrationIssue && (
-        <ImageArtifactRegistrationNotice state={registrationIssue} />
-      )}
-      <AssistantBody {...props} sections={sections} />
+      <AssistantTimeline {...props} sections={sections} />
+      {issue && <ImageArtifactRegistrationNotice state={issue} />}
       {props.isLatest && (
         <AssistantMonitorStatus
           parts={props.parts}
@@ -94,86 +84,55 @@ export const AssistantTurnContent = memo(function AssistantTurnContent(
   )
 })
 
-function useAssistantTurnPresentation(props: AssistantTurnContentProps) {
-  const sections = useMemo(
-    () => splitAssistantTurnParts(props.parts, props.isResponseComplete),
-    [props.parts, props.isResponseComplete]
-  )
-  const processParts = useMemo(
-    () =>
-      sections.processParts.flatMap((part) => {
-        const visible = visibleProcessPart(part)
-        return visible ? [visible] : []
-      }),
-    [sections.processParts]
-  )
-  const processCount = useMemo(
-    () => countProcessItems(processParts),
-    [processParts]
-  )
-  const processHasError = useMemo(
-    () =>
-      processParts.some(processPartHasError) ||
-      (props.isResponseComplete && props.parts.some(hasProcessError)),
-    [processParts, props.parts, props.isResponseComplete]
-  )
-  const registrationIssue = useMemo(
-    () => findImageRegistrationIssue(props.parts),
-    [props.parts]
-  )
-  const showProcess = processCount > 0
-  return {
-    sections,
-    processParts,
-    processCount,
-    processHasError,
-    registrationIssue,
-    showProcess,
-  }
-}
-
-function AssistantBody(
-  props: AssistantTurnContentProps & {
-    sections: ReturnType<typeof splitAssistantTurnParts>
-  }
+function AssistantTimeline(
+  props: AssistantTurnContentProps & { sections: AssistantTimelineSection[] }
 ) {
-  const { sections } = props
-  return (
-    <>
+  return props.sections.map((section, index) => {
+    const entranceKey = props.entranceKey + ":timeline:" + section.key
+    if (section.kind === "process") {
+      return (
+        <AssistantProcessSurface
+          key={section.key}
+          {...props}
+          entranceKey={entranceKey}
+          parts={section.parts}
+          isResponseComplete={
+            props.isResponseComplete || !hasActiveProcess(section.parts)
+          }
+          durationMs={null}
+          processCount={countProcessItems(section.parts)}
+          processHasError={section.parts.some(processPartHasError)}
+        />
+      )
+    }
+    const streaming =
+      !props.isResponseComplete && index === props.sections.length - 1
+    return (
       <div
+        key={section.key}
         className="assistant-turn-summary"
-        data-streaming={!props.isResponseComplete && props.animationEnabled}
+        data-streaming={streaming && props.animationEnabled}
       >
-        {sections.responseParts.length > 0 && (
+        <MotionConfig
+          reducedMotion={
+            section.parts[0]?.type === "reasoning" ? "always" : "user"
+          }
+        >
           <ContentPartsRenderer
-            parts={sections.responseParts}
+            parts={section.parts}
             role="assistant"
-            entranceKey={`${props.entranceKey}:response`}
+            entranceKey={entranceKey}
             animationEnabled={props.animationEnabled}
             conversationId={props.conversationId}
-            intelligentUiStreaming={!props.isResponseComplete}
+            intelligentUiStreaming={streaming}
           />
-        )}
-      </div>
-      {sections.resultParts.length > 0 && (
-        <div className="assistant-turn-results">
-          <ContentPartsRenderer
-            parts={sections.resultParts}
-            role="assistant"
-            entranceKey={`${props.entranceKey}:results`}
-            animationEnabled={props.animationEnabled}
-            conversationId={props.conversationId}
-            intelligentUiStreaming={!props.isResponseComplete}
-          />
-        </div>
-      )}
-      {props.isLatest &&
-        (sections.responseParts.length > 0 ||
-          sections.resultParts.length > 0) && (
+        </MotionConfig>
+        {props.isLatest && index === props.sections.length - 1 && (
           <AssistantOutputAnchor complete={props.isResponseComplete} />
         )}
-    </>
-  )
+      </div>
+    )
+  })
 }
 
 function AssistantOutputAnchor({ complete }: { complete: boolean }) {

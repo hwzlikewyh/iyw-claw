@@ -19,22 +19,13 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
 } from "react"
-import {
-  Streamdown,
-  defaultRehypePlugins,
-  defaultRemarkPlugins,
-} from "streamdown"
 
 import { Shimmer } from "./shimmer"
-import { markdownLinkComponents } from "./markdown-link"
-import { localPathCodeBlockComponents } from "./local-path-code-block"
-import { rehypePluginsAllowingIywClaw } from "./rehype-allow-iyw-claw"
-import { normalizeMathDelimiters } from "./message"
-import { remarkRewriteFileUriLinks } from "./remark-file-uri-links"
-import { remarkLocalPathLinks } from "./remark-local-path-links"
-import { useStreamdownPlugins } from "./streamdown-plugins"
+import { ReasoningBody } from "./reasoning-body"
+export { ReasoningBody } from "./reasoning-body"
+export type { ReasoningBodyProps } from "./reasoning-body"
+import { useStickToBottom } from "use-stick-to-bottom"
 
 interface ReasoningContextValue {
   isStreaming: boolean
@@ -97,12 +88,13 @@ export const Reasoning = memo(
     const hasEverStreamedRef = useRef(isStreaming)
     const manuallyClosedRef = useRef(false)
     const previousStreamingRef = useRef(isStreaming)
-    const [hasAutoClosed, setHasAutoClosed] = useState(false)
+    const hasAutoClosedRef = useRef(false)
     const startTimeRef = useRef<number | null>(null)
 
     // Track when streaming starts and compute duration
     useEffect(() => {
       if (isStreaming) {
+        hasAutoClosedRef.current = false
         hasEverStreamedRef.current = true
         if (startTimeRef.current === null) {
           startTimeRef.current = Date.now()
@@ -129,10 +121,11 @@ export const Reasoning = memo(
       if (
         previousStreamingRef.current &&
         !isStreaming &&
-        defaultOpen === false &&
-        isOpen
+        defaultOpen === false
       ) {
-        setIsOpen(false)
+        // 原位结束后只收起一次，用户重新展开历史内容时不再启动关闭计时器。
+        hasAutoClosedRef.current = true
+        if (isOpen) setIsOpen(false)
       }
       previousStreamingRef.current = isStreaming
     }, [defaultOpen, isOpen, isStreaming, setIsOpen])
@@ -151,22 +144,22 @@ export const Reasoning = memo(
         hasEverStreamedRef.current &&
         !isStreaming &&
         isOpen &&
-        !hasAutoClosed
+        !hasAutoClosedRef.current
       ) {
         const timer = setTimeout(() => {
           setIsOpen(false)
-          setHasAutoClosed(true)
+          hasAutoClosedRef.current = true
         }, AUTO_CLOSE_DELAY)
 
         return () => clearTimeout(timer)
       }
-    }, [isStreaming, isOpen, setIsOpen, hasAutoClosed])
+    }, [isStreaming, isOpen, setIsOpen])
 
     const handleOpenChange = useCallback(
       (newOpen: boolean) => {
         if (isStreaming) {
           manuallyClosedRef.current = !newOpen
-        }
+        } else hasAutoClosedRef.current = true
         setIsOpen(newOpen)
       },
       [isStreaming, setIsOpen]
@@ -263,62 +256,31 @@ export type ReasoningContentProps = ComponentProps<
   children: string
 }
 
-export type ReasoningBodyProps = ComponentProps<"div"> & {
-  children: string
-}
-
-const remarkPlugins = [
-  ...Object.values(defaultRemarkPlugins),
-  remarkRewriteFileUriLinks,
-  remarkLocalPathLinks,
-]
-const rehypePlugins = rehypePluginsAllowingIywClaw(defaultRehypePlugins)
-
-export const ReasoningBody = memo(
-  ({ className, children, ...props }: ReasoningBodyProps) => {
-    const normalized = useMemo(
-      () => normalizeMathDelimiters(children),
-      [children]
-    )
-    const plugins = useStreamdownPlugins(normalized)
-
+export const ReasoningContent = memo(
+  ({ className, children, ...props }: ReasoningContentProps) => {
+    const { isStreaming } = useReasoning()
+    const { scrollRef, contentRef } = useStickToBottom({
+      initial: isStreaming ? "instant" : false,
+      resize: "instant",
+    })
     return (
-      <div
-        className={cn("text-sm text-muted-foreground outline-none", className)}
+      <CollapsibleContent
+        ref={scrollRef}
+        className={cn(
+          "mt-4 max-h-[min(15rem,35vh)] overflow-y-auto overscroll-contain pe-1",
+          "iyw-claw-reasoning-content outline-none",
+          className
+        )}
         {...props}
       >
-        <Streamdown
-          plugins={plugins}
-          remarkPlugins={remarkPlugins}
-          rehypePlugins={rehypePlugins}
-          components={{
-            ...localPathCodeBlockComponents,
-            ...markdownLinkComponents,
-          }}
-        >
-          {normalized}
-        </Streamdown>
-      </div>
+        <div ref={contentRef}>
+          <ReasoningBody>{children}</ReasoningBody>
+        </div>
+      </CollapsibleContent>
     )
   }
 )
 
-export const ReasoningContent = memo(
-  ({ className, children, ...props }: ReasoningContentProps) => (
-    <CollapsibleContent
-      className={cn(
-        "mt-4 max-h-[min(15rem,35vh)] overflow-y-auto overscroll-contain pe-1",
-        "iyw-claw-reasoning-content outline-none",
-        className
-      )}
-      {...props}
-    >
-      <ReasoningBody>{children}</ReasoningBody>
-    </CollapsibleContent>
-  )
-)
-
 Reasoning.displayName = "Reasoning"
 ReasoningTrigger.displayName = "ReasoningTrigger"
-ReasoningBody.displayName = "ReasoningBody"
 ReasoningContent.displayName = "ReasoningContent"

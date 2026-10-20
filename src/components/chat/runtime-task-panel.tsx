@@ -19,6 +19,7 @@ import {
 } from "./runtime-task-presentation"
 import { RuntimeTaskRow } from "./runtime-task-row"
 import { SessionTaskPoints } from "./runtime-task-points"
+import { isPersistentTask, PersistentTaskStrip } from "./persistent-task-strip"
 
 interface TaskActions {
   onMessage?: (task: RuntimeTask) => void
@@ -29,6 +30,7 @@ interface PanelProps extends TaskActions {
   conversationId: number | null
 }
 interface PopoverProps extends TaskActions {
+  excludePersistent?: boolean
   children?: ReactNode
   historyOnly?: boolean
   monitorsOnly?: boolean
@@ -42,22 +44,35 @@ export function RuntimeTaskPanel(props: PanelProps) {
   if (!state) return null
   const scope = JSON.stringify([state.connectionId, state.conversationId])
   const open = openedScope === scope
-  const current = state.tasks.filter((task) => !isTaskHistory(task))
-  if (!current.length && !state.error && !open) return null
-  if (!open && !state.error && monitorVisible && current.every(isListeningTask))
-    return null
+  const current = currentTasks(state.tasks, true)
+  const persistent = state.tasks.some(
+    (task) => isPersistentTask(task) && !isTaskHistory(task)
+  )
+  if (!current.length && !persistent && !state.error && !open) return null
+  const hidden =
+    !open && !state.error && monitorVisible && current.every(isListeningTask)
+  if (hidden && !persistent) return null
   return (
-    <div className="flex justify-end pb-1 text-xs">
-      <RuntimeTaskPopover
-        {...props}
-        monitorsOnly={
-          current.length > 0 &&
-          current.every(isListeningTask) &&
-          taskControlsAvailable(state.status, state.error)
-        }
-        onOpenChange={(shown) => setOpenedScope(shown ? scope : null)}
+    <>
+      <PersistentTaskStrip
+        onMessage={props.onMessage}
+        onCancelLoop={props.onCancelLoop}
       />
-    </div>
+      {!hidden && (current.length > 0 || state.error || open) && (
+        <div className="flex justify-end pb-1 text-xs">
+          <RuntimeTaskPopover
+            {...props}
+            excludePersistent
+            monitorsOnly={
+              current.length > 0 &&
+              current.every(isListeningTask) &&
+              taskControlsAvailable(state.status, state.error)
+            }
+            onOpenChange={(shown) => setOpenedScope(shown ? scope : null)}
+          />
+        </div>
+      )}
+    </>
   )
 }
 
@@ -74,7 +89,7 @@ function TaskPopover(props: PopoverProps) {
   const state = useConversationPresentation()!
   const [open, setOpen] = useState(false)
   const [history, setHistory] = useState(false)
-  const current = state.tasks.filter((task) => !isTaskHistory(task))
+  const current = currentTasks(state.tasks, props.excludePersistent)
   const records = props.historyOnly || history || (open && !current.length)
   const tasks = records
     ? state.tasks.filter(isTaskHistory)
@@ -117,6 +132,13 @@ function TaskPopover(props: PopoverProps) {
         />
       </PopoverContent>
     </Popover>
+  )
+}
+
+function currentTasks(tasks: RuntimeTask[], excludePersistent = false) {
+  return tasks.filter(
+    (task) =>
+      !isTaskHistory(task) && (!excludePersistent || !isPersistentTask(task))
   )
 }
 

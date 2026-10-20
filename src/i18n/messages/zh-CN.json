@@ -49,6 +49,7 @@
     "backToActivity": "返回当前步骤"
   },
   "RuntimeTasks": {
+    "scheduleEnabled": "调度已启用",
     "monitoring": "监听中",
     "monitorHint": "监听正在后台等待事件，可以继续对话。结束和超时以运行时通知为准。",
     "monitorPersistent": "随会话持续监听",

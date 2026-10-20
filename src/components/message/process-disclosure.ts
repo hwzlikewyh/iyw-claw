@@ -3,13 +3,18 @@
 import { useEffect, useRef, useState } from "react"
 
 export function useProcessDisclosure(preferredOpen: boolean) {
-  const [chosenOpen, setChosenOpen] = useState<boolean | null>(null)
+  const [choice, setChoice] = useState<{
+    preferred: boolean
+    open: boolean | null
+  }>({ preferred: preferredOpen, open: null })
+  if (choice.preferred !== preferredOpen)
+    setChoice({ preferred: preferredOpen, open: null })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const frame = useRef(0)
   useEffect(() => () => cancelAnimationFrame(frame.current), [])
   const onOpenChange = (open: boolean) => {
     cancelAnimationFrame(frame.current)
-    setChosenOpen(open)
+    setChoice({ preferred: preferredOpen, open })
     if (open) return
     const previousFocus = document.activeElement
     frame.current = requestAnimationFrame(() => {
@@ -26,5 +31,9 @@ export function useProcessDisclosure(preferredOpen: boolean) {
       })
     })
   }
-  return { open: chosenOpen ?? preferredOpen, onOpenChange, triggerRef }
+  const open =
+    choice.preferred === preferredOpen
+      ? (choice.open ?? preferredOpen)
+      : preferredOpen
+  return { open, onOpenChange, triggerRef }
 }

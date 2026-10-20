@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo } from "react"
-import { CircleDot, LoaderCircle, Radio } from "lucide-react"
+import { Radio } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useConversationPresentation } from "@/components/chat/conversation-presentation-context"
 import { RuntimeTaskPopover } from "@/components/chat/runtime-task-panel"
@@ -15,11 +15,14 @@ import { useTurnActivity } from "./live-turn-activity"
 import { useConversationRuntimeStore } from "@/stores/conversation-runtime-store"
 import { summarizeLiveTurn } from "./live-turn-summary"
 import { ConversationActivityText } from "./conversation-activity-text"
+import { ConversationWorkingMark } from "./conversation-working-mark"
 
 export function AssistantCurrentActivity({
   conversationId,
+  animationEnabled = true,
 }: {
   conversationId: number
+  animationEnabled?: boolean
 }) {
   const state = useConversationPresentation()
   if (
@@ -33,6 +36,7 @@ export function AssistantCurrentActivity({
     <CurrentActivity
       contextKey={state.contextKey}
       conversationId={conversationId}
+      animationEnabled={animationEnabled}
     />
   )
 }
@@ -40,9 +44,11 @@ export function AssistantCurrentActivity({
 function CurrentActivity({
   contextKey,
   conversationId,
+  animationEnabled,
 }: {
   contextKey?: string
   conversationId: number
+  animationEnabled: boolean
 }) {
   const message = useConversationRuntimeStore(
     (store) => store.byConversationId.get(conversationId)?.liveMessage ?? null
@@ -60,20 +66,13 @@ function CurrentActivity({
     setOutputStreaming(activity.icon === "reply" && !activity.waiting)
     return () => setOutputStreaming(false)
   }, [activity.icon, activity.waiting, setOutputStreaming])
-  const Icon = activity.waiting ? CircleDot : LoaderCircle
   return (
     <div
       ref={ref}
       className="conversation-current-activity"
-      data-paused={!pageVisible || !activityVisible}
+      data-paused={!pageVisible || !activityVisible || !animationEnabled}
     >
-      <Icon
-        aria-hidden="true"
-        className={
-          "size-4 shrink-0 " +
-          (activity.waiting ? "" : "conversation-working-mark")
-        }
-      />
+      <ConversationWorkingMark />
       <ConversationActivityText {...activity} visible={activityVisible} />
     </div>
   )

@@ -49,6 +49,7 @@
     "backToActivity": "Return to current step"
   },
   "RuntimeTasks": {
+    "scheduleEnabled": "Schedule enabled",
     "monitoring": "Listening",
     "monitorHint": "Listening for events in the background. You can continue chatting. The runtime confirms completion and timeout.",
     "monitorPersistent": "Listening for the session lifetime",

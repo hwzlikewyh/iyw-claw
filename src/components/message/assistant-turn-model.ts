@@ -1,4 +1,5 @@
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
+import { flattenAssistantParts } from "./assistant-turn-timeline"
 
 export interface AssistantTurnSections {
   processParts: AdaptedContentPart[]
@@ -15,30 +16,19 @@ export function splitAssistantTurnParts(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 保留既有调用签名，流式和完成态共用分区。
   _complete: boolean
 ): AssistantTurnSections {
-  const summaryIndex = parts.reduce(
-    (last, part, index) =>
-      part.type === "text" && part.text.trim() ? index : last,
-    -1
-  )
-
-  // 流式和完成态共用正文位置；思考与工具事件保持原顺序收纳到过程。
-  const processParts = parts.filter((part, index) => {
+  const ordered = flattenAssistantParts(parts)
+  const processParts = ordered.filter((part) => {
     if (isFinalResultPart(part)) return false
-    if (part.type === "text") {
-      return Boolean(part.text.trim()) && index !== summaryIndex
-    }
-    return true
+    return part.type !== "text"
   })
-  const responseParts = parts.filter(
-    (part, index): part is Extract<AdaptedContentPart, { type: "text" }> =>
-      part.type === "text" &&
-      Boolean(part.text.trim()) &&
-      index === summaryIndex
+  const responseParts = ordered.filter(
+    (part): part is Extract<AdaptedContentPart, { type: "text" }> =>
+      part.type === "text" && Boolean(part.text.trim())
   )
 
   return {
     processParts,
-    resultParts: parts.filter(isFinalResultPart),
+    resultParts: ordered.filter(isFinalResultPart),
     responseParts,
   }
 }

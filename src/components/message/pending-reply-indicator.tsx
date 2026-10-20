@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { CircleDot } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { Message, MessageContent } from "@/components/ai-elements/message"
 import type { AgentType } from "@/lib/types"
@@ -10,6 +9,7 @@ import { formatElapsedLabel } from "@/lib/format-elapsed"
 import { useConversationPresentation } from "@/components/chat/conversation-presentation-context"
 import { AssistantIdentity } from "./assistant-turn-status"
 import { ConversationActivityText } from "./conversation-activity-text"
+import { ConversationWorkingMark } from "./conversation-working-mark"
 import {
   useConversationActivityAnchor,
   useConversationActivityVisibility,
@@ -62,7 +62,7 @@ function StartupActivity({
       className="conversation-current-activity"
       data-paused={!pageVisible || !activityVisible}
     >
-      <CircleDot aria-hidden="true" className="size-4 shrink-0" />
+      <ConversationWorkingMark />
       <ConversationActivityText
         phase={t(phase)}
         detail={t(`detail.${phase}`)}

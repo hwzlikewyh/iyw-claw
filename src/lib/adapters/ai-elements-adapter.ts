@@ -1713,7 +1713,8 @@ export function groupGoalRuns(
         continue
       }
 
-      active.start = part.start
+      if (active.start.toolCallId !== part.start.toolCallId)
+        active.items.push(part.start)
       if (part.end === null) {
         active.items.push(...part.items)
       } else {
@@ -1735,7 +1736,7 @@ export function groupGoalRuns(
         continue
       }
       if (active) {
-        active.start = part
+        active.items.push(part)
         continue
       }
       flushActive()

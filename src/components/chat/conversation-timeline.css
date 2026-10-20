@@ -1,0 +1,106 @@
+.conversation-persistent-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-block: 0.375rem 0.75rem;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid color-mix(in oklab, var(--primary) 16%, var(--border));
+  border-radius: 0.75rem;
+  background: color-mix(in oklab, var(--primary) 3%, var(--background));
+}
+.conversation-persistent-task button {
+  overflow-wrap: anywhere;
+}
+.conversation-work-bars {
+  display: inline-flex;
+  flex: 0 0 1.125rem;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 1.25rem;
+  margin-top: 0.125rem;
+  color: var(--primary);
+}
+.conversation-work-bars i {
+  width: 3px;
+  height: 0.75rem;
+  border-radius: 3px;
+  background: currentColor;
+  animation: conversation-work-wave 1.15s ease-in-out infinite;
+}
+.conversation-work-bars i:nth-child(2) {
+  height: 1rem;
+  animation-delay: 0.17s;
+}
+.conversation-work-bars i:nth-child(3) {
+  animation-delay: 0.34s;
+}
+.conversation-schedule-mark {
+  animation: conversation-schedule-breathe 3.8s ease-in-out infinite;
+}
+[data-paused="true"]
+  :is(.conversation-work-bars i, .conversation-schedule-mark) {
+  animation-play-state: paused;
+}
+.conversation-assistant-turn .assistant-process-scroll {
+  height: auto;
+  max-height: min(var(--process-height), 50dvh);
+}
+.assistant-ordered-reasoning {
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  background: color-mix(in oklab, var(--muted) 35%, var(--background));
+  padding: 0.625rem 0.75rem;
+}
+.assistant-ordered-reasoning > button {
+  font-size: 0.75rem;
+}
+.assistant-ordered-reasoning .iyw-claw-reasoning-content {
+  height: min(10rem, 35dvh);
+  margin-top: 0.625rem;
+  scrollbar-width: none;
+}
+.assistant-ordered-reasoning .iyw-claw-reasoning-content::-webkit-scrollbar {
+  display: none;
+}
+.assistant-ordered-reasoning .iyw-claw-reasoning-content[data-state="closed"] {
+  height: 0;
+  overflow: hidden;
+}
+.assistant-ordered-reasoning .animate-shimmer {
+  animation: none;
+}
+.conversation-assistant-turn .assistant-turn-summary > div {
+  min-width: 0;
+}
+@keyframes conversation-work-wave {
+  0%,
+  100% {
+    transform: scaleY(0.4);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+@keyframes conversation-schedule-breathe {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .conversation-work-bars i,
+  .conversation-schedule-mark {
+    animation: none;
+  }
+}
+@media (max-width: 520px) {
+  .conversation-persistent-task {
+    gap: 0.5rem;
+    padding: 0.625rem;
+  }
+  .assistant-ordered-reasoning .iyw-claw-reasoning-content {
+    height: min(8rem, 35dvh);
+  }
+}
