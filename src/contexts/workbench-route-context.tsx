@@ -40,6 +40,9 @@ interface WorkbenchRouteContextValue {
   skillMarketTarget: SkillMarketNavigationTarget | null
   openSkillMarket: (skillId: string) => void
   consumeSkillMarketTarget: (requestId: number) => void
+  connectorMarketRequested: boolean
+  openConnectorMarket: () => void
+  consumeConnectorMarket: () => void
 }
 
 const WorkbenchRouteContext = createContext<WorkbenchRouteContextValue | null>(
@@ -71,6 +74,16 @@ export function WorkbenchRouteProvider({ children }: { children: ReactNode }) {
   const [skillMarketTarget, setSkillMarketTarget] =
     useState<SkillMarketNavigationTarget | null>(null)
   const skillMarketRequestIdRef = useRef(0)
+  const [connectorMarketRequested, setConnectorMarketRequested] =
+    useState(false)
+  const openConnectorMarket = useCallback(() => {
+    setConnectorMarketRequested(true)
+    setRouteId("skills")
+  }, [])
+  const consumeConnectorMarket = useCallback(
+    () => setConnectorMarketRequested(false),
+    []
+  )
 
   const setRoute = useCallback((id: WorkbenchRouteId) => setRouteId(id), [])
   const openConversations = useCallback(() => setRouteId("conversations"), [])
@@ -99,6 +112,9 @@ export function WorkbenchRouteProvider({ children }: { children: ReactNode }) {
       skillMarketTarget,
       openSkillMarket,
       consumeSkillMarketTarget,
+      connectorMarketRequested,
+      openConnectorMarket,
+      consumeConnectorMarket,
     }),
     [
       routeId,
@@ -107,6 +123,9 @@ export function WorkbenchRouteProvider({ children }: { children: ReactNode }) {
       skillMarketTarget,
       openSkillMarket,
       consumeSkillMarketTarget,
+      connectorMarketRequested,
+      openConnectorMarket,
+      consumeConnectorMarket,
     ]
   )
 

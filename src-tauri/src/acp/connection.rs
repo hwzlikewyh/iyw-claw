@@ -1416,6 +1416,11 @@ pub(crate) async fn spawn_agent_connection(
     let spawn_gate = connection_tasks.begin_spawn().await?;
     let mut preferred_config_values = preferred_config_values;
     let mut runtime_env = runtime_env;
+    if crate::internal_xinghe_worker::is_desktop_agent(agent_type) {
+        if let Some(conn) = version_center_db.as_ref() {
+            crate::commands::mcp_conversation_runtime::project_xinghe(conn, database_conversation_id, &mut runtime_env).await?;
+        }
+    }
     super::context_window_preferences::resolve(
         &mut preferred_config_values,
         (agent_type, version_center_db.as_ref(), database_conversation_id),
@@ -2581,6 +2586,18 @@ fn agent_reads_native_mcp_config(agent_type: AgentType) -> bool {
 /// Load MCP servers configured for `agent_type` and convert them into the
 /// ACP wire format. Errors and unsupported entries are logged and skipped so
 /// a single malformed entry never blocks a session from starting.
+async fn conversation_mcp_servers(
+    conn: Option<&sea_orm::DatabaseConnection>,
+    context: (Option<i32>, AgentType),
+) -> Result<Vec<McpServer>, AcpError> {
+    if agent_reads_native_mcp_config(context.1) { return Ok(Vec::new()); }
+    let Some(conn) = conn else { return Ok(Vec::new()); };
+    let selected = crate::commands::mcp_conversation::specs(conn, context).await
+        .map_err(|error| AcpError::protocol(error.message))?;
+    selected.iter().map(|(name, spec)| canonical_spec_to_mcp_server(name, spec).map_err(AcpError::protocol)).collect()
+}
+
+#[allow(dead_code)]
 fn load_mcp_servers_for_agent(agent_type: AgentType) -> Vec<McpServer> {
     // Codex, Hermes, Kimi Code, and Grok read their own native MCP config at
     // launch. Codex reads `[mcp_servers.<name>]` from its layered config;
@@ -3643,35 +3660,20 @@ async fn run_connection(
             // ACP spec; HTTP/SSE are gated on `mcp_capabilities.{http,sse}`.
             let mcp_caps = &init_resp.agent_capabilities.mcp_capabilities;
             let mut mcp_servers: Vec<McpServer> = if agent_supports_mcp {
-                load_mcp_servers_for_agent(agent_type)
+                conversation_mcp_servers(version_center_db.as_ref(), (database_conversation_id, agent_type)).await?
                     .into_iter()
-                    .filter(|s| match s {
-                        McpServer::Stdio(_) => true,
-                        McpServer::Http(server) => {
-                            if mcp_caps.http {
-                                true
-                            } else {
-                                tracing::warn!(
-                                    "[ACP][{}] skip HTTP MCP server '{}': agent does not advertise mcpCapabilities.http",
-                                    agent_type, server.name
-                                );
-                                false
-                            }
+                    .map(|server| {
+                        let supported = match &server {
+                            McpServer::Stdio(_) => true,
+                            McpServer::Http(_) => mcp_caps.http,
+                            McpServer::Sse(_) => mcp_caps.sse,
+                            _ => false,
+                        };
+                        if supported { Ok(server) } else {
+                            Err(AcpError::protocol("当前智能体未声明所选 MCP 传输能力，请更换接入选项或关闭该连接器"))
                         }
-                        McpServer::Sse(server) => {
-                            if mcp_caps.sse {
-                                true
-                            } else {
-                                tracing::warn!(
-                                    "[ACP][{}] skip SSE MCP server '{}': agent does not advertise mcpCapabilities.sse",
-                                    agent_type, server.name
-                                );
-                                false
-                            }
-                        }
-                        _ => false,
                     })
-                    .collect()
+                    .collect::<Result<Vec<_>, AcpError>>()?
             } else {
                 tracing::info!(
                     "[ACP][{}] supports_mcp=false: skipping all MCP wire forwarding (user servers + built-in HTTP MCP)",

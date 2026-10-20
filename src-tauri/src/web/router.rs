@@ -790,6 +790,11 @@ pub fn build_router(
             "/mcp_list_marketplaces",
             post(handlers::mcp::mcp_list_marketplaces),
         )
+        .route("/mcp_conversation_get", post(handlers::mcp::mcp_conversation_get))
+        .route("/mcp_oauth_begin", post(handlers::mcp::mcp_oauth_begin))
+        .route("/mcp_oauth_status", post(handlers::mcp::mcp_oauth_status))
+        .route("/mcp_oauth_cancel", post(handlers::mcp::mcp_oauth_cancel))
+        .route("/mcp_conversation_set", post(handlers::mcp::mcp_conversation_set))
         .route(
             "/mcp_search_marketplace",
             post(handlers::mcp::mcp_search_marketplace),

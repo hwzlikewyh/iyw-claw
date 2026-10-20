@@ -71,6 +71,7 @@ pub fn client_method_policy(method: &str) -> Result<MethodPolicy, UnsupportedMet
         | "config/read"
         | "mcpServerStatus/list" => read_only,
         "skills/list" => global_capability(RequestClass::ReadOnly, Capability::Skills),
+        "mcpServer/oauth/login" => global_capability(RequestClass::Configuration, Capability::Mcp),
         "thread/read" | "thread/turns/list" | "thread/items/list" => session_read_only(),
         "thread/backgroundTerminals/list" => session_read_only(),
         "thread/backgroundTerminals/terminate" => {
