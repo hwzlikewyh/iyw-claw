@@ -2412,7 +2412,7 @@ impl CallToolResult {
     }
 
     pub fn as_function_call_output_payload(&self) -> FunctionCallOutputPayload {
-        let content_items = convert_mcp_content_to_items(&self.content);
+        let mut content_items = convert_mcp_content_to_items(&self.content);
         if content_items
             .iter()
             .any(|item| matches!(item, FunctionCallOutputContentItem::EncryptedContent { .. }))
@@ -2428,6 +2428,20 @@ impl CallToolResult {
         {
             match serde_json::to_string(structured_content) {
                 Ok(serialized_structured_content) => {
+                    if content_items.iter().any(|item| {
+                        matches!(item, FunctionCallOutputContentItem::InputImage { .. })
+                    }) {
+                        content_items.insert(
+                            0,
+                            FunctionCallOutputContentItem::InputText {
+                                text: serialized_structured_content,
+                            },
+                        );
+                        return FunctionCallOutputPayload {
+                            body: FunctionCallOutputBody::ContentItems(content_items),
+                            success: Some(self.success()),
+                        };
+                    }
                     return FunctionCallOutputPayload {
                         body: FunctionCallOutputBody::Text(serialized_structured_content),
                         success: Some(self.success()),

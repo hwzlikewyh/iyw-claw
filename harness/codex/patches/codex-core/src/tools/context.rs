@@ -126,6 +126,7 @@ impl ToolInvocation {
 pub struct McpToolOutput {
     pub result: CallToolResult,
     pub(crate) model_result: Option<CallToolResult>,
+    pub(crate) native_image_items: Vec<FunctionCallOutputContentItem>,
     pub tool_input: JsonValue,
     // Keep the original metadata for hooks; this flag only controls analytics capture.
     pub(crate) result_metadata_capture_allowed: bool,
@@ -189,6 +190,20 @@ impl McpToolOutput {
             .as_ref()
             .unwrap_or(&self.result)
             .as_function_call_output_payload();
+        if !self.native_image_items.is_empty() {
+            let body = std::mem::replace(
+                &mut payload.body,
+                FunctionCallOutputBody::ContentItems(Vec::new()),
+            );
+            let mut items = match body {
+                FunctionCallOutputBody::Text(text) => {
+                    vec![FunctionCallOutputContentItem::InputText { text }]
+                }
+                FunctionCallOutputBody::ContentItems(items) => items,
+            };
+            items.extend(self.native_image_items.iter().cloned());
+            payload.body = FunctionCallOutputBody::ContentItems(items);
+        }
         if let Some(items) = payload.content_items_mut() {
             sanitize_original_image_detail(self.original_image_detail_supported, items);
         }
@@ -388,6 +403,8 @@ pub struct ExecCommandToolOutput {
     pub wall_time: Duration,
     /// Raw bytes returned for this unified exec call before any truncation.
     pub raw_output: Vec<u8>,
+    pub native_image_items: Vec<FunctionCallOutputContentItem>,
+    pub image_attachment_summary: Option<String>,
     pub truncation_policy: TruncationPolicy,
     pub max_output_tokens: Option<usize>,
     pub process_id: Option<i32>,
@@ -416,14 +433,16 @@ impl ToolOutput for ExecCommandToolOutput {
     }
 
     fn to_response_item(&self, call_id: &str, payload: &ToolPayload) -> ResponseInputItem {
-        function_tool_response(
-            call_id,
-            payload,
-            vec![FunctionCallOutputContentItem::InputText {
-                text: self.response_text(),
-            }],
-            Some(true),
-        )
+        let mut items = vec![FunctionCallOutputContentItem::InputText {
+            text: self.response_text(),
+        }];
+        if let Some(summary) = &self.image_attachment_summary {
+            items.push(FunctionCallOutputContentItem::InputText {
+                text: summary.clone(),
+            });
+        }
+        items.extend(self.native_image_items.iter().cloned());
+        function_tool_response(call_id, payload, items, Some(true))
     }
 
     fn post_tool_use_id(&self, call_id: &str) -> String {

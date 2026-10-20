@@ -421,11 +421,13 @@ async fn run_compact_task_inner_impl(
     } else {
         get_last_assistant_message_from_turn(history_snapshot.raw_items()).unwrap_or_default()
     };
-    let mut summary_text = format!("{SUMMARY_PREFIX}\n{summary_suffix}");
-    crate::client::image_references::append_image_references(history_snapshot.raw_items(), &mut summary_text);
+    let summary_text = format!("{SUMMARY_PREFIX}\n{summary_suffix}");
     let user_messages = collect_annotated_user_messages(history_items);
 
     let mut new_history = build_compacted_history(Vec::new(), &user_messages, &summary_text);
+    let image_ids =
+        crate::client::image_references::collect_image_ids(history_snapshot.raw_items(), true);
+    new_history = crate::client::image_references::retain_in_history(image_ids, new_history);
     if let Some(summary_item) = new_history.last_mut() {
         // This replacement history skips `record_conversation_items`; only the appended summary
         // belongs to this compaction turn.

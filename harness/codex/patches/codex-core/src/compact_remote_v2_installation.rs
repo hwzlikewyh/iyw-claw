@@ -191,7 +191,8 @@ async fn build_and_install_compaction(
         sess.record_rollout_budget_usage(token_usage).await?;
         analytics_details.active_context_tokens_before = Some(token_usage.input_tokens);
     }
-    let (compacted_history, retained_images) = build_v2_compacted_history(
+    let image_ids = crate::client::image_references::collect_image_ids(prompt_input.iter(), true);
+    let (compacted_history, _) = build_v2_compacted_history(
         prompt_input,
         prompt_input_metadata,
         compaction_output,
@@ -202,7 +203,12 @@ async fn build_and_install_compaction(
             RetainedImageBudget::Disabled
         },
     );
-    let compacted_history = crate::client::image_references::retain_in_history(sess, compacted_history).await;
+    let compacted_history =
+        crate::client::image_references::retain_in_history(image_ids, compacted_history);
+    let retained_images = compacted_history
+        .iter()
+        .map(|envelope| super::retained_input_image_count(&envelope.item))
+        .sum();
     let reviewer_compaction_hash = reviewer_compaction_hash(sess, turn_context).await;
     let installed = if let Some((prefix, model_info, cutoff_world_state)) = prefix {
         let (initial_context, world_state_baseline) = sess
