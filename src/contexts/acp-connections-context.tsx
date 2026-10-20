@@ -22,7 +22,7 @@ import type {
   EventStreamSubscription,
 } from "@/lib/transport/types"
 import { randomUUID } from "@/lib/utils"
-import { observeTurnTiming } from "@/lib/turn-performance"
+import { alignTurnTimings, observeTurnTiming } from "@/lib/turn-performance"
 import { completeLiveTurnTiming } from "@/lib/turn-duration"
 import { settleLiveBackgroundTask } from "@/lib/background-agent"
 import { inferLiveToolName } from "@/lib/tool-call-normalization"
@@ -655,6 +655,11 @@ type Action =
       activity?: EventEnvelope["activity"]
     }
   | {
+      type: "TURN_TIMING_OBSERVED"
+      contextKey: string
+      event: EventEnvelope
+    }
+  | {
       /**
        * Synthesize a ConnectionState for a delegation-spawned child so
        * its acp://event stream lands in the reducer the same way a
@@ -1157,10 +1162,7 @@ function applyStreamingAction(
   // redact thinking text entirely, keeping the empty block as the signal).
   if (action.type === "CONTENT_DELTA" && action.text.length === 0) return null
 
-  const prev = observeTurnTiming(
-    ensureLiveMessage(conn.liveMessage),
-    action.type === "CONTENT_DELTA" ? "text" : "thinking"
-  )
+  const prev = ensureLiveMessage(conn.liveMessage)
   const lastBlock = prev.content[prev.content.length - 1]
   let newContent: LiveContentBlock[] | null = null
 
@@ -1467,12 +1469,7 @@ function connectionsReducer(
         snapshotLiveMessage?.id === current.liveMessage?.id &&
         snapshotLiveMessage &&
         current.liveMessage
-          ? {
-              ...snapshotLiveMessage,
-              firstActivityAt: current.liveMessage.firstActivityAt,
-              firstThinkingAt: current.liveMessage.firstThinkingAt,
-              firstTextAt: current.liveMessage.firstTextAt,
-            }
+          ? alignTurnTimings(snapshotLiveMessage, current.liveMessage)
           : snapshotLiveMessage
       const hydratedPendingPermission = mergePendingPermissionWithLiveMessage(
         action.patch.pendingPermission,
@@ -1629,6 +1626,17 @@ function connectionsReducer(
       }
       const next = new Map(state)
       next.set(action.contextKey, { ...current, agentInputs, liveMessage })
+      return next
+    }
+
+    case "TURN_TIMING_OBSERVED": {
+      const current = state.get(action.contextKey)
+      if (!current || current.status !== "prompting") return state
+      const previous = ensureLiveMessage(current.liveMessage)
+      const liveMessage = observeTurnTiming(previous, action.event)
+      if (liveMessage === previous) return state
+      const next = new Map(state)
+      next.set(action.contextKey, { ...current, liveMessage })
       return next
     }
 
@@ -1915,7 +1923,7 @@ function connectionsReducer(
         ]
       }
       const nextLiveMessage = {
-        ...observeTurnTiming(prev, "tool_call"),
+        ...prev,
         content: newContent,
       }
       const nextInfo = findLiveToolCallInfo(newContent, action.tool_call_id)
@@ -2070,7 +2078,7 @@ function connectionsReducer(
       }
 
       const nextLiveMessage = {
-        ...observeTurnTiming(prev, "tool_call"),
+        ...prev,
         content: newContent,
       }
       const nextInfo = findLiveToolCallInfo(newContent, action.tool_call_id)
@@ -2541,7 +2549,7 @@ function connectionsReducer(
       const next = new Map(state)
       next.set(action.contextKey, {
         ...conn,
-        liveMessage: { ...observeTurnTiming(prev, "plan"), content: newContent },
+        liveMessage: { ...prev, content: newContent },
         claudeApiRetry: null,
       })
       return next
@@ -3679,6 +3687,13 @@ export function AcpConnectionsProvider({ children }: { children: ReactNode }) {
 
   const handleMappedEvent = useCallback(
     (contextKey: string, e: EventEnvelope) => {
+      if (
+        ["content_delta", "thinking", "tool_call", "plan_update"].includes(
+          e.type
+        )
+      ) {
+        dispatch({ type: "TURN_TIMING_OBSERVED", contextKey, event: e })
+      }
       switch (e.type) {
         case "runtime_observation":
           break

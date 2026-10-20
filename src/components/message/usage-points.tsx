@@ -1,7 +1,7 @@
 "use client"
 
 import { useLocale, useTranslations } from "next-intl"
-import { formatUsagePoints } from "@/lib/usage-points"
+import { formatUsagePoints, resolveUsagePoints } from "@/lib/usage-points"
 import { formatPointDecimal } from "@/lib/point-decimal"
 import type { ConfirmedConsumption } from "@/lib/types"
 
@@ -17,11 +17,7 @@ export function UsagePointsValue({
   const locale = useLocale()
   const t = useTranslations("UsagePoints")
   const confirmed = points ?? consumption?.amount
-  const value = validPoints(confirmed)
-    ? confirmed
-    : validPoints(estimate)
-      ? estimate
-      : null
+  const value = resolveUsagePoints(confirmed, estimate)
   return (
     <span
       className="tabular-nums"
@@ -40,13 +36,6 @@ export function UsagePointsValue({
         t("pending")
       )}
     </span>
-  )
-}
-
-function validPoints(value: unknown): value is string | number {
-  return (
-    (typeof value === "string" && /^\d+(?:\.\d{1,18})?$/.test(value)) ||
-    (typeof value === "number" && Number.isFinite(value) && value >= 0)
   )
 }
 

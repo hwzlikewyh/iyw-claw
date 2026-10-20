@@ -1,3 +1,5 @@
+import type { EventEnvelope } from "@/lib/types"
+
 const MAX_RECORDED_TURNS = 1_000
 const turnTimings = new Map<string, TurnTimings>()
 
@@ -15,35 +17,87 @@ interface LiveTiming {
   content: { type: string; text?: string }[]
 }
 
-// 恢复历史块时无法推断首事件时间；只记录本机实际观察到的首次事件。
+function parseTimestamp(value?: string | null): number {
+  return Date.parse(value ?? "")
+}
+
+function eventTimestamp(event: EventEnvelope): number | null {
+  const activity = event.activity
+  if (!activity) return null
+  switch (event.type) {
+    case "content_delta":
+      return event.text.length > 0 ? parseTimestamp(activity.text_at) : null
+    case "thinking":
+      return parseTimestamp(
+        event.text.length > 0 ? activity.thinking_at : activity.sampled_at
+      )
+    case "tool_call":
+      return parseTimestamp(activity.tool_started_at)
+    case "plan_update":
+      return event.entries.length > 0 ? Date.parse(activity.sampled_at) : null
+    default:
+      return null
+  }
+}
+
+function firstContentAt(
+  message: LiveTiming,
+  kind: "text" | "thinking",
+  observation: { type: string; at: number }
+): number | null {
+  const previous =
+    kind === "thinking" ? message.firstThinkingAt : message.firstTextAt
+  if (previous != null) return previous
+  const eventKind = kind === "text" ? "content_delta" : "thinking"
+  if (observation.type !== eventKind) return null
+  const seen = message.content.some(
+    (block) =>
+      block.type === kind && (kind === "thinking" || Boolean(block.text))
+  )
+  return seen ? null : observation.at
+}
+
+// 在流式批处理之前记录后端事件时间；恢复内容不能补造首次发生时间。
 export function observeTurnTiming<T extends LiveTiming>(
   message: T,
-  kind: "text" | "thinking" | "tool_call" | "plan"
+  event: EventEnvelope
 ): T {
-  const now = Date.now()
-  const firstActivityAt =
-    message.firstActivityAt ?? (message.content.length === 0 ? now : null)
-  const firstThinkingAt =
-    message.firstThinkingAt ??
-    (kind === "thinking" &&
-    !message.content.some((block) => block.type === "thinking")
-      ? now
-      : null)
-  const firstTextAt =
-    message.firstTextAt ??
-    (kind === "text" &&
-    !message.content.some(
-      (block) => block.type === "text" && Boolean(block.text)
-    )
-      ? now
-      : null)
-  if (
-    firstActivityAt === message.firstActivityAt &&
-    firstThinkingAt === message.firstThinkingAt &&
-    firstTextAt === message.firstTextAt
-  )
+  const at = eventTimestamp(event)
+  const startedAt = parseTimestamp(event.activity?.started_at)
+  if (at == null || !Number.isFinite(at) || !Number.isFinite(startedAt))
     return message
-  return { ...message, firstActivityAt, firstThinkingAt, firstTextAt }
+  const elapsed = at - startedAt
+  if (elapsed < 0) return message
+  const observedAt = message.startedAt + elapsed
+  const observation = { type: event.type, at: observedAt }
+  const timings = {
+    firstActivityAt:
+      message.firstActivityAt ??
+      (message.content.every((block) => block.type === "user_input")
+        ? observedAt
+        : null),
+    firstThinkingAt: firstContentAt(message, "thinking", observation),
+    firstTextAt: firstContentAt(message, "text", observation),
+  }
+  const keys = ["firstActivityAt", "firstThinkingAt", "firstTextAt"] as const
+  return keys.every((key) => timings[key] === message[key])
+    ? message
+    : { ...message, ...timings }
+}
+
+export function alignTurnTimings<T extends LiveTiming>(
+  message: T,
+  previous: LiveTiming
+): T {
+  const offset = message.startedAt - previous.startedAt
+  const align = (at: number | null | undefined) =>
+    at == null ? at : at + offset
+  return {
+    ...message,
+    firstActivityAt: align(previous.firstActivityAt),
+    firstThinkingAt: align(previous.firstThinkingAt),
+    firstTextAt: align(previous.firstTextAt),
+  }
 }
 
 export function measuredTurnTimings(

@@ -3,6 +3,21 @@ import type { TurnUsage } from "@/lib/types"
 const POINT_DECIMAL_PLACES = 2
 const MINIMUM_VISIBLE_POINTS = 0.01
 
+function validPoints(value: unknown): value is string | number {
+  return (
+    (typeof value === "string" && /^\d+(?:\.\d{1,18})?$/.test(value)) ||
+    (typeof value === "number" && Number.isFinite(value) && value >= 0)
+  )
+}
+
+export function resolveUsagePoints(
+  confirmed: unknown,
+  estimate: unknown
+): string | number | null {
+  if (validPoints(confirmed)) return confirmed
+  return validPoints(estimate) ? estimate : null
+}
+
 export function formatUsagePoints(points: number, locale?: string): string {
   if (points > 0 && points < MINIMUM_VISIBLE_POINTS) {
     return `<${MINIMUM_VISIBLE_POINTS.toLocaleString(locale)}`

@@ -70,7 +70,11 @@ function ProcessRows(
     "parts" | "entranceKey" | "animationEnabled" | "conversationId"
   > & { streaming: boolean }
 ) {
-  return props.parts.map((part, index) => {
+  // 外层已负责收起过程，通用工具分组在这里直接展示步骤，避免二次展开。
+  const parts = props.parts.flatMap<AdaptedContentPart>((part) =>
+    part.type === "tool-group" ? part.items : [part]
+  )
+  return parts.map((part, index) => {
     const key = processPartKey(part, index)
     const entranceKey = props.entranceKey + ":process:" + key
     return (

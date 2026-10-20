@@ -36,7 +36,11 @@ import { TurnStats } from "./turn-stats"
 import { addUsagePoints } from "@/lib/usage-points"
 import { mergeConfirmedPoints } from "@/lib/point-decimal"
 import { MessageOutputStats } from "./message-output-stats"
-import { getMessageOutputMetrics } from "./message-output-metrics"
+import {
+  getMessageOutputMetrics,
+  getResponseCharacterCount,
+  mergeToolCallIds,
+} from "./message-output-metrics"
 import { resolveTurnDuration } from "@/lib/turn-duration"
 import { LiveTurnStats } from "./live-turn-stats"
 import { UserResourceLinks } from "./user-resource-links"
@@ -157,7 +161,7 @@ interface ResolvedMessageGroup {
   resources: UserResourceDisplay[]
   images: UserImageDisplay[]
   outputCharacters: number
-  toolCallCount: number
+  toolCallIds: string[] | null
   usage?: import("@/lib/types").TurnUsage | null
   duration_ms?: number | null
   model?: string | null
@@ -416,14 +420,8 @@ function mergeConsecutiveAssistantTurns(
             .reverse()
             .find((item) => item.group.forkTarget)?.group.forkTarget,
           parts: mergedParts,
-          outputCharacters: buffer.reduce(
-            (sum, item) => sum + item.group.outputCharacters,
-            0
-          ),
-          toolCallCount: buffer.reduce(
-            (sum, item) => sum + item.group.toolCallCount,
-            0
-          ),
+          outputCharacters: getResponseCharacterCount(mergedParts),
+          toolCallIds: mergeToolCallIds(buffer.map((item) => item.group)),
           usage: mergedUsage,
           duration_ms: mergedDuration,
           model: mergedModels[0] ?? last.group.model,
@@ -641,7 +639,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
                 durationMs={durationMs ?? group.duration_ms}
                 completedAt={group.completed_at}
                 liveMessage={liveMessage}
-                toolCallCount={group.toolCallCount}
+                toolCallCount={group.toolCallIds?.length ?? null}
                 outputCharacters={group.outputCharacters}
                 isStreaming={isStreaming}
               />
@@ -854,8 +852,8 @@ export function MessageListView({
           parts: msg.content,
           resources: msg.userResources ?? [],
           images: msg.userImages ?? [],
-          outputCharacters: metrics.characters,
-          toolCallCount: metrics.tools,
+          outputCharacters: getResponseCharacterCount(msg.content),
+          toolCallIds: metrics.toolCallIds,
           usage: msg.usage,
           duration_ms: msg.duration_ms,
           model: msg.model,
