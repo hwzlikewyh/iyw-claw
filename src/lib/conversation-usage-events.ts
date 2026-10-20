@@ -28,11 +28,7 @@ function refreshKind(event: EventEnvelope): "updated" | "settled" | null {
   if (event.type === "runtime_tasks_changed" && !event.persistent) return null
   if (UPDATED_EVENTS.has(event.type)) return "updated"
   if (SETTLED_EVENTS.has(event.type)) return "settled"
-  if (event.type === "tool_call" || event.type === "tool_call_update") {
-    return event.status === "completed" || event.status === "failed"
-      ? "updated"
-      : null
-  }
+  // 工具状态不代表新增模型账单，模型用量和回合终态会触发权威补读。
   return secondaryRefresh(event)
 }
 

@@ -84,6 +84,7 @@ impl Runtime {
         (token, model): (&str, &str),
         prepared: Prepared,
     ) -> Result<Asset, GatewayError> {
+        let started = Instant::now();
         let key = AssetCache::key(token, &prepared.encoded_digest);
         if let Some(asset) = self.cache.get(&key) {
             return Ok(asset);
@@ -119,6 +120,9 @@ impl Runtime {
             ));
         }
         self.cache.insert(key, asset.clone());
+        tracing::info!(target: "model_gateway", image_bytes = prepared.size,
+            storage_upload = !ticket.found, elapsed_ms = started.elapsed().as_millis(),
+            "local image resource prepared");
         Ok(asset)
     }
 
