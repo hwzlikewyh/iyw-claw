@@ -3,6 +3,7 @@ import {
   type FeedbackEntry,
 } from "@/lib/feedback-check"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
+import { completeHistoryTurnTiming } from "@/lib/turn-duration"
 import {
   appendPendingAgentInputs,
   buildAgentInputUserTurn,
@@ -223,12 +224,13 @@ function restoreAssistantMetrics(
   segments: MessageTurn[],
   source: MessageTurn
 ): MessageTurn[] {
+  segments = completeHistoryTurnTiming(segments, source)
   for (let index = segments.length - 1; index >= 0; index -= 1) {
     if (segments[index].role !== "assistant") continue
     segments[index] = {
       ...segments[index],
       usage: source.usage,
-      duration_ms: source.duration_ms,
+      duration_ms: segments[index].duration_ms ?? source.duration_ms,
       completed_at: source.completed_at,
     }
     break

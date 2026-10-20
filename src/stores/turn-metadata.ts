@@ -1,6 +1,7 @@
 import type { MessageTurn, TurnUsage } from "@/lib/types"
 import { addUsagePoints } from "@/lib/usage-points"
 import { mergeConfirmedPoints } from "@/lib/point-decimal"
+import { sumTurnDurations } from "@/lib/turn-duration"
 
 export interface TurnMetadataPatch {
   index: number
@@ -86,11 +87,9 @@ export function computeTurnMetadataPatches(params: {
       for (let j = 0; j < offset; j++) {
         const extra = sessionTurns[j]
         if (extra.usage) usage = mergeUsage(usage, extra.usage)
-        if (typeof extra.duration_ms === "number") {
-          durationMs = (durationMs ?? 0) + extra.duration_ms
-        }
         if (!model && extra.model) model = extra.model
       }
+      durationMs = sumTurnDurations(sessionTurns.slice(0, parsedIndex + 1))
     }
 
     if (!usage && !durationMs && !model && !completedAt) continue

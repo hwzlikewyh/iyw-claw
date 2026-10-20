@@ -454,11 +454,16 @@ pub(crate) async fn handle_event(
                     .await;
                 return Ok(());
             };
-            let mut completion_error = None;
+            let mut completion_error =
+                super::turn_timing::record(db_conn, cid, envelope.activity.as_ref())
+                    .await
+                    .err();
             if let Err(error) =
                 automation_service::record_stop_reason(db_conn, cid, stop_reason).await
             {
-                completion_error = Some(error);
+                tracing::error!(conversation_id = cid, error = %error,
+                    "[lifecycle] failed to record turn stop reason");
+                completion_error.get_or_insert(error);
             }
             if let Some(ts) = target_status.clone() {
                 // DB write before emit so any downstream subscriber that observes

@@ -41,7 +41,7 @@ import {
   getResponseCharacterCount,
   mergeToolCallIds,
 } from "./message-output-metrics"
-import { resolveTurnDuration } from "@/lib/turn-duration"
+import { resolveTurnDuration, sumTurnDurations } from "@/lib/turn-duration"
 import { LiveTurnStats } from "./live-turn-stats"
 import { UserResourceLinks } from "./user-resource-links"
 import { MessageTimestamp } from "./message-timestamp"
@@ -383,7 +383,7 @@ function mergeConsecutiveAssistantTurns(
       // last sub-turn. Without this, multi-turn agents (Task tool, codex
       // agent loops, etc.) would visibly under-report tokens.
       let mergedUsage: import("@/lib/types").TurnUsage | null = null
-      let mergedDuration: number | null = null
+      const mergedDuration = sumTurnDurations(buffer.map((item) => item.group))
       const seenModels = new Set<string>()
       const mergedModels: string[] = []
       for (const it of buffer) {
@@ -403,9 +403,6 @@ function mergeConsecutiveAssistantTurns(
               u.cache_creation_input_tokens
             mergedUsage.cache_read_input_tokens += u.cache_read_input_tokens
           }
-        }
-        if (typeof it.group.duration_ms === "number") {
-          mergedDuration = (mergedDuration ?? 0) + it.group.duration_ms
         }
         if (it.group.model && !seenModels.has(it.group.model)) {
           seenModels.add(it.group.model)
