@@ -49,16 +49,11 @@ pub(super) async fn prepare_managed(
     let digest = format!("{:x}", Sha256::digest(&image.bytes));
     let mut payload =
         json!({"operation":"lookup", "model":model, "sha256":digest, "mime_type":image.mime_type});
-    let Some(mut resource) = request(token.expose(), &payload).await else {
-        return Ok(false);
-    };
+    let mut resource = request(token.expose(), &payload).await?;
     if !resource.found {
         payload["operation"] = "upload".into();
         payload["data"] = STANDARD.encode(&image.bytes).into();
-        let Some(uploaded) = request(token.expose(), &payload).await else {
-            return Ok(false);
-        };
-        resource = uploaded;
+        resource = request(token.expose(), &payload).await?;
     }
     finish_resource(db, image, resource).await
 }
@@ -84,11 +79,22 @@ async fn finish_resource(
     Ok(true)
 }
 
-async fn request(token: &str, payload: &serde_json::Value) -> Option<ResourceResponse> {
-    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    let client = CLIENT.get_or_init(reqwest::Client::new);
-    let url = crate::acp::provider_overlay::model_gateway_image_analysis_url()
-        .replace("/image-analysis", "/images/input/prepare");
+async fn request(
+    token: &str,
+    payload: &serde_json::Value,
+) -> Result<ResourceResponse, AppCommandError> {
+    static CLIENT: OnceLock<Result<reqwest::Client, reqwest::Error>> = OnceLock::new();
+    let client = CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+        })
+        .as_ref()
+        .map_err(|_| AppCommandError::network("本地图片请求客户端初始化失败"))?;
+    let url = crate::acp::model_gateway::endpoint("images/input/prepare")
+        .ok_or_else(|| AppCommandError::network("本地图片网关未就绪，请重新连接会话"))?;
     let response = client
         .post(url)
         .header("token", token)
@@ -96,10 +102,24 @@ async fn request(token: &str, payload: &serde_json::Value) -> Option<ResourceRes
         .json(payload)
         .send()
         .await
-        .ok()?;
+        .map_err(|_| AppCommandError::network("本地图片资源准备请求失败"))?;
     if !response.status().is_success() {
-        return None;
+        let status = response.status().as_u16();
+        tracing::warn!(target: "chat.image", status,
+            operation = payload["operation"].as_str().unwrap_or("unknown"),
+            "managed image preparation failed before model execution");
+        return Err(
+            AppCommandError::network("图片资源准备失败").with_detail(format!("HTTP {status}"))
+        );
     }
-    let resource: ResourceResponse = response.json().await.ok()?;
-    resource.supported.then_some(resource)
+    let resource: ResourceResponse = response
+        .json()
+        .await
+        .map_err(|_| AppCommandError::network("图片资源响应格式无效"))?;
+    if !resource.supported {
+        return Err(AppCommandError::configuration_invalid(
+            "当前模型未启用图片资源支持",
+        ));
+    }
+    Ok(resource)
 }

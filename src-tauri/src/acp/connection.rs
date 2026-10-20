@@ -72,8 +72,6 @@ use crate::web::event_bridge::{emit_with_state, emit_with_state_gated, EventEmit
 const DEFAULT_COMMAND_COLOR_ENV: [(&str, &str); 1] = [("CLICOLOR_FORCE", "1")];
 const IYW_CLAW_MCP_SERVER_PREFIX: &str = "iyw-claw-builtin-";
 const IYW_CLAW_MCP_SERVER_MAX_CHARS: usize = 32;
-const LOCAL_FILE_PROMPT_PREFIX: &str =
-    "Local file path (use filesystem tools, not MCP resources): ";
 const MAX_INLINE_RESOURCE_WIRE_BYTES: usize = 256 * 1024;
 const MAX_PROMPT_RESOURCE_BYTES: usize = 2 * 1024 * 1024;
 const MAX_RESOURCE_URI_DISPLAY_BYTES: usize = 1024;
@@ -5493,37 +5491,12 @@ async fn poll_tracked_terminal_tool_calls(
     }
 }
 
-fn inline_code(text: &str) -> String {
-    let mut longest = 0;
-    let mut current = 0;
-    for ch in text.chars() {
-        if ch == '`' {
-            current += 1;
-            longest = longest.max(current);
-        } else {
-            current = 0;
-        }
-    }
-    let fence = "`".repeat(longest + 1);
-    let needs_padding = text
-        .chars()
-        .next()
-        .is_some_and(|ch| ch == '`' || ch.is_whitespace())
-        || text
-            .chars()
-            .next_back()
-            .is_some_and(|ch| ch == '`' || ch.is_whitespace());
-    let padding = if needs_padding { " " } else { "" };
-    format!("{fence}{padding}{text}{padding}{fence}")
-}
-
 fn map_image_block(
-    agent_type: AgentType,
-    data: String,
-    mime_type: String,
-    uri: Option<String>,
-    local_path: Option<String>,
+    source: (AgentType, Option<String>),
+    image: (String, String, Option<String>),
 ) -> Result<ContentBlock, String> {
+    let (agent_type, local_path) = source;
+    let (data, mime_type, uri) = image;
     if agent_type != AgentType::Codex {
         return Ok(ContentBlock::Image(
             ImageContent::new(data, mime_type).uri(uri),
@@ -5535,9 +5508,10 @@ fn map_image_block(
     if !Path::new(&path).is_absolute() {
         return Err("Codex image attachment local file must be absolute".to_string());
     }
-    let path = path.replace('\r', " ").replace('\n', " ");
-    let text = format!("{LOCAL_FILE_PROMPT_PREFIX}{}", inline_code(&path));
-    Ok(ContentBlock::Text(TextContent::new(text)))
+    if data.is_empty() {
+        return Err("星河图片附件缺少已校验的图片数据，请重新上传".to_string());
+    }
+    Ok(ContentBlock::Image(ImageContent::new(data, mime_type)))
 }
 
 fn map_prompt_blocks(
@@ -5572,7 +5546,7 @@ fn map_prompt_block(
             mime_type,
             uri,
             local_path,
-        } => map_image_block(agent_type, data, mime_type, uri, local_path),
+        } => map_image_block((agent_type, local_path), (data, mime_type, uri)),
         PromptInputBlock::Resource {
             uri,
             mime_type,

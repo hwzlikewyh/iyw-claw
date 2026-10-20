@@ -5350,10 +5350,12 @@ fn apply_prepared_image_file_ids(
     }) = prepared_items.first()
     {
         for (&input_index, &content_index) in user_image_content_indices {
+            // 模型历史已保存受管引用；界面回放仍需原附件，避免旧解析器丢图。
             if let Some(ContentItem::InputImage {
                 image: ImageReference::File { file_id },
                 ..
             }) = content.get(content_index)
+                && !file_id.starts_with(crate::client::managed_images::IMAGE_ID_PREFIX)
                 && let UserInput::Image { detail, .. } | UserInput::LocalImage { detail, .. } =
                     &user_message_item.content[input_index]
             {

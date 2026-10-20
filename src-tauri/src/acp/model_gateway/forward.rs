@@ -110,7 +110,7 @@ async fn forward_http(
     super::auth::check(&token)?;
     let body = match prepared {
         Output::Request(body) => body,
-        Output::Prepared(asset) => return Ok(axum::Json(asset).into_response()),
+        Output::Prepared(asset) => return Ok(prepared_response(asset, original_bytes, started)),
     };
     let final_bytes = body.len();
     let request = runtime
@@ -126,9 +126,30 @@ async fn forward_http(
         .await
         .map_err(|_| GatewayError::unavailable("Cloud model response headers timed out"))?
         .map_err(|_| GatewayError::unavailable("Cloud model gateway could not be reached"))?;
-    tracing::debug!(target: "model_gateway", original_bytes, final_bytes,
-        elapsed_ms = started.elapsed().as_millis(), status = response.status().as_u16(), "local model request forwarded");
+    log_forwarded(
+        (original_bytes, final_bytes),
+        started,
+        response.status().as_u16(),
+    );
     Ok(stream_response(response, permit, runtime.shutdown.clone()))
+}
+
+fn prepared_response(asset: super::assets::Asset, original_bytes: u64, started: Instant) -> Response {
+    tracing::info!(target: "model_gateway", original_bytes,
+        image_bytes = asset.size_bytes, elapsed_ms = started.elapsed().as_millis(),
+        "local image upload prepared");
+    axum::Json(asset).into_response()
+}
+
+fn log_forwarded(bytes: (u64, u64), started: Instant, status: u16) {
+    let (original_bytes, final_bytes) = bytes;
+    if final_bytes < original_bytes {
+        tracing::info!(target: "model_gateway", original_bytes, final_bytes, status,
+            elapsed_ms = started.elapsed().as_millis(), "local image request reduced before cloud forwarding");
+    } else {
+        tracing::debug!(target: "model_gateway", original_bytes, final_bytes, status,
+            elapsed_ms = started.elapsed().as_millis(), "local model request forwarded");
+    }
 }
 
 fn rewritable(headers: &axum::http::HeaderMap) -> bool {

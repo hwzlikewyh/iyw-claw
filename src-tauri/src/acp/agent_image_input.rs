@@ -1,5 +1,7 @@
 use std::path::{Component, Path, PathBuf};
 
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+
 use crate::acp::error::AcpError;
 use crate::acp::types::PromptInputBlock;
 use crate::commands::chat_attachments::{sanitize_session_bucket, user_facing_path};
@@ -48,14 +50,18 @@ pub(crate) async fn prepare_codex_image_inputs(
     let scope = prepare_scope(data_dir, scope).await?;
     for block in &mut blocks {
         let PromptInputBlock::Image {
+            data,
             mime_type,
+            uri,
             local_path,
-            ..
         } = block
         else {
             continue;
         };
         let inspected = inspect_image(&scope, mime_type, local_path.as_deref()).await?;
+        // 原生图片输入只使用通过当前会话归属校验的文件字节。
+        *data = STANDARD.encode(&inspected.bytes);
+        *uri = None;
         let path = if belongs_to_scope(&scope, &inspected.location) {
             inspected.path
         } else {
