@@ -17,6 +17,21 @@ export interface GatewayModel {
   maxInputTokens: number | null
   maxOutputTokens: number | null
   compactionAtTokens: number | null
+  tokenPrice?: GatewayTokenPrice | null
+}
+
+export interface GatewayTokenPrice {
+  currency: string
+  unit: string
+  input: number
+  output: number
+  cached_input: number
+  cache_creation: number
+  points_per_cny: string | null
+  reasoning_output: number
+  cache_creation_5m: number
+  cache_creation_1h: number
+  image_billing_mode: string
 }
 
 export interface GatewayModelCapabilities {
@@ -90,6 +105,93 @@ function parseImageInputMode(
   return capabilities.vision ? "native" : "none"
 }
 
+function optionalPriceNumber(
+  raw: Record<string, unknown>,
+  key: string
+): number | null {
+  const field = raw[key]
+  return field === undefined
+    ? 0
+    : typeof field === "number" && Number.isFinite(field)
+      ? field
+      : null
+}
+
+function parseOptionalTokenPriceFields(
+  raw: Record<string, unknown>
+): Pick<
+  GatewayTokenPrice,
+  | "points_per_cny"
+  | "reasoning_output"
+  | "cache_creation_5m"
+  | "cache_creation_1h"
+  | "image_billing_mode"
+> | null {
+  const pointsPerCny = raw.points_per_cny
+  const reasoningOutput = optionalPriceNumber(raw, "reasoning_output")
+  const cacheCreation5m = optionalPriceNumber(raw, "cache_creation_5m")
+  const cacheCreation1h = optionalPriceNumber(raw, "cache_creation_1h")
+  const imageBillingMode = raw.image_billing_mode
+  if (
+    (pointsPerCny != null && typeof pointsPerCny !== "string") ||
+    reasoningOutput === null ||
+    cacheCreation5m === null ||
+    cacheCreation1h === null ||
+    (imageBillingMode !== undefined && typeof imageBillingMode !== "string")
+  )
+    return null
+  return {
+    points_per_cny: pointsPerCny ?? null,
+    reasoning_output: reasoningOutput,
+    cache_creation_5m: cacheCreation5m,
+    cache_creation_1h: cacheCreation1h,
+    image_billing_mode:
+      typeof imageBillingMode === "string" ? imageBillingMode : "",
+  }
+}
+
+function parseTokenPrice(value: unknown): GatewayTokenPrice | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const raw = value as Record<string, unknown>
+  const required = ["input", "output", "cached_input", "cache_creation"]
+  if (
+    required.some(
+      (key) => typeof raw[key] !== "number" || !Number.isFinite(raw[key])
+    ) ||
+    typeof raw.currency !== "string" ||
+    typeof raw.unit !== "string"
+  )
+    return null
+  const optional = parseOptionalTokenPriceFields(raw)
+  if (!optional) return null
+  return {
+    currency: raw.currency,
+    unit: raw.unit,
+    input: raw.input as number,
+    output: raw.output as number,
+    cached_input: raw.cached_input as number,
+    cache_creation: raw.cache_creation as number,
+    ...optional,
+  }
+}
+
+function sameTokenPrice(left: GatewayTokenPrice, right: GatewayTokenPrice) {
+  return Object.keys(left).every(
+    (key) =>
+      left[key as keyof GatewayTokenPrice] ===
+      right[key as keyof GatewayTokenPrice]
+  )
+}
+
+function parseTokenPrices(value: unknown): GatewayTokenPrice | null {
+  if (!Array.isArray(value) || value.length === 0) return null
+  const prices = value.map(parseTokenPrice)
+  const first = prices[0]
+  return first && prices.every((price) => price && sameTokenPrice(first, price))
+    ? first
+    : null
+}
+
 function parseGatewayModel(value: unknown): GatewayModel | null {
   if (!value || typeof value !== "object") return null
   const raw = value as Record<string, unknown>
@@ -110,6 +212,7 @@ function parseGatewayModel(value: unknown): GatewayModel | null {
       ? (raw.fast_mode as Record<string, unknown>)
       : {}
   const capabilities = parseCapabilities(raw.capabilities)
+  const tokenPrice = parseTokenPrices(raw.prices)
   const iconUrl =
     typeof raw.icon_url === "string" && raw.icon_url.trim()
       ? raw.icon_url.trim()
@@ -165,6 +268,9 @@ function parseGatewayModel(value: unknown): GatewayModel | null {
       : [],
     maxOutputTokens: tokenLimit(limits, "max_output_tokens"),
     compactionAtTokens: tokenLimit(limits, "compaction_at_tokens"),
+    ...(Object.prototype.hasOwnProperty.call(raw, "prices")
+      ? { tokenPrice }
+      : {}),
   }
 }
 

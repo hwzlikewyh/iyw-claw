@@ -27,6 +27,15 @@ export function formatUsagePoints(points: number, locale?: string): string {
   })
 }
 
+export function formatLiveUsagePoints(
+  points: string | number,
+  locale?: string
+): string {
+  const value = Number(points)
+  if (!Number.isFinite(value) || value < 0) return "—"
+  return value.toLocaleString(locale, { maximumFractionDigits: 6 })
+}
+
 export function addUsagePoints(
   left: TurnUsage,
   right: TurnUsage

@@ -3,13 +3,14 @@
 import { memo, useEffect } from "react"
 import { useTranslations } from "next-intl"
 import type { LiveMessage } from "@/contexts/acp-connections-context"
-import type { TurnUsage } from "@/lib/types"
+import type { AgentType, TurnUsage } from "@/lib/types"
 import { TurnUsageStats } from "./turn-usage-stats"
 import { useLiveTurnUsage } from "./use-live-turn-usage"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { resolveTurnDuration } from "@/lib/turn-duration"
 import { useRecentOutputRate } from "@/hooks/use-recent-output-rate"
 import { resolveUsagePoints } from "@/lib/usage-points"
+import { useLiveTurnPoints } from "./use-live-turn-points"
 import {
   measuredTurnTimings,
   recordedTurnTimings,
@@ -20,6 +21,9 @@ import {
 interface MessageOutputStatsProps {
   messageId: string
   conversationId: number | null
+  agentType: AgentType
+  modelId: string | null
+  promptText?: string
   usage?: TurnUsage | null
   durationMs?: number | null
   completedAt?: string | null
@@ -100,6 +104,14 @@ export const MessageOutputStats = memo(function MessageOutputStats(
 ) {
   const { isStreaming } = props
   const { usage, startedAt } = useOutputUsage(props)
+  const livePoints = useLiveTurnPoints({
+    agentType: props.agentType,
+    enabled: isStreaming,
+    message: props.liveMessage ?? null,
+    modelId: props.modelId,
+    promptText: props.promptText ?? "",
+    usage,
+  })
   const durationMs = completedDuration(props, startedAt)
   const recentOutputRate = useRecentOutputRate(
     isStreaming ? (props.liveMessage?.id ?? null) : null,
@@ -116,6 +128,7 @@ export const MessageOutputStats = memo(function MessageOutputStats(
       timings={timings}
       toolCallCount={props.toolCallCount}
       usage={usage}
+      livePoints={isStreaming ? livePoints : null}
       outputCharacters={props.outputCharacters}
       isStreaming={isStreaming}
     />
@@ -154,6 +167,7 @@ interface OutputStatsViewProps {
   timings: TurnTimings | null
   toolCallCount: number | null
   usage?: TurnUsage | null
+  livePoints?: number | null
   isStreaming: boolean
   outputCharacters?: number
 }
@@ -173,6 +187,7 @@ function OutputStatsView({
   timings,
   toolCallCount,
   usage,
+  livePoints,
   isStreaming,
   outputCharacters,
 }: OutputStatsViewProps) {
@@ -197,9 +212,13 @@ function OutputStatsView({
     positiveCount(toolCallCount) && (
       <span key="tools">{t("toolUseCount", { count: toolCallCount })}</span>
     ),
-    hasUsagePoints(usage) && (
+    (livePoints != null || hasUsagePoints(usage)) && (
       <TooltipProvider key="usage" delayDuration={150}>
-        <TurnUsageStats usage={usage} />
+        <TurnUsageStats
+          usage={usage}
+          points={livePoints}
+          live={livePoints != null}
+        />
       </TooltipProvider>
     ),
   ].filter(Boolean)

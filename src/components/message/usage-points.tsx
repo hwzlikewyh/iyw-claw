@@ -1,7 +1,11 @@
 "use client"
 
 import { useLocale, useTranslations } from "next-intl"
-import { formatUsagePoints, resolveUsagePoints } from "@/lib/usage-points"
+import {
+  formatLiveUsagePoints,
+  formatUsagePoints,
+  resolveUsagePoints,
+} from "@/lib/usage-points"
 import { formatPointDecimal } from "@/lib/point-decimal"
 import type { ConfirmedConsumption } from "@/lib/types"
 
@@ -9,10 +13,12 @@ export function UsagePointsValue({
   points,
   consumption,
   estimate,
+  live = false,
 }: {
   points?: string | number | null
   consumption?: ConfirmedConsumption | null
   estimate?: number | null
+  live?: boolean
 }) {
   const locale = useLocale()
   const t = useTranslations("UsagePoints")
@@ -26,8 +32,9 @@ export function UsagePointsValue({
       {value != null ? (
         <>
           {t("value", {
-            points:
-              typeof value === "string"
+            points: live
+              ? formatLiveUsagePoints(value, locale)
+              : typeof value === "string"
                 ? formatPointDecimal(value, locale)
                 : formatUsagePoints(value, locale),
           })}
@@ -44,11 +51,13 @@ export function UsagePointsRow({
   scope,
   consumption,
   estimate,
+  live = false,
 }: {
   points?: string | number | null
   scope: "turn" | "session"
   consumption?: ConfirmedConsumption | null
   estimate?: number | null
+  live?: boolean
 }) {
   const t = useTranslations("UsagePoints")
   return (
@@ -58,6 +67,7 @@ export function UsagePointsRow({
         points={points}
         consumption={consumption}
         estimate={estimate}
+        live={live}
       />
     </div>
   )

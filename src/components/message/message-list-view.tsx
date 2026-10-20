@@ -76,7 +76,10 @@ import type {
   SessionStats,
 } from "@/lib/types"
 import { copyTextToClipboard } from "@/lib/utils"
-import { modelDisplayName } from "@/lib/model-config-groups"
+import {
+  isModelConfigOption,
+  modelDisplayName,
+} from "@/lib/model-config-groups"
 import { VirtualizedMessageThread } from "@/components/message/virtualized-message-thread"
 import type { MessageScrollPosition } from "@/components/message/virtualized-message-thread"
 import { SubAgentDelegationsPopover } from "@/components/message/sub-agent-delegations-popover"
@@ -521,6 +524,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   agentType,
   modelOptions,
   enableUserMemoryActions,
+  promptText,
   dimmed = false,
   showStats = true,
   previousUserIndex = null,
@@ -545,6 +549,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
   dimmed?: boolean
   showStats?: boolean
   previousUserIndex?: number | null
+  promptText?: string
   isResponseComplete?: boolean
   isStreaming?: boolean
   showCurrentReplyArtifacts?: boolean
@@ -635,6 +640,13 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
               <MessageOutputStats
                 messageId={group.id}
                 conversationId={artifactConversationId}
+                agentType={agentType}
+                modelId={
+                  group.model ??
+                  modelOptions?.find(isModelConfigOption)?.kind.current_value ??
+                  null
+                }
+                promptText={promptText}
                 usage={group.usage}
                 durationMs={durationMs ?? group.duration_ms}
                 completedAt={group.completed_at}
@@ -965,6 +977,14 @@ export function MessageListView({
       switch (item.kind) {
         case "turn": {
           const pt = item.isRoleTransition ? 16 : 0
+          const previousUser =
+            item.previousUserIndex == null
+              ? null
+              : threadItems[item.previousUserIndex]
+          const promptText =
+            previousUser?.kind === "turn" && previousUser.group.role === "user"
+              ? extractTextFromParts(previousUser.group.parts)
+              : ""
           return (
             <MessageEntrance
               conversationId={conversationId}
@@ -996,6 +1016,7 @@ export function MessageListView({
                       item.key === lastAssistantItem?.key)
                   }
                   previousUserIndex={item.previousUserIndex}
+                  promptText={promptText}
                   isResponseComplete={item.phase === "persisted"}
                   isStreaming={
                     isActive &&
@@ -1077,6 +1098,7 @@ export function MessageListView({
       loadEarlierHistory,
       modelOptions,
       sessionActions,
+      threadItems,
       t,
     ]
   )

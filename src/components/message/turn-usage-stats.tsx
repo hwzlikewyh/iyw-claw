@@ -11,32 +11,45 @@ import type { TurnUsage } from "@/lib/types"
 import { formatTokenThousands } from "@/lib/token-format"
 import { UsagePointsRow, UsagePointsValue } from "./usage-points"
 
-export function TurnUsageStats({ usage }: { usage: TurnUsage }) {
+export function TurnUsageStats({
+  usage,
+  points,
+  live = false,
+}: {
+  usage?: TurnUsage | null
+  points?: number | null
+  live?: boolean
+}) {
   const locale = useLocale()
   const t = useTranslations("Folder.chat.messageList")
   const pointsT = useTranslations("UsagePoints")
-  const rows = [
-    { key: "tokenInput", value: usage.input_tokens },
-    { key: "tokenOutput", value: usage.output_tokens },
-    { key: "tokenCacheRead", value: usage.cache_read_input_tokens },
-    { key: "tokenCacheWrite", value: usage.cache_creation_input_tokens },
-  ] as const
+  const rows = usage
+    ? ([
+        { key: "tokenInput", value: usage.input_tokens },
+        { key: "tokenOutput", value: usage.output_tokens },
+        { key: "tokenCacheRead", value: usage.cache_read_input_tokens },
+        { key: "tokenCacheWrite", value: usage.cache_creation_input_tokens },
+      ] as const)
+    : []
+  const button = (
+    <button
+      type="button"
+      className="inline-flex h-6 cursor-default items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      aria-label={pointsT("turn")}
+    >
+      <Coins aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+      <UsagePointsValue
+        points={points ?? usage?.confirmed_points?.amount}
+        consumption={usage?.confirmed_points}
+        estimate={usage?.estimated_points}
+        live={live}
+      />
+    </button>
+  )
+  if (!usage) return button
   return (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex h-6 cursor-default items-center gap-1 rounded-md px-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label={pointsT("turn")}
-        >
-          <Coins aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-          <UsagePointsValue
-            points={usage.confirmed_points?.amount}
-            consumption={usage.confirmed_points}
-            estimate={usage.estimated_points}
-          />
-        </button>
-      </TooltipTrigger>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
       <TooltipContent side="top" className="min-w-48 max-w-xs">
         <div className="flex flex-col gap-0.5">
           {rows
@@ -50,10 +63,11 @@ export function TurnUsageStats({ usage }: { usage: TurnUsage }) {
               </div>
             ))}
           <UsagePointsRow
-            points={usage.confirmed_points?.amount}
+            points={points ?? usage.confirmed_points?.amount}
             consumption={usage.confirmed_points}
             estimate={usage.estimated_points}
             scope="turn"
+            live={live}
           />
         </div>
       </TooltipContent>
