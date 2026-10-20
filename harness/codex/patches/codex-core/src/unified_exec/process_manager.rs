@@ -845,6 +845,8 @@ impl UnifiedExecProcessManager {
             chunk_id,
             wall_time,
             raw_output: collected,
+            native_image_items: Vec::new(),
+            image_attachment_summary: None,
             truncation_policy: context
                 .step_context
                 .settings
@@ -1118,6 +1120,8 @@ impl UnifiedExecProcessManager {
             chunk_id,
             wall_time,
             raw_output: collected,
+            native_image_items: Vec::new(),
+            image_attachment_summary: None,
             truncation_policy: request.truncation_policy,
             max_output_tokens: request.max_output_tokens,
             process_id,

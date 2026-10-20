@@ -43,8 +43,17 @@ updating the pinned runtime.
 The core's existing attachment-store interface now prepares durable image references through
 the managed Fusion provider. It looks up SHA-256 identities before uploading and persists
 the resulting file reference in native thread history. Other providers and disabled routes
-retain inline attachments. Ordinary and remote-v2 compaction keep reloadable image IDs;
-`view_image` can read those resources while its code-mode result retains a Data URL.
+retain inline attachments. Ordinary and remote-v2 compaction restore native managed image
+references within the existing retained-context token budget and deduplicate retained images.
+Prepared compaction uses its captured input, so live suffix images are not copied into its prefix.
+
+Direct exec, polling and MCP results attach explicitly referenced images from the current
+managed chat's output directory, bounded to eight images and 16 MiB per tool result.
+MCP structured text and native images remain available together; raw metadata is preserved.
+The desktop gateway uploads image bytes directly to TOS; Fusion issues tickets and handles
+authorization, references and model billing. Code-mode nested calls retain their existing
+explicit media-forwarding behavior. `view_image` remains available for explicit inspection.
+Details and validation boundaries are documented in docs/native-output-images.md.
 Gateway requests use the existing scoped credential and network-policy path. Fusion resolves
 its private IDs before forwarding and controls URL support per candidate, protocol and image
 role. Keep resource resolution available when switching reuse off. No automatic TOS object

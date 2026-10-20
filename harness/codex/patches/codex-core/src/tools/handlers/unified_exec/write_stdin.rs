@@ -1,9 +1,11 @@
 use crate::function_tool::FunctionCallError;
 use codex_features::Feature;
 
+use crate::tools::context::ToolCallSource;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolPayload;
 use crate::tools::context::boxed_tool_output;
+use crate::tools::handlers::managed_output_images;
 use crate::tools::handlers::parse_arguments;
 use crate::tools::handlers::resolve_tool_environment;
 use crate::tools::registry::CoreToolRuntime;
@@ -68,6 +70,7 @@ impl WriteStdinHandler {
             step_context,
             cancellation_token,
             call_id,
+            source,
             payload,
             ..
         } = invocation;
@@ -96,7 +99,7 @@ impl WriteStdinHandler {
         }
         let context =
             UnifiedExecContext::new(session.clone(), step_context, cancellation_token, call_id);
-        let response = session
+        let mut response = session
             .services
             .unified_exec_manager
             .write_stdin(
@@ -132,6 +135,22 @@ impl WriteStdinHandler {
                 FunctionCallError::RespondToModel(message)
             })?;
 
+        if matches!(
+            source,
+            ToolCallSource::Direct | ToolCallSource::DirectPlaintextMessage
+        ) {
+            for (environment, _) in context.step_context.environments() {
+                let capture =
+                    managed_output_images::capture_exec_output(&response.raw_output, environment)
+                        .await;
+                if capture.is_empty() {
+                    continue;
+                }
+                response.image_attachment_summary = capture.summary();
+                response.native_image_items = capture.into_function_output_items();
+                break;
+            }
+        }
         Ok(boxed_tool_output(response))
     }
 }
