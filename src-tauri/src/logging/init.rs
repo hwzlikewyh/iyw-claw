@@ -109,6 +109,25 @@ fn env_level_override() -> Option<String> {
     })
 }
 
+fn telemetry_filter() -> tracing_subscriber::filter::Targets {
+    use tracing_subscriber::filter::LevelFilter;
+
+    // 显式点名遥测 target 才开启逐碎片诊断，不绕过全局 off/error 设置。
+    let detailed = env_level_override().is_some_and(|directives| {
+        directives
+            .split(',')
+            .any(|directive| directive.trim().starts_with("codex_otel.log_only="))
+    });
+    let level = if detailed {
+        LevelFilter::TRACE
+    } else {
+        LevelFilter::WARN
+    };
+    tracing_subscriber::filter::Targets::new()
+        .with_default(LevelFilter::TRACE)
+        .with_target("codex_otel.log_only", level)
+}
+
 /// Whether an explicit `IYW_CLAW_LOG` / `RUST_LOG` is set (and non-empty). When
 /// true the env var owns the live level: startup skips the persisted level and
 /// the Settings UI locks the control (so it can't silently diverge).
@@ -183,6 +202,7 @@ fn build_subscriber(
         Some((non_blocking, guard)) => {
             Registry::default()
                 .with(filter_layer)
+                .with(telemetry_filter())
                 .with(
                     fmt::layer()
                         .with_timer(BeijingTime)
@@ -201,6 +221,7 @@ fn build_subscriber(
         None => {
             Registry::default()
                 .with(filter_layer)
+                .with(telemetry_filter())
                 .with(
                     fmt::layer()
                         .with_timer(BeijingTime)

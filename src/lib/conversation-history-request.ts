@@ -10,12 +10,56 @@ interface HistoryRequest {
   forceRefresh: boolean
 }
 
-const batches = new WeakMap<
+interface HistoryBatch {
+  pending: Promise<DbConversationDetail>
+  queued?: Promise<DbConversationDetail>
+  joinable: boolean
+}
+
+const batches = new WeakMap<Transport, Map<string, HistoryBatch>>()
+const inputBatches = new WeakMap<
   Transport,
-  Map<string, Promise<DbConversationDetail>>
+  Map<string, Promise<AgentInputItem[]>>
 >()
 
-export function requestConversationHistory(
+export async function requestConversationHistory(
+  transport: Transport,
+  request: HistoryRequest
+): Promise<DbConversationDetail> {
+  const [detail, inputs] = await Promise.all([
+    requestConversationHistoryPage(transport, request),
+    request.before === undefined
+      ? requestAgentInputs(transport, request.conversationId)
+      : Promise.resolve([]),
+  ])
+  return mergeAgentInputHistory(detail, inputs)
+}
+
+function requestAgentInputs(
+  transport: Transport,
+  conversationId: number
+): Promise<AgentInputItem[]> {
+  let batch = inputBatches.get(transport)
+  if (!batch) {
+    batch = new Map()
+    inputBatches.set(transport, batch)
+  }
+  const key = JSON.stringify([consumptionEpoch(), conversationId])
+  const existing = batch.get(key)
+  if (existing) return existing
+  const pending = transport.call<AgentInputItem[]>("list_agent_inputs", {
+    conversationId,
+  })
+  batch.set(key, pending)
+  const clear = () => {
+    if (batch.get(key) === pending) batch.delete(key)
+  }
+  void pending.then(clear, clear)
+  return pending
+}
+
+// 用量读取只需要历史页，不加载和合并可能包含大附件的输入队列。
+export function requestConversationHistoryPage(
   transport: Transport,
   request: HistoryRequest
 ): Promise<DbConversationDetail> {
@@ -30,16 +74,35 @@ export function requestConversationHistory(
     request.before ?? null,
     request.forceRefresh,
   ])
+  const load = () => loadHistory(transport, request)
   const existing = batch.get(key)
-  if (existing) return existing
-  const pending = loadHistory(transport, request)
-  batch.set(key, pending)
-  const clear = () => {
-    if (batch.get(key) === pending) batch.delete(key)
+  if (existing) {
+    if (!request.forceRefresh || existing.joinable) return existing.pending
+    // 在途读取后收到的新状态合并为一次补读，不能复用旧快照吞掉更新。
+    existing.queued ??= existing.pending.then(
+      () => startHistoryBatch(batch, key, load),
+      () => startHistoryBatch(batch, key, load)
+    )
+    return existing.queued
   }
-  // 实时事件的强制刷新必须取新状态；普通历史加载复用仍在进行的请求。
-  if (request.forceRefresh) queueMicrotask(clear)
-  else void pending.then(clear, clear)
+  return startHistoryBatch(batch, key, load)
+}
+
+function startHistoryBatch(
+  batch: Map<string, HistoryBatch>,
+  key: string,
+  load: () => Promise<DbConversationDetail>
+): Promise<DbConversationDetail> {
+  const pending = load()
+  const entry: HistoryBatch = { pending, joinable: true }
+  batch.set(key, entry)
+  const clear = () => {
+    if (batch.get(key) === entry && !entry.queued) batch.delete(key)
+  }
+  queueMicrotask(() => {
+    entry.joinable = false
+  })
+  void pending.then(clear, clear)
   return pending
 }
 
@@ -48,17 +111,9 @@ async function loadHistory(
   request: HistoryRequest
 ): Promise<DbConversationDetail> {
   const { conversationId, before, forceRefresh } = request
-  const [detail, inputs] = await Promise.all([
-    transport.call<DbConversationDetail>("get_folder_conversation", {
-      conversationId,
-      before: before ?? null,
-      forceRefresh,
-    }),
-    before === undefined
-      ? transport.call<AgentInputItem[]>("list_agent_inputs", {
-          conversationId,
-        })
-      : Promise.resolve([]),
-  ])
-  return mergeAgentInputHistory(applyBackendConsumption(detail), inputs)
+  const detail = await transport.call<DbConversationDetail>(
+    "get_folder_conversation",
+    { conversationId, before: before ?? null, forceRefresh }
+  )
+  return applyBackendConsumption(detail)
 }

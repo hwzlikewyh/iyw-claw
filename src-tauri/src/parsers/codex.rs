@@ -2393,6 +2393,16 @@ fn extract_response_item_user_image_blocks(
     payload: &serde_json::Value,
 ) -> Option<Vec<ContentBlock>> {
     let content = payload.get("content")?.as_array()?;
+    // 受管引用的原附件由 user_message 回放，不能先插入一条无图副本。
+    if content.iter().any(|item| {
+        item.get("type").and_then(|kind| kind.as_str()) == Some("input_image")
+            && item
+                .get("file_id")
+                .and_then(|id| id.as_str())
+                .is_some_and(|id| id.starts_with("iyw-image-v1-"))
+    }) {
+        return None;
+    }
     let mut blocks: Vec<ContentBlock> = Vec::new();
     let mut text_parts: Vec<String> = Vec::new();
     let mut has_input_image = false;

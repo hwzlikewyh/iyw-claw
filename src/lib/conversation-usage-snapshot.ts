@@ -1,4 +1,5 @@
-import { requestConversationHistory } from "./conversation-history-request"
+import { requestConversationHistoryPage } from "./conversation-history-request"
+import { applyBackendConsumption } from "./backend-consumption"
 import type { Transport } from "./transport"
 import type { DbConversationDetail, SessionStats, TurnUsage } from "./types"
 import { addUsagePoints } from "./usage-points"
@@ -36,11 +37,28 @@ function snapshotKey(detail: DbConversationDetail) {
     detail.summary.external_id,
     detail.in_flight_user_turn_id,
     detail.history_total_turns,
+    detail.transcript_watermark,
     usage?.input_tokens,
     usage?.output_tokens,
     usage?.cache_read_input_tokens,
     usage?.cache_creation_input_tokens,
   ])
+}
+
+function withSnapshotConsumption(
+  page: DbConversationDetail,
+  first: DbConversationDetail
+): DbConversationDetail {
+  // 缓存里的金额可能属于旧账号，只应用本次首屏核对的权威账单。
+  return applyBackendConsumption({
+    ...page,
+    turns: page.turns.map((turn) =>
+      turn.usage
+        ? { ...turn, usage: { ...turn.usage, confirmed_points: undefined } }
+        : turn
+    ),
+    backend_consumption: first.backend_consumption,
+  })
 }
 
 async function readTurnUsage(
@@ -67,6 +85,7 @@ async function readTurnUsage(
     const before = page.history_start
     page = await readPage(before)
     if (page.history_start >= before || snapshotKey(page) !== revision) break
+    page = withSnapshotConsumption(page, first)
   }
   // 边界缺失或翻页期间快照变化时不把不完整结果当成本轮消费。
   return null
@@ -78,10 +97,11 @@ export async function readConversationUsage(
   isCurrent: () => boolean
 ): Promise<ConversationUsageSnapshot> {
   const readPage = (before?: number) =>
-    requestConversationHistory(transport, {
+    requestConversationHistoryPage(transport, {
       conversationId: request.conversationId,
       before,
-      forceRefresh: true,
+      // 首屏核对实时用量；更早的页复用同一快照，避免每翻一页重解析整段历史。
+      forceRefresh: before === undefined,
     })
   const first = await readPage()
   const turnUsage =
