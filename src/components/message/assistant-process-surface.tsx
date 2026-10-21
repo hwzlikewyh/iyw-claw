@@ -1,17 +1,13 @@
 "use client"
 
-import type { Ref, RefObject } from "react"
+import { useId, type Ref, type RefObject } from "react"
 import { Virtualizer } from "virtua"
 import { MotionConfig } from "motion/react"
 import { useStickToBottom } from "use-stick-to-bottom"
 import { Check, ChevronDown, ChevronUp, Clock3 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { ContentPartsRenderer } from "./content-parts-renderer"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
 import { formatElapsedLabel } from "@/lib/format-elapsed"
@@ -19,6 +15,8 @@ import { cn } from "@/lib/utils"
 import { useProcessDisclosure } from "./process-disclosure"
 import { completedProcessOperations } from "./process-operation-count"
 import { ToolDisclosureScope } from "./tool-disclosure-context"
+import { processPartNeedsAttention } from "./process-presentation"
+import { useProcessArchive } from "./use-process-archive"
 
 const PROCESS_ROW_HEIGHT = 52
 const PROCESS_OVERSCAN = 200
@@ -73,13 +71,19 @@ function ProcessRows(
   props: Pick<
     AssistantProcessSurfaceProps,
     "parts" | "entranceKey" | "animationEnabled" | "conversationId"
-  > & { streaming: boolean; scrollRef: RefObject<HTMLElement | null> }
+  > & {
+    streaming: boolean
+    scrollRef: RefObject<HTMLElement | null>
+    hiddenBefore: number
+  }
 ) {
   // 外层已负责收起过程，通用工具分组在这里直接展示步骤，避免二次展开。
   const parts = props.parts.flatMap<AdaptedContentPart>((part) =>
     part.type === "tool-group" ? part.items : [part]
   )
-  const rows = parts.map((part, index) => {
+  const rows = parts.flatMap((part, index) => {
+    if (index < props.hiddenBefore && !processPartNeedsAttention(part))
+      return []
     const key = processPartKey(part, index)
     const entranceKey = props.entranceKey + ":process:" + key
     return (
@@ -97,41 +101,62 @@ function ProcessRows(
     )
   })
   return (
-    <ToolDisclosureScope>
-      <Virtualizer
-        scrollRef={props.scrollRef}
-        itemSize={PROCESS_ROW_HEIGHT}
-        bufferSize={PROCESS_OVERSCAN}
-      >
-        {rows}
-      </Virtualizer>
-    </ToolDisclosureScope>
+    <Virtualizer
+      scrollRef={props.scrollRef}
+      itemSize={PROCESS_ROW_HEIGHT}
+      bufferSize={PROCESS_OVERSCAN}
+    >
+      {rows}
+    </Virtualizer>
   )
 }
 
 export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
+  const contentId = useId()
   const preferredOpen =
     (props.autoOpenErrors && props.processHasError) ||
-    (props.isResponseComplete
-      ? !props.collapseCompletedTurn && props.displayMode !== "minimal"
-      : props.displayMode !== "minimal")
-  const { open, onOpenChange, triggerRef } = useProcessDisclosure(preferredOpen)
+    props.displayMode === "full" ||
+    !props.collapseCompletedTurn
+  const { open, onOpenChange, triggerRef, hasChoice } =
+    useProcessDisclosure(preferredOpen)
+  const { rootRef, reading, hiddenBefore } = useProcessArchive(
+    props.parts,
+    props.isResponseComplete,
+    open
+  )
+  const visible =
+    open ||
+    !props.isResponseComplete ||
+    props.parts.some(processPartNeedsAttention) ||
+    (!hasChoice && reading)
   const completed = completedProcessOperations(props.parts)
   return (
     <Collapsible
-      open={open}
-      onOpenChange={onOpenChange}
+      ref={rootRef}
+      open={visible}
       className="assistant-process-surface"
     >
-      <ProcessTrigger
-        open={open}
-        completed={completed}
-        props={props}
-        triggerRef={triggerRef}
-      />
-      <CollapsibleContent className="assistant-process-content" inert={!open}>
-        <ProcessDetails {...props} onCollapse={() => onOpenChange(false)} />
-      </CollapsibleContent>
+      <ToolDisclosureScope reading={reading}>
+        <ProcessTrigger
+          open={open}
+          completed={completed}
+          props={props}
+          triggerRef={triggerRef}
+          onToggle={() => onOpenChange(!open)}
+          contentId={contentId}
+        />
+        <CollapsibleContent
+          id={contentId}
+          className="assistant-process-content"
+          inert={!visible}
+        >
+          <ProcessDetails
+            {...props}
+            hiddenBefore={hiddenBefore}
+            onCollapse={() => onOpenChange(false)}
+          />
+        </CollapsibleContent>
+      </ToolDisclosureScope>
     </Collapsible>
   )
 }
@@ -141,16 +166,24 @@ function ProcessTrigger({
   completed,
   props,
   triggerRef,
+  onToggle,
+  contentId,
 }: {
   open: boolean
   completed: number
   props: AssistantProcessSurfaceProps
   triggerRef: Ref<HTMLButtonElement>
+  onToggle: () => void
+  contentId: string
 }) {
   const t = useTranslations("ConversationPresentation")
   const Icon = completed > 0 ? Check : Clock3
   return (
-    <CollapsibleTrigger
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-controls={contentId}
+      onClick={onToggle}
       ref={triggerRef}
       className="assistant-process-trigger group flex min-h-8 min-w-0 max-w-full flex-wrap items-center gap-2 text-left text-xs transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
@@ -169,12 +202,15 @@ function ProcessTrigger({
           )}
         />
       </span>
-    </CollapsibleTrigger>
+    </button>
   )
 }
 
 function ProcessDetails(
-  props: AssistantProcessSurfaceProps & { onCollapse: () => void }
+  props: AssistantProcessSurfaceProps & {
+    onCollapse: () => void
+    hiddenBefore: number
+  }
 ) {
   const t = useTranslations("ConversationPresentation")
   const { scrollRef, contentRef } = useStickToBottom({
@@ -196,6 +232,7 @@ function ProcessDetails(
               {...props}
               streaming={!props.isResponseComplete}
               scrollRef={scrollRef}
+              hiddenBefore={props.hiddenBefore}
             />
           </MotionConfig>
         </div>

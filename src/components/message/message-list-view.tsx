@@ -1,5 +1,7 @@
 "use client"
 
+import "./conversation-presentation.css"
+
 import {
   memo,
   useCallback,
@@ -634,39 +636,40 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
               />
             )}
             {showStats && (
-              <MessageOutputStats
-                messageId={group.id}
-                conversationId={artifactConversationId}
-                agentType={agentType}
-                modelId={
-                  group.model ??
-                  modelOptions?.find(isModelConfigOption)?.kind.current_value ??
-                  null
-                }
-                promptText={promptText}
-                usage={group.usage}
-                durationMs={durationMs ?? group.duration_ms}
-                completedAt={group.completed_at}
-                liveMessage={liveMessage}
-                toolCallCount={group.toolCallIds?.length ?? null}
-                outputCharacters={group.outputCharacters}
-                isStreaming={isStreaming}
-              />
-            )}
-            {showStats && (
-              <TurnStats
-                usage={group.usage}
-                duration_ms={durationMs ?? group.duration_ms}
-                model={modelDisplayName(modelOptions, group.model)}
-                models={group.models?.map(
-                  (model) => modelDisplayName(modelOptions, model) ?? model
-                )}
-                previousUserIndex={previousUserIndex}
-                isResponseComplete={isResponseComplete}
-                copyText={extractTextFromParts(group.parts)}
-                completedAt={group.completed_at}
-                actions={actions}
-              />
+              <div className="assistant-turn-footer">
+                <TurnStats
+                  usage={group.usage}
+                  duration_ms={durationMs ?? group.duration_ms}
+                  model={modelDisplayName(modelOptions, group.model)}
+                  models={group.models?.map(
+                    (model) => modelDisplayName(modelOptions, model) ?? model
+                  )}
+                  previousUserIndex={previousUserIndex}
+                  isResponseComplete={isResponseComplete}
+                  copyText={extractTextFromParts(group.parts)}
+                  completedAt={group.completed_at}
+                  actions={actions}
+                />
+                <MessageOutputStats
+                  messageId={group.id}
+                  conversationId={artifactConversationId}
+                  agentType={agentType}
+                  modelId={
+                    group.model ??
+                    modelOptions?.find(isModelConfigOption)?.kind
+                      .current_value ??
+                    null
+                  }
+                  promptText={promptText}
+                  usage={group.usage}
+                  durationMs={durationMs ?? group.duration_ms}
+                  completedAt={group.completed_at}
+                  liveMessage={liveMessage}
+                  toolCallCount={group.toolCallIds?.length ?? null}
+                  outputCharacters={group.outputCharacters}
+                  isStreaming={isStreaming}
+                />
+              </div>
             )}
           </CompletionEntrance>
         )}

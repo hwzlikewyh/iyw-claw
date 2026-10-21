@@ -26,7 +26,7 @@ export function SessionForkButton({
           type="button"
           variant="ghost"
           size="icon"
-          className="h-6 w-6 shrink-0 rounded-full text-muted-foreground"
+          className="size-8 shrink-0 rounded-md text-muted-foreground max-sm:h-10"
           disabled={disabled || pending}
           aria-label={t("forkSession")}
           aria-busy={pending}
@@ -35,7 +35,7 @@ export function SessionForkButton({
           {pending ? (
             <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
           ) : (
-            <GitFork aria-hidden="true" className="size-3.5" />
+            <GitFork aria-hidden="true" className="size-4" />
           )}
         </Button>
       </TooltipTrigger>

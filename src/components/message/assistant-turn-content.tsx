@@ -22,6 +22,11 @@ import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
 import type { AgentType } from "@/lib/types"
 import { useConversationActivityAnchor } from "./conversation-activity-visibility"
+import { AssistantTextSurface } from "./assistant-text-surface"
+import {
+  processPartHasFailure,
+  processPartNeedsAttention,
+} from "./process-presentation"
 
 interface AssistantTurnContentProps {
   agentType: AgentType
@@ -99,11 +104,15 @@ function AssistantTimeline(
           isResponseComplete={
             props.isResponseComplete ||
             (index < props.sections.length - 1 &&
-              !hasActiveProcess(section.parts))
+              !hasActiveProcess(section.parts) &&
+              !section.parts.some(processPartNeedsAttention))
           }
           durationMs={null}
           processCount={countProcessItems(section.parts)}
-          processHasError={section.parts.some(processPartHasError)}
+          processHasError={
+            section.parts.some(processPartHasError) ||
+            section.parts.some(processPartHasFailure)
+          }
         />
       )
     }
@@ -120,13 +129,11 @@ function AssistantTimeline(
             section.parts[0]?.type === "reasoning" ? "always" : "user"
           }
         >
-          <ContentPartsRenderer
-            parts={section.parts}
-            role="assistant"
+          <AssistantSectionContent
+            {...props}
+            section={section}
+            streaming={streaming}
             entranceKey={entranceKey}
-            animationEnabled={props.animationEnabled}
-            conversationId={props.conversationId}
-            intelligentUiStreaming={streaming}
           />
         </MotionConfig>
         {props.isLatest && index === props.sections.length - 1 && (
@@ -135,6 +142,40 @@ function AssistantTimeline(
       </div>
     )
   })
+}
+
+function AssistantSectionContent(
+  props: AssistantTurnContentProps & {
+    section: AssistantTimelineSection
+    streaming: boolean
+  }
+) {
+  const content = (
+    <ContentPartsRenderer
+      parts={props.section.parts}
+      role="assistant"
+      entranceKey={props.entranceKey}
+      animationEnabled={props.animationEnabled}
+      conversationId={props.conversationId}
+      intelligentUiStreaming={props.streaming}
+    />
+  )
+  const textParts = props.section.parts.filter(
+    (part): part is Extract<AdaptedContentPart, { type: "text" }> =>
+      part.type === "text"
+  )
+  return textParts.length === props.section.parts.length ? (
+    <AssistantTextSurface
+      parts={textParts}
+      streaming={props.streaming}
+      compact={props.collapseCompletedTurn && props.displayMode !== "full"}
+      animationEnabled={props.animationEnabled}
+    >
+      {content}
+    </AssistantTextSurface>
+  ) : (
+    content
+  )
 }
 
 function AssistantOutputAnchor({ complete }: { complete: boolean }) {

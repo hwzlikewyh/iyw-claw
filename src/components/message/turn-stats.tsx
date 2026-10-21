@@ -8,13 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import {
-  ArrowUpToLine,
-  BrainCog,
-  CheckIcon,
-  CopyIcon,
-  Timer,
-} from "lucide-react"
+import { ArrowUpToLine, Cpu, CheckIcon, CopyIcon, Timer } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
 import {
   Tooltip,
@@ -41,7 +35,7 @@ interface TurnStatsProps {
 }
 
 const iconButtonClass =
-  "inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+  "inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground max-sm:h-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
 
 export function TurnStats({
   usage,
@@ -134,7 +128,7 @@ export function TurnStats({
   if (!isResponseComplete) return null
 
   return (
-    <div className="mt-2 -ms-[0.3125rem] flex flex-wrap items-center justify-start gap-1 text-xs text-muted-foreground">
+    <div className="assistant-turn-actions -ms-2 flex min-w-0 flex-wrap items-center justify-start gap-0.5 text-xs text-muted-foreground">
       <TooltipProvider delayDuration={150}>
         {hasCopy && (
           <Tooltip>
@@ -146,9 +140,9 @@ export function TurnStats({
                 aria-label={isCopied ? t("copied") : t("copyMessage")}
               >
                 {isCopied ? (
-                  <CheckIcon aria-hidden="true" className="h-3.5 w-3.5" />
+                  <CheckIcon aria-hidden="true" className="size-4" />
                 ) : (
-                  <CopyIcon aria-hidden="true" className="h-3.5 w-3.5" />
+                  <CopyIcon aria-hidden="true" className="size-4" />
                 )}
               </button>
             </TooltipTrigger>
@@ -166,7 +160,7 @@ export function TurnStats({
                 className={cn(iconButtonClass, "cursor-default")}
                 aria-label={t("model")}
               >
-                <BrainCog aria-hidden="true" className="h-3.5 w-3.5" />
+                <Cpu aria-hidden="true" className="size-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="top" className="max-w-xs break-words">
@@ -183,7 +177,7 @@ export function TurnStats({
               className={cn(iconButtonClass, "cursor-default")}
               aria-label={`${t("duration")}: ${durationLabel}`}
             >
-              <Timer aria-hidden="true" className="h-3.5 w-3.5" />
+              <Timer aria-hidden="true" className="size-4" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="top">
@@ -199,7 +193,7 @@ export function TurnStats({
                 className={iconButtonClass}
                 aria-label={t("jumpToPreviousUserMessage")}
               >
-                <ArrowUpToLine aria-hidden="true" className="h-3.5 w-3.5" />
+                <ArrowUpToLine aria-hidden="true" className="size-4" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="top">
@@ -212,7 +206,7 @@ export function TurnStats({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="inline-flex h-6 cursor-default items-center rounded-full px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                className="inline-flex h-8 cursor-default items-center rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground tabular-nums focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 aria-label={`${t("completedAt")}: ${completedTooltip}`}
               >
                 <span aria-hidden="true">{completedLabel}</span>

@@ -6,28 +6,39 @@ import {
   useContext,
   useMemo,
   useState,
+  useEffect,
 } from "react"
 import type { ReactNode } from "react"
 
+const TOOL_SETTLE_MS = 650
+
 const ToolDisclosureContext = createContext<{
-  openTools: ReadonlySet<string>
+  choices: ReadonlyMap<string, boolean>
   setToolOpen: (toolCallId: string, open: boolean) => void
+  reading: boolean
 } | null>(null)
 
-export function ToolDisclosureScope({ children }: { children: ReactNode }) {
-  const [openTools, setOpenTools] = useState<ReadonlySet<string>>(new Set())
+export function ToolDisclosureScope({
+  children,
+  reading = false,
+}: {
+  children: ReactNode
+  reading?: boolean
+}) {
+  const [choices, setChoices] = useState<ReadonlyMap<string, boolean>>(
+    new Map()
+  )
   const setToolOpen = useCallback((toolCallId: string, open: boolean) => {
-    setOpenTools((current) => {
-      if (current.has(toolCallId) === open) return current
-      const next = new Set(current)
-      if (open) next.add(toolCallId)
-      else next.delete(toolCallId)
+    setChoices((current) => {
+      if (current.get(toolCallId) === open) return current
+      const next = new Map(current)
+      next.set(toolCallId, open)
       return next
     })
   }, [])
   const value = useMemo(
-    () => ({ openTools, setToolOpen }),
-    [openTools, setToolOpen]
+    () => ({ choices, setToolOpen, reading }),
+    [choices, setToolOpen, reading]
   )
   return (
     <ToolDisclosureContext.Provider value={value}>
@@ -36,13 +47,24 @@ export function ToolDisclosureScope({ children }: { children: ReactNode }) {
   )
 }
 
-export function useToolDisclosure(toolCallId: string) {
+export function useToolDisclosure(toolCallId: string, preferredOpen = false) {
   const scope = useContext(ToolDisclosureContext)
-  const [localOpen, setLocalOpen] = useState(false)
+  const [localOpen, setLocalOpen] = useState<boolean | null>(null)
+  const [autoOpen, setAutoOpen] = useState(preferredOpen)
+  const reading = scope?.reading ?? false
+  useEffect(() => {
+    if (reading) return
+    const timer = window.setTimeout(
+      () => setAutoOpen(preferredOpen),
+      TOOL_SETTLE_MS
+    )
+    return () => window.clearTimeout(timer)
+  }, [preferredOpen, reading])
   const setOpen = (open: boolean) => {
     if (scope) scope.setToolOpen(toolCallId, open)
     else setLocalOpen(open)
   }
   // 虚拟列表卸载离屏卡片时，仅保留工具 ID 和开关状态。
-  return [scope ? scope.openTools.has(toolCallId) : localOpen, setOpen] as const
+  const choice = scope ? scope.choices.get(toolCallId) : localOpen
+  return [choice ?? (preferredOpen || autoOpen), setOpen] as const
 }

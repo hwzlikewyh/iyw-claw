@@ -8,17 +8,20 @@ import {
 } from "@/lib/usage-points"
 import { formatPointDecimal } from "@/lib/point-decimal"
 import type { ConfirmedConsumption } from "@/lib/types"
+import { formatTurnPoints } from "./turn-usage-format"
 
 export function UsagePointsValue({
   points,
   consumption,
   estimate,
   live = false,
+  fixedDecimals = false,
 }: {
   points?: string | number | null
   consumption?: ConfirmedConsumption | null
   estimate?: number | null
   live?: boolean
+  fixedDecimals?: boolean
 }) {
   const locale = useLocale()
   const t = useTranslations("UsagePoints")
@@ -27,16 +30,24 @@ export function UsagePointsValue({
   return (
     <span
       className="tabular-nums"
-      title={value == null ? undefined : String(value)}
+      title={
+        value == null
+          ? undefined
+          : fixedDecimals
+            ? formatTurnPoints(value, locale)
+            : String(value)
+      }
     >
       {value != null ? (
         <>
           {t("value", {
-            points: live
-              ? formatLiveUsagePoints(value, locale)
-              : typeof value === "string"
-                ? formatPointDecimal(value, locale)
-                : formatUsagePoints(value, locale),
+            points: fixedDecimals
+              ? formatTurnPoints(value, locale)
+              : live
+                ? formatLiveUsagePoints(value, locale)
+                : typeof value === "string"
+                  ? formatPointDecimal(value, locale)
+                  : formatUsagePoints(value, locale),
           })}
         </>
       ) : (

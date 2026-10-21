@@ -6,7 +6,6 @@ import type { LiveMessage } from "@/contexts/acp-connections-context"
 import type { AgentType, TurnUsage } from "@/lib/types"
 import { TurnUsageStats } from "./turn-usage-stats"
 import { useLiveTurnUsage } from "./use-live-turn-usage"
-import { TooltipProvider } from "@/components/ui/tooltip"
 import { resolveTurnDuration } from "@/lib/turn-duration"
 import { useRecentOutputRate } from "@/hooks/use-recent-output-rate"
 import { resolveUsagePoints } from "@/lib/usage-points"
@@ -126,10 +125,8 @@ export const MessageOutputStats = memo(function MessageOutputStats(
           : formatOutputRate(usage?.output_tokens, durationMs)
       }
       timings={timings}
-      toolCallCount={props.toolCallCount}
       usage={usage}
       livePoints={isStreaming ? livePoints : null}
-      outputCharacters={props.outputCharacters}
       isStreaming={isStreaming}
     />
   )
@@ -139,15 +136,10 @@ function validTiming(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
 }
 
-function positiveCount(value: unknown): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
-}
-
 function useTurnTimingStats(timings: TurnTimings | null) {
   const t = useTranslations("Folder.chat.liveTurnStats")
   const fields = [
     ["firstActivityMs", "firstActivity"],
-    ["firstThinkingMs", "firstThinking"],
     ["firstTextMs", "firstToken"],
   ] as const
   return fields.map(([key, label]) => {
@@ -165,11 +157,9 @@ function useTurnTimingStats(timings: TurnTimings | null) {
 interface OutputStatsViewProps {
   rate: string | null
   timings: TurnTimings | null
-  toolCallCount: number | null
   usage?: TurnUsage | null
   livePoints?: number | null
   isStreaming: boolean
-  outputCharacters?: number
 }
 
 function hasUsagePoints(usage?: TurnUsage | null): usage is TurnUsage {
@@ -185,46 +175,35 @@ function hasUsagePoints(usage?: TurnUsage | null): usage is TurnUsage {
 function OutputStatsView({
   rate,
   timings,
-  toolCallCount,
   usage,
   livePoints,
   isStreaming,
-  outputCharacters,
 }: OutputStatsViewProps) {
   const t = useTranslations("Folder.chat.liveTurnStats")
-  const bodyT = useTranslations("ConversationPresentation")
   const timingStats = useTurnTimingStats(timings)
   const stats = [
     rate && (
       <span
         key="rate"
         title={t(isStreaming ? "recentOutputRateHint" : "outputRateHint")}
+        aria-label={t("outputRate", { rate })}
       >
-        {t("outputRate", { rate })}
+        {rate} tok/s
       </span>
     ),
     ...timingStats,
-    positiveCount(outputCharacters) && (
-      <span key="characters">
-        {bodyT("bodyCharacters", { count: outputCharacters })}
-      </span>
-    ),
-    positiveCount(toolCallCount) && (
-      <span key="tools">{t("toolUseCount", { count: toolCallCount })}</span>
-    ),
     (livePoints != null || hasUsagePoints(usage)) && (
-      <TooltipProvider key="usage" delayDuration={150}>
-        <TurnUsageStats
-          usage={usage}
-          points={livePoints}
-          live={livePoints != null}
-        />
-      </TooltipProvider>
+      <TurnUsageStats
+        key="usage"
+        usage={usage}
+        points={livePoints}
+        live={livePoints != null}
+      />
     ),
   ].filter(Boolean)
   if (stats.length === 0) return null
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground tabular-nums">
+    <div className="assistant-output-metrics flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground tabular-nums [&>span]:whitespace-nowrap">
       {stats}
     </div>
   )

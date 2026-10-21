@@ -28,5 +28,5 @@ export function useProcessDisclosure(preferredOpen: boolean) {
     })
   }
   const open = choice ?? preferredOpen
-  return { open, onOpenChange, triggerRef }
+  return { open, onOpenChange, triggerRef, hasChoice: choice !== null }
 }

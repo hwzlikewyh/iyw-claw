@@ -59,6 +59,9 @@ import {
 import { OnceEntrance } from "@/components/message/message-entrance"
 import { AgentToolCallPart } from "./agent-tool-call"
 import { useToolDisclosure } from "./tool-disclosure-context"
+import { CommandOutput } from "./command-output"
+import { commandExitCode } from "./command-output-presentation"
+import { processPartNeedsAttention } from "./process-presentation"
 import { AskQuestionResultCard } from "./ask-question-result-card"
 import {
   parseScheduledTaskReceipt,
@@ -2111,7 +2114,10 @@ function ToolCallPartContent({
   part: Extract<AdaptedContentPart, { type: "tool-call" }>
 }) {
   const t = useTranslations("Folder.chat.contentParts")
-  const [manualOpen, setManualOpen] = useToolDisclosure(part.toolCallId)
+  const [manualOpen, setManualOpen] = useToolDisclosure(
+    part.toolCallId,
+    processPartNeedsAttention(part)
+  )
   const normalizedToolName = useMemo(
     () => normalizeToolName(part.toolName),
     [part.toolName]
@@ -2496,6 +2502,13 @@ function ToolCallPartContent({
   }
 
   const open = manualOpen
+  const commandOutput =
+    typeof displayOutput === "string"
+      ? parseCliExecutionEnvelope(
+          commandOutputFromJsonString(displayOutput) ?? displayOutput
+        ).output
+      : null
+  const exitCode = isShellCommandTool ? commandExitCode(part.output) : null
 
   return (
     <Tool open={open} onOpenChange={setManualOpen}>
@@ -2524,9 +2537,12 @@ function ToolCallPartContent({
             </MessageResponse>
           </div>
         ) : isCommandTool && isShellCommandTool ? (
-          part.errorText ? (
-            <ToolOutput output={null} errorText={displayError} />
-          ) : null
+          <CommandOutput
+            output={commandOutput}
+            errorText={displayError}
+            exitCode={exitCode}
+            running={part.state.startsWith("input-")}
+          />
         ) : isCommandTool ? (
           (displayOutput || displayError) && (
             <ToolOutput output={displayOutput} errorText={displayError} />
