@@ -6082,7 +6082,17 @@ fn safe_error_detail(value: &str) -> String {
     {
         return "<sensitive error detail redacted>".to_string();
     }
-    normalized.chars().take(MAX_CHARS).collect()
+    normalized
+        .split_whitespace()
+        .map(|part| {
+            let lower = part.to_ascii_lowercase();
+            if lower.contains("http://") || lower.contains("https://") || lower.contains("data:image/") {
+                "[resource address redacted]"
+            } else { part }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars().take(MAX_CHARS).collect()
 }
 
 fn is_prompt_transport_error(error: &sacp::Error) -> bool {
@@ -6628,6 +6638,7 @@ async fn run_conversation_loop<'a>(
                 .await;
                 // Use Box::pin (heap) instead of tokio::pin! (stack) so the
                 // future can be moved into a background task on cancel.
+                let prompt_generation = state.read().await.turn_generation;
                 let mut prompt_response = Box::pin(
                     cx.clone()
                         .send_request_to(Agent, prompt_request)
@@ -7118,6 +7129,18 @@ async fn run_conversation_loop<'a>(
                                     } else {
                                         "acp_prompt_request_failed"
                                     };
+                                    let current_generation = state.read().await.turn_generation;
+                                    if current_generation != prompt_generation {
+                                        tracing::debug!(connection_id = conn_id, "ignoring stale prompt failure");
+                                        break;
+                                    }
+                                    emit_with_state(
+                                        state,
+                                        emitter,
+                                        AcpEvent::SessionFailure {
+                                            record: super::session_failure::prompt_failure(prompt_generation, detail.clone()),
+                                        },
+                                    ).await;
                                     tracing::warn!(
                                         connection_id = conn_id,
                                         session_id = %sid.0,

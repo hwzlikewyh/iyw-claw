@@ -8,6 +8,24 @@ pub(super) struct GatewayError {
 }
 
 impl GatewayError {
+    pub fn cloud(error: reqwest::Error) -> Self {
+        // 只保留错误类别；reqwest 原文可能包含带签名的地址。
+        use std::error::Error;
+        let cause = error.source().map(ToString::to_string).unwrap_or_default().to_lowercase();
+        let (status, code, message) = if error.is_timeout() {
+            (StatusCode::GATEWAY_TIMEOUT, "cloud_gateway_timeout", "Cloud model gateway request timed out")
+        } else if cause.contains("certificate") || cause.contains("tls") {
+            (StatusCode::BAD_GATEWAY, "cloud_gateway_tls", "Cloud model gateway TLS connection failed")
+        } else if cause.contains("dns") || cause.contains("resolve") {
+            (StatusCode::BAD_GATEWAY, "cloud_gateway_dns", "Cloud model gateway address could not be resolved")
+        } else if error.is_connect() {
+            (StatusCode::BAD_GATEWAY, "cloud_gateway_connect", "Cloud model gateway connection failed")
+        } else {
+            (StatusCode::BAD_GATEWAY, "cloud_gateway_transport", "Cloud model gateway transport failed")
+        };
+        Self { status, code, message }
+    }
+
     pub fn unauthorized() -> Self {
         Self {
             status: StatusCode::UNAUTHORIZED,

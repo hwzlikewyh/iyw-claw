@@ -100,10 +100,15 @@ impl Runtime {
             let upload = ticket
                 .upload
                 .ok_or_else(|| GatewayError::unavailable("Image upload ticket is missing"))?;
-            self.put_image(upload, prepared.file, prepared.size).await?;
+            let uploaded = self.put_image(upload, prepared.file, prepared.size).await;
             let mut payload = payload;
             payload["operation"] = "complete".into();
-            self.image_api(token, &payload).await?
+            // PUT 超时不代表对象未写入，先核验完成状态，避免重传整个文件。
+            match self.image_api(token, &payload).await {
+                Ok(value) => value,
+                Err(error) if error.status.is_client_error() => return Err(error),
+                Err(error) => return Err(uploaded.err().unwrap_or(error)),
+            }
         };
         let asset: Asset = serde_json::from_value(value)
             .map_err(|_| GatewayError::unavailable("Image resource response is invalid"))?;
@@ -174,6 +179,20 @@ impl Runtime {
         token: &str,
         payload: &serde_json::Value,
     ) -> Result<serde_json::Value, GatewayError> {
+        let first = self.image_api_once(token, payload).await;
+        if matches!(&first, Err(error) if error.status.is_server_error()) {
+            // init/complete 幂等；等待与第二次查询仍受外层统一准备截止时间约束。
+            tokio::time::sleep(super::limits::RESOURCE_RETRY_DELAY).await;
+            return self.image_api_once(token, payload).await;
+        }
+        first
+    }
+
+    async fn image_api_once(
+        &self,
+        token: &str,
+        payload: &serde_json::Value,
+    ) -> Result<serde_json::Value, GatewayError> {
         super::auth::check(token)?;
         let url = target::resolve(&self.upstream, "/v1/images/input/prepare")?;
         let response = self
@@ -184,7 +203,7 @@ impl Runtime {
             .json(payload)
             .send()
             .await
-            .map_err(|_| GatewayError::unavailable("Image resource service is unavailable"))?;
+            .map_err(GatewayError::cloud)?;
         let status = response.status();
         if !status.is_success() {
             return Err(GatewayError {

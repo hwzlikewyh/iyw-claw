@@ -216,7 +216,10 @@ async fn prepare_text(
     context: (&str, &str),
 ) -> Result<String, GatewayError> {
     let body = Spool::Memory(Bytes::copy_from_slice(bytes));
-    let output = rewrite::prepare(runtime, body, context).await?;
+    let output = tokio::time::timeout(
+        super::limits::PREPARE_TIMEOUT,
+        rewrite::prepare(runtime, body, context),
+    ).await.map_err(|_| GatewayError::unavailable("Image preparation exceeded the request time budget"))??;
     super::auth::check(context.1)?;
     let Output::Request(body) = output else {
         return Err(GatewayError::input("Invalid model WebSocket request"));

@@ -141,3 +141,16 @@ fn optional_text(value: &Value, key: &str) -> Option<String> {
         .filter(|entry| !entry.is_empty())
         .map(str::to_string)
 }
+
+pub fn prompt_failure(generation: i64, detail: String) -> SessionFailureRecord {
+    SessionFailureRecord {
+        id: "prompt-error".to_string(),
+        revision: generation.max(1) as u64,
+        category: "unknown".to_string(),
+        severity: "error".to_string(),
+        title: "本轮请求失败，会话仍可继续".to_string(),
+        details: Some(detail),
+        actions: Vec::new(),
+        resolved: false,
+    }
+}

@@ -17,5 +17,6 @@ pub(super) const MAX_WEBSOCKET_BYTES: usize = 8 * 1024 * 1024;
 pub(super) const METADATA_BYTES: usize = 64 * 1024;
 pub(super) const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 pub(super) const PREPARE_TIMEOUT: Duration = Duration::from_secs(90);
+pub(super) const RESOURCE_RETRY_DELAY: Duration = Duration::from_millis(200);
 pub(super) const HEADER_TIMEOUT: Duration = Duration::from_secs(900);
 pub(super) const URL_REUSE: Duration = Duration::from_secs(45 * 60);
