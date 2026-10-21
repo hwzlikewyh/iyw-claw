@@ -1,15 +1,18 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { Loader2, Plug } from "lucide-react"
+import { Link2, Loader2, Search, Settings2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { useTabStore } from "@/contexts/tab-context"
-import { Button } from "@/components/ui/button"
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
+  DropdownMenuCheckboxItem,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import {
   getConversationConnectors,
@@ -20,7 +23,7 @@ import {
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { useConnection } from "@/hooks/use-connection"
 
-export function ConversationConnectorPicker({
+export function ConversationConnectorMenu({
   tabId,
 }: {
   tabId?: string | null
@@ -34,6 +37,7 @@ export function ConversationConnectorPicker({
     (state) => state.tabs.find((tab) => tab.id === tabId)?.agentType ?? null
   )
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
   const [data, setData] = useState<ConversationConnectors | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -104,79 +108,124 @@ export function ConversationConnectorPicker({
       if (generation.current === request) setBusy(false)
     }
   }
+  const normalizedQuery = query.trim().toLocaleLowerCase()
+  const visibleConnectors =
+    data?.connectors.filter((item) =>
+      item.name.toLocaleLowerCase().includes(normalizedQuery)
+    ) ?? []
   return (
-    <Popover
+    <DropdownMenuSub
       open={open}
       onOpenChange={(next) => {
-        if (!busy) setOpen(next)
+        setOpen(next)
+        if (!next) setQuery("")
       }}
     >
-      <PopoverTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          title={t("title")}
-          aria-label={t("title")}
-        >
-          <Plug className="size-4" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent side="top" align="start" className="w-80 space-y-3 p-3">
-        <div className="flex items-center justify-between text-xs">
-          <strong>{t("title")}</strong>
-          <span className="text-muted-foreground">{t("remembered")}</span>
+      <DropdownMenuSubTrigger disabled={!agentType}>
+        <Link2 className="size-4" />
+        {t("menuLabel")}
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent
+        className="flex w-72 max-w-[calc(100vw-1rem)] flex-col p-1"
+        style={{
+          maxHeight:
+            "min(32rem, var(--radix-dropdown-menu-content-available-height))",
+        }}
+        aria-label={t("title")}
+      >
+        <div className="relative m-1 shrink-0">
+          <Search className="pointer-events-none absolute top-2.5 left-3 size-4 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t("search")}
+            aria-label={t("search")}
+            className="h-9 pl-9"
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") {
+                event.preventDefault()
+                event.currentTarget
+                  .closest('[role="menu"]')
+                  ?.querySelector<HTMLElement>(
+                    '[role="menuitemcheckbox"]:not([data-disabled])'
+                  )
+                  ?.focus()
+              }
+              if (event.key !== "Escape" && event.key !== "Tab")
+                event.stopPropagation()
+            }}
+          />
         </div>
+        <p className="px-3 py-1 text-[10px] text-muted-foreground">
+          {t("remembered")}
+        </p>
         {conversationId == null && (
-          <p className="text-xs text-muted-foreground">{t("createFirst")}</p>
+          <p className="px-3 py-1 text-xs text-muted-foreground">
+            {t("createFirst")}
+          </p>
         )}
         {busy && !data && (
-          <Loader2 className="size-4 animate-spin" aria-label={t("loading")} />
+          <Loader2
+            className="m-3 size-4 animate-spin"
+            aria-label={t("loading")}
+          />
         )}
         {error && (
-          <p role="alert" className="text-xs text-destructive">
+          <p role="alert" className="px-3 py-1 text-xs text-destructive">
             {error}
           </p>
         )}
-        {data?.connectors.map((item) => (
-          <div
-            key={item.id}
-            className="flex items-start justify-between gap-3 py-1"
-          >
-            <div className="min-w-0">
-              <label
-                htmlFor={`connector-${conversationId}-${item.id}`}
-                className="text-xs font-medium"
-              >
-                {item.name}
-              </label>
-              <p className="text-[10px] text-muted-foreground">
-                {item.protocol === "sse" ? t("legacySse") : item.protocol}
-              </p>
-              {item.reason && (
-                <p className="text-[10px] text-muted-foreground">
-                  {item.reason}
-                </p>
-              )}
-            </div>
-            <Switch
-              id={`connector-${conversationId}-${item.id}`}
-              checked={data.selected.includes(item.id)}
+        <div className="min-h-0 overflow-y-auto">
+          {visibleConnectors.map((item) => (
+            <DropdownMenuCheckboxItem
+              key={item.id}
+              className="gap-3 pr-3 [&_[data-slot=dropdown-menu-checkbox-item-indicator]]:hidden"
+              checked={data!.selected.includes(item.id)}
               disabled={
-                busy || (!item.compatible && !data.selected.includes(item.id))
+                busy || (!item.compatible && !data!.selected.includes(item.id))
               }
+              onSelect={(event) => event.preventDefault()}
               onCheckedChange={(enabled) => void toggle(item.id, enabled)}
-            />
-          </div>
-        ))}
-        {data && !data.connectors.length && (
-          <p className="text-xs text-muted-foreground">{t("empty")}</p>
-        )}
+            >
+              <Link2 className="size-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">
+                  {item.name}
+                </span>
+                <p className="text-[10px] text-muted-foreground">
+                  {item.protocol === "sse" ? t("legacySse") : item.protocol}
+                </p>
+                {item.reason && (
+                  <p className="text-[10px] text-muted-foreground">
+                    {item.reason}
+                  </p>
+                )}
+              </div>
+              <Switch
+                aria-hidden="true"
+                tabIndex={-1}
+                className="pointer-events-none"
+                checked={data!.selected.includes(item.id)}
+              />
+            </DropdownMenuCheckboxItem>
+          ))}
+          {data && !data.connectors.length && (
+            <p className="px-3 py-3 text-xs text-muted-foreground">
+              {t("empty")}
+            </p>
+          )}
+          {data &&
+            data.connectors.length > 0 &&
+            visibleConnectors.length === 0 && (
+              <p className="px-3 py-3 text-xs text-muted-foreground">
+                {t("noResults")}
+              </p>
+            )}
+        </div>
         {data?.reconnect_required && connection.connectionId && (
-          <div className="space-y-2 text-xs text-amber-700 dark:text-amber-400">
-            <p>{t("reconnect")}</p>
-            <Button
-              size="sm"
-              variant="outline"
+          <div className="shrink-0 text-xs text-amber-700 dark:text-amber-400">
+            <p className="px-3 py-2">{t("reconnect")}</p>
+            <DropdownMenuItem
               disabled={
                 busy ||
                 connection.status === "prompting" ||
@@ -184,24 +233,27 @@ export function ConversationConnectorPicker({
                 connection.isViewer ||
                 connection.isDelegationChild
               }
-              onClick={() => void reconnect()}
+              onSelect={(event) => {
+                event.preventDefault()
+                void reconnect()
+              }}
             >
               {t("apply")}
-            </Button>
+            </DropdownMenuItem>
           </div>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          className="w-full"
-          onClick={() => {
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          className="shrink-0"
+          onSelect={() => {
             setOpen(false)
             route.openConnectorMarket()
           }}
         >
+          <Settings2 className="size-4" />
           {t("market")}
-        </Button>
-      </PopoverContent>
-    </Popover>
+        </DropdownMenuItem>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   )
 }

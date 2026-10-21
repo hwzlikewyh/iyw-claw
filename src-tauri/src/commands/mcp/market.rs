@@ -6,7 +6,7 @@ use super::{McpMarketplaceItem, McpMarketplaceServerDetail};
 use crate::app_error::AppCommandError;
 
 pub(super) const PROVIDER: &str = "iyw_gateway";
-const DEFAULT_BASE: &str = "https://gateway.iyw.cn/iyw-fusion-mcp-apiserver/api/connector-market";
+const DEFAULT_BASE: &str = "https://gateway.iyw.cn/iyw-fusion-mcp-gateway/api/connector-market";
 const MAX_RESPONSE: usize = 8 * 1024 * 1024;
 
 pub(super) async fn require_market_slot(
@@ -74,9 +74,9 @@ pub(super) async fn request(
     if status == reqwest::StatusCode::NOT_FOUND && path == "list" {
         tracing::warn!(
             route = "connector-market/list",
-            "[MCP] 市场目录路由不存在，请检查控制面部署和入口转发"
+            "[MCP] 市场目录路由不存在，请检查网关、控制面部署和入口转发"
         );
-        return Err(AppCommandError::network("连接器市场接口不存在（HTTP 404）。请确认管理 API 已更新，且市场地址指向 iyw-fusion-mcp-apiserver。"));
+        return Err(AppCommandError::network("连接器市场接口不存在（HTTP 404）。请确认 MCP 网关和管理 API 已更新，并检查市场接口转发。"));
     }
     if !status.is_success() {
         return Err(status_error(status.as_u16()));
