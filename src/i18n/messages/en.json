@@ -3441,6 +3441,12 @@
           "stop": "Stop",
           "continuePrompt": "Continue completing the current task."
         },
+        "modelNetwork": {
+          "retrying": "The model connection is unstable. Retrying…",
+          "retryingSevere": "The model connection is experiencing severe instability. Retrying…",
+          "attempts": "Consecutive retries: {count}",
+          "disconnected": "The model connection was interrupted by network instability. This reply did not finish. Continue later or try another model."
+        },
         "claudeApiRetry": {
           "fallbackError": "authentication_failed",
           "retryingWithMax": "retrying {attempt}/{max}",

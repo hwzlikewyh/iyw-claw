@@ -169,7 +169,18 @@ impl SessionActivity {
                     self.snapshot.retrying_since = Some(now);
                     tracing::info!("[ACP] runtime reported retrying the active turn");
                 }
-                self.snapshot.retry_attempt = progress.attempt;
+                // 部分运行时只报告 willRetry，沿用现有字段累计连续重试次数。
+                self.snapshot.retry_attempt = Some(
+                    progress
+                        .attempt
+                        .filter(|attempt| *attempt > 0)
+                        .unwrap_or_else(|| {
+                            self.snapshot
+                                .retry_attempt
+                                .unwrap_or_default()
+                                .saturating_add(1)
+                        }),
+                );
                 self.snapshot.retry_max_attempts = progress.max_attempts;
                 self.snapshot.retry_reason = progress.reason.clone();
             }
