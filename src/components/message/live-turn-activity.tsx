@@ -3,6 +3,7 @@
 import { useMemo } from "react"
 import { useTranslations } from "next-intl"
 import type { ToolCallInfo } from "@/contexts/acp-connections-context"
+import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import { useSessionActivity } from "@/hooks/use-session-activity"
 import { activityAge, activityTimings } from "@/lib/session-activity"
 import { useVisibleNow } from "@/hooks/use-visible-now"
@@ -124,8 +125,31 @@ const PHASE_ICONS: Record<string, ActivityIcon> = {
   activityUnknown: "wait",
 }
 
-function useToolPresentation(tool: ToolCallInfo | null) {
+function resolvedToolTitle(
+  toolCallId: string | undefined,
+  parts: readonly AdaptedContentPart[] | undefined
+): string | null {
+  if (!toolCallId) return null
+  for (const part of parts ?? []) {
+    if (part.type === "tool-call" && part.toolCallId === toolCallId)
+      return part.displayTitle ?? null
+    if (part.type !== "tool-group" && part.type !== "goal-run") continue
+    const title = resolvedToolTitle(toolCallId, part.items)
+    if (title) return title
+  }
+  return null
+}
+
+function useToolPresentation(
+  tool: ToolCallInfo | null,
+  parts: readonly AdaptedContentPart[] | undefined
+) {
   const t = useTranslations("Folder.chat.contentParts")
+  const toolCallId = tool?.tool_call_id
+  const resolvedTitle = useMemo(
+    () => resolvedToolTitle(toolCallId, parts),
+    [toolCallId, parts]
+  )
   const title = tool?.title
   const kind = tool?.kind
   const rawInput = tool?.raw_input
@@ -142,18 +166,22 @@ function useToolPresentation(tool: ToolCallInfo | null) {
     const builtin = getBuiltinToolDisplay(name, rawInput)
     return {
       name: getToolDisplayName(
-        { toolName: name, input: rawInput, displayTitle: title },
+        {
+          toolName: name,
+          input: rawInput,
+          displayTitle: resolvedTitle ?? title,
+        },
         (key, values) =>
           t.has(key as never) ? t(key as never, values as never) : null
       ),
       icon: toolIcon(builtin?.toolName ?? normalizeToolName(name)),
     }
-  }, [title, kind, rawInput, meta, t])
+  }, [title, kind, rawInput, meta, resolvedTitle, t])
 }
 
 export function useTurnActivity(
   contextKey: string | undefined,
-  input: ActivityInput
+  input: ActivityInput & { parts?: readonly AdaptedContentPart[] }
 ) {
   const activity = useSessionActivity(contextKey)
   const t = useTranslations("Folder.chat.liveTurnStats")
@@ -163,7 +191,8 @@ export function useTurnActivity(
     ? "awaitingUser"
     : selectPhase(input.summary, activity, now)
   const tool = useToolPresentation(
-    input.summary.activeTool ?? input.summary.latestTool ?? null
+    input.summary.activeTool ?? input.summary.latestTool ?? null,
+    input.parts
   )
   const feedback = useActivityFeedback(activity, {
     summary: input.summary,

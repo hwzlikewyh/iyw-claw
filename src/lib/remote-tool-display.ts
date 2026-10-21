@@ -70,6 +70,7 @@ function toolCalls(
   return parts.flatMap((part) => {
     if (part.type === "tool-call") return [part]
     if (part.type === "tool-group") return part.items
+    if (part.type === "goal-run") return toolCalls(part.items)
     return []
   })
 }
@@ -111,6 +112,20 @@ function namePart(
   names: ReadonlyMap<string, string>
 ): AdaptedContentPart {
   if (part.type === "tool-call") return nameToolCall(part, names)
+  if (part.type === "goal-run") {
+    const items = part.items.map((item) => namePart(item, names))
+    if (items.every((item, index) => item === part.items[index])) return part
+    const cached = displayPartCache.get(part)
+    if (
+      cached?.type === "goal-run" &&
+      items.every((item, index) => item === cached.items[index])
+    ) {
+      return cached
+    }
+    const named = { ...part, items }
+    displayPartCache.set(part, named)
+    return named
+  }
   if (part.type !== "tool-group") return part
   const items = part.items.map((item) => nameToolCall(item, names))
   if (items.every((item, index) => item === part.items[index])) return part

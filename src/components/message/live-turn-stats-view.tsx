@@ -2,6 +2,7 @@
 
 import { memo, useMemo, type ReactNode } from "react"
 import type { LiveMessage } from "@/contexts/acp-connections-context"
+import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import type { AgentType, PlanEntryInfo } from "@/lib/types"
 import { LiveTurnStatusRow } from "./live-turn-status-row"
 import { useTurnActivity } from "./live-turn-activity"
@@ -12,6 +13,7 @@ interface LiveTurnStatsProps {
   agentType: AgentType
   contextKey?: string
   message: LiveMessage | null
+  parts?: readonly AdaptedContentPart[]
   modelName?: string | null
   isStreaming?: boolean
   planEntries?: PlanEntryInfo[] | null
@@ -26,6 +28,7 @@ export const LiveTurnStats = memo(function LiveTurnStats({
   agentType,
   contextKey,
   message,
+  parts,
   isStreaming = true,
   planEntries,
   subAgentControl,
@@ -44,6 +47,7 @@ export const LiveTurnStats = memo(function LiveTurnStats({
   const activity = useTurnActivity(contextKey, {
     summary: resolvedSummary,
     awaitingUser: isAwaitingUserInput,
+    parts,
     startedAt: message?.startedAt,
     visible:
       pageVisible && !activityVisible && !(outputVisible && outputStreaming),
