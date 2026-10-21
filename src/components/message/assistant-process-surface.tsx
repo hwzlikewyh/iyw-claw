@@ -1,6 +1,7 @@
 "use client"
 
-import type { Ref } from "react"
+import type { Ref, RefObject } from "react"
+import { Virtualizer } from "virtua"
 import { MotionConfig } from "motion/react"
 import { useStickToBottom } from "use-stick-to-bottom"
 import { Check, ChevronDown, ChevronUp, Clock3 } from "lucide-react"
@@ -17,6 +18,10 @@ import { formatElapsedLabel } from "@/lib/format-elapsed"
 import { cn } from "@/lib/utils"
 import { useProcessDisclosure } from "./process-disclosure"
 import { completedProcessOperations } from "./process-operation-count"
+import { ToolDisclosureScope } from "./tool-disclosure-context"
+
+const PROCESS_ROW_HEIGHT = 52
+const PROCESS_OVERSCAN = 200
 
 interface AssistantProcessSurfaceProps {
   parts: AdaptedContentPart[]
@@ -68,17 +73,17 @@ function ProcessRows(
   props: Pick<
     AssistantProcessSurfaceProps,
     "parts" | "entranceKey" | "animationEnabled" | "conversationId"
-  > & { streaming: boolean }
+  > & { streaming: boolean; scrollRef: RefObject<HTMLElement | null> }
 ) {
   // 外层已负责收起过程，通用工具分组在这里直接展示步骤，避免二次展开。
   const parts = props.parts.flatMap<AdaptedContentPart>((part) =>
     part.type === "tool-group" ? part.items : [part]
   )
-  return parts.map((part, index) => {
+  const rows = parts.map((part, index) => {
     const key = processPartKey(part, index)
     const entranceKey = props.entranceKey + ":process:" + key
     return (
-      <div key={key}>
+      <div key={key} className="pb-3">
         <ContentPartsRenderer
           parts={[part]}
           role="assistant"
@@ -91,6 +96,17 @@ function ProcessRows(
       </div>
     )
   })
+  return (
+    <ToolDisclosureScope>
+      <Virtualizer
+        scrollRef={props.scrollRef}
+        itemSize={PROCESS_ROW_HEIGHT}
+        bufferSize={PROCESS_OVERSCAN}
+      >
+        {rows}
+      </Virtualizer>
+    </ToolDisclosureScope>
+  )
 }
 
 export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
@@ -176,7 +192,11 @@ function ProcessDetails(
       >
         <div ref={contentRef} className="space-y-3">
           <MotionConfig reducedMotion="always">
-            <ProcessRows {...props} streaming={!props.isResponseComplete} />
+            <ProcessRows
+              {...props}
+              streaming={!props.isResponseComplete}
+              scrollRef={scrollRef}
+            />
           </MotionConfig>
         </div>
       </div>

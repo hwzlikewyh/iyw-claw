@@ -58,6 +58,7 @@ import {
 } from "@/components/ai-elements/reasoning"
 import { OnceEntrance } from "@/components/message/message-entrance"
 import { AgentToolCallPart } from "./agent-tool-call"
+import { useToolDisclosure } from "./tool-disclosure-context"
 import { AskQuestionResultCard } from "./ask-question-result-card"
 import {
   parseScheduledTaskReceipt,
@@ -2104,13 +2105,13 @@ const TextPart = memo(function TextPart({
   )
 })
 
-const ToolCallPart = memo(function ToolCallPart({
+function ToolCallPartContent({
   part,
 }: {
   part: Extract<AdaptedContentPart, { type: "tool-call" }>
 }) {
   const t = useTranslations("Folder.chat.contentParts")
-  const [manualOpen, setManualOpen] = useState(false)
+  const [manualOpen, setManualOpen] = useToolDisclosure(part.toolCallId)
   const normalizedToolName = useMemo(
     () => normalizeToolName(part.toolName),
     [part.toolName]
@@ -2539,6 +2540,16 @@ const ToolCallPart = memo(function ToolCallPart({
       </ToolContent>
     </Tool>
   )
+}
+
+const ToolCallPart = memo(ToolCallPartContent, (previous, next) => {
+  // 流式适配会重建 part，字段不变的旧卡片无需重新解析和渲染。
+  if (previous.part === next.part) return true
+  const keys = Object.keys(previous.part) as (keyof typeof previous.part)[]
+  return (
+    keys.length === Object.keys(next.part).length &&
+    keys.every((key) => Object.is(previous.part[key], next.part[key]))
+  )
 })
 
 const ToolResultPart = memo(function ToolResultPart({
@@ -2547,8 +2558,9 @@ const ToolResultPart = memo(function ToolResultPart({
   part: Extract<AdaptedContentPart, { type: "tool-result" }>
 }) {
   const t = useTranslations("Folder.chat.contentParts")
+  const [open, setOpen] = useToolDisclosure(part.toolCallId)
   return (
-    <Tool>
+    <Tool open={open} onOpenChange={setOpen}>
       <ToolHeader
         type="dynamic-tool"
         state={part.state}
@@ -2676,7 +2688,7 @@ const ToolGroupPart = memo(function ToolGroupPart({
         <div className="mt-3 w-full space-y-3">
           {part.items.map((item, idx) => (
             <ToolCallPart
-              key={`grouped-tc-${item.toolCallId ?? idx}-${idx}`}
+              key={`grouped-tc-${item.toolCallId || idx}`}
               part={item}
             />
           ))}
