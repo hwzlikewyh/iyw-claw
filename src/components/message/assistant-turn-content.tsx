@@ -97,7 +97,9 @@ function AssistantTimeline(
           entranceKey={entranceKey}
           parts={section.parts}
           isResponseComplete={
-            props.isResponseComplete || !hasActiveProcess(section.parts)
+            props.isResponseComplete ||
+            (index < props.sections.length - 1 &&
+              !hasActiveProcess(section.parts))
           }
           durationMs={null}
           processCount={countProcessItems(section.parts)}

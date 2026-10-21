@@ -3153,7 +3153,7 @@ const ConversationTabView = memo(function ConversationTabView({
     workingDirForConnection,
   ])
 
-  const messageListNode = (
+  const messageListNode = isVisible ? (
     <MessageListView
       onUiAsk={async (text) => {
         const accepted = await handleSend({
@@ -3217,7 +3217,7 @@ const ConversationTabView = memo(function ConversationTabView({
           : undefined
       }
     />
-  )
+  ) : null
 
   // Live-feedback bar gating + the "agent never read your note" resend fallback.
   // Enqueue rather than `handleSend`: this fallback fires on a turn-end race

@@ -412,7 +412,7 @@ function mergeConsecutiveAssistantTurns(
 
       result.push({
         ...last,
-        key: `merged-${first.key}`,
+        key: first.key,
         group: {
           ...last.group,
           id: first.group.id,
@@ -870,11 +870,8 @@ export function MessageListView({
         }
         groupCache.set(msg, group)
       }
-      // Include phase so a turn that briefly coexists across phases (e.g.
-      // a streaming turn that has just been promoted to localTurns while the
-      // liveMessage is still attached) doesn't collide with itself in the
-      // virtualized list. Index disambiguates further within a phase.
-      const key = `${phase}-${msg.id}-${i}`
+      // 时间线已按角色和 ID 去重；阶段和位置变化不能重建整轮组件。
+      const key = `${msg.role}-${msg.id}`
       const compaction = compactionOnlyItem(group)
       if (compaction) {
         return { key, kind: "compaction" as const, ...compaction }

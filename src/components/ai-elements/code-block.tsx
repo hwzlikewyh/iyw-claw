@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select"
 import { cn, copyTextToClipboard } from "@/lib/utils"
 import { CheckIcon, CopyIcon } from "lucide-react"
+import { PlainCodeBlock, shouldHighlightCode } from "./plain-code-block"
 import {
   getCachedCodeHighlight,
   subscribeCodeHighlight,
@@ -267,7 +268,7 @@ export const CodeBlockActions = ({
   </div>
 )
 
-export const CodeBlockContent = ({
+const HighlightedCodeBlockContent = ({
   code,
   language,
   showLineNumbers = false,
@@ -309,6 +310,21 @@ export const CodeBlockContent = ({
       <CodeBlockBody showLineNumbers={showLineNumbers} tokenized={tokenized} />
     </div>
   )
+}
+
+export function CodeBlockContent(props: {
+  code: string
+  language: BundledLanguage
+  showLineNumbers?: boolean
+}) {
+  if (!shouldHighlightCode(props.code))
+    return (
+      <PlainCodeBlock
+        code={props.code}
+        showLineNumbers={props.showLineNumbers ?? false}
+      />
+    )
+  return <HighlightedCodeBlockContent {...props} />
 }
 
 export const CodeBlock = ({
