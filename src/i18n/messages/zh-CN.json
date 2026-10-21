@@ -46,6 +46,9 @@
     "installing": "正在配置或下载…"
   },
   "ConversationConnectors": {
+    "menuLabel": "连接器",
+    "search": "搜索连接器",
+    "noResults": "没有匹配的连接器",
     "apply": "重连并应用",
     "title": "本次对话的连接器",
     "remembered": "选择会自动记住",

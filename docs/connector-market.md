@@ -6,7 +6,7 @@
 
 1. 打开能力市场的“连接器”，选择接入方式，填写所需参数后添加。
 2. 如果需要 OAuth，在“已安装”中点击“授权 / 重新授权”，打开浏览器完成登录。
-3. 在“已安装”点击“用于当前对话”，或在输入框的连接器菜单中选择。发送首条消息之前也可以选择。
+3. 在“已安装”点击“用于当前对话”，或打开输入框的“＋ → 连接器”二级菜单，搜索已安装连接器并切换本次对话的开关。输入框不再单独显示连接器按钮；菜单底部的“管理连接器”打开市场。发送首条消息之前也可以选择。
 4. 选择按对话保存，切换或重新打开后仍然保留。新独立对话默认关闭可选连接器。
 5. 正在运行的会话修改选择后，在菜单点击“重连并应用”；生成中禁止重连。
 
@@ -29,8 +29,8 @@
 ## 存储与运行边界
 
 - 市场 provider 固定为 `iyw_gateway`；旧公共 registry 不再作为可用来源。
-- 默认市场地址为 `https://gateway.iyw.cn/iyw-fusion-mcp-apiserver/api/connector-market`，市场属于管理 API，使用数据面 `iyw-fusion-mcp-gateway` 前缀会请求错服务。协议、文件/API 示例见网关项目 `docs/connector-market.md`。开发环境通过 `IYW_CONNECTOR_MARKET_BASE_URL` 指定 HTTPS 或 loopback HTTP。
-- HTTP 404 提示检查控制面部署和入口转发；HTTP/业务 code 401、403 提示登录或权限失效。空目录仍是成功的空状态，不伪装成请求成功。分页版本需与 apiserver 一同更新。
+- 默认市场地址为 `https://gateway.iyw.cn/iyw-fusion-mcp-gateway/api/connector-market`。MCP 网关将列表、详情、安装方案与制品下载四个 POST 读接口转发给 apiserver；管理和发布仍由 apiserver 维护同一份目录。协议、文件/API 示例见网关项目 `docs/connector-market.md`。开发环境通过 `IYW_CONNECTOR_MARKET_BASE_URL` 指定 HTTPS 或 loopback HTTP。
+- HTTP 404 提示检查 MCP 网关、控制面部署和市场转发；HTTP/业务 code 401、403 提示登录或权限失效。空目录仍是成功的空状态，不伪装成请求成功。分页版本需与网关、apiserver 一同更新。
 - 连接器登记复用现有 MCP catalog；用户密钥放入现有安全存储，目录只保存引用，不写入对话消息或市场服务。重新配置和卸载会清理对应旧引用。
 - 会话选择保存到当前应用数据库 `app_metadata` 的 `mcp.conversation.v1.<conversation_id>`，带 revision 防止覆盖其他窗口的更新。
 - 应用管理的连接器不再写成全局启用；星河在每次启动的 JSON 配置中注入选择，其他兼容智能体在 ACP 新建/恢复请求中收到选择。用户自行管理的外部原生配置沿用原有行为。

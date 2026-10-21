@@ -46,6 +46,9 @@
     "installing": "Configuring or downloading…"
   },
   "ConversationConnectors": {
+    "menuLabel": "Connectors",
+    "search": "Search connectors",
+    "noResults": "No matching connectors",
     "apply": "Reconnect and apply",
     "title": "Connectors for this conversation",
     "remembered": "Selection is remembered",
