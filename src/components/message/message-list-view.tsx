@@ -33,7 +33,10 @@ import {
   type UserImageDisplay,
   type UserResourceDisplay,
 } from "@/lib/adapters/ai-elements-adapter"
-import { isContextCompactionMeta } from "@/lib/context-compaction"
+import {
+  contextCompactionSummary,
+  isContextCompactionMeta,
+} from "@/lib/context-compaction"
 import { TurnStats } from "./turn-stats"
 import { addUsagePoints } from "@/lib/usage-points"
 import { mergeConfirmedPoints } from "@/lib/point-decimal"
@@ -201,6 +204,7 @@ type ThreadRenderItem =
       kind: "compaction"
       meta: Record<string, unknown> | null
       state: ToolCallState
+      summary: string | null
     }
   | {
       key: string
@@ -319,9 +323,11 @@ function isEmptyTurnItem(item: ThreadRenderItem): boolean {
   return true
 }
 
-function compactionOnlyItem(
-  group: ResolvedMessageGroup
-): { meta: Record<string, unknown> | null; state: ToolCallState } | null {
+function compactionOnlyItem(group: ResolvedMessageGroup): {
+  meta: Record<string, unknown> | null
+  state: ToolCallState
+  summary: string | null
+} | null {
   if (group.role !== "assistant") return null
   if (group.resources.length > 0 || group.images.length > 0) return null
 
@@ -334,7 +340,11 @@ function compactionOnlyItem(
   if (only.type !== "tool-call" || !isContextCompactionMeta(only.meta)) {
     return null
   }
-  return { meta: only.meta ?? null, state: only.state }
+  return {
+    meta: only.meta ?? null,
+    state: only.state,
+    summary: contextCompactionSummary(only.meta, only.output),
+  }
 }
 
 /**
@@ -1053,7 +1063,11 @@ export function MessageListView({
         case "compaction":
           return (
             <div className="px-1 py-2">
-              <ContextCompactionCard state={item.state} meta={item.meta} />
+              <ContextCompactionCard
+                state={item.state}
+                meta={item.meta}
+                summary={item.summary}
+              />
             </div>
           )
         case "history":

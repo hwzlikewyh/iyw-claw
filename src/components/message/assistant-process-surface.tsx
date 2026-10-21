@@ -15,7 +15,10 @@ import { cn } from "@/lib/utils"
 import { useProcessDisclosure } from "./process-disclosure"
 import { completedProcessOperations } from "./process-operation-count"
 import { ToolDisclosureScope } from "./tool-disclosure-context"
-import { processPartNeedsAttention } from "./process-presentation"
+import {
+  processPartHasCompaction,
+  processPartNeedsAttention,
+} from "./process-presentation"
 import { useProcessArchive } from "./use-process-archive"
 
 const PROCESS_ROW_HEIGHT = 52
@@ -82,7 +85,11 @@ function ProcessRows(
     part.type === "tool-group" ? part.items : [part]
   )
   const rows = parts.flatMap((part, index) => {
-    if (index < props.hiddenBefore && !processPartNeedsAttention(part))
+    if (
+      index < props.hiddenBefore &&
+      !processPartNeedsAttention(part) &&
+      !processPartHasCompaction(part)
+    )
       return []
     const key = processPartKey(part, index)
     const entranceKey = props.entranceKey + ":process:" + key
@@ -124,11 +131,12 @@ export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
     props.isResponseComplete,
     open
   )
-  const visible =
-    open ||
-    !props.isResponseComplete ||
-    props.parts.some(processPartNeedsAttention) ||
-    (!hasChoice && reading)
+  const autoVisible =
+    !hasChoice &&
+    (!props.isResponseComplete ||
+      props.parts.some(processPartNeedsAttention) ||
+      reading)
+  const visible = hasChoice ? open : open || autoVisible
   const completed = completedProcessOperations(props.parts)
   return (
     <Collapsible
@@ -138,11 +146,11 @@ export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
     >
       <ToolDisclosureScope reading={reading}>
         <ProcessTrigger
-          open={open}
+          open={visible}
           completed={completed}
           props={props}
           triggerRef={triggerRef}
-          onToggle={() => onOpenChange(!open)}
+          onToggle={() => onOpenChange(!visible)}
           contentId={contentId}
         />
         <CollapsibleContent

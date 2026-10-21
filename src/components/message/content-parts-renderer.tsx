@@ -61,7 +61,6 @@ import { AgentToolCallPart } from "./agent-tool-call"
 import { useToolDisclosure } from "./tool-disclosure-context"
 import { CommandOutput } from "./command-output"
 import { commandExitCode } from "./command-output-presentation"
-import { processPartNeedsAttention } from "./process-presentation"
 import { AskQuestionResultCard } from "./ask-question-result-card"
 import {
   parseScheduledTaskReceipt,
@@ -2116,7 +2115,7 @@ function ToolCallPartContent({
   const t = useTranslations("Folder.chat.contentParts")
   const [manualOpen, setManualOpen] = useToolDisclosure(
     part.toolCallId,
-    processPartNeedsAttention(part)
+    part.state.startsWith("input-")
   )
   const normalizedToolName = useMemo(
     () => normalizeToolName(part.toolName),

@@ -1,7 +1,7 @@
 "use client"
 
 import { useId, useRef, useState, useEffect } from "react"
-import { ChevronDown, Coins, X } from "lucide-react"
+import { Coins, X } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
 import {
   Popover,
@@ -66,7 +66,8 @@ function UsageTrigger({ usage, controller, points, live }: UsagePopoverProps) {
     <PopoverTrigger asChild>
       <button
         type="button"
-        className="inline-flex min-h-8 items-center gap-1.5 rounded-md border border-border/60 bg-muted/20 px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-sm:min-h-10"
+        className="inline-flex min-h-7 items-center gap-1 rounded px-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={t("turnPoints")}
         title={t("turnUsage")}
         onPointerEnter={(event) => {
           clearTimer()
@@ -82,7 +83,7 @@ function UsageTrigger({ usage, controller, points, live }: UsagePopoverProps) {
           }
         }}
       >
-        <Coins aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+        <Coins aria-hidden="true" className="size-3.5 shrink-0" />
         <UsagePointsValue
           points={points ?? usage?.confirmed_points?.amount}
           consumption={usage?.confirmed_points}
@@ -90,7 +91,6 @@ function UsageTrigger({ usage, controller, points, live }: UsagePopoverProps) {
           live={live}
           fixedDecimals
         />
-        <ChevronDown aria-hidden="true" className="size-3 shrink-0" />
       </button>
     </PopoverTrigger>
   )

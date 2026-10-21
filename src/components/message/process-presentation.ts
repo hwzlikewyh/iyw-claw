@@ -4,6 +4,7 @@ import { isCommandLikeTool } from "@/lib/command-display"
 import { commandExitCode } from "./command-output-presentation"
 import { buildBackgroundTaskRows } from "@/lib/background-task"
 import { buildDelegationTaskRows } from "@/lib/delegation-status"
+import { isContextCompactionMeta } from "@/lib/context-compaction"
 
 export function processPartHasFailure(part: AdaptedContentPart): boolean {
   if (hasProcessError(part)) return true
@@ -29,6 +30,14 @@ export function processPartHasFailure(part: AdaptedContentPart): boolean {
     return buildDelegationTaskRows(part.polls).some(
       (row) => row.badge.status === "err"
     )
+  return false
+}
+
+export function processPartHasCompaction(part: AdaptedContentPart): boolean {
+  if (part.type === "tool-call") return isContextCompactionMeta(part.meta)
+  if (part.type === "tool-group")
+    return part.items.some(processPartHasCompaction)
+  if (part.type === "goal-run") return part.items.some(processPartHasCompaction)
   return false
 }
 

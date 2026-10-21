@@ -49,11 +49,12 @@
   container-type: inline-size;
 }
 .assistant-turn-footer > .assistant-turn-actions {
-  order: 0;
-}
-.assistant-turn-footer > .assistant-output-metrics {
   order: 1;
   margin-inline-start: auto;
+}
+.assistant-turn-footer > .assistant-output-metrics {
+  order: 0;
+  margin-inline-start: 0;
 }
 .assistant-output-metrics {
   font-size: 11px;
@@ -69,6 +70,9 @@
 @container (max-width: 620px) {
   .assistant-turn-footer > .assistant-output-metrics {
     width: 100%;
+    margin-inline-start: 0;
+  }
+  .assistant-turn-footer > .assistant-turn-actions {
     margin-inline-start: 0;
   }
 }
