@@ -13,6 +13,10 @@ use crate::update::state::{self as update_state, AppUpdateStateHandle};
 #[cfg(feature = "tauri-runtime")]
 use crate::web::event_bridge::EventEmitter;
 
+#[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
+#[path = "release_windows.rs"]
+mod windows;
+
 pub const UPDATE_BASE_URL_ENV: &str = "IYW_CLAW_UPDATE_BASE_URL";
 
 #[cfg(debug_assertions)]
@@ -156,6 +160,8 @@ pub fn desktop_updater(
             .header("token", access_token)
             .map_err(updater_error)?;
     }
+    #[cfg(target_os = "windows")]
+    let builder = windows::retain_install_root(builder)?;
     builder
         .timeout(Duration::from_secs(20))
         .build()

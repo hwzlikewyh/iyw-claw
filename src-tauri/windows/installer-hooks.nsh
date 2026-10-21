@@ -1,5 +1,6 @@
 ; Capture source paths while NSIS includes this file.
 !define IYW_CLAW_INSTALL_REGISTRY_KEY "Software\iywclaw\iyw-claw"
+!define IYW_CLAW_UNINSTALL_REGISTRY_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\原助理"
 ; 应用和环境均属于当前用户；安装与重试不申请管理员权限。
 RequestExecutionLevel user
 !define MUI_CUSTOMFUNCTION_GUIINIT IywClawRestoreLogicalInstallRoot
@@ -11,11 +12,11 @@ Var IywClawPermissionError
 !include "${__FILEDIR__}\installer-process-control.nsh"
 !include "${__FILEDIR__}\installer-app-transaction.nsh"
 !include "${__FILEDIR__}\installer-test-mode.nsh"
-!include "${__FILEDIR__}\installer-install-root.nsh"
 !include "${__FILEDIR__}\installer-desktop-shortcut.nsh"
 !include "${__FILEDIR__}\installer-failure.nsh"
 !include "${__FILEDIR__}\installer-environment.nsh"
 !include "${__FILEDIR__}\installer-permissions.nsh"
+!include "${__FILEDIR__}\installer-install-root.nsh"
 !include "${__FILEDIR__}\installer-lock.nsh"
 
 Function IywClawIsMainProcessRunning
@@ -50,42 +51,8 @@ Function IywClawRestoreLogicalInstallRoot
   Call IywClawValidateElevationIdentity
   Call IywClawRecoverSmokeInstallRoot
   Call IywClawNormalizeLegacyInstallRoot
-  ; Older installers persisted root\app as MUI's default directory while the
-  ; product-specific InstallRoot value already held the user-selected root.
-  ; Correct only the directory-page value; POSTINSTALL persists it after the
-  ; old uninstaller has finished using its internal root\app working directory.
-  ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
-  StrCmp $R8 "" iyw_set_default_install_root 0
-  Push "$INSTDIR"
-  Call IywClawIsSmokeInstallRoot
-  Pop $R5
-  StrCmp $R5 "1" 0 iyw_check_legacy_app_dir
-  GetFullPathName $INSTDIR "$R8"
-  Goto iyw_guiinit_done
+  Call IywClawRestoreInstallDirectory
 
-  iyw_check_legacy_app_dir:
-  GetFullPathName $R9 "$R8\app"
-  GetFullPathName $R7 "$INSTDIR"
-  StrCmp $R7 $R9 0 iyw_guiinit_done
-  GetFullPathName $INSTDIR "$R8"
-  Goto iyw_guiinit_done
-
-  ; Keep the displayed product name localized, but use an ASCII-only default
-  ; installation root so bundled command-line tools never inherit a Chinese
-  ; executable path. Users can still choose another directory in the installer.
-  iyw_set_default_install_root:
-    ; NSIS passes a disposable CI install root through /D=. Preserve it when
-    ; present; only interactive installs should receive the product default.
-    ClearErrors
-    ${GetOptions} $CMDLINE "/D=" $R8
-    IfErrors iyw_set_product_default_root 0
-    StrCpy $INSTDIR "$R8"
-    Goto iyw_guiinit_done
-
-  iyw_set_product_default_root:
-    GetFullPathName $INSTDIR "$LOCALAPPDATA\iyw-claw"
-
-  iyw_guiinit_done:
     StrCmp $IywClawOriginalSid "" 0 iyw_restore_elevated_root
     ; 测试模式不得检查或重启生产进程；应用内 updater 已携带 /UPDATE 时
     ; 继续当前 NSIS 流程，避免递归启动安装器。
@@ -107,13 +74,13 @@ Function IywClawRestoreLogicalInstallRoot
 
   iyw_relaunch_stopped_app:
     SetOutPath "$TEMP"
-    ExecWait '"$EXEPATH" /P /UPDATE' $R6
+    ExecWait '"$EXEPATH" /P /UPDATE /D=$INSTDIR' $R6
     Goto iyw_relaunch_finished
 
   iyw_relaunch_running_app:
     SetOutPath "$TEMP"
     DetailPrint "检测到正在运行的 iyw-claw，安装完成后将恢复原页面。"
-    ExecWait '"$EXEPATH" /P /R /UPDATE /ARGS --restore-installer-session' $R6
+    ExecWait '"$EXEPATH" /P /R /UPDATE /ARGS --restore-installer-session /D=$INSTDIR' $R6
     Goto iyw_relaunch_finished
 
   iyw_relaunch_query_failed:
@@ -135,22 +102,8 @@ Function IywClawRestoreLogicalInstallRoot
 FunctionEnd
 
 Function IywClawResolveInstallRoot
-  Call IywClawNormalizeLegacyInstallRoot
-  ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
-  StrCmp $R8 "" iyw_use_selected_root 0
+  Call IywClawSelectInstallRoot
 
-  GetFullPathName $R9 "$R8\app"
-  GetFullPathName $R7 "$INSTDIR"
-  StrCmp $R7 $R9 iyw_use_stored_root iyw_use_selected_root
-
-  iyw_use_stored_root:
-    StrCpy $IywClawRoot $R8
-    Goto iyw_validate_root
-
-  iyw_use_selected_root:
-    StrCpy $IywClawRoot $INSTDIR
-
-  iyw_validate_root:
     StrCmp $IywClawRoot "" iyw_invalid_root 0
     GetFullPathName $IywClawRoot "$IywClawRoot"
     StrCmp $IywClawInstallerTestMode "1" 0 iyw_root_scope_validated
