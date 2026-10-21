@@ -3441,6 +3441,12 @@
           "stop": "停止",
           "continuePrompt": "继续完成当前任务。"
         },
+        "modelNetwork": {
+          "retrying": "模型连接出现波动，正在重试…",
+          "retryingSevere": "模型网络波动较为严重，正在重试…",
+          "attempts": "已连续重试 {count} 次",
+          "disconnected": "模型网络波动，连接异常断开。本轮回复未完成，请稍后继续或更换模型。"
+        },
         "claudeApiRetry": {
           "fallbackError": "authentication_failed",
           "retryingWithMax": "正在重试 {attempt}/{max}",

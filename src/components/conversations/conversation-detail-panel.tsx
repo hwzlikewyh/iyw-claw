@@ -59,6 +59,7 @@ import type { MessageScrollPosition } from "@/components/message/virtualized-mes
 import { ConversationShell } from "@/components/chat/conversation-shell"
 import { SessionForkButton } from "@/components/chat/session-fork-button"
 import { SessionConfigStaleBanner } from "@/components/chat/session-config-stale-banner"
+import { ModelNetworkStatus } from "@/components/chat/model-network-status"
 import { BackgroundTasksChip } from "@/components/chat/background-tasks-chip"
 import { FeedbackNotesDisplay } from "@/components/chat/feedback-notes-display"
 import { FeedbackDialog } from "@/components/chat/feedback-dialog"
@@ -3278,9 +3279,12 @@ const ConversationTabView = memo(function ConversationTabView({
         />
       }
       topBanner={
-        isSilentModelSwitch ? null : (
-          <SessionConfigStaleBanner contextKey={tabId} />
-        )
+        <>
+          <ModelNetworkStatus contextKey={tabId} />
+          {!isSilentModelSwitch && (
+            <SessionConfigStaleBanner contextKey={tabId} />
+          )}
+        </>
       }
       status={connStatus}
       usageStats={effectiveSessionStats}
