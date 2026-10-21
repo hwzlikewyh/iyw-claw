@@ -11,7 +11,10 @@ import {
   inferLiveToolName,
   normalizeToolName,
 } from "@/lib/tool-call-normalization"
-import { getBuiltinToolDisplay } from "@/lib/builtin-tool-display"
+import {
+  getBuiltinToolDisplay,
+  getRemoteToolDisplayTitle,
+} from "@/lib/builtin-tool-display"
 import { getToolDisplayName } from "@/lib/tool-display"
 import { formatElapsedLabel } from "@/lib/format-elapsed"
 import { isContextCompactionMeta } from "@/lib/context-compaction"
@@ -169,7 +172,8 @@ function useToolPresentation(
         {
           toolName: name,
           input: rawInput,
-          displayTitle: resolvedTitle ?? title,
+          displayTitle:
+            getRemoteToolDisplayTitle(rawInput, meta) ?? resolvedTitle ?? title,
         },
         (key, values) =>
           t.has(key as never) ? t(key as never, values as never) : null

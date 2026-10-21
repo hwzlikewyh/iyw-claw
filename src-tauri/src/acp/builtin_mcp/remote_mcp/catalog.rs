@@ -14,6 +14,7 @@ pub(super) struct RemoteRoute {
     pub id: String,
     pub version: Option<String>,
     pub group: bool,
+    pub display_name: Option<(u8, String)>,
     accessed: Instant,
 }
 
@@ -41,6 +42,7 @@ impl RemoteRoute {
             id: id.to_string(),
             version: version.map(str::to_string),
             group,
+            display_name: super::display::catalog_name(value),
             accessed: Instant::now(),
         })
     }
@@ -70,7 +72,7 @@ impl RemoteAccount {
     }
 
     fn register(&self, value: &Value) -> Result<String, ErrorData> {
-        let route = RemoteRoute::parse(value)?;
+        let mut route = RemoteRoute::parse(value)?;
         let capability_id = route.capability_id(&self.fingerprint)?;
         let mut routes = self
             .routes
@@ -78,6 +80,13 @@ impl RemoteAccount {
             .unwrap_or_else(|error| error.into_inner());
         if !routes.contains_key(&capability_id) {
             evict_oldest(&mut routes);
+        }
+        if let Some(previous) = routes.get(&capability_id) {
+            if previous.display_name.as_ref().map(|(rank, _)| rank)
+                > route.display_name.as_ref().map(|(rank, _)| rank)
+            {
+                route.display_name = previous.display_name.clone();
+            }
         }
         routes.insert(capability_id.clone(), route);
         Ok(capability_id)
@@ -99,6 +108,13 @@ impl RemoteAccount {
             "capability_id": capability_id, "source": "remote", "status": "available",
             "kind": item.get("kind"), "name": item.get("name"), "tool_version": item.get("tool_version"),
         });
+        if let Some((_, name)) = self
+            .route(&capability_id)
+            .ok()
+            .and_then(|route| route.display_name)
+        {
+            detail["display_name"] = json!(name);
+        }
         if full {
             detail["description"] = item["description"].clone();
             detail["usage"] = item["usage"].clone();

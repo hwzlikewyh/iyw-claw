@@ -105,7 +105,7 @@ impl RemoteGateway {
             ));
         }
         self.ensure_current(&account).await?;
-        let result = request::call(&connection, RemoteRequest {
+        let mut result = request::call(&connection, RemoteRequest {
             name: INVOKE_TOOL,
             arguments: json!({"tool_id": route.id, "tool_version": route.version, "arguments": call.1}),
             context, account_cancel: &account.cancellation, execution: true,
@@ -119,6 +119,9 @@ impl RemoteGateway {
         }
         if let Err(error) = &result {
             log_failure("invoke", error);
+        }
+        if let Ok(result) = &mut result {
+            super::display::annotate_result(result, (call.0, &route), &account);
         }
         result
     }

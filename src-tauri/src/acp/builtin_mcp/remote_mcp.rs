@@ -16,6 +16,7 @@ mod catalog;
 mod connection;
 mod directory;
 mod direct;
+mod display;
 mod overview;
 mod request;
 

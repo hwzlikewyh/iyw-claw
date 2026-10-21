@@ -57,7 +57,7 @@ impl RemoteAccount {
             .collect()
     }
 
-    fn resolve_direct(&self, name: &str) -> Result<Tool, ErrorData> {
+    pub(super) fn resolve_direct(&self, name: &str) -> Result<Tool, ErrorData> {
         let overview = self
             .overview
             .lock()

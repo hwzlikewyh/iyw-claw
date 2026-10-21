@@ -3,12 +3,14 @@ import type {
   AdaptedMessage,
   AdaptedToolCallPart,
 } from "@/lib/adapters/ai-elements-adapter"
-import { getIywCapabilityId } from "@/lib/builtin-tool-display"
+import {
+  getIywCapabilityId,
+  getRemoteToolDisplayTitle,
+} from "@/lib/builtin-tool-display"
 
 const MAX_CATALOG_DEPTH = 12
 const DISCOVERY_TOOL_PATTERN =
   /(?:^|[./:_-])(?:search_iyw_capabilities|read_iyw_capability)$/i
-const INVOKE_TOOL_PATTERN = /(?:^|[./:_-])invoke_iyw_capability$/i
 const CATALOG_KEYS = [
   "structuredContent",
   "structured_content",
@@ -21,7 +23,11 @@ const CATALOG_KEYS = [
 ] as const
 const toolMetadataCache = new WeakMap<
   AdaptedToolCallPart,
-  { names: ReadonlyMap<string, string>; capabilityId: string | null }
+  {
+    names: ReadonlyMap<string, string>
+    capabilityId: string | null
+    displayTitle: string | null
+  }
 >()
 const displayPartCache = new WeakMap<AdaptedContentPart, AdaptedContentPart>()
 const displayMessageCache = new WeakMap<AdaptedMessage, AdaptedMessage>()
@@ -55,7 +61,12 @@ function collectCatalogRecord(
 ): void {
   if (record.isError === true || record.is_error === true) return
   const id = record.capability_id
-  const name = typeof record.name === "string" ? record.name.trim() : ""
+  const annotations = record.annotations as Record<string, unknown> | undefined
+  const name = [record.display_name, annotations?.title, record.name]
+    .find(
+      (value): value is string => typeof value === "string" && !!value.trim()
+    )
+    ?.trim()
   if (typeof id === "string" && id.startsWith("iyw.remote.") && name) {
     names.set(id, name)
   }
@@ -83,11 +94,9 @@ function toolMetadata(part: AdaptedToolCallPart) {
   if (discovery && part.state !== "output-error" && !part.errorText) {
     collectCatalogNames(part.output, names)
   }
-  const capabilityId =
-    discovery || INVOKE_TOOL_PATTERN.test(part.toolName)
-      ? getIywCapabilityId(part.input)
-      : null
-  const metadata = { names, capabilityId }
+  const capabilityId = getIywCapabilityId(part.input)
+  const displayTitle = getRemoteToolDisplayTitle(part.input, part.meta)
+  const metadata = { names, capabilityId, displayTitle }
   toolMetadataCache.set(part, metadata)
   return metadata
 }
@@ -96,8 +105,9 @@ function nameToolCall(
   part: AdaptedToolCallPart,
   names: ReadonlyMap<string, string>
 ): AdaptedToolCallPart {
-  const id = toolMetadata(part).capabilityId
-  const title = id ? names.get(id) : undefined
+  const metadata = toolMetadata(part)
+  const id = metadata.capabilityId
+  const title = metadata.displayTitle ?? (id ? names.get(id) : undefined)
   if (!title || part.displayTitle === title) return part
   const cached = displayPartCache.get(part)
   if (cached?.type === "tool-call" && cached.displayTitle === title)
@@ -164,13 +174,16 @@ export function resolveRemoteToolDisplayNames(
   messages: AdaptedMessage[]
 ): AdaptedMessage[] {
   const names = new Map<string, string>()
+  let hasDisplayTitle = false
   for (const message of messages) {
     if (message.role !== "assistant") continue
     for (const part of toolCalls(message.content)) {
-      toolMetadata(part).names.forEach((name, id) => names.set(id, name))
+      const metadata = toolMetadata(part)
+      metadata.names.forEach((name, id) => names.set(id, name))
+      hasDisplayTitle ||= metadata.displayTitle !== null
     }
   }
-  if (names.size === 0) return messages
+  if (names.size === 0 && !hasDisplayTitle) return messages
   return messages.map((message) =>
     message.role === "assistant" ? nameMessage(message, names) : message
   )

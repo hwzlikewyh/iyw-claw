@@ -69,6 +69,9 @@ use iyw_codex_harness::{
 use crate::network::proxy;
 use crate::web::event_bridge::{emit_with_state, emit_with_state_gated, EventEmitter};
 
+#[path = "connection_tool_display.rs"]
+mod tool_display;
+
 const DEFAULT_COMMAND_COLOR_ENV: [(&str, &str); 1] = [("CLICOLOR_FORCE", "1")];
 const IYW_CLAW_MCP_SERVER_PREFIX: &str = "iyw-claw-builtin-";
 const IYW_CLAW_MCP_SERVER_MAX_CHARS: usize = 32;
@@ -2259,6 +2262,7 @@ fn effective_response_style<'a>(
 #[derive(Clone, Copy)]
 struct SessionRequestContext<'a> {
     agent_type: AgentType,
+    builtin_mcp: Option<&'a crate::acp::builtin_mcp::BuiltinMcpClient>,
     cwd: &'a Path,
     mcp_servers: &'a [McpServer],
     builtin_prompt: &'a str,
@@ -3757,6 +3761,7 @@ async fn run_connection(
 
             let session_request_context = SessionRequestContext {
                 agent_type,
+                builtin_mcp: builtin_mcp.as_ref(),
                 opencode_fork: opencode_fork.as_ref(),
                 cwd: &cwd,
                 mcp_servers: &mcp_servers,
@@ -6423,7 +6428,10 @@ async fn run_conversation_loop<'a>(
     // open-sub-agent window used to suppress a sub-agent's interleaved
     // thought/message chunks. See `emit_conversation_update`. Shared across the
     // idle and turn loops.
-    let mut cb_state = CodeBuddyLiveState::default();
+    let mut cb_state = CodeBuddyLiveState {
+        builtin_mcp: session_request_context.builtin_mcp.cloned(),
+        ..Default::default()
+    };
     let mut drop_log_throttle = DropLogThrottle::default();
     loop {
         // Wait for either a user command or a session update (e.g. available_commands_update)
@@ -8556,6 +8564,7 @@ fn track_subagent_window(
 /// a throwaway instance. Mirrors `ToolCallOutputCache`'s lifetime.
 #[derive(Default)]
 struct CodeBuddyLiveState {
+    builtin_mcp: Option<crate::acp::builtin_mcp::BuiltinMcpClient>,
     /// tool_call_id → authoritative title: `"agent"` for a native sub-agent, or
     /// the inner `mcp__…` name for a `DeferExecuteTool` MCP call. Re-asserted on
     /// every later frame so a status-only update can't downgrade the card.
@@ -8960,6 +8969,16 @@ async fn emit_conversation_update(
                 },
             )
             .await;
+            let meta = tool_display::enrich(
+                meta,
+                tool_display::ToolDisplayInput {
+                    state,
+                    tool_call_id: &tool_call_id,
+                    raw_input: raw_input.as_deref(),
+                    client: cb_state.builtin_mcp.as_ref(),
+                },
+            )
+            .await;
             let status = tool_status_name(&tc.status);
             raw_output_cache.remove_if_final(&tool_call_id, Some(status.as_str()));
             // Avoid logging titles/payloads below — they can be model-generated
@@ -9132,6 +9151,16 @@ async fn emit_conversation_update(
                             tcu.meta.clone().map(serde_json::Value::Object)).await
                     },
                     raw_output: tcu.fields.raw_output.as_ref(),
+                },
+            )
+            .await;
+            let meta = tool_display::enrich(
+                meta,
+                tool_display::ToolDisplayInput {
+                    state,
+                    tool_call_id: &tool_call_id,
+                    raw_input: raw_input.as_deref(),
+                    client: cb_state.builtin_mcp.as_ref(),
                 },
             )
             .await;

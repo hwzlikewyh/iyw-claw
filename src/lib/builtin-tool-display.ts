@@ -6,6 +6,8 @@ const GATEWAY_TOOL_NAMES = [
   "upload_iyw_file",
 ] as const
 
+const GATEWAY_TOOL_NAME_SET = new Set<string>(GATEWAY_TOOL_NAMES)
+
 const CAPABILITY_ID_TO_TOOL: Readonly<Record<string, string>> = {
   "iyw.memory.maintenance.read.v1": "get_user_memory_maintenance",
   "iyw.memory.review.resolve.v1": "resolve_user_memory_review",
@@ -153,13 +155,30 @@ function readableRemoteName(value: string | null | undefined): string | null {
   const name = value?.replace(/[\u0000-\u001f\u007f]/g, " ").trim()
   if (
     !name ||
-    name.length > MAX_DYNAMIC_NAME_LENGTH ||
+    Array.from(name).length > MAX_DYNAMIC_NAME_LENGTH ||
+    /iyw[-_]claw[-_]builtin/i.test(name) ||
+    GATEWAY_TOOL_NAME_SET.has(matchKnownToolName(name) ?? "") ||
     /^iyw[._]remote(?:[._]|$)/i.test(name) ||
     /(?:^|[\s._:-])[a-f0-9]{24,}(?:$|[\s._:-])/i.test(name)
   ) {
     return null
   }
   return name
+}
+
+export function getRemoteToolDisplayTitle(
+  input: string | null | undefined,
+  meta: unknown
+): string | null {
+  if (!meta || typeof meta !== "object") return null
+  const display = (meta as Record<string, unknown>)["iyw.toolDisplay"]
+  if (!display || typeof display !== "object") return null
+  const record = display as Record<string, unknown>
+  const id = getIywCapabilityId(input)
+  if (!id?.startsWith("iyw.remote.") || record.capability_id !== id) return null
+  return typeof record.name === "string"
+    ? readableRemoteName(record.name)
+    : null
 }
 
 function readableIdentifier(
@@ -225,7 +244,10 @@ export function getBuiltinToolDisplay(
   const resolvedTool = capabilityId
     ? CAPABILITY_ID_TO_TOOL[capabilityId]
     : undefined
-  const matchedTool = resolvedTool ?? matchKnownToolName(toolName)
+  const matchedTool =
+    resolvedTool ??
+    matchKnownToolName(toolName) ??
+    (capabilityId?.startsWith("iyw.remote.") ? "invoke_iyw_capability" : null)
   if (!matchedTool) return null
 
   const fallbackName = capabilityId?.startsWith("iyw.remote.")

@@ -53,6 +53,10 @@ impl BuiltinMcpClient {
         &self.capability_tools
     }
 
+    pub(crate) async fn remote_tool_display(&self, id: &str) -> Option<serde_json::Value> {
+        self.remote.tool_display(id).await
+    }
+
     pub async fn issue(
         &self,
         authority: SessionAuthority,
