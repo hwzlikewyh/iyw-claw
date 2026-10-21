@@ -182,14 +182,14 @@ async fn upload_prepared_image(
     prepared: &EncodedChatImage,
     request: &PrepareChatImageRequest,
 ) -> Result<chat_image_upload::ImageUploadOutcome, AppCommandError> {
-    if Box::pin(super::resource::prepare_managed(
+    if let Some(outcome) = Box::pin(super::resource::prepare_managed(
         conn,
         prepared,
         request.resource_context.as_ref(),
     ))
     .await?
     {
-        Ok(chat_image_upload::ImageUploadOutcome::Managed)
+        Ok(outcome)
     } else {
         Box::pin(chat_image_upload::upload_prepared(conn, prepared)).await
     }
