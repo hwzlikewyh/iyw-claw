@@ -16,13 +16,7 @@ use crate::commands::mcp::{
 // Param structs
 // ---------------------------------------------------------------------------
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SearchMarketplaceParams {
-    pub provider_id: String,
-    pub query: Option<String>,
-    pub limit: Option<u32>,
-}
+pub type SearchMarketplaceParams = mcp_commands::McpMarketplaceSearch;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -151,7 +145,7 @@ pub async fn mcp_search_marketplace(
 ) -> Result<Json<Vec<McpMarketplaceItem>>, AppCommandError> {
     let result = mcp_commands::mcp_search_marketplace_core(
         &state.db.conn,
-        (params.provider_id, params.query, params.limit),
+        params,
     )
     .await?;
     Ok(Json(result))

@@ -234,17 +234,27 @@ pub async fn mcp_search_marketplace(
     provider_id: String,
     query: Option<String>,
     limit: Option<u32>,
+    offset: Option<u32>,
     db: tauri::State<'_, crate::db::AppDatabase>,
 ) -> Result<Vec<McpMarketplaceItem>, AppCommandError> {
-    mcp_search_marketplace_core(&db.conn, (provider_id, query, limit)).await
+    mcp_search_marketplace_core(&db.conn, McpMarketplaceSearch {provider_id, query, limit, offset}).await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpMarketplaceSearch {
+    pub provider_id: String,
+    pub query: Option<String>,
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
 }
 
 pub async fn mcp_search_marketplace_core(
     conn: &DatabaseConnection,
-    input: (String, Option<String>, Option<u32>),
+    input: McpMarketplaceSearch,
 ) -> Result<Vec<McpMarketplaceItem>, AppCommandError> {
-    if input.0 != market::PROVIDER { return Err(mcp_invalid_input("仅支持爱原物连接器市场")); }
-    market::search(conn, &input.1.unwrap_or_default(), input.2.unwrap_or(100).clamp(1, 1000) as usize).await
+    if input.provider_id != market::PROVIDER { return Err(mcp_invalid_input("仅支持爱原物连接器市场")); }
+    market::search(conn, &input).await
 }
 
 #[cfg(feature = "tauri-runtime")]

@@ -1690,11 +1690,13 @@ export async function mcpSearchMarketplace(params: {
   providerId: string
   query?: string | null
   limit?: number | null
+  offset?: number | null
 }): Promise<McpMarketplaceItem[]> {
   return getTransport().call("mcp_search_marketplace", {
     providerId: params.providerId,
     query: params.query ?? null,
     limit: params.limit ?? null,
+    offset: params.offset ?? null,
   })
 }
 
