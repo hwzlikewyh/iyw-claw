@@ -115,6 +115,7 @@ pub fn parse_skill_routing(content: &str) -> Result<SkillRoutingCard, SkillRouti
 }
 
 pub fn read_frontmatter(content: &str) -> Option<serde_yaml::Value> {
+    let content = content.strip_prefix('\u{feff}').unwrap_or(content);
     let mut lines = content.lines();
     if lines.next()?.trim() != "---" {
         return None;
