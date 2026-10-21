@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useState } from "react"
 import { useTranslations } from "next-intl"
 import { Loader2, RefreshCw, Search } from "lucide-react"
 import { toast } from "sonner"
@@ -11,60 +11,25 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MarketItemIcon } from "./market-item-icon"
 import { ConnectorInstallDialog } from "./connector-install-dialog"
 import { ConnectorInstalledList } from "./connector-installed-list"
-import {
-  mcpListMarketplaces,
-  mcpScanLocal,
-  mcpSearchMarketplace,
-} from "@/lib/api"
-import type { LocalMcpServer, McpMarketplaceItem } from "@/lib/types"
+import type { McpMarketplaceItem } from "@/lib/types"
+import { useConnectorMarket } from "./use-connector-market"
 
 export function ConnectorMarketView() {
   const t = useTranslations("ConnectorMarket")
-  const [items, setItems] = useState<McpMarketplaceItem[]>([])
-  const [installed, setInstalled] = useState<LocalMcpServer[]>([])
-  const [query, setQuery] = useState("")
-  const [error, setError] = useState("")
-  const [loading, setLoading] = useState(true)
+  const {
+    items,
+    installed,
+    query,
+    setQuery,
+    error,
+    loading,
+    page,
+    setPage,
+    hasMore,
+    reload,
+  } = useConnectorMarket(t("unavailable"))
   const [active, setActive] = useState<McpMarketplaceItem | null>(null)
   const [section, setSection] = useState("market")
-  const reload = useCallback(async () => {
-    setLoading(true)
-    setError("")
-    try {
-      const [providers, local] = await Promise.all([
-        mcpListMarketplaces(),
-        mcpScanLocal(),
-      ])
-      setInstalled(
-        local.filter(
-          (item) =>
-            item.spec.iyw_builtin == null &&
-            item.id !== "iyw-capability-gateway"
-        )
-      )
-      const provider = providers[0]
-      if (!provider) throw new Error(t("unavailable"))
-      setItems(
-        await mcpSearchMarketplace({ providerId: provider.id, limit: 1000 })
-      )
-    } catch (cause) {
-      setError(String(cause))
-    } finally {
-      setLoading(false)
-    }
-  }, [t])
-  useEffect(() => {
-    void reload()
-  }, [reload])
-  const filtered = useMemo(
-    () =>
-      items.filter((item) =>
-        `${item.name} ${item.description} ${item.server_id}`
-          .toLowerCase()
-          .includes(query.toLowerCase())
-      ),
-    [items, query]
-  )
   const installedIds = new Set(installed.map((item) => item.id))
   return (
     <div className="h-full overflow-auto p-4 sm:p-6">
@@ -112,7 +77,7 @@ export function ConnectorMarketView() {
           </TabsList>
           <TabsContent value="market">
             <div className="grid gap-3 pt-3 md:grid-cols-2 xl:grid-cols-3">
-              {filtered.map((item) => (
+              {items.map((item) => (
                 <article
                   key={item.server_id}
                   className="flex flex-col gap-3 rounded-lg border bg-card p-4"
@@ -155,6 +120,27 @@ export function ConnectorMarketView() {
                 </article>
               ))}
             </div>
+            <div className="flex items-center justify-center gap-3 pt-5">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={loading || page === 0}
+                onClick={() => setPage(page - 1)}
+              >
+                {t("previousPage")}
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {t("pageNumber", { page: page + 1 })}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={loading || !hasMore}
+                onClick={() => setPage(page + 1)}
+              >
+                {t("nextPage")}
+              </Button>
+            </div>
           </TabsContent>
           <TabsContent value="installed">
             <ConnectorInstalledList
@@ -170,7 +156,7 @@ export function ConnectorMarketView() {
         {loading && (
           <Loader2 className="size-5 animate-spin" aria-label={t("loading")} />
         )}
-        {!loading && section === "market" && !filtered.length && !error && (
+        {!loading && section === "market" && !items.length && !error && (
           <p className="py-10 text-center text-sm text-muted-foreground">
             {t("empty")}
           </p>

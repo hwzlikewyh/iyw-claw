@@ -1,5 +1,6 @@
 {
   "ConnectorMarket": {
+    "previousPage": "上一页", "nextPage": "下一页", "pageNumber": "第 {page} 页",
     "useInConversation": "用于当前对话",
     "newConversation": "新对话",
     "conversationEnabled": "已为当前对话保存。已有连接请在连接器菜单重连以应用。",

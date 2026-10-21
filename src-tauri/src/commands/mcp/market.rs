@@ -6,7 +6,7 @@ use super::{McpMarketplaceItem, McpMarketplaceServerDetail};
 use crate::app_error::AppCommandError;
 
 pub(super) const PROVIDER: &str = "iyw_gateway";
-const DEFAULT_BASE: &str = "https://gateway.iyw.cn/iyw-fusion-mcp-gateway/api/connector-market";
+const DEFAULT_BASE: &str = "https://gateway.iyw.cn/iyw-fusion-mcp-apiserver/api/connector-market";
 const MAX_RESPONSE: usize = 8 * 1024 * 1024;
 
 pub(super) async fn require_market_slot(
@@ -71,19 +71,47 @@ pub(super) async fn request(
         .await
         .map_err(|_| AppCommandError::network("连接器市场暂时无法访问"))?;
     let status = response.status();
+    if status == reqwest::StatusCode::NOT_FOUND && path == "list" {
+        tracing::warn!(
+            route = "connector-market/list",
+            "[MCP] 市场目录路由不存在，请检查控制面部署和入口转发"
+        );
+        return Err(AppCommandError::network("连接器市场接口不存在（HTTP 404）。请确认管理 API 已更新，且市场地址指向 iyw-fusion-mcp-apiserver。"));
+    }
     if !status.is_success() {
-        return Err(AppCommandError::network(format!(
-            "连接器市场请求失败（HTTP {}）",
-            status.as_u16()
-        )));
+        return Err(status_error(status.as_u16()));
     }
     let bytes = limited_response(response, MAX_RESPONSE).await?;
     let envelope: Value = serde_json::from_slice(&bytes)
         .map_err(|_| AppCommandError::network("连接器市场响应格式无效"))?;
+    response_data(envelope)
+}
+
+fn response_data(envelope: Value) -> Result<Value, AppCommandError> {
+    if let Some(code) = envelope.get("code").and_then(Value::as_i64) {
+        if matches!(code, 401 | 403) {
+            return Err(AppCommandError::permission_denied(
+                "登录状态失效或无权访问连接器市场，请重新登录",
+            ));
+        }
+        if !matches!(code, 0 | 1 | 200) {
+            return Err(AppCommandError::network(format!(
+                "连接器市场入口返回失败（code {code}）"
+            )));
+        }
+    }
     envelope
         .get("data")
         .cloned()
         .ok_or_else(|| AppCommandError::network("连接器市场响应缺少 data"))
+}
+
+fn status_error(status: u16) -> AppCommandError {
+    if matches!(status, 401 | 403) {
+        AppCommandError::permission_denied("登录状态失效或无权访问连接器市场，请重新登录")
+    } else {
+        AppCommandError::network(format!("连接器市场请求失败（HTTP {status}）"))
+    }
 }
 
 pub(super) async fn limited_response(
@@ -112,33 +140,27 @@ pub(super) async fn limited_response(
 
 pub(super) async fn search(
     conn: &DatabaseConnection,
-    query: &str,
-    limit: usize,
+    input: &super::McpMarketplaceSearch,
 ) -> Result<Vec<McpMarketplaceItem>, AppCommandError> {
-    let mut docs = Vec::new();
-    const PAGE_SIZE: usize = 100;
-    const MAX_ITEMS: usize = 1000;
-    while docs.len() < MAX_ITEMS {
-        let raw = request(conn, "list", json!({"offset":docs.len()})).await?;
-        let page: Vec<Document> = serde_json::from_value(raw)
-            .map_err(|_| AppCommandError::network("连接器目录格式无效"))?;
-        let done = page.len() < PAGE_SIZE;
-        docs.extend(page);
-        if done {
-            break;
-        }
+    const DEFAULT_PAGE_SIZE: u32 = 20;
+    const MAX_PAGE_SIZE: u32 = 50;
+    let limit = input
+        .limit
+        .unwrap_or(DEFAULT_PAGE_SIZE)
+        .clamp(1, MAX_PAGE_SIZE);
+    let offset = input.offset.unwrap_or_default();
+    if offset > 1_000_000 {
+        return Err(AppCommandError::invalid_input("连接器分页位置无效"));
     }
-    let query = query.to_lowercase();
-    Ok(docs
-        .iter()
-        .filter(|doc| {
-            format!("{} {} {}", doc.name, doc.server_id, doc.description)
-                .to_lowercase()
-                .contains(&query)
-        })
-        .take(limit)
-        .map(item)
-        .collect())
+    let raw = request(
+        conn,
+        "list",
+        json!({"offset":offset,"limit":limit,"query":input.query.as_deref().unwrap_or("").trim()}),
+    )
+    .await?;
+    let docs: Vec<Document> =
+        serde_json::from_value(raw).map_err(|_| AppCommandError::network("连接器目录格式无效"))?;
+    Ok(docs.iter().take(limit as usize).map(item).collect())
 }
 
 fn item(doc: &Document) -> McpMarketplaceItem {

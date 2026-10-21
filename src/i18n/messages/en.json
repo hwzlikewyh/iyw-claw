@@ -1,5 +1,6 @@
 {
   "ConnectorMarket": {
+    "previousPage": "Previous", "nextPage": "Next", "pageNumber": "Page {page}",
     "useInConversation": "Use in current conversation",
     "newConversation": "New conversation",
     "conversationEnabled": "Saved for this conversation. Reconnect an existing session from its connector menu to apply.",

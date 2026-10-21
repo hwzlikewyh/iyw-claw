@@ -10,6 +10,8 @@
 4. 选择按对话保存，切换或重新打开后仍然保留。新独立对话默认关闭可选连接器。
 5. 正在运行的会话修改选择后，在菜单点击“重连并应用”；生成中禁止重连。
 
+发现页每页展示 20 条，使用“上一页 / 下一页”浏览。搜索由市场服务执行，不局限于已加载页面；输入延迟 300ms 查询，切换搜索会回到第一页。每次只读取一页，不再默认拉取 1000 条。
+
 内置网关技能始终走原有默认加载流程，不出现在市场卡片、可选列表和数量中。用户仍然需要登录才能使用相应远程业务能力。
 
 “已配置”只表示安装资料已保存。实际可连接性由智能体的 MCP 运行时反馈，不能把下载完成或保存成功当作握手成功。已卸载连接器仍会显示在曾选择它的对话里，可以关闭该选择或重新安装。
@@ -27,7 +29,8 @@
 ## 存储与运行边界
 
 - 市场 provider 固定为 `iyw_gateway`；旧公共 registry 不再作为可用来源。
-- 默认市场地址及协议、文件/API 示例见网关项目 `docs/connector-market.md`。开发环境通过 `IYW_CONNECTOR_MARKET_BASE_URL` 指定 HTTPS 或 loopback HTTP。
+- 默认市场地址为 `https://gateway.iyw.cn/iyw-fusion-mcp-apiserver/api/connector-market`，市场属于管理 API，使用数据面 `iyw-fusion-mcp-gateway` 前缀会请求错服务。协议、文件/API 示例见网关项目 `docs/connector-market.md`。开发环境通过 `IYW_CONNECTOR_MARKET_BASE_URL` 指定 HTTPS 或 loopback HTTP。
+- HTTP 404 提示检查控制面部署和入口转发；HTTP/业务 code 401、403 提示登录或权限失效。空目录仍是成功的空状态，不伪装成请求成功。分页版本需与 apiserver 一同更新。
 - 连接器登记复用现有 MCP catalog；用户密钥放入现有安全存储，目录只保存引用，不写入对话消息或市场服务。重新配置和卸载会清理对应旧引用。
 - 会话选择保存到当前应用数据库 `app_metadata` 的 `mcp.conversation.v1.<conversation_id>`，带 revision 防止覆盖其他窗口的更新。
 - 应用管理的连接器不再写成全局启用；星河在每次启动的 JSON 配置中注入选择，其他兼容智能体在 ACP 新建/恢复请求中收到选择。用户自行管理的外部原生配置沿用原有行为。
