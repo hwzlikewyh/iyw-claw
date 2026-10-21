@@ -22,8 +22,8 @@ pub(super) async fn request(
     let target = Target::parse(point)?;
     eprintln!("[星河][worker] resolving history fork: source={source}");
     let result = tokio::time::timeout(HISTORY_TIMEOUT, resolve(upstream, source, target)).await;
-    let turn = match result {
-        Ok(Ok(turn)) => turn,
+    let boundary = match result {
+        Ok(Ok(boundary)) => boundary,
         Ok(Err(error)) => {
             eprintln!(
                 "[星河][worker] history fork resolution failed: source={source} error={error}"
@@ -35,9 +35,18 @@ pub(super) async fn request(
             return Err(invalid("分叉历史读取超时，请重试"));
         }
     };
-    eprintln!("[星河][worker] history fork resolved: source={source} last_turn={turn}");
-    request["params"]["lastTurnId"] = json!(turn);
+    eprintln!("[星河][worker] history fork resolved: source={source} boundary={boundary:?}");
+    match boundary {
+        Boundary::Before(turn) => request["params"]["beforeTurnId"] = json!(turn),
+        Boundary::Latest => {}
+    }
     Ok(request)
+}
+
+#[derive(Debug)]
+enum Boundary {
+    Before(String),
+    Latest,
 }
 
 struct Target<'a> {
@@ -94,37 +103,57 @@ async fn resolve(
     upstream: &UpstreamClient,
     source: &str,
     mut target: Target<'_>,
-) -> Result<String, UpstreamError> {
+) -> Result<Boundary, UpstreamError> {
     let mut cursor = Value::Null;
     let mut visited = BTreeSet::new();
+    let mut matched = false;
     loop {
-        let page = upstream
-            .history_page(
-                source,
-                json!({
-                    "method": "thread/turns/list", "params": {
-                        "threadId": source, "limit": HISTORY_PAGE_SIZE,
-                        "cursor": cursor, "sortDirection": "asc", "itemsView": "full",
-                    },
-                }),
-            )
-            .await?;
+        let page = history_page(upstream, source, &cursor).await?;
         let turns = page["data"]
             .as_array()
             .ok_or_else(|| invalid("分叉历史缺少回合列表"))?;
         for turn in turns {
+            if matched {
+                return turn_id(turn).map(Boundary::Before);
+            }
             if let Some(id) = matching_turn(&mut target, turn)? {
-                return Ok(id);
+                // 历史列表的终态可能来自状态修正或实时快照，原始分叉仍视为运行中。
+                // 在下一回合前截断保留同样的历史；末轮复用宿主已串行化的完整分叉。
+                eprintln!("[星河][worker] history fork target matched: source={source} turn={id}");
+                matched = true;
             }
         }
-        let Some(next) = page["nextCursor"].as_str() else {
-            return Err(invalid("分叉消息已变化或尚未保存，请刷新会话后重试"));
+        let next = match page.get("nextCursor") {
+            Some(Value::String(next)) if !next.is_empty() => next,
+            Some(Value::Null) if matched => return Ok(Boundary::Latest),
+            Some(Value::Null) => {
+                return Err(invalid("分叉消息已变化或尚未保存，请刷新会话后重试"));
+            }
+            _ => return Err(invalid("分叉历史缺少有效分页游标")),
         };
         if !visited.insert(next.to_string()) {
             return Err(invalid("分叉历史分页游标重复"));
         }
         cursor = json!(next);
     }
+}
+
+async fn history_page(
+    upstream: &UpstreamClient,
+    source: &str,
+    cursor: &Value,
+) -> Result<Value, UpstreamError> {
+    upstream
+        .history_page(
+            source,
+            json!({
+                "method": "thread/turns/list", "params": {
+                    "threadId": source, "limit": HISTORY_PAGE_SIZE,
+                    "cursor": cursor, "sortDirection": "asc", "itemsView": "full",
+                },
+            }),
+        )
+        .await
 }
 
 fn matching_turn(target: &mut Target<'_>, turn: &Value) -> Result<Option<String>, UpstreamError> {
@@ -151,10 +180,14 @@ fn matching_turn(target: &mut Target<'_>, turn: &Value) -> Result<Option<String>
     ) {
         return Err(invalid("分叉消息所在回合尚未结束，请稍后重试"));
     }
+    turn_id(turn).map(Some)
+}
+
+fn turn_id(turn: &Value) -> Result<String, UpstreamError> {
     turn["id"]
         .as_str()
         .filter(|id| !id.is_empty())
-        .map(|id| Some(id.to_string()))
+        .map(str::to_string)
         .ok_or_else(|| invalid("分叉历史缺少回合 ID"))
 }
 
