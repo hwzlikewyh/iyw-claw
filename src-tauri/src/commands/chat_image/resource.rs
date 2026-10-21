@@ -1,4 +1,4 @@
-//! 已开启引用的星河附件复用 Fusion 图床，避免再次上传到旧公开图床。
+//! 受管会话附件复用 Fusion 原图，避免提前转成不可追溯的外链。
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -30,23 +30,29 @@ pub(super) async fn prepare_managed(
     image: &EncodedChatImage,
     context: Option<&ChatImageResourceContext>,
 ) -> Result<Option<ImageUploadOutcome>, AppCommandError> {
-    let Some(context) =
-        context.filter(|context| context.agent_type == Some(crate::models::AgentType::Codex))
+    let Some(context) = context.filter(|context| matches!(
+        context.agent_type,
+        Some(crate::models::AgentType::Codex | crate::models::AgentType::ClaudeCode)
+    ))
     else {
         return Ok(None);
     };
     let Some(token) = crate::commands::iyw_account::iyw_account_access_token_core(db).await? else {
         return Ok(None);
     };
-    let default_model = crate::acp::provider_overlay::managed_default_model_for(
-        crate::models::AgentType::Codex,
-    );
+    let agent_type = context.agent_type.unwrap_or(crate::models::AgentType::Codex);
+    let default_model = crate::acp::provider_overlay::managed_default_model_for(agent_type);
     let model = context
         .model_id
         .as_deref()
         .filter(|model| !model.is_empty())
         .unwrap_or(default_model);
     let model = model.strip_prefix("iyw-claw/").unwrap_or(model);
+    if agent_type == crate::models::AgentType::ClaudeCode
+        && !crate::acp::provider_overlay::managed_model_ids_for(agent_type).contains(&model)
+    {
+        return Ok(None); // 自带渠道继续沿原有附件路径，不改变其文件契约。
+    }
     let Some(resource) = lookup_or_upload(token.expose(), image, model).await? else {
         return Ok(Some(ImageUploadOutcome::Unavailable(
             AppCommandError::network("图片资源服务暂时不可用"),

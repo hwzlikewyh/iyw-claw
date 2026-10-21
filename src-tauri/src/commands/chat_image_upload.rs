@@ -57,6 +57,7 @@ fn image_extension(mime_type: &str) -> Result<&'static str, AppCommandError> {
         "image/png" => Ok("png"),
         "image/jpeg" => Ok("jpg"),
         "image/webp" => Ok("webp"),
+        "image/gif" => Ok("gif"),
         _ => Err(AppCommandError::invalid_input(
             "Prepared image MIME type is not supported for upload",
         )),

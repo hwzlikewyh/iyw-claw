@@ -47,7 +47,6 @@ fn log_prepare_failure(stage: &str, image: &EncodedChatImage, error: &AppCommand
     tracing::error!(
         target: "chat.image",
         stage,
-        file_name = %image.name,
         mime_type = %image.mime_type,
         source_bytes = image.source_bytes,
         derived_bytes = image.bytes.len(),
@@ -89,7 +88,6 @@ fn complete_image(
         chat_image_upload::ImageUploadOutcome::Unavailable(error) => {
             tracing::warn!(
                 target: "chat.image",
-                file_name = %image.name,
                 mime_type = %image.mime_type,
                 source_bytes = image.source_bytes,
                 derived_bytes = image.bytes.len(),
@@ -121,7 +119,6 @@ fn complete_image(
 fn log_prepared(completed: &CompletedImage, started: &Instant) {
     tracing::info!(
         target: "chat.image",
-        file_name = %completed.image.name,
         mime_type = %completed.image.mime_type,
         source_bytes = completed.image.source_bytes,
         derived_bytes = completed.image.bytes.len(),

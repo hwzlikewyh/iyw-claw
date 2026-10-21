@@ -6,7 +6,7 @@ use crate::acp::error::AcpError;
 use crate::acp::types::PromptInputBlock;
 use crate::commands::chat_attachments::{sanitize_session_bucket, user_facing_path};
 use crate::commands::chat_image::{
-    stage_chat_image_bytes_core, StageChatImageBytes, CHAT_IMAGE_DERIVED_MAX_BYTES,
+    stage_chat_image_bytes_core, StageChatImageBytes, CHAT_IMAGE_INPUT_MAX_BYTES,
 };
 
 const CHAT_SESSIONS_DIR: &str = "chat-sessions";
@@ -160,13 +160,13 @@ async fn inspect_image(
     let metadata = tokio::fs::metadata(&path)
         .await
         .map_err(|error| io_error("local image", error))?;
-    if !metadata.is_file() || metadata.len() > CHAT_IMAGE_DERIVED_MAX_BYTES as u64 {
+    if !metadata.is_file() || metadata.len() > CHAT_IMAGE_INPUT_MAX_BYTES as u64 {
         return Err(image_error("Codex image attachment local file is invalid."));
     }
     let bytes = tokio::fs::read(&path)
         .await
         .map_err(|error| io_error("local image", error))?;
-    if bytes.is_empty() || bytes.len() > CHAT_IMAGE_DERIVED_MAX_BYTES {
+    if bytes.is_empty() || bytes.len() > CHAT_IMAGE_INPUT_MAX_BYTES {
         return Err(image_error("Codex image attachment local file is invalid."));
     }
     let mime_type = inspect_mime(&bytes)?;
@@ -249,7 +249,7 @@ fn is_managed_chat_dir(data_dir: &Path, path: &Path) -> bool {
 }
 
 fn inspect_mime(bytes: &[u8]) -> Result<&'static str, AcpError> {
-    crate::commands::chat_image::inspect_derived_image_mime(bytes)
+    crate::commands::chat_image::inspect_input_image_mime(bytes)
         .map_err(|_| image_error("Codex image attachment format is not supported."))
 }
 

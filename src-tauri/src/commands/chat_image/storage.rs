@@ -6,7 +6,7 @@ use crate::commands::chat_attachments::{
     user_facing_path, StagedChatAttachment,
 };
 
-use super::CHAT_IMAGE_DERIVED_MAX_BYTES;
+use super::CHAT_IMAGE_INPUT_MAX_BYTES;
 
 const MAX_IMAGE_FILE_STEM_CHARS: usize = 170;
 const CONVERSATION_ATTACHMENTS_DIR: &str = "conversation-attachments";
@@ -24,6 +24,7 @@ fn prepared_image_file_name(raw: &str, mime_type: &str) -> Result<String, AppCom
         "image/png" => "png",
         "image/jpeg" => "jpg",
         "image/webp" => "webp",
+        "image/gif" => "gif",
         _ => {
             return Err(AppCommandError::invalid_input(
                 "Prepared image MIME type is not supported",
@@ -47,7 +48,7 @@ fn validate_image_bytes(bytes: &[u8]) -> Result<(), AppCommandError> {
     if bytes.is_empty() {
         return Err(AppCommandError::invalid_input("Prepared image is empty"));
     }
-    if bytes.len() > CHAT_IMAGE_DERIVED_MAX_BYTES {
+    if bytes.len() > CHAT_IMAGE_INPUT_MAX_BYTES {
         return Err(AppCommandError::invalid_input(
             "Prepared image exceeds the size limit",
         ));

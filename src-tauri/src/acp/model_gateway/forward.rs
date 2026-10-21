@@ -98,12 +98,15 @@ async fn forward_http(
     ),
 ) -> Result<Response, GatewayError> {
     let started = Instant::now();
-    let body = tokio::time::timeout(super::limits::PREPARE_TIMEOUT, Spool::receive(body))
+    let prepare_deadline = tokio::time::Instant::now() + super::limits::PREPARE_TIMEOUT;
+    let body = tokio::time::timeout_at(prepare_deadline, Spool::receive(body))
         .await
         .map_err(|_| GatewayError::input("Local request body timed out"))??;
     let original_bytes = body.len();
     let prepared = if rewritable(&parts.headers) && original_bytes > 0 {
-        rewrite::prepare(&runtime, body, (&path, &token)).await?
+        tokio::time::timeout_at(prepare_deadline, rewrite::prepare(&runtime, body, (&path, &token)))
+            .await
+            .map_err(|_| GatewayError::unavailable("Image preparation exceeded the request time budget"))??
     } else {
         Output::Request(body)
     };
@@ -125,7 +128,7 @@ async fn forward_http(
     let response = tokio::time::timeout(HEADER_TIMEOUT, request.send())
         .await
         .map_err(|_| GatewayError::unavailable("Cloud model response headers timed out"))?
-        .map_err(|_| GatewayError::unavailable("Cloud model gateway could not be reached"))?;
+        .map_err(GatewayError::cloud)?;
     log_forwarded(
         (original_bytes, final_bytes),
         started,
