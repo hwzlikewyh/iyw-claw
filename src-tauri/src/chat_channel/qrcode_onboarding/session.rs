@@ -153,10 +153,14 @@ pub(super) async fn find(session_id: &str) -> Result<Arc<Session>, AppCommandErr
 pub(super) async fn preflight(active: &Session) -> Option<QrPollResponse> {
     let current = active.state.lock().await.clone();
     if current.status.is_terminal() {
+        sessions().await.lock().await.remove(&active.id);
         return Some(response_for(active, current));
     }
     if active.is_cancelled() {
         return Some(set_terminal(active, QrStatus::Cancelled, None).await);
+    }
+    if current.status == QrStatus::Connecting {
+        return Some(response_for(active, current));
     }
     if Instant::now() >= active.deadline {
         return Some(set_terminal(active, QrStatus::Expired, Some("expired")).await);
@@ -212,7 +216,7 @@ pub(super) async fn set_terminal(
         state.clone()
     };
     super::providers::finish(&active.provider).await;
-    sessions().await.lock().await.remove(&active.id);
+    // 后台连接提交需要把终态保留到前端下一次轮询；过期清理由 prune 兜底。
     response_for(active, snapshot)
 }
 

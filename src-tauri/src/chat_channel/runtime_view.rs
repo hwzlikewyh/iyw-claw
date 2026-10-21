@@ -117,7 +117,11 @@ async fn delivery_logs(
     let rows = chat_channel_message_log_service::list_by_trace(context.db, trace_id, 20).await?;
     Ok(rows
         .into_iter()
-        .filter(|row| row.direction == "outbound" && row.channel_id == scope.channel_id)
+        .filter(|row| {
+            row.direction == "outbound"
+                && row.channel_id == scope.channel_id
+                && row.message_type != "session_kickoff"
+        })
         .map(ChatChannelMessageLogInfo::from)
         .collect())
 }
