@@ -104,7 +104,12 @@ pub(super) async fn send(
         .await
         {
             Ok(item) => item,
-            Err(_) => {
+            Err(error) => {
+                tracing::error!(
+                    channel_id = target.channel_id,
+                    error = %error,
+                    "[channel-delivery] failed to persist delivery queue item"
+                );
                 payload::cleanup(&runtime, &envelope).await;
                 return Err(payload::failure("DELIVERY_QUEUE_UNAVAILABLE"));
             }

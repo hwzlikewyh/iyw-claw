@@ -40,12 +40,40 @@ impl ChannelPrompt {
     }
 
     pub fn blocks(&self) -> Vec<PromptInputBlock> {
-        let mut blocks = vec![PromptInputBlock::Text {
-            text: self.text.clone(),
-        }];
+        let attachments: Vec<_> = self.media.iter().filter_map(attachment_hint).collect();
+        let text = if attachments.is_empty() {
+            self.text.clone()
+        } else {
+            format!(
+                "{}\n\n用户通过消息渠道发送的本地附件（可用文件工具读取；图片同时附带原生图像输入）：\n{}",
+                self.text,
+                attachments.join("\n")
+            )
+        };
+        let mut blocks = vec![PromptInputBlock::Text { text }];
         blocks.extend(self.media.iter().cloned());
         blocks
     }
+}
+
+fn attachment_hint(block: &PromptInputBlock) -> Option<String> {
+    let (path, mime) = match block {
+        PromptInputBlock::Image {
+            local_path,
+            mime_type,
+            ..
+        } => (local_path.clone()?, mime_type.as_str()),
+        PromptInputBlock::ResourceLink { uri, mime_type, .. } => {
+            let path = reqwest::Url::parse(uri).ok()?.to_file_path().ok()?;
+            (
+                crate::commands::chat_attachments::user_facing_path(&path),
+                mime_type.as_deref().unwrap_or("application/octet-stream"),
+            )
+        }
+        _ => return None,
+    };
+    // 结构化编码使文件名中的换行、引号仍作为附件数据呈现。
+    Some(serde_json::json!({ "local_path": path, "mime_type": mime }).to_string())
 }
 
 impl From<String> for ChannelPrompt {

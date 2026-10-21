@@ -5,6 +5,8 @@ mod types;
 
 pub use types::{QrPollResponse, QrStartResponse, QrStatus};
 
+use std::sync::Arc;
+
 use crate::app_error::AppCommandError;
 use crate::chat_channel::manager::ChatChannelManager;
 use crate::chat_channel::types::ChannelType;
@@ -93,7 +95,7 @@ pub async fn cancel(session_id: &str) -> Result<QrPollResponse, AppCommandError>
 async fn apply_provider_poll(
     db: &AppDatabase,
     manager: &ChatChannelManager,
-    active: &Session,
+    active: &Arc<Session>,
     result: ProviderPoll,
 ) -> Result<QrPollResponse, AppCommandError> {
     let response = match result {
@@ -109,7 +111,19 @@ async fn apply_provider_poll(
             session::set_terminal(active, QrStatus::Denied, Some(code)).await
         }
         ProviderPoll::Approved(credentials) => {
-            return commit_approved(db, manager, active, credentials).await;
+            let response = session::set_status(active, QrStatus::Connecting, None).await;
+            tracing::info!(channel_id = active.channel_id, channel_type = %active.channel_type,
+                stage = "qr_connecting", "[ChatChannel] QR authorization received; connecting runtime");
+            let db = AppDatabase {
+                conn: db.conn.clone(),
+            };
+            let manager = manager.clone_ref();
+            let active = Arc::clone(active);
+            // 授权确认立即反馈；连接验证可能等待平台长轮询，前端继续查询最终结果。
+            tokio::spawn(async move {
+                commit_approved(&db, &manager, &active, credentials).await;
+            });
+            return Ok(response);
         }
     };
     Ok(response)
@@ -120,8 +134,7 @@ async fn commit_approved(
     manager: &ChatChannelManager,
     active: &Session,
     credentials: ProviderCredentials,
-) -> Result<QrPollResponse, AppCommandError> {
-    session::set_status(active, QrStatus::Connecting, None).await;
+) -> QrPollResponse {
     match commit::commit_credentials(db, manager, active, credentials).await {
         Ok(commit::CommitOutcome::Connected) => {
             tracing::info!(
@@ -130,10 +143,10 @@ async fn commit_approved(
                 stage = "qr_connected",
                 "[ChatChannel] QR onboarding runtime connected"
             );
-            Ok(session::set_terminal(active, QrStatus::Connected, None).await)
+            session::set_terminal(active, QrStatus::Connected, None).await
         }
         Ok(commit::CommitOutcome::Cancelled) => {
-            Ok(session::set_terminal(active, QrStatus::Cancelled, None).await)
+            session::set_terminal(active, QrStatus::Cancelled, None).await
         }
         Err(error) => {
             tracing::error!(
@@ -143,10 +156,7 @@ async fn commit_approved(
                 stage = "qr_commit",
                 "[ChatChannel] QR onboarding credential commit failed"
             );
-            Ok(
-                session::set_terminal(active, QrStatus::Error, Some("credential_commit_failed"))
-                    .await,
-            )
+            session::set_terminal(active, QrStatus::Error, Some("credential_commit_failed")).await
         }
     }
 }
