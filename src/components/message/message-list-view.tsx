@@ -1298,6 +1298,7 @@ export function MessageListView({
             agentType={agentType}
             contextKey={activityContextKey}
             message={liveMessage}
+            parts={lastAssistantGroup?.parts}
             modelName={modelName}
             subAgentControl={
               lastAssistantDelegations.length > 0 ? (
