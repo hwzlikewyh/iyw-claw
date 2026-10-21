@@ -2333,7 +2333,7 @@
       "sectionOrderFoldersFirst": "Folders on top",
       "sectionOrderChatsFirst": "Chat on top",
       "statusRunningBadge": "Running",
-      "statusCancelledBadge": "Cancelled",
+      "statusCancelledBadge": "Turn stopped",
       "conversationCountUnit": "{count, plural, one {# conversation} other {# conversations}}",
       "emptyFolderHint": "No conversations",
       "noMatchingConversations": "No matching conversations",

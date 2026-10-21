@@ -274,7 +274,20 @@ pub(crate) fn prompt_failure(params: &Value) -> Option<String> {
     let message = params.pointer("/turn/error/message").and_then(Value::as_str)
         .filter(|message| !message.trim().is_empty())
         .unwrap_or("Codex turn failed without error details");
-    Some(crate::diagnostics::safe_detail(message))
+    let mut detail = crate::diagnostics::safe_detail(message);
+    if let Some(info) = params.pointer("/turn/error/codexErrorInfo") {
+        if let Ok(info) = serde_json::to_string(info) {
+            detail.push_str("\nerror_info: ");
+            detail.push_str(&crate::diagnostics::safe_detail(&info));
+        }
+    }
+    if let Some(extra) = params.pointer("/turn/error/additionalDetails").and_then(Value::as_str) {
+        if !extra.trim().is_empty() {
+            detail.push_str("\n");
+            detail.push_str(&crate::diagnostics::safe_detail(extra));
+        }
+    }
+    Some(detail)
 }
 
 pub(crate) fn prompt_response(params: &Value) -> Value {
