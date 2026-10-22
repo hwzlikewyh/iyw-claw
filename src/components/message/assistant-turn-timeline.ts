@@ -1,9 +1,15 @@
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
+import { isContextCompactionMeta } from "@/lib/context-compaction"
+import { normalizeToolName } from "@/lib/tool-call-normalization"
+import { splitAssistantText } from "./assistant-text-segments"
+
+const PROCESS_SEGMENT_SIZE = 2
 
 export interface AssistantTimelineSection {
   key: string
-  kind: "content" | "process"
+  kind: "content" | "process" | "compaction"
   parts: AdaptedContentPart[]
+  retainOnCompletion: boolean
 }
 
 // 目标只包装生命周期，不改变正文、思考和工具的事件位置。
@@ -18,7 +24,13 @@ export function flattenAssistantParts(
         ...(part.end ? [part.end] : []),
       ]
     }
-    return part.type === "tool-group" ? part.items : [part]
+    if (part.type === "tool-group") return part.items
+    if (
+      part.type === "background-task-group" ||
+      part.type === "delegation-status-group"
+    )
+      return part.polls
+    return [part]
   })
 }
 
@@ -30,12 +42,48 @@ function partKey(part: AdaptedContentPart, index: number): string {
 }
 
 function isProcessPart(part: AdaptedContentPart) {
+  if (part.type === "tool-call") {
+    const name = normalizeToolName(part.toolName)
+    return name !== "attempt_completion" && name !== "show_interactive_html"
+  }
   return (
-    part.type === "tool-call" ||
     part.type === "tool-result" ||
     part.type === "delegation-status-group" ||
     part.type === "background-task-group"
   )
+}
+
+function retainResult(part: AdaptedContentPart): boolean {
+  return (
+    part.type === "displayed-image" ||
+    part.type === "plugin-app" ||
+    (part.type === "tool-call" && !isProcessPart(part))
+  )
+}
+
+function finalTextStart(parts: AdaptedContentPart[]): number {
+  let last = parts.length - 1
+  while (last >= 0 && parts[last].type !== "text") last -= 1
+  if (last < 0) return parts.length
+  let start = last
+  while (start > 0 && parts[start - 1].type === "text") start -= 1
+  return start
+}
+
+function appendSection(
+  sections: AssistantTimelineSection[],
+  section: AssistantTimelineSection
+) {
+  const previous = sections[sections.length - 1]
+  if (
+    section.kind === "process" &&
+    previous?.kind === "process" &&
+    previous.parts.length < PROCESS_SEGMENT_SIZE
+  ) {
+    previous.parts.push(...section.parts)
+  } else {
+    sections.push(section)
+  }
 }
 
 export function buildAssistantTimeline(
@@ -48,6 +96,7 @@ export function buildAssistantTimeline(
       (part.type !== "text" || Boolean(part.text.trim()))
   )
   const sections: AssistantTimelineSection[] = []
+  const responseStart = finalTextStart(ordered)
   ordered.forEach((source, index) => {
     const part =
       source.type === "reasoning"
@@ -57,12 +106,27 @@ export function buildAssistantTimeline(
               source.isStreaming && !complete && index === ordered.length - 1,
           }
         : source
-    const kind = isProcessPart(part) ? "process" : "content"
-    const previous = sections[sections.length - 1]
-    if (kind === "process" && previous?.kind === kind) {
-      previous.parts.push(part)
-    } else {
-      sections.push({ key: partKey(part, index), kind, parts: [part] })
+    const compaction =
+      part.type === "tool-call" && isContextCompactionMeta(part.meta)
+    const kind = compaction
+      ? "compaction"
+      : isProcessPart(part)
+        ? "process"
+        : "content"
+    const chunks =
+      part.type === "text"
+        ? splitAssistantText(part.text).map((text) => ({ ...part, text }))
+        : [part]
+    for (const [chunk, value] of chunks.entries()) {
+      appendSection(sections, {
+        key: `${partKey(part, index)}:${chunk}`,
+        kind,
+        parts: [value],
+        retainOnCompletion:
+          compaction ||
+          retainResult(part) ||
+          (part.type === "text" && index >= responseStart),
+      })
     }
   })
   return sections

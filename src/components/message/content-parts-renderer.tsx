@@ -1,12 +1,8 @@
+import { ToolCallSummary } from "./tool-call-summary"
 import { InteractiveHtmlResult } from "./interactive-html-result"
 import { memo, useMemo, useState, type ReactNode } from "react"
 import Image from "next/image"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
-import {
-  classifyToolKind,
-  TOOL_KIND_ORDER,
-  type ToolKindLabel,
-} from "@/lib/adapters/tool-kind-classifier"
 import type { MessageRole, PlanEntryInfo } from "@/lib/types"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
 import {
@@ -23,7 +19,6 @@ import { parseBackgroundLaunch } from "@/lib/background-task"
 import { normalizePriority, normalizeStatus } from "@/lib/plan-parse"
 import { isDelegateToAgentToolName } from "@/lib/delegation-card"
 import { useTranslations } from "next-intl"
-import { cn } from "@/lib/utils"
 import {
   countUnifiedDiffLineChanges,
   estimateChangedLineStats,
@@ -33,12 +28,6 @@ import { AssistantUiText } from "@/components/intelligent-ui/scope"
 import { ImagePreviewDialog } from "@/components/ui/image-preview-dialog"
 import { toErrorMessage } from "@/lib/app-error"
 import { downloadImage } from "@/lib/image-download"
-import { Shimmer } from "@/components/ai-elements/shimmer"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
 import {
   Tool,
   ToolHeader,
@@ -73,10 +62,8 @@ import { FeedbackCheckResultCard } from "./feedback-check-result-card"
 import { COLLAB_AGENT_TOOL_NAME } from "@/lib/collab-tool"
 import { DelegatedSubThread } from "./delegated-sub-thread"
 import { DelegationStatusCard } from "./delegation-status-card"
-import { DelegationStatusGroupCard } from "./delegation-status-group-card"
-import { BackgroundTaskCard } from "./background-task-card"
 import { GeneratedImagesBlock } from "./generated-images-block"
-import { GoalRunPart, GoalToolCallPart } from "./goal-tool-call"
+import { GoalToolCallPart } from "./goal-tool-call"
 import { PlanCard, PlanEntriesList } from "./plan-card"
 import { PlanModeCard } from "./plan-mode-card"
 import { PluginAppContent } from "./plugin-app-content"
@@ -96,7 +83,6 @@ import {
   MinusIcon,
   PlusIcon,
   WrenchIcon,
-  ChevronRightIcon,
   BrainIcon,
   MessageCircleQuestionMarkIcon,
   UsersIcon,
@@ -2109,6 +2095,29 @@ function ToolCallPartContent({
 }: {
   part: Extract<AdaptedContentPart, { type: "tool-call" }>
 }) {
+  if (isContextCompactionMeta(part.meta)) {
+    return (
+      <ContextCompactionCard
+        state={part.state}
+        meta={part.meta}
+        summary={contextCompactionSummary(part.meta, part.output)}
+      />
+    )
+  }
+  const name = normalizeToolName(part.toolName).toLowerCase()
+  // 产品结果显式放行，普通调用不能进入旧参数/输出视图。
+  if (name === "show_interactive_html" || name === "attempt_completion") {
+    if (part.state === "output-error") return <ToolCallSummary part={part} />
+    return <ToolResultPresentation part={{ ...part, errorText: undefined }} />
+  }
+  return <ToolCallSummary part={part} />
+}
+
+function ToolResultPresentation({
+  part,
+}: {
+  part: Extract<AdaptedContentPart, { type: "tool-call" }>
+}) {
   const t = useTranslations("Folder.chat.contentParts")
   const [manualOpen, setManualOpen] = useToolDisclosure(
     part.toolCallId,
@@ -2432,40 +2441,16 @@ function ToolCallPartContent({
     )
   }
 
-  // Cline: attempt_completion — render as an expanded card with result + progress
+  // Cline 的最终回答是用户结果，只展示 result 正文。
   if (toolNameLower === "attempt_completion") {
-    const parsedCompletion = tryParseJson(part.input ?? "")
-    const completionResult =
-      (parsedCompletion?.result as string | undefined)?.trim() ?? null
-    const taskProgress =
-      (parsedCompletion?.task_progress as string | undefined)?.trim() ?? null
+    const result = tryParseJson(part.input ?? "")?.result
     return (
-      <Tool open onOpenChange={setManualOpen}>
-        <ToolHeader
-          type="dynamic-tool"
-          state={part.state}
-          toolName={normalizedToolName}
-          title={title ?? "Completion"}
-          icon={icon}
-        />
-        <ToolContent>
-          {completionResult && (
-            <div className="text-sm prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside">
-              <MessageResponse>{completionResult}</MessageResponse>
-            </div>
-          )}
-          {taskProgress && (
-            <div className="mt-2 rounded-md border bg-muted/30 px-3 py-2">
-              <div className="text-[11px] font-medium text-muted-foreground mb-1">
-                Progress
-              </div>
-              <div className="text-xs prose prose-sm dark:prose-invert max-w-none [&_ul]:list-inside [&_ol]:list-inside">
-                <MessageResponse>{taskProgress}</MessageResponse>
-              </div>
-            </div>
-          )}
-        </ToolContent>
-      </Tool>
+      <div className="space-y-3">
+        <ToolCallSummary part={part} />
+        {typeof result === "string" && result.trim() && (
+          <MessageResponse>{result}</MessageResponse>
+        )}
+      </div>
     )
   }
 
@@ -2542,20 +2527,7 @@ const ToolResultPart = memo(function ToolResultPart({
 }: {
   part: Extract<AdaptedContentPart, { type: "tool-result" }>
 }) {
-  const t = useTranslations("Folder.chat.contentParts")
-  const [open, setOpen] = useToolDisclosure(part.toolCallId)
-  return (
-    <Tool open={open} onOpenChange={setOpen}>
-      <ToolHeader
-        type="dynamic-tool"
-        state={part.state}
-        toolName={t("result")}
-      />
-      <ToolContent>
-        <ToolOutput output={part.output} errorText={part.errorText} />
-      </ToolContent>
-    </Tool>
-  )
+  return <ToolCallSummary part={part} />
 })
 
 const ReasoningPart = memo(function ReasoningPart({
@@ -2607,79 +2579,12 @@ const ToolGroupPart = memo(function ToolGroupPart({
 }: {
   part: Extract<AdaptedContentPart, { type: "tool-group" }>
 }) {
-  const t = useTranslations("Folder.chat.contentParts.toolGroup")
-  const [open, setOpen] = useState(false)
-
-  const phrases = useMemo(() => {
-    const counts = TOOL_KIND_ORDER.reduce(
-      (acc, kind) => {
-        acc[kind] = 0
-        return acc
-      },
-      {} as Record<ToolKindLabel, number>
-    )
-    for (const item of part.items) {
-      counts[classifyToolKind(item.toolName)] += 1
-    }
-    const built: string[] = []
-    for (const kind of TOOL_KIND_ORDER) {
-      const count = counts[kind]
-      if (count <= 0) continue
-      built.push(t(kind, { count }))
-    }
-    if (built.length === 0) {
-      built.push(t("other", { count: part.items.length }))
-    }
-    return built
-  }, [part, t])
-
-  if (part.items.length === 0) return null
-
-  const joiner = t("joiner")
-  const titleText = phrases.join(joiner)
-
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className="w-full">
-      <CollapsibleTrigger
-        className={cn(
-          "group inline-flex max-w-full items-center gap-1.5 rounded-full bg-muted/60 px-3.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        )}
-      >
-        <ChevronRightIcon
-          aria-hidden="true"
-          className={cn(
-            "size-3 shrink-0 opacity-60 transition-transform",
-            open && "rotate-90"
-          )}
-        />
-        <span className="min-w-0 truncate">
-          {part.isStreaming ? (
-            <Shimmer as="span" duration={1} shineColor="var(--primary)">
-              {titleText}
-            </Shimmer>
-          ) : (
-            titleText
-          )}
-        </span>
-      </CollapsibleTrigger>
-      <CollapsibleContent
-        className={cn(
-          "w-full outline-none",
-          "data-[state=open]:animate-in data-[state=closed]:animate-out",
-          "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
-          "data-[state=closed]:slide-out-to-top-1 data-[state=open]:slide-in-from-top-1"
-        )}
-      >
-        <div className="mt-3 w-full space-y-3">
-          {part.items.map((item, idx) => (
-            <ToolCallPart
-              key={`grouped-tc-${item.toolCallId || idx}`}
-              part={item}
-            />
-          ))}
-        </div>
-      </CollapsibleContent>
-    </Collapsible>
+    <div className="space-y-2">
+      {part.items.map((item, index) => (
+        <ToolCallPart key={item.toolCallId || index} part={item} />
+      ))}
+    </div>
   )
 })
 
@@ -2738,23 +2643,31 @@ export const ContentPartsRenderer = memo(function ContentPartsRenderer({
     }
 
     if (part.type === "goal-run") {
+      const children = [
+        part.start,
+        ...part.items,
+        ...(part.end ? [part.end] : []),
+      ]
       return (
-        <GoalRunPart
-          key={`goal-${keyId}`}
-          part={part}
-          renderPart={(child, childKey) => renderPart(child, childKey)}
-        />
+        <div key={"goal-" + keyId} className="space-y-2">
+          {children.map((child, index) =>
+            renderPart(child, keyId + ":" + index)
+          )}
+        </div>
       )
     }
 
-    if (part.type === "delegation-status-group") {
+    if (
+      part.type === "delegation-status-group" ||
+      part.type === "background-task-group"
+    ) {
       return (
-        <DelegationStatusGroupCard key={`dsg-${keyId}`} polls={part.polls} />
+        <div key={"polls-" + keyId} className="space-y-2">
+          {part.polls.map((poll, index) => (
+            <ToolCallPart key={poll.toolCallId || index} part={poll} />
+          ))}
+        </div>
       )
-    }
-
-    if (part.type === "background-task-group") {
-      return <BackgroundTaskCard key={`btg-${keyId}`} polls={part.polls} />
     }
 
     if (part.type === "tool-result") {

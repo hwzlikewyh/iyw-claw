@@ -20,38 +20,25 @@ export function PendingReplyIndicator({ agentType }: { agentType: AgentType }) {
   const [startedAt] = useState(Date.now)
   if (
     state?.awaitingInput ||
+    state?.status === "connecting" ||
+    state?.status === "connected" ||
     state?.status === "disconnected" ||
     state?.status === "error"
   )
     return null
-  const phase =
-    state?.status === "connecting"
-      ? "initializingConversation"
-      : state?.status === "connected"
-        ? "submittingConversation"
-        : "awaitingModelResponse"
   return (
     <Message from="assistant">
       <MessageContent>
         <div className="conversation-assistant-header">
           <AssistantIdentity agentType={agentType} />
-          <StartupActivity phase={phase} startedAt={startedAt} />
+          <StartupActivity startedAt={startedAt} />
         </div>
       </MessageContent>
     </Message>
   )
 }
 
-function StartupActivity({
-  phase,
-  startedAt,
-}: {
-  phase:
-    | "initializingConversation"
-    | "submittingConversation"
-    | "awaitingModelResponse"
-  startedAt: number
-}) {
+function StartupActivity({ startedAt }: { startedAt: number }) {
   const t = useTranslations("Folder.chat.liveTurnStats")
   const ref = useConversationActivityAnchor("activity")
   const { pageVisible, activityVisible } = useConversationActivityVisibility()
@@ -64,8 +51,8 @@ function StartupActivity({
     >
       <ConversationWorkingMark />
       <ConversationActivityText
-        phase={t(phase)}
-        detail={t(`detail.${phase}`)}
+        phase={t("awaitingModelResponse")}
+        detail={t("detail.awaitingModelResponse")}
         elapsed={t("elapsed", {
           elapsed: formatElapsedLabel(Math.max(0, now - startedAt), t),
         })}

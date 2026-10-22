@@ -1,7 +1,6 @@
 "use client"
 
 import { memo, useMemo } from "react"
-import { MotionConfig } from "motion/react"
 import { useTranslations } from "next-intl"
 import { AgentIcon } from "@/components/agent-icon"
 import { AssistantProcessSurface } from "./assistant-process-surface"
@@ -10,7 +9,6 @@ import {
   AssistantMonitorStatus,
 } from "./assistant-current-activity"
 import { ContentPartsRenderer } from "./content-parts-renderer"
-import { countProcessItems, processPartHasError } from "./assistant-turn-model"
 import { findImageRegistrationIssue } from "./assistant-turn-process"
 import {
   buildAssistantTimeline,
@@ -23,10 +21,8 @@ import type { ConversationDisplayMode } from "@/lib/conversation-display-prefere
 import type { AgentType } from "@/lib/types"
 import { useConversationActivityAnchor } from "./conversation-activity-visibility"
 import { AssistantTextSurface } from "./assistant-text-surface"
-import {
-  processPartHasFailure,
-  processPartNeedsAttention,
-} from "./process-presentation"
+import { AssistantContentSegment } from "./assistant-content-segment"
+import { AssistantTurnArchive } from "./assistant-turn-archive"
 
 interface AssistantTurnContentProps {
   agentType: AgentType
@@ -92,56 +88,61 @@ export const AssistantTurnContent = memo(function AssistantTurnContent(
 function AssistantTimeline(
   props: AssistantTurnContentProps & { sections: AssistantTimelineSection[] }
 ) {
-  return props.sections.map((section, index) => {
-    const entranceKey = props.entranceKey + ":timeline:" + section.key
-    if (section.kind === "process") {
-      return (
-        <AssistantProcessSurface
-          key={section.key}
+  return (
+    <AssistantTurnArchive
+      sections={props.sections}
+      complete={props.isResponseComplete}
+      collapse={props.collapseCompletedTurn}
+      renderSection={(section, index, expanded) => (
+        <AssistantTimelineSectionView
           {...props}
-          entranceKey={entranceKey}
-          parts={section.parts}
-          isResponseComplete={
-            props.isResponseComplete ||
-            (index < props.sections.length - 1 &&
-              !hasActiveProcess(section.parts) &&
-              !section.parts.some(processPartNeedsAttention))
-          }
-          durationMs={null}
-          processCount={countProcessItems(section.parts)}
-          processHasError={
-            section.parts.some(processPartHasError) ||
-            section.parts.some(processPartHasFailure)
-          }
+          section={section}
+          latest={index === props.sections.length - 1}
+          expanded={expanded}
         />
-      )
-    }
-    const streaming =
-      !props.isResponseComplete && index === props.sections.length - 1
-    return (
+      )}
+    />
+  )
+}
+
+function AssistantTimelineSectionView(
+  props: AssistantTurnContentProps & {
+    section: AssistantTimelineSection
+    latest: boolean
+    expanded: boolean
+  }
+) {
+  const { section } = props
+  const entranceKey = props.entranceKey + ":timeline:" + section.key
+  if (section.kind === "process")
+    return <AssistantProcessSection {...props} entranceKey={entranceKey} />
+  const streaming = !props.isResponseComplete && props.latest
+  const archive =
+    section.kind === "content" &&
+    section.parts.every((part) => part.type === "text") &&
+    !streaming &&
+    !props.expanded &&
+    !(props.isResponseComplete && section.retainOnCompletion) &&
+    props.collapseCompletedTurn &&
+    props.displayMode !== "full"
+  return (
+    <AssistantContentSegment archive={archive}>
       <div
-        key={section.key}
         className="assistant-turn-summary"
         data-streaming={streaming && props.animationEnabled}
       >
-        <MotionConfig
-          reducedMotion={
-            section.parts[0]?.type === "reasoning" ? "always" : "user"
-          }
-        >
-          <AssistantSectionContent
-            {...props}
-            section={section}
-            streaming={streaming}
-            entranceKey={entranceKey}
-          />
-        </MotionConfig>
-        {props.isLatest && index === props.sections.length - 1 && (
+        <AssistantSectionContent
+          {...props}
+          section={section}
+          streaming={streaming}
+          entranceKey={entranceKey}
+        />
+        {props.isLatest && props.latest && (
           <AssistantOutputAnchor complete={props.isResponseComplete} />
         )}
       </div>
-    )
-  })
+    </AssistantContentSegment>
+  )
 }
 
 function AssistantSectionContent(
@@ -168,7 +169,7 @@ function AssistantSectionContent(
     <AssistantTextSurface
       parts={textParts}
       streaming={props.streaming}
-      compact={props.collapseCompletedTurn && props.displayMode !== "full"}
+      compact={false}
       animationEnabled={props.animationEnabled}
     >
       {content}
@@ -186,6 +187,27 @@ function AssistantOutputAnchor({ complete }: { complete: boolean }) {
       className="conversation-output-anchor"
       data-streaming={!complete}
       aria-hidden="true"
+    />
+  )
+}
+
+function AssistantProcessSection(
+  props: AssistantTurnContentProps & {
+    section: AssistantTimelineSection
+    latest: boolean
+    expanded: boolean
+  }
+) {
+  return (
+    <AssistantProcessSurface
+      {...props}
+      parts={props.section.parts}
+      isResponseComplete={
+        props.isResponseComplete ||
+        (!props.latest && !hasActiveProcess(props.section.parts))
+      }
+      collapseCompletedTurn={!props.expanded && props.collapseCompletedTurn}
+      durationMs={null}
     />
   )
 }

@@ -75,7 +75,6 @@ function useCompactionPresentation(
   const running = state === "input-streaming" || state === "input-available"
   const failed = errorText !== null || state === "output-error"
   const duration = formatDuration(readNumber(payload, "durationMs"))
-  const tooltip = errorText ?? readText(payload, "trigger") ?? undefined
   const label = failed
     ? t("failed")
     : running
@@ -87,7 +86,7 @@ function useCompactionPresentation(
           })
         : t("compacted")
 
-  return { label, running, failed, duration, tooltip }
+  return { label, running, failed, duration }
 }
 
 function CompactionMarker({
@@ -95,7 +94,6 @@ function CompactionMarker({
   running,
   failed,
   duration,
-  tooltip,
   hasSummary,
 }: ReturnType<typeof useCompactionPresentation> & { hasSummary: boolean }) {
   const t = useTranslations("Folder.chat.contentParts.contextCompaction")
@@ -104,7 +102,6 @@ function CompactionMarker({
       <div className="h-px flex-1 bg-gradient-to-r from-transparent to-border/70" />
       <div
         className={`flex min-w-0 items-center gap-1.5${failed ? " text-destructive/80" : ""}`}
-        title={tooltip}
       >
         <Archive aria-hidden="true" className="size-3.5 shrink-0" />
         <span className={running ? "conversation-waiting-label" : undefined}>

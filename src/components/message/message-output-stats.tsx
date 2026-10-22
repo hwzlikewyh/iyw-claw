@@ -186,7 +186,7 @@ function OutputStatsView({
       <span
         key="rate"
         title={t(isStreaming ? "recentOutputRateHint" : "outputRateHint")}
-        aria-label={t("outputRate", { rate })}
+        aria-label={`${rate} tok/s`}
       >
         {rate} tok/s
       </span>

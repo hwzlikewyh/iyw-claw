@@ -59,7 +59,6 @@ import {
   Message,
   MessageContent,
   MessageAction,
-  MessageResponse,
 } from "@/components/ai-elements/message"
 import {
   AlertCircle,
@@ -311,60 +310,6 @@ function extractTextFromParts(parts: AdaptedContentPart[]): string {
     })
     .filter((text) => text.length > 0)
     .join("\n")
-}
-
-function conversationSummaryText(item: ThreadRenderItem | null): string {
-  if (!item || item.kind !== "turn" || item.group.role !== "assistant") {
-    return ""
-  }
-  const text = extractTextFromParts(item.group.parts)
-    .replace(/\s+/g, " ")
-    .trim()
-  return text.length > 420 ? `${text.slice(0, 420).trimEnd()}…` : text
-}
-
-function ConversationFoldControl({
-  expanded,
-  onToggle,
-}: {
-  expanded: boolean
-  onToggle: () => void
-}) {
-  const t = useTranslations("Folder.chat.messageList")
-  return (
-    <button
-      type="button"
-      className="conversation-fold-control"
-      aria-expanded={expanded}
-      onClick={onToggle}
-    >
-      <ChevronDown
-        aria-hidden="true"
-        className={expanded ? "rotate-180" : undefined}
-      />
-      {t(expanded ? "collapseConversation" : "expandConversation")}
-    </button>
-  )
-}
-
-function CollapsedConversationSummary({
-  text,
-  onExpand,
-}: {
-  text: string
-  onExpand: () => void
-}) {
-  const t = useTranslations("Folder.chat.messageList")
-  return (
-    <div className="conversation-summary-surface">
-      <div className="conversation-summary-content">
-        <MessageResponse>
-          {text || t("conversationSummaryFallback")}
-        </MessageResponse>
-      </div>
-      <ConversationFoldControl expanded={false} onToggle={onExpand} />
-    </div>
-  )
 }
 
 type AssistantTurnItem = Extract<ThreadRenderItem, { kind: "turn" }>
@@ -1236,20 +1181,6 @@ export function MessageListView({
     return entries.length > 0 ? entries : EMPTY_NAV_ENTRIES
   }, [showMessageNav, navExpanded, threadItems])
 
-  const conversationComplete =
-    !liveMessage &&
-    connStatus !== "prompting" &&
-    lastAssistantItem?.phase === "persisted"
-  const conversationSummary = useMemo(
-    () => conversationSummaryText(lastAssistantItem),
-    [lastAssistantItem]
-  )
-  const [expandedConversationId, setExpandedConversationId] = useState<
-    number | null
-  >(null)
-  const conversationExpanded =
-    !conversationComplete || expandedConversationId === conversationId
-
   const hasRenderableContent = threadItems.length > 0 || Boolean(liveMessage)
 
   if (detailLoading && !hasRenderableContent) {
@@ -1357,42 +1288,27 @@ export function MessageListView({
       persistedConversationId={resolvedArtifactConversationId}
     >
       <BackgroundTaskStatusScope turns={timelineTurns}>
-        {conversationComplete && !conversationExpanded ? (
-          <CollapsedConversationSummary
-            text={conversationSummary}
-            onExpand={() => setExpandedConversationId(conversationId)}
+        <MessageThread
+          className="flex-1 min-h-0"
+          resize={shouldUseSmoothResize ? "smooth" : undefined}
+        >
+          <AutoScrollOnSend signal={sendSignal} />
+          <VirtualizedMessageThread
+            items={threadItems}
+            getItemKey={getThreadItemKey}
+            renderItem={renderThreadItem}
+            emptyState={emptyState}
+            scrollApiRef={scrollApiRef}
+            scrollPositionRef={scrollPositionRef}
           />
-        ) : (
-          <>
-            <MessageThread
-              className="flex-1 min-h-0"
-              resize={shouldUseSmoothResize ? "smooth" : undefined}
-            >
-              <AutoScrollOnSend signal={sendSignal} />
-              <VirtualizedMessageThread
-                items={threadItems}
-                getItemKey={getThreadItemKey}
-                renderItem={renderThreadItem}
-                emptyState={emptyState}
-                scrollApiRef={scrollApiRef}
-                scrollPositionRef={scrollPositionRef}
-              />
-              <ConversationProgressButton
-                key={conversationId}
-                version={liveMessage}
-                latestId={lastAssistantGroup?.id}
-                prompting={connStatus === "prompting"}
-                onReturnToReply={returnToActivity}
-              />
-            </MessageThread>
-            {conversationComplete && (
-              <ConversationFoldControl
-                expanded
-                onToggle={() => setExpandedConversationId(null)}
-              />
-            )}
-          </>
-        )}
+          <ConversationProgressButton
+            key={conversationId}
+            version={liveMessage}
+            latestId={lastAssistantGroup?.id}
+            prompting={connStatus === "prompting"}
+            onReturnToReply={returnToActivity}
+          />
+        </MessageThread>
         {connStatus === "prompting" && (
           <LiveTurnStats
             onReturnToActivity={returnToActivity}

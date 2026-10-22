@@ -166,18 +166,19 @@ function useToolPresentation(
       }
     if (!title && !kind) return { name: "", icon: "tool" as ActivityIcon }
     const name = inferLiveToolName({ title, kind, rawInput, meta })
-    const builtin = getBuiltinToolDisplay(name, rawInput)
+    const builtin = getBuiltinToolDisplay(name, rawInput, resolvedTitle)
     return {
-      name: getToolDisplayName(
-        {
-          toolName: name,
-          input: rawInput,
-          displayTitle:
-            getRemoteToolDisplayTitle(rawInput, meta) ?? resolvedTitle ?? title,
-        },
-        (key, values) =>
-          t.has(key as never) ? t(key as never, values as never) : null
-      ),
+      name:
+        builtin?.fallbackName ??
+        getToolDisplayName(
+          {
+            toolName: builtin?.fallbackName ?? builtin?.toolName ?? name,
+            displayTitle:
+              getRemoteToolDisplayTitle(rawInput, meta) ?? undefined,
+          },
+          (key, values) =>
+            t.has(key as never) ? t(key as never, values as never) : null
+        ),
       icon: toolIcon(builtin?.toolName ?? normalizeToolName(name)),
     }
   }, [title, kind, rawInput, meta, resolvedTitle, t])

@@ -36,10 +36,17 @@ function parsePage(input?: string | null): InteractivePage | null {
   }
 }
 
+function interactionId(output?: string | null): string | undefined {
+  try {
+    return JSON.parse(output ?? "{}").interaction_id
+  } catch {
+    return undefined
+  }
+}
+
 export function InteractiveHtmlResult({
   input,
   output,
-  errorText,
   running,
 }: {
   input?: string | null
@@ -50,13 +57,7 @@ export function InteractiveHtmlResult({
   const t = useTranslations("Folder.chat.interactiveHtml")
   const page = useMemo(() => parsePage(input), [input])
   const { openPreview, select, pages } = useInteractivePage()
-  const liveId = (() => {
-    try {
-      return JSON.parse(output ?? "{}").interaction_id as string | undefined
-    } catch {
-      return undefined
-    }
-  })()
+  const liveId = interactionId(output)
   const livePage =
     pages.find((item) => item.interaction_id === liveId) ??
     pages.find(
@@ -88,24 +89,6 @@ export function InteractiveHtmlResult({
       {running && (
         <p className="text-xs text-muted-foreground">{t("activePage")}</p>
       )}
-      {errorText && (
-        <p role="alert" className="text-xs text-destructive">
-          {errorText}
-        </p>
-      )}
-      {output && <OutputDetails output={output} />}
     </div>
-  )
-}
-
-function OutputDetails({ output }: { output: string }) {
-  const t = useTranslations("Folder.chat.interactiveHtml")
-  return (
-    <details className="text-xs text-muted-foreground">
-      <summary className="cursor-pointer">{t("result")}</summary>
-      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap">
-        {output}
-      </pre>
-    </details>
   )
 }
