@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useSyncExternalStore, useCallback } from "react"
+import { useSyncExternalStore, useCallback } from "react"
 import { CircleAlert, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
@@ -9,8 +9,6 @@ import { RuntimeBackgroundStatus } from "./runtime-background-status"
 import { useConversationPresentation } from "./conversation-presentation-context"
 import { isTaskHistory } from "./runtime-task-presentation"
 import { useOptionalConnectionStore } from "@/contexts/acp-connections-context"
-
-const SETTLE_SYNC_DISPLAY_MS = 30_000
 
 interface BackgroundTasksChipProps {
   contextKey: string
@@ -33,29 +31,8 @@ export function BackgroundTasksChip({
     [store, contextKey]
   )
   const monitors = useSyncExternalStore(subscribe, snapshot, () => 0)
-  const {
-    backgroundOutstanding,
-    backgroundUncertain,
-    backgroundSettleSyncingSince,
-  } = useConnection(contextKey)
-  const [expiredFor, setExpiredFor] = useState<number | null>(null)
-
-  useEffect(() => {
-    if (backgroundSettleSyncingSince == null) return
-    const remaining =
-      SETTLE_SYNC_DISPLAY_MS - (Date.now() - backgroundSettleSyncingSince)
-    const timer = setTimeout(
-      () => setExpiredFor(backgroundSettleSyncingSince),
-      Math.max(0, remaining) + 50
-    )
-    return () => clearTimeout(timer)
-  }, [backgroundSettleSyncingSince])
-
-  const showSyncing =
-    backgroundOutstanding <= 0 &&
-    !backgroundUncertain &&
-    backgroundSettleSyncingSince != null &&
-    expiredFor !== backgroundSettleSyncingSince
+  const { backgroundOutstanding, backgroundUncertain } =
+    useConnection(contextKey)
 
   if (
     runtime?.contextKey === contextKey &&
@@ -68,7 +45,7 @@ export function BackgroundTasksChip({
   )
     return null
 
-  if (backgroundOutstanding <= 0 && !backgroundUncertain && !showSyncing)
+  if (backgroundOutstanding <= 0 && !backgroundUncertain)
     return <RuntimeBackgroundStatus contextKey={contextKey} inline={inline} />
 
   const status = (
@@ -81,11 +58,9 @@ export function BackgroundTasksChip({
       <span className="min-w-0 truncate">
         {backgroundUncertain
           ? t("unknown")
-          : backgroundOutstanding > 0
-            ? monitors > 0
-              ? t("monitoring", { count: monitors })
-              : t("running", { count: backgroundOutstanding })
-            : t("settling")}
+          : monitors > 0
+            ? t("monitoring", { count: monitors })
+            : t("running", { count: backgroundOutstanding })}
       </span>
     </span>
   )

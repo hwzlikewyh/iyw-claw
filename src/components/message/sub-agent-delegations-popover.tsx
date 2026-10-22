@@ -1,6 +1,6 @@
 "use client"
 
-import { memo, useState } from "react"
+import { memo, useCallback, useEffect, useState } from "react"
 import { useTranslations } from "next-intl"
 import { BotIcon } from "lucide-react"
 
@@ -28,12 +28,33 @@ export const SubAgentDelegationsPopover = memo(
     delegations,
   }: SubAgentDelegationsPopoverProps) {
     const t = useTranslations("Folder.chat.subAgentOverlay")
-    const count = delegations.length
+    const [settledIds, setSettledIds] = useState<Set<string>>(() => new Set())
+    const markSettled = useCallback((id: string) => {
+      setSettledIds((previous) => {
+        if (previous.has(id)) return previous
+        const next = new Set(previous)
+        next.add(id)
+        return next
+      })
+    }, [])
+    const activeDelegations = delegations.filter(
+      (source) => !settledIds.has(source.parentToolUseId)
+    )
+    const count = activeDelegations.length
 
     if (count === 0) return null
 
     return (
       <Popover>
+        <div className="hidden" aria-hidden="true">
+          {activeDelegations.map((source) => (
+            <SubAgentDelegationStatusObserver
+              key={source.parentToolUseId}
+              source={source}
+              onSettled={markSettled}
+            />
+          ))}
+        </div>
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -64,7 +85,7 @@ export const SubAgentDelegationsPopover = memo(
             </Badge>
           </div>
           <div className="max-h-72 space-y-1.5 overflow-y-auto p-2">
-            {delegations.map((source) => (
+            {activeDelegations.map((source) => (
               <SubAgentDelegationRow
                 key={source.parentToolUseId}
                 source={source}
@@ -74,6 +95,25 @@ export const SubAgentDelegationsPopover = memo(
         </PopoverContent>
       </Popover>
     )
+  }
+)
+
+const SubAgentDelegationStatusObserver = memo(
+  function SubAgentDelegationStatusObserver({
+    source,
+    onSettled,
+  }: {
+    source: DelegationCardSource
+    onSettled: (parentToolUseId: string) => void
+  }) {
+    const { status } = useDelegationCardModel(source)
+    const settled = status === "ok" || status === "err"
+
+    useEffect(() => {
+      if (settled) onSettled(source.parentToolUseId)
+    }, [onSettled, settled, source.parentToolUseId])
+
+    return null
   }
 )
 
