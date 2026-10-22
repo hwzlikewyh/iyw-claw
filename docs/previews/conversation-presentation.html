@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>对话收纳预览</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        --blue: #2563eb;
+        --ink: #1f2937;
+        --muted: #718096;
+        --line: #e6e9ef;
+        --panel: #ffffff;
+        --soft: #f7f8fb;
+        --shadow: 0 20px 55px rgb(15 23 42 / 10%);
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        min-width: 960px;
+        min-height: 100vh;
+        margin: 0;
+        background: #f3f5f8;
+        color: var(--ink);
+      }
+
+      button { font: inherit; }
+      .app {
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr);
+        width: min(1440px, calc(100vw - 32px));
+        min-height: 760px;
+        margin: 16px auto;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .sidebar {
+        padding: 20px 14px;
+        border-right: 1px solid var(--line);
+        background: #fbfcfe;
+      }
+      .brand { display: flex; align-items: center; gap: 9px; margin: 3px 8px 28px; font-weight: 700; }
+      .brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 9px; color: white; background: var(--blue); font-size: 13px; }
+      .nav-button { width: 100%; margin-bottom: 8px; padding: 11px 12px; border: 0; border-radius: 10px; color: #4b5563; background: transparent; text-align: left; cursor: pointer; }
+      .nav-button.active { color: white; background: var(--blue); box-shadow: 0 6px 16px rgb(37 99 235 / 22%); }
+      .nav-section { margin: 24px 10px 10px; color: #9aa3b2; font-size: 11px; }
+
+      .workspace { display: flex; min-width: 0; flex-direction: column; background: var(--panel); }
+      .topbar { display: flex; align-items: center; justify-content: space-between; min-height: 55px; padding: 0 22px; border-bottom: 1px solid var(--line); }
+      .tab { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; color: #334155; background: #edf3ff; font-size: 13px; }
+      .tab-dot { width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; }
+      .status { color: #8a94a6; font-size: 12px; }
+
+      .conversation { display: flex; min-height: 0; flex: 1; flex-direction: column; }
+      .messages { width: min(830px, calc(100% - 52px)); margin: 0 auto; padding: 34px 0 20px; }
+      .message { margin: 0 0 18px; }
+      .message-label { margin-bottom: 7px; color: var(--muted); font-size: 12px; }
+      .user-message { width: fit-content; max-width: 80%; margin-left: auto; padding: 11px 14px; border-radius: 13px 13px 4px 13px; color: white; background: var(--blue); font-size: 14px; }
+      .assistant-message { padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: white; line-height: 1.7; font-size: 14px; }
+      .assistant-message p { margin: 0 0 11px; }
+      .assistant-message p:last-child { margin-bottom: 0; }
+
+      .tool-list { display: grid; gap: 8px; margin: 13px 0; }
+      .tool-card { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--soft); color: #4b5563; font-size: 12px; }
+      .tool-title { display: flex; align-items: center; gap: 8px; }
+      .tool-icon { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; color: var(--blue); background: #e7efff; font-size: 11px; }
+      .tool-state { color: #16a34a; }
+
+      .fold-row { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 36px; margin: 4px 0 20px; }
+      .fold-button { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border: 0; border-radius: 999px; color: var(--muted); background: transparent; font-size: 12px; cursor: pointer; transition: background .18s ease, color .18s ease; }
+      .fold-button:hover { color: var(--ink); background: #eef2f7; }
+      .fold-button strong { font-size: 15px; font-weight: 400; transition: transform .2s ease; }
+      .fold-button.expanded strong { transform: rotate(180deg); }
+
+      .summary { display: grid; gap: 18px; padding: 70px 0 22px; animation: summary-in .28s ease both; }
+      .summary-card { padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: #fcfdff; line-height: 1.7; font-size: 14px; }
+      .summary-kicker { margin-bottom: 9px; color: #8a94a6; font-size: 12px; }
+      .summary-preview { color: #374151; }
+      .summary-preview::after { content: "…"; color: #9aa3b2; }
+
+      .composer { width: min(830px, calc(100% - 52px)); margin: auto auto 20px; padding: 14px 16px; border: 1px solid #cfd8e6; border-radius: 14px; background: white; box-shadow: 0 8px 24px rgb(15 23 42 / 6%); }
+      .composer-placeholder { color: #9aa3b2; font-size: 13px; }
+      .composer-tools { display: flex; align-items: center; gap: 14px; margin-top: 17px; color: #718096; font-size: 12px; }
+      .points { margin-left: auto; padding: 5px 9px; border-radius: 8px; color: #526071; background: #f2f5f9; }
+      .send { display: grid; place-items: center; width: 29px; height: 29px; border: 0; border-radius: 50%; color: white; background: #a9c2f8; }
+
+      @keyframes summary-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+      @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+    </style>
+  </head>
+  <body>
+    <main class="app">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark">原</span><span>原助理</span></div>
+        <button class="nav-button active">✎ 新建会话</button>
+        <button class="nav-button">▣ 新建项目</button>
+        <div class="nav-section">工作台</div>
+        <button class="nav-button">◷ 定时任务</button>
+        <button class="nav-button">◇ 能力市场</button>
+        <button class="nav-button">▥ 资源区</button>
+        <div class="nav-section">会话</div>
+        <button class="nav-button">▱ 本次对话</button>
+      </aside>
+      <section class="workspace">
+        <header class="topbar"><span class="tab"><i class="tab-dot"></i>新建会话</span><span class="status">只读预览 · 不连接模型</span></header>
+        <div class="conversation">
+          <div id="expanded" class="messages">
+            <article class="message"><div class="message-label">你</div><div class="user-message">帮我整理这次对话的重点。</div></article>
+            <article class="message"><div class="message-label">助手</div><div class="assistant-message">
+              <p>我已经整理好本次对话的重点，并把过程信息收纳到工具卡片中。</p>
+              <div class="tool-list">
+                <div class="tool-card"><span class="tool-title"><span class="tool-icon">⌘</span>读取工作区状态</span><span class="tool-state">已完成</span></div>
+                <div class="tool-card"><span class="tool-title"><span class="tool-icon">▣</span>整理消息结构</span><span class="tool-state">已完成</span></div>
+              </div>
+              <p>最终结果：完成后的对话默认只保留摘要，需要时可以展开查看全部过程。</p>
+            </div></article>
+          </div>
+          <div id="summary" class="messages summary" hidden>
+            <div class="summary-card"><div class="summary-kicker">本次对话已完成 · 前段预览</div><div class="summary-preview">我已经整理好本次对话的重点，并把过程信息收纳到工具卡片中</div></div>
+          </div>
+          <div class="fold-row"><button id="toggle" class="fold-button expanded" type="button"><strong>⌄</strong><span>收起本次对话</span></button></div>
+          <div class="composer"><div class="composer-placeholder">发送消息…</div><div class="composer-tools"><span>＋</span><span>完全访问⌄</span><span>标准动作⌄</span><span class="points">点数</span><span class="send">➤</span></div></div>
+        </div>
+      </section>
+    </main>
+    <script>
+      const expanded = document.querySelector("#expanded")
+      const summary = document.querySelector("#summary")
+      const toggle = document.querySelector("#toggle")
+      toggle.addEventListener("click", () => {
+        const isExpanded = !expanded.hidden
+        expanded.hidden = isExpanded
+        summary.hidden = !isExpanded
+        toggle.classList.toggle("expanded", !isExpanded)
+        toggle.querySelector("span").textContent = isExpanded ? "展开本次对话" : "收起本次对话"
+      })
+    </script>
+  </body>
+</html>

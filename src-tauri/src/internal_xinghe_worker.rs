@@ -9,7 +9,8 @@ const RUNTIME_MARKER: &str = "IYW_XINGHE_IN_PROCESS_V1";
 const UPSTREAM_IDENTITY: &str = include_str!("../../harness/codex/upstream.lock");
 
 pub(crate) fn is_desktop_agent(agent: crate::models::agent::AgentType) -> bool {
-    cfg!(feature = "tauri-runtime") && agent == crate::models::agent::AgentType::Codex
+    cfg!(any(feature = "tauri-runtime", feature = "server-runtime"))
+        && agent == crate::models::agent::AgentType::Codex
 }
 
 pub(crate) fn installed_version() -> Option<String> {

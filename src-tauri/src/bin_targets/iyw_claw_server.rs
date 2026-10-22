@@ -184,6 +184,10 @@ fn main() -> ExitCode {
     // `main` returns the worker's exit code so `_log_guard` drops here — after
     // the runtime finishes — flushing any buffered file logs on a clean exit.
     tokio::runtime::Builder::new_multi_thread()
+        // The embedded Xinghe runtime builds a deep async configuration and
+        // app-server startup future; server workers need the same stack budget
+        // available to the desktop host thread.
+        .thread_stack_size(16 * 1024 * 1024)
         .enable_all()
         .build()
         .expect("Failed to build tokio runtime")
