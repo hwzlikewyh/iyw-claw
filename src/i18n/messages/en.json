@@ -3832,6 +3832,7 @@
       "tool": {
         "parameters": "Parameters",
         "error": "Error",
+        "timeout": "Tool timed out or network error",
         "result": "Result",
         "status": {
           "approvalRequested": "Awaiting Approval",

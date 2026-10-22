@@ -1,3 +1,5 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use axum::http::request::Parts;
@@ -12,6 +14,7 @@ use crate::acp::delegation::listener::DelegationListener;
 
 use super::authority::SessionContext;
 use super::capability_recovery::{annotate_lookup_error, direct_tool_hint};
+use super::deadline::{cancelled_error, timeout_error, timeout_for, MCP_CLEANUP_TIMEOUT};
 use super::delivery::RelayDelivery;
 use super::diagnostics::{gateway_error_stage, invocation_error_stage, GatewayCallTrace};
 use super::gateway::{self, GatewayAction};
@@ -74,16 +77,49 @@ impl BuiltinMcpHandler {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
+        let (authority, _) = Self::authenticated(&context.extensions)?;
+        let tool_name = request.name.to_string();
+        let timeout = timeout_for(&tool_name, request.arguments.as_ref());
+        let request_cancel = context.ct.child_token();
+        let parent_cancel = context.ct.clone();
+        let authority_cancel = authority.cancellation().clone();
+        let mut call = Box::pin(self.call_inner(request, context, request_cancel.clone()));
+        tokio::select! {
+            biased;
+            result = &mut call => result,
+            _ = parent_cancel.cancelled() => {
+                let cleanup_completed = settle_after_cancel(call.as_mut(), &request_cancel).await;
+                Err(cancelled_error("MCP request cancelled"))
+                    .inspect_err(|_| log_cancel_cleanup(authority.connection_id(), &tool_name, cleanup_completed))
+            }
+            _ = authority_cancel.cancelled() => {
+                let cleanup_completed = settle_after_cancel(call.as_mut(), &request_cancel).await;
+                Err(cancelled_error("MCP authority revoked"))
+                    .inspect_err(|_| log_cancel_cleanup(authority.connection_id(), &tool_name, cleanup_completed))
+            }
+            _ = tokio::time::sleep(timeout) => {
+                let cleanup_completed = settle_after_cancel(call.as_mut(), &request_cancel).await;
+                Err(timeout_error(authority.connection_id(), &tool_name, timeout, cleanup_completed))
+            }
+        }
+    }
+
+    async fn call_inner(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+        request_cancel: CancellationToken,
+    ) -> Result<CallToolResult, ErrorData> {
         let (authority, delivery) = Self::authenticated(&context.extensions)?;
         let route = resolve_gateway_route(request.name.as_ref(), authority.gateway_server_name());
         let trace = GatewayCallTrace::new(&authority, &request, route);
         trace.log_received();
-        authorize_request(&authority, &context.ct, &trace).await?;
+        authorize_request(&authority, &request_cancel, &trace).await?;
         if let Some(name) = super::remote_mcp::direct_identity(request.name.as_ref(), authority.gateway_server_name()) {
             let mut forwarded = request.clone();
             forwarded.name = name.to_owned().into();
             let result = self.iyw.remote.invoke_direct(forwarded, super::remote_mcp::RemoteContext {
-                request_cancel: &context.ct, authority_cancel: authority.cancellation(),
+                request_cancel: &request_cancel, authority_cancel: authority.cancellation(),
             }).await;
             log_direct_result(&trace, &result);
             return result;
@@ -103,7 +139,7 @@ impl BuiltinMcpHandler {
         let search_arguments = (route.tool() == GatewayTool::Search)
             .then(|| serde_json::Value::Object(request.arguments.clone().unwrap_or_default()));
         let remote_context = super::remote_mcp::RemoteContext {
-            request_cancel: &context.ct,
+            request_cancel: &request_cancel,
             authority_cancel: authority.cancellation(),
         };
         let action = gateway::dispatch(
@@ -114,7 +150,7 @@ impl BuiltinMcpHandler {
                 features: authority.features(),
                 cwd: authority.cwd(),
                 agent_type: authority.agent_type(),
-                request_cancel: context.ct.clone(),
+                request_cancel: request_cancel.clone(),
                 authority_cancel: authority.cancellation().clone(),
                 memory_policy_loaded_nonce: authority.memory_policy_state(),
                 memory_turn_tracker: authority.memory_turn_tracker(),
@@ -126,13 +162,13 @@ impl BuiltinMcpHandler {
         })?;
         match action {
             GatewayAction::AgentReachStatus => {
-                let result = super::agent_reach::status(&authority, &context.ct).await;
+                let result = super::agent_reach::status(&authority, &request_cancel).await;
                 log_direct_result(&trace, &result);
                 result
             }
             GatewayAction::Html(request) => {
                 let result = self
-                    .show_interactive_html(authority, request, context.ct)
+                    .show_interactive_html(authority, request, request_cancel.clone())
                     .await;
                 log_direct_result(&trace, &result);
                 result
@@ -155,7 +191,7 @@ impl BuiltinMcpHandler {
                 if let Some(receipt) = invocation.delivery_ack.as_deref() {
                     self.receipts.acknowledge_required(authority.connection_id(), receipt).await?;
                 }
-                ensure_active(&authority, &context.ct)?;
+                ensure_active(&authority, &request_cancel)?;
                 super::policy::require_call(&authority).await?;
                 let arguments = invocation.arguments.as_object().cloned().unwrap_or_default();
                 let result = self.iyw.remote.invoke((&invocation.tool_name, arguments), remote_context).await;
@@ -175,7 +211,7 @@ impl BuiltinMcpHandler {
                         delivery,
                         invocation,
                         request_id,
-                        request_cancel: context.ct,
+                        request_cancel: request_cancel.clone(),
                     },
                 )
                 .await;
@@ -205,7 +241,9 @@ impl BuiltinMcpHandler {
                 result
             }
             GatewayAction::PluginInvoke(invocation) => {
-                let result = self.invoke_plugin(invocation).await;
+                let result = self
+                    .invoke_plugin(invocation, &request_cancel, authority.cancellation())
+                    .await;
                 match &result {
                     Ok(value) => trace.log_result(value),
                     Err(error) => trace.log_error(invocation_error_stage(error), error),
@@ -216,7 +254,7 @@ impl BuiltinMcpHandler {
                 let request_id = serde_json::to_value(&context.id)
                     .map_err(|error| ErrorData::internal_error(error.to_string(), None))?;
                 let result = self
-                    .control_plugin(authority, delivery, request, request_id, context.ct)
+                    .control_plugin(authority, delivery, request, request_id, request_cancel.clone())
                     .await;
                 match &result {
                     Ok(value) => trace.log_result(value),
@@ -225,19 +263,23 @@ impl BuiltinMcpHandler {
                 result
             }
             GatewayAction::Image(arguments) => {
-                let result = self.iyw.generate_image(&authority, arguments, context.ct).await;
+                let result = self.iyw.generate_image(&authority, arguments, request_cancel.clone()).await;
                 log_direct_result(&trace, &result);
                 result
             }
             GatewayAction::ImageModels(arguments) => {
-                let result = self.iyw.list_image_models(arguments).await;
+                let result = tokio::select! {
+                    _ = request_cancel.cancelled() => Err(cancelled_error("MCP request cancelled")),
+                    _ = authority.cancellation().cancelled() => Err(cancelled_error("MCP authority revoked")),
+                    result = self.iyw.list_image_models(arguments) => result,
+                };
                 log_direct_result(&trace, &result);
                 result
             }
             GatewayAction::FetchUrl(arguments) => {
                 let result = tokio::select! {
                     biased;
-                    _ = context.ct.cancelled() => Err(super::iyw_fetch::cancelled()),
+                    _ = request_cancel.cancelled() => Err(super::iyw_fetch::cancelled()),
                     _ = authority.cancellation().cancelled() => Err(super::iyw_fetch::cancelled()),
                     result = super::iyw_fetch::fetch(&self.iyw, arguments) => result,
                 };
@@ -246,14 +288,18 @@ impl BuiltinMcpHandler {
                 result
             }
             GatewayAction::Knowledge(arguments) => {
-                let result = self.iyw.search_knowledge(arguments).await;
+                let result = tokio::select! {
+                    _ = request_cancel.cancelled() => Err(cancelled_error("MCP request cancelled")),
+                    _ = authority.cancellation().cancelled() => Err(cancelled_error("MCP authority revoked")),
+                    result = self.iyw.search_knowledge(arguments) => result,
+                };
                 log_direct_result(&trace, &result);
                 result
             }
             GatewayAction::Upload(arguments) => {
                 let result = tokio::select! {
                     biased;
-                    _ = context.ct.cancelled() => Err(super::iyw_upload::cancelled()),
+                    _ = request_cancel.cancelled() => Err(super::iyw_upload::cancelled()),
                     _ = authority.cancellation().cancelled() => Err(super::iyw_upload::cancelled()),
                     result = super::iyw_upload::upload(&self.iyw, &authority, arguments) => result,
                 };
@@ -270,7 +316,7 @@ impl BuiltinMcpHandler {
                     delivery,
                     request,
                     request_id,
-                    context.ct,
+                    request_cancel,
                 )
                 .await;
                 log_direct_result(&trace, &result);
@@ -281,10 +327,16 @@ impl BuiltinMcpHandler {
     async fn invoke_plugin(
         &self,
         invocation: crate::plugin_runtime::types::PluginToolCall,
+        request_cancel: &CancellationToken,
+        authority_cancel: &CancellationToken,
     ) -> Result<CallToolResult, ErrorData> {
         let router = crate::plugin_runtime::global::router()
             .ok_or_else(|| ErrorData::internal_error("plugin router is unavailable", None))?;
-        let routed = router.invoke(invocation).await.map_err(|error| {
+        let routed = tokio::select! {
+            _ = request_cancel.cancelled() => return Err(cancelled_error("MCP request cancelled")),
+            _ = authority_cancel.cancelled() => return Err(cancelled_error("MCP authority revoked")),
+            result = router.invoke(invocation) => result,
+        }.map_err(|error| {
             ErrorData::internal_error(
                 error.message,
                 Some(json!({
@@ -308,6 +360,28 @@ impl BuiltinMcpHandler {
             receipts: &self.receipts,
             lifecycle: &self.lifecycle,
         }
+    }
+}
+
+async fn settle_after_cancel<F>(call: Pin<&mut F>, request_cancel: &CancellationToken) -> bool
+where
+    F: Future<Output = Result<CallToolResult, ErrorData>>,
+{
+    request_cancel.cancel();
+    tokio::time::timeout(MCP_CLEANUP_TIMEOUT, call)
+        .await
+        .is_ok()
+}
+
+fn log_cancel_cleanup(connection_id: &str, tool_name: &str, cleanup_completed: bool) {
+    if !cleanup_completed {
+        tracing::warn!(
+            target: "builtin_mcp",
+            connection_id,
+            tool = tool_name,
+            cleanup_timeout_ms = MCP_CLEANUP_TIMEOUT.as_millis(),
+            "MCP tool cancellation cleanup exceeded its deadline"
+        );
     }
 }
 

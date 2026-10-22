@@ -256,6 +256,34 @@ function parseJson(value: string): unknown | null {
   }
 }
 
+function hasMcpTimeoutCode(value: unknown, depth = 0): boolean {
+  if (depth > 5 || value == null) return false
+  if (typeof value === "string") {
+    const parsed = parseJson(value)
+    return parsed ? hasMcpTimeoutCode(parsed, depth + 1) : false
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => hasMcpTimeoutCode(item, depth + 1))
+  }
+  if (typeof value !== "object") return false
+
+  const record = value as Record<string, unknown>
+  return (
+    record.code?.toString().toUpperCase() === "MCP_TIMEOUT" ||
+    Object.values(record).some((item) => hasMcpTimeoutCode(item, depth + 1))
+  )
+}
+
+function isToolTimeoutOrNetworkError(errorText: string): boolean {
+  return (
+    hasMcpTimeoutCode(errorText) ||
+    /\b(?:MCP_TIMEOUT|transport_error|remote_timeout|remote_queue_timeout|remote_transport_[a-z_]+)\b/i.test(
+      errorText
+    ) ||
+    /MCP tool request timed out|Remote MCP request timed out/i.test(errorText)
+  )
+}
+
 function formatErrorFieldValue(value: unknown): string {
   if (typeof value === "string") {
     return value
@@ -365,6 +393,9 @@ export const ToolOutput = ({
 
   const normalizedErrorText =
     typeof errorText === "string" ? normalizeErrorForCompare(errorText) : null
+  const isTimeoutOrNetworkError =
+    typeof errorText === "string" && isToolTimeoutOrNetworkError(errorText)
+  const errorLabel = isTimeoutOrNetworkError ? t("timeout") : t("error")
   const hasDuplicateErrorOutput = isDuplicateErrorOutput(
     output,
     normalizedErrorText
@@ -396,7 +427,7 @@ export const ToolOutput = ({
   return (
     <div className={cn("space-y-2", className)} {...props}>
       <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-        {errorText ? t("error") : t("result")}
+        {errorText ? errorLabel : t("result")}
       </h4>
       <div
         className={cn(
