@@ -402,6 +402,7 @@ fn log_cancel_cleanup(connection_id: &str, tool_name: &str, cleanup_completed: b
             cleanup_timeout_ms = MCP_CLEANUP_TIMEOUT.as_millis(),
             "MCP tool cancellation cleanup exceeded its deadline"
         );
+    }
 }
 
 fn log_direct_result(trace: &GatewayCallTrace, result: &Result<CallToolResult, ErrorData>) {
