@@ -1,13 +1,10 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import { CircleAlert, Loader2 } from "lucide-react"
 import { useTranslations } from "next-intl"
 
 import { useConnection } from "@/hooks/use-connection"
 import { RuntimeBackgroundStatus } from "./runtime-background-status"
-
-const SETTLE_SYNC_DISPLAY_MS = 30_000
 
 interface BackgroundTasksChipProps {
   contextKey: string
@@ -19,31 +16,10 @@ export function BackgroundTasksChip({
   inline = false,
 }: BackgroundTasksChipProps) {
   const t = useTranslations("Folder.chat.backgroundTasks")
-  const {
-    backgroundOutstanding,
-    backgroundUncertain,
-    backgroundSettleSyncingSince,
-  } = useConnection(contextKey)
-  const [expiredFor, setExpiredFor] = useState<number | null>(null)
+  const { backgroundOutstanding, backgroundUncertain } =
+    useConnection(contextKey)
 
-  useEffect(() => {
-    if (backgroundSettleSyncingSince == null) return
-    const remaining =
-      SETTLE_SYNC_DISPLAY_MS - (Date.now() - backgroundSettleSyncingSince)
-    const timer = setTimeout(
-      () => setExpiredFor(backgroundSettleSyncingSince),
-      Math.max(0, remaining) + 50
-    )
-    return () => clearTimeout(timer)
-  }, [backgroundSettleSyncingSince])
-
-  const showSyncing =
-    backgroundOutstanding <= 0 &&
-    !backgroundUncertain &&
-    backgroundSettleSyncingSince != null &&
-    expiredFor !== backgroundSettleSyncingSince
-
-  if (backgroundOutstanding <= 0 && !backgroundUncertain && !showSyncing)
+  if (backgroundOutstanding <= 0 && !backgroundUncertain)
     return <RuntimeBackgroundStatus contextKey={contextKey} inline={inline} />
 
   const status = (
@@ -56,9 +32,7 @@ export function BackgroundTasksChip({
       <span className="min-w-0 truncate">
         {backgroundUncertain
           ? t("unknown")
-          : backgroundOutstanding > 0
-            ? t("running", { count: backgroundOutstanding })
-            : t("settling")}
+          : t("running", { count: backgroundOutstanding })}
       </span>
     </span>
   )
