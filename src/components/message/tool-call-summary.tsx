@@ -4,7 +4,10 @@ import { WrenchIcon } from "lucide-react"
 import { useTranslations } from "next-intl"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import { getBuiltinToolDisplay } from "@/lib/builtin-tool-display"
-import { getToolDisplayName } from "@/lib/tool-display"
+import {
+  getReadableToolActivityTitle,
+  getToolDisplayName,
+} from "@/lib/tool-display"
 import { getStatusBadge } from "@/components/ai-elements/tool"
 
 type ToolRecord = Extract<
@@ -52,6 +55,7 @@ function toolName(part: ToolRecord) {
   // 仅解析工具身份；描述、命令及其他参数不能成为前端标题。
   return {
     toolName: builtin?.fallbackName ?? builtin?.toolName ?? part.toolName,
-    displayTitle: builtin?.fallbackName,
+    displayTitle:
+      builtin?.fallbackName ?? getReadableToolActivityTitle(part.displayTitle),
   }
 }

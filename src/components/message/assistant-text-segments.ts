@@ -19,3 +19,27 @@ export function splitAssistantText(text: string): string[] {
   segments.push(text.slice(start))
   return segments
 }
+
+function collectMarkdownText(node: unknown, output: string[]) {
+  if (!node || typeof node !== "object") return
+  const record = node as Record<string, unknown>
+  if (record.type === "text" || record.type === "inlineCode") {
+    output.push(typeof record.value === "string" ? record.value : "")
+    return
+  }
+  if (record.type === "image" || record.type === "imageReference") {
+    output.push(typeof record.alt === "string" ? record.alt : "")
+    return
+  }
+  if (Array.isArray(record.children))
+    record.children.forEach((child) => collectMarkdownText(child, output))
+}
+
+export function assistantResponseFirstLine(parts: string[]): string {
+  const text = parts.join("\n\n").trim()
+  const first = fromMarkdown(text).children[0]
+  if (!first) return text.replace(/\s+/g, " ")
+  const output: string[] = []
+  collectMarkdownText(first, output)
+  return (output.join("").trim() || text).replace(/\s+/g, " ")
+}

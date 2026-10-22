@@ -81,17 +81,41 @@ function translatedTool(name: string, translate: TranslateToolLabel) {
 }
 
 const MAX_ALIAS_LENGTH = 64
+const COMMAND_PREFIX =
+  /^(?:git|npm|pnpm|yarn|node|python|cargo|curl|wget|powershell|pwsh|cmd|bash|sh)\b/i
+const ERROR_PREFIX =
+  /^(?:error|failed|failure|exception|traceback|fatal|panic|错误|失败|异常)(?:\s|[:：]|$)/i
+const UUID_PATTERN =
+  /(?:^|\s)[a-f0-9]{8}-[a-f0-9]{4}-[1-5a-f0-9][a-f0-9]{3}-[89abf0-9][a-f0-9]{3}-[a-f0-9]{12}(?:\s|$)/i
 
-function readableAlias(value: string | null | undefined): string | null {
-  const alias = value?.trim()
-  if (!alias || alias.length > MAX_ALIAS_LENGTH) return null
-  // 标题仅接受自然语言，路径、命名空间和命令留在展开的详情里。
+export function getReadableToolActivityTitle(
+  value: string | null | undefined
+): string | null {
+  if (!value || /[\u0000-\u001f\u007f]/.test(value)) return null
+  const title = value.replace(/\s+/g, " ").trim()
+  if (!title || Array.from(title).length > MAX_ALIAS_LENGTH) return null
+  const naturalLanguage =
+    /[\u3400-\u9fff]/.test(title) || /[a-z]{2,}\s+[a-z]{2,}/i.test(title)
   if (
-    !/[\u3400-\u9fff]/.test(alias) ||
-    /[/\\_:：`\n{}=]|\.[a-z0-9]/i.test(alias)
+    !naturalLanguage ||
+    /[/\\_:：`{}[\]=|;&<>]|\$[({]|https?:|\.[a-z0-9]{1,8}(?:\s|$)/i.test(
+      title
+    ) ||
+    /(?:^|\s)-{1,2}[a-z0-9]|(?:^|\s)%[^%\s]+%/i.test(title) ||
+    /(?:^|\s)[a-f0-9]{24,}(?:\s|$)/i.test(title) ||
+    /\bserver\b/i.test(title) ||
+    UUID_PATTERN.test(title) ||
+    COMMAND_PREFIX.test(title) ||
+    ERROR_PREFIX.test(title)
   )
     return null
-  return alias.replace(/^(?:原助理\s*)?(?:正在|准备|即将)\s*/, "") || null
+  return (
+    title.replace(/^(?:原助理\s*)?(?:正在|准备|即将)\s*/, "").trim() || null
+  )
+}
+
+function readableAlias(value: string | null | undefined): string | null {
+  return getReadableToolActivityTitle(value)
 }
 
 function bareToolName(name: string): string {
