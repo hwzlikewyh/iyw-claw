@@ -1,5 +1,7 @@
 import type { ReferenceAttrs, ReferenceKind } from "../types"
 
+export type SuggestionGroupKind = ReferenceKind | "artifact"
+
 /** One selectable row: the reference to insert plus display hints. */
 export interface SuggestionItem {
   /** The reference inserted when this row is chosen. */
@@ -12,7 +14,7 @@ export interface SuggestionItem {
 
 /** A labeled group of suggestions, one per reference kind / data source. */
 export interface SuggestionGroup {
-  kind: ReferenceKind
+  kind: SuggestionGroupKind
   /** Display heading for the group. */
   label: string
   items: SuggestionItem[]

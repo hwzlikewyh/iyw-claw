@@ -3650,6 +3650,7 @@
         "mentionGroupAgent": "智能体",
         "mentionGroupSession": "会话",
         "mentionGroupSkill": "技能",
+        "mentionGroupArtifact": "\u6210\u679c",
         "sessionConfig": {
           "options": {
             "mode": {

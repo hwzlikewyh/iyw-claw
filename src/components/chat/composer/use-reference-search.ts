@@ -5,12 +5,19 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import { useAcpAgents } from "@/hooks/use-acp-agents"
 import { useAgentSdkTranslations } from "@/hooks/use-agent-sdk-translations"
 import { useFileTree, type FlatFileEntry } from "@/hooks/use-file-tree"
+import {
+  listAllConversations,
+  listAllTaskArtifacts,
+  type TaskArtifactInfo,
+} from "@/lib/api"
 import { presentAgentSdkAgents } from "@/lib/agent-sdk-presentation"
-import { listAllConversations } from "@/lib/api"
+import { findOwningFolder, normalizeAbsPath } from "@/lib/file-open-target"
 import type { AcpAgentInfo, DbConversationSummary } from "@/lib/types"
+import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 
 import {
   agentToSuggestion,
+  artifactToSuggestion,
   fileToSuggestion,
   sessionToSuggestion,
 } from "./suggestion/adapters"
@@ -35,6 +42,7 @@ export interface ReferenceGroupLabels {
   agent: string
   session: string
   skill: string
+  artifact: string
 }
 
 /**
@@ -46,6 +54,7 @@ export const DEFAULT_GROUP_LABELS: ReferenceGroupLabels = {
   agent: "Agents",
   session: "Sessions",
   skill: "Skills",
+  artifact: "Artifacts",
 }
 
 /** Raw, already-loaded data the pure group builder turns into suggestions. */
@@ -55,6 +64,7 @@ export interface ReferenceSearchSources {
   workspaceRoot: string | null
   agents: AcpAgentInfo[]
   sessions: DbConversationSummary[]
+  artifacts: TaskArtifactInfo[]
 }
 
 /** Case-insensitive substring match against an adapted item's searchable text. */
@@ -71,7 +81,7 @@ function suggestionMatches(item: SuggestionItem, lowerQuery: string): boolean {
 
 /**
  * Pure: filter + adapt the raw sources into the fixed-order grouped suggestions
- * the `@` panel renders (files → agents → sessions). Each group is
+ * the `@` panel renders (artifacts → sessions → agents → files). Each group is
  * independently capped at {@link MAX_PER_GROUP}; empty groups are kept
  * (the popup hides them) so the order is always stable. Extracted from the hook
  * so the matching/ordering/dedup logic is testable without React.
@@ -111,6 +121,18 @@ export function buildReferenceGroups(
     .filter((item) => suggestionMatches(item, q))
   const agentItems = agentMatches.slice(0, MAX_PER_GROUP)
 
+  const artifactPaths = new Set<string>()
+  const artifactMatches = sources.artifacts
+    .filter((item) => item.status === "available" && item.kind !== "url")
+    .map(artifactToSuggestion)
+    .filter((item) => {
+      const uri = item.reference.uri ?? item.reference.id
+      if (!suggestionMatches(item, q) || artifactPaths.has(uri)) return false
+      artifactPaths.add(uri)
+      return true
+    })
+  const artifactItems = artifactMatches.slice(0, MAX_PER_GROUP)
+
   const sessionMatches = sources.sessions
     .map(sessionToSuggestion)
     .filter((item) => suggestionMatches(item, q))
@@ -118,10 +140,16 @@ export function buildReferenceGroups(
 
   return [
     {
-      kind: "file",
-      label: labels.file,
-      items: fileItems,
-      truncated: fileTruncated,
+      kind: "artifact",
+      label: labels.artifact,
+      items: artifactItems,
+      truncated: artifactMatches.length > MAX_PER_GROUP,
+    },
+    {
+      kind: "session",
+      label: labels.session,
+      items: sessionItems,
+      truncated: sessionMatches.length > MAX_PER_GROUP,
     },
     {
       kind: "agent",
@@ -130,10 +158,10 @@ export function buildReferenceGroups(
       truncated: agentMatches.length > MAX_PER_GROUP,
     },
     {
-      kind: "session",
-      label: labels.session,
-      items: sessionItems,
-      truncated: sessionMatches.length > MAX_PER_GROUP,
+      kind: "file",
+      label: labels.file,
+      items: fileItems,
+      truncated: fileTruncated,
     },
   ]
 }
@@ -145,6 +173,8 @@ export interface UseReferenceSearchOptions {
    * gracefully (R8).
    */
   defaultPath?: string | null
+  /** Registered workspace folder owning `defaultPath`. */
+  folderId?: number | null
   /**
    * Gates loading. When false the search resolves to empty groups and the file
    * tree is never fetched — let the host pre-warm only the active composer.
@@ -155,7 +185,7 @@ export interface UseReferenceSearchOptions {
 }
 
 /**
- * Compose the live data sources (file tree, ACP agents and conversations)
+ * Compose the live data sources (artifacts, file tree, ACP agents and conversations)
  * into a single {@link ReferenceSearch} for the composer's `@` panel. (Skills,
  * commands and experts are inserted via the `/` / `$` triggers and the expert
  * menu, not this panel.)
@@ -173,10 +203,21 @@ export interface UseReferenceSearchOptions {
  */
 export function useReferenceSearch({
   defaultPath,
+  folderId,
   enabled = true,
   labels,
 }: UseReferenceSearchOptions): ReferenceSearch {
   const path = defaultPath || null
+  const folders = useAppWorkspaceStore((state) => state.allFolders)
+  const resolvedFolderId = useMemo(() => {
+    if (folderId !== undefined) return folderId
+    if (!path) return null
+    const normalizedPath = normalizeAbsPath(path)
+    const exactFolder = folders.find(
+      (folder) => normalizeAbsPath(folder.path) === normalizedPath
+    )
+    return exactFolder?.id ?? findOwningFolder(path, folders)?.folderId ?? null
+  }, [folderId, folders, path])
 
   const { load: loadFiles } = useFileTree({
     folderPath: path ?? undefined,
@@ -199,6 +240,7 @@ export function useReferenceSearch({
   const loadFilesRef = useRef(loadFiles)
   const agentsRef = useRef(presentedAgents)
   const pathRef = useRef(path)
+  const folderIdRef = useRef(resolvedFolderId)
   const enabledRef = useRef(enabled)
   const labelsRef = useRef(labels)
 
@@ -210,9 +252,10 @@ export function useReferenceSearch({
   // them commit-accurate without updating from an uncommitted transition render.
   useIsomorphicLayoutEffect(() => {
     pathRef.current = path
+    folderIdRef.current = resolvedFolderId
     enabledRef.current = enabled
     loadFilesRef.current = loadFiles
-  }, [path, enabled, loadFiles])
+  }, [path, resolvedFolderId, enabled, loadFiles])
 
   useEffect(() => {
     agentsRef.current = presentedAgents
@@ -225,12 +268,17 @@ export function useReferenceSearch({
     key: string
     promise: Promise<DbConversationSummary[]>
   } | null>(null)
+  const artifactsRef = useRef<{
+    folderId: number
+    promise: Promise<TaskArtifactInfo[]>
+  } | null>(null)
   // Bust the lazy cache when the window regains focus so a session created in
   // another window shows up on the next `@` — matching the
   // focus-refresh idiom of the other data hooks, without per-keystroke fetches.
   useEffect(() => {
     const onFocus = () => {
       sessionsRef.current = null
+      artifactsRef.current = null
     }
     window.addEventListener("focus", onFocus)
     return () => window.removeEventListener("focus", onFocus)
@@ -240,6 +288,7 @@ export function useReferenceSearch({
     if (signal?.aborted || !enabledRef.current) return []
 
     const path = pathRef.current
+    const folderId = folderIdRef.current
 
     // Lazy session fetch. On rejection the cache entry is cleared (not cached as
     // an empty result) so the next `@` retries instead of wedging on `[]`.
@@ -257,10 +306,31 @@ export function useReferenceSearch({
       sessionsEntry = created
     }
 
+    let artifactsEntry = artifactsRef.current
+    if (folderId == null) {
+      artifactsRef.current = null
+      artifactsEntry = null
+    } else if (artifactsEntry?.folderId !== folderId) {
+      const created: NonNullable<typeof artifactsRef.current> = {
+        folderId,
+        promise: listAllTaskArtifacts({ folderId }).catch((error) => {
+          if (artifactsRef.current === created) artifactsRef.current = null
+          console.error("[composer-reference] artifact list failed", {
+            folderId,
+            errorType: error instanceof Error ? error.name : typeof error,
+          })
+          return []
+        }),
+      }
+      artifactsRef.current = created
+      artifactsEntry = created
+    }
+
     // 打开引用菜单后才读取文件；连续输入复用当前请求，首次结果也包含文件。
-    const [sessions, files] = await Promise.all([
+    const [sessions, files, artifacts] = await Promise.all([
       sessionsEntry.promise,
       loadFilesRef.current(),
+      artifactsEntry?.promise ?? Promise.resolve([]),
     ])
     // Discard this result if it can no longer be trusted for the live panel: a
     // newer query aborted us, the composer was disabled, or the workspace folder
@@ -268,7 +338,12 @@ export function useReferenceSearch({
     // query change, so a folder switch would otherwise leak the old repo's
     // file results into the new folder's panel). The next
     // keystroke re-runs the search against the current folder.
-    if (signal?.aborted || !enabledRef.current || pathRef.current !== path) {
+    if (
+      signal?.aborted ||
+      !enabledRef.current ||
+      pathRef.current !== path ||
+      folderIdRef.current !== folderId
+    ) {
       return []
     }
 
@@ -279,6 +354,7 @@ export function useReferenceSearch({
         workspaceRoot: path,
         agents: agentsRef.current,
         sessions,
+        artifacts,
       },
       labelsRef.current ?? DEFAULT_GROUP_LABELS
     )
