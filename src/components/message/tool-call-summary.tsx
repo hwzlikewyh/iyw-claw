@@ -52,10 +52,11 @@ function toolName(part: ToolRecord) {
     part.input,
     part.displayTitle
   )
+  const builtinTitle = getReadableToolActivityTitle(builtin?.fallbackName)
   // 仅解析工具身份；描述、命令及其他参数不能成为前端标题。
   return {
-    toolName: builtin?.fallbackName ?? builtin?.toolName ?? part.toolName,
+    toolName: builtin?.toolName ?? part.toolName,
     displayTitle:
-      builtin?.fallbackName ?? getReadableToolActivityTitle(part.displayTitle),
+      builtinTitle ?? getReadableToolActivityTitle(part.displayTitle),
   }
 }

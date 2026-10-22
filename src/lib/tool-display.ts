@@ -85,6 +85,8 @@ const COMMAND_PREFIX =
   /^(?:git|npm|pnpm|yarn|node|python|cargo|curl|wget|powershell|pwsh|cmd|bash|sh)\b/i
 const ERROR_PREFIX =
   /^(?:error|failed|failure|exception|traceback|fatal|panic|错误|失败|异常)(?:\s|[:：]|$)/i
+const ERROR_DETAIL =
+  /(?:^|\s)(?:\d{3}\s+bad gateway|bad gateway|connection not found|network error|request (?:was )?rejected|timed? out|unauthorized|forbidden)(?:\s|[:：.]|$)/i
 const UUID_PATTERN =
   /(?:^|\s)[a-f0-9]{8}-[a-f0-9]{4}-[1-5a-f0-9][a-f0-9]{3}-[89abf0-9][a-f0-9]{3}-[a-f0-9]{12}(?:\s|$)/i
 
@@ -106,7 +108,8 @@ export function getReadableToolActivityTitle(
     /\bserver\b/i.test(title) ||
     UUID_PATTERN.test(title) ||
     COMMAND_PREFIX.test(title) ||
-    ERROR_PREFIX.test(title)
+    ERROR_PREFIX.test(title) ||
+    ERROR_DETAIL.test(title)
   )
     return null
   return (
@@ -131,22 +134,25 @@ export function getToolDisplayName(
   tool: ToolDisplayInput,
   translate: TranslateToolLabel
 ): string {
-  const description = getIywToolDescription(tool.toolName, tool.input)
+  const description = getReadableToolActivityTitle(
+    getIywToolDescription(tool.toolName, tool.input)
+  )
   if (description) return description
   const builtin = getBuiltinToolDisplay(
     tool.toolName,
     tool.input,
     tool.displayTitle
   )
-  if (builtin?.fallbackName) {
+  const fallbackName = getReadableToolActivityTitle(builtin?.fallbackName)
+  if (builtin && fallbackName) {
     if (builtin.toolName === "read_iyw_capability") {
       const label = translate("builtinTool.read_iyw_capability")
-      return label ? `${label}: ${builtin.fallbackName}` : builtin.fallbackName
+      return label ? `${label}: ${fallbackName}` : fallbackName
     }
     return (
       translate("builtinTool.dynamicCapability", {
-        name: builtin.fallbackName,
-      }) ?? builtin.fallbackName
+        name: fallbackName,
+      }) ?? fallbackName
     )
   }
   const builtinLabel = builtin && translate(`builtinTool.${builtin.toolName}`)
