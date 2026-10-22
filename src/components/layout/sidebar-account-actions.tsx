@@ -23,6 +23,7 @@ import {
   AccountAvatar,
   displayName,
 } from "@/components/account/account-profile-panel"
+import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import type { IywAccountProfile } from "@/lib/types"
 import { openSettingsWindow, type SettingsSection } from "@/lib/api"
 import { copyTextFromMenu } from "@/lib/utils"
@@ -137,6 +138,7 @@ export function SidebarAccountActions(props: Props) {
 function AccountShortcuts({ onClose }: { onClose: () => void }) {
   const t = useTranslations("SidebarDesign")
   const account = useTranslations("SidebarAccount")
+  const { openConnectorMarket } = useWorkbenchRoute()
   const entries = [
     { section: "appearance", title: account("openSettings"), icon: Settings },
     { section: "usage", title: t("usage"), icon: ChartNoAxesCombined },
@@ -146,6 +148,10 @@ function AccountShortcuts({ onClose }: { onClose: () => void }) {
   const open = async (section: SettingsSection) => {
     onClose()
     try {
+      if (section === "connectors") {
+        openConnectorMarket()
+        return
+      }
       await openSettingsWindow(section)
     } catch (error) {
       console.error("[sidebar-account] open settings failed", {
