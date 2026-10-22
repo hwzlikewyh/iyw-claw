@@ -2,6 +2,7 @@
 
 import { useAccountRequestsBlocked } from "@/components/account/use-account-request-guard"
 import { ConversationConnectorMenu } from "@/components/chat/conversation-connectors"
+import { KnowledgeDialog } from "@/components/chat/knowledge/knowledge-dialog"
 import { parseSideQuestion } from "@/lib/side-question"
 
 import {
@@ -2838,6 +2839,7 @@ export function MessageInput({
 
   const [serverFilePickerOpen, setServerFilePickerOpen] = useState(false)
   const [projectReferenceOpen, setProjectReferenceOpen] = useState(false)
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false)
 
   const handleProjectReferenceSelect = useCallback(
     (selection: ProjectReferenceSelection) => {
@@ -4588,6 +4590,13 @@ export function MessageInput({
                         {t("projectReference.menuLabel")}
                       </DropdownMenuItem>
                       <ComputerSharingMenuItems control={computerSharing} />
+                      <DropdownMenuItem
+                        disabled={!attachmentTabId}
+                        onClick={() => setKnowledgeOpen(true)}
+                      >
+                        <BookOpenText className="size-4" />
+                        {t("cloudKnowledge")}
+                      </DropdownMenuItem>
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger>
                           <MessageSquareText className="size-4" />
@@ -4994,6 +5003,11 @@ export function MessageInput({
         rootPath={defaultPath ?? null}
         onSelect={handleProjectReferenceSelect}
         onBrowseFolder={handlePickFolder}
+      />
+      <KnowledgeDialog
+        open={knowledgeOpen}
+        onOpenChange={setKnowledgeOpen}
+        tabId={attachmentTabId}
       />
       <VoiceErrorDialog
         kind={voiceErrorKind}

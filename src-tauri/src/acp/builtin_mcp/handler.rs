@@ -301,7 +301,7 @@ impl BuiltinMcpHandler {
                 let result = tokio::select! {
                     _ = request_cancel.cancelled() => Err(cancelled_error("MCP request cancelled")),
                     _ = authority.cancellation().cancelled() => Err(cancelled_error("MCP authority revoked")),
-                    result = self.iyw.search_knowledge(arguments) => result,
+                    result = self.iyw.search_knowledge(&authority, arguments) => result,
                 };
                 log_direct_result(&trace, &result);
                 result

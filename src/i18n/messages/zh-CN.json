@@ -1,4 +1,31 @@
 {
+  "CloudKnowledge": {
+    "title": "云端知识库",
+    "description": "为当前对话选择文件夹或文件，使用当前登录账号在云端检索。",
+    "knowledge": "知识库",
+    "customers": "客户库",
+    "loading": "正在加载…",
+    "retry": "重新加载",
+    "empty": "当前库暂无文件夹",
+    "emptyFolder": "文件夹为空",
+    "noMatches": "没有匹配的文件夹",
+    "filterFolders": "按名称筛选文件夹",
+    "expand": "展开 {name}",
+    "collapse": "收起 {name}",
+    "notReady": "暂不可检索",
+    "loadMore": "加载更多（已显示 {loaded} / {total}）",
+    "selected": "已选范围（{count}）",
+    "unselected": "未限定范围，知识库工具保持原有默认检索行为。",
+    "includesChildren": "包含子目录",
+    "remove": "移除 {name}",
+    "scopeHint": "文件夹包含子目录。保存后对本对话的下一次知识库检索生效。",
+    "clear": "清空",
+    "confirm": "保存选择",
+    "saved": "已保存知识库范围",
+    "limit": "最多选择 {count} 个文件夹或文件",
+    "newConversation": "新对话",
+    "accountBusy": "账号或空间正在切换，请稍候。"
+  },
   "ConnectorMarket": {
     "previousPage": "上一页",
     "nextPage": "下一页",
@@ -3498,6 +3525,7 @@
         "sendMessage": "发送消息..."
       },
       "messageInput": {
+        "cloudKnowledge": "云端知识库…",
         "askAnything": "请开始输入...",
         "scenarioVariablesRequired": "请先填写：{variables}",
         "conversationStarting": "正在发起对话...",

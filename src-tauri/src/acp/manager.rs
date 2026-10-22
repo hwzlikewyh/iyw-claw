@@ -1719,6 +1719,10 @@ impl ConnectionManager {
             let conversation_id = state_arc.read().await.conversation_id;
             crate::commands::intelligent_ui::context::prepare(conn, conversation_id).await
         } else { None };
+        let knowledge_context = if let Some(conn) = self.version_center_db.get() {
+            let conversation_id = state_arc.read().await.conversation_id;
+            crate::commands::knowledge::selection::prompt_hint(conn, conversation_id).await
+        } else { None };
         // Concurrency gate: reject a second prompt while a turn is already in
         // flight on this connection. Reserve channel capacity FIRST — that
         // `reserve().await` is the only point that can block or be cancelled.
@@ -1791,7 +1795,8 @@ impl ConnectionManager {
                 combine_prompt_context(launch, combine_prompt_context(memory_context, reminder)),
             )
         };
-        let user_context = combine_prompt_context(launch_context, combine_prompt_context(private_context, ui_context));
+        let user_context = combine_prompt_context(launch_context, combine_prompt_context(private_context,
+            combine_prompt_context(ui_context, knowledge_context)));
         permit.send(ConnectionCommand::Prompt {
             blocks,
             user_context,

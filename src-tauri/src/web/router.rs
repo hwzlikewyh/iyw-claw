@@ -34,6 +34,10 @@ pub fn build_router(
     let token_for_ws = token.clone();
 
     let api = Router::new()
+        .route("/knowledge_folders", post(handlers::knowledge::folders))
+        .route("/knowledge_files", post(handlers::knowledge::files))
+        .route("/knowledge_selection_get", post(handlers::knowledge::get_selection))
+        .route("/knowledge_selection_set", post(handlers::knowledge::set_selection))
         .route("/get_intelligent_ui_settings", post(handlers::intelligent_ui::settings))
         .route("/set_intelligent_ui_settings", post(handlers::intelligent_ui::set_settings))
         .route("/read_intelligent_ui_states", post(handlers::intelligent_ui::read))

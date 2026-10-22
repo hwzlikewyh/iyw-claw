@@ -111,7 +111,7 @@ fn invoke_tool() -> Value {
 fn knowledge_tool() -> Value {
     json!({
         "name": KNOWLEDGE_TOOL,
-        "description": "Search IYW document knowledge directly; no capability search/read or image task is needed. Supply one focused query and omit optional filters unless their exact IDs or category are known. Request only enough results for the question. Returns count and document snippets with safe metadata; reuse relevant results while completing the same subgoal. This searches document content, not tool definitions, account identity, or personal memory.",
+        "description": "Search IYW document knowledge directly. The host enforces any files/folders selected by the user for this conversation, including descendants; optional filters cannot expand that selection. Supply one focused query; omit filters when a conversation selection exists. Without a selection, existing optional filters apply. Request only enough results for the question, cite returned document names, and reuse relevant results. No matches means no evidence in this scope; do not broaden automatically. This searches document content, not tool definitions, account identity, or personal memory.",
         "inputSchema": {
             "type": "object",
             "required": ["query"],
@@ -119,7 +119,7 @@ fn knowledge_tool() -> Value {
             "properties": {
                 "query": {"type": "string", "minLength": 1, "maxLength": 4096, "description": "The focused question or concepts to retrieve; do not paste the entire conversation."},
                 "category": {"type": "integer", "default": 0, "description": "Known numeric category code. Omit to use the default; do not invent category names or codes."},
-                "folderId": {"type": ["integer", "null"], "description": "Optional exact numeric folder ID from known context. Omit when unrestricted; not a filesystem path."},
+                "folderId": {"type": ["string", "integer", "null"], "description": "Optional exact folder ID. Preserve numeric-looking IDs as strings to avoid precision loss. Omit when a conversation selection exists; not a filesystem path."},
                 "fileId": {"type": ["string", "null"], "description": "Optional exact document ID as a string, including numeric-looking IDs. Omit when unrestricted; not an integer or a file path."},
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10, "description": "Maximum results requested; prefer the smallest useful set."},
                 "denseWeight": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.5, "description": "Retrieval weighting. Omit to keep the default 0.5 unless the task needs explicit tuning."}
