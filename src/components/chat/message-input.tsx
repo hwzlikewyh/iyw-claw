@@ -12,7 +12,7 @@ import {
   type SetStateAction,
 } from "react"
 import { isDesktop, openFileDialog } from "@/lib/platform"
-import { useLocale, useTranslations } from "next-intl"
+import { useTranslations } from "next-intl"
 import { Button } from "@/components/ui/button"
 import { IntelligentUiChatToggle } from "@/components/intelligent-ui/chat-toggle"
 import { ComputerSharingMenuItems } from "@/components/computer/computer-sharing-actions"
@@ -25,16 +25,13 @@ import {
   ClipboardPaste,
   Cog,
   Copy,
-  FileStack,
   FolderSearch,
   GitFork,
-  Lock,
   MessageSquareText,
   Paperclip,
   Plus,
   Scissors,
   Send,
-  Sparkles,
   TextSelect,
   Square,
   Upload,
@@ -115,7 +112,6 @@ import type {
   AgentSkillItem,
   AgentType,
   AvailableCommandInfo,
-  ExpertListItem,
   PromptCapabilitiesInfo,
   PromptDraft,
   ScenarioVariable,
@@ -134,7 +130,6 @@ import {
   type AttachImageToSessionDetail,
   type AppendTextToSessionDetail,
 } from "@/lib/session-attachment-events"
-import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import {
   ConversationFolderBranchPicker,
   useConversationFolderBranchPickerVisible,
@@ -160,8 +155,6 @@ import {
 } from "@/lib/session-config-localization"
 import { orderSessionSelectors } from "@/lib/session-selector-order"
 import { refreshAgentSkills, useAgentSkills } from "@/hooks/use-agent-skills"
-import { useBuiltInExperts } from "@/hooks/use-built-in-experts"
-import { useEnabledSkillIds } from "@/hooks/use-enabled-skill-ids"
 import { useScrollbarSafeDismiss } from "@/hooks/use-scrollbar-safe-dismiss"
 import {
   useRealtimeVoiceInput,
@@ -172,7 +165,6 @@ import {
   isVisibleExpertId,
   pickLocalized,
 } from "@/lib/expert-presentation"
-import { OFFICE_ACTIONS, type OfficeAction } from "@/lib/office-actions"
 import {
   clearMessageInputDraftV2,
   loadMessageInputDraftV2,
@@ -895,7 +887,6 @@ export function MessageInput({
   const accountRequestsBlocked = useAccountRequestsBlocked()
   const tSide = useTranslations("SideQuestion")
   const [hasSideCommand, setHasSideCommand] = useState(false)
-  const { openSkillMarket } = useWorkbenchRoute()
   const tSessionConfig = t as unknown as SessionConfigTranslator
   const tQueue = useTranslations("Folder.chat.messageQueue")
   // Kept as a separate binding from `t` so its call sites — exclusively
@@ -952,17 +943,6 @@ export function MessageInput({
   const skillPrefix = agentType === "codex" ? "$" : "/"
   const { shortcuts } = useShortcutSettings()
   const effectiveDraftStorageKey = draftStorageKey ?? null
-  // The "+" menu's expert / daily-office skill shortcuts mirror the welcome-page
-  // quick actions: localized labels (`tQa` reads the same namespace those cards
-  // use), the bundled experts, and per-agent skill-enabled gating.
-  const locale = useLocale()
-  const tQa = useTranslations("Folder.chat.welcomePanel.quickActions")
-  const experts = useBuiltInExperts()
-  const {
-    enabledIds,
-    ready: skillStatusReady,
-    supported: skillManagementSupported,
-  } = useEnabledSkillIds(agentType ?? null)
   const editorRef = useRef<RichComposerHandle>(null)
   const updateInlineImage = useCallback(
     (id: string, attrs: Partial<ImageAttachmentAttrs>) => {
@@ -1097,6 +1077,7 @@ export function MessageInput({
       agent: t("mentionGroupAgent"),
       session: t("mentionGroupSession"),
       skill: t("mentionGroupSkill"),
+      artifact: t("mentionGroupArtifact"),
     }),
     [t]
   )
@@ -2669,101 +2650,6 @@ export function MessageInput({
       chain.insertReference(reference).insertContent(" ").run()
     },
     [skillPrefix]
-  )
-
-  // ── "+" menu skill shortcuts (experts / daily office) ──
-  //
-  // Surface the welcome-page skill families inside an active conversation. Each
-  // item drops that skill's leading invocation badge into the composer. A skill
-  // not linked to the current agent is "locked": clicking it surfaces a hint
-  // (and opens its Skill Market detail) instead of injecting a badge the agent
-  // can't act on — the same gating QuickActions applies, to avoid a wasted send.
-  const expertsSorted = useMemo(
-    () =>
-      [...experts].sort(
-        (a, b) =>
-          (a.metadata.sort_order ?? 0) - (b.metadata.sort_order ?? 0) ||
-          a.metadata.id.localeCompare(b.metadata.id)
-      ),
-    [experts]
-  )
-  const isSkillLocked = useCallback(
-    (id: string) => !!agentType && skillStatusReady && !enabledIds.has(id),
-    [agentType, skillStatusReady, enabledIds]
-  )
-
-  const notifySkillNotEnabled = useCallback(
-    (skillLabel: string, skillId: string) => {
-      const agentLabel = agentType ? getAgentDisplayName(agentType) : ""
-      toast.warning(
-        tQa("notEnabled.title", { skill: skillLabel, agent: agentLabel }),
-        {
-          description: tQa("notEnabled.description"),
-          action: {
-            label: tQa("notEnabled.action"),
-            onClick: () => openSkillMarket(skillId),
-          },
-        }
-      )
-    },
-    [agentType, openSkillMarket, tQa]
-  )
-
-  // Insert a skill shortcut: seed the template only into an *empty* composer
-  // (never clobber an in-progress draft), then prepend the skill as the leading
-  // invocation badge. Deferred to the next frame — inserting the badge mounts a
-  // React NodeView rendered with a synchronous flushSync(), which warns if run
-  // during React's commit phase (same pattern as the inject/hydration effects).
-  const insertSkillShortcut = useCallback(
-    (skill: { id: string; label: string }, template: string) => {
-      requestAnimationFrame(() => {
-        const handle = editorRef.current
-        const editor = handle?.getEditor()
-        if (!handle || !editor) return
-        if (template && isComposerEmpty(editor)) {
-          handle.setText(template)
-        }
-        applyExpertReference(editor, {
-          refType: "skill",
-          id: skill.id,
-          label: skill.label,
-          uri: null,
-          meta: { invocationPrefix: skillPrefix, scope: "expert" },
-        })
-        syncComposerEmpty()
-        handle.focus()
-      })
-    },
-    [skillPrefix, syncComposerEmpty]
-  )
-
-  const handleExpertShortcut = useCallback(
-    (item: ExpertListItem) => {
-      const label =
-        pickLocalized(item.metadata.display_name, locale) || item.metadata.id
-      if (isSkillLocked(item.metadata.id)) {
-        notifySkillNotEnabled(label, item.metadata.id)
-        return
-      }
-      // Experts are open-ended: just the leading badge, no canned template.
-      insertSkillShortcut({ id: item.metadata.id, label }, "")
-    },
-    [locale, isSkillLocked, notifySkillNotEnabled, insertSkillShortcut]
-  )
-
-  const handleOfficeShortcut = useCallback(
-    (action: OfficeAction) => {
-      const label = tQa(action.id as Parameters<typeof tQa>[0])
-      if (isSkillLocked(action.skillId)) {
-        notifySkillNotEnabled(label, action.skillId)
-        return
-      }
-      insertSkillShortcut(
-        { id: action.skillId, label },
-        tQa(action.promptKey as Parameters<typeof tQa>[0])
-      )
-    },
-    [tQa, isSkillLocked, notifySkillNotEnabled, insertSkillShortcut]
   )
 
   const handlePickFiles = useCallback(async () => {
@@ -4634,88 +4520,6 @@ export function MessageInput({
                           )}
                         </DropdownMenuSubContent>
                       </DropdownMenuSub>
-                      {/* A custom-dir pi can't have skills managed by iyw-claw's
-                          default-dir store, so hide these shortcuts instead of
-                          offering ones that lock with a Settings path the
-                          Experts/Office matrices also hide for this agent. */}
-                      {skillManagementSupported && (
-                        <>
-                          <DropdownMenuSub>
-                            <DropdownMenuSubTrigger
-                              disabled={expertsSorted.length === 0}
-                            >
-                              <Sparkles className="size-4" />
-                              {t("experts")}
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent
-                              className="min-w-44 overflow-y-auto"
-                              style={{
-                                maxWidth: "min(20rem, calc(100vw - 1rem))",
-                                maxHeight:
-                                  "min(32rem, var(--radix-dropdown-menu-content-available-height))",
-                              }}
-                            >
-                              {expertsSorted.map((item) => {
-                                const Icon = getExpertIcon(item.metadata.icon)
-                                const label =
-                                  pickLocalized(
-                                    item.metadata.display_name,
-                                    locale
-                                  ) || item.metadata.id
-                                return (
-                                  <DropdownMenuItem
-                                    key={item.metadata.id}
-                                    onClick={() => handleExpertShortcut(item)}
-                                  >
-                                    <Icon className="size-4" />
-                                    <span className="flex-1 truncate">
-                                      {label}
-                                    </span>
-                                    {isSkillLocked(item.metadata.id) && (
-                                      <Lock className="ml-auto size-3.5 shrink-0 text-muted-foreground/70" />
-                                    )}
-                                  </DropdownMenuItem>
-                                )
-                              })}
-                            </DropdownMenuSubContent>
-                          </DropdownMenuSub>
-                          <DropdownMenuSub>
-                            <DropdownMenuSubTrigger>
-                              <FileStack className="size-4" />
-                              {t("office")}
-                            </DropdownMenuSubTrigger>
-                            <DropdownMenuSubContent
-                              className="min-w-44 overflow-y-auto"
-                              style={{
-                                maxWidth: "min(20rem, calc(100vw - 1rem))",
-                                maxHeight:
-                                  "min(32rem, var(--radix-dropdown-menu-content-available-height))",
-                              }}
-                            >
-                              {OFFICE_ACTIONS.map((action) => {
-                                const Icon = action.icon
-                                const label = tQa(
-                                  action.id as Parameters<typeof tQa>[0]
-                                )
-                                return (
-                                  <DropdownMenuItem
-                                    key={action.id}
-                                    onClick={() => handleOfficeShortcut(action)}
-                                  >
-                                    <Icon className="size-4" />
-                                    <span className="flex-1 truncate">
-                                      {label}
-                                    </span>
-                                    {isSkillLocked(action.skillId) && (
-                                      <Lock className="ml-auto size-3.5 shrink-0 text-muted-foreground/70" />
-                                    )}
-                                  </DropdownMenuItem>
-                                )
-                              })}
-                            </DropdownMenuSubContent>
-                          </DropdownMenuSub>
-                        </>
-                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                   {hasInlineSelectors && (

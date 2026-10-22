@@ -1,4 +1,5 @@
 import type { FlatFileEntry } from "@/hooks/use-file-tree"
+import type { TaskArtifactInfo } from "@/lib/api"
 import { formatConversationTitle } from "@/lib/conversation-title"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { buildDirectoryUri, buildFileUri } from "@/lib/reference-link"
@@ -30,6 +31,25 @@ export function fileToSuggestion(
     },
     detail: entry.relativePath,
     keywords: entry.relativePath,
+  }
+}
+
+/** Task result → ordinary file reference, shown in its own suggestion group. */
+export function artifactToSuggestion(item: TaskArtifactInfo): SuggestionItem {
+  const fileKind = item.kind === "directory" ? "dir" : "file"
+  return {
+    reference: {
+      refType: "file",
+      id: item.path,
+      label: item.displayName,
+      uri:
+        fileKind === "dir"
+          ? buildDirectoryUri(item.path)
+          : buildFileUri(item.path),
+      meta: { fileKind },
+    },
+    detail: item.conversationTitle,
+    keywords: `${item.path} ${item.conversationTitle ?? ""}`,
   }
 }
 

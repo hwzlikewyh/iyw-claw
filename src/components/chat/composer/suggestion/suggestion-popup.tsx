@@ -14,27 +14,31 @@ import { createPortal } from "react-dom"
 import { cn } from "@/lib/utils"
 
 import { ReferenceIcon } from "../badges/reference-badge"
-import type { ReferenceAttrs, ReferenceKind } from "../types"
+import type { ReferenceAttrs } from "../types"
 import type { MentionRenderState } from "./mention-suggestion"
 import { placeMentionPopup } from "./popup-position"
 import type {
   ReferenceSearch,
   SuggestionGroup,
+  SuggestionGroupKind,
   SuggestionPopupHandle,
 } from "./types"
 
 const FETCH_DEBOUNCE_MS = 150
 
-// Tab order in the panel: agent first (per product decision), then the rest in
-// their usual order. This is a *display* order; the search provider keeps its
-// own (file-first) group order, which other code/tests depend on. `skill` is
-// intentionally absent — skills, commands and experts are inserted via the `/`
-// and `$` triggers, not the `@` panel.
-const TAB_ORDER: readonly ReferenceKind[] = ["agent", "file", "session"]
+// Display order for the unified @ panel. Skills, commands and experts use
+// their dedicated / and $ triggers instead of this panel.
+const TAB_ORDER: readonly SuggestionGroupKind[] = [
+  "artifact",
+  "session",
+  "agent",
+  "file",
+]
 
 // English fallbacks for reference kinds; commit and skill stay here only for
 // historical-reference type completeness and are not shown as tabs.
-const DEFAULT_TAB_LABELS: Record<ReferenceKind, string> = {
+const DEFAULT_TAB_LABELS: Record<SuggestionGroupKind, string> = {
+  artifact: "Artifacts",
   agent: "Agents",
   file: "Files",
   session: "Sessions",
@@ -57,7 +61,7 @@ const useIsomorphicLayoutEffect =
  * options are rendered). Only one panel is open at a time, so ids never collide.
  */
 export const MENTION_LISTBOX_ID = "mention-listbox"
-export const mentionOptionId = (kind: ReferenceKind, index: number) =>
+export const mentionOptionId = (kind: SuggestionGroupKind, index: number) =>
   `mention-option-${kind}-${index}`
 
 export interface SuggestionPopupProps {
@@ -81,7 +85,7 @@ export interface SuggestionPopupProps {
   /** Non-selectable hint shown under a tab whose matches were capped. */
   moreLabel?: string
   /** Localized per-kind tab labels (English fallbacks apply when omitted). */
-  tabLabels?: Partial<Record<ReferenceKind, string>>
+  tabLabels?: Partial<Record<SuggestionGroupKind, string>>
   /**
    * Reports the active option's element id (or null when nothing is
    * selectable), so the host can mirror it onto the editor's
@@ -92,7 +96,7 @@ export interface SuggestionPopupProps {
 
 /**
  * The unified `@` panel: tabbed, keyboard-navigable suggestions positioned at
- * the caret. One tab per reference kind (agent first); only the active tab's
+ * the caret. One tab per suggestion group; only the active tab's
  * group is shown. Keys are forwarded from the suggestion plugin via the
  * imperative handle (the editor keeps DOM focus), so selection and the active
  * tab are tracked manually rather than relying on focus-based libraries — the
@@ -131,7 +135,7 @@ export const SuggestionPopup = forwardRef<
   // The tab the user explicitly chose (via Tab/click), or null to auto-follow
   // the first non-empty tab. Pinning survives subsequent keystrokes within this
   // open session; reopening the panel remounts and resets it to null.
-  const [pinnedTab, setPinnedTab] = useState<ReferenceKind | null>(null)
+  const [pinnedTab, setPinnedTab] = useState<SuggestionGroupKind | null>(null)
   const [pos, setPos] = useState<{
     left: number
     top: number
