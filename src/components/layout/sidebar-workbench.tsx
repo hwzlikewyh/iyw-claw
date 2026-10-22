@@ -3,6 +3,7 @@
 import { useId, useState } from "react"
 import {
   CalendarClock,
+  BookOpenText,
   ChevronRight,
   LibraryBig,
   PackageCheck,
@@ -28,6 +29,7 @@ export function SidebarWorkbench({ compact = false }: { compact?: boolean }) {
     { id: "automations", label: t("automations"), icon: CalendarClock },
     { id: "skills", label: t("skillsMarket"), icon: PackageCheck },
     { id: "resources", label: t("resources"), icon: LibraryBig },
+    { id: "library", label: t("library"), icon: BookOpenText },
   ] as const
   const openRoute = (id: (typeof entries)[number]["id"]) => {
     setRoute(id)

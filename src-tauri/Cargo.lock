@@ -9307,6 +9307,7 @@ dependencies = [
  "futures-util",
  "gdk",
  "gtk",
+ "hmac 0.12.1",
  "http-range-header",
  "if-addrs",
  "image",

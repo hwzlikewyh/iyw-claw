@@ -64,9 +64,20 @@ impl KnowledgeClient {
         operation: &str,
         body: Value,
     ) -> Result<T, AppCommandError> {
+        self.post_with_timeout(operation, body, REQUEST_TIMEOUT)
+            .await
+    }
+
+    pub async fn post_with_timeout<T: DeserializeOwned>(
+        &self,
+        operation: &str,
+        body: Value,
+        timeout: Duration,
+    ) -> Result<T, AppCommandError> {
         let mut response = client()?
             .post(format!("{BASE}/{operation}"))
             .header("token", self.token.expose())
+            .timeout(timeout)
             .json(&body)
             .send()
             .await
@@ -91,6 +102,9 @@ impl KnowledgeClient {
 }
 
 fn upstream_error(operation: &str, status: u16) -> AppCommandError {
+    if operation == "files/create" && (200..300).contains(&status) {
+        return AppCommandError::invalid_input("云端未接受该文件，请检查格式、目录权限和可用容量");
+    }
     let error = match status {
         400 | 404 => AppCommandError::invalid_input("知识库范围无效或无权访问，请重新选择"),
         401 | 403 => {

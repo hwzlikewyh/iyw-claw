@@ -32,6 +32,7 @@ pub mod git;
 pub mod internet_tools;
 pub mod iyw_account;
 pub mod knowledge;
+pub mod knowledge_library;
 pub mod log_report;
 pub mod logging;
 pub mod managed_skills;

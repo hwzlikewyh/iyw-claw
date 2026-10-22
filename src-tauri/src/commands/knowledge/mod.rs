@@ -1,8 +1,16 @@
 pub mod api;
+pub mod library;
+#[cfg(feature = "tauri-runtime")]
+pub mod library_commands;
 pub mod models;
 mod results;
 pub mod search;
 pub mod selection;
+mod tos_signing;
+pub mod upload;
+pub mod upload_models;
+mod upload_store;
+mod upload_worker;
 
 #[cfg(feature = "tauri-runtime")]
 use crate::app_error::AppCommandError;

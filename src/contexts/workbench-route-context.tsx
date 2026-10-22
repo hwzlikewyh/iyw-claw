@@ -24,6 +24,7 @@ export type WorkbenchRouteId =
   | "automations"
   | "skills"
   | "resources"
+  | "library"
 
 export interface SkillMarketNavigationTarget {
   requestId: number
