@@ -148,7 +148,7 @@ fn transport_error(error: reqwest::Error) -> ErrorData {
         status = error.status().map(|value| value.as_u16()), "[iyw-fetch] transport failed");
     let (code, message) = if error.is_timeout() {
         (
-            "timeout",
+            "MCP_TIMEOUT",
             "IYW request timed out; execution may have occurred. Do not retry writes blindly.",
         )
     } else {

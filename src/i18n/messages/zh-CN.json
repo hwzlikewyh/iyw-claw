@@ -4106,6 +4106,7 @@
       "tool": {
         "parameters": "参数",
         "error": "错误",
+        "timeout": "工具超时或网络异常",
         "result": "结果",
         "status": {
           "approvalRequested": "等待授权",

@@ -35,7 +35,11 @@ pub(super) async fn call(
         .and_then(|error| error.data.as_ref())
         .and_then(|data| data.get("code"))
         .and_then(Value::as_str)
-        .is_some_and(|code| code.starts_with("remote_transport") || code == "remote_queue_timeout")
+        .is_some_and(|code| {
+            code.starts_with("remote_transport")
+                || code == "remote_queue_timeout"
+                || code == "MCP_TIMEOUT"
+        })
     {
         connection.stop();
     }
@@ -72,7 +76,7 @@ async fn send(
         .await
         .map_err(|_| {
             failure(
-                "remote_queue_timeout",
+                "MCP_TIMEOUT",
                 "Remote dispatch outcome is unknown",
                 request.execution,
             )
@@ -89,12 +93,16 @@ async fn receive(
     } else {
         DIRECTORY_TIMEOUT
     };
+    let mut timed_out = false;
     let response = tokio::select! {
         biased;
         _ = request.context.request_cancel.cancelled() => None,
         _ = request.context.authority_cancel.cancelled() => None,
         _ = request.account_cancel.cancelled() => None,
-        _ = tokio::time::sleep(timeout) => None,
+        _ = tokio::time::sleep(timeout) => {
+            timed_out = true;
+            None
+        },
         result = &mut handle.rx => Some(result),
     };
     let Some(response) = response else {
@@ -103,11 +111,19 @@ async fn receive(
             handle.cancel(Some("host request ended".into())),
         )
         .await;
-        return Err(failure(
-            "remote_interrupted",
-            "Remote request cancelled or timed out; verify original task state before retrying",
-            request.execution,
-        ));
+        return Err(if timed_out {
+            failure(
+                "MCP_TIMEOUT",
+                "Remote MCP request timed out; verify the original task state before retrying",
+                request.execution,
+            )
+        } else {
+            failure(
+                "remote_interrupted",
+                "Remote request cancelled; verify original task state before retrying",
+                request.execution,
+            )
+        });
     };
     let response = response
         .map_err(|_| {
@@ -132,7 +148,7 @@ pub(super) fn service_error(error: ServiceError, execution: bool) -> ErrorData {
     match error {
         ServiceError::McpError(error) => error,
         ServiceError::Timeout { .. } => {
-            failure("remote_timeout", "Remote MCP request timed out", execution)
+            failure("MCP_TIMEOUT", "Remote MCP request timed out", execution)
         }
         ServiceError::Cancelled { .. } => failure(
             "remote_cancelled",
