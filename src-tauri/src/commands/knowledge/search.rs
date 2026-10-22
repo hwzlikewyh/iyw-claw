@@ -42,14 +42,15 @@ async fn execute(
     } else {
         let choices = effective_choices(&client, &selected.selected).await?;
         let limit = body["limit"].as_u64().unwrap_or(10) as usize;
-        let groups = stream::iter(
-            choices
-                .iter()
-                .map(|choice| search_choice(&client, &body, choice)),
-        )
-        .buffered(SEARCH_CONCURRENCY)
-        .try_collect::<Vec<_>>()
-        .await?;
+        let groups = stream::iter(choices)
+            .map(|choice: Choice| {
+                let client = &client;
+                let body = &body;
+                async move { search_choice(client, body, &choice).await }
+            })
+            .buffered(SEARCH_CONCURRENCY)
+            .try_collect::<Vec<_>>()
+            .await?;
         results::merge(groups, limit)
     };
     let current = selection::load(conn, Some(id)).await?;

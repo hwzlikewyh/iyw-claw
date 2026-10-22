@@ -4,6 +4,7 @@ mod results;
 pub mod search;
 pub mod selection;
 
+#[cfg(feature = "tauri-runtime")]
 use crate::app_error::AppCommandError;
 #[cfg(feature = "tauri-runtime")]
 use models::{BrowseFiles, FilePage, Folder, Selection, UpdateSelection};
