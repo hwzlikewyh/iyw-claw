@@ -1,6 +1,8 @@
 {
   "ConnectorMarket": {
-    "previousPage": "Previous", "nextPage": "Next", "pageNumber": "Page {page}",
+    "previousPage": "Previous",
+    "nextPage": "Next",
+    "pageNumber": "Page {page}",
     "useInConversation": "Use in current conversation",
     "newConversation": "New conversation",
     "conversationEnabled": "Saved for this conversation. Reconnect an existing session from its connector menu to apply.",
@@ -3921,6 +3923,9 @@
         "errorActionContinueContextLoading": "Preparing recent context...",
         "emptyConversation": "No messages in this conversation.",
         "assistantName": "原助理",
+        "collapseConversation": "Collapse conversation",
+        "expandConversation": "Expand conversation",
+        "conversationSummaryFallback": "This conversation is complete",
         "collapseProcess": "Hide history",
         "expandResponse": "Show full reply",
         "collapseResponse": "Collapse reply",

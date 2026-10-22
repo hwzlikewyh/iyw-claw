@@ -11,7 +11,6 @@ import type { MessageRole, PlanEntryInfo } from "@/lib/types"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
 import {
   isCommandLikeTool,
-  sanitizeCommandDisplayValue,
   sanitizeCommandDisplayPayload,
   sanitizeCommandDisplayText,
 } from "@/lib/command-display"
@@ -59,8 +58,6 @@ import {
 import { OnceEntrance } from "@/components/message/message-entrance"
 import { AgentToolCallPart } from "./agent-tool-call"
 import { useToolDisclosure } from "./tool-disclosure-context"
-import { CommandOutput } from "./command-output"
-import { commandExitCode } from "./command-output-presentation"
 import { AskQuestionResultCard } from "./ask-question-result-card"
 import {
   parseScheduledTaskReceipt,
@@ -2133,15 +2130,6 @@ function ToolCallPartContent({
     normalizedToolName,
     part.input ?? part.output ?? part.errorText ?? null
   )
-  const displayOutput = isCommandTool
-    ? typeof part.output === "string"
-      ? sanitizeCommandDisplayPayload(part.output)
-      : sanitizeCommandDisplayValue(part.output)
-    : part.output
-  const displayError =
-    isCommandTool && part.errorText
-      ? sanitizeCommandDisplayPayload(part.errorText)
-      : part.errorText
   // A `Bash(run_in_background: true)` launch — its result is just the task id +
   // an "output is being written to …" notice. Flag the command card as a
   // background launch (header badge + concise body) instead of dumping that
@@ -2501,14 +2489,6 @@ function ToolCallPartContent({
   }
 
   const open = manualOpen
-  const commandOutput =
-    typeof displayOutput === "string"
-      ? parseCliExecutionEnvelope(
-          commandOutputFromJsonString(displayOutput) ?? displayOutput
-        ).output
-      : null
-  const exitCode = isShellCommandTool ? commandExitCode(part.output) : null
-
   return (
     <Tool open={open} onOpenChange={setManualOpen}>
       <ToolHeader
@@ -2535,18 +2515,8 @@ function ToolCallPartContent({
                 : part.output}
             </MessageResponse>
           </div>
-        ) : isCommandTool && isShellCommandTool ? (
-          <CommandOutput
-            output={commandOutput}
-            errorText={displayError}
-            exitCode={exitCode}
-            running={part.state.startsWith("input-")}
-          />
-        ) : isCommandTool ? (
-          (displayOutput || displayError) && (
-            <ToolOutput output={displayOutput} errorText={displayError} />
-          )
-        ) : (
+        ) : isCommandTool &&
+          isShellCommandTool ? null : isCommandTool ? null : (
           !shouldHideDuplicateResult &&
           (part.output || part.errorText) && (
             <ToolOutput output={part.output} errorText={part.errorText} />

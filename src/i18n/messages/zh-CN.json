@@ -1,6 +1,8 @@
 {
   "ConnectorMarket": {
-    "previousPage": "上一页", "nextPage": "下一页", "pageNumber": "第 {page} 页",
+    "previousPage": "上一页",
+    "nextPage": "下一页",
+    "pageNumber": "第 {page} 页",
     "useInConversation": "用于当前对话",
     "newConversation": "新对话",
     "conversationEnabled": "已为当前对话保存。已有连接请在连接器菜单重连以应用。",
@@ -3921,6 +3923,9 @@
         "errorActionContinueContextLoading": "正在准备最近上下文...",
         "emptyConversation": "当前会话暂无消息。",
         "assistantName": "原助理",
+        "collapseConversation": "收起本次对话",
+        "expandConversation": "展开本次对话",
+        "conversationSummaryFallback": "本次对话已完成",
         "collapseProcess": "收起过程",
         "expandResponse": "展开完整回复",
         "collapseResponse": "收起回复",
