@@ -93,6 +93,7 @@ function AssistantTimeline(
       sections={props.sections}
       complete={props.isResponseComplete}
       collapse={props.collapseCompletedTurn}
+      durationMs={props.durationMs}
       renderSection={(section, index, expanded) => (
         <AssistantTimelineSectionView
           {...props}

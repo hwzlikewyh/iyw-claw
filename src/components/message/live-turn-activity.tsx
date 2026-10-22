@@ -15,7 +15,10 @@ import {
   getBuiltinToolDisplay,
   getRemoteToolDisplayTitle,
 } from "@/lib/builtin-tool-display"
-import { getToolDisplayName } from "@/lib/tool-display"
+import {
+  getReadableToolActivityTitle,
+  getToolDisplayName,
+} from "@/lib/tool-display"
 import { formatElapsedLabel } from "@/lib/format-elapsed"
 import { isContextCompactionMeta } from "@/lib/context-compaction"
 import { readableStatusText, summarizeLiveTurn } from "./live-turn-summary"
@@ -167,12 +170,15 @@ function useToolPresentation(
     if (!title && !kind) return { name: "", icon: "tool" as ActivityIcon }
     const name = inferLiveToolName({ title, kind, rawInput, meta })
     const builtin = getBuiltinToolDisplay(name, rawInput, resolvedTitle)
+    const builtinTitle = getReadableToolActivityTitle(builtin?.fallbackName)
+    const activityTitle = getReadableToolActivityTitle(resolvedTitle ?? title)
     return {
       name:
-        builtin?.fallbackName ??
+        builtinTitle ??
+        activityTitle ??
         getToolDisplayName(
           {
-            toolName: builtin?.fallbackName ?? builtin?.toolName ?? name,
+            toolName: builtin?.toolName ?? name,
             displayTitle:
               getRemoteToolDisplayTitle(rawInput, meta) ?? undefined,
           },

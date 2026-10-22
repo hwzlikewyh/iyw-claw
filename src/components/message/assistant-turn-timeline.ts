@@ -10,6 +10,7 @@ export interface AssistantTimelineSection {
   kind: "content" | "process" | "compaction"
   parts: AdaptedContentPart[]
   retainOnCompletion: boolean
+  isFinalResponse: boolean
 }
 
 // 目标只包装生命周期，不改变正文、思考和工具的事件位置。
@@ -86,6 +87,27 @@ function appendSection(
   }
 }
 
+function appendFinalResponse(
+  parts: AdaptedContentPart[],
+  start: number,
+  sections: AssistantTimelineSection[]
+): number {
+  const response: Extract<AdaptedContentPart, { type: "text" }>[] = []
+  let index = start
+  while (index < parts.length && parts[index].type === "text") {
+    response.push(parts[index] as Extract<AdaptedContentPart, { type: "text" }>)
+    index += 1
+  }
+  sections.push({
+    key: "final-response:" + start,
+    kind: "content",
+    parts: response,
+    retainOnCompletion: true,
+    isFinalResponse: true,
+  })
+  return index
+}
+
 export function buildAssistantTimeline(
   parts: AdaptedContentPart[],
   complete: boolean
@@ -96,8 +118,13 @@ export function buildAssistantTimeline(
       (part.type !== "text" || Boolean(part.text.trim()))
   )
   const sections: AssistantTimelineSection[] = []
-  const responseStart = finalTextStart(ordered)
-  ordered.forEach((source, index) => {
+  const responseStart = complete ? finalTextStart(ordered) : ordered.length
+  for (let index = 0; index < ordered.length; ) {
+    if (index >= responseStart && ordered[index].type === "text") {
+      index = appendFinalResponse(ordered, index, sections)
+      continue
+    }
+    const source = ordered[index]
     const part =
       source.type === "reasoning"
         ? {
@@ -122,13 +149,12 @@ export function buildAssistantTimeline(
         key: `${partKey(part, index)}:${chunk}`,
         kind,
         parts: [value],
-        retainOnCompletion:
-          compaction ||
-          retainResult(part) ||
-          (part.type === "text" && index >= responseStart),
+        retainOnCompletion: compaction || retainResult(part),
+        isFinalResponse: false,
       })
     }
-  })
+    index += 1
+  }
   return sections
 }
 

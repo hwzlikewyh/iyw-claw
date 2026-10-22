@@ -109,7 +109,6 @@ import { ServerFileBrowserDialog } from "@/components/shared/server-file-browser
 import { toast } from "sonner"
 import { preparePickedAttachmentPaths } from "./chat-attachment-staging"
 import { disposeTauriListener } from "@/lib/tauri-listener"
-import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import type {
   AgentSkillItem,
   AgentType,
@@ -164,11 +163,7 @@ import {
   useRealtimeVoiceInput,
   type RealtimeVoiceErrorKind,
 } from "@/hooks/use-realtime-voice-input"
-import {
-  getExpertIcon,
-  isVisibleExpertId,
-  pickLocalized,
-} from "@/lib/expert-presentation"
+import { isVisibleExpertId } from "@/lib/expert-presentation"
 import {
   clearMessageInputDraftV2,
   loadMessageInputDraftV2,
