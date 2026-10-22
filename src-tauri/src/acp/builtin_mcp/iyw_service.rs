@@ -23,7 +23,7 @@ mod image;
 
 #[derive(Clone)]
 pub(super) struct IywGatewayService {
-    conn: DatabaseConnection,
+    pub(super) conn: DatabaseConnection,
     listener: Arc<DelegationListener>,
     client: reqwest::Client,
     pub(super) upload_client: reqwest::Client,
@@ -71,9 +71,10 @@ impl IywGatewayService {
 
     pub(super) async fn search_knowledge(
         &self,
+        authority: &SessionContext,
         arguments: Value,
     ) -> Result<rmcp::model::CallToolResult, rmcp::ErrorData> {
-        super::iyw_knowledge::search(self, arguments).await
+        super::iyw_knowledge::search(self, authority, arguments).await
     }
 
     pub(super) async fn token(&self) -> Result<String, rmcp::ErrorData> {

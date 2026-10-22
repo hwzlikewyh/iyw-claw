@@ -12,6 +12,7 @@ mod capability_response;
 mod capability_schema;
 mod credential;
 mod computer;
+mod deadline;
 mod delivery;
 mod diagnostics;
 mod features;

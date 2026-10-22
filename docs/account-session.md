@@ -2,6 +2,8 @@
 
 账号功能沿用 `IywAccountProvider`、Tauri/Web transport 和 Rust 账号核心。界面跟随应用当前主题，顶部空间切换在 `FolderTitleBar` 右侧工具区；账号菜单保留资料、点数、设置、使用统计、连接器、个人记忆、外观、会话管理器、更新和注销。
 
+账号菜单的“连接器”关闭菜单后打开能力市场，并直接选中“连接器”标签；导航复用会话菜单的 `openConnectorMarket`。
+
 ## 登录流程
 
 - 微信扫码、密码与短信登录共用 `iyw_account_auth`，Web 请求同样使用 POST。

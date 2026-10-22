@@ -1,4 +1,31 @@
 {
+  "CloudKnowledge": {
+    "title": "Cloud knowledge",
+    "description": "Choose folders or files for this conversation. Search runs in the cloud using your current account.",
+    "knowledge": "Knowledge",
+    "customers": "Customer knowledge",
+    "loading": "Loading…",
+    "retry": "Reload",
+    "empty": "No folders in this library",
+    "emptyFolder": "This folder is empty",
+    "noMatches": "No matching folders",
+    "filterFolders": "Filter folders by name",
+    "expand": "Expand {name}",
+    "collapse": "Collapse {name}",
+    "notReady": "Not searchable yet",
+    "loadMore": "Load more ({loaded} of {total})",
+    "selected": "Selected sources ({count})",
+    "unselected": "No custom scope. The existing knowledge tool keeps its default search behavior.",
+    "includesChildren": "Includes subfolders",
+    "remove": "Remove {name}",
+    "scopeHint": "Folders include subfolders. Saved choices apply to the next knowledge search in this conversation.",
+    "clear": "Clear",
+    "confirm": "Save",
+    "saved": "Knowledge scope saved",
+    "limit": "Select up to {count} folders or files",
+    "newConversation": "New conversation",
+    "accountBusy": "Account or workspace is changing. Please wait."
+  },
   "ConnectorMarket": {
     "previousPage": "Previous",
     "nextPage": "Next",
@@ -3498,6 +3525,7 @@
         "sendMessage": "Send a message..."
       },
       "messageInput": {
+        "cloudKnowledge": "Cloud knowledge…",
         "askAnything": "Ask anything...",
         "scenarioVariablesRequired": "Fill in first: {variables}",
         "conversationStarting": "Starting conversation...",
@@ -3622,6 +3650,7 @@
         "mentionGroupAgent": "Agents",
         "mentionGroupSession": "Sessions",
         "mentionGroupSkill": "Skills",
+        "mentionGroupArtifact": "Artifacts",
         "sessionConfig": {
           "options": {
             "mode": {
@@ -4109,6 +4138,7 @@
       "tool": {
         "parameters": "Parameters",
         "error": "Error",
+        "timeout": "Tool timed out or network error",
         "result": "Result",
         "status": {
           "approvalRequested": "Awaiting Approval",

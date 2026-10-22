@@ -21,7 +21,7 @@ import type {
   PendingQuestion,
 } from "@/contexts/acp-connections-context"
 import type { QueuedMessage } from "@/hooks/use-message-queue"
-import { Play, X } from "lucide-react"
+import { MessageCircleQuestionMark, Play, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AccountRequestsBanner } from "@/components/account/account-points-status"
 import { ChatInput } from "@/components/chat/chat-input"
@@ -261,7 +261,8 @@ function ConversationShellContent({
               size="sm"
               onClick={() => onSideQuestion("")}
             >
-              {tSide("title")} /btw
+              <MessageCircleQuestionMark className="size-4" />
+              {tSide("title")}
             </Button>
           )}
         </div>

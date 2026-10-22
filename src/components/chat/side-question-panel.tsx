@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useTranslations } from "next-intl"
-import { Loader2, X } from "lucide-react"
+import { Loader2, MessageCircleQuestionMark, X } from "lucide-react"
 import type { useSideQuestion } from "@/hooks/use-side-question"
 import { Button } from "@/components/ui/button"
 
@@ -25,8 +25,12 @@ export function SideQuestionPanel({
     >
       <header className="flex items-center justify-between border-b px-4 py-3">
         <div>
-          <h2 className="text-sm font-semibold">
-            {t("title")} <span className="text-muted-foreground">/btw</span>
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold">
+            <MessageCircleQuestionMark
+              className="size-4 text-muted-foreground"
+              aria-hidden="true"
+            />
+            {t("title")}
           </h2>
           <p className="text-xs text-muted-foreground">{t("independent")}</p>
         </div>
