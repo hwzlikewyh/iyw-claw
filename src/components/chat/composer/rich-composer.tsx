@@ -39,9 +39,10 @@ import {
 import type {
   MentionUiLabels,
   ReferenceSearch,
+  SuggestionGroupKind,
   SuggestionPopupHandle,
 } from "./suggestion/types"
-import type { ReferenceAttrs, ReferenceKind } from "./types"
+import type { ReferenceAttrs } from "./types"
 import type { ImageAttachmentAttrs } from "./nodes/image-attachment-node"
 
 /**
@@ -131,7 +132,7 @@ export interface RichComposerProps {
   onReady?: () => void
   /**
    * Enables the unified `@` mention panel. Resolves the typed query into
-   * grouped suggestions (files/agents/sessions/commits/skills). MUST be
+   * grouped suggestions (artifacts/files/agents/sessions). MUST be
    * referentially stable (memoize it) — it is a dependency of the panel's fetch
    * effect. Omit to disable mentions.
    */
@@ -145,10 +146,10 @@ export interface RichComposerProps {
    */
   mentionUiLabels?: MentionUiLabels
   /**
-   * Localized per-kind tab labels for the `@` panel (Agents/Files/Sessions).
+   * Localized per-group tab labels for the `@` panel.
    * English fallbacks apply when omitted. Render-only.
    */
-  tabLabels?: Partial<Record<ReferenceKind, string>>
+  tabLabels?: Partial<Record<SuggestionGroupKind, string>>
   /**
    * Key binding (matchShortcutEvent form) that sends the message. Default
    * `"enter"`. When set to a non-Enter binding, a plain Enter inserts a newline.

@@ -3622,6 +3622,7 @@
         "mentionGroupAgent": "Agents",
         "mentionGroupSession": "Sessions",
         "mentionGroupSkill": "Skills",
+        "mentionGroupArtifact": "Artifacts",
         "sessionConfig": {
           "options": {
             "mode": {

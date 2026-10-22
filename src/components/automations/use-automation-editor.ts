@@ -101,6 +101,7 @@ export function useAutomationEditor({
       agent: tComposer("mentionGroupAgent"),
       session: tComposer("mentionGroupSession"),
       skill: tComposer("mentionGroupSkill"),
+      artifact: tComposer("mentionGroupArtifact"),
     }),
     [tComposer]
   )
