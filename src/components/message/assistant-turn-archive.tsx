@@ -102,7 +102,7 @@ function ArchiveSections({
             section={entry.item.section}
             open={
               expanded ||
-              section.parts.some(processPartHasFailure) ||
+              entry.item.section.parts.some(processPartHasFailure) ||
               (entry.item.section.retainOnCompletion &&
                 !entry.item.section.isFinalResponse)
             }
