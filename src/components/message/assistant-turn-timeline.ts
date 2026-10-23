@@ -4,8 +4,6 @@ import { normalizeToolName } from "@/lib/tool-call-normalization"
 import { splitAssistantText } from "./assistant-text-segments"
 import { getBuiltinToolDisplay } from "@/lib/builtin-tool-display"
 
-const PROCESS_SECTION_SIZE = 4
-
 export interface AssistantTimelineSection {
   key: string
   kind: "content" | "process" | "compaction"
@@ -85,11 +83,7 @@ function appendSection(
   section: AssistantTimelineSection
 ) {
   const previous = sections[sections.length - 1]
-  if (
-    section.kind === "process" &&
-    previous?.kind === "process" &&
-    previous.parts.length < PROCESS_SECTION_SIZE
-  ) {
+  if (section.kind === "process" && previous?.kind === "process") {
     previous.parts.push(...section.parts)
   } else {
     sections.push(section)
