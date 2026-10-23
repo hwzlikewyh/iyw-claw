@@ -1,11 +1,10 @@
-use std::path::{Path, PathBuf};
-
 use futures_util::{stream, StreamExt};
 use serde::Deserialize;
 
-use super::{invalid, IywGatewayService};
+use super::{invalid, IywGatewayService, SessionContext};
 
 mod asset;
+mod path;
 
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum ImageValidation {
@@ -52,7 +51,7 @@ pub(super) struct PreparedImage {
 }
 
 pub(super) async fn prepare_images(
-    context: (&IywGatewayService, &Path),
+    context: (&IywGatewayService, &SessionContext),
     sources: &[ImageSource],
     validation: ImageValidation,
 ) -> Result<Vec<PreparedImage>, rmcp::ErrorData> {
@@ -79,7 +78,7 @@ pub(super) async fn prepare_images(
 }
 
 async fn prepare_image(
-    (service, cwd): (&IywGatewayService, &Path),
+    (service, authority): (&IywGatewayService, &SessionContext),
     (index, source): (usize, &ImageSource),
     (editing, inspect): (bool, bool),
 ) -> Result<PreparedImage, rmcp::ErrorData> {
@@ -90,10 +89,10 @@ async fn prepare_image(
     let load_source = if value.starts_with("https://") {
         credential_free_https(&value)?
     } else {
-        local_source(cwd, &value, mime.as_deref(), encoded)?
+        local_source((service, authority), &value, (mime.as_deref(), encoded)).await?
     };
     let mut prepared = asset::prepare(
-        (service, cwd),
+        (service, authority.cwd()),
         (&load_source, mime.as_deref()),
         (editing, inspect),
     )
@@ -149,11 +148,10 @@ fn source_object_parts(
     ))
 }
 
-fn local_source(
-    cwd: &Path,
+async fn local_source(
+    context: (&IywGatewayService, &SessionContext),
     value: &str,
-    mime: Option<&str>,
-    encoded: bool,
+    (mime, encoded): (Option<&str>, bool),
 ) -> Result<String, rmcp::ErrorData> {
     if value.starts_with("data:") {
         return Ok(value.to_string());
@@ -162,7 +160,7 @@ fn local_source(
         let mime = mime.ok_or_else(|| invalid("raw base64 requires mimeType"))?;
         return Ok(format!("data:{mime};base64,{value}"));
     }
-    Ok(workspace_path(cwd, value)?.to_string_lossy().into_owned())
+    Ok(path::resolve(context, value).await?.to_string_lossy().into_owned())
 }
 
 fn credential_free_https(value: &str) -> Result<String, rmcp::ErrorData> {
@@ -175,22 +173,6 @@ fn credential_free_https(value: &str) -> Result<String, rmcp::ErrorData> {
         return Err(invalid("image URL must be credential-free HTTPS"));
     }
     Ok(value.to_string())
-}
-
-fn workspace_path(cwd: &Path, value: &str) -> Result<PathBuf, rmcp::ErrorData> {
-    let candidate = if Path::new(value).is_absolute() {
-        PathBuf::from(value)
-    } else {
-        cwd.join(value)
-    };
-    let root =
-        std::fs::canonicalize(cwd).map_err(|_| invalid("working directory is unavailable"))?;
-    let path =
-        std::fs::canonicalize(candidate).map_err(|_| invalid("image file is unavailable"))?;
-    if !path.starts_with(root) || !path.is_file() {
-        return Err(invalid("image path must stay inside the current workspace"));
-    }
-    Ok(path)
 }
 
 fn extension_for_mime(mime: &str) -> Result<&'static str, rmcp::ErrorData> {

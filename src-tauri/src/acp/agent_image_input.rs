@@ -13,6 +13,9 @@ const CHAT_SESSIONS_DIR: &str = "chat-sessions";
 const CONVERSATION_ATTACHMENTS_DIR: &str = "conversation-attachments";
 const ATTACHMENTS_DIR: &str = "attachments";
 
+pub(crate) mod access;
+use access::belongs_to_scope;
+
 #[derive(Debug, Clone)]
 pub(crate) struct CodexImageScope {
     pub connection_id: String,
@@ -251,13 +254,6 @@ fn is_managed_chat_dir(data_dir: &Path, path: &Path) -> bool {
 fn inspect_mime(bytes: &[u8]) -> Result<&'static str, AcpError> {
     crate::commands::chat_image::inspect_input_image_mime(bytes)
         .map_err(|_| image_error("Codex image attachment format is not supported."))
-}
-
-fn belongs_to_scope(scope: &PreparedScope, location: &ManagedLocation) -> bool {
-    match location {
-        ManagedLocation::Chat(chat_dir) => scope.chat_dir.as_ref() == Some(chat_dir),
-        ManagedLocation::Conversation(bucket) => scope.allowed_buckets.contains(bucket),
-    }
 }
 
 async fn restage_for_scope(

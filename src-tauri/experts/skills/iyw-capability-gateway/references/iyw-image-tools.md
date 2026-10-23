@@ -54,7 +54,7 @@
 
 商品套图/A+ 的完整输入与版本流程见 [套图](iyw-api-product-kits.md)，批量图像任务见 [批量中心](iyw-api-batch-center.md)，枚举按需读 [通道与类型](iyw-image-enums.md)。
 
-`images` 接受 HTTPS URL、工作区本地路径、Data URL，或 `{path|url|base64|data,mimeType,role,name}` 对象；原始 Base64 需 MIME。Fusion 编辑支持最多 16 张 PNG/JPEG/WebP 参考图及额外 1 张 PNG 蒙版，平台操作最多 10 张。本地路径与编码图片先校验真实 MIME，再上传取得 HTTPS URL；已有 URL 保留完整 query 并直接提交，其内容、格式和大小由上游验证。使用编辑蒙版时，主机只读取蒙版与首张参考图以校验 PNG／尺寸。主机读取的单图上限 20 MiB。重试复用同一组 URL。`prompt` 描述目标，`parameters` 放所选操作的业务字段。新原生操作不同时接受顶层 images 和同名 parameters 图片字段。
+`images` 接受 HTTPS URL、工作区本地路径、本轮提供的会话附件路径、file URI、Data URL，或 `{path|url|base64|data,mimeType,role,name}` 对象；原始 Base64 需 MIME。附件直接使用本轮上下文给出的准确路径，不猜测文件名、不遍历目录；主机仅允许本会话受管附件位于工作区外，其他会话附件和任意外部文件仍被拒绝。Fusion 编辑支持最多 16 张 PNG/JPEG/WebP 参考图及额外 1 张 PNG 蒙版，平台操作最多 10 张。本地路径与编码图片先校验真实 MIME，再上传取得 HTTPS URL；已有 URL 保留完整 query 并直接提交，其内容、格式和大小由上游验证。使用编辑蒙版时，主机只读取蒙版与首张参考图以校验 PNG／尺寸。主机读取的单图上限 20 MiB。重试复用同一组 URL。`prompt` 描述目标，`parameters` 放所选操作的业务字段。新原生操作不同时接受顶层 images 和同名 parameters 图片字段。
 
 | type | 后端操作 | 参数与区别 |
 | --- | --- | --- |

@@ -147,7 +147,7 @@ async fn prepare_inputs(
     request: &ImageRequest,
     (kind, candidates): (&str, &[ImageRequest]),
 ) -> Result<Vec<PreparedImage>, rmcp::ErrorData> {
-    let image_context = (context.service, context.authority.cwd());
+    let image_context = (context.service, context.authority);
     let images = if kind == "edit"
         || candidates
             .iter()
