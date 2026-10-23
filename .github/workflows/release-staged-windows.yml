@@ -241,6 +241,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          NO_COLOR: "1"
+          CLICOLOR: "0"
           STAGING_RUN_ID: ${{ inputs.staging_run_id || github.run_id }}
           STAGING_ARCHIVE_SHA256: ${{ inputs.staging_archive_sha256 }}
           STAGING_DOWNLOAD_DIR: ${{ runner.temp }}/iyw-windows-staging-download-${{ github.run_id }}-${{ github.run_attempt }}
@@ -261,8 +263,10 @@ jobs:
           $env:HTTP_PROXY = 'http://127.0.0.1:7890'
           $env:HTTPS_PROXY = 'http://127.0.0.1:7890'
           $env:NO_PROXY = 'localhost,127.0.0.1'
-          $artifacts = gh api "repos/$env:GH_REPO/actions/runs/$env:STAGING_RUN_ID/artifacts" | ConvertFrom-Json
+          $artifactJson = & (Get-Command gh.exe -CommandType Application -ErrorAction Stop).Source api "repos/$env:GH_REPO/actions/runs/$env:STAGING_RUN_ID/artifacts"
           if ($LASTEXITCODE -ne 0) { throw 'staging artifact lookup failed' }
+          $artifactJson = ($artifactJson -join [Environment]::NewLine) -replace '\x1B\[[0-?]*[ -/]*[@-~]', ''
+          $artifacts = $artifactJson | ConvertFrom-Json
           $matchingArtifacts = @($artifacts.artifacts | Where-Object { $_.name -eq "staged-windows-x86_64-$env:TEST_VERSION" -and !$_.expired })
           if ($matchingArtifacts.Count -ne 1) { throw 'expected exactly one unexpired staging artifact' }
           $artifact = $matchingArtifacts[0]
