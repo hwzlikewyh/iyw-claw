@@ -28,6 +28,7 @@ interface AssistantProcessSurfaceProps {
   autoOpenErrors: boolean
   conversationId: number
   durationMs?: number | null
+  inline?: boolean
 }
 
 function processPartKey(part: AdaptedContentPart, index: number): string {
@@ -76,6 +77,15 @@ export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
     props.displayMode !== "full" &&
     !(props.autoOpenErrors && hasError)
   const { rootRef, reading, open, onOpenChange } = useArchiveDisclosure(archive)
+  if (props.inline) {
+    return (
+      <div ref={rootRef} className="assistant-process-inline">
+        <ToolDisclosureScope reading={reading}>
+          <ProcessRows {...props} />
+        </ToolDisclosureScope>
+      </div>
+    )
+  }
   return (
     <div ref={rootRef} className="assistant-process-surface">
       <ProcessToggle

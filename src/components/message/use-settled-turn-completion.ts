@@ -11,8 +11,11 @@ export function useSettledTurnCompletion(complete: boolean) {
   const [settled, setSettled] = useState(complete)
   const [wasStreaming] = useState(!complete)
   useEffect(() => {
-    if (!complete || reading || escapedFromLock) return
-    const timer = window.setTimeout(() => setSettled(true), COMPLETE_SETTLE_MS)
+    if (complete && (reading || escapedFromLock)) return
+    const timer = window.setTimeout(
+      () => setSettled(complete),
+      complete ? COMPLETE_SETTLE_MS : 0
+    )
     return () => window.clearTimeout(timer)
   }, [complete, reading, escapedFromLock])
   return { contentRef, complete: complete && settled, wasStreaming }

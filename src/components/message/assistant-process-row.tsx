@@ -1,19 +1,38 @@
 "use client"
 
 import { useMemo } from "react"
-import { Check, ChevronRight, CircleAlert, Clock3 } from "lucide-react"
+import {
+  AppWindow,
+  BookOpen,
+  ChevronRight,
+  CircleAlert,
+  Clock3,
+  FilePenLine,
+  FilePlus,
+  FileText,
+  FolderOpen,
+  LoaderCircle,
+  Search,
+  SquareTerminal,
+  Wrench,
+} from "lucide-react"
 import { useTranslations } from "next-intl"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import { getToolDisplayName } from "@/lib/tool-display"
-import { normalizeToolName } from "@/lib/tool-call-normalization"
 import { cn } from "@/lib/utils"
-import { buildBackgroundTaskRows } from "@/lib/background-task"
-import { buildDelegationTaskRows } from "@/lib/delegation-status"
 import {
   processPartHasFailure,
   processPartNeedsAttention,
 } from "./process-presentation"
 import { useToolDisclosure } from "./tool-disclosure-context"
+import {
+  processToolKind,
+  processToolTitle,
+  type ProcessToolKind,
+} from "./assistant-tool-presentation"
+import { processToolDetails } from "./assistant-tool-sources"
+import { AssistantToolDetails } from "./assistant-tool-details"
+import { AssistantFoldContent } from "./assistant-fold-content"
 
 interface AssistantProcessRowProps {
   part: AdaptedContentPart
@@ -22,150 +41,125 @@ interface AssistantProcessRowProps {
   entranceKey: string
   animationEnabled: boolean
 }
+const ICONS = {
+  read: FileText,
+  write: FilePlus,
+  edit: FilePenLine,
+  folder: FolderOpen,
+  search: Search,
+  fetch: AppWindow,
+  command: SquareTerminal,
+  skill: BookOpen,
+  tool: Wrench,
+}
 
-function toolLabel(
-  part: Extract<AdaptedContentPart, { type: "tool-call" }>,
-  translate: ReturnType<typeof useTranslations>
-) {
-  return getToolDisplayName(
-    { toolName: part.toolName, displayTitle: part.displayTitle },
-    (key, values) =>
-      translate.has(key as never)
-        ? translate(key as never, values as never)
-        : null
+function useRowPresentation(part: AdaptedContentPart, streaming: boolean) {
+  const content = useTranslations("Folder.chat.contentParts")
+  const activity = useTranslations("ConversationPresentation.toolActivity")
+  return useMemo(() => {
+    const tool = part.type === "tool-call" ? part : null
+    const fallback = tool
+      ? getToolDisplayName(tool, (key, values) =>
+          content.has(key as never)
+            ? content(key as never, values as never)
+            : null
+        )
+      : content("processStep.toolResult")
+    const kind: ProcessToolKind = tool ? processToolKind(tool) : "tool"
+    const failed = processPartHasFailure(part)
+    const pending = processPartNeedsAttention(part)
+    const status = failed
+      ? "failed"
+      : pending
+        ? streaming
+          ? "running"
+          : "waiting"
+        : "completed"
+    const label = tool
+      ? processToolTitle(
+          tool,
+          (key, values) => activity(key as never, values as never),
+          fallback
+        )
+      : fallback
+    return {
+      kind,
+      status,
+      statusLabel: content(("processStep." + status) as never),
+      title:
+        status === "running" ? activity("running", { target: label }) : label,
+      details: tool ? processToolDetails(tool) : null,
+    }
+  }, [part, streaming, content, activity])
+}
+
+type RowPresentation = ReturnType<typeof useRowPresentation>
+function ProcessRowHeader({
+  row,
+  open,
+  contentId,
+  onToggle,
+}: {
+  row: RowPresentation
+  open: boolean
+  contentId: string
+  onToggle: () => void
+}) {
+  const Icon = ICONS[row.kind]
+  return (
+    <button
+      type="button"
+      className="assistant-process-row-trigger"
+      disabled={!row.details}
+      aria-expanded={row.details ? open : undefined}
+      aria-controls={row.details ? contentId : undefined}
+      aria-label={row.title + " · " + row.statusLabel}
+      onClick={onToggle}
+    >
+      <Icon aria-hidden="true" className="assistant-process-row-icon" />
+      <span className="assistant-process-row-label">{row.title}</span>
+      {row.details && (
+        <ChevronRight
+          aria-hidden="true"
+          className={cn("assistant-process-row-chevron", open && "rotate-90")}
+        />
+      )}
+      {row.status !== "completed" && (
+        <span
+          className={cn("assistant-process-row-status", "is-" + row.status)}
+        >
+          {row.status === "failed" ? (
+            <CircleAlert aria-hidden="true" />
+          ) : row.status === "running" ? (
+            <LoaderCircle aria-hidden="true" className="animate-spin" />
+          ) : (
+            <Clock3 aria-hidden="true" />
+          )}
+          {row.statusLabel}
+        </span>
+      )}
+    </button>
   )
 }
 
-function partLabel(
-  part: AdaptedContentPart,
-  translate: ReturnType<typeof useTranslations>
-): string {
-  if (part.type === "tool-call") return toolLabel(part, translate)
-  if (part.type === "tool-result") return translate("processStep.toolResult")
-  if (part.type === "reasoning") return translate("processStep.thinking")
-  if (part.type === "goal-run") return translate("processStep.task")
-  if (part.type === "background-task-group")
-    return translate("processStep.background")
-  if (part.type === "delegation-status-group")
-    return translate("processStep.delegation")
-  if (part.type === "generated-image") return translate("processStep.image")
-  if (part.type === "plan") return translate("processStep.plan")
-  if (part.type === "plugin-app") return translate("processStep.plugin")
-  return translate("processStep.tool")
-}
-
-function stepDescription(
-  part: AdaptedContentPart,
-  translate: ReturnType<typeof useTranslations>
-): string {
-  if (part.type === "reasoning") return translate("processStep.reasoningDetail")
-  if (part.type === "tool-result") return translate("processStep.resultDetail")
-  if (part.type === "tool-call") {
-    const normalized = normalizeToolName(part.toolName)
-    if (normalized === "bash" || normalized === "exec_command")
-      return translate("processStep.commandDetail")
-    if (normalized === "read" || normalized === "glob" || normalized === "grep")
-      return translate("processStep.readDetail")
-    if (normalized === "websearch" || normalized === "webfetch")
-      return translate("processStep.webDetail")
-    return translate("processStep.toolDetail")
-  }
-  return translate("processStep.genericDetail")
-}
-
-function rowStatus(
-  part: AdaptedContentPart,
-  streaming: boolean,
-  translate: ReturnType<typeof useTranslations>
-) {
-  if (processPartHasFailure(part)) {
-    return { label: translate("processStep.failed"), kind: "error" as const }
-  }
-  if (isPartRunning(part, streaming)) {
-    return { label: translate("processStep.running"), kind: "running" as const }
-  }
-  if (processPartNeedsAttention(part))
-    return { label: translate("processStep.waiting"), kind: "waiting" as const }
-  return {
-    label: translate("processStep.completed"),
-    kind: "completed" as const,
-  }
-}
-
-function isPartRunning(part: AdaptedContentPart, streaming: boolean): boolean {
-  if (part.type === "tool-call")
-    return (
-      streaming &&
-      (part.state === "input-available" || part.state === "input-streaming")
-    )
-  if (part.type === "reasoning") return streaming && part.isStreaming
-  if (part.type === "goal-run") return streaming && part.isRunning
-  if (part.type === "background-task-group")
-    return buildBackgroundTaskRows(part.polls).some(
-      (row) => row.badge === "running" || row.isInFlight
-    )
-  if (part.type === "delegation-status-group")
-    return buildDelegationTaskRows(part.polls).some(
-      (row) => row.badge.status === "running"
-    )
-  return false
-}
-
-export function AssistantProcessRow({
-  part,
-  index,
-  streaming,
-  entranceKey,
-  animationEnabled,
-}: AssistantProcessRowProps) {
-  const content = useTranslations("Folder.chat.contentParts")
-  const label = useMemo(() => partLabel(part, content), [part, content])
-  const detail = useMemo(() => stepDescription(part, content), [part, content])
-  const status = rowStatus(part, streaming, content)
-  const isCurrent = streaming && processPartNeedsAttention(part)
-  const detailId = `${entranceKey}:detail:${index}`
-  const disclosureId = part.type === "tool-call" ? part.toolCallId : detailId
-  const [expanded, setExpanded] = useToolDisclosure(disclosureId, false)
+export function AssistantProcessRow(props: AssistantProcessRowProps) {
+  const row = useRowPresentation(props.part, props.streaming)
+  const id = props.entranceKey + ":detail:" + props.index
+  const key = props.part.type === "tool-call" ? props.part.toolCallId : id
+  const [expanded, setExpanded] = useToolDisclosure(key, false)
   return (
-    <div
-      className={cn(
-        "assistant-process-row",
-        animationEnabled && "assistant-process-row-enter",
-        isCurrent && "assistant-process-row-current"
+    <div className="assistant-process-row">
+      <ProcessRowHeader
+        row={row}
+        open={expanded}
+        contentId={id}
+        onToggle={() => setExpanded(!expanded)}
+      />
+      {row.details && (
+        <AssistantFoldContent open={expanded} contentId={id}>
+          <AssistantToolDetails details={row.details} />
+        </AssistantFoldContent>
       )}
-    >
-      <button
-        type="button"
-        className="assistant-process-row-trigger"
-        aria-expanded={expanded}
-        aria-controls={detailId}
-        onClick={() => setExpanded(!expanded)}
-      >
-        <ChevronRight
-          aria-hidden="true"
-          className={cn(
-            "assistant-process-row-chevron",
-            expanded && "rotate-90"
-          )}
-        />
-        <span className="assistant-process-row-label">{label}</span>
-        <span
-          className={cn("assistant-process-row-status", `is-${status.kind}`)}
-        >
-          {status.kind === "completed" && <Check aria-hidden="true" />}
-          {status.kind === "running" && <Clock3 aria-hidden="true" />}
-          {status.kind === "waiting" && <Clock3 aria-hidden="true" />}
-          {status.kind === "error" && <CircleAlert aria-hidden="true" />}
-          {status.label}
-        </span>
-      </button>
-      <div
-        id={detailId}
-        className="assistant-process-row-detail"
-        hidden={!expanded}
-      >
-        {detail}
-      </div>
     </div>
   )
 }

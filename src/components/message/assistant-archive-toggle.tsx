@@ -1,4 +1,4 @@
-import { ChevronDown } from "lucide-react"
+import { ChevronRight } from "lucide-react"
 
 interface AssistantArchiveToggleProps {
   open: boolean
@@ -16,11 +16,11 @@ export function AssistantArchiveToggle(props: AssistantArchiveToggleProps) {
       aria-controls={props.contentId}
       onClick={props.onToggle}
     >
-      <ChevronDown
-        aria-hidden="true"
-        className={props.open ? "rotate-180" : undefined}
-      />
       {props.label}
+      <ChevronRight
+        aria-hidden="true"
+        className={props.open ? "rotate-90" : undefined}
+      />
     </button>
   )
 }

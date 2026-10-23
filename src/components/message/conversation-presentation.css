@@ -1,11 +1,13 @@
+@import "./assistant-content-surfaces.css";
+
 .assistant-fold-row {
   display: grid;
   grid-template-rows: 1fr;
   opacity: 1;
   transition:
-    grid-template-rows var(--assistant-fold-duration, 360ms)
+    grid-template-rows var(--assistant-fold-duration, 240ms)
       cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 180ms ease;
+    opacity 140ms ease;
 }
 .assistant-fold-row[data-hidden="true"] {
   grid-template-rows: 0fr;
@@ -31,10 +33,10 @@
   display: flex;
   width: 100%;
   min-width: 0;
-  min-height: 32px;
+  min-height: 28px;
   align-items: center;
   gap: 7px;
-  padding: 4px 8px;
+  padding: 4px 0;
   border-radius: 6px;
   color: var(--muted-foreground);
   text-align: left;
@@ -42,10 +44,17 @@
     background-color 120ms ease,
     color 120ms ease;
 }
-.assistant-process-row-trigger:hover,
-.assistant-process-row-current .assistant-process-row-trigger {
-  background: color-mix(in srgb, var(--muted-foreground) 8%, transparent);
+.assistant-process-row-trigger:not(:disabled):hover {
   color: var(--foreground);
+}
+.assistant-process-row-trigger:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.assistant-process-row-icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
 }
 .assistant-process-row-trigger:focus-visible {
   outline: 2px solid var(--ring);
@@ -59,11 +68,10 @@
 }
 .assistant-process-row-label {
   min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
+  overflow-wrap: anywhere;
+  text-align: start;
+  font-size: 14px;
+  line-height: 1.55;
 }
 .assistant-process-row-status {
   display: inline-flex;
@@ -72,6 +80,7 @@
   gap: 4px;
   font-size: 12px;
   white-space: nowrap;
+  margin-inline-start: auto;
 }
 .assistant-process-row-status svg {
   width: 13px;
@@ -86,7 +95,8 @@
 .assistant-process-row-status.is-waiting {
   color: #a16207;
 }
-.assistant-process-row-status.is-error {
+.assistant-process-row-status.is-error,
+.assistant-process-row-status.is-failed {
   color: #b42318;
 }
 .assistant-process-row-detail {
@@ -153,14 +163,6 @@
   margin-top: 8px;
   font-size: 12px;
 }
-.assistant-final-response-preview {
-  overflow: hidden;
-  margin: 0;
-  font-size: 0.875rem;
-  line-height: 1.5;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .conversation-fold-control {
   display: inline-flex;
   align-items: center;
@@ -168,8 +170,8 @@
   margin-bottom: 8px;
   min-height: 28px;
   gap: 5px;
-  border-radius: 999px;
-  padding: 4px 10px;
+  border-radius: 4px;
+  padding: 4px 0;
   color: var(--muted-foreground);
   font-size: 12px;
   transition:
@@ -196,6 +198,12 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .assistant-reasoning-label > svg {
+    transition: none;
+  }
+  .assistant-process-row .animate-spin {
+    animation: none;
+  }
   .assistant-fold-row {
     transition: none;
   }

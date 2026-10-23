@@ -38,12 +38,8 @@ import { CodeBlock } from "@/components/ai-elements/code-block"
 import { UnifiedDiffPreview } from "@/components/diff/unified-diff-preview"
 import { generateUnifiedDiff } from "@/lib/unified-diff-generator"
 import { FilePathLink } from "@/components/ai-elements/link-safety"
-import {
-  Reasoning,
-  ReasoningBody,
-  ReasoningTrigger,
-  ReasoningContent,
-} from "@/components/ai-elements/reasoning"
+import { ReasoningBody } from "@/components/ai-elements/reasoning"
+import { AssistantReasoning } from "./assistant-reasoning"
 import { OnceEntrance } from "@/components/message/message-entrance"
 import { AgentToolCallPart } from "./agent-tool-call"
 import { useToolDisclosure } from "./tool-disclosure-context"
@@ -2539,20 +2535,8 @@ const ReasoningPart = memo(function ReasoningPart({
   entranceKey?: string
   animationEnabled: boolean
 }) {
-  const hasContent = part.content.trim().length > 0
-  const expandable = hasContent
   const content = (
-    <Reasoning
-      isStreaming={part.isStreaming}
-      expandable={expandable}
-      defaultOpen={part.isStreaming ? undefined : false}
-      className="assistant-ordered-reasoning"
-    >
-      <ReasoningTrigger />
-      {expandable && (
-        <ReasoningContent tabIndex={0}>{part.content}</ReasoningContent>
-      )}
-    </Reasoning>
+    <AssistantReasoning content={part.content} streaming={part.isStreaming} />
   )
   return entranceKey ? (
     <OnceEntrance
