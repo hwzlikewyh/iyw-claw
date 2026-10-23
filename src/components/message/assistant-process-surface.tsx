@@ -11,6 +11,7 @@ import { ToolDisclosureScope } from "./tool-disclosure-context"
 import { useArchiveDisclosure } from "./use-archive-disclosure"
 import { AssistantFoldContent } from "./assistant-fold-content"
 import { AssistantProcessRow } from "./assistant-process-row"
+import { AssistantProcessHistory } from "./assistant-process-history"
 import {
   processDisplayParts,
   processPartHasFailure,
@@ -39,7 +40,7 @@ function processPartKey(part: AdaptedContentPart, index: number): string {
 
 function ProcessRows(props: AssistantProcessSurfaceProps) {
   const parts = processDisplayParts(props.parts)
-  return parts.map((part, index) => {
+  const renderPart = (part: AdaptedContentPart, index: number) => {
     const key = processPartKey(part, index)
     if (part.type === "tool-call" || part.type === "tool-result") {
       return (
@@ -64,7 +65,18 @@ function ProcessRows(props: AssistantProcessSurfaceProps) {
         intelligentUiStreaming={!props.isResponseComplete}
       />
     )
-  })
+  }
+  return (
+    <AssistantProcessHistory
+      parts={parts}
+      enabled={
+        Boolean(props.inline) &&
+        !props.isResponseComplete &&
+        props.displayMode !== "full"
+      }
+      renderPart={renderPart}
+    />
+  )
 }
 
 export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {

@@ -7,7 +7,6 @@ import { AssistantArchiveToggle } from "./assistant-archive-toggle"
 import { AssistantFoldContent } from "./assistant-fold-content"
 import type { AssistantTimelineSection } from "./assistant-turn-timeline"
 import { useArchiveDisclosure } from "./use-archive-disclosure"
-import { processPartHasFailure } from "./process-presentation"
 import { buildAssistantArchiveEntries } from "./assistant-archive-segments"
 import { AssistantProgressSegment } from "./assistant-progress-segment"
 
@@ -66,15 +65,7 @@ export function AssistantTurnArchive(props: AssistantTurnArchiveProps) {
           entry.kind === "section" ? (
             renderItem(entry.item.section, entry.item.index)
           ) : (
-            <AssistantFoldContent
-              key={entry.key}
-              open={
-                expanded ||
-                entry.items.some(({ section }) =>
-                  section.parts.some(processPartHasFailure)
-                )
-              }
-            >
+            <AssistantFoldContent key={entry.key} open={expanded}>
               <AssistantProgressSegment
                 entry={entry}
                 fold={props.foldSegments !== false}
@@ -127,11 +118,5 @@ function ArchiveSection({
   )
   // 最终正文和作品始终原样保留；过程的开关不控制结果。
   if (section.retainOnCompletion) return content
-  return (
-    <AssistantFoldContent
-      open={expanded || section.parts.some(processPartHasFailure)}
-    >
-      {content}
-    </AssistantFoldContent>
-  )
+  return <AssistantFoldContent open={expanded}>{content}</AssistantFoldContent>
 }

@@ -1,6 +1,5 @@
 import type { AssistantTimelineSection } from "./assistant-turn-timeline"
 import { hasActiveProcess } from "./assistant-turn-timeline"
-import { processPartHasFailure } from "./process-presentation"
 
 interface ArchiveSectionItem {
   section: AssistantTimelineSection
@@ -21,7 +20,6 @@ function canArchive(section: AssistantTimelineSection): boolean {
     !section.retainOnCompletion &&
     !section.isFinalResponse &&
     section.parts.every((part) => part.type !== "reasoning") &&
-    !section.parts.some(processPartHasFailure) &&
     !hasActiveProcess(section.parts)
   )
 }

@@ -27,6 +27,35 @@
 .assistant-progress-toggle > svg:last-child {
   transition: transform 160ms ease;
 }
+.assistant-history-toggle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 28px;
+  padding: 2px 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 20px;
+  text-align: start;
+}
+.assistant-history-toggle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.assistant-history-toggle > svg:last-child {
+  transition: transform 160ms ease;
+}
+.assistant-history-status {
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.assistant-history-status.is-failed {
+  color: var(--destructive);
+}
+.assistant-history-status.is-running {
+  color: var(--primary);
+}
 .conversation-live-status-bar {
   padding-block: 6px 8px;
 }
@@ -84,7 +113,8 @@
   background: color-mix(in oklab, var(--primary) 9%, var(--background));
 }
 @media (max-width: 640px) {
-  .assistant-progress-toggle {
+  .assistant-progress-toggle,
+  .assistant-history-toggle {
     min-height: 44px;
   }
   .conversation-live-activity {
@@ -96,7 +126,8 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .assistant-progress-toggle > svg:last-child {
+  .assistant-progress-toggle > svg:last-child,
+  .assistant-history-toggle > svg:last-child {
     transition: none;
   }
 }
