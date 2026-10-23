@@ -42,10 +42,7 @@ impl ProvisionalBinding {
 }
 
 pub(super) enum BindProvisionalResult {
-    Bound {
-        ticket: ProvisionalBinding,
-        replaced: Option<SessionId>,
-    },
+    Bound { ticket: ProvisionalBinding },
     Conflict,
     Cancelled,
 }
@@ -70,25 +67,7 @@ impl SessionBindings {
         if entries.contains_key(&session_id) {
             return BindProvisionalResult::Conflict;
         }
-        let current_id = entries
-            .iter()
-            .find(|(_, binding)| binding.principal == principal)
-            .map(|(id, _)| id.clone());
-        let replaced = match current_id {
-            Some(current_id) => {
-                let current = entries.remove(&current_id).expect("binding exists");
-                current.stream_cancellation.cancel();
-                let previous_phase = current.phase.swap(REPLACED, Ordering::AcqRel);
-                tracing::info!(
-                    target: "builtin_mcp",
-                    connection_id = %parent_connection_id,
-                    previous_phase = phase_name(previous_phase),
-                    "[MCP][http] replaced previous session during initialize"
-                );
-                Some(Arc::<str>::from(current_id))
-            }
-            None => None,
-        };
+        // 同一授权可由主代理、子代理和探测客户端共用；新会话不能撤销旧请求。
         let phase = Arc::new(AtomicU8::new(DELIVERING));
         entries.insert(
             session_id.clone(),
@@ -105,7 +84,6 @@ impl SessionBindings {
                 principal,
                 phase,
             },
-            replaced,
         }
     }
 
@@ -216,17 +194,6 @@ impl SessionBindings {
 
     pub(super) async fn is_empty(&self) -> bool {
         self.inner.read().await.is_empty()
-    }
-}
-
-fn phase_name(phase: u8) -> &'static str {
-    match phase {
-        DELIVERING => "delivering",
-        AWAITING_CONFIRMATION => "awaiting_confirmation",
-        CONFIRMED => "confirmed",
-        ABORTED => "aborted",
-        REPLACED => "replaced",
-        _ => "unknown",
     }
 }
 

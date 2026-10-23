@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, type ReactNode } from "react"
-import { ChevronUp, History, ListTodo, Radio } from "lucide-react"
+import { Bot, ChevronUp, History, ListTodo, Radio } from "lucide-react"
 import { useTranslations } from "next-intl"
 import type { RuntimeTask } from "@/lib/runtime-tasks"
 import { useRuntimeTaskConsumption } from "@/hooks/use-runtime-task-consumption"
@@ -10,7 +10,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
-import { useConversationActivityVisibility } from "@/components/message/conversation-activity-visibility"
 import { useConversationPresentation } from "./conversation-presentation-context"
 import {
   isTaskHistory,
@@ -39,7 +38,6 @@ interface PopoverProps extends TaskActions {
 
 export function RuntimeTaskPanel(props: PanelProps) {
   const state = useConversationPresentation()
-  const { monitorVisible } = useConversationActivityVisibility()
   const [openedScope, setOpenedScope] = useState<string | null>(null)
   if (!state) return null
   const scope = JSON.stringify([state.connectionId, state.conversationId])
@@ -49,16 +47,13 @@ export function RuntimeTaskPanel(props: PanelProps) {
     (task) => isPersistentTask(task) && !isTaskHistory(task)
   )
   if (!current.length && !persistent && !state.error && !open) return null
-  const hidden =
-    !open && !state.error && monitorVisible && current.every(isListeningTask)
-  if (hidden && !persistent) return null
   return (
     <>
       <PersistentTaskStrip
         onMessage={props.onMessage}
         onCancelLoop={props.onCancelLoop}
       />
-      {!hidden && (current.length > 0 || state.error || open) && (
+      {(current.length > 0 || state.error || open) && (
         <div className="flex justify-end pb-1 text-xs">
           <RuntimeTaskPopover
             {...props}
@@ -204,6 +199,9 @@ function TaskTrigger(props: PopoverProps & { count: number }) {
   const state = useConversationPresentation()!
   const t = useTranslations("RuntimeTasks")
   const p = useTranslations("ConversationPresentation")
+  const agents = currentTasks(state.tasks, props.excludePersistent).filter(
+    (task) => task.kind === "subagent" || task.kind === "delegation"
+  ).length
   const Icon = props.historyOnly
     ? History
     : props.monitorsOnly
@@ -230,7 +228,15 @@ function TaskTrigger(props: PopoverProps & { count: number }) {
             <Icon aria-hidden="true" className="size-3" />
             <span>{label}</span>
             {!props.historyOnly && (
-              <ChevronUp aria-hidden="true" className="size-2.5" />
+              <>
+                {agents > 0 && !props.monitorsOnly && (
+                  <span className="conversation-task-agent-count">
+                    <Bot aria-hidden="true" className="size-3.5" />
+                    {t("kind.subagent")} {agents}
+                  </span>
+                )}
+                <ChevronUp aria-hidden="true" className="size-2.5" />
+              </>
             )}
           </>
         )}

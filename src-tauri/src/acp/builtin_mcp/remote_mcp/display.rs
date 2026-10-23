@@ -21,6 +21,7 @@ pub(super) fn catalog_name(value: &Value) -> Option<(u8, String)> {
         (DISPLAY_NAME_RANK, "/display_name"),
         (DISPLAY_NAME_RANK, "/schema/annotations/title"),
         (DISPLAY_NAME_RANK, "/annotations/title"),
+        (DISPLAY_NAME_RANK, "/schema/title"),
         (TOOL_NAME_RANK, "/name"),
     ]
     .into_iter()

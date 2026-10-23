@@ -143,7 +143,9 @@ export function getToolDisplayName(
     tool.input,
     tool.displayTitle
   )
-  const fallbackName = getReadableToolActivityTitle(builtin?.fallbackName)
+  const fallbackName = getReadableToolActivityTitle(
+    builtin?.fallbackName?.replace(/[_-]+/g, " ")
+  )
   if (builtin && fallbackName) {
     if (builtin.toolName === "read_iyw_capability") {
       const label = translate("builtinTool.read_iyw_capability")

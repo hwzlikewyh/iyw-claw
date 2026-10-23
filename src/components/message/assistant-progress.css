@@ -1,0 +1,102 @@
+.assistant-progress-segment {
+  min-width: 0;
+}
+.assistant-progress-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 32px;
+  margin-block-end: 6px;
+  padding: 4px 0;
+  text-align: start;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 20px;
+}
+.assistant-progress-toggle > span:first-of-type {
+  max-width: 42rem;
+}
+.assistant-progress-toggle:hover {
+  color: var(--foreground);
+}
+.assistant-progress-toggle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+.assistant-progress-toggle > svg:last-child {
+  transition: transform 160ms ease;
+}
+.conversation-live-status-bar {
+  padding-block: 6px 8px;
+}
+.conversation-composer-tasks .conversation-task-trigger {
+  min-height: 32px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 12px;
+}
+.conversation-task-agent-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-inline-start: 8px;
+  border-inline-start: 1px solid var(--border);
+}
+.conversation-live-status-content {
+  padding: 8px 12px;
+  border: 1px solid color-mix(in oklab, var(--primary) 20%, var(--border));
+  border-inline-start: 3px solid var(--primary);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--primary) 5%, var(--background));
+}
+.conversation-live-status-content > button:first-child {
+  flex: 1;
+}
+.conversation-live-activity {
+  display: grid;
+  flex: 1;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 2px 8px;
+}
+.conversation-live-activity > svg {
+  color: var(--primary);
+}
+.conversation-live-phase {
+  overflow-wrap: anywhere;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.conversation-live-detail {
+  grid-column: 2 / -1;
+  overflow-wrap: anywhere;
+  line-height: 18px;
+}
+.conversation-live-elapsed {
+  grid-column: 3;
+  grid-row: 1;
+}
+.conversation-live-status-bar[data-attention="true"]
+  .conversation-live-status-content {
+  background: color-mix(in oklab, var(--primary) 9%, var(--background));
+}
+@media (max-width: 640px) {
+  .assistant-progress-toggle {
+    min-height: 44px;
+  }
+  .conversation-live-activity {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+  .conversation-live-elapsed {
+    grid-column: 2;
+    grid-row: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .assistant-progress-toggle > svg:last-child {
+    transition: none;
+  }
+}

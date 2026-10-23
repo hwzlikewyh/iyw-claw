@@ -20,11 +20,19 @@ const CATALOG_KEYS = [
   "capability",
   "capabilities",
   "items",
+  "results",
+  "Ok",
+  "ok",
 ] as const
+interface CatalogName {
+  name: string
+  rank: number
+}
+
 const toolMetadataCache = new WeakMap<
   AdaptedToolCallPart,
   {
-    names: ReadonlyMap<string, string>
+    names: ReadonlyMap<string, CatalogName>
     capabilityId: string | null
     displayTitle: string | null
   }
@@ -34,7 +42,7 @@ const displayMessageCache = new WeakMap<AdaptedMessage, AdaptedMessage>()
 
 function collectCatalogNames(
   value: unknown,
-  names: Map<string, string>,
+  names: Map<string, CatalogName>,
   depth = 0
 ): void {
   if (value == null || depth > MAX_CATALOG_DEPTH) return
@@ -56,19 +64,29 @@ function collectCatalogNames(
 
 function collectCatalogRecord(
   record: Record<string, unknown>,
-  names: Map<string, string>,
+  names: Map<string, CatalogName>,
   depth: number
 ): void {
   if (record.isError === true || record.is_error === true) return
   const id = record.capability_id
   const annotations = record.annotations as Record<string, unknown> | undefined
-  const name = [record.display_name, annotations?.title, record.name]
-    .find(
-      (value): value is string => typeof value === "string" && !!value.trim()
-    )
-    ?.trim()
+  const schema = record.schema as
+    | { annotations?: { title?: string }; title?: string }
+    | undefined
+  const candidates = [
+    record.display_name,
+    schema?.annotations?.title,
+    annotations?.title,
+    schema?.title,
+    record.name,
+  ]
+  const index = candidates.findIndex(
+    (value) => typeof value === "string" && !!value.trim()
+  )
+  const name = (candidates[index] as string | undefined)?.trim()
+  const rank = index === candidates.length - 1 ? 1 : 2
   if (typeof id === "string" && id.startsWith("iyw.remote.") && name) {
-    names.set(id, name)
+    if (rank >= (names.get(id)?.rank ?? 0)) names.set(id, { name, rank })
   }
   CATALOG_KEYS.forEach((key) =>
     collectCatalogNames(record[key], names, depth + 1)
@@ -89,7 +107,7 @@ function toolCalls(
 function toolMetadata(part: AdaptedToolCallPart) {
   const cached = toolMetadataCache.get(part)
   if (cached) return cached
-  const names = new Map<string, string>()
+  const names = new Map<string, CatalogName>()
   const discovery = DISCOVERY_TOOL_PATTERN.test(part.toolName)
   if (discovery && part.state !== "output-error" && !part.errorText) {
     collectCatalogNames(part.output, names)
@@ -103,11 +121,11 @@ function toolMetadata(part: AdaptedToolCallPart) {
 
 function nameToolCall(
   part: AdaptedToolCallPart,
-  names: ReadonlyMap<string, string>
+  names: ReadonlyMap<string, CatalogName>
 ): AdaptedToolCallPart {
   const metadata = toolMetadata(part)
   const id = metadata.capabilityId
-  const title = metadata.displayTitle ?? (id ? names.get(id) : undefined)
+  const title = metadata.displayTitle ?? (id ? names.get(id)?.name : undefined)
   if (!title || part.displayTitle === title) return part
   const cached = displayPartCache.get(part)
   if (cached?.type === "tool-call" && cached.displayTitle === title)
@@ -119,7 +137,7 @@ function nameToolCall(
 
 function namePart(
   part: AdaptedContentPart,
-  names: ReadonlyMap<string, string>
+  names: ReadonlyMap<string, CatalogName>
 ): AdaptedContentPart {
   if (part.type === "tool-call") return nameToolCall(part, names)
   if (part.type === "goal-run") {
@@ -153,7 +171,7 @@ function namePart(
 
 function nameMessage(
   message: AdaptedMessage,
-  names: ReadonlyMap<string, string>
+  names: ReadonlyMap<string, CatalogName>
 ): AdaptedMessage {
   const content = message.content.map((part) => namePart(part, names))
   if (content.every((part, index) => part === message.content[index]))
@@ -173,13 +191,15 @@ function nameMessage(
 export function resolveRemoteToolDisplayNames(
   messages: AdaptedMessage[]
 ): AdaptedMessage[] {
-  const names = new Map<string, string>()
+  const names = new Map<string, CatalogName>()
   let hasDisplayTitle = false
   for (const message of messages) {
     if (message.role !== "assistant") continue
     for (const part of toolCalls(message.content)) {
       const metadata = toolMetadata(part)
-      metadata.names.forEach((name, id) => names.set(id, name))
+      metadata.names.forEach((entry, id) => {
+        if (entry.rank >= (names.get(id)?.rank ?? 0)) names.set(id, entry)
+      })
       hasDisplayTitle ||= metadata.displayTitle !== null
     }
   }

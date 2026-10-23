@@ -2,6 +2,9 @@ import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import { isContextCompactionMeta } from "@/lib/context-compaction"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
 import { splitAssistantText } from "./assistant-text-segments"
+import { getBuiltinToolDisplay } from "@/lib/builtin-tool-display"
+
+const PROCESS_SECTION_SIZE = 4
 
 export interface AssistantTimelineSection {
   key: string
@@ -42,8 +45,16 @@ function partKey(part: AdaptedContentPart, index: number): string {
 
 function isProcessPart(part: AdaptedContentPart) {
   if (part.type === "tool-call") {
-    const name = normalizeToolName(part.toolName)
-    return name !== "attempt_completion" && name !== "show_interactive_html"
+    if (/(?:^|[./:_-])read_iyw_capability$/.test(part.toolName)) return true
+    const name = normalizeToolName(
+      getBuiltinToolDisplay(part.toolName, part.input)?.toolName ??
+        part.toolName
+    )
+    return ![
+      "attempt_completion",
+      "show_interactive_html",
+      "question",
+    ].includes(name)
   }
   return (
     part.type === "tool-result" ||
@@ -74,7 +85,11 @@ function appendSection(
   section: AssistantTimelineSection
 ) {
   const previous = sections[sections.length - 1]
-  if (section.kind === "process" && previous?.kind === "process") {
+  if (
+    section.kind === "process" &&
+    previous?.kind === "process" &&
+    previous.parts.length < PROCESS_SECTION_SIZE
+  ) {
     previous.parts.push(...section.parts)
   } else {
     sections.push(section)

@@ -238,7 +238,7 @@ export function AskQuestionResultCard({
       )}
     >
       <MessageCircleQuestionMark className="size-4 shrink-0 text-primary" />
-      <span className="min-w-0 flex-1 truncate text-xs">
+      <span className="min-w-0 flex-1 break-words whitespace-normal text-xs">
         <span className="mr-1 text-muted-foreground">{t("answeredLabel")}</span>
         <span className="text-foreground/90">{summary}</span>
       </span>

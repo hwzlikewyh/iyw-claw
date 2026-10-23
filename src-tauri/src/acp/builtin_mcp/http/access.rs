@@ -5,7 +5,6 @@ use axum::http::header::{AUTHORIZATION, HOST, ORIGIN, WWW_AUTHENTICATE};
 use axum::http::{Method, Request, StatusCode};
 use axum::response::{IntoResponse, Response};
 use rmcp::transport::streamable_http_server::{SessionId, SessionManager};
-use tokio::sync::OwnedSemaphorePermit;
 use tokio_util::sync::CancellationToken;
 
 use super::{AuthHttpState, SESSION_HEADER};
@@ -22,8 +21,6 @@ pub(super) struct AuthenticatedAccess {
     pub(super) principal: Principal,
     pub(super) session_id: Option<String>,
     pub(super) stream_cancellation: Option<CancellationToken>,
-    pub(super) global_permit: OwnedSemaphorePermit,
-    pub(super) session_permit: OwnedSemaphorePermit,
 }
 
 pub(super) struct RequestMetadata {
@@ -37,32 +34,10 @@ pub(super) async fn authenticate_access(
     metadata: RequestMetadata,
 ) -> Result<AuthenticatedAccess, Response> {
     let stream_request = metadata.method == Method::GET;
-    let global_capacity = if stream_request {
-        &state.stream_concurrency
-    } else {
-        &state.concurrency
-    };
-    let Ok(global_permit) = global_capacity.clone().try_acquire_owned() else {
-        return Err(text_response(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "MCP request capacity reached",
-        ));
-    };
     let Some(mut context) = state.registry.lookup(&metadata.bearer).await else {
         return Err(unauthorized());
     };
     context.capture_tools_generation();
-    let session_permit = if stream_request {
-        context.try_acquire_stream()
-    } else {
-        context.try_acquire_request()
-    };
-    let Some(session_permit) = session_permit else {
-        return Err(text_response(
-            StatusCode::TOO_MANY_REQUESTS,
-            "MCP session request capacity reached",
-        ));
-    };
     let principal = Principal::from_bearer(&metadata.bearer);
     let (session_id, session_cancellation) = validate_session(state, &metadata, principal).await?;
     Ok(AuthenticatedAccess {
@@ -70,8 +45,6 @@ pub(super) async fn authenticate_access(
         principal,
         session_id,
         stream_cancellation: stream_request.then_some(session_cancellation).flatten(),
-        global_permit,
-        session_permit,
     })
 }
 

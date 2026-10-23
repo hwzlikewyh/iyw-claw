@@ -35,6 +35,8 @@ use std::sync::OnceLock;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+const HOST_DIRECTORY_TIMEOUT: Duration = Duration::from_secs(20);
+
 use crate::binding::call_tool_result_from_rmcp;
 use crate::catalog::McpServerSource;
 use crate::elicitation::ElicitationRequestManager;
@@ -1200,7 +1202,14 @@ impl McpConnectionSet {
             client
         };
 
-        let effective_timeout = match (view.tool_timeout, requested_timeout) {
+        // 目录请求的宿主预算为 10 秒，额外预留取消清理和传输时间。
+        // 传输中断不能使目录调用沿用长任务的无限等待。
+        let directory_timeout = ((server.starts_with("iyw_claw_builtin_")
+            || server.starts_with("iyw-claw-builtin-"))
+            && matches!(tool, "search_iyw_capabilities" | "read_iyw_capability"))
+        .then_some(HOST_DIRECTORY_TIMEOUT);
+        let server_timeout = view.tool_timeout.or(directory_timeout);
+        let effective_timeout = match (server_timeout, requested_timeout) {
             (Some(server_timeout), Some(requested_timeout)) => {
                 Some(server_timeout.min(requested_timeout))
             }

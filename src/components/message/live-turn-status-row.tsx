@@ -14,6 +14,7 @@ import type { ActivityIcon } from "./live-turn-activity"
 import { LiveTurnPlan } from "./live-turn-plan"
 import { useConversationActivityVisibility } from "./conversation-activity-visibility"
 import { useConversationPresentation } from "@/components/chat/conversation-presentation-context"
+import { isTaskHistory } from "@/components/chat/runtime-task-presentation"
 
 interface LiveTurnStatusRowProps {
   agentType: AgentType
@@ -68,7 +69,7 @@ function TurnActivity({
   const Icon = waiting ? CircleDot : LoaderCircle
   return (
     <span
-      className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
+      className="conversation-live-activity flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
       data-attention={attention}
     >
       <Icon
@@ -83,19 +84,22 @@ function TurnActivity({
         aria-atomic="true"
         className={
           waiting && !attention
-            ? "conversation-waiting-label truncate"
-            : "truncate"
+            ? "conversation-live-phase conversation-waiting-label"
+            : "conversation-live-phase"
         }
       >
         {phase}
       </span>
       {elapsed && (
-        <span className="shrink-0 text-muted-foreground/70 tabular-nums">
+        <span className="conversation-live-elapsed shrink-0 text-muted-foreground/70 tabular-nums">
           {elapsed}
         </span>
       )}
       {detail && (
-        <span className="truncate text-muted-foreground/75" title={detail}>
+        <span
+          className="conversation-live-detail text-muted-foreground/75"
+          title={detail}
+        >
           {detail}
         </span>
       )}
@@ -106,20 +110,16 @@ function TurnActivity({
 export const LiveTurnStatusRow = memo(function LiveTurnStatusRow(
   props: LiveTurnStatusRowProps
 ) {
-  const { activityVisible, outputVisible, outputStreaming, pageVisible } =
-    useConversationActivityVisibility()
+  const { pageVisible } = useConversationActivityVisibility()
   const state = useConversationPresentation()
   const scoped = state != null && state.contextKey === props.contextKey
-  const compact =
-    scoped &&
-    (activityVisible ||
-      (outputVisible && outputStreaming) ||
-      state.awaitingInput ||
-      state.status !== "prompting")
+  const compact = !props.isStreaming
   const childControl =
     scoped &&
     state.tasks.some(
-      (task) => task.kind === "subagent" || task.kind === "delegation"
+      (task) =>
+        !isTaskHistory(task) &&
+        (task.kind === "subagent" || task.kind === "delegation")
     )
       ? null
       : props.subAgentControl
@@ -128,12 +128,14 @@ export const LiveTurnStatusRow = memo(function LiveTurnStatusRow(
       className={
         compact
           ? "conversation-live-footer contents"
-          : "conversation-live-footer mx-auto w-full max-w-4xl shrink-0 px-4 py-1"
+          : "conversation-live-footer conversation-live-status-bar mx-auto w-full max-w-[866px] shrink-0 px-4 py-1"
       }
       data-paused={!pageVisible}
+      data-waiting={props.waiting}
+      data-attention={props.attention}
     >
       {!compact && (
-        <div className="flex min-h-7 min-w-0 items-center gap-2">
+        <div className="conversation-live-status-content flex min-h-9 min-w-0 items-center gap-2">
           <FooterActivity {...props} scoped={scoped} />
           {!scoped && <StopTurnButton onCancel={props.onCancel} />}
         </div>

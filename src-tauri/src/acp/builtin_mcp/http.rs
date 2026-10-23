@@ -13,7 +13,6 @@ use axum::http::{Method, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
-use tokio::sync::Semaphore;
 
 use super::authority::SessionContext;
 use super::binding::{Principal, SessionBindings};
@@ -22,8 +21,6 @@ use super::diagnostics::log_http_rejection;
 use super::session::SessionRegistry;
 use session_binding::{bind_issued_session, cleanup_binding, issued_session_id};
 
-const MAX_ACTIVE_REQUESTS: usize = 128;
-const MAX_ACTIVE_STREAMS: usize = 128;
 const SESSION_HEADER: &str = "mcp-session-id";
 
 #[derive(Clone)]
@@ -45,8 +42,6 @@ pub(super) struct AuthHttpState {
     bindings: Arc<SessionBindings>,
     protocol_sessions: Arc<LocalSessionManager>,
     ready: Arc<AtomicBool>,
-    concurrency: Arc<Semaphore>,
-    stream_concurrency: Arc<Semaphore>,
 }
 
 struct PendingForward {
@@ -89,8 +84,6 @@ impl AuthHttpState {
             bindings,
             protocol_sessions,
             ready,
-            concurrency: Arc::new(Semaphore::new(MAX_ACTIVE_REQUESTS)),
-            stream_concurrency: Arc::new(Semaphore::new(MAX_ACTIVE_STREAMS)),
         }
     }
 }
@@ -144,8 +137,6 @@ async fn forward_request(state: &AuthHttpState, pending: PendingForward) -> Resp
         principal,
         session_id,
         stream_cancellation,
-        global_permit,
-        session_permit,
     } = access;
     let request_session = request_session(&request, principal, session_id);
     let new_session = request_session.session_id.is_none();
@@ -179,12 +170,7 @@ async fn forward_request(state: &AuthHttpState, pending: PendingForward) -> Resp
         }
     }
     cleanup_binding(state, downstream.status(), &request_session).await;
-    wrap_delivery(
-        &mut downstream,
-        delivery,
-        (global_permit, session_permit),
-        stream_cancellation,
-    );
+    wrap_delivery(&mut downstream, delivery, stream_cancellation);
     downstream
 }
 

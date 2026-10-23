@@ -32,8 +32,7 @@ pub(super) async fn bind_issued_session(
         )
         .await;
     match bound {
-        BindProvisionalResult::Bound { ticket, replaced } => {
-            close_replaced_session(state, replaced).await;
+        BindProvisionalResult::Bound { ticket } => {
             if cancellation.is_cancelled() {
                 rollback_session(state, ticket).await;
                 return Err(unauthorized());
@@ -114,18 +113,6 @@ async fn rollback_session(state: &AuthHttpState, ticket: ProvisionalBinding) {
     if SessionBindings::mark_aborted(&ticket) && state.bindings.remove_ticket(&ticket).await {
         close_session(state, ticket.session_id(), "cancelled initialize").await;
     }
-}
-
-async fn close_replaced_session(state: &AuthHttpState, session_id: Option<SessionId>) {
-    let Some(session_id) = session_id else {
-        return;
-    };
-    close_with_manager(
-        &state.protocol_sessions,
-        session_id.as_ref(),
-        "replaced initialize",
-    )
-    .await;
 }
 
 async fn close_session(state: &AuthHttpState, session_id: &str, reason: &'static str) {

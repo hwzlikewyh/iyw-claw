@@ -266,11 +266,6 @@ function ConversationShellContent({
             </Button>
           )}
         </div>
-        {runtimeTasks && (
-          <div className="mx-auto w-full max-w-4xl shrink-0 px-4">
-            {runtimeTasks}
-          </div>
-        )}
         <div className="min-h-24 flex-1 overflow-auto">{children}</div>
 
         {/* 待处理卡片共享高度上限，为状态栏和输入框留出空间；输入框菜单可向上展开。 */}
@@ -341,6 +336,11 @@ function ConversationShellContent({
         </div>
 
         <div className="shrink-0">
+          {runtimeTasks && (
+            <div className="conversation-composer-tasks mx-auto w-full max-w-4xl shrink-0 px-4">
+              {runtimeTasks}
+            </div>
+          )}
           {!hideInput && (
             <ConversationConnectionAlert
               status={status}

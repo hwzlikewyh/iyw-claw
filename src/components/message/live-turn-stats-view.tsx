@@ -42,15 +42,13 @@ export const LiveTurnStats = memo(function LiveTurnStats({
     () => (planEntries ? { ...summary, planEntries } : summary),
     [summary, planEntries]
   )
-  const { pageVisible, activityVisible, outputVisible, outputStreaming } =
-    useConversationActivityVisibility()
+  const { pageVisible } = useConversationActivityVisibility()
   const activity = useTurnActivity(contextKey, {
     summary: resolvedSummary,
     awaitingUser: isAwaitingUserInput,
     parts,
     startedAt: message?.startedAt,
-    visible:
-      pageVisible && !activityVisible && !(outputVisible && outputStreaming),
+    visible: pageVisible,
   })
   return (
     <LiveTurnStatusRow

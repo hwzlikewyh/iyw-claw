@@ -18,7 +18,13 @@ pub(super) fn enrich(item: &Value, params: &mut Value) {
                 params["content"] =
                     json!(values.iter().filter_map(mcp_content).collect::<Vec<_>>());
             }
-            params["_meta"] = json!({ "is_mcp_tool_call": true });
+            let mut meta = item
+                .pointer("/result/_meta")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            meta.insert("is_mcp_tool_call".into(), json!(true));
+            params["_meta"] = json!(meta);
         }
         Some("commandExecution") if item["status"] != "inProgress" => {
             params["rawOutput"] = json!({ "formatted_output": item.get("aggregatedOutput"), "exit_code": item.get("exitCode") });

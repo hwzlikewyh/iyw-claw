@@ -1,4 +1,5 @@
 import { ToolCallSummary } from "./tool-call-summary"
+import { processToolInput } from "./assistant-tool-presentation"
 import { InteractiveHtmlResult } from "./interactive-html-result"
 import { memo, useMemo, useState, type ReactNode } from "react"
 import Image from "next/image"
@@ -2101,6 +2102,21 @@ function ToolCallPartContent({
     )
   }
   const name = normalizeToolName(part.toolName).toLowerCase()
+  const builtinName = getBuiltinToolDisplay(part.toolName, part.input)?.toolName
+  if (
+    name === "question" ||
+    (builtinName === "ask_user_question" &&
+      !/(?:^|[./:_-])read_iyw_capability$/.test(part.toolName))
+  ) {
+    return (
+      <AskQuestionResultCard
+        input={JSON.stringify(processToolInput(part.input))}
+        output={part.output}
+        errorText={part.errorText}
+        state={part.state}
+      />
+    )
+  }
   // 产品结果显式放行，普通调用不能进入旧参数/输出视图。
   if (name === "show_interactive_html" || name === "attempt_completion") {
     if (part.state === "output-error") return <ToolCallSummary part={part} />

@@ -1,4 +1,5 @@
 import { COLLAB_AGENT_TOOL_NAME, isCodexCollabInput } from "@/lib/collab-tool"
+import { getBuiltinToolDisplay } from "@/lib/builtin-tool-display"
 
 const EXACT_TOOL_NAME_ALIASES: Record<string, string> = {
   shell_command: "bash",
@@ -431,6 +432,12 @@ export function inferLiveToolName(params: {
 
   const titleCompanion = normalizeToolName(params.title ?? "")
   if (DELEGATION_COMPANION_TOOLS.has(titleCompanion)) return titleCompanion
+  const identity = metaToolName ?? params.title ?? ""
+  if (/(?:^|[./:_-])read_iyw_capability$/.test(identity))
+    return "read_iyw_capability"
+  // 网关的明确工具身份优先于 query/command 等业务参数，避免目录搜索被改成网页搜索。
+  const builtin = getBuiltinToolDisplay(identity, params.rawInput)
+  if (builtin) return builtin.toolName
 
   // Input-shape detection runs FIRST so cross-agent heuristics (Claude Code
   // `Task` tool routed via `subagent_type`, OpenCode sub-agent calls, etc.)

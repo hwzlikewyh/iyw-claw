@@ -6,7 +6,6 @@ use axum::body::Body;
 use axum::response::Response;
 use futures_util::stream::poll_fn;
 use futures_util::Stream;
-use tokio::sync::OwnedSemaphorePermit;
 use tokio_util::sync::CancellationToken;
 
 type RelayCallback = Box<dyn FnOnce() + Send + 'static>;
@@ -103,7 +102,6 @@ impl Drop for RelayGuard {
 pub(super) fn wrap_delivery(
     response: &mut Response,
     delivery: RelayDelivery,
-    permits: (OwnedSemaphorePermit, OwnedSemaphorePermit),
     cancellation: Option<CancellationToken>,
 ) {
     let body = std::mem::replace(response.body_mut(), Body::empty());
@@ -117,7 +115,6 @@ pub(super) fn wrap_delivery(
         }
     });
     let stream = poll_fn(move |context| {
-        let _ = &permits;
         if cancelled.as_mut().poll(context).is_ready() {
             relay.0.abort();
             return Poll::Ready(None);

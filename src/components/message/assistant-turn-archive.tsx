@@ -8,11 +8,14 @@ import { AssistantFoldContent } from "./assistant-fold-content"
 import type { AssistantTimelineSection } from "./assistant-turn-timeline"
 import { useArchiveDisclosure } from "./use-archive-disclosure"
 import { processPartHasFailure } from "./process-presentation"
+import { buildAssistantArchiveEntries } from "./assistant-archive-segments"
+import { AssistantProgressSegment } from "./assistant-progress-segment"
 
 interface AssistantTurnArchiveProps {
   sections: AssistantTimelineSection[]
   complete: boolean
   collapse: boolean
+  foldSegments?: boolean
   durationMs?: number | null
   renderSection: (
     section: AssistantTimelineSection,
@@ -34,6 +37,16 @@ export function AssistantTurnArchive(props: AssistantTurnArchiveProps) {
   )
   const expanded = !canFold || open
   const label = completionLabel(props.durationMs, t("turnCompleted"), live)
+  const entries = buildAssistantArchiveEntries(props.sections)
+  const renderItem = (section: AssistantTimelineSection, index: number) => (
+    <ArchiveSection
+      key={section.key}
+      section={section}
+      index={index}
+      expanded={expanded}
+      renderSection={props.renderSection}
+    />
+  )
   return (
     <div ref={rootRef} className="assistant-turn-archive">
       {canFold ? (
@@ -49,15 +62,32 @@ export function AssistantTurnArchive(props: AssistantTurnArchiveProps) {
         )
       )}
       <div id={contentId}>
-        {props.sections.map((section, index) => (
-          <ArchiveSection
-            key={section.key}
-            section={section}
-            index={index}
-            expanded={expanded}
-            renderSection={props.renderSection}
-          />
-        ))}
+        {entries.map((entry) =>
+          entry.kind === "section" ? (
+            renderItem(entry.item.section, entry.item.index)
+          ) : (
+            <AssistantFoldContent
+              key={entry.key}
+              open={
+                expanded ||
+                entry.items.some(({ section }) =>
+                  section.parts.some(processPartHasFailure)
+                )
+              }
+            >
+              <AssistantProgressSegment
+                entry={entry}
+                fold={props.foldSegments !== false}
+              >
+                {entry.items.map(({ section, index }) => (
+                  <div key={section.key} className="assistant-timeline-section">
+                    {props.renderSection(section, index, true)}
+                  </div>
+                ))}
+              </AssistantProgressSegment>
+            </AssistantFoldContent>
+          )
+        )}
       </div>
       {props.complete &&
         !props.sections.some((section) => section.retainOnCompletion) && (

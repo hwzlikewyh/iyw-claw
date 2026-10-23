@@ -1,4 +1,5 @@
 @import "./assistant-content-surfaces.css";
+@import "./assistant-progress.css";
 
 .assistant-fold-row {
   display: grid;

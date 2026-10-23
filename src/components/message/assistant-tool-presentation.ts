@@ -52,6 +52,18 @@ type DisplayTool = Pick<
   "toolName" | "input" | "displayTitle"
 >
 
+function capabilityTitle(tool: DisplayTool, fallback: string) {
+  const builtin = getBuiltinToolDisplay(
+    tool.toolName,
+    tool.input,
+    tool.displayTitle
+  )
+  return (
+    builtin?.fallbackName?.replace(/[_-]+/g, " ") ??
+    (builtin && builtin.toolName !== "read_iyw_capability" ? fallback : null)
+  )
+}
+
 function baseToolKind(tool: DisplayTool): ProcessToolKind {
   const name =
     getBuiltinToolDisplay(tool.toolName, tool.input)?.toolName ?? tool.toolName
@@ -193,8 +205,10 @@ export function processToolTitle(
   const input = processToolInput(tool.input)
   const command =
     baseToolKind(tool) === "command" ? commandActivity(input) : null
-  if (/(?:^|[._:/-])read_iyw_capability$/.test(tool.toolName))
-    return translate("toolUsage", { target: fallback })
+  if (/(?:^|[._:/-])read_iyw_capability$/.test(tool.toolName)) {
+    const target = capabilityTitle(tool, fallback)
+    return target ? translate("toolUsage", { target }) : fallback
+  }
   return (
     naturalTitle(stringField(input, ["description", "display_title"])) ??
     naturalTitle(tool.displayTitle) ??
@@ -204,6 +218,6 @@ export function processToolTitle(
         })
       : null) ??
     targetLabel(tool, input, translate) ??
-    (processToolKind(tool) === "command" ? tool.toolName : fallback)
+    fallback
   )
 }

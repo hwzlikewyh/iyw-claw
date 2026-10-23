@@ -3,15 +3,12 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
 use super::features::{FeatureSnapshot, MemoryPermissions};
 use crate::acp::memory_turn::MemoryTurnTracker;
 use crate::models::AgentType;
 
-const MAX_ACTIVE_REQUESTS_PER_TOKEN: usize = 16;
-const MAX_ACTIVE_STREAMS_PER_TOKEN: usize = 1;
 const MEMORY_POLICY_UNLOADED: u64 = 0;
 
 #[derive(Debug)]
@@ -122,8 +119,6 @@ impl SessionAuthority {
 pub(super) struct SessionContext {
     authority: Arc<SessionAuthority>,
     tools_generation: u64,
-    request_capacity: Arc<Semaphore>,
-    stream_capacity: Arc<Semaphore>,
 }
 
 impl SessionContext {
@@ -131,8 +126,6 @@ impl SessionContext {
         Self {
             authority: Arc::new(authority),
             tools_generation: 0,
-            request_capacity: Arc::new(Semaphore::new(MAX_ACTIVE_REQUESTS_PER_TOKEN)),
-            stream_capacity: Arc::new(Semaphore::new(MAX_ACTIVE_STREAMS_PER_TOKEN)),
         }
     }
 
@@ -147,14 +140,6 @@ impl SessionContext {
 
     pub(super) fn tools_generation(&self) -> u64 {
         self.tools_generation
-    }
-
-    pub(super) fn try_acquire_request(&self) -> Option<OwnedSemaphorePermit> {
-        Arc::clone(&self.request_capacity).try_acquire_owned().ok()
-    }
-
-    pub(super) fn try_acquire_stream(&self) -> Option<OwnedSemaphorePermit> {
-        Arc::clone(&self.stream_capacity).try_acquire_owned().ok()
     }
 }
 
