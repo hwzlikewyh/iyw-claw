@@ -45,12 +45,12 @@ use crate::db::entities::conversation::{self, ConversationKind, ConversationStat
 use crate::db::service::conversation_service;
 use crate::db::AppDatabase;
 
+#[path = "idle_runtime_budget.rs"]
+mod idle_runtime_budget;
 #[path = "manager_prepared.rs"]
 mod prepared;
 #[path = "manager_prewarm.rs"]
 mod prewarm;
-#[path = "idle_runtime_budget.rs"]
-mod idle_runtime_budget;
 
 const MAX_EMERGENCY_RECLAIMS_PER_TICK: usize = 4;
 
@@ -89,10 +89,8 @@ async fn align_conversation_turn_generation(
         )));
     };
     let mut snapshot = state.write().await;
-    snapshot.turn_generation = std::cmp::Ord::max(
-        snapshot.turn_generation,
-        row.last_completed_turn_generation,
-    );
+    snapshot.turn_generation =
+        std::cmp::Ord::max(snapshot.turn_generation, row.last_completed_turn_generation);
     Ok(())
 }
 
@@ -1584,7 +1582,11 @@ impl ConnectionManager {
         agents: &[AgentType],
         kind: ConfigStaleKind,
     ) -> usize {
-        let targets: Vec<_> = self.connections.lock().await.values()
+        let targets: Vec<_> = self
+            .connections
+            .lock()
+            .await
+            .values()
             .filter(|conn| agents.contains(&conn.agent_type))
             .map(|conn| (Arc::clone(&conn.state), conn.emitter.clone()))
             .collect();
@@ -1600,15 +1602,25 @@ impl ConnectionManager {
             );
             drop(snapshot);
             emit_with_state(
-                &state, &emitter, AcpEvent::SessionConfigStale { stale: false, kind },
-            ).await;
+                &state,
+                &emitter,
+                AcpEvent::SessionConfigStale { stale: false, kind },
+            )
+            .await;
         }
         0
     }
 
     pub(crate) async fn refresh_model_catalog_staleness(&self, _db: &AppDatabase) {
-        let agents: Vec<_> = self.connections.lock().await.values().map(|connection| connection.agent_type).collect();
-        self.clear_session_config_notices(&agents, ConfigStaleKind::AgentConfig).await;
+        let agents: Vec<_> = self
+            .connections
+            .lock()
+            .await
+            .values()
+            .map(|connection| connection.agent_type)
+            .collect();
+        self.clear_session_config_notices(&agents, ConfigStaleKind::AgentConfig)
+            .await;
     }
 
     /// Look up an existing live connection that we can reuse instead of
@@ -1687,7 +1699,8 @@ impl ConnectionManager {
     ) -> Result<(), AcpError> {
         if let Some(conn) = self.version_center_db.get() {
             crate::commands::iyw_account::iyw_account_ensure_can_consume_core(conn)
-                .await.map_err(|error| AcpError::protocol(error.to_string()))?;
+                .await
+                .map_err(|error| AcpError::protocol(error.to_string()))?;
         }
         // Reject an empty prompt BEFORE touching the concurrency gate. An empty
         // prompt produces no turn — and thus no `TurnComplete` to clear the gate
@@ -1711,18 +1724,19 @@ impl ConnectionManager {
         self.validate_agent_image_inputs(agent_type, &state_arc, &blocks)
             .await?;
         let memory_started = Instant::now();
-        let foreground = self.user_memory_service.get().map(|service| service.begin_foreground());
+        let foreground = self
+            .user_memory_service
+            .get()
+            .map(|service| service.begin_foreground());
         let memory_context =
             memory_context::prepare(self.user_memory_service.get(), &state_arc, &blocks).await;
         let memory_prepare_ms = memory_started.elapsed().as_millis();
         let ui_context = if let Some(conn) = self.version_center_db.get() {
             let conversation_id = state_arc.read().await.conversation_id;
             crate::commands::intelligent_ui::context::prepare(conn, conversation_id).await
-        } else { None };
-        let knowledge_context = if let Some(conn) = self.version_center_db.get() {
-            let conversation_id = state_arc.read().await.conversation_id;
-            crate::commands::knowledge::selection::prompt_hint(conn, conversation_id).await
-        } else { None };
+        } else {
+            None
+        };
         // Concurrency gate: reject a second prompt while a turn is already in
         // flight on this connection. Reserve channel capacity FIRST — that
         // `reserve().await` is the only point that can block or be cancelled.
@@ -1767,8 +1781,11 @@ impl ConnectionManager {
                 origin.accepted_event_seq = s.event_seq;
             }
             crate::chat_channel::task_context::accept(
-                conn_id, s.turn_generation.saturating_add(1), channel_origin,
-            ).map_err(AcpError::protocol)?;
+                conn_id,
+                s.turn_generation.saturating_add(1),
+                channel_origin,
+            )
+            .map_err(AcpError::protocol)?;
             s.turn_in_flight = true;
             s.turn_generation = s.turn_generation.saturating_add(1);
             let turn_nonce = s.memory_turn_tracker.begin_accepted_turn();
@@ -1795,8 +1812,10 @@ impl ConnectionManager {
                 combine_prompt_context(launch, combine_prompt_context(memory_context, reminder)),
             )
         };
-        let user_context = combine_prompt_context(launch_context, combine_prompt_context(private_context,
-            combine_prompt_context(ui_context, knowledge_context)));
+        let user_context = combine_prompt_context(
+            launch_context,
+            combine_prompt_context(private_context, ui_context),
+        );
         permit.send(ConnectionCommand::Prompt {
             blocks,
             user_context,
@@ -1946,9 +1965,18 @@ impl ConnectionManager {
         request: crate::chat_channel::task_progress::ChannelSubmission,
     ) -> Result<Option<i32>, AcpError> {
         self.send_prompt_linked_with_user_messages(
-            db, &request.connection_id, request.blocks, Some(request.folder_id),
-            Some(request.conversation_id), None, None, None, None, Some(request.origin),
-        ).await
+            db,
+            &request.connection_id,
+            request.blocks,
+            Some(request.folder_id),
+            Some(request.conversation_id),
+            None,
+            None,
+            None,
+            None,
+            Some(request.origin),
+        )
+        .await
     }
 
     /// As [`send_prompt_linked`], plus an optional `client_message_id`: the
@@ -2582,7 +2610,9 @@ impl ConnectionManager {
     ) -> Result<(), AcpError> {
         let prompt_lock = self.clone_prompt_lock(&task.connection_id).await?;
         let _guard = prompt_lock.lock().await;
-        let state = self.get_state(&task.connection_id).await
+        let state = self
+            .get_state(&task.connection_id)
+            .await
             .ok_or_else(|| AcpError::ConnectionNotFound(task.connection_id.clone()))?;
         if state.read().await.turn_generation != task.turn_generation {
             return Err(AcpError::protocol("任务回合已切换，不能取消后来的任务"));
@@ -3466,11 +3496,18 @@ impl ConnectionManager {
     }
 
     pub(crate) async fn has_active_account_turns(&self) -> bool {
-        let states = self.connections.lock().await.values()
-            .map(|connection| Arc::clone(&connection.state)).collect::<Vec<_>>();
+        let states = self
+            .connections
+            .lock()
+            .await
+            .values()
+            .map(|connection| Arc::clone(&connection.state))
+            .collect::<Vec<_>>();
         for state in states {
             let state = state.read().await;
-            if state.turn_in_flight || state.turn_completion_pending { return true; }
+            if state.turn_in_flight || state.turn_completion_pending {
+                return true;
+            }
         }
         false
     }
@@ -4009,7 +4046,12 @@ impl ConnectionManager {
         let entry = pending
             .remove(question_id)
             .expect("question checked under lock");
-        tracing::debug!(question_id, fields = active.len(), declined = answer.declined, "Question response accepted");
+        tracing::debug!(
+            question_id,
+            fields = active.len(),
+            declined = answer.declined,
+            "Question response accepted"
+        );
         drop(pending);
         // Ignore a dropped receiver: the listener may have abandoned the wait
         // (peer-close) at the same instant; the resolved-event below still clears
