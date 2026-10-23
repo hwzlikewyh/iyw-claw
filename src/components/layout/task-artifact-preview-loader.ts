@@ -160,8 +160,9 @@ function revokePreviewResource(state: PreviewState): void {
   revokeWorkspacePreviewResource(state)
 }
 
-function remoteArtifactFrameSrc(path: string): string {
-  if (urlPathMatches(path, /\.(?:doc|docx|xls|xlsx|ppt|pptx)$/i)) {
+export function remoteArtifactFrameSrc(path: string, fileName = ""): string {
+  const officeFormat = /\.(?:doc|docx|xls|xlsx|ppt|pptx)$/i
+  if (urlPathMatches(path, officeFormat) || officeFormat.test(fileName)) {
     return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(path)}`
   }
   return path

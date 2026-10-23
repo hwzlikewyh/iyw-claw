@@ -23,6 +23,7 @@ import { LibraryFiles } from "./library-files"
 import { LibraryError, LibraryLoading } from "./library-states"
 import { LibraryUploadDialog } from "./library-upload-dialog"
 import { LibraryFileDialogs } from "./library-file-dialogs"
+import { LibraryFilePreview } from "./library-file-preview"
 import type { LibraryFileAction } from "./library-file-menu"
 import { useLibraryFolders } from "./use-library-folders"
 
@@ -82,6 +83,13 @@ export function LibraryBrowser(props: BrowserProps) {
         onChanged={browse.reload}
         onOpenPoints={() => setFileAction("points")}
       />
+      {fileAction === "view" && selectedFile && (
+        <LibraryFilePreview
+          key={selectedFile.fileId}
+          file={selectedFile}
+          onClose={() => setFileAction(null)}
+        />
+      )}
     </div>
   )
 }
@@ -117,6 +125,7 @@ function useLibraryBrowser(props: BrowserProps) {
   ) => {
     setSelectedFile(file)
     if (
+      action === "view" ||
       action === "details" ||
       action === "rename" ||
       action === "move" ||
@@ -126,7 +135,7 @@ function useLibraryBrowser(props: BrowserProps) {
       setFileAction(action)
       return
     }
-    if (action === "view" || action === "download") {
+    if (action === "download") {
       const url = file.fileUrl || file.tosUrl
       if (!url) return toast.error("文件没有可访问地址")
       window.open(url, "_blank", "noopener,noreferrer")

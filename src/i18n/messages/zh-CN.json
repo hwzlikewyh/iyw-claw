@@ -29,6 +29,7 @@
     "actions": "操作",
     "moreActions": "更多操作",
     "viewDocument": "查看文档",
+    "fileUrlUnavailable": "文件暂无可访问的预览地址，请刷新目录后重试。",
     "designParse": "设计·解析",
     "details": "详细信息",
     "sliceManagement": "切片管理",

@@ -29,6 +29,7 @@
     "actions": "Actions",
     "moreActions": "More actions",
     "viewDocument": "View document",
+    "fileUrlUnavailable": "No accessible preview URL is available. Refresh the folder and try again.",
     "designParse": "Design and parse",
     "details": "Details",
     "sliceManagement": "Chunk management",
