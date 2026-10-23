@@ -73,6 +73,7 @@ export const AssistantTurnContent = memo(function AssistantTurnContent(
         {props.isLatest && !props.isResponseComplete && (
           <AssistantCurrentActivity
             conversationId={props.conversationId}
+            parts={props.parts}
             animationEnabled={props.animationEnabled}
           />
         )}
@@ -92,6 +93,10 @@ export const AssistantTurnContent = memo(function AssistantTurnContent(
 function AssistantTimeline(
   props: AssistantTurnContentProps & { sections: AssistantTimelineSection[] }
 ) {
+  const lastProcessIndex = props.sections.reduce(
+    (last, section, index) => (section.kind === "process" ? index : last),
+    -1
+  )
   return props.sections.map((section, index) => {
     const entranceKey = props.entranceKey + ":timeline:" + section.key
     if (section.kind === "process") {
@@ -107,7 +112,11 @@ function AssistantTimeline(
               !hasActiveProcess(section.parts) &&
               !section.parts.some(processPartNeedsAttention))
           }
-          durationMs={null}
+          durationMs={
+            props.isResponseComplete && index === lastProcessIndex
+              ? props.durationMs
+              : null
+          }
           processCount={countProcessItems(section.parts)}
           processHasError={
             section.parts.some(processPartHasError) ||

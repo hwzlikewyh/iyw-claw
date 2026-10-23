@@ -17,11 +17,101 @@
 .assistant-process-surface {
   min-width: 0;
 }
+.assistant-process-scroll {
+  max-height: min(45vh, 24rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
 .assistant-process-trigger {
   border-radius: 6px;
 }
 .assistant-process-trigger:hover {
   color: var(--foreground);
+}
+.assistant-process-row {
+  min-width: 0;
+}
+.assistant-process-row-trigger {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  text-align: left;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+.assistant-process-row-trigger:hover,
+.assistant-process-row-current .assistant-process-row-trigger {
+  background: color-mix(in srgb, var(--muted-foreground) 8%, transparent);
+  color: var(--foreground);
+}
+.assistant-process-row-trigger:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.assistant-process-row-chevron {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  transition: transform 140ms ease;
+}
+.assistant-process-row-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.assistant-process-row-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.assistant-process-row-status svg {
+  width: 13px;
+  height: 13px;
+}
+.assistant-process-row-status.is-completed {
+  color: var(--muted-foreground);
+}
+.assistant-process-row-status.is-running {
+  color: var(--primary);
+}
+.assistant-process-row-status.is-waiting {
+  color: #a16207;
+}
+.assistant-process-row-status.is-error {
+  color: #b42318;
+}
+.assistant-process-row-detail {
+  margin: -1px 8px 7px 28px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.assistant-process-row-enter {
+  animation: assistant-process-row-enter 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes assistant-process-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 .assistant-live-text-viewport {
   scrollbar-width: thin;
@@ -77,6 +167,11 @@
     animation: none;
   }
   .assistant-fold-row {
+    transition: none;
+  }
+  .assistant-process-row-enter,
+  .assistant-process-row-chevron {
+    animation: none;
     transition: none;
   }
 }

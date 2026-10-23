@@ -207,7 +207,12 @@ export function useTurnActivity(
   })
   const retry = useRetryPresentation(activity, phase)
   const icon = PHASE_ICONS[phase] ?? tool.icon
-  const detail = useStepDescription(input.summary, phase, retry.detail)
+  const detail = useStepDescription(
+    input.summary,
+    phase,
+    retry.detail,
+    tool.name
+  )
   return {
     phase: retry.label ?? t(phase, { model: "原助理", tool: tool.name }),
     detail: feedback.detail ?? detail,
@@ -221,9 +226,12 @@ export function useTurnActivity(
 function useStepDescription(
   summary: TurnSummary,
   phase: string,
-  fallback: string | null
+  fallback: string | null,
+  toolName: string
 ) {
   const t = useTranslations("Folder.chat.liveTurnStats")
+  if (phase === "waitingProcess" && toolName)
+    return t("recentTool", { tool: toolName })
   const step = summary.planEntries.find(
     (entry) => entry.status === "in_progress"
   )
@@ -269,6 +277,7 @@ function useActivityFeedback(
   })
   if (toolAge !== null && timing.silence !== null)
     result.detail = t("toolWaitProgress", {
+      tool: input.tool,
       elapsed: Math.floor(toolAge / MILLISECONDS_PER_SECOND),
       silence: Math.floor(timing.silence / MILLISECONDS_PER_SECOND),
     })

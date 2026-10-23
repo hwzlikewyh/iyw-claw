@@ -31,6 +31,7 @@ function partKey(part: AdaptedContentPart, index: number): string {
 
 function isProcessPart(part: AdaptedContentPart) {
   return (
+    part.type === "reasoning" ||
     part.type === "tool-call" ||
     part.type === "tool-result" ||
     part.type === "delegation-status-group" ||

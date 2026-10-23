@@ -1,12 +1,10 @@
 "use client"
 
-import { useId, type Ref, type RefObject } from "react"
-import { Virtualizer } from "virtua"
+import { useId, type Ref } from "react"
 import { MotionConfig } from "motion/react"
-import { useStickToBottom } from "use-stick-to-bottom"
-import { Check, ChevronDown, ChevronUp, Clock3 } from "lucide-react"
+import { Virtualizer } from "virtua"
+import { ArrowDown, Check, ChevronRight, Clock3 } from "lucide-react"
 import { useTranslations } from "next-intl"
-import { ContentPartsRenderer } from "./content-parts-renderer"
 import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
@@ -15,10 +13,14 @@ import { cn } from "@/lib/utils"
 import { useProcessDisclosure } from "./process-disclosure"
 import { completedProcessOperations } from "./process-operation-count"
 import { ToolDisclosureScope } from "./tool-disclosure-context"
-import { processPartNeedsAttention } from "./process-presentation"
+import {
+  processDisplayParts,
+  processPartNeedsAttention,
+} from "./process-presentation"
 import { useProcessArchive } from "./use-process-archive"
+import { AssistantProcessRow } from "./assistant-process-row"
+import { useProcessAutoFollow } from "./use-process-auto-follow"
 
-const PROCESS_ROW_HEIGHT = 52
 const PROCESS_OVERSCAN = 200
 
 interface AssistantProcessSurfaceProps {
@@ -44,10 +46,12 @@ function processPartKey(part: AdaptedContentPart, index: number): string {
 
 function ProcessLabel({
   durationMs,
-  completed,
+  archived,
+  streaming,
 }: {
   durationMs?: number | null
-  completed: number
+  archived: number
+  streaming: boolean
 }) {
   const t = useTranslations("ConversationPresentation")
   const live = useTranslations("Folder.chat.liveTurnStats")
@@ -57,12 +61,22 @@ function ProcessLabel({
       : null
   return (
     <span className="inline-flex min-w-0 flex-wrap gap-x-2">
-      <span>
-        {completed > 0
-          ? t("completedOperations", { count: completed })
-          : t("processRecord")}
-      </span>
-      {duration && <span className="text-muted-foreground/70">{duration}</span>}
+      {streaming ? (
+        <>
+          <span>{t("processRecord")}</span>
+          {archived > 0 && (
+            <span className="text-muted-foreground/70">
+              {t("archivedProcessSegments", { count: archived })}
+            </span>
+          )}
+        </>
+      ) : (
+        <span>
+          {duration
+            ? t("completedWithDuration", { duration })
+            : t("completedWithoutDuration")}
+        </span>
+      )}
     </span>
   )
 }
@@ -70,45 +84,28 @@ function ProcessLabel({
 function ProcessRows(
   props: Pick<
     AssistantProcessSurfaceProps,
-    "parts" | "entranceKey" | "animationEnabled" | "conversationId"
+    "parts" | "entranceKey" | "animationEnabled"
   > & {
     streaming: boolean
-    scrollRef: RefObject<HTMLElement | null>
     hiddenBefore: number
   }
 ) {
-  // 外层已负责收起过程，通用工具分组在这里直接展示步骤，避免二次展开。
-  const parts = props.parts.flatMap<AdaptedContentPart>((part) =>
-    part.type === "tool-group" ? part.items : [part]
-  )
-  const rows = parts.flatMap((part, index) => {
+  const parts = processDisplayParts(props.parts)
+  return parts.flatMap((part, index) => {
     if (index < props.hiddenBefore && !processPartNeedsAttention(part))
       return []
     const key = processPartKey(part, index)
-    const entranceKey = props.entranceKey + ":process:" + key
     return (
-      <div key={key} className="pb-3">
-        <ContentPartsRenderer
-          parts={[part]}
-          role="assistant"
-          conversationId={props.conversationId}
-          entranceKey={entranceKey}
-          animationEnabled={false}
-          reasoningPresentation="inline"
-          intelligentUiStreaming={props.streaming}
-        />
-      </div>
+      <AssistantProcessRow
+        key={key}
+        part={part}
+        index={index}
+        entranceKey={props.entranceKey}
+        animationEnabled={props.animationEnabled}
+        streaming={props.streaming}
+      />
     )
   })
-  return (
-    <Virtualizer
-      scrollRef={props.scrollRef}
-      itemSize={PROCESS_ROW_HEIGHT}
-      bufferSize={PROCESS_OVERSCAN}
-    >
-      {rows}
-    </Virtualizer>
-  )
 }
 
 export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
@@ -130,6 +127,9 @@ export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
     props.parts.some(processPartNeedsAttention) ||
     (!hasChoice && reading)
   const completed = completedProcessOperations(props.parts)
+  const archived = processDisplayParts(props.parts)
+    .slice(0, hiddenBefore)
+    .filter((part) => !processPartNeedsAttention(part)).length
   return (
     <Collapsible
       ref={rootRef}
@@ -139,6 +139,7 @@ export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
       <ToolDisclosureScope reading={reading}>
         <ProcessTrigger
           open={open}
+          archived={props.isResponseComplete ? 0 : archived}
           completed={completed}
           props={props}
           triggerRef={triggerRef}
@@ -153,7 +154,7 @@ export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
           <ProcessDetails
             {...props}
             hiddenBefore={hiddenBefore}
-            onCollapse={() => onOpenChange(false)}
+            reading={reading}
           />
         </CollapsibleContent>
       </ToolDisclosureScope>
@@ -163,6 +164,7 @@ export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
 
 function ProcessTrigger({
   open,
+  archived,
   completed,
   props,
   triggerRef,
@@ -170,6 +172,7 @@ function ProcessTrigger({
   contentId,
 }: {
   open: boolean
+  archived: number
   completed: number
   props: AssistantProcessSurfaceProps
   triggerRef: Ref<HTMLButtonElement>
@@ -177,7 +180,14 @@ function ProcessTrigger({
   contentId: string
 }) {
   const t = useTranslations("ConversationPresentation")
-  const Icon = completed > 0 ? Check : Clock3
+  const streaming = !props.isResponseComplete
+  const Icon = streaming
+    ? archived > 0
+      ? Check
+      : Clock3
+    : completed > 0 || props.isResponseComplete
+      ? Check
+      : Clock3
   return (
     <button
       type="button"
@@ -189,62 +199,75 @@ function ProcessTrigger({
     >
       <Icon aria-hidden="true" className="size-3 shrink-0" />
       <ProcessLabel
-        completed={completed}
+        archived={archived}
+        streaming={streaming}
         durationMs={props.isResponseComplete ? props.durationMs : null}
       />
-      <span className="inline-flex items-center gap-1 text-muted-foreground">
-        {t(open ? "collapseProcess" : "process")}
-        <ChevronDown
-          aria-hidden="true"
-          className={cn(
-            "size-3 shrink-0 transition-transform duration-100 motion-reduce:transition-none",
-            !open && "-rotate-90"
-          )}
-        />
-      </span>
+      {(open || streaming) && (
+        <span className="inline-flex items-center gap-1 text-muted-foreground">
+          {t(open ? "collapseProcess" : "process")}
+          <ChevronRight
+            aria-hidden="true"
+            className={cn(
+              "size-3 shrink-0 transition-transform duration-100 motion-reduce:transition-none",
+              open && "rotate-90"
+            )}
+          />
+        </span>
+      )}
+      {!open && !streaming && (
+        <ChevronRight aria-hidden="true" className="size-3 shrink-0" />
+      )}
     </button>
   )
 }
 
 function ProcessDetails(
   props: AssistantProcessSurfaceProps & {
-    onCollapse: () => void
     hiddenBefore: number
+    reading: boolean
   }
 ) {
   const t = useTranslations("ConversationPresentation")
-  const { scrollRef, contentRef } = useStickToBottom({
-    initial: props.isResponseComplete ? false : "instant",
-    resize: "instant",
-  })
+  const messageList = useTranslations("Folder.chat.messageList")
+  const { handleScroll, isFollowing, scrollToLatest, viewportRef } =
+    useProcessAutoFollow(
+      props.parts,
+      !props.isResponseComplete && !props.reading
+    )
   return (
-    <div className="assistant-process-details min-w-0">
+    <div className="assistant-process-details relative min-w-0">
       <div
-        ref={scrollRef}
+        ref={viewportRef}
+        onScroll={handleScroll}
         className="assistant-process-scroll focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         role="region"
         aria-label={t("process")}
         tabIndex={0}
       >
-        <div ref={contentRef} className="space-y-3">
-          <MotionConfig reducedMotion="always">
+        <MotionConfig reducedMotion="user">
+          <Virtualizer scrollRef={viewportRef} bufferSize={PROCESS_OVERSCAN}>
             <ProcessRows
               {...props}
               streaming={!props.isResponseComplete}
-              scrollRef={scrollRef}
               hiddenBefore={props.hiddenBefore}
             />
-          </MotionConfig>
-        </div>
+          </Virtualizer>
+        </MotionConfig>
       </div>
-      <button
-        type="button"
-        onClick={props.onCollapse}
-        className="mt-3 inline-flex min-h-7 items-center gap-1 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        {t("collapseProcess")}
-        <ChevronUp aria-hidden="true" className="size-3" />
-      </button>
+      {!isFollowing && !props.isResponseComplete && (
+        <button
+          type="button"
+          onClick={(event) => {
+            scrollToLatest()
+            event.currentTarget.blur()
+          }}
+          className="assistant-process-back-to-latest"
+        >
+          <ArrowDown aria-hidden="true" className="size-3" />
+          {messageList("backToLatest")}
+        </button>
+      )}
     </div>
   )
 }
