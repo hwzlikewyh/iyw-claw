@@ -78,7 +78,10 @@ impl ModelClient {
             Err(_) => return None,
         };
         let mut headers = setup.api_provider.headers.clone();
-        setup.api_auth.add_auth_headers(&mut headers);
+        if let Err(error) = setup.api_auth.add_auth_headers(&mut headers) {
+            tracing::warn!(%error, "managed image authentication failed; retaining fallback store");
+            return None;
+        }
         Some(ManagedImageStore {
             client,
             url,

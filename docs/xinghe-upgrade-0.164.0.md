@@ -105,3 +105,28 @@ Linux/macOS 原生构建、Windows/Win7 实机和安装包尚未验证。
 `rustfmt +stable --edition 2024 --check` 与 `git diff --check` 通过。
 依仓库约定未运行测试套件。macOS 的实际编译与签名由用户指定的 0.1.303
 完整发布流程重新执行，不以 Windows 上的定向检查替代跨平台发布验证。
+
+## MCP 状态类型引用修复
+
+随后 Windows 发布编译在 `codex-mcp/src/mcp/status.rs` 暴露 E0432/E0425。
+本地状态快照扩展误用了 `codex_protocol::mcp::McpAuthStatus`；固定版本官方源码
+定义和同包 `mcp/mod.rs` 均使用 `codex_protocol::protocol::McpAuthStatus`。
+修复统一导入及函数返回类型，保持 OAuth/EMA 失败转为未登录的既有逻辑。
+
+本次扩大验证到桌面默认 features 的完整库依赖链，包含 MCP、内核、App Server
+及进程内 harness。此检查与发布构建继续遵循锁定版本，不改动依赖或锁文件，
+不以单一认证包的检查代表完整桌面代码已通过编译。
+
+完整检查同时发现历史图片提升路径的 `UploadRequest` 缺少新版 `tags` 字段。
+补入 `HashMap::new()`，与固定上游 `image_preparation.rs` 的上传初始化保持一致，
+不添加额外标签或更改图片上传、回退和去重策略。
+
+检查还发现托管图片存储忽略了新版认证方法的 `Result`。认证失败时现在记录失败
+原因并回退既有附件存储，不继续发送未完成认证的图片请求；与上游认证 trait
+要求的失败语义一致，不新增请求或重试。
+
+最终代码执行 `cargo check --manifest-path src-tauri/Cargo.toml --lib --locked
+--offline --jobs 2` 通过，覆盖默认桌面 features、MCP、内核、App Server、进程内
+harness 与应用主库，最后一轮耗时 4m54s。差异空白检查和修改文件语法检查通过，
+锁文件保持不变。未新增或运行测试套件。此为本机 Windows 类型检查；macOS 原生
+编译、release 链接、签名和安装产物仍由 0.1.303 的完整 CI 重建验证。

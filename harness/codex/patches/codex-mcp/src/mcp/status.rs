@@ -1,3 +1,4 @@
+use codex_protocol::protocol::McpAuthStatus;
 use std::collections::{HashMap, HashSet};
 
 use super::{
@@ -55,15 +56,16 @@ pub(crate) async fn collect_published_status(
 async fn published_auth_statuses(
     connections: &McpConnectionSet,
     auth: &HashMap<String, McpAuthStatusEntry>,
-) -> HashMap<String, codex_protocol::mcp::McpAuthStatus> {
+) -> HashMap<String, McpAuthStatus> {
     use codex_config::McpServerAuth;
-    use codex_protocol::mcp::McpAuthStatus;
 
     let mut statuses = auth_statuses_from_entries(auth);
     // 已失败的连接不能仅凭本地凭据仍存在就显示为已登录。
     for name in connections.authentication_failed_servers().await {
         if statuses.get(&name) == Some(&McpAuthStatus::OAuth)
-            || auth.get(&name).and_then(|entry| entry.config.as_ref())
+            || auth
+                .get(&name)
+                .and_then(|entry| entry.config.as_ref())
                 .is_some_and(|config| matches!(config.auth, McpServerAuth::EmaAuth))
         {
             statuses.insert(name, McpAuthStatus::NotLoggedIn);

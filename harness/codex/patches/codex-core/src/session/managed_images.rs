@@ -74,6 +74,7 @@ async fn upload_legacy_images(
                 thread_id: thread_id.to_owned(),
                 ephemeral,
                 file_name: None,
+                tags: HashMap::new(),
                 data,
             })
             .await
