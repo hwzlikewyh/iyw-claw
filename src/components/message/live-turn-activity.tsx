@@ -15,13 +15,11 @@ import {
   getBuiltinToolDisplay,
   getRemoteToolDisplayTitle,
 } from "@/lib/builtin-tool-display"
-import {
-  getReadableToolActivityTitle,
-  getToolDisplayName,
-} from "@/lib/tool-display"
+import { getToolDisplayName } from "@/lib/tool-display"
 import { formatElapsedLabel } from "@/lib/format-elapsed"
 import { isContextCompactionMeta } from "@/lib/context-compaction"
 import { readableStatusText, summarizeLiveTurn } from "./live-turn-summary"
+import { processToolTitle } from "./assistant-tool-presentation"
 
 export type ActivityIcon =
   | "image"
@@ -151,6 +149,7 @@ function useToolPresentation(
   parts: readonly AdaptedContentPart[] | undefined
 ) {
   const t = useTranslations("Folder.chat.contentParts")
+  const toolActivity = useTranslations("ConversationPresentation.toolActivity")
   const toolCallId = tool?.tool_call_id
   const resolvedTitle = useMemo(
     () => resolvedToolTitle(toolCallId, parts),
@@ -170,24 +169,25 @@ function useToolPresentation(
     if (!title && !kind) return { name: "", icon: "tool" as ActivityIcon }
     const name = inferLiveToolName({ title, kind, rawInput, meta })
     const builtin = getBuiltinToolDisplay(name, rawInput, resolvedTitle)
-    const builtinTitle = getReadableToolActivityTitle(builtin?.fallbackName)
-    const activityTitle = getReadableToolActivityTitle(resolvedTitle ?? title)
+    const displayTitle =
+      resolvedTitle ?? getRemoteToolDisplayTitle(rawInput, meta) ?? title
+    const displayTool = {
+      toolName: name,
+      input: rawInput ?? null,
+      displayTitle,
+    }
+    const fallback = getToolDisplayName(displayTool, (key, values) =>
+      t.has(key as never) ? t(key as never, values as never) : null
+    )
     return {
-      name:
-        builtinTitle ??
-        activityTitle ??
-        getToolDisplayName(
-          {
-            toolName: builtin?.toolName ?? name,
-            displayTitle:
-              getRemoteToolDisplayTitle(rawInput, meta) ?? undefined,
-          },
-          (key, values) =>
-            t.has(key as never) ? t(key as never, values as never) : null
-        ),
+      name: processToolTitle(
+        displayTool,
+        (key, values) => toolActivity(key as never, values as never),
+        fallback
+      ),
       icon: toolIcon(builtin?.toolName ?? normalizeToolName(name)),
     }
-  }, [title, kind, rawInput, meta, resolvedTitle, t])
+  }, [title, kind, rawInput, meta, resolvedTitle, t, toolActivity])
 }
 
 export function useTurnActivity(

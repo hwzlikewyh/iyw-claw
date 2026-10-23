@@ -46,30 +46,6 @@
   height: auto;
   max-height: min(var(--process-height), 50dvh);
 }
-.assistant-ordered-reasoning {
-  border: 1px solid var(--border);
-  border-radius: 0.625rem;
-  background: color-mix(in oklab, var(--muted) 35%, var(--background));
-  padding: 0.625rem 0.75rem;
-}
-.assistant-ordered-reasoning > button {
-  font-size: 0.75rem;
-}
-.assistant-ordered-reasoning .iyw-claw-reasoning-content {
-  height: min(10rem, 35dvh);
-  margin-top: 0.625rem;
-  scrollbar-width: none;
-}
-.assistant-ordered-reasoning .iyw-claw-reasoning-content::-webkit-scrollbar {
-  display: none;
-}
-.assistant-ordered-reasoning .iyw-claw-reasoning-content[data-state="closed"] {
-  height: 0;
-  overflow: hidden;
-}
-.assistant-ordered-reasoning .animate-shimmer {
-  animation: none;
-}
 .conversation-assistant-turn .assistant-turn-summary > div {
   min-width: 0;
 }
@@ -99,8 +75,5 @@
   .conversation-persistent-task {
     gap: 0.5rem;
     padding: 0.625rem;
-  }
-  .assistant-ordered-reasoning .iyw-claw-reasoning-content {
-    height: min(8rem, 35dvh);
   }
 }

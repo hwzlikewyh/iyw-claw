@@ -41,6 +41,7 @@ export const ReasoningBody = memo(
         {...props}
       >
         <Streamdown
+          className="assistant-markdown"
           plugins={plugins}
           remarkPlugins={remarkPlugins}
           rehypePlugins={rehypePlugins}

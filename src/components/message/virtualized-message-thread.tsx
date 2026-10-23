@@ -205,7 +205,7 @@ function VirtualizedMessageThreadImpl<T>({
                 key={getItemKey(item, index)}
                 style={itemStyle(index, items.length)}
               >
-                <div className={cn("mx-auto max-w-4xl px-4", className)}>
+                <div className={cn("mx-auto max-w-[866px] px-4", className)}>
                   {renderItem(item, index)}
                 </div>
               </div>

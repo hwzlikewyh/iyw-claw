@@ -1,6 +1,7 @@
 import type { AdaptedToolCallPart } from "@/lib/adapters/ai-elements-adapter"
 import { sanitizeCommandDisplayText } from "@/lib/command-display"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
+import { getBuiltinToolDisplay } from "@/lib/builtin-tool-display"
 import { commandActivity } from "./assistant-command-activity"
 
 export type ProcessToolKind =
@@ -18,7 +19,7 @@ type Translate = (key: string, values?: Record<string, string>) => string
 const MAX_ACTIVITY_LENGTH = 180
 const SECRET = /Bearer\s+|(?:token|password|secret|api[_-]?key)\s*[:=]/i
 const GENERIC_ACTIVITY =
-  /^(?:执行命令|执行工作区操作|运行命令|读取文件|read file|execute command|run command)$/i
+  /^(?:正在\s*)?(?:执行命令|执行工作区操作|运行命令|读取文件|调用工具|查找可用工具|查看工具用法|运行\s+(?:pwsh|powershell|cmd|bash|sh)(?:\.exe)?|read file|execute command|run command)$/i
 const KINDS: Record<string, ProcessToolKind> = {
   read: "read",
   read_file: "read",
@@ -38,22 +39,31 @@ const KINDS: Record<string, ProcessToolKind> = {
   bash: "command",
   exec_command: "command",
   shell: "command",
+  search_iyw_capabilities: "search",
+  browser_open: "fetch",
+  browser_read: "fetch",
+  browser_snapshot: "fetch",
+  fetch_iyw_url: "fetch",
+  upload_iyw_file: "write",
 }
 
-function baseToolKind(tool: AdaptedToolCallPart): ProcessToolKind {
+type DisplayTool = Pick<
+  AdaptedToolCallPart,
+  "toolName" | "input" | "displayTitle"
+>
+
+function baseToolKind(tool: DisplayTool): ProcessToolKind {
+  const name =
+    getBuiltinToolDisplay(tool.toolName, tool.input)?.toolName ?? tool.toolName
   const bare =
-    tool.toolName
+    name
       .split(/__|[.:/]/)
       .pop()
       ?.toLowerCase() ?? ""
-  return (
-    KINDS[bare] ??
-    KINDS[normalizeToolName(tool.toolName).toLowerCase()] ??
-    "tool"
-  )
+  return KINDS[bare] ?? KINDS[normalizeToolName(name).toLowerCase()] ?? "tool"
 }
 
-export function processToolKind(tool: AdaptedToolCallPart): ProcessToolKind {
+export function processToolKind(tool: DisplayTool): ProcessToolKind {
   const kind = baseToolKind(tool)
   return kind === "command"
     ? (commandActivity(processToolInput(tool.input))?.kind ?? kind)
@@ -65,12 +75,27 @@ export function processToolInput(
 ): Record<string, unknown> {
   try {
     const value: unknown = JSON.parse(input ?? "null")
-    return value && typeof value === "object" && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : {}
+    return typeof value === "string" ? { command: value } : nestedInput(value)
   } catch {
-    return {}
+    return input && !/^[\s]*[{[]/.test(input) ? { command: input } : {}
   }
+}
+
+function nestedInput(value: unknown, depth = 0): Record<string, unknown> {
+  if (depth > 4 || !value || typeof value !== "object" || Array.isArray(value))
+    return {}
+  const record = value as Record<string, unknown>
+  return ["input", "arguments", "params", "payload"].reduce((merged, key) => {
+    let nested = record[key]
+    if (typeof nested === "string") {
+      try {
+        nested = JSON.parse(nested)
+      } catch {
+        return merged
+      }
+    }
+    return { ...merged, ...nestedInput(nested, depth + 1) }
+  }, record)
 }
 
 function stringField(input: Record<string, unknown>, keys: string[]) {
@@ -99,7 +124,7 @@ function naturalTitle(value: string | null | undefined) {
 }
 
 function targetLabel(
-  tool: AdaptedToolCallPart,
+  tool: DisplayTool,
   input: Record<string, unknown>,
   translate: Translate
 ) {
@@ -127,17 +152,13 @@ function targetLabel(
       "search_query",
       "search_term",
     ])
-    if (target && !SECRET.test(target)) return translate("search", { target })
+    const discovery = /(?:^|[._:/-])search_iyw_capabilities$/.test(
+      tool.toolName
+    )
+    if (target && !SECRET.test(target))
+      return translate(discovery ? "findTools" : "search", { target })
   }
-  if (kind === "fetch") {
-    try {
-      const url = new URL(stringField(input, ["url", "uri"]) ?? "")
-      if (url.protocol === "https:" || url.protocol === "http:")
-        return translate("fetch", { target: url.hostname })
-    } catch {
-      /* 流式参数尚未形成完整 URL 时沿用原工具名。 */
-    }
-  }
+  if (kind === "fetch") return webTargetLabel(tool, input, translate)
   if (kind === "skill") {
     const target = stringField(input, ["skill", "name"])
     if (target) return translate("skill", { target })
@@ -145,14 +166,35 @@ function targetLabel(
   return null
 }
 
+function webTargetLabel(
+  tool: DisplayTool,
+  input: Record<string, unknown>,
+  translate: Translate
+) {
+  try {
+    const url = new URL(stringField(input, ["url", "uri"]) ?? "")
+    if (url.protocol === "https:" || url.protocol === "http:") {
+      const name = getBuiltinToolDisplay(tool.toolName, tool.input)?.toolName
+      return translate(name === "browser_open" ? "openWeb" : "fetch", {
+        target: url.hostname,
+      })
+    }
+  } catch {
+    /* 流式参数尚未形成完整 URL 时沿用原工具名。 */
+  }
+  return null
+}
+
 export function processToolTitle(
-  tool: AdaptedToolCallPart,
+  tool: DisplayTool,
   translate: Translate,
   fallback: string
 ) {
   const input = processToolInput(tool.input)
   const command =
     baseToolKind(tool) === "command" ? commandActivity(input) : null
+  if (/(?:^|[._:/-])read_iyw_capability$/.test(tool.toolName))
+    return translate("toolUsage", { target: fallback })
   return (
     naturalTitle(stringField(input, ["description", "display_title"])) ??
     naturalTitle(tool.displayTitle) ??

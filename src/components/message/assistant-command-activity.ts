@@ -1,3 +1,5 @@
+import { commandText, commandTokens } from "./assistant-command-input"
+
 type CommandActivity = {
   kind: "read" | "folder" | "search" | "command"
   target: string
@@ -89,13 +91,13 @@ function readOperation(
 export function commandActivity(
   input: Record<string, unknown>
 ): CommandActivity | null {
-  const raw = input.cmd ?? input.command
-  if (typeof raw !== "string" || !raw.trim()) return null
+  const raw = commandText(input)
+  if (!raw) return null
   // 只识别明确的只读动作，不执行命令，也不推测变量展开后的值。
   const commands = raw.split(/;|\r?\n|&&|\|\|/)
   for (const command of commands) {
-    const tokens = command.trim().match(/"[^"\r\n]*"|'[^'\r\n]*'|[^\s|]+/g)
-    if (!tokens?.length) continue
+    const tokens = commandTokens(command.trim())
+    if (!tokens.length) continue
     const operation = readOperation(tokens, input)
     if (operation) return operation
     if (!CONTEXT_COMMANDS.has(unquote(tokens[0]).toLowerCase())) break

@@ -198,6 +198,9 @@
       "edit": "Edit {target}",
       "folder": "Open folder {target}",
       "search": "Search {target}",
+      "findTools": "Find tools for {target}",
+      "toolUsage": "View tool instructions for {target}",
+      "openWeb": "Open {target}",
       "fetch": "Read page from {target}",
       "skill": "Read instructions for {target}",
       "running": "{target}…"
