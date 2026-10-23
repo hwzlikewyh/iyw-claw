@@ -173,6 +173,12 @@ jobs:
         run: |
           pnpm exec tauri build --target $env:TAURI_TARGET_TRIPLE --features tauri-runtime --config src-tauri/tauri.ci.conf.json --config src-tauri/tauri.compile-only.conf.json --no-bundle --no-sign -- --timings
           if ($LASTEXITCODE -ne 0) { throw 'Windows compilation failed' }
+      - name: Verify Windows embedded runtime compatibility
+        run: |
+          node src-tauri/scripts/prepare-xinghe-worker.mjs --target $env:TAURI_TARGET_TRIPLE
+          if ($LASTEXITCODE -ne 0) { throw 'Embedded runtime metadata preparation failed' }
+          node src-tauri/scripts/verify-xinghe-worker-bundle.mjs --target $env:TAURI_TARGET_TRIPLE
+          if ($LASTEXITCODE -ne 0) { throw 'Windows runtime compatibility verification failed' }
       - if: always()
         uses: ./.github/actions/build-timings
         with:

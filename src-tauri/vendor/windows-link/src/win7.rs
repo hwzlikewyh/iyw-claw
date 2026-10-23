@@ -1,6 +1,12 @@
 /// Win7 经典 COM 使用 ole32；可选接口动态解析，缺失时保留失败语义。
 #[macro_export]
 macro_rules! link {
+    ("api-ms-win-core-apiquery-l2-1-0.dll" $abi:literal fn IsApiSetImplemented($contract:ident : $input:ty) -> $result:ty) => (
+        pub unsafe extern $abi fn IsApiSetImplemented($contract: $input) -> $result {
+            let supported = unsafe { $crate::query_api_set(core::mem::transmute($contract)) };
+            unsafe { core::mem::transmute::<i32, $result>(supported) }
+        }
+    );
     ($library:literal $abi:literal fn RoGetActivationFactory $($signature:tt)*) => (
         $crate::link!(@optional "combase.dll" $abi RoGetActivationFactory $($signature)* => core::mem::transmute::<u32, _>(0x80004001));
     );
