@@ -254,6 +254,7 @@
     "backToActivity": "返回当前步骤"
   },
   "RuntimeTasks": {
+    "longCommand": "长命令",
     "scheduleEnabled": "调度已启用",
     "monitoring": "监听中",
     "monitorHint": "监听正在后台等待事件，可以继续对话。结束和超时以运行时通知为准。",
@@ -3767,6 +3768,7 @@
         "mentionGroupSession": "会话",
         "mentionGroupSkill": "技能",
         "mentionGroupArtifact": "\u6210\u679c",
+        "mentionGroupKnowledge": "知识库",
         "sessionConfig": {
           "options": {
             "mode": {
@@ -4232,7 +4234,8 @@
         "outputRateHint": "已上报的输出 Token / 本轮总耗时（含思考和工具等待）；用量随代理上报更新",
         "recentOutputRateHint": "按最近 1 秒内已上报的输出 Token 计算；用量每秒刷新",
         "reportedUsage": "已上报用量",
-        "firstToken": "首字 {time}",
+        "firstToken": "首字响应 {time}",
+        "turnDuration": "用时：{time}",
         "firstActivity": "首次响应 {time}",
         "firstThinking": "开始思考 {time}",
         "toolWaitProgress": "{tool}已运行 {elapsed} 秒 · {silence} 秒无新输出",

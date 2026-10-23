@@ -254,6 +254,7 @@
     "backToActivity": "Return to current step"
   },
   "RuntimeTasks": {
+    "longCommand": "Long commands",
     "scheduleEnabled": "Schedule enabled",
     "monitoring": "Listening",
     "monitorHint": "Listening for events in the background. You can continue chatting. The runtime confirms completion and timeout.",
@@ -3767,6 +3768,7 @@
         "mentionGroupSession": "Sessions",
         "mentionGroupSkill": "Skills",
         "mentionGroupArtifact": "Artifacts",
+        "mentionGroupKnowledge": "Knowledge",
         "sessionConfig": {
           "options": {
             "mode": {
@@ -4232,7 +4234,8 @@
         "outputRateHint": "Reported output tokens / total turn time, including reasoning and tool waits; usage updates as the agent reports it",
         "recentOutputRateHint": "Based on reported output tokens in the trailing 1-second window; usage refreshes every second",
         "reportedUsage": "Reported usage",
-        "firstToken": "First answer text {time}",
+        "firstToken": "First text {time}",
+        "turnDuration": "Time: {time}",
         "firstActivity": "First response {time}",
         "firstThinking": "First thinking {time}",
         "toolWaitProgress": "{tool} has run for {elapsed}s · no output for {silence}s",

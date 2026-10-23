@@ -3,6 +3,7 @@
 import { useAccountRequestsBlocked } from "@/components/account/use-account-request-guard"
 import { ConversationConnectorMenu } from "@/components/chat/conversation-connectors"
 import { KnowledgeDialog } from "@/components/chat/knowledge/knowledge-dialog"
+import { ComposerActivityBorder } from "./composer-activity-border"
 import { parseSideQuestion } from "@/lib/side-question"
 
 import {
@@ -1079,13 +1080,16 @@ export function MessageInput({
   }, [])
 
   // Localized group headings + panel chrome for the `@` mention panel.
-  const referenceGroupLabels = useMemo<ReferenceGroupLabels>(
+  const referenceGroupLabels = useMemo<
+    ReferenceGroupLabels & { knowledge: string }
+  >(
     () => ({
       file: t("mentionGroupFile"),
       agent: t("mentionGroupAgent"),
       session: t("mentionGroupSession"),
       skill: t("mentionGroupSkill"),
       artifact: t("mentionGroupArtifact"),
+      knowledge: t("mentionGroupKnowledge"),
     }),
     [t]
   )
@@ -4368,6 +4372,7 @@ export function MessageInput({
                 className
               )}
             >
+              <ComposerActivityBorder active={isPrompting && isActive} />
               {visibleTask && (
                 <TaskModeRail
                   task={visibleTask}
@@ -4388,6 +4393,13 @@ export function MessageInput({
                 autoFocus={autoFocus}
                 referenceSearch={referenceSearch}
                 onReferenceSelect={handleComposerReferenceSelect}
+                onReferenceGroupSelect={
+                  attachmentTabId
+                    ? (kind) => {
+                        if (kind === "knowledge") setKnowledgeOpen(true)
+                      }
+                    : undefined
+                }
                 mentionUiLabels={mentionUiLabels}
                 tabLabels={referenceGroupLabels}
                 onChange={handleComposerChange}

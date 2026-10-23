@@ -20,17 +20,11 @@ export function ProcessArchiveStatus({
   parts: AdaptedContentPart[]
 }) {
   const t = useTranslations("Folder.chat.contentParts.processStep")
-  const failures = parts.filter(processPartHasFailure).length
   const running = parts.filter(
     (part) => !processPartHasFailure(part) && processPartNeedsAttention(part)
   ).length
   return (
     <>
-      {failures > 0 && (
-        <span className="assistant-history-status is-failed">
-          {t("failed")} · {failures}
-        </span>
-      )}
       {running > 0 && (
         <span className="assistant-history-status is-running">
           {t("running")} · {running}

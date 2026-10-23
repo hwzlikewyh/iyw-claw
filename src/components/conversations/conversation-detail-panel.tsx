@@ -1,5 +1,7 @@
 "use client"
 
+import { PersistentTaskStrip } from "@/components/chat/persistent-task-strip"
+import type { RuntimeTask } from "@/lib/runtime-tasks"
 import { RuntimeTaskPanel } from "@/components/chat/runtime-task-panel"
 
 import {
@@ -3193,8 +3195,6 @@ const ConversationTabView = memo(function ConversationTabView({
         conn.pendingAskQuestion ||
         conn.pendingChannelConfirmation
       )}
-      liveTrailingStatus={<BackgroundTasksChip contextKey={tabId} inline />}
-      standaloneStatus={<BackgroundTasksChip contextKey={tabId} />}
       scrollPositionRef={messageScrollPositionRef}
       sessionActions={
         conn.supportsFork && hasPersistedConversation
@@ -3251,6 +3251,39 @@ const ConversationTabView = memo(function ConversationTabView({
     return () => acpActions.setPendingInputProtection(tabId, false)
   }, [acpActions, hasUnsavedDraft, mqEditingItemId, msgQueue.length, tabId])
 
+  const runtimeTaskActions = {
+    onCancelLoop: acpLoadError
+      ? undefined
+      : (task: RuntimeTask) =>
+          setPendingSideInject({
+            scope: sideScope,
+            content: {
+              text: tRuntimeTasks(
+                task.native_id === "dynamic"
+                  ? "cancelDynamicMessage"
+                  : "cancelCronMessage",
+                { id: task.native_id }
+              ),
+              append: true,
+            },
+          }),
+    onMessage: acpLoadError
+      ? undefined
+      : (task: RuntimeTask) =>
+          setPendingSideInject({
+            scope: sideScope,
+            content: {
+              text:
+                task.kind === "subagent"
+                  ? tRuntimeTasks("messageToChild", {
+                      title: task.title,
+                    })
+                  : tRuntimeTasks("messageToTask"),
+              append: true,
+            },
+          }),
+  }
+
   const retainHiddenInput = hasEphemeralDraft || mqEditingItemId != null
   if (!isVisible && !retainHiddenInput) {
     return <div className="h-full" aria-hidden="true" />
@@ -3280,6 +3313,8 @@ const ConversationTabView = memo(function ConversationTabView({
       }
       topBanner={
         <>
+          <PersistentTaskStrip {...runtimeTaskActions} />
+          <BackgroundTasksChip contextKey={tabId} />
           <ModelNetworkStatus contextKey={tabId} />
           {!isSilentModelSwitch && (
             <SessionConfigStaleBanner contextKey={tabId} />
@@ -3322,40 +3357,7 @@ const ConversationTabView = memo(function ConversationTabView({
         <RuntimeTaskPanel
           connectionId={conn.connectionId}
           conversationId={effectiveConversationId}
-          onCancelLoop={
-            acpLoadError
-              ? undefined
-              : (task) =>
-                  setPendingSideInject({
-                    scope: sideScope,
-                    content: {
-                      text: tRuntimeTasks(
-                        task.native_id === "dynamic"
-                          ? "cancelDynamicMessage"
-                          : "cancelCronMessage",
-                        { id: task.native_id }
-                      ),
-                      append: true,
-                    },
-                  })
-          }
-          onMessage={
-            acpLoadError
-              ? undefined
-              : (task) =>
-                  setPendingSideInject({
-                    scope: sideScope,
-                    content: {
-                      text:
-                        task.kind === "subagent"
-                          ? tRuntimeTasks("messageToChild", {
-                              title: task.title,
-                            })
-                          : tRuntimeTasks("messageToTask"),
-                      append: true,
-                    },
-                  })
-          }
+          {...runtimeTaskActions}
         />
       }
       feedbackList={

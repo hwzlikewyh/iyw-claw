@@ -139,6 +139,8 @@ export interface RichComposerProps {
   referenceSearch?: ReferenceSearch
   /** Return true when the host consumes an `@` reference out of band. */
   onReferenceSelect?: (reference: ReferenceAttrs) => boolean
+  /** Called when a special reference tab is selected. */
+  onReferenceGroupSelect?: (kind: SuggestionGroupKind) => void
   /**
    * Localized chrome for the `@` panel (empty / loading / listbox name / "more
    * results" hint / result-count announcement). English fallbacks apply when
@@ -213,6 +215,7 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       onReady,
       referenceSearch,
       onReferenceSelect,
+      onReferenceGroupSelect,
       mentionUiLabels,
       tabLabels,
       submitShortcut,
@@ -586,6 +589,16 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
             moreLabel={mentionUiLabels?.more}
             countLabel={mentionUiLabels?.count}
             tabLabels={tabLabels}
+            onKnowledgeSelect={
+              onReferenceGroupSelect
+                ? () => {
+                    if (!editor) return
+                    editor.chain().focus().deleteRange(mentionState.range).run()
+                    closeMention()
+                    onReferenceGroupSelect("knowledge")
+                  }
+                : undefined
+            }
           />
         )}
       </div>

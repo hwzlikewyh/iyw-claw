@@ -81,10 +81,7 @@ import type {
   SessionStats,
 } from "@/lib/types"
 import { copyTextToClipboard } from "@/lib/utils"
-import {
-  isModelConfigOption,
-  modelDisplayName,
-} from "@/lib/model-config-groups"
+import { isModelConfigOption } from "@/lib/model-config-groups"
 import { VirtualizedMessageThread } from "@/components/message/virtualized-message-thread"
 import type { MessageScrollPosition } from "@/components/message/virtualized-message-thread"
 import { SubAgentDelegationsPopover } from "@/components/message/sub-agent-delegations-popover"
@@ -625,6 +622,7 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
         ) : null}
         <MessageTimestamp
           timestamp={group.timestamp}
+          pending={group.role === "assistant" && !isResponseComplete}
           align={group.role === "user" ? "end" : "start"}
         />
         {group.role === "user" && <AgentInputDelivery inputId={group.id} />}
@@ -650,10 +648,9 @@ const HistoricalMessageGroup = memo(function HistoricalMessageGroup({
                 <TurnStats
                   usage={group.usage}
                   duration_ms={durationMs ?? group.duration_ms}
-                  model={modelDisplayName(modelOptions, group.model)}
-                  models={group.models?.map(
-                    (model) => modelDisplayName(modelOptions, model) ?? model
-                  )}
+                  model={group.model}
+                  models={group.models}
+                  modelOptions={modelOptions}
                   previousUserIndex={previousUserIndex}
                   isResponseComplete={isResponseComplete}
                   copyText={extractTextFromParts(group.parts)}

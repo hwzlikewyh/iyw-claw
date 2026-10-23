@@ -1,7 +1,7 @@
 "use client"
 
 import { useId, useRef, useState, useEffect } from "react"
-import { Coins, X } from "lucide-react"
+import { Gem, X } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
 import {
   Popover,
@@ -83,7 +83,7 @@ function UsageTrigger({ usage, controller, points, live }: UsagePopoverProps) {
           }
         }}
       >
-        <Coins aria-hidden="true" className="size-3.5 shrink-0" />
+        <Gem aria-hidden="true" className="size-3.5 shrink-0" />
         <UsagePointsValue
           points={points ?? usage?.confirmed_points?.amount}
           consumption={usage?.confirmed_points}

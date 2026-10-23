@@ -11,6 +11,18 @@
 .conversation-persistent-task button {
   overflow-wrap: anywhere;
 }
+.conversation-top-status {
+  min-width: 0;
+  max-height: min(30dvh, 14rem);
+  overflow: auto;
+}
+.conversation-top-status .conversation-persistent-task {
+  width: calc(100% - 2rem);
+  max-width: 54rem;
+  margin: 6px auto;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
 .conversation-work-bars {
   display: inline-flex;
   flex: 0 0 1.125rem;

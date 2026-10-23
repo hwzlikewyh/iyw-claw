@@ -138,10 +138,7 @@ function validTiming(value: unknown): value is number {
 
 function useTurnTimingStats(timings: TurnTimings | null) {
   const t = useTranslations("Folder.chat.liveTurnStats")
-  const fields = [
-    ["firstActivityMs", "firstActivity"],
-    ["firstTextMs", "firstToken"],
-  ] as const
+  const fields = [["firstTextMs", "firstToken"]] as const
   return fields.map(([key, label]) => {
     const value = timings?.[key]
     return validTiming(value) ? (

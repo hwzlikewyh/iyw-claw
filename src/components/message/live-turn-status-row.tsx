@@ -66,7 +66,7 @@ function TurnActivity({
   LiveTurnStatusRowProps,
   "phase" | "detail" | "waiting" | "attention" | "elapsed"
 >) {
-  const Icon = waiting ? CircleDot : LoaderCircle
+  const Icon = attention ? CircleDot : LoaderCircle
   return (
     <span
       className="conversation-live-activity flex min-w-0 items-center gap-2 text-xs text-muted-foreground"
@@ -75,7 +75,7 @@ function TurnActivity({
       <Icon
         aria-hidden="true"
         className={
-          "size-3 shrink-0 " + (waiting ? "" : "conversation-working-mark")
+          "size-3 shrink-0 " + (attention ? "" : "conversation-working-mark")
         }
       />
       <span

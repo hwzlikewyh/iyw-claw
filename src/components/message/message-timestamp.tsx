@@ -2,6 +2,7 @@
 
 import { useMemo } from "react"
 import { useLocale } from "next-intl"
+import { LoaderCircle } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -9,12 +10,14 @@ interface MessageTimestampProps {
   timestamp?: string | null
   align?: "start" | "end"
   className?: string
+  pending?: boolean
 }
 
 export function MessageTimestamp({
   timestamp,
   align = "start",
   className,
+  pending = false,
 }: MessageTimestampProps) {
   const locale = useLocale()
   const date = useMemo(() => {
@@ -44,12 +47,18 @@ export function MessageTimestamp({
       dateTime={timestamp}
       title={formatters.full.format(date)}
       className={cn(
-        "block text-[11px] leading-none tabular-nums text-muted-foreground/70",
+        "inline-flex items-center gap-1.5 text-[11px] leading-none tabular-nums text-muted-foreground/70",
         align === "end" ? "self-end text-end" : "self-start",
         className
       )}
     >
       {formatters.short.format(date)}
+      {pending && (
+        <LoaderCircle
+          aria-hidden="true"
+          className="size-3 conversation-working-mark"
+        />
+      )}
     </time>
   )
 }

@@ -35,7 +35,6 @@ import type { ComposerInjectContent } from "@/components/chat/message-input"
 import { ConversationPresentationProvider } from "./conversation-presentation-context"
 import { ConversationActivityVisibility } from "@/components/message/conversation-activity-visibility"
 import { ConversationConnectionAlert } from "./conversation-connection-alert"
-import { RuntimeTaskPopover } from "./runtime-task-panel"
 import { RuntimeTaskDetailHost } from "./runtime-task-detail-host"
 import "./conversation-presentation.css"
 import "./conversation-execution.css"
@@ -251,11 +250,16 @@ function ConversationShellContent({
   return (
     <div className="flex h-full min-h-0 min-w-0">
       <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
-        {topBanner}
+        <div className="conversation-top-status shrink-0">{topBanner}</div>
+        {!hideInput && (
+          <ConversationConnectionAlert
+            status={status}
+            onReconnect={onReconnect}
+          />
+        )}
         <AccountRequestsBanner />
-        <div className="flex items-center justify-end gap-3 px-4 py-1">
-          <RuntimeTaskPopover historyOnly />
-          {onSideQuestion && (
+        {onSideQuestion && (
+          <div className="flex items-center justify-end gap-3 px-4 py-1">
             <Button
               variant="ghost"
               size="sm"
@@ -264,8 +268,8 @@ function ConversationShellContent({
               <MessageCircleQuestionMark className="size-4" />
               {tSide("title")}
             </Button>
-          )}
-        </div>
+          </div>
+        )}
         <div className="min-h-24 flex-1 overflow-auto">{children}</div>
 
         {/* 待处理卡片共享高度上限，为状态栏和输入框留出空间；输入框菜单可向上展开。 */}
@@ -340,12 +344,6 @@ function ConversationShellContent({
             <div className="conversation-composer-tasks mx-auto w-full max-w-4xl shrink-0 px-4">
               {runtimeTasks}
             </div>
-          )}
-          {!hideInput && (
-            <ConversationConnectionAlert
-              status={status}
-              onReconnect={onReconnect}
-            />
           )}
           {!hideInput && feedbackList && (
             <div className="mx-auto w-full max-w-4xl px-4">{feedbackList}</div>

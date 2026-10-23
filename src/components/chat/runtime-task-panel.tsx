@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, type ReactNode } from "react"
-import { Bot, ChevronUp, History, ListTodo, Radio } from "lucide-react"
+import { Bot, ChevronUp, ListTodo, Radio, SquareTerminal } from "lucide-react"
 import { useTranslations } from "next-intl"
 import type { RuntimeTask } from "@/lib/runtime-tasks"
 import { useRuntimeTaskConsumption } from "@/hooks/use-runtime-task-consumption"
@@ -18,7 +18,7 @@ import {
 } from "./runtime-task-presentation"
 import { RuntimeTaskRow } from "./runtime-task-row"
 import { SessionTaskPoints } from "./runtime-task-points"
-import { isPersistentTask, PersistentTaskStrip } from "./persistent-task-strip"
+import { isPersistentTask } from "./persistent-task-strip"
 
 interface TaskActions {
   onMessage?: (task: RuntimeTask) => void
@@ -31,50 +31,36 @@ interface PanelProps extends TaskActions {
 interface PopoverProps extends TaskActions {
   excludePersistent?: boolean
   children?: ReactNode
-  historyOnly?: boolean
   monitorsOnly?: boolean
-  onOpenChange?: (open: boolean) => void
 }
 
 export function RuntimeTaskPanel(props: PanelProps) {
   const state = useConversationPresentation()
-  const [openedScope, setOpenedScope] = useState<string | null>(null)
   if (!state) return null
-  const scope = JSON.stringify([state.connectionId, state.conversationId])
-  const open = openedScope === scope
   const current = currentTasks(state.tasks, true)
-  const persistent = state.tasks.some(
-    (task) => isPersistentTask(task) && !isTaskHistory(task)
-  )
-  if (!current.length && !persistent && !state.error && !open) return null
+  if (!current.length && !state.error) return null
   return (
-    <>
-      <PersistentTaskStrip
-        onMessage={props.onMessage}
-        onCancelLoop={props.onCancelLoop}
+    <div className="flex justify-end pb-1 text-xs">
+      <RuntimeTaskPopover
+        {...props}
+        excludePersistent
+        monitorsOnly={
+          current.length > 0 &&
+          current.every(isListeningTask) &&
+          taskControlsAvailable(state.status, state.error)
+        }
       />
-      {(current.length > 0 || state.error || open) && (
-        <div className="flex justify-end pb-1 text-xs">
-          <RuntimeTaskPopover
-            {...props}
-            excludePersistent
-            monitorsOnly={
-              current.length > 0 &&
-              current.every(isListeningTask) &&
-              taskControlsAvailable(state.status, state.error)
-            }
-            onOpenChange={(shown) => setOpenedScope(shown ? scope : null)}
-          />
-        </div>
-      )}
-    </>
+    </div>
   )
 }
 
 export function RuntimeTaskPopover(props: PopoverProps) {
   const state = useConversationPresentation()
-  if (!state || (!state.tasks.length && !state.error)) return null
-  if (props.historyOnly && !state.tasks.some(isTaskHistory)) return null
+  if (
+    !state ||
+    (!currentTasks(state.tasks, props.excludePersistent).length && !state.error)
+  )
+    return null
   return (
     <TaskPopover key={state.contextKey ?? state.conversationId} {...props} />
   )
@@ -83,37 +69,20 @@ export function RuntimeTaskPopover(props: PopoverProps) {
 function TaskPopover(props: PopoverProps) {
   const state = useConversationPresentation()!
   const [open, setOpen] = useState(false)
-  const [history, setHistory] = useState(false)
   const current = currentTasks(state.tasks, props.excludePersistent)
-  const records = props.historyOnly || history || (open && !current.length)
-  const tasks = records
-    ? state.tasks.filter(isTaskHistory)
-    : props.monitorsOnly
-      ? current.filter(isListeningTask)
-      : current
+  const tasks = props.monitorsOnly ? current.filter(isListeningTask) : current
   return (
-    <Popover
-      open={open}
-      onOpenChange={(shown) => {
-        setOpen(shown)
-        props.onOpenChange?.(shown)
-      }}
-    >
+    <Popover open={open} onOpenChange={setOpen}>
       <TaskTrigger {...props} count={current.length} />
       <PopoverContent
         side="top"
         align={props.monitorsOnly ? "start" : "end"}
         className="conversation-task-popover w-80 max-w-[calc(100vw-2rem)] gap-2 p-3"
       >
-        <TaskPopoverHeader
-          historyOnly={props.historyOnly || !current.length}
-          records={Boolean(records)}
-          onToggle={() => setHistory(!history)}
-        />
+        <TaskPopoverHeader />
         <TaskRows
           {...props}
           tasks={tasks}
-          records={Boolean(records)}
           open={open}
           onView={(task) => {
             state.inspectTask({
@@ -122,7 +91,6 @@ function TaskPopover(props: PopoverProps) {
               onCancelLoop: props.onCancelLoop,
             })
             setOpen(false)
-            props.onOpenChange?.(false)
           }}
         />
       </PopoverContent>
@@ -139,13 +107,11 @@ function currentTasks(tasks: RuntimeTask[], excludePersistent = false) {
 
 function TaskRows({
   tasks,
-  records,
   open,
   onView,
   ...actions
 }: TaskActions & {
   tasks: RuntimeTask[]
-  records: boolean
   open: boolean
   onView: (task: RuntimeTask) => void
 }) {
@@ -156,7 +122,7 @@ function TaskRows({
       ? state.conversationId
       : null
   )
-  const controls = !records && taskControlsAvailable(state.status, state.error)
+  const controls = taskControlsAvailable(state.status, state.error)
   return (
     <div className="max-h-[min(24rem,55vh)] space-y-1 overflow-y-auto overscroll-contain text-xs">
       {!tasks.length && (
@@ -171,7 +137,7 @@ function TaskRows({
           pending={state.pending}
           onControl={state.control}
           onView={onView}
-          syncing={!controls && !records}
+          syncing={!controls}
           onMessage={controls ? actions.onMessage : undefined}
           onCancelLoop={controls ? actions.onCancelLoop : undefined}
         />
@@ -202,18 +168,22 @@ function TaskTrigger(props: PopoverProps & { count: number }) {
   const agents = currentTasks(state.tasks, props.excludePersistent).filter(
     (task) => task.kind === "subagent" || task.kind === "delegation"
   ).length
-  const Icon = props.historyOnly
-    ? History
-    : props.monitorsOnly
-      ? Radio
-      : ListTodo
-  const label = props.historyOnly
-    ? p("history")
-    : props.monitorsOnly
-      ? t("monitoring")
-      : state.error
-        ? p("stateSyncing")
-        : p("taskCount", { count: props.count })
+  const tasks = currentTasks(state.tasks, props.excludePersistent)
+  const commands = tasks.filter(
+    (task) => task.background?.task_type === "terminal"
+  ).length
+  const background = tasks.filter(
+    (task) =>
+      (task.kind === "background" &&
+        task.background?.task_type !== "terminal") ||
+      task.kind === "monitor"
+  ).length
+  const Icon = props.monitorsOnly ? Radio : ListTodo
+  const label = props.monitorsOnly
+    ? t("monitoring")
+    : state.error
+      ? p("stateSyncing")
+      : p("taskCount", { count: props.count })
   return (
     <PopoverTrigger asChild>
       <button
@@ -227,17 +197,25 @@ function TaskTrigger(props: PopoverProps & { count: number }) {
           <>
             <Icon aria-hidden="true" className="size-3" />
             <span>{label}</span>
-            {!props.historyOnly && (
-              <>
-                {agents > 0 && !props.monitorsOnly && (
-                  <span className="conversation-task-agent-count">
-                    <Bot aria-hidden="true" className="size-3.5" />
-                    {t("kind.subagent")} {agents}
-                  </span>
-                )}
-                <ChevronUp aria-hidden="true" className="size-2.5" />
-              </>
+            {agents > 0 && !props.monitorsOnly && (
+              <span className="conversation-task-agent-count">
+                <Bot aria-hidden="true" className="size-3.5" />
+                {t("kind.subagent")} {agents}
+              </span>
             )}
+            {background > 0 && !props.monitorsOnly && (
+              <span className="conversation-task-agent-count">
+                <Radio aria-hidden="true" className="size-3.5" />
+                {t("kind.background")} {background}
+              </span>
+            )}
+            {commands > 0 && (
+              <span className="conversation-task-agent-count">
+                <SquareTerminal aria-hidden="true" className="size-3.5" />
+                {t("longCommand")} {commands}
+              </span>
+            )}
+            <ChevronUp aria-hidden="true" className="size-2.5" />
           </>
         )}
       </button>
@@ -245,38 +223,21 @@ function TaskTrigger(props: PopoverProps & { count: number }) {
   )
 }
 
-function TaskPopoverHeader({
-  historyOnly,
-  records,
-  onToggle,
-}: {
-  historyOnly?: boolean
-  records: boolean
-  onToggle: () => void
-}) {
+function TaskPopoverHeader() {
   const state = useConversationPresentation()!
   const t = useTranslations("RuntimeTasks")
   const p = useTranslations("ConversationPresentation")
   return (
     <>
       <div className="flex items-center justify-between gap-2 text-xs">
-        <strong>{records ? p("history") : t("title")}</strong>
-        {!historyOnly && (
-          <button
-            type="button"
-            onClick={onToggle}
-            className="text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {p(records ? "currentTasks" : "history")}
-          </button>
-        )}
+        <strong>{t("title")}</strong>
       </div>
       {state.error && (
         <p role="alert" className="text-xs text-destructive break-words">
           {state.error}
         </p>
       )}
-      {!taskControlsAvailable(state.status, state.error) && !records && (
+      {!taskControlsAvailable(state.status, state.error) && (
         <p className="text-xs text-muted-foreground">{p("stateSyncing")}</p>
       )}
     </>

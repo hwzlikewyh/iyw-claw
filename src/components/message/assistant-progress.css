@@ -50,9 +50,6 @@
   flex-shrink: 0;
   font-size: 12px;
 }
-.assistant-history-status.is-failed {
-  color: var(--destructive);
-}
 .assistant-history-status.is-running {
   color: var(--primary);
 }
@@ -60,9 +57,8 @@
   padding-block: 6px 8px;
 }
 .conversation-composer-tasks .conversation-task-trigger {
-  min-height: 32px;
-  border: 1px solid var(--border);
-  background: var(--background);
+  min-height: 24px;
+  flex-wrap: wrap;
   color: var(--foreground);
   font-size: 12px;
 }
@@ -74,20 +70,17 @@
   border-inline-start: 1px solid var(--border);
 }
 .conversation-live-status-content {
-  padding: 8px 12px;
-  border: 1px solid color-mix(in oklab, var(--primary) 20%, var(--border));
-  border-inline-start: 3px solid var(--primary);
-  border-radius: 10px;
-  background: color-mix(in oklab, var(--primary) 5%, var(--background));
+  padding: 0;
+  min-height: 24px;
 }
 .conversation-live-status-content > button:first-child {
   flex: 1;
 }
 .conversation-live-activity {
-  display: grid;
+  display: flex;
   flex: 1;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
-  gap: 2px 8px;
+  flex-wrap: wrap;
+  gap: 3px 8px;
 }
 .conversation-live-activity > svg {
   color: var(--primary);
@@ -95,34 +88,32 @@
 .conversation-live-phase {
   overflow-wrap: anywhere;
   color: var(--foreground);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
 }
 .conversation-live-detail {
-  grid-column: 2 / -1;
+  min-width: 0;
+  flex: 1 1 12rem;
   overflow-wrap: anywhere;
   line-height: 18px;
 }
 .conversation-live-elapsed {
-  grid-column: 3;
-  grid-row: 1;
+  order: 1;
+  margin-inline-start: auto;
 }
 .conversation-live-status-bar[data-attention="true"]
   .conversation-live-status-content {
-  background: color-mix(in oklab, var(--primary) 9%, var(--background));
+  color: var(--primary);
 }
 @media (max-width: 640px) {
   .assistant-progress-toggle,
   .assistant-history-toggle {
     min-height: 44px;
   }
-  .conversation-live-activity {
-    grid-template-columns: 16px minmax(0, 1fr);
-  }
-  .conversation-live-elapsed {
-    grid-column: 2;
-    grid-row: auto;
+  .conversation-live-detail {
+    flex-basis: 100%;
+    padding-inline-start: 20px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

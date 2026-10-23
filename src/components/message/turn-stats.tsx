@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { ArrowUpToLine, Cpu, CheckIcon, CopyIcon, Timer } from "lucide-react"
+import { ArrowUpToLine, CheckIcon, CopyIcon } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
 import {
   Tooltip,
@@ -18,14 +18,16 @@ import {
 } from "@/components/ui/tooltip"
 import { useMessageScroll } from "@/components/message/message-scroll-context"
 import { formatElapsedLabel } from "@/lib/format-elapsed"
-import { cn, copyTextToClipboard } from "@/lib/utils"
-import type { TurnUsage } from "@/lib/types"
+import { copyTextToClipboard } from "@/lib/utils"
+import type { TurnUsage, SessionConfigOptionInfo } from "@/lib/types"
+import { TurnModelLabel } from "./turn-model-label"
 
 interface TurnStatsProps {
   usage?: TurnUsage | null
   duration_ms?: number | null
   model?: string | null
   models?: string[]
+  modelOptions?: SessionConfigOptionInfo[]
   previousUserIndex?: number | null
   isResponseComplete?: boolean
   copyText?: string
@@ -42,6 +44,7 @@ export function TurnStats({
   duration_ms,
   model,
   models,
+  modelOptions,
   previousUserIndex,
   isResponseComplete = true,
   copyText = "",
@@ -152,38 +155,12 @@ export function TurnStats({
           </Tooltip>
         )}
         {actions}
-        {displayModels.length > 0 && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className={cn(iconButtonClass, "cursor-default")}
-                aria-label={t("model")}
-              >
-                <Cpu aria-hidden="true" className="size-4" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-xs break-words">
-              <span className="font-medium" translate="no">
-                {displayModels.join(", ")}
-              </span>
-            </TooltipContent>
-          </Tooltip>
-        )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              className={cn(iconButtonClass, "cursor-default")}
-              aria-label={`${t("duration")}: ${durationLabel}`}
-            >
-              <Timer aria-hidden="true" className="size-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            <span className="font-mono tabular-nums">{durationLabel}</span>
-          </TooltipContent>
-        </Tooltip>
+        {displayModels.map((name) => (
+          <TurnModelLabel key={name} model={name} options={modelOptions} />
+        ))}
+        <span className="inline-flex min-h-8 items-center px-2 tabular-nums">
+          {tLive("turnDuration", { time: durationLabel })}
+        </span>
         {hasJump && (
           <Tooltip>
             <TooltipTrigger asChild>

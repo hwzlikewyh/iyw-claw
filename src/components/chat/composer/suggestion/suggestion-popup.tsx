@@ -10,6 +10,7 @@ import {
   useState,
 } from "react"
 import { createPortal } from "react-dom"
+import { BookOpenText, ChevronRight } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -33,6 +34,7 @@ const TAB_ORDER: readonly SuggestionGroupKind[] = [
   "session",
   "agent",
   "file",
+  "knowledge",
 ]
 
 // English fallbacks for reference kinds; commit and skill stay here only for
@@ -45,6 +47,7 @@ const DEFAULT_TAB_LABELS: Record<SuggestionGroupKind, string> = {
   commit: "Commits",
   skill: "Skills",
   element: "Elements",
+  knowledge: "Knowledge",
 }
 
 // Commit-synchronous in the browser so the panel is positioned before paint (no
@@ -93,6 +96,7 @@ export interface SuggestionPopupProps {
    * `aria-activedescendant`. Must be referentially stable.
    */
   onActiveOptionChange?: (optionId: string | null) => void
+  onKnowledgeSelect?: () => void
 }
 
 /**
@@ -119,6 +123,7 @@ export const SuggestionPopup = forwardRef<
     moreLabel = "More results — keep typing to filter",
     tabLabels = DEFAULT_TAB_LABELS,
     onActiveOptionChange,
+    onKnowledgeSelect,
   },
   ref
 ) {
@@ -144,6 +149,10 @@ export const SuggestionPopup = forwardRef<
   } | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const stale = result.query !== state.query
+  const tabs = useMemo(
+    () => TAB_ORDER.filter((kind) => kind !== "knowledge" || onKnowledgeSelect),
+    [onKnowledgeSelect]
+  )
 
   // Debounced, abortable fetch on every query change. All state updates run
   // inside the (async) timer callback, never synchronously in the effect body.
@@ -184,6 +193,8 @@ export const SuggestionPopup = forwardRef<
     [groupByKind]
   )
   const activeTab = pinnedTab ?? firstNonEmpty
+  const knowledgeActive =
+    activeTab === "knowledge" && Boolean(onKnowledgeSelect)
   const activeGroup = useMemo(
     () => (stale ? null : (groupByKind.get(activeTab) ?? null)),
     [stale, groupByKind, activeTab]
@@ -207,11 +218,20 @@ export const SuggestionPopup = forwardRef<
   // Null while nothing is selectable (loading / no matches in the active tab).
   useEffect(() => {
     onActiveOptionChange?.(
-      stale || flat.length === 0
-        ? null
-        : mentionOptionId(activeTab, selectedIndex)
+      knowledgeActive
+        ? mentionOptionId("knowledge", 0)
+        : stale || flat.length === 0
+          ? null
+          : mentionOptionId(activeTab, selectedIndex)
     )
-  }, [activeTab, selectedIndex, flat.length, stale, onActiveOptionChange])
+  }, [
+    activeTab,
+    selectedIndex,
+    flat.length,
+    stale,
+    onActiveOptionChange,
+    knowledgeActive,
+  ])
 
   // Position the caret-anchored panel within the viewport. Measure the rendered
   // panel (a `visibility:hidden` box still has layout), read the *live* caret
@@ -268,14 +288,16 @@ export const SuggestionPopup = forwardRef<
             // Tab / Shift+Tab move between tabs (pinning the choice); Enter still
             // selects. Wraps around the visible tabs.
             const dir = event.shiftKey ? -1 : 1
-            const at = TAB_ORDER.indexOf(activeTab)
-            setPinnedTab(
-              TAB_ORDER[(at + dir + TAB_ORDER.length) % TAB_ORDER.length]
-            )
+            const at = tabs.indexOf(activeTab)
+            setPinnedTab(tabs[(at + dir + tabs.length) % tabs.length])
             setSelectedIndex(0)
             return true
           }
           case "Enter": {
+            if (knowledgeActive) {
+              onKnowledgeSelect?.()
+              return true
+            }
             const chosen = flat[selectedIndex]
             if (chosen) onSelect(chosen.reference, state.range)
             // No fresh row (still loading, or empty tab): consume without
@@ -290,18 +312,30 @@ export const SuggestionPopup = forwardRef<
         }
       },
     }),
-    [flat, selectedIndex, activeTab, onSelect, onClose, state.range]
+    [
+      flat,
+      selectedIndex,
+      activeTab,
+      onSelect,
+      onClose,
+      state.range,
+      tabs,
+      knowledgeActive,
+      onKnowledgeSelect,
+    ]
   )
 
   const activeLabel = tabLabels[activeTab] ?? DEFAULT_TAB_LABELS[activeTab]
   const truncated = !stale && activeGroup?.truncated === true
-  const liveStatus = stale
-    ? loadingLabel
-    : flat.length === 0
-      ? `${activeLabel}: ${emptyLabel}`
-      : truncated
-        ? `${activeLabel}: ${countLabel(flat.length)} ${moreLabel}`
-        : `${activeLabel}: ${countLabel(flat.length)}`
+  const liveStatus = knowledgeActive
+    ? activeLabel
+    : stale
+      ? loadingLabel
+      : flat.length === 0
+        ? `${activeLabel}: ${emptyLabel}`
+        : truncated
+          ? `${activeLabel}: ${countLabel(flat.length)} ${moreLabel}`
+          : `${activeLabel}: ${countLabel(flat.length)}`
 
   return createPortal(
     <div
@@ -332,7 +366,7 @@ export const SuggestionPopup = forwardRef<
           aria-orientation="horizontal"
           className="flex shrink-0 gap-0.5 overflow-x-auto border-b border-border p-1"
         >
-          {TAB_ORDER.map((kind) => {
+          {tabs.map((kind) => {
             const isActive = kind === activeTab
             const count = stale ? 0 : (groupByKind.get(kind)?.items.length ?? 0)
             return (
@@ -372,7 +406,7 @@ export const SuggestionPopup = forwardRef<
         <div className="min-h-0 flex-1 overflow-y-auto p-1">
           {/* Status text lives *outside* the listbox: a listbox may only own
               options. (The sr-only live region below announces it to AT.) */}
-          {stale ? (
+          {knowledgeActive ? null : stale ? (
             <div className="px-2 py-3 text-sm text-muted-foreground">
               {loadingLabel}
             </div>
@@ -388,6 +422,21 @@ export const SuggestionPopup = forwardRef<
             role="listbox"
             aria-label={`${listboxLabel}: ${activeLabel}`}
           >
+            {knowledgeActive && (
+              <button
+                type="button"
+                role="option"
+                aria-selected="true"
+                id={mentionOptionId("knowledge", 0)}
+                className="flex w-full items-center gap-2 rounded-md px-2 py-3 text-left text-sm hover:bg-accent"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={onKnowledgeSelect}
+              >
+                <BookOpenText aria-hidden="true" className="size-4 shrink-0" />
+                <span className="flex-1">{activeLabel}</span>
+                <ChevronRight aria-hidden="true" className="size-3.5" />
+              </button>
+            )}
             {!stale &&
               activeGroup?.items.map((item, index) => {
                 const active = index === selectedIndex

@@ -1,6 +1,6 @@
 import type { ReferenceAttrs, ReferenceKind } from "../types"
 
-export type SuggestionGroupKind = ReferenceKind | "artifact"
+export type SuggestionGroupKind = ReferenceKind | "artifact" | "knowledge"
 
 /** One selectable row: the reference to insert plus display hints. */
 export interface SuggestionItem {
