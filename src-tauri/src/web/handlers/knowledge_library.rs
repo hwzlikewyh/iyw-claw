@@ -44,6 +44,60 @@ pub async fn refresh(
         .map(Json)
 }
 
+pub async fn file_update(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<Input<library::FileMutation>>,
+) -> Result<Json<()>, AppCommandError> {
+    library::update_file(&state.db.conn, params.input)
+        .await
+        .map(Json)
+}
+
+pub async fn file_delete(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<Input<library::FileMutation>>,
+) -> Result<Json<()>, AppCommandError> {
+    library::delete_file(&state.db.conn, params.input)
+        .await
+        .map(Json)
+}
+
+pub async fn points(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<Input<library::PointsQuery>>,
+) -> Result<Json<serde_json::Value>, AppCommandError> {
+    library::points(&state.db.conn, params.input)
+        .await
+        .map(Json)
+}
+
+pub async fn point_create(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<Input<library::PointMutation>>,
+) -> Result<Json<()>, AppCommandError> {
+    library::create_point(&state.db.conn, params.input)
+        .await
+        .map(Json)
+}
+
+pub async fn point_update(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<Input<library::PointMutation>>,
+) -> Result<Json<()>, AppCommandError> {
+    library::update_point(&state.db.conn, params.input)
+        .await
+        .map(Json)
+}
+
+pub async fn point_delete(
+    Extension(state): Extension<Arc<AppState>>,
+    Json(params): Json<Input<library::PointMutation>>,
+) -> Result<Json<()>, AppCommandError> {
+    library::delete_point(&state.db.conn, params.input)
+        .await
+        .map(Json)
+}
+
 pub async fn begin(
     Extension(state): Extension<Arc<AppState>>,
     Json(params): Json<Input<BeginUpload>>,

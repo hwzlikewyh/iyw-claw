@@ -99,6 +99,7 @@ function useProcessingRefresh(request: RefreshRequest) {
           scope,
           category,
           fileIds: batch,
+          forceRefresh: false,
         })
         if (!active) return
         const changes = new Map(next.list.map((file) => [file.fileId, file]))

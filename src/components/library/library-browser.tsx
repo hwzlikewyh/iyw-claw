@@ -3,10 +3,17 @@
 import { useMemo, useState } from "react"
 import { Upload } from "lucide-react"
 import { useTranslations } from "next-intl"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import type { Transport } from "@/lib/transport"
 import type { KnowledgeCategory } from "@/lib/cloud-knowledge"
-import { folderPath, type LibraryTarget } from "@/lib/knowledge-library"
+import {
+  folderPath,
+  refreshLibraryFiles,
+  type LibraryFile,
+  type LibraryTarget,
+} from "@/lib/knowledge-library"
+import { knowledgeError } from "@/lib/cloud-knowledge"
 import {
   LibraryFolders,
   FolderBreadcrumb,
@@ -15,6 +22,8 @@ import {
 import { LibraryFiles } from "./library-files"
 import { LibraryError, LibraryLoading } from "./library-states"
 import { LibraryUploadDialog } from "./library-upload-dialog"
+import { LibraryFileDialogs } from "./library-file-dialogs"
+import type { LibraryFileAction } from "./library-file-menu"
 import { useLibraryFolders } from "./use-library-folders"
 
 interface BrowserProps {
@@ -25,7 +34,15 @@ type BrowserModel = ReturnType<typeof useLibraryBrowser>
 
 export function LibraryBrowser(props: BrowserProps) {
   const model = useLibraryBrowser(props)
-  const { browse, uploadTarget, target, setUploadTarget } = model
+  const {
+    browse,
+    uploadTarget,
+    target,
+    setUploadTarget,
+    fileAction,
+    selectedFile,
+    setFileAction,
+  } = model
   if (!browse.data)
     return browse.error ? (
       <LibraryError error={browse.error} retry={browse.reload} />
@@ -55,6 +72,16 @@ export function LibraryBrowser(props: BrowserProps) {
           onClose={() => setUploadTarget(null)}
         />
       )}
+      <LibraryFileDialogs
+        action={fileAction}
+        file={selectedFile}
+        target={target}
+        folders={browse.data.folders}
+        transport={props.transport}
+        onClose={() => setFileAction(null)}
+        onChanged={browse.reload}
+        onOpenPoints={() => setFileAction("points")}
+      />
     </div>
   )
 }
@@ -63,6 +90,8 @@ function useLibraryBrowser(props: BrowserProps) {
   const browse = useLibraryFolders(props.transport, props.category)
   const [folderId, setFolderId] = useState("0")
   const [uploadTarget, setUploadTarget] = useState<LibraryTarget | null>(null)
+  const [fileAction, setFileAction] = useState<LibraryFileAction | null>(null)
+  const [selectedFile, setSelectedFile] = useState<LibraryFile | null>(null)
   const path = useMemo(
     () => folderPath(browse.data?.folders ?? [], folderId),
     [browse.data?.folders, folderId]
@@ -82,11 +111,65 @@ function useLibraryBrowser(props: BrowserProps) {
     () => ({ scope, category, folderId: effectiveFolderId, folderName }),
     [scope, category, effectiveFolderId, folderName]
   )
+  const handleFileAction = async (
+    action: LibraryFileAction,
+    file: LibraryFile
+  ) => {
+    setSelectedFile(file)
+    if (
+      action === "details" ||
+      action === "rename" ||
+      action === "move" ||
+      action === "delete" ||
+      action === "points"
+    ) {
+      setFileAction(action)
+      return
+    }
+    if (action === "view" || action === "download") {
+      const url = file.fileUrl || file.tosUrl
+      if (!url) return toast.error("文件没有可访问地址")
+      window.open(url, "_blank", "noopener,noreferrer")
+      return
+    }
+    if (action === "design") {
+      const params = new URLSearchParams({
+        agent_id: "1",
+        category: String(category),
+        file_id: file.fileId,
+        file_name: file.fileName,
+      })
+      window.open(
+        `https://ai.iyw.cn/#/agent_new?${params.toString()}`,
+        "_blank",
+        "noopener,noreferrer"
+      )
+      return
+    }
+    if (action === "refresh") {
+      try {
+        await refreshLibraryFiles(props.transport, {
+          scope,
+          category,
+          fileIds: [file.fileId],
+          forceRefresh: true,
+        })
+        toast.success("文件状态已刷新")
+        browse.reload()
+      } catch (reason) {
+        toast.error(knowledgeError(reason))
+      }
+    }
+  }
   return {
     ...props,
     browse,
     path: effectivePath,
     target,
+    fileAction,
+    selectedFile,
+    setFileAction,
+    handleFileAction,
     setFolderId,
     uploadTarget,
     setUploadTarget,
@@ -111,6 +194,7 @@ function LibraryFolderContent({ model }: { model: BrowserModel }) {
           target={target}
           revision={browse.revision}
           reload={browse.reload}
+          onAction={model.handleFileAction}
         />
       ) : (
         <p className="p-4 text-sm text-muted-foreground">{t("emptyLibrary")}</p>

@@ -10,12 +10,17 @@ import type { Transport } from "@/lib/transport"
 import { LibraryFileList } from "./library-file-list"
 import { LibraryError, LibraryLoading } from "./library-states"
 import { useLibraryFiles } from "./use-library-files"
+import type { LibraryFileAction } from "./library-file-menu"
 
 interface LibraryFilesProps {
   transport: Transport
   target: LibraryTarget
   revision: number
   reload: () => void
+  onAction: (
+    action: LibraryFileAction,
+    file: import("@/lib/knowledge-library").LibraryFile
+  ) => void
 }
 
 export function LibraryFiles(props: LibraryFilesProps) {
@@ -51,7 +56,11 @@ export function LibraryFiles(props: LibraryFilesProps) {
         ) : files.busy && !files.data.list.length ? (
           <LibraryLoading />
         ) : (
-          <LibraryFileList files={files.data.list} searching={Boolean(query)} />
+          <LibraryFileList
+            files={files.data.list}
+            searching={Boolean(query)}
+            onAction={props.onAction}
+          />
         )}
       </div>
       {files.pollError && (

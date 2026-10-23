@@ -26,6 +26,54 @@ pub async fn knowledge_library_refresh(
 }
 
 #[tauri::command]
+pub async fn knowledge_library_file_update(
+    input: library::FileMutation,
+    db: tauri::State<'_, AppDatabase>,
+) -> Result<(), AppCommandError> {
+    library::update_file(&db.conn, input).await
+}
+
+#[tauri::command]
+pub async fn knowledge_library_file_delete(
+    input: library::FileMutation,
+    db: tauri::State<'_, AppDatabase>,
+) -> Result<(), AppCommandError> {
+    library::delete_file(&db.conn, input).await
+}
+
+#[tauri::command]
+pub async fn knowledge_library_points(
+    input: library::PointsQuery,
+    db: tauri::State<'_, AppDatabase>,
+) -> Result<serde_json::Value, AppCommandError> {
+    library::points(&db.conn, input).await
+}
+
+#[tauri::command]
+pub async fn knowledge_library_point_create(
+    input: library::PointMutation,
+    db: tauri::State<'_, AppDatabase>,
+) -> Result<(), AppCommandError> {
+    library::create_point(&db.conn, input).await
+}
+
+#[tauri::command]
+pub async fn knowledge_library_point_update(
+    input: library::PointMutation,
+    db: tauri::State<'_, AppDatabase>,
+) -> Result<(), AppCommandError> {
+    library::update_point(&db.conn, input).await
+}
+
+#[tauri::command]
+pub async fn knowledge_library_point_delete(
+    input: library::PointMutation,
+    db: tauri::State<'_, AppDatabase>,
+) -> Result<(), AppCommandError> {
+    library::delete_point(&db.conn, input).await
+}
+
+#[tauri::command]
 pub async fn knowledge_upload_begin(
     input: BeginUpload,
     db: tauri::State<'_, AppDatabase>,

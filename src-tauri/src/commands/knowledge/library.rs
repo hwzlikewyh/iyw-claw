@@ -27,6 +27,8 @@ pub struct LibraryQuery {
 #[serde(rename_all = "camelCase")]
 pub struct LibraryFile {
     pub file_id: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub doc_id: String,
     pub file_name: String,
     pub folder_id: String,
     #[serde(default, deserialize_with = "null_default")]
@@ -41,6 +43,16 @@ pub struct LibraryFile {
     pub doc_process_status: Option<i32>,
     #[serde(default, deserialize_with = "null_default")]
     pub doc_process_message: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub file_url: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub tos_url: String,
+    #[serde(default, deserialize_with = "null_default")]
+    pub sync_message: String,
+    #[serde(default)]
+    pub sync_status: Option<i32>,
+    #[serde(default)]
+    pub point_num: Option<u64>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -119,6 +131,8 @@ pub struct RefreshFiles {
     pub scope: String,
     pub category: u8,
     pub file_ids: Vec<String>,
+    #[serde(default)]
+    pub force_refresh: bool,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -160,10 +174,216 @@ pub async fn refresh(
         .post(
             "files/batch-refresh-status",
             json!({
-                "category": input.category, "fileIds": input.file_ids, "forceRefresh": false,
+                "category": input.category, "fileIds": input.file_ids,
+                "forceRefresh": input.force_refresh,
             }),
         )
         .await?;
     require_scope(conn, &input.scope).await?;
     Ok(result)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FileMutation {
+    pub scope: String,
+    pub category: u8,
+    pub file_id: String,
+    #[serde(default)]
+    pub file_name: Option<String>,
+    #[serde(default)]
+    pub folder_id: Option<String>,
+}
+
+pub async fn update_file(
+    conn: &DatabaseConnection,
+    input: FileMutation,
+) -> Result<(), AppCommandError> {
+    models::validate_category(input.category)?;
+    if !models::valid_id(&input.file_id) {
+        return Err(AppCommandError::invalid_input("文件 ID 无效"));
+    }
+    let name = input
+        .file_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
+    if name.is_none() && input.folder_id.is_none() {
+        return Err(AppCommandError::invalid_input("没有要修改的文件属性"));
+    }
+    if name.is_some_and(|name| name.chars().count() > 180 || name.chars().any(|ch| ch.is_control()))
+    {
+        return Err(AppCommandError::invalid_input("文件名无效或过长"));
+    }
+    if let Some(folder_id) = input.folder_id.as_deref() {
+        if !models::valid_id(folder_id) {
+            return Err(AppCommandError::invalid_input("目标目录无效"));
+        }
+        let client = scoped_client(conn, &input.scope).await?;
+        if !contains_folder(&client.folders(input.category).await?, folder_id) {
+            return Err(AppCommandError::not_found("目标目录不存在"));
+        }
+        client
+            .post::<serde_json::Value>(
+                "files/update",
+                json!({
+                    "category": input.category, "fileId": input.file_id,
+                    "fileName": name, "folderId": folder_id,
+                }),
+            )
+            .await?;
+        return require_scope(conn, &input.scope).await;
+    }
+    let client = scoped_client(conn, &input.scope).await?;
+    client
+        .post::<serde_json::Value>(
+            "files/update",
+            json!({
+                "category": input.category, "fileId": input.file_id, "fileName": name,
+            }),
+        )
+        .await?;
+    require_scope(conn, &input.scope).await
+}
+
+pub async fn delete_file(
+    conn: &DatabaseConnection,
+    input: FileMutation,
+) -> Result<(), AppCommandError> {
+    models::validate_category(input.category)?;
+    if !models::valid_id(&input.file_id) {
+        return Err(AppCommandError::invalid_input("文件 ID 无效"));
+    }
+    let client = scoped_client(conn, &input.scope).await?;
+    client
+        .post::<serde_json::Value>(
+            "files/delete",
+            json!({
+                "category": input.category, "fileId": input.file_id,
+            }),
+        )
+        .await?;
+    require_scope(conn, &input.scope).await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PointsQuery {
+    pub scope: String,
+    pub category: u8,
+    pub file_id: String,
+    #[serde(default)]
+    pub offset: usize,
+    #[serde(default = "default_point_limit")]
+    pub limit: usize,
+}
+
+fn default_point_limit() -> usize {
+    100
+}
+
+pub async fn points(
+    conn: &DatabaseConnection,
+    input: PointsQuery,
+) -> Result<serde_json::Value, AppCommandError> {
+    models::validate_category(input.category)?;
+    if !models::valid_id(&input.file_id) || input.limit == 0 || input.limit > 100 {
+        return Err(AppCommandError::invalid_input("切片查询参数无效"));
+    }
+    let client = scoped_client(conn, &input.scope).await?;
+    let result = client
+        .post(
+            "points/list",
+            json!({
+                "category": input.category, "fileId": input.file_id,
+                "offset": input.offset, "limit": input.limit, "getAttachmentLink": true,
+            }),
+        )
+        .await?;
+    require_scope(conn, &input.scope).await?;
+    Ok(result)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PointMutation {
+    pub scope: String,
+    pub category: u8,
+    pub file_id: String,
+    #[serde(default)]
+    pub point_id: Option<String>,
+    #[serde(default)]
+    pub chunk_type: Option<String>,
+    #[serde(default)]
+    pub chunk_title: Option<String>,
+    #[serde(default)]
+    pub content: Option<String>,
+    #[serde(default)]
+    pub question: Option<String>,
+}
+
+pub async fn create_point(
+    conn: &DatabaseConnection,
+    input: PointMutation,
+) -> Result<(), AppCommandError> {
+    point_mutation(conn, "points/create", input).await
+}
+
+pub async fn update_point(
+    conn: &DatabaseConnection,
+    input: PointMutation,
+) -> Result<(), AppCommandError> {
+    if input
+        .point_id
+        .as_deref()
+        .is_none_or(|id| !models::valid_id(id))
+    {
+        return Err(AppCommandError::invalid_input("切片 ID 无效"));
+    }
+    point_mutation(conn, "points/update", input).await
+}
+
+pub async fn delete_point(
+    conn: &DatabaseConnection,
+    input: PointMutation,
+) -> Result<(), AppCommandError> {
+    if input
+        .point_id
+        .as_deref()
+        .is_none_or(|id| !models::valid_id(id))
+    {
+        return Err(AppCommandError::invalid_input("切片 ID 无效"));
+    }
+    point_mutation(conn, "points/delete", input).await
+}
+
+async fn point_mutation(
+    conn: &DatabaseConnection,
+    operation: &str,
+    input: PointMutation,
+) -> Result<(), AppCommandError> {
+    models::validate_category(input.category)?;
+    if !models::valid_id(&input.file_id)
+        || input.content.as_deref().unwrap_or("").chars().count() > 5000
+    {
+        return Err(AppCommandError::invalid_input("切片内容无效"));
+    }
+    let client = scoped_client(conn, &input.scope).await?;
+    let mut body = json!({
+        "category": input.category, "fileId": input.file_id,
+        "pointId": input.point_id, "chunkType": input.chunk_type,
+        "chunkTitle": input.chunk_title, "content": input.content, "question": input.question,
+    });
+    if operation == "points/delete" {
+        body =
+            json!({"category": input.category, "fileId": input.file_id, "pointId": input.point_id});
+    }
+    client.post::<serde_json::Value>(operation, body).await?;
+    require_scope(conn, &input.scope).await
+}
+
+fn contains_folder(folders: &[models::Folder], id: &str) -> bool {
+    folders
+        .iter()
+        .any(|folder| folder.id == id || contains_folder(&folder.children, id))
 }

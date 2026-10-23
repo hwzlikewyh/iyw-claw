@@ -8,22 +8,25 @@ import {
   type LibraryFile,
 } from "@/lib/knowledge-library"
 import { cn } from "@/lib/utils"
+import { LibraryFileMenu, type LibraryFileAction } from "./library-file-menu"
 
 export function LibraryFileList({
   files,
   searching,
+  onAction,
 }: {
   files: LibraryFile[]
   searching: boolean
+  onAction: (action: LibraryFileAction, file: LibraryFile) => void
 }) {
   const t = useTranslations("Library")
   if (!files.length) return <EmptyFiles searching={searching} />
   return (
     <>
-      <DesktopFileTable files={files} />
+      <DesktopFileTable files={files} onAction={onAction} />
       <ul className="xl:hidden" aria-label={t("files")}>
         {files.map((file) => (
-          <MobileFileRow key={file.fileId} file={file} />
+          <MobileFileRow key={file.fileId} file={file} onAction={onAction} />
         ))}
       </ul>
     </>
@@ -46,7 +49,13 @@ function EmptyFiles({ searching }: { searching: boolean }) {
   )
 }
 
-function DesktopFileTable({ files }: { files: LibraryFile[] }) {
+function DesktopFileTable({
+  files,
+  onAction,
+}: {
+  files: LibraryFile[]
+  onAction: (action: LibraryFileAction, file: LibraryFile) => void
+}) {
   const t = useTranslations("Library")
   return (
     <table className="hidden w-full table-fixed text-sm xl:table">
@@ -57,12 +66,13 @@ function DesktopFileTable({ files }: { files: LibraryFile[] }) {
         <col className="w-[9%]" />
         <col className="w-[14%]" />
         <col className="w-[14%]" />
-        <col className="w-[20%]" />
+        <col className="w-[16%]" />
+        <col className="w-[4%]" />
       </colgroup>
       <FileColumnHeaders />
       <tbody>
         {files.map((file) => (
-          <DesktopFileRow key={file.fileId} file={file} />
+          <DesktopFileRow key={file.fileId} file={file} onAction={onAction} />
         ))}
       </tbody>
     </table>
@@ -82,6 +92,7 @@ function FileColumnHeaders() {
             "status",
             "uploadedBy",
             "updatedAt",
+            "actions",
           ] as const
         ).map((key) => (
           <th
@@ -100,7 +111,13 @@ function FileColumnHeaders() {
   )
 }
 
-function DesktopFileRow({ file }: { file: LibraryFile }) {
+function DesktopFileRow({
+  file,
+  onAction,
+}: {
+  file: LibraryFile
+  onAction: (action: LibraryFileAction, file: LibraryFile) => void
+}) {
   const locale = useLocale()
   const date = fileDate(file.updatedAt, locale)
   return (
@@ -134,20 +151,32 @@ function DesktopFileRow({ file }: { file: LibraryFile }) {
       <td className="px-3 text-right text-xs tabular-nums text-muted-foreground">
         <time dateTime={date.iso}>{date.label}</time>
       </td>
+      <td className="px-1 text-right">
+        <LibraryFileMenu file={file} onAction={onAction} />
+      </td>
     </tr>
   )
 }
 
-function MobileFileRow({ file }: { file: LibraryFile }) {
+function MobileFileRow({
+  file,
+  onAction,
+}: {
+  file: LibraryFile
+  onAction: (action: LibraryFileAction, file: LibraryFile) => void
+}) {
   const locale = useLocale()
   const date = fileDate(file.updatedAt, locale)
   return (
     <li className="min-w-0 space-y-2 border-t border-border/50 px-3 py-4">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <span className="min-w-0 break-words text-sm">{file.fileName}</span>
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {libraryFileSize(file.fileSize, locale)}
-        </span>
+        <div className="flex shrink-0 items-center gap-1">
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {libraryFileSize(file.fileSize, locale)}
+          </span>
+          <LibraryFileMenu file={file} onAction={onAction} />
+        </div>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
         <span>{file.fileExt?.toUpperCase() || "—"}</span>

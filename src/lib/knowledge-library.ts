@@ -18,6 +18,7 @@ export interface LibraryTarget {
 
 export interface LibraryFile {
   fileId: string
+  docId: string
   fileName: string
   folderId: string
   fileSize: number
@@ -26,6 +27,11 @@ export interface LibraryFile {
   updatedAt: string
   docProcessStatus: number | null
   docProcessMessage: string
+  fileUrl: string
+  tosUrl: string
+  syncStatus: number | null
+  syncMessage: string
+  pointNum: number | null
 }
 
 export interface LibraryFilePage {
@@ -61,12 +67,119 @@ export interface RefreshedFile {
 
 export function refreshLibraryFiles(
   transport: Transport,
-  input: Pick<LibraryTarget, "scope" | "category"> & { fileIds: string[] }
+  input: Pick<LibraryTarget, "scope" | "category"> & {
+    fileIds: string[]
+    forceRefresh?: boolean
+  }
 ) {
   return transport.call<{ list: RefreshedFile[] }>(
     "knowledge_library_refresh",
     { input }
   )
+}
+
+export interface LibraryFileMutation extends LibraryTarget {
+  fileId: string
+  fileName?: string
+  destinationFolderId?: string
+}
+
+export function updateLibraryFile(
+  transport: Transport,
+  input: LibraryFileMutation
+) {
+  return transport.call<void>("knowledge_library_file_update", {
+    input: {
+      scope: input.scope,
+      category: input.category,
+      fileId: input.fileId,
+      fileName: input.fileName,
+      folderId: input.destinationFolderId,
+    },
+  })
+}
+
+export function deleteLibraryFile(
+  transport: Transport,
+  input: Pick<LibraryFileMutation, "scope" | "category" | "fileId">
+) {
+  return transport.call<void>("knowledge_library_file_delete", { input })
+}
+
+export interface LibraryPoint {
+  pointId: string
+  chunkTitle: string
+  content: string
+  question: string
+  chunkType: string
+  attachmentLink?: string
+  raw: Record<string, unknown>
+}
+
+export function getLibraryPoints(
+  transport: Transport,
+  input: Pick<LibraryTarget, "scope" | "category"> & { fileId: string }
+) {
+  return transport.call<{ list?: Record<string, unknown>[] }>(
+    "knowledge_library_points",
+    { input: { ...input, offset: 0, limit: 100 } }
+  )
+}
+
+export function createLibraryPoint(
+  transport: Transport,
+  input: Pick<LibraryTarget, "scope" | "category"> & {
+    fileId: string
+    chunkTitle: string
+    content: string
+    question: string
+  }
+) {
+  return transport.call<void>("knowledge_library_point_create", {
+    input: { ...input, chunkType: "text" },
+  })
+}
+
+export function updateLibraryPoint(
+  transport: Transport,
+  input: Pick<LibraryTarget, "scope" | "category"> & {
+    fileId: string
+    pointId: string
+    chunkTitle: string
+    content: string
+    question: string
+  }
+) {
+  return transport.call<void>("knowledge_library_point_update", { input })
+}
+
+export function deleteLibraryPoint(
+  transport: Transport,
+  input: Pick<LibraryTarget, "scope" | "category"> & {
+    fileId: string
+    pointId: string
+  }
+) {
+  return transport.call<void>("knowledge_library_point_delete", { input })
+}
+
+export function normalizeLibraryPoint(
+  raw: Record<string, unknown>
+): LibraryPoint {
+  const value = (key: string) => String(raw[key] ?? "")
+  return {
+    pointId: value("pointId") || value("point_id"),
+    chunkTitle: value("chunkTitle") || value("chunk_title"),
+    content: value("content") || value("origin_text") || value("md_content"),
+    question:
+      value("question") ||
+      value("originalQuestion") ||
+      value("original_question"),
+    chunkType: value("chunkType") || value("chunk_type"),
+    attachmentLink:
+      value("attachmentLink") || value("attachment_link") || undefined,
+    raw,
+  }
 }
 
 export function folderPath(
