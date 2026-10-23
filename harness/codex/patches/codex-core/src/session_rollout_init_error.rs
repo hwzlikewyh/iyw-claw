@@ -19,6 +19,8 @@ pub(crate) fn map_session_init_error(err: &anyhow::Error, codex_home: &Path) -> 
             }
             ThreadStoreError::ThreadNotFound { .. }
             | ThreadStoreError::InvalidRequest { .. }
+            | ThreadStoreError::Retryable { .. }
+            | ThreadStoreError::OutcomeUnknown { .. }
             | ThreadStoreError::Internal { .. } => {}
         }
     }

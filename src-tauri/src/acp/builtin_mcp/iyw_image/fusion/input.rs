@@ -1,14 +1,12 @@
-use std::path::Path;
-
 use serde_json::Value;
 
 use super::super::{
     input::{prepare_images, ImageValidation},
-    invalid, ImageRequest, ImageSource, IywGatewayService, PreparedImage,
+    invalid, ImageRequest, ImageSource, IywGatewayService, PreparedImage, SessionContext,
 };
 
 pub(in crate::acp::builtin_mcp::iyw_image) async fn prepare_edit_images(
-    context: (&IywGatewayService, &Path),
+    context: (&IywGatewayService, &SessionContext),
     (request, kind): (&ImageRequest, &str),
 ) -> Result<Vec<PreparedImage>, rmcp::ErrorData> {
     let mask = request

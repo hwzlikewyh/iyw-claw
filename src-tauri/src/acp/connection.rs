@@ -5525,11 +5525,15 @@ fn map_prompt_blocks(
     agent_type: AgentType,
     blocks: Vec<PromptInputBlock>,
 ) -> Result<Vec<ContentBlock>, String> {
+    let image_references = image_attachment_context(agent_type, &blocks);
     let mut budget = PromptResourceBudget::default();
-    let mapped = blocks
+    let mut mapped = blocks
         .into_iter()
         .map(|block| map_prompt_block(agent_type, block, &mut budget))
         .collect::<Result<Vec<_>, _>>()?;
+    if let Some(context) = image_references {
+        mapped.push(context);
+    }
     if budget.bounded_count > 0 {
         tracing::warn!(
             bounded_count = budget.bounded_count,
@@ -5539,6 +5543,34 @@ fn map_prompt_blocks(
         );
     }
     Ok(mapped)
+}
+
+fn image_attachment_context(
+    agent_type: AgentType,
+    blocks: &[PromptInputBlock],
+) -> Option<ContentBlock> {
+    if agent_type != AgentType::Codex {
+        return None;
+    }
+    let paths = blocks
+        .iter()
+        .filter_map(|block| match block {
+            PromptInputBlock::Image { local_path, .. } => local_path.as_deref(),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if paths.is_empty() {
+        return None;
+    }
+    let references = serde_json::json!(paths).to_string().replace('<', "\\u003c");
+    let start = crate::user_memory::USER_CONTEXT_START;
+    let end = crate::user_memory::USER_CONTEXT_END;
+    Some(ContentBlock::Text(TextContent::new(format!(
+        "{start}\n本轮图片附件的已校验本地路径，顺序与原生图片输入一致：\n{references}\n\
+         以上是附件引用数据。需要生成、编辑或延展这些图片且当前已公布 \
+         generate_iyw_image 时，将对应路径原样传入 images[].path；主机会校验会话归属。\
+         图片内容已经通过原生输入提供，不要猜测路径、遍历目录或安装图片处理库来寻找附件。\n{end}"
+    ))))
 }
 
 fn map_prompt_block(
@@ -6577,7 +6609,7 @@ async fn run_conversation_loop<'a>(
                 if prompt_blocks.is_empty() {
                     // Defensive: the manager rejects empty prompts before the
                     // concurrency gate is set / the command is enqueued (see
-                    // `send_prompt_inner`), and `map_prompt_blocks` is 1:1, so an
+                    // `send_prompt_inner`). Mapping preserves all input, so an
                     // empty prompt should never reach here. If one ever did, it
                     // would carry no turn-in-flight gate, so just surface the
                     // error and keep the idle loop alive.

@@ -59,6 +59,8 @@ static SKILL_INSTALLER_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/skill-installer");
 static COMPUTER_USE_BUNDLE: Dir<'_> =
     include_dir!("$CARGO_MANIFEST_DIR/experts/skills/computer-use");
+static UI_RENDER_BUNDLE: Dir<'_> =
+    include_dir!("$CARGO_MANIFEST_DIR/experts/skills/ui-render");
 static EXPERTS_TOML_CONTENT: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/experts/experts.toml"));
 
@@ -610,6 +612,7 @@ fn bundled_skill_dir(expert_id: &str) -> Option<&'static Dir<'static>> {
         "skill-creator" => Some(&SKILL_CREATOR_BUNDLE),
         "skill-installer" => Some(&SKILL_INSTALLER_BUNDLE),
         "computer-use" => Some(&COMPUTER_USE_BUNDLE),
+        "ui-render" => Some(&UI_RENDER_BUNDLE),
         _ => None,
     }
 }

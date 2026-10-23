@@ -350,8 +350,10 @@ impl InProcessClientHandle {
     ///
     /// Shutdown is bounded by internal timeouts and may abort background tasks
     /// if graceful drain does not complete in time.
-    pub async fn shutdown(mut self) -> IoResult<()> {
-        self.event_rx.close();
+    pub async fn shutdown(self) -> IoResult<()> {
+        // Shutdown owns the only event receiver, so nobody can drain it anymore.
+        // Unblock notification delivery before waiting for space in the client queue.
+        drop(self.event_rx);
         let mut runtime_handle = self.runtime_handle;
         let (done_tx, done_rx) = oneshot::channel();
 
@@ -444,6 +446,9 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
     )
     .with_embedded_network_policy(args.embedded_network_policy)
     .with_runtime_environment(args.runtime_environment);
+    // Keep the caller's project context independent of any fallback policy config.
+    let startup_cwd =
+        (!args.config.config_layer_stack.is_projectless()).then(|| args.config.cwd.to_path_buf());
     let auth_manager = bootstrap::configure(
         &config_manager,
         &mut args.config,
@@ -505,10 +510,12 @@ async fn start_uninitialized(mut args: InProcessStartArgs) -> IoResult<InProcess
         let (processor_tx, mut processor_rx) = mpsc::channel::<ProcessorCommand>(channel_capacity);
         let mut processor_handle = AbortOnDropHandle::new(tokio::spawn(async move {
             let processor = Arc::new(MessageProcessor::new(MessageProcessorArgs {
+                cloud_skill_provider: None,
                 outgoing: Arc::clone(&processor_outgoing),
                 analytics_events_client,
                 arg0_paths: args.arg0_paths,
                 config: args.config,
+                startup_cwd,
                 config_manager,
                 environment_manager: args.environment_manager,
                 feedback: args.feedback,

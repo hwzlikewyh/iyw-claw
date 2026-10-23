@@ -57,6 +57,8 @@ const NOISE_HANDSHAKE_FAILURE_COOLDOWN: Duration = Duration::from_secs(10);
 const MAX_HARNESS_KEY_AUTHORIZATION_BYTES: usize = 4096;
 const MAX_PENDING_HANDSHAKE_VALIDATIONS: usize = 32;
 const HARNESS_KEY_VALIDATION_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_HANDSHAKE_DIAGNOSTICS_PER_MINUTE: usize = 100;
+const HANDSHAKE_DIAGNOSTIC_WINDOW: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(crate) enum RendezvousDisconnectReason {
@@ -497,6 +499,7 @@ pub(crate) trait HarnessKeyValidator: Send + Sync {
         &self,
         harness_public_key: &NoiseChannelPublicKey,
         authorization: &str,
+        stream_id: Option<Uuid>,
     ) -> impl std::future::Future<Output = Result<(), ExecServerError>> + Send;
 }
 
@@ -544,6 +547,42 @@ where
     let mut handshake_cooldown_until = None;
     let mut next_validation_id = 0u64;
     let mut disconnect_reason = RendezvousDisconnectReason::LocalShutdown;
+    let mut diagnostic_window = (Instant::now(), 0);
+    let mut record_diagnostic =
+        |stream_id: &str, reason, registry_status| match handshake_diagnostic_slot(
+            &mut diagnostic_window,
+            Instant::now(),
+        ) {
+            slot if slot < MAX_HANDSHAKE_DIAGNOSTICS_PER_MINUTE => record_handshake_diagnostic(
+                &environment_id,
+                &executor_registration_id,
+                stream_id,
+                reason,
+                registry_status,
+            ),
+            MAX_HANDSHAKE_DIAGNOSTICS_PER_MINUTE => {
+                let span = tracing::info_span!(
+                    parent: None,
+                    "codex.exec_server.noise_handshake_diagnostics_rate_limited",
+                    noise_event = "handshake_diagnostics",
+                    noise_outcome = "rate_limited",
+                    noise_side = "executor",
+                    environment_id,
+                    executor_registration_id,
+                );
+                let _entered = span.enter();
+                warn!(
+                    target: "codex_otel.log_only",
+                    noise_event = "handshake_diagnostics",
+                    noise_outcome = "rate_limited",
+                    noise_side = "executor",
+                    environment_id,
+                    executor_registration_id,
+                    "Noise executor handshake diagnostics rate limited"
+                );
+            }
+            _ => {}
+        };
 
     loop {
         // Registry calls run separately so a slow check does not block the relay.
@@ -587,7 +626,7 @@ where
                         else {
                             continue;
                         };
-                        if validation_result.result.is_err() {
+                        if let Err((reason, registry_status)) = validation_result.result {
                             // Validator errors may contain authorization details.
                             warn!(
                                 noise_event = "authorization",
@@ -599,6 +638,11 @@ where
                                 stream_id = validation_result.stream_id,
                                 "Noise harness authorization failure details"
                             );
+                            record_diagnostic(
+                                &validation_result.stream_id,
+                                reason,
+                                registry_status,
+                            );
                             send_reset(&physical_outgoing_tx, validation_result.stream_id);
                             record_failed_handshake(
                                 &mut failed_handshakes,
@@ -608,6 +652,7 @@ where
                         }
                         if streams.len() >= MAX_ACTIVE_NOISE_RELAY_STREAMS {
                             warn!("Noise relay has too many active streams");
+                            record_diagnostic(&validation_result.stream_id, "active_stream_limit", None);
                             send_reset(&physical_outgoing_tx, validation_result.stream_id);
                             continue;
                         }
@@ -619,6 +664,7 @@ where
                             Ok(completed) => completed,
                             Err(error) => {
                                 warn!("failed to complete Noise relay handshake: {error}");
+                                record_diagnostic(&validation_result.stream_id, "handshake_completion", None);
                                 send_reset(&physical_outgoing_tx, validation_result.stream_id);
                                 record_failed_handshake(
                                     &mut failed_handshakes,
@@ -633,10 +679,12 @@ where
                         );
                         // Do not leave a half-open stream if the handshake reply
                         // cannot be queued immediately.
-                        if physical_outgoing_tx
-                            .try_send(encode_relay_message_frame(&response))
-                            .is_err()
-                        {
+                        if let Err(error) = physical_outgoing_tx.try_send(encode_relay_message_frame(&response)) {
+                            let reason = match error {
+                                mpsc::error::TrySendError::Full(_) => "response_queue_full",
+                                mpsc::error::TrySendError::Closed(_) => "response_queue_closed",
+                            };
+                            record_diagnostic(&validation_result.stream_id, reason, None);
                             break;
                         }
                         info!(
@@ -667,6 +715,7 @@ where
                         let stream_ids = pending_handshakes.keys().cloned().collect::<Vec<_>>();
                         pending_handshakes.clear();
                         for stream_id in stream_ids {
+                            record_diagnostic(&stream_id, "validator_task_failed", None);
                             send_reset(&physical_outgoing_tx, stream_id);
                         }
                     }
@@ -717,6 +766,7 @@ where
                 // Existing streams and already-admitted validations keep running.
                 if let Some(deadline) = handshake_cooldown_until {
                     if Instant::now() < deadline {
+                        record_diagnostic(&stream_id, "cooldown", None);
                         send_reset(&physical_outgoing_tx, stream_id);
                         continue;
                     }
@@ -727,22 +777,26 @@ where
                 // handshake. Malformed attempts that reach cryptography are
                 // covered by the connection-wide failure budget below.
                 if streams.contains_key(&stream_id) {
+                    record_diagnostic(&stream_id, "duplicate_active_stream", None);
                     send_reset(&physical_outgoing_tx, stream_id);
                     continue;
                 }
                 // Removing pending state makes the in-flight validation result stale.
                 if pending_handshakes.remove(&stream_id).is_some() {
+                    record_diagnostic(&stream_id, "duplicate_pending_stream", None);
                     send_reset(&physical_outgoing_tx, stream_id);
                     record_failed_handshake(&mut failed_handshakes, &mut handshake_cooldown_until);
                     continue;
                 }
                 if streams.len() >= MAX_ACTIVE_NOISE_RELAY_STREAMS {
                     warn!("Noise relay has too many active streams");
+                    record_diagnostic(&stream_id, "active_stream_limit", None);
                     send_reset(&physical_outgoing_tx, stream_id);
                     continue;
                 }
                 if validation_tasks.len() >= MAX_PENDING_HANDSHAKE_VALIDATIONS {
                     warn!("Noise relay has too many pending harness key validations");
+                    record_diagnostic(&stream_id, "pending_validation_limit", None);
                     send_reset(&physical_outgoing_tx, stream_id);
                     continue;
                 }
@@ -752,6 +806,7 @@ where
                     Ok(request) => request,
                     Err(error) => {
                         warn!("failed to read Noise relay handshake frame: {error}");
+                        record_diagnostic(&stream_id, "handshake_frame", None);
                         send_reset(&physical_outgoing_tx, stream_id);
                         continue;
                     }
@@ -761,6 +816,7 @@ where
                         Ok(pending) => pending,
                         Err(error) => {
                             warn!("failed to read Noise relay handshake request: {error}");
+                            record_diagnostic(&stream_id, "handshake_request", None);
                             send_reset(&physical_outgoing_tx, stream_id);
                             record_failed_handshake(
                                 &mut failed_handshakes,
@@ -780,10 +836,12 @@ where
                     }
                     Ok(_) => {
                         warn!("Noise relay handshake authorization is too long");
+                        record_diagnostic(&stream_id, "authorization_too_long", None);
                         None
                     }
                     Err(_) => {
                         warn!("Noise relay handshake authorization is not UTF-8");
+                        record_diagnostic(&stream_id, "authorization_not_utf8", None);
                         None
                     }
                 };
@@ -809,14 +867,18 @@ where
                 validation_tasks.spawn(async move {
                     let result = match timeout(
                         HARNESS_KEY_VALIDATION_TIMEOUT,
-                        validator.validate_harness_key(&harness_public_key, &authorization),
+                        validator.validate_harness_key(
+                            &harness_public_key,
+                            &authorization,
+                            Uuid::parse_str(&stream_id).ok(),
+                        ),
                     )
                     .await
                     {
-                        Ok(result) => result,
-                        Err(_) => Err(ExecServerError::Protocol(
-                            "timed out validating Noise relay harness key".to_string(),
-                        )),
+                        Ok(result) => {
+                            result.map_err(|error| classify_harness_key_validation_error(&error))
+                        }
+                        Err(_) => Err(("validation_timeout", None)),
                     };
                     HarnessKeyValidationResult {
                         stream_id,
@@ -830,6 +892,9 @@ where
                 let Some(stream) = streams.get_mut(&stream_id) else {
                     let canceled_pending_handshake =
                         pending_handshakes.remove(&stream_id).is_some();
+                    if canceled_pending_handshake {
+                        record_diagnostic(&stream_id, "data_before_handshake", None);
+                    }
                     send_reset(&physical_outgoing_tx, stream_id);
                     if canceled_pending_handshake {
                         record_failed_handshake(
@@ -855,7 +920,11 @@ where
                 }
             }
             RelayFrameBodyKind::Reset => {
-                pending_handshakes.remove(&stream_id);
+                if pending_handshakes.remove(&stream_id).is_some() {
+                    // A reset can come from the harness or relay. Its reason is
+                    // untrusted and does not tell us why the stream was closed.
+                    record_diagnostic(&stream_id, "reset_pending_validation", None);
+                }
                 if let Some(stream) = streams.remove(&stream_id) {
                     // The reset reason is unauthenticated, so do not log it.
                     stream.disconnect();
@@ -876,6 +945,62 @@ where
         let _ = physical_writer_task.await;
     }
     disconnect_reason
+}
+
+// Return the next slot in this window. The limit slot records a suppression
+// marker; all later slots suppress diagnostics until the window resets.
+fn handshake_diagnostic_slot(window: &mut (Instant, usize), now: Instant) -> usize {
+    if now.duration_since(window.0) >= HANDSHAKE_DIAGNOSTIC_WINDOW {
+        *window = (now, 0);
+    }
+    let slot = window.1;
+    window.1 = (slot + 1).min(MAX_HANDSHAKE_DIAGNOSTICS_PER_MINUTE + 1);
+    slot
+}
+
+/// Record bounded, non-secret context for an unfinished handshake.
+fn record_handshake_diagnostic(
+    environment_id: &str,
+    executor_registration_id: &str,
+    stream_id: &str,
+    reason: &'static str,
+    registry_status: Option<u16>,
+) {
+    // The peer controls stream_id. Never export unvalidated wire data.
+    let stream_id = Uuid::parse_str(stream_id)
+        .map(|id| id.to_string())
+        .unwrap_or_else(|_| "invalid".to_string());
+    let noise_outcome = if reason == "reset_pending_validation" {
+        "reset_received"
+    } else {
+        "rejected"
+    };
+    // A separate span ends promptly even if the physical relay stays connected.
+    let span = tracing::info_span!(
+        parent: None,
+        "codex.exec_server.noise_handshake_diagnostic",
+        noise_event = "handshake",
+        noise_outcome,
+        noise_side = "executor",
+        environment_id,
+        executor_registration_id,
+        stream_id,
+        noise_reason = reason,
+        registry_status = ?registry_status,
+    );
+    let _entered = span.enter();
+    warn!(
+        target: "codex_otel.log_only",
+        noise_event = "handshake",
+        noise_outcome,
+        noise_side = "executor",
+        noise_reason = reason,
+        registry_status = ?registry_status,
+        environment_id,
+        executor_registration_id,
+        stream_id,
+        "Noise executor handshake diagnostic"
+    );
 }
 
 /// Charge one failed authenticated-channel attempt to this physical relay.
@@ -907,7 +1032,27 @@ struct PendingHandshake {
 struct HarnessKeyValidationResult {
     stream_id: String,
     validation_id: u64,
-    result: Result<(), ExecServerError>,
+    result: Result<(), (&'static str, Option<u16>)>,
+}
+
+fn classify_harness_key_validation_error(error: &ExecServerError) -> (&'static str, Option<u16>) {
+    match error {
+        ExecServerError::ApplicationNetworkPolicy(_)
+        | ExecServerError::EnvironmentRegistryRequest(
+            codex_http_client::RouteAwareRequestError::Policy(_),
+        ) => ("network_policy", None),
+        ExecServerError::EnvironmentRegistryAuth(_) => ("registry_auth", None),
+        ExecServerError::EnvironmentRegistryHttp { status, .. } => {
+            ("registry_http", Some(status.as_u16()))
+        }
+        ExecServerError::EnvironmentRegistryRequest(error) if error.is_timeout() => {
+            ("registry_request_timeout", None)
+        }
+        ExecServerError::EnvironmentRegistryRequest(_) => ("registry_request", None),
+        ExecServerError::EnvironmentRegistryConfig(_) => ("registry_config", None),
+        ExecServerError::Protocol(_) => ("validation_protocol", None),
+        _ => ("validation_error", None),
+    }
 }
 
 /// Queue a best-effort reset without blocking the shared websocket loop.

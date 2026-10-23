@@ -1,6 +1,6 @@
 [package]
 name = "codex-state"
-version = "0.163.0"
+version = "0.164.0"
 edition = "2024"
 license = "Apache-2.0"
 autobins = false
@@ -16,17 +16,21 @@ version = "1"
 [dependencies.chrono]
 version = "0.4.43"
 
+[dependencies.codex-file-system]
+git = "https://github.com/openai/codex.git"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+
 [dependencies.codex-history]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.file-id]
 version = "0.2.3"

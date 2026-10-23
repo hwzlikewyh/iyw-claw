@@ -1,6 +1,6 @@
 [package]
 name = "codex-feedback"
-version = "0.163.0"
+version = "0.164.0"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -15,23 +15,23 @@ version = "1.10.1"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-login]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-rollout]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-state]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.flate2]
 version = "1.1.8"
@@ -68,3 +68,8 @@ version = "0.1.44"
 
 [dependencies.tracing-subscriber]
 version = "0.3.22"
+
+[dependencies.zip]
+version = "9.0.0"
+default-features = false
+features = [ "aes-crypto", "bzip2-rs", "deflate", "deflate64", "lzma", "time", "xz", "zstd",]

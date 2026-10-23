@@ -2,7 +2,7 @@
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-hooks"
-version = "0.163.0"
+version = "0.164.0"
 autobins = false
 autotests = false
 autobenches = false
@@ -14,7 +14,7 @@ path = "src/lib.rs"
 
 [dependencies.codex-utils-process]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.anyhow]
 version = "1"
@@ -28,27 +28,27 @@ features = [ "serde",]
 
 [dependencies.codex-config]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-plugin]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-utils-output-truncation]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.futures]
 version = "0.3"
@@ -68,6 +68,12 @@ features = [ "rc", "derive",]
 [dependencies.serde_json]
 version = "1"
 
+[dependencies.sha2]
+version = "0.10"
+
+[dependencies.tempfile]
+version = "3.23.0"
+
 [dependencies.tokio]
 version = "1"
 features = [ "fs", "io-util", "process", "sync", "time",]
@@ -81,4 +87,4 @@ features = [ "v4",]
 
 [target."cfg(any(unix, windows))".dependencies.codex-utils-pty]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"

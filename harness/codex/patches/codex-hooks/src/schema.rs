@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use crate::events::common::SubagentHookContext;
 
 const GENERATED_DIR: &str = "generated";
+const MODEL_REQUEST_INPUT_FIXTURE: &str = "model-request.command.input.schema.json";
 const POST_TOOL_USE_INPUT_FIXTURE: &str = "post-tool-use.command.input.schema.json";
 const POST_TOOL_USE_OUTPUT_FIXTURE: &str = "post-tool-use.command.output.schema.json";
 const PERMISSION_REQUEST_INPUT_FIXTURE: &str = "permission-request.command.input.schema.json";
@@ -640,6 +641,11 @@ pub(crate) struct InterruptCommandInput {
 pub fn write_schema_fixtures(schema_root: &Path) -> anyhow::Result<()> {
     let generated_dir = schema_root.join(GENERATED_DIR);
     ensure_empty_dir(&generated_dir)?;
+
+    write_schema(
+        &generated_dir.join(MODEL_REQUEST_INPUT_FIXTURE),
+        schema_json::<crate::ModelRequestHookInput>()?,
+    )?;
 
     write_schema(
         &generated_dir.join(POST_TOOL_USE_INPUT_FIXTURE),

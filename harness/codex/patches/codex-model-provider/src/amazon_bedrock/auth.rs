@@ -342,7 +342,9 @@ impl BedrockSigV4AuthProvider {
 }
 
 impl AuthProvider for BedrockSigV4AuthProvider {
-    fn add_auth_headers(&self, _headers: &mut HeaderMap) {}
+    fn add_auth_headers(&self, _headers: &mut HeaderMap) -> std::result::Result<(), AuthError> {
+        Ok(())
+    }
 
     fn apply_auth(&self, request: Request) -> codex_api::AuthProviderFuture<'_> {
         Box::pin(BedrockSigV4AuthProvider::apply_auth(self, request))

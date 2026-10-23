@@ -226,7 +226,7 @@ fn image_sources_schema() -> Value {
         "type": "array",
         "minItems": 0,
         "maxItems": MAX_IMAGE_INPUTS,
-        "description": "edit accepts up to 16 PNG/JPEG/WebP references plus one PNG mask with role=mask. All other operations retain their documented limits (at most 10). Local and inspected inputs are limited to 20 MiB. HTTPS references are submitted directly; their content limits are enforced upstream. Masks and the first source are inspected for matching dimensions.",
+        "description": "Use the exact image attachment paths supplied in this turn, existing workspace paths, file URIs, HTTPS URLs or Data URLs. Current-session managed attachments may be outside the workspace; other outside files and other sessions' attachments are rejected. Do not guess paths or search directories for supplied attachments. edit accepts up to 16 PNG/JPEG/WebP references plus one PNG mask with role=mask. All other operations retain their documented limits (at most 10). Local and inspected inputs are limited to 20 MiB. HTTPS references are submitted directly; their content limits are enforced upstream. Masks and the first source are inspected for matching dimensions.",
         "items": {
             "oneOf": [
                 {"type": "string", "minLength": 1},
@@ -234,7 +234,7 @@ fn image_sources_schema() -> Value {
                     "type": "object",
                     "properties": {
                         "url": {"type": "string", "minLength": 1},
-                        "path": {"type": "string", "minLength": 1},
+                        "path": {"type": "string", "minLength": 1, "description": "Exact supplied attachment path, existing workspace file path or file URI. Relative paths resolve from the session workspace. Preserve Chinese characters and spaces; do not URL-encode filesystem paths."},
                         "base64": {"type": "string", "minLength": 1},
                         "data": {"type": "string", "minLength": 1},
                         "mimeType": {"type": "string", "minLength": 1},
