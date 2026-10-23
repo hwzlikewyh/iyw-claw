@@ -2,7 +2,12 @@ use core::ffi::c_void;
 
 #[cfg_attr(
     target_arch = "x86",
-    link(name = "kernel32.dll", kind = "raw-dylib", modifiers = "+verbatim", import_name_type = "undecorated")
+    link(
+        name = "kernel32.dll",
+        kind = "raw-dylib",
+        modifiers = "+verbatim",
+        import_name_type = "undecorated"
+    )
 )]
 #[cfg_attr(
     not(target_arch = "x86"),
@@ -35,7 +40,8 @@ const LOAD_LIBRARY_SEARCH_SYSTEM32: u32 = 0x0800;
 pub unsafe fn query_api_set(contract: *const u8) -> i32 {
     // 可选 DLL 缺失时不弹系统错误框，并恢复调用线程的原错误模式。
     let previous = unsafe { GetThreadErrorMode() };
-    if unsafe { SetThreadErrorMode(previous | SEM_FAILCRITICALERRORS, core::ptr::null_mut()) } == 0 {
+    if unsafe { SetThreadErrorMode(previous | SEM_FAILCRITICALERRORS, core::ptr::null_mut()) } == 0
+    {
         return 0;
     }
     let supported = unsafe { query(contract) };
@@ -46,7 +52,11 @@ pub unsafe fn query_api_set(contract: *const u8) -> i32 {
 unsafe fn query(contract: *const u8) -> i32 {
     // 仅从系统目录加载，句柄保留到 API 调用完成，缺失时如实返回不支持。
     let module = unsafe {
-        LoadLibraryExW(API_QUERY_LIBRARY.as_ptr(), core::ptr::null_mut(), LOAD_LIBRARY_SEARCH_SYSTEM32)
+        LoadLibraryExW(
+            API_QUERY_LIBRARY.as_ptr(),
+            core::ptr::null_mut(),
+            LOAD_LIBRARY_SEARCH_SYSTEM32,
+        )
     };
     if module.is_null() {
         return 0;
@@ -56,7 +66,9 @@ unsafe fn query(contract: *const u8) -> i32 {
         0
     } else {
         let query = unsafe {
-            core::mem::transmute::<*const c_void, unsafe extern "system" fn(*const u8) -> i32>(address)
+            core::mem::transmute::<*const c_void, unsafe extern "system" fn(*const u8) -> i32>(
+                address,
+            )
         };
         unsafe { query(contract) }
     };

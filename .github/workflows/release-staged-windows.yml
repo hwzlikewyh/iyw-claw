@@ -127,6 +127,11 @@ jobs:
           $status = (Get-AuthenticodeSignature -LiteralPath src-tauri\target\x86_64-pc-windows-msvc\release\iyw-claw.exe).Status
           if ($status -ne 'NotSigned') { throw "staging binary must be unsigned, found $status" }
 
+      - name: Verify unsigned Windows runtime compatibility
+        run: |
+          node src-tauri/scripts/verify-xinghe-worker-bundle.mjs --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'Unsigned Windows runtime compatibility verification failed' }
+
       - name: Assemble staging artifact and manifest
         shell: pwsh
         run: |
@@ -344,7 +349,11 @@ jobs:
           IYW_CLAW_SKIP_SIDECAR: "1"
           IYW_CLAW_STAGING_DIR: ${{ runner.temp }}\iyw-windows-staging
           TAURI_SKIP_SIDECAR_SIGNATURE_CHECK: "true"
-        run: node src-tauri/scripts/finalize-staged-windows.mjs
+        run: |
+          node src-tauri/scripts/finalize-staged-windows.mjs
+          if ($LASTEXITCODE -ne 0) { throw 'Windows signing failed' }
+          node src-tauri/scripts/verify-xinghe-worker-bundle.mjs --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'Signed Windows runtime compatibility verification failed' }
 
       - name: Upload final signed artifact
         uses: actions/upload-artifact@v4
