@@ -10,6 +10,11 @@ import { cn } from "@/lib/utils"
 import { ToolDisclosureScope } from "./tool-disclosure-context"
 import { useArchiveDisclosure } from "./use-archive-disclosure"
 import { AssistantFoldContent } from "./assistant-fold-content"
+import { AssistantProcessRow } from "./assistant-process-row"
+import {
+  processDisplayParts,
+  processPartHasFailure,
+} from "./process-presentation"
 
 interface AssistantProcessSurfaceProps {
   parts: AdaptedContentPart[]
@@ -25,12 +30,51 @@ interface AssistantProcessSurfaceProps {
   durationMs?: number | null
 }
 
+function processPartKey(part: AdaptedContentPart, index: number): string {
+  if (part.type === "tool-call") return "tool-" + part.toolCallId
+  if (part.type === "tool-result") return "result-" + part.toolCallId
+  return part.type + "-" + index
+}
+
+function ProcessRows(props: AssistantProcessSurfaceProps) {
+  const parts = processDisplayParts(props.parts)
+  return parts.map((part, index) => {
+    const key = processPartKey(part, index)
+    if (part.type === "tool-call" || part.type === "tool-result") {
+      return (
+        <AssistantProcessRow
+          key={key}
+          part={part}
+          index={index}
+          entranceKey={props.entranceKey}
+          animationEnabled={props.animationEnabled}
+          streaming={!props.isResponseComplete}
+        />
+      )
+    }
+    return (
+      <ContentPartsRenderer
+        key={key}
+        parts={[part]}
+        role="assistant"
+        conversationId={props.conversationId}
+        entranceKey={props.entranceKey + ":" + key}
+        animationEnabled={false}
+        intelligentUiStreaming={!props.isResponseComplete}
+      />
+    )
+  })
+}
+
 export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
   const contentId = useId()
+  const hasError =
+    props.processHasError ?? props.parts.some(processPartHasFailure)
   const archive =
     props.isResponseComplete &&
     props.collapseCompletedTurn &&
-    props.displayMode !== "full"
+    props.displayMode !== "full" &&
+    !(props.autoOpenErrors && hasError)
   const { rootRef, reading, open, onOpenChange } = useArchiveDisclosure(archive)
   return (
     <div ref={rootRef} className="assistant-process-surface">
@@ -43,14 +87,9 @@ export function AssistantProcessSurface(props: AssistantProcessSurfaceProps) {
       <AssistantFoldContent open={open} contentId={contentId}>
         <ToolDisclosureScope reading={reading}>
           <div className="assistant-process-details min-w-0 py-1">
-            <ContentPartsRenderer
-              parts={props.parts}
-              role="assistant"
-              conversationId={props.conversationId}
-              entranceKey={props.entranceKey}
-              animationEnabled={false}
-              intelligentUiStreaming={!props.isResponseComplete}
-            />
+            <div className="space-y-1">
+              <ProcessRows {...props} />
+            </div>
           </div>
         </ToolDisclosureScope>
       </AssistantFoldContent>

@@ -4220,7 +4220,7 @@
         "firstToken": "First answer text {time}",
         "firstActivity": "First response {time}",
         "firstThinking": "First thinking {time}",
-        "toolWaitProgress": "Tool stage: {elapsed}s · No new output for {silence}s",
+        "toolWaitProgress": "{tool} has run for {elapsed}s · no output for {silence}s",
         "metricsPending": "Pending",
         "metricsUnavailable": "Not recorded",
         "runtimeRetrying": "Something went wrong, retrying",
@@ -4296,6 +4296,28 @@
         }
       },
       "contentParts": {
+        "processStep": {
+          "thinking": "Thinking",
+          "toolResult": "Tool result",
+          "task": "Task execution",
+          "background": "Background task",
+          "delegation": "Delegated task",
+          "image": "Image generation",
+          "plan": "Task plan",
+          "plugin": "Plugin interface",
+          "tool": "Tool call",
+          "completed": "Completed",
+          "running": "Running",
+          "waiting": "Waiting",
+          "failed": "Failed",
+          "reasoningDetail": "Working through the question and the next steps.",
+          "resultDetail": "The tool returned a result.",
+          "commandDetail": "Running a workspace operation.",
+          "readDetail": "Reading the relevant material.",
+          "webDetail": "Collecting information from the web.",
+          "toolDetail": "Completing this step of the task.",
+          "genericDetail": "Completing this stage."
+        },
         "pluginApp": {
           "retry": "Retry plugin app",
           "fullscreen": "Open fullscreen",

@@ -1,5 +1,6 @@
 import type { AssistantTimelineSection } from "./assistant-turn-timeline"
 import { hasActiveProcess } from "./assistant-turn-timeline"
+import { processPartHasFailure } from "./process-presentation"
 
 const MIN_ARCHIVED_SECTIONS = 4
 const VISIBLE_RECENT_SECTIONS = 0
@@ -18,6 +19,7 @@ function canArchive(section: AssistantTimelineSection): boolean {
     !section.retainOnCompletion &&
     !section.isFinalResponse &&
     section.parts.every((part) => part.type !== "reasoning") &&
+    !section.parts.some(processPartHasFailure) &&
     !hasActiveProcess(section.parts)
   )
 }

@@ -19,9 +19,11 @@ import { ConversationWorkingMark } from "./conversation-working-mark"
 
 export function AssistantCurrentActivity({
   conversationId,
+  parts,
   animationEnabled = true,
 }: {
   conversationId: number
+  parts: AdaptedContentPart[]
   animationEnabled?: boolean
 }) {
   const state = useConversationPresentation()
@@ -36,6 +38,7 @@ export function AssistantCurrentActivity({
     <CurrentActivity
       contextKey={state.contextKey}
       conversationId={conversationId}
+      parts={parts}
       animationEnabled={animationEnabled}
     />
   )
@@ -44,10 +47,12 @@ export function AssistantCurrentActivity({
 function CurrentActivity({
   contextKey,
   conversationId,
+  parts,
   animationEnabled,
 }: {
   contextKey?: string
   conversationId: number
+  parts: AdaptedContentPart[]
   animationEnabled: boolean
 }) {
   const message = useConversationRuntimeStore(
@@ -61,6 +66,7 @@ function CurrentActivity({
     summary,
     startedAt: message?.startedAt,
     visible: pageVisible && activityVisible,
+    parts,
   })
   useEffect(() => {
     setOutputStreaming(activity.icon === "reply" && !activity.waiting)

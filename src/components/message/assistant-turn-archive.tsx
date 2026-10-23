@@ -12,6 +12,7 @@ import {
   buildAssistantArchiveEntries,
   type AssistantArchiveEntry,
 } from "./assistant-archive-segments"
+import { processPartHasFailure } from "./process-presentation"
 
 interface AssistantTurnArchiveProps {
   sections: AssistantTimelineSection[]
@@ -101,6 +102,7 @@ function ArchiveSections({
             section={entry.item.section}
             open={
               expanded ||
+              section.parts.some(processPartHasFailure) ||
               (entry.item.section.retainOnCompletion &&
                 !entry.item.section.isFinalResponse)
             }

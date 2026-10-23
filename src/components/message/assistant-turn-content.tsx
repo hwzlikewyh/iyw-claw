@@ -69,6 +69,7 @@ export const AssistantTurnContent = memo(function AssistantTurnContent(
         {props.isLatest && !props.isResponseComplete && (
           <AssistantCurrentActivity
             conversationId={props.conversationId}
+            parts={props.parts}
             animationEnabled={props.animationEnabled}
           />
         )}

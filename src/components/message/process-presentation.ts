@@ -6,6 +6,33 @@ import { buildBackgroundTaskRows } from "@/lib/background-task"
 import { buildDelegationTaskRows } from "@/lib/delegation-status"
 import { isContextCompactionMeta } from "@/lib/context-compaction"
 
+export function processDisplayParts(
+  parts: AdaptedContentPart[]
+): AdaptedContentPart[] {
+  const flattened = parts.flatMap<AdaptedContentPart>((part) =>
+    part.type === "tool-group" ? part.items : [part]
+  )
+  const callsById = new Map(
+    flattened.flatMap((part) =>
+      part.type === "tool-call" ? [[part.toolCallId, part] as const] : []
+    )
+  )
+  const errorsById = new Map(
+    flattened.flatMap((part) =>
+      part.type === "tool-result" && part.state === "output-error"
+        ? [[part.toolCallId, part] as const]
+        : []
+    )
+  )
+  return flattened.flatMap<AdaptedContentPart>((part) => {
+    if (part.type === "tool-result" && callsById.has(part.toolCallId)) return []
+    if (part.type !== "tool-call") return [part]
+    const error = errorsById.get(part.toolCallId)
+    if (!error || part.state === "output-error") return [part]
+    return [{ ...part, state: "output-error", errorText: error.errorText }]
+  })
+}
+
 export function processPartHasFailure(part: AdaptedContentPart): boolean {
   if (hasProcessError(part)) return true
   if (
@@ -64,5 +91,5 @@ export function processPartNeedsAttention(part: AdaptedContentPart): boolean {
 }
 
 export function processTailStart(parts: AdaptedContentPart[]): number {
-  return Math.max(0, parts.length - LIVE_TAIL_PARTS)
+  return Math.max(0, processDisplayParts(parts).length - LIVE_TAIL_PARTS)
 }
