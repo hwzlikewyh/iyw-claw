@@ -31,11 +31,12 @@ struct HostGatewayAuth {
 }
 
 impl AuthProvider for HostGatewayAuth {
-    fn add_auth_headers(&self, headers: &mut HeaderMap) {
-        self.bearer.add_auth_headers(headers);
+    fn add_auth_headers(&self, headers: &mut HeaderMap) -> Result<(), codex_api::AuthError> {
+        self.bearer.add_auth_headers(headers)?;
         if let Ok(mut token) = HeaderValue::from_str(&self.token) {
             token.set_sensitive(true);
             headers.insert("token", token);
         }
+        Ok(())
     }
 }
