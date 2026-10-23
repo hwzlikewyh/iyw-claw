@@ -230,6 +230,8 @@ impl McpRequestProcessor {
                         credential_name: &credential_name,
                         issuer: &idp.issuer,
                         client_id: &idp.client_id,
+                        client_secret: idp.client_secret.as_ref().map(|secret| secret.as_str()),
+                        token_endpoint_auth_method: idp.token_endpoint_auth_method,
                         keyring_backend_kind: mcp_config.auth_keyring_backend_kind,
                         callback_port: mcp_config.mcp_oauth_callback_port,
                         callback_url: mcp_config.mcp_oauth_callback_url.as_deref(),
@@ -413,6 +415,7 @@ impl McpRequestProcessor {
             let snapshot = collect_mcp_server_status_snapshot_with_detail(
                 &mcp_config,
                 auth.as_ref(),
+                Some(&self.auth_manager),
                 runtime_context,
                 mcp_manager.codex_apps_tools_cache(),
                 mcp_manager.tool_catalog_cache(),
@@ -425,6 +428,7 @@ impl McpRequestProcessor {
         let McpServerStatusSnapshot {
             mut server_infos,
             mut server_capabilities,
+            mut tool_list_meta,
             mut tools_by_server,
             mut tools_errors,
             mut resources,
@@ -498,6 +502,7 @@ impl McpRequestProcessor {
                     }),
                 server_info: server_infos.remove(name),
                 server_capabilities: server_capabilities.remove(name),
+                tool_list_meta: tool_list_meta.remove(name).map(Arc::unwrap_or_clone),
                 tools: tools_by_server.remove(name).unwrap_or_default(),
                 tools_error: tools_errors.remove(name),
                 resources: resources.remove(name).unwrap_or_default(),

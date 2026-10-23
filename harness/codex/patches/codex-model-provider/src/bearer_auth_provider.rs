@@ -29,7 +29,7 @@ impl BearerAuthProvider {
 }
 
 impl AuthProvider for BearerAuthProvider {
-    fn add_auth_headers(&self, headers: &mut HeaderMap) {
+    fn add_auth_headers(&self, headers: &mut HeaderMap) -> Result<(), codex_api::AuthError> {
         if let Some(token) = self.token.as_ref()
             && let Ok(header) = HeaderValue::from_str(&format!("Bearer {token}"))
         {
@@ -43,5 +43,6 @@ impl AuthProvider for BearerAuthProvider {
         if self.is_fedramp_account {
             let _ = headers.insert("X-OpenAI-Fedramp", HeaderValue::from_static("true"));
         }
+        Ok(())
     }
 }

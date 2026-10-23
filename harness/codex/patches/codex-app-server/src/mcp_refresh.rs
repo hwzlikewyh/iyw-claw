@@ -46,6 +46,7 @@ async fn reload_mcp_config_with_policy(
     config_manager: &ConfigManager,
     policy: ReloadPolicy,
 ) -> io::Result<()> {
+    config_manager.revoke_mcp_ema_startups();
     let mut rejected = false;
     let mut load_error = None;
     let mut completed: Vec<Arc<CodexThread>> = Vec::new();

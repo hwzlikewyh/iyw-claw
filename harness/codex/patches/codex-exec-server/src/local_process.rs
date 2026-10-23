@@ -159,6 +159,7 @@ struct Inner {
     notifications: std::sync::RwLock<Option<RpcNotificationSender>>,
     requests: Arc<std::sync::RwLock<Option<RpcServerRequestSender>>>,
     processes: Mutex<HashMap<ProcessId, ProcessEntry>>,
+    credential_brokers: codex_network_proxy::RemoteCredentialBrokerCache,
     #[cfg(unix)]
     shell_snapshots: crate::shell_snapshot::ShellSnapshotCache,
     telemetry: ExecServerTelemetry,
@@ -218,6 +219,7 @@ impl LocalProcess {
                 notifications: std::sync::RwLock::new(Some(notifications)),
                 requests: Arc::new(std::sync::RwLock::new(Some(requests))),
                 processes: Mutex::new(HashMap::new()),
+                credential_brokers: codex_network_proxy::RemoteCredentialBrokerCache::default(),
                 #[cfg(unix)]
                 shell_snapshots: crate::shell_snapshot::ShellSnapshotCache::default(),
                 telemetry,
@@ -366,6 +368,7 @@ impl LocalProcess {
             self.runtime_paths.as_ref(),
             network_policy_decider,
             network_policy_audit_observer,
+            &self.inner.credential_brokers,
             &telemetry,
         )
         .await?;
@@ -380,6 +383,7 @@ impl LocalProcess {
                 &mut prepared,
                 &self.inner.telemetry,
                 CapturePurpose::Execution,
+                &self.inner.credential_brokers,
             )
             .await?;
         if prepared.command.is_empty() {
@@ -836,6 +840,7 @@ impl ExecBackend for LocalProcess {
                 self.runtime_paths.as_ref(),
                 /*network_policy_decider*/ None,
                 /*network_policy_audit_observer*/ None,
+                &self.inner.credential_brokers,
                 &ProcessTelemetry::default(),
             )
             .await
@@ -847,6 +852,7 @@ impl ExecBackend for LocalProcess {
                     &mut prepared,
                     &self.inner.telemetry,
                     CapturePurpose::Prewarm,
+                    &self.inner.credential_brokers,
                 )
                 .await
                 .map(|_| ())

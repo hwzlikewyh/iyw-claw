@@ -246,7 +246,7 @@ async fn discover_streamable_http_oauth_with_headers_and_http_client(
     let mut authorization_manager =
         AuthorizationManager::new_with_oauth_http_client(url, Arc::new(oauth_http_client)).await?;
     authorization_manager.set_allow_missing_issuer(true);
-    discover_streamable_http_oauth_with_manager(&authorization_manager).await
+    discover_streamable_http_oauth_with_manager(&mut authorization_manager).await
 }
 
 fn has_configured_headers(
@@ -262,16 +262,21 @@ fn has_configured_headers(
 }
 
 async fn discover_streamable_http_oauth_with_manager(
-    authorization_manager: &AuthorizationManager,
+    authorization_manager: &mut AuthorizationManager,
 ) -> Result<Option<StreamableHttpOAuthDiscovery>> {
     match authorization_manager.resolve_metadata().boxed().await {
         Ok(resolution) if !resolution.source.is_discovered() => Ok(None),
         Ok(resolution) => {
             let metadata = resolution.metadata;
+            let callback_mode =
+                callback_mode(&metadata).unwrap_or(McpOAuthCallbackMode::CallbackSpecific);
+            authorization_manager.set_metadata(metadata);
             Ok(Some(StreamableHttpOAuthDiscovery {
-                callback_mode: callback_mode(&metadata)
-                    .unwrap_or(McpOAuthCallbackMode::CallbackSpecific),
-                scopes_supported: normalize_scopes(metadata.scopes_supported),
+                callback_mode,
+                // Prefer the initial challenge's scopes, falling back to resource metadata.
+                scopes_supported: normalize_scopes(
+                    authorization_manager.select_initial_scopes(&[]).await,
+                ),
             }))
         }
         Err(AuthError::NoAuthorizationSupport) => Ok(None),
@@ -279,9 +284,7 @@ async fn discover_streamable_http_oauth_with_manager(
     }
 }
 
-fn normalize_scopes(scopes_supported: Option<Vec<String>>) -> Option<Vec<String>> {
-    let scopes_supported = scopes_supported?;
-
+fn normalize_scopes(scopes_supported: Vec<String>) -> Option<Vec<String>> {
     let mut normalized = Vec::new();
     for scope in scopes_supported {
         let scope = scope.trim();

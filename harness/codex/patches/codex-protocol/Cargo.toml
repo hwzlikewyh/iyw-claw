@@ -2,7 +2,7 @@
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-protocol"
-version = "0.163.0"
+version = "0.164.0"
 autobins = false
 autotests = false
 autobenches = false
@@ -21,43 +21,43 @@ features = [ "serde",]
 
 [dependencies.codex-async-utils]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-execpolicy]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-extension-items]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-network-proxy]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-utils-image]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-utils-redacted-string]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.codex-utils-string]
 git = "https://github.com/openai/codex.git"
-rev = "83086188ae0614bd882818ff1aa23f3194962012"
+rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
 
 [dependencies.derive_more]
 version = "2"
@@ -67,7 +67,7 @@ features = [ "debug",]
 version = "0.8.35"
 
 [dependencies.gix-url]
-version = "0.35.2"
+version = "0.40.0"
 
 [dependencies.globset]
 version = "0.4"
@@ -140,3 +140,6 @@ version = "0.4.4"
 
 [target."cfg(target_os = \"linux\")".dependencies.seccompiler]
 version = "0.5.0"
+
+[target."cfg(target_os = \"macos\")".dependencies.libc]
+version = "0.2.182"

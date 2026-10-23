@@ -695,6 +695,11 @@ async fn canonical_history_mode(
     thread_id: ThreadId,
     rollout_path: &Path,
 ) -> ThreadStoreResult<ThreadHistoryMode> {
+    if let Some((path, meta)) = live_writer::unpersisted_session_meta(store, thread_id).await
+        && path == rollout_path
+    {
+        return Ok(meta.history_mode);
+    }
     let session_meta = match read_session_meta_line(rollout_path).await {
         Ok(session_meta) => session_meta,
         Err(err) => {
@@ -916,7 +921,7 @@ async fn update_rollout_metadata(
     };
     patch(&mut metadata);
     recorder
-        .record_canonical_items(&[RolloutItem::SessionMeta(metadata)])
+        .record_canonical_items(&[RolloutItem::SessionMeta(Box::new(metadata))])
         .await
         .map_err(io_error)?;
     recorder.flush().await.map_err(io_error)?;

@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::sync::OnceLock;
@@ -323,9 +324,10 @@ impl ConnectionState {
             ConnectionStatus::Connected(rpc_client) if !rpc_client.is_disconnected() => {
                 EnvironmentConnectionState::Connected
             }
-            ConnectionStatus::Connected(_)
-            | ConnectionStatus::Recovering
-            | ConnectionStatus::Failed(_) => EnvironmentConnectionState::Disconnected,
+            ConnectionStatus::Connected(_) | ConnectionStatus::Recovering => {
+                EnvironmentConnectionState::Recovering
+            }
+            ConnectionStatus::Failed(_) => EnvironmentConnectionState::Disconnected,
         };
         let _ = self
             .environment_connection_state_tx
@@ -696,6 +698,8 @@ pub enum ExecServerError {
     Json(#[from] serde_json::Error),
     #[error("HTTP request failed: {0}")]
     HttpRequest(String),
+    #[error("request not sent: {0}")]
+    RequestNotSent(String),
     #[error("authentication required: {0}")]
     AuthenticationRequired(String),
     #[error("exec-server protocol error: {0}")]
@@ -966,21 +970,32 @@ impl ExecServerClient {
             .await
     }
 
-    pub async fn fs_open(&self, params: FsOpenParams) -> Result<FsOpenResponse, ExecServerError> {
-        // Older executors ignore the mode field and could silently return a read-only handle.
-        if params.mode == FsOpenMode::Replace
-            && !self
-                .environment_info()
-                .await?
-                .capabilities
-                .file_write_streaming
-        {
-            return Err(ExecServerError::Protocol(
-                "exec-server does not support writable file streams".to_string(),
-            ));
+    pub(crate) async fn supports_file_write_streaming(&self) -> Result<bool, ExecServerError> {
+        Ok(self
+            .environment_info()
+            .await?
+            .capabilities
+            .file_write_streaming)
+    }
+
+    /// Returns an owned future so callers can finish an open after they stop waiting for it.
+    pub fn fs_open(
+        &self,
+        params: FsOpenParams,
+    ) -> impl Future<Output = Result<FsOpenResponse, ExecServerError>> + Send + 'static {
+        let client = self.clone();
+        async move {
+            // Older executors ignore the mode field and could silently return a read-only handle.
+            if params.mode == FsOpenMode::Replace && !client.supports_file_write_streaming().await?
+            {
+                return Err(ExecServerError::Protocol(
+                    "exec-server does not support writable file streams".to_string(),
+                ));
+            }
+            client
+                .call(FS_OPEN_METHOD, &WireFsOpenParams::from(params))
+                .await
         }
-        self.call(FS_OPEN_METHOD, &WireFsOpenParams::from(params))
-            .await
     }
 
     pub async fn fs_read_block(
@@ -994,12 +1009,7 @@ impl ExecServerClient {
         &self,
         params: FsWriteBlockParams,
     ) -> Result<FsWriteBlockResponse, ExecServerError> {
-        if !self
-            .environment_info()
-            .await?
-            .capabilities
-            .file_write_streaming
-        {
+        if !self.supports_file_write_streaming().await? {
             return Err(ExecServerError::Protocol(
                 "exec-server does not support writable file streams".to_string(),
             ));

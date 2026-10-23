@@ -89,7 +89,7 @@ struct AgentIdentityAuthProvider {
 }
 
 impl AuthProvider for AgentIdentityAuthProvider {
-    fn add_auth_headers(&self, headers: &mut HeaderMap) {
+    fn add_auth_headers(&self, headers: &mut HeaderMap) -> Result<(), AuthError> {
         let record = self.auth.record();
         let header_value = authorization_header_for_agent_task(
             AgentIdentityKey {
@@ -113,6 +113,7 @@ impl AuthProvider for AgentIdentityAuthProvider {
         if self.auth.is_fedramp_account() {
             let _ = headers.insert("X-OpenAI-Fedramp", HeaderValue::from_static("true"));
         }
+        Ok(())
     }
 }
 
@@ -122,8 +123,9 @@ struct HeaderAuthProvider {
 }
 
 impl AuthProvider for HeaderAuthProvider {
-    fn add_auth_headers(&self, headers: &mut HeaderMap) {
+    fn add_auth_headers(&self, headers: &mut HeaderMap) -> Result<(), AuthError> {
         headers.extend(self.auth.headers().clone());
+        Ok(())
     }
 }
 
@@ -150,11 +152,11 @@ impl AuthManagerAuthProvider {
 }
 
 impl AuthProvider for AuthManagerAuthProvider {
-    fn add_auth_headers(&self, headers: &mut HeaderMap) {
-        let Some(auth) = self.current_auth() else {
-            return;
-        };
-        auth_provider_from_auth(&auth).add_auth_headers(headers);
+    fn add_auth_headers(&self, headers: &mut HeaderMap) -> Result<(), AuthError> {
+        let auth = self.current_auth().ok_or_else(|| {
+            AuthError::Transient("managed authentication is unavailable".to_string())
+        })?;
+        auth_provider_from_auth(&auth).add_auth_headers(headers)
     }
 
     fn resolve_auth_headers(&self) -> AuthHeadersFuture<'_> {
@@ -167,7 +169,52 @@ impl AuthProvider for AuthManagerAuthProvider {
                 .ok_or_else(|| {
                     AuthError::Transient("managed authentication is unavailable".to_string())
                 })?;
-            Ok(auth_provider_from_auth(&auth).to_auth_headers())
+            auth_provider_from_auth(&auth).to_auth_headers()
+        })
+    }
+
+    fn refresh_after_unauthorized(
+        &self,
+        rejected_headers: HeaderMap,
+    ) -> codex_api::AuthRefreshFuture<'_> {
+        Box::pin(async move {
+            let Some(auth) = self.current_auth() else {
+                return false;
+            };
+            let Ok(headers) = auth_provider_from_auth(&auth).to_auth_headers() else {
+                return false;
+            };
+            if headers.is_empty() {
+                return false;
+            }
+            if headers
+                .iter()
+                .any(|(name, value)| rejected_headers.get(name) != Some(value))
+                && self.auth_manager.refresh_failure_for_auth(&auth).is_none()
+            {
+                return true;
+            }
+            if !self.auth_manager.unauthorized_recovery().has_next() {
+                return false;
+            }
+            let result = self.auth_manager.refresh_token_if_unchanged(&auth).await;
+            let Some(refreshed_auth) = self.current_auth() else {
+                return false;
+            };
+            if self
+                .auth_manager
+                .refresh_failure_for_auth(&refreshed_auth)
+                .is_some()
+            {
+                return false;
+            }
+            let Ok(refreshed_headers) = auth_provider_from_auth(&refreshed_auth).to_auth_headers()
+            else {
+                return false;
+            };
+            !refreshed_headers.is_empty()
+                && refreshed_headers != headers
+                && !matches!(result, Err(codex_login::RefreshTokenError::Policy(_)))
         })
     }
 }
@@ -178,7 +225,9 @@ impl AuthProvider for AuthManagerAuthProvider {
 struct UnauthenticatedAuthProvider;
 
 impl AuthProvider for UnauthenticatedAuthProvider {
-    fn add_auth_headers(&self, _headers: &mut HeaderMap) {}
+    fn add_auth_headers(&self, _headers: &mut HeaderMap) -> Result<(), AuthError> {
+        Ok(())
+    }
 }
 
 pub fn unauthenticated_auth_provider() -> SharedAuthProvider {

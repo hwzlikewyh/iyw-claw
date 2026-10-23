@@ -13,7 +13,7 @@ pub(crate) async fn collect_published_status(
 ) -> McpServerStatusSnapshot {
     let (matching, server_names, detail) = selection;
     let include = |name: &str| matching.contains(name) && connections.has_ready_client(name);
-    let ((server_infos, tools, tools_errors), resources, resource_templates) = tokio::join!(
+    let ((server_infos, tools, tools_errors, tool_list_meta), resources, resource_templates) = tokio::join!(
         connections.inspect_catalog(&matching),
         async {
             if detail.include_resources() {
@@ -40,14 +40,34 @@ pub(crate) async fn collect_published_status(
         }
     }
     McpServerStatusSnapshot {
-        server_capabilities: connections.list_available_server_capabilities().into_iter()
-            .filter(|(name, _)| matching.contains(name)).collect(),
+        server_capabilities: connections.list_available_server_capabilities(include),
+        tool_list_meta,
         server_infos,
         tools_by_server,
         tools_errors,
         resources: convert_mcp_resources(resources),
         resource_templates: convert_mcp_resource_templates(resource_templates),
-        auth_statuses: auth_statuses_from_entries(&auth),
+        auth_statuses: published_auth_statuses(connections, &auth).await,
         server_names,
     }
+}
+
+async fn published_auth_statuses(
+    connections: &McpConnectionSet,
+    auth: &HashMap<String, McpAuthStatusEntry>,
+) -> HashMap<String, codex_protocol::mcp::McpAuthStatus> {
+    use codex_config::McpServerAuth;
+    use codex_protocol::mcp::McpAuthStatus;
+
+    let mut statuses = auth_statuses_from_entries(auth);
+    // 已失败的连接不能仅凭本地凭据仍存在就显示为已登录。
+    for name in connections.authentication_failed_servers().await {
+        if statuses.get(&name) == Some(&McpAuthStatus::OAuth)
+            || auth.get(&name).and_then(|entry| entry.config.as_ref())
+                .is_some_and(|config| matches!(config.auth, McpServerAuth::EmaAuth))
+        {
+            statuses.insert(name, McpAuthStatus::NotLoggedIn);
+        }
+    }
+    statuses
 }
