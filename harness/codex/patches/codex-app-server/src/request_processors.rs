@@ -528,14 +528,12 @@ use tracing::warn;
 use uuid::Uuid;
 
 
-
-mod account_processor;
+pub(crate) mod account_processor;
 mod apps_processor;
 mod bedrock_auth;
 mod catalog_processor;
 mod command_exec_processor;
-mod config_processor;
-
+pub(crate) mod config_processor;
 mod diagnostics;
 mod environment_processor;
 mod feedback_doctor_report;
@@ -694,7 +692,7 @@ fn resolve_runtime_workspace_roots(workspace_roots: Vec<AbsolutePathBuf>) -> Vec
     resolved_roots
 }
 
-mod config_errors;
+pub(crate) mod config_errors;
 mod request_errors;
 mod thread_delete;
 mod thread_goal_processor;

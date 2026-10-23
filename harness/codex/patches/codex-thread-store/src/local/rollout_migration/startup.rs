@@ -208,7 +208,7 @@ async fn run_startup_migration(
             codex_rollout::try_acquire_rollout_maintenance_lock(&store.config.codex_home)
                 .map_err(migration_error)?
         else {
-            tokio::time::sleep(MAINTENANCE_RETRY_DELAY).await;
+                        tokio::time::sleep(MAINTENANCE_RETRY_DELAY).await;
             continue;
         };
         // Avoid counting expected compression contention as a failed migration run. The migration

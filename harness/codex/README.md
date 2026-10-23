@@ -17,7 +17,7 @@ The lock records both the annotated tag object and its peeled source commit.
 Cargo dependencies use the peeled commit; synchronization verifies both values
 so a rewritten release tag cannot silently change the compiled source.
 
-The current pin is `rust-v0.163.0`. It recognizes the managed
+The current pin is `rust-v0.164.0`. It recognizes the managed
 `features.context_management.experimental_mode` configuration that
 `rust-v0.152.1` rejected during session creation and recovery. The feature still
 requires an eligible upstream provider and account; parsing this configuration
@@ -31,9 +31,16 @@ which is optional so an outage cannot prevent session startup. The exception
 requires its exact service name and URL; built-in MCP remains required.
 Tool names retain their saved namespace across resume.
 
-The official release was checked on 2026-10-16: the latest stable tag is
-`rust-v0.163.0`, published on 2026-10-15 UTC. Its tag object and source commit
+The official release was checked on 2026-10-23: the latest stable tag is
+`rust-v0.164.0`, published on 2026-10-23 UTC. Its tag object and source commit
 match `upstream.lock`; prereleases remain outside the synchronization policy.
+
+The 0.164.0 refresh preserves the in-process host, published MCP connections,
+command descriptions, managed images, compaction budgets and Windows helpers.
+Published MCP inspection now carries tool-list metadata and the current auth
+context without starting discovery connections. Startup keeps the host environment
+and caller's project context while adopting upstream's bounded-queue shutdown fix.
+Official source: https://github.com/openai/codex/releases/tag/rust-v0.164.0
 
 The 0.163.0 refresh preserves host auth/environment, published MCP status,
 command descriptions, managed image references, bounded compaction requests
@@ -53,7 +60,7 @@ setup helper before application initialization. Official source:
 https://github.com/openai/codex/releases/tag/rust-v0.161.0
 
 Upgrade decisions and validation are recorded in
-[`docs/xinghe-upgrade-0.163.0.md`](../../docs/xinghe-upgrade-0.163.0.md).
+[`docs/xinghe-upgrade-0.164.0.md`](../../docs/xinghe-upgrade-0.164.0.md).
 
 Settings commands that change confirmed values wait for a matching
 `thread/settings/updated` notification;

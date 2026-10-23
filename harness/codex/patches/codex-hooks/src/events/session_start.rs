@@ -84,7 +84,7 @@ pub struct SessionStartOutcome {
     pub hook_events: Vec<HookCompletedEvent>,
     pub should_stop: bool,
     pub stop_reason: Option<String>,
-    pub additional_contexts: Vec<String>,
+    pub additional_contexts: Vec<crate::HookContext>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -267,6 +267,7 @@ fn parse_completed(
                             &mut additional_contexts_for_model,
                             handler,
                             additional_context,
+                            &run_result.context_metadata,
                         );
                     }
                     let _ = parsed.universal.suppress_output;
@@ -308,6 +309,7 @@ fn parse_completed(
                         &mut additional_contexts_for_model,
                         handler,
                         additional_context,
+                        &run_result.context_metadata,
                     );
                 }
             }

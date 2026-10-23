@@ -74,6 +74,7 @@ pub(crate) struct RequestContext {
 enum RequestCancellationScope {
     Unavailable,
     UserVerification,
+    ThreadSample,
 }
 
 impl RequestContext {
@@ -91,6 +92,7 @@ impl RequestContext {
                 | "userVerification/enroll"
                 | "userVerification/delete"
                 | "userVerification/verify" => RequestCancellationScope::UserVerification,
+                "thread/sample" => RequestCancellationScope::ThreadSample,
                 _ => RequestCancellationScope::Unavailable,
             },
             span,
@@ -272,6 +274,15 @@ impl OutgoingMessageSender {
         let contexts = self.request_contexts.lock().await;
         if let Some(context) = contexts.get(request_id)
             && context.cancellation_scope == RequestCancellationScope::UserVerification
+        {
+            context.cancellation.cancel();
+        }
+    }
+
+    pub(crate) async fn cancel_thread_sample_request(&self, request_id: &ConnectionRequestId) {
+        let contexts = self.request_contexts.lock().await;
+        if let Some(context) = contexts.get(request_id)
+            && context.cancellation_scope == RequestCancellationScope::ThreadSample
         {
             context.cancellation.cancel();
         }
@@ -743,7 +754,9 @@ impl OutgoingMessageSender {
     pub(crate) async fn send_server_notification(&self, notification: ServerNotification) {
         if matches!(
             notification,
-            ServerNotification::ThreadArchived(_) | ServerNotification::ThreadUnarchived(_)
+            ServerNotification::ThreadArchived(_)
+                | ServerNotification::ThreadClosed(_)
+                | ServerNotification::ThreadUnarchived(_)
         ) {
             self.analytics_events_client
                 .track_notification(&notification);
@@ -782,12 +795,13 @@ impl OutgoingMessageSender {
             }
             return;
         }
-        for connection_id in connection_ids {
+        let messages = std::iter::repeat_n(outgoing_message, connection_ids.len());
+        for (connection_id, message) in connection_ids.iter().zip(messages) {
             if let Err(err) = self
                 .sender
                 .send(OutgoingEnvelope::ToConnection {
                     connection_id: *connection_id,
-                    message: outgoing_message.clone(),
+                    message,
                     write_complete_tx: None,
                 })
                 .await
