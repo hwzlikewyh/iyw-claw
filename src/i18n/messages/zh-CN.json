@@ -190,6 +190,17 @@
     "market": "管理连接器"
   },
   "ConversationPresentation": {
+    "toolActivity": {
+      "run": "运行 {target}",
+      "read": "查看 {target} 文件",
+      "write": "写入 {target}",
+      "edit": "修改 {target}",
+      "folder": "打开 {target} 文件夹",
+      "search": "搜索 {target}",
+      "fetch": "读取 {target} 网页",
+      "skill": "查看 {target} 使用说明",
+      "running": "正在{target}"
+    },
     "bodyCharacters": "{count} 字",
     "bodyPending": "正文待输出",
     "processRecord": "执行记录",

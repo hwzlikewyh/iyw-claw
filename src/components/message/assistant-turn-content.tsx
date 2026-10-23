@@ -20,9 +20,9 @@ import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import type { ConversationDisplayMode } from "@/lib/conversation-display-preferences"
 import type { AgentType } from "@/lib/types"
 import { useConversationActivityAnchor } from "./conversation-activity-visibility"
-import { AssistantTextSurface } from "./assistant-text-surface"
-import { AssistantContentSegment } from "./assistant-content-segment"
 import { AssistantTurnArchive } from "./assistant-turn-archive"
+import { useSettledTurnCompletion } from "./use-settled-turn-completion"
+import "./conversation-presentation.css"
 
 interface AssistantTurnContentProps {
   agentType: AgentType
@@ -54,16 +54,23 @@ function AssistantIdentity({ agentType }: { agentType: AgentType }) {
 export const AssistantTurnContent = memo(function AssistantTurnContent(
   props: AssistantTurnContentProps
 ) {
+  const { contentRef, complete } = useSettledTurnCompletion(
+    props.isResponseComplete
+  )
   const sections = useMemo(
-    () => buildAssistantTimeline(props.parts, props.isResponseComplete),
-    [props.parts, props.isResponseComplete]
+    () => buildAssistantTimeline(props.parts, complete),
+    [props.parts, complete]
   )
   const issue = useMemo(
     () => findImageRegistrationIssue(props.parts),
     [props.parts]
   )
   return (
-    <div className="conversation-assistant-turn space-y-3">
+    <div
+      ref={contentRef}
+      className="conversation-assistant-turn space-y-3"
+      data-animate={props.animationEnabled}
+    >
       <div className="conversation-assistant-header">
         <AssistantIdentity agentType={props.agentType} />
         {props.isLatest && !props.isResponseComplete && (
@@ -74,7 +81,11 @@ export const AssistantTurnContent = memo(function AssistantTurnContent(
           />
         )}
       </div>
-      <AssistantTimeline {...props} sections={sections} />
+      <AssistantTimeline
+        {...props}
+        isResponseComplete={complete}
+        sections={sections}
+      />
       {issue && <ImageArtifactRegistrationNotice state={issue} />}
       {props.isLatest && (
         <AssistantMonitorStatus
@@ -93,7 +104,7 @@ function AssistantTimeline(
     <AssistantTurnArchive
       sections={props.sections}
       complete={props.isResponseComplete}
-      collapse={props.collapseCompletedTurn}
+      collapse={props.collapseCompletedTurn && props.displayMode !== "full"}
       durationMs={props.durationMs}
       renderSection={(section, index, expanded) => (
         <AssistantTimelineSectionView
@@ -119,31 +130,21 @@ function AssistantTimelineSectionView(
   if (section.kind === "process")
     return <AssistantProcessSection {...props} entranceKey={entranceKey} />
   const streaming = !props.isResponseComplete && props.latest
-  const archive =
-    section.kind === "content" &&
-    section.parts.every((part) => part.type === "text") &&
-    !streaming &&
-    !props.expanded &&
-    !(props.isResponseComplete && section.retainOnCompletion) &&
-    props.collapseCompletedTurn &&
-    props.displayMode !== "full"
   return (
-    <AssistantContentSegment archive={archive}>
-      <div
-        className="assistant-turn-summary"
-        data-streaming={streaming && props.animationEnabled}
-      >
-        <AssistantSectionContent
-          {...props}
-          section={section}
-          streaming={streaming}
-          entranceKey={entranceKey}
-        />
-        {props.isLatest && props.latest && (
-          <AssistantOutputAnchor complete={props.isResponseComplete} />
-        )}
-      </div>
-    </AssistantContentSegment>
+    <div
+      className="assistant-turn-summary"
+      data-streaming={streaming && props.animationEnabled}
+    >
+      <AssistantSectionContent
+        {...props}
+        section={section}
+        streaming={streaming}
+        entranceKey={entranceKey}
+      />
+      {props.isLatest && props.latest && (
+        <AssistantOutputAnchor complete={props.isResponseComplete} />
+      )}
+    </div>
   )
 }
 
@@ -153,7 +154,7 @@ function AssistantSectionContent(
     streaming: boolean
   }
 ) {
-  const content = (
+  return (
     <ContentPartsRenderer
       parts={props.section.parts}
       role="assistant"
@@ -162,22 +163,6 @@ function AssistantSectionContent(
       conversationId={props.conversationId}
       intelligentUiStreaming={props.streaming}
     />
-  )
-  const textParts = props.section.parts.filter(
-    (part): part is Extract<AdaptedContentPart, { type: "text" }> =>
-      part.type === "text"
-  )
-  return textParts.length === props.section.parts.length ? (
-    <AssistantTextSurface
-      parts={textParts}
-      streaming={props.streaming}
-      compact={false}
-      animationEnabled={props.animationEnabled}
-    >
-      {content}
-    </AssistantTextSurface>
-  ) : (
-    content
   )
 }
 
@@ -203,6 +188,7 @@ function AssistantProcessSection(
   return (
     <AssistantProcessSurface
       {...props}
+      inline
       parts={props.section.parts}
       isResponseComplete={
         props.isResponseComplete ||

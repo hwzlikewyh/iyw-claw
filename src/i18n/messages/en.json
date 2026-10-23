@@ -190,6 +190,17 @@
     "market": "Manage connectors"
   },
   "ConversationPresentation": {
+    "toolActivity": {
+      "run": "Run {target}",
+      "read": "Read {target}",
+      "write": "Write {target}",
+      "edit": "Edit {target}",
+      "folder": "Open folder {target}",
+      "search": "Search {target}",
+      "fetch": "Read page from {target}",
+      "skill": "Read instructions for {target}",
+      "running": "{target}…"
+    },
     "bodyCharacters": "{count} characters",
     "bodyPending": "Waiting for reply text",
     "processRecord": "Execution record",
