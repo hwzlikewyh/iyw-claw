@@ -11,9 +11,7 @@ import {
   type TaskArtifactInfo,
 } from "@/lib/api"
 import { presentAgentSdkAgents } from "@/lib/agent-sdk-presentation"
-import { findOwningFolder, normalizeAbsPath } from "@/lib/file-open-target"
 import type { AcpAgentInfo, DbConversationSummary } from "@/lib/types"
-import { useAppWorkspaceStore } from "@/stores/app-workspace-store"
 
 import {
   agentToSuggestion,
@@ -169,12 +167,10 @@ export function buildReferenceGroups(
 export interface UseReferenceSearchOptions {
   /**
    * Workspace root for the file group. When empty/null that group stays empty
-   * while agents/sessions still resolve, so a brand-new draft tab degrades
-   * gracefully (R8).
+   * while artifacts/agents/sessions still resolve, so a brand-new draft tab
+   * still exposes workspace-level references (R8).
    */
   defaultPath?: string | null
-  /** Registered workspace folder owning `defaultPath`. */
-  folderId?: number | null
   /**
    * Gates loading. When false the search resolves to empty groups and the file
    * tree is never fetched — let the host pre-warm only the active composer.
@@ -197,27 +193,16 @@ export interface UseReferenceSearchOptions {
  * on window focus) updates the refs but leaves `search` identity untouched — the
  * open panel keeps its results and the user's selection (R7).
  *
- * 文件和会话在首次 `@` 搜索时加载，并等待结果后填充菜单。
+ * 成果、文件和会话在首次 `@` 搜索时加载，并等待结果后填充菜单。
  * 文件请求在当前输入框内复用；停用或切换目录时取消并释放。
  * 会话列表缓存仍在窗口重新聚焦时失效。
  */
 export function useReferenceSearch({
   defaultPath,
-  folderId,
   enabled = true,
   labels,
 }: UseReferenceSearchOptions): ReferenceSearch {
   const path = defaultPath || null
-  const folders = useAppWorkspaceStore((state) => state.allFolders)
-  const resolvedFolderId = useMemo(() => {
-    if (folderId !== undefined) return folderId
-    if (!path) return null
-    const normalizedPath = normalizeAbsPath(path)
-    const exactFolder = folders.find(
-      (folder) => normalizeAbsPath(folder.path) === normalizedPath
-    )
-    return exactFolder?.id ?? findOwningFolder(path, folders)?.folderId ?? null
-  }, [folderId, folders, path])
 
   const { load: loadFiles } = useFileTree({
     folderPath: path ?? undefined,
@@ -240,7 +225,6 @@ export function useReferenceSearch({
   const loadFilesRef = useRef(loadFiles)
   const agentsRef = useRef(presentedAgents)
   const pathRef = useRef(path)
-  const folderIdRef = useRef(resolvedFolderId)
   const enabledRef = useRef(enabled)
   const labelsRef = useRef(labels)
 
@@ -252,10 +236,9 @@ export function useReferenceSearch({
   // them commit-accurate without updating from an uncommitted transition render.
   useIsomorphicLayoutEffect(() => {
     pathRef.current = path
-    folderIdRef.current = resolvedFolderId
     enabledRef.current = enabled
     loadFilesRef.current = loadFiles
-  }, [path, resolvedFolderId, enabled, loadFiles])
+  }, [path, enabled, loadFiles])
 
   useEffect(() => {
     agentsRef.current = presentedAgents
@@ -268,10 +251,8 @@ export function useReferenceSearch({
     key: string
     promise: Promise<DbConversationSummary[]>
   } | null>(null)
-  const artifactsRef = useRef<{
-    folderId: number
-    promise: Promise<TaskArtifactInfo[]>
-  } | null>(null)
+  const artifactsRef = useRef<Promise<TaskArtifactInfo[]> | null>(null)
+
   // Bust the lazy cache when the window regains focus so a session created in
   // another window shows up on the next `@` — matching the
   // focus-refresh idiom of the other data hooks, without per-keystroke fetches.
@@ -288,7 +269,6 @@ export function useReferenceSearch({
     if (signal?.aborted || !enabledRef.current) return []
 
     const path = pathRef.current
-    const folderId = folderIdRef.current
 
     // Lazy session fetch. On rejection the cache entry is cleared (not cached as
     // an empty result) so the next `@` retries instead of wedging on `[]`.
@@ -306,31 +286,26 @@ export function useReferenceSearch({
       sessionsEntry = created
     }
 
-    let artifactsEntry = artifactsRef.current
-    if (folderId == null) {
-      artifactsRef.current = null
-      artifactsEntry = null
-    } else if (artifactsEntry?.folderId !== folderId) {
-      const created: NonNullable<typeof artifactsRef.current> = {
-        folderId,
-        promise: listAllTaskArtifacts({ folderId }).catch((error) => {
-          if (artifactsRef.current === created) artifactsRef.current = null
+    // 成果属于工作区级资源，引用菜单不应按当前会话或文件夹缩小范围。
+    let artifactsPromise = artifactsRef.current
+    if (!artifactsPromise) {
+      artifactsPromise = listAllTaskArtifacts({ folderId: null }).catch(
+        (error) => {
+          artifactsRef.current = null
           console.error("[composer-reference] artifact list failed", {
-            folderId,
             errorType: error instanceof Error ? error.name : typeof error,
           })
           return []
-        }),
-      }
-      artifactsRef.current = created
-      artifactsEntry = created
+        }
+      )
+      artifactsRef.current = artifactsPromise
     }
 
     // 打开引用菜单后才读取文件；连续输入复用当前请求，首次结果也包含文件。
     const [sessions, files, artifacts] = await Promise.all([
       sessionsEntry.promise,
       loadFilesRef.current(),
-      artifactsEntry?.promise ?? Promise.resolve([]),
+      artifactsPromise,
     ])
     // Discard this result if it can no longer be trusted for the live panel: a
     // newer query aborted us, the composer was disabled, or the workspace folder
@@ -338,12 +313,7 @@ export function useReferenceSearch({
     // query change, so a folder switch would otherwise leak the old repo's
     // file results into the new folder's panel). The next
     // keystroke re-runs the search against the current folder.
-    if (
-      signal?.aborted ||
-      !enabledRef.current ||
-      pathRef.current !== path ||
-      folderIdRef.current !== folderId
-    ) {
+    if (signal?.aborted || !enabledRef.current || pathRef.current !== path) {
       return []
     }
 
