@@ -87,3 +87,21 @@ Linux/macOS 原生构建、Windows/Win7 实机和安装包尚未验证。
 `ToolCallSource`，移除新版不再使用的 `Feature` 导入。主分支结果重新通过锁定离线
 依赖解析、501 个生产 Rust 文件语法检查、模块与资源检查及 `git diff --check`。
 上游标签和运行时元数据也已重新核对；编译和真实会话验证仍遵循上述 CI 边界。
+
+## 宿主认证返回值适配修复
+
+2026-10-23 的 macOS ARM64 发布构建暴露了本地 `host_auth.rs` 的 E0053：
+0.164.0 的 `AuthProvider::add_auth_headers` 已返回 `Result<(), AuthError>`，
+宿主扩展仍使用旧的无返回值签名。该扩展在所有平台编译，不是 macOS 专属问题。
+
+修复将宿主方法与固定官方源码的 trait 对齐，通过 `?` 传递 Bearer 认证错误，
+成功时返回 `Ok(())`。原有宿主 `token` 请求头、敏感标记及解析条件保持不变。
+同包其他认证实现和 exec-server 认证实现均已使用新签名，无需修改。
+
+本次只修改认证扩展及本段记录，不改动依赖、锁文件、CI 或发布版本。
+
+修复后 `cargo check --manifest-path src-tauri/Cargo.toml -p codex-model-provider
+--lib --locked --offline --jobs 2` 通过，完成真实依赖图下的类型检查；
+`rustfmt +stable --edition 2024 --check` 与 `git diff --check` 通过。
+依仓库约定未运行测试套件。macOS 的实际编译与签名由用户指定的 0.1.303
+完整发布流程重新执行，不以 Windows 上的定向检查替代跨平台发布验证。
