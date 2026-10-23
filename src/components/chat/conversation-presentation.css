@@ -124,32 +124,6 @@
 .conversation-assistant-turn .assistant-turn-summary:empty {
   display: none;
 }
-.conversation-assistant-turn .assistant-turn-summary .prose {
-  line-height: 1.85;
-}
-.conversation-assistant-turn .assistant-turn-summary :where(p) {
-  margin-block: 0.8em;
-}
-.conversation-assistant-turn .assistant-turn-summary :where(h1, h2, h3) {
-  margin-block: 1.3em 0.55em;
-  line-height: 1.45;
-  font-weight: 600;
-  text-wrap: pretty;
-}
-.conversation-assistant-turn .assistant-turn-summary :where(h1, h2) {
-  font-size: 1.0625rem;
-}
-.conversation-assistant-turn .assistant-turn-summary :where(ul, ol) {
-  padding-inline-start: 1.4em;
-  list-style-position: outside;
-  margin-block: 0.65em;
-}
-.conversation-assistant-turn .assistant-turn-summary :where(li) {
-  margin-block: 0.3em;
-}
-.conversation-assistant-turn .assistant-turn-summary :where(li > p) {
-  margin-block: 0.25em;
-}
 .conversation-assistant-turn .assistant-turn-summary :where(pre) {
   max-width: 100%;
   overflow-x: auto;

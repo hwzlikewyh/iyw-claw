@@ -110,7 +110,6 @@
   max-width: 100%;
 }
 .conversation-assistant-turn .assistant-turn-summary .prose {
-  font-size: 0.9375rem;
   color: var(--foreground);
 }
 .conversation-input-delivery {
@@ -166,9 +165,6 @@
 @media (max-width: 520px) {
   .assistant-process-scroll {
     --process-height: 15rem;
-  }
-  .conversation-assistant-turn .assistant-turn-summary .prose {
-    font-size: 0.875rem;
   }
   .conversation-current-activity {
     font-size: 0.875rem;

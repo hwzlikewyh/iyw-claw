@@ -29,6 +29,11 @@
 .assistant-process-row {
   min-width: 0;
 }
+.assistant-process-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 .assistant-process-row-trigger {
   display: flex;
   width: 100%;
@@ -36,7 +41,7 @@
   min-height: 28px;
   align-items: center;
   gap: 7px;
-  padding: 4px 0;
+  padding: 2px 0;
   border-radius: 6px;
   color: var(--muted-foreground);
   text-align: left;

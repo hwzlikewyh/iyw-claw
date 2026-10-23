@@ -198,6 +198,9 @@
       "edit": "修改 {target}",
       "folder": "打开 {target} 文件夹",
       "search": "搜索 {target}",
+      "findTools": "查找“{target}”相关工具",
+      "toolUsage": "查看“{target}”的工具用法",
+      "openWeb": "打开 {target} 网页",
       "fetch": "读取 {target} 网页",
       "skill": "查看 {target} 使用说明",
       "running": "正在{target}"

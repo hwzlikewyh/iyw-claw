@@ -3,8 +3,6 @@ import { isContextCompactionMeta } from "@/lib/context-compaction"
 import { normalizeToolName } from "@/lib/tool-call-normalization"
 import { splitAssistantText } from "./assistant-text-segments"
 
-const PROCESS_SEGMENT_SIZE = 2
-
 export interface AssistantTimelineSection {
   key: string
   kind: "content" | "process" | "compaction"
@@ -76,11 +74,7 @@ function appendSection(
   section: AssistantTimelineSection
 ) {
   const previous = sections[sections.length - 1]
-  if (
-    section.kind === "process" &&
-    previous?.kind === "process" &&
-    previous.parts.length < PROCESS_SEGMENT_SIZE
-  ) {
+  if (section.kind === "process" && previous?.kind === "process") {
     previous.parts.push(...section.parts)
   } else {
     sections.push(section)

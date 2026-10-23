@@ -7,24 +7,76 @@
   font-size: 12px;
 }
 .assistant-turn-summary .prose {
+  font-size: 14px;
   line-height: 1.55;
 }
-.assistant-turn-summary .prose :is(h1, h2) {
+.assistant-turn-summary .assistant-markdown > * {
+  margin-block: 0 12px;
+}
+.assistant-turn-summary .assistant-markdown :is(h1, h2, h3) {
+  font-weight: 600;
+  text-wrap: pretty;
+}
+.assistant-turn-summary .assistant-markdown :is(h1, h2) {
+  margin-block: 18px 8px;
   font-size: 16px;
   line-height: 1.5;
 }
-.assistant-turn-summary .prose h3 {
+.assistant-turn-summary .assistant-markdown h3 {
+  margin-block: 16px 7px;
   font-size: 14px;
   line-height: 1.5;
 }
-.assistant-turn-summary .prose > .space-y-4 > * {
+.assistant-turn-summary .assistant-markdown :is(ul, ol) {
+  margin-block: 0 12px;
+  padding-inline-start: 20px;
+  list-style-position: outside;
+}
+.assistant-turn-summary .assistant-markdown li {
+  margin-block: 0 6px;
+  padding-block: 0;
+}
+.assistant-turn-summary .assistant-markdown li > p {
   margin-block: 0;
 }
-.assistant-turn-summary .prose > .space-y-4 > * + * {
-  margin-block-start: 8px;
+.assistant-turn-summary .assistant-markdown li > :is(ul, ol) {
+  margin-block: 6px 0;
 }
-.assistant-turn-summary .prose [data-streamdown="list-item"] {
-  padding-block: 2px;
+.assistant-turn-summary .assistant-markdown > :first-child {
+  margin-block-start: 0;
+}
+.assistant-turn-summary .assistant-markdown > :last-child,
+.assistant-turn-summary .assistant-markdown li:last-child {
+  margin-block-end: 0;
+}
+.assistant-turn-summary [data-streamdown="table-wrapper"] {
+  margin-block: 14px 18px;
+}
+.assistant-turn-summary [data-streamdown="table-wrapper"] > div:last-child {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overscroll-behavior-x: contain;
+}
+.assistant-turn-summary [data-streamdown="table"] {
+  min-width: 750px;
+  border: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  font-variant-numeric: tabular-nums;
+}
+.assistant-turn-summary [data-streamdown="table"] :is(th, td) {
+  padding: 10px 12px;
+  border-inline-end: 1px solid var(--border);
+  text-align: start;
+}
+.assistant-turn-summary [data-streamdown="table"] :is(th, td):last-child {
+  border-inline-end: 0;
+}
+.assistant-turn-summary [data-streamdown="table"] tbody {
+  background: var(--background);
+}
+.assistant-turn-summary [data-streamdown="table"] tr:last-child {
+  border-block-end: 0;
 }
 .assistant-reasoning-label {
   display: inline-flex;
@@ -34,6 +86,7 @@
   padding: 0;
   color: var(--muted-foreground);
   font-size: 14px;
+  line-height: 20px;
 }
 .assistant-reasoning-label:disabled {
   cursor: default;
@@ -60,11 +113,18 @@
   font-size: 13px;
   line-height: 20px;
 }
-.assistant-reasoning-viewport .space-y-4 > * {
-  margin-block: 0;
+.assistant-reasoning-viewport .assistant-markdown > * {
+  margin-block: 0 10px;
 }
-.assistant-reasoning-viewport .space-y-4 > * + * {
-  margin-block-start: 10px;
+.assistant-reasoning-viewport .assistant-markdown > :last-child {
+  margin-block-end: 0;
+}
+.assistant-reasoning-viewport .assistant-markdown :is(ul, ol) {
+  padding-inline-start: 20px;
+  list-style-position: outside;
+}
+.assistant-reasoning-viewport .assistant-markdown li {
+  margin-block: 0 5px;
 }
 .assistant-tool-panel {
   margin: 4px 0 10px;
@@ -119,7 +179,7 @@
   .assistant-reasoning-label {
     min-height: 40px;
   }
-  .assistant-process-row-trigger:not(:disabled) {
+  .conversation-assistant-turn .assistant-process-row-trigger {
     min-height: 44px;
   }
   .assistant-tool-source-link {
