@@ -13,6 +13,7 @@ import {
 
 const HISTORY_THRESHOLD = 8
 const VISIBLE_RECENT_ACTIONS = 4
+const HISTORY_SEGMENT_SIZE = 4
 
 export function ProcessArchiveStatus({
   parts,
@@ -43,43 +44,70 @@ export function AssistantProcessHistory({
   enabled: boolean
   renderPart: (part: AdaptedContentPart, index: number) => ReactNode
 }) {
-  const t = useTranslations("ConversationPresentation")
-  const id = useId()
   const archive = enabled && parts.length >= HISTORY_THRESHOLD
-  const { rootRef, open, onOpenChange } = useArchiveDisclosure(archive)
-  const cutoff = archive ? parts.length - VISIBLE_RECENT_ACTIONS : 0
-  const previous = parts.slice(0, cutoff)
+  // 固定段边界，后续输出不会把用户已展开的步骤移到另一个折叠组件。
+  const cutoff = archive
+    ? Math.floor(
+        (parts.length - VISIBLE_RECENT_ACTIONS) / HISTORY_SEGMENT_SIZE
+      ) * HISTORY_SEGMENT_SIZE
+    : 0
+  const segments = []
+  for (let start = 0; start < cutoff; start += HISTORY_SEGMENT_SIZE) {
+    segments.push(
+      <ProcessHistorySegment
+        key={start}
+        start={start}
+        parts={parts.slice(start, start + HISTORY_SEGMENT_SIZE)}
+        renderPart={renderPart}
+      />
+    )
+  }
   return (
-    <div ref={rootRef} className="assistant-process-inline">
-      {archive && (
-        <button
-          type="button"
-          className="assistant-history-toggle"
-          aria-expanded={open}
-          aria-controls={id}
-          onClick={() => onOpenChange(!open)}
-        >
-          <History aria-hidden="true" className="size-3.5 shrink-0" />
-          <span>
-            {t("processRecord")} · {previous.length}
-          </span>
-          <ProcessArchiveStatus parts={previous} />
-          <ChevronRight
-            aria-hidden="true"
-            className={"size-3 shrink-0 " + (open ? "rotate-90" : "")}
-          />
-        </button>
-      )}
-      {archive && (
-        <AssistantFoldContent open={open} contentId={id}>
-          <div className="assistant-process-inline">
-            {previous.map(renderPart)}
-          </div>
-        </AssistantFoldContent>
-      )}
+    <div className="assistant-process-inline">
+      {segments}
       {parts
         .slice(cutoff)
         .map((part, index) => renderPart(part, index + cutoff))}
+    </div>
+  )
+}
+
+function ProcessHistorySegment({
+  parts,
+  start,
+  renderPart,
+}: {
+  parts: AdaptedContentPart[]
+  start: number
+  renderPart: (part: AdaptedContentPart, index: number) => ReactNode
+}) {
+  const t = useTranslations("ConversationPresentation")
+  const id = useId()
+  const { rootRef, open, onOpenChange } = useArchiveDisclosure(true)
+  return (
+    <div ref={rootRef} className="assistant-process-inline">
+      <button
+        type="button"
+        className="assistant-history-toggle"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => onOpenChange(!open)}
+      >
+        <History aria-hidden="true" className="size-3.5 shrink-0" />
+        <span>
+          {t("processRecord")} · {start + 1}–{start + parts.length}
+        </span>
+        <ProcessArchiveStatus parts={parts} />
+        <ChevronRight
+          aria-hidden="true"
+          className={"size-3 shrink-0 " + (open ? "rotate-90" : "")}
+        />
+      </button>
+      <AssistantFoldContent open={open} contentId={id}>
+        <div className="assistant-process-inline">
+          {parts.map((part, index) => renderPart(part, index + start))}
+        </div>
+      </AssistantFoldContent>
     </div>
   )
 }
