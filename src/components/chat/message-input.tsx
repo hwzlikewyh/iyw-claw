@@ -4352,17 +4352,18 @@ export function MessageInput({
                 // action-bar gaps) so the whole input reads as clickable-to-type;
                 // interactive controls re-assert their own cursor (see globals.css).
                 "iyw-claw-composer-chrome @container relative flex flex-col rounded-xl border border-input bg-transparent transition-colors",
-                // Standard focus ring — always shown when the composer is
-                // focused (the plain default input style).
-                folderBranchPickerAttached
-                  ? "bg-background focus-within:border-ring focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-ring/50"
-                  : "focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
-                // Active session, tiled across multiple sessions: a gradient
-                // flows around the border to mark which tile is active — but ONLY
-                // while the composer itself is not focused. Focusing it hides the
-                // flow (globals.css) so the default focus ring above takes over.
-                // A lone/non-tiled session (showActiveFlow=false) and inactive
-                // tiles show the plain default border.
+                // Keep the active-session ring subtle so the moving runner
+                // remains visible while the editor is focused.
+                isPrompting
+                  ? folderBranchPickerAttached
+                    ? "bg-background focus-within:border-primary/30 focus-within:ring-[1px] focus-within:ring-inset focus-within:ring-primary/20"
+                    : "focus-within:border-primary/30 focus-within:ring-[1px] focus-within:ring-primary/20"
+                  : folderBranchPickerAttached
+                    ? "bg-background focus-within:border-ring focus-within:ring-[3px] focus-within:ring-inset focus-within:ring-ring/50"
+                    : "focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
+                // Prompting uses the compositor-friendly runner. The tiled active
+                // flow is reserved for idle, focused-out composers; inactive
+                // tiles keep the plain border.
                 isPrompting
                   ? "iyw-claw-composer-prompting"
                   : showActiveFlow && "iyw-claw-composer-flow",

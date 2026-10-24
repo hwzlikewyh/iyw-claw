@@ -1752,32 +1752,12 @@ body {
   }
 }
 
-/* 对话执行期间使用稳定蓝色环光；伪元素不参与布局，也不拦截输入。 */
+/* 对话执行期间由 ComposerActivityBorder 绘制流动边框；这里仅保留类名
+   作为状态钩子，避免旧的 conic 环光盖住移动标记。 */
 .iyw-claw-composer-prompting::before {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  z-index: 1;
-  border-radius: inherit;
-  padding: 2px;
-  background: conic-gradient(
-    from var(--iyw-claw-flow-angle, 0deg),
-    color-mix(in oklab, #79a5ff 16%, transparent),
-    #79a5ff,
-    color-mix(in oklab, #79a5ff 16%, transparent),
-    #79a5ff,
-    color-mix(in oklab, #79a5ff 16%, transparent)
-  );
-  -webkit-mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#fff 0 0) content-box,
-    linear-gradient(#fff 0 0);
-  mask-composite: exclude;
-  pointer-events: none;
-  animation: iyw-claw-composer-flow 1.8s linear infinite;
+  /* The compositor-friendly runner owns the prompting animation. Keeping the
+     older conic ring here created a thick blue halo over the moving marker. */
+  display: none;
 }
 
 .iyw-claw-composer .ProseMirror {
@@ -2188,12 +2168,8 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .iyw-claw-composer-prompting::before,
   .iyw-claw-prompting-dots > span {
     animation: none;
-  }
-  .iyw-claw-composer-prompting::before {
-    background: #79a5ff;
   }
   .iyw-claw-prompting-dots > span {
     opacity: 1;
