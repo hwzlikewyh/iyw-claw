@@ -18,7 +18,13 @@ After all work in this conversation turn is complete, the agent selects the
 files that will be given to the user and registers that complete final set with
 one `present_task_files` call before the final response. The agent determines
 the set from the task; no separate explicit request or approval for each file
-is needed. This applies to every file type, directory and public URL:
+is needed. A file is a final deliverable if it was generated, converted,
+assembled or saved for the user to use, download, view or forward. Register it
+even if the user did not explicitly say to attach that particular file. A
+statement that a file exists, its local path, a `file://` reference or an
+ordinary chat link is not a delivery receipt. A completed report, spreadsheet,
+presentation, image, archive or export therefore must be registered when it is
+the requested result. This applies to every file type, directory and public URL:
 
 - A working-directory-relative file or directory.
 - An absolute file or directory path when the user explicitly needs that path.
@@ -49,8 +55,9 @@ requires those external files to work. Apply the same rule to reports, PDFs,
 webpages, archives and other composed deliverables.
 
 Files do not become deliverables merely because they were created, modified,
-downloaded or used during the task. Source code, configuration, tests, build
-output, logs, caches and internal working files belong in Artifacts only when
+downloaded or used during the task. Intermediate inputs, drafts, render
+previews, extracted assets, staging copies, source code, configuration, tests,
+build output, logs, caches and validation outputs belong in Artifacts only when
 they themselves are the task's final deliverable. A dirty Git diff is not an
 artifact list.
 
