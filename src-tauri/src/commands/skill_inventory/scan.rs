@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::acp::error::AcpError;
-use crate::acp::skill_tree_hash::hash_skill_path;
+use crate::acp::skill_tree_hash::{hash_skill_path, hash_skill_path_before_description_repair};
 use crate::acp::types::{AgentSkillItem, AgentSkillLayout, AgentSkillScope};
 use crate::commands::acp::{
     build_skill_item, disabled_skills_dir, read_market_skill_marker, scoped_skill_dirs,
@@ -206,9 +206,14 @@ fn merge_aliases(raw: Vec<RawLocation>) -> Vec<SkillObservation> {
         }
         let hash = hash_skill_path(location.item.layout, &location.canonical_path);
         let market_content_matches = market.as_ref().and_then(|marker| {
-            hash.as_ref()
-                .ok()
-                .map(|value| value.eq_ignore_ascii_case(&marker.content_sha256))
+            hash.as_ref().ok().map(|value| {
+                value.eq_ignore_ascii_case(&marker.content_sha256)
+                    || hash_skill_path_before_description_repair(
+                        location.item.layout,
+                        &location.canonical_path,
+                    )
+                    .is_some_and(|original| original.eq_ignore_ascii_case(&marker.content_sha256))
+            })
         });
         by_path.insert(
             key,

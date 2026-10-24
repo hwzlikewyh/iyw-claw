@@ -77,13 +77,18 @@ pub async fn skill_activation_set_core(
     let state = activation_state(&request, &after);
     let actual_enabled = state.is_some_and(|value| value.actual_enabled);
     let effective_enabled = state.is_some_and(|value| value.effective_enabled);
+    if let Some(error) = blocked_activation_error(state, request.enabled) {
+        merge_error(&mut apply_error, error);
+    }
     let in_sync = apply_error.is_none() && actual_enabled == effective_enabled;
     tracing::info!(
         skill_id = %request.skill_id,
         agent_type = %request.agent_type,
         scope = ?request.scope,
         requested_enabled = request.enabled,
+        effective_enabled,
         actual_enabled,
+        blocked_reasons = ?state.map(|value| &value.blocked_reasons),
         in_sync,
         error = apply_error.as_deref().unwrap_or(""),
         "[skill-inventory] activation reconciled"
@@ -218,4 +223,18 @@ fn merge_error(current: &mut Option<String>, incoming: String) {
         }
         None => *current = Some(incoming),
     }
+}
+
+fn blocked_activation_error(
+    state: Option<&super::types::SkillAgentState>,
+    enabled: bool,
+) -> Option<String> {
+    if !enabled || state.is_some_and(|value| value.effective_enabled) {
+        return None;
+    }
+    let reasons = state
+        .map(|value| value.blocked_reasons.join(", "))
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "no effective activation state".to_string());
+    Some(format!("Skill activation blocked: {reasons}"))
 }
