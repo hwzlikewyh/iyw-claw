@@ -4,6 +4,7 @@ use std::path::Path;
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
+use crate::acp::skill_routing::original_legacy_skill_description_content;
 use crate::acp::types::AgentSkillLayout;
 use crate::commands::experts::RUNTIME_ENV_DIR_NAMES;
 
@@ -29,6 +30,33 @@ pub(crate) fn hash_skill_path(layout: AgentSkillLayout, path: &Path) -> Result<S
     };
     files.sort_by(|left, right| left.path.cmp(&right.path));
     Ok(hash_file_tree(&files))
+}
+
+pub(crate) fn hash_skill_path_before_description_repair(
+    layout: AgentSkillLayout,
+    path: &Path,
+) -> Option<String> {
+    let content_path = match layout {
+        AgentSkillLayout::MarkdownFile => path.to_path_buf(),
+        AgentSkillLayout::SkillDirectory => path.join("SKILL.md"),
+    };
+    if fs::metadata(&content_path).ok()?.len() > MAX_HASH_BYTES {
+        return None;
+    }
+    let content = fs::read_to_string(&content_path).ok()?;
+    let original = original_legacy_skill_description_content(&content)?;
+    let mut files = match layout {
+        AgentSkillLayout::MarkdownFile => vec![hash_file(path, Path::new("SKILL.md")).ok()?],
+        AgentSkillLayout::SkillDirectory => collect_tree_files(path).ok()?,
+    };
+    let entry = files.iter_mut().find(|file| file.path == "SKILL.md")?;
+    if entry.sha256 != format!("{:x}", Sha256::digest(content.as_bytes())) {
+        return None;
+    }
+    entry.size = original.len();
+    entry.sha256 = format!("{:x}", Sha256::digest(original.as_bytes()));
+    files.sort_by(|left, right| left.path.cmp(&right.path));
+    Some(hash_file_tree(&files))
 }
 
 fn collect_tree_files(root: &Path) -> Result<Vec<TreeFile>, String> {

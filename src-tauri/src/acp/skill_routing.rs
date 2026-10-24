@@ -179,6 +179,18 @@ pub fn repair_legacy_skill_description_content(content: &str) -> Option<String> 
     ))
 }
 
+pub(crate) fn original_legacy_skill_description_content(content: &str) -> Option<String> {
+    let (opening, rest) = content.split_once('\n')?;
+    let (description, rest) = rest.split_once('\n')?;
+    if !description.starts_with("description: ") {
+        return None;
+    }
+    let original = format!("{opening}\n{rest}");
+    // 仅接受既有兼容修复能够逐字节重现的补齐，不忽略任意 description 修改。
+    (repair_legacy_skill_description_content(&original).as_deref() == Some(content))
+        .then_some(original)
+}
+
 fn normalize_list(values: &mut Vec<String>) {
     let mut normalized = Vec::with_capacity(values.len());
     for value in values.drain(..) {
