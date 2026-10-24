@@ -15,46 +15,70 @@ export type AssistantArchiveEntry =
       settled: boolean
     }
 
-function canArchive(section: AssistantTimelineSection): boolean {
+function canArchive(
+  section: AssistantTimelineSection,
+  index: number,
+  complete: boolean,
+  total: number
+): boolean {
   return (
     !section.retainOnCompletion &&
     !section.isFinalResponse &&
-    section.parts.every((part) => part.type !== "reasoning") &&
-    !hasActiveProcess(section.parts)
+    !hasActiveProcess(section.parts) &&
+    (complete || index < total - 1) &&
+    section.parts.every(
+      (part) => part.type !== "reasoning" || !part.isStreaming
+    )
   )
 }
 
 export function buildAssistantArchiveEntries(
-  sections: AssistantTimelineSection[]
+  sections: AssistantTimelineSection[],
+  complete: boolean
 ): AssistantArchiveEntry[] {
   const entries: AssistantArchiveEntry[] = []
   for (let index = 0; index < sections.length; ) {
     const section = sections[index]
-    if (
-      section.retainOnCompletion ||
-      section.parts.some((part) => part.type === "reasoning")
-    ) {
+    if (section.retainOnCompletion || section.isFinalResponse) {
       const item = { section: sections[index], index }
       entries.push({ kind: "section", key: item.section.key, item })
       index += 1
       continue
     }
-    const items = [{ section, index }]
-    index += 1
-    // 过程说明与其后的一段操作归档在一起；新段仍显示在原事件位置。
-    if (section.kind === "content" && sections[index]?.kind === "process") {
-      items.push({ section: sections[index], index })
+
+    const items: ArchiveSectionItem[] = []
+    while (index < sections.length) {
+      const current = sections[index]
+      if (current.retainOnCompletion || current.isFinalResponse) break
+      if (!canArchive(current, index, complete, sections.length)) {
+        if (items.length > 0) {
+          entries.push({
+            kind: "group",
+            key: "archive:" + items[0].section.key,
+            items,
+            settled: true,
+          })
+          items.length = 0
+        }
+        entries.push({
+          kind: "section",
+          key: current.key,
+          item: { section: current, index },
+        })
+        index += 1
+        continue
+      }
+      items.push({ section: current, index })
       index += 1
     }
-    entries.push({
-      kind: "group",
-      key: "archive:" + section.key,
-      items,
-      settled:
-        index < sections.length &&
-        items.some((item) => item.section.kind === "process") &&
-        items.every((item) => canArchive(item.section)),
-    })
+    if (items.length > 0) {
+      entries.push({
+        kind: "group",
+        key: "archive:" + items[0].section.key,
+        items,
+        settled: true,
+      })
+    }
   }
   return entries
 }

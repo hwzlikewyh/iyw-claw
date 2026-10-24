@@ -153,7 +153,10 @@ export function buildAssistantTimeline(
         key: `${partKey(part, index)}:${chunk}`,
         kind,
         parts: [value],
-        retainOnCompletion: compaction || retainResult(part),
+        // Context compression is part of the process history. Keep its card
+        // available when expanded, but allow the completed/settled history to
+        // be folded with the surrounding operations.
+        retainOnCompletion: retainResult(part),
         isFinalResponse: false,
       })
     }

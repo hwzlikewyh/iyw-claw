@@ -19,7 +19,6 @@ import {
 } from "@/stores/conversation-runtime-store"
 import { ContentPartsRenderer } from "./content-parts-renderer"
 import { BackgroundTaskStatusScope } from "./background-task-status-context"
-import { ContextCompactionCard } from "./context-compaction-card"
 import {
   createMessageTurnAdapter,
   groupGoalRuns,
@@ -29,14 +28,9 @@ import {
   type AdaptedContentPart,
   type AdaptedMessage,
   type MessageTurnAdapter,
-  type ToolCallState,
   type UserImageDisplay,
   type UserResourceDisplay,
 } from "@/lib/adapters/ai-elements-adapter"
-import {
-  contextCompactionSummary,
-  isContextCompactionMeta,
-} from "@/lib/context-compaction"
 import { TurnStats } from "./turn-stats"
 import { addUsagePoints } from "@/lib/usage-points"
 import { mergeConfirmedPoints } from "@/lib/point-decimal"
@@ -199,13 +193,6 @@ type ThreadRenderItem =
     }
   | {
       key: string
-      kind: "compaction"
-      meta: Record<string, unknown> | null
-      state: ToolCallState
-      summary: string | null
-    }
-  | {
-      key: string
       kind: "history"
     }
 
@@ -319,30 +306,6 @@ function isEmptyTurnItem(item: ThreadRenderItem): boolean {
   if (g.resources.length > 0) return false
   if (g.images.length > 0) return false
   return true
-}
-
-function compactionOnlyItem(group: ResolvedMessageGroup): {
-  meta: Record<string, unknown> | null
-  state: ToolCallState
-  summary: string | null
-} | null {
-  if (group.role !== "assistant") return null
-  if (group.resources.length > 0 || group.images.length > 0) return null
-
-  const meaningful = group.parts.filter(
-    (part) => !(part.type === "text" && part.text.trim().length === 0)
-  )
-  if (meaningful.length !== 1) return null
-
-  const only = meaningful[0]
-  if (only.type !== "tool-call" || !isContextCompactionMeta(only.meta)) {
-    return null
-  }
-  return {
-    meta: only.meta ?? null,
-    state: only.state,
-    summary: contextCompactionSummary(only.meta, only.output),
-  }
 }
 
 /**
@@ -883,10 +846,6 @@ export function MessageListView({
       }
       // 时间线已按角色和 ID 去重；阶段和位置变化不能重建整轮组件。
       const key = `${msg.role}-${msg.id}`
-      const compaction = compactionOnlyItem(group)
-      if (compaction) {
-        return { key, kind: "compaction" as const, ...compaction }
-      }
       return {
         key,
         kind: "turn" as const,
@@ -1050,16 +1009,6 @@ export function MessageListView({
             >
               <PendingTypingIndicator agentType={agentType} />
             </MessageEntrance>
-          )
-        case "compaction":
-          return (
-            <div className="px-1 py-2">
-              <ContextCompactionCard
-                state={item.state}
-                meta={item.meta}
-                summary={item.summary}
-              />
-            </div>
           )
         case "history":
           return (

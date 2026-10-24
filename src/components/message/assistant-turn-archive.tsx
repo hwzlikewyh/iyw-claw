@@ -36,7 +36,7 @@ export function AssistantTurnArchive(props: AssistantTurnArchiveProps) {
   )
   const expanded = !canFold || open
   const label = completionLabel(props.durationMs, t("turnCompleted"), live)
-  const entries = buildAssistantArchiveEntries(props.sections)
+  const entries = buildAssistantArchiveEntries(props.sections, props.complete)
   const renderItem = (section: AssistantTimelineSection, index: number) => (
     <ArchiveSection
       key={section.key}
@@ -68,7 +68,10 @@ export function AssistantTurnArchive(props: AssistantTurnArchiveProps) {
             <AssistantFoldContent key={entry.key} open={expanded}>
               <AssistantProgressSegment
                 entry={entry}
-                fold={props.foldSegments !== false}
+                // Completed turns use the outer archive as the single
+                // disclosure. During streaming, settled history gets its own
+                // compact toggle while the live tail stays visible.
+                fold={props.foldSegments !== false && !props.complete}
               >
                 {entry.items.map(({ section, index }) => (
                   <div key={section.key} className="assistant-timeline-section">
