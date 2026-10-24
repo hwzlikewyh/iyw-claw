@@ -1,6 +1,6 @@
 "use client"
 
-import { memo } from "react"
+import { memo, useMemo } from "react"
 import { useTranslations } from "next-intl"
 import { ArrowDown, BrainIcon, ChevronRightIcon } from "lucide-react"
 
@@ -85,10 +85,14 @@ export const AssistantReasoningSurface = memo(
     parts,
     isResponseComplete,
   }: AssistantReasoningSurfaceProps) {
-    const content = parts
-      .map((part) => part.content.trim())
-      .filter(Boolean)
-      .join("\n\n")
+    const content = useMemo(
+      () =>
+        parts
+          .map((part) => part.content.trim())
+          .filter(Boolean)
+          .join("\n\n"),
+      [parts]
+    )
     if (!content && isResponseComplete) return null
 
     return (

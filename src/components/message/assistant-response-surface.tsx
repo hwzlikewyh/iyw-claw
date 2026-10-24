@@ -12,7 +12,6 @@ import { ChevronDown } from "lucide-react"
 import { useTranslations } from "next-intl"
 import { fromMarkdown } from "mdast-util-from-markdown"
 import { MessageResponse } from "@/components/ai-elements/message"
-import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import { useContentReading } from "./use-content-reading"
 import { useStickToBottomContext } from "use-stick-to-bottom"
 import { LIVE_TEXT_MAX_HEIGHT } from "./process-presentation"
@@ -22,7 +21,7 @@ const LONG_RESPONSE_LENGTH = 900
 const SUMMARY_MAX_LENGTH = 600
 
 interface AssistantResponseSurfaceProps {
-  parts: Extract<AdaptedContentPart, { type: "text" }>[]
+  text: string
   collapse: boolean
   animateCompletion: boolean
   initiallyExpanded?: boolean
@@ -118,7 +117,7 @@ function ResponseToggle({
 }
 
 export function AssistantResponseSurface({
-  parts,
+  text,
   collapse,
   animateCompletion,
   initiallyExpanded = false,
@@ -127,12 +126,20 @@ export function AssistantResponseSurface({
   const contentId = useId()
   const { contentRef, manualOpen, setManualOpen, autoOpen } =
     useResponseDisclosure(animateCompletion, initiallyExpanded)
-  const preview = useMemo(
-    () => responsePreview(parts.map((part) => part.text).join("\n\n")),
-    [parts]
-  )
+  const preview = useMemo(() => responsePreview(text), [text])
   const canFold = collapse && preview !== null
   const open = !canFold || (manualOpen ?? autoOpen)
+  const [retained, setRetained] = useState(open)
+  useEffect(() => {
+    const reduceMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches
+    const timer = window.setTimeout(
+      () => setRetained(open),
+      open || reduceMotion ? 0 : 180
+    )
+    return () => window.clearTimeout(timer)
+  }, [open])
   return (
     <div className="assistant-turn-summary">
       {canFold && <ResponsePreview preview={preview ?? ""} hidden={open} />}
@@ -152,7 +159,7 @@ export function AssistantResponseSurface({
               : undefined
           }
         >
-          {children}
+          {(open || retained) && children}
         </div>
       </div>
       {canFold && (

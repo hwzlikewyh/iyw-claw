@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import { AssistantResponseSurface } from "./assistant-response-surface"
 import { StreamingTextSurface } from "./streaming-text-surface"
@@ -24,11 +24,15 @@ export function AssistantTextSurface({
     useSettledTurnCompletion(!streaming)
   const reading = useContentReading(contentRef)
   const [expanded, setExpanded] = useState(false)
+  const text = useMemo(
+    () => parts.map((part) => part.text).join("\n\n"),
+    [parts]
+  )
   return (
     <div ref={contentRef}>
       {complete ? (
         <AssistantResponseSurface
-          parts={parts}
+          text={text}
           collapse={compact}
           animateCompletion={animationEnabled && wasStreaming}
           initiallyExpanded={expanded}
@@ -37,7 +41,7 @@ export function AssistantTextSurface({
         </AssistantResponseSurface>
       ) : (
         <StreamingTextSurface
-          text={parts.map((part) => part.text).join("\n\n")}
+          text={text}
           compact={compact}
           reading={reading}
           onExpandedChange={setExpanded}

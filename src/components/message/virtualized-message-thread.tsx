@@ -199,8 +199,9 @@ function VirtualizedMessageThreadImpl<T>({
             scrollRef={scrollRef as unknown as RefObject<HTMLElement | null>}
             itemSize={itemSize}
             bufferSize={bufferSize}
+            data={items}
           >
-            {items.map((item, index) => (
+            {(item, index) => (
               <div
                 key={getItemKey(item, index)}
                 style={itemStyle(index, items.length)}
@@ -209,7 +210,7 @@ function VirtualizedMessageThreadImpl<T>({
                   {renderItem(item, index)}
                 </div>
               </div>
-            ))}
+            )}
           </Virtualizer>
         )}
       </MessageThreadContent>

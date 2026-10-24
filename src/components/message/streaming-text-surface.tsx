@@ -65,11 +65,20 @@ export function StreamingTextSurface({
   useEffect(() => {
     const content = contentRef.current
     if (!content) return
-    const observer = new ResizeObserver(() =>
-      setOverflowing(content.scrollHeight > LIVE_TEXT_MAX_HEIGHT)
-    )
+    let frame: number | null = null
+    const observer = new ResizeObserver(() => {
+      if (frame !== null) return
+      frame = requestAnimationFrame(() => {
+        frame = null
+        const next = content.scrollHeight > LIVE_TEXT_MAX_HEIGHT
+        setOverflowing((previous) => (previous === next ? previous : next))
+      })
+    })
     observer.observe(content)
-    return () => observer.disconnect()
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
   }, [])
   return (
     <div className="relative">

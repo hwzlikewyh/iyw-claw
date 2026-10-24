@@ -44,9 +44,7 @@ export function useProcessAutoFollow(contentVersion: unknown, active: boolean) {
   useLayoutEffect(() => {
     if (!active || !followingRef.current) return
     alignToLatest()
-    const frame = requestAnimationFrame(scrollToLatest)
-    return () => cancelAnimationFrame(frame)
-  }, [active, alignToLatest, contentVersion, scrollToLatest])
+  }, [active, alignToLatest, contentVersion])
 
   useEffect(() => {
     const viewport = viewportRef.current

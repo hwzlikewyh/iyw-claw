@@ -189,6 +189,7 @@ type ThreadRenderItem =
       showStats: boolean
       isRoleTransition: boolean
       previousUserIndex: number | null
+      promptText?: string
       durationMs?: number | null
     }
   | {
@@ -929,6 +930,7 @@ export function MessageListView({
           item.previousUserIndex = lastUserIdx
           const user = lastUserIdx === null ? null : items[lastUserIdx]
           if (user?.kind === "turn") {
+            item.promptText = extractTextFromParts(user.group.parts)
             item.durationMs = resolveTurnDuration({
               duration_ms: item.group.duration_ms,
               startedAt: user.group.timestamp,
@@ -981,14 +983,6 @@ export function MessageListView({
       switch (item.kind) {
         case "turn": {
           const pt = item.isRoleTransition ? 16 : 0
-          const previousUser =
-            item.previousUserIndex == null
-              ? null
-              : threadItems[item.previousUserIndex]
-          const promptText =
-            previousUser?.kind === "turn" && previousUser.group.role === "user"
-              ? extractTextFromParts(previousUser.group.parts)
-              : ""
           return (
             <MessageEntrance
               conversationId={conversationId}
@@ -1020,7 +1014,7 @@ export function MessageListView({
                       item.key === lastAssistantItem?.key)
                   }
                   previousUserIndex={item.previousUserIndex}
-                  promptText={promptText}
+                  promptText={item.promptText}
                   isResponseComplete={item.phase === "persisted"}
                   isStreaming={
                     isActive &&
@@ -1106,7 +1100,6 @@ export function MessageListView({
       loadEarlierHistory,
       modelOptions,
       sessionActions,
-      threadItems,
       t,
     ]
   )
