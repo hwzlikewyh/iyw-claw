@@ -1,11 +1,12 @@
 .conversation-persistent-task {
   display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  margin-block: 0.375rem 0.75rem;
-  padding: 0.75rem 0.875rem;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
   border: 1px solid color-mix(in oklab, var(--primary) 16%, var(--border));
-  border-radius: 0.75rem;
+  border-radius: 8px;
   background: color-mix(in oklab, var(--primary) 3%, var(--background));
 }
 .conversation-persistent-task button {
@@ -16,12 +17,33 @@
   max-height: min(30dvh, 14rem);
   overflow: auto;
 }
-.conversation-top-status .conversation-persistent-task {
-  width: calc(100% - 2rem);
+.conversation-task-toolbar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 4px 16px;
+}
+.conversation-task-toolbar:not(
+  :has(.conversation-persistent-task, .conversation-side-question)
+) {
+  display: none;
+}
+.conversation-task-toolbar-slot {
+  min-width: 0;
+  flex: 1;
+}
+.conversation-task-toolbar-slot .conversation-persistent-task {
   max-width: 54rem;
-  margin: 6px auto;
-  padding: 8px 12px;
-  border-radius: 8px;
+  margin-inline: auto;
+}
+.conversation-persistent-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
 }
 .conversation-work-bars {
   display: inline-flex;
@@ -85,7 +107,13 @@
 }
 @media (max-width: 520px) {
   .conversation-persistent-task {
-    gap: 0.5rem;
-    padding: 0.625rem;
+    gap: 4px;
+  }
+  .conversation-task-toolbar {
+    gap: 4px;
+    padding-inline: 8px;
+  }
+  .conversation-persistent-summary {
+    gap: 4px;
   }
 }

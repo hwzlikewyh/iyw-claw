@@ -21,7 +21,7 @@ import type {
   PendingQuestion,
 } from "@/contexts/acp-connections-context"
 import type { QueuedMessage } from "@/hooks/use-message-queue"
-import { MessageCircleQuestionMark, Play, X } from "lucide-react"
+import { Play, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AccountRequestsBanner } from "@/components/account/account-points-status"
 import { ChatInput } from "@/components/chat/chat-input"
@@ -36,6 +36,7 @@ import { ConversationPresentationProvider } from "./conversation-presentation-co
 import { ConversationActivityVisibility } from "@/components/message/conversation-activity-visibility"
 import { ConversationConnectionAlert } from "./conversation-connection-alert"
 import { RuntimeTaskDetailHost } from "./runtime-task-detail-host"
+import { ConversationTaskToolbar } from "./conversation-task-toolbar"
 import "./conversation-presentation.css"
 import "./conversation-execution.css"
 import "./conversation-timeline.css"
@@ -140,6 +141,7 @@ interface ConversationShellProps {
    *  (e.g. the "restart to apply" config-stale banner). Renders nothing when
    *  omitted. */
   topBanner?: ReactNode
+  persistentTask?: ReactNode
   sidePanel?: ReactNode
   onSideQuestion?: (question: string) => boolean
   sideInject?: ComposerInjectContent | null
@@ -239,17 +241,21 @@ function ConversationShellContent({
   onCancelQueueEdit,
   onForkSend,
   topBanner,
+  persistentTask,
   sidePanel,
   onSideQuestion,
   sideInject,
   onSideInjectConsumed,
 }: ConversationShellProps) {
   const tAcp = useTranslations("Folder.chat.acpConnections")
-  const tSide = useTranslations("SideQuestion")
 
   return (
     <div className="flex h-full min-h-0 min-w-0">
       <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+        <ConversationTaskToolbar
+          task={persistentTask}
+          onSideQuestion={onSideQuestion}
+        />
         <div className="conversation-top-status shrink-0">{topBanner}</div>
         {!hideInput && (
           <ConversationConnectionAlert
@@ -258,18 +264,6 @@ function ConversationShellContent({
           />
         )}
         <AccountRequestsBanner />
-        {onSideQuestion && (
-          <div className="flex items-center justify-end gap-3 px-4 py-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onSideQuestion("")}
-            >
-              <MessageCircleQuestionMark className="size-4" />
-              {tSide("title")}
-            </Button>
-          </div>
-        )}
         <div className="min-h-24 flex-1 overflow-auto">{children}</div>
 
         {/* 待处理卡片共享高度上限，为状态栏和输入框留出空间；输入框菜单可向上展开。 */}

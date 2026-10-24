@@ -72,20 +72,17 @@ function TaskStrip(props: TaskStripProps) {
       className="conversation-persistent-task"
       data-paused={props.paused}
     >
-      <Icon
-        aria-hidden="true"
-        className="mt-1 size-4 shrink-0 text-primary/70"
-      />
-      <div className="min-w-0 flex-1">
+      <Icon aria-hidden="true" className="size-3.5 shrink-0 text-primary/70" />
+      <div className="conversation-persistent-summary">
         <TaskStripStatus task={task} syncing={props.syncing} />
         <button
           type="button"
           onClick={view}
-          className="mt-1 w-full break-words text-left text-sm leading-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          title={task.objective || task.title}
+          className="min-w-0 flex-1 truncate text-left text-xs leading-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {task.objective || task.title}
         </button>
-        {task.kind === "loop" && <ScheduleDetails task={task} />}
       </div>
       <TaskStripMenu {...props} onView={view} />
     </section>
@@ -106,7 +103,7 @@ function TaskStripStatus({
     !syncing &&
     ["active", "running", "waiting"].includes(task.status)
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+    <div className="flex shrink-0 items-center gap-2 whitespace-nowrap text-xs text-muted-foreground">
       <span>{t(`kind.${task.kind}`)}</span>
       {scheduled && (
         <Clock3
@@ -132,12 +129,12 @@ function TaskStripMenu(props: TaskStripProps & { onView: () => void }) {
   const t = useTranslations("RuntimeTasks")
   const p = useTranslations("ConversationPresentation")
   return (
-    <div className="flex shrink-0 flex-wrap items-start gap-1">
+    <div className="flex shrink-0 items-center gap-1">
       {actions.onMessage && (
         <button
           type="button"
           onClick={() => actions.onMessage?.(task)}
-          className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="hidden h-6 items-center rounded px-2 text-xs text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:inline-flex"
         >
           {t("addMessage")}
         </button>
@@ -157,6 +154,8 @@ function TaskStripMenu(props: TaskStripProps & { onView: () => void }) {
           </button>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-64 gap-2 p-3">
+          <p className="break-words text-sm">{task.objective || task.title}</p>
+          {task.kind === "loop" && <ScheduleDetails task={task} />}
           <TaskStripActions task={task} {...actions} onView={onView} />
           {props.tasks.length > 1 && (
             <OtherPersistentTasks tasks={props.tasks} actions={actions} />
@@ -227,6 +226,15 @@ function TaskStripActions({
   }
   return (
     <>
+      {actions.onMessage && (
+        <button
+          type="button"
+          onClick={() => actions.onMessage?.(task)}
+          className="rounded p-1 text-left text-xs hover:bg-muted sm:hidden"
+        >
+          {t("addMessage")}
+        </button>
+      )}
       <button
         type="button"
         onClick={onView}

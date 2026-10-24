@@ -3311,9 +3311,9 @@ const ConversationTabView = memo(function ConversationTabView({
           }
         />
       }
+      persistentTask={<PersistentTaskStrip {...runtimeTaskActions} />}
       topBanner={
         <>
-          <PersistentTaskStrip {...runtimeTaskActions} />
           <BackgroundTasksChip contextKey={tabId} />
           <ModelNetworkStatus contextKey={tabId} />
           {!isSilentModelSwitch && (
