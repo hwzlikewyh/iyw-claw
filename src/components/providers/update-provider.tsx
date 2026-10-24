@@ -38,6 +38,7 @@ const LIFECYCLES = new Set([
   "available",
   "downloading",
   "verifying",
+  "ready_to_install",
   "installing",
   "ready_to_restart",
   "restarting",
@@ -73,8 +74,8 @@ export interface UpdateContextValue {
   /** Any action (update / restart / rollback) is in flight — for disabling
    * controls without each consumer re-deriving it. */
   isBusy: boolean
-  /** Begin (or attach to) a background download+install of the available
-   * update. Progress arrives via {@link state}. */
+  /** Install the downloaded desktop update, or download first when needed.
+   * Progress arrives via {@link state}. */
   startUpdate: () => Promise<void>
   /** Relaunch into the staged update. Call when `state.status` is
    * `ready_to_restart`. Desktop relaunches the app; server drives the

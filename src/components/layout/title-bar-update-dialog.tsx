@@ -98,13 +98,27 @@ function UpdateStatus({ update, dialog }: UpdateDialogProps) {
   if (state.status === "ready_to_restart") {
     return <StatusLine icon={RotateCcw} label={t("updateReadyHint")} />
   }
+  if (state.status === "ready_to_install") {
+    return (
+      <StatusLine
+        icon={CheckCircle2}
+        tone="success"
+        label={t("updateDownloadedHint")}
+      />
+    )
+  }
   if (state.status === "downloading") {
     return <StatusLine icon={Loader2} spinning label={t("downloading")} />
   }
   if (state.status === "verifying" || state.status === "installing") {
     return <StatusLine icon={Loader2} spinning label={t("updating")} />
   }
-  const visibleUpdate = getVisibleUpdate(state, dialog.details)
+  return <UpdateOfferStatus update={update} dialog={dialog} />
+}
+
+function UpdateOfferStatus({ update, dialog }: UpdateDialogProps) {
+  const t = useTranslations("SystemSettings")
+  const visibleUpdate = getVisibleUpdate(update.state, dialog.details)
   if (visibleUpdate) {
     return (
       <StatusLine
@@ -191,6 +205,20 @@ function UpdateAction({ update, dialog }: UpdateDialogProps) {
       />
     )
   }
+  if (state.status === "ready_to_install") {
+    return (
+      <Button onClick={() => void update.startUpdate()}>
+        <ArrowUpCircle />
+        {t("installDownloadedUpdate")}
+      </Button>
+    )
+  }
+  return <AvailableUpdateAction update={update} dialog={dialog} />
+}
+
+function AvailableUpdateAction({ update, dialog }: UpdateDialogProps) {
+  const t = useTranslations("SystemSettings")
+  const { state } = update
   const visibleUpdate = dialog.checkErrorKind
     ? null
     : getVisibleUpdate(state, dialog.details)
@@ -206,7 +234,9 @@ function UpdateAction({ update, dialog }: UpdateDialogProps) {
     return dialog.details.canInstall ? (
       <Button onClick={() => void update.startUpdate()}>
         <Download />
-        {t("upgradeTo", { version: visibleUpdate.version })}
+        {state.status === "error"
+          ? t("retryUpdate")
+          : t("upgradeTo", { version: visibleUpdate.version })}
       </Button>
     ) : (
       <Button onClick={openLatestRelease}>

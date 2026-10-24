@@ -66,14 +66,21 @@ export function StatusBarUpdate() {
     )
   }
 
-  if (state.status === "available" && state.version) {
+  if (
+    (state.status === "available" || state.status === "ready_to_install") &&
+    state.version
+  ) {
     return (
       <button
         onClick={() => void startUpdate()}
         className="flex items-center gap-1.5 text-primary hover:text-primary/80 transition-colors"
       >
         <ArrowUpCircle className="h-3.5 w-3.5" />
-        <span>{t("upgradeTo", { version: state.version })}</span>
+        <span>
+          {state.status === "ready_to_install"
+            ? t("installDownloadedUpdate")
+            : t("upgradeTo", { version: state.version })}
+        </span>
       </button>
     )
   }

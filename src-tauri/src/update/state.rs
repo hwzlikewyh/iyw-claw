@@ -46,6 +46,7 @@ pub enum AppUpdateLifecycle {
     Available,
     Downloading,
     Verifying,
+    ReadyToInstall,
     Installing,
     ReadyToRestart,
     Restarting,
@@ -266,7 +267,10 @@ pub fn try_begin_check(
         let mut state = handle.write().unwrap_or_else(|error| error.into_inner());
         if !matches!(
             state.status,
-            AppUpdateLifecycle::Idle | AppUpdateLifecycle::Available | AppUpdateLifecycle::Error
+            AppUpdateLifecycle::Idle
+                | AppUpdateLifecycle::Available
+                | AppUpdateLifecycle::ReadyToInstall
+                | AppUpdateLifecycle::Error
         ) {
             return (false, state.clone());
         }
@@ -306,8 +310,10 @@ pub fn try_dismiss_optional_offer(
 ) -> bool {
     let snap = {
         let mut state = handle.write().unwrap_or_else(|error| error.into_inner());
-        if state.status != AppUpdateLifecycle::Available
-            || state.update_policy.as_deref() != Some("optional")
+        if !matches!(
+            state.status,
+            AppUpdateLifecycle::Available | AppUpdateLifecycle::ReadyToInstall
+        ) || state.update_policy.as_deref() != Some("optional")
             || state.version.as_deref() != Some(version)
         {
             return false;
