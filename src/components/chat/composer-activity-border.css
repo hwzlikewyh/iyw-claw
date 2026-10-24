@@ -17,6 +17,11 @@
   mask-composite: exclude;
   pointer-events: none;
   color: var(--primary);
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+}
+.iyw-claw-composer-chrome:focus-within:has(> .conversation-composer-runner) {
+  --tw-ring-color: color-mix(in oklab, var(--primary) 20%, transparent);
+  border-color: color-mix(in oklab, var(--primary) 25%, var(--border));
 }
 .conversation-composer-marker {
   position: absolute;
@@ -36,7 +41,8 @@
   background: linear-gradient(
     90deg,
     transparent,
-    currentColor 75%,
+    currentColor 45%,
+    currentColor 90%,
     transparent
   );
 }

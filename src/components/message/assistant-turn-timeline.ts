@@ -143,8 +143,9 @@ export function buildAssistantTimeline(
       : isProcessPart(part)
         ? "process"
         : "content"
+    // 正在增长的末段交由 Streamdown 增量渲染，后续事件到达后再切分归档。
     const chunks =
-      part.type === "text"
+      part.type === "text" && index < ordered.length - 1
         ? splitAssistantText(part.text).map((text) => ({ ...part, text }))
         : [part]
     for (const [chunk, value] of chunks.entries()) {

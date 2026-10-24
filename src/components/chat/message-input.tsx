@@ -4372,7 +4372,7 @@ export function MessageInput({
                 className
               )}
             >
-              <ComposerActivityBorder active={isPrompting && isActive} />
+              <ComposerActivityBorder active={isPrompting} />
               {visibleTask && (
                 <TaskModeRail
                   task={visibleTask}

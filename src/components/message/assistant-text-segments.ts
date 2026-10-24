@@ -1,12 +1,27 @@
 import { fromMarkdown } from "mdast-util-from-markdown"
 
 const TEXT_SEGMENT_LENGTH = 900
+const TEXT_SEGMENT_CACHE_LIMIT = 24
+const segmentCache = new Map<string, string[]>()
+
+function rememberSegments(text: string, segments: string[]): string[] {
+  segmentCache.set(text, segments)
+  if (segmentCache.size > TEXT_SEGMENT_CACHE_LIMIT) {
+    const oldest = segmentCache.keys().next().value
+    if (oldest !== undefined) segmentCache.delete(oldest)
+  }
+  return segments
+}
 
 // 只在完整 Markdown 块后分段，代码、列表、表格及交互内容保持完整。
 export function splitAssistantText(text: string): string[] {
   if (text.length <= TEXT_SEGMENT_LENGTH || /<|:::/u.test(text)) return [text]
+  // 已结束的正文在同轮后续输出中保持不变，复用分段并限制缓存数量。
+  const cached = segmentCache.get(text)
+  if (cached) return cached
   const nodes = fromMarkdown(text).children
-  if (nodes.some((node) => node.type === "definition")) return [text]
+  if (nodes.some((node) => node.type === "definition"))
+    return rememberSegments(text, [text])
   const segments: string[] = []
   let start = 0
   for (const node of nodes.slice(0, -1)) {
@@ -17,7 +32,7 @@ export function splitAssistantText(text: string): string[] {
     start = end
   }
   segments.push(text.slice(start))
-  return segments
+  return rememberSegments(text, segments)
 }
 
 function collectMarkdownText(node: unknown, output: string[]) {

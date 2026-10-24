@@ -1,6 +1,6 @@
 "use client"
 
-import { useId, type ReactNode } from "react"
+import { useId, useMemo, type ReactNode } from "react"
 import { useTranslations } from "next-intl"
 import { ChevronRight, History } from "lucide-react"
 import type { AssistantArchiveEntry } from "./assistant-archive-segments"
@@ -24,10 +24,16 @@ export function AssistantProgressSegment({
   const id = useId()
   const archive = fold && entry.settled
   const { rootRef, open, onOpenChange } = useArchiveDisclosure(archive)
-  const text = entry.items.flatMap(({ section }) =>
-    section.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
+  const text = entry.items
+    .flatMap(({ section }) =>
+      section.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
+    )
+    .join("\n\n")
+  // 标题只在收纳后显示，流式正文不为隐藏标题重复解析 Markdown。
+  const label = useMemo(
+    () => (archive ? assistantResponseFirstLine([text]) : ""),
+    [archive, text]
   )
-  const label = assistantResponseFirstLine(text) || t("processRecord")
   const tools = entry.items
     .flatMap((item) => item.section.parts)
     .filter((part) => part.type === "tool-call")
@@ -47,7 +53,9 @@ export function AssistantProgressSegment({
           onClick={() => onOpenChange(!open)}
         >
           <History aria-hidden="true" className="size-3.5 shrink-0" />
-          <span className="min-w-0 truncate">{label}</span>
+          <span className="min-w-0 truncate">
+            {label || t("processRecord")}
+          </span>
           {count > 0 && (
             <span className="shrink-0 text-xs">
               {t("completedOperations", { count })}
