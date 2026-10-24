@@ -1,11 +1,8 @@
 //! Desktop (Tauri) self-update commands.
 //!
-//! The download is driven from Rust through `tauri-plugin-updater` — not from
-//! a renderer callback — so its progress lives in the shared
-//! [`crate::update::state`] handle and survives the settings page unmounting,
-//! a tab switch, or a reload. The renderer is a pure subscriber: it kicks off
-//! `perform_app_update`, then reflects whatever the `app_update_state`
-//! event/snapshot reports, exactly like the standalone-server path.
+//! 发现新版本后由 Rust 驱动预下载并缓存，进度保存在共享
+//! [`crate::update::state`] 中，页面卸载、切换或刷新不会中断下载。
+//! 用户通过 `perform_app_update` 安装已准备的更新，前端只订阅状态。
 //!
 //! These mirror the server-mode axum handlers in
 //! `web::handlers::app_update` (same command names, so the transport layer
@@ -19,6 +16,7 @@ use serde::Serialize;
 use crate::acp::manager::ConnectionManager;
 use crate::app_error::AppCommandError;
 use crate::db::AppDatabase;
+use crate::update::desktop;
 use crate::update::preferences::{self, UpdatePreferences, UpdatePreferencesPatch};
 use crate::update::release::{self, AppUpdateInfo, CheckReason};
 use crate::update::state::{self as update_state, AppUpdateState, AppUpdateStateHandle};
@@ -75,10 +73,14 @@ pub(crate) async fn check_desktop_update_core(
             return Err(error);
         }
     };
+    let info = update.as_ref().map(|(info, _)| info.clone());
     let result =
-        finish_successful_check(conn, state, &emitter, checked_channel, reason, update).await;
+        finish_successful_check(conn, state, &emitter, checked_channel, reason, info).await;
     if let Err(error) = &result {
         update_state::set_error(state, &emitter, error.to_string());
+    }
+    if let Some(checked) = update.filter(|_| result.as_ref().is_ok_and(|r| r.update.is_some())) {
+        desktop::prefetch(desktop::Task::new(app, conn, state), checked);
     }
     result
 }
@@ -220,7 +222,7 @@ pub async fn remind_app_update_later(
     Ok(preferences)
 }
 
-/// Begin (or attach to) a download+install of the available update. Returns
+/// Install the cached update, downloading first when preparation failed. Returns
 /// immediately with the current snapshot; the work runs detached and reports
 /// progress via the `app_update_state` event.
 #[tauri::command]
@@ -229,56 +231,7 @@ pub async fn perform_app_update(
     db: tauri::State<'_, AppDatabase>,
     state: tauri::State<'_, AppUpdateStateHandle>,
 ) -> Result<AppUpdateState, AppCommandError> {
-    let handle = state.inner().clone();
-    let emitter = EventEmitter::Tauri(app.clone());
-
-    let (started, snap, offer) = crate::update::offer::try_begin(&handle, &emitter);
-    if !started {
-        // A download is already in flight (or staged) — attach to it.
-        return Ok(snap);
-    }
-    let Some(offer) = offer else {
-        update_state::set_error(&handle, &emitter, "Available update metadata is incomplete");
-        return Err(AppCommandError::configuration_invalid(
-            "Available update metadata is incomplete",
-        ));
-    };
-
-    let conn = db.conn.clone();
-    tauri::async_runtime::spawn(async move {
-        let result = async {
-            // IR-006：更新前记录持久区摘要，更新后首次启动对比并上报。
-            let data_dir = crate::system_skills::data_dir_from_env();
-            if let Err(error) = crate::update::digest::record_before_update(&data_dir).await {
-                tracing::warn!(
-                    error = %error,
-                    "[app-update] failed to record pre-update managed-root digest"
-                );
-            }
-            let preferences = preferences::load(&conn).await.map_err(|e| e.to_string())?;
-            let access_token = crate::commands::iyw_account::iyw_account_access_token_core(&conn)
-                .await
-                .map_err(|error| error.to_string())?
-                .ok_or_else(|| "Sign in to download the update".to_string())?;
-            release::download_and_install(release::DesktopInstallRequest {
-                update: release::DesktopUpdateRequest {
-                    app: &app,
-                    preferences: &preferences,
-                    access_token: Some(access_token.expose()),
-                },
-                expected: &offer,
-                handle: handle.clone(),
-                emitter: emitter.clone(),
-            })
-            .await
-        }
-        .await;
-        if let Err(message) = result {
-            update_state::set_error(&handle, &emitter, message);
-        }
-    });
-
-    Ok(snap)
+    desktop::install(desktop::Task::new(&app, &db.conn, state.inner()))
 }
 
 /// Relaunch into the freshly-installed bytes. Flips the shared snapshot to

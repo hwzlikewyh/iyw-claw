@@ -88,6 +88,7 @@ export type AppUpdateLifecycle =
   | "available"
   | "downloading"
   | "verifying"
+  | "ready_to_install"
   | "installing"
   | "ready_to_restart"
   | "restarting"
@@ -136,7 +137,8 @@ export function subscribeAppUpdateState(
   return getTransport().subscribe<AppUpdateState>("app_update_state", handler)
 }
 
-/** Begin (or attach to) the download+install. Returns immediately with the
+/** Install the prepared desktop update, or begin download+install when needed.
+ * Returns immediately with the
  * current snapshot; progress arrives via {@link subscribeAppUpdateState}. The
  * download runs detached in the backend, so it is not bound to this call's
  * lifetime. */

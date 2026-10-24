@@ -8,10 +8,6 @@ use tauri_plugin_updater::{Update, Updater, UpdaterExt};
 #[cfg(feature = "tauri-runtime")]
 use crate::app_error::AppCommandError;
 use crate::update::preferences::{UpdateChannel, UpdatePreferences};
-#[cfg(feature = "tauri-runtime")]
-use crate::update::state::{self as update_state, AppUpdateStateHandle};
-#[cfg(feature = "tauri-runtime")]
-use crate::web::event_bridge::EventEmitter;
 
 #[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
 #[path = "release_windows.rs"]
@@ -96,14 +92,6 @@ pub struct DesktopUpdateRequest<'a> {
     pub access_token: Option<&'a str>,
 }
 
-#[cfg(feature = "tauri-runtime")]
-pub struct DesktopInstallRequest<'a> {
-    pub update: DesktopUpdateRequest<'a>,
-    pub expected: &'a crate::update::offer::Identity,
-    pub handle: AppUpdateStateHandle,
-    pub emitter: EventEmitter,
-}
-
 pub fn configured_base_url() -> String {
     std::env::var(UPDATE_BASE_URL_ENV)
         .ok()
@@ -172,7 +160,7 @@ pub fn desktop_updater(
 pub async fn check_desktop_update(
     request: &DesktopUpdateRequest<'_>,
     reason: CheckReason,
-) -> Result<Option<AppUpdateInfo>, AppCommandError> {
+) -> Result<Option<(AppUpdateInfo, Update)>, AppCommandError> {
     let Some(update) = desktop_updater(request, reason)?
         .check()
         .await
@@ -181,107 +169,8 @@ pub async fn check_desktop_update(
         return Ok(None);
     };
     let extensions = validated_extensions(&update, request.preferences)?;
-    Ok(Some(update_info(
-        &update,
-        &extensions,
-        request.preferences.channel,
-    )))
-}
-
-/// Re-check, download, and install the update while reporting shared progress.
-/// Windows NSIS exits from `Installing`; other platforms stage a restart.
-#[cfg(feature = "tauri-runtime")]
-pub async fn download_and_install(request: DesktopInstallRequest<'_>) -> Result<(), String> {
-    if request.update.preferences.channel.as_str() != request.expected.channel {
-        return Err("The selected update channel changed before installation".to_string());
-    }
-    let update = desktop_updater(&request.update, CheckReason::Manual)
-        .map_err(|error| error.to_string())?
-        .check()
-        .await
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| "No update available".to_string())?;
-    let extensions = validated_extensions(&update, request.update.preferences)
-        .map_err(|error| error.to_string())?;
-    crate::update::offer::validate_checked_update(&update, &extensions, request.expected)?;
-    let version = update.version.clone();
-    update_state::set_download_target(&request.handle, &request.emitter, version.clone());
-    let progress = std::sync::Arc::new(update_state::ProgressEmitter::new(
-        request.handle.clone(),
-        request.emitter.clone(),
-    ));
-    install_update(InstallContext {
-        update,
-        version,
-        handle: request.handle,
-        emitter: request.emitter,
-        progress,
-    })
-    .await
-}
-
-#[cfg(feature = "tauri-runtime")]
-struct InstallContext {
-    update: Update,
-    version: String,
-    handle: AppUpdateStateHandle,
-    emitter: EventEmitter,
-    progress: std::sync::Arc<update_state::ProgressEmitter>,
-}
-
-#[cfg(all(feature = "tauri-runtime", target_os = "windows"))]
-async fn install_update(context: InstallContext) -> Result<(), String> {
-    let chunk_progress = context.progress.clone();
-    let finish_progress = context.progress;
-    let mut downloaded = 0_u64;
-    let bytes = context
-        .update
-        .download(
-            move |chunk_len, content_len| {
-                downloaded += chunk_len as u64;
-                chunk_progress.downloading(downloaded, content_len);
-            },
-            move || finish_progress.verifying(),
-        )
-        .await
-        .map_err(|error| error.to_string())?;
-    update_state::set_installing(&context.handle, &context.emitter);
-    tracing::info!(
-        version = %context.version,
-        "[app-update] launching NSIS updater; the desktop process will exit"
-    );
-    context
-        .update
-        .install(bytes)
-        .map_err(|error| error.to_string())?;
-    Err("NSIS updater returned without terminating the application".to_string())
-}
-
-#[cfg(all(feature = "tauri-runtime", not(target_os = "windows")))]
-async fn install_update(context: InstallContext) -> Result<(), String> {
-    let chunk_progress = context.progress.clone();
-    let finish_progress = context.progress;
-    let mut downloaded = 0_u64;
-    context
-        .update
-        .download_and_install(
-            move |chunk_len, content_len| {
-                downloaded += chunk_len as u64;
-                chunk_progress.downloading(downloaded, content_len);
-            },
-            move || finish_progress.verifying(),
-        )
-        .await
-        .map_err(|error| error.to_string())?;
-    update_state::set_ready(
-        &context.handle,
-        &context.emitter,
-        Some(context.version),
-        None,
-        None,
-        None,
-    );
-    Ok(())
+    let info = update_info(&update, &extensions, request.preferences.channel);
+    Ok(Some((info, update)))
 }
 
 #[cfg(feature = "tauri-runtime")]

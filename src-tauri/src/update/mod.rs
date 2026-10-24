@@ -11,6 +11,10 @@
 //!   after `IYW_CLAW_RESTART_DELAY_MS`.
 //! - **Standalone** (no supervisor): the worker re-execs itself.
 
+#[cfg(feature = "tauri-runtime")]
+pub mod desktop;
+#[cfg(feature = "tauri-runtime")]
+mod desktop_cache;
 pub mod digest;
 pub mod install;
 pub mod offer;
