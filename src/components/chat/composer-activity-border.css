@@ -4,32 +4,48 @@
   z-index: 2;
   width: calc(100% + 2px);
   height: calc(100% + 2px);
-  overflow: visible;
+  border-radius: inherit;
+  padding: 2px;
+  contain: paint;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
   pointer-events: none;
-  fill: none;
   color: var(--primary);
 }
-.conversation-composer-runner rect {
-  width: calc(100% - 2px);
-  height: calc(100% - 2px);
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-dasharray: 4 96;
-  animation: conversation-run-border 3.6s linear infinite;
+.conversation-composer-marker {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 0;
+  height: 0;
+  will-change: transform;
 }
-.conversation-composer-runner[data-paused="true"] rect {
-  animation-play-state: paused;
-}
-@keyframes conversation-run-border {
-  to {
-    stroke-dashoffset: -100;
-  }
+.conversation-composer-marker::before {
+  content: "";
+  position: absolute;
+  width: 56px;
+  height: 28px;
+  left: -28px;
+  top: -14px;
+  border-radius: 50%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    currentColor 75%,
+    transparent
+  );
 }
 @media (prefers-reduced-motion: reduce) {
-  .conversation-composer-runner rect {
-    animation: none;
-    stroke-dasharray: 100 0;
+  .conversation-composer-runner {
+    background: currentColor;
     opacity: 0.35;
+  }
+  .conversation-composer-marker {
+    display: none;
   }
 }

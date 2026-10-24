@@ -131,7 +131,10 @@ function ProcessRowHeader({
           {row.status === "failed" ? (
             <CircleAlert aria-hidden="true" />
           ) : row.status === "running" ? (
-            <LoaderCircle aria-hidden="true" className="animate-spin" />
+            <LoaderCircle
+              aria-hidden="true"
+              className="conversation-working-mark"
+            />
           ) : (
             <Clock3 aria-hidden="true" />
           )}

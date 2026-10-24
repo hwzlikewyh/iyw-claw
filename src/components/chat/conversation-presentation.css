@@ -100,6 +100,10 @@
 }
 .conversation-working-mark {
   animation: conversation-working 1.8s linear infinite;
+  transform-origin: center;
+  transform-box: view-box;
+  will-change: transform;
+  backface-visibility: hidden;
 }
 [data-paused="true"] .conversation-working-mark {
   animation-play-state: paused;
@@ -156,8 +160,11 @@
 }
 
 @keyframes conversation-working {
+  from {
+    transform: translateZ(0) rotate(0deg);
+  }
   to {
-    transform: rotate(360deg);
+    transform: translateZ(0) rotate(360deg);
   }
 }
 @keyframes conversation-reveal {
