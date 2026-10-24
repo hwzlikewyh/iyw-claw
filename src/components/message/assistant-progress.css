@@ -30,7 +30,8 @@
 .assistant-history-toggle {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
   gap: 7px;
   min-height: 28px;
   padding: 2px 0;

@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl"
 import type { AdaptedContentPart } from "@/lib/adapters/ai-elements-adapter"
 import { AssistantFoldContent } from "./assistant-fold-content"
 import { useArchiveDisclosure } from "./use-archive-disclosure"
+import { useArchiveSummary } from "./use-archive-summary"
 import {
   processPartHasFailure,
   processPartNeedsAttention,
@@ -84,6 +85,7 @@ function ProcessHistorySegment({
   const t = useTranslations("ConversationPresentation")
   const id = useId()
   const { rootRef, open, onOpenChange } = useArchiveDisclosure(true)
+  const label = useArchiveSummary(parts) || t("processRecord")
   return (
     <div ref={rootRef} className="assistant-process-inline">
       <button
@@ -94,8 +96,11 @@ function ProcessHistorySegment({
         onClick={() => onOpenChange(!open)}
       >
         <History aria-hidden="true" className="size-3.5 shrink-0" />
-        <span>
-          {t("processRecord")} · {start + 1}–{start + parts.length}
+        <span className="min-w-0 truncate" title={label}>
+          {label}
+        </span>
+        <span className="shrink-0 text-xs">
+          · {start + 1}–{start + parts.length}
         </span>
         <ProcessArchiveStatus parts={parts} />
         <ChevronRight
