@@ -3,7 +3,7 @@ use crate::update::state::{
 };
 use crate::web::event_bridge::{emit_event, EventEmitter};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity {
     pub version: String,
     pub release_id: Option<String>,
@@ -20,7 +20,9 @@ pub fn try_begin(
         let mut state = handle.write().unwrap_or_else(|error| error.into_inner());
         if !matches!(
             state.status,
-            AppUpdateLifecycle::Available | AppUpdateLifecycle::Error
+            AppUpdateLifecycle::Available
+                | AppUpdateLifecycle::ReadyToInstall
+                | AppUpdateLifecycle::Error
         ) {
             return (false, state.clone(), None);
         }
@@ -33,7 +35,11 @@ pub fn try_begin(
             channel,
         };
         state.seq += 1;
-        state.status = AppUpdateLifecycle::Downloading;
+        state.status = if state.status == AppUpdateLifecycle::ReadyToInstall {
+            AppUpdateLifecycle::Installing
+        } else {
+            AppUpdateLifecycle::Downloading
+        };
         state.downloaded = Some(0);
         state.total = None;
         state.error = None;
@@ -45,9 +51,50 @@ pub fn try_begin(
 
 pub fn is_current_optional(handle: &AppUpdateStateHandle, version: &str) -> bool {
     let state = handle.read().unwrap_or_else(|error| error.into_inner());
-    state.status == AppUpdateLifecycle::Available
-        && state.update_policy.as_deref() == Some("optional")
+    matches!(
+        state.status,
+        AppUpdateLifecycle::Available | AppUpdateLifecycle::ReadyToInstall
+    ) && state.update_policy.as_deref() == Some("optional")
         && state.version.as_deref() == Some(version)
+}
+
+/// 自动下载只能领取刚检查到的同一个发布，避免覆盖其他窗口的操作。
+pub fn try_prefetch(
+    handle: &AppUpdateStateHandle,
+    emitter: &EventEmitter,
+    expected: &Identity,
+) -> bool {
+    let snapshot = {
+        let mut state = handle.write().unwrap_or_else(|error| error.into_inner());
+        if state.status != AppUpdateLifecycle::Available
+            || state.version.as_deref() != Some(expected.version.as_str())
+            || state.channel.as_deref() != Some(expected.channel.as_str())
+            || state.release_id != expected.release_id
+        {
+            return false;
+        }
+        state.seq += 1;
+        state.status = AppUpdateLifecycle::Downloading;
+        state.downloaded = Some(0);
+        state.total = None;
+        state.error = None;
+        state.clone()
+    };
+    emit_event(emitter, APP_UPDATE_STATE_CHANNEL, &snapshot);
+    true
+}
+
+pub fn set_downloaded(handle: &AppUpdateStateHandle, emitter: &EventEmitter) {
+    let snapshot = {
+        let mut state = handle.write().unwrap_or_else(|error| error.into_inner());
+        state.seq += 1;
+        state.status = AppUpdateLifecycle::ReadyToInstall;
+        state.downloaded = None;
+        state.total = None;
+        state.error = None;
+        state.clone()
+    };
+    emit_event(emitter, APP_UPDATE_STATE_CHANNEL, &snapshot);
 }
 
 #[cfg(feature = "tauri-runtime")]

@@ -91,7 +91,11 @@ function GateAction({ state, onStart, onRestart }: RequiredUpdateGateProps) {
   return (
     <Button onClick={() => void onStart()}>
       <ArrowUpCircle />
-      {t("upgradeTo", { version: state.version ?? "" })}
+      {state.status === "ready_to_install"
+        ? t("installDownloadedUpdate")
+        : state.status === "error"
+          ? t("retryUpdate")
+          : t("upgradeTo", { version: state.version ?? "" })}
     </Button>
   )
 }

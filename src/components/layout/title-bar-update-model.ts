@@ -63,8 +63,8 @@ export function getVisibleUpdate(
   state: AppUpdateState,
   details: UpdateDetails
 ): AppUpdateInfo | null {
-  if (state.status === "error") {
-    return hasFreshCheck(state, details) ? details.availableUpdate : null
+  if (state.status === "error" && hasFreshCheck(state, details)) {
+    return details.availableUpdate
   }
   if (!state.version) {
     return hasFreshCheck(state, details) ? details.availableUpdate : null

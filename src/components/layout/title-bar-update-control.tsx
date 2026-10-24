@@ -34,6 +34,7 @@ const BADGE_STATUSES = new Set<AppUpdateState["status"]>([
   "available",
   "downloading",
   "verifying",
+  "ready_to_install",
   "installing",
   "ready_to_restart",
 ])

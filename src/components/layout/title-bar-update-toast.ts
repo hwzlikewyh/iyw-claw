@@ -24,8 +24,9 @@ export function useUpdateOfferToast({
   setOpen,
 }: UpdateOfferToastOptions) {
   const t = useTranslations("SystemSettings")
+  const downloaded = state.status === "ready_to_install"
   const version =
-    state.status === "available"
+    state.status === "available" || downloaded
       ? state.version
       : checkedUpdateAvailable
         ? details.availableUpdate?.version
@@ -40,13 +41,20 @@ export function useUpdateOfferToast({
   }, [setOpen])
 
   useEffect(() => {
-    if (!version || notifiedUpdateVersions.has(version)) return
-    notifiedUpdateVersions.add(version)
-    toast.info(t("foundUpdate", { version }), {
-      action: {
-        label: t("viewUpdate"),
-        onClick: () => openCurrentUpdateDialog?.(),
-      },
-    })
-  }, [setOpen, t, version])
+    if (!version) return
+    const notificationKey = `${version}:${downloaded ? "ready" : "available"}`
+    if (notifiedUpdateVersions.has(notificationKey)) return
+    notifiedUpdateVersions.add(notificationKey)
+    const notify = downloaded ? toast.success : toast.info
+    notify(
+      downloaded ? t("updateDownloadedHint") : t("foundUpdate", { version }),
+      {
+        id: `app-update-${version}`,
+        action: {
+          label: t("viewUpdate"),
+          onClick: () => openCurrentUpdateDialog?.(),
+        },
+      }
+    )
+  }, [downloaded, setOpen, t, version])
 }
