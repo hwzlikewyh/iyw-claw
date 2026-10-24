@@ -10,6 +10,10 @@ import {
   highlightCode,
   type SharedHighlightRequest,
 } from "./shared-code-highlighter"
+import {
+  CODE_TOKEN_CACHE_MAX_ENTRIES,
+  CODE_TOKEN_CACHE_MAX_SOURCE_CHARS,
+} from "./code-highlight-cache"
 
 type HighlightSubscriber = (result: HighlightResult) => void
 type HighlightEntry = HighlightResult | Set<HighlightSubscriber>
@@ -24,8 +28,44 @@ const defaultThemes: [BundledTheme, BundledTheme] = [
   "github-light",
   "github-dark",
 ]
-// 首批沿用 Streamdown 的结果保留周期，避免回看时新增缓存淘汰和重算。
 const highlights = new Map<string, Map<string, HighlightEntry>>()
+const completed = new Map<
+  HighlightResult,
+  { contextKey: string; cache: Map<string, HighlightEntry>; code: string }
+>()
+let cachedSourceChars = 0
+
+function retainHighlight(
+  request: SharedHighlightRequest,
+  cache: Map<string, HighlightEntry>,
+  result: HighlightResult
+) {
+  if (request.code.length > CODE_TOKEN_CACHE_MAX_SOURCE_CHARS) {
+    cache.delete(request.code)
+    if (!cache.size) highlights.delete(getHighlightContextKey(request))
+    return
+  }
+  cache.set(request.code, result)
+  completed.set(result, {
+    contextKey: getHighlightContextKey(request),
+    cache,
+    code: request.code,
+  })
+  cachedSourceChars += request.code.length
+  // 流式代码的旧版本不再无限保留，沿用现有代码高亮缓存预算。
+  while (
+    completed.size > CODE_TOKEN_CACHE_MAX_ENTRIES ||
+    cachedSourceChars > CODE_TOKEN_CACHE_MAX_SOURCE_CHARS
+  ) {
+    const oldest = completed.entries().next().value
+    if (!oldest) break
+    const [value, entry] = oldest
+    completed.delete(value)
+    cachedSourceChars -= entry.code.length
+    if (entry.cache.get(entry.code) === value) entry.cache.delete(entry.code)
+    if (!entry.cache.size) highlights.delete(entry.contextKey)
+  }
+}
 
 function normalizeLanguage(language: string): string {
   const normalized = language.trim().toLowerCase()
@@ -53,7 +93,7 @@ function startHighlight(
 ): void {
   void highlightCode(request)
     .then((result) => {
-      cache.set(request.code, result)
+      retainHighlight(request, cache, result)
       publishHighlight(subscribers, result)
     })
     .catch((error) => {
@@ -80,7 +120,14 @@ function highlight(
     highlights.set(contextKey, cache)
   }
   const entry = cache.get(request.code)
-  if (entry && !(entry instanceof Set)) return entry
+  if (entry && !(entry instanceof Set)) {
+    const retained = completed.get(entry)
+    if (retained) {
+      completed.delete(entry)
+      completed.set(entry, retained)
+    }
+    return entry
+  }
   const subscribers = entry ?? new Set<HighlightSubscriber>()
   if (callback) subscribers.add(callback)
   if (!entry) {

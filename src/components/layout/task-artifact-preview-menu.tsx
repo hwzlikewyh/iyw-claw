@@ -18,18 +18,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { copyTextFromMenu } from "@/lib/utils"
-
-function selectedPreviewText(root: HTMLElement | null): string {
-  const selection = window.getSelection()
-  if (!root || !selection?.rangeCount) return ""
-  const range = selection.getRangeAt(0)
-  if (
-    !root.contains(range.startContainer) ||
-    !root.contains(range.endContainer)
-  )
-    return ""
-  return selection.toString()
-}
+import { selectedPreviewText } from "@/lib/preview-selection"
 
 function previewTextContent(root: HTMLElement | null): HTMLElement | null {
   return root?.querySelector("[data-artifact-preview-text]") ?? null

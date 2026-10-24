@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl"
 import { Globe, PanelRightClose, X } from "lucide-react"
 import {
   useInteractivePage,
+  LINK_PREVIEW_ID_PREFIX,
   type InteractivePage,
 } from "@/contexts/interactive-page-context"
 import { Button } from "@/components/ui/button"
@@ -22,11 +23,12 @@ export function InteractivePagePanel() {
       aria-label={t("title")}
     >
       <PagePanelHeader />
-      {context.preview && (
-        <p className="border-b p-2 text-xs text-muted-foreground">
-          {t("historyNotice")}
-        </p>
-      )}
+      {context.preview &&
+        !context.selectedId?.startsWith(LINK_PREVIEW_ID_PREFIX) && (
+          <p className="border-b p-2 text-xs text-muted-foreground">
+            {t("historyNotice")}
+          </p>
+        )}
       {context.pages.map((page) => (
         <div
           key={page.interaction_id}
@@ -118,6 +120,7 @@ function UrlResponse({
   connectionId: string | null
   preview: boolean
 }) {
+  if (page.interaction_id.startsWith(LINK_PREVIEW_ID_PREFIX)) return null
   return (
     <InteractiveHtmlCard
       page={page}

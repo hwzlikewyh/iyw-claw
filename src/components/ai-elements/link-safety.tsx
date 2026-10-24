@@ -10,6 +10,10 @@ import type { LinkSafetyConfig, LinkSafetyModalProps } from "streamdown"
 import { toast } from "sonner"
 import { useActiveFolder } from "@/contexts/active-folder-context"
 import { useWorkspaceActions } from "@/contexts/workspace-context"
+import {
+  LINK_PREVIEW_ID_PREFIX,
+  usePagePreviewOpener,
+} from "@/contexts/interactive-page-context"
 import { isHomeRelativePath } from "@/lib/file-open-target"
 import { isAbsoluteFilePath } from "@/lib/file-path-display"
 import { cn } from "@/lib/utils"
@@ -290,6 +294,7 @@ export function useOpenLinkOrFile() {
   const { activeFolder: folder } = useActiveFolder()
   const folderPath = folder?.path
   const { openFilePreview } = useWorkspaceActions()
+  const openPreview = usePagePreviewOpener()
 
   return useCallback(
     async (url: string) => {
@@ -334,6 +339,16 @@ export function useOpenLinkOrFile() {
         : url
 
       try {
+        if (openPreview && (protocol === "http:" || protocol === "https:")) {
+          openPreview({
+            interaction_id: LINK_PREVIEW_ID_PREFIX + crypto.randomUUID(),
+            title: new URL(openTarget).hostname,
+            html: "",
+            url: openTarget,
+            wait_for_response: false,
+          })
+          return
+        }
         if (OS_HANDLER_PROTOCOLS.has(protocol) && isWebOpenerEnvironment()) {
           dispatchOsHandlerUrl(openTarget)
         } else {
@@ -345,16 +360,20 @@ export function useOpenLinkOrFile() {
         })
       }
     },
-    [folderPath, openFilePreview, t]
+    [folderPath, openFilePreview, openPreview, t]
   )
 }
 
 export function useStreamdownLinkSafety(): LinkSafetyConfig {
   const handleOpenTarget = useOpenLinkOrFile()
+  const openPreview = usePagePreviewOpener()
 
   const handleLinkCheck = useCallback(
-    (url: string) => shouldLetStreamdownOpenExternalUrl(url),
-    []
+    (url: string) =>
+      openPreview && /^https?:|^\/\//i.test(url.trim())
+        ? false
+        : shouldLetStreamdownOpenExternalUrl(url),
+    [openPreview]
   )
 
   const renderModal = useCallback(

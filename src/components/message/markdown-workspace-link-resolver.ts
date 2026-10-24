@@ -187,6 +187,8 @@ export async function resolveMarkdownWorkspaceLinks(
 ): Promise<Map<number, ResolvedLink>> {
   const links = new Map<number, ResolvedLink>()
   if (!documentPath || roots.length === 0) return links
+  // 候选只来自 Markdown 链接或行内代码，普通正文无需再次构建整棵语法树。
+  if (!content.includes("[") && !content.includes("`")) return links
 
   const resolutions = new Map<string, Promise<string | null>>()
   const resolveOnce = (path: string) => {

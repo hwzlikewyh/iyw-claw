@@ -36,6 +36,7 @@ import { rehypeCommandBadges } from "./rehype-command-badges"
 import { rehypePluginsAllowingIywClaw } from "./rehype-allow-iyw-claw"
 import { remarkRewriteFileUriLinks } from "./remark-file-uri-links"
 import { remarkLocalPathLinks } from "./remark-local-path-links"
+import { remarkInlineWebLinks } from "./remark-inline-web-links"
 import { useStreamdownPlugins } from "./streamdown-plugins"
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
@@ -452,6 +453,7 @@ const remarkPlugins = [
   ...Object.values(defaultRemarkPlugins),
   remarkRewriteFileUriLinks,
   remarkLocalPathLinks,
+  remarkInlineWebLinks,
 ]
 
 // User messages opt in to this set so single newlines render as <br>.

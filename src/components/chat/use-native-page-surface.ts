@@ -39,8 +39,16 @@ export function useNativePageSurface(
     if (!isDesktop() || !container.current) return
     const session = new SurfaceSession(container.current, latest)
     const sync = () => void session.sync()
-    const observer = new ResizeObserver(sync)
-    const mutations = new MutationObserver(sync)
+    let frame: number | null = null
+    const schedule = () => {
+      if (frame !== null) return
+      frame = requestAnimationFrame(() => {
+        frame = null
+        sync()
+      })
+    }
+    const observer = new ResizeObserver(schedule)
+    const mutations = new MutationObserver(schedule)
     observer.observe(container.current)
     mutations.observe(document.body, {
       childList: true,
@@ -48,12 +56,15 @@ export function useNativePageSurface(
       attributes: true,
       attributeFilter: ["data-state", "inert", "class"],
     })
-    const timer = window.setInterval(sync, SURFACE_POLL_MS)
+    document.addEventListener("visibilitychange", sync)
+    const timer = window.setInterval(schedule, SURFACE_POLL_MS)
     sync()
     return () => {
+      if (frame !== null) cancelAnimationFrame(frame)
       clearInterval(timer)
       observer.disconnect()
       mutations.disconnect()
+      document.removeEventListener("visibilitychange", sync)
       session.close()
     }
   }, [container, options.id, options.url, options.revision])

@@ -1,14 +1,15 @@
 "use client"
 
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
+  type RefObject,
   type ComponentProps,
   type ComponentType,
 } from "react"
 import { useTranslations } from "next-intl"
-import { fromMarkdown } from "mdast-util-from-markdown"
 import { Streamdown, type Components } from "streamdown"
 import { ListTree } from "lucide-react"
 import { useStreamdownPlugins } from "@/components/ai-elements/streamdown-plugins"
@@ -24,9 +25,7 @@ import {
 } from "./use-preview-resource"
 import {
   markdownPreviewPaths,
-  nodeText,
   PREVIEW_IMAGE_ORIGIN,
-  headingId,
 } from "./markdown-preview-paths"
 
 interface MarkdownProps {
@@ -42,10 +41,7 @@ export function DocumentMarkdownPreview(props: MarkdownProps) {
   const [zoom, setZoom] = useState(1)
   const [outline, setOutline] = useState(false)
   const labels = useTranslations("Folder.previewControls")
-  const headings = useMemo(
-    () => collectHeadings(props.content),
-    [props.content]
-  )
+  const headings = useDocumentHeadings(ref, outline, props.content)
   const navigate = (id: string) =>
     ref.current
       ?.querySelector(
@@ -168,7 +164,7 @@ function DocumentOutline({
   headings,
   onNavigate,
 }: {
-  headings: ReturnType<typeof collectHeadings>
+  headings: DocumentHeading[]
   onNavigate: (id: string) => void
 }) {
   const labels = useTranslations("Folder.previewControls")
@@ -192,15 +188,49 @@ function DocumentOutline({
   )
 }
 
-function collectHeadings(content: string) {
-  const counts = new Map<string, number>()
-  return fromMarkdown(content)
-    .children.filter((node) => node.type === "heading")
-    .map((node) => ({
-      id: headingId(nodeText(node), counts),
-      text: nodeText(node),
-      depth: node.depth,
-    }))
+interface DocumentHeading {
+  id: string
+  text: string
+  depth: number
+}
+
+function useDocumentHeadings(
+  ref: RefObject<HTMLDivElement | null>,
+  enabled: boolean,
+  content: string
+) {
+  const [headings, setHeadings] = useState<DocumentHeading[]>([])
+  useEffect(() => {
+    const article = ref.current?.querySelector("article")
+    if (!enabled || !article) return
+    // 复用已渲染的标题和 ID，避免为了目录再次解析整篇 Markdown。
+    const update = () => {
+      const nodes = article.querySelectorAll(
+        ":scope > div > :is(h1,h2,h3,h4,h5,h6)"
+      )
+      const next = Array.from(nodes, (node) => ({
+        id: node.id,
+        text: node.textContent ?? "",
+        depth: Number(node.tagName.slice(1)),
+      }))
+      setHeadings((previous) =>
+        previous.length === next.length &&
+        previous.every(
+          (heading, index) =>
+            heading.id === next[index].id &&
+            heading.text === next[index].text &&
+            heading.depth === next[index].depth
+        )
+          ? previous
+          : next
+      )
+    }
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(article, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [ref, enabled, content])
+  return headings
 }
 
 function MarkdownImage({

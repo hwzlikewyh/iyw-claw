@@ -1,11 +1,18 @@
 "use client"
 
-import { createContext, useContext, useState, type ReactNode } from "react"
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useState,
+  type ReactNode,
+} from "react"
 import { useConnection } from "@/hooks/use-connection"
 import { useTabStore } from "@/stores/tab-store"
 import type { InteractiveHtmlState } from "@/lib/types"
 
 export type InteractivePage = InteractiveHtmlState
+export const LINK_PREVIEW_ID_PREFIX = "link-preview:"
 type Selection = {
   scope: string
   id: string | null
@@ -26,6 +33,11 @@ type Context = {
   openLivePage: (page: InteractivePage, connectionId: string) => void
 }
 const PageContext = createContext<Context | null>(null)
+const PreviewOpenerContext = createContext<Context["openPreview"] | null>(null)
+
+export function usePagePreviewOpener() {
+  return useContext(PreviewOpenerContext)
+}
 
 export function useInteractivePage() {
   const context = useContext(PageContext)
@@ -56,6 +68,17 @@ export function InteractivePageProvider({ children }: { children: ReactNode }) {
         ? externalPages
         : connection.interactiveHtml
   const requestedId = selection.id
+  // 链接只订阅稳定的打开动作，避免跟随会话流式状态重渲染。
+  const openPreview = useCallback(
+    (page: InteractivePage) =>
+      setSelection({
+        scope,
+        id: page.interaction_id,
+        open: true,
+        preview: page,
+      }),
+    [scope, setSelection]
+  )
   const selectedId = pages.some((page) => page.interaction_id === requestedId)
     ? requestedId
     : (pages[pages.length - 1]?.interaction_id ?? null)
@@ -67,8 +90,13 @@ export function InteractivePageProvider({ children }: { children: ReactNode }) {
     tabId,
     preview: Boolean(selection.preview),
     ...selectionActions(scope, selection, setSelection),
+    openPreview,
   }
-  return <PageContext.Provider value={value}>{children}</PageContext.Provider>
+  return (
+    <PreviewOpenerContext.Provider value={openPreview}>
+      <PageContext.Provider value={value}>{children}</PageContext.Provider>
+    </PreviewOpenerContext.Provider>
+  )
 }
 
 function usePageSelection(scope: string, pages: InteractivePage[]) {
@@ -109,18 +137,11 @@ function selectionActions(
   scope: string,
   selection: Selection,
   setSelection: React.Dispatch<React.SetStateAction<Selection>>
-): Pick<Context, "select" | "closePanel" | "openPreview" | "openLivePage"> {
+): Pick<Context, "select" | "closePanel" | "openLivePage"> {
   return {
     select: (id) =>
       setSelection({ ...selection, scope, id, open: true, preview: null }),
     closePanel: () => setSelection({ ...selection, open: false }),
-    openPreview: (page) =>
-      setSelection({
-        scope,
-        id: page.interaction_id,
-        open: true,
-        preview: page,
-      }),
     openLivePage: (page, connectionId) =>
       setSelection({
         scope,

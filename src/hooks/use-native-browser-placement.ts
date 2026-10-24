@@ -191,8 +191,16 @@ function measurePlacement(
 }
 
 function observeSurface(element: HTMLDivElement, sync: () => void) {
-  const resize = new ResizeObserver(sync)
-  const mutations = new MutationObserver(sync)
+  let frame: number | null = null
+  const schedule = () => {
+    if (frame !== null) return
+    frame = requestAnimationFrame(() => {
+      frame = null
+      sync()
+    })
+  }
+  const resize = new ResizeObserver(schedule)
+  const mutations = new MutationObserver(schedule)
   resize.observe(element)
   mutations.observe(document.body, {
     subtree: true,
@@ -201,8 +209,9 @@ function observeSurface(element: HTMLDivElement, sync: () => void) {
     attributeFilter: ["data-state", "inert", "aria-hidden", "class", "style"],
   })
   document.addEventListener("visibilitychange", sync)
-  const timer = window.setInterval(sync, VISIBILITY_POLL_MS)
+  const timer = window.setInterval(schedule, VISIBILITY_POLL_MS)
   return () => {
+    if (frame !== null) cancelAnimationFrame(frame)
     resize.disconnect()
     mutations.disconnect()
     document.removeEventListener("visibilitychange", sync)
