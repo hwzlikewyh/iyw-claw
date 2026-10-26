@@ -8,6 +8,11 @@ import {
 } from "./transport"
 import { getIywClawToken } from "./transport/web-auth"
 import { requireFileUploadCapability } from "./transport/capability-policy"
+import {
+  imageMimeTypeFromPath,
+  normalizeChatImageFile,
+} from "./chat-image-formats"
+import { CHAT_IMAGE_SOURCE_MAX_BYTES } from "./chat-image"
 import { notifyWebUnauthorized } from "./transport/web-connection-store"
 import { getCurrentEffectiveAppLocale } from "./i18n"
 import {
@@ -3002,20 +3007,19 @@ export async function uploadChatImage(
   options: ChatImageStorageOptions = {}
 ): Promise<PreparedChatImage> {
   await requireFileUploadCapability()
+  const sourceBytes = file.size
+  file = await normalizeChatImageFile(file, options.mimeType)
   if (isDesktop()) {
     const connectionId = getActiveRemoteConnectionId()
     const uploadMime = file.type || options.mimeType || ""
-    return uploadRemoteDesktopChatImage(file, connectionId, {
+    const prepared = await uploadRemoteDesktopChatImage(file, connectionId, {
       ...options,
       mimeType: uploadMime,
     })
+    return { ...prepared, sourceBytes }
   }
   const form = new FormData()
-  const uploadFile =
-    file.type || !options.mimeType
-      ? file
-      : new File([file], file.name, { type: options.mimeType })
-  form.append("file", uploadFile, file.name)
+  form.append("file", file, file.name)
   if (options.sessionId) form.append("session_id", options.sessionId)
   if (options.chatDir) form.append("chat_dir", options.chatDir)
   if (options.resourceContext)
@@ -3038,7 +3042,7 @@ export async function uploadChatImage(
       message: `HTTP ${response.status}`,
     }))
   }
-  return response.json()
+  return { ...(await response.json()), sourceBytes }
 }
 
 /** Stream a desktop-local image path to the active remote workspace server. */
@@ -3050,6 +3054,10 @@ export async function uploadLocalChatImagePathToRemote(
   const connectionId = getActiveRemoteConnectionId()
   if (connectionId === null) {
     throw new Error("No active remote workspace")
+  }
+  if (imageMimeTypeFromPath(path) === "image/avif") {
+    const file = await readAvifPath(path, getShellTransport())
+    return uploadChatImage(file, options)
   }
   return getShellTransport().call<PreparedChatImage>(
     "remote_upload_chat_image_path",
@@ -3134,12 +3142,39 @@ export async function prepareChatImagePath(
 ): Promise<PreparedChatImage> {
   await requireFileUploadCapability()
   const transport = source === "local" ? getShellTransport() : getTransport()
+  if (imageMimeTypeFromPath(path) === "image/avif") {
+    const file = await readAvifPath(path, transport)
+    if (isDesktop() && source === "local") {
+      const converted = await normalizeChatImageFile(file)
+      const prepared = await uploadRemoteDesktopChatImage(converted, null, {
+        ...options,
+        mimeType: converted.type,
+      })
+      return { ...prepared, sourceBytes: file.size }
+    }
+    return uploadChatImage(file, options)
+  }
   return transport.call("prepare_chat_image", {
     path,
     chatDir: options.chatDir ?? null,
     sessionId: options.sessionId ?? null,
     resourceContext: options.resourceContext ?? null,
   })
+}
+
+async function readAvifPath(
+  path: string,
+  transport: ReturnType<typeof getTransport>
+): Promise<File> {
+  const encoded = await transport.call<string>("read_file_base64", {
+    path,
+    maxBytes: CHAT_IMAGE_SOURCE_MAX_BYTES,
+  })
+  const bytes = Uint8Array.from(atob(encoded), (character) =>
+    character.charCodeAt(0)
+  )
+  const name = path.split(/[/\\]/).pop() || "image.avif"
+  return new File([bytes], name, { type: "image/avif" })
 }
 
 // ─── Workspace file upload / download ───

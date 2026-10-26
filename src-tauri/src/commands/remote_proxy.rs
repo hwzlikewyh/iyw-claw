@@ -707,18 +707,9 @@ pub async fn remote_upload_attachment(
 }
 
 fn supported_chat_image_mime(path: &Path) -> Result<String, AppCommandError> {
-    let mime = guess_mime_from_path(path)
-        .ok_or_else(|| AppCommandError::invalid_input("Image format is not supported"))?;
-    if matches!(
-        mime.as_str(),
-        "image/png" | "image/jpeg" | "image/webp" | "image/gif"
-    ) {
-        Ok(mime)
-    } else {
-        Err(AppCommandError::invalid_input(
-            "Image format is not supported",
-        ))
-    }
+    path.to_str().and_then(super::chat_image::formats::source_mime_for_name)
+        .map(str::to_string)
+        .ok_or_else(super::chat_image::formats::unsupported_source)
 }
 
 async fn local_chat_image_part(
@@ -868,6 +859,9 @@ pub async fn remote_upload_chat_image_path(
 /// `<input type=file>`. Falls back to `None` so the upload caller can
 /// substitute `application/octet-stream`.
 fn guess_mime_from_path(path: &std::path::Path) -> Option<String> {
+    if let Some(mime) = path.to_str().and_then(super::chat_image::formats::source_mime_for_name) {
+        return Some(mime.to_string());
+    }
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     let mime = match ext.as_str() {
         "txt" => "text/plain",
@@ -888,11 +882,6 @@ fn guess_mime_from_path(path: &std::path::Path) -> Option<String> {
         "xml" => "application/xml",
         "toml" => "application/toml",
         "pdf" => "application/pdf",
-        "png" => "image/png",
-        "jpg" | "jpeg" | "jfif" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "svg" => "image/svg+xml",
         _ => return None,
     };
     Some(mime.to_string())

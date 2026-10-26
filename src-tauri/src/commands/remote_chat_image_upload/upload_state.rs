@@ -45,23 +45,6 @@ pub(super) struct BeginUploadStaging<'a> {
     pub(super) root_was_present: bool,
 }
 
-pub(super) fn image_mime_for_name(file_name: &str) -> Result<&'static str, AppCommandError> {
-    let extension = Path::new(file_name)
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    match extension.as_str() {
-        "png" => Ok("image/png"),
-        "jpg" | "jpeg" | "jfif" => Ok("image/jpeg"),
-        "webp" => Ok("image/webp"),
-        "gif" => Ok("image/gif"),
-        _ => Err(AppCommandError::invalid_input(
-            "Image file extension is not supported",
-        )),
-    }
-}
-
 pub fn cleanup_stale_uploads(data_dir: &Path) {
     let root = data_dir.join(UPLOAD_DIR);
     let Ok(entries) = std::fs::read_dir(&root) else {
@@ -164,7 +147,8 @@ pub(super) async fn create_upload_staging_file(
 }
 
 pub(super) async fn validate_upload_file(entry: &UploadEntry) -> Result<(), AppCommandError> {
-    image_mime_for_name(&entry.file_name)?;
+    super::super::chat_image::formats::source_mime(&entry.mime_type)
+        .ok_or_else(super::super::chat_image::formats::unsupported_source)?;
     let metadata = tokio::fs::symlink_metadata(&entry.path)
         .await
         .map_err(AppCommandError::io)?;

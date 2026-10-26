@@ -142,10 +142,9 @@ pub(crate) fn prepare_chat_image_core<'a>(
         let name = display_name(&request);
         monitor.require_current().await?;
         tracing::info!(target: "chat.image", "started chat image preparation");
-        let mut prepared = monitor
-            .run_until_revoked(encode_chat_image_path(request.path.clone()))
+        let prepared = monitor
+            .run_until_revoked(encode_chat_image_path(request.path.clone(), name))
             .await??;
-        prepared.name = name;
         monitor.require_current().await?;
         let staged = stage_prepared_image(&request, &prepared).await?;
         if let Err(error) = monitor.require_current().await {

@@ -104,6 +104,12 @@ import {
   CHAT_IMAGE_DERIVED_MAX_BYTES,
   CHAT_IMAGE_SOURCE_MAX_BYTES,
 } from "@/lib/chat-image"
+import {
+  CHAT_IMAGE_MIME_BY_EXTENSION,
+  imageMimeTypeForFile,
+  imageMimeTypeFromPath,
+  sourceImageMime,
+} from "@/lib/chat-image-formats"
 import { extractAppCommandError } from "@/lib/app-error"
 import { getActiveRemoteConnectionId } from "@/lib/transport"
 import { ServerFileBrowserDialog } from "@/components/shared/server-file-browser-dialog"
@@ -404,13 +410,7 @@ const MIME_BY_EXT: Record<string, string> = {
   xml: "application/xml",
   toml: "application/toml",
   pdf: "application/pdf",
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  jfif: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  svg: "image/svg+xml",
+  ...CHAT_IMAGE_MIME_BY_EXTENSION,
 }
 
 const IMAGE_ATTACHMENT_MAX_BYTES = CHAT_IMAGE_DERIVED_MAX_BYTES
@@ -433,20 +433,6 @@ function directoryNameFromPath(path: string): string {
 function mimeTypeFromPath(path: string): string | null {
   const ext = path.split(".").pop()?.toLowerCase() ?? ""
   return MIME_BY_EXT[ext] ?? null
-}
-
-function imageMimeTypeForFile(file: File): string | null {
-  const declared = file.type.trim().toLowerCase()
-  if (declared.startsWith("image/")) {
-    return SUPPORTED_IMAGE_MIME_TYPES.has(declared) ? declared : null
-  }
-  const byName = mimeTypeFromPath(file.name)
-  return byName && SUPPORTED_IMAGE_MIME_TYPES.has(byName) ? byName : null
-}
-
-function imageMimeTypeFromPath(path: string): string | null {
-  const mime = mimeTypeFromPath(path)
-  return mime && SUPPORTED_IMAGE_MIME_TYPES.has(mime) ? mime : null
 }
 
 function bytesFromBase64(data: string): number {
@@ -896,6 +882,31 @@ export function MessageInput({
   // upload / attachment toasts — read as a single coherent group when
   // scanning the file. Same namespace, no extra runtime cost.
   const tAttach = useTranslations("Folder.chat.messageInput")
+  const imageStagingErrorMessage = useCallback(
+    (error: unknown, name: string) => {
+      const appError = extractAppCommandError(error)
+      const tooLarge = imageTooLargeDetails(error, name)
+      if (tooLarge) return tAttach("attachImageTooLarge", tooLarge)
+      if (appError?.i18n_key === "errors.chatImage.unsupported") {
+        return tAttach("attachImageUnsupported", { name })
+      }
+      if (appError?.i18n_key === "errors.chatImage.decodeFailed") {
+        return tAttach("attachImageDecodeFailed", { name })
+      }
+      if (appError?.i18n_key === "errors.chatImage.dimensions") {
+        return tAttach("attachImageDimensionsExceeded", { name })
+      }
+      if (appError?.i18n_key === "errors.chatImage.inputTooLarge") {
+        return tAttach("attachImageInputTooLarge", { name })
+      }
+      const reason =
+        appError?.message ?? (error instanceof Error ? error.message : null)
+      return reason
+        ? tAttach("attachImageProcessingFailed", { name, reason })
+        : tAttach("attachUploadFailed", { names: name })
+    },
+    [tAttach]
+  )
   const desktopMode = isDesktop()
   // Cached for the window's lifetime: `getActiveRemoteConnectionId()` is
   // configured once when a remote-workspace window is created and never
@@ -1217,13 +1228,16 @@ export function MessageInput({
               }))
             )
             updateInlineImage(attachment.id, { status: "failed" })
-            toast.error(
-              tAttach("attachUploadFailed", { names: attachment.name })
-            )
+            toast.error(imageStagingErrorMessage(error, attachment.name))
           })
       }
     },
-    [chatImageStorage, setAttachments, tAttach, updateInlineImage]
+    [
+      chatImageStorage,
+      imageStagingErrorMessage,
+      setAttachments,
+      updateInlineImage,
+    ]
   )
 
   const restorePersistedInlineImages = useCallback(
@@ -1994,13 +2008,14 @@ export function MessageInput({
             }))
           )
           updateInlineImage(id, { status: "failed" })
-          toast.error(tAttach("attachUploadFailed", { names: file.name }))
+          toast.error(imageStagingErrorMessage(error, file.name))
         })
       return true
     },
     [
       appendImageAttachment,
       chatImageStorage,
+      imageStagingErrorMessage,
       setAttachments,
       tAttach,
       updateInlineImage,
@@ -2060,7 +2075,7 @@ export function MessageInput({
             mimeType,
             error,
           })
-          toast.error(tAttach("attachImageReadFailed", { name }))
+          toast.error(imageStagingErrorMessage(error, name))
         })
       return true
     },
@@ -2068,6 +2083,7 @@ export function MessageInput({
       appendImageAttachment,
       applyStagingImagePreview,
       chatImageStorage,
+      imageStagingErrorMessage,
       setAttachments,
       tAttach,
       updateInlineImage,
@@ -2134,7 +2150,7 @@ export function MessageInput({
             name,
             error,
           })
-          toast.error(tAttach("attachUploadFailed", { names: name }))
+          toast.error(imageStagingErrorMessage(error, name))
         })
       return true
     },
@@ -2142,6 +2158,7 @@ export function MessageInput({
       appendImageAttachment,
       applyStagingImagePreview,
       chatImageStorage,
+      imageStagingErrorMessage,
       setAttachments,
       tAttach,
       updateInlineImage,
@@ -2992,10 +3009,7 @@ export function MessageInput({
       const detail = (event as CustomEvent<AttachImageToSessionDetail>).detail
       if (!detail || detail.tabId !== attachmentTabId) return
       if (disabledRef.current || !editorRef.current?.getEditor()) return
-      if (
-        !detail.data ||
-        !SUPPORTED_IMAGE_MIME_TYPES.has(detail.mimeType.toLowerCase())
-      ) {
+      if (!detail.data || !sourceImageMime(detail.mimeType)) {
         console.warn("[MessageInput] ignored invalid image attachment event")
         return
       }
@@ -3253,10 +3267,16 @@ export function MessageInput({
           }))
         )
         updateInlineImage(id, { status: "failed" })
-        toast.error(tAttach("attachUploadFailed", { names: attachment.name }))
+        toast.error(imageStagingErrorMessage(error, attachment.name))
       }
     },
-    [attachments, chatImageStorage, setAttachments, tAttach, updateInlineImage]
+    [
+      attachments,
+      chatImageStorage,
+      imageStagingErrorMessage,
+      setAttachments,
+      updateInlineImage,
+    ]
   )
 
   useEffect(() => {

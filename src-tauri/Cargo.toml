@@ -142,7 +142,9 @@ tokio-util = { version = "0.7", features = ["io", "rt"] }
 prost = "0.13"
 rand = "0.8"
 qrcode = "0.14"
-image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+image = { version = "0.25", default-features = false, features = ["bmp", "dds", "gif", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"] }
+heic-decoder = "=0.1.1"
+resvg = { version = "0.47", default-features = false, features = ["text", "system-fonts", "raster-images"] }
 include_dir = "0.7"
 sha2 = "0.10"
 hmac = "0.12"

@@ -35,13 +35,6 @@ struct ImageStaging<'a> {
     monitor: &'a CapabilityRevocationMonitor,
 }
 
-fn is_supported_mime(mime_type: &str) -> bool {
-    matches!(
-        mime_type.to_ascii_lowercase().as_str(),
-        "image/png" | "image/jpeg" | "image/webp" | "image/gif"
-    )
-}
-
 async fn prepare_upload_dirs(uploads_root: &Path, tmp_dir: &Path) -> Result<(), AppCommandError> {
     tokio::fs::create_dir_all(uploads_root)
         .await
@@ -153,13 +146,10 @@ async fn stream_image(
                 chat_dir = (!value.trim().is_empty()).then_some(value);
             }
             "file" if file_name.is_none() => {
-                let declared_mime = field.content_type().unwrap_or("").to_string();
-                if !is_supported_mime(&declared_mime) {
-                    return Err(AppCommandError::invalid_input(
-                        "Image MIME type is not supported",
-                    ));
-                }
-                file_name = Some(field.file_name().unwrap_or("image").to_string());
+                let declared_mime = field.content_type().unwrap_or("");
+                let raw_name = field.file_name().unwrap_or("image").to_string();
+                crate::commands::chat_image::formats::upload_mime(&raw_name, declared_mime)?;
+                file_name = Some(raw_name);
                 size = write_image_field(&mut field, staging).await?;
             }
             "file" => {

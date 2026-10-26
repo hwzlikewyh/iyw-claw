@@ -20,7 +20,7 @@ const FILE_NAME_MAX_CHARS: usize = 180;
 mod upload_state;
 pub use upload_state::{cleanup_stale_uploads, RemoteChatImageUploadState};
 use upload_state::{
-    create_upload_staging_file, ensure_upload_root, image_mime_for_name, monitor_upload_revocation,
+    create_upload_staging_file, ensure_upload_root, monitor_upload_revocation,
     remove_upload_file, validate_upload_file, BeginUploadStaging, UploadEntry, UploadRevocation,
     MAX_ACTIVE_UPLOADS, UPLOAD_DIR,
 };
@@ -64,14 +64,8 @@ fn validate_descriptor(
         ));
     }
     let safe_name = sanitize_file_name(file_name);
-    let expected_mime = image_mime_for_name(&safe_name)?;
-    let supplied_mime = mime_type.trim().to_ascii_lowercase();
-    if !supplied_mime.is_empty() && supplied_mime != expected_mime {
-        return Err(AppCommandError::invalid_input(
-            "Image MIME type does not match its extension",
-        ));
-    }
-    Ok((safe_name, expected_mime.to_string()))
+    let mime = super::chat_image::formats::upload_mime(&safe_name, mime_type)?;
+    Ok((safe_name, mime.to_string()))
 }
 
 fn upload_root(app: &AppHandle) -> Result<PathBuf, AppCommandError> {

@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
-use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
-use image::{ImageFormat, ImageReader, Limits};
+use image::ImageFormat;
 use serde::{Serialize, Deserialize};
 
 use crate::app_error::AppCommandError;
@@ -10,6 +9,9 @@ use crate::app_error::AppCommandError;
 mod prepare;
 mod storage;
 mod resource;
+pub(crate) mod formats;
+mod source;
+mod special;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,10 +54,6 @@ pub(crate) struct EncodedChatImage {
     pub height: u32,
 }
 
-fn image_error(message: &'static str, error: impl std::fmt::Display) -> AppCommandError {
-    AppCommandError::invalid_input(message).with_detail(error.to_string())
-}
-
 pub(crate) fn source_too_large_error(file_name: &str, source_bytes: u64) -> AppCommandError {
     let mib = 1024.0 * 1024.0;
     let params = BTreeMap::from([
@@ -86,23 +84,16 @@ fn supported_mime(format: ImageFormat) -> Result<&'static str, AppCommandError> 
 }
 
 fn inspect_image(bytes: &[u8]) -> Result<(ImageFormat, u32, u32), AppCommandError> {
-    let mut reader = ImageReader::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .map_err(|error| image_error("Unable to inspect image", error))?;
-    let mut limits = Limits::default();
-    limits.max_image_width = Some(CHAT_IMAGE_DECODE_MAX_EDGE);
-    limits.max_image_height = Some(CHAT_IMAGE_DECODE_MAX_EDGE);
-    limits.max_alloc = Some(CHAT_IMAGE_DECODE_MAX_ALLOC);
-    reader.limits(limits);
+    let reader = source::limited_reader(bytes)?;
     let format = reader
         .format()
         .ok_or_else(|| AppCommandError::invalid_input("Image format is not supported"))?;
     supported_mime(format)?;
     let (width, height) = reader
         .into_dimensions()
-        .map_err(|error| image_error("Unable to inspect image dimensions", error))?;
+        .map_err(formats::raster_error)?;
     if width == 0 || height == 0 || width > CHAT_IMAGE_DECODE_MAX_EDGE || height > CHAT_IMAGE_DECODE_MAX_EDGE {
-        return Err(AppCommandError::invalid_input("Image dimensions are invalid"));
+        return Err(formats::dimension_error());
     }
     Ok((format, width, height))
 }
@@ -124,25 +115,12 @@ fn prepare_sync(
         return Err(source_too_large_error(&name, bytes.len() as u64));
     }
 
-    if bytes.len() > CHAT_IMAGE_INPUT_MAX_BYTES {
-        return Err(AppCommandError::invalid_input(
-            "Original image exceeds the current 32 MiB model input limit; the file has not been modified",
-        ));
-    }
-    // 识图传原字节；不把界面预览尺寸和有损压缩应用到模型输入。
-    let (format, width, height) = inspect_image(&bytes)?;
-    Ok(EncodedChatImage {
-        bytes,
-        mime_type: supported_mime(format)?,
-        name,
-        source_bytes,
-        width,
-        height,
-    })
+    source::prepare(bytes, source_bytes, name)
 }
 
 pub(crate) async fn encode_chat_image_path(
     path: PathBuf,
+    name: String,
 ) -> Result<EncodedChatImage, AppCommandError> {
     if !path.is_absolute() {
         return Err(AppCommandError::invalid_input(
@@ -155,10 +133,6 @@ pub(crate) async fn encode_chat_image_path(
     if !metadata.is_file() {
         return Err(AppCommandError::invalid_input("Image path is not a file"));
     }
-    let name = path
-        .file_name()
-        .map(|value| value.to_string_lossy().to_string())
-        .unwrap_or_else(|| "image".to_string());
     if metadata.len() > CHAT_IMAGE_SOURCE_MAX_BYTES {
         return Err(source_too_large_error(&name, metadata.len()));
     }
