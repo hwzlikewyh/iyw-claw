@@ -16,7 +16,7 @@ const TURN_START_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_TITLE_CHARS: usize = 36;
 const MAX_RESPONSE_BYTES: usize = 8 * 1024;
 // collect() 在模型服务拒绝 outputSchema 时返回的内部标记，run() 据此去掉 schema 重试一次。
-const SCHEMA_UNSUPPORTED: &str = "Codex title output schema is unsupported";
+const SCHEMA_UNSUPPORTED: &str = "星河 title output schema is unsupported";
 // 结构化输出被拒绝时，失败文本同时包含格式字段和不可用描述。
 const SCHEMA_MARKERS: &[&str] = &[
     "text.format",
@@ -112,7 +112,7 @@ pub(super) async fn generate(
     let (hidden, lane) = lanes;
     let result = tokio::time::timeout(TITLE_TIMEOUT, run(&handle, &input, (&hidden, &lane), events))
         .await
-        .unwrap_or_else(|_| Err("Codex native title generation timed out".into()));
+        .unwrap_or_else(|_| Err("星河 native title generation timed out".into()));
     // 成功、出错和超时都走同一清理：先停止仍在运行的轮次，再退订临时线程。
     cleanup(&handle, &hidden, &lane).await;
     result
@@ -232,11 +232,11 @@ async fn start_temporary(
     let temporary = response
         .pointer("/thread/id")
         .and_then(Value::as_str)
-        .ok_or("Codex title thread has no id")?
+        .ok_or("星河 title thread has no id")?
         .to_string();
     *hidden.lock().unwrap_or_else(|error| error.into_inner()) = Some(temporary.clone());
     if response.pointer("/sandbox/type").and_then(Value::as_str) != Some("readOnly") {
-        return Err("Codex title thread did not preserve read-only isolation".into());
+        return Err("星河 title thread did not preserve read-only isolation".into());
     }
     Ok(temporary)
 }
@@ -295,21 +295,21 @@ async fn start_turn(
     let task = tokio::spawn(async move {
         let started = tokio::time::timeout(TURN_START_TIMEOUT, call(&client, "turn/start", params))
             .await
-            .map_err(|_| "Codex title turn start timed out".to_string())??;
+            .map_err(|_| "星河 title turn start timed out".to_string())??;
         let turn_id = started
             .pointer("/turn/id")
             .and_then(Value::as_str)
-            .ok_or("Codex title turn has no id")?
+            .ok_or("星河 title turn has no id")?
             .to_string();
         if !record_turn(&lane, &thread, &turn_id) {
             let calls = cleanup_calls(Some((thread.clone(), turn_id)), Some(thread));
             run_cleanup(&client, calls).await;
-            return Err("Codex title turn started after cleanup".to_string());
+            return Err("星河 title turn started after cleanup".to_string());
         }
         Ok::<_, String>(turn_id)
     });
     task.await
-        .map_err(|_| "Codex title turn start task failed".to_string())?
+        .map_err(|_| "星河 title turn start task failed".to_string())?
 }
 
 async fn collect(
@@ -327,7 +327,7 @@ async fn collect(
         {
             if let Some(value) = params["item"]["text"].as_str() {
                 if value.len() > MAX_RESPONSE_BYTES {
-                    return Err("Codex title response exceeds limit".into());
+                    return Err("星河 title response exceeds limit".into());
                 }
                 text = Some(value.to_string());
             }
@@ -339,24 +339,24 @@ async fn collect(
                 if structured && output_schema_unsupported(&params["turn"]["error"]) {
                     return Err(SCHEMA_UNSUPPORTED.into());
                 }
-                return Err("Codex title turn failed".into());
+                return Err("星河 title turn failed".into());
             }
-            let reply = text.as_deref().ok_or("Codex title response is empty")?;
+            let reply = text.as_deref().ok_or("星河 title response is empty")?;
             let title = if structured {
                 let value: Value = serde_json::from_str(reply)
-                    .map_err(|_| "Codex title response is not valid JSON")?;
+                    .map_err(|_| "星河 title response is not valid JSON")?;
                 normalize_title(value["title"].as_str().unwrap_or_default())
             } else {
                 plain_title(reply)
             };
             return if title.is_empty() {
-                Err("Codex title response has no title".into())
+                Err("星河 title response has no title".into())
             } else {
                 Ok(title)
             };
         }
     }
-    Err("Codex title notification channel closed".into())
+    Err("星河 title notification channel closed".into())
 }
 
 fn normalize_title(raw: &str) -> String {

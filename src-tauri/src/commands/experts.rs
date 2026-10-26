@@ -10,6 +10,8 @@
 //! purely "does a link exist in the agent's skill dir" — there is no
 //! database state, and updates propagate automatically when iyw-claw upgrades
 //! and re-extracts the bundled files.
+//! Windows 星河／远山启动时，必需的能力网关可在目录链接不可用时通过
+//! 已有内置指令通道引用中央文件；普通技能仍按目录链接管理启停。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
@@ -31,8 +33,10 @@ use crate::commands::acp::{
 };
 use crate::models::agent::AgentType;
 
+mod gateway_startup;
 mod legacy_backups;
 mod skill_link;
+pub(crate) use gateway_startup::direct_gateway_skill_prompt;
 pub(crate) use legacy_backups::is_legacy_skill_backup_name;
 
 // ─── Embedded bundle ────────────────────────────────────────────────────
@@ -99,7 +103,7 @@ struct ManagedCopyMarker {
 pub enum ExpertsError {
     #[error("expert not found: {0}")]
     NotFound(String),
-    #[error("agent does not support skills: {0:?}")]
+    #[error("agent does not support skills: {0}")]
     UnsupportedAgent(AgentType),
     #[error("a real directory already exists at '{path}' — delete or rename it first")]
     NameCollision { path: String },
@@ -1846,7 +1850,7 @@ fn ensure_builtin_gateway_skill_ready_blocking(
         invalidate_central_experts_cache("gateway_skill_ready");
     }
     ensure_gateway_reference_files(&expert_central_path(CAPABILITY_GATEWAY_EXPERT_ID))?;
-    link_central_skill_locked(CAPABILITY_GATEWAY_EXPERT_ID, agent_type)
+    gateway_startup::publish(agent_type)
 }
 
 fn repair_bundled_skill_collision_at_path(

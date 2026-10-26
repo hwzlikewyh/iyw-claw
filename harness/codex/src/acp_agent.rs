@@ -183,7 +183,7 @@ async fn dispatch_message(
                         responder,
                     })
                     .await
-                    .map_err(|_| to_sacp_error("Codex bridge command channel closed"))?;
+                    .map_err(|_| to_sacp_error("星河 bridge command channel closed"))?;
                 return Ok(Handled::Yes);
             }
             let (response_tx, response_rx) = oneshot::channel();
@@ -196,7 +196,7 @@ async fn dispatch_message(
                     response: response_tx,
                 })
                 .await
-                .map_err(|_| to_sacp_error("Codex bridge command channel closed"))?;
+                .map_err(|_| to_sacp_error("星河 bridge command channel closed"))?;
             cx.spawn(async move {
                 match response_rx.await {
                     Ok(Ok(value)) => {
@@ -209,7 +209,7 @@ async fn dispatch_message(
                     }
                     Ok(Err(error)) => responder.respond_with_error(to_sacp_error(error)),
                     Err(_) => {
-                        responder.respond_with_error(to_sacp_error("Codex bridge response lost"))
+                        responder.respond_with_error(to_sacp_error("星河 bridge response lost"))
                     }
                 }
             })?;
@@ -223,7 +223,7 @@ async fn dispatch_message(
                     params: notification.params,
                 })
                 .await
-                .map_err(|_| to_sacp_error("Codex bridge command channel closed"))?;
+                .map_err(|_| to_sacp_error("星河 bridge command channel closed"))?;
             Ok(Handled::Yes)
         }
         Dispatch::Response(response, router) => {
@@ -343,13 +343,13 @@ async fn run_bridge_loop(
                     }
                 }
                 None => {
-                    reject_pending_prompt(&mut pending_prompt, "Codex ACP client disconnected");
+                    reject_pending_prompt(&mut pending_prompt, "星河 ACP client disconnected");
                     return Ok(());
                 }
             },
             event = upstream.receive_event() => {
                 let Some(event) = event else {
-                    reject_pending_prompt(&mut pending_prompt, "Codex App Server closed before completing the turn");
+                    reject_pending_prompt(&mut pending_prompt, "星河 App Server closed before completing the turn");
                     return Ok(());
                 };
                 let event = match upstream.convert_event(event).await {
@@ -565,7 +565,7 @@ async fn start_prompt(
     }
     if pending_prompt.is_some() {
         return Err(UpstreamError::InvalidRequest(
-            "a Codex prompt is already pending".into(),
+            "a 星河 prompt is already pending".into(),
         ));
     }
     let request = prompt_mapping::turn_start_request(&params, capabilities)?;
@@ -723,7 +723,7 @@ fn ensure_session_slot(
         (None, _) => Ok(()),
         (Some(_), Some(id)) if session_id.as_deref() == Some(id) => Ok(()),
         (Some(_), _) => Err(UpstreamError::InvalidRequest(
-            "Codex ACP connection already owns a different session".into(),
+            "星河 ACP connection already owns a different session".into(),
         )),
     }
 }
@@ -753,7 +753,7 @@ async fn handle_event(event: UpstreamEvent, context: BridgeEventContext<'_>) -> 
                     session_id,
                     "agent_message_chunk",
                     json!({
-                        "content": { "type": "text", "text": format!("[Codex events skipped: {skipped}]") }
+                        "content": { "type": "text", "text": format!("[星河 events skipped: {skipped}]") }
                     }),
                 )?;
             }
@@ -979,7 +979,7 @@ async fn reject_server_request(
     admission: crate::AdmittedServerRequest,
     method: String,
 ) -> Result<(), sacp::Error> {
-    let message = format!("Codex server request is not yet mapped to the ACP authority: {method}");
+    let message = format!("星河 server request is not yet mapped to the ACP authority: {method}");
     match admission.target {
         ServerRequestTarget::Global => upstream
             .reject_global_server_request(admission.token, -32601, message)
@@ -1135,11 +1135,11 @@ fn validate_cwd(params: &Value, expected: &Path) -> Result<(), UpstreamError> {
     let requested = std::fs::canonicalize(requested)
         .map_err(|error| UpstreamError::InvalidRequest(format!("invalid ACP cwd: {error}")))?;
     let expected = std::fs::canonicalize(expected).map_err(|error| {
-        UpstreamError::Start(format!("configured Codex cwd is invalid: {error}"))
+        UpstreamError::Start(format!("configured 星河 cwd is invalid: {error}"))
     })?;
     if requested != expected {
         return Err(UpstreamError::InvalidRequest(
-            "ACP cwd does not match the owning Codex runtime".into(),
+            "ACP cwd does not match the owning 星河 runtime".into(),
         ));
     }
     Ok(())

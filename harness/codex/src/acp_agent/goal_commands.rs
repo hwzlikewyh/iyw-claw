@@ -110,7 +110,7 @@ pub(super) async fn handle_prompt(
     let result = if context.session_id.as_deref() != Some(id) {
         Err(invalid("goal request does not match the bound session"))
     } else if context.pending.is_some() {
-        Err(invalid("a Codex prompt is already pending"))
+        Err(invalid("a 星河 prompt is already pending"))
     } else {
         execute(upstream, &command, context.capabilities).await
     };
@@ -142,7 +142,7 @@ pub(super) async fn execute(
     capabilities: CapabilitySet,
 ) -> Result<Value, UpstreamError> {
     if !capabilities.contains(Capability::Goals) {
-        return Err(invalid("Goals are not enabled for this Codex runtime"));
+        return Err(invalid("Goals are not enabled for this 星河 runtime"));
     }
     let id = command.request["params"]["threadId"]
         .as_str()

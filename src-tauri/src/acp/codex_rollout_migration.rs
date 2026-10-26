@@ -138,7 +138,7 @@ pub(super) async fn compaction_marker(session_id: &str) -> Result<CompactionMark
         Ok(CompactionMarker { paths, count })
     })
     .await
-    .map_err(|error| format!("Codex compaction marker task failed: {error}"))?
+    .map_err(|error| format!("星河 compaction marker task failed: {error}"))?
 }
 
 pub(super) async fn wait_for_new_compaction(marker: &CompactionMarker) -> Result<bool, String> {
@@ -146,7 +146,7 @@ pub(super) async fn wait_for_new_compaction(marker: &CompactionMarker) -> Result
         let paths = marker.paths.clone();
         let count = tokio::task::spawn_blocking(move || count_compacted_records(&paths))
             .await
-            .map_err(|error| format!("Codex compaction check task failed: {error}"))??;
+            .map_err(|error| format!("星河 compaction check task failed: {error}"))??;
         if count > marker.count {
             return Ok(true);
         }
@@ -211,7 +211,7 @@ async fn migrate_rollout(path: PathBuf) -> Result<usize, String> {
 
 fn find_rollouts(session_id: &str) -> Result<Vec<PathBuf>, String> {
     if !valid_session_id(session_id) {
-        return Err("invalid Codex session identifier".to_string());
+        return Err("invalid 星河 session identifier".to_string());
     }
     let sessions = crate::parsers::codex::resolve_codex_home_dir().join("sessions");
     if !sessions.is_dir() {
@@ -435,5 +435,5 @@ fn string_field(value: &Value, key: &str) -> Option<String> {
 }
 
 fn file_error(error: impl std::fmt::Display) -> String {
-    format!("Codex rollout migration failed: {error}")
+    format!("星河 rollout migration failed: {error}")
 }

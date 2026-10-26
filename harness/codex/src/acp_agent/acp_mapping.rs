@@ -78,7 +78,7 @@ pub(crate) fn goal_request(method: &str, params: &Value) -> Result<Value, Upstre
                     "budget_limited" => "budgetLimited".to_string(),
                     _ => {
                         return Err(UpstreamError::InvalidRequest(
-                            "goal status is not supported by Codex".into(),
+                            "goal status is not supported by 星河".into(),
                         ))
                     }
                 };
@@ -116,7 +116,7 @@ pub(crate) fn permission_request(
 ) -> Result<RequestPermissionRequest, UpstreamError> {
     if !is_permission_method(method) {
         return Err(UpstreamError::InvalidRequest(format!(
-            "unsupported Codex permission method: {method}"
+            "unsupported 星河 permission method: {method}"
         )));
     }
     if method == "item/commandExecution/requestApproval"
@@ -151,9 +151,9 @@ pub(crate) fn permission_request(
         .or_else(|| params.get("reason").and_then(Value::as_str))
         .unwrap_or_else(|| {
             if method == "item/fileChange/requestApproval" {
-                "Codex file change approval"
+                "星河 file change approval"
             } else {
-                "Codex command approval"
+                "星河 command approval"
             }
         });
     let tool_call = ToolCallUpdate::new(
@@ -172,7 +172,7 @@ pub(crate) fn permission_request(
 pub(crate) fn permission_decision(method: &str, response: &Value) -> Result<Value, UpstreamError> {
     if !is_permission_method(method) {
         return Err(UpstreamError::InvalidRequest(format!(
-            "unsupported Codex permission method: {method}"
+            "unsupported 星河 permission method: {method}"
         )));
     }
     let outcome = response
@@ -273,7 +273,7 @@ pub(crate) fn prompt_failure(params: &Value) -> Option<String> {
     }
     let message = params.pointer("/turn/error/message").and_then(Value::as_str)
         .filter(|message| !message.trim().is_empty())
-        .unwrap_or("Codex turn failed without error details");
+        .unwrap_or("星河 turn failed without error details");
     let mut detail = crate::diagnostics::safe_detail(message);
     if let Some(info) = params.pointer("/turn/error/codexErrorInfo") {
         if let Ok(info) = serde_json::to_string(info) {

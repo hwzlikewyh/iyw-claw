@@ -149,7 +149,7 @@ fn validate_codex_skills(
         codex.skills == "./skills/"
     };
     if !valid {
-        return Err(invalid_plugin("Codex skills reference is invalid"));
+        return Err(invalid_plugin("星河 skills reference is invalid"));
     }
     Ok(())
 }

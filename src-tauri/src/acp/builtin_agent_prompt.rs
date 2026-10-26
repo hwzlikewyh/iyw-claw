@@ -46,6 +46,11 @@ pub fn render(
             include_str!("../../resources/office-typography.md").trim(),
         )
         .replace("{skill_runtime}", &crate::shared_runtime::prompt_context())];
+    if let Some(gateway) = crate::commands::experts::direct_gateway_skill_prompt(agent_type)
+        .map_err(|error| AcpError::BuiltinPromptRender(error.to_string()))?
+    {
+        sections.push(gateway);
+    }
     #[cfg(windows)]
     sections.push(super::windows_shell::prompt());
     if !native_response_style_is_sufficient(agent_type, response_style) {

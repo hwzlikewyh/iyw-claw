@@ -55,10 +55,10 @@ fn reconcile_profile(
 
 fn patch_config(raw: &str) -> Result<String, ReconcileError> {
     let mut value: toml::Value = raw.parse().map_err(|error| {
-        ReconcileError::ParseFailed(format!("parse Codex config for V2 migration: {error}"))
+        ReconcileError::ParseFailed(format!("parse 星河 config for V2 migration: {error}"))
     })?;
     let root = value.as_table_mut().ok_or_else(|| {
-        ReconcileError::ParseFailed("Codex config root must be a TOML table".into())
+        ReconcileError::ParseFailed("星河 config root must be a TOML table".into())
     })?;
     crate::acp::codex_multi_agent::patch_toml(root).map_err(ReconcileError::ParseFailed)?;
     toml::to_string_pretty(&value).map_err(|error| ReconcileError::ParseFailed(error.to_string()))
@@ -69,7 +69,7 @@ fn multi_agent_config_is_current(raw: &str) -> Result<bool, ReconcileError> {
         return Ok(false);
     }
     let value: toml::Value = raw.parse().map_err(|error| {
-        ReconcileError::ParseFailed(format!("parse Codex config for migration: {error}"))
+        ReconcileError::ParseFailed(format!("parse 星河 config for migration: {error}"))
     })?;
     Ok(crate::acp::codex_multi_agent::is_current(&value))
 }
@@ -156,7 +156,7 @@ fn backup_existing_files(profile_root: &Path, include_config: bool) -> Result<()
     }
     tracing::info!(
         file_count,
-        "backed up Codex profile before multi-agent V2 migration"
+        "backed up 星河 profile before multi-agent V2 migration"
     );
     Ok(())
 }
@@ -171,7 +171,7 @@ fn unique_backup_dir(profile_root: &Path) -> PathBuf {
 
 fn backup_error(path: &Path, error: impl std::fmt::Display) -> ReconcileError {
     ReconcileError::WriteFailed(format!(
-        "Codex profile backup failed at {}: {error}",
+        "星河 profile backup failed at {}: {error}",
         path.display()
     ))
 }

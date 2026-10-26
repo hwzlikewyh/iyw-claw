@@ -167,5 +167,5 @@ fn replace_file(temp: &Path, target: &Path) -> Result<(), String> {
 }
 
 fn file_error(error: impl std::fmt::Display) -> String {
-    format!("Codex rollout migration failed: {error}")
+    format!("星河 rollout migration failed: {error}")
 }

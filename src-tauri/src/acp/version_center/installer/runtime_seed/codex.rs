@@ -52,7 +52,7 @@ async fn import_inner(
         AppCommandError::configuration_invalid("Agent storage is not initialized")
     })?;
     if valid_active(request.conn, &paths, &component.version).await {
-        tracing::info!(seed_version = %component.version, "[runtime-seed] keeping active Codex ACP");
+        tracing::info!(seed_version = %component.version, "[runtime-seed] keeping active 星河 ACP");
         return Ok(());
     }
     let staging = npm_runtime::private_npm_staging_prefix(&paths, AgentType::Codex);
@@ -81,35 +81,35 @@ async fn import_inner(
             tracing::error!(
                 component = COMPONENT,
                 error = %rollback_error,
-                "[runtime-seed] failed to restore previous Codex ACP runtime"
+                "[runtime-seed] failed to restore previous 星河 ACP runtime"
             );
         }
         return Err(error);
     }
     let _ = activation.commit();
-    tracing::info!(version = %component.version, "[runtime-seed] Codex ACP imported and activated");
+    tracing::info!(version = %component.version, "[runtime-seed] 星河 ACP imported and activated");
     Ok(())
 }
 
 async fn ensure_managed_node(request: &RuntimeSeedImport<'_>) -> Result<(), AppCommandError> {
     let required =
         crate::acp::trusted_agents::minimum_node_version(AgentType::Codex).ok_or_else(|| {
-            AppCommandError::configuration_invalid("Codex Node requirement is missing")
+            AppCommandError::configuration_invalid("星河 Node requirement is missing")
         })?;
     let required = semver::Version::parse(required)
-        .map_err(|_| AppCommandError::configuration_invalid("Codex Node requirement is invalid"))?;
+        .map_err(|_| AppCommandError::configuration_invalid("星河 Node requirement is invalid"))?;
     let active = inventory::list_tool_settings(request.conn)
         .await
         .map_err(acp_error)?
         .into_iter()
         .find(|setting| setting.tool_id == "node")
         .and_then(|setting| setting.active_version)
-        .ok_or_else(|| AppCommandError::invalid_input("Managed Node is unavailable for Codex"))?;
+        .ok_or_else(|| AppCommandError::invalid_input("Managed Node is unavailable for 星河"))?;
     let installed = semver::Version::parse(&active)
         .map_err(|_| AppCommandError::invalid_input("Managed Node version is invalid"))?;
     if installed < required || !active_tool_is_healthy(request.data_dir, "node", &active).await {
         return Err(AppCommandError::invalid_input(
-            "Managed Node does not satisfy the Codex runtime seed",
+            "Managed Node does not satisfy the 星河 runtime seed",
         ));
     }
     Ok(())
@@ -134,7 +134,7 @@ fn validate_version(component: &RuntimeSeedComponent) -> Result<(), AppCommandEr
         .unwrap_or_default();
     (component.version == expected)
         .then_some(())
-        .ok_or_else(|| AppCommandError::invalid_input("Runtime seed Codex version is unsupported"))
+        .ok_or_else(|| AppCommandError::invalid_input("Runtime seed 星河 version is unsupported"))
 }
 
 fn verify_prefix(prefix: &Path, version: &str) -> Result<(), AppCommandError> {
@@ -145,7 +145,7 @@ fn verify_prefix(prefix: &Path, version: &str) -> Result<(), AppCommandError> {
         .join("package.json");
     let raw = std::fs::read(&manifest).map_err(AppCommandError::io)?;
     let package: serde_json::Value = serde_json::from_slice(&raw).map_err(|error| {
-        AppCommandError::invalid_input("Runtime seed Codex package manifest is invalid")
+        AppCommandError::invalid_input("Runtime seed 星河 package manifest is invalid")
             .with_detail(error.to_string())
     })?;
     let valid = package.get("name").and_then(serde_json::Value::as_str)
@@ -153,7 +153,7 @@ fn verify_prefix(prefix: &Path, version: &str) -> Result<(), AppCommandError> {
         && package.get("version").and_then(serde_json::Value::as_str) == Some(version);
     if !valid {
         return Err(AppCommandError::invalid_input(
-            "Runtime seed Codex package identity is invalid",
+            "Runtime seed 星河 package identity is invalid",
         ));
     }
     npm_runtime::verify_host_platform_optional_deps(prefix).map_err(acp_error)
@@ -164,20 +164,20 @@ async fn probe_prefix(prefix: &Path, version: &str) -> Result<(), AppCommandErro
     let crate::acp::registry::AgentDistribution::Npx { package, cmd, .. } = meta.distribution
     else {
         return Err(AppCommandError::configuration_invalid(
-            "Codex runtime seed is not npm-based",
+            "星河 runtime seed is not npm-based",
         ));
     };
     let entrypoint =
         npm_runtime::resolve_npm_node_entrypoint(prefix, package, cmd).ok_or_else(|| {
-            AppCommandError::invalid_input("Runtime seed Codex entrypoint is invalid")
+            AppCommandError::invalid_input("Runtime seed 星河 entrypoint is invalid")
         })?;
     let node = crate::acp::version_center::managed_tool_executable("node").ok_or_else(|| {
-        AppCommandError::invalid_input("Managed Node is unavailable for the Codex runtime seed")
+        AppCommandError::invalid_input("Managed Node is unavailable for the 星河 runtime seed")
     })?;
     let output = tokio::time::timeout(PROBE_TIMEOUT, version_output(&node, &entrypoint))
         .await
         .map_err(|_| {
-            AppCommandError::task_execution_failed("Runtime seed Codex probe timed out")
+            AppCommandError::task_execution_failed("Runtime seed 星河 probe timed out")
         })??;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -195,7 +195,7 @@ async fn probe_prefix(prefix: &Path, version: &str) -> Result<(), AppCommandErro
         .chars()
         .take(512)
         .collect::<String>();
-    Err(AppCommandError::invalid_input("Runtime seed Codex probe failed").with_detail(diagnostic))
+    Err(AppCommandError::invalid_input("Runtime seed 星河 probe failed").with_detail(diagnostic))
 }
 
 async fn version_output(
@@ -225,7 +225,7 @@ async fn valid_active(conn: &DatabaseConnection, paths: &AgentStoragePaths, seed
         tracing::info!(
             version = active,
             reason = "prefix_invalid",
-            "[runtime-seed] active Codex ACP requires repair"
+            "[runtime-seed] active 星河 ACP requires repair"
         );
         return false;
     }
@@ -233,7 +233,7 @@ async fn valid_active(conn: &DatabaseConnection, paths: &AgentStoragePaths, seed
         tracing::info!(
             version = active,
             reason = "probe_failed",
-            "[runtime-seed] active Codex ACP requires repair"
+            "[runtime-seed] active 星河 ACP requires repair"
         );
         return false;
     }

@@ -72,12 +72,12 @@ fn apply_codex(
         .map(|raw| serde_json::from_str(raw))
         .transpose()
         .map_err(|error| {
-            AcpError::protocol(format!("Invalid native Codex configuration: {error}"))
+            AcpError::protocol(format!("Invalid native 星河 configuration: {error}"))
         })?
         .unwrap_or_else(|| serde_json::json!({}));
     let object = config
         .as_object_mut()
-        .ok_or_else(|| AcpError::protocol("Native Codex config must be an object"))?;
+        .ok_or_else(|| AcpError::protocol("Native 星河 config must be an object"))?;
     object.insert("model_context_window".into(), budget.window.into());
     object.insert(
         "model_auto_compact_token_limit".into(),

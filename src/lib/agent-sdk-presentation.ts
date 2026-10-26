@@ -13,11 +13,11 @@ export function getAgentDisplayName(agentType: AgentType): string {
 }
 
 const BRAND_TEXT_REPLACEMENTS: ReadonlyArray<readonly [RegExp, string]> = [
-  [/Codex CLI/g, "星河"],
+  [/\bCodex[ \t]+CLI\b/gi, "星河"],
   [/Codex/g, "星河"],
   [/OpenCode/g, "云舟"],
   [/CodeBuddy/g, "青岚"],
-  [/Claude Code/g, "远山"],
+  [/\bClaude[ \t]+Code\b/gi, "远山"],
   [/Gemini CLI/g, "流光"],
   [/Gemini/g, "流光"],
   [/Cline/g, "逐风"],
