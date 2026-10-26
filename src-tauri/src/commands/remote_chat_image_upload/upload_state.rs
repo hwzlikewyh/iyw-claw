@@ -53,7 +53,7 @@ pub(super) fn image_mime_for_name(file_name: &str) -> Result<&'static str, AppCo
         .to_ascii_lowercase();
     match extension.as_str() {
         "png" => Ok("image/png"),
-        "jpg" | "jpeg" => Ok("image/jpeg"),
+        "jpg" | "jpeg" | "jfif" => Ok("image/jpeg"),
         "webp" => Ok("image/webp"),
         "gif" => Ok("image/gif"),
         _ => Err(AppCommandError::invalid_input(

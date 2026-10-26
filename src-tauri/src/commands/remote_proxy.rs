@@ -889,7 +889,7 @@ fn guess_mime_from_path(path: &std::path::Path) -> Option<String> {
         "toml" => "application/toml",
         "pdf" => "application/pdf",
         "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
+        "jpg" | "jpeg" | "jfif" => "image/jpeg",
         "gif" => "image/gif",
         "webp" => "image/webp",
         "svg" => "image/svg+xml",
