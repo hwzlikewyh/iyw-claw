@@ -14,6 +14,7 @@ mod auth_forms;
 mod balance_cache;
 mod image_captcha;
 mod login_flow;
+mod mcp_credentials;
 mod pending;
 mod points;
 mod profile;
@@ -23,6 +24,9 @@ mod token_file;
 mod types;
 mod wire;
 
+pub(crate) use mcp_credentials::{
+    maintain as maintain_mcp_credentials, read as iyw_account_mcp_credentials_core,
+};
 pub(crate) use session::{
     initialize_model_gateway_auth, iyw_account_memory_credentials_core,
     iyw_account_product_context_core,

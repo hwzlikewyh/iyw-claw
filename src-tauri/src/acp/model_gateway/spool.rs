@@ -1,4 +1,5 @@
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
+use std::sync::Arc;
 
 use axum::body::{Body, Bytes};
 use futures_util::StreamExt;
@@ -7,10 +8,11 @@ use tokio_util::io::ReaderStream;
 
 use super::error::GatewayError;
 use super::limits::{MAX_BODY_BYTES, MEMORY_BODY_BYTES};
+use super::spool_budget::{BudgetedReader, SpoolBudget, SpoolWriter};
 
 pub(super) enum Spool {
-    Memory(Bytes),
-    File(std::fs::File, u64),
+    Memory(Bytes, Arc<SpoolBudget>),
+    File(std::fs::File, u64, Arc<SpoolBudget>),
 }
 
 impl Spool {
@@ -19,6 +21,7 @@ impl Spool {
         let mut memory = Vec::new();
         let mut disk = None;
         let mut size = 0_u64;
+        let budget = Arc::new(SpoolBudget::default());
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|_| GatewayError::input("Request body could not be read"))?;
             size += chunk.len() as u64;
@@ -27,6 +30,7 @@ impl Spool {
                     "Request body exceeds the local gateway limit",
                 ));
             }
+            budget.reserve(chunk.len() as u64)?;
             if disk.is_none() && size as usize > MEMORY_BODY_BYTES {
                 let mut file = tokio::fs::File::from_std(tempfile::tempfile()?);
                 file.write_all(&memory).await?;
@@ -41,16 +45,16 @@ impl Spool {
         match disk {
             Some(mut file) => {
                 file.flush().await?;
-                Ok(Self::File(file.into_std().await, size))
+                Ok(Self::File(file.into_std().await, size, budget))
             }
-            None => Ok(Self::Memory(memory.into())),
+            None => Ok(Self::Memory(memory.into(), budget)),
         }
     }
 
     pub fn len(&self) -> u64 {
         match self {
-            Self::Memory(bytes) => bytes.len() as u64,
-            Self::File(_, size) => *size,
+            Self::Memory(bytes, _) => bytes.len() as u64,
+            Self::File(_, size, _) => *size,
         }
     }
 
@@ -60,15 +64,21 @@ impl Spool {
 
     pub fn reader_at(&self, offset: u64) -> Result<Box<dyn Read + Send>, GatewayError> {
         match self {
-            Self::Memory(bytes) => {
+            Self::Memory(bytes, budget) => {
                 let mut cursor = Cursor::new(bytes.clone());
                 cursor.set_position(offset);
-                Ok(Box::new(cursor))
+                Ok(Box::new(BudgetedReader {
+                    inner: cursor,
+                    _budget: budget.clone(),
+                }))
             }
-            Self::File(file, _) => {
+            Self::File(file, _, budget) => {
                 let mut file = file.try_clone()?;
                 file.seek(SeekFrom::Start(offset))?;
-                Ok(Box::new(file))
+                Ok(Box::new(BudgetedReader {
+                    inner: file,
+                    _budget: budget.clone(),
+                }))
             }
         }
     }
@@ -93,23 +103,36 @@ impl Spool {
 
     pub fn into_body(self) -> Result<reqwest::Body, GatewayError> {
         match self {
-            Self::Memory(bytes) => Ok(bytes.into()),
-            Self::File(mut file, _) => {
+            Self::Memory(bytes, budget) => Ok(reqwest::Body::wrap_stream(
+                futures_util::stream::unfold((Some(bytes), budget), |(bytes, budget)| async move {
+                    bytes.map(|bytes| (Ok::<_, std::io::Error>(bytes), (None, budget)))
+                }),
+            )),
+            Self::File(mut file, _, budget) => {
                 file.seek(SeekFrom::Start(0))?;
-                Ok(reqwest::Body::wrap_stream(ReaderStream::new(
-                    tokio::fs::File::from_std(file),
+                let stream = ReaderStream::new(tokio::fs::File::from_std(file));
+                Ok(reqwest::Body::wrap_stream(futures_util::stream::unfold(
+                    (stream, budget),
+                    |(mut stream, budget)| async move {
+                        stream.next().await.map(|chunk| (chunk, (stream, budget)))
+                    },
                 )))
             }
         }
     }
 
-    pub fn from_file(mut file: std::fs::File) -> Result<Self, GatewayError> {
-        let size = file.stream_position()?;
-        if size > MAX_BODY_BYTES {
-            return Err(GatewayError::input("Prepared request is too large"));
+    pub fn from_file(mut output: SpoolWriter) -> Result<Self, GatewayError> {
+        output.flush()?;
+        Ok(Self::File(output.file, output.size, output.budget))
+    }
+
+    pub fn memory(bytes: Bytes) -> Result<Self, GatewayError> {
+        if bytes.len() as u64 > MAX_BODY_BYTES {
+            return Err(GatewayError::input("Request body is too large"));
         }
-        file.flush()?;
-        Ok(Self::File(file, size))
+        let budget = Arc::new(SpoolBudget::default());
+        budget.reserve(bytes.len() as u64)?;
+        Ok(Self::Memory(bytes, budget))
     }
 }
 

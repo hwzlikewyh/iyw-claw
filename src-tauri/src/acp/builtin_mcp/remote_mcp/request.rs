@@ -4,10 +4,9 @@ use rmcp::model::{CallToolRequest, CallToolRequestParams, CallToolResult, Server
 use rmcp::service::{PeerRequestOptions, RequestHandle, RoleClient, ServiceError};
 use rmcp::ErrorData;
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
 use super::connection::RemoteConnection;
-use super::{failure, RemoteContext};
+use super::{failure, RemoteAccount, RemoteContext};
 
 const DIRECTORY_TIMEOUT: Duration = Duration::from_secs(10);
 const INVOKE_TIMEOUT: Duration = Duration::from_secs(120);
@@ -17,7 +16,7 @@ pub(super) struct RemoteRequest<'a> {
     pub name: &'a str,
     pub arguments: Value,
     pub context: RemoteContext<'a>,
-    pub account_cancel: &'a CancellationToken,
+    pub account: &'a RemoteAccount,
     pub execution: bool,
 }
 
@@ -25,6 +24,7 @@ pub(super) async fn call(
     connection: &RemoteConnection,
     request: RemoteRequest<'_>,
 ) -> Result<CallToolResult, ErrorData> {
+    let _permit = super::resources::admit(request.execution)?;
     let result = match send(connection, &request).await {
         Ok(handle) => receive(handle, &request).await,
         Err(error) => Err(error),
@@ -35,11 +35,7 @@ pub(super) async fn call(
         .and_then(|error| error.data.as_ref())
         .and_then(|data| data.get("code"))
         .and_then(Value::as_str)
-        .is_some_and(|code| {
-            code.starts_with("remote_transport")
-                || code == "remote_queue_timeout"
-                || code == "MCP_TIMEOUT"
-        })
+        .is_some_and(|code| code.starts_with("remote_transport"))
     {
         connection.stop();
     }
@@ -52,7 +48,8 @@ async fn send(
 ) -> Result<RequestHandle<RoleClient>, ErrorData> {
     if request.context.request_cancel.is_cancelled()
         || request.context.authority_cancel.is_cancelled()
-        || request.account_cancel.is_cancelled()
+        || request.account.cancellation.is_cancelled()
+        || request.account.credentials_cancel.is_cancelled()
     {
         return Err(failure(
             "remote_cancelled",
@@ -68,20 +65,35 @@ async fn send(
         )
     })?;
     let params = CallToolRequestParams::new(request.name.to_owned()).with_arguments(arguments);
+    dispatch(connection, request, params).await
+}
+
+async fn dispatch(
+    connection: &RemoteConnection,
+    request: &RemoteRequest<'_>,
+    params: CallToolRequestParams,
+) -> Result<RequestHandle<RoleClient>, ErrorData> {
     let send = connection.peer.send_cancellable_request(
         CallToolRequest::new(params).into(),
         PeerRequestOptions::no_options(),
     );
-    tokio::time::timeout(CANCEL_TIMEOUT, send)
-        .await
-        .map_err(|_| {
-            failure(
-                "MCP_TIMEOUT",
-                "Remote dispatch outcome is unknown",
-                request.execution,
-            )
-        })?
-        .map_err(|error| service_error(error, request.execution))
+    tokio::select! {
+        biased;
+        _ = cancelled(request) => Err(failure("remote_cancelled",
+            "Remote dispatch interrupted; verify the original task state before retrying", request.execution)),
+        result = tokio::time::timeout(CANCEL_TIMEOUT, send) => result
+            .map_err(|_| failure("MCP_TIMEOUT", "Remote dispatch outcome is unknown", request.execution))?
+            .map_err(|error| service_error(error, request.execution)),
+    }
+}
+
+async fn cancelled(request: &RemoteRequest<'_>) {
+    tokio::select! {
+        _ = request.context.request_cancel.cancelled() => {},
+        _ = request.context.authority_cancel.cancelled() => {},
+        _ = request.account.cancellation.cancelled() => {},
+        _ = request.account.credentials_cancel.cancelled() => {},
+    }
 }
 
 async fn receive(
@@ -98,7 +110,8 @@ async fn receive(
         biased;
         _ = request.context.request_cancel.cancelled() => None,
         _ = request.context.authority_cancel.cancelled() => None,
-        _ = request.account_cancel.cancelled() => None,
+        _ = request.account.cancellation.cancelled() => None,
+        _ = request.account.credentials_cancel.cancelled() => None,
         _ = tokio::time::sleep(timeout) => {
             timed_out = true;
             None

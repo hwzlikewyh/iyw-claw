@@ -73,6 +73,7 @@ async fn persist(
     conn: &DatabaseConnection,
     session: &StoredSession,
 ) -> Result<(), AppCommandError> {
+    let publication = super::mcp_credentials::PublicationGuard::new();
     let result = async {
         let serialized = serde_json::to_string(session).map_err(|_| {
             AppCommandError::configuration_invalid("Unable to save account session")
@@ -85,8 +86,11 @@ async fn persist(
     .await;
     if result.is_ok() {
         publish_gateway_credentials(session);
+        super::mcp_credentials::publish(session);
+        publication.finish();
     } else {
         crate::acp::model_gateway::update_credentials(None, None, false);
+        super::mcp_credentials::invalidate();
     }
     result
 }
@@ -106,8 +110,11 @@ pub(crate) async fn initialize_model_gateway_auth(
     conn: &DatabaseConnection,
 ) -> Result<(), AppCommandError> {
     let _guard = persistence_lock().lock().await;
+    let publication = super::mcp_credentials::PublicationGuard::new();
     let session = load_session(conn).await?;
     publish_gateway_credentials(&session);
+    super::mcp_credentials::publish(&session);
+    publication.finish();
     Ok(())
 }
 

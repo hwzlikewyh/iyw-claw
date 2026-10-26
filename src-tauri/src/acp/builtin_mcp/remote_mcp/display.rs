@@ -32,7 +32,10 @@ impl RemoteGateway {
     pub(in crate::acp::builtin_mcp) async fn tool_display(&self, id: &str) -> Option<Value> {
         let current = self.account.lock().await;
         let account = current.as_ref()?;
-        if self.shutdown.is_cancelled() || account.cancellation.is_cancelled() {
+        if self.shutdown.is_cancelled()
+            || account.cancellation.is_cancelled()
+            || account.credentials_cancel.is_cancelled()
+        {
             return None;
         }
         let name = if let Some(name) = id.strip_prefix(super::direct::CAPABILITY_PREFIX) {

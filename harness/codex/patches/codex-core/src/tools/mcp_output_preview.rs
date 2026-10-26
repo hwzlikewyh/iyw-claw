@@ -9,7 +9,10 @@ use codex_utils_output_truncation::approx_token_count;
 use codex_utils_path_uri::PathUri;
 use serde_json::Value;
 use serde_json::json;
+use std::sync::OnceLock;
 use uuid::Uuid;
+
+mod bounded_json;
 
 const PREVIEW_THRESHOLD_BYTES: usize = 16 * 1024;
 const MAX_CAPTURE_BYTES: usize = 16 * 1024 * 1024;
@@ -18,6 +21,7 @@ const PREVIEW_DEPTH: usize = 4;
 const PREVIEW_ITEMS: usize = 3;
 const WRAPPER_TOKEN_RESERVE: usize = 256;
 const MAX_UTF8_CHAR_BYTES: usize = 4;
+const MAX_CONCURRENT_PREVIEWS: usize = 2;
 
 struct SavedResult {
     file: PathUri,
@@ -33,10 +37,13 @@ pub(crate) async fn prepare(
     if !result.content.iter().any(|item| large_text(item).is_some()) {
         return None;
     }
-    let raw = serde_json::to_vec(result).ok()?;
-    if raw.len() > MAX_CAPTURE_BYTES {
-        return None;
-    }
+    static PREVIEWS: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+    let _permit = PREVIEWS
+        .get_or_init(|| tokio::sync::Semaphore::new(MAX_CONCURRENT_PREVIEWS))
+        .acquire()
+        .await
+        .ok()?;
+    let raw = bounded_json::encode(result, MAX_CAPTURE_BYTES)?;
     let (environment, access) = step.environments().into_iter().next()?;
     let directory = environment.cwd().join(".xinghe/tool-results").ok()?;
     let file = directory.join(&format!("{}.json", Uuid::new_v4())).ok()?;
@@ -86,14 +93,12 @@ async fn preserve(
     Some(())
 }
 
-fn large_text(item: &Value) -> Option<Value> {
+fn large_text(item: &Value) -> Option<&str> {
     if item.get("type")?.as_str()? != "text" {
         return None;
     }
     let text = item.get("text")?.as_str()?;
-    (text.len() > PREVIEW_THRESHOLD_BYTES).then(|| {
-        serde_json::from_str::<Value>(text).unwrap_or_else(|_| Value::String(text.to_owned()))
-    })
+    (text.len() > PREVIEW_THRESHOLD_BYTES).then_some(text)
 }
 
 fn model_result(
@@ -108,17 +113,19 @@ fn model_result(
         .filter(|item| large_text(item).is_some())
         .count()
         .max(1);
-    let mut presented = result.clone();
-    for (index, content) in presented.content.iter_mut().enumerate() {
-        if let Some(candidate) = large_text(content) {
-            let bounded = preview(&candidate, MAX_PREVIEW_BYTES / count, PREVIEW_DEPTH);
-            let mut value = preview_entry(bounded, saved, index);
-            if approx_token_count(&value.to_string()) > budget / count {
-                value.as_object_mut()?.remove("preview");
-            }
-            *content = json!({"type": "text", "text": value.to_string()});
-        }
+    let mut content = Vec::with_capacity(result.content.len());
+    for (index, item) in result.content.iter().enumerate() {
+        content.push(match large_text(item) {
+            Some(text) => preview_content(text, saved, (index, count, budget))?,
+            None => item.clone(),
+        });
     }
+    let presented = CallToolResult {
+        content,
+        structured_content: None,
+        is_error: result.is_error,
+        meta: result.meta.clone(),
+    };
     let text_tokens: usize = presented
         .content
         .iter()
@@ -128,8 +135,26 @@ fn model_result(
     if text_tokens > budget {
         return None;
     }
-    presented.structured_content = None;
     Some(presented)
+}
+
+fn preview_content(
+    text: &str,
+    saved: &SavedResult,
+    (index, count, budget): (usize, usize, usize),
+) -> Option<Value> {
+    let candidate =
+        serde_json::from_str::<Value>(text).unwrap_or_else(|_| Value::String(text.to_owned()));
+    let bounded = preview(&candidate, MAX_PREVIEW_BYTES / count, PREVIEW_DEPTH);
+    let mut value = preview_entry(bounded, saved, index);
+    let mut encoded = bounded_json::encode(&value, MAX_PREVIEW_BYTES);
+    if encoded.as_ref().is_none_or(|raw| {
+        std::str::from_utf8(raw).map_or(true, |text| approx_token_count(text) > budget / count)
+    }) {
+        value.as_object_mut()?.remove("preview");
+        encoded = bounded_json::encode(&value, MAX_PREVIEW_BYTES);
+    }
+    Some(json!({"type":"text", "text":String::from_utf8(encoded?).ok()?}))
 }
 
 fn preview_entry(preview: Value, saved: &SavedResult, index: usize) -> Value {
@@ -143,7 +168,7 @@ fn preview_entry(preview: Value, saved: &SavedResult, index: usize) -> Value {
 }
 
 fn preview(value: &Value, budget: usize, depth: usize) -> Value {
-    if value.to_string().len() <= budget {
+    if bounded_json::fits(value, budget) {
         return value.clone();
     }
     if depth == 0 || budget == 0 {
@@ -161,10 +186,11 @@ fn preview(value: &Value, budget: usize, depth: usize) -> Value {
             )
         }
         Value::Object(fields) => {
-            let count = fields.len().max(1);
+            let count = fields.len().min(PREVIEW_ITEMS).max(1);
             Value::Object(
                 fields
                     .iter()
+                    .take(PREVIEW_ITEMS)
                     .map(|(key, value)| (key.clone(), preview(value, budget / count, depth - 1)))
                     .collect(),
             )

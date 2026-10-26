@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 use rmcp::ErrorData;
 use sea_orm::DatabaseConnection;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use tokio::sync::{watch, Mutex, Notify};
 use tokio_util::sync::CancellationToken;
 
@@ -19,6 +18,7 @@ mod direct;
 mod display;
 mod overview;
 mod request;
+mod resources;
 
 use catalog::RemoteRoute;
 use connection::RemoteConnection;
@@ -44,6 +44,7 @@ pub(super) struct RemoteGateway {
 struct RemoteAccount {
     fingerprint: [u8; 32],
     cancellation: CancellationToken,
+    credentials_cancel: CancellationToken,
     connection: Mutex<ConnectionState>,
     routes: StdMutex<BTreeMap<String, RemoteRoute>>,
     overview: StdMutex<overview::RemoteOverview>,
@@ -89,7 +90,7 @@ impl RemoteGateway {
     async fn ready(&self) -> Result<(Arc<RemoteAccount>, Arc<RemoteConnection>), ErrorData> {
         let (account, token) = self.current_account().await?;
         let mut state = account.connection.lock().await;
-        if account.cancellation.is_cancelled() {
+        if account.cancellation.is_cancelled() || account.credentials_cancel.is_cancelled() {
             return Err(failure(
                 "remote_account_changed",
                 "Remote account changed",
@@ -111,14 +112,18 @@ impl RemoteGateway {
                 false,
             ));
         }
-        let client = state.refresh(token.expose(), &account.cancellation).await?;
+        let client = tokio::select! {
+            biased;
+            _ = account.credentials_cancel.cancelled() => {
+                return Err(failure("remote_account_changed", "Account changed", false));
+            },
+            result = state.refresh(token.expose(), &account.cancellation) => result?,
+        };
         Ok((account.clone(), client))
     }
 
     async fn current_account(&self) -> Result<(Arc<RemoteAccount>, AccountAccessToken), ErrorData> {
-        let mut current = self.account.lock().await;
-        let token = crate::commands::iyw_account::iyw_account_access_token_core(&self.db)
-            .await
+        let credentials = crate::commands::iyw_account::iyw_account_mcp_credentials_core()
             .map_err(|_| {
                 failure(
                     "remote_credentials_unavailable",
@@ -126,15 +131,23 @@ impl RemoteGateway {
                     false,
                 )
             })?;
-        let fingerprint = token
-            .as_ref()
-            .map(|token| Sha256::digest(token.expose().as_bytes()).into());
-        if current.as_ref().map(|account| account.fingerprint) != fingerprint {
-            bind_account(&mut current, fingerprint, &self.shutdown);
-            self.catalog_changes.send_modify(|revision| *revision = revision.wrapping_add(1));
+        let fingerprint = credentials.0.as_ref().map(|_| credentials.1);
+        let mut current = self.account.lock().await;
+        if credentials.2.is_cancelled() {
+            return Err(failure("remote_account_changed", "Account changed", false));
+        }
+        if current.as_ref().map(|account| account.fingerprint) != fingerprint
+            || current
+                .as_ref()
+                .is_some_and(|account| account.credentials_cancel.is_cancelled())
+        {
+            let identity = fingerprint.map(|fingerprint| (fingerprint, credentials.2.clone()));
+            bind_account(&mut current, identity, &self.shutdown);
+            self.catalog_changes
+                .send_modify(|revision| *revision = revision.wrapping_add(1));
             self.refresh_signal.notify_one();
         }
-        let Some(token) = token else {
+        let Some(token) = credentials.0 else {
             return Err(failure(
                 "remote_sign_in_required",
                 "Sign in to use remote business capabilities",
@@ -157,7 +170,10 @@ impl RemoteGateway {
 
     async fn ensure_current(&self, account: &RemoteAccount) -> Result<(), ErrorData> {
         let (current, _) = self.current_account().await?;
-        if current.fingerprint != account.fingerprint || account.cancellation.is_cancelled() {
+        if current.fingerprint != account.fingerprint
+            || account.cancellation.is_cancelled()
+            || account.credentials_cancel.is_cancelled()
+        {
             return Err(failure(
                 "remote_account_changed",
                 "Account changed; search the current directory again",
@@ -218,20 +234,26 @@ impl ConnectionState {
 
 fn bind_account(
     current: &mut Option<Arc<RemoteAccount>>,
-    fingerprint: Option<[u8; 32]>,
+    identity: Option<([u8; 32], CancellationToken)>,
     shutdown: &CancellationToken,
 ) {
-    if current.as_ref().map(|account| account.fingerprint) == fingerprint {
+    if current.as_ref().map(|account| account.fingerprint)
+        == identity.as_ref().map(|(hash, _)| *hash)
+        && !current
+            .as_ref()
+            .is_some_and(|account| account.credentials_cancel.is_cancelled())
+    {
         return;
     }
     if let Some(previous) = current.take() {
         previous.cancellation.cancel();
         tracing::info!("[remote-mcp] account changed; previous connection and directory revoked");
     }
-    *current = fingerprint.map(|fingerprint| {
+    *current = identity.map(|(fingerprint, credentials_cancel)| {
         Arc::new(RemoteAccount {
             fingerprint,
             cancellation: shutdown.child_token(),
+            credentials_cancel,
             connection: Mutex::new(ConnectionState::default()),
             routes: StdMutex::new(BTreeMap::new()),
             overview: StdMutex::new(overview::RemoteOverview::default()),

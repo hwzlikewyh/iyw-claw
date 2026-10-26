@@ -139,7 +139,7 @@ fn apply(
 ) -> Result<Spool, GatewayError> {
     replacements.sort_by_key(|(range, _)| range.start);
     let mut reader = body.reader()?;
-    let mut file = tempfile::tempfile()?;
+    let mut file = super::spool_budget::SpoolWriter::new()?;
     let mut offset = 0;
     for (range, value) in replacements {
         if range.start < offset {

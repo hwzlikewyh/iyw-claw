@@ -215,7 +215,7 @@ async fn prepare_text(
     bytes: &[u8],
     context: (&str, &str),
 ) -> Result<String, GatewayError> {
-    let body = Spool::Memory(Bytes::copy_from_slice(bytes));
+    let body = Spool::memory(Bytes::copy_from_slice(bytes))?;
     let output = tokio::time::timeout(
         super::limits::PREPARE_TIMEOUT,
         rewrite::prepare(runtime, body, context),

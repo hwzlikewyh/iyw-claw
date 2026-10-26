@@ -25,6 +25,7 @@ mod limits;
 mod media;
 mod rewrite;
 mod spool;
+mod spool_budget;
 mod target;
 mod websocket;
 mod work;

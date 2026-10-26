@@ -93,7 +93,7 @@ impl RemoteGateway {
                 name: &tool.name,
                 arguments,
                 context,
-                account_cancel: &account.cancellation,
+                account: &account,
                 execution: true,
             },
         )

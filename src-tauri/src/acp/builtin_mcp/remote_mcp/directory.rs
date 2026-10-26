@@ -24,7 +24,7 @@ impl RemoteGateway {
                 name: SEARCH_TOOL,
                 arguments,
                 context,
-                account_cancel: &account.cancellation,
+                account: &account,
                 execution: false,
             },
         )
@@ -72,7 +72,7 @@ impl RemoteGateway {
                 name: READ_TOOL,
                 arguments,
                 context,
-                account_cancel: &account.cancellation,
+                account: &account,
                 execution: false,
             },
         )
@@ -108,7 +108,7 @@ impl RemoteGateway {
         let mut result = request::call(&connection, RemoteRequest {
             name: INVOKE_TOOL,
             arguments: json!({"tool_id": route.id, "tool_version": route.version, "arguments": call.1}),
-            context, account_cancel: &account.cancellation, execution: true,
+            context, account: &account, execution: true,
         }).await;
         if self.ensure_current(&account).await.is_err() {
             return Err(failure(
