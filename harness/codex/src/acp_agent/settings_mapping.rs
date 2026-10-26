@@ -135,7 +135,7 @@ pub(super) fn request(
             .request(&thread_id, (&config_id, &value))
             .map(|(request, selection)| (request, SettingsChange::Model(selection))),
         _ => Err(UpstreamError::InvalidRequest(format!(
-            "unsupported Codex config option: {config_id}"
+            "unsupported 星河 config option: {config_id}"
         ))),
     }
 }
@@ -158,7 +158,7 @@ fn permission_request(
         "agent-full-access" => (":danger-full-access", "never"),
         _ => {
             return Err(UpstreamError::InvalidRequest(format!(
-                "unsupported Codex permission mode: {mode}"
+                "unsupported 星河 permission mode: {mode}"
             )))
         }
     };
@@ -182,11 +182,11 @@ fn collaboration_request(
 ) -> Result<(Value, SettingsChange), UpstreamError> {
     if !matches!(mode.as_str(), "default" | "plan") {
         return Err(UpstreamError::InvalidRequest(format!(
-            "unsupported Codex collaboration mode: {mode}"
+            "unsupported 星河 collaboration mode: {mode}"
         )));
     }
     let model = settings.model.current.clone().ok_or_else(|| {
-        UpstreamError::InvalidResponse("Codex session response has no active model".into())
+        UpstreamError::InvalidResponse("星河 session response has no active model".into())
     })?;
     let effort = if mode == "plan" {
         Some(Value::String("medium".to_string()))

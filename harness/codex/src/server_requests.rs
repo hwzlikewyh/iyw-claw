@@ -50,7 +50,7 @@ pub enum ServerRequestError {
 impl fmt::Display for ServerRequestError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DuplicateId => formatter.write_str("duplicate Codex server request id"),
+            Self::DuplicateId => formatter.write_str("duplicate 星河 server request id"),
             Self::MissingThread(method) => write!(formatter, "{method} has no thread id"),
             Self::MissingTurn(method) => write!(formatter, "{method} has no turn id"),
             Self::UnknownToken(token) => write!(formatter, "unknown server request token: {token}"),

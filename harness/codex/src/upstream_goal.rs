@@ -18,7 +18,7 @@ impl UpstreamClient {
         }
         let binding = harness
             .binding(thread_id)
-            .ok_or_else(|| UpstreamError::InvalidRequest("unknown Codex goal thread".into()))?;
+            .ok_or_else(|| UpstreamError::InvalidRequest("unknown 星河 goal thread".into()))?;
         let access = SessionAccess {
             external_id: &binding.external_id,
             connection_id: &binding.connection_id,

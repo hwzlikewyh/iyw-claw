@@ -2148,7 +2148,7 @@ fn ensure_codex_mode_option(options: &mut Vec<SessionConfigOptionInfo>) {
                         value: "agent-full-access".to_string(),
                         name: "Agent (full access)".to_string(),
                         description: Some(
-                            "Codex can edit files outside this workspace and run commands with \
+                            "星河 can edit files outside this workspace and run commands with \
                              network access."
                                 .to_string(),
                         ),
@@ -5511,9 +5511,9 @@ fn map_image_block(
     }
     let path = local_path
         .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| "Codex image attachment is missing its prepared local file".to_string())?;
+        .ok_or_else(|| "星河 image attachment is missing its prepared local file".to_string())?;
     if !Path::new(&path).is_absolute() {
-        return Err("Codex image attachment local file must be absolute".to_string());
+        return Err("星河 image attachment local file must be absolute".to_string());
     }
     if data.is_empty() {
         return Err("星河图片附件缺少已校验的图片数据，请重新上传".to_string());

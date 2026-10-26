@@ -96,7 +96,7 @@ pub(crate) async fn validate_codex_image_inputs(
         let inspected = inspect_image(&scope, mime_type, local_path.as_deref()).await?;
         if !belongs_to_scope(&scope, &inspected.location) {
             return Err(image_error(
-                "Codex image attachment is not bound to the current session. Retry the upload.",
+                "星河 image attachment is not bound to the current session. Retry the upload.",
             ));
         }
     }
@@ -148,12 +148,12 @@ async fn inspect_image(
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| {
             image_error(
-                "Codex image attachment is missing its prepared local file. Retry the upload.",
+                "星河 image attachment is missing its prepared local file. Retry the upload.",
             )
         })?;
     let source = Path::new(raw);
     if !source.is_absolute() {
-        return Err(image_error("Codex image attachment local file is invalid."));
+        return Err(image_error("星河 image attachment local file is invalid."));
     }
     reject_symlink(source).await?;
     let path = tokio::fs::canonicalize(source)
@@ -164,18 +164,18 @@ async fn inspect_image(
         .await
         .map_err(|error| io_error("local image", error))?;
     if !metadata.is_file() || metadata.len() > CHAT_IMAGE_INPUT_MAX_BYTES as u64 {
-        return Err(image_error("Codex image attachment local file is invalid."));
+        return Err(image_error("星河 image attachment local file is invalid."));
     }
     let bytes = tokio::fs::read(&path)
         .await
         .map_err(|error| io_error("local image", error))?;
     if bytes.is_empty() || bytes.len() > CHAT_IMAGE_INPUT_MAX_BYTES {
-        return Err(image_error("Codex image attachment local file is invalid."));
+        return Err(image_error("星河 image attachment local file is invalid."));
     }
     let mime_type = inspect_mime(&bytes)?;
     if mime_type != declared_mime {
         return Err(image_error(
-            "Codex image attachment MIME type does not match its file.",
+            "星河 image attachment MIME type does not match its file.",
         ));
     }
     Ok(InspectedImage {
@@ -191,7 +191,7 @@ async fn reject_symlink(path: &Path) -> Result<(), AcpError> {
         .await
         .map_err(|error| io_error("local image", error))?;
     if metadata.file_type().is_symlink() {
-        return Err(image_error("Codex image attachment local file is invalid."));
+        return Err(image_error("星河 image attachment local file is invalid."));
     }
     Ok(())
 }
@@ -199,7 +199,7 @@ async fn reject_symlink(path: &Path) -> Result<(), AcpError> {
 fn managed_location(data_dir: &Path, path: &Path) -> Result<ManagedLocation, AcpError> {
     let relative = path
         .strip_prefix(data_dir)
-        .map_err(|_| image_error("Codex image attachment is outside managed storage."))?;
+        .map_err(|_| image_error("星河 image attachment is outside managed storage."))?;
     let parts = normal_components(relative)?;
     match parts.as_slice() {
         [root, date, chat_id, attachments, attachment_id, _]
@@ -219,7 +219,7 @@ fn managed_location(data_dir: &Path, path: &Path) -> Result<ManagedLocation, Acp
             Ok(ManagedLocation::Conversation(bucket.clone()))
         }
         _ => Err(image_error(
-            "Codex image attachment is outside managed image storage.",
+            "星河 image attachment is outside managed image storage.",
         )),
     }
 }
@@ -228,7 +228,7 @@ fn normal_components(path: &Path) -> Result<Vec<String>, AcpError> {
     path.components()
         .map(|component| match component {
             Component::Normal(value) => Ok(value.to_string_lossy().to_string()),
-            _ => Err(image_error("Codex image attachment local file is invalid.")),
+            _ => Err(image_error("星河 image attachment local file is invalid.")),
         })
         .collect()
 }
@@ -253,7 +253,7 @@ fn is_managed_chat_dir(data_dir: &Path, path: &Path) -> bool {
 
 fn inspect_mime(bytes: &[u8]) -> Result<&'static str, AcpError> {
     crate::commands::chat_image::inspect_input_image_mime(bytes)
-        .map_err(|_| image_error("Codex image attachment format is not supported."))
+        .map_err(|_| image_error("星河 image attachment format is not supported."))
 }
 
 async fn restage_for_scope(
@@ -281,14 +281,14 @@ async fn restage_for_scope(
         target: "acp.image",
         attachment_bytes = image.bytes.len(),
         destination_scope = %scope.destination_bucket,
-        "re-staged Codex image for current session"
+        "re-staged 星河 image for current session"
     );
     Ok(PathBuf::from(staged.path))
 }
 
 fn io_error(stage: &str, error: std::io::Error) -> AcpError {
-    tracing::warn!(target: "acp.image", stage, error = %error, "Codex image validation failed");
-    image_error("Codex image attachment local file is unavailable. Retry the upload.")
+    tracing::warn!(target: "acp.image", stage, error = %error, "星河 image validation failed");
+    image_error("星河 image attachment local file is unavailable. Retry the upload.")
 }
 
 fn image_error(message: impl Into<String>) -> AcpError {

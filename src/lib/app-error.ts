@@ -1,4 +1,5 @@
 import { NOT_A_GIT_REPO_PATTERNS } from "@/i18n/git-error-patterns"
+import { maskAgentSdkBrandText } from "@/lib/agent-sdk-presentation"
 import type { AppCommandError } from "@/lib/types"
 
 type ObjectLike = Record<string, unknown>
@@ -82,6 +83,10 @@ export function isNotAGitRepoError(error: unknown): boolean {
 }
 
 export function toErrorMessage(error: unknown): string {
+  return maskAgentSdkBrandText(rawErrorMessage(error))
+}
+
+function rawErrorMessage(error: unknown): string {
   const appError = extractAppCommandError(error)
   if (appError) {
     return appError.detail?.trim() || appError.message
@@ -128,7 +133,7 @@ export function toLocalizedErrorMessage(
       const localized = translate(appError.i18n_key, params)
       const trimmed = localized.trim()
       if (trimmed && trimmed !== appError.i18n_key) {
-        return trimmed
+        return maskAgentSdkBrandText(trimmed)
       }
     } catch {
       // fall through to non-localized path

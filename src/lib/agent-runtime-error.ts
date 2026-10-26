@@ -1,3 +1,5 @@
+import { maskAgentSdkBrandText } from "@/lib/agent-sdk-presentation"
+
 export interface AgentRuntimeErrorMessages {
   insufficientBalance: string
   authenticationFailed: string
@@ -16,7 +18,7 @@ const RUNTIME_ERROR_URL_RE =
 
 /** Remove transport endpoints before diagnostic text is shown in the UI. */
 export function sanitizeAgentRuntimeErrorDetails(message: string): string {
-  return message.replace(RUNTIME_ERROR_URL_RE, "")
+  return maskAgentSdkBrandText(message.replace(RUNTIME_ERROR_URL_RE, ""))
 }
 
 type AgentRuntimeErrorKind =

@@ -75,11 +75,11 @@ pub enum UpstreamError {
 impl fmt::Display for UpstreamError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidRequest(message) => write!(formatter, "invalid Codex request: {message}"),
+            Self::InvalidRequest(message) => write!(formatter, "invalid 星河 request: {message}"),
             Self::InvalidResponse(message) => {
-                write!(formatter, "invalid Codex response: {message}")
+                write!(formatter, "invalid 星河 response: {message}")
             }
-            Self::Start(message) => write!(formatter, "Codex runtime start failed: {message}"),
+            Self::Start(message) => write!(formatter, "星河 runtime start failed: {message}"),
             Self::Harness(error) => error.fmt(formatter),
             Self::Io(message) => formatter.write_str(message),
             Self::Rpc { code, message } => write!(formatter, "星河 RPC error ({code}): {message}"),
@@ -586,7 +586,7 @@ impl UpstreamClient {
         let binding = self
             .binding_for(thread_id)
             .await
-            .ok_or_else(|| UpstreamError::InvalidRequest("unknown Codex thread".into()))?;
+            .ok_or_else(|| UpstreamError::InvalidRequest("unknown 星河 thread".into()))?;
         let access = SessionAccess {
             external_id: &binding.external_id,
             connection_id: &binding.connection_id,
@@ -604,7 +604,7 @@ impl UpstreamClient {
         let binding = self
             .binding_for(thread_id)
             .await
-            .ok_or_else(|| UpstreamError::InvalidRequest("unknown Codex thread".into()))?;
+            .ok_or_else(|| UpstreamError::InvalidRequest("unknown 星河 thread".into()))?;
         let access = SessionAccess {
             external_id: &binding.external_id,
             connection_id: &binding.connection_id,
@@ -622,11 +622,11 @@ impl UpstreamClient {
         let turn = self
             .active_turn_for(thread_id)
             .await
-            .ok_or_else(|| UpstreamError::InvalidRequest("no active Codex turn".into()))?;
+            .ok_or_else(|| UpstreamError::InvalidRequest("no active 星河 turn".into()))?;
         let binding = self
             .binding_for(thread_id)
             .await
-            .ok_or_else(|| UpstreamError::InvalidRequest("unknown Codex thread".into()))?;
+            .ok_or_else(|| UpstreamError::InvalidRequest("unknown 星河 thread".into()))?;
         let access = SessionAccess {
             external_id: &binding.external_id,
             connection_id: &binding.connection_id,
@@ -640,11 +640,11 @@ impl UpstreamClient {
         let turn = self
             .active_turn_for(thread_id)
             .await
-            .ok_or_else(|| UpstreamError::InvalidRequest("no active Codex turn".into()))?;
+            .ok_or_else(|| UpstreamError::InvalidRequest("no active 星河 turn".into()))?;
         let binding = self
             .binding_for(thread_id)
             .await
-            .ok_or_else(|| UpstreamError::InvalidRequest("unknown Codex thread".into()))?;
+            .ok_or_else(|| UpstreamError::InvalidRequest("unknown 星河 thread".into()))?;
         let access = SessionAccess {
             external_id: &binding.external_id,
             connection_id: &binding.connection_id,
@@ -670,7 +670,7 @@ impl UpstreamClient {
         let binding = self
             .binding_for(thread_id)
             .await
-            .ok_or_else(|| UpstreamError::InvalidRequest("unknown Codex thread".into()))?;
+            .ok_or_else(|| UpstreamError::InvalidRequest("unknown 星河 thread".into()))?;
         let access = SessionAccess {
             external_id: &binding.external_id,
             connection_id: &binding.connection_id,
@@ -721,7 +721,7 @@ impl UpstreamClient {
 
     async fn send(&self, mut request: Value) -> Result<Value, UpstreamError> {
         let object = request.as_object_mut().ok_or_else(|| {
-            UpstreamError::InvalidRequest("Codex request must be a JSON object".into())
+            UpstreamError::InvalidRequest("星河 request must be a JSON object".into())
         })?;
         object.insert(
             "id".to_string(),

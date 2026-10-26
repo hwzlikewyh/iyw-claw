@@ -27,7 +27,7 @@ pub(crate) async fn verify(
     })
     .await
     .map_err(|_| {
-        invalid("Codex did not load the session MCP tool catalog before the startup deadline")
+        invalid("星河 did not load the session MCP tool catalog before the startup deadline")
     })?
 }
 
@@ -35,7 +35,7 @@ fn catalog_ready(catalog: &Value, names: &[String]) -> Result<bool, UpstreamErro
     let servers = catalog
         .get("data")
         .and_then(Value::as_array)
-        .ok_or_else(|| invalid("Codex returned an invalid MCP status response"))?;
+        .ok_or_else(|| invalid("星河 returned an invalid MCP status response"))?;
     let mut ready = 0;
     for server in servers.iter().filter(|server| {
         server["name"]
@@ -44,7 +44,7 @@ fn catalog_ready(catalog: &Value, names: &[String]) -> Result<bool, UpstreamErro
     }) {
         if let Some(error) = server["toolsError"].as_str() {
             return Err(invalid(&format!(
-                "Codex MCP tool discovery failed: {}",
+                "星河 MCP tool discovery failed: {}",
                 crate::diagnostics::safe_detail(error)
             )));
         }
@@ -53,7 +53,7 @@ fn catalog_ready(catalog: &Value, names: &[String]) -> Result<bool, UpstreamErro
             status,
             "failed" | "cancelled" | "disabled" | "authenticationRequired"
         ) {
-            return Err(invalid(&format!("Codex MCP server is not ready: {status}")));
+            return Err(invalid(&format!("星河 MCP server is not ready: {status}")));
         }
         if status == "connected" {
             validate_tools(server)?;
@@ -71,7 +71,7 @@ fn catalog_ready(catalog: &Value, names: &[String]) -> Result<bool, UpstreamErro
 fn validate_tools(server: &Value) -> Result<(), UpstreamError> {
     let tools = server["tools"]
         .as_object()
-        .ok_or_else(|| invalid("Codex MCP tool catalog is not an object"))?;
+        .ok_or_else(|| invalid("星河 MCP tool catalog is not an object"))?;
     if tools.values().any(|tool| {
         tool["name"]
             .as_str()
@@ -79,7 +79,7 @@ fn validate_tools(server: &Value) -> Result<(), UpstreamError> {
             || !tool["inputSchema"].is_object()
     }) {
         return Err(invalid(
-            "Codex MCP catalog lost a concrete tool name or input schema",
+            "星河 MCP catalog lost a concrete tool name or input schema",
         ));
     }
     let name = server["name"].as_str().unwrap_or_default();
@@ -99,7 +99,7 @@ fn validate_tools(server: &Value) -> Result<(), UpstreamError> {
         });
         if !valid {
             return Err(invalid(&format!(
-                "Codex built-in MCP catalog lost {name} or its schema"
+                "星河 built-in MCP catalog lost {name} or its schema"
             )));
         }
     }

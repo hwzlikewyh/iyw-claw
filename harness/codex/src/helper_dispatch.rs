@@ -112,14 +112,14 @@ fn run_apply_patch(patch: Option<std::ffi::OsString>) -> ! {
     let patch = match patch.and_then(|value| value.into_string().ok()) {
         Some(value) => value,
         None => {
-            eprintln!("Codex apply-patch helper requires a UTF-8 patch argument.");
+            eprintln!("星河 apply-patch helper requires a UTF-8 patch argument.");
             std::process::exit(2);
         }
     };
     let cwd = match codex_utils_absolute_path::AbsolutePathBuf::current_dir() {
         Ok(cwd) => cwd,
         Err(error) => {
-            eprintln!("Codex apply-patch helper cannot resolve its working directory: {error}");
+            eprintln!("星河 apply-patch helper cannot resolve its working directory: {error}");
             std::process::exit(1);
         }
     };
@@ -129,7 +129,7 @@ fn run_apply_patch(patch: Option<std::ffi::OsString>) -> ! {
     {
         Ok(runtime) => runtime,
         Err(error) => {
-            eprintln!("Codex apply-patch helper cannot start its runtime: {error}");
+            eprintln!("星河 apply-patch helper cannot start its runtime: {error}");
             std::process::exit(1);
         }
     };

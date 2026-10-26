@@ -50,7 +50,7 @@ fn content_to_user_input(
         "text" => text_input(required_string(content, "text")?),
         "image" if capabilities.contains(Capability::Images) => image_input(content),
         "image" => Err(UpstreamError::InvalidRequest(
-            "image input is not enabled for this Codex session".into(),
+            "image input is not enabled for this 星河 session".into(),
         )),
         "resource_link" => resource_link_input(content, budget),
         "resource" => embedded_resource_input(content, budget),

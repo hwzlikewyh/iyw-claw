@@ -392,8 +392,8 @@ async fn no_existing_conversation_message(db: &DatabaseConnection, lang: Lang) -
 fn infer_agent_type(text: &str) -> Option<AgentType> {
     let normalized = normalize(text);
     let checks: &[(AgentType, &[&str])] = &[
-        (AgentType::Codex, &["codex", "openai"]),
-        (AgentType::ClaudeCode, &["claude", "claude code"]),
+        (AgentType::Codex, &["星河", "codex", "openai"]),
+        (AgentType::ClaudeCode, &["远山", "claude", "claude code"]),
         (AgentType::OpenCode, &["opencode", "open code"]),
         (AgentType::Gemini, &["gemini"]),
         (AgentType::OpenClaw, &["openclaw", "open claw"]),

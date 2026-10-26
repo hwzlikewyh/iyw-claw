@@ -176,14 +176,14 @@ fn parse_mcp_servers(
     if !has_manifest {
         if codex.mcp_servers.is_some() {
             return Err(invalid_plugin(
-                "Codex mcpServers must be absent without .mcp.json",
+                "星河 mcpServers must be absent without .mcp.json",
             ));
         }
         return Ok(BTreeMap::new());
     }
     if codex.mcp_servers.as_ref().and_then(|value| value.as_str()) != Some("./.mcp.json") {
         return Err(invalid_plugin(
-            "Codex mcpServers must reference ./.mcp.json",
+            "星河 mcpServers must reference ./.mcp.json",
         ));
     }
     let manifest: McpManifest = parse_document(files, MCP_MANIFEST)?;

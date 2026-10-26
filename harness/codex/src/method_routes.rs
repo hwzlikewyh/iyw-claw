@@ -52,7 +52,7 @@ impl fmt::Display for UnsupportedMethod {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "Codex App Server method is not enabled: {}",
+            "星河 App Server method is not enabled: {}",
             self.0
         )
     }

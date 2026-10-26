@@ -171,8 +171,8 @@ impl<'de> Deserialize<'de> for AgentType {
 impl fmt::Display for AgentType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AgentType::ClaudeCode => write!(f, "Claude Code"),
-            AgentType::Codex => write!(f, "Codex CLI"),
+            AgentType::ClaudeCode => write!(f, "远山"),
+            AgentType::Codex => write!(f, "星河"),
             AgentType::OpenCode => write!(f, "OpenCode"),
             AgentType::Gemini => write!(f, "Gemini CLI"),
             AgentType::OpenClaw => write!(f, "OpenClaw"),

@@ -149,9 +149,9 @@ pub enum HarnessConfigError {
 impl fmt::Display for HarnessConfigError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let message = match self {
-            Self::EmptyClientName => "Codex harness client name is empty",
-            Self::EmptyClientVersion => "Codex harness client version is empty",
-            Self::ZeroChannelCapacity => "Codex harness channel capacity must be positive",
+            Self::EmptyClientName => "星河 harness client name is empty",
+            Self::EmptyClientVersion => "星河 harness client version is empty",
+            Self::ZeroChannelCapacity => "星河 harness channel capacity must be positive",
         };
         formatter.write_str(message)
     }

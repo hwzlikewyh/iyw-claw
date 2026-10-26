@@ -192,7 +192,7 @@ fn loader_overrides(args: &UpstreamStartArgs) -> LoaderOverrides {
 
 fn validate_paths(args: &UpstreamStartArgs) -> Result<Vec<AbsolutePathBuf>, UpstreamError> {
     for (name, path) in [
-        ("Codex home", &args.codex_home),
+        ("星河 home", &args.codex_home),
         ("working directory", &args.cwd),
         ("helper executable", &args.helper_executable),
     ] {

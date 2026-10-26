@@ -1458,7 +1458,7 @@ fn toml_to_json_value(value: &toml::Value) -> Value {
 fn codex_entry_to_canonical(id: &str, value: &toml::Value) -> Result<Value, AppCommandError> {
     let table = value
         .as_table()
-        .ok_or_else(|| mcp_invalid_input(format!("Codex MCP entry '{id}' must be a table")))?;
+        .ok_or_else(|| mcp_invalid_input(format!("星河 MCP entry '{id}' must be a table")))?;
 
     let raw_type = table
         .get("type")
@@ -1481,7 +1481,7 @@ fn codex_entry_to_canonical(id: &str, value: &toml::Value) -> Result<Value, AppC
         });
     let canonical_type = normalize_mcp_type(&raw_type).ok_or_else(|| {
         mcp_invalid_input(format!(
-            "Codex MCP entry '{id}' has unsupported type '{raw_type}'"
+            "星河 MCP entry '{id}' has unsupported type '{raw_type}'"
         ))
         .with_i18n(
             "errors.codexEntryUnsupportedType",
@@ -1579,7 +1579,7 @@ fn codex_entry_to_canonical(id: &str, value: &toml::Value) -> Result<Value, AppC
         }
         _ => {
             return Err(mcp_invalid_input(format!(
-                "Codex MCP entry '{id}' has unsupported type '{raw_type}'"
+                "星河 MCP entry '{id}' has unsupported type '{raw_type}'"
             ))
             .with_i18n(
                 "errors.codexEntryUnsupportedType",
@@ -1603,14 +1603,14 @@ fn codex_entry_to_canonical(id: &str, value: &toml::Value) -> Result<Value, AppC
         spec.insert(key.to_string(), toml_to_json_value(value));
     }
 
-    canonicalize_spec(&Value::Object(spec), "Codex config")
+    canonicalize_spec(&Value::Object(spec), "星河 config")
 }
 
 pub(crate) fn canonical_to_codex_entry(spec: &Value) -> Result<toml::Value, AppCommandError> {
-    let canonical = canonicalize_spec(spec, "Codex conversion")?;
+    let canonical = canonicalize_spec(spec, "星河 conversion")?;
     let obj = canonical
         .as_object()
-        .ok_or_else(|| mcp_invalid_input("Codex conversion: canonical spec must be an object"))?;
+        .ok_or_else(|| mcp_invalid_input("星河 conversion: canonical spec must be an object"))?;
 
     let typ = obj.get("type").and_then(Value::as_str).unwrap_or("stdio");
 
@@ -1620,7 +1620,7 @@ pub(crate) fn canonical_to_codex_entry(spec: &Value) -> Result<toml::Value, AppC
     match typ {
         "stdio" => {
             let command = obj.get("command").and_then(Value::as_str).ok_or_else(|| {
-                mcp_invalid_input("Codex conversion: stdio MCP spec missing command")
+                mcp_invalid_input("星河 conversion: stdio MCP spec missing command")
             })?;
             table.insert(
                 "command".to_string(),
@@ -1671,7 +1671,7 @@ pub(crate) fn canonical_to_codex_entry(spec: &Value) -> Result<toml::Value, AppC
             // stdio-only; remote transports use headers. canonicalize_spec strips
             // env upstream too.
             let url = obj.get("url").and_then(Value::as_str).ok_or_else(|| {
-                mcp_invalid_input("Codex conversion: remote MCP spec missing url")
+                mcp_invalid_input("星河 conversion: remote MCP spec missing url")
             })?;
             table.insert("url".to_string(), toml::Value::String(url.to_string()));
 
@@ -1697,7 +1697,7 @@ pub(crate) fn canonical_to_codex_entry(spec: &Value) -> Result<toml::Value, AppC
         }
         _ => {
             return Err(mcp_invalid_input(format!(
-                "Codex conversion: unsupported MCP type '{typ}'"
+                "星河 conversion: unsupported MCP type '{typ}'"
             )));
         }
     }
@@ -1731,12 +1731,12 @@ fn read_claude_servers() -> Result<BTreeMap<String, Value>, AppCommandError> {
     };
 
     for (id, spec) in servers {
-        match canonicalize_spec(spec, "Claude config") {
+        match canonicalize_spec(spec, "远山 config") {
             Ok(normalized) => {
                 out.insert(id.to_string(), normalized);
             }
             Err(err) => {
-                tracing::warn!("[MCP] skip invalid Claude MCP entry id={id}: {err}");
+                tracing::warn!("[MCP] skip invalid 远山 MCP entry id={id}: {err}");
             }
         }
     }
@@ -1751,7 +1751,7 @@ fn upsert_claude_server(id: &str, spec: &Value) -> Result<(), AppCommandError> {
         root = json!({});
     }
 
-    let canonical = canonicalize_spec(spec, "Claude write")?;
+    let canonical = canonicalize_spec(spec, "远山 write")?;
 
     let obj = root.as_object_mut().ok_or_else(|| {
         mcp_configuration_invalid(format!("invalid JSON root in {}", path.display()))
@@ -2022,7 +2022,7 @@ fn read_codex_servers() -> Result<BTreeMap<String, Value>, AppCommandError> {
                     out.insert(id.to_string(), normalized);
                 }
                 Err(err) => {
-                    tracing::warn!("[MCP] skip invalid Codex mcp_servers entry id={id}: {err}");
+                    tracing::warn!("[MCP] skip invalid 星河 mcp_servers entry id={id}: {err}");
                 }
             }
         }
@@ -2039,7 +2039,7 @@ fn read_codex_servers() -> Result<BTreeMap<String, Value>, AppCommandError> {
                         out.insert(id.to_string(), normalized);
                     }
                     Err(err) => {
-                        tracing::warn!("[MCP] skip invalid Codex mcp.servers entry id={id}: {err}");
+                        tracing::warn!("[MCP] skip invalid 星河 mcp.servers entry id={id}: {err}");
                     }
                 }
             }
@@ -2053,7 +2053,7 @@ fn upsert_codex_server(id: &str, spec: &Value) -> Result<(), AppCommandError> {
     let mut root = read_codex_root_toml()?;
     let table = root
         .as_table_mut()
-        .ok_or_else(|| mcp_configuration_invalid("Codex root TOML must be a table"))?;
+        .ok_or_else(|| mcp_configuration_invalid("星河 root TOML must be a table"))?;
 
     let codex_entry = canonical_to_codex_entry(spec)?;
 
@@ -2071,7 +2071,7 @@ fn upsert_codex_server(id: &str, spec: &Value) -> Result<(), AppCommandError> {
     let mcp_servers = table
         .get_mut("mcp_servers")
         .and_then(toml::Value::as_table_mut)
-        .ok_or_else(|| mcp_configuration_invalid("Codex mcp_servers must be a TOML table"))?;
+        .ok_or_else(|| mcp_configuration_invalid("星河 mcp_servers must be a TOML table"))?;
     mcp_servers.insert(id.to_string(), codex_entry);
 
     if let Some(legacy_mcp) = table.get_mut("mcp").and_then(toml::Value::as_table_mut) {
