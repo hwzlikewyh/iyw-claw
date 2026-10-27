@@ -3,6 +3,13 @@ import type {
   SessionConfigSelectOptionInfo,
 } from "@/lib/types"
 import { isContextBudgetConfigId } from "@/lib/model-context-window"
+import { isModelConfigOption } from "@/lib/model-display-name"
+
+export {
+  currentModelName,
+  isModelConfigOption,
+  modelDisplayName,
+} from "@/lib/model-display-name"
 
 // A visual group of model options for the composer's model selector. `name`
 // being `null` renders the options with no header — used for the leading
@@ -18,13 +25,6 @@ export interface ModelOptionGroup {
 // other agent config option. The backend ships the model option with
 // `id === "model"` and no category; Codex's approval-preset option uses
 // `category === "mode"`. Match on either signal so a future relabel stays safe.
-export function isModelConfigOption(option: SessionConfigOptionInfo): boolean {
-  return (
-    option.id === "model" ||
-    (option.category === "model" && option.id !== "provider")
-  )
-}
-
 function normalizedConfigId(option: SessionConfigOptionInfo): string {
   return option.id.trim().toLowerCase().replace(/_/g, "-")
 }
@@ -54,34 +54,6 @@ export function isModelBehaviorConfigOption(
     isFastConfigOption(option) ||
     isContextBudgetConfigId(option.id)
   )
-}
-
-export function currentModelName(
-  options: SessionConfigOptionInfo[] | undefined
-): string | null {
-  const model = options?.find(isModelConfigOption)
-  if (!model) return null
-  return modelDisplayName(options, model.kind.current_value)
-}
-
-export function modelDisplayName(
-  options: SessionConfigOptionInfo[] | undefined,
-  value: string | null | undefined
-): string | null {
-  const currentValue = value?.trim()
-  if (!currentValue) return null
-  const model = options?.find(isModelConfigOption)
-  if (!model) return currentValue
-  const candidates = [
-    ...model.kind.options,
-    ...model.kind.groups.flatMap((group) => group.options),
-  ]
-  const selected =
-    candidates.find((option) => option.value === currentValue) ??
-    [...candidates]
-      .sort((left, right) => right.value.length - left.value.length)
-      .find((option) => currentValue.startsWith(`${option.value}-`))
-  return selected?.name.trim() || currentValue
 }
 
 // The namespace before the FIRST "/", or `null` when there is no usable prefix
