@@ -20,6 +20,7 @@ Var IywClawProgressActivity
     !insertmacro MUI_PAGE_INIT
     !insertmacro MUI_PAGEDECLARATION_INSTFILES
     !insertmacro IywClawDefineWebViewFeedback
+    !insertmacro IywClawDefineRollbackRestart
     Function IywClawShowInstallPage
       Call IywClawCreateProgress
       !if "${INSTALLWEBVIEW2MODE}" == "embedBootstrapper"

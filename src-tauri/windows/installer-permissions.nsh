@@ -3,18 +3,26 @@ Var IywClawPermissionResult
 Var IywClawOriginalSid
 Var IywClawElevationChecked
 Var IywClawSelectedRoot
+Var IywClawPermissionLaunched
 
 Function IywClawRunPermissionCheck
+  StrCpy $IywClawPermissionLaunched "0"
   InitPluginsDir
   File /oname=$PLUGINSDIR\iyw-permissions.ps1 "${__FILEDIR__}\installer-permissions.ps1"
   Delete "$PLUGINSDIR\iyw-permissions.ini"
-  ; 显式传递逻辑安装根；依赖栈参数在旧版 NSIS/System 插件上会丢失路径。
-  System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_ROOT", w "$IywClawRoot")'
+  ; 通过寄存器传入路径，避免路径字符被 System 插件当成调用语法。
+  StrCpy $R0 "$IywClawRoot"
+  System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_ROOT", w R0) i.R1 ?e'
+  Pop $R2
+  StrCmp $R1 "0" permission_root_transfer_failed 0
+  ReadEnvStr $R0 "IYW_INSTALL_ROOT"
+  StrCmp $R0 $IywClawRoot 0 permission_root_transfer_mismatch
   System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_EXPECTED_SID", w "$IywClawOriginalSid")'
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "$PLUGINSDIR\iyw-permissions.ps1" -Action "$IywClawPermissionAction"'
   Pop $IywClawPermissionResult
   StrCpy $IywClawPermissionError "权限检查程序执行失败（退出码=$IywClawPermissionResult）。"
   ReadINIStr $IywClawElevated "$PLUGINSDIR\iyw-permissions.ini" "result" "Elevated"
+  ReadINIStr $IywClawPermissionLaunched "$PLUGINSDIR\iyw-permissions.ini" "result" "Launched"
   ReadINIStr $R0 "$PLUGINSDIR\iyw-permissions.ini" "result" "Root"
   StrCmp $R0 "" +2 0
   StrCpy $IywClawRoot $R0
@@ -23,6 +31,15 @@ Function IywClawRunPermissionCheck
   StrCpy $IywClawPermissionError $R0
   System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_ROOT", p 0)'
   System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_EXPECTED_SID", p 0)'
+  Return
+  permission_root_transfer_mismatch:
+    StrCpy $IywClawPermissionError "安装目录传递校验失败，请重新运行安装包。"
+    Goto permission_root_transfer_cleanup
+  permission_root_transfer_failed:
+    StrCpy $IywClawPermissionError "无法传递安装目录（Windows 错误 $R2），请重新运行安装包。"
+  permission_root_transfer_cleanup:
+    StrCpy $IywClawPermissionResult "1"
+    System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_ROOT", p 0)'
 FunctionEnd
 
 Function IywClawValidateElevationIdentity
@@ -44,7 +61,10 @@ Function IywClawValidateElevationIdentity
   identity_validated:
   ${GetOptions} $CMDLINE "/IYW_SELECTED_ROOT=" $R0
   IfErrors identity_quit 0
-  GetFullPathName $IywClawSelectedRoot "$R0"
+  Push "$R0"
+  Call IywClawGetFullInstallPath
+  Pop $IywClawSelectedRoot
+  IfErrors identity_quit
   StrCpy $INSTDIR "$IywClawSelectedRoot"
   identity_done:
 FunctionEnd
@@ -76,7 +96,7 @@ Function IywClawCheckInstallPermissions
   StrCpy $IywClawTransactionError "$IywClawPermissionError"
   DetailPrint "$IywClawPermissionError"
   IfSilent permissions_abort 0
-  MessageBox MB_OK|MB_ICONSTOP "安装前检查未通过：$\r$\n$IywClawPermissionError$\r$\n请检查目录权限、安全软件和磁盘空间。"
+  MessageBox MB_OK|MB_ICONSTOP "安装前检查未通过：$\r$\n$IywClawPermissionError"
   permissions_abort:
   SetErrorLevel 1
   Abort

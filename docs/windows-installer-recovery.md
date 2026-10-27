@@ -1,4 +1,55 @@
-# Windows 普通用户安装与失败恢复
+# Windows 安装权限与失败恢复
+
+## 安装提权、应用普通权限运行（2026-10-27）
+
+用户要求安装自动申请管理员权限，主应用日常运行保持普通权限。此策略取代下方
+历史记录中的“不主动申请管理员权限”，不改变当前用户安装目录和环境归属。
+
+- 安装器先以普通权限记录原用户和安装目录，再通过 Windows `runas` 弹出 UAC。
+  已经以管理员运行时直接继续，避免重复授权；图形、passive 和静默安装均在
+  WebView2 初始化、停止旧进程、应用替换之前检查管理员权限。
+- 沿用原身份校验，提权后 SID 不匹配即停止，不向另一个管理员账户安装用户环境。
+  `/D=` 放在重启参数末尾，保留原安装参数和所选目录。参数传给 ShellExecute，
+  不作为 PowerShell 代码执行。取消授权返回 1223，外层等待并传递实际安装退出码。
+- 主程序继续使用 `asInvoker`。安装完成、更新重启沿用 Tauri
+  `nsis_tauri_utils::RunAsUser`；失败回滚也改为同一入口，避免继承安装器管理员令牌。
+  普通用户启动失败时保留手动打开提示，不回退为管理员启动。
+- 安装权限属于本次进程，不向应用永久授予管理员权限，不扩大目录 ACL。
+  应用确实需要系统权限的功能仍沿用各自的按需授权流程。
+- 一手资料：微软 [ShellExecuteEx](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shellexecuteexw)
+  与 [runas 动词](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ns-shellapi-shellexecuteinfow)，
+  Tauri [RunAsUser 实现](https://github.com/tauri-apps/nsis-tauri-utils/blob/main/crates/nsis-process/src/lib.rs)。
+- 验证：修改后的完整 hooks 编译通过，PowerShell 5.1 语法通过；隔离启动程序实测
+  父进程 `Elevated=true`、子进程 `Elevated=false`、同一用户、插件返回 0。
+  提权函数日志使用独立输出流，隔离子进程返回 37 时函数保持单一整数退出码，
+  避免日志文本混入返回值导致安装结果丢失。
+  编译沿用本机 0.1.286 模板并省略应用 payload，存在已有声明顺序警告。
+- 未执行真实 UAC 点击、完整安装或更新验收，未构建签名发布包。当前为源码修改，
+  需重新打包发布后生效；按仓库约定未新增测试文件或运行测试套件。
+
+## 安装目录为空的修复（2026-10-27）
+
+- 验收：新建目录、旧目录已删除后的重装、中文和空格路径均能完成安装前路径解析；
+  保留 `/D=`、目录页选择和旧安装目录的优先级；空路径不进入权限检查。
+- 已使用项目原有目录恢复函数复现：NSIS 3.11 的 `GetFullPathName` 对不存在的
+  目标返回空字符串并设置错误标志。旧代码未检查结果，比较两个失败的空路径时
+  还会误判相等，最终让 PowerShell 报 `Installation directory is empty`。
+  这不是目标目录内没有文件，而是路径变量丢失。
+- [NSIS 官方实现](https://github.com/kichik/nsis/blob/master/Source/exehead/exec.c)
+  的 `EW_GETFULLPATHNAME` 分支包含存在性检查。改用
+  [Windows GetFullPathNameW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfullpathnamew)
+  只解析路径，检查失败和缓冲区长度；目录合法性、链接、写入和空间仍由原预检检查。
+- 兼容旧路径外围的一对引号；环境变量通过 System 插件寄存器参数传递，检查
+  Windows 返回值并回读核对。路径转换失败与传递失败有独立提示，移除统一的
+  “检查权限、安全软件和磁盘空间”后缀，避免把路径问题误导为权限问题。
+- 管理员终端也能复现该路径缺陷，但不能据此排除故障机器上的访问权限问题。
+  用户实测右键管理员运行可用，后续提权策略见上节。
+- 验证：隔离 NSIS 诊断覆盖不存在的多级目录、中文和空格、外围引号、末尾分隔符、
+  默认目录、旧记录、`/D=` 优先级、目录页重新选择、空值拒绝及权限 helper 身份检查。
+  修改后的完整 hooks 使用本机 Tauri 生成模板编译通过；模板版本为 0.1.286，
+  省略应用 payload，保留已有声明顺序和未使用标签警告，不作为发布安装包。
+- 按仓库约定未新增测试文件或运行测试套件。未执行完整应用安装、受限账户验证，
+  未构建或签名新发布包；源码修复须重新打包后生效。诊断临时目录和注册表项已清理。
 
 ## 普通升级轻量复用（2026-10-09）
 

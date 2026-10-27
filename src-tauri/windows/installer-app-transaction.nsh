@@ -385,10 +385,10 @@ Function IywClawRollbackAppTransaction
     Push "1"
 FunctionEnd
 
+; 页面宏在 Tauri 注册内置插件后展开，复用其普通用户启动入口。
+!macro IywClawDefineRollbackRestart
 Function IywClawRestartOldAppIfRequested
   StrCmp $IywClawRestartOnFailure "1" 0 restart_old_app_done
-  ; 回滚后的应用不能继承安装器的管理员权限；由外层普通权限安装器恢复。
-  StrCmp $IywClawElevated "1" restart_old_app_manual 0
   ; 旧版本可能早于 browser sidecar 完整性规则；回滚重启只要求主程序可用。
   Push "$IywClawAppDir\iyw-claw.exe"
   Call IywClawIsNonEmptyFile
@@ -400,14 +400,18 @@ Function IywClawRestartOldAppIfRequested
   ; The process helper returns 0=absent, 1=found, 2=check failed.
   StrCmp $R0 "0" 0 restart_old_app_done
   DetailPrint "正在重新启动旧版本 iyw-claw..."
-  ; Hooks are parsed before Tauri's additional plugin directory is registered.
-  ; ShellExecute keeps this current-user installer flow out of the plugin path
-  ; and lets the Windows shell launch the restored app without blocking rollback.
-  ExecShell "open" "$IywClawAppDir\iyw-claw.exe" "$IywClawRestartArgs"
+  nsis_tauri_utils::RunAsUser "$IywClawAppDir\iyw-claw.exe" "$IywClawRestartArgs"
+  Pop $R0
+  StrCmp $R0 "0" 0 restart_old_app_manual
+  Push "rollback restart: ordinary-user launch succeeded"
+  Call IywClawAppendInstallerLog
   Goto restart_old_app_done
 
   restart_old_app_manual:
     DetailPrint "旧版本已恢复，请通过桌面快捷方式以普通权限重新打开。"
+    Push "rollback restart: ordinary-user launch failed; manual launch required"
+    Call IywClawAppendInstallerLog
 
   restart_old_app_done:
 FunctionEnd
+!macroend

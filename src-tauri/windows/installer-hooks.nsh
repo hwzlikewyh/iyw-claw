@@ -1,7 +1,7 @@
 ; Capture source paths while NSIS includes this file.
 !define IYW_CLAW_INSTALL_REGISTRY_KEY "Software\iywclaw\iyw-claw"
 !define IYW_CLAW_UNINSTALL_REGISTRY_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\原助理"
-; 应用和环境均属于当前用户；安装与重试不申请管理员权限。
+; 保留普通权限引导以记录原用户和目录，随后通过 runas 提权安装。
 RequestExecutionLevel user
 !define MUI_CUSTOMFUNCTION_GUIINIT IywClawRestoreLogicalInstallRoot
 Var IywClawRoot
@@ -18,6 +18,7 @@ Var IywClawPermissionError
 !include "${__FILEDIR__}\installer-permissions.nsh"
 !include "${__FILEDIR__}\installer-install-root.nsh"
 !include "${__FILEDIR__}\installer-lock.nsh"
+!include "${__FILEDIR__}\installer-elevation.nsh"
 
 Function IywClawIsMainProcessRunning
   ; 仅检查当前用户、本安装目录且真实路径匹配的主进程。
@@ -52,15 +53,15 @@ Function IywClawRestoreLogicalInstallRoot
   Call IywClawRecoverSmokeInstallRoot
   Call IywClawNormalizeLegacyInstallRoot
   Call IywClawRestoreInstallDirectory
+  Call IywClawEnsureInstallElevation
 
-    StrCmp $IywClawOriginalSid "" 0 iyw_restore_elevated_root
     ; 测试模式不得检查或重启生产进程；应用内 updater 已携带 /UPDATE 时
     ; 继续当前 NSIS 流程，避免递归启动安装器。
     StrCmp $IywClawInstallerTestMode "1" iyw_guiinit_return 0
     ClearErrors
     ${GetOptions} $CMDLINE "/UPDATE" $R6
     IfErrors 0 iyw_guiinit_return
-    ReadRegStr $R8 SHCTX "$IywClawInstallRegistryKey" "InstallRoot"
+    Call IywClawReadStoredInstallRoot
     StrCmp $R8 "" iyw_guiinit_return 0
 
     ; 旧版卸载可能已经删除 app，但注册表项尚未完成清理。此时没有
@@ -96,8 +97,6 @@ Function IywClawRestoreLogicalInstallRoot
     SetErrorLevel $R6
     Quit
 
-  iyw_restore_elevated_root:
-    StrCpy $INSTDIR "$IywClawSelectedRoot"
   iyw_guiinit_return:
 FunctionEnd
 
@@ -105,7 +104,7 @@ Function IywClawResolveInstallRoot
   Call IywClawSelectInstallRoot
 
     StrCmp $IywClawRoot "" iyw_invalid_root 0
-    GetFullPathName $IywClawRoot "$IywClawRoot"
+    Call IywClawNormalizeSelectedInstallRoot
     StrCmp $IywClawInstallerTestMode "1" 0 iyw_root_scope_validated
     Call IywClawValidateTestRoot
     Pop $R0

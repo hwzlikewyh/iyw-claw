@@ -1,11 +1,11 @@
-param([ValidateSet('identity', 'check')][string]$Action)
+param([ValidateSet('identity', 'check', 'elevate')][string]$Action)
 
 $ErrorActionPreference = 'Stop'
 $resultPath = Join-Path $PSScriptRoot 'iyw-permissions.ini'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 $elevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-$result = [ordered]@{ Sid = $identity.User.Value; Elevated = [int]$elevated; Root = ''; Error = '' }
+$result = [ordered]@{ Sid = $identity.User.Value; Elevated = [int]$elevated; Launched = 0; Root = ''; Error = '' }
 $exitCode = 0
 $fileRetryTimeout = [TimeSpan]::FromSeconds(15)
 $fileRetryInitialDelay = 100
@@ -126,10 +126,35 @@ function Test-InstallAccess {
     Write-Output 'Installation directory access and application disk-space checks passed.'
 }
 
+function Start-ElevatedInstaller {
+    if ($elevated -or $env:IYW_INSTALL_EXPECTED_SID) { throw 'An elevated installation has already been attempted.' }
+    $root = Resolve-InstallRoot
+    $start = [Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $env:IYW_INSTALL_EXECUTABLE
+    $start.UseShellExecute = $true
+    $start.Verb = 'runas'
+    $start.WorkingDirectory = $env:TEMP
+    # NSIS requires /D= to be the final argument, without quotes.
+    # Forward arguments as data to ShellExecute, never as PowerShell source.
+    $start.Arguments = '/IYW_ORIGINAL_SID=' + $identity.User.Value + ' /IYW_SELECTED_ROOT="' + $root + '" ' + $env:IYW_INSTALL_ARGUMENTS + ' /D=' + $root
+    Write-Host 'Requesting administrator consent for installation.'
+    $child = [Diagnostics.Process]::Start($start)
+    if ($null -eq $child) { throw 'Windows did not return the elevated installer process.' }
+    $result.Launched = 1
+    try {
+        $child.WaitForExit()
+        $child.Refresh()
+        Write-Host ('Elevated installer completed: exit=' + $child.ExitCode)
+        return $child.ExitCode
+    } finally { $child.Dispose() }
+}
+
 try {
     Assert-OriginalIdentity
     switch ($Action) {
+        'identity' { Write-Output ('Installer identity verified: elevated=' + [int]$elevated) }
         'check' { Test-InstallAccess }
+        'elevate' { $exitCode = Start-ElevatedInstaller }
     }
 } catch {
     $messages = @()
