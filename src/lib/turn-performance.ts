@@ -43,16 +43,21 @@ function eventTimestamp(event: EventEnvelope): number | null {
 function firstContentAt(
   message: LiveTiming,
   kind: "text" | "thinking",
-  observation: { type: string; at: number }
+  observation: { event: EventEnvelope; at: number }
 ): number | null {
   const previous =
     kind === "thinking" ? message.firstThinkingAt : message.firstTextAt
   if (previous != null) return previous
+  const { event } = observation
   const eventKind = kind === "text" ? "content_delta" : "thinking"
-  if (observation.type !== eventKind) return null
+  if (
+    (event.type !== "content_delta" && event.type !== "thinking") ||
+    event.type !== eventKind ||
+    !event.text.trim()
+  )
+    return null
   const seen = message.content.some(
-    (block) =>
-      block.type === kind && (kind === "thinking" || Boolean(block.text))
+    (block) => block.type === kind && Boolean(block.text?.trim())
   )
   return seen ? null : observation.at
 }
@@ -69,7 +74,7 @@ export function observeTurnTiming<T extends LiveTiming>(
   const elapsed = at - startedAt
   if (elapsed < 0) return message
   const observedAt = message.startedAt + elapsed
-  const observation = { type: event.type, at: observedAt }
+  const observation = { event, at: observedAt }
   const timings = {
     firstActivityAt:
       message.firstActivityAt ??
@@ -126,13 +131,19 @@ export function recordedTurnTimings(messageId: string): TurnTimings | null {
   return turnTimings.get(messageId) ?? null
 }
 
-export function firstTokenElapsed(timing: {
-  startedAt: number
-  firstTextAt?: number | null
-}): number | null {
-  if (timing.firstTextAt == null) return null
-  const elapsed = timing.firstTextAt - timing.startedAt
-  return Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : null
+// 思考和正文中的首段有效文本都算首字，工具活动不参与计算。
+export function firstTokenDuration(timing: TurnTimings | null): number | null {
+  const values = [timing?.firstThinkingMs, timing?.firstTextMs].filter(
+    (value): value is number =>
+      value != null && Number.isFinite(value) && value >= 0
+  )
+  return values.length > 0 ? Math.min(...values) : null
+}
+
+export function firstTokenElapsed(
+  timing: Omit<LiveTiming, "content">
+): number | null {
+  return firstTokenDuration(measuredTurnTimings(timing))
 }
 
 export function rememberFirstTokenTime(
@@ -148,5 +159,5 @@ export function rememberFirstTokenTime(
 }
 
 export function recordedFirstTokenTime(messageId: string): number | null {
-  return turnTimings.get(messageId)?.firstTextMs ?? null
+  return firstTokenDuration(recordedTurnTimings(messageId))
 }

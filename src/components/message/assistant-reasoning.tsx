@@ -8,6 +8,30 @@ import { ReasoningBody } from "@/components/ai-elements/reasoning-body"
 import { AssistantFoldContent } from "./assistant-fold-content"
 import { useArchiveDisclosure } from "./use-archive-disclosure"
 
+const PREVIEW_CHARACTER_LIMIT = 120
+
+function ReasoningLabel({ content, open }: { content: string; open: boolean }) {
+  const t = useTranslations("Folder.chat.reasoning")
+  // 只预览末尾片段，让长段落持续输出时仍能看到最新进展。
+  const preview = content.trimEnd().slice(-PREVIEW_CHARACTER_LIMIT)
+  return (
+    <>
+      <span className="assistant-reasoning-title">{t("deepThinking")}</span>
+      {content.trim() && (
+        <ChevronRight
+          aria-hidden="true"
+          className={open ? "rotate-90" : undefined}
+        />
+      )}
+      {!open && preview && (
+        <span className="assistant-reasoning-preview" aria-hidden="true">
+          {preview.replace(/\s+/g, " ").trim()}
+        </span>
+      )}
+    </>
+  )
+}
+
 function useReasoningViewport(streaming: boolean, reading: boolean) {
   const { scrollRef, contentRef, stopScroll } = useStickToBottom({
     initial: streaming ? "instant" : false,
@@ -28,8 +52,7 @@ export function AssistantReasoning({
 }) {
   const t = useTranslations("Folder.chat.reasoning")
   const id = useId()
-  const { rootRef, reading, open, onOpenChange } =
-    useArchiveDisclosure(!streaming)
+  const { rootRef, reading, open, onOpenChange } = useArchiveDisclosure(true)
   const { scrollRef, contentRef } = useReasoningViewport(streaming, reading)
   const hasContent = Boolean(content.trim())
   return (
@@ -38,17 +61,12 @@ export function AssistantReasoning({
         type="button"
         className="assistant-reasoning-label"
         disabled={!hasContent}
+        aria-label={t("deepThinking")}
         aria-expanded={hasContent && open}
         aria-controls={id}
         onClick={() => onOpenChange(!open)}
       >
-        {t("deepThinking")}
-        {hasContent && (
-          <ChevronRight
-            aria-hidden="true"
-            className={open ? "rotate-90" : undefined}
-          />
-        )}
+        <ReasoningLabel content={content} open={open} />
       </button>
       <AssistantFoldContent open={hasContent && open} contentId={id}>
         <div

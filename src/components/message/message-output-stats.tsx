@@ -11,6 +11,7 @@ import { useRecentOutputRate } from "@/hooks/use-recent-output-rate"
 import { resolveUsagePoints } from "@/lib/usage-points"
 import { useLiveTurnPoints } from "./use-live-turn-points"
 import {
+  firstTokenDuration,
   measuredTurnTimings,
   recordedTurnTimings,
   rememberTurnTimings,
@@ -132,23 +133,18 @@ export const MessageOutputStats = memo(function MessageOutputStats(
   )
 })
 
-function validTiming(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-}
-
 function useTurnTimingStats(timings: TurnTimings | null) {
   const t = useTranslations("Folder.chat.liveTurnStats")
-  const fields = [["firstTextMs", "firstToken"]] as const
-  return fields.map(([key, label]) => {
-    const value = timings?.[key]
-    return validTiming(value) ? (
-      <span key={key}>
-        {t(label, {
-          time: `${(value / MILLISECONDS_PER_SECOND).toFixed(2)} s`,
-        })}
-      </span>
-    ) : null
-  })
+  const value = firstTokenDuration(timings)
+  return value == null
+    ? []
+    : [
+        <span key="firstToken">
+          {t("firstToken", {
+            time: `${(value / MILLISECONDS_PER_SECOND).toFixed(2)} s`,
+          })}
+        </span>,
+      ]
 }
 
 interface OutputStatsViewProps {
