@@ -42,6 +42,7 @@ impl Parser {
             inline,
             fields: Vec::new(),
             source_extra: Vec::new(),
+            key_span: None,
         })
     }
 

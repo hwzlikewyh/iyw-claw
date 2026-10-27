@@ -27,6 +27,7 @@ mod rewrite;
 mod spool;
 mod spool_budget;
 mod target;
+mod transport;
 mod websocket;
 mod work;
 
@@ -70,6 +71,7 @@ pub(super) struct Runtime {
     work: Arc<Semaphore>,
     sockets: Arc<Semaphore>,
     cache: assets::AssetCache,
+    transport: transport::TransportCache,
     asset_locks: Vec<tokio::sync::Mutex<()>>,
     shutdown: CancellationToken,
 }
@@ -166,6 +168,7 @@ impl Runtime {
             work: Arc::new(Semaphore::new(limits::MAX_BLOCKING_WORK)),
             sockets: Arc::new(Semaphore::new(limits::MAX_WEBSOCKETS)),
             cache: assets::AssetCache::default(),
+            transport: transport::TransportCache::default(),
             asset_locks: (0..limits::MAX_ASSET_LOCKS)
                 .map(|_| tokio::sync::Mutex::new(()))
                 .collect(),
