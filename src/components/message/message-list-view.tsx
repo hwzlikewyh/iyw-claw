@@ -1007,7 +1007,11 @@ export function MessageListView({
               phase="streaming"
               enabled={animationEnabled}
             >
-              <PendingTypingIndicator agentType={agentType} />
+              <PendingTypingIndicator
+                agentType={agentType}
+                contextKey={activityContextKey}
+                startedAt={liveMessage?.startedAt ?? null}
+              />
             </MessageEntrance>
           )
         case "history":
@@ -1034,6 +1038,7 @@ export function MessageListView({
     },
     [
       agentType,
+      activityContextKey,
       connStatus,
       isActive,
       liveMessage,
