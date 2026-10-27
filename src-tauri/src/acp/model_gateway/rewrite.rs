@@ -26,9 +26,10 @@ pub(super) async fn prepare(
     (path, token): (&str, &str),
 ) -> Result<Output, GatewayError> {
     let path = path.to_owned();
+    let scan_path = path.clone();
     let (body, scan) = super::work::blocking(runtime, move || {
-        let scan = if path.ends_with("/images/input/prepare") || body.may_contain_images()? {
-            json_scan::scan(body.reader()?, &path)?
+        let scan = if scan_path.ends_with("/images/input/prepare") || body.may_contain_images()? {
+            json_scan::scan(body.reader()?, &scan_path)?
         } else {
             Default::default()
         };
@@ -38,63 +39,85 @@ pub(super) async fn prepare(
     if scan.images.is_empty() {
         return Ok(Output::Request(body));
     }
-    let _permit = runtime
-        .images
-        .acquire()
-        .await
-        .map_err(|_| GatewayError::unavailable("Image queue closed"))?;
-    prepare_images(runtime, body, (scan, token)).await
+    let ids = missing_references(runtime, token, &scan);
+    let urls = scan.operation != "upload"
+        && runtime
+            .local_url_transport(token, (&scan.model, &path), &ids)
+            .await;
+    let inline = scan.images.iter().any(|image| image.managed_id.is_none());
+    if !urls && !inline {
+        return Ok(Output::Request(body));
+    }
+    let _permit = if inline {
+        Some(
+            runtime
+                .images
+                .acquire()
+                .await
+                .map_err(|_| GatewayError::unavailable("Image queue closed"))?,
+        )
+    } else {
+        None
+    };
+    prepare_images(runtime, body, (scan, token, urls)).await
 }
 
 async fn prepare_images(
     runtime: &Arc<Runtime>,
     body: Spool,
-    (scan, token): (json_scan::Scan, &str),
+    (scan, token, urls): (json_scan::Scan, &str, bool),
 ) -> Result<Output, GatewayError> {
     let mut replacements = Vec::new();
     let mut body = body;
     for slot in scan.images {
-        let (returned, slot, hash) = super::work::blocking(runtime, move || {
-            let hash = media::encoded_digest(&body, &slot)?;
-            Ok::<_, GatewayError>((body, slot, hash))
-        })
-        .await?;
-        body = returned;
-        let key = AssetCache::key(token, &hash);
-        let _same_asset = runtime.asset_locks[usize::from(key[0]) % runtime.asset_locks.len()]
-            .lock()
-            .await;
-        let asset = match runtime.cache.get(&key) {
-            Some(asset) => {
-                validate_cached(&slot, &asset)?;
-                asset
-            }
-            None => {
-                let (returned, slot_returned, decoded) =
-                    super::work::blocking(runtime, move || {
-                        let prepared = media::decode(&body, &slot, hash)?;
-                        Ok::<_, GatewayError>((body, slot, prepared))
-                    })
-                    .await?;
-                body = returned;
-                let asset = runtime.upload((token, &scan.model), decoded).await?;
-                if scan.operation == "upload" {
-                    return Ok(Output::Prepared(asset));
+        if let Some(id) = &slot.managed_id {
+            if urls {
+                if let Some(asset) = runtime.cache.get_reference(token, id) {
+                    push_replacement(&mut replacements, &slot, (&asset, true))?;
                 }
-                replacements.push((
-                    slot_returned.replace.clone(),
-                    replacement(&slot_returned, &asset)?,
-                ));
-                continue;
             }
-        };
+            continue;
+        }
+        let (returned, slot, asset) =
+            prepare_inline(runtime, body, (slot, token, &scan.model)).await?;
+        body = returned;
         if scan.operation == "upload" {
             return Ok(Output::Prepared(asset));
         }
-        replacements.push((slot.replace.clone(), replacement(&slot, &asset)?));
+        push_replacement(&mut replacements, &slot, (&asset, urls))?;
+    }
+    if replacements.is_empty() {
+        return Ok(Output::Request(body));
     }
     let rewritten = super::work::blocking(runtime, move || apply(body, replacements)).await?;
     Ok(Output::Request(rewritten))
+}
+
+async fn prepare_inline(
+    runtime: &Runtime,
+    body: Spool,
+    (slot, token, model): (ImageSlot, &str, &str),
+) -> Result<(Spool, ImageSlot, Asset), GatewayError> {
+    let (body, slot, hash) = super::work::blocking(runtime, move || {
+        let hash = media::encoded_digest(&body, &slot)?;
+        Ok::<_, GatewayError>((body, slot, hash))
+    })
+    .await?;
+    let key = AssetCache::key(token, &hash);
+    let _same_asset = runtime.asset_locks[usize::from(key[0]) % runtime.asset_locks.len()]
+        .lock()
+        .await;
+    if let Some(asset) = runtime.cache.get(&key) {
+        validate_cached(&slot, &asset)?;
+        return Ok((body, slot, asset));
+    }
+    let (body, slot, decoded) = super::work::blocking(runtime, move || {
+        let prepared = media::decode(&body, &slot, hash)?;
+        Ok::<_, GatewayError>((body, slot, prepared))
+    })
+    .await?;
+    let asset = runtime.upload((token, model), decoded).await?;
+    Ok((body, slot, asset))
 }
 
 fn validate_cached(slot: &ImageSlot, asset: &Asset) -> Result<(), GatewayError> {
@@ -110,15 +133,20 @@ fn validate_cached(slot: &ImageSlot, asset: &Asset) -> Result<(), GatewayError> 
     Ok(())
 }
 
-fn replacement(slot: &ImageSlot, asset: &Asset) -> Result<Replacement, GatewayError> {
+fn replacement(slot: &ImageSlot, asset: &Asset, urls: bool) -> Result<Replacement, GatewayError> {
+    let reference = if urls {
+        asset.image_url.clone()
+    } else {
+        format!("iyw-image:{}", asset.image_id)
+    };
     let value = match slot.format {
         ImageFormat::Messages => {
-            serde_json::json!({"type":"url", "url":format!("iyw-image:{}", asset.image_id)})
+            serde_json::json!({"type":"url", "url":reference})
         }
         ImageFormat::Responses | ImageFormat::Chat => {
-            serde_json::json!(format!("iyw-image:{}", asset.image_id))
+            serde_json::json!(reference)
         }
-        ImageFormat::Edit => serde_json::json!(format!("iyw-image:{}", asset.image_id)),
+        ImageFormat::Edit => serde_json::json!(reference),
     };
     let mut bytes = serde_json::to_vec(&value)
         .map_err(|_| GatewayError::unavailable("Image reference encoding failed"))?;
@@ -131,6 +159,36 @@ fn replacement(slot: &ImageSlot, asset: &Asset) -> Result<Replacement, GatewayEr
         bytes.pop();
     }
     Ok(Replacement { bytes, copy_fields })
+}
+
+fn missing_references(runtime: &Runtime, token: &str, scan: &json_scan::Scan) -> Vec<String> {
+    let mut ids = Vec::new();
+    for slot in &scan.images {
+        if let Some(id) = &slot.managed_id {
+            if runtime.cache.get_reference(token, id).is_none() && !ids.contains(id) {
+                ids.push(id.clone());
+            }
+        }
+    }
+    ids
+}
+
+fn push_replacement(
+    replacements: &mut Vec<(std::ops::Range<u64>, Replacement)>,
+    slot: &ImageSlot,
+    (asset, urls): (&Asset, bool),
+) -> Result<(), GatewayError> {
+    replacements.push((slot.replace.clone(), replacement(slot, asset, urls)?));
+    if let Some(range) = &slot.rename {
+        replacements.push((
+            range.clone(),
+            Replacement {
+                bytes: b"\"image_url\"".to_vec(),
+                copy_fields: Vec::new(),
+            },
+        ));
+    }
+    Ok(())
 }
 
 fn apply(

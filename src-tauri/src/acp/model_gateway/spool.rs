@@ -142,6 +142,7 @@ fn image_marker(bytes: &[u8]) -> bool {
         match byte {
             b'd' => suffix.starts_with(b"data:"),
             b'b' => suffix.starts_with(b"base64"),
+            b'i' => suffix.starts_with(b"iyw-image"),
             b'\\' => suffix.starts_with(b"\\u00"),
             _ => false,
         }

@@ -7,7 +7,10 @@ use tokio_util::io::ReaderStream;
 
 use super::{
     error::GatewayError,
-    limits::{MAX_CACHE_ENTRIES, METADATA_BYTES, PREPARE_TIMEOUT, URL_REUSE},
+    limits::{
+        BATCH_METADATA_BYTES, MAX_CACHE_ENTRIES, METADATA_BYTES, PREPARE_TIMEOUT, REFERENCE_REUSE,
+        URL_REUSE,
+    },
     media::Prepared,
     target, Runtime,
 };
@@ -30,7 +33,10 @@ fn yes() -> bool {
 }
 
 #[derive(Default)]
-pub(super) struct AssetCache(Mutex<HashMap<[u8; 32], (Instant, Asset)>>);
+pub(super) struct AssetCache {
+    encoded: Mutex<HashMap<[u8; 32], (Instant, Asset)>>,
+    references: Mutex<HashMap<[u8; 32], (Instant, Asset)>>,
+}
 
 impl AssetCache {
     pub fn key(token: &str, encoded: &[u8; 32]) -> [u8; 32] {
@@ -41,7 +47,7 @@ impl AssetCache {
     }
 
     pub fn get(&self, key: &[u8; 32]) -> Option<Asset> {
-        self.0
+        self.encoded
             .lock()
             .ok()?
             .get(key)
@@ -50,13 +56,40 @@ impl AssetCache {
     }
 
     fn insert(&self, key: [u8; 32], asset: Asset) {
-        let Ok(mut cache) = self.0.lock() else {
+        let Ok(mut cache) = self.encoded.lock() else {
             return;
         };
-        if cache.len() >= MAX_CACHE_ENTRIES {
+        if cache.len() >= MAX_CACHE_ENTRIES / 2 {
             if let Some(oldest) = cache
                 .iter()
                 .min_by_key(|(_, (created, _))| *created)
+                .map(|(key, _)| *key)
+            {
+                cache.remove(&oldest);
+            }
+        }
+        cache.insert(key, (Instant::now(), asset));
+    }
+
+    pub fn get_reference(&self, token: &str, id: &str) -> Option<Asset> {
+        let key = Self::key(token, &Sha256::digest(id.as_bytes()).into());
+        self.references
+            .lock()
+            .ok()?
+            .get(&key)
+            .filter(|(created, _)| created.elapsed() < REFERENCE_REUSE)
+            .map(|(_, asset)| asset.clone())
+    }
+
+    pub fn insert_reference(&self, token: &str, asset: Asset) {
+        let key = Self::key(token, &Sha256::digest(asset.image_id.as_bytes()).into());
+        let Ok(mut cache) = self.references.lock() else {
+            return;
+        };
+        if cache.len() >= MAX_CACHE_ENTRIES / 2 {
+            if let Some(oldest) = cache
+                .iter()
+                .min_by_key(|(_, (at, _))| *at)
                 .map(|(key, _)| *key)
             {
                 cache.remove(&oldest);
@@ -112,19 +145,17 @@ impl Runtime {
         };
         let asset: Asset = serde_json::from_value(value)
             .map_err(|_| GatewayError::unavailable("Image resource response is invalid"))?;
-        if !asset.supported
-            || !asset.found
+        if !super::transport::valid_asset(&asset)
             || asset.sha256 != prepared.digest
             || asset.mime_type != prepared.mime
             || asset.size_bytes != prepared.size
-            || !asset.image_id.starts_with("iyw-image-v1-")
-            || !asset.image_url.starts_with("https://")
         {
             return Err(GatewayError::unavailable(
                 "Image resource identity does not match",
             ));
         }
         self.cache.insert(key, asset.clone());
+        self.cache.insert_reference(token, asset.clone());
         tracing::info!(target: "model_gateway", image_bytes = prepared.size,
             storage_upload = !ticket.found, elapsed_ms = started.elapsed().as_millis(),
             "local image resource prepared");
@@ -188,7 +219,7 @@ impl Runtime {
         first
     }
 
-    async fn image_api_once(
+    pub(super) async fn image_api_once(
         &self,
         token: &str,
         payload: &serde_json::Value,
@@ -214,11 +245,16 @@ impl Runtime {
         }
         let mut stream = response.bytes_stream();
         let mut body = Vec::new();
+        let response_limit = if payload["operation"] == "resolve_batch" {
+            BATCH_METADATA_BYTES
+        } else {
+            METADATA_BYTES
+        };
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|_| {
                 GatewayError::unavailable("Image resource response was interrupted")
             })?;
-            if body.len() + chunk.len() > METADATA_BYTES {
+            if body.len() + chunk.len() > response_limit {
                 return Err(GatewayError::unavailable("Image metadata exceeds limit"));
             }
             body.extend_from_slice(&chunk);

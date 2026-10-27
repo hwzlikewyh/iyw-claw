@@ -23,6 +23,8 @@ pub(super) struct ImageSlot {
     pub mime: Option<String>,
     pub format: ImageFormat,
     pub source_extra: Vec<Range<u64>>,
+    pub managed_id: Option<String>,
+    pub rename: Option<Range<u64>>,
 }
 
 #[derive(Default)]
@@ -39,6 +41,7 @@ pub(super) struct Value {
     pub fields: Vec<(String, Value)>,
     pub inline: bool,
     pub source_extra: Vec<Range<u64>>,
+    pub key_span: Option<Range<u64>>,
 }
 
 impl Value {
@@ -117,14 +120,10 @@ impl Parser {
 
     fn string_value(&mut self, key: &str, active: bool) -> Result<Value, GatewayError> {
         let value = self.string()?;
-        if active && self.editing && matches!(key, "images" | "mask") && value.inline {
-            self.add_image(ImageSlot {
-                encoded: value.span.clone(),
-                replace: value.span.clone(),
-                mime: None,
-                format: ImageFormat::Edit,
-                source_extra: Vec::new(),
-            })?;
+        if active {
+            if let Some(slot) = super::json_image::string_slot(&value, key, self.editing) {
+                self.add_image(slot)?;
+            }
         }
         Ok(value)
     }
@@ -223,7 +222,17 @@ impl Parser {
     }
 
     fn add_image(&mut self, slot: ImageSlot) -> Result<(), GatewayError> {
-        if self.result.images.len() >= MAX_IMAGES {
+        let managed = slot.managed_id.is_some();
+        let count = self
+            .result
+            .images
+            .iter()
+            .filter(|image| image.managed_id.is_some() == managed)
+            .count();
+        if count >= MAX_IMAGES && managed {
+            return Ok(()); // 可选的历史 ID 优化超限时保留原文，不新增请求拒绝。
+        }
+        if count >= MAX_IMAGES {
             return Err(GatewayError::input("Too many request images"));
         }
         self.result.images.push(slot);
@@ -244,14 +253,21 @@ impl Parser {
             .string()?
             .text
             .ok_or_else(|| GatewayError::input("JSON key exceeds limit"))?;
+        let key_end = self.offset;
         self.whitespace()?;
         if self.byte()? != b':' {
             return Err(GatewayError::input("Invalid JSON object"));
         }
-        let child_active = active && image_container(&key)
+        let child_active = active && super::json_image::container(&key)
             || depth == 0 && self.editing && matches!(key.as_str(), "images" | "mask");
-        let value = self.value(depth + 1, &key, child_active)?;
-        if source && !matches!(key.as_str(), "type" | "data" | "media_type" | "url") {
+        let mut value = self.value(depth + 1, &key, child_active)?;
+        value.key_span = Some(field_start..key_end);
+        if source
+            && !matches!(
+                key.as_str(),
+                "type" | "data" | "media_type" | "url" | "file_id"
+            )
+        {
             object.source_extra.push(field_start..self.offset);
         }
         if [
@@ -263,6 +279,7 @@ impl Parser {
             "data",
             "url",
             "image_url",
+            "file_id",
             "source",
         ]
         .contains(&key.as_str())
@@ -274,18 +291,4 @@ impl Parser {
         }
         Ok(())
     }
-}
-
-fn image_container(key: &str) -> bool {
-    matches!(
-        key,
-        "input"
-            | "messages"
-            | "system"
-            | "content"
-            | "output"
-            | "source"
-            | "image_url"
-            | "response"
-    )
 }
