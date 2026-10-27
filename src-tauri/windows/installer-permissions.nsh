@@ -91,6 +91,8 @@ Function IywClawCheckInstallPermissions
   System::Call 'kernel32::SetEnvironmentVariableW(w "IYW_INSTALL_REQUIRED_KB", p 0)'
   StrCmp $IywClawPermissionResult "0" permissions_ready 0
   StrCmp $IywClawPermissionResult "31" 0 permissions_failed
+  Call IywClawTryElevatedUpdate
+  StrCmp $IywClawPermissionResult "31" 0 permissions_failed
   StrCpy $IywClawPermissionError "$IywClawPermissionError 当前用户无法写入目录，请选择有写入权限的安装目录（默认位于当前用户的 LocalAppData），并检查用户环境目录的权限。"
   permissions_failed:
   StrCpy $IywClawTransactionError "$IywClawPermissionError"
