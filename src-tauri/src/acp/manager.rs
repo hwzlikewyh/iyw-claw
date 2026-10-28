@@ -1731,12 +1731,14 @@ impl ConnectionManager {
         let memory_context =
             memory_context::prepare(self.user_memory_service.get(), &state_arc, &blocks).await;
         let memory_prepare_ms = memory_started.elapsed().as_millis();
+        let ui_started = Instant::now();
         let ui_context = if let Some(conn) = self.version_center_db.get() {
             let conversation_id = state_arc.read().await.conversation_id;
-            crate::commands::intelligent_ui::context::prepare(conn, conversation_id).await
+            Some(crate::commands::intelligent_ui::context::prepare(conn, conversation_id).await)
         } else {
             None
         };
+        let ui_prepare_ms = ui_started.elapsed().as_millis();
         // Concurrency gate: reject a second prompt while a turn is already in
         // flight on this connection. Reserve channel capacity FIRST — that
         // `reserve().await` is the only point that can block or be cancelled.
@@ -1763,7 +1765,7 @@ impl ConnectionManager {
                 .await
                 .map_err(AcpError::from_capability_error)?;
         }
-        let launch_context = {
+        let (launch_context, ui_context) = {
             let mut s = state_arc.write().await;
             if crate::commands::iyw_account::workspace_switching() {
                 return Err(AcpError::protocol("空间正在切换，请稍后再发起新请求"));
@@ -1807,15 +1809,21 @@ impl ConnectionManager {
                     .filter(|context| !context.trim().is_empty())
             };
             let continuation = s.continuation_context.take();
-            combine_prompt_context(
+            let launch = combine_prompt_context(
                 continuation,
                 combine_prompt_context(launch, combine_prompt_context(memory_context, reminder)),
-            )
+            );
+            let ui = ui_context.map(|context| context.for_launch(&mut s, &blocks));
+            (launch, ui)
         };
+        let ui_guide_mode = ui_context.as_ref().map_or("absent", |ui| ui.guide_mode);
+        let ui_context_bytes = ui_context.as_ref().map_or(0, |ui| ui.text.len());
+        let ui_guide_saved_bytes = ui_context.as_ref().map_or(0, |ui| ui.saved_bytes);
         let user_context = combine_prompt_context(
             launch_context,
-            combine_prompt_context(private_context, ui_context),
+            combine_prompt_context(private_context, ui_context.map(|ui| ui.text)),
         );
+        let context_bytes = user_context.as_ref().map_or(0, |context| context.len());
         permit.send(ConnectionCommand::Prompt {
             blocks,
             user_context,
@@ -1830,6 +1838,11 @@ impl ConnectionManager {
             turn_generation,
             connection_wait_ms,
             memory_prepare_ms,
+            ui_prepare_ms,
+            ui_guide_mode,
+            ui_context_bytes,
+            ui_guide_saved_bytes,
+            context_bytes,
             preparation_ms = preparation_started.elapsed().as_millis(),
             "[ACP] prompt enqueued to connection command channel"
         );

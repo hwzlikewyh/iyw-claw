@@ -491,6 +491,7 @@ pub struct SessionState {
     /// Set atomically with the first accepted prompt enqueue. A live connection
     /// keeps its launch snapshot and never reinjects it on later turns.
     pub user_context_injected: bool,
+    pub(crate) ui_guide_delivery: super::ui_guide_delivery::UiGuideDelivery,
 
     /// Whether the `check_user_feedback` MCP tool was exposed to THIS agent at
     /// launch (the `feedback` feature was on when built-in MCP was injected).
@@ -754,6 +755,7 @@ impl SessionState {
             launch_finalized: false,
             launch_ready: Arc::new(tokio::sync::Notify::new()),
             user_context_injected: false,
+            ui_guide_delivery: Default::default(),
             feedback_tool_available: false,
             native_steering_available: false,
             native_background_turn: None,
@@ -842,6 +844,7 @@ impl SessionState {
         {
             return;
         }
+        self.ui_guide_delivery.observe(payload, self.turn_generation);
         match payload {
             AcpEvent::RuntimeTasksChanged { .. } => {}
             AcpEvent::BillingReceipt { .. } => {}
@@ -958,6 +961,9 @@ impl SessionState {
                 compaction_at_tokens,
                 compaction_pending,
             } => {
+                if self.usage.as_ref().is_some_and(|previous| *used < previous.used) {
+                    self.ui_guide_delivery.invalidate();
+                }
                 self.usage = Some(UsageInfo {
                     used: *used,
                     size: *size,
