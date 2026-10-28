@@ -43,6 +43,7 @@ import { groupOfTab, isReparentUnmount } from "@/stores/tab-store"
 import { useSessionStats } from "@/contexts/session-stats-context"
 import { useTaskContext } from "@/contexts/task-context"
 import { useIywAccount } from "@/contexts/iyw-account-context"
+import { isLocalDesktop } from "@/lib/platform"
 import { useWorkbenchRoute } from "@/contexts/workbench-route-context"
 import { cn, copyTextFromMenu, randomUUID } from "@/lib/utils"
 import { useConnectionLifecycle } from "@/hooks/use-connection-lifecycle"
@@ -460,7 +461,7 @@ const ConversationTabView = memo(function ConversationTabView({
   groupId,
 }: ConversationTabViewProps) {
   const isDocumentVisible = useDocumentVisibility()
-  const { status: accountStatus } = useIywAccount()
+  const { status: accountStatus, profile: accountProfile } = useIywAccount()
   const [catalogVersion, setCatalogVersion] = useState(0)
   const t = useTranslations("Folder.conversation")
   const tWelcome = useTranslations("Folder.chat.welcomeInputPanel")
@@ -804,8 +805,15 @@ const ConversationTabView = memo(function ConversationTabView({
   // a live connection to attach to, but must never receive session/new as a
   // silent replacement for historical context.
   const awaitingHistoricalSessionId = hasPersistedConversation && detailLoading
+  // 本地星河随应用内置；首次目录刷新仍在联网时，先走已有连接入口的
+  // 安装、启用和启动权限校验。登录/空间未确定时不提前发起失败的连接。
+  const canStartDraft =
+    accountStatus === "authenticated" &&
+    !accountProfile?.workspace_pending &&
+    ((agentsLoaded && usableAgentCount > 0) ||
+      (!agentsLoaded && selectedAgent === "codex" && isLocalDesktop()))
   const canAutoConnect =
-    (hasPersistedConversation || (agentsLoaded && usableAgentCount > 0)) &&
+    (hasPersistedConversation || canStartDraft) &&
     !awaitingHistoricalSessionId &&
     !(hasPersistedConversation && detailError) &&
     !(hasPersistedConversation && acpLoadError)
