@@ -99,6 +99,9 @@ pub(crate) async fn observe_sdk(
 ) {
     let revision = {
         let mut state = context.0.write().await;
+        if message["type"] == "system" && message["subtype"] == "compact_boundary" {
+            state.ui_guide_delivery.invalidate();
+        }
         let persistence = state.runtime_tasks.persistence_revision;
         state.runtime_tasks.observe_sdk(message).then_some((
             state.runtime_tasks.revision,

@@ -95,6 +95,27 @@ function collectDiagnosticStage(state, fields) {
       fields.duration_ms
     )
   }
+  if (fields?.message === "[ACP] prompt enqueued to connection command channel") {
+    collectPromptPreparation(state, fields)
+  }
+}
+
+function collectPromptPreparation(state, fields) {
+  const labels = {
+    version: state.version,
+    agent: fields.agent_type,
+    uiGuideMode: fields.ui_guide_mode ?? "unrecorded",
+  }
+  for (const field of ["preparation_ms", "memory_prepare_ms", "ui_prepare_ms"]) {
+    addSample(state.promptPreparation, { ...labels, field }, fields[field])
+  }
+  for (const field of [
+    "context_bytes",
+    "ui_context_bytes",
+    "ui_guide_saved_bytes",
+  ]) {
+    addSample(state.promptContext, { ...labels, field }, fields[field])
+  }
 }
 
 async function readLog(path, state) {
@@ -144,6 +165,21 @@ function summarize(groups) {
   })
 }
 
+function summarizeBytes(groups) {
+  return [...groups.values()].map(({ samples, ...labels }) => {
+    const sorted = samples.toSorted((left, right) => left - right)
+    return {
+      ...labels,
+      count: sorted.length,
+      totalBytes: sorted.reduce((total, value) => total + value, 0),
+      minBytes: sorted[0],
+      p50Bytes: percentile(sorted, PERCENTILE_MEDIAN),
+      p95Bytes: percentile(sorted, PERCENTILE_P95),
+      maxBytes: sorted.at(-1),
+    }
+  })
+}
+
 async function main(paths) {
   if (!paths.length) {
     throw new Error(
@@ -160,6 +196,8 @@ async function main(paths) {
     firstContent: new Map(),
     runtimeStages: new Map(),
     turnLatency: new Map(),
+    promptPreparation: new Map(),
+    promptContext: new Map(),
   }
   const files = []
   for (const path of paths) {
@@ -176,6 +214,8 @@ async function main(paths) {
         firstContentAfterSend: summarize(state.firstContent),
         runtimeEnvironmentStages: summarize(state.runtimeStages),
         turnLatency: summarize(state.turnLatency),
+        promptPreparation: summarize(state.promptPreparation),
+        promptContext: summarizeBytes(state.promptContext),
         stages: summarize(state.stages),
       },
       null,
