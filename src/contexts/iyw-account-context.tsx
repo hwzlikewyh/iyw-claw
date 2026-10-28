@@ -206,6 +206,8 @@ export function IywAccountProvider({ children }: { children: ReactNode }) {
         const result = await iywAccountAuth(action, data)
         if (!isGenerationCurrent(generation)) return result
         if (result.profile?.logged_in) {
+          // 作废操作期间启动的轮询，避免旧资料覆盖新的空间和点数。
+          advanceGeneration()
           setLoginFlow(null)
           applyProfile(result.profile)
         } else if (result.flow_id) {
