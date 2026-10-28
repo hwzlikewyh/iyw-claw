@@ -156,6 +156,7 @@ impl InMemoryThreadStore {
         let mut state = self.state.lock().await;
         state.calls.create_thread += 1;
         let session_meta = SessionMeta {
+            attached_thread: params.attached_thread,
             session_id: params.session_id,
             id: params.thread_id,
             forked_from_id: params.forked_from_id,
@@ -574,6 +575,11 @@ impl ThreadStore for InMemoryThreadStore {
                 Some(ThreadRelationFilter::DirectChildrenOf(parent_thread_id)) => {
                     page.items
                         .retain(|thread| thread.parent_thread_id == Some(parent_thread_id));
+                }
+                Some(ThreadRelationFilter::AttachedThreadsOf(_)) => {
+                    return Err(ThreadStoreError::Unsupported {
+                        operation: "attached threads",
+                    });
                 }
                 Some(ThreadRelationFilter::DescendantsOf(ancestor_thread_id)) => {
                     let mut subtree = HashSet::from([ancestor_thread_id]);

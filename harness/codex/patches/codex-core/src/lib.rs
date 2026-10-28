@@ -98,6 +98,7 @@ pub mod exec_env;
 mod exec_policy;
 mod guardian;
 pub mod guardian_review;
+mod hook_environment_executor;
 mod hook_mcp_executor;
 mod hook_runtime;
 mod image_preparation;

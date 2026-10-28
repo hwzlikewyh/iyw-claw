@@ -340,10 +340,10 @@ fn helper_env_key_is_allowed(key: &str) -> bool {
         // CoreFoundation consults this before falling back to user lookup during helper startup.
         || (cfg!(target_os = "macos") && key == "__CF_USER_TEXT_ENCODING")
         || bazel_bwrap_env_key_is_allowed(key)
-        // MXC needs SystemDrive to resolve platform directories and LOCALAPPDATA
-        // to create the sandboxed helper process.
+        // MXC needs SystemDrive to resolve platform directories, and SystemRoot and
+        // LOCALAPPDATA to create the sandboxed helper process.
         || (cfg!(windows)
-            && ["PATH", "SystemDrive", "LOCALAPPDATA"]
+            && ["PATH", "SystemDrive", "SystemRoot", "LOCALAPPDATA"]
                 .iter()
                 .any(|allowed| key.eq_ignore_ascii_case(allowed)))
 }

@@ -11,6 +11,7 @@ use crate::original_image_detail::can_request_original_image_detail;
 use crate::session::session::Session;
 use crate::tools::context::McpToolOutput;
 use crate::tools::context::ToolCallSource;
+use crate::tools::context::ToolEnvironments;
 use crate::tools::context::ToolInvocation;
 use crate::tools::context::ToolOutput;
 use crate::tools::context::ToolPayload;
@@ -313,6 +314,21 @@ impl McpHandler {
 }
 
 impl CoreToolRuntime for McpHandler {
+    fn environments_for_input(
+        &self,
+        invocation: &ToolInvocation,
+    ) -> Result<ToolEnvironments, FunctionCallError> {
+        let server = &self.tool_info().server_name;
+        Ok(ToolEnvironments::Mcp {
+            server: Some(server.clone()),
+            owner: invocation
+                .step_context
+                .mcp
+                .server_environment_id(server)
+                .map(str::to_owned),
+        })
+    }
+
     fn immutable_spec(&self) -> Option<&Arc<ToolSpec>> {
         Some(&self.definition.spec)
     }
