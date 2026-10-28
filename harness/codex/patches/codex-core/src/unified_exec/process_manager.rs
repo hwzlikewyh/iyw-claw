@@ -1065,7 +1065,7 @@ impl UnifiedExecProcessManager {
                     .as_ref()
                     .filter(|_| request.input.is_empty()),
                 call_id: &call_id,
-                process_id: request.process_id,
+                process_id,
             })
             .await;
         let wall_time = Instant::now().saturating_duration_since(start);
