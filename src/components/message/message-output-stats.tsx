@@ -139,7 +139,7 @@ function useTurnTimingStats(timings: TurnTimings | null) {
   return value == null
     ? []
     : [
-        <span key="firstToken">
+        <span key="firstToken" title={t("firstTokenHint")}>
           {t("firstToken", {
             time: `${(value / MILLISECONDS_PER_SECOND).toFixed(2)} s`,
           })}

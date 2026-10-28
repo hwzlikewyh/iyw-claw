@@ -4213,8 +4213,8 @@
         "submittingConversation": "正在发起对话",
         "awaitingModelResponse": "等待模型响应",
         "recentTool": "最近步骤：{tool}",
-        "runningTool": "正在{tool}",
-        "pendingTool": "准备{tool}",
+        "runningTool": "工具执行中：{tool}",
+        "pendingTool": "正在调用工具：{tool}",
         "elapsed": "本轮耗时 {elapsed}",
         "planStep": "步骤 {number}",
         "currentStep": "当前步骤：{step}",
@@ -4229,7 +4229,7 @@
           "waitingProcess": "命令已提交，正在等待执行结果。",
           "streaming": "正在整理本轮回复。",
           "thinking": "正在梳理问题和接下来的处理思路。",
-          "waitingOutput": "等待原助理返回下一步结果。",
+          "waitingOutput": "已收到模型响应，正在继续处理本轮任务。",
           "activityUnknown": "请求已提交，等待原助理响应。"
         },
         "stop": "停止本轮",
@@ -4242,6 +4242,7 @@
         "recentOutputRateHint": "按最近 1 秒内已上报的输出 Token 计算；用量每秒刷新",
         "reportedUsage": "已上报用量",
         "firstToken": "首字响应 {time}",
+        "firstTokenHint": "从本轮发起到首次有效返回，包括文字、思考、工具调用或计划；不计响应头、心跳和空事件。",
         "turnDuration": "用时：{time}",
         "firstActivity": "首次响应 {time}",
         "firstThinking": "开始思考 {time}",
@@ -4256,8 +4257,8 @@
           "serverError": "模型服务暂时不可用",
           "networkError": "网络连接失败"
         },
-        "waitingProcess": "等待命令执行结果",
-        "waitingOutput": "等待模型响应",
+        "waitingProcess": "命令执行中",
+        "waitingOutput": "工作中",
         "activityUnknown": "等待模型响应",
         "backgroundUnconfirmed": "等待 {count} 个后台任务返回"
       },

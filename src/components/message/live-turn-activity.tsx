@@ -41,6 +41,7 @@ type SessionActivity = ReturnType<typeof useSessionActivity>
 
 const MILLISECONDS_PER_SECOND = 1_000
 const WAITING_PHASES = new Set([
+  "awaitingModelResponse",
   "awaitingUser",
   "pendingTool",
   "waitingOutput",
@@ -93,7 +94,7 @@ function selectPhase(
   if (latest === "thinking" || latest === "plan") return "thinking"
   if (latest === "text") return "streaming"
   if (latest === "tool_call") return "waitingOutput"
-  return activity ? "waitingOutput" : "activityUnknown"
+  return "awaitingModelResponse"
 }
 
 function observedEventAges(activity: SessionActivity, now: number) {
@@ -127,6 +128,7 @@ const PHASE_ICONS: Record<string, ActivityIcon> = {
   thinking: "thinking",
   waitingOutput: "wait",
   activityUnknown: "wait",
+  awaitingModelResponse: "wait",
 }
 
 function resolvedToolTitle(
