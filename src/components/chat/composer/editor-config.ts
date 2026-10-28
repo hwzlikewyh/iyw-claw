@@ -2,6 +2,8 @@ import type { Extensions } from "@tiptap/core"
 import { Placeholder } from "@tiptap/extension-placeholder"
 import StarterKit from "@tiptap/starter-kit"
 
+import { ensureArrayFindLast } from "@/lib/array-find-last-compat"
+
 import { InactiveSelectionHighlight } from "./inactive-selection"
 import { RealtimeVoicePartial } from "./realtime-partial"
 import { Reference } from "./nodes/reference-node"
@@ -11,6 +13,9 @@ import {
   MentionSuggestion,
   type MentionController,
 } from "./suggestion/mention-suggestion"
+
+// 必须在 useEditor 创建实例前完成，onCreate 已晚于首次插件事务。
+ensureArrayFindLast()
 
 /**
  * Options for the shared composer extension set.

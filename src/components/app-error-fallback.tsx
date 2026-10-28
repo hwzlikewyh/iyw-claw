@@ -2,14 +2,18 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react"
 
+import { hasArrayFindLast } from "@/lib/array-find-last-compat"
+
 export type AppBoundaryError = Error & { digest?: string }
 
 interface DiagnosticContext {
   appVersion: string
   correlationId: string
   errorName: string
+  errorMessage: string | null
   nextDigest: string | null
   route: string
+  runtime: ReturnType<typeof readRuntimeDiagnostics>
   stackFrames: string[]
   windowLabel: string
 }
@@ -88,6 +92,26 @@ function sanitizeStackFrames(stack: string | undefined): string[] {
     .map((line) => line.replace(/[?#][^\s)]*/g, "?[redacted]").trim())
 }
 
+function safeErrorMessage(error: Error): string | null {
+  // 仅输出已知兼容性错误的固定描述，不复制可能含输入内容或凭证的原文。
+  if (
+    error.name === "TypeError" &&
+    /\.findLast is not a function\b/.test(error.message)
+  ) {
+    return "findLast is not a function"
+  }
+  return null
+}
+
+function readRuntimeDiagnostics() {
+  const userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent
+  return {
+    chromiumVersion:
+      /\b(?:Chrome|Chromium)\/([\d.]+)/.exec(userAgent)?.[1] ?? null,
+    arrayFindLastAvailable: hasArrayFindLast(),
+  }
+}
+
 function isTauriDesktop(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
 }
@@ -119,16 +143,17 @@ async function readWindowLabel(): Promise<string> {
 }
 
 function useDiagnostics(error: AppBoundaryError): DiagnosticContext {
-  const route = currentRoute()
-  const correlationId = useMemo(
-    () => createCorrelationId(error.digest),
-    [error.digest]
-  )
-  const errorName = sanitizeIdentifier(error.name) ?? "Error"
-  const nextDigest = sanitizeIdentifier(error.digest)
-  const stackFrames = useMemo(
-    () => sanitizeStackFrames(error.stack),
-    [error.stack]
+  const details = useMemo(
+    () => ({
+      correlationId: createCorrelationId(error.digest),
+      errorName: sanitizeIdentifier(error.name) ?? "Error",
+      errorMessage: safeErrorMessage(error),
+      nextDigest: sanitizeIdentifier(error.digest),
+      route: currentRoute(),
+      runtime: readRuntimeDiagnostics(),
+      stackFrames: sanitizeStackFrames(error.stack),
+    }),
+    [error]
   )
   const [appVersion, setAppVersion] = useState("unknown")
   const [windowLabel, setWindowLabel] = useState("unknown")
@@ -142,13 +167,9 @@ function useDiagnostics(error: AppBoundaryError): DiagnosticContext {
         setAppVersion(version)
         setWindowLabel(label)
         console.error("[app-error-boundary] render failure", {
+          ...details,
           appVersion: version,
-          correlationId,
-          errorName,
           event: "render_failure",
-          nextDigest,
-          route,
-          stackFrames,
           windowLabel: label,
         })
       }
@@ -157,30 +178,16 @@ function useDiagnostics(error: AppBoundaryError): DiagnosticContext {
     return () => {
       disposed = true
     }
-  }, [correlationId, errorName, nextDigest, route, stackFrames])
+  }, [details])
 
-  const diagnostics = useMemo<DiagnosticContext>(
+  return useMemo<DiagnosticContext>(
     () => ({
+      ...details,
       appVersion,
-      correlationId,
-      errorName,
-      nextDigest,
-      route,
-      stackFrames,
       windowLabel,
     }),
-    [
-      appVersion,
-      correlationId,
-      errorName,
-      nextDigest,
-      route,
-      stackFrames,
-      windowLabel,
-    ]
+    [appVersion, details, windowLabel]
   )
-
-  return diagnostics
 }
 
 function useDiagnosticCopy(diagnostics: DiagnosticContext) {
