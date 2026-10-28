@@ -428,6 +428,7 @@
     "workspaceUnconfirmed": "Space switching is not yet confirmed. Refresh account details before new requests.",
     "businessPending": "The space has switched; some service credentials still need to refresh.",
     "syncServices": "Sync services again",
+    "serviceSyncFailed": "Service synchronization is temporarily unavailable. Please try again later.",
     "switched": "Switched to {name}",
     "refresh": "Refresh",
     "pointsStale": "Points have not updated yet",

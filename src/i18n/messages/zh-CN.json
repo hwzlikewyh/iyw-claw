@@ -428,6 +428,7 @@
     "workspaceUnconfirmed": "空间切换尚未确认，请刷新账号信息后再发起新请求。",
     "businessPending": "空间已切换，部分业务服务需要重新同步。",
     "syncServices": "重新同步服务",
+    "serviceSyncFailed": "业务服务暂时无法同步，请稍后重试。",
     "switched": "已切换到 {name}",
     "refresh": "刷新",
     "pointsStale": "点数暂时未更新",

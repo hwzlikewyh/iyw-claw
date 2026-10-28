@@ -12,7 +12,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover"
 import { toErrorMessage } from "@/lib/app-error"
-import type { IywWorkspace } from "@/lib/iyw-account-flow"
+import type { IywLoginResult, IywWorkspace } from "@/lib/iyw-account-flow"
 import { WorkspaceRows } from "./account-workspace-rows"
 import { AccountFlowError } from "./account-flow-feedback"
 import { WorkspaceDialog } from "./account-workspace-dialog"
@@ -28,7 +28,6 @@ export interface WorkspaceScope {
   spaces: IywWorkspace[]
   select: (id: string) => void
   switchSpace: () => Promise<void>
-  recover: () => Promise<void>
 }
 export function AccountWorkspaceSwitch({
   mobile = false,
@@ -61,22 +60,25 @@ function useWorkspaceSelection(mobile: boolean) {
     if (!target) return
     setError(null)
     try {
-      const result = await account.authenticate("switch_workspace", {
+      const switched = await account.authenticate("switch_workspace", {
         orgCode: target.org_code,
       })
+      const result = await recoverWorkspace(
+        account,
+        switched,
+        t("serviceSyncFailed")
+      )
       if (result.profile?.workspace_pending) setError(t("workspaceUnconfirmed"))
       else {
-        console.info("[iyw-account] Refreshing points after workspace switch")
-        void account.refreshProfile()
+        if (result.profile?.points_stale) void account.refreshProfile()
         setTarget(null)
-        toast.success(t("switched", { name: target.name }))
-        if (result.profile?.business_credentials_pending) setOpen(true)
+        if (!result.profile?.business_credentials_pending)
+          toast.success(t("switched", { name: target.name }))
       }
     } catch (reason) {
       setError(toErrorMessage(reason))
     }
   }
-  const recover = () => recoverWorkspace(account, setError)
   return {
     account,
     mobile,
@@ -88,7 +90,6 @@ function useWorkspaceSelection(mobile: boolean) {
     spaces,
     select,
     switchSpace,
-    recover,
   }
 }
 function WorkspacePopover(scope: WorkspaceScope) {
@@ -129,7 +130,6 @@ function WorkspacePopoverContent({
   spaces,
   select,
   error,
-  recover,
 }: WorkspaceScope) {
   const t = useTranslations("AccountFlow")
   return (
@@ -163,7 +163,6 @@ function WorkspacePopoverContent({
           {t("refreshSpaces")}
         </Button>
       ) : null}
-      <WorkspaceSyncStatus account={account} recover={recover} />
       <AccountFlowError message={error} />
       <div className="-mx-2 -mb-2 flex items-center gap-1.5 rounded-b-xl border-t bg-muted/30 px-3 py-2.5 text-[10px] text-muted-foreground">
         <Folder className="size-3" />
@@ -173,42 +172,36 @@ function WorkspacePopoverContent({
   )
 }
 
-function WorkspaceSyncStatus({
-  account,
-  recover,
-}: Pick<WorkspaceScope, "account" | "recover">) {
-  const t = useTranslations("AccountFlow")
-  return account.profile?.workspace_pending ||
-    account.profile?.business_credentials_pending ? (
-    <div className="rounded-lg border border-amber-200/70 bg-amber-50/50 p-3 text-xs text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/20 dark:text-amber-200">
-      <p>
-        {t(
-          account.profile?.workspace_pending
-            ? "workspaceUnconfirmed"
-            : "businessPending"
-        )}
-      </p>
-      <Button
-        variant="link"
-        size="sm"
-        className="mt-1 h-6 px-0 text-xs"
-        disabled={account.actionLoading}
-        onClick={() => void recover()}
-      >
-        {t("syncServices")}
-      </Button>
-    </div>
-  ) : null
-}
-
 async function recoverWorkspace(
   account: WorkspaceScope["account"],
-  setError: (error: string | null) => void
+  result: IywLoginResult,
+  failureMessage: string
 ) {
-  setError(null)
+  const profile = result.profile
+  if (!profile?.workspace_pending && !profile?.business_credentials_pending)
+    return result
+  console.info("[iyw-account] Automatically recovering workspace services", {
+    workspacePending: profile.workspace_pending,
+    businessCredentialsPending: profile.business_credentials_pending,
+  })
   try {
-    await account.authenticate("recover_workspace")
+    const recovered = await account.authenticate("recover_workspace")
+    const pending = Boolean(
+      recovered.profile?.workspace_pending ||
+      recovered.profile?.business_credentials_pending
+    )
+    if (pending) {
+      console.warn("[iyw-account] Workspace services are still pending")
+      toast.error(failureMessage)
+    } else {
+      console.info("[iyw-account] Workspace services recovered")
+    }
+    return recovered
   } catch (reason) {
-    setError(toErrorMessage(reason))
+    console.warn("[iyw-account] Automatic workspace recovery failed", {
+      message: toErrorMessage(reason),
+    })
+    toast.error(toErrorMessage(reason))
+    return result
   }
 }
