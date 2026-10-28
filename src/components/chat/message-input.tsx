@@ -1,6 +1,7 @@
 "use client"
 
-import { useAccountRequestsBlocked } from "@/components/account/use-account-request-guard"
+import { useAccountChatRequestsBlocked } from "@/components/account/use-account-request-guard"
+import { AccountPointsNotice } from "@/components/account/account-points-status"
 import { ConversationConnectorMenu } from "@/components/chat/conversation-connectors"
 import { KnowledgeDialog } from "@/components/chat/knowledge/knowledge-dialog"
 import { ComposerActivityBorder } from "./composer-activity-border"
@@ -873,7 +874,7 @@ export function MessageInput({
   onInjectConsumed,
 }: MessageInputProps) {
   const t = useTranslations("Folder.chat.messageInput")
-  const accountRequestsBlocked = useAccountRequestsBlocked()
+  const accountRequestsBlocked = useAccountChatRequestsBlocked()
   const tSide = useTranslations("SideQuestion")
   const [hasSideCommand, setHasSideCommand] = useState(false)
   const tSessionConfig = t as unknown as SessionConfigTranslator
@@ -3808,7 +3809,7 @@ export function MessageInput({
   }, [sendCurrentDraft, voice.status])
 
   const handleForkSendClick = useCallback(() => {
-    if (sendDisabled) return
+    if (accountRequestsBlocked || sendDisabled) return
     if (voice.status !== "idle") return
     if (!onForkSend) return
     const draft = buildDraft()
@@ -3828,6 +3829,7 @@ export function MessageInput({
     if (accepted === false) return
     resetComposer()
   }, [
+    accountRequestsBlocked,
     onForkSend,
     sendDisabled,
     buildDraft,
@@ -4703,6 +4705,7 @@ export function MessageInput({
                       onAutoSendChange={voice.setAutoSend}
                     />
                   )}
+                  {!isEditingQueueItem && <AccountPointsNotice />}
                   {actionButtons}
                 </div>
               </div>

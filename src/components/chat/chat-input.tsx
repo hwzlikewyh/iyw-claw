@@ -21,7 +21,7 @@ import {
 import { MessageQueueDisplay } from "@/components/chat/message-queue-display"
 import { QueuedSendStatus } from "@/components/chat/queued-send-status"
 import { cn } from "@/lib/utils"
-import { useAccountRequestsBlocked } from "@/components/account/use-account-request-guard"
+import { useAccountChatRequestsBlocked } from "@/components/account/use-account-request-guard"
 
 interface ChatInputProps {
   placeholder?: string
@@ -143,7 +143,7 @@ export const ChatInput = memo(function ChatInput({
   placeholder,
 }: ChatInputProps) {
   const t = useTranslations("Folder.chat.chatInput")
-  const requestsBlocked = useAccountRequestsBlocked()
+  const requestsBlocked = useAccountChatRequestsBlocked()
   const isConnected = status === "connected"
   const isPrompting = status === "prompting"
   const sendDisabled = blockOfflineSend && !isConnected && !isPrompting

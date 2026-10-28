@@ -6,6 +6,10 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { useIywAccount } from "@/contexts/iyw-account-context"
 import type { IywAccountProfile } from "@/lib/types"
+import {
+  hasAvailableAccountPoints,
+  useAccountPointsInsufficient,
+} from "./use-account-request-guard"
 
 export function AccountPointsStatus({
   profile,
@@ -15,7 +19,9 @@ export function AccountPointsStatus({
   compact?: boolean
 }) {
   const t = useTranslations("AccountFlow")
+  const points = useTranslations("Folder.conversation.pointsGate")
   if (!profile?.points_stale) return null
+  const available = hasAvailableAccountPoints(profile.balance_points)
   return (
     <div
       role="status"
@@ -23,12 +29,33 @@ export function AccountPointsStatus({
     >
       <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
       <div>
-        <p className="font-medium">{t("pointsStale")}</p>
+        <p className="font-medium">
+          {available ? t("pointsStale") : points("insufficientTitle")}
+        </p>
         {!compact ? (
-          <p className="mt-0.5 opacity-80">{t("pointsCacheHint")}</p>
+          <p className="mt-0.5 opacity-80">
+            {available
+              ? t("pointsCacheHint")
+              : points("insufficientDescription")}
+          </p>
         ) : null}
       </div>
     </div>
+  )
+}
+
+export function AccountPointsNotice() {
+  const t = useTranslations("Folder.conversation.pointsGate")
+  const insufficient = useAccountPointsInsufficient()
+  if (!insufficient) return null
+  return (
+    <span
+      role="status"
+      className="whitespace-nowrap text-xs text-destructive"
+      title={t("insufficientDescription")}
+    >
+      {t("insufficientTitle")}
+    </span>
   )
 }
 

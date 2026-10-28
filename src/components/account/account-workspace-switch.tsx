@@ -66,6 +66,8 @@ function useWorkspaceSelection(mobile: boolean) {
       })
       if (result.profile?.workspace_pending) setError(t("workspaceUnconfirmed"))
       else {
+        console.info("[iyw-account] Refreshing points after workspace switch")
+        void account.refreshProfile()
         setTarget(null)
         toast.success(t("switched", { name: target.name }))
         if (result.profile?.business_credentials_pending) setOpen(true)
