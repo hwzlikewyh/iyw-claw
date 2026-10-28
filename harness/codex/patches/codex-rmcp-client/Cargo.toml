@@ -1,6 +1,6 @@
 [package]
 name = "codex-rmcp-client"
-version = "0.164.0"
+version = "0.165.0"
 edition = "2024"
 license = "Apache-2.0"
 autobins = false
@@ -25,51 +25,51 @@ version = "0.22.1"
 
 [dependencies.codex-api]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-config]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-exec-server]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-keyring-store]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-network-proxy]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-otel]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-protocol]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-secrets]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-utils-pty]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-utils-home-dir]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.bytes]
 version = "1.10.1"

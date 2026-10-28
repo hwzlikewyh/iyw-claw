@@ -67,7 +67,7 @@ the legacy public image service and Fusion. External agents keep their original 
 
 ## Embedded Desktop Integration
 
-The desktop now links the pinned 0.164.0 runtime into its executable. The local
+The desktop now links the pinned 0.165.0 runtime into its executable. The local
 `codex-app-server-client` production sources pass host credentials and runtime
 environment to the in-process server; no process-global credential mutation is
 required. The app-server reapplies tool environment on config reload and closes
@@ -93,6 +93,14 @@ does not introduce schema, file-path, session-ID, or migration-SQL changes.
 The older worker/helper packaging descriptions below are historical. Normal
 desktop builds prepare only `runtime.json`, then validate the embedded identity
 and static CRT imports in the linked executable.
+
+The 0.165.0 refresh uses commit `360319d8dee62d87e2d59fc0c21805d79519cfed`.
+Three-way production-source migration preserves host auth, managed images,
+published MCP status, command descriptions, billing attribution and platform
+patches. Tool handlers adopt upstream executor selection; remote MCP calls
+adopt cancellation when response futures are dropped. Historical source
+`codex-core/src/tools/catalog_parameters.rs` is retained outside the module graph.
+See `docs/agent-kernel-upgrade-20261028.md` for verification boundaries.
 
 The 0.164.0 refresh uses commit `6aaac694803004a63c6f393d153c96d22521a6b9`.
 Three-way production-source migration preserves existing host and platform patches.

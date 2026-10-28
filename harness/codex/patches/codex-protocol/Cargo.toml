@@ -2,7 +2,7 @@
 edition = "2024"
 license = "Apache-2.0"
 name = "codex-protocol"
-version = "0.164.0"
+version = "0.165.0"
 autobins = false
 autotests = false
 autobenches = false
@@ -21,43 +21,43 @@ features = [ "serde",]
 
 [dependencies.codex-async-utils]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-execpolicy]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-extension-items]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-http-client]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-network-proxy]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-utils-absolute-path]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-utils-image]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-utils-path-uri]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-utils-redacted-string]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.codex-utils-string]
 git = "https://github.com/openai/codex.git"
-rev = "6aaac694803004a63c6f393d153c96d22521a6b9"
+rev = "360319d8dee62d87e2d59fc0c21805d79519cfed"
 
 [dependencies.derive_more]
 version = "2"

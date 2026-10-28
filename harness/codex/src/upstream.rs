@@ -13,9 +13,9 @@ pub struct UpstreamPin {
 /// Keep this value synchronized with `upstream.lock`.
 pub const UPSTREAM_PIN: UpstreamPin = UpstreamPin {
     repository: "https://github.com/openai/codex.git",
-    release_ref: "rust-v0.164.0",
-    tag_object: "fe3b29455488c2e189e43ad5526a107900c5e1b7",
-    commit: "6aaac694803004a63c6f393d153c96d22521a6b9",
+    release_ref: "rust-v0.165.0",
+    tag_object: "e374836b2728d9b7aa981c2902649e640a2edaa8",
+    commit: "360319d8dee62d87e2d59fc0c21805d79519cfed",
     protocol_components: &[
         "codex-rs/app-server",
         "codex-rs/app-server-client",

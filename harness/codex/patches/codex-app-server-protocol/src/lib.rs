@@ -54,3 +54,5 @@ pub use rpc::*;
 pub(crate) use codex_app_server_protocol_noop_macros::JsonSchema;
 #[cfg(not(test))]
 pub(crate) use codex_app_server_protocol_noop_macros::TS;
+
+// Release tooling selects this module's schema writer by its exact test name.

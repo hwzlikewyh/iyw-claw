@@ -7,12 +7,15 @@ use codex_protocol::protocol::SessionSource;
 use std::sync::atomic::AtomicI64;
 use std::sync::atomic::Ordering;
 
+const EXCLUDE_ATTACHED_THREADS: &str = " AND threads.attached_thread_parent_id IS NULL";
+
 impl StateRuntime {
     pub async fn get_thread(&self, id: ThreadId) -> anyhow::Result<Option<crate::ThreadMetadata>> {
         let row = sqlx::query(
             r#"
 SELECT
     threads.id,
+    threads.attached_thread_parent_id,
     threads.rollout_path,
     threads.created_at_ms AS created_at,
     threads.updated_at_ms AS updated_at,
@@ -454,6 +457,7 @@ ON CONFLICT(child_thread_id) DO NOTHING
             },
             /*include_thread_id_tiebreaker*/ false,
         );
+        builder.push(EXCLUDE_ATTACHED_THREADS);
         builder.push(" AND threads.title = ");
         builder.push_bind(title);
         if let Some(cwd) = cwd {
@@ -585,6 +589,7 @@ ON CONFLICT(child_thread_id) DO NOTHING
                     | crate::SortKey::SectionPosition
             ),
         );
+        builder.push(EXCLUDE_ATTACHED_THREADS);
         push_thread_order_and_limit(
             &mut builder,
             sort_key,
@@ -663,8 +668,9 @@ INSERT INTO threads (
     git_origin_url,
     memory_mode,
     project_id,
-    daybreak_enabled
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    daybreak_enabled,
+    attached_thread_parent_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO NOTHING
             "#,
         )
@@ -718,6 +724,7 @@ ON CONFLICT(id) DO NOTHING
         .bind("enabled")
         .bind(metadata.project_id.as_deref())
         .bind(metadata.daybreak_enabled)
+        .bind(metadata.attached_thread_parent_id.map(|id| id.to_string()))
         .execute_with_busy_retry(self.pool.as_ref())
         .await?;
         self.insert_thread_spawn_edge_from_source_if_absent(metadata.id, metadata.source.as_str())
@@ -963,9 +970,11 @@ INSERT INTO threads (
     git_origin_url,
     memory_mode,
     project_id,
-    daybreak_enabled
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    daybreak_enabled,
+    attached_thread_parent_id
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET
+    attached_thread_parent_id = COALESCE(excluded.attached_thread_parent_id, threads.attached_thread_parent_id),
     rollout_path = excluded.rollout_path,
     created_at = excluded.created_at,
     updated_at = excluded.updated_at,
@@ -1054,6 +1063,7 @@ ON CONFLICT(id) DO UPDATE SET
         .bind(creation_memory_mode.unwrap_or("enabled"))
         .bind(metadata.project_id.as_deref())
         .bind(metadata.daybreak_enabled)
+        .bind(metadata.attached_thread_parent_id.map(|id| id.to_string()))
         .execute_with_busy_retry(self.pool.as_ref())
         .await?;
         self.insert_thread_spawn_edge_from_source_if_absent(metadata.id, metadata.source.as_str())
@@ -1272,6 +1282,9 @@ WITH RECURSIVE subtree(child_thread_id, parent_thread_id) AS (
         Some(crate::ThreadRelationFilter::DescendantsOf(_)) => builder.push(
             ", subtree.parent_thread_id AS parent_thread_id\nFROM subtree\nCROSS JOIN threads ON threads.id = subtree.child_thread_id",
         ),
+        Some(crate::ThreadRelationFilter::AttachedThreadsOf(_)) => {
+            builder.push(", NULL AS parent_thread_id\nFROM threads")
+        }
         None => builder.push(" FROM threads"),
     };
     let include_thread_id_tiebreaker = relation_filter.is_some()
@@ -1285,6 +1298,12 @@ WITH RECURSIVE subtree(child_thread_id, parent_thread_id) AS (
         include_thread_id_tiebreaker,
         /*include_empty_preview*/ relation_filter.is_some(),
     );
+    if !matches!(
+        relation_filter,
+        Some(crate::ThreadRelationFilter::AttachedThreadsOf(_))
+    ) {
+        builder.push(EXCLUDE_ATTACHED_THREADS);
+    }
     match relation_filter {
         Some(crate::ThreadRelationFilter::DirectChildrenOf(parent_thread_id)) => {
             builder.push(" AND listed_edge.parent_thread_id = ");
@@ -1294,11 +1313,15 @@ WITH RECURSIVE subtree(child_thread_id, parent_thread_id) AS (
             builder.push(" AND subtree.child_thread_id != ");
             builder.push_bind(ancestor_thread_id.to_string());
         }
+        Some(crate::ThreadRelationFilter::AttachedThreadsOf(parent)) => {
+            builder.push(" AND threads.attached_thread_parent_id = ");
+            builder.push_bind(parent.to_string());
+        }
         None => {}
     }
     let order_by_index = match (relation_filter, filters.cwd_filters) {
         // Relationship listings are expected to be much smaller than the global thread table.
-        // Prefer the spawn-edge index and sort the matching subtree instead of scanning the
+        // Prefer the relationship index and sort the matches instead of scanning the
         // timestamp index until enough related threads happen to be found.
         (Some(_), _) => OrderByIndex::Disabled,
         // Multi-cwd listing is supported but at the time of writing has no current use in production.
@@ -1321,6 +1344,7 @@ pub(super) fn push_thread_select_columns(builder: &mut QueryBuilder<Sqlite>) {
         r#"
 SELECT
     threads.id,
+    threads.attached_thread_parent_id,
     threads.rollout_path,
     threads.created_at_ms AS created_at,
     threads.updated_at_ms AS updated_at,

@@ -11,7 +11,7 @@ use codex_core_plugins::PluginCommandAttribution;
 use codex_features::Feature;
 use codex_guardian_reviewer::GuardianReviewError;
 use codex_guardian_reviewer::GuardianReviewOutcome;
-
+use codex_guardian_reviewer::ReviewDeadline;
 use codex_guardian_reviewer::ReviewModel;
 use codex_prompts::ResolvedModelMessages;
 use codex_protocol::openai_models::GuardianScope;
@@ -160,7 +160,7 @@ pub(super) async fn guardian_review_session_config(
 struct ReviewAttemptOptions {
     authorization: Option<ReviewAuthorization>,
     external_cancel: Option<CancellationToken>,
-    deadline: Instant,
+    deadline: ReviewDeadline,
 }
 
 /// Runs the guardian in a locked-down reusable review session.

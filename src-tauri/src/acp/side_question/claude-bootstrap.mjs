@@ -12,15 +12,19 @@ const load = (name) => import(pathToFileURL(require.resolve(name)).href)
 const version = JSON.parse(
   readFileSync(join(dirname(entrypoint), "../package.json"), "utf8")
 ).version
-// This adapter seam and the untyped Query method have been inspected at this pin.
+// 已核对两个受管版本的 ACP v1 接口和未声明类型的 Query 侧问方法。
 if (
-  version !== "0.73.0" ||
+  !["0.73.0", "0.98.0"].includes(version) ||
   process.argv.some((arg) => ["--cli", "--version", "-v"].includes(arg))
 ) {
   // Preserve ordinary sessions on newer packages; absence of our RPC is explicit.
   await import(pathToFileURL(entrypoint).href)
 } else {
-  const { AgentApp } = await load("@agentclientprotocol/sdk")
+  const { AgentApp } = await load(
+    version === "0.98.0"
+      ? "@agentclientprotocol/sdk/unstable"
+      : "@agentclientprotocol/sdk"
+  )
   const native = await import(
     pathToFileURL(join(dirname(entrypoint), "acp-agent.js")).href
   )
@@ -58,9 +62,16 @@ if (
     const status = Number.isInteger(error?.status) ? error.status : null
     return JSON.stringify({ reason, status })
   }
-  const policy = await sdk.resolveSettings({ settingSources: [] })
-  for (const [key, value] of Object.entries(policy.effective.env ?? {})) {
-    process.env[key] = value
+  try {
+    const policy = await sdk.resolveSettings({ settingSources: [] })
+    for (const [key, value] of Object.entries(policy.effective.env ?? {})) {
+      process.env[key] = value
+    }
+  } catch (error) {
+    // 与新版原生入口一致，策略读取失败不阻止 ACP 启动；日志仅保留脱敏分类。
+    console.error(
+      `[side-question] stage=managed_policy detail=${describeError(error)}`
+    )
   }
   console.log = console.info = console.warn = console.debug = console.error
   process.on("unhandledRejection", (error) => {

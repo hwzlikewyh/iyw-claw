@@ -3,6 +3,7 @@ use codex_model_provider_info::AMAZON_BEDROCK_GPT_5_6_LUNA_MODEL_ID;
 use codex_model_provider_info::AMAZON_BEDROCK_GPT_5_6_SOL_MODEL_ID;
 use codex_model_provider_info::AMAZON_BEDROCK_GPT_5_6_TERRA_MODEL_ID;
 use codex_model_provider_info::AMAZON_BEDROCK_GPT_6_1_SOL_MODEL_ID;
+use codex_model_provider_info::AMAZON_BEDROCK_GPT_6_1_TERRA_MODEL_ID;
 use codex_model_provider_info::AMAZON_BEDROCK_GPT_6_ASTRA_MODEL_ID;
 use codex_model_provider_info::AMAZON_BEDROCK_GPT_6_LUNA_MODEL_ID;
 use codex_model_provider_info::AMAZON_BEDROCK_GPT_6_SOL_MODEL_ID;
@@ -20,6 +21,7 @@ const GPT_5_6_SOL_OPENAI_MODEL_ID: &str = "gpt-5.6-sol";
 const GPT_5_6_TERRA_OPENAI_MODEL_ID: &str = "gpt-5.6-terra";
 const GPT_5_6_LUNA_OPENAI_MODEL_ID: &str = "gpt-5.6-luna";
 const GPT_6_1_SOL_OPENAI_MODEL_ID: &str = "gpt-6.1-sol";
+const GPT_6_1_TERRA_OPENAI_MODEL_ID: &str = "gpt-6.1-terra";
 const GPT_6_SOL_OPENAI_MODEL_ID: &str = "gpt-6-sol";
 const GPT_6_LUNA_OPENAI_MODEL_ID: &str = "gpt-6-luna";
 const GPT_6_ASTRA_OPENAI_MODEL_ID: &str = "gpt-6-astra";
@@ -41,40 +43,46 @@ pub(crate) fn static_model_catalog() -> ModelsResponse {
                 /*priority*/ 1,
             ),
             bedrock_model(
+                bundled_openai_model(GPT_6_1_TERRA_OPENAI_MODEL_ID),
+                AMAZON_BEDROCK_GPT_6_1_TERRA_MODEL_ID,
+                "GPT-6.1 Terra",
+                /*priority*/ 2,
+            ),
+            bedrock_model(
                 bundled_openai_model(GPT_6_SOL_OPENAI_MODEL_ID),
                 AMAZON_BEDROCK_GPT_6_SOL_MODEL_ID,
                 "GPT-6 Sol",
-                /*priority*/ 2,
+                /*priority*/ 3,
             ),
             bedrock_model(
                 bundled_openai_model(GPT_6_LUNA_OPENAI_MODEL_ID),
                 AMAZON_BEDROCK_GPT_6_LUNA_MODEL_ID,
                 "GPT-6 Luna",
-                /*priority*/ 3,
+                /*priority*/ 4,
             ),
             bedrock_model(
                 bundled_openai_model(GPT_5_6_SOL_OPENAI_MODEL_ID),
                 AMAZON_BEDROCK_GPT_5_6_SOL_MODEL_ID,
                 "GPT-5.6 Sol",
-                /*priority*/ 4,
+                /*priority*/ 5,
             ),
             bedrock_model(
                 bundled_openai_model(GPT_5_6_TERRA_OPENAI_MODEL_ID),
                 AMAZON_BEDROCK_GPT_5_6_TERRA_MODEL_ID,
                 "GPT-5.6 Terra",
-                /*priority*/ 5,
+                /*priority*/ 6,
             ),
             bedrock_model(
                 bundled_openai_model(GPT_5_6_LUNA_OPENAI_MODEL_ID),
                 AMAZON_BEDROCK_GPT_5_6_LUNA_MODEL_ID,
                 "GPT-5.6 Luna",
-                /*priority*/ 6,
+                /*priority*/ 7,
             ),
             gpt_5_bedrock_model(
                 GPT_5_5_OPENAI_MODEL_ID,
                 AMAZON_BEDROCK_GPT_5_5_MODEL_ID,
                 "GPT-5.5",
-                /*priority*/ 7,
+                /*priority*/ 8,
             ),
         ],
     };
