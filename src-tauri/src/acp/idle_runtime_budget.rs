@@ -28,7 +28,10 @@ impl ConnectionManager {
         limit: Option<usize>,
     ) -> Option<usize> {
         let limit = limit?;
-        let _admission = self.speculative_runtime_gate.lock().await;
+        // 后台回收不等待正在预热的启动任务；本轮保留较宽松的连接预算。
+        let Ok(_admission) = self.speculative_runtime_gate.try_lock() else {
+            return Some(limit);
+        };
         let prepared = self.unclaimed_preparation_ids().await;
         let (idle, idle_sessions) = self.recoverable_idle_runtime_count(&prepared).await;
         self.runtime_hosts

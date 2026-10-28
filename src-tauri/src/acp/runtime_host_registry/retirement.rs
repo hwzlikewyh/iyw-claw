@@ -162,6 +162,13 @@ impl RuntimeHostRegistry {
 
     pub(crate) async fn retire_unused_excess(&self, limit: usize) {
         let removed = self.take_prunable_hosts(None, limit).await;
+        if !removed.is_empty() {
+            tracing::info!(
+                count = removed.len(),
+                keep_limit = limit,
+                "[ACP][host] retiring unused runtimes"
+            );
+        }
         self.retirements.retire(removed.into_iter().map(|(_, host)| host).collect());
     }
     pub(super) async fn ready_host(&self, key: &RuntimeHostKey) -> Option<RuntimeHostReservation> {
@@ -213,33 +220,6 @@ impl RuntimeHostRegistry {
                 || live_keys.contains(key)
                 || entry.users.load(Ordering::Acquire) != 0
         });
-    }
-
-    async fn take_prunable_hosts(
-        &self,
-        preserve: Option<&RuntimeHostKey>,
-        limit: usize,
-    ) -> Vec<(RuntimeHostKey, Arc<AgentRuntimeHost>)> {
-        let mut hosts = self.hosts.lock().await;
-        let mut keys = hosts
-            .iter()
-            .filter(|(_, host)| !host.is_healthy())
-            .map(|(key, _)| key.clone())
-            .collect::<HashSet<_>>();
-        let mut idle = hosts
-            .iter()
-            .filter(|(key, host)| preserve != Some(*key) && !host.has_live_routes())
-            .map(|(key, host)| (host.created_at(), key.clone()))
-            .collect::<Vec<_>>();
-        idle.sort_by_key(|(created_at, _)| *created_at);
-        let preserved_idle =
-            preserve.is_some_and(|key| hosts.get(key).is_some_and(|host| !host.has_live_routes()));
-        let keep_idle = limit.saturating_sub(usize::from(preserved_idle));
-        let excess = idle.len().saturating_sub(keep_idle);
-        keys.extend(idle.into_iter().take(excess).map(|(_, key)| key));
-        keys.into_iter()
-            .filter_map(|key| hosts.remove(&key).map(|host| (key, host)))
-            .collect()
     }
 
     pub(crate) async fn shutdown_all(&self) -> RuntimeHostShutdownReport {

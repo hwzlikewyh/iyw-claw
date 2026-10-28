@@ -16,6 +16,7 @@ use crate::acp::stderr_tail::StderrTail;
 use crate::models::agent::AgentType;
 
 mod owned;
+mod pruning;
 mod retirement;
 pub(crate) mod startup;
 

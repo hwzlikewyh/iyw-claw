@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
-use sysinfo::{Pid, System};
+use sysinfo::{Pid, ProcessRefreshKind, System};
 
 use crate::acp::session_state::SessionState;
 use crate::acp::types::ConnectionStatus;
@@ -77,23 +77,18 @@ pub struct RuntimeSessionSnapshot {
 
 pub struct ResourceSnapshot {
     system: System,
-    pub memory: SystemMemorySnapshot,
 }
 
 impl ResourceSnapshot {
     pub fn capture() -> Self {
-        let mut system = System::new_all();
-        system.refresh_all();
-        let total = system.total_memory();
-        let available = system.available_memory();
-        Self {
-            system,
-            memory: system_memory_snapshot(total, available),
-        }
+        // 回收只需要进程父子关系；CPU、命令行和环境变量不参与决策。
+        let mut system = System::new();
+        system.refresh_processes_specifics(ProcessRefreshKind::new());
+        Self { system }
     }
 
-    pub fn connection_memory(&self, state: &SessionState) -> ConnectionMemorySnapshot {
-        let Some(pid) = state.agent_pid else {
+    pub fn connection_memory(&self, launcher_pid: Option<u32>) -> ConnectionMemorySnapshot {
+        let Some(pid) = launcher_pid else {
             return ConnectionMemorySnapshot {
                 launcher_pid: None,
                 private_bytes: None,

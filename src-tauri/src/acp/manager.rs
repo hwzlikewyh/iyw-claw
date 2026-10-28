@@ -45,14 +45,14 @@ use crate::db::entities::conversation::{self, ConversationKind, ConversationStat
 use crate::db::service::conversation_service;
 use crate::db::AppDatabase;
 
+#[path = "manager_idle_sweep.rs"]
+mod idle_sweep;
 #[path = "idle_runtime_budget.rs"]
 mod idle_runtime_budget;
 #[path = "manager_prepared.rs"]
 mod prepared;
 #[path = "manager_prewarm.rs"]
 mod prewarm;
-
-const MAX_EMERGENCY_RECLAIMS_PER_TICK: usize = 4;
 
 #[path = "memory_context.rs"]
 mod memory_context;
@@ -1297,150 +1297,6 @@ impl ConnectionManager {
         if let Some(id) = to_disconnect {
             if self
                 .disconnect_if_reclaimable(&id, Duration::ZERO, false, "idle_timeout")
-                .await
-                .unwrap_or(false)
-            {
-                disconnected += 1;
-            }
-        }
-        disconnected
-    }
-
-    /// Reclaim recoverable idle sessions. Normal conditions reclaim at most one
-    /// per tick; emergency pressure may reclaim up to a small bounded batch,
-    /// re-sampling memory after every successful disconnect.
-    pub async fn sweep_excess_idle(&self, max_keep: Option<usize>) -> usize {
-        let max_keep = self.remaining_idle_connection_budget(max_keep).await;
-        let emergency_batch = crate::acp::resource_governor::ResourceSnapshot::capture()
-            .memory
-            .pressure
-            == crate::acp::resource_governor::MemoryPressure::Emergency;
-        let mut disconnected = 0;
-        loop {
-            let reclaimed = self.sweep_excess_idle_once(max_keep).await;
-            disconnected += reclaimed;
-            if reclaimed == 0 || !emergency_batch || disconnected >= MAX_EMERGENCY_RECLAIMS_PER_TICK
-            {
-                break;
-            }
-            let memory = crate::acp::resource_governor::ResourceSnapshot::capture().memory;
-            if memory.pressure != crate::acp::resource_governor::MemoryPressure::Emergency {
-                break;
-            }
-            tracing::info!(
-                disconnected,
-                available_bytes = memory.available_bytes,
-                "[ACP] emergency memory reclaim pass continuing"
-            );
-        }
-        disconnected
-    }
-
-    async fn sweep_excess_idle_once(&self, max_keep: Option<usize>) -> usize {
-        let now = chrono::Utc::now();
-        let mut resources = crate::acp::resource_governor::ResourceSnapshot::capture();
-        let (previous_pressure, pressure) = {
-            let mut tracker = self.memory_pressure_tracker.lock().await;
-            let previous = tracker.current();
-            let pressure = tracker.observe(
-                resources.memory.total_bytes,
-                resources.memory.available_bytes,
-            );
-            (previous, pressure)
-        };
-        resources.memory.pressure = pressure;
-        if pressure != previous_pressure
-            && pressure != crate::acp::resource_governor::MemoryPressure::Unknown
-        {
-            tracing::info!(
-                previous = previous_pressure.as_str(),
-                current = pressure.as_str(),
-                available_bytes = resources.memory.available_bytes,
-                total_bytes = resources.memory.total_bytes,
-                "[ACP] memory pressure state changed"
-            );
-        }
-        let pressure_limit =
-            crate::acp::resource_governor::idle_keep_limit(resources.memory.pressure);
-        let keep_limit = match (max_keep, pressure_limit) {
-            (Some(user_limit), Some(pressure_limit)) => Some(user_limit.min(pressure_limit)),
-            (None, pressure_limit) => pressure_limit,
-            (user_limit, None) => user_limit,
-        };
-        let private_budget =
-            crate::acp::resource_governor::idle_private_budget(resources.memory.total_bytes);
-        let allow_recent_activity = crate::acp::resource_governor::is_hard_emergency(
-            resources.memory.total_bytes,
-            resources.memory.available_bytes,
-        );
-        let to_disconnect: Vec<String> = {
-            let connections = self.connections.lock().await;
-            let mut idle = Vec::new();
-            for (id, conn) in connections.iter() {
-                let Ok(state) = conn.state.try_read() else {
-                    continue;
-                };
-                if crate::acp::resource_governor::reclaim_block_reason(
-                    &state,
-                    now,
-                    crate::acp::resource_governor::completion_grace(),
-                    allow_recent_activity,
-                )
-                .is_some()
-                {
-                    continue;
-                }
-                let memory = resources.connection_memory(&state);
-                idle.push((id.clone(), state.last_activity_at, memory.private_bytes));
-            }
-            // 进程内会话没有独立读数；已测得的占用仍可作为回收预算下限。
-            let known_private_total = idle
-                .iter()
-                .filter_map(|(_, _, bytes)| *bytes)
-                .reduce(u64::saturating_add);
-            let count_limit_exceeded = keep_limit.is_some_and(|limit| idle.len() > limit);
-            // An unlimited preference must remain unlimited while the system is
-            // comfortable. Under pressure, private memory becomes a second
-            // reclaim signal even when the count has not exceeded its cap.
-            let private_budget_exceeded = matches!(
-                resources.memory.pressure,
-                crate::acp::resource_governor::MemoryPressure::Shrinking
-                    | crate::acp::resource_governor::MemoryPressure::Emergency
-            ) && known_private_total
-                .is_some_and(|total| total > private_budget);
-            if !count_limit_exceeded && !private_budget_exceeded {
-                return 0;
-            }
-            idle.sort_by(|left, right| {
-                left.1.cmp(&right.1).then_with(|| {
-                    crate::acp::resource_governor::compare_reclaim_memory(left.2, right.2)
-                })
-            });
-            idle.first()
-                .map(|(id, _, _)| vec![id.clone()])
-                .unwrap_or_default()
-        };
-
-        let mut disconnected = 0;
-        for id in to_disconnect {
-            tracing::info!(
-                connection_id = id,
-                pressure = resources.memory.pressure.as_str(),
-                available_bytes = resources.memory.available_bytes,
-                total_bytes = resources.memory.total_bytes,
-                shrinking_reserve_bytes = resources.memory.shrinking_reserve_bytes,
-                emergency_reserve_bytes = resources.memory.emergency_reserve_bytes,
-                keep_limit = ?keep_limit,
-                private_budget,
-                "[ACP] resource governor disconnecting idle connection"
-            );
-            if self
-                .disconnect_if_reclaimable(
-                    &id,
-                    crate::acp::resource_governor::completion_grace(),
-                    allow_recent_activity,
-                    "memory_governor",
-                )
                 .await
                 .unwrap_or(false)
             {
