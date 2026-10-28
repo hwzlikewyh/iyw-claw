@@ -24,6 +24,11 @@ export function summarizeLiveTurn(message: LiveMessage | null): TurnSummary {
   const blocks = message?.content ?? []
   for (let index = blocks.length - 1; index >= 0; index -= 1) {
     const block = blocks[index]
+    if (
+      (block.type === "text" || block.type === "thinking") &&
+      !block.text.trim()
+    )
+      continue
     if (!latestKind && block.type !== "user_input") latestKind = block.type
     if (block.type === "plan" && planEntries === EMPTY_PLAN)
       planEntries = block.entries

@@ -1011,6 +1011,7 @@ export function MessageListView({
                 agentType={agentType}
                 contextKey={activityContextKey}
                 startedAt={liveMessage?.startedAt ?? null}
+                message={liveMessage}
               />
             </MessageEntrance>
           )

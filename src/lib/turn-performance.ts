@@ -1,4 +1,5 @@
 import type { EventEnvelope } from "@/lib/types"
+import { isContextCompactionMeta } from "@/lib/context-compaction"
 
 const MAX_RECORDED_TURNS = 1_000
 const turnTimings = new Map<string, TurnTimings>()
@@ -14,7 +15,12 @@ interface LiveTiming {
   firstActivityAt?: number | null
   firstThinkingAt?: number | null
   firstTextAt?: number | null
-  content: { type: string; text?: string }[]
+  content: {
+    type: string
+    text?: string
+    entries?: readonly unknown[]
+    info?: { meta?: unknown }
+  }[]
 }
 
 function parseTimestamp(value?: string | null): number {
@@ -26,18 +32,28 @@ function eventTimestamp(event: EventEnvelope): number | null {
   if (!activity) return null
   switch (event.type) {
     case "content_delta":
-      return event.text.length > 0 ? parseTimestamp(activity.text_at) : null
+      return event.text.trim() ? parseTimestamp(activity.text_at) : null
     case "thinking":
-      return parseTimestamp(
-        event.text.length > 0 ? activity.thinking_at : activity.sampled_at
-      )
+      return event.text.trim() ? parseTimestamp(activity.thinking_at) : null
     case "tool_call":
-      return parseTimestamp(activity.tool_started_at)
+      return isContextCompactionMeta(event.meta)
+        ? null
+        : parseTimestamp(activity.tool_started_at)
     case "plan_update":
       return event.entries.length > 0 ? Date.parse(activity.sampled_at) : null
     default:
       return null
   }
+}
+
+function hasModelResponse(block: LiveTiming["content"][number]): boolean {
+  if (block.type === "user_input") return false
+  if (block.type === "text" || block.type === "thinking")
+    return Boolean(block.text?.trim())
+  if (block.type === "plan") return Boolean(block.entries?.length)
+  if (block.type === "tool_call")
+    return !isContextCompactionMeta(block.info?.meta)
+  return true
 }
 
 function firstContentAt(
@@ -78,9 +94,7 @@ export function observeTurnTiming<T extends LiveTiming>(
   const timings = {
     firstActivityAt:
       message.firstActivityAt ??
-      (message.content.every((block) => block.type === "user_input")
-        ? observedAt
-        : null),
+      (message.content.some(hasModelResponse) ? null : observedAt),
     firstThinkingAt: firstContentAt(message, "thinking", observation),
     firstTextAt: firstContentAt(message, "text", observation),
   }
@@ -131,9 +145,13 @@ export function recordedTurnTimings(messageId: string): TurnTimings | null {
   return turnTimings.get(messageId) ?? null
 }
 
-// 思考和正文中的首段有效文本都算首字，工具活动不参与计算。
+// 首字按本轮首次有效返回计时：工具调用、计划、思考或正文，忽略空事件。
 export function firstTokenDuration(timing: TurnTimings | null): number | null {
-  const values = [timing?.firstThinkingMs, timing?.firstTextMs].filter(
+  const values = [
+    timing?.firstActivityMs,
+    timing?.firstThinkingMs,
+    timing?.firstTextMs,
+  ].filter(
     (value): value is number =>
       value != null && Number.isFinite(value) && value >= 0
   )

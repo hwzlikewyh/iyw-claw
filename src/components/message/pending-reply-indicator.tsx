@@ -1,13 +1,12 @@
 "use client"
 
-import { useTranslations } from "next-intl"
+import { useMemo } from "react"
 import { Message, MessageContent } from "@/components/ai-elements/message"
 import type { AgentType } from "@/lib/types"
-import { useSessionActivity } from "@/hooks/use-session-activity"
-import { useVisibleNow } from "@/hooks/use-visible-now"
-import { formatElapsedLabel } from "@/lib/format-elapsed"
-import { activityAge } from "@/lib/session-activity"
+import type { LiveMessage } from "@/contexts/acp-connections-context"
 import { useConversationPresentation } from "@/components/chat/conversation-presentation-context"
+import { useTurnActivity } from "./live-turn-activity"
+import { summarizeLiveTurn } from "./live-turn-summary"
 import { AssistantIdentity } from "./assistant-turn-status"
 import { ConversationActivityText } from "./conversation-activity-text"
 import { ConversationWorkingMark } from "./conversation-working-mark"
@@ -20,12 +19,14 @@ interface PendingReplyIndicatorProps {
   agentType: AgentType
   contextKey?: string
   startedAt: number | null
+  message: LiveMessage | null
 }
 
 export function PendingReplyIndicator({
   agentType,
   contextKey,
   startedAt,
+  message,
 }: PendingReplyIndicatorProps) {
   const state = useConversationPresentation()
   if (
@@ -41,7 +42,11 @@ export function PendingReplyIndicator({
       <MessageContent>
         <div className="conversation-assistant-header">
           <AssistantIdentity agentType={agentType} />
-          <StartupActivity contextKey={contextKey} startedAt={startedAt} />
+          <StartupActivity
+            contextKey={contextKey}
+            startedAt={startedAt}
+            message={message}
+          />
         </div>
       </MessageContent>
     </Message>
@@ -51,17 +56,16 @@ export function PendingReplyIndicator({
 function StartupActivity({
   contextKey,
   startedAt,
-}: Pick<PendingReplyIndicatorProps, "contextKey" | "startedAt">) {
-  const t = useTranslations("Folder.chat.liveTurnStats")
-  const activity = useSessionActivity(contextKey)
+  message,
+}: Pick<PendingReplyIndicatorProps, "contextKey" | "startedAt" | "message">) {
+  const summary = useMemo(() => summarizeLiveTurn(message), [message])
   const ref = useConversationActivityAnchor("activity")
   const { pageVisible, activityVisible } = useConversationActivityVisibility()
-  const clock = useVisibleNow(pageVisible && activityVisible)
-  const now = Math.max(clock, activity?.receivedAt ?? 0)
-  // 与底部状态栏使用同一轮活动时间，组件重新挂载不能重置计时。
-  const elapsed =
-    activityAge(activity, activity?.snapshot.started_at, now) ??
-    (startedAt === null ? null : Math.max(0, now - startedAt))
+  const activity = useTurnActivity(contextKey, {
+    summary,
+    startedAt,
+    visible: pageVisible && activityVisible,
+  })
   return (
     <div
       ref={ref}
@@ -69,17 +73,7 @@ function StartupActivity({
       data-paused={!pageVisible || !activityVisible}
     >
       <ConversationWorkingMark />
-      <ConversationActivityText
-        phase={t("awaitingModelResponse")}
-        detail={t("detail.awaitingModelResponse")}
-        elapsed={
-          elapsed === null
-            ? null
-            : t("elapsed", { elapsed: formatElapsedLabel(elapsed, t) })
-        }
-        waiting
-        visible={activityVisible}
-      />
+      <ConversationActivityText {...activity} visible={activityVisible} />
     </div>
   )
 }
