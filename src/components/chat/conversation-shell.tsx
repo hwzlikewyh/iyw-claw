@@ -44,6 +44,7 @@ import "./conversation-timeline.css"
 
 interface ConversationShellProps {
   activityContextKey?: string
+  conversationTitle?: string
   runtimeConnectionId?: string | null
   conversationId?: number | null
   onReconnect?: () => Promise<void>
@@ -186,6 +187,7 @@ export function ConversationShell(props: ConversationShellProps) {
 
 function ConversationShellContent({
   activityContextKey,
+  conversationTitle,
   onReconnect,
   status,
   promptCapabilities,
@@ -253,8 +255,9 @@ function ConversationShellContent({
 
   return (
     <div className="flex h-full min-h-0 min-w-0">
-      <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+      <div className="conversation-shell-main relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
         <ConversationTaskToolbar
+          title={conversationTitle}
           task={persistentTask}
           onSideQuestion={onSideQuestion}
         />

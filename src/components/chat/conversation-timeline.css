@@ -17,18 +17,42 @@
   max-height: min(30dvh, 14rem);
   overflow: auto;
 }
+.conversation-shell-main {
+  container: conversation-panel / inline-size;
+}
 .conversation-task-toolbar {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   gap: 12px;
   min-width: 0;
+  min-height: 40px;
   padding: 4px 16px;
 }
 .conversation-task-toolbar:not(
-  :has(.conversation-persistent-task, .conversation-side-question)
+  :has(
+    .conversation-toolbar-title,
+    .conversation-persistent-task,
+    .conversation-side-question
+  )
 ) {
   display: none;
+}
+.conversation-toolbar-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 12em;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation-task-toolbar:has(.conversation-persistent-task)
+  .conversation-toolbar-title {
+  max-width: min(12em, 25%);
 }
 .conversation-task-toolbar-slot {
   min-width: 0;
@@ -37,6 +61,12 @@
 .conversation-task-toolbar-slot .conversation-persistent-task {
   max-width: 54rem;
   margin-inline: auto;
+}
+@container conversation-panel (max-width: 640px) {
+  .conversation-task-toolbar:has(.conversation-persistent-task)
+    .conversation-toolbar-title {
+    display: none;
+  }
 }
 .conversation-persistent-summary {
   display: flex;

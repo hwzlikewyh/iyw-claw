@@ -3309,6 +3309,7 @@ const ConversationTabView = memo(function ConversationTabView({
   return (
     <ConversationShell
       activityContextKey={tabId}
+      conversationTitle={isWelcomeMode ? undefined : ownTab?.title}
       runtimeConnectionId={conn.connectionId}
       conversationId={effectiveConversationId}
       onReconnect={ensureConnected}
@@ -3332,7 +3333,10 @@ const ConversationTabView = memo(function ConversationTabView({
       topBanner={
         <>
           <BackgroundTasksChip contextKey={tabId} />
-          <ConversationShareButton conversationId={dbConversationId} agentType={selectedAgent} />
+          <ConversationShareButton
+            conversationId={dbConversationId}
+            agentType={selectedAgent}
+          />
           {!isSilentModelSwitch && (
             <SessionConfigStaleBanner contextKey={tabId} />
           )}

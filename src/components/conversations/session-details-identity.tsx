@@ -2,13 +2,20 @@
 
 import { Check, Copy } from "lucide-react"
 import { useLocale, useTranslations } from "next-intl"
-import type { ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { AgentIcon } from "@/components/agent-icon"
 import { getAgentDisplayName } from "@/lib/agent-sdk-presentation"
 import { formatConversationTitle } from "@/lib/conversation-title"
 import { copyTextToClipboard } from "@/lib/utils"
 import {
+  getCachedGatewayModels,
+  getGatewayModels,
+  type GatewayModel,
+} from "@/lib/gateway-model-catalog"
+import { findUsageModel } from "@/lib/session-usage-display"
+import {
   STATUS_ORDER,
+  type AgentType,
   type ConnectionStatus,
   type DbConversationSummary,
   type ConversationStatus,
@@ -43,9 +50,47 @@ export function SessionIdentity({
           status={summary.status}
           connectionStatus={connectionStatus}
         />
-        {model && <span className="break-all">{model}</span>}
+        {model && (
+          <SessionModelName agentType={summary.agent_type} model={model} />
+        )}
       </div>
     </div>
+  )
+}
+
+function SessionModelName({
+  agentType,
+  model,
+}: {
+  agentType: AgentType
+  model: string
+}) {
+  const t = useTranslations("ChatChannelSettings.runtime")
+  const [catalog, setCatalog] = useState<{
+    agent: AgentType
+    models: GatewayModel[]
+  } | null>(null)
+  useEffect(() => {
+    let active = true
+    void getGatewayModels(agentType).then((models) => {
+      if (active) setCatalog({ agent: agentType, models })
+    })
+    return () => {
+      active = false
+    }
+  }, [agentType])
+  const models =
+    catalog?.agent === agentType
+      ? catalog.models
+      : getCachedGatewayModels(agentType)
+  const selected =
+    findUsageModel(models, model.trim()) ??
+    models.find((option) => option.name === model.trim())
+  const name = selected?.name.trim()
+  return (
+    <span className="break-words" translate="no">
+      {name && name !== selected?.id ? name : t("unknownModel")}
+    </span>
   )
 }
 
