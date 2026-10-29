@@ -25,6 +25,7 @@ import { Play, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { AccountRequestsBanner } from "@/components/account/account-points-status"
 import { ChatInput } from "@/components/chat/chat-input"
+import { ModelNetworkStatus } from "@/components/chat/model-network-status"
 import { PermissionDialog } from "@/components/chat/permission-dialog"
 import { QuestionDialog } from "@/components/chat/question-dialog"
 import { AskQuestionCard } from "@/components/chat/ask-question-card"
@@ -184,6 +185,7 @@ export function ConversationShell(props: ConversationShellProps) {
 }
 
 function ConversationShellContent({
+  activityContextKey,
   onReconnect,
   status,
   promptCapabilities,
@@ -347,6 +349,11 @@ function ConversationShellContent({
 
           {!hideInput && (
             <div className="mx-auto w-full max-w-4xl">
+              {activityContextKey && (
+                <div className="px-4">
+                  <ModelNetworkStatus contextKey={activityContextKey} />
+                </div>
+              )}
               <ChatInput
                 blockOfflineSend
                 status={status}

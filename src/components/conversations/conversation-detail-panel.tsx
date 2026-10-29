@@ -3331,7 +3331,6 @@ const ConversationTabView = memo(function ConversationTabView({
       topBanner={
         <>
           <BackgroundTasksChip contextKey={tabId} />
-          <ModelNetworkStatus contextKey={tabId} />
           {!isSilentModelSwitch && (
             <SessionConfigStaleBanner contextKey={tabId} />
           )}
@@ -3422,6 +3421,7 @@ const ConversationTabView = memo(function ConversationTabView({
               onOpenAgentsSettings={handleOpenAgentsSettings}
               disabled={hasSentMessage || dbConversationId != null}
             />
+            <ModelNetworkStatus contextKey={tabId} />
             <ChatInput
               // composerConnStatus (not connStatus): a chat draft mid-reconnect
               // reads "connecting" until the connection's cwd matches, while

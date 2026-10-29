@@ -91,13 +91,13 @@ function ModelNetworkBanner({
       role={networkError || severe ? "alert" : "status"}
       aria-live="polite"
       className={cn(
-        "shrink-0 border-b px-4 py-2 text-xs",
+        "mb-2 shrink-0 rounded-md border px-3 py-2 text-xs",
         networkError
           ? "border-destructive/20 bg-destructive/5 text-destructive"
           : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
       )}
     >
-      <div className="mx-auto flex max-w-4xl items-start gap-2">
+      <div className="flex items-start gap-2">
         <Icon
           aria-hidden="true"
           className={cn(
