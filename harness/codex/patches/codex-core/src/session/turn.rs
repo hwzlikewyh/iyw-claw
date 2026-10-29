@@ -148,6 +148,13 @@ use tracing::trace_span;
 use tracing::warn;
 
 const POST_SAMPLING_TOKEN_ESTIMATE_TARGET: &str = "codex_core::post_sampling_token_estimate";
+const COMPACTION_FAILURE_RETRY_STEP_TOKENS: i64 = 100_000;
+
+#[derive(Clone)]
+struct DeferredAutoCompaction {
+    model: String,
+    retry_after_tokens: i64,
+}
 
 /// Explicit MCP startup requirements retained across restarts within one user turn.
 #[derive(Default)]
@@ -388,8 +395,14 @@ pub(crate) async fn run_turn(
     let prepared_tokens = injection_items.iter()
         .map(crate::context_manager::estimate_item_token_count)
         .fold(estimate_pending_input_tokens(&sess, &input), i64::saturating_add);
+    let compaction_deferred = should_defer_auto_compaction(
+        &sess,
+        &first_step_context.turn,
+        prepared_tokens,
+    )
+    .await;
     let prepared_status = super::context_window::context_window_token_status(&sess, &turn_context).await;
-    if auto_compaction_enabled && !pre_turn_compacted && (prepared_status.token_limit_reached || prepared_status.base_window_tokens_remaining
+    if auto_compaction_enabled && !pre_turn_compacted && !compaction_deferred && (prepared_status.token_limit_reached || prepared_status.base_window_tokens_remaining
         .is_some_and(|remaining| prepared_tokens >= remaining)) {
         let compact_result: CodexResult<_> = async {
             run_auto_compact(&sess, Arc::clone(&first_step_context), Arc::clone(&first_step_context),
@@ -399,6 +412,9 @@ pub(crate) async fn run_turn(
         }.await;
         match compact_result {
             Ok(updated) => world_state = updated,
+            Err(error) if can_defer_auto_compaction_failure(&sess, &turn_context, prepared_tokens, &error).await => {
+                remember_deferred_auto_compaction(&sess, &turn_context, prepared_tokens).await;
+            }
             Err(error) => {
                 run_hooks_and_record_inputs(&sess, &turn_context, &first_step_context.settings.model_info,
                     &input, PersistContext::Standard).await;
@@ -599,7 +615,9 @@ pub(crate) async fn run_turn(
             // 上下文重注入、技能和 hooks 均已加入；首次采样前再核对完整预算。
             if original_prepared_step {
                 let status = super::context_window::context_window_token_status(&sess, &turn_context).await;
-                if status.token_limit_reached {
+                let compaction_deferred =
+                    should_defer_auto_compaction(&sess, &turn_context, 0).await;
+                if status.token_limit_reached && !compaction_deferred {
                     warn!(thread_id = %sess.thread_id, turn_id = %turn_context.sub_id,
                         pre_turn_compacted, active_tokens = status.active_context_tokens,
                         threshold = ?status.auto_compact_scope_limit,
@@ -1481,8 +1499,19 @@ async fn run_pre_sampling_compact(
 ) -> CodexResult<()> {
     Box::pin(sess.promote_legacy_images(turn_context.as_ref()))
         .or_cancel(cancellation_token).await?;
-    maybe_run_previous_model_inline_compact(sess, turn_context, client_session, cancellation_token)
-        .await?;
+    if should_defer_auto_compaction(sess, turn_context, pending_tokens).await {
+        warn!(thread_id = %sess.thread_id, model = %turn_context.model_info().slug,
+            "skipping repeated pre-sampling compaction after a transient failure");
+        return Ok(());
+    }
+    recover_previous_model_compaction(
+        sess,
+        turn_context,
+        client_session,
+        cancellation_token,
+        pending_tokens,
+    )
+    .await?;
     let token_status =
         super::context_window::context_window_token_status(sess.as_ref(), turn_context.as_ref())
             .await;
@@ -1496,26 +1525,166 @@ async fn run_pre_sampling_compact(
         model = %turn_context.model_info().slug, active_tokens = token_status.active_context_tokens,
         pending_tokens, threshold = ?token_status.auto_compact_scope_limit,
         compact = token_status.token_limit_reached || incoming_reaches_limit, "pre-sampling compaction budget");
-    if token_status.token_limit_reached || incoming_reaches_limit || candidate.is_some() {
-        let started = std::time::Instant::now();
-        // Pre-turn compaction runs before run_turn creates the normal sampling step.
-        let step_context = sess
-            .capture_step_context(Arc::clone(turn_context), cancellation_token)
-            .await?;
-        run_auto_compact(
-            sess,
-            Arc::clone(&step_context),
-            step_context,
-            client_session,
-            CompactionReason::ContextLimit,
-            CompactionPhase::PreTurn,
-            candidate,
-        )
+    if should_defer_auto_compaction(sess, turn_context, pending_tokens).await
+        || (!token_status.token_limit_reached && !incoming_reaches_limit && candidate.is_none())
+    {
+        return Ok(());
+    }
+    run_pre_sampling_compaction_request(
+        sess,
+        turn_context,
+        client_session,
+        cancellation_token,
+        pending_tokens,
+        candidate,
+    )
+    .await
+}
+
+async fn recover_previous_model_compaction(
+    sess: &Arc<Session>,
+    turn_context: &Arc<TurnContext>,
+    client_session: &mut ModelClientSession,
+    cancellation_token: &CancellationToken,
+    pending_tokens: i64,
+) -> CodexResult<()> {
+    let result = maybe_run_previous_model_inline_compact(
+        sess,
+        turn_context,
+        client_session,
+        cancellation_token,
+    )
+    .await;
+    if let Err(error) = result {
+        if can_defer_auto_compaction_failure(sess, turn_context, pending_tokens, &error).await {
+            remember_deferred_auto_compaction(sess, turn_context, pending_tokens).await;
+            return Ok(());
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
+async fn run_pre_sampling_compaction_request(
+    sess: &Arc<Session>,
+    turn_context: &Arc<TurnContext>,
+    client_session: &mut ModelClientSession,
+    cancellation_token: &CancellationToken,
+    pending_tokens: i64,
+    candidate: Option<Box<BackgroundCompactionCandidate>>,
+) -> CodexResult<()> {
+    let started = std::time::Instant::now();
+    let step_context = sess
+        .capture_step_context(Arc::clone(turn_context), cancellation_token)
         .await?;
+    let result = run_auto_compact(
+        sess,
+        Arc::clone(&step_context),
+        step_context,
+        client_session,
+        CompactionReason::ContextLimit,
+        CompactionPhase::PreTurn,
+        candidate,
+    )
+    .await;
+    let deferred = match result {
+        Ok(_) => {
+            clear_deferred_auto_compaction(sess);
+            false
+        }
+        Err(error)
+            if can_defer_auto_compaction_failure(sess, turn_context, pending_tokens, &error)
+                .await =>
+        {
+            remember_deferred_auto_compaction(sess, turn_context, pending_tokens).await;
+            true
+        }
+        Err(error) => return Err(error),
+    };
+    if deferred {
+        warn!(thread_id = %sess.thread_id, turn_id = %turn_context.sub_id,
+            elapsed_ms = started.elapsed().as_millis(),
+            "pre-sampling compaction deferred after a transient failure");
+    } else {
         info!(thread_id = %sess.thread_id, turn_id = %turn_context.sub_id,
             elapsed_ms = started.elapsed().as_millis(), "pre-sampling compaction completed");
     }
     Ok(())
+}
+
+async fn should_defer_auto_compaction(
+    sess: &Session,
+    turn_context: &TurnContext,
+    pending_tokens: i64,
+) -> bool {
+    let Some((deferred_model, retry_after_tokens)) = sess
+        .services
+        .thread_extension_data
+        .get::<DeferredAutoCompaction>()
+        .map(|deferred| (deferred.model.clone(), deferred.retry_after_tokens))
+    else {
+        return false;
+    };
+    if deferred_model != turn_context.model_info().slug {
+        sess.services
+            .thread_extension_data
+            .remove::<DeferredAutoCompaction>();
+        return false;
+    }
+    let status = super::context_window::context_window_token_status(sess, turn_context).await;
+    let projected = status.active_context_tokens.saturating_add(pending_tokens);
+    status
+        .full_context_window_limit
+        .is_some_and(|limit| projected < limit && projected < retry_after_tokens)
+}
+
+async fn can_defer_auto_compaction_failure(
+    sess: &Session,
+    turn_context: &TurnContext,
+    pending_tokens: i64,
+    error: &CodexErr,
+) -> bool {
+    if !crate::responses_retry::is_retryable_response_error(error) {
+        return false;
+    }
+    let status = super::context_window::context_window_token_status(sess, turn_context).await;
+    let projected = status.active_context_tokens.saturating_add(pending_tokens);
+    status.full_context_window_limit.is_some_and(|limit| projected < limit)
+}
+
+async fn remember_deferred_auto_compaction(
+    sess: &Session,
+    turn_context: &TurnContext,
+    pending_tokens: i64,
+) {
+    let status = super::context_window::context_window_token_status(sess, turn_context).await;
+    let projected = status.active_context_tokens.saturating_add(pending_tokens);
+    let Some(limit) = status.full_context_window_limit else {
+        return;
+    };
+    let retry_after_tokens = projected
+        .saturating_add(COMPACTION_FAILURE_RETRY_STEP_TOKENS)
+        .min(limit);
+    sess.services
+        .thread_extension_data
+        .insert(DeferredAutoCompaction {
+            model: turn_context.model_info().slug.clone(),
+            retry_after_tokens,
+        });
+    warn!(
+        thread_id = %sess.thread_id,
+        model = %turn_context.model_info().slug,
+        projected_tokens = projected,
+        retry_after_tokens,
+        hard_limit_tokens = limit,
+        "deferring failed compaction while the hard context window still has room"
+    );
+}
+
+fn clear_deferred_auto_compaction(sess: &Session) {
+    sess.services
+        .thread_extension_data
+        .remove::<DeferredAutoCompaction>();
 }
 
 fn estimate_pending_input_tokens(sess: &Session, input: &[TurnInput]) -> i64 {

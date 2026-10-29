@@ -5,7 +5,8 @@ use codex_protocol::error::CodexErr;
 use codex_protocol::error::Result as CodexResult;
 use tokio::time::Instant;
 
-const COMPACTION_REQUEST_BUDGET: Duration = Duration::from_secs(600); // 增加到10分钟以应对复杂任务的压缩
+// 压缩失败时允许有限重试，但不能占住用户回合数分钟后才让它失败。
+const COMPACTION_REQUEST_BUDGET: Duration = Duration::from_secs(180);
 
 pub(crate) struct RequestBudget {
     deadline: Instant,
