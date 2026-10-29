@@ -43,6 +43,7 @@ use crate::models::agent::AgentType;
 use crate::web::event_bridge::EventEmitter;
 
 mod runtime_timing;
+mod shared_skill_reconcile;
 
 const ACP_AGENTS_UPDATED_EVENT: &str = "app://acp-agents-updated";
 const CODEX_MODEL_CATALOG_FILE: &str = "iyw-claw-models.json";
@@ -7382,32 +7383,7 @@ pub async fn reconcile_shared_market_skills(
                 .map_err(|error| AcpError::protocol(error.to_string()))?;
         }
     }
-    let mut reconcile_inputs = Vec::with_capacity(agent_states.len());
-    for (agent_type, enabled) in agent_states {
-        let policies = requested_global_skill_states(conn, agent_type).await?;
-        reconcile_inputs.push((agent_type, enabled, policies));
-    }
-    let _guard = shared_skill_mutation_guard();
-    let mut errors = Vec::new();
-    if let Err(error) = repair_market_target_references_locked() {
-        errors.push(format!("market reference repair: {error}"));
-    }
-    for (agent_type, enabled, policies) in reconcile_inputs {
-        if let Err(error) =
-            reconcile_shared_skills_for_agent_state_locked(agent_type, enabled, &policies)
-        {
-            errors.push(format!("{agent_type}: {error}"));
-        }
-    }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(AcpError::protocol(format!(
-            "shared skill reconcile failed for {} agent(s): {}",
-            errors.len(),
-            errors.join("; ")
-        )))
-    }
+    shared_skill_reconcile::reconcile_agents(conn, agent_states).await
 }
 
 pub(crate) async fn reconcile_shared_market_skills_for_agent(
@@ -7563,17 +7539,7 @@ async fn requested_global_skill_states(
     agent_type: AgentType,
 ) -> Result<BTreeMap<String, bool>, AcpError> {
     let snapshot = crate::commands::skill_inventory::skill_inventory_list_core(conn, None).await?;
-    Ok(snapshot
-        .skills
-        .into_iter()
-        .filter_map(|skill| {
-            skill
-                .agent_states
-                .into_iter()
-                .find(|state| state.agent_type == agent_type)
-                .map(|state| (skill.skill_id, state.effective_enabled))
-        })
-        .collect())
+    Ok(shared_skill_reconcile::states_for_agent(&snapshot, agent_type))
 }
 
 fn remove_shared_skill_publication_from_agent(
